@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FFmpeg Files Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+            line-height: 1.6;
+        }
+        .test-result {
+            padding: 15px;
+            margin: 10px 0;
+            border-radius: 5px;
+            font-weight: bold;
+        }
+        .success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        .error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        .info {
+            background: #d1ecf1;
+            color: #0c5460;
+            border: 1px solid #bee5eb;
+        }
+        button {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            margin: 10px 5px;
+        }
+        button:hover {
+            background: #0056b3;
+        }
+    </style>
+</head>
+<body>
+    <h1>🧪 FFmpeg Files Test</h1>
+    <p>This page tests if all FFmpeg files are accessible and working.</p>
+    
+    <div id="results"></div>
+    
+    <button onclick="runTest()">Run Test</button>
+    <button onclick="location.reload()">Refresh Page</button>
+
+    <script>
+        function addResult(message, type = 'info') {
+            const resultsDiv = document.getElementById('results');
+            const resultDiv = document.createElement('div');
+            resultDiv.className = `test-result ${type}`;
+            resultDiv.textContent = message;
+            resultsDiv.appendChild(resultDiv);
+        }
+
+        async function testFileAccess(url, name) {
+            try {
+                const response = await fetch(url);
+                if (response.ok) {
+                    addResult(`✅ ${name} is accessible`, 'success');
+                    return true;
+                } else {
+                    addResult(`❌ ${name} failed: ${response.status}`, 'error');
+                    return false;
+                }
+            } catch (error) {
+                addResult(`❌ ${name} error: ${error.message}`, 'error');
+                return false;
+            }
+        }
+
+        async function testFFmpegLoad() {
+            try {
+                addResult('🔄 Testing FFmpeg.js load...', 'info');
+                
+                if (typeof window.FFmpeg === 'undefined') {
+                    addResult('❌ FFmpeg is not loaded', 'error');
+                    return false;
+                }
+                
+                addResult('✅ FFmpeg.js is loaded', 'success');
+                
+                // Test SharedArrayBuffer
+                const hasSharedArrayBuffer = typeof SharedArrayBuffer !== 'undefined';
+                addResult(`🔍 SharedArrayBuffer available: ${hasSharedArrayBuffer}`, hasSharedArrayBuffer ? 'success' : 'info');
+                
+                // Test FFmpeg creation
+                try {
+                    const ffmpeg = window.FFmpeg.createFFmpeg({
+                        log: true,
+                        corePath: '/Editor/ffmpeg-core/ffmpeg-core.js',
+                        mainName: 'main'
+                    });
+                    addResult('✅ FFmpeg instance created successfully', 'success');
+                    return true;
+                } catch (error) {
+                    addResult(`❌ FFmpeg creation failed: ${error.message}`, 'error');
+                    return false;
+                }
+            } catch (error) {
+                addResult(`❌ FFmpeg test failed: ${error.message}`, 'error');
+                return false;
+            }
+        }
+
+        async function runTest() {
+            document.getElementById('results').innerHTML = '';
+            
+            addResult('🔍 Testing FFmpeg file accessibility...', 'info');
+            
+            // Test all required files
+            const files = [
+                { url: '/Editor/ffmpeg.min.js', name: 'FFmpeg.js' },
+                { url: '/Editor/ffmpeg-core/ffmpeg-core.js', name: 'FFmpeg Core JS' },
+                { url: '/Editor/ffmpeg-core/ffmpeg-core.wasm', name: 'FFmpeg Core WASM' },
+                { url: '/Editor/ffmpeg-core/ffmpeg-core.worker.js', name: 'FFmpeg Core Worker' },
+                { url: '/Editor/hls_converter.js', name: 'HLS Converter' }
+            ];
+            
+            let allFilesOk = true;
+            for (const file of files) {
+                const ok = await testFileAccess(file.url, file.name);
+                if (!ok) allFilesOk = false;
+            }
+            
+            if (allFilesOk) {
+                addResult('🎉 All files are accessible!', 'success');
+                await testFFmpegLoad();
+            } else {
+                addResult('❌ Some files are missing or inaccessible', 'error');
+            }
+        }
+
+        // Run test automatically on page load
+        window.addEventListener('load', () => {
+            setTimeout(runTest, 500);
+        });
+    </script>
+</body>
+</html>

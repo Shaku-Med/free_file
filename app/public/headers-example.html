@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SharedArrayBuffer Headers Example</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            line-height: 1.6;
+        }
+        .code-block {
+            background: #f4f4f4;
+            padding: 15px;
+            border-radius: 5px;
+            border-left: 4px solid #007acc;
+            margin: 10px 0;
+            overflow-x: auto;
+        }
+        .warning {
+            background: #fff3cd;
+            border: 1px solid #ffeaa7;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 10px 0;
+        }
+        .success {
+            background: #d4edda;
+            border: 1px solid #c3e6cb;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 10px 0;
+        }
+    </style>
+</head>
+<body>
+    <h1>🔒 SharedArrayBuffer Security Headers</h1>
+    
+    <div class="warning">
+        <strong>⚠️ Important:</strong> The SharedArrayBuffer error occurs because your application needs specific security headers to enable SharedArrayBuffer support in browsers.
+    </div>
+
+    <h2>Required Security Headers</h2>
+    <p>To fix the SharedArrayBuffer error, your server must include these headers:</p>
+    
+    <div class="code-block">
+<pre>Cross-Origin-Embedder-Policy: require-corp
+Cross-Origin-Opener-Policy: same-origin</pre>
+    </div>
+
+    <h2>Server Configuration Examples</h2>
+    
+    <h3>Express.js (Node.js)</h3>
+    <div class="code-block">
+<pre>app.use((req, res, next) => {
+  res.setHeader('Cross-Origin-Embedder-Policy', 'require-corp');
+  res.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
+  next();
+});</pre>
+    </div>
+
+    <h3>Nginx</h3>
+    <div class="code-block">
+<pre>location / {
+  add_header Cross-Origin-Embedder-Policy require-corp;
+  add_header Cross-Origin-Opener-Policy same-origin;
+  # ... other nginx config
+}</pre>
+    </div>
+
+    <h3>Apache</h3>
+    <div class="code-block">
+<pre>&lt;Directory "/path/to/your/app"&gt;
+  Header always set Cross-Origin-Embedder-Policy "require-corp"
+  Header always set Cross-Origin-Opener-Policy "same-origin"
+&lt;/Directory&gt;</pre>
+    </div>
+
+    <h3>Vite Development Server</h3>
+    <div class="code-block">
+<pre>// vite.config.ts
+export default defineConfig({
+  server: {
+    headers: {
+      'Cross-Origin-Embedder-Policy': 'require-corp',
+      'Cross-Origin-Opener-Policy': 'same-origin'
+    }
+  }
+});</pre>
+    </div>
+
+    <h2>HTTPS Requirement</h2>
+    <div class="warning">
+        <strong>🔐 HTTPS Required:</strong> SharedArrayBuffer only works over HTTPS connections. Make sure your application is served over HTTPS in production.
+    </div>
+
+    <h2>Testing the Fix</h2>
+    <p>After adding the headers, you can test if SharedArrayBuffer is available:</p>
+    
+    <div class="code-block">
+<pre>// Test in browser console
+if (typeof SharedArrayBuffer !== 'undefined') {
+  console.log('✅ SharedArrayBuffer is available');
+  try {
+    new SharedArrayBuffer(1024);
+    console.log('✅ SharedArrayBuffer can be instantiated');
+  } catch (e) {
+    console.log('❌ SharedArrayBuffer instantiation failed:', e);
+  }
+} else {
+  console.log('❌ SharedArrayBuffer is not available');
+}</pre>
+    </div>
+
+    <div class="success">
+        <strong>✅ Once configured:</strong> Your HLS conversion should work without the SharedArrayBuffer error.
+    </div>
+</body>
+</html>

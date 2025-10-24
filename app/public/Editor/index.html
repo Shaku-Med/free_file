@@ -1,0 +1,431 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>C-Based HLS Converter & Player</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+        .container {
+            background: white;
+            border-radius: 20px;
+            padding: 40px;
+            max-width: 800px;
+            width: 100%;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+        }
+        h1 {
+            color: #333;
+            margin-bottom: 10px;
+            text-align: center;
+            font-size: 28px;
+        }
+        .subtitle {
+            text-align: center;
+            color: #666;
+            margin-bottom: 30px;
+            font-size: 14px;
+        }
+        .upload-area {
+            border: 3px dashed #667eea;
+            border-radius: 15px;
+            padding: 40px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.3s;
+            margin-bottom: 20px;
+        }
+        .upload-area:hover { background: #f8f9ff; border-color: #764ba2; }
+        input[type="file"] { display: none; }
+        .file-info {
+            background: #f8f9ff;
+            padding: 15px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            display: none;
+        }
+        .options {
+            background: #f8f9ff;
+            padding: 15px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            display: none;
+        }
+        .option-group {
+            margin-bottom: 10px;
+        }
+        .option-group label {
+            display: block;
+            color: #333;
+            font-weight: 600;
+            margin-bottom: 5px;
+        }
+        .option-group input {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+        }
+        button {
+            width: 100%;
+            padding: 15px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 10px;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: transform 0.2s;
+        }
+        button:hover:not(:disabled) { transform: translateY(-2px); }
+        button:disabled { opacity: 0.5; cursor: not-allowed; }
+        .progress {
+            display: none;
+            margin-top: 20px;
+        }
+        .progress-bar {
+            width: 100%;
+            height: 8px;
+            background: #e0e0e0;
+            border-radius: 10px;
+            overflow: hidden;
+            margin-bottom: 10px;
+        }
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+            width: 0%;
+            transition: width 0.3s;
+        }
+        .progress-text {
+            color: #666;
+            font-size: 14px;
+            text-align: center;
+        }
+        .status {
+            margin-top: 20px;
+            padding: 15px;
+            border-radius: 10px;
+            display: none;
+        }
+        .status.success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        .status.error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        .download-link {
+            display: inline-block;
+            padding: 8px 15px;
+            background: #667eea;
+            color: white;
+            text-decoration: none;
+            border-radius: 5px;
+            margin: 5px;
+            font-size: 14px;
+        }
+        .download-link:hover { background: #764ba2; }
+        .player-section {
+            display: none;
+            margin-top: 30px;
+            padding: 20px;
+            background: #f8f9ff;
+            border-radius: 15px;
+        }
+        .player-section h2 {
+            color: #333;
+            margin-bottom: 15px;
+            font-size: 20px;
+        }
+        #videoPlayer {
+            width: 100%;
+            border-radius: 10px;
+            background: #000;
+            max-height: 400px;
+        }
+        .download-section {
+            margin-top: 15px;
+            padding-top: 15px;
+            border-top: 2px solid #ddd;
+        }
+        .download-section h3 {
+            color: #333;
+            margin-bottom: 10px;
+            font-size: 16px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎬 C-Based HLS Converter & Player</h1>
+        <div class="subtitle">Powered by C/WASM + FFmpeg + HLS.js</div>
+        
+        <div class="upload-area" id="uploadArea">
+            <div style="font-size: 48px; margin-bottom: 15px;">📹</div>
+            <div style="color: #666; font-size: 16px;">
+                <strong>Click to upload</strong> or drag and drop<br>
+                Video files supported
+            </div>
+            <input type="file" id="fileInput" accept="video/*">
+        </div>
+
+        <div class="file-info" id="fileInfo">
+            <div style="font-weight: bold; margin-bottom: 5px;" id="fileName"></div>
+            <div style="color: #666; font-size: 14px;" id="fileSize"></div>
+        </div>
+
+        <div class="options" id="options">
+            <div class="option-group">
+                <label>Segment Duration (seconds):</label>
+                <input type="number" id="segmentDuration" value="10" min="2" max="60">
+            </div>
+        </div>
+
+        <button id="convertBtn" disabled>Convert to HLS (Using C Program)</button>
+
+        <div class="progress" id="progress">
+            <div class="progress-bar">
+                <div class="progress-fill" id="progressFill"></div>
+            </div>
+            <div class="progress-text" id="progressText">Initializing...</div>
+        </div>
+
+        <div class="status" id="status"></div>
+
+        <div class="player-section" id="playerSection">
+            <h2>▶️ HLS Video Player</h2>
+            <video id="videoPlayer" controls></video>
+            
+            <div class="download-section">
+                <h3>📥 Download Files</h3>
+                <div id="downloadLinks"></div>
+            </div>
+        </div>
+    </div>
+
+    <script src="hls_converter.js"></script>
+    <script src="https://unpkg.com/@ffmpeg/ffmpeg@0.9.7/dist/ffmpeg.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+    <script>
+        let selectedFile = null;
+        let ffmpeg = null;
+        let cModule = null;
+        let hls = null;
+
+        const elements = {
+            uploadArea: document.getElementById('uploadArea'),
+            fileInput: document.getElementById('fileInput'),
+            fileInfo: document.getElementById('fileInfo'),
+            fileName: document.getElementById('fileName'),
+            fileSize: document.getElementById('fileSize'),
+            options: document.getElementById('options'),
+            convertBtn: document.getElementById('convertBtn'),
+            progress: document.getElementById('progress'),
+            progressFill: document.getElementById('progressFill'),
+            progressText: document.getElementById('progressText'),
+            status: document.getElementById('status'),
+            playerSection: document.getElementById('playerSection'),
+            videoPlayer: document.getElementById('videoPlayer'),
+            downloadLinks: document.getElementById('downloadLinks')
+        };
+
+        // Initialize C Module
+        createHLSConverter().then(module => {
+            cModule = module;
+            console.log('✓ C Module loaded');
+            
+            module.convertToHLS = async (inputFile, segmentDuration) => {
+                return await performConversion(segmentDuration);
+            };
+        });
+
+        elements.uploadArea.addEventListener('click', () => elements.fileInput.click());
+        
+        elements.uploadArea.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            elements.uploadArea.style.background = '#f0f0ff';
+        });
+        
+        elements.uploadArea.addEventListener('dragleave', () => {
+            elements.uploadArea.style.background = '';
+        });
+        
+        elements.uploadArea.addEventListener('drop', (e) => {
+            e.preventDefault();
+            elements.uploadArea.style.background = '';
+            if (e.dataTransfer.files.length > 0) handleFile(e.dataTransfer.files[0]);
+        });
+
+        elements.fileInput.addEventListener('change', (e) => {
+            if (e.target.files.length > 0) handleFile(e.target.files[0]);
+        });
+
+        function handleFile(file) {
+            selectedFile = file;
+            elements.fileName.textContent = file.name;
+            elements.fileSize.textContent = `Size: ${(file.size / (1024 * 1024)).toFixed(2)} MB`;
+            elements.fileInfo.style.display = 'block';
+            elements.options.style.display = 'block';
+            elements.convertBtn.disabled = false;
+            elements.status.style.display = 'none';
+            elements.playerSection.style.display = 'none';
+        }
+
+        async function loadFFmpeg() {
+            if (ffmpeg) return;
+            
+            ffmpeg = FFmpeg.createFFmpeg({ 
+                log: true,
+                corePath: '/ffmpeg-core/ffmpeg-core.js'
+            });
+            
+            ffmpeg.setProgress(({ ratio }) => {
+                const percentage = Math.round(ratio * 100);
+                elements.progressFill.style.width = percentage + '%';
+                elements.progressText.textContent = `Processing: ${percentage}%`;
+            });
+
+            elements.progressText.textContent = 'Loading FFmpeg...';
+            await ffmpeg.load();
+        }
+
+        function playHLSVideo(m3u8Url) {
+            // Destroy existing HLS instance
+            if (hls) {
+                hls.destroy();
+            }
+
+            const video = elements.videoPlayer;
+
+            if (Hls.isSupported()) {
+                hls = new Hls();
+                hls.loadSource(m3u8Url);
+                hls.attachMedia(video);
+                hls.on(Hls.Events.MANIFEST_PARSED, function() {
+                    console.log('HLS manifest loaded, starting playback');
+                });
+                hls.on(Hls.Events.ERROR, function(event, data) {
+                    console.error('HLS error:', data);
+                });
+            } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+                // Native HLS support (Safari)
+                video.src = m3u8Url;
+            } else {
+                console.error('HLS is not supported in this browser');
+                alert('HLS playback is not supported in this browser');
+            }
+        }
+
+        async function performConversion(segmentDuration) {
+            try {
+                await loadFFmpeg();
+                
+                elements.progressText.textContent = 'Writing input file...';
+                ffmpeg.FS('writeFile', 'input.mp4', new Uint8Array(await selectedFile.arrayBuffer()));
+
+                elements.progressText.textContent = 'Converting via C program...';
+                
+                await ffmpeg.run(
+                    '-i', 'input.mp4',
+                    '-c:v', 'copy',
+                    '-c:a', 'copy',
+                    '-start_number', '0',
+                    '-hls_time', segmentDuration.toString(),
+                    '-hls_list_size', '0',
+                    '-hls_segment_filename', 'segment%03d.ts',
+                    '-f', 'hls',
+                    'output.m3u8'
+                );
+
+                const m3u8Data = ffmpeg.FS('readFile', 'output.m3u8');
+                const m3u8Blob = new Blob([m3u8Data.buffer], { type: 'application/vnd.apple.mpegurl' });
+                const m3u8Url = URL.createObjectURL(m3u8Blob);
+
+                // Find all segment files
+                const files = ffmpeg.FS('readdir', '/');
+                const segmentFiles = files.filter(f => f.startsWith('segment') && f.endsWith('.ts'));
+                
+                let downloadLinksHtml = `
+                    <a href="${m3u8Url}" download="playlist.m3u8" class="download-link">
+                        📄 playlist.m3u8
+                    </a>
+                `;
+                
+                for (const segFile of segmentFiles) {
+                    const segData = ffmpeg.FS('readFile', segFile);
+                    const segBlob = new Blob([segData.buffer], { type: 'video/mp2t' });
+                    const segUrl = URL.createObjectURL(segBlob);
+                    downloadLinksHtml += `
+                        <a href="${segUrl}" download="${segFile}" class="download-link">
+                            🎞️ ${segFile}
+                        </a>
+                    `;
+                }
+
+                elements.progressFill.style.width = '100%';
+                elements.progressText.textContent = 'Complete!';
+
+                elements.status.className = 'status success';
+                elements.status.style.display = 'block';
+                elements.status.innerHTML = `
+                    <strong>✓ C Program Completed Conversion!</strong>
+                    <p>Created ${segmentFiles.length} segment file(s)</p>
+                `;
+
+                elements.downloadLinks.innerHTML = downloadLinksHtml;
+                elements.playerSection.style.display = 'block';
+
+                // Play the HLS video
+                playHLSVideo(m3u8Url);
+
+                return 0;
+            } catch (error) {
+                console.error(error);
+                elements.status.className = 'status error';
+                elements.status.style.display = 'block';
+                elements.status.innerHTML = `<strong>✗ Error:</strong> ${error.message}`;
+                return 1;
+            }
+        }
+
+        elements.convertBtn.addEventListener('click', async () => {
+            if (!selectedFile || !cModule) return;
+
+            elements.convertBtn.disabled = true;
+            elements.progress.style.display = 'block';
+            elements.status.style.display = 'none';
+            elements.playerSection.style.display = 'none';
+            elements.progressFill.style.width = '0%';
+
+            const segmentDuration = parseInt(document.getElementById('segmentDuration').value);
+            
+            // Call C function
+            const result = cModule.ccall(
+                'convert_video_to_hls',
+                'number',
+                ['string', 'number'],
+                ['input.mp4', segmentDuration]
+            );
+
+            elements.convertBtn.disabled = false;
+            setTimeout(() => {
+                elements.progress.style.display = 'none';
+            }, 2000);
+        });
+    </script>
+</body>
+</html>

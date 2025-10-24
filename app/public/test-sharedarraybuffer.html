@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SharedArrayBuffer Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 600px;
+            margin: 50px auto;
+            padding: 20px;
+            line-height: 1.6;
+        }
+        .test-result {
+            padding: 15px;
+            margin: 10px 0;
+            border-radius: 5px;
+            font-weight: bold;
+        }
+        .success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        .error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        .info {
+            background: #d1ecf1;
+            color: #0c5460;
+            border: 1px solid #bee5eb;
+        }
+        button {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            margin: 10px 5px;
+        }
+        button:hover {
+            background: #0056b3;
+        }
+    </style>
+</head>
+<body>
+    <h1>🧪 SharedArrayBuffer Test</h1>
+    <p>This page tests if SharedArrayBuffer is available in your local development environment.</p>
+    
+    <div id="results"></div>
+    
+    <button onclick="runTest()">Run Test</button>
+    <button onclick="location.reload()">Refresh Page</button>
+
+    <script>
+        function addResult(message, type = 'info') {
+            const resultsDiv = document.getElementById('results');
+            const resultDiv = document.createElement('div');
+            resultDiv.className = `test-result ${type}`;
+            resultDiv.textContent = message;
+            resultsDiv.appendChild(resultDiv);
+        }
+
+        function runTest() {
+            document.getElementById('results').innerHTML = '';
+            
+            addResult('🔍 Testing SharedArrayBuffer availability...', 'info');
+            
+            // Test 1: Check if SharedArrayBuffer exists
+            if (typeof SharedArrayBuffer === 'undefined') {
+                addResult('❌ SharedArrayBuffer is not defined', 'error');
+                addResult('💡 Solution: Your server needs the required security headers', 'info');
+                addResult('📋 Add these headers to your vite.config.ts:', 'info');
+                addResult('   server: { headers: { "Cross-Origin-Embedder-Policy": "require-corp", "Cross-Origin-Opener-Policy": "same-origin" } }', 'info');
+                return;
+            }
+            
+            addResult('✅ SharedArrayBuffer is defined', 'success');
+            
+            // Test 2: Try to create a SharedArrayBuffer
+            try {
+                const buffer = new SharedArrayBuffer(1024);
+                addResult('✅ SharedArrayBuffer can be instantiated', 'success');
+                addResult('🎉 Your local development environment supports SharedArrayBuffer!', 'success');
+                addResult('✅ HLS conversion should work now', 'success');
+            } catch (error) {
+                addResult('❌ SharedArrayBuffer instantiation failed: ' + error.message, 'error');
+                addResult('💡 This usually means the security headers are not properly set', 'info');
+                addResult('🔄 Try restarting your dev server after adding the headers to vite.config.ts', 'info');
+            }
+            
+            // Test 3: Check current URL
+            addResult(`🌐 Current URL: ${window.location.href}`, 'info');
+            addResult(`🔒 Protocol: ${window.location.protocol}`, 'info');
+        }
+
+        // Run test automatically on page load
+        window.addEventListener('load', () => {
+            setTimeout(runTest, 500);
+        });
+    </script>
+</body>
+</html>
