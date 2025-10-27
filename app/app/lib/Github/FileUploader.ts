@@ -14,7 +14,12 @@ export class FileUploader {
   }
 
   async initializeRepository(): Promise<void> {
-    await this.githubClient.createRepository();
+    try {
+      await this.githubClient.createRepository();
+    } catch (error) {
+      console.error('Failed to initialize repository:', error);
+      throw new Error(`Repository initialization failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
   }
 
   private getDateFolder(): string {

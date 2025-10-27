@@ -13,6 +13,7 @@ interface HLSPlayerProps {
   muted?: boolean;
   loop?: boolean;
   playsInline?: boolean;
+  poster?: string;
 }
 
 const HLSPlayer: React.FC<HLSPlayerProps> = ({
@@ -26,7 +27,8 @@ const HLSPlayer: React.FC<HLSPlayerProps> = ({
   autoPlay = false,
   muted = false,
   loop = false,
-  playsInline = true
+  playsInline = true,
+  poster = ''
 }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const hlsRef = useRef<Hls | null>(null);
@@ -96,30 +98,30 @@ const HLSPlayer: React.FC<HLSPlayerProps> = ({
             onHLSReady(hls);
           }
 
-          hls.on(Hls.Events.MANIFEST_PARSED, (event: any, data: any) => {
-            console.log('HLS Manifest parsed:', data);
-            setIsLoading(false);
-          });
+          // hls.on(Hls.Events.MANIFEST_PARSED, (event: any, data: any) => {
+          //   console.log('HLS Manifest parsed:', data);
+          //   setIsLoading(false);
+          // });
 
-          hls.on(Hls.Events.LEVEL_LOADED, (event: any, data: any) => {
-            console.log('HLS Level loaded:', data);
-          });
+          // hls.on(Hls.Events.LEVEL_LOADED, (event: any, data: any) => {
+          //   console.log('HLS Level loaded:', data);
+          // });
 
-          hls.on(Hls.Events.FRAG_LOADED, (event: any, data: any) => {
-            console.log('HLS Fragment loaded:', data);
-          });
+          // hls.on(Hls.Events.FRAG_LOADED, (event: any, data: any) => {
+          //   console.log('HLS Fragment loaded:', data);
+          // });
 
-          hls.on(Hls.Events.LEVEL_SWITCHED, (event: any, data: any) => {
-            console.log('HLS Level switched:', data);
-          });
+          // hls.on(Hls.Events.LEVEL_SWITCHED, (event: any, data: any) => {
+          //   console.log('HLS Level switched:', data);
+          // });
 
-          hls.on(Hls.Events.BUFFER_APPENDED, (event: any, data: any) => {
-            console.log('HLS Buffer appended:', data);
-          });
+          // hls.on(Hls.Events.BUFFER_APPENDED, (event: any, data: any) => {
+          //   console.log('HLS Buffer appended:', data);
+          // });
 
-          hls.on(Hls.Events.BUFFER_FLUSHED, (event: any, data: any) => {
-            console.log('HLS Buffer flushed:', data);
-          });
+          // hls.on(Hls.Events.BUFFER_FLUSHED, (event: any, data: any) => {
+          //   console.log('HLS Buffer flushed:', data);
+          // });
 
           hls.on(Hls.Events.ERROR, (event: any, data: any) => {
             console.error('HLS Error:', data);
@@ -262,13 +264,22 @@ const HLSPlayer: React.FC<HLSPlayerProps> = ({
 
   return (
     <div className={`relative ${className}`}>
-      <video  ref={videoRef}
-          className="w-full h-full object-contain"
-          muted={muted}
-          loop={loop}
-          playsInline={playsInline}
-          controls
-          preload="metadata"/>
+      <div className="poster_blur absolute inset-0 pointer-events-none h-full w-full supports-[filter]:blur-xl blur-2xl">
+        <div className="dim bg-background/50 absolute inset-0 w-full h-full" />
+        <img src={poster} alt="poster" loading="lazy" className="w-full h-full object-cover object-center" />
+      </div>
+      <div className="relative z-[10000] w-full h-full">
+        <video  ref={videoRef}
+            className="w-full h-full object-contain"
+            muted={muted}
+            loop={loop}
+            playsInline={playsInline}
+            controls
+            preload="metadata"
+            poster={poster}
+            autoPlay
+          />
+      </div>
       {isLoading && (
         <div className="absolute inset-0 flex items-center justify-center bg-black/50">
           <div className="text-white text-center">

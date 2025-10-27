@@ -64,9 +64,9 @@ export default function Navbar() {
   const [searchQuery, setSearchQuery] = useState("");
 
   return (
-    <nav className="sticky top-0 z-50 w-full ios-glass border-0 ios-shadow">
+    <nav className="sticky top-0 z-50 w-full ios-glass border-none ios-shadow z-[100000000000]">
       <div className="mx-auto px-6 xl:px-8 max-w-full xl:container">
-        <div className="flex py-4 items-center justify-between">
+        <div className="flex py-3 items-center justify-between">
           <div className="flex items-center space-x-8">
             <Link to="/" className="flex items-center space-x-4 group ios-scale">
               <div className="relative flex items-center space-x-4">
@@ -77,7 +77,7 @@ export default function Navbar() {
               </div>
             </Link>
             
-            <NavigationMenu className="hidden xl:flex">
+            {/* <NavigationMenu className="hidden xl:flex">
               <NavigationMenuList className="space-x-1">
                 <NavigationMenuItem>
                   <NavigationMenuTrigger className="text-sm font-semibold rounded-2xl px-4 py-2 ios-scale">Gallery</NavigationMenuTrigger>
@@ -115,10 +115,10 @@ export default function Navbar() {
                   </Link>
                 </NavigationMenuItem>
               </NavigationMenuList>
-            </NavigationMenu>
+            </NavigationMenu> */}
           </div>
 
-          <div className="flex items-center space-x-3 lg:space-x-3">
+          {/* <div className="flex items-center space-x-3 lg:space-x-3">
             <div className="hidden lg:flex items-center space-x-3">
               <div className="relative group">
                 <Search className="absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground group-hover:text-primary transition-colors" />
@@ -289,7 +289,7 @@ export default function Navbar() {
                 </div>
               </SheetContent>
             </Sheet>
-          </div>
+          </div> */}
         </div>
       </div>
     </nav>

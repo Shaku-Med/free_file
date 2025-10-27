@@ -2,7 +2,11 @@ import React, { useState, useRef, useCallback } from 'react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '~/components/ui/dialog'
 import { Button } from '~/components/ui/button'
 import { Card, CardContent } from '~/components/ui/card'
-import { Upload, X, FileImage, FileAudio, FileVideo, Check } from 'lucide-react'
+import { Progress } from '~/components/ui/progress'
+import { Upload, X, FileImage, FileVideo, Check, CheckCircle, XCircle, RotateCcw, Loader2 } from 'lucide-react'
+import { convertToHLS } from "~/lib/HlsHandler"
+import { GenerateUniqueID } from "~/lib/GenerateUniqueID"
+import { ThumbnailGenerator } from "./ThumbnailGenerator"
 
 interface MediaSelectionModalProps {
   isOpen: boolean
@@ -10,27 +14,381 @@ interface MediaSelectionModalProps {
   onFilesSelected: (files: File[]) => void
 }
 
+interface ValidationResult {
+  isValid: boolean
+  error?: string
+}
+
+interface UploadItem {
+  id: string
+  file: File
+  status: 'pending' | 'uploading' | 'success' | 'error'
+  progress: number
+  error?: string
+  retryCount: number
+  validationError?: string
+}
+
 const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({ isOpen, onClose, onFilesSelected }) => {
   const [selectedFiles, setSelectedFiles] = useState<File[]>([])
+  const [uploadQueue, setUploadQueue] = useState<UploadItem[]>([])
+  const [isUploading, setIsUploading] = useState(false)
   const [dragActive, setDragActive] = useState(false)
-  const fileInputRef = useRef<HTMLInputElement>(null)
 
-  const validateFile = (file: File): boolean => {
-    return file.type.startsWith('image/') || 
-           file.type.startsWith('audio/') || 
-           file.type.startsWith('video/')
+  const validateImageFile = async (file: File): Promise<ValidationResult> => {
+    return new Promise((resolve) => {
+      const img = new Image()
+      const url = URL.createObjectURL(file)
+      
+      const cleanup = () => {
+        URL.revokeObjectURL(url)
+        img.onload = null
+        img.onerror = null
+      }
+      
+      img.onload = () => {
+        cleanup()
+        resolve({ isValid: true })
+      }
+      
+      img.onerror = () => {
+        cleanup()
+        resolve({ isValid: false, error: 'Invalid or corrupted image file' })
+      }
+      
+      img.src = url
+    })
   }
 
-  const handleFileSelect = useCallback((files: FileList | null) => {
+  const validateVideoFile = async (file: File): Promise<ValidationResult> => {
+    return new Promise((resolve) => {
+      const video = document.createElement('video')
+      const url = URL.createObjectURL(file)
+      
+      const cleanup = () => {
+        URL.revokeObjectURL(url)
+        video.onloadedmetadata = null
+        video.onerror = null
+        video.src = ''
+      }
+      
+      video.onloadedmetadata = () => {
+        cleanup()
+        resolve({ isValid: true })
+      }
+      
+      video.onerror = () => {
+        cleanup()
+        resolve({ isValid: false, error: 'Invalid or corrupted video file' })
+      }
+      
+      video.src = url
+      video.load()
+    })
+  }
+
+  const validateFileType = (file: File): ValidationResult => {
+    if (file.type.startsWith('image/') && file.type !== 'image/svg+xml') {
+      return { isValid: true }
+    }
+    
+    if (file.type.startsWith('video/')) {
+      return { isValid: true }
+    }
+    
+    if (file.type === 'image/svg+xml') {
+      return { isValid: false, error: 'SVG files are not supported. Please use other image formats like JPEG, PNG, GIF, WebP, etc.' }
+    }
+    
+    return { isValid: false, error: `File type '${file.type}' is not supported. Only image and video files are allowed.` }
+  }
+
+  const validateFile = async (file: File): Promise<ValidationResult> => {
+    const typeValidation = validateFileType(file)
+    if (!typeValidation.isValid) {
+      return typeValidation
+    }
+    
+    if (file.type.startsWith('image/')) {
+      return await validateImageFile(file)
+    }
+    
+    if (file.type.startsWith('video/')) {
+      return await validateVideoFile(file)
+    }
+    
+    return { isValid: false, error: 'Unsupported file type' }
+  }
+
+  const validateThumbnail = async (thumbnailBlob: Blob): Promise<ValidationResult> => {
+    return new Promise((resolve) => {
+      const img = new Image()
+      const url = URL.createObjectURL(thumbnailBlob)
+      
+      img.onload = () => {
+        URL.revokeObjectURL(url)
+        resolve({ isValid: true })
+      }
+      
+      img.onerror = () => {
+        URL.revokeObjectURL(url)
+        resolve({ isValid: false, error: 'Generated thumbnail is corrupted or invalid' })
+      }
+      
+      img.src = url
+    })
+  }
+
+  const uploadThumbnail = async (thumbnailBlob: Blob, uniqueID: string, videoFilename: string): Promise<boolean> => {
+    try {
+      const thumbnailValidation = await validateThumbnail(thumbnailBlob)
+      if (!thumbnailValidation.isValid) {
+        console.warn('⚠️ Thumbnail validation failed:', thumbnailValidation.error)
+        return false
+      }
+      
+      const formData = new FormData()
+      formData.append('file', thumbnailBlob)
+      formData.append('name', `thumbnail_${videoFilename.replace(/\.[^/.]+$/, '.jpg')}`)
+      formData.append('uniqueID', uniqueID)
+
+      const response = await fetch('/api/upload', {
+        method: 'POST',
+        body: formData,
+      })
+      
+      if (!response.ok) {
+        return false
+      }
+
+      return true
+    } catch (error) {
+      console.error('Thumbnail upload failed:', error)
+      return false
+    }
+  }
+
+  const VideoFetchPush = async (segmentUrls: { blob: Blob, name: string }[], uniqueID: string): Promise<boolean> => {
+    try {
+      for (let i = 0; i < segmentUrls.length; i++) {
+        const segment = segmentUrls[i]
+        
+        console.log(`📤 Uploading segment ${i + 1}/${segmentUrls.length}: ${segment.name}`)
+        
+        const formData = new FormData()
+        formData.append('file', segment.blob)
+        formData.append('name', segment.name)
+        formData.append('uniqueID', uniqueID)
+
+        const response = await fetch('/api/upload', {
+          method: 'POST',
+          body: formData,
+        })
+        
+        if (!response.ok) {
+          console.error(`❌ Failed to upload segment ${segment.name}:`, response.statusText)
+          return false
+        }
+        
+        console.log(`✅ Successfully uploaded segment ${i + 1}/${segmentUrls.length}`)
+      }
+      
+      return true
+    } catch (error) {
+      console.error('❌ Error in VideoFetchPush:', error)
+      return false
+    }
+  }
+
+  const uploadVideo = async (file: File): Promise<boolean> => {
+    let thumbnailGenerator: ThumbnailGenerator | null = null
+    
+    try {
+      const uniqueID = GenerateUniqueID()
+      thumbnailGenerator = new ThumbnailGenerator()
+
+      console.log('🎬 Generating thumbnail for video:', file.name)
+      const thumbnailResult = await thumbnailGenerator.generateThumbnailWithFallback(file, {
+        maxWidth: 1920,
+        maxHeight: 1080,
+        maintainAspectRatio: true
+      })
+
+      if (thumbnailResult.success && thumbnailResult.thumbnailBlob) {
+        console.log('📸 Thumbnail generated, uploading...')
+        const thumbnailUploaded = await uploadThumbnail(thumbnailResult.thumbnailBlob, uniqueID, file.name)
+        
+        if (!thumbnailUploaded) {
+          console.warn('⚠️ Thumbnail upload failed, continuing with video upload')
+        } else {
+          console.log('✅ Thumbnail uploaded successfully')
+        }
+      } else {
+        console.warn('⚠️ Thumbnail generation failed:', thumbnailResult.error)
+        console.log('📝 Continuing with video upload without thumbnail')
+      }
+
+      await thumbnailGenerator.destroy()
+      thumbnailGenerator = null
+
+      console.log('🎥 Starting HLS conversion for video:', file.name)
+      const { m3u8Url, segmentUrls } = await convertToHLS(file)
+      if (!m3u8Url || segmentUrls.length === 0) {
+        return false
+      }
+
+      console.log('📤 Uploading HLS segments...')
+      const uploadSuccess = await VideoFetchPush(segmentUrls, uniqueID)
+      if (!uploadSuccess) {
+        return false
+      }
+
+      console.log('✅ Video upload completed successfully')
+      return true
+    } catch (error) {
+      console.error(`❌ Video upload failed:`, error)
+      return false
+    } finally {
+      if (thumbnailGenerator) {
+        try {
+          await thumbnailGenerator.destroy()
+        } catch (error) {
+          console.warn('Error destroying thumbnail generator:', error)
+        }
+      }
+    }
+  }
+
+  const uploadFile = async (file: File): Promise<boolean> => {
+    try {
+      if(file.type.startsWith(`video/`)) {
+        return uploadVideo(file)
+      }
+      
+      if(file.type.startsWith(`image/`)) {
+        const formData = new FormData()
+        formData.append('file', file)
+        formData.append('name', file.name)
+        formData.append('uniqueID', GenerateUniqueID())
+
+        const response = await fetch('/api/upload', {
+          method: 'POST',
+          body: formData,
+        })
+        
+        if (!response.ok) {
+          throw new Error(`Upload failed: ${response.statusText}`)
+        }
+
+        const result = await response.json()
+        return result.success
+      }
+      
+      return true
+    } catch (error) {
+      console.error('Upload error:', error)
+      return false
+    }
+  }
+
+  const processUploadQueue = useCallback(async () => {
+    if (isUploading || uploadQueue.length === 0) return
+    
+    setIsUploading(true)
+    const pendingItems = uploadQueue.filter(item => item.status === 'pending')
+    
+    const timeoutId = setTimeout(() => {
+      console.warn('Upload process timeout - stopping processing')
+      setIsUploading(false)
+    }, 300000) // 5 minute timeout
+    
+    try {
+      for (let i = 0; i < pendingItems.length; i++) {
+        const item = pendingItems[i]
+        const itemIndex = uploadQueue.findIndex(uploadItem => uploadItem.id === item.id)
+        
+        setUploadQueue(prev => prev.map(uploadItem => 
+          uploadItem.id === item.id 
+            ? { ...uploadItem, status: 'uploading', progress: 0 }
+            : uploadItem
+        ))
+
+        const success = await uploadFile(item.file)
+        
+        setUploadQueue(prev => prev.map(uploadItem => 
+          uploadItem.id === item.id 
+            ? { 
+                ...uploadItem, 
+                status: success ? 'success' : 'error',
+                progress: success ? 100 : uploadItem.progress,
+                error: success ? undefined : item.file.type.startsWith('video/') 
+                  ? 'HLS conversion failed - check console for details' 
+                  : item.file.type.startsWith('image/')
+                  ? 'Image upload failed - check console for details'
+                  : 'Upload failed'
+              }
+            : uploadItem
+        ))
+
+        if (!success) {
+          break
+        }
+      }
+    } finally {
+      clearTimeout(timeoutId)
+      setIsUploading(false)
+    }
+  }, [isUploading, uploadQueue])
+
+  const handleFileSelect = useCallback(async (files: FileList | null) => {
     if (!files) return
 
-    const validFiles = Array.from(files).filter(validateFile)
-    setSelectedFiles(prev => [...prev, ...validFiles])
+    const fileArray = Array.from(files)
+    const validFiles: File[] = []
+    const invalidFiles: { file: File, error: string }[] = []
+    
+    for (const file of fileArray) {
+      const validation = await validateFile(file)
+      if (validation.isValid) {
+        validFiles.push(file)
+      } else {
+        invalidFiles.push({ file, error: validation.error || 'Unknown validation error' })
+      }
+    }
+    
+    if (invalidFiles.length > 0) {
+      console.warn('Rejected files:', invalidFiles)
+      alert(`The following files were rejected:\n${invalidFiles.map(f => `• ${f.file.name}: ${f.error}`).join('\n')}`)
+    }
+    
+    if (validFiles.length > 0) {
+      const newUploadItems: UploadItem[] = validFiles.map(file => ({
+        id: Math.random().toString(36).substr(2, 9),
+        file,
+        status: 'pending' as const,
+        progress: 0,
+        retryCount: 0
+      }))
+      
+      setUploadQueue(prev => [...prev, ...newUploadItems])
+    }
+    
+    setSelectedFiles([])
   }, [])
 
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    handleFileSelect(e.target.files)
-  }
+  React.useEffect(() => {
+    if (uploadQueue.length > 0 && !isUploading) {
+      processUploadQueue()
+    }
+  }, [uploadQueue, isUploading])
+
+  React.useEffect(() => {
+    return () => {
+      if (uploadQueue.length > 0) {
+        console.log('Cleaning up upload queue on unmount')
+      }
+    }
+  }, [])
 
   const handleDrag = (e: React.DragEvent) => {
     e.preventDefault()
@@ -53,20 +411,43 @@ const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({ isOpen, onClo
     setSelectedFiles(prev => prev.filter((_, i) => i !== index))
   }
 
-  const handleConfirm = () => {
-    onFilesSelected(selectedFiles)
-    setSelectedFiles([])
-    onClose()
+  const handleClose = () => {
+    if (uploadQueue.length === 0 || uploadQueue.every(item => item.status === 'success' || item.status === 'error')) {
+      onFilesSelected([])
+      setUploadQueue([])
+      setSelectedFiles([])
+      onClose()
+    }
   }
 
-  const handleCancel = () => {
-    setSelectedFiles([])
-    onClose()
+  const getStatusIcon = (status: UploadItem['status']) => {
+    switch (status) {
+      case 'pending':
+        return <Upload className="w-4 h-4 text-muted-foreground" />
+      case 'uploading':
+        return <Loader2 className="w-4 h-4 text-primary animate-spin" />
+      case 'success':
+        return <CheckCircle className="w-4 h-4 text-green-500" />
+      case 'error':
+        return <XCircle className="w-4 h-4 text-destructive" />
+    }
+  }
+
+  const getStatusColor = (status: UploadItem['status']) => {
+    switch (status) {
+      case 'pending':
+        return 'text-muted-foreground'
+      case 'uploading':
+        return 'text-primary'
+      case 'success':
+        return 'text-green-500'
+      case 'error':
+        return 'text-destructive'
+    }
   }
 
   const getFileIcon = (file: File) => {
     if (file.type.startsWith('image/')) return <FileImage className="w-5 h-5" />
-    if (file.type.startsWith('audio/')) return <FileAudio className="w-5 h-5" />
     if (file.type.startsWith('video/')) return <FileVideo className="w-5 h-5" />
     return <FileImage className="w-5 h-5" />
   }
@@ -80,91 +461,96 @@ const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({ isOpen, onClo
   }
 
   return (
-    <Dialog open={isOpen} onOpenChange={onClose}>
+    <Dialog open={isOpen} onOpenChange={handleClose}>
       <DialogContent className="max-w-md max-h-[85vh] overflow-hidden flex flex-col bg-background/95 backdrop-blur-xl border-0 shadow-2xl">
         <DialogHeader className="pb-4">
-          <DialogTitle className="text-xl font-semibold text-center">Add Media</DialogTitle>
+          <DialogTitle className="text-xl font-semibold text-center">
+            {uploadQueue.length > 0 ? 'Processing Files' : 'Add Media'}
+          </DialogTitle>
           <DialogDescription className="text-center text-sm text-muted-foreground">
-            Choose photos, videos, or audio files
+            {uploadQueue.length > 0 
+              ? 'Files are being processed automatically' 
+              : 'Choose any image or video files'
+            }
           </DialogDescription>
         </DialogHeader>
 
         <div className="flex-1 overflow-y-auto px-1">
-          <div
-            className={`border-2 border-dashed rounded-2xl p-8 text-center transition-all duration-200 ${
-              dragActive 
-                ? 'border-primary bg-primary/10 scale-[1.02]' 
-                : 'border-muted-foreground/20 hover:border-muted-foreground/40 hover:bg-muted/30'
-            }`}
-            onDragEnter={handleDrag}
-            onDragLeave={handleDrag}
-            onDragOver={handleDrag}
-            onDrop={handleDrop}
-          >
-            <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-primary/10 flex items-center justify-center">
-              <Upload className="w-8 h-8 text-primary" />
-            </div>
-            <h3 className="text-lg font-medium mb-2">Drop files here</h3>
-            <p className="text-sm text-muted-foreground mb-6">
-              or tap to browse
-            </p>
-            <Button
-              variant="default"
-              onClick={() => fileInputRef.current?.click()}
-              className="rounded-full px-8 py-2 font-medium shadow-lg"
+          {uploadQueue.length === 0 ? (
+            <div
+              className={`border-2 border-dashed rounded-2xl p-8 text-center transition-all duration-200 ${
+                dragActive 
+                  ? 'border-primary bg-primary/10 scale-[1.02]' 
+                  : 'border-muted-foreground/20 hover:border-muted-foreground/40 hover:bg-muted/30'
+              }`}
+              onDragEnter={handleDrag}
+              onDragLeave={handleDrag}
+              onDragOver={handleDrag}
+              onDrop={handleDrop}
             >
-              Choose Files
-            </Button>
-            <input
-              ref={fileInputRef}
-              type="file"
-              multiple
-              accept="image/*,audio/*,video/*"
-              onChange={handleInputChange}
-              className="hidden"
-            />
-          </div>
-
-          {selectedFiles.length > 0 && (
-            <div className="mt-6">
+              <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-primary/10 flex items-center justify-center">
+                <Upload className="w-8 h-8 text-primary" />
+              </div>
+              <h3 className="text-lg font-medium mb-2">Drop files here</h3>
+              <p className="text-sm text-muted-foreground mb-6">
+                or tap to browse
+              </p>
+              <Button
+                variant="default"
+                onClick={async () => {
+                  const input = document.createElement('input')
+                  input.type = 'file'
+                  input.multiple = true
+                  input.accept = 'image/*,video/*'
+                  input.onchange = async (e) => {
+                    const target = e.target as HTMLInputElement
+                    await handleFileSelect(target.files)
+                    if (document.body.contains(input)) {
+                      document.body.removeChild(input)
+                    }
+                  }
+                  document.body.appendChild(input)
+                  input.click()
+                }}
+                className="rounded-full px-8 py-2 font-medium shadow-lg"
+              >
+                Choose Files
+              </Button>
+            </div>
+          ) : (
+            <div className="space-y-2">
               <div className="flex items-center justify-between mb-4">
-                <h4 className="font-semibold text-base">Selected ({selectedFiles.length})</h4>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setSelectedFiles([])}
-                  className="text-muted-foreground hover:text-foreground rounded-xl ios-scale"
-                >
-                  Clear All
-                </Button>
+                <h4 className="font-semibold text-base">Processing ({uploadQueue.length})</h4>
+                <div className="text-sm text-muted-foreground">
+                  {uploadQueue.filter(item => item.status === 'success').length} completed
+                </div>
               </div>
               <div className="bg-card/50 rounded-2xl overflow-hidden border border-border/20 ios-shadow max-h-64 overflow-y-auto">
-                {selectedFiles.map((file, index) => (
+                {uploadQueue.map((item, index) => (
                   <div 
-                    key={index} 
-                    className={`flex items-center justify-between px-4 py-3.5 text-sm font-medium active:bg-primary/10 transition-colors ios-scale ${
-                      index !== selectedFiles.length - 1 ? 'border-b border-border/20' : ''
+                    key={item.id} 
+                    className={`flex items-center justify-between px-4 py-3.5 text-sm font-medium transition-colors ${
+                      index !== uploadQueue.length - 1 ? 'border-b border-border/20' : ''
                     }`}
                   >
                     <div className="flex items-center gap-3 flex-1 min-w-0">
+                      {getStatusIcon(item.status)}
                       <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center flex-shrink-0">
-                        {getFileIcon(file)}
+                        {getFileIcon(item.file)}
                       </div>
                       <div className="flex-1 min-w-0">
-                        <p className="font-medium text-sm truncate">{file.name}</p>
+                        <p className="font-medium text-sm truncate">{item.file.name}</p>
                         <p className="text-xs text-muted-foreground">
-                          {formatFileSize(file.size)}
+                          {formatFileSize(item.file.size)}
                         </p>
+                        {item.status === 'uploading' && (
+                          <Progress value={item.progress} className="mt-1 h-1" />
+                        )}
+                        {item.validationError && (
+                          <p className="text-xs text-destructive mt-1">{item.validationError}</p>
+                        )}
                       </div>
                     </div>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={() => removeFile(index)}
-                      className="h-8 w-8 rounded-xl hover:bg-destructive/10 hover:text-destructive ios-scale"
-                    >
-                      <X className="w-4 h-4" />
-                    </Button>
                   </div>
                 ))}
               </div>
@@ -174,20 +560,50 @@ const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({ isOpen, onClo
 
         <DialogFooter className="pt-6 pb-2 px-1">
           <div className="flex gap-3 w-full">
-            <Button 
-              variant="outline" 
-              onClick={handleCancel}
-              className="flex-1 rounded-full py-3 font-medium"
-            >
-              Cancel
-            </Button>
-            <Button 
-              onClick={handleConfirm} 
-              disabled={selectedFiles.length === 0}
-              className="flex-1 rounded-full py-3 font-medium shadow-lg"
-            >
-              Add {selectedFiles.length} File{selectedFiles.length !== 1 ? 's' : ''}
-            </Button>
+            {uploadQueue.length === 0 ? (
+              <>
+                <Button 
+                  variant="outline" 
+                  onClick={handleClose}
+                  className="flex-1 rounded-full py-3 font-medium"
+                >
+                  Cancel
+                </Button>
+                <Button 
+                  onClick={async () => {
+                    const input = document.createElement('input')
+                    input.type = 'file'
+                    input.multiple = true
+                    input.accept = 'image/*,video/*'
+                    input.onchange = async (e) => {
+                      const target = e.target as HTMLInputElement
+                      await handleFileSelect(target.files)
+                      if (document.body.contains(input)) {
+                        document.body.removeChild(input)
+                      }
+                    }
+                    document.body.appendChild(input)
+                    input.click()
+                  }} 
+                  className="flex-1 rounded-full py-3 font-medium shadow-lg"
+                >
+                  Choose Files
+                </Button>
+              </>
+            ) : (
+              <Button 
+                onClick={handleClose}
+                disabled={uploadQueue.some(item => item.status === 'uploading')}
+                className="w-full rounded-full py-3 font-medium"
+              >
+                {uploadQueue.some(item => item.status === 'uploading') 
+                  ? 'Processing...' 
+                  : uploadQueue.every(item => item.status === 'success') 
+                    ? 'Done' 
+                    : 'Close'
+                }
+              </Button>
+            )}
           </div>
         </DialogFooter>
       </DialogContent>

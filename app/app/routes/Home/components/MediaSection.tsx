@@ -2,10 +2,14 @@ import React, { useState } from 'react'
 import { useFileContext } from '../../../lib/Context/Context';
 import HLSPlayer from '../../../components/components/hlsplayer';
 import { LikeButton } from '../../../components/ui/like-button';
+import MediaSelectionModal from './MediaSelectionModal';
+import { Plus } from 'lucide-react';
+import { Button } from '../../../components/ui/button';
 
 const MediaSection = () => {
   const { files } = useFileContext();
   const [playingVideos, setPlayingVideos] = useState<Set<number>>(new Set());
+  const [isModalOpen, setIsModalOpen] = useState(false);
 
   const togglePlayPause = (index: number) => {
     const newPlayingVideos = new Set(playingVideos);
@@ -19,39 +23,54 @@ const MediaSection = () => {
 
   if (files.length === 0) {
     return (
-      <div className="flex items-center justify-center min-h-screen bg-background">
-        <div className="text-center">
-          <div className="w-20 h-20 bg-muted rounded-full flex items-center justify-center mx-auto mb-6">
-            <svg className="w-10 h-10 text-muted-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-            </svg>
+      <>
+        <div className="flex items-center justify-center min-h-screen bg-background">
+          <div className="text-center">
+            <div className="w-20 h-20 bg-muted rounded-full flex items-center justify-center mx-auto mb-6">
+              <svg className="w-10 h-10 text-muted-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+              </svg>
+            </div>
+            <h2 className="text-2xl font-semibold text-foreground mb-2">No Media Found</h2>
+            <p className="text-muted-foreground mb-6">Upload some files to get started</p>
+            <Button
+              onClick={() => setIsModalOpen(true)}
+              className="rounded-full px-8 py-3 font-medium shadow-lg"
+            >
+              <Plus className="w-5 h-5 mr-2" />
+              Add Media
+            </Button>
           </div>
-          <h2 className="text-2xl font-semibold text-foreground mb-2">No Media Found</h2>
-          <p className="text-muted-foreground">Upload some files to get started</p>
         </div>
-      </div>
+        <MediaSelectionModal
+          isOpen={isModalOpen}
+          onClose={() => setIsModalOpen(false)}
+          onFilesSelected={() => {}}
+        />
+      </>
     );
   }
 
   return (
-    <div className="min-h-screen bg-background">
-      <div className="sticky top-0 z-10 bg-background/80 backdrop-blur-xl border-b border-border">
-        <div className="px-6 py-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-3">
-              <div className="w-10 h-10 bg-primary/10 rounded-xl flex items-center justify-center">
-                <svg className="w-5 h-5 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                </svg>
-              </div>
-              <div>
-                <h1 className="text-xl font-semibold text-foreground">Memories</h1>
-                <p className="text-sm text-muted-foreground">{files.length} files</p>
+    <>
+      <div className="min-h-screen bg-background">
+        <div className="sticky top-0 z-10 bg-background/80 backdrop-blur-xl border-b border-border">
+          <div className="px-6 py-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center space-x-3">
+                <div className="w-10 h-10 bg-primary/10 rounded-xl flex items-center justify-center">
+                  <svg className="w-5 h-5 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                  </svg>
+                </div>
+                <div>
+                  <h1 className="text-xl font-semibold text-foreground">Memories</h1>
+                  <p className="text-sm text-muted-foreground">{files.length} files</p>
+                </div>
               </div>
             </div>
           </div>
         </div>
-      </div>
 
       <div className="p-6 space-y-6">
         {files.map((file, index) => {
@@ -155,8 +174,25 @@ const MediaSection = () => {
             </div>
           );
         })}
+        </div>
       </div>
-    </div>
+
+      <div className="fixed bottom-6 right-6 z-40">
+        <Button
+          onClick={() => setIsModalOpen(true)}
+          size="icon"
+          className="h-16 w-16 rounded-3xl shadow-lg hover:shadow-xl transition-all duration-300 bg-primary hover:bg-primary/90"
+        >
+          <Plus className="h-7 w-7" />
+        </Button>
+      </div>
+
+      <MediaSelectionModal
+        isOpen={isModalOpen}
+        onClose={() => setIsModalOpen(false)}
+        onFilesSelected={() => {}}
+      />
+    </>
   );
 };
 

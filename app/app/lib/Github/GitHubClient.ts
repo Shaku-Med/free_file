@@ -11,16 +11,39 @@ export class GitHubClient {
     this.repo = repo;
   }
 
+  async repositoryExists(): Promise<boolean> {
+    try {
+      await this.octokit.rest.repos.get({
+        owner: this.owner,
+        repo: this.repo
+      });
+      return true;
+    } catch (error: any) {
+      if (error.status === 404) {
+        return false;
+      }
+      throw error;
+    }
+  }
+
   async createRepository(): Promise<void> {
+    const exists = await this.repositoryExists();
+    if (exists) {
+      console.log('Repository already exists, continuing with upload...');
+      return;
+    }
+
     try {
       await this.octokit.rest.repos.createForAuthenticatedUser({
         name: this.repo,
         private: false,
         auto_init: true
       });
+      console.log('Repository created successfully');
     } catch (error: any) {
       if (error.status === 422 && error.message.includes('already exists')) {
-        console.log('Repository already exists');
+        console.log('Repository already exists, continuing with upload...');
+        return;
       } else {
         throw error;
       }
@@ -41,9 +64,15 @@ export class GitHubClient {
         content: content
       });
       return response.data.content?.sha || '';
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error uploading file to GitHub:', error);
-      throw error;
+      if (error.status === 404) {
+        throw new Error(`Repository ${this.owner}/${this.repo} not found. Please check if the repository exists and you have access to it.`);
+      } else if (error.status === 403) {
+        throw new Error('Access denied. Please check your GitHub token permissions.');
+      } else {
+        throw new Error(`GitHub upload failed: ${error.message || 'Unknown error'}`);
+      }
     }
   }
 

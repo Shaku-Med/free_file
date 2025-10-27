@@ -1,36 +1,27 @@
 import { createRateLimit, rateLimitConfigs } from '../../../../lib/middleware/rateLimiter';
 
-const videoLoadRateLimit = createRateLimit(rateLimitConfigs.api);
+const imageLoadRateLimit = createRateLimit(rateLimitConfigs.api);
 
 export const loader = async ({ request }: { request: Request }) => {
-    return videoLoadRateLimit(request, async () => {
+    return imageLoadRateLimit(request, async () => {
         try {
-            const splitUrl = request.url.split('/api/load/video/')[1];
+            const splitUrl = request.url.split('/api/load/image/')[1];
             const videoUrl = `https://github.com/${process.env.GITHUB_OWNER}/Memories/raw/main/${splitUrl}`;
             const response = await fetch(videoUrl);
         
             if (!response.ok) throw new Error('Fetch failed');
         
-            const ext = splitUrl.split('.').pop();
-            const isText = ext === 'm3u8';
-            const body = isText ? await response.text() : new Uint8Array(await response.arrayBuffer());
-            const contentType =
-                ext === 'm3u8'
-                ? 'application/vnd.apple.mpegurl'
-                : ext === 'ts'
-                ? 'video/mp2t'
-                : 'application/octet-stream';
-        
+            const body = new Uint8Array(await response.arrayBuffer());
+
             return new Response(body, {
                 status: 200,
                 headers: {
-                'Content-Type': contentType,
+                'Content-Type': `image/png`,
                 'Access-Control-Allow-Origin': '*',
                 'Cache-Control': 'public, max-age=31536000, immutable',
                 },
             });
         } catch (error) {
-            console.error('Error loading video:', error);
             return new Response(null, { status: 500 });
         }
     });

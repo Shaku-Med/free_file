@@ -74,8 +74,9 @@ export class FileService {
       }
 
       const shouldStoreInSupabase = 
-        fileData.file.type === 'application/vnd.apple.mpegurl' || 
-        fileData.file.type.startsWith('image/');
+        (fileData.file.type === 'application/vnd.apple.mpegurl' || 
+         fileData.file.type.startsWith('image/')) &&
+        !fileData.filename.startsWith('thumbnail_');
 
       let supabaseId: string | undefined;
 
@@ -187,51 +188,67 @@ export class FileService {
   }
 
   async getFilesPaginated(params: PaginationParams = {}): Promise<PaginatedResponse<FileRecord>> {
-    if (!db) {
-      throw new Error('Database not initialized');
-    }
-
-    const {
-      page = 1,
-      limit = 10,
-      sortBy = 'created_at',
-      sortOrder = 'desc',
-      fileType
-    } = params;
-
-    const offset = (page - 1) * limit;
-
-    let query = db
-      .from('files')
-      .select('*', { count: 'exact' });
-
-    if (fileType) {
-      query = query.like('file_type', `${fileType}%`);
-    }
-
-    const { data, error, count } = await query
-      .order(sortBy, { ascending: sortOrder === 'asc' })
-      .range(offset, offset + limit - 1);
-
-    if (error) {
-      console.error('Database get paginated files error:', error);
-      throw new Error('Failed to get paginated files');
-    }
-
-    const total = count || 0;
-    const totalPages = Math.ceil(total / limit);
-
-    return {
-      data: data || [],
-      pagination: {
-        page,
-        limit,
-        total,
-        totalPages,
-        hasNext: page < totalPages,
-        hasPrev: page > 1
+    try {
+      if (!db) {
+        throw new Error('Database not initialized');
       }
-    };
+  
+      const {
+        page = 1,
+        limit = 10,
+        sortBy = 'created_at',
+        sortOrder = 'desc',
+        fileType
+      } = params;
+  
+      const offset = (page - 1) * limit;
+  
+      let query = db
+        .from('files')
+        .select('*', { count: 'exact' });
+  
+      if (fileType) {
+        query = query.like('file_type', `${fileType}%`);
+      }
+  
+      const { data, error, count } = await query
+        .order(sortBy, { ascending: sortOrder === 'asc' })
+        .range(offset, offset + limit - 1);
+  
+      if (error) {
+        console.error('Database get paginated files error:', error);
+        throw new Error('Failed to get paginated files');
+      }
+  
+      const total = count || 0;
+      const totalPages = Math.ceil(total / limit);
+  
+      return {
+        data: data || [],
+        pagination: {
+          page,
+          limit,
+          total,
+          totalPages,
+          hasNext: page < totalPages,
+          hasPrev: page > 1
+        }
+      };
+
+    }
+    catch (error) {
+      return {
+        data: [],
+        pagination: {
+          page: 1,
+          limit: 50,
+          total: 0,
+          totalPages: 0,
+          hasNext: false,
+          hasPrev: false
+        }
+      };
+    }
   }
 
   async getFilesByTypePaginated(fileType: string, params: PaginationParams = {}): Promise<PaginatedResponse<FileRecord>> {
