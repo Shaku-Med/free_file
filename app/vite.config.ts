@@ -19,4 +19,5 @@ export default defineConfig({
       external: ['@ffmpeg/ffmpeg', '@ffmpeg/util'],
     },
   },
+  envDir: './app'
 });
