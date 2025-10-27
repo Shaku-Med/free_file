@@ -1,4 +1,4 @@
-name: Deploy to Server (2025 Workflow)
+name: Build and Deploy to EC2
 
 on:
   push:
@@ -6,14 +6,15 @@ on:
       - main
 
 jobs:
-  build-and-deploy:
+  deploy:
+    name: Build and Deploy
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Use Node.js 20
+      - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 20
@@ -26,12 +27,15 @@ jobs:
         working-directory: ./app
         run: npm run build
 
-      # OPTIONAL: run tests before deploying
-      - name: Run tests
-        working-directory: ./app
-        run: npm test || echo "No tests"
+      # Optionally upload .env from secret
+      - name: Create .env file
+        if: ${{ secrets.ENV_FILE != '' }}
+        run: |
+          echo "${{ secrets.ENV_FILE }}" > app/.env
+          echo ".env file created"
 
-      - name: Deploy via SSH
+      # Deploy build folder to EC2
+      - name: Deploy via SCP
         uses: appleboy/scp-action@v0.1.7
         with:
           host: ${{ secrets.EC2_HOST }}
@@ -39,3 +43,14 @@ jobs:
           key: ${{ secrets.EC2_SSH_KEY }}
           source: "app/build/*"
           target: "/var/www/memories.brozy.org/"
+
+      # Reload Nginx after deployment
+      - name: Restart Nginx
+        uses: appleboy/ssh-action@v0.1.10
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USERNAME }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            sudo systemctl reload nginx
+            echo "✅ Nginx reloaded successfully"
