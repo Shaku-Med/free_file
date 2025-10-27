@@ -27,12 +27,15 @@ jobs:
         working-directory: ./app
         run: npm run build
 
-      # Optionally upload .env from secret
+      # Create .env file from GitHub secret if it exists
       - name: Create .env file
-        if: ${{ secrets.ENV_FILE != '' }}
         run: |
-          echo "${{ secrets.ENV_FILE }}" > app/.env
-          echo ".env file created"
+          if [ -n "${{ secrets.ENV_FILE }}" ]; then
+            echo "${{ secrets.ENV_FILE }}" > app/.env
+            echo ".env file created ✅"
+          else
+            echo "No ENV_FILE secret found — skipping"
+          fi
 
       # Deploy build folder to EC2
       - name: Deploy via SCP
