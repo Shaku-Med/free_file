@@ -21,27 +21,27 @@ jobs:
         with:
           node-version: 20
 
-      # 3️⃣ Install dependencies locally for build
+      # 3️⃣ Install dependencies
       - name: Install dependencies
         working-directory: ./app
         run: npm ci
 
-      # 4️⃣ Build project
-      - name: Build project
-        working-directory: ./app
-        run: npm run build
-
-      # 5️⃣ Create .env file from GitHub secret (optional)
-      - name: Create .env file
+      # 4️⃣ Create .env file BEFORE build
+      - name: Create .env file from GitHub secret
         run: |
           if [ -n "${{ secrets.ENV_FILE }}" ]; then
             echo "${{ secrets.ENV_FILE }}" > app/.env
             echo ".env file created ✅"
           else
-            echo "No ENV_FILE secret found — skipping"
+            echo "⚠️ No ENV_FILE secret found — skipping"
           fi
 
-      # 6️⃣ Deploy full app folder to EC2
+      # 5️⃣ Build project (after env is ready)
+      - name: Build project
+        working-directory: ./app
+        run: npm run build
+
+      # 6️⃣ Deploy built app folder to EC2
       - name: Deploy app to EC2
         uses: appleboy/scp-action@v0.1.7
         with:
@@ -51,7 +51,7 @@ jobs:
           source: "app/*"
           target: "/var/www/memories.brozy.org/app/"
 
-      # 7️⃣ Install dependencies and start server on EC2
+      # 7️⃣ SSH into EC2 and start the app
       - name: Install & Start on EC2
         uses: appleboy/ssh-action@v1
         with:
@@ -61,13 +61,15 @@ jobs:
           script: |
             cd /var/www/memories.brozy.org/app
             npm ci
-            # stop previous process if using pm2 or similar
+
+            # Stop old process if PM2 is available
             if command -v pm2 >/dev/null 2>&1; then
+              echo "🔄 Restarting app using PM2..."
               pm2 delete memories || true
               pm2 start npm --name "memories" -- start
               pm2 save
             else
-              # fallback: just start in background
+              echo "🚀 Starting app in background (nohup)..."
               nohup npm start > app.log 2>&1 &
             fi
 
