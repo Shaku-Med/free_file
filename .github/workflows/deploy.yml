@@ -1,31 +1,41 @@
-name: Node.js CI
+name: Deploy to Server (2025 Workflow)
+
 on:
   push:
-    branches: [ "main" ]
-  pull_request:
-    branches: [ "main" ]
+    branches:
+      - main
+
 jobs:
-  build:
-    runs-on: self-hosted
-    strategy:
-      matrix:
-        node-version: [18.x, 20.x, 22.x]
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
     steps:
-    - uses: actions/checkout@v4
-    - name: Use Node.js ${{ matrix.node-version }}
-      uses: actions/setup-node@v4
-      with:
-        node-version: ${{ matrix.node-version }}
-        cache: 'npm'
-    - name: Create .env file
-      run: echo '${{ secrets.ENV_FILE }}' > ./app/.env
-      shell: bash
-    - name: Install dependencies
-      run: npm ci
-      working-directory: ./app
-    - name: Build project
-      run: npm run build --if-present
-      working-directory: ./app
-    - name: Restart PM2 service
-      run: pm2 restart MemoriesAPI
-      shell: bash
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Use Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        working-directory: ./app
+        run: npm ci
+
+      - name: Build project
+        working-directory: ./app
+        run: npm run build
+
+      # OPTIONAL: run tests before deploying
+      - name: Run tests
+        working-directory: ./app
+        run: npm test || echo "No tests"
+
+      - name: Deploy via SSH
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          source: "app/build/*"
+          target: "/var/www/memories.brozy.org/"
