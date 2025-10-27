@@ -34,7 +34,7 @@ const VideoCard = ({ data, key}: VideoCardProps) => {
       <Link to={`/${data.unique_id}`}
       >
         <div
-          className="relative aspect-[16/9] overflow-hidden bg-muted text-xs cursor-pointer"
+          className="relative aspect-[16/9] overflow-hidden bg-muted text-xs cursor-pointer active:opacity-[.8]"
         >
             <>
             {

@@ -20,6 +20,7 @@ import db from "./lib/Database/supabase";
 import type { FileRecord } from "./lib/Services/FileService";
 import { createRateLimit, rateLimitConfigs } from "./lib/middleware/rateLimiter";
 import { useEffect } from "react";
+import Footer from "./components/components/Footer";
 
 export const links: Route.LinksFunction = () => [
   { rel: "preconnect", href: "https://fonts.googleapis.com" },
@@ -132,7 +133,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
   const { files } = data;
 
   return (
-    <html className={`dark`} lang="en">
+    <html className={`system`} lang="en">
       <head>
         <meta charSet="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
@@ -156,6 +157,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
               <div className={`mx-auto px-6 xl:px-8 max-w-full xl:container`}>
                {children}
               </div>
+              <Footer />
             </LikeProvider>
           </ContextProvider>
         </ErrorBoundary>

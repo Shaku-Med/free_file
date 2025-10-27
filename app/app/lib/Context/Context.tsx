@@ -4,6 +4,7 @@ import type { FileType } from "../types";
 import MediaSelectionModal from "~/routes/Home/components/MediaSelectionModal";
 import { Button } from "~/components/ui/button";
 import { Plus } from "lucide-react";
+// import NavigationLoader from "~/routes/Home/components/NavigationLoader";
 
 export const Context = createContext<ContextProps>({
     files: [],
@@ -34,6 +35,7 @@ export const ContextProvider = ({ children, f }: ContextProviderProps) => {
     const [files, setFiles] = useState<FileType[]>(f);
     const [isModalOpen, setIsModalOpen] = useState(false);
 
+
     const value = useMemo(() => ({ files, setFiles, isModalOpen, setIsModalOpen }), [files, setFiles, isModalOpen, setIsModalOpen]);
     return (
         <Context.Provider value={value}>
@@ -44,6 +46,7 @@ export const ContextProvider = ({ children, f }: ContextProviderProps) => {
                 onFilesSelected={() => {}}
             />
             <FloatingButton />
+            {/* <NavigationLoader/> */}
         </Context.Provider>
     )
 }

@@ -216,7 +216,7 @@ const index = () => {
 
   return (
     <div className="min-h-screen bg-background">
-      <div className="mx-auto px-6 xl:px-8 max-w-full xl:container py-6">
+      <div className="mx-auto max-w-full xl:container py-6">
         <div className="gap-6 flex flex-col">
           <div className="xl:col-span-3 space-y-6">
             <div className="relative group">

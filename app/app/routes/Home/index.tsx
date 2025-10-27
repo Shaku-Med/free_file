@@ -56,12 +56,12 @@ export default function PhotoDashboard() {
 
   return (
     <div className="">
-      <div className="mx-auto px-6 xl:px-8 max-w-full xl:container py-8">
+      <div className="mx-auto max-w-full xl:container py-8">
       
       {
         files.length > 0 ? (
             <>
-              <div className="grid grid-cols-1 md:grid-cols-4 xl:grid-cols-5 gap-2 p-4">
+              <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-5 gap-2">
                   {files.map((file, index) => (
                     <VideoCard key={index || 0} data={file as FileType} />
                   ))}
@@ -80,7 +80,7 @@ export default function PhotoDashboard() {
         ) : (
           <>
 
-            <div className="flex items-center flex-col justify-center min-h-screen bg-background">
+            <div className="flex items-center flex-col justify-center min-h-full bg-background">
               <div className="text-center">
                 <div className="w-20 h-20 bg-muted rounded-full flex items-center justify-center mx-auto mb-6">
                   <svg className="w-10 h-10 text-muted-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24">

@@ -43,6 +43,7 @@ import {
   NavigationMenuTrigger,
 } from "~/components/ui/navigation-menu";
 import Logo from "./Logo/Logo";
+import { isMobile } from "react-device-detect";
 
 const galleryCategories = [
   { name: "Portraits", href: "/gallery/portraits" },
@@ -64,14 +65,14 @@ export default function Navbar() {
   const [searchQuery, setSearchQuery] = useState("");
 
   return (
-    <nav className="sticky top-0 z-50 w-full ios-glass border-none ios-shadow z-[100000000000]">
+    <nav className={`sticky top-0 z-50 w-full ${isMobile ? `bg-background` : `bg-background/95 backdrop-blur-xl `} shadow-lg z-[100000000000] border-b`}>
       <div className="mx-auto px-6 xl:px-8 max-w-full xl:container">
         <div className="flex py-3 items-center justify-between">
           <div className="flex items-center space-x-8">
             <Link to="/" className="flex items-center space-x-4 group ios-scale">
               <div className="relative flex items-center space-x-4">
-                <div className="w-12 h-12 rounded-2xl bg-primary/10 flex items-center justify-center ios-scale">
-                  <Logo className="relative h-8 w-8 text-primary" />
+                <div className="">
+                  <Logo className="relative h-12 w-12 text-primary" />
                 </div>
                 <span className="text-2xl font-bold bg-gradient-to-r from-primary to-primary/70 bg-clip-text text-transparent">Memories</span>
               </div>
