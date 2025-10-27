@@ -1,67 +1,31 @@
-name: Deploy to EC2
-
+name: Node.js CI
 on:
   push:
-    branches:
-      - main
-
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
 jobs:
-  deploy:
-    runs-on: ubuntu-latest
-    
+  build:
+    runs-on: self-hosted
+    strategy:
+      matrix:
+        node-version: [18.x, 20.x, 22.x]
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v3
-    
-    - name: Setup Node.js
-      uses: actions/setup-node@v3
+    - uses: actions/checkout@v4
+    - name: Use Node.js ${{ matrix.node-version }}
+      uses: actions/setup-node@v4
       with:
-        node-version: '20'
-    
+        node-version: ${{ matrix.node-version }}
+        cache: 'npm'
+    - name: Create .env file
+      run: echo '${{ secrets.ENV_FILE }}' > ./app/.env
+      shell: bash
     - name: Install dependencies
-      run: |
-        cd app
-        npm ci
-    
+      run: npm ci
+      working-directory: ./app
     - name: Build project
-      run: |
-        cd app
-        npm run build
-    
-    - name: Deploy to EC2
-      uses: appleboy/scp-action@master
-      with:
-        host: ${{ secrets.EC2_HOST }}
-        username: ${{ secrets.EC2_USERNAME }}
-        key: ${{ secrets.EC2_SSH_KEY }}
-        source: "app/dist/*"
-        target: "/var/www/html/"
-        strip_components: 2
-        rm: true
-    
-    - name: Deploy .env file
-      uses: appleboy/ssh-action@master
-      with:
-        host: ${{ secrets.EC2_HOST }}
-        username: ${{ secrets.EC2_USERNAME }}
-        key: ${{ secrets.EC2_SSH_KEY }}
-        script: |
-          echo "${{ secrets.ENV_FILE }}" > /var/www/html/.env
-          chmod 600 /var/www/html/.env
-    
-    - name: Setup and restart with PM2
-      uses: appleboy/ssh-action@master
-      with:
-        host: ${{ secrets.EC2_HOST }}
-        username: ${{ secrets.EC2_USERNAME }}
-        key: ${{ secrets.EC2_SSH_KEY }}
-        script: |
-          cd /var/www/html
-          
-          # Start with PM2 (will auto-restart on crash)
-          pm2 delete memories-app 2>/dev/null || true
-          pm2 serve . 3000 --name "memories-app" --spa
-          pm2 save
-          
-          # Reload Nginx
-          sudo systemctl reload nginx
+      run: npm run build --if-present
+      working-directory: ./app
+    - name: Restart PM2 service
+      run: pm2 restart MemoriesAPI
+      shell: bash
