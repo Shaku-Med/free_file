@@ -6,5 +6,5 @@ export default {
   ssr: true,
   future: {
     v8_middleware: true // 👈 Enable V8 middleware
-  }
+  },
 } satisfies Config;

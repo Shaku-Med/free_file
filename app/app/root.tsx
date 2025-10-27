@@ -19,6 +19,7 @@ import { LikeProvider } from "./lib/Context/LikeContext";
 import db from "./lib/Database/supabase";
 import type { FileRecord } from "./lib/Services/FileService";
 import { createRateLimit, rateLimitConfigs } from "./lib/middleware/rateLimiter";
+import { useEffect } from "react";
 
 export const links: Route.LinksFunction = () => [
   { rel: "preconnect", href: "https://fonts.googleapis.com" },
@@ -129,6 +130,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
   }
 
   const { files } = data;
+
   return (
     <html className={`dark`} lang="en">
       <head>
