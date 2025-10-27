@@ -1,0 +1,67 @@
+name: Deploy to EC2
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+    
+    - name: Setup Node.js
+      uses: actions/setup-node@v3
+      with:
+        node-version: '18'
+    
+    - name: Install dependencies
+      run: |
+        cd app
+        npm ci
+    
+    - name: Build project
+      run: |
+        cd app
+        npm run build
+    
+    - name: Deploy to EC2
+      uses: appleboy/scp-action@master
+      with:
+        host: ${{ secrets.EC2_HOST }}
+        username: ${{ secrets.EC2_USERNAME }}
+        key: ${{ secrets.EC2_SSH_KEY }}
+        source: "app/dist/*"
+        target: "/var/www/html/"
+        strip_components: 2
+        rm: true
+    
+    - name: Deploy .env file
+      uses: appleboy/ssh-action@master
+      with:
+        host: ${{ secrets.EC2_HOST }}
+        username: ${{ secrets.EC2_USERNAME }}
+        key: ${{ secrets.EC2_SSH_KEY }}
+        script: |
+          echo "${{ secrets.ENV_FILE }}" > /var/www/html/.env
+          chmod 600 /var/www/html/.env
+    
+    - name: Setup and restart with PM2
+      uses: appleboy/ssh-action@master
+      with:
+        host: ${{ secrets.EC2_HOST }}
+        username: ${{ secrets.EC2_USERNAME }}
+        key: ${{ secrets.EC2_SSH_KEY }}
+        script: |
+          cd /var/www/html
+          
+          # Start with PM2 (will auto-restart on crash)
+          pm2 delete memories-app 2>/dev/null || true
+          pm2 serve . 3000 --name "memories-app" --spa
+          pm2 save
+          
+          # Reload Nginx
+          sudo systemctl reload nginx
