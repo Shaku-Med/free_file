@@ -1,0 +1,31 @@
+name: Node.js CI
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+jobs:
+  build:
+    runs-on: self-hosted
+    strategy:
+      matrix:
+        node-version: [18.x, 20.x, 22.x]
+    steps:
+    - uses: actions/checkout@v4
+    - name: Use Node.js ${{ matrix.node-version }}
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ matrix.node-version }}
+        cache: 'npm'
+    - name: Create .env file
+      run: echo '${{ secrets.ENV_FILE }}' > ./app/.env
+      shell: bash
+    - name: Install dependencies
+      run: npm ci
+      working-directory: ./app
+    - name: Build project
+      run: npm run build --if-present
+      working-directory: ./app
+    - name: Restart PM2 service
+      run: pm2 restart MemoriesAPI
+      shell: bash
