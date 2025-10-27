@@ -11,23 +11,27 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      # 1️⃣ Checkout repo
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      # 2️⃣ Setup Node.js
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 20
 
+      # 3️⃣ Install dependencies locally for build
       - name: Install dependencies
         working-directory: ./app
         run: npm ci
 
+      # 4️⃣ Build project
       - name: Build project
         working-directory: ./app
         run: npm run build
 
-      # Create .env file from GitHub secret if it exists
+      # 5️⃣ Create .env file from GitHub secret (optional)
       - name: Create .env file
         run: |
           if [ -n "${{ secrets.ENV_FILE }}" ]; then
@@ -37,19 +41,39 @@ jobs:
             echo "No ENV_FILE secret found — skipping"
           fi
 
-      # Deploy build folder to EC2
-      - name: Deploy via SCP
+      # 6️⃣ Deploy full app folder to EC2
+      - name: Deploy app to EC2
         uses: appleboy/scp-action@v0.1.7
         with:
           host: ${{ secrets.EC2_HOST }}
           username: ${{ secrets.EC2_USERNAME }}
           key: ${{ secrets.EC2_SSH_KEY }}
-          source: "app/build/*"
-          target: "/var/www/memories.brozy.org/"
+          source: "app/*"
+          target: "/var/www/memories.brozy.org/app/"
 
-      # Reload Nginx after deployment
-      - name: Restart Nginx
-        uses: appleboy/ssh-action@v0.1.10
+      # 7️⃣ Install dependencies and start server on EC2
+      - name: Install & Start on EC2
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USERNAME }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            cd /var/www/memories.brozy.org/app
+            npm ci
+            # stop previous process if using pm2 or similar
+            if command -v pm2 >/dev/null 2>&1; then
+              pm2 delete memories || true
+              pm2 start npm --name "memories" -- start
+              pm2 save
+            else
+              # fallback: just start in background
+              nohup npm start > app.log 2>&1 &
+            fi
+
+      # 8️⃣ Reload Nginx
+      - name: Reload Nginx
+        uses: appleboy/ssh-action@v1
         with:
           host: ${{ secrets.EC2_HOST }}
           username: ${{ secrets.EC2_USERNAME }}
