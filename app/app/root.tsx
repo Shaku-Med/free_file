@@ -18,7 +18,6 @@ import { ContextProvider } from "./lib/Context/Context";
 import { LikeProvider } from "./lib/Context/LikeContext";
 import db from "./lib/Database/supabase";
 import type { FileRecord } from "./lib/Services/FileService";
-import { createRateLimit, rateLimitConfigs } from "./lib/middleware/rateLimiter";
 import { useEffect } from "react";
 import Footer from "./components/components/Footer";
 
@@ -35,24 +34,6 @@ export const links: Route.LinksFunction = () => [
   },
 ]
 
-const globalRateLimit = createRateLimit({
-  windowMs: 5 * 60 * 1000,
-  maxRequests: 200,
-  keyGenerator: (request: Request) => {
-    const forwarded = request.headers.get('x-forwarded-for');
-    const ip = forwarded ? forwarded.split(',')[0] : 
-               request.headers.get('x-real-ip') || 
-               'unknown';
-    return `global:${ip}`;
-  }
-});
-
-const rateLimitMiddleware: Route.MiddlewareFunction = async ({ context, request }, next) => {
-  const result = await globalRateLimit(request, async () => {
-    return await next();
-  });
-  return result;
-};
 
 const userMiddleware: Route.MiddlewareFunction = async ({ context }, next) => {
   let response = await next()
@@ -61,7 +42,7 @@ const userMiddleware: Route.MiddlewareFunction = async ({ context }, next) => {
   return response
 };
 
-export const middleware = [rateLimitMiddleware, userMiddleware] satisfies Route.MiddlewareFunction[]
+export const middleware = [userMiddleware] satisfies Route.MiddlewareFunction[]
 
 export const loader = async () => {
   try {

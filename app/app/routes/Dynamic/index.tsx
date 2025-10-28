@@ -6,6 +6,8 @@ import { useState } from "react";
 import RelatedVideos from "./components/RelatedVideos";
 import type { FileType } from "~/lib/types";
 import { BASE_URL } from "~/lib/URLS";
+import ImageLoad from "../Home/components/ImageLoad/ImageLoad";
+import { arrangeDateForThumbnail } from "~/lib/utils";
 
 const calculateTextSimilarity = (str1: string, str2: string): number => {
   const normalize = (str: string) => str.toLowerCase().replace(/[^\w\s]/g, '').trim();
@@ -182,15 +184,6 @@ export const meta: MetaFunction<ReturnType<typeof loader>> = ({ data }: {data: a
   }
 }
 
-
-const arrangeDateForThumbnail = (created_at: string) => {
-  const date = new Date(created_at)
-  const day = date.getDate().toString().padStart(2, '0')
-  const month = (date.getMonth() + 1).toString().padStart(2, '0')
-  const year = date.getFullYear()
-  return `${day}_${month}_${year}`
-}
-
 const formatFileSize = (bytes: number) => {
   if (bytes === 0) return '0 B'
   
@@ -220,7 +213,7 @@ const index = () => {
         <div className="gap-6 flex flex-col">
           <div className="xl:col-span-3 space-y-6">
             <div className="relative group">
-              <div className="aspect-video bg-muted rounded-3xl overflow-hidden shadow-2xl ring-1 ring-border/50">
+              <div className={`${isHLS ? 'aspect-video bg-muted rounded-3xl overflow-hidden shadow-2xl ring-1 ring-border/50' : 'w-fit relative h-full min-h-[200px] w-full flex items-center justify-center rounded-4xl overflow-hidden'}`}>
                 {isHLS ? (
                   <HLSPlayer
                     src={`/api/load/video/${file.endpoint}`}
@@ -236,14 +229,17 @@ const index = () => {
                     loop={true}
                     playsInline
                     poster={`/api/load/image/${arrangeDateForThumbnail(file.created_at)}/${file.unique_id}/thumbnail_${file.filename.split(`.mp4.m3u8`)[0]}.jpg`}
+                    imageID={file.unique_id}
                   />
                 ) : (
                   <TransformWrapper>
-                    <TransformComponent wrapperStyle={{ width: '100%', height: '100%' }} contentStyle={{ width: '100%', height: '100%' }}>
-                      <img
-                        src={`/api/load/image/${file.endpoint}`}
-                        alt={file.filename}
+                    <TransformComponent wrapperStyle={{ width: '100%', height: `700px`, maxHeight: '700px' }} contentStyle={{ width: 'fit-content', height: '100%' }}>
+                      <ImageLoad
+                        link={`/api/load/image/${file.endpoint}`}
+                        setError={() => {}}
                         className="w-full h-full object-contain rounded-3xl"
+                        imageID={file.unique_id}
+                        index={0}
                       />
                     </TransformComponent>
                   </TransformWrapper>

@@ -154,6 +154,7 @@ const RelatedVideos = ({ videos, currentVideoId }: RelatedVideosProps) => {
              <VideoCard
               key={index || 0}
               data={video as FileType}
+              index={index || 0}
              />
             ))}
           </div>

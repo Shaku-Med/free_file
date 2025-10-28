@@ -63,7 +63,7 @@ export default function PhotoDashboard() {
             <>
               <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-5 gap-2">
                   {files.map((file, index) => (
-                    <VideoCard key={index || 0} data={file as FileType} />
+                    <VideoCard key={index || 0} data={file as FileType} index={index || 0} />
                   ))}
               </div>
               {hasMore && (

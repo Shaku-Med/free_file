@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import Hls from 'hls.js';
+import ImageLoad from '~/routes/Home/components/ImageLoad/ImageLoad';
 
 interface HLSPlayerProps {
   src: string;
@@ -14,6 +15,7 @@ interface HLSPlayerProps {
   loop?: boolean;
   playsInline?: boolean;
   poster?: string;
+  imageID?: string;
 }
 
 const HLSPlayer: React.FC<HLSPlayerProps> = ({
@@ -28,7 +30,8 @@ const HLSPlayer: React.FC<HLSPlayerProps> = ({
   muted = false,
   loop = false,
   playsInline = true,
-  poster = ''
+  poster = '',
+  imageID = ''
 }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const hlsRef = useRef<Hls | null>(null);
@@ -43,6 +46,11 @@ const HLSPlayer: React.FC<HLSPlayerProps> = ({
       try {
         setIsLoading(true);
         setHasError(false);
+
+        if (imageID && (window as any)[`_${imageID}`]?.playState) {
+          const cachedState = (window as any)[`_${imageID}`].playState;
+          video.currentTime = cachedState.currentTime || 0;
+        }
 
         const isHLSStream = src.includes('.m3u8') || src.includes('application/vnd.apple.mpegurl');
         
@@ -207,16 +215,33 @@ const HLSPlayer: React.FC<HLSPlayerProps> = ({
     const video = videoRef.current;
     if (!video) return;
 
+    const savePlayState = () => {
+      if (imageID) {
+        const currentCache = (window as any)[`_${imageID}`] || {};
+        (window as any)[`_${imageID}`] = {
+          ...currentCache,
+          playState: {
+            currentTime: video.currentTime,
+            paused: video.paused,
+            duration: video.duration
+          }
+        };
+      }
+    };
+
     const handlePlay = () => {
       setIsLoading(false);
+      savePlayState();
       if (onPlay) onPlay();
     };
 
     const handlePause = () => {
+      savePlayState();
       if (onPause) onPause();
     };
 
     const handleEnded = () => {
+      savePlayState();
       if (onEnded) onEnded();
     };
 
@@ -234,12 +259,17 @@ const HLSPlayer: React.FC<HLSPlayerProps> = ({
       setIsLoading(false);
     };
 
+    const handleTimeUpdate = () => {
+      savePlayState();
+    };
+
     video.addEventListener('play', handlePlay);
     video.addEventListener('pause', handlePause);
     video.addEventListener('ended', handleEnded);
     video.addEventListener('error', handleError);
     video.addEventListener('loadstart', handleLoadStart);
     video.addEventListener('canplay', handleCanPlay);
+    video.addEventListener('timeupdate', handleTimeUpdate);
 
     return () => {
       video.removeEventListener('play', handlePlay);
@@ -248,8 +278,9 @@ const HLSPlayer: React.FC<HLSPlayerProps> = ({
       video.removeEventListener('error', handleError);
       video.removeEventListener('loadstart', handleLoadStart);
       video.removeEventListener('canplay', handleCanPlay);
+      video.removeEventListener('timeupdate', handleTimeUpdate);
     };
-  }, [onPlay, onPause, onEnded, onError]);
+  }, [onPlay, onPause, onEnded, onError, imageID]);
 
   if (hasError) {
     return (
@@ -266,7 +297,7 @@ const HLSPlayer: React.FC<HLSPlayerProps> = ({
     <div className={`relative ${className}`}>
       <div className="poster_blur absolute inset-0 pointer-events-none h-full w-full supports-[filter]:blur-xl blur-2xl">
         <div className="dim bg-background/50 absolute inset-0 w-full h-full" />
-        <img src={poster} alt="poster" loading="lazy" className="w-full h-full object-cover object-center" />
+        <ImageLoad link={poster} setError={() => {}} className="w-full h-full object-cover object-center" imageID={imageID} index={0} />
       </div>
       <div className="relative z-[10000] w-full h-full">
         <video  ref={videoRef}
@@ -276,7 +307,6 @@ const HLSPlayer: React.FC<HLSPlayerProps> = ({
             playsInline={playsInline}
             controls
             preload="metadata"
-            poster={poster}
             autoPlay
           />
       </div>
