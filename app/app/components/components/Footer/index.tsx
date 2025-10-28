@@ -23,6 +23,7 @@ const Footer = () => {
               Terms of Service
             </Link>
           </div>
+          <p>Be mindful when uploading content to this application. Any files you upload cannot be deleted once submitted. We recommend only uploading content you are comfortable having permanently stored on our platform.</p>
           <p className="text-xs">
             © {new Date().getFullYear()} All rights reserved.
           </p>
