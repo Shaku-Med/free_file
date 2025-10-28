@@ -49,7 +49,7 @@ jobs:
           username: ${{ secrets.EC2_USERNAME }}
           key: ${{ secrets.EC2_SSH_KEY }}
           source: "app/*"
-          target: "/var/www/memories.brozy.org/"
+          target: "/var/www/memories.brozy.org/app/"
 
       # 7️⃣ SSH into EC2 and start the app
       - name: Install & Start on EC2
@@ -59,23 +59,19 @@ jobs:
           username: ${{ secrets.EC2_USERNAME }}
           key: ${{ secrets.EC2_SSH_KEY }}
           script: |
-            cd /var/www/memories.brozy.org/app
-            
-            # Install production dependencies
-            npm ci --production
-            
-            # Ensure PM2 is installed globally
-            if ! command -v pm2 >/dev/null 2>&1; then
-              echo "📦 Installing PM2..."
-              sudo npm install -g pm2
+            cd /var/www/memories.brozy.org/app/app
+            npm ci
+
+            # Stop old process if PM2 is available
+            if command -v pm2 >/dev/null 2>&1; then
+              echo "🔄 Restarting app using PM2..."
+              pm2 delete memories || true
+              pm2 start npm --name "memories" -- start
+              pm2 save
+            else
+              echo "🚀 Starting app in background (nohup)..."
+              nohup npm start > app.log 2>&1 &
             fi
-            
-            # Restart app with PM2
-            echo "🔄 Restarting app using PM2..."
-            pm2 delete memories 2>/dev/null || true
-            pm2 start npm --name "memories" -- start
-            pm2 save
-            pm2 list
 
       # 8️⃣ Reload Nginx
       - name: Reload Nginx
