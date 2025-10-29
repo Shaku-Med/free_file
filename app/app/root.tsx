@@ -16,10 +16,12 @@ import Navbar from "./components/Navbar";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { ContextProvider } from "./lib/Context/Context";
 import { LikeProvider } from "./lib/Context/LikeContext";
+import { PictureInPictureProvider } from "./lib/Context/PictureInPictureContext";
 import db from "./lib/Database/supabase";
 import type { FileRecord } from "./lib/Services/FileService";
 import { useEffect } from "react";
 import Footer from "./components/components/Footer";
+import ErrorMessage from "./components/ErrorMessage";
 
 export const links: Route.LinksFunction = () => [
   { rel: "preconnect", href: "https://fonts.googleapis.com" },
@@ -65,14 +67,14 @@ export const loader = async () => {
     }) || [];
 
     if (error) {
-      console.error('Error fetching files:', error);
+      // console.error('Error fetching files:', error);
       throw new Error('Failed to fetch files');
     }
 
     return data({ files: processedFiles }, { status: 200 });
   }
   catch (error) {
-    console.error('Error in loader:', error);
+    // console.error('Error in loader:', error);
     return data(null, { status: 500 });
   }
 }
@@ -95,7 +97,7 @@ export const meta: MetaFunction<ReturnType<typeof loader>> = ({ data }) => {
     ]
   }
   catch (error) {
-    console.error('Error in meta:', error);
+    // console.error('Error in meta:', error);
     return [
       {
         title: 'Error',
@@ -108,7 +110,34 @@ export const meta: MetaFunction<ReturnType<typeof loader>> = ({ data }) => {
 export function Layout({ children }: { children: React.ReactNode }) {
   const data = useLoaderData<typeof loader>();
   if (!data) {
-    return <div>Error loading data</div>;
+    return (
+       <html className="system">
+        <head>
+          <title>Error</title>
+          <meta charSet="utf-8" />
+          <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+          <meta name="apple-mobile-web-app-capable" content="yes" />
+          <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+          <meta name="mobile-web-app-capable" content="yes" />
+          <meta name="apple-mobile-web-app-title" content="Memories" />
+          <meta name="mobile-web-app-title" content="Memories" />
+          <meta name="description" content="Memories is a photo gallery app that allows you to view and share your photos." />
+          <meta name="keywords" content="photo, gallery, app, share, view" />
+          <link rel="shortcut icon" href="/favicon.ico" />
+          <link rel="apple-touch-icon" href="/icons/web/apple-touch-icon.png" />
+          <Meta />
+          <Links />
+        </head>
+        <body>
+          <ErrorMessage message={{
+            title: 'Error',
+            description: `Something went wrong!`,
+            action: `window.location.reload()`,
+            actionText: 'Refresh Page',
+          }}/>
+        </body>
+      </html>
+    )
   }
 
   const { files } = data;
@@ -134,11 +163,13 @@ export function Layout({ children }: { children: React.ReactNode }) {
         <ErrorBoundary>
           <ContextProvider f={files}>
             <LikeProvider>
-              <Navbar />
-              <div className={`mx-auto px-6 xl:px-8 max-w-full xl:container`}>
-               {children}
-              </div>
-              <Footer />
+              <PictureInPictureProvider>
+                <Navbar />
+                <div className={`mx-auto px-6 xl:px-8 max-w-full xl:container`}>
+                 {children}
+                </div>
+                <Footer />
+              </PictureInPictureProvider>
             </LikeProvider>
           </ContextProvider>
         </ErrorBoundary>

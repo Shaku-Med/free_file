@@ -69,7 +69,7 @@ export default function Navbar() {
       <div className="mx-auto px-6 xl:px-8 max-w-full xl:container">
         <div className="flex py-3 items-center justify-between">
           <div className="flex items-center space-x-8">
-            <Link to="/" className="flex items-center space-x-4 group ios-scale">
+            <Link to="/" id="home_button" className="flex items-center space-x-4 group ios-scale">
               <div className="relative flex items-center space-x-4">
                 <div className="">
                   <Logo className="relative h-12 w-12 text-primary" />

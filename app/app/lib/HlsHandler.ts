@@ -8,10 +8,15 @@ declare global {
 }
 
 
-export const convertToHLS = async (file: File): Promise<{ m3u8Url: string, segmentUrls: { blob: Blob, name: string }[] }> => {
+export const convertToHLS = async (file: File, callBack: (ratio: number) => void): Promise<{ m3u8Url: string, segmentUrls: { blob: Blob, name: string }[] }> => {
   if (!file || !window.FFmpeg) return { m3u8Url: '', segmentUrls: [] as { blob: Blob, name: string }[] };
 
-  const ffmpeg = window.FFmpeg.createFFmpeg({ log: true });
+  const ffmpeg = window.FFmpeg.createFFmpeg({ 
+    log: false,
+    progress: ({ratio}: {ratio: number}) => {
+      callBack(ratio);
+    }
+  });
   
   try {
     await ffmpeg.load();
@@ -23,9 +28,25 @@ export const convertToHLS = async (file: File): Promise<{ m3u8Url: string, segme
 
     await ffmpeg.FS("writeFile", inputFileName, new Uint8Array(await file.arrayBuffer()));
     
+    // await ffmpeg.run(
+    //   '-i', inputFileName,
+    //   '-c', 'copy',
+    //   '-hls_time', '10',
+    //   '-hls_list_size', '0',
+    //   '-hls_segment_filename', segmentPattern,
+    //   '-hls_flags', 'independent_segments',
+    //   '-hls_allow_cache', '0',
+    //   '-hls_start_number_source', '0',
+    //   '-f', 'hls',
+    //   outputFileName
+    // );
+
     await ffmpeg.run(
       '-i', inputFileName,
-      '-c', 'copy',
+      '-c:v', 'libx264',           // Re-encode video to ensure compatibility
+      '-c:a', 'aac',               // Re-encode audio to AAC
+      '-b:v', '2000k',             // Video bitrate
+      '-b:a', '128k',              // Audio bitrate
       '-hls_time', '10',
       '-hls_list_size', '0',
       '-hls_segment_filename', segmentPattern,
@@ -35,7 +56,25 @@ export const convertToHLS = async (file: File): Promise<{ m3u8Url: string, segme
       '-f', 'hls',
       outputFileName
     );
+    
+    const filesAfterConversion = ffmpeg.FS('readdir', '/');
+    if (!filesAfterConversion.includes(outputFileName)) {
+      console.error('FFmpeg did not create the m3u8 file');
+      await ffmpeg.run(
+        '-i', inputFileName,
+        '-c', 'copy',
+        '-hls_time', '10',
+        '-hls_list_size', '0',
+        '-hls_segment_filename', segmentPattern,
+        '-hls_flags', 'independent_segments',
+        '-hls_allow_cache', '0',
+        '-hls_start_number_source', '0',
+        '-f', 'hls',
+        outputFileName
+      );
+    }
 
+    // ----
     const m3u8Data = ffmpeg.FS("readFile", outputFileName);
     const m3u8Content = new TextDecoder().decode(m3u8Data);
     

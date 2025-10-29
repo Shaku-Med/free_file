@@ -4,6 +4,7 @@ import { motion } from "framer-motion"
 import { Link } from "react-router"
 import type { FileType } from "~/lib/types"
 import VideoCard from "~/routes/Home/components/VideoCard"
+import { ParseFilename } from "~/lib/utils"
 
 interface RelatedVideosProps {
   videos: FileType[]
@@ -46,7 +47,7 @@ const RelatedVideoCard = ({ data }: { data: FileType }) => {
               <img
                 src={data.file_type.startsWith('image/') && data.endpoint 
                   ? `/api/load/image/${data.endpoint}` 
-                  : `/api/load/image/${arrangeDateForThumbnail(data.created_at)}/${data.unique_id}/thumbnail_${data.filename.split(`.`)[0]}.jpg`}
+                  : `/api/load/image/${arrangeDateForThumbnail(data.created_at)}/${data.unique_id}/thumbnail_${ParseFilename(data.filename)}.jpg`}
                 alt={`Thumbnail`}
                 className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
                 onError={() => setError(true)}
@@ -78,7 +79,7 @@ const RelatedVideoCard = ({ data }: { data: FileType }) => {
         <div className="flex-1 min-w-0 space-y-2">
           <Link to={`/${data.unique_id}`}>
             <h3 className="text-sm font-semibold text-foreground line-clamp-2 leading-tight cursor-pointer hover:text-primary transition-colors duration-200">
-              {data.filename}
+              {ParseFilename(data.filename)}
             </h3>
           </Link>
           

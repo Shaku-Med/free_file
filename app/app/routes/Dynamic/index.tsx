@@ -7,7 +7,7 @@ import RelatedVideos from "./components/RelatedVideos";
 import type { FileType } from "~/lib/types";
 import { BASE_URL } from "~/lib/URLS";
 import ImageLoad from "../Home/components/ImageLoad/ImageLoad";
-import { arrangeDateForThumbnail } from "~/lib/utils";
+import { arrangeDateForThumbnail, ParseFilename } from "~/lib/utils";
 
 const calculateTextSimilarity = (str1: string, str2: string): number => {
   const normalize = (str: string) => str.toLowerCase().replace(/[^\w\s]/g, '').trim();
@@ -156,20 +156,20 @@ export const meta: MetaFunction<ReturnType<typeof loader>> = ({ data }: {data: a
     }
 
     const isHLS = data?.file?.file_type === 'application/vnd.apple.mpegurl' || data?.file?.endpoint?.includes('.m3u8');
-    const thumbnail = isHLS ? `/api/load/image/${arrangeDateForThumbnail(data?.file?.created_at)}/${data?.file?.unique_id}/thumbnail_${data?.file?.filename.split(`.mp4.m3u8`)[0]}.jpg` : `/api/load/image/${data?.file?.endpoint}`;
+    const thumbnail = isHLS ? `/api/load/image/${arrangeDateForThumbnail(data?.file?.created_at)}/${data?.file?.unique_id}/thumbnail_${ParseFilename(data?.file?.filename)}.jpg` : `/api/load/image/${data?.file?.endpoint}`;
 
     return [
       {
-        title: `${data?.file?.filename?.split(`.mp4.m3u8`)[0]} - Memories`,
+        title: `${ParseFilename(data?.file?.filename)} - Memories`,
       },
       {
         name: 'description',
-        content: `${data?.file?.filename?.split(`.mp4.m3u8`)[0]} | ${data?.file?.file_type} | ${data?.file?.file_size} | ${data?.file?.created_at} - Memories`
+        content: `${ParseFilename(data?.file?.filename)} | ${data?.file?.file_type} | ${data?.file?.file_size} | ${data?.file?.created_at} - Memories`
       },
-      { property: "og:title", content: `${data?.file?.filename?.split(`.mp4.m3u8`)[0]} - Memories` },
+      { property: "og:title", content: `${ParseFilename(data?.file?.filename)} - Memories` },
       { property: "og:image", content: `${BASE_URL}${thumbnail}` },
-      { name: "twitter:title", content: `${data?.file?.filename?.split(`.mp4.m3u8`)[0]} - Memories` },
-      { name: "twitter:description", content: `${data?.file?.filename?.split(`.mp4.m3u8`)[0]} | ${data?.file?.file_type} | ${data?.file?.file_size} | ${data?.file?.created_at} - Memories` },
+      { name: "twitter:title", content: `${ParseFilename(data?.file?.filename)} - Memories` },
+      { name: "twitter:description", content: `${ParseFilename(data?.file?.filename)} | ${data?.file?.file_type} | ${data?.file?.file_size} | ${data?.file?.created_at} - Memories` },
       { name: "twitter:image", content: `${BASE_URL}${thumbnail}` },
     ]
   }
@@ -199,6 +199,7 @@ const index = () => {
   const data= useLoaderData<typeof loader>();
   const file = data?.file;
   const relatedVideos = data?.relatedVideos || [];
+  const [poster, setPoster] = useState<string | null>(null);
   
   if(!file) {
     return <div>File not found</div>
@@ -206,6 +207,13 @@ const index = () => {
 
   const isHLS = file?.file_type === 'application/vnd.apple.mpegurl' || file?.endpoint?.includes('.m3u8');
 
+  const [retryAttempt, setRetryAttempt] = useState<number>(0)
+  const retry = () => {
+    if(retryAttempt >= 1) {
+      return
+    }
+    setRetryAttempt(retryAttempt + 1)
+  }
 
   return (
     <div className="min-h-screen bg-background">
@@ -228,15 +236,15 @@ const index = () => {
                     muted={false}
                     loop={true}
                     playsInline
-                    poster={`/api/load/image/${arrangeDateForThumbnail(file.created_at)}/${file.unique_id}/thumbnail_${file.filename.split(`.mp4.m3u8`)[0]}.jpg`}
                     imageID={file.unique_id}
+                    file={file}
                   />
                 ) : (
                   <TransformWrapper>
                     <TransformComponent wrapperStyle={{ width: '100%', height: `700px`, maxHeight: '700px' }} contentStyle={{ width: 'fit-content', height: '100%' }}>
                       <ImageLoad
                         link={`/api/load/image/${file.endpoint}`}
-                        setError={() => {}}
+                        retry={retry}
                         className="w-full h-full object-contain rounded-3xl"
                         imageID={file.unique_id}
                         index={0}
@@ -252,7 +260,7 @@ const index = () => {
                 <div className="flex items-start justify-between">
                   <div className="space-y-2">
                     <h1 className="text-2xl font-bold text-foreground leading-tight">
-                      {file.filename?.split(`.mp4.m3u8`)[0]}
+                      {ParseFilename(file.filename)}
                     </h1>
                     <div className="flex items-center gap-6 text-sm text-muted-foreground">
                       <div className="flex items-center gap-2">

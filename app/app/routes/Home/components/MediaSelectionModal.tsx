@@ -27,6 +27,7 @@ interface UploadItem {
   error?: string
   retryCount: number
   validationError?: string
+  uniqueID: string
 }
 
 const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({ isOpen, onClose, onFilesSelected }) => {
@@ -200,11 +201,10 @@ const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({ isOpen, onClo
     }
   }
 
-  const uploadVideo = async (file: File): Promise<boolean> => {
+  const uploadVideo = async (file: File, index: number, onProgress: (value: number) => void, uniqueID: string): Promise<boolean> => {
     let thumbnailGenerator: ThumbnailGenerator | null = null
     
     try {
-      const uniqueID = GenerateUniqueID()
       thumbnailGenerator = new ThumbnailGenerator()
 
       console.log('🎬 Generating thumbnail for video:', file.name)
@@ -232,7 +232,10 @@ const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({ isOpen, onClo
       thumbnailGenerator = null
 
       console.log('🎥 Starting HLS conversion for video:', file.name)
-      const { m3u8Url, segmentUrls } = await convertToHLS(file)
+      const { m3u8Url, segmentUrls } = await convertToHLS(file, (ratio: number) => {
+        const value = Math.max(0, Math.min(100, Math.round(ratio * 90)))
+        onProgress(value)
+      })
       if (!m3u8Url || segmentUrls.length === 0) {
         return false
       }
@@ -244,6 +247,7 @@ const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({ isOpen, onClo
       }
 
       console.log('✅ Video upload completed successfully')
+      onProgress(100)
       return true
     } catch (error) {
       console.error(`❌ Video upload failed:`, error)
@@ -259,17 +263,17 @@ const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({ isOpen, onClo
     }
   }
 
-  const uploadFile = async (file: File): Promise<boolean> => {
+  const uploadFile = async (file: File, index: number, onProgress: (value: number) => void, uniqueID: string): Promise<boolean> => {
     try {
       if(file.type.startsWith(`video/`)) {
-        return uploadVideo(file)
+        return uploadVideo(file, index, onProgress, uniqueID)
       }
       
       if(file.type.startsWith(`image/`)) {
         const formData = new FormData()
         formData.append('file', file)
         formData.append('name', file.name)
-        formData.append('uniqueID', GenerateUniqueID())
+        formData.append('uniqueID', uniqueID)
 
         const response = await fetch('/api/upload', {
           method: 'POST',
@@ -281,6 +285,7 @@ const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({ isOpen, onClo
         }
 
         const result = await response.json()
+        if (result.success) onProgress(100)
         return result.success
       }
       
@@ -313,8 +318,31 @@ const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({ isOpen, onClo
             : uploadItem
         ))
 
-        const success = await uploadFile(item.file)
-        
+        const maxRetries = 2
+        let attempt = 0
+        let success = false
+        while (attempt <= maxRetries && !success) {
+          success = await uploadFile(item.file, i, (value: number) => {
+            setUploadQueue(prev => prev.map(uploadItem => 
+              uploadItem.id === item.id 
+                ? { ...uploadItem, progress: value, status: 'uploading' }
+                : uploadItem
+            ))
+          }, item.uniqueID)
+
+          if (!success) {
+            attempt += 1
+            setUploadQueue(prev => prev.map(uploadItem => 
+              uploadItem.id === item.id 
+                ? { ...uploadItem, retryCount: uploadItem.retryCount + 1 }
+                : uploadItem
+            ))
+            if (attempt <= maxRetries) {
+              await new Promise(r => setTimeout(r, 1000 * Math.pow(2, attempt)))
+            }
+          }
+        }
+
         setUploadQueue(prev => prev.map(uploadItem => 
           uploadItem.id === item.id 
             ? { 
@@ -329,10 +357,6 @@ const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({ isOpen, onClo
               }
             : uploadItem
         ))
-
-        if (!success) {
-          break
-        }
       }
     } finally {
       clearTimeout(timeoutId)
@@ -367,7 +391,8 @@ const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({ isOpen, onClo
         file,
         status: 'pending' as const,
         progress: 0,
-        retryCount: 0
+        retryCount: 0,
+        uniqueID: GenerateUniqueID()
       }))
       
       setUploadQueue(prev => [...prev, ...newUploadItems])
