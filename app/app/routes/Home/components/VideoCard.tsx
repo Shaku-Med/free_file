@@ -22,6 +22,7 @@ const base64URL = (url: string) => {
 const VideoCard = ({ data, key, index}: VideoCardProps) => {
   const [error, setError] = useState<boolean>(false)
   const [retryAttempt, setRetryAttempt] = useState<number>(0)
+  const [loaded, setLoaded] = useState<boolean>(false)
 
   const retry = () => {
     if(retryAttempt >= 1) {
@@ -32,15 +33,17 @@ const VideoCard = ({ data, key, index}: VideoCardProps) => {
   }
 
   return (
-    <motion.div className=" overflow-hidden flex flex-col justify-between"
-      initial={{ y: 10  * (index || 0) }}
-      animate={{ y: 0 }}
-      transition={{ duration: 0.3 }}
+    <motion.div className=" group overflow-hidden rounded-2xl relative flex flex-col justify-between bg-card ring-1 ring-border/50 shadow-sm hover:shadow-md transition-all duration-300"
+      initial={{opacity: 0}}
+      animate={{opacity: 1}}
+      transition={{duration: 0.10, ease: "easeOut"}}
     >
       <Link to={`/${data.unique_id}`}
-      className={`h-full`}
+      className={`h-full bg-card rounded-2xl overflow-hidden`}
       >
-        <div
+        <motion.div
+          layoutId={`video_id_${data.unique_id}`}
+          transition={{duration: 0.1, ease: "easeOut", damping: 10, stiffness: 100}}
           className={`h-full`}
         >
             <>
@@ -53,6 +56,12 @@ const VideoCard = ({ data, key, index}: VideoCardProps) => {
                     imageID={data.unique_id}
                     index={index}
                     retry={retry}
+                    className={`${!loaded ? 'aspect-video' : ''} transition-all duration-300`}
+                    callBack={e => {
+                      if(e) {
+                        setLoaded(true)
+                      }
+                    }}
                   />
                 ) : (
                 <div className="w-full h-full flex items-center justify-center bg-muted text-xs text-center">
@@ -61,15 +70,13 @@ const VideoCard = ({ data, key, index}: VideoCardProps) => {
                 )
             }
             </>
-        </div>
+        </motion.div>
       </Link>
       
-      <div className="p-3 space-y-2">
-        <Link to={`/${data.unique_id}`}>
-          <h3 className="text-sm font-semibold line-clamp-2 leading-tight cursor-pointer">
-            {ParseFilename(data.filename)}
-          </h3>
-        </Link>
+      <div className="opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-all duration-300 p-3 space-y-2 pointer-events-none absolute flex flex-col justify-end bottom-0 left-0 right-0 h-full bg-gradient-to-t from-black/80 via-black/40 to-transparent">
+        <h3 className="text-white text-sm md:text-base font-semibold leading-tight line-clamp-2">
+          {ParseFilename(data.filename)}
+        </h3>
       </div>
     </motion.div>
   )

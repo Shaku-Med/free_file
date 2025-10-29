@@ -8,6 +8,7 @@ import type { FileType } from "~/lib/types";
 import { BASE_URL } from "~/lib/URLS";
 import ImageLoad from "../Home/components/ImageLoad/ImageLoad";
 import { arrangeDateForThumbnail, ParseFilename } from "~/lib/utils";
+import { motion } from "framer-motion";
 
 const calculateTextSimilarity = (str1: string, str2: string): number => {
   const normalize = (str: string) => str.toLowerCase().replace(/[^\w\s]/g, '').trim();
@@ -220,7 +221,7 @@ const index = () => {
       <div className="mx-auto max-w-full xl:container py-6">
         <div className="gap-6 flex flex-col">
           <div className="xl:col-span-3 space-y-6">
-            <div className="relative group">
+            <motion.div layoutId={`video_id_${file.unique_id}`} className="relative group">
               <div className={`${isHLS ? 'aspect-video bg-muted rounded-3xl overflow-hidden shadow-2xl ring-1 ring-border/50' : 'w-fit relative h-full min-h-[200px] w-full flex items-center justify-center rounded-4xl overflow-hidden'}`}>
                 {isHLS ? (
                   <HLSPlayer
@@ -253,7 +254,7 @@ const index = () => {
                   </TransformWrapper>
                 )}
               </div>
-            </div>
+            </motion.div>
 
             <div className="bg-card rounded-3xl p-8 shadow-lg ring-1 ring-border/50 overflow-x-auto">
               <div className="space-y-4">
