@@ -8,6 +8,7 @@ import { Plus } from "lucide-react";
 import { driver } from "driver.js";
 import "driver.js/dist/driver.css";
 import Cookies from "js-cookie";
+import ClientEncryption from "../Security/Client/Encryption";
 
 
 export const driverObj = driver({
@@ -44,6 +45,7 @@ export const Context = createContext<ContextProps>({
 interface ContextProviderProps {
     children: React.ReactNode;
     f: FileType[];
+    st: string;
 }
 
 export const FloatingButton = () => {
@@ -68,10 +70,50 @@ export const FloatingButton = () => {
     )
 }
 
-export const ContextProvider = ({ children, f }: ContextProviderProps) => {
+export const ContextProvider = ({ children, f, st }: ContextProviderProps) => {
     const [files, setFiles] = useState<FileType[]>(f);
     const [isModalOpen, setIsModalOpen] = useState(false);
 
+    useLayoutEffect(() => {
+        let fetchPublicKey = async () => {
+            try {
+                if(!st) return
+                let client = new ClientEncryption()
+                await client.generateKeys()
+
+                let response = await fetch('/api/public-key', {
+                    headers: {
+                        'Authorization': `Bearer ${st}`,
+                        'Content-Type': 'application/json'
+                    }
+                })
+                if(!response.ok) return
+                let data = await response.json()
+
+                await client.deriveSharedSecret(data.publicKey)
+                const clientPublicKey = await client.getPublicKey()
+                if(!clientPublicKey) return
+
+                let handshake = await fetch(`/api/handshake`, {
+                    method: 'POST',
+                    body: JSON.stringify({ clientPublicKey }),
+                    headers: {
+                        'Authorization': `Bearer ${data.session}`,
+                        'Content-Type': 'application/json'
+                    }
+                })
+                if(!handshake.ok) return
+                let handshakeData = await handshake.json()
+                console.log('handshakeData', handshakeData)
+            }
+            catch (error) {
+                console.error('Error in fetchPublicKey:', error)
+                return null
+            }
+        }
+        
+        if(st && !st.includes('not_needed')) fetchPublicKey()
+    }, [st])
 
     const value = useMemo(() => ({ files, setFiles, isModalOpen, setIsModalOpen }), [files, setFiles, isModalOpen, setIsModalOpen]);
     return (

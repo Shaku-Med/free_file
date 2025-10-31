@@ -318,30 +318,13 @@ const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({ isOpen, onClo
             : uploadItem
         ))
 
-        const maxRetries = 2
-        let attempt = 0
-        let success = false
-        while (attempt <= maxRetries && !success) {
-          success = await uploadFile(item.file, i, (value: number) => {
-            setUploadQueue(prev => prev.map(uploadItem => 
-              uploadItem.id === item.id 
-                ? { ...uploadItem, progress: value, status: 'uploading' }
-                : uploadItem
-            ))
-          }, item.uniqueID)
-
-          if (!success) {
-            attempt += 1
-            setUploadQueue(prev => prev.map(uploadItem => 
-              uploadItem.id === item.id 
-                ? { ...uploadItem, retryCount: uploadItem.retryCount + 1 }
-                : uploadItem
-            ))
-            if (attempt <= maxRetries) {
-              await new Promise(r => setTimeout(r, 1000 * Math.pow(2, attempt)))
-            }
-          }
-        }
+        const success = await uploadFile(item.file, i, (value: number) => {
+          setUploadQueue(prev => prev.map(uploadItem => 
+            uploadItem.id === item.id 
+              ? { ...uploadItem, progress: value, status: 'uploading' }
+              : uploadItem
+          ))
+        }, item.uniqueID)
 
         setUploadQueue(prev => prev.map(uploadItem => 
           uploadItem.id === item.id 
@@ -349,11 +332,7 @@ const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({ isOpen, onClo
                 ...uploadItem, 
                 status: success ? 'success' : 'error',
                 progress: success ? 100 : uploadItem.progress,
-                error: success ? undefined : item.file.type.startsWith('video/') 
-                  ? 'HLS conversion failed - check console for details' 
-                  : item.file.type.startsWith('image/')
-                  ? 'Image upload failed - check console for details'
-                  : 'Upload failed'
+                error: success ? undefined : 'Failed to upload file'
               }
             : uploadItem
         ))
@@ -363,6 +342,14 @@ const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({ isOpen, onClo
       setIsUploading(false)
     }
   }, [isUploading, uploadQueue])
+
+  const retryItem = (id: string) => {
+    setUploadQueue(prev => prev.map(uploadItem => 
+      uploadItem.id === id 
+        ? { ...uploadItem, status: 'pending', progress: 0, error: undefined }
+        : uploadItem
+    ))
+  }
 
   const handleFileSelect = useCallback(async (files: FileList | null) => {
     if (!files) return
@@ -574,8 +561,18 @@ const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({ isOpen, onClo
                         {item.validationError && (
                           <p className="text-xs text-destructive mt-1">{item.validationError}</p>
                         )}
+                        {item.status === 'error' && item.error && (
+                          <p className="text-xs text-destructive mt-1">{item.error}</p>
+                        )}
                       </div>
                     </div>
+                    {item.status === 'error' && (
+                      <div className="ml-3 flex-shrink-0">
+                        <Button variant="outline" onClick={() => retryItem(item.id)} className="h-8 px-3 rounded-full">
+                          Retry
+                        </Button>
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>

@@ -22,6 +22,9 @@ import type { FileRecord } from "./lib/Services/FileService";
 import { useEffect } from "react";
 import Footer from "./components/components/Footer";
 import ErrorMessage from "./components/ErrorMessage";
+import { getCookie } from "./lib/Security/Token";
+import { VerifyToken } from "./lib/Security/unsharedkeyEncryption/Combined/Verification/VerifyToken";
+import SetToken from "./lib/Security/unsharedkeyEncryption/Combined/Verification/SetToken";
 
 export const links: Route.LinksFunction = () => [
   { rel: "preconnect", href: "https://fonts.googleapis.com" },
@@ -36,22 +39,82 @@ export const links: Route.LinksFunction = () => [
   },
 ]
 
+const VerifyB4Making = async (headers: Headers, keys: string[]) => {
+  let token = getCookie('token', headers)
+  if(!token) return null
+  let decoded = await VerifyToken({
+    token: token,
+    addedKeyNames: keys || []
+  }, headers)
+  if(!decoded) return null
+  return true;
+}
 
 const userMiddleware: Route.MiddlewareFunction = async ({ context }, next) => {
   let response = await next()
   response.headers.set("Cross-Origin-Embedder-Policy", "require-corp")
   response.headers.set("Cross-Origin-Opener-Policy", "same-origin")
+  // 
   return response
 };
 
 export const middleware = [userMiddleware] satisfies Route.MiddlewareFunction[]
 
-export const loader = async () => {
+let verifySessionToken = async (headers: Headers) => {
   try {
-    if(!db){
-      throw new Error('Database not initialized');
-    }
+    let keys = ['session_id']
+    let token = getCookie('sessionId', headers)
+    if(!token) return null
+    let decoded = await VerifyToken({
+      token: token,
+      addedKeyNames: keys || []
+    }, headers)
+    if(!decoded) return null
+    if(!token) return null
+    return true
+  }
+  catch (error) {
+    console.error('Error in verifySessionToken: ', error)
+    return null
+  }
+}
+
+let makeSessionToken = async (headers: Headers) => {
+  try {
+    let verified = await verifySessionToken(headers)
+    if(verified) return 'not_needed'
+    let keys = ['file_token']
+    let token = await SetToken(headers, {
+      expiresIn: '10m',
+      algorithm: 'HS512'
+    }, keys)
+    if(!token) return null
+    return token.data
+  }
+  catch (error) {
+    console.error('Error in makeSessionToken: ', error)
+    return null
+  }
+}
+
+export const loader = async ({request}: {request: Request}) => {
+  try {
+    let sessionToken = await makeSessionToken(request.headers)
+    if(!sessionToken) return data(null, { status: 500 });
     
+    if(!db) return data(null, { status: 500 })
+    let keys = ['token1', 'token2']
+    let verified = await VerifyB4Making(request.headers, keys)
+    let token: string | null = null
+    if(!verified){
+      let t = await SetToken(request.headers, {
+        expiresIn: '1d',
+        algorithm: 'HS512'
+      }, keys)
+      if(!t) return data(null, { status: 500 });
+      token = t?.data
+    }
+
     const { data: files, error } = await db
       .from('files')
       .select('filename, unique_id, up_count, down_count, file_size, file_type, endpoint, created_at')
@@ -67,14 +130,18 @@ export const loader = async () => {
     }) || [];
 
     if (error) {
-      // console.error('Error fetching files:', error);
-      throw new Error('Failed to fetch files');
+      console.error('Error fetching files:', error)
+      return data(null, { status: 500 })
     }
-
-    return data({ files: processedFiles }, { status: 200 });
+    return data({ files: processedFiles, st: sessionToken }, {
+      status: 200,
+      headers: token ? {
+        'Set-Cookie': `token=${token}; Path=/; HttpOnly; Max-Age=86400; ${process.env.NODE_ENV === 'production' ? 'Secure' : ''}; SameSite=Strict`
+      } : undefined
+    } as ResponseInit);
   }
   catch (error) {
-    // console.error('Error in loader:', error);
+    console.error('Error in loader:', error)
     return data(null, { status: 500 });
   }
 }
@@ -140,7 +207,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
     )
   }
 
-  const { files } = data;
+  const { files, st } = data;
 
   return (
     <html className={`system`} lang="en">
@@ -161,7 +228,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
       </head>
       <body>
         <ErrorBoundary>
-          <ContextProvider f={files}>
+          <ContextProvider f={files} st={st}>
             <LikeProvider>
               <PictureInPictureProvider>
                 <Navbar />

@@ -32,9 +32,11 @@ const VideoCard = ({ data, key, index}: VideoCardProps) => {
     setRetryAttempt(retryAttempt + 1)
   }
 
+  // Make the opacity by the index 0 - 1 float
+  const opacity = Math.min(Math.max(0, index || 0), 10) / 10
   return (
     <motion.div className=" group overflow-hidden rounded-2xl relative flex flex-col justify-between bg-card ring-1 ring-border/50 shadow-sm hover:shadow-md transition-all duration-300"
-      initial={{opacity: 0}}
+      initial={{opacity: opacity}}
       animate={{opacity: 1}}
       transition={{duration: 0.10, ease: "easeOut"}}
     >

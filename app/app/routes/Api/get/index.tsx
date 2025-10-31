@@ -1,8 +1,30 @@
+import { VerifyToken } from '~/lib/Security/unsharedkeyEncryption/Combined/Verification/VerifyToken';
 import { FileService } from '../../../lib/Services/FileService';
 import type { PaginationParams } from '../../../lib/Services/FileService';
+import { getCookie } from '~/lib/Security/Token';
 
 export const loader = async ({ request }: { request: Request }) => {
     try {
+        let keys = ['token1', 'token2']
+        let token = getCookie('token', request.headers)
+        if(!token) return new Response(JSON.stringify({ 
+            error: 'Unauthorized' 
+        }), { 
+            status: 401,
+            headers: { 'Content-Type': 'application/json' }
+        });
+
+        let decoded = await VerifyToken({
+            token: token,
+            addedKeyNames: keys || []
+        }, request.headers)
+        if(!decoded) return new Response(JSON.stringify({ 
+            error: 'Access Denied!' 
+        }), { 
+            status: 401,
+            headers: { 'Content-Type': 'application/json' }
+        });
+
         const url = new URL(request.url);
         const searchParams = url.searchParams;
         
@@ -47,7 +69,11 @@ export const loader = async ({ request }: { request: Request }) => {
         const result = await fileService.getFilesPaginated(paginationParams);
         
         return new Response(JSON.stringify(result), {
-            headers: { 'Content-Type': 'application/json' }
+            headers: { 
+                'Content-Type': 'application/json',
+                'Access-Control-Allow-Origin': '*',
+                // 'Cache-Control': 'public, max-age=1800',
+             }
         });
     }
     catch (error) {

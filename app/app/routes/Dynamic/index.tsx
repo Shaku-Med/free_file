@@ -203,7 +203,13 @@ const index = () => {
   const [poster, setPoster] = useState<string | null>(null);
   
   if(!file) {
-    return <div>File not found</div>
+    return (
+      <>
+        <div className={`flex items-center justify-center text-2xl py-6 px-4 min-h-[200px]`}>
+          <h1>File not found</h1>
+        </div>
+      </>
+    )
   }
 
   const isHLS = file?.file_type === 'application/vnd.apple.mpegurl' || file?.endpoint?.includes('.m3u8');
