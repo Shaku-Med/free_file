@@ -30,10 +30,14 @@ jobs:
       - name: Create .env file from GitHub secret
         run: |
           if [ -n "${{ secrets.ENV_FILE }}" ]; then
-            echo "${{ secrets.ENV_FILE }}" > app/.env
-            echo ".env file created ✅"
+            cat << 'EOF' > app/.env
+          ${{ secrets.ENV_FILE }}
+          EOF
+            echo "✅ .env file created"
+            echo "📄 File size: $(wc -c < app/.env) bytes"
           else
-            echo "⚠️ No ENV_FILE secret found — skipping"
+            echo "❌ ERROR: ENV_FILE secret is empty or not found!"
+            exit 1
           fi
 
       # 5️⃣ Build project (after env is ready)
