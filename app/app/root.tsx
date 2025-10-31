@@ -223,6 +223,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
         <meta name="keywords" content="photo, gallery, app, share, view" />
         <link rel="shortcut icon" href="/favicon.ico" />
         <link rel="apple-touch-icon" href="/icons/web/apple-touch-icon.png" />
+        <link rel="manifest" href="/manifest.json" />
         <Meta />
         <Links />
       </head>
@@ -246,6 +247,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
         <script src="/Editor/hls_converter.js"></script>
         <script src="/Editor/ffmpeg.min.js"></script>
         <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+
       </body>
     </html>
   );
