@@ -9,6 +9,7 @@ import { BASE_URL } from "~/lib/URLS";
 import ImageLoad from "../Home/components/ImageLoad/ImageLoad";
 import { arrangeDateForThumbnail, ParseFilename } from "~/lib/utils";
 import { motion } from "framer-motion";
+import { MakeVideoToken } from "./components/Functions";
 
 const calculateTextSimilarity = (str1: string, str2: string): number => {
   const normalize = (str: string) => str.toLowerCase().replace(/[^\w\s]/g, '').trim();
@@ -97,7 +98,7 @@ const calculateRelatedScore = (currentFile: FileType, candidateFile: FileType): 
   return (textScore * 0.5 + typeScore * 0.3 + temporalScore * 0.2);
 };
 
-export const loader = async ({ params }: { params: { id: string } }) => {
+export const loader = async ({ request, params }: { request: Request, params: { id: string } }) => {
   try {
     if(!db){
       throw new Error('Database not initialized');
@@ -118,7 +119,7 @@ export const loader = async ({ params }: { params: { id: string } }) => {
       .select('*')
       .neq('unique_id', params.id)
       .order('created_at', { ascending: false })
-      .limit(50);
+      .limit(10);
 
     if (allFilesError) {
       console.error('Error fetching all files:', allFilesError);
@@ -133,11 +134,24 @@ export const loader = async ({ params }: { params: { id: string } }) => {
       
       relatedVideos = scoredFiles
         .sort((a: any, b: any) => b.relatedScore - a.relatedScore)
-        .slice(0, 50)
+        .slice(0, 10)
         .map(({ relatedScore, ...file }: any) => file);
     }
 
-    return data({ file, relatedVideos }, { status: 200 });
+    let videoToken = await MakeVideoToken(file?.file_type, params.id, request.headers)
+    const path = new URL(request.url).pathname;
+    let headers = new Headers();
+    
+    if(videoToken) {
+      let vid_path = `/api/load/video/${file.endpoint.split(`${path}`)[0]}${path}`
+      headers.append('Set-Cookie', `videoToken=${videoToken}; Path=${vid_path}; Max-Age=86400; HttpOnly; ${process.env.NODE_ENV === 'production' ? 'Secure' : ''}; SameSite=Strict, priority=high`);
+      headers.append('Set-Cookie', `validator=${videoToken}; Path=/; Max-Age=86400; HttpOnly; ${process.env.NODE_ENV === 'production' ? 'Secure' : ''}; SameSite=Strict, priority=high`);
+    }
+
+    return data({ file, relatedVideos }, { 
+      status: 200,
+      headers: headers as unknown as HeadersInit
+     });
   }
   catch (error) {
     console.error('Error in loader:', error);
@@ -150,8 +164,8 @@ export const meta: MetaFunction<ReturnType<typeof loader>> = ({ data }: {data: a
     if(!data) {
       return [
         {
-          title: 'Error',
-          description: 'Error loading file',
+          title: 'Not Found',
+          description: 'File not found',
         }
       ];
     }
@@ -200,6 +214,7 @@ const index = () => {
   const data= useLoaderData<typeof loader>();
   const file = data?.file;
   const relatedVideos = data?.relatedVideos || [];
+
   const [poster, setPoster] = useState<string | null>(null);
   
   if(!file) {

@@ -29,7 +29,7 @@ export const loader = async ({ request }: { request: Request }) => {
         const searchParams = url.searchParams;
         
         const page = parseInt(searchParams.get('page') || '1');
-        const limit = parseInt(searchParams.get('limit') || '50');
+        const limit = parseInt(searchParams.get('limit') || '10');
         const sortBy = searchParams.get('sortBy') || 'created_at';
         const sortOrder = (searchParams.get('sortOrder') || 'desc') as 'asc' | 'desc';
         const fileType = searchParams.get('fileType') || undefined;

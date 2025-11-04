@@ -242,6 +242,9 @@ const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({ isOpen, onClo
 
       console.log('📤 Uploading HLS segments...')
       const uploadSuccess = await VideoFetchPush(segmentUrls, uniqueID)
+
+      // Free the Object URL to prevent memory leaks after upload
+      try { URL.revokeObjectURL(m3u8Url) } catch {}
       if (!uploadSuccess) {
         return false
       }

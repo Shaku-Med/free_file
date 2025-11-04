@@ -31,7 +31,7 @@ export default function PhotoDashboard() {
           setFiles((prev: FileType[]) => [...prev, ...data.data])
         }
         setCurrentPage(data.pagination.page)
-        setHasMore(data.pagination.nextPage < data.pagination.totalPages)
+        setHasMore(Boolean(data?.pagination?.hasNext))
       }
       catch (error) {
         console.log(`Error Found In loadMoreVideos: `, error)

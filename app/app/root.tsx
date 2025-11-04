@@ -54,6 +54,8 @@ const userMiddleware: Route.MiddlewareFunction = async ({ context }, next) => {
   let response = await next()
   response.headers.set("Cross-Origin-Embedder-Policy", "require-corp")
   response.headers.set("Cross-Origin-Opener-Policy", "same-origin")
+  response.headers.set("Content-Security-Policy", "frame-ancestors 'none'")
+  response.headers.set("X-Frame-Options", "DENY")
   // 
   return response
 };
@@ -105,6 +107,7 @@ export const loader = async ({request}: {request: Request}) => {
     if(!db) return data(null, { status: 500 })
     let keys = ['token1', 'token2']
     let verified = await VerifyB4Making(request.headers, keys)
+
     let token: string | null = null
     if(!verified){
       let t = await SetToken(request.headers, {
@@ -119,7 +122,7 @@ export const loader = async ({request}: {request: Request}) => {
       .from('files')
       .select('filename, unique_id, up_count, down_count, file_size, file_type, endpoint, created_at')
       .order('created_at', { ascending: false })
-      .limit(50);
+      .limit(10);
 
     const processedFiles = files?.map((file: FileRecord) => {
       if (!file.file_type.startsWith('image/')) {

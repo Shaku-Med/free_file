@@ -37,7 +37,7 @@ const ImageLoad = ({link, className, imageID, index, retry, callBack }: ImageLoa
                 }
             }
 
-            await new Promise(resolve => setTimeout(resolve, 200 * (index || 0)))
+            await new Promise(resolve => setTimeout(resolve, 100 * (index || 0)))
             
             let response = await fetch(link)
             if(!response.ok) {

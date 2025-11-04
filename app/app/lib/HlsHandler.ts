@@ -115,6 +115,24 @@ export const convertToHLS = async (file: File, callBack: (ratio: number) => void
       segmentUrls: [{ blob: blob, name: `${file.name}.m3u8` }, ...segmentUrls],
     };
 
+    // Proactively clear FFmpeg in-memory files now that blobs are prepared
+    try {
+      const filesNow = ffmpeg.FS('readdir', '/');
+      const filesToDeleteNow = filesNow.filter((file: any) =>
+        file.startsWith(`input_${timestamp}`) ||
+        file.startsWith(`output_${timestamp}`) ||
+        file.startsWith(`segment_${timestamp}_`) ||
+        file === 'input.mp4' ||
+        file === 'output.m3u8' ||
+        file.endsWith('.ts')
+      );
+      for (const f of filesToDeleteNow) {
+        try { ffmpeg.FS('unlink', f); } catch (err) { /* ignore */ }
+      }
+    } catch (err) {
+      console.warn('Early FFmpeg FS cleanup failed:', err);
+    }
+
     return result;
   } finally {
     try {

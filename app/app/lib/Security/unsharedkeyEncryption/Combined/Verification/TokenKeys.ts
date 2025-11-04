@@ -59,6 +59,12 @@ const TOKEN_KEY_CONFIGS: readonly TokenKeyConfig[] = [
         envKey: "SESSION_ID",
         algorithm: "HS512",
         expiresIn: "10s"
+    },
+    {
+        name: "video_token",
+        envKey: "VIDEO_TOKEN",
+        algorithm: "HS512",
+        expiresIn: "1d"
     }
 ] as const;
 

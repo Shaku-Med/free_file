@@ -19,6 +19,7 @@ export default defineConfig(({mode}) => {
         'Cross-Origin-Opener-Policy': 'same-origin',
       },
       allowedHosts: ['localhost', 'memories.brozy.org'],
+      cors: true,
     },
     build: {
       rollupOptions: {

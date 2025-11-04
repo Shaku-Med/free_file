@@ -54,7 +54,13 @@ export const FloatingButton = () => {
         const isDriverCompleted = Cookies.get('isDriverCompleted');
         if (!isDriverCompleted) {
             driverObj.drive(0)
-            Cookies.set('isDriverCompleted', 'true');
+            Cookies.set('isDriverCompleted', 'true', {
+                expires: 365,
+                path: '/',
+                secure: process.env.NODE_ENV === 'production',
+                sameSite: 'strict',
+                priority: 'low'
+            });
         }
     }, [])
 

@@ -48,7 +48,7 @@ const HLSPlayer: React.FC<HLSPlayerProps> = ({
   playsInline = true,
   poster = '',
   imageID = '',
-  file = null
+  file = null,
 }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const hlsRef = useRef<Hls | null>(null);
@@ -195,6 +195,16 @@ const HLSPlayer: React.FC<HLSPlayerProps> = ({
             capLevelToPlayerSize: true,
             testBandwidth: false
           });
+
+          // Ensure cookies are sent with media segment requests
+          // for routes that require authentication via cookies.
+          // Works with the default XHR loader.
+          // If Fetch loader is used in the future, switch to fetchSetup with credentials: 'include'.
+          (hls as any).config.xhrSetup = (xhr: XMLHttpRequest) => {
+            try {
+              xhr.withCredentials = true;
+            } catch {}
+          };
 
           hlsRef.current = hls;
           hls.loadSource(src);
@@ -452,8 +462,14 @@ const HLSPlayer: React.FC<HLSPlayerProps> = ({
   useLayoutEffect(() => {
     const dynamicDriverCompleted = Cookies.get('dynamicDriverCompleted');
     if (!dynamicDriverCompleted) {
+      Cookies.set('dynamicDriverCompleted', 'true', {
+        expires: 365,
+        path: '/',
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'strict',
+        priority: 'low'
+      });
       driverObj.drive(1)
-      Cookies.set('dynamicDriverCompleted', 'true');
     }
   }, [])
 
