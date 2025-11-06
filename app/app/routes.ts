@@ -12,6 +12,7 @@ export default [
         route(`get/*`, 'routes/Api/get/index.tsx'),
         route(`public-key`, 'routes/Api/PublicKey/index.tsx'),
         route(`handshake`, 'routes/Api/handshake/index.tsx'),
+        route(`socials/*`, 'routes/Api/Socials/index.tsx'),
     ]),
     route(`:id`, 'routes/Dynamic/layout.tsx', [
         index('routes/Dynamic/index.tsx'),

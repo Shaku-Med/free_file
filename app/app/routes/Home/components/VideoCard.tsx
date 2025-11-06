@@ -39,12 +39,12 @@ const VideoCard = ({ data, key, index}: VideoCardProps) => {
       initial={{opacity: opacity}}
       animate={{opacity: 1}}
       transition={{duration: 0.10, ease: "easeOut"}}
+      layoutId={`video_id_${data.unique_id}`}
     >
       <Link to={`/${data.unique_id}`}
       className={`h-full bg-card rounded-2xl overflow-hidden`}
       >
         <motion.div
-          layoutId={`video_id_${data.unique_id}`}
           transition={{duration: 0.1, ease: "easeOut", damping: 10, stiffness: 100}}
           className={`h-full`}
         >
