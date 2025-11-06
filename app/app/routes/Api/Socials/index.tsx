@@ -131,6 +131,58 @@ async function writeNetscapeCookiesFileFromHeader(
     await writeFile(outPath, lines.join('\n') + '\n', 'utf8');
 }
 
+// Export cookies from browser using yt-dlp
+async function exportCookiesFromBrowser(
+    browser: string,
+    domain: string,
+    outputPath: string
+): Promise<void> {
+    return new Promise((resolve, reject) => {
+        // Use yt-dlp to export cookies from browser
+        // yt-dlp --cookies-from-browser <browser> --cookies <output> <dummy-url>
+        const args = [
+            '--cookies-from-browser', browser,
+            '--cookies', outputPath,
+            '--no-warnings',
+            '--no-check-certificate',
+            // Use a dummy YouTube URL to trigger cookie export
+            'https://www.youtube.com/watch?v=dQw4w9WgXcQ'
+        ];
+
+        const ytDlp = spawn('yt-dlp', args, {
+            stdio: ['ignore', 'pipe', 'pipe'],
+        });
+
+        let stderr = '';
+        let stdout = '';
+
+        ytDlp.stdout?.on('data', (data) => {
+            stdout += data.toString();
+        });
+
+        ytDlp.stderr?.on('data', (data) => {
+            stderr += data.toString();
+        });
+
+        ytDlp.on('close', (code) => {
+            if (code !== 0 && !existsSync(outputPath)) {
+                reject(new Error(`Failed to export cookies: ${stderr || stdout || 'Unknown error'}`));
+                return;
+            }
+            // Even if yt-dlp exits with non-zero, if the cookies file was created, it's a success
+            if (existsSync(outputPath)) {
+                resolve();
+            } else {
+                reject(new Error(`Cookies file not created: ${stderr || stdout || 'Unknown error'}`));
+            }
+        });
+
+        ytDlp.on('error', (error) => {
+            reject(new Error(`Failed to start yt-dlp: ${error.message}`));
+        });
+    });
+}
+
 // Download video using yt-dlp
 async function downloadVideo(
     url: string,
@@ -218,6 +270,11 @@ async function downloadVideo(
         });
 
         let stderr = '';
+        let stdout = '';
+
+        ytDlp.stdout?.on('data', (data) => {
+            stdout += data.toString();
+        });
 
         ytDlp.stderr?.on('data', (data) => {
             stderr += data.toString();
@@ -236,17 +293,32 @@ async function downloadVideo(
                 } catch (e) {
                     // Ignore cleanup errors
                 }
-                reject(new Error(`yt-dlp failed: \n --- ${stderr || 'Unknown error'}`));
+                reject(new Error(`yt-dlp failed: \n --- ${stderr || stdout || 'Unknown error'}`));
                 return;
             }
 
-            // Find the downloaded file
+            // Give the OS a tiny moment to flush any file writes (helps on some FS/containers)
+            await new Promise((res) => setTimeout(res, 150));
+
+            // Find the downloaded file (more resilient: startsWith or includes)
             try {
                 const files = await readdir(tempDir);
-                const downloadedFile = files.find(f => f.startsWith(downloadId));
-                
+                let downloadedFile = files.find(f => f.startsWith(downloadId));
+
                 if (!downloadedFile) {
-                    reject(new Error('Download completed but file not found'));
+                    // sometimes the download id may be embedded rather than prefixed
+                    downloadedFile = files.find(f => f.includes(downloadId));
+                }
+
+                if (!downloadedFile) {
+                    // Enhanced debug information to diagnose why file isn't present
+                    console.error('yt-dlp finished with code 0 but no file found. Debug info:');
+                    console.error('yt-dlp args:', args.join(' '));
+                    console.error('stdout:', stdout);
+                    console.error('stderr:', stderr);
+                    console.error('tempDir listing:', tempDir, await readdir(tempDir).catch(() => ['<could not read>']));
+
+                    reject(new Error(`Download completed but file not found. See server logs for yt-dlp stdout/stderr and tempDir listing.`));
                     return;
                 }
 
@@ -277,7 +349,32 @@ export const AllActions = async () => {
 export const loader = async ({ request }: { request: Request }) => {
     try {
         const url = new URL(request.url);
-        const socialUrl = decodeURIComponent(url.pathname.split(`/socials/`)[1]);
+        
+        // Extract the social URL from pathname
+        let socialUrl = decodeURIComponent(url.pathname.split(`/socials/`)[1] || '');
+        
+        // If the social URL doesn't contain query parameters but the request has search params,
+        // they might be part of the social URL (e.g., YouTube ?v=...)
+        // Check if appending them creates a valid URL
+        if (socialUrl && !socialUrl.includes('?') && url.search) {
+            const testUrl = socialUrl + url.search;
+            try {
+                // Try to parse the combined URL
+                const testUrlObj = new URL(testUrl);
+                // If it's a valid URL and the search params look like they belong to the social URL
+                // (not API params like format=, quality=, etc.), use the combined URL
+                const searchParams = url.searchParams;
+                const hasApiParams = searchParams.has('format') || searchParams.has('quality') || 
+                                   searchParams.has('cookie') || searchParams.has('cookies_url') ||
+                                   searchParams.has('refresh_cookies');
+                
+                if (!hasApiParams) {
+                    socialUrl = testUrl;
+                }
+            } catch {
+                // If parsing fails, keep the original socialUrl
+            }
+        }
         
         if (!socialUrl) {
             return new Response(JSON.stringify({ error: 'Social URL is required' }), { 
@@ -311,16 +408,37 @@ export const loader = async ({ request }: { request: Request }) => {
         const quality = (searchParams.get('quality') || 'highest') as DownloadOptions['quality'];
         let cookie = searchParams.get('cookie') || undefined;
         const cookiesUrl = searchParams.get('cookies_url') || undefined;
+        const cookiesInline = searchParams.get('cookies_inline') || undefined; // raw Cookie header string
         const refreshCookies = searchParams.get('refresh_cookies') === '1';
 
         const hostname = new URL(socialUrl).hostname;
-        const cookiesDir = join(process.cwd(), 'app', 'routes', 'Socials');
+        // Use the same directory as the current file for cookies
+        const cookiesDir = join(process.cwd(), 'app', 'routes', 'Api', 'Socials');
         if (!existsSync(cookiesDir)) {
             await mkdir(cookiesDir, { recursive: true });
         }
         const persistentCookiesPath = join(cookiesDir, `${hostname}.cookies.txt`);
 
         let cookiesFilePath: string | undefined;
+        
+        // Fallback: if a cookies file exists in app/routes/Socials (legacy path), use it unless refresh requested
+        const legacyCookiesPath = join(process.cwd(), 'app', 'routes', 'Socials', `${hostname}.cookies.txt`);
+        if (!cookiesFilePath && existsSync(legacyCookiesPath) && !refreshCookies) {
+            cookiesFilePath = legacyCookiesPath;
+        }
+        
+        // Check if user wants to export cookies from browser (for YouTube especially)
+        const exportFromBrowser = searchParams.get('export_cookies_from_browser');
+        if (exportFromBrowser && platform === 'youtube') {
+            try {
+                await exportCookiesFromBrowser(exportFromBrowser, hostname, persistentCookiesPath);
+                cookiesFilePath = persistentCookiesPath;
+            } catch (error) {
+                console.error('Failed to export cookies from browser:', error);
+                // Continue with other cookie methods if export fails
+            }
+        }
+        
         if (cookiesUrl) {
             const resp = await fetch(cookiesUrl);
             if (!resp.ok) {
@@ -331,6 +449,12 @@ export const loader = async ({ request }: { request: Request }) => {
             }
             const text = await resp.text();
             await writeFile(persistentCookiesPath, text, 'utf8');
+            cookiesFilePath = persistentCookiesPath;
+        }
+
+        // Inline cookie string support: cookies_inline should be a raw Cookie header string (name=value; name2=value2)
+        if (!cookiesFilePath && cookiesInline) {
+            await writeNetscapeCookiesFileFromHeader(cookiesInline, socialUrl, persistentCookiesPath);
             cookiesFilePath = persistentCookiesPath;
         }
 
@@ -346,6 +470,23 @@ export const loader = async ({ request }: { request: Request }) => {
                     cookiesFilePath = persistentCookiesPath;
                 }
             }
+        }
+        
+        // For YouTube, if no cookies are available, provide helpful error message
+        if (!cookiesFilePath && platform === 'youtube') {
+            return new Response(JSON.stringify({ 
+                error: 'YouTube requires cookies to bypass bot detection. Please provide cookies using one of these methods:\n' +
+                       '1. Export cookies from your browser using: ?export_cookies_from_browser=chrome (or firefox, edge, safari)\n' +
+                       '2. Upload a cookies file using: ?cookies_url=<url-to-cookies-file>\n' +
+                       '3. Manually create www.youtube.com.cookies.txt in the cookies directory\n' +
+                       '\nTo export cookies manually:\n' +
+                       '- Use browser extension like "Get cookies.txt LOCALLY" or "Cookie-Editor"\n' +
+                       '- Or use yt-dlp: yt-dlp --cookies-from-browser chrome --cookies cookies.txt <youtube-url>\n' +
+                       '\nImportant YouTube cookies: VISITOR_INFO1_LIVE, PREF, YSC, and if logged in: LOGIN_INFO, __Secure-3PSID, __Secure-3PAPISID'
+            }), {
+                status: 400,
+                headers: { 'Content-Type': 'application/json' }
+            });
         }
 
         // Download the video
