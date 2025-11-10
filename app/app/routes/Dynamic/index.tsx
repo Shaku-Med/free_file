@@ -1,4 +1,4 @@
-import { data, useLoaderData, type MetaFunction } from "react-router";
+import { data, Link, useLoaderData, type MetaFunction } from "react-router";
 import db from "~/lib/Database/supabase";
 import { TransformWrapper, TransformComponent } from "react-zoom-pan-pinch";
 import HLSPlayer from "~/components/components/hlsplayer";
@@ -10,6 +10,7 @@ import ImageLoad from "../Home/components/ImageLoad/ImageLoad";
 import { arrangeDateForThumbnail, ParseFilename } from "~/lib/utils";
 import { motion } from "framer-motion";
 import { MakeVideoToken } from "./components/Functions";
+import { ChevronLeft, ChevronRight } from "lucide-react";
 
 const calculateTextSimilarity = (str1: string, str2: string): number => {
   const normalize = (str: string) => str.toLowerCase().replace(/[^\w\s]/g, '').trim();
@@ -138,6 +139,43 @@ export const loader = async ({ request, params }: { request: Request, params: { 
         .map(({ relatedScore, ...file }: any) => file);
     }
 
+    let previousFile: FileType | null = null;
+    let nextFile: FileType | null = null;
+
+    if (file?.created_at) {
+      const { data: previous, error: previousError } = await db
+        .from('files')
+        .select('*')
+        .lt('created_at', file.created_at)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (previousError) {
+        console.error('Error fetching previous file:', previousError);
+      }
+
+      if (previous) {
+        previousFile = previous as FileType;
+      }
+
+      const { data: next, error: nextError } = await db
+        .from('files')
+        .select('*')
+        .gt('created_at', file.created_at)
+        .order('created_at', { ascending: true })
+        .limit(1)
+        .maybeSingle();
+
+      if (nextError) {
+        console.error('Error fetching next file:', nextError);
+      }
+
+      if (next) {
+        nextFile = next as FileType;
+      }
+    }
+
     let videoToken = await MakeVideoToken(file?.file_type, params.id, request.headers)
     const path = new URL(request.url).pathname;
     let headers = new Headers();
@@ -148,7 +186,7 @@ export const loader = async ({ request, params }: { request: Request, params: { 
       headers.append('Set-Cookie', `validator=${videoToken}; Path=/; Max-Age=86400; HttpOnly; ${process.env.NODE_ENV === 'production' ? 'Secure' : ''}; SameSite=Strict, priority=high`);
     }
 
-    return data({ file, relatedVideos }, { 
+    return data({ file, relatedVideos, pagination: { previous: previousFile, next: nextFile } }, { 
       status: 200,
       headers: headers as unknown as HeadersInit
      });
@@ -212,12 +250,14 @@ const formatFileSize = (bytes: number) => {
 const index = () => {
   const [playingVideos, setPlayingVideos] = useState<Set<number>>(new Set());
   const data= useLoaderData<typeof loader>();
-  const file = data?.file;
+  const file_data = data?.file;
   const relatedVideos = data?.relatedVideos || [];
+  const previousFile = data?.pagination?.previous ?? null;
+  const nextFile = data?.pagination?.next ?? null;
 
   const [poster, setPoster] = useState<string | null>(null);
   
-  if(!file) {
+  if(!file_data) {
     return (
       <>
         <div className={`flex items-center justify-center text-2xl py-6 px-4 min-h-[200px]`}>
@@ -227,7 +267,7 @@ const index = () => {
     )
   }
 
-  const isHLS = file?.file_type === 'application/vnd.apple.mpegurl' || file?.endpoint?.includes('.m3u8');
+  const isHLS = file_data?.file_type === 'application/vnd.apple.mpegurl' || file_data?.endpoint?.includes('.m3u8');
 
   const [retryAttempt, setRetryAttempt] = useState<number>(0)
   const retry = () => {
@@ -242,11 +282,21 @@ const index = () => {
       <div className="mx-auto max-w-full xl:container py-6">
         <div className="gap-6 flex flex-col">
           <div className="xl:col-span-3 space-y-6">
-            <motion.div layoutId={`video_id_${file.unique_id}`} className="relative group">
-              <div className={`${isHLS ? 'aspect-video bg-muted rounded-3xl overflow-hidden shadow-2xl ring-1 ring-border/50' : 'w-fit relative h-full min-h-[200px] w-full flex items-center justify-center rounded-4xl overflow-hidden'}`}>
+            <motion.div layoutId={`video_id_${file_data.unique_id}`} className="relative group flex items-center justify-between min-h-[300px] gap-4 w-full">
+              {previousFile && (
+                <Link
+                  className="flex-shrink-0 flex items-center justify-center rounded-full bg-primary text-foreground w-12 h-12 md:w-14 md:h-14 shadow-lg hover:bg-red-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-red-400 transition-colors"
+                  to={`/${previousFile.unique_id}`}
+                  aria-label="Previous file"
+                  title={ParseFilename(previousFile.filename)}
+                >
+                  <ChevronLeft className="w-7 h-7" />
+                </Link>
+              )}
+              <div className={`${isHLS ? 'aspect-video bg-muted rounded-3xl overflow-hidden shadow-2xl ring-1 ring-border/50 w-full' : 'w-fit relative h-full min-h-[200px] w-full flex items-center justify-center rounded-4xl overflow-hidden'} min-w-0 h-full`}>
                 {isHLS ? (
                   <HLSPlayer
-                    src={`/api/load/video/${file.endpoint}`}
+                    src={`/api/load/video/${file_data.endpoint}`}
                     className="w-full h-full rounded-3xl"
                     onPlay={() => setPlayingVideos(prev => new Set(prev).add(1))}
                     onPause={() => setPlayingVideos(prev => {
@@ -258,23 +308,34 @@ const index = () => {
                     muted={false}
                     loop={true}
                     playsInline
-                    imageID={file.unique_id}
-                    file={file}
+                    imageID={file_data.unique_id}
+                    file={file_data}
                   />
                 ) : (
                   <TransformWrapper>
                     <TransformComponent wrapperStyle={{ width: '100%', height: `700px`, maxHeight: '700px' }} contentStyle={{ width: 'fit-content', height: '100%' }}>
                       <ImageLoad
-                        link={`/api/load/image/${file.endpoint}`}
+                        link={`/api/load/image/${file_data.endpoint}`}
                         retry={retry}
                         className="w-full h-full object-contain rounded-3xl"
-                        imageID={file.unique_id}
+                        imageID={file_data.unique_id}
                         index={0}
                       />
                     </TransformComponent>
                   </TransformWrapper>
                 )}
               </div>
+
+              {nextFile && (
+                <Link
+                  className="flex-shrink-0 flex items-center justify-center rounded-full bg-primary text-foreground w-12 h-12 md:w-14 md:h-14 shadow-lg hover:bg-red-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-red-400 transition-colors"
+                  to={`/${nextFile.unique_id}`}
+                  aria-label="Next file"
+                  title={ParseFilename(nextFile.filename)}
+                >
+                  <ChevronRight className="w-7 h-7" />
+                </Link>
+              )}
             </motion.div>
 
             <div className="bg-card rounded-3xl p-8 shadow-lg ring-1 ring-border/50 overflow-x-auto">
@@ -282,35 +343,36 @@ const index = () => {
                 <div className="flex items-start justify-between">
                   <div className="space-y-2">
                     <h1 className="text-2xl font-bold text-foreground leading-tight">
-                      {ParseFilename(file.filename)}
+                      {ParseFilename(file_data.filename)}
                     </h1>
                     <div className="flex items-center gap-6 text-sm text-muted-foreground">
                       <div className="flex items-center gap-2">
-                        <div className={`w-2 h-2 rounded-full ${file.file_type.includes('video') ? 'bg-red-500' : 'bg-blue-500'}`}></div>
+                        <div className={`w-2 h-2 rounded-full ${file_data.file_type.includes('video') ? 'bg-primary' : 'bg-blue-500'}`}></div>
                         <span className="font-medium">
-                          {file.file_type.includes('video') ? 'Video' : 'Image'}
+                          {file_data.file_type.includes('video') ? 'Video' : 'Image'}
                         </span>
                       </div>
-                      <span>{new Date(file.created_at).toLocaleDateString('en-US', { 
+                      <span>{new Date(file_data.created_at).toLocaleDateString('en-US', { 
                         year: 'numeric', 
                         month: 'long', 
                         day: 'numeric' 
                       })}</span>
-                      <span>{formatFileSize(file.file_size)}</span>
+                      <span>{formatFileSize(file_data.file_size)}</span>
                     </div>
                   </div>
                 </div>
               </div>
+              {/* <Separator/> */}
               {/* <div>
-                <LikeButton videoId={file.unique_id} />
-                <ShareButton videoId={file.unique_id} />
+                <LikeButton videoId={file_data.unique_id} />
+                <ShareButton videoId={file_data.unique_id} />
               </div> */}
             </div>
           </div>
 
           <div className="xl:col-span-1">
             <div className="bg-card rounded-3xl shadow-lg ring-1 ring-border/50 overflow-hidden sticky top-6">
-              <RelatedVideos videos={relatedVideos} currentVideoId={file.unique_id} />
+              <RelatedVideos videos={relatedVideos} currentVideoId={file_data.unique_id} />
             </div>
           </div>
         </div>

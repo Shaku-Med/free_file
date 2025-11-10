@@ -16,5 +16,9 @@ export default [
     ]),
     route(`:id`, 'routes/Dynamic/layout.tsx', [
         index('routes/Dynamic/index.tsx'),
+    ]),
+    route(`search`, 'routes/Search/layout.tsx', [
+        index('routes/Search/index.tsx'),
+        route('*', 'routes/Search/Dynamic/index.tsx'),
     ])
 ] satisfies RouteConfig;

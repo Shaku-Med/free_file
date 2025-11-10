@@ -1,7 +1,7 @@
 import { useState } from "react"
 import { Badge } from "~/components/ui/badge"
 import { motion } from "framer-motion"
-import { Link } from "react-router"
+import { Link, useNavigate } from "react-router"
 import type { FileType } from "~/lib/types"
 import ImageLoad from "./ImageLoad/ImageLoad"
 import { arrangeDateForThumbnail, ParseFilename } from "~/lib/utils"
@@ -24,6 +24,8 @@ const VideoCard = ({ data, key, index}: VideoCardProps) => {
   const [retryAttempt, setRetryAttempt] = useState<number>(0)
   const [loaded, setLoaded] = useState<boolean>(false)
 
+  const nav = useNavigate()
+
   const retry = () => {
     if(retryAttempt >= 1) {
       setError(true)
@@ -35,18 +37,23 @@ const VideoCard = ({ data, key, index}: VideoCardProps) => {
   // Make the opacity by the index 0 - 1 float
   const opacity = Math.min(Math.max(0, index || 0), 10) / 10
   return (
-    <motion.div className=" group overflow-hidden rounded-2xl relative flex flex-col justify-between bg-card ring-1 ring-border/50 shadow-sm hover:shadow-md transition-all duration-300"
-      initial={{opacity: opacity}}
-      animate={{opacity: 1}}
-      transition={{duration: 0.10, ease: "easeOut"}}
-      layoutId={`video_id_${data.unique_id}`}
+    <div className={` item group overflow-hidden rounded-2xl relative flex flex-col justify-between bg-card ring-1 ring-border/50 shadow-sm hover:shadow-md transition-all duration-300`}
+      // initial={{opacity: opacity}}
+      // animate={{opacity: 1}}
+      // transition={{duration: 0, ease: "easeOut"}}
+      // layoutId={`video_id_${data.unique_id}`}
     >
-      <Link to={`/${data.unique_id}`}
-      className={`h-full bg-card rounded-2xl overflow-hidden`}
+      <Link onClick={e => {
+        e.preventDefault()
+        nav(`/${data.unique_id}`, {
+          replace: true
+        })
+      }} to={`/${data.unique_id}`}
+      className={`h-full bg-card rounded-2xl overflow-hidden min-h-[200px]`}
       >
         <motion.div
           transition={{duration: 0.1, ease: "easeOut", damping: 10, stiffness: 100}}
-          className={`h-full`}
+          className={`h-full min-h-[200px]`}
         >
             <>
             {
@@ -58,7 +65,7 @@ const VideoCard = ({ data, key, index}: VideoCardProps) => {
                     imageID={data.unique_id}
                     index={index}
                     retry={retry}
-                    className={`${!loaded ? 'aspect-video' : ''} transition-all duration-300`}
+                    className={`${!loaded ? 'aspect-video' : ''} transition-all duration-300 min-h-[200px]`}
                     callBack={e => {
                       if(e) {
                         setLoaded(true)
@@ -80,7 +87,7 @@ const VideoCard = ({ data, key, index}: VideoCardProps) => {
           {ParseFilename(data.filename)}
         </h3>
       </div>
-    </motion.div>
+    </div>
   )
 }
 

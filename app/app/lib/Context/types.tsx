@@ -6,4 +6,9 @@ export type ContextProps = {
     setFiles: React.Dispatch<React.SetStateAction<FileType[]>>;
     isModalOpen: boolean;
     setIsModalOpen: (isModalOpen: boolean) => void;
+    isLoading: boolean;
+    hasMore: boolean;
+    observerRef: React.RefObject<HTMLDivElement> | null;
+    currentPage: number;
+    loadMoreVideos: () => void;
 }

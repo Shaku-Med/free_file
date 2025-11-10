@@ -1,4 +1,4 @@
-import { createContext, useContext, useLayoutEffect, useMemo, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { ContextProps } from "./types";
 import type { FileType } from "../types";
 import MediaSelectionModal from "~/routes/Home/components/MediaSelectionModal";
@@ -9,6 +9,7 @@ import { driver } from "driver.js";
 import "driver.js/dist/driver.css";
 import Cookies from "js-cookie";
 import ClientEncryption from "../Security/Client/Encryption";
+import { useNavigation } from "react-router";
 
 
 export const driverObj = driver({
@@ -39,7 +40,12 @@ export const Context = createContext<ContextProps>({
     files: [],
     setFiles: () => {},
     isModalOpen: false,
-    setIsModalOpen: () => {}
+    setIsModalOpen: () => {},
+    isLoading: false,
+    hasMore: false,
+    observerRef: null,
+    currentPage: 1,
+    loadMoreVideos: () => {}
 })
 
 interface ContextProviderProps {
@@ -79,6 +85,52 @@ export const FloatingButton = () => {
 export const ContextProvider = ({ children, f, st }: ContextProviderProps) => {
     const [files, setFiles] = useState<FileType[]>(f);
     const [isModalOpen, setIsModalOpen] = useState(false);
+
+    const [isLoading, setIsLoading] = useState(false);
+    const [hasMore, setHasMore] = useState(true);
+    const observerRef = useRef<HTMLDivElement | null>(null)
+    const [currentPage, setCurrentPage] = useState(1);
+    const nav = useNavigation()
+  
+    const loadMoreVideos = useCallback(async () => {
+      if (isLoading || !hasMore) return
+  
+      setIsLoading(true)
+      try {
+        const nextPage = currentPage + 1
+        try {
+          let response = await fetch(`/api/get/?page=${nextPage}&currentPage=${currentPage}`)
+          if(!response.ok) {
+              setHasMore(false)
+              return
+          }
+          let data = await response.json()
+          if (data?.data) {
+            setFiles((prev: FileType[]) => [...prev, ...data.data])
+          }
+          setCurrentPage(data.pagination.page)
+          setHasMore(Boolean(data?.pagination?.hasNext))
+        }
+        catch (error) {
+          console.log(`Error Found In loadMoreVideos: `, error)
+        }
+      } finally {
+        setIsLoading(false)
+      }
+    }, [currentPage, isLoading, hasMore])
+  
+    useEffect(() => {
+      const observer = new IntersectionObserver(
+        (entries) => {
+          if (entries[0].isIntersecting && hasMore && !isLoading) {
+            loadMoreVideos()
+          }
+        },
+        { threshold: 0.1 }
+      )
+      if (observerRef.current) observer.observe(observerRef.current)
+      return () => observer.disconnect()
+    }, [loadMoreVideos, hasMore, isLoading, nav.location])
 
     useLayoutEffect(() => {
         let fetchPublicKey = async () => {
@@ -121,7 +173,7 @@ export const ContextProvider = ({ children, f, st }: ContextProviderProps) => {
         if(st && !st.includes('not_needed')) fetchPublicKey()
     }, [st])
 
-    const value = useMemo(() => ({ files, setFiles, isModalOpen, setIsModalOpen }), [files, setFiles, isModalOpen, setIsModalOpen]);
+    const value = useMemo(() => ({ files, setFiles, isModalOpen, setIsModalOpen, isLoading, hasMore, observerRef: observerRef as React.RefObject<HTMLDivElement>, currentPage, loadMoreVideos }), [files, setFiles, isModalOpen, setIsModalOpen, isLoading, hasMore, observerRef, currentPage, loadMoreVideos]);
     return (
         <Context.Provider value={value}>
             {children}

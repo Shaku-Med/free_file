@@ -1,6 +1,3 @@
-import { useState, useEffect, useRef, useCallback } from "react";
-import DateSection from "./components/DateSection";
-import SelectionToolbar from "./components/SelectionToolbar";
 import { useFileContext } from "~/lib/Context/Context";
 import VideoCard from "./components/VideoCard";
 import type { FileType } from "~/lib/types";
@@ -8,51 +5,7 @@ import { Button } from "~/components/ui/button";
 import { Plus } from "lucide-react";
 
 export default function PhotoDashboard() {
-  const { files, setIsModalOpen, setFiles } = useFileContext();
-  const [isLoading, setIsLoading] = useState(false);
-  const [hasMore, setHasMore] = useState(true);
-  const observerRef = useRef<HTMLDivElement>(null)
-  const [currentPage, setCurrentPage] = useState(1);
-
-  const loadMoreVideos = useCallback(async () => {
-    if (isLoading || !hasMore) return
-
-    setIsLoading(true)
-    try {
-      const nextPage = currentPage + 1
-      try {
-        let response = await fetch(`/api/get/?page=${nextPage}&currentPage=${currentPage}`)
-        if(!response.ok) {
-            setHasMore(false)
-            return
-        }
-        let data = await response.json()
-        if (data?.data) {
-          setFiles((prev: FileType[]) => [...prev, ...data.data])
-        }
-        setCurrentPage(data.pagination.page)
-        setHasMore(Boolean(data?.pagination?.hasNext))
-      }
-      catch (error) {
-        console.log(`Error Found In loadMoreVideos: `, error)
-      }
-    } finally {
-      setIsLoading(false)
-    }
-  }, [currentPage, isLoading, hasMore])
-
-  useEffect(() => {
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (entries[0].isIntersecting && hasMore && !isLoading) {
-          loadMoreVideos()
-        }
-      },
-      { threshold: 0.1 }
-    )
-    if (observerRef.current) observer.observe(observerRef.current)
-    return () => observer.disconnect()
-  }, [loadMoreVideos, hasMore, isLoading])
+  const { files, setIsModalOpen, hasMore, observerRef, isLoading } = useFileContext();
 
   return (
     <div className="">

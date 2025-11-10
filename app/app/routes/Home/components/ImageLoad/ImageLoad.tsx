@@ -1,7 +1,7 @@
 import React, { useEffect, useLayoutEffect, useState } from 'react'
 import type { FileType } from '~/lib/types'
 import { cn } from '~/lib/utils'
-import { Loader2 } from 'lucide-react'
+import { Loader2, LoaderCircle } from 'lucide-react'
 import { getImageBlob, hasImageBlob, storeImageBlob } from './IndexDb'
 interface ImageLoadProps {
     link?: string
@@ -13,6 +13,7 @@ interface ImageLoadProps {
 }
 const ImageLoad = ({link, className, imageID, index, retry, callBack }: ImageLoadProps) => {
     const [src, setSrc] = useState<string | null | boolean>(null)
+    const [loaded, setLoaded] = useState<boolean>(false)
 
     useLayoutEffect(() => {
         let fetchImage = async () => {
@@ -86,6 +87,13 @@ const ImageLoad = ({link, className, imageID, index, retry, callBack }: ImageLoa
             {
                 src ? (
                     <>
+                    {
+                        !loaded && (
+                            <div className="absolute inset-0 flex items-center justify-center bg-background text-xs flex-col gap-2">
+                                <LoaderCircle className="w-8 h-8 animate-spin opacity-50" />
+                            </div>
+                        )
+                    }
                       <img
                             src={`${src}`}
                             alt={`Thumbnail`}
@@ -94,15 +102,18 @@ const ImageLoad = ({link, className, imageID, index, retry, callBack }: ImageLoa
                                 retry()
                             }}
                             loading="lazy"
+                            onLoad={e => {
+                                setLoaded(true)
+                            }}
                         />
                     </>
                 ) : src === null ? (
-                    <div className={cn("w-full h-full flex flex-col items-center justify-center bg-muted text-xs", className)}>
+                    <div className={cn("w-full h-full flex flex-col items-center justify-center bg-background text-xs", className)}>
                         <Loader2 className="w-4 h-4 animate-spin" />
                         <span>Loading...</span>
                     </div>
                 ) : (
-                    <div className={cn("w-full h-full flex items-center justify-center bg-muted text-xs", className)}>
+                    <div className={cn("w-full h-full flex items-center justify-center bg-background text-xs", className)}>
                         <span>Failed to load image</span>
                     </div>
                 )

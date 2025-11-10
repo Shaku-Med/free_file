@@ -63,6 +63,7 @@ const userMenuItems = [
 export default function Navbar() {
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  // const [input, setInput] = useState<string>("");
 
   return (
     <nav className={`sticky top-0 z-50 w-full ${isMobile ? `bg-background` : `bg-background/95 backdrop-blur-xl `} shadow-lg z-[100000000000] border-b`}>
@@ -117,6 +118,12 @@ export default function Navbar() {
                 </NavigationMenuItem>
               </NavigationMenuList>
             </NavigationMenu> */}
+          </div>
+
+          <div>
+             <Link to="/search">
+              <Search className="h-5 w-5" />
+             </Link>
           </div>
 
           {/* <div className="flex items-center space-x-3 lg:space-x-3">

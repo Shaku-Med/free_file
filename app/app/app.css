@@ -308,3 +308,11 @@ img {
       border-radius: 10px;
   }
 }
+
+
+.masonry { 
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(14rem, 1fr));
+  gap: 1rem;
+  grid-template-rows: masonry;
+}
