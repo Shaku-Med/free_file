@@ -45,15 +45,55 @@ jobs:
         working-directory: ./app
         run: npm run build
 
-      # 6️⃣ Create deployment package
+      # 6️⃣ Prepare lean production build
+      - name: Prepare production build
+        working-directory: ./app
+        run: |
+          echo "📦 Preparing production files..."
+          
+          # Remove development dependencies
+          rm -rf node_modules
+          
+          # Install only production dependencies
+          npm ci --production
+          
+          # Remove unnecessary files
+          rm -rf .git .github tests __tests__ coverage .vscode .idea
+          rm -rf *.test.js *.spec.js jest.config.js
+          
+          echo "✅ Production build ready"
+          du -sh .
+
+      # 7️⃣ Create deployment package (optimized)
       - name: Create deployment archive
         run: |
           cd app
-          tar -czf ../app-deploy.tar.gz .
+          
+          # Create archive with only necessary files
+          tar -czf ../app-deploy.tar.gz \
+            .next \
+            node_modules \
+            public \
+            package.json \
+            package-lock.json \
+            next.config.js \
+            .env
+          
           cd ..
+          
+          echo "📦 Archive created:"
           ls -lh app-deploy.tar.gz
+          
+          # Show size in MB
+          SIZE_MB=$(du -m app-deploy.tar.gz | cut -f1)
+          echo "Size: ${SIZE_MB}MB"
+          
+          # Warn if still too large
+          if [ $SIZE_MB -gt 200 ]; then
+            echo "⚠️  Warning: Archive is larger than 200MB"
+          fi
 
-      # 7️⃣ Copy archive to EC2
+      # 8️⃣ Copy archive to EC2
       - name: Copy deployment package to EC2
         run: |
           # Setup SSH key
@@ -62,14 +102,18 @@ jobs:
           chmod 600 ~/.ssh/deploy_key
           
           # Copy archive using SCP
-          scp -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
+          scp -i ~/.ssh/deploy_key \
+            -o StrictHostKeyChecking=no \
+            -o ConnectTimeout=30 \
             app-deploy.tar.gz \
             ${{ secrets.EC2_USERNAME }}@${{ secrets.EC2_HOST }}:/tmp/
+          
+          echo "✅ Archive uploaded to EC2"
           
           # Clean up key
           rm ~/.ssh/deploy_key
 
-      # 8️⃣ Extract and restart on EC2
+      # 9️⃣ Extract and restart on EC2
       - name: Deploy and restart on EC2
         uses: appleboy/ssh-action@v1
         with:
@@ -77,49 +121,78 @@ jobs:
           username: ${{ secrets.EC2_USERNAME }}
           key: ${{ secrets.EC2_SSH_KEY }}
           script_stop: true
+          command_timeout: 10m
           script: |
             echo "🚀 Starting deployment..."
             
-            # Ensure directory exists
-            mkdir -p /var/www/memories.brozy.org/app
+            # Check disk space first
+            AVAILABLE=$(df / | tail -1 | awk '{print $4}')
+            AVAILABLE_MB=$((AVAILABLE / 1024))
+            echo "💾 Available disk space: ${AVAILABLE_MB}MB"
             
-            # Backup current app (optional)
-            if [ -d /var/www/memories.brozy.org/app/backup ]; then
+            if [ $AVAILABLE_MB -lt 500 ]; then
+              echo "❌ ERROR: Less than 500MB available. Aborting deployment."
+              echo "Please free up disk space first."
+              exit 1
+            fi
+            
+            # Ensure directory exists
+            sudo mkdir -p /var/www/memories.brozy.org/app
+            sudo chown -R $USER:$USER /var/www/memories.brozy.org
+            
+            # Backup current app
+            if [ -d /var/www/memories.brozy.org/app/.next ]; then
+              echo "📦 Backing up current app..."
               rm -rf /var/www/memories.brozy.org/app/backup
+              mkdir -p /var/www/memories.brozy.org/app/backup
+              mv /var/www/memories.brozy.org/app/.next /var/www/memories.brozy.org/app/backup/ 2>/dev/null || true
             fi
             
             # Extract new version
+            echo "📂 Extracting files..."
             cd /var/www/memories.brozy.org/app
             tar -xzf /tmp/app-deploy.tar.gz
             rm /tmp/app-deploy.tar.gz
             
-            echo "📦 Files extracted"
-            
-            # Install production dependencies (in case package.json changed)
-            npm ci --production
-            
-            echo "📚 Dependencies installed"
+            echo "✅ Files extracted"
             
             # Restart app with PM2
             if command -v pm2 >/dev/null 2>&1; then
               echo "🔄 Restarting app with PM2..."
+              
+              # Delete old process
               pm2 delete memories 2>/dev/null || true
+              
+              # Start new process
+              cd /var/www/memories.brozy.org/app
               pm2 start npm --name "memories" -- start
               pm2 save
+              
+              # Show status
               pm2 list
+              
+              echo "✅ Application restarted with PM2"
             else
               echo "🚀 Starting app with nohup..."
+              
               # Kill any existing process
               pkill -f "npm start" 2>/dev/null || true
               sleep 2
+              
               # Start new process
+              cd /var/www/memories.brozy.org/app
               nohup npm start > app.log 2>&1 &
               echo "Process started with PID: $!"
+              
+              echo "✅ Application started"
             fi
             
-            echo "✅ Application restarted"
+            # Clean up old backups
+            rm -rf /var/www/memories.brozy.org/app/backup
+            
+            echo "🎉 Deployment successful!"
 
-      # 9️⃣ Reload Nginx
+      # 🔟 Reload Nginx
       - name: Reload Nginx
         uses: appleboy/ssh-action@v1
         with:
@@ -132,3 +205,6 @@ jobs:
             echo ""
             echo "🎉 Deployment complete!"
             echo "🌐 Site: https://memories.brozy.org"
+            echo ""
+            echo "📊 Final disk usage:"
+            df -h / | grep -E '(Filesystem|/dev/root)'
