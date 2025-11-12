@@ -1,3 +1,5 @@
+import { CheckNSFW } from '../../../lib/utils';
+
 declare global {
   interface Window {
     FFmpeg?: any;
@@ -11,12 +13,14 @@ export interface ThumbnailOptions {
   maintainAspectRatio?: boolean;
   maxWidth?: number;
   maxHeight?: number;
+  onProgress?: (progress: number, message: string) => void;
 }
 
 export interface ThumbnailResult {
   success: boolean;
   thumbnailBlob?: Blob;
   error?: string;
+  nsfw?: boolean;
 }
 
 export class ThumbnailGenerator {
@@ -39,7 +43,7 @@ export class ThumbnailGenerator {
         try {
           this.ffmpeg.exit();
         } catch (error) {
-          console.warn('Error exiting previous FFmpeg instance:', error);
+          // Silent cleanup
         }
       }
 
@@ -47,7 +51,6 @@ export class ThumbnailGenerator {
       await this.ffmpeg.load();
       this.isLoaded = true;
     } catch (error) {
-      console.error('Failed to load FFmpeg:', error);
       throw new Error('FFmpeg initialization failed');
     }
   }
@@ -59,20 +62,23 @@ export class ThumbnailGenerator {
     try {
       await this.loadFFmpeg();
 
+      const videoDuration = await this.getVideoDuration(videoFile);
+      const frameCount = 10; // Number of frames to check for NSFW
+      const interval = videoDuration / (frameCount + 1);
+      const nsfwResults: boolean[] = [];
+      const inputFileName = `input_${Date.now()}.${this.getFileExtension(videoFile.name)}`;
+
+      // Write video file once
+      const videoData = await this.fileToUint8Array(videoFile);
+      await this.ffmpeg.FS("writeFile", inputFileName, videoData);
+
       const {
         width = 1920,
         height = 1080,
-        timeOffset = 1,
         maintainAspectRatio = true,
         maxWidth,
         maxHeight
       } = options;
-
-      const inputFileName = `input_${Date.now()}.${this.getFileExtension(videoFile.name)}`;
-      const outputFileName = `thumbnail_${Date.now()}.jpg`;
-
-      const videoData = await this.fileToUint8Array(videoFile);
-      await this.ffmpeg.FS("writeFile", inputFileName, videoData);
 
       let scaleFilter: string;
       if (maintainAspectRatio) {
@@ -91,32 +97,79 @@ export class ThumbnailGenerator {
         scaleFilter = `scale=${width}:${height}`;
       }
 
+      // Generate and check thumbnails from start to end
+      for (let i = 1; i <= frameCount; i++) {
+        const timeOffset = interval * i;
+        const outputFileName = `thumbnail_check_${i}_${Date.now()}.jpg`;
+        
+        // Report progress
+        const progressPercent = Math.round((i / frameCount) * 100);
+        options.onProgress?.(progressPercent, `Checking frame ${i}/${frameCount}...`);
+
+        try {
+          await this.ffmpeg.run(
+            '-i', inputFileName,
+            '-ss', timeOffset.toString(),
+            '-vframes', '1',
+            '-vf', scaleFilter,
+            '-y',
+            outputFileName
+          );
+
+          const thumbnailData = this.ffmpeg.FS("readFile", outputFileName);
+          const thumbnailBlob = new Blob([thumbnailData.buffer], { type: 'image/jpeg' });
+          
+          // Clean up this thumbnail file immediately from FFmpeg storage
+          await this.cleanupFiles([outputFileName]);
+          
+          // Convert blob to data URL for NSFW check
+          const imageUrl = await this.blobToDataURL(thumbnailBlob);
+          const isNSFW = await CheckNSFW(imageUrl);
+          nsfwResults.push(isNSFW);
+        } catch (error) {
+          // Continue with next frame even if one fails
+        }
+      }
+
+      // Check if any thumbnail was NSFW
+      const hasNSFW = nsfwResults.some(result => result === true);
+
+      // Generate final thumbnail from random time offset
+      const randomTimeOffset = Math.random() * videoDuration;
+      const finalOutputFileName = `thumbnail_final_${Date.now()}.jpg`;
+
       await this.ffmpeg.run(
         '-i', inputFileName,
-        '-ss', timeOffset.toString(),
+        '-ss', randomTimeOffset.toString(),
         '-vframes', '1',
         '-vf', scaleFilter,
         '-y',
-        outputFileName
+        finalOutputFileName
       );
 
-      const thumbnailData = this.ffmpeg.FS("readFile", outputFileName);
-      const thumbnailBlob = new Blob([thumbnailData.buffer], { type: 'image/jpeg' });
+      const finalThumbnailData = this.ffmpeg.FS("readFile", finalOutputFileName);
+      const finalThumbnailBlob = new Blob([finalThumbnailData.buffer], { type: 'image/jpeg' });
 
-      await this.cleanupFiles([inputFileName, outputFileName]);
+      // Clean up all files
+      await this.cleanupFiles([inputFileName, finalOutputFileName]);
+      
+      // Final cleanup of FFmpeg storage
+      await this.cleanupFFmpeg();
 
       return {
         success: true,
-        thumbnailBlob
+        thumbnailBlob: finalThumbnailBlob,
+        nsfw: hasNSFW
       };
     } catch (error) {
-      console.error('Thumbnail generation failed:', error);
+      // Ensure cleanup even on error
+      await this.cleanupFFmpeg();
+      
       return {
         success: false,
-        error: error instanceof Error ? error.message : 'Unknown error'
+        error: error instanceof Error ? error.message : 'Unknown error',
+        nsfw: false
       };
-    } finally {
-      await this.cleanupFFmpeg();
     }
   }
 
@@ -152,7 +205,6 @@ export class ThumbnailGenerator {
 
       return results;
     } catch (error) {
-      console.error('Multiple thumbnail generation failed:', error);
       return [{
         success: false,
         error: error instanceof Error ? error.message : 'Unknown error'
@@ -208,7 +260,7 @@ export class ThumbnailGenerator {
         this.ffmpeg.FS("unlink", filename);
       }
     } catch (error) {
-      console.warn('Failed to cleanup files:', error);
+      // Silent cleanup
     }
   }
 
@@ -229,7 +281,7 @@ export class ThumbnailGenerator {
           try {
             this.ffmpeg.FS("unlink", file);
           } catch (error) {
-            console.warn(`Failed to delete file ${file}:`, error);
+            // Silent cleanup
           }
         }
         
@@ -238,7 +290,44 @@ export class ThumbnailGenerator {
         this.isLoaded = false;
       }
     } catch (error) {
-      console.warn('Error during FFmpeg cleanup:', error);
+      // Silent cleanup
+    }
+  }
+
+  private async blobToDataURL(blob: Blob): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        if (typeof reader.result === 'string') {
+          resolve(reader.result);
+        } else {
+          reject(new Error('Failed to convert blob to data URL'));
+        }
+      };
+      reader.onerror = reject;
+      reader.readAsDataURL(blob);
+    });
+  }
+
+  async checkImageNSFW(imageFile: File, onProgress?: (progress: number, message: string) => void): Promise<{ success: boolean; nsfw: boolean; error?: string }> {
+    try {
+      onProgress?.(50, 'Checking image for adult content...');
+      
+      const imageUrl = await this.blobToDataURL(imageFile);
+      const isNSFW = await CheckNSFW(imageUrl);
+      
+      onProgress?.(100, isNSFW ? 'Adult content detected' : 'Content check complete');
+      
+      return {
+        success: true,
+        nsfw: isNSFW
+      };
+    } catch (error) {
+      return {
+        success: false,
+        nsfw: false,
+        error: error instanceof Error ? error.message : 'Unknown error'
+      };
     }
   }
 

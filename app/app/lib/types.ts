@@ -6,4 +6,5 @@ export interface FileType {
   unique_id: string;
   file_type: string;
   file_size: number;
+  is_adult?: boolean;
 }

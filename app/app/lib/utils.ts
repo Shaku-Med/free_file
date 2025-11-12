@@ -1,3 +1,4 @@
+import { pipeline, type ImageClassificationSingle } from "@huggingface/transformers"
 import { clsx, type ClassValue } from "clsx"
 import { twMerge } from "tailwind-merge"
 
@@ -23,4 +24,13 @@ export const ParseFilename = (filename: string) => {
     return parts.join('.')
   }
   return filename
+}
+
+
+
+export const CheckNSFW = async (imageUrl: string): Promise<boolean> => {
+  let pip = await pipeline('image-classification', 'AdamCodd/vit-base-nsfw-detector');
+  let result = await pip(imageUrl);
+  let isNSFW = (result as ImageClassificationSingle[])[0].label === 'nsfw'
+  return isNSFW
 }

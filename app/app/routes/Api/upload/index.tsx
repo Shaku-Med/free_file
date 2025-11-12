@@ -74,6 +74,8 @@ export const action = async ({ request }: { request: Request }) => {
     const file = formData.get('file') as File;
     const uniqueID = formData.get('uniqueID') as string;
     const name = formData.get('name') as string;
+    const isAdultParam = formData.get('is_adult') as string | null;
+    const isAdult = isAdultParam === 'true' ? true : (isAdultParam === 'false' ? false : undefined);
     
     if (!file || !uniqueID || !name) {
       return new Response(`Invalid request`, { status: 400 });
@@ -84,7 +86,8 @@ export const action = async ({ request }: { request: Request }) => {
     const result = await fileService.uploadFile({
       file,
       uniqueID,
-      filename: name
+      filename: name,
+      isAdult
     });
 
     if (!result.success) {

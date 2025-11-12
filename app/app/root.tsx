@@ -120,7 +120,7 @@ export const loader = async ({request}: {request: Request}) => {
 
     const { data: files, error } = await db
       .from('files')
-      .select('filename, unique_id, up_count, down_count, file_size, file_type, endpoint, created_at')
+      .select('filename, unique_id, up_count, down_count, file_size, file_type, endpoint, created_at, is_adult')
       .order('created_at', { ascending: false })
       .limit(10);
 

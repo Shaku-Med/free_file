@@ -10,15 +10,17 @@ interface ImageLoadProps {
     index?: number
     retry: () => void
     callBack?: (src: string) => void
+    quality?: number | undefined
 }
-const ImageLoad = ({link, className, imageID, index, retry, callBack }: ImageLoadProps) => {
+const ImageLoad = ({link, className, imageID, index, retry, callBack, quality }: ImageLoadProps) => {
     const [src, setSrc] = useState<string | null | boolean>(null)
     const [loaded, setLoaded] = useState<boolean>(false)
 
     useLayoutEffect(() => {
         let fetchImage = async () => {
             if(!link) return
-            link = link.split(`.MP4.m3u8`).join('')
+            link = `${link.split(`.MP4.m3u8`).join('')}${quality ? `/?quality=${quality}` : ''}`
+            imageID = quality ? `${imageID}_${quality}` : imageID
             
             if(imageID && (window as any)[`_${imageID}`]) {
                 setSrc((window as any)[`_${imageID}`].imageUrl)

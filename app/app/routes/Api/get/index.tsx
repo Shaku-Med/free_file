@@ -43,7 +43,7 @@ export const loader = async ({ request }: { request: Request }) => {
             });
         }
 
-        const validSortFields = ['created_at', 'filename', 'file_size', 'file_type'];
+        const validSortFields = ['created_at', 'filename', 'file_size', 'file_type', 'is_adult'];
         if (!validSortFields.includes(sortBy)) {
             return new Response(JSON.stringify({ 
                 error: `Invalid sortBy field. Must be one of: ${validSortFields.join(', ')}` 

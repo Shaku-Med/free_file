@@ -28,6 +28,8 @@ interface UploadItem {
   retryCount: number
   validationError?: string
   uniqueID: string
+  statusText?: string
+  nsfwDetected?: boolean
 }
 
 const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({ isOpen, onClose, onFilesSelected }) => {
@@ -144,7 +146,6 @@ const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({ isOpen, onClo
     try {
       const thumbnailValidation = await validateThumbnail(thumbnailBlob)
       if (!thumbnailValidation.isValid) {
-        console.warn('⚠️ Thumbnail validation failed:', thumbnailValidation.error)
         return false
       }
       
@@ -164,22 +165,24 @@ const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({ isOpen, onClo
 
       return true
     } catch (error) {
-      console.error('Thumbnail upload failed:', error)
       return false
     }
   }
 
-  const VideoFetchPush = async (segmentUrls: { blob: Blob, name: string }[], uniqueID: string): Promise<boolean> => {
+  const VideoFetchPush = async (segmentUrls: { blob: Blob, name: string }[], uniqueID: string, isAdult?: boolean): Promise<boolean> => {
     try {
       for (let i = 0; i < segmentUrls.length; i++) {
         const segment = segmentUrls[i]
-        
-        console.log(`📤 Uploading segment ${i + 1}/${segmentUrls.length}: ${segment.name}`)
         
         const formData = new FormData()
         formData.append('file', segment.blob)
         formData.append('name', segment.name)
         formData.append('uniqueID', uniqueID)
+        
+        // Only send is_adult for m3u8 files (main video file)
+        if (segment.name.endsWith('.m3u8') && isAdult !== undefined) {
+          formData.append('is_adult', isAdult.toString())
+        }
 
         const response = await fetch('/api/upload', {
           method: 'POST',
@@ -187,61 +190,69 @@ const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({ isOpen, onClo
         })
         
         if (!response.ok) {
-          console.error(`❌ Failed to upload segment ${segment.name}:`, response.statusText)
           return false
         }
-        
-        console.log(`✅ Successfully uploaded segment ${i + 1}/${segmentUrls.length}`)
       }
       
       return true
     } catch (error) {
-      console.error('❌ Error in VideoFetchPush:', error)
       return false
     }
   }
 
-  const uploadVideo = async (file: File, index: number, onProgress: (value: number) => void, uniqueID: string): Promise<boolean> => {
+  const uploadVideo = async (
+    file: File, 
+    index: number, 
+    onProgress: (value: number, statusText?: string) => void, 
+    uniqueID: string,
+    onStatusUpdate?: (statusText: string, nsfwDetected?: boolean) => void
+  ): Promise<boolean> => {
     let thumbnailGenerator: ThumbnailGenerator | null = null
     
     try {
       thumbnailGenerator = new ThumbnailGenerator()
 
-      console.log('🎬 Generating thumbnail for video:', file.name)
-      const thumbnailResult = await thumbnailGenerator.generateThumbnailWithFallback(file, {
+      onStatusUpdate?.('Processing your video checking for adult contents...', false)
+      
+      const thumbnailResult = await thumbnailGenerator.generateThumbnail(file, {
         maxWidth: 1920,
         maxHeight: 1080,
-        maintainAspectRatio: true
+        maintainAspectRatio: true,
+        onProgress: (progress, message) => {
+          const progressPercent = Math.max(1, Math.min(progress, 100))
+          onProgress(progressPercent, `Processing your video checking for adult contents... checks ${progressPercent}%`)
+        }
       })
 
+      let isAdult = false
+      
       if (thumbnailResult.success && thumbnailResult.thumbnailBlob) {
-        console.log('📸 Thumbnail generated, uploading...')
-        const thumbnailUploaded = await uploadThumbnail(thumbnailResult.thumbnailBlob, uniqueID, file.name)
-        
-        if (!thumbnailUploaded) {
-          console.warn('⚠️ Thumbnail upload failed, continuing with video upload')
+        if (thumbnailResult.nsfw !== undefined && thumbnailResult.nsfw) {
+          isAdult = true
+          onStatusUpdate?.('Adult content detected in the video', true)
+          // Wait a moment to show the message
+          await new Promise(resolve => setTimeout(resolve, 1500))
         } else {
-          console.log('✅ Thumbnail uploaded successfully')
+          onStatusUpdate?.('Content check complete', false)
         }
-      } else {
-        console.warn('⚠️ Thumbnail generation failed:', thumbnailResult.error)
-        console.log('📝 Continuing with video upload without thumbnail')
+
+        const thumbnailUploaded = await uploadThumbnail(thumbnailResult.thumbnailBlob, uniqueID, file.name)
       }
 
       await thumbnailGenerator.destroy()
       thumbnailGenerator = null
 
-      console.log('🎥 Starting HLS conversion for video:', file.name)
+      onStatusUpdate?.('Converting video...', false)
       const { m3u8Url, segmentUrls } = await convertToHLS(file, (ratio: number) => {
-        const value = Math.max(0, Math.min(100, Math.round(ratio * 90)))
-        onProgress(value)
+        const value = Math.max(10, Math.min(90, Math.round(10 + (ratio * 80))))
+        onProgress(value, 'Converting video...')
       })
       if (!m3u8Url || segmentUrls.length === 0) {
         return false
       }
 
-      console.log('📤 Uploading HLS segments...')
-      const uploadSuccess = await VideoFetchPush(segmentUrls, uniqueID)
+      onStatusUpdate?.('Uploading video...', false)
+      const uploadSuccess = await VideoFetchPush(segmentUrls, uniqueID, isAdult)
 
       // Free the Object URL to prevent memory leaks after upload
       try { URL.revokeObjectURL(m3u8Url) } catch {}
@@ -249,52 +260,93 @@ const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({ isOpen, onClo
         return false
       }
 
-      console.log('✅ Video upload completed successfully')
-      onProgress(100)
+      onProgress(100, 'Upload complete')
       return true
     } catch (error) {
-      console.error(`❌ Video upload failed:`, error)
       return false
     } finally {
       if (thumbnailGenerator) {
         try {
           await thumbnailGenerator.destroy()
         } catch (error) {
-          console.warn('Error destroying thumbnail generator:', error)
+          // Silent cleanup
         }
       }
     }
   }
 
-  const uploadFile = async (file: File, index: number, onProgress: (value: number) => void, uniqueID: string): Promise<boolean> => {
+  const uploadFile = async (
+    file: File, 
+    index: number, 
+    onProgress: (value: number, statusText?: string) => void, 
+    uniqueID: string,
+    onStatusUpdate?: (statusText: string, nsfwDetected?: boolean) => void
+  ): Promise<boolean> => {
     try {
       if(file.type.startsWith(`video/`)) {
-        return uploadVideo(file, index, onProgress, uniqueID)
+        return uploadVideo(file, index, onProgress, uniqueID, onStatusUpdate)
       }
       
       if(file.type.startsWith(`image/`)) {
-        const formData = new FormData()
-        formData.append('file', file)
-        formData.append('name', file.name)
-        formData.append('uniqueID', uniqueID)
-
-        const response = await fetch('/api/upload', {
-          method: 'POST',
-          body: formData,
-        })
+        const thumbnailGenerator = new ThumbnailGenerator()
         
-        if (!response.ok) {
-          throw new Error(`Upload failed: ${response.statusText}`)
-        }
+        try {
+          onStatusUpdate?.('Processing your image checking for adult contents...', false)
+          
+          const nsfwResult = await thumbnailGenerator.checkImageNSFW(file, (progress, message) => {
+            const progressPercent = Math.max(1, Math.min(progress, 100))
+            onProgress(progressPercent, `Processing your image checking for adult contents... checks ${progressPercent}%`)
+          })
+          
+          let isAdult = false
+          
+          if (nsfwResult.success) {
+            if (nsfwResult.nsfw) {
+              isAdult = true
+              onStatusUpdate?.('Adult content detected in the image', true)
+              await new Promise(resolve => setTimeout(resolve, 1500))
+            } else {
+              onStatusUpdate?.('Content check complete', false)
+            }
+          }
+          
+          await thumbnailGenerator.destroy()
+          
+          onStatusUpdate?.('Uploading image...', false)
+          const formData = new FormData()
+          formData.append('file', file)
+          formData.append('name', file.name)
+          formData.append('uniqueID', uniqueID)
+          formData.append('is_adult', isAdult.toString())
 
-        const result = await response.json()
-        if (result.success) onProgress(100)
-        return result.success
+          const response = await fetch('/api/upload', {
+            method: 'POST',
+            body: formData,
+          })
+          
+          if (!response.ok) {
+            throw new Error(`Upload failed: ${response.statusText}`)
+          }
+
+          const result = await response.json()
+          if (result.success) {
+            onProgress(100, 'Upload complete')
+          }
+          return result.success
+          
+          onProgress(100, 'Upload complete')
+          return true
+        } finally {
+          try {
+            await thumbnailGenerator.destroy()
+          } catch (error) {
+            // Silent cleanup
+          }
+        }
       }
       
       return true
     } catch (error) {
-      console.error('Upload error:', error)
       return false
     }
   }
@@ -306,7 +358,6 @@ const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({ isOpen, onClo
     const pendingItems = uploadQueue.filter(item => item.status === 'pending')
     
     const timeoutId = setTimeout(() => {
-      console.warn('Upload process timeout - stopping processing')
       setIsUploading(false)
     }, 300000) // 5 minute timeout
     
@@ -317,17 +368,29 @@ const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({ isOpen, onClo
         
         setUploadQueue(prev => prev.map(uploadItem => 
           uploadItem.id === item.id 
-            ? { ...uploadItem, status: 'uploading', progress: 0 }
+            ? { ...uploadItem, status: 'uploading', progress: 0, statusText: 'Starting...' }
             : uploadItem
         ))
 
-        const success = await uploadFile(item.file, i, (value: number) => {
-          setUploadQueue(prev => prev.map(uploadItem => 
-            uploadItem.id === item.id 
-              ? { ...uploadItem, progress: value, status: 'uploading' }
-              : uploadItem
-          ))
-        }, item.uniqueID)
+        const success = await uploadFile(
+          item.file, 
+          i, 
+          (value: number, statusText?: string) => {
+            setUploadQueue(prev => prev.map(uploadItem => 
+              uploadItem.id === item.id 
+                ? { ...uploadItem, progress: value, status: 'uploading', statusText: statusText || uploadItem.statusText }
+                : uploadItem
+            ))
+          }, 
+          item.uniqueID,
+          (statusText: string, nsfwDetected?: boolean) => {
+            setUploadQueue(prev => prev.map(uploadItem => 
+              uploadItem.id === item.id 
+                ? { ...uploadItem, statusText, nsfwDetected: nsfwDetected || false }
+                : uploadItem
+            ))
+          }
+        )
 
         setUploadQueue(prev => prev.map(uploadItem => 
           uploadItem.id === item.id 
@@ -371,7 +434,6 @@ const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({ isOpen, onClo
     }
     
     if (invalidFiles.length > 0) {
-      console.warn('Rejected files:', invalidFiles)
       alert(`The following files were rejected:\n${invalidFiles.map(f => `• ${f.file.name}: ${f.error}`).join('\n')}`)
     }
     
@@ -399,9 +461,7 @@ const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({ isOpen, onClo
 
   React.useEffect(() => {
     return () => {
-      if (uploadQueue.length > 0) {
-        console.log('Cleaning up upload queue on unmount')
-      }
+      // Cleanup on unmount
     }
   }, [])
 
@@ -559,7 +619,14 @@ const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({ isOpen, onClo
                           {formatFileSize(item.file.size)}
                         </p>
                         {item.status === 'uploading' && (
-                          <Progress value={item.progress} className="mt-1 h-1" />
+                          <>
+                            <Progress value={item.progress} className="mt-1 h-1" />
+                            {item.statusText && (
+                              <p className={`text-xs mt-1 ${item.nsfwDetected ? 'text-destructive font-medium' : 'text-muted-foreground'}`}>
+                                {item.statusText}
+                              </p>
+                            )}
+                          </>
                         )}
                         {item.validationError && (
                           <p className="text-xs text-destructive mt-1">{item.validationError}</p>

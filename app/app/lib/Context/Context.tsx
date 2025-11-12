@@ -173,7 +173,7 @@ export const ContextProvider = ({ children, f, st }: ContextProviderProps) => {
         if(st && !st.includes('not_needed')) fetchPublicKey()
     }, [st])
 
-    const value = useMemo(() => ({ files, setFiles, isModalOpen, setIsModalOpen, isLoading, hasMore, observerRef: observerRef as React.RefObject<HTMLDivElement>, currentPage, loadMoreVideos }), [files, setFiles, isModalOpen, setIsModalOpen, isLoading, hasMore, observerRef, currentPage, loadMoreVideos]);
+    const value = useMemo(() => ({files, setFiles, isModalOpen, setIsModalOpen, isLoading, hasMore, observerRef: observerRef as React.RefObject<HTMLDivElement>, currentPage, loadMoreVideos }), [files, setFiles, isModalOpen, setIsModalOpen, isLoading, hasMore, observerRef, currentPage, loadMoreVideos]);
     return (
         <Context.Provider value={value}>
             {children}

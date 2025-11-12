@@ -5,6 +5,7 @@ export interface FileUploadData {
   file: File;
   uniqueID: string;
   filename: string;
+  isAdult?: boolean;
 }
 
 export interface FileRecord {
@@ -15,6 +16,7 @@ export interface FileRecord {
   unique_id: string;
   file_type: string;
   file_size: number;
+  is_adult?: boolean;
 }
 
 export interface PaginationParams {
@@ -85,16 +87,23 @@ export class FileService {
           throw new Error('Database not initialized');
         }
 
+        const insertData: any = {
+          created_at: new Date().toISOString(),
+          endpoint: githubResult.filePath!,
+          filename: fileData.filename,
+          unique_id: fileData.uniqueID,
+          file_type: fileData.file.type,
+          file_size: fileData.file.size
+        };
+
+        // Only include is_adult if it's provided (for video files)
+        if (fileData.isAdult !== undefined) {
+          insertData.is_adult = fileData.isAdult;
+        }
+
         const { data, error } = await db
           .from('files')
-          .insert([{
-            created_at: new Date().toISOString(),
-            endpoint: githubResult.filePath!,
-            filename: fileData.filename,
-            unique_id: fileData.uniqueID,
-            file_type: fileData.file.type,
-            file_size: fileData.file.size
-          }])
+          .insert([insertData])
           .select()
           .single();
 

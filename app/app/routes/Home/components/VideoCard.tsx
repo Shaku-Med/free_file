@@ -5,6 +5,7 @@ import { Link, useNavigate } from "react-router"
 import type { FileType } from "~/lib/types"
 import ImageLoad from "./ImageLoad/ImageLoad"
 import { arrangeDateForThumbnail, ParseFilename } from "~/lib/utils"
+import { ShieldAlert } from "lucide-react"
 
 interface VideoCardProps {
   data: FileType
@@ -23,6 +24,7 @@ const VideoCard = ({ data, key, index}: VideoCardProps) => {
   const [error, setError] = useState<boolean>(false)
   const [retryAttempt, setRetryAttempt] = useState<number>(0)
   const [loaded, setLoaded] = useState<boolean>(false)
+  const [showAdultTag] = useState<boolean>(Boolean(data.is_adult))
 
   const nav = useNavigate()
 
@@ -45,9 +47,7 @@ const VideoCard = ({ data, key, index}: VideoCardProps) => {
     >
       <Link onClick={e => {
         e.preventDefault()
-        nav(`/${data.unique_id}`, {
-          replace: true
-        })
+        nav(`/${data.unique_id}`)
       }} to={`/${data.unique_id}`}
       className={`h-full bg-card rounded-2xl overflow-hidden min-h-[200px]`}
       >
@@ -56,6 +56,30 @@ const VideoCard = ({ data, key, index}: VideoCardProps) => {
           className={`h-full min-h-[200px]`}
         >
             <>
+            {showAdultTag && (
+              <>
+                <div className="absolute inset-0 z-10 bg-black/50 pointer-events-none" />
+                <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-2 text-center text-white px-4 pointer-events-none backdrop-blur-xl rounded-2xl overflow-hidden">
+                  <ShieldAlert className="h-10 w-10 text-primary-foreground/80" />
+                  <span className="text-sm font-semibold tracking-wide uppercase">
+                    Sensitive Content
+                  </span>
+                  <p className="text-xs text-white/80 max-w-[200px]">
+                    Tap to continue if you are comfortable viewing mature media.
+                  </p>
+                  <h1 className="hidden">Look! We are not stupid for not hiding the image of the adult content! So don't be too happy for that.</h1>
+                </div>
+                <div className="absolute top-3 left-3 z-20 pointer-events-none">
+                  <Badge
+                    variant="default"
+                    className="px-3 py-1 text-[11px] font-semibold uppercase tracking-wide shadow-lg shadow-black/20 ring-1 ring-primary/40 bg-primary/90 backdrop-blur-sm"
+                  >
+                    <ShieldAlert className="h-3.5 w-3.5" />
+                    18 PG
+                  </Badge>
+                </div>
+              </>
+            )}
             {
                 !error ? (
                   <ImageLoad 
@@ -71,6 +95,7 @@ const VideoCard = ({ data, key, index}: VideoCardProps) => {
                         setLoaded(true)
                       }
                     }}
+                    quality={25}
                   />
                 ) : (
                 <div className="w-full h-full flex items-center justify-center bg-muted text-xs text-center">
