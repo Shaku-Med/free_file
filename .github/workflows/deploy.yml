@@ -1,5 +1,4 @@
-name: Build and Deploy to EC2
-
+name: Deploy Memories to EC2
 on:
   push:
     branches:
@@ -7,26 +6,14 @@ on:
 
 jobs:
   deploy:
-    name: Build and Deploy
+    name: Deploy Memories
     runs-on: ubuntu-latest
-
     steps:
       # 1️⃣ Checkout repo
       - name: Checkout repository
         uses: actions/checkout@v4
-
-      # 2️⃣ Setup Node.js
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-
-      # 3️⃣ Install dependencies
-      - name: Install dependencies
-        working-directory: ./app
-        run: npm ci
-
-      # 4️⃣ Create .env file BEFORE build
+      
+      # 2️⃣ Create .env file
       - name: Create .env file from GitHub secret
         run: |
           if [ -n "${{ secrets.ENV_FILE }}" ]; then
@@ -34,177 +21,32 @@ jobs:
           ${{ secrets.ENV_FILE }}
           EOF
             echo "✅ .env file created"
-            echo "📄 File size: $(wc -c < app/.env) bytes"
           else
-            echo "❌ ERROR: ENV_FILE secret is empty or not found!"
+            echo "❌ ERROR: ENV_FILE secret is empty!"
             exit 1
           fi
-
-      # 5️⃣ Build project (after env is ready)
-      - name: Build project
-        working-directory: ./app
-        run: npm run build
-
-      # 6️⃣ Prepare lean production build
-      - name: Prepare production build
-        working-directory: ./app
-        run: |
-          echo "📦 Preparing production files..."
-          
-          # Remove development dependencies
-          rm -rf node_modules
-          
-          # Install only production dependencies
-          npm ci --production
-          
-          # Remove unnecessary files
-          rm -rf .git .github tests __tests__ coverage .vscode .idea
-          rm -rf *.test.js *.spec.js jest.config.js
-          
-          echo "✅ Production build ready"
-          du -sh .
-
-      # 7️⃣ Create deployment package (optimized)
-      - name: Create deployment archive
-        run: |
-          cd app
-          
-          # Create archive with only necessary files
-          tar -czf ../app-deploy.tar.gz \
-            .next \
-            node_modules \
-            public \
-            package.json \
-            package-lock.json \
-            next.config.js \
-            .env
-          
-          cd ..
-          
-          echo "📦 Archive created:"
-          ls -lh app-deploy.tar.gz
-          
-          # Show size in MB
-          SIZE_MB=$(du -m app-deploy.tar.gz | cut -f1)
-          echo "Size: ${SIZE_MB}MB"
-          
-          # Warn if still too large
-          if [ $SIZE_MB -gt 200 ]; then
-            echo "⚠️  Warning: Archive is larger than 200MB"
-          fi
-
-      # 8️⃣ Copy archive to EC2
-      - name: Copy deployment package to EC2
-        run: |
-          # Setup SSH key
-          mkdir -p ~/.ssh
-          echo "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/deploy_key
-          chmod 600 ~/.ssh/deploy_key
-          
-          # Copy archive using SCP
-          scp -i ~/.ssh/deploy_key \
-            -o StrictHostKeyChecking=no \
-            -o ConnectTimeout=30 \
-            app-deploy.tar.gz \
-            ${{ secrets.EC2_USERNAME }}@${{ secrets.EC2_HOST }}:/tmp/
-          
-          echo "✅ Archive uploaded to EC2"
-          
-          # Clean up key
-          rm ~/.ssh/deploy_key
-
-      # 9️⃣ Extract and restart on EC2
-      - name: Deploy and restart on EC2
+      
+      # 3️⃣ Deploy files to EC2 (NO node_modules, NO rm)
+      - name: Deploy app to EC2
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USERNAME }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          source: "app/*"
+          target: "/var/www/memories.brozy.org/"
+          overwrite: true
+      
+      # 4️⃣ Restart app with PM2
+      - name: Restart app
         uses: appleboy/ssh-action@v1
         with:
           host: ${{ secrets.EC2_HOST }}
           username: ${{ secrets.EC2_USERNAME }}
           key: ${{ secrets.EC2_SSH_KEY }}
-          script_stop: true
-          command_timeout: 10m
           script: |
-            echo "🚀 Starting deployment..."
-            
-            # Check disk space first
-            AVAILABLE=$(df / | tail -1 | awk '{print $4}')
-            AVAILABLE_MB=$((AVAILABLE / 1024))
-            echo "💾 Available disk space: ${AVAILABLE_MB}MB"
-            
-            if [ $AVAILABLE_MB -lt 500 ]; then
-              echo "❌ ERROR: Less than 500MB available. Aborting deployment."
-              echo "Please free up disk space first."
-              exit 1
-            fi
-            
-            # Ensure directory exists
-            sudo mkdir -p /var/www/memories.brozy.org/app
-            sudo chown -R $USER:$USER /var/www/memories.brozy.org
-            
-            # Backup current app
-            if [ -d /var/www/memories.brozy.org/app/.next ]; then
-              echo "📦 Backing up current app..."
-              rm -rf /var/www/memories.brozy.org/app/backup
-              mkdir -p /var/www/memories.brozy.org/app/backup
-              mv /var/www/memories.brozy.org/app/.next /var/www/memories.brozy.org/app/backup/ 2>/dev/null || true
-            fi
-            
-            # Extract new version
-            echo "📂 Extracting files..."
             cd /var/www/memories.brozy.org/app
-            tar -xzf /tmp/app-deploy.tar.gz
-            rm /tmp/app-deploy.tar.gz
-            
-            echo "✅ Files extracted"
-            
-            # Restart app with PM2
             if command -v pm2 >/dev/null 2>&1; then
-              echo "🔄 Restarting app with PM2..."
-              
-              # Delete old process
-              pm2 delete memories 2>/dev/null || true
-              
-              # Start new process
-              cd /var/www/memories.brozy.org/app
-              pm2 start npm --name "memories" -- start
-              pm2 save
-              
-              # Show status
-              pm2 list
-              
-              echo "✅ Application restarted with PM2"
-            else
-              echo "🚀 Starting app with nohup..."
-              
-              # Kill any existing process
-              pkill -f "npm start" 2>/dev/null || true
-              sleep 2
-              
-              # Start new process
-              cd /var/www/memories.brozy.org/app
-              nohup npm start > app.log 2>&1 &
-              echo "Process started with PID: $!"
-              
-              echo "✅ Application started"
+              pm2 restart memories || echo "⚠️  App not running yet - start it manually"
             fi
-            
-            # Clean up old backups
-            rm -rf /var/www/memories.brozy.org/app/backup
-            
-            echo "🎉 Deployment successful!"
-
-      # 🔟 Reload Nginx
-      - name: Reload Nginx
-        uses: appleboy/ssh-action@v1
-        with:
-          host: ${{ secrets.EC2_HOST }}
-          username: ${{ secrets.EC2_USERNAME }}
-          key: ${{ secrets.EC2_SSH_KEY }}
-          script: |
-            sudo systemctl reload nginx
-            echo "✅ Nginx reloaded successfully"
-            echo ""
-            echo "🎉 Deployment complete!"
-            echo "🌐 Site: https://memories.brozy.org"
-            echo ""
-            echo "📊 Final disk usage:"
-            df -h / | grep -E '(Filesystem|/dev/root)'
+            echo "✅ Files deployed successfully"
