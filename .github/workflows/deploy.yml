@@ -45,39 +45,81 @@ jobs:
         working-directory: ./app
         run: npm run build
 
-      # 6️⃣ Deploy built app folder to EC2
-      - name: Deploy app to EC2
-        uses: appleboy/scp-action@v0.1.7
-        with:
-          host: ${{ secrets.EC2_HOST }}
-          username: ${{ secrets.EC2_USERNAME }}
-          key: ${{ secrets.EC2_SSH_KEY }}
-          source: "app/*"
-          target: "/var/www/memories.brozy.org/app/"
+      # 6️⃣ Create deployment package
+      - name: Create deployment archive
+        run: |
+          cd app
+          tar -czf ../app-deploy.tar.gz .
+          cd ..
+          ls -lh app-deploy.tar.gz
 
-      # 7️⃣ SSH into EC2 and start the app
-      - name: Install & Start on EC2
+      # 7️⃣ Copy archive to EC2
+      - name: Copy deployment package to EC2
+        run: |
+          # Setup SSH key
+          mkdir -p ~/.ssh
+          echo "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          
+          # Copy archive using SCP
+          scp -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
+            app-deploy.tar.gz \
+            ${{ secrets.EC2_USERNAME }}@${{ secrets.EC2_HOST }}:/tmp/
+          
+          # Clean up key
+          rm ~/.ssh/deploy_key
+
+      # 8️⃣ Extract and restart on EC2
+      - name: Deploy and restart on EC2
         uses: appleboy/ssh-action@v1
         with:
           host: ${{ secrets.EC2_HOST }}
           username: ${{ secrets.EC2_USERNAME }}
           key: ${{ secrets.EC2_SSH_KEY }}
+          script_stop: true
           script: |
+            echo "🚀 Starting deployment..."
+            
+            # Ensure directory exists
+            mkdir -p /var/www/memories.brozy.org/app
+            
+            # Backup current app (optional)
+            if [ -d /var/www/memories.brozy.org/app/backup ]; then
+              rm -rf /var/www/memories.brozy.org/app/backup
+            fi
+            
+            # Extract new version
             cd /var/www/memories.brozy.org/app
-            npm ci
-
-            # Stop old process if PM2 is available
+            tar -xzf /tmp/app-deploy.tar.gz
+            rm /tmp/app-deploy.tar.gz
+            
+            echo "📦 Files extracted"
+            
+            # Install production dependencies (in case package.json changed)
+            npm ci --production
+            
+            echo "📚 Dependencies installed"
+            
+            # Restart app with PM2
             if command -v pm2 >/dev/null 2>&1; then
-              echo "🔄 Restarting app using PM2..."
-              pm2 delete memories || true
+              echo "🔄 Restarting app with PM2..."
+              pm2 delete memories 2>/dev/null || true
               pm2 start npm --name "memories" -- start
               pm2 save
+              pm2 list
             else
-              echo "🚀 Starting app in background (nohup)..."
+              echo "🚀 Starting app with nohup..."
+              # Kill any existing process
+              pkill -f "npm start" 2>/dev/null || true
+              sleep 2
+              # Start new process
               nohup npm start > app.log 2>&1 &
+              echo "Process started with PID: $!"
             fi
+            
+            echo "✅ Application restarted"
 
-      # 8️⃣ Reload Nginx
+      # 9️⃣ Reload Nginx
       - name: Reload Nginx
         uses: appleboy/ssh-action@v1
         with:
@@ -87,3 +129,6 @@ jobs:
           script: |
             sudo systemctl reload nginx
             echo "✅ Nginx reloaded successfully"
+            echo ""
+            echo "🎉 Deployment complete!"
+            echo "🌐 Site: https://memories.brozy.org"
