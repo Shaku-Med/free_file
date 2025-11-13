@@ -1,6 +1,30 @@
 import { pipeline, type ImageClassificationSingle, RawImage } from "@huggingface/transformers";
 import { VKF } from "../../Video";
 
+// Cache the pipeline instance to avoid reloading the model on every request
+// This significantly improves performance and reduces memory churn
+let cachedPipeline: any = null;
+let pipelinePromise: Promise<any> | null = null;
+
+const getPipeline = async () => {
+  // If pipeline is already cached, return it
+  if (cachedPipeline) {
+    return cachedPipeline;
+  }
+  
+  // If pipeline is being created, wait for it
+  if (pipelinePromise) {
+    return pipelinePromise;
+  }
+  
+  // Create new pipeline
+  pipelinePromise = pipeline('image-classification', 'AdamCodd/vit-base-nsfw-detector');
+  cachedPipeline = await pipelinePromise;
+  pipelinePromise = null;
+  
+  return cachedPipeline;
+};
+
 export const action = async ({ request }: { request: Request }) => {
   try {
     let verified = await VKF(request)
@@ -39,7 +63,8 @@ export const action = async ({ request }: { request: Request }) => {
     const image = await RawImage.fromBlob(new Blob([buffer], { type: imageFile.type || 'image/jpeg' }));
     
     // Run NSFW detection using Hugging Face transformers
-    const pip = await pipeline('image-classification', 'AdamCodd/vit-base-nsfw-detector');
+    // Use cached pipeline instance to avoid reloading model on every request
+    const pip = await getPipeline();
     const result = await pip(image);
     const isNSFW = (result as ImageClassificationSingle[])[0].label === 'nsfw';
 
