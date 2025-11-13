@@ -1,0 +1,81 @@
+import { pipeline, type ImageClassificationSingle, RawImage } from "@huggingface/transformers";
+import { VKF } from "../../Video";
+
+export const action = async ({ request }: { request: Request }) => {
+  try {
+    let verified = await VKF(request)
+    if(!verified) return new Response(null, { status: 401 })
+    // Only accept POST requests
+    if (request.method !== 'POST') {
+      return new Response(
+        JSON.stringify({ error: 'Method not allowed' }),
+        { 
+          status: 405,
+          headers: { 'Content-Type': 'application/json' }
+        }
+      );
+    }
+
+    // Get the image file from FormData
+    const formData = await request.formData();
+    const imageFile = formData.get('image') as File;
+
+    if (!imageFile) {
+      return new Response(
+        JSON.stringify({ error: 'No image file provided' }),
+        { 
+          status: 400,
+          headers: { 'Content-Type': 'application/json' }
+        }
+      );
+    }
+
+    // Convert file to RawImage format for transformers.js in Node.js
+    // RawImage can handle Buffer/ArrayBuffer directly
+    const arrayBuffer = await imageFile.arrayBuffer();
+    const buffer = Buffer.from(arrayBuffer);
+    
+    // Create RawImage from buffer - this works in Node.js environment
+    const image = await RawImage.fromBlob(new Blob([buffer], { type: imageFile.type || 'image/jpeg' }));
+    
+    // Run NSFW detection using Hugging Face transformers
+    const pip = await pipeline('image-classification', 'AdamCodd/vit-base-nsfw-detector');
+    const result = await pip(image);
+    const isNSFW = (result as ImageClassificationSingle[])[0].label === 'nsfw';
+
+    return new Response(
+      JSON.stringify({ 
+        success: true,
+        nsfw: isNSFW 
+      }),
+      { 
+        status: 200,
+        headers: { 'Content-Type': 'application/json' }
+      }
+    );
+  } catch (error) {
+    console.error('NSFW detection error:', error);
+    return new Response(
+      JSON.stringify({ 
+        success: false,
+        error: 'Something went wrong!',
+        nsfw: false
+      }),
+      { 
+        status: 500,
+        headers: { 'Content-Type': 'application/json' }
+      }
+    );
+  }
+};
+
+export const loader = async ({ request }: { request: Request }) => {
+    try {
+        let verified = await VKF(request)
+        if(!verified) return new Response(null, { status: 401 })
+        return new Response(null, { status: 405 })
+    }
+    catch (error) {
+        return new Response(null, { status: 500 })
+    }
+}

@@ -13,6 +13,9 @@ export default [
         route(`public-key`, 'routes/Api/PublicKey/index.tsx'),
         route(`handshake`, 'routes/Api/handshake/index.tsx'),
         route(`socials/*`, 'routes/Api/Socials/index.tsx'),
+        route(`nsfw`, `routes/Api/load/NSFW/layout.tsx`, [
+            route(`detect/*`, `routes/Api/load/NSFW/detect/index.tsx`),
+        ]),
     ]),
     route(`:id`, 'routes/Dynamic/layout.tsx', [
         index('routes/Dynamic/index.tsx'),
