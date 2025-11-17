@@ -321,7 +321,7 @@ const index = () => {
         <div className="gap-6 flex flex-col">
           <div className="xl:col-span-3 space-y-6">
             <motion.div layoutId={`video_id_${file_data.unique_id}`} className="relative group flex items-center justify-between min-h-[300px] gap-4 w-full">
-              {imageColors && <GradientColors colors={imageColors} />}
+              {/* {imageColors && <GradientColors colors={imageColors} />} */}
               {file_data?.is_adult && (
                 <div className="absolute top-3 left-3 z-[100000] pointer-events-none">
                   <Badge className="flex items-center gap-1 px-3 py-1 text-[11px] font-semibold uppercase tracking-wide shadow-lg shadow-black/20 ring-1 ring-primary/40 bg-primary/90 backdrop-blur-sm">
