@@ -9,7 +9,6 @@ import { ShieldAlert } from "lucide-react"
 
 interface VideoCardProps {
   data: FileType
-  key?: number
   index?: number
 }
 
@@ -20,7 +19,7 @@ const base64URL = (url: string) => {
 
 
 
-const VideoCard = ({ data, key, index}: VideoCardProps) => {
+const VideoCard = ({ data, index}: VideoCardProps) => {
   const [error, setError] = useState<boolean>(false)
   const [retryAttempt, setRetryAttempt] = useState<number>(0)
   const [loaded, setLoaded] = useState<boolean>(false)
@@ -96,6 +95,7 @@ const VideoCard = ({ data, key, index}: VideoCardProps) => {
                       }
                     }}
                     quality={25}
+                    hasAdultTag={Boolean(data.is_adult)}
                   />
                 ) : (
                 <div className="w-full h-full flex items-center justify-center bg-muted text-xs text-center">

@@ -45,13 +45,15 @@ export const Context = createContext<ContextProps>({
     hasMore: false,
     observerRef: null,
     currentPage: 1,
-    loadMoreVideos: () => {}
+    loadMoreVideos: () => {},
+    user_agent: ''
 })
 
 interface ContextProviderProps {
     children: React.ReactNode;
     f: FileType[];
     st: string;
+    user_agent: string;
 }
 
 export const FloatingButton = () => {
@@ -75,14 +77,14 @@ export const FloatingButton = () => {
             onClick={() => setIsModalOpen(true)}
             size="icon"
             id="floating-button"
-            className=" fixed bottom-6 right-6 z-40 h-16 w-16 rounded-3xl shadow-lg hover:shadow-xl transition-all duration-300 bg-primary hover:bg-primary/90"
+            className=" fixed bottom-6 right-6 z-[10000000] h-16 w-16 rounded-3xl shadow-lg hover:shadow-xl transition-all duration-300 bg-primary hover:bg-primary/90"
         >
             <Plus className="h-7 w-7" />
         </Button>
     )
 }
 
-export const ContextProvider = ({ children, f, st }: ContextProviderProps) => {
+export const ContextProvider = ({ children, f, st, user_agent }: ContextProviderProps) => {
     const [files, setFiles] = useState<FileType[]>(f);
     const [isModalOpen, setIsModalOpen] = useState(false);
 
@@ -173,18 +175,20 @@ export const ContextProvider = ({ children, f, st }: ContextProviderProps) => {
         if(st && !st.includes('not_needed')) fetchPublicKey()
     }, [st])
 
-    const value = useMemo(() => ({files, setFiles, isModalOpen, setIsModalOpen, isLoading, hasMore, observerRef: observerRef as React.RefObject<HTMLDivElement>, currentPage, loadMoreVideos }), [files, setFiles, isModalOpen, setIsModalOpen, isLoading, hasMore, observerRef, currentPage, loadMoreVideos]);
+    const value = useMemo(() => ({files, setFiles, isModalOpen, setIsModalOpen, isLoading, hasMore, observerRef: observerRef as React.RefObject<HTMLDivElement>, currentPage, loadMoreVideos, user_agent }), [files, setFiles, isModalOpen, setIsModalOpen, isLoading, hasMore, observerRef, currentPage, loadMoreVideos, user_agent]);
     return (
-        <Context.Provider value={value}>
-            {children}
-            <MediaSelectionModal
-                isOpen={isModalOpen}
-                onClose={() => setIsModalOpen(false)}
-                onFilesSelected={() => {}}
-            />
-            <FloatingButton />
-            {/* <NavigationLoader/> */}
-        </Context.Provider>
+        <div className={`w-full h-full`}>
+            <Context.Provider value={value}>
+                {children}
+                <MediaSelectionModal
+                    isOpen={isModalOpen}
+                    onClose={() => setIsModalOpen(false)}
+                    onFilesSelected={() => {}}
+                />
+                {/* <FloatingButton /> */}
+                {/* <NavigationLoader/> */}
+            </Context.Provider>
+        </div>
     )
 }
 

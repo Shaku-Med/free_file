@@ -116,7 +116,7 @@ const RelatedVideos = ({ videos, currentVideoId }: RelatedVideosProps) => {
 
   if (displayVideos.length === 0) {
     return (
-      <div className="h-full flex flex-col">
+      <div className="h-full flex flex-col z-[1000]">
         <div className="p-6 border-b border-border/50 flex-shrink-0">
           <div className="flex items-center justify-between mb-2">
             <h2 className="text-xl font-bold text-foreground">Related</h2>
@@ -137,7 +137,7 @@ const RelatedVideos = ({ videos, currentVideoId }: RelatedVideosProps) => {
   }
 
   return (
-    <div className="h-full flex flex-col">
+    <div className="h-full flex flex-col z-[1000]">
       <div className="p-6 border-b border-border/50 flex-shrink-0">
         <div className="flex items-center justify-between mb-2">
           <h2 className="text-xl font-bold text-foreground">Related</h2>

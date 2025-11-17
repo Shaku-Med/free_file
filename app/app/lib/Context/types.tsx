@@ -11,4 +11,5 @@ export type ContextProps = {
     observerRef: React.RefObject<HTMLDivElement> | null;
     currentPage: number;
     loadMoreVideos: () => void;
+    user_agent: string;
 }

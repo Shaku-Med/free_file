@@ -176,7 +176,7 @@ const Search = () => {
   const showSuggestions = activeTerm && filteredResults.length === 0;
 
   return (
-    <div className="mx-auto w-full max-w-full xl:container px-6 xl:px-8 py-10">
+    <div className="mx-auto w-full max-w-full xl:container py-10">
       <div className="space-y-8">
         {/* <div className="space-y-2">
           <h1 className="text-3xl font-semibold text-foreground">Search</h1>
@@ -229,12 +229,12 @@ const Search = () => {
         {activeTerm ? (
           filteredResults.length > 0 ? (
             <div className="space-y-6">
-              <div className="grid grid-cols-1 gap-4 md:grid-cols-3 xl:grid-cols-4">
+              <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-5 gap-2">
                 {paginatedResults.map((file, index) => (
                   <VideoCard
-                    key={index + (currentPage - 1) * ITEMS_PER_PAGE}
                     data={file}
                     index={index + (currentPage - 1) * ITEMS_PER_PAGE}
+                    key={index}
                   />
                 ))}
               </div>
@@ -340,7 +340,7 @@ const Search = () => {
                   <h3 className="text-lg font-semibold text-foreground">
                     Suggested for you
                   </h3>
-                  <div className="grid grid-cols-1 gap-4 md:grid-cols-3 xl:grid-cols-4">
+                  <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-5 gap-2">
                     {suggestions.map((file, index) => (
                       <VideoCard
                         key={index}
@@ -359,7 +359,7 @@ const Search = () => {
               <h3 className="text-lg font-semibold text-foreground">
                 Quick suggestions
               </h3>
-              <div className="grid grid-cols-1 gap-4 md:grid-cols-3 xl:grid-cols-4">
+              <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-5 gap-2">
                 {suggestions.map((file, index) => (
                   <VideoCard
                     key={index}

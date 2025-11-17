@@ -3,27 +3,57 @@ import type { FileType } from '~/lib/types'
 import { cn } from '~/lib/utils'
 import { Loader2, LoaderCircle } from 'lucide-react'
 import { getImageBlob, hasImageBlob, storeImageBlob } from './IndexDb'
+import { generateEffectImage, getImageColorsHEX } from './Canvas/Functions'
+
+interface CallBackProps {
+    src: string
+    colors: string[]
+}
 interface ImageLoadProps {
     link?: string
     className?: string
     imageID?: string
     index?: number
     retry: () => void
-    callBack?: (src: string) => void
+    callBack?: (props: CallBackProps) => void
     quality?: number | undefined
+    hasAdultTag: boolean
 }
-const ImageLoad = ({link, className, imageID, index, retry, callBack, quality }: ImageLoadProps) => {
+const ImageLoad = ({link, className, imageID, index, retry, callBack, quality, hasAdultTag }: ImageLoadProps) => {
     const [src, setSrc] = useState<string | null | boolean>(null)
     const [loaded, setLoaded] = useState<boolean>(false)
+    
+    if(hasAdultTag === undefined || hasAdultTag === null) {
+        return (
+            <div className="w-full h-full flex items-center justify-center bg-background text-xl uppercase font-semibold tracking-wide bg-muted p-4">
+                <span>We can&apos;t show you the image. </span>
+            </div>
+        )
+    }
+
+
+    let handleSrcSet = async (src: string) => {
+        if(hasAdultTag) {
+            let effectImage = await generateEffectImage({src, effect: `blur`, effectDeptLevel: 100})
+            if(effectImage) {
+                setSrc(effectImage)
+                return
+            }
+        }
+        else {
+            setSrc(src)
+        }
+    }
 
     useLayoutEffect(() => {
         let fetchImage = async () => {
             if(!link) return
-            link = `${link.split(`.MP4.m3u8`).join('')}${quality ? `/?quality=${quality}` : ''}`
+            let videoTypes = [`.mp4`, `.mov`, `.m4v`, `.avi`, `.wmv`, `.flv`, `.webm`, `.mkv`, `.m3u8`, `.ts`]
+            link = `${videoTypes.reduce((url, ext) => url.replace(new RegExp(ext.replace('.', '\\.'), 'gi'), ''), link)}${quality ? `/?quality=${quality}` : ''}`
             imageID = quality ? `${imageID}_${quality}` : imageID
             
             if(imageID && (window as any)[`_${imageID}`]) {
-                setSrc((window as any)[`_${imageID}`].imageUrl)
+                handleSrcSet((window as any)[`_${imageID}`].imageUrl)
                 return
             }
 
@@ -35,7 +65,7 @@ const ImageLoad = ({link, className, imageID, index, retry, callBack, quality }:
                         ...currentCache,
                         imageUrl: cachedImage.url
                     }
-                    setSrc(cachedImage.url)
+                    handleSrcSet(cachedImage.url)
                     return
                 }
             }
@@ -67,7 +97,7 @@ const ImageLoad = ({link, className, imageID, index, retry, callBack, quality }:
             let image = new Image()
             image.src = blobURL
             image.onload = () => {
-                setSrc(image.src)
+                handleSrcSet(image.src)
             }
             image.onerror = () => {
                 retry()
@@ -80,7 +110,14 @@ const ImageLoad = ({link, className, imageID, index, retry, callBack, quality }:
 
     useEffect(() => {
         if(src && typeof src === 'string' && callBack) {
-            callBack?.(src as string)
+            let CLBK = async () => {
+                let colors = await getImageColorsHEX({src: src as string})
+                callBack && callBack({
+                    src: src as string, 
+                    colors: colors || []
+                })
+            }
+            CLBK()
         }
     }, [src])
 

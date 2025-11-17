@@ -12,6 +12,9 @@ import { motion } from "framer-motion";
 import { MakeVideoToken } from "./components/Functions";
 import { ChevronLeft, ChevronRight, EyeOff, ShieldAlert } from "lucide-react";
 import { Badge } from "~/components/ui/badge";
+import ImagePreview from "./components/ImagePreview/ImagePreview";
+import { useSidebar } from "~/components/ui/sidebar";
+import GradientColors from "~/components/Navbar/components/GradientColors";
 
 const calculateTextSimilarity = (str1: string, str2: string): number => {
   const normalize = (str: string) => str.toLowerCase().replace(/[^\w\s]/g, '').trim();
@@ -99,6 +102,15 @@ const calculateRelatedScore = (currentFile: FileType, candidateFile: FileType): 
   
   return (textScore * 0.5 + typeScore * 0.3 + temporalScore * 0.2);
 };
+
+
+const formatFileSize = (bytes: number) => {
+  if (bytes === 0) return '0 Bytes'
+  const k = 1024
+  const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB']
+  const i = Math.floor(Math.log(bytes) / Math.log(k))
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i]
+}
 
 export const loader = async ({ request, params }: { request: Request, params: { id: string } }) => {
   try {
@@ -241,17 +253,6 @@ export const meta: MetaFunction<ReturnType<typeof loader>> = ({ data }: {data: a
     ];
   }
 }
-
-const formatFileSize = (bytes: number) => {
-  if (bytes === 0) return '0 B'
-  
-  const k = 1024
-  const sizes = ['B', 'KB', 'MB', 'GB', 'TB']
-  const i = Math.floor(Math.log(bytes) / Math.log(k))
-  
-  return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i]
-}
-
 const index = () => {
   const [playingVideos, setPlayingVideos] = useState<Set<number>>(new Set());
   const data= useLoaderData<typeof loader>();
@@ -276,6 +277,11 @@ const index = () => {
 
   const [retryAttempt, setRetryAttempt] = useState<number>(0)
   const [showAdultContent, setShowAdultContent] = useState<boolean>(file_data?.is_adult ?? false)
+  const [imageUrl, setImageUrl] = useState<{ url: string, imageID: string } | null>(null)
+  const [imageColors, setImageColors] = useState<string[] | null>(null)
+  const [madeImageUrl, setMadeImageUrl] = useState<string | null>(null)
+  const {isMobile, state} = useSidebar();
+
   const retry = () => {
     if(retryAttempt >= 1) {
       return
@@ -310,12 +316,12 @@ const index = () => {
   };
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen overflow-x-hidden">
       <div className="mx-auto max-w-full xl:container py-6">
         <div className="gap-6 flex flex-col">
           <div className="xl:col-span-3 space-y-6">
             <motion.div layoutId={`video_id_${file_data.unique_id}`} className="relative group flex items-center justify-between min-h-[300px] gap-4 w-full">
-             
+              {imageColors && <GradientColors colors={imageColors} />}
               {file_data?.is_adult && (
                 <div className="absolute top-3 left-3 z-[100000] pointer-events-none">
                   <Badge className="flex items-center gap-1 px-3 py-1 text-[11px] font-semibold uppercase tracking-wide shadow-lg shadow-black/20 ring-1 ring-primary/40 bg-primary/90 backdrop-blur-sm">
@@ -328,7 +334,7 @@ const index = () => {
               {
                 !showAdultContent ? (
                   <>
-                     <div className={`${isHLS ? 'aspect-video bg-muted rounded-3xl overflow-hidden shadow-2xl ring-1 ring-border/50 w-full' : 'w-fit relative h-full min-h-[200px] w-full flex items-center justify-center rounded-4xl overflow-hidden'} min-w-0 h-full`}>
+                     <div className={`${isHLS ? `aspect-video bg-muted rounded-3xl overflow-hidden shadow-2xl ring-1 ring-border/50 w-full` : `w-fit h-full min-h-[200px] w-full flex items-center justify-center overflow-hidden rounded-4xl ${isMobile || state === 'collapsed' ? `bg-[transparent]` : `bg-[transparent]`}`} min-w-0 h-full relative`}>
                       {isHLS ? (
                         <HLSPlayer
                           src={`/api/load/video/${file_data.endpoint}`}
@@ -345,19 +351,34 @@ const index = () => {
                           playsInline
                           imageID={file_data.unique_id}
                           file={file_data}
+                          key={file_data.unique_id}
+                          callBack={e => {
+                            setImageColors(e.colors)
+                            setMadeImageUrl(e.src)
+                          }}
                         />
                       ) : (
-                        <TransformWrapper>
-                          <TransformComponent wrapperStyle={{ width: '100%', height: `700px`, maxHeight: '700px' }} contentStyle={{ width: 'fit-content', height: '100%' }}>
+                          <motion.div 
+                          transition={{ duration: 0.1 }} 
+                          onClick={e => {
+                            if(madeImageUrl) {
+                              setImageUrl({ url: madeImageUrl, imageID: file_data.unique_id })
+                            }
+                          }} layoutId={`image_id_${file_data.unique_id}`} className="w-full h-[500px] max-h-[500px] cursor-zoom-in z-[100]">
                             <ImageLoad
                               link={`/api/load/image/${file_data.endpoint}`}
                               retry={retry}
                               className="w-full h-full object-contain rounded-3xl"
                               imageID={file_data.unique_id}
                               index={0}
+                              hasAdultTag={false}
+                              callBack={e => {
+                                setMadeImageUrl(e.src)
+                                setImageColors(e.colors)
+                              }}
+                              key={file_data.unique_id}
                             />
-                          </TransformComponent>
-                        </TransformWrapper>
+                          </motion.div>
                       )}
                     </div>
                   </>
@@ -385,7 +406,7 @@ const index = () => {
             <div className="flex items-center justify-between">
                 {previousFile && (
                   <Link
-                    className="flex-shrink-0 flex items-center justify-center rounded-full border text-foreground w-12 h-12 md:w-14 md:h-14 shadow-lg hover:bg-primary hover:text-primary-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-red-400 transition-colors"
+                    className={`flex-shrink-0 flex items-center justify-center rounded-full border text-foreground w-12 h-12 md:w-14 md:h-14 shadow-lg hover:bg-primary hover:text-primary-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-red-400 transition-colors ${isMobile || state === 'collapsed' ? `bg-card` : `bg-background`}`}
                     to={`/${previousFile.unique_id}`}
                     aria-label="Previous file"
                     title={ParseFilename(previousFile.filename)}
@@ -396,7 +417,7 @@ const index = () => {
 
                 {nextFile && (
                     <Link
-                      className="flex-shrink-0 flex items-center justify-center rounded-full border text-foreground w-12 h-12 md:w-14 md:h-14 shadow-lg hover:bg-primary hover:text-primary-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-red-400 transition-colors"
+                      className={`flex-shrink-0 flex items-center justify-center rounded-full border text-foreground w-12 h-12 md:w-14 md:h-14 shadow-lg hover:bg-primary hover:text-primary-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-red-400 transition-colors ${isMobile || state === 'collapsed' ? `bg-card` : `bg-background`}`}
                       to={`/${nextFile.unique_id}`}
                       aria-label="Next file"
                       title={ParseFilename(nextFile.filename)}
@@ -407,26 +428,21 @@ const index = () => {
             </div>
 
 
-            <div className="bg-card rounded-3xl p-8 shadow-lg ring-1 ring-border/50 overflow-x-auto">
-              <div className="space-y-4">
+            <div className={`${(isMobile || state === 'collapsed' ? `bg-card` : `bg-background`)} rounded-3xl p-8 shadow-lg ring-1 ring-border/50 overflow-x-auto relative w-full`}>
+              <div className="space-y-4 z-[1000]">
                 <div className="flex items-start justify-between">
                   <div className="space-y-2">
-                    <h1 className="text-2xl font-bold text-foreground leading-tight">
-                      {ParseFilename(file_data.filename)}
+                    <h1 className="text-2xl font-bold text-foreground leading-tight line-clamp-1 flex items-center flex-wrap">
+                      {ParseFilename(file_data.filename)?.split(``)?.map((part, index) => (
+                        <span key={index}>{part}</span>
+                      ))}
                     </h1>
                     <div className="flex items-center gap-6 text-sm text-muted-foreground">
-                      <div className="flex items-center gap-2">
-                        <div className={`w-2 h-2 rounded-full ${file_data.file_type.includes('video') ? 'bg-primary' : 'bg-blue-500'}`}></div>
-                        <span className="font-medium">
-                          {file_data.file_type.includes('video') ? 'Video' : 'Image'}
-                        </span>
-                      </div>
                       <span>{new Date(file_data.created_at).toLocaleDateString('en-US', { 
                         year: 'numeric', 
                         month: 'long', 
                         day: 'numeric' 
                       })}</span>
-                      <span>{formatFileSize(file_data.file_size)}</span>
                     </div>
                   </div>
                 </div>
@@ -440,12 +456,17 @@ const index = () => {
           </div>
 
           <div className="xl:col-span-1">
-            <div className="bg-card rounded-3xl shadow-lg ring-1 ring-border/50 overflow-hidden sticky top-6">
-              <RelatedVideos videos={relatedVideos} currentVideoId={file_data.unique_id} />
+            <div className={`${(isMobile || state === 'collapsed' ? `bg-card` : `bg-background`)} rounded-3xl shadow-lg ring-1 ring-border/50 overflow-hidden sticky top-6`}>
+              <RelatedVideos videos={relatedVideos} currentVideoId={file_data.unique_id} key={file_data.unique_id} />
             </div>
           </div>
         </div>
       </div>
+
+      {/* Image Preview */}
+      {imageUrl && (
+        <ImagePreview imageUrl={imageUrl} setImageUrl={setImageUrl} />
+      )}
     </div>
   )
 }

@@ -5,7 +5,6 @@ import {
   Meta,
   Outlet,
   Scripts,
-  ScrollRestoration,
   useLoaderData,
   type MetaFunction,
 } from "react-router";
@@ -25,6 +24,11 @@ import ErrorMessage from "./components/ErrorMessage";
 import { getCookie } from "./lib/Security/Token";
 import { VerifyToken } from "./lib/Security/unsharedkeyEncryption/Combined/Verification/VerifyToken";
 import SetToken from "./lib/Security/unsharedkeyEncryption/Combined/Verification/SetToken";
+import NavProgress from "./routes/Home/NavProgress/NavProgress";
+import { SidebarProvider, SidebarInset, SidebarTrigger } from "./components/ui/sidebar";
+import { AppSidebar } from "./components/Navbar/components/Sidebar";
+import ScrollRestoration from "./lib/Context/ScrollRestoration";
+import BodyComponent from "./components/Navbar/components/BodyComponent";
 
 export const links: Route.LinksFunction = () => [
   { rel: "preconnect", href: "https://fonts.googleapis.com" },
@@ -136,7 +140,7 @@ export const loader = async ({request}: {request: Request}) => {
       console.error('Error fetching files:', error)
       return data(null, { status: 500 })
     }
-    return data({ files: processedFiles, st: sessionToken }, {
+    return data({ files: processedFiles, st: sessionToken, user_agent: request.headers.get('user-agent') }, {
       status: 200,
       headers: token ? {
         'Set-Cookie': `token=${token}; Path=/; HttpOnly; Max-Age=86400; ${process.env.NODE_ENV === 'production' ? 'Secure' : ''}; SameSite=Strict`
@@ -210,10 +214,10 @@ export function Layout({ children }: { children: React.ReactNode }) {
     )
   }
 
-  const { files, st } = data;
+  const { files, st, user_agent } = data;
 
   return (
-    <html className={`system`} lang="en">
+    <html className={`system overflow-hidden h-full w-full fixed top-0 left-0`} lang="en">
       <head>
         <meta charSet="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
@@ -230,21 +234,24 @@ export function Layout({ children }: { children: React.ReactNode }) {
         <Meta />
         <Links />
       </head>
-      <body>
+      <body className={`lg:flex block fixed top-0 left-0 w-full h-full`}>
         <ErrorBoundary>
-          <ContextProvider f={files} st={st}>
+          <ContextProvider f={files} st={st} user_agent={user_agent || ''}>
             <LikeProvider>
               <PictureInPictureProvider>
-                <Navbar />
-                <div className={`mx-auto px-6 xl:px-8 max-w-full xl:container`}>
-                 {children}
-                </div>
-                <Footer />
+                <SidebarProvider className={`w-full h-full`}>
+                  <AppSidebar />
+                  <SidebarInset className={`w-full h-full`}>
+                      <BodyComponent>
+                          {children}
+                      </BodyComponent>
+                    <NavProgress/>
+                  </SidebarInset>
+                </SidebarProvider>
               </PictureInPictureProvider>
             </LikeProvider>
           </ContextProvider>
         </ErrorBoundary>
-        <ScrollRestoration />
         <Scripts />
 
         <script src="/Editor/hls_converter.js"></script>

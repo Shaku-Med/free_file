@@ -17,6 +17,12 @@ declare global {
   }
 }
 
+
+interface CallBackProps {
+  src: string
+  colors: string[]
+}
+
 interface HLSPlayerProps {
   src: string;
   className?: string;
@@ -32,6 +38,7 @@ interface HLSPlayerProps {
   poster?: string;
   imageID?: string;
   file?: FileType | null
+  callBack?: (props: CallBackProps) => void
 }
 
 const HLSPlayer: React.FC<HLSPlayerProps> = ({
@@ -49,6 +56,7 @@ const HLSPlayer: React.FC<HLSPlayerProps> = ({
   poster = '',
   imageID = '',
   file = null,
+  callBack,
 }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const hlsRef = useRef<Hls | null>(null);
@@ -478,9 +486,15 @@ const HLSPlayer: React.FC<HLSPlayerProps> = ({
       <div className="poster_blur absolute inset-0 pointer-events-none h-full w-full supports-[filter]:blur-xl blur-2xl">
         <div className="dim bg-background/50 absolute inset-0 w-full h-full" />
         {!error ? (
-          <ImageLoad callBack={src => {
-            setMediaSessionImage(src);
-          }} link={file ? `/api/load/image/${arrangeDateForThumbnail(file.created_at, retryAttempt)}/${file.unique_id}/thumbnail_${file.filename.split(`.mp4.m3u8`)[0]}.jpg` : poster} retry={retry} className="w-full h-full object-cover object-center" imageID={imageID} index={0} />
+          <ImageLoad callBack={e => {
+            if(e) {
+            setMediaSessionImage(e.src);
+            callBack && callBack({
+              src: e.src,
+                colors: e.colors || []
+              })
+            }
+          }} hasAdultTag={false} link={file ? `/api/load/image/${arrangeDateForThumbnail(file.created_at, retryAttempt)}/${file.unique_id}/thumbnail_${file.filename.split(`.mp4.m3u8`)[0]}.jpg` : poster} retry={retry} className="w-full h-full object-cover object-center" imageID={imageID} index={0} />
         ) : (
           <div className="w-full h-full flex items-center justify-center bg-muted text-xs text-center">
             <span>Failed to load image</span>

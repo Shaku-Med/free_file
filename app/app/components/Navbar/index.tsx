@@ -13,7 +13,10 @@ import {
   List,
   Settings,
   LogOut,
-  ChevronRight
+  ChevronRight,
+  Plus,
+  MenuIcon,
+  Hamburger
 } from "lucide-react";
 import { Button } from "~/components/ui/button";
 import { Input } from "~/components/ui/input";
@@ -43,7 +46,8 @@ import {
   NavigationMenuTrigger,
 } from "~/components/ui/navigation-menu";
 import Logo from "./Logo/Logo";
-import { isMobile } from "react-device-detect";
+import { useFileContext } from "~/lib/Context/Context";
+import { SidebarTrigger, useSidebar } from "../ui/sidebar";
 
 const galleryCategories = [
   { name: "Portraits", href: "/gallery/portraits" },
@@ -61,21 +65,23 @@ const userMenuItems = [
 ];
 
 export default function Navbar() {
+  const { setIsModalOpen } = useFileContext();
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   // const [input, setInput] = useState<string>("");
+  const { isMobile, state } = useSidebar();
 
   return (
-    <nav className={`sticky top-0 z-50 w-full ${isMobile ? `bg-background` : `bg-background/95 backdrop-blur-xl `} shadow-lg z-[100000000000] border-b`}>
+    <nav className={`sticky top-0 z-50 w-full ${isMobile || state === 'collapsed' ? `bg-background` : `bg-card/95 backdrop-blur-xl `} shadow-lg z-[100000000000] border-b`}>
       <div className="mx-auto px-6 xl:px-8 max-w-full xl:container">
         <div className="flex py-3 items-center justify-between">
           <div className="flex items-center space-x-8">
-            <Link to="/" id="home_button" className="flex items-center space-x-4 group ios-scale">
-              <div className="relative flex items-center space-x-4">
+            <Link to="/" id="home_button" className="flex items-center space-x-2 group ios-scale">
+              <div className="relative flex items-center ">
                 <div className="">
-                  <Logo className="relative h-12 w-12 text-primary" />
+                  <Logo className="relative h-10 w-10 text-primary" />
                 </div>
-                <span className="text-2xl font-bold bg-gradient-to-r from-primary to-primary/70 bg-clip-text text-transparent">Memories</span>
+                <span className="text-xl font-bold bg-gradient-to-r from-primary to-primary/70 bg-clip-text text-transparent line-clamp-1">Memories</span>
               </div>
             </Link>
             
@@ -120,10 +126,14 @@ export default function Navbar() {
             </NavigationMenu> */}
           </div>
 
-          <div>
-             <Link to="/search">
+          <div className="flex items-center space-x-3">
+             <div onClick={() => setIsModalOpen(true)} className="cursor-pointer rounded-lg h-10 w-10 flex items-center justify-center hover:bg-primary/10 ios-scale">
+                  <Plus className="h-5 w-5" />
+             </div>
+             <Link to="/search" className="cursor-pointer rounded-lg h-10 w-10 flex items-center justify-center hover:bg-primary/10 ios-scale">
               <Search className="h-5 w-5" />
              </Link>
+             <SidebarTrigger className="cursor-pointer rounded-lg h-10 w-10 flex items-center justify-center hover:bg-primary/10 ios-scale"/>
           </div>
 
           {/* <div className="flex items-center space-x-3 lg:space-x-3">
