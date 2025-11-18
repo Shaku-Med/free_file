@@ -661,7 +661,7 @@ const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({ isOpen, onClo
         </DialogHeader>
 
         <div className="flex-1 overflow-y-auto px-1">
-          <LoadFromSocials onDownloadCallback={handleDownloadSocialsCallBack} />
+          {/* <LoadFromSocials onDownloadCallback={handleDownloadSocialsCallBack} />
           {previewSocialFile && (
             <div className="mb-4">
               <Preview
@@ -688,7 +688,7 @@ const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({ isOpen, onClo
                 }}
               />
             </div>
-          )}
+          )} */}
           {uploadQueue.length === 0 ? (
             <div
               className={`border-2 border-dashed rounded-2xl p-8 text-center transition-all duration-200 ${
