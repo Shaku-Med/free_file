@@ -50,6 +50,7 @@ const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({ isOpen, onClo
     const textarea = document.createElement('textarea')
     textarea.innerHTML = cleaned
     cleaned = textarea.value
+    cleaned = cleaned.split(`\n`).join(``)
     cleaned = cleaned.replace(/[\n\r]+/g, ' ')
     cleaned = cleaned.replace(/[<>:"/\\|?*\x00-\x1F]/g, '')
     cleaned = cleaned.replace(/\.\.+/g, '.')
