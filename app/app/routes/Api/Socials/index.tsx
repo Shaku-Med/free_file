@@ -132,9 +132,8 @@ async function exportCookiesFromBrowser(
     outputPath: string
 ): Promise<void> {
     return new Promise((resolve, reject) => {
-        const browserName = browser === 'chromium-browser' ? 'chromium' : browser;
         const args = [
-            '--cookies-from-browser', browserName,
+            '--cookies-from-browser', browser,
             '--cookies', outputPath,
             '--no-warnings',
             '--no-check-certificate',
@@ -159,7 +158,12 @@ async function exportCookiesFromBrowser(
 
         ytDlp.on('close', (code) => {
             if (code !== 0 && !existsSync(outputPath)) {
-                reject(new Error(`Failed to export cookies: ${stderr || stdout || 'Unknown error'}`));
+                const errorMsg = stderr || stdout || 'Unknown error';
+                if (errorMsg.includes('could not find') || errorMsg.includes('cookies database')) {
+                    reject(new Error(`Browser ${browser} not found or no cookies available`));
+                } else {
+                    reject(new Error(`Failed to export cookies: ${errorMsg}`));
+                }
                 return;
             }
             if (existsSync(outputPath)) {
@@ -447,16 +451,19 @@ export const loader = async ({ request }: { request: Request }) => {
         const exportFromBrowser = searchParams.get('export_cookies_from_browser');
         if (exportFromBrowser) {
             try {
-                await exportCookiesFromBrowser(exportFromBrowser, socialUrl, persistentCookiesPath);
-                cookiesFilePath = persistentCookiesPath;
-                console.log(`Successfully exported cookies from ${exportFromBrowser} browser`);
+                const browserName = exportFromBrowser === 'chromium-browser' ? 'chromium' : exportFromBrowser;
+                await exportCookiesFromBrowser(browserName, socialUrl, persistentCookiesPath);
+                if (existsSync(persistentCookiesPath)) {
+                    cookiesFilePath = persistentCookiesPath;
+                    console.log(`Successfully exported cookies from ${exportFromBrowser} browser`);
+                }
             } catch (error) {
                 console.error('Failed to export cookies from browser:', error);
             }
         }
         
         if (!cookiesFilePath && !exportFromBrowser) {
-            const browsersToTry = ['chromium-browser', 'chromium', 'chrome', 'firefox', 'edge'];
+            const browsersToTry = ['chromium', 'chrome', 'firefox', 'edge'];
             for (const browser of browsersToTry) {
                 try {
                     await exportCookiesFromBrowser(browser, socialUrl, persistentCookiesPath);
