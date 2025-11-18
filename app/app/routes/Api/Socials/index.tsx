@@ -2,7 +2,7 @@ import { spawn } from 'child_process';
 import { readFile, mkdir, rm, readdir, writeFile } from 'fs/promises';
 import { existsSync } from 'fs';
 import { join } from 'path';
-import { tmpdir } from 'os';
+import { tmpdir, platform } from 'os';
 import { randomUUID } from 'crypto';
 
 interface RequestQueueItem {
@@ -21,6 +21,30 @@ interface DownloadOptions {
 }
 
 const requestQueue: RequestQueueItem[] = [];
+
+function convertWindowsPathToWsl(windowsPath: string): string {
+    return windowsPath
+        .replace(/^([A-Z]):/, (_, drive) => `/mnt/${drive.toLowerCase()}`)
+        .replace(/\\/g, '/');
+}
+
+function getYtDlpCommand(): { command: string; args: string[]; useWsl: boolean } {
+    const isWindows = platform() === 'win32';
+    
+    if (isWindows) {
+        return {
+            command: 'wsl',
+            args: ['-e', 'yt-dlp'],
+            useWsl: true
+        };
+    }
+    
+    return {
+        command: 'yt-dlp',
+        args: [],
+        useWsl: false
+    };
+}
 
 function detectPlatform(url: string): 'youtube' | 'facebook' | 'instagram' | 'tiktok' | 'unknown' {
     const lowerUrl = url.toLowerCase();
@@ -132,16 +156,19 @@ async function exportCookiesFromBrowser(
     outputPath: string
 ): Promise<void> {
     return new Promise((resolve, reject) => {
-        const args = [
+        const { command, args: baseArgs, useWsl } = getYtDlpCommand();
+        const ytDlpArgs = [
             '--cookies-from-browser', browser,
-            '--cookies', outputPath,
+            '--cookies', useWsl ? convertWindowsPathToWsl(outputPath) : outputPath,
             '--no-warnings',
             '--no-check-certificate',
             '--no-download',
             targetUrl
         ];
+        
+        const allArgs = useWsl ? [...baseArgs, ...ytDlpArgs] : ytDlpArgs;
 
-        const ytDlp = spawn('yt-dlp', args, {
+        const ytDlp = spawn(command, allArgs, {
             stdio: ['ignore', 'pipe', 'pipe'],
         });
 
@@ -203,7 +230,8 @@ async function downloadVideo(
         await mkdir(tempDir, { recursive: true });
     }
 
-    const outputTemplate = join(tempDir, `${downloadId}_%(id)s.%(ext)s`);
+    const { useWsl } = getYtDlpCommand();
+    const outputTemplate = useWsl ? convertWindowsPathToWsl(join(tempDir, `${downloadId}_%(id)s.%(ext)s`)) : join(tempDir, `${downloadId}_%(id)s.%(ext)s`);
     const formatSelector = getFormatSelector(quality, format);
     const platform = detectPlatform(url);
 
@@ -248,7 +276,8 @@ async function downloadVideo(
     }
 
     if (cookiesFilePath) {
-        args.push('--cookies', cookiesFilePath);
+        const cookiesPath = useWsl ? convertWindowsPathToWsl(cookiesFilePath) : cookiesFilePath;
+        args.push('--cookies', cookiesPath);
     }
 
     if (!cookiesFilePath && cookie) {
@@ -278,7 +307,10 @@ async function downloadVideo(
             }
 
             const result = await new Promise<{ success: boolean; error?: string; filePath?: string; filename?: string }>((resolveAttempt) => {
-                const ytDlp = spawn('yt-dlp', args, {
+                const { command, args: baseArgs, useWsl } = getYtDlpCommand();
+                const allArgs = useWsl ? [...baseArgs, ...args] : args;
+                
+                const ytDlp = spawn(command, allArgs, {
                     stdio: ['ignore', 'pipe', 'pipe'],
                 });
 
@@ -435,6 +467,11 @@ export const loader = async ({ request }: { request: Request }) => {
         const retries = searchParams.get('retries') ? parseInt(searchParams.get('retries')!, 10) : 3;
 
         const hostname = new URL(socialUrl).hostname;
+        const cookiesFolder = join(process.cwd(), 'cookies');
+        if (!existsSync(cookiesFolder)) {
+            await mkdir(cookiesFolder, { recursive: true });
+        }
+        const cookiesFolderPath = join(cookiesFolder, `${hostname}.cookies.txt`);
         const cookiesDir = join(process.cwd(), 'app', 'routes', 'Api', 'Socials');
         if (!existsSync(cookiesDir)) {
             await mkdir(cookiesDir, { recursive: true });
@@ -442,6 +479,21 @@ export const loader = async ({ request }: { request: Request }) => {
         const persistentCookiesPath = join(cookiesDir, `${hostname}.cookies.txt`);
 
         let cookiesFilePath: string | undefined;
+        
+        const hostnameVariations = [hostname];
+        if (hostname.startsWith('www.')) {
+            hostnameVariations.push(hostname.replace(/^www\./, ''));
+        } else {
+            hostnameVariations.push(`www.${hostname}`);
+        }
+        
+        for (const hostnameVar of hostnameVariations) {
+            const cookiesPath = join(cookiesFolder, `${hostnameVar}.cookies.txt`);
+            if (!cookiesFilePath && existsSync(cookiesPath) && !refreshCookies) {
+                cookiesFilePath = cookiesPath;
+                break;
+            }
+        }
         
         const legacyCookiesPath = join(process.cwd(), 'app', 'routes', 'Socials', `${hostname}.cookies.txt`);
         if (!cookiesFilePath && existsSync(legacyCookiesPath) && !refreshCookies) {
@@ -452,9 +504,9 @@ export const loader = async ({ request }: { request: Request }) => {
         if (exportFromBrowser) {
             try {
                 const browserName = exportFromBrowser === 'chromium-browser' ? 'chromium' : exportFromBrowser;
-                await exportCookiesFromBrowser(browserName, socialUrl, persistentCookiesPath);
-                if (existsSync(persistentCookiesPath)) {
-                    cookiesFilePath = persistentCookiesPath;
+                await exportCookiesFromBrowser(browserName, socialUrl, cookiesFolderPath);
+                if (existsSync(cookiesFolderPath)) {
+                    cookiesFilePath = cookiesFolderPath;
                     console.log(`Successfully exported cookies from ${exportFromBrowser} browser`);
                 }
             } catch (error) {
@@ -466,11 +518,11 @@ export const loader = async ({ request }: { request: Request }) => {
             const browsersToTry = ['chromium', 'chrome', 'firefox', 'edge'];
             for (const browser of browsersToTry) {
                 try {
-                    await exportCookiesFromBrowser(browser, socialUrl, persistentCookiesPath);
-                    if (existsSync(persistentCookiesPath)) {
-                        const cookieContent = await readFile(persistentCookiesPath, 'utf8');
+                    await exportCookiesFromBrowser(browser, socialUrl, cookiesFolderPath);
+                    if (existsSync(cookiesFolderPath)) {
+                        const cookieContent = await readFile(cookiesFolderPath, 'utf8');
                         if (cookieContent.trim().length > 0 && cookieContent.includes('\t')) {
-                            cookiesFilePath = persistentCookiesPath;
+                            cookiesFilePath = cookiesFolderPath;
                             console.log(`Auto-detected and using cookies from ${browser} browser`);
                             break;
                         }
@@ -484,31 +536,40 @@ export const loader = async ({ request }: { request: Request }) => {
         if (cookiesUrl) {
             const resp = await fetch(cookiesUrl);
             if (!resp.ok) {
-                return new Response(JSON.stringify({ error: `Failed to fetch cookies file: ${resp.status} ${resp.statusText}` }), {
+                console.error('Failed to fetch cookies file:', resp.status, resp.statusText);
+                return new Response(JSON.stringify({ error: 'Failed to fetch cookies file' }), {
                     status: 400,
                     headers: { 'Content-Type': 'application/json' }
                 });
             }
             const text = await resp.text();
-            await writeFile(persistentCookiesPath, text, 'utf8');
-            cookiesFilePath = persistentCookiesPath;
+            await writeFile(cookiesFolderPath, text, 'utf8');
+            cookiesFilePath = cookiesFolderPath;
         }
 
         if (!cookiesFilePath && cookiesInline) {
-            await writeNetscapeCookiesFileFromHeader(cookiesInline, socialUrl, persistentCookiesPath);
-            cookiesFilePath = persistentCookiesPath;
+            await writeNetscapeCookiesFileFromHeader(cookiesInline, socialUrl, cookiesFolderPath);
+            cookiesFilePath = cookiesFolderPath;
         }
 
         if (!cookiesFilePath) {
-            if (existsSync(persistentCookiesPath) && !refreshCookies) {
+            for (const hostnameVar of hostnameVariations) {
+                const cookiesPath = join(cookiesFolder, `${hostnameVar}.cookies.txt`);
+                if (existsSync(cookiesPath) && !refreshCookies) {
+                    cookiesFilePath = cookiesPath;
+                    break;
+                }
+            }
+            if (!cookiesFilePath && existsSync(persistentCookiesPath) && !refreshCookies) {
                 cookiesFilePath = persistentCookiesPath;
-            } else {
+            }
+            if (!cookiesFilePath) {
                 if (!cookie) {
                     cookie = await collectAnonymousCookies(socialUrl);
                 }
                 if (cookie) {
-                    await writeNetscapeCookiesFileFromHeader(cookie, socialUrl, persistentCookiesPath);
-                    cookiesFilePath = persistentCookiesPath;
+                    await writeNetscapeCookiesFileFromHeader(cookie, socialUrl, cookiesFolderPath);
+                    cookiesFilePath = cookiesFolderPath;
                 }
             }
         }
@@ -569,8 +630,7 @@ export const loader = async ({ request }: { request: Request }) => {
 
     } catch (error) {
         console.error('Error downloading social media content:', error);
-        const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
-        return new Response(JSON.stringify({ error: errorMessage }), { 
+        return new Response(JSON.stringify({ error: 'An error occurred while processing your request' }), { 
             status: 500,
             headers: { 'Content-Type': 'application/json' }
         });

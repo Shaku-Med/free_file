@@ -1,11 +1,8 @@
 import { createCanvas, loadImage } from 'canvas';
 
-export const loader = async ({ request }: { request: Request }) => {
-    try {
-        const url = new URL(request.url);
-        const qualityParam = url.searchParams.get('quality');
-        const splitUrl = request.url.split('/api/load/image/')[1].split('?')[0];
-        const videoUrl = `https://github.com/${process.env.GITHUB_OWNER}/Memories/raw/main/${splitUrl}`;
+const loadImageWithRetry = async (splitUrl: string, qualityParam: string | null): Promise<Response> => {
+    const tryLoadImage = async (urlPath: string): Promise<Response> => {
+        const videoUrl = `https://github.com/${process.env.GITHUB_OWNER}/Memories/raw/main/${urlPath}`;
         const response = await fetch(videoUrl);
     
         if (!response.ok) throw new Error('Fetch failed');
@@ -55,7 +52,31 @@ export const loader = async ({ request }: { request: Request }) => {
                 'Cache-Control': 'public, max-age=31536000, immutable',
             },
         });
+    };
+
+    try {
+        return await tryLoadImage(splitUrl);
     } catch (error) {
+        const modifiedUrl = splitUrl.replace(/\.jpg.*$/, '');
+        try {
+            return await tryLoadImage(modifiedUrl);
+        } catch (secondError) {
+            throw secondError;
+        }
+    }
+};
+
+export const loader = async ({ request }: { request: Request }) => {
+    try {
+        const url = new URL(request.url);
+        const qualityParam = url.searchParams.get('quality');
+        let splitUrl = request.url.split('/api/load/image/')[1].split('?')[0];
+        if(splitUrl.includes(`%`)){
+            splitUrl = decodeURIComponent(splitUrl)
+        }
+        return await loadImageWithRetry(splitUrl, qualityParam);
+    } catch (error) {
+        console.error('Error loading image:', error)
         return new Response(null, { status: 500 });
     }
 };

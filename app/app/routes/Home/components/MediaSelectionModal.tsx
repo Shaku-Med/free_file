@@ -8,6 +8,7 @@ import { convertToHLS } from "~/lib/HlsHandler"
 import { GenerateUniqueID } from "~/lib/GenerateUniqueID"
 import { ThumbnailGenerator } from "./ThumbnailGenerator"
 import LoadFromSocials, { isValidMediaType } from './LoadFromSocials/LoadFromSocials'
+import Preview from './LoadFromSocials/Preview'
 
 interface MediaSelectionModalProps {
   isOpen: boolean
@@ -38,6 +39,19 @@ const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({ isOpen, onClo
   const [uploadQueue, setUploadQueue] = useState<UploadItem[]>([])
   const [isUploading, setIsUploading] = useState(false)
   const [dragActive, setDragActive] = useState(false)
+  const [previewSocialFile, setPreviewSocialFile] = useState<{ url: string; blob: Blob; fileName: string } | null>(null)
+
+  const cleanTitle = (title: string): string => {
+    if (!title) return title
+    let cleaned = title
+    cleaned = cleaned.replace(/&#x[\da-fA-F]+;/gi, '')
+    cleaned = cleaned.replace(/&#\d+;/g, '')
+    cleaned = cleaned.replace(/&[a-zA-Z][a-zA-Z0-9]*;/g, '')
+    const textarea = document.createElement('textarea')
+    textarea.innerHTML = cleaned
+    cleaned = textarea.value
+    return cleaned.trim()
+  }
 
   const validateImageFile = async (file: File): Promise<ValidationResult> => {
     return new Promise((resolve) => {
@@ -538,17 +552,84 @@ const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({ isOpen, onClo
 
   const handleDownloadSocialsCallBack = (data: { blob: Blob; info: any }) => {
     try {
-      // the blob can be an image or a video
       if(!isValidMediaType(data.blob)) {
         alert('The downloaded file is not an image or video.')
         return;
       }
-      const file = new File([data.blob], data.info.title || 'social_media_file', { type: data.blob.type })
-      handleFileSelect([file] as unknown as FileList | null)
+
+      const reader = new FileReader()
+      
+      reader.onload = (e) => {
+        try {
+          const arrayBuffer = e.target?.result as ArrayBuffer
+          if (!arrayBuffer) {
+            alert('Failed to read the downloaded file.')
+            return
+          }
+
+          let mimeType = data.blob.type
+          
+          if (!mimeType || (!mimeType.startsWith('image/') && !mimeType.startsWith('video/'))) {
+            const fileName = data.info?.title || 'social_media_file'
+            const extension = fileName.split('.').pop()?.toLowerCase()
+            
+            if (extension) {
+              const imageExtensions: { [key: string]: string } = {
+                'jpg': 'image/jpeg',
+                'jpeg': 'image/jpeg',
+                'png': 'image/png',
+                'gif': 'image/gif',
+                'webp': 'image/webp',
+                'bmp': 'image/bmp',
+                'ico': 'image/x-icon'
+              }
+              
+              const videoExtensions: { [key: string]: string } = {
+                'mp4': 'video/mp4',
+                'webm': 'video/webm',
+                'ogg': 'video/ogg',
+                'mov': 'video/quicktime',
+                'avi': 'video/x-msvideo',
+                'mkv': 'video/x-matroska'
+              }
+              
+              mimeType = imageExtensions[extension] || videoExtensions[extension] || 'application/octet-stream'
+            } else {
+              mimeType = 'application/octet-stream'
+            }
+          }
+
+          const blob = new Blob([arrayBuffer], { type: mimeType })
+          const cleanedTitle = data.info?.title ? cleanTitle(data.info.title) : 'social_media_file'
+          const file = new File([blob], cleanedTitle || 'social_media_file', { type: mimeType })
+          
+          if (!isValidMediaType(blob)) {
+            alert('The downloaded file is not an image or video.')
+            return
+          }
+
+          const previewUrl = URL.createObjectURL(blob)
+          setPreviewSocialFile({
+            url: previewUrl,
+            blob: blob,
+            fileName: file.name
+          })
+        } catch (error) {
+          console.error('Error processing downloaded file:', error)
+          alert('Failed to process the downloaded file.')
+        }
+      }
+
+      reader.onerror = () => {
+        console.error('Error reading blob with FileReader')
+        alert('Failed to read the downloaded file.')
+      }
+
+      reader.readAsArrayBuffer(data.blob)
     }
     catch (error) {
       console.error('Error downloading from social media:', error)
-      return;
+      alert('Failed to download file from social media.')
     }
   }
 
@@ -569,6 +650,33 @@ const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({ isOpen, onClo
 
         <div className="flex-1 overflow-y-auto px-1">
           <LoadFromSocials onDownloadCallback={handleDownloadSocialsCallBack} />
+          {previewSocialFile && (
+            <div className="mb-4">
+              <Preview
+                previewUrl={previewSocialFile.url}
+                blob={previewSocialFile.blob}
+                fileName={previewSocialFile.fileName}
+                onClose={() => {
+                  if (previewSocialFile.url) {
+                    URL.revokeObjectURL(previewSocialFile.url)
+                  }
+                  setPreviewSocialFile(null)
+                }}
+                onUse={() => {
+                  if (previewSocialFile.blob) {
+                    const file = new File([previewSocialFile.blob], previewSocialFile.fileName, { type: previewSocialFile.blob.type })
+                    const dataTransfer = new DataTransfer()
+                    dataTransfer.items.add(file)
+                    handleFileSelect(dataTransfer.files)
+                    if (previewSocialFile.url) {
+                      URL.revokeObjectURL(previewSocialFile.url)
+                    }
+                    setPreviewSocialFile(null)
+                  }
+                }}
+              />
+            </div>
+          )}
           {uploadQueue.length === 0 ? (
             <div
               className={`border-2 border-dashed rounded-2xl p-8 text-center transition-all duration-200 ${
