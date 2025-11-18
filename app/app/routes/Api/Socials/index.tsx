@@ -123,7 +123,19 @@ async function collectAnonymousCookies(targetUrl: string): Promise<string | unde
 function getCookieDomainForUrl(rawUrl: string): string {
     try {
         const u = new URL(rawUrl);
-        const host = u.hostname;
+        let host = u.hostname;
+        
+        if (host.includes('youtube.com')) {
+            return '.youtube.com';
+        }
+        if (host.includes('youtu.be')) {
+            return '.youtube.com';
+        }
+        
+        if (host.startsWith('www.')) {
+            host = host.replace(/^www\./, '');
+        }
+        
         return host.startsWith('.') ? host : `.${host}`;
     } catch {
         return '.instagram.com';
@@ -235,6 +247,16 @@ async function downloadVideo(
     const formatSelector = getFormatSelector(quality, format);
     const platform = detectPlatform(url);
 
+    let tempCookiesFilePath: string | undefined;
+    let finalCookiesFilePath = cookiesFilePath;
+
+    if (!cookiesFilePath && cookie && platform === 'youtube') {
+        const tempCookiesFile = join(tempDir, `${downloadId}_cookies.txt`);
+        await writeNetscapeCookiesFileFromHeader(cookie, url, tempCookiesFile);
+        tempCookiesFilePath = tempCookiesFile;
+        finalCookiesFilePath = tempCookiesFile;
+    }
+
     const args: string[] = [
         '--no-warnings',
         '--no-check-certificate',
@@ -275,12 +297,12 @@ async function downloadVideo(
         args.push('--add-header', 'Sec-Fetch-Mode:navigate');
     }
 
-    if (cookiesFilePath) {
-        const cookiesPath = useWsl ? convertWindowsPathToWsl(cookiesFilePath) : cookiesFilePath;
+    if (finalCookiesFilePath) {
+        const cookiesPath = useWsl ? convertWindowsPathToWsl(finalCookiesFilePath) : finalCookiesFilePath;
         args.push('--cookies', cookiesPath);
     }
 
-    if (!cookiesFilePath && cookie) {
+    if (!finalCookiesFilePath && cookie && platform !== 'youtube') {
         args.push('--add-header', `Cookie:${cookie}`);
     }
 
@@ -361,6 +383,12 @@ async function downloadVideo(
             });
 
             if (result.success && result.filePath && result.filename) {
+                if (tempCookiesFilePath && existsSync(tempCookiesFilePath)) {
+                    try {
+                        await rm(tempCookiesFilePath, { force: true });
+                    } catch (e) {
+                    }
+                }
                 resolve({ filePath: result.filePath, filename: result.filename });
                 return;
             }
