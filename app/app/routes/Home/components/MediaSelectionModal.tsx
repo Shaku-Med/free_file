@@ -50,7 +50,18 @@ const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({ isOpen, onClo
     const textarea = document.createElement('textarea')
     textarea.innerHTML = cleaned
     cleaned = textarea.value
-    return cleaned.trim()
+    cleaned = cleaned.replace(/[\n\r]+/g, ' ')
+    cleaned = cleaned.replace(/[<>:"/\\|?*\x00-\x1F]/g, '')
+    cleaned = cleaned.replace(/\.\.+/g, '.')
+    cleaned = cleaned.replace(/\s+/g, ' ')
+    cleaned = cleaned.trim()
+    cleaned = cleaned.replace(/^\.+|\.+$/g, '')
+    cleaned = cleaned.replace(/^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(\.|$)/gi, '')
+    if (cleaned.length > 255) {
+      cleaned = cleaned.substring(0, 255)
+    }
+    cleaned = cleaned.trim()
+    return cleaned || 'social_media_file'
   }
 
   const validateImageFile = async (file: File): Promise<ValidationResult> => {
