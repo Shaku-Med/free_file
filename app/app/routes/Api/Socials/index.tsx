@@ -132,8 +132,9 @@ async function exportCookiesFromBrowser(
     outputPath: string
 ): Promise<void> {
     return new Promise((resolve, reject) => {
+        const browserName = browser === 'chromium-browser' ? 'chromium' : browser;
         const args = [
-            '--cookies-from-browser', browser,
+            '--cookies-from-browser', browserName,
             '--cookies', outputPath,
             '--no-warnings',
             '--no-check-certificate',
@@ -455,14 +456,17 @@ export const loader = async ({ request }: { request: Request }) => {
         }
         
         if (!cookiesFilePath && !exportFromBrowser) {
-            const browsersToTry = ['chrome', 'chromium', 'firefox', 'edge'];
+            const browsersToTry = ['chromium-browser', 'chromium', 'chrome', 'firefox', 'edge'];
             for (const browser of browsersToTry) {
                 try {
                     await exportCookiesFromBrowser(browser, socialUrl, persistentCookiesPath);
                     if (existsSync(persistentCookiesPath)) {
-                        cookiesFilePath = persistentCookiesPath;
-                        console.log(`Auto-detected and using cookies from ${browser} browser`);
-                        break;
+                        const cookieContent = await readFile(persistentCookiesPath, 'utf8');
+                        if (cookieContent.trim().length > 0 && cookieContent.includes('\t')) {
+                            cookiesFilePath = persistentCookiesPath;
+                            console.log(`Auto-detected and using cookies from ${browser} browser`);
+                            break;
+                        }
                     }
                 } catch (error) {
                     continue;

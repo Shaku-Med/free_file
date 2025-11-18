@@ -7,6 +7,7 @@ import { Upload, X, FileImage, FileVideo, Check, CheckCircle, XCircle, RotateCcw
 import { convertToHLS } from "~/lib/HlsHandler"
 import { GenerateUniqueID } from "~/lib/GenerateUniqueID"
 import { ThumbnailGenerator } from "./ThumbnailGenerator"
+import LoadFromSocials, { isValidMediaType } from './LoadFromSocials/LoadFromSocials'
 
 interface MediaSelectionModalProps {
   isOpen: boolean
@@ -535,6 +536,22 @@ const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({ isOpen, onClo
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i]
   }
 
+  const handleDownloadSocialsCallBack = (data: { blob: Blob; info: any }) => {
+    try {
+      // the blob can be an image or a video
+      if(!isValidMediaType(data.blob)) {
+        alert('The downloaded file is not an image or video.')
+        return;
+      }
+      const file = new File([data.blob], data.info.title || 'social_media_file', { type: data.blob.type })
+      handleFileSelect([file] as unknown as FileList | null)
+    }
+    catch (error) {
+      console.error('Error downloading from social media:', error)
+      return;
+    }
+  }
+
   return (
     <Dialog open={isOpen} onOpenChange={handleClose}>
       <DialogContent className="max-w-md max-h-[85vh] overflow-hidden flex flex-col bg-background/95 backdrop-blur-xl border-0 shadow-2xl">
@@ -551,6 +568,7 @@ const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({ isOpen, onClo
         </DialogHeader>
 
         <div className="flex-1 overflow-y-auto px-1">
+          <LoadFromSocials onDownloadCallback={handleDownloadSocialsCallBack} />
           {uploadQueue.length === 0 ? (
             <div
               className={`border-2 border-dashed rounded-2xl p-8 text-center transition-all duration-200 ${

@@ -12,7 +12,10 @@ export default [
         route(`get/*`, 'routes/Api/get/index.tsx'),
         route(`public-key`, 'routes/Api/PublicKey/index.tsx'),
         route(`handshake`, 'routes/Api/handshake/index.tsx'),
-        route(`socials/*`, 'routes/Api/Socials/index.tsx'),
+        route(`socials`, 'routes/Api/Socials/layout.tsx', [
+            route(`info/*`, 'routes/Api/Socials/Info.tsx'),
+            route(`*`, 'routes/Api/Socials/index.tsx'),
+        ]),
         route(`nsfw`, `routes/Api/load/NSFW/layout.tsx`, [
             route(`detect/*`, `routes/Api/load/NSFW/detect/index.tsx`),
         ]),

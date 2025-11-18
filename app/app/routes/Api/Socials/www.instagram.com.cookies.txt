@@ -1,0 +1,3 @@
+# Netscape HTTP Cookie File
+.www.instagram.com	TRUE	/	FALSE	0	csrftoken	nW7EBcD8qxVymMVByDiyi5
+.www.instagram.com	TRUE	/	FALSE	0	mid	aRvEbwALAAE-Y_1rf_V3vxPIAQor
