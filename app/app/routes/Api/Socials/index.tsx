@@ -230,6 +230,72 @@ function isRateLimitError(error: string): boolean {
            lowerError.includes('exceeding the rate limit');
 }
 
+function getBaseUrlFromHostname(hostname: string): string {
+    if (hostname.includes('youtube.com') || hostname.includes('youtu.be')) {
+        return 'https://www.youtube.com';
+    }
+    if (hostname.includes('facebook.com') || hostname.includes('fb.com') || hostname.includes('fb.watch')) {
+        return 'https://www.facebook.com';
+    }
+    if (hostname.includes('instagram.com') || hostname.includes('instagr.am')) {
+        return 'https://www.instagram.com';
+    }
+    if (hostname.includes('tiktok.com') || hostname.includes('vm.tiktok.com')) {
+        return 'https://www.tiktok.com';
+    }
+    return `https://${hostname}`;
+}
+
+async function refreshCookiesWithYtDlp(
+    cookiesFilePath: string,
+    baseUrl: string
+): Promise<void> {
+    return new Promise((resolve) => {
+        const { command, args: baseArgs, useWsl } = getYtDlpCommand();
+        const cookiesPath = useWsl ? convertWindowsPathToWsl(cookiesFilePath) : cookiesFilePath;
+        
+        const ytDlpArgs = [
+            '--cookies', cookiesPath,
+            '--no-download',
+            '--no-warnings',
+            '--no-check-certificate',
+            baseUrl
+        ];
+        
+        const allArgs = useWsl ? [...baseArgs, ...ytDlpArgs] : ytDlpArgs;
+
+        const ytDlp = spawn(command, allArgs, {
+            stdio: ['ignore', 'pipe', 'pipe'],
+        });
+
+        let stderr = '';
+        let stdout = '';
+
+        ytDlp.stdout?.on('data', (data) => {
+            stdout += data.toString();
+        });
+
+        ytDlp.stderr?.on('data', (data) => {
+            stderr += data.toString();
+        });
+
+        ytDlp.on('close', (code) => {
+            if (code !== 0) {
+                const errorMsg = stderr || stdout || 'Unknown error';
+                console.warn(`Failed to refresh cookies: ${errorMsg}`);
+                resolve();
+                return;
+            }
+            resolve();
+        });
+
+        ytDlp.on('error', (error) => {
+            console.warn(`Failed to start yt-dlp for cookie refresh: ${error.message}`);
+            resolve();
+        });
+    });
+}
+
 async function downloadVideo(
     url: string,
     options: DownloadOptions = {}
@@ -622,6 +688,15 @@ export const loader = async ({ request }: { request: Request }) => {
                 status: 400,
                 headers: { 'Content-Type': 'application/json' }
             });
+        }
+
+        if (cookiesFilePath && existsSync(cookiesFilePath)) {
+            const baseUrl = getBaseUrlFromHostname(hostname);
+            try {
+                await refreshCookiesWithYtDlp(cookiesFilePath, baseUrl);
+            } catch (error) {
+                console.warn('Failed to refresh cookies, continuing with existing cookies:', error);
+            }
         }
 
         const { filePath, filename } = await downloadVideo(socialUrl, {
