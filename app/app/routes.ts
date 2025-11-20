@@ -19,6 +19,11 @@ export default [
         route(`nsfw`, `routes/Api/load/NSFW/layout.tsx`, [
             route(`detect/*`, `routes/Api/load/NSFW/detect/index.tsx`),
         ]),
+        route(`video-processor`, 'routes/Api/videoProcessor/layout.tsx', [
+            route(`status/:queueID`, 'routes/Api/videoProcessor/status.tsx'),
+            route(`queue-status`, 'routes/Api/videoProcessor/queue-status.tsx'),
+            index('routes/Api/videoProcessor/index.tsx'),
+        ]),
     ]),
     route(`:id`, 'routes/Dynamic/layout.tsx', [
         index('routes/Dynamic/index.tsx'),

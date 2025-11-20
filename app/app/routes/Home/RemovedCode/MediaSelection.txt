@@ -32,9 +32,6 @@ interface UploadItem {
   uniqueID: string
   statusText?: string
   nsfwDetected?: boolean
-  isAdult?: boolean
-  waitingInQueue?: boolean
-  onCancelQueue?: () => void
 }
 
 const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({ isOpen, onClose, onFilesSelected }) => {
@@ -43,7 +40,6 @@ const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({ isOpen, onClo
   const [isUploading, setIsUploading] = useState(false)
   const [dragActive, setDragActive] = useState(false)
   const [previewSocialFile, setPreviewSocialFile] = useState<{ url: string; blob: Blob; fileName: string } | null>(null)
-  const [isMinimized, setIsMinimized] = useState(false)
 
   const cleanTitle = (title: string): string => {
     if (!title) return title
@@ -210,6 +206,7 @@ const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({ isOpen, onClo
         formData.append('name', segment.name)
         formData.append('uniqueID', uniqueID)
         
+        // Only send is_adult for m3u8 files (main video file)
         if (segment.name.endsWith('.m3u8') && isAdult !== undefined) {
           formData.append('is_adult', isAdult.toString())
         }
@@ -230,152 +227,9 @@ const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({ isOpen, onClo
     }
   }
 
-  const checkQueueStatus = async (): Promise<{ available: boolean; stats?: any }> => {
-    try {
-      const response = await fetch('/api/video-processor/queue-status')
-      if (!response.ok) {
-        return { available: false }
-      }
-      const data = await response.json()
-      return { available: data.available || false, stats: data.stats }
-    } catch (error) {
-      return { available: false }
-    }
-  }
-
-  const waitForQueue = async (
-    itemId: string,
-    onStatusUpdate?: (statusText: string, nsfwDetected?: boolean) => void
-  ): Promise<boolean> => {
-    while (true) {
-      const queueStatus = await checkQueueStatus()
-      
-      if (queueStatus.available) {
-        setUploadQueue(prev => prev.map(i => i.id === itemId ? { ...i, waitingInQueue: false } : i))
-        return true
-      }
-
-      const pendingCount = queueStatus.stats?.pending || 0
-      const processingCount = queueStatus.stats?.processing || 0
-      
-      if (processingCount > 0) {
-        onStatusUpdate?.(`Waiting in queue... ${pendingCount + processingCount} video(s) ahead`, false)
-      } else {
-        onStatusUpdate?.(`Waiting in queue... ${pendingCount} video(s) ahead`, false)
-      }
-
-      setUploadQueue(prev => {
-        const item = prev.find(i => i.id === itemId)
-        if (item && !item.waitingInQueue) {
-          return prev.map(i => i.id === itemId ? { ...i, waitingInQueue: true } : i)
-        }
-        return prev
-      })
-
-      await new Promise(resolve => setTimeout(resolve, 3000))
-      
-      setUploadQueue(prev => {
-        const item = prev.find(i => i.id === itemId)
-        if (item && item.waitingInQueue === false) {
-          return prev
-        }
-        return prev
-      })
-
-      const currentItem = uploadQueue.find(i => i.id === itemId)
-      if (currentItem && currentItem.waitingInQueue === false) {
-        return false
-      }
-    }
-  }
-
-  const processVideoServerSide = async (
-    file: File,
-    uniqueID: string,
-    itemId: string,
-    onProgress: (value: number, statusText?: string) => void,
-    onStatusUpdate?: (statusText: string, nsfwDetected?: boolean) => void,
-    isAdult?: boolean
-  ): Promise<boolean> => {
-    try {
-      onProgress(5, 'Checking queue...')
-      onStatusUpdate?.('Checking queue...', false)
-
-      const queueStatus = await checkQueueStatus()
-      
-      if (!queueStatus.available) {
-        onStatusUpdate?.('Server is busy. Waiting in queue...', false)
-        const proceed = await waitForQueue(itemId, onStatusUpdate)
-        if (!proceed) {
-          return false
-        }
-      }
-
-      onProgress(5, 'Processing your video...')
-      onStatusUpdate?.('Processing your video...', false)
-
-      const formData = new FormData()
-      formData.append('video', file)
-      formData.append('uniqueID', uniqueID)
-      formData.append('outputFormat', 'hls')
-      formData.append('quality', 'medium')
-      formData.append('isAdult', (isAdult || false).toString())
-
-      const submitResponse = await fetch('/api/video-processor', {
-        method: 'POST',
-        body: formData
-      })
-
-      if (!submitResponse.ok) {
-        return false
-      }
-
-      const { jobId } = await submitResponse.json()
-      if (!jobId) {
-        return false
-      }
-
-      let attempts = 0
-      const maxAttempts = 300
-      let jobStatus = null
-
-      while (attempts < maxAttempts) {
-        await new Promise(resolve => setTimeout(resolve, 7000))
-
-        const statusResponse = await fetch(`/api/video-processor/status/${jobId}`)
-
-        if (!statusResponse.ok) {
-          attempts++
-          continue
-        }
-
-        jobStatus = await statusResponse.json()
-
-        if (jobStatus.status === 'completed') {
-          onProgress(100, 'Upload complete')
-          return true
-        }
-
-        if (jobStatus.status === 'failed') {
-          return false
-        }
-
-        const progressValue = jobStatus.progress || Math.min(10 + (attempts / maxAttempts) * 70, 75)
-        onProgress(progressValue, `Processing your video... ${Math.round(progressValue)}%`)
-        onStatusUpdate?.(`Processing your video... ${Math.round(progressValue)}%`, false)
-        attempts++
-      }
-
-      return false
-    } catch (error) {
-      return false
-    }
-  }
-
   const uploadVideo = async (
     file: File, 
     index: number, 
-    itemId: string,
     onProgress: (value: number, statusText?: string) => void, 
     uniqueID: string,
     onStatusUpdate?: (statusText: string, nsfwDetected?: boolean) => void
@@ -403,6 +257,7 @@ const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({ isOpen, onClo
         if (thumbnailResult.nsfw !== undefined && thumbnailResult.nsfw) {
           isAdult = true
           onStatusUpdate?.('Adult content detected in the video', true)
+          // Wait a moment to show the message
           await new Promise(resolve => setTimeout(resolve, 1500))
         } else {
           onStatusUpdate?.('Content check complete', false)
@@ -414,60 +269,26 @@ const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({ isOpen, onClo
       await thumbnailGenerator.destroy()
       thumbnailGenerator = null
 
-      setUploadQueue(prev => prev.map(uploadItem => 
-        uploadItem.id === itemId 
-          ? { ...uploadItem, isAdult, nsfwDetected: isAdult }
-          : uploadItem
-      ))
-
-      const fileSizeMB = file.size / (1024 * 1024)
-      const useClientSide = fileSizeMB > 400
-
-      if (useClientSide) {
-        onStatusUpdate?.('Processing your video...', false)
-        const { m3u8Url, segmentUrls } = await convertToHLS(file, (ratio: number) => {
-          const value = Math.max(10, Math.min(90, Math.round(10 + (ratio * 80))))
-          onProgress(value, `Processing your video... ${Math.round(value)}%`)
-          onStatusUpdate?.(`Processing your video... ${Math.round(value)}%`, false)
-        })
-        if (!m3u8Url || segmentUrls.length === 0) {
-          return false
-        }
-
-        onProgress(90, 'Processing your video...')
-        onStatusUpdate?.('Processing your video...', false)
-        const uploadSuccess = await VideoFetchPush(segmentUrls, uniqueID, isAdult)
-
-        try { URL.revokeObjectURL(m3u8Url) } catch {}
-        if (!uploadSuccess) {
-          return false
-        }
-
-        onProgress(100, 'Upload complete')
-        return true
-      } else {
-        const queueStatus = await checkQueueStatus()
-        
-        if (!queueStatus.available) {
-          setUploadQueue(prev => prev.map(uploadItem => 
-            uploadItem.id === itemId 
-              ? { 
-                  ...uploadItem, 
-                  waitingInQueue: true,
-                  onCancelQueue: () => {
-                    setUploadQueue(prev => prev.map(uploadItem => 
-                      uploadItem.id === itemId 
-                        ? { ...uploadItem, waitingInQueue: false }
-                        : uploadItem
-                    ))
-                  }
-                }
-              : uploadItem
-          ))
-        }
-
-        return await processVideoServerSide(file, uniqueID, itemId, onProgress, onStatusUpdate, isAdult)
+      onStatusUpdate?.('Converting video...', false)
+      const { m3u8Url, segmentUrls } = await convertToHLS(file, (ratio: number) => {
+        const value = Math.max(10, Math.min(90, Math.round(10 + (ratio * 80))))
+        onProgress(value, 'Converting video...')
+      })
+      if (!m3u8Url || segmentUrls.length === 0) {
+        return false
       }
+
+      onStatusUpdate?.('Uploading video...', false)
+      const uploadSuccess = await VideoFetchPush(segmentUrls, uniqueID, isAdult)
+
+      // Free the Object URL to prevent memory leaks after upload
+      try { URL.revokeObjectURL(m3u8Url) } catch {}
+      if (!uploadSuccess) {
+        return false
+      }
+
+      onProgress(100, 'Upload complete')
+      return true
     } catch (error) {
       return false
     } finally {
@@ -475,6 +296,7 @@ const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({ isOpen, onClo
         try {
           await thumbnailGenerator.destroy()
         } catch (error) {
+          // Silent cleanup
         }
       }
     }
@@ -482,15 +304,14 @@ const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({ isOpen, onClo
 
   const uploadFile = async (
     file: File, 
-    index: number,
-    itemId: string,
+    index: number, 
     onProgress: (value: number, statusText?: string) => void, 
     uniqueID: string,
     onStatusUpdate?: (statusText: string, nsfwDetected?: boolean) => void
   ): Promise<boolean> => {
     try {
       if(file.type.startsWith(`video/`)) {
-        return uploadVideo(file, index, itemId, onProgress, uniqueID, onStatusUpdate)
+        return uploadVideo(file, index, onProgress, uniqueID, onStatusUpdate)
       }
       
       if(file.type.startsWith(`image/`)) {
@@ -580,8 +401,7 @@ const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({ isOpen, onClo
 
         const success = await uploadFile(
           item.file, 
-          i,
-          item.id,
+          i, 
           (value: number, statusText?: string) => {
             setUploadQueue(prev => prev.map(uploadItem => 
               uploadItem.id === item.id 
@@ -694,24 +514,12 @@ const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({ isOpen, onClo
   }
 
   const handleClose = () => {
-    const hasActiveUploads = uploadQueue.some(item => item.status === 'uploading' || item.waitingInQueue)
-    
-    if (hasActiveUploads) {
-      setIsMinimized(true)
+    if (uploadQueue.length === 0 || uploadQueue.every(item => item.status === 'success' || item.status === 'error')) {
+      onFilesSelected([])
+      setUploadQueue([])
+      setSelectedFiles([])
       onClose()
-    } else {
-      if (uploadQueue.length === 0 || uploadQueue.every(item => item.status === 'success' || item.status === 'error')) {
-        onFilesSelected([])
-        setUploadQueue([])
-        setSelectedFiles([])
-        setIsMinimized(false)
-        onClose()
-      }
     }
-  }
-
-  const handleReopen = () => {
-    setIsMinimized(false)
   }
 
   const getStatusIcon = (status: UploadItem['status']) => {
@@ -838,8 +646,7 @@ const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({ isOpen, onClo
   }
 
   return (
-    <>
-      <Dialog open={isOpen && !isMinimized} onOpenChange={handleClose}>
+    <Dialog open={isOpen} onOpenChange={handleClose}>
       <DialogContent className="max-w-md max-h-[85vh] overflow-hidden flex flex-col bg-background/95 backdrop-blur-xl border-0 shadow-2xl">
         <DialogHeader className="pb-4">
           <DialogTitle className="text-xl font-semibold text-center">
@@ -965,85 +772,8 @@ const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({ isOpen, onClo
                         {item.status === 'error' && item.error && (
                           <p className="text-xs text-destructive mt-1">{item.error}</p>
                         )}
-                        {item.waitingInQueue && (
-                          <p className="text-xs text-muted-foreground mt-1">Waiting in queue...</p>
-                        )}
                       </div>
                     </div>
-                    {item.waitingInQueue && (
-                      <div className="ml-3 flex-shrink-0">
-                        <Button 
-                          variant="outline" 
-                          onClick={async () => {
-                            setUploadQueue(prev => prev.map(uploadItem => 
-                              uploadItem.id === item.id 
-                                ? { ...uploadItem, waitingInQueue: false, status: 'uploading', statusText: 'Processing locally...' }
-                                : uploadItem
-                            ))
-                            
-                            const isAdult = item.isAdult || false
-                            
-                            try {
-                              setUploadQueue(prev => prev.map(uploadItem => 
-                                uploadItem.id === item.id 
-                                  ? { ...uploadItem, statusText: 'Processing your video...', progress: 10 }
-                                  : uploadItem
-                              ))
-                              
-                              const { m3u8Url, segmentUrls } = await convertToHLS(item.file, (ratio: number) => {
-                                const value = Math.max(10, Math.min(90, Math.round(10 + (ratio * 80))))
-                                setUploadQueue(prev => prev.map(uploadItem => 
-                                  uploadItem.id === item.id 
-                                    ? { ...uploadItem, progress: value, statusText: `Processing your video... ${Math.round(value)}%` }
-                                    : uploadItem
-                                ))
-                              })
-                              
-                              if (m3u8Url && segmentUrls.length > 0) {
-                                setUploadQueue(prev => prev.map(uploadItem => 
-                                  uploadItem.id === item.id 
-                                    ? { ...uploadItem, progress: 90, statusText: 'Uploading...' }
-                                    : uploadItem
-                                ))
-                                
-                                const uploadSuccess = await VideoFetchPush(segmentUrls, item.uniqueID, isAdult)
-                                
-                                try { URL.revokeObjectURL(m3u8Url) } catch {}
-                                
-                                if (uploadSuccess) {
-                                  setUploadQueue(prev => prev.map(uploadItem => 
-                                    uploadItem.id === item.id 
-                                      ? { ...uploadItem, status: 'success', progress: 100, statusText: 'Upload complete' }
-                                      : uploadItem
-                                  ))
-                                } else {
-                                  setUploadQueue(prev => prev.map(uploadItem => 
-                                    uploadItem.id === item.id 
-                                      ? { ...uploadItem, status: 'error', error: 'Upload failed' }
-                                      : uploadItem
-                                  ))
-                                }
-                              } else {
-                                setUploadQueue(prev => prev.map(uploadItem => 
-                                  uploadItem.id === item.id 
-                                    ? { ...uploadItem, status: 'error', error: 'Failed to process video' }
-                                    : uploadItem
-                                ))
-                              }
-                            } catch (error) {
-                              setUploadQueue(prev => prev.map(uploadItem => 
-                                uploadItem.id === item.id 
-                                  ? { ...uploadItem, status: 'error', error: 'Processing failed' }
-                                  : uploadItem
-                              ))
-                            }
-                          }} 
-                          className="h-8 px-3 rounded-full text-xs"
-                        >
-                          Process Locally
-                        </Button>
-                      </div>
-                    )}
                     {item.status === 'error' && (
                       <div className="ml-3 flex-shrink-0">
                         <Button variant="outline" onClick={() => retryItem(item.id)} className="h-8 px-3 rounded-full">
@@ -1108,38 +838,6 @@ const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({ isOpen, onClo
         </DialogFooter>
       </DialogContent>
     </Dialog>
-
-    {isMinimized && uploadQueue.some(item => item.status === 'uploading' || item.waitingInQueue) && (
-      <div className="fixed bottom-4 right-4 z-50">
-        <div className="relative inline-flex items-center">
-          <Button
-            onClick={handleReopen}
-            className="rounded-full px-4 py-2 shadow-lg flex items-center gap-2 pr-8"
-            variant="default"
-          >
-            <Loader2 className="w-4 h-4 animate-spin" />
-            <span className="text-sm font-medium">
-              {uploadQueue.filter(item => item.status === 'uploading' || item.waitingInQueue).length} processing
-            </span>
-          </Button>
-          <button
-            onClick={(e) => {
-              e.stopPropagation()
-              setIsMinimized(false)
-              onFilesSelected([])
-              setUploadQueue([])
-              setSelectedFiles([])
-              onClose()
-            }}
-            className="absolute right-1 top-1/2 -translate-y-1/2 p-1 hover:bg-background/50 rounded-full transition-colors"
-            aria-label="Close"
-          >
-            <X className="w-3 h-3" />
-          </button>
-        </div>
-      </div>
-    )}
-    </>
   )
 }
 
