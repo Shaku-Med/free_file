@@ -31,5 +31,8 @@ export default [
     route(`search`, 'routes/Search/layout.tsx', [
         index('routes/Search/index.tsx'),
         route('*', 'routes/Search/Dynamic/index.tsx'),
+    ]),
+    route(`features`, 'routes/Features/layout.tsx', [
+        route(`incoming`, 'routes/Features/Incoming/index.tsx'),
     ])
 ] satisfies RouteConfig;

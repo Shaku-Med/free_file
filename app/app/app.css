@@ -318,3 +318,17 @@ img {
 input[type="file"] {
   display: none !important;
 }
+
+.break_text {
+  overflow-wrap: break-word;
+  word-wrap: break-word;
+  word-break: break-word;
+  hyphens: auto;
+  white-space: normal;
+  line-height: 1.2;
+  text-align: left;
+  text-wrap: balance;
+  text-overflow: ellipsis;
+  text-wrap: wrap;
+  text-wrap: balance;
+}

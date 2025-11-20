@@ -432,10 +432,11 @@ const index = () => {
               <div className="space-y-4 z-[1000]">
                 <div className="flex items-start justify-between">
                   <div className="space-y-2">
-                    <h1 className="text-2xl font-bold text-foreground leading-tight line-clamp-1 flex items-center flex-wrap">
-                      {ParseFilename(file_data.filename)?.split(``)?.map((part, index) => (
-                        <span key={index}>{part}</span>
-                      ))}
+                    <h1 className={`text-2xl font-bold break_text text-foreground leading-tight`}>
+                      {ParseFilename(file_data.filename)}
+                      {/* {ParseFilename(file_data.filename)?.split(``)?.map((part: string, index: number) => (
+                        <span key={index} className="inline-flex">{part}</span>
+                      ))} */}
                     </h1>
                     <div className="flex items-center gap-6 text-sm text-muted-foreground">
                       <span>{new Date(file_data.created_at).toLocaleDateString('en-US', { 

@@ -1,3 +1,5 @@
+import { BASE_URL } from '~/lib/URLS'
+
 interface VideoJob {
     jobId: string
     filePath: string
@@ -16,6 +18,7 @@ interface VideoJob {
         outputFormat: 'mp4' | 'hls'
         quality: 'low' | 'medium' | 'high'
     }
+    filename: string;
 }
 
 class VideoProcessingQueue {
@@ -24,6 +27,10 @@ class VideoProcessingQueue {
     private maxConcurrent: number = 1
     private maxQueueSize: number = 1000
     private isProcessing: boolean = false
+
+    isBusy(): boolean {
+        return this.processing.size > 0 || this.isProcessing
+    }
 
     addJob(job: Omit<VideoJob, 'status' | 'createdAt'>): boolean {
         if (this.queue.length >= this.maxQueueSize) {
@@ -96,7 +103,7 @@ class VideoProcessingQueue {
             const result = await processVideo(
                 job.filePath,
                 job.outputPath,
-                job.options
+                job.options,
             )
 
             if (result.success) {
@@ -113,47 +120,138 @@ class VideoProcessingQueue {
                     const tempDir = join(process.cwd(), 'temp')
                     const m3u8Content = await readFile(job.outputPath, 'utf-8')
                     const files = await readdir(tempDir)
-                    const segmentFiles = files.filter(f => f.startsWith(`segment_${timestamp}_`) && f.endsWith('.ts'))
+                    const segmentFiles = files.filter(f => f.startsWith(`segment_`) && f.endsWith('.ts'))
                     
                     const uploadPromises: Promise<void>[] = []
                     
                     const m3u8Blob = new Blob([m3u8Content], { type: 'application/vnd.apple.mpegurl' })
                     const m3u8File = new File([m3u8Blob], `${job.uniqueID}.m3u8`, { type: 'application/vnd.apple.mpegurl' })
+
+                    const uploadSegments = async (segmentUrls: { blob: Blob, name: string }[], uniqueID: string, isAdult?: boolean): Promise<boolean> => {
+                        try {
+                          for (let i = 0; i < segmentUrls.length; i++) {
+                            const segment = segmentUrls[i]
+                            
+                            const formData = new FormData()
+                            formData.append('file', segment.blob)
+                            formData.append('name', segment.name)
+                            formData.append('uniqueID', uniqueID)
+                            
+                            if (segment.name.endsWith('.m3u8') && isAdult !== undefined) {
+                              formData.append('is_adult', isAdult.toString())
+                            }
                     
+                            const response = await fetch(`${BASE_URL}/api/upload`, {
+                              method: 'POST',
+                              body: formData,
+                              headers: {
+                                'server-to-server-token': `Bearer ${process.env.VIDEO_TOKEN}`
+                              }
+                            })
+
+                            // console.log(response.status)
+                            
+                            if (!response.ok) {
+                              return false
+                            }
+                          }
+                          
+                          return true
+                        } catch (error) {
+                          return false
+                        }
+                    }
+                    
+                    // uploadPromises.push(
+                    //     fileService.uploadFile({
+                    //         file: m3u8File,
+                    //         uniqueID: job.uniqueID,
+                    //         filename: `${job.uniqueID}.m3u8`,
+                    //         isAdult: job.isAdult
+                    //     }).then((result) => {
+                    //         if (!result.success) {
+                    //             console.error(`Failed to upload m3u8 file:`, result.error)
+                    //             throw new Error(result.error || 'M3U8 upload failed')
+                    //         }
+                    //     })
+                    // )
+                    let uploadM3u8 = async () => {
+                        try {
+                            let uploadSuccess = await uploadSegments([{ blob: m3u8Blob, name: `${job.filename}.m3u8` }], job.uniqueID, job.isAdult)
+                            if(!uploadSuccess) {
+                                throw new Error(`Failed to upload m3u8 file`)
+                            }
+                            return Promise.resolve(true)
+                        }
+                        catch (error) {
+                            await unlink(job.filePath).catch(() => {})
+                            return Promise.resolve(false)
+                        }
+                    }
                     uploadPromises.push(
-                        fileService.uploadFile({
-                            file: m3u8File,
-                            uniqueID: job.uniqueID,
-                            filename: `${job.uniqueID}.m3u8`,
-                            isAdult: job.isAdult
-                        }).then((result) => {
-                            if (!result.success) {
-                                console.error(`Failed to upload m3u8 file:`, result.error)
-                                throw new Error(result.error || 'M3U8 upload failed')
+                        uploadM3u8().then((result) => {
+                            if (!result) {
+                                throw new Error(`Failed to upload m3u8 file`)
                             }
                         })
                     )
-                    
-                    for (const segFile of segmentFiles) {
-                        const segPath = join(tempDir, segFile)
-                        const segData = await readFile(segPath)
-                        const segBlob = new Blob([segData], { type: 'video/mp2t' })
-                        const segFileObj = new File([segBlob], segFile, { type: 'video/mp2t' })
-                        
-                        uploadPromises.push(
-                            fileService.uploadFile({
-                                file: segFileObj,
-                                uniqueID: job.uniqueID,
-                                filename: segFile,
-                                isAdult: undefined
-                            }).then((result) => {
-                                if (!result.success) {
-                                    console.error(`Failed to upload segment ${segFile}:`, result.error)
-                                    throw new Error(result.error || `Segment ${segFile} upload failed`)
-                                }
-                            })
-                        )
+                    let segFunctionSend = async (seg: {
+
+                    }, index: number, attempts: number = 0) => {
+                        try {
+                            if (index >= segmentFiles.length) {
+                                return true
+                            }
+
+                            const segPath = join(tempDir, segmentFiles[index])
+                            const segData = await readFile(segPath)
+                            const segBlob = new Blob([segData], { type: 'video/mp2t' })
+                            // const segFileObj = new File([segBlob], segmentFiles[index], { type: 'video/mp2t' })
+
+                            let uploadSuccess = await uploadSegments([{ blob: segBlob, name: segmentFiles[index] }], job.uniqueID, job.isAdult)
+                            if(!uploadSuccess) {
+                                throw new Error(`Failed to upload segment ${segmentFiles[index]}`)
+                            }
+                            await unlink(segPath).catch(() => {})
+                            return segFunctionSend(seg, index + 1, attempts)
+                        }
+                        catch (error) {
+                            if (attempts < 3) {
+                                await new Promise(resolve => setTimeout(resolve, 1000))
+                                return segFunctionSend(seg, index, attempts + 1)
+                            }
+
+                            await unlink(job.filePath).catch(() => {})
+                            // await unlink(job.outputPath).catch(() => {})
+                            throw error
+                        }
                     }
+
+                    uploadPromises.push(
+                        segFunctionSend(segmentFiles, 0, 0).then((result) => {
+                            if (!result) {
+                                throw new Error(`Failed to upload segments`)
+                            }
+                        })
+                    )
+
+                    // for (const segFile of segmentFiles) {
+                       
+                        
+                    //     uploadPromises.push(
+                    //         fileService.uploadFile({
+                    //             file: segFileObj,
+                    //             uniqueID: job.uniqueID,
+                    //             filename: segFile,
+                    //             isAdult: undefined
+                    //         }).then((result) => {
+                    //             if (!result.success) {
+                    //                 console.error(`Failed to upload segment ${segFile}:`, result.error)
+                    //                 throw new Error(result.error || `Segment ${segFile} upload failed`)
+                    //             }
+                    //         })
+                    //     )
+                    // }
                     
                     const uploadResults = await Promise.allSettled(uploadPromises)
                     const failedUploads = uploadResults.filter(r => r.status === 'rejected')

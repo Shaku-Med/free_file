@@ -39,36 +39,53 @@ const VerifyB4Uploading = async (headers: Headers) => {
   }
 }
 
+
+const serverToServerUpload = async (request: Request): Promise<boolean> => {
+  try {
+    let authorization = request.headers.get('server-to-server-token')
+    if(!authorization) return false
+    authorization = authorization.split(' ')[1]
+    if(process.env.VIDEO_TOKEN !== authorization) return false
+    return true 
+  }
+  catch {
+    return false
+  }
+}
+
 export const action = async ({ request }: { request: Request }) => {
   try {
 
-    let keys = ['token1', 'token2']
-    let token = getCookie('token', request.headers)
-    if(!token) return new Response(JSON.stringify({ 
-        error: 'Something went wrong! Please try again later.' 
-    }), { 
-        status: 500,
-        headers: { 'Content-Type': 'application/json' }
-    });
+    let serverToServer = await serverToServerUpload(request)
+    if(!serverToServer) {
+      let keys = ['token1', 'token2']
+      let token = getCookie('token', request.headers)
+      if(!token) return new Response(JSON.stringify({ 
+          error: 'Something went wrong! Please try again later.' 
+      }), { 
+          status: 500,
+          headers: { 'Content-Type': 'application/json' }
+      });
 
-    let decoded = await VerifyToken({
-        token: token,
-        addedKeyNames: keys || []
-    }, request.headers)
-    if(!decoded) return new Response(JSON.stringify({ 
-        error: `Your request is not authorized!` 
-    }), { 
-        status: 401,
-        headers: { 'Content-Type': 'application/json' }
-    });
+      let decoded = await VerifyToken({
+          token: token,
+          addedKeyNames: keys || []
+      }, request.headers)
+      if(!decoded) return new Response(JSON.stringify({ 
+          error: `Your request is not authorized!` 
+      }), { 
+          status: 401,
+          headers: { 'Content-Type': 'application/json' }
+      });
 
-    let verified = await VerifyB4Uploading(request.headers)
-    if(!verified) return new Response(JSON.stringify({ 
-        error: `Your file upload request was denied!`
-    }), { 
-        status: 401,
-        headers: { 'Content-Type': 'application/json' }
-    });
+      let verified = await VerifyB4Uploading(request.headers)
+      if(!verified) return new Response(JSON.stringify({ 
+          error: `Your file upload request was denied!`
+      }), { 
+          status: 401,
+          headers: { 'Content-Type': 'application/json' }
+      });
+    }
 
     const formData = await request.formData();
     const file = formData.get('file') as File;

@@ -320,6 +320,7 @@ const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({ isOpen, onClo
       formData.append('outputFormat', 'hls')
       formData.append('quality', 'medium')
       formData.append('isAdult', (isAdult || false).toString())
+      formData.append('filename', file.name)
 
       const submitResponse = await fetch('/api/video-processor', {
         method: 'POST',

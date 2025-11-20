@@ -44,6 +44,13 @@ export const action = async ({ request }: { request: Request }) => {
             headers: { 'Content-Type': 'application/json' }
         })
 
+        if (videoQueue.isBusy()) {
+            return new Response(JSON.stringify({ error: 'Processing in progress' }), {
+                status: 429,
+                headers: { 'Content-Type': 'application/json' }
+            })
+        }
+
         const formData = await request.formData()
         const videoFile = formData.get('video') as File
         const uniqueID = formData.get('uniqueID') as string
@@ -85,6 +92,7 @@ export const action = async ({ request }: { request: Request }) => {
             isAdult,
             headers: request.headers,
             baseUrl,
+            filename: videoFile.name,
             options: {
                 outputFormat: outputFormat as 'mp4' | 'hls',
                 quality: quality as 'low' | 'medium' | 'high'

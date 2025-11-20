@@ -11,6 +11,8 @@ import {
   Plus,
   File,
   ChevronDown,
+  Shield,
+  Star,
 } from "lucide-react"
 import {
   Sidebar,
@@ -44,6 +46,21 @@ const menuItems = [
     icon: Search,
     href: "/search",
   },
+  {
+    title: "Privacy",
+    icon: Shield,
+    href: "/privacy",
+  },
+  {
+    title: "Terms",
+    icon: File,
+    href: "/terms",
+  },
+  {
+    title: "Incoming Features List",
+    icon: Star,
+    href: "/features/incoming",
+  }
 ]
 
 export function AppSidebar() {
