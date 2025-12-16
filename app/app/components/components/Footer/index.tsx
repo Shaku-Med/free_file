@@ -1,10 +1,18 @@
 import React from 'react'
 import { Separator } from '../../ui/separator'
-import { Link } from 'react-router'
+import { Link, useLocation } from 'react-router'
 
 const Footer = () => {
+  const location = useLocation()
+  const staticRoutes = ['/', '/privacy', '/terms', '/features', '/auth', '/api']
+  const isSearchRoute = location.pathname === '/search' || location.pathname.startsWith('/search/')
+  const isDynamicRoute = !staticRoutes.includes(location.pathname) && 
+    location.pathname.startsWith('/') && 
+    location.pathname.split('/').filter(Boolean).length === 1
+  const isBlacklisted = isSearchRoute || isDynamicRoute
+
   return (
-    <footer className=" border-t border-border text-center px-3">
+    <footer className={` border-t border-border text-center px-3 ${isBlacklisted ? 'hidden' : ''}`}>
       <div className="mx-auto max-w-full xl:container py-6">
         <Separator className="mb-4" />
         <div className="flex flex-col items-center space-y-2 text-sm text-muted-foreground">

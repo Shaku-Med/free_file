@@ -24,6 +24,8 @@ import ErrorMessage from "./components/ErrorMessage";
 import { getCookie } from "./lib/Security/Token";
 import { VerifyToken } from "./lib/Security/unsharedkeyEncryption/Combined/Verification/VerifyToken";
 import SetToken from "./lib/Security/unsharedkeyEncryption/Combined/Verification/SetToken";
+import { filterFilesByAccess } from "./routes/Api/fun/accessControl";
+import { isAuthenticated } from "./lib/Security/Password";
 import NavProgress from "./routes/Home/NavProgress/NavProgress";
 import { SidebarProvider, SidebarInset, SidebarTrigger } from "./components/ui/sidebar";
 import { AppSidebar } from "./components/Navbar/components/Sidebar";
@@ -124,23 +126,66 @@ export const loader = async ({request}: {request: Request}) => {
 
     const { data: files, error } = await db
       .from('files')
-      .select('filename, unique_id, up_count, down_count, file_size, file_type, endpoint, created_at, is_adult')
+      .select('id, filename, unique_id, up_count, down_count, file_size, file_type, endpoint, created_at, is_adult, is_public, owner_id')
       .order('created_at', { ascending: false })
-      .limit(10);
-
-    const processedFiles = files?.map((file: FileRecord) => {
-      if (!file.file_type.startsWith('image/')) {
-        const { endpoint, ...fileWithoutEndpoint } = file;
-        return fileWithoutEndpoint;
-      }
-      return file;
-    }) || [];
+      .limit(30);
 
     if (error) {
       console.error('Error fetching files:', error)
       return data(null, { status: 500 })
     }
-    return data({ files: processedFiles, st: sessionToken, user_agent: request.headers.get('user-agent') }, {
+
+    const filteredFiles = await filterFilesByAccess(request, files || []);
+
+    const user = await isAuthenticated(request, ['id']);
+    const userId = user?.id || null;
+
+    // Enrich files with owner data
+    const { ownerService } = await import('~/lib/Services/OwnerService');
+    const filesWithOwners = await ownerService.enrichFilesWithOwners(filteredFiles.slice(0, 10));
+
+    // Fetch all user likes and dislikes in one query
+    let userActions = { likedFileIds: new Set<string>(), dislikedFileIds: new Set<string>() };
+    if (userId && filesWithOwners.length > 0) {
+      const { userActionsService } = await import('~/lib/Services/UserActionsService');
+      const fileIds = filesWithOwners.map((f: any) => f.id).filter(Boolean);
+      if (fileIds.length > 0) {
+        const actions = await userActionsService.getUserActions(userId, fileIds);
+        userActions = actions;
+      }
+    }
+
+    const processedFiles = filesWithOwners.map((file: any) => {
+      if (!file.file_type.startsWith('image/')) {
+        return {
+          id: file.id || '',
+          created_at: file.created_at,
+          endpoint: '',
+          filename: file.filename,
+          unique_id: file.unique_id,
+          file_type: file.file_type,
+          file_size: file.file_size,
+          is_adult: file.is_adult,
+          up_count: Number(file.up_count) || 0,
+          down_count: Number(file.down_count) || 0,
+          owner: file.owner || null
+        };
+      }
+      return {
+        id: file.id || '',
+        created_at: file.created_at,
+        endpoint: file.endpoint || '',
+        filename: file.filename,
+        unique_id: file.unique_id,
+        file_type: file.file_type,
+        file_size: file.file_size,
+        is_adult: file.is_adult,
+        up_count: Number(file.up_count) || 0,
+        down_count: Number(file.down_count) || 0,
+        owner: file.owner || null
+      };
+    });
+    return data({ files: processedFiles, st: sessionToken, user_agent: request.headers.get('user-agent'), userId, userActions: { likedFileIds: Array.from(userActions.likedFileIds), dislikedFileIds: Array.from(userActions.dislikedFileIds) } }, {
       status: 200,
       headers: token ? {
         'Set-Cookie': `token=${token}; Path=/; HttpOnly; Max-Age=86400; ${process.env.NODE_ENV === 'production' ? 'Secure' : ''}; SameSite=Strict`
@@ -214,7 +259,11 @@ export function Layout({ children }: { children: React.ReactNode }) {
     )
   }
 
-  const { files, st, user_agent } = data;
+  const { files, st, user_agent, userId, userActions } = data;
+  const userActionsSet = {
+    likedFileIds: new Set(userActions?.likedFileIds || []),
+    dislikedFileIds: new Set(userActions?.dislikedFileIds || [])
+  };
 
   return (
     <html className={`system overflow-hidden h-full w-full fixed top-0 left-0`} lang="en">
@@ -236,7 +285,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
       </head>
       <body className={`lg:flex block fixed top-0 left-0 w-full h-full`}>
         <ErrorBoundary>
-          <ContextProvider f={files} st={st} user_agent={user_agent || ''}>
+          <ContextProvider f={files} st={st} user_agent={user_agent || ''} userId={userId || null} userActions={userActionsSet}>
             <LikeProvider>
               <PictureInPictureProvider>
                 <SidebarProvider className={`w-full h-full`}>

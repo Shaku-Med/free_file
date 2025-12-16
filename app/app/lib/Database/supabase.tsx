@@ -1,7 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
-import pkg from '@supabase/supabase-js';
 import { EnvValidator } from '../EnvValidator';
-const {SupabaseClient} = pkg;
 
 const supabaseUrl: string = EnvValidator(`SUPABASE_URL`) || '';
 const supabaseKey: string = EnvValidator(`SUPABASE_ANON_KEY`) || '';

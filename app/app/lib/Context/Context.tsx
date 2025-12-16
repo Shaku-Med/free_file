@@ -46,7 +46,9 @@ export const Context = createContext<ContextProps>({
     observerRef: null,
     currentPage: 1,
     loadMoreVideos: () => {},
-    user_agent: ''
+    user_agent: '',
+    userId: null,
+    userActions: { likedFileIds: new Set(), dislikedFileIds: new Set() }
 })
 
 interface ContextProviderProps {
@@ -54,6 +56,8 @@ interface ContextProviderProps {
     f: FileType[];
     st: string;
     user_agent: string;
+    userId?: string | null;
+    userActions?: { likedFileIds: Set<string>; dislikedFileIds: Set<string> };
 }
 
 export const FloatingButton = () => {
@@ -84,9 +88,10 @@ export const FloatingButton = () => {
     )
 }
 
-export const ContextProvider = ({ children, f, st, user_agent }: ContextProviderProps) => {
+export const ContextProvider = ({ children, f, st, user_agent, userId, userActions: initialUserActions = { likedFileIds: new Set(), dislikedFileIds: new Set() } }: ContextProviderProps) => {
     const [files, setFiles] = useState<FileType[]>(f);
     const [isModalOpen, setIsModalOpen] = useState(false);
+    const [userActions, setUserActions] = useState(initialUserActions);
 
     const [isLoading, setIsLoading] = useState(false);
     const [hasMore, setHasMore] = useState(true);
@@ -109,6 +114,16 @@ export const ContextProvider = ({ children, f, st, user_agent }: ContextProvider
           let data = await response.json()
           if (data?.data) {
             setFiles((prev: FileType[]) => [...prev, ...data.data])
+            // Merge user actions from API response
+            if (data?.userActions) {
+              setUserActions(prev => {
+                const newLikedIds = new Set(prev.likedFileIds);
+                const newDislikedIds = new Set(prev.dislikedFileIds);
+                data.userActions.likedFileIds?.forEach((id: string) => newLikedIds.add(id));
+                data.userActions.dislikedFileIds?.forEach((id: string) => newDislikedIds.add(id));
+                return { likedFileIds: newLikedIds, dislikedFileIds: newDislikedIds };
+              });
+            }
           }
           setCurrentPage(data.pagination.page)
           setHasMore(Boolean(data?.pagination?.hasNext))
@@ -175,7 +190,25 @@ export const ContextProvider = ({ children, f, st, user_agent }: ContextProvider
         if(st && !st.includes('not_needed')) fetchPublicKey()
     }, [st])
 
-    const value = useMemo(() => ({files, setFiles, isModalOpen, setIsModalOpen, isLoading, hasMore, observerRef: observerRef as React.RefObject<HTMLDivElement>, currentPage, loadMoreVideos, user_agent }), [files, setFiles, isModalOpen, setIsModalOpen, isLoading, hasMore, observerRef, currentPage, loadMoreVideos, user_agent]);
+    const safeUserId: string | null = userId ?? null;
+
+    const value = useMemo(
+        () => ({
+            files,
+            setFiles,
+            isModalOpen,
+            setIsModalOpen,
+            isLoading,
+            hasMore,
+            observerRef: observerRef as React.RefObject<HTMLDivElement>,
+            currentPage,
+            loadMoreVideos,
+            user_agent,
+            userId: safeUserId,
+            userActions
+        }),
+        [files, isModalOpen, isLoading, hasMore, currentPage, loadMoreVideos, user_agent, safeUserId, userActions]
+    );
     return (
         <div className={`w-full h-full`}>
             <Context.Provider value={value}>
@@ -184,6 +217,7 @@ export const ContextProvider = ({ children, f, st, user_agent }: ContextProvider
                     isOpen={isModalOpen}
                     onClose={() => setIsModalOpen(false)}
                     onFilesSelected={() => {}}
+                    maxFileSizeBytes={safeUserId ? 400 * 1024 * 1024 : 40 * 1024 * 1024}
                 />
                 {/* <FloatingButton /> */}
                 {/* <NavigationLoader/> */}

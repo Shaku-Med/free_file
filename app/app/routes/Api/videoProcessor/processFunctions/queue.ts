@@ -140,6 +140,18 @@ class VideoProcessingQueue {
                             if (segment.name.endsWith('.m3u8') && isAdult !== undefined) {
                               formData.append('is_adult', isAdult.toString())
                             }
+
+                            if (job.ownerId) {
+                              formData.append('owner_id', job.ownerId)
+                            }
+
+                            if (job.fileTitle) {
+                              formData.append('title', job.fileTitle)
+                            }
+
+                            if (job.fileDescription) {
+                              formData.append('description', job.fileDescription)
+                            }
                     
                             const response = await fetch(`${BASE_URL}/api/upload`, {
                               method: 'POST',

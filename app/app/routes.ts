@@ -7,11 +7,13 @@ export default [
     route(`terms`, 'routes/Terms/index.tsx'),
     route(`api`, 'routes/Api/layout.tsx', [
         route(`upload`, 'routes/Api/upload/index.tsx'),
+        route(`upload/status/:jobId`, 'routes/Api/upload/Status.$jobId.tsx'),
         route(`load/video/*`, 'routes/Api/load/Video/index.tsx'),
         route(`load/image/*`, 'routes/Api/load/image/index.tsx'),
         route(`get/*`, 'routes/Api/get/index.tsx'),
         route(`public-key`, 'routes/Api/PublicKey/index.tsx'),
         route(`handshake`, 'routes/Api/handshake/index.tsx'),
+        route(`email`, 'routes/Api/email/index.tsx'),
         route(`socials`, 'routes/Api/Socials/layout.tsx', [
             route(`info/*`, 'routes/Api/Socials/Info.tsx'),
             route(`*`, 'routes/Api/Socials/index.tsx'),
@@ -24,6 +26,17 @@ export default [
             route(`queue-status`, 'routes/Api/videoProcessor/queue-status.tsx'),
             index('routes/Api/videoProcessor/index.tsx'),
         ]),
+        route(`likes`, 'routes/Api/likes/index.tsx'),
+        route(`dislikes`, 'routes/Api/dislikes/index.tsx'),
+        route(`comments`, 'routes/Api/comments/index.tsx'),
+        route(`profile`, 'routes/Api/profile/index.tsx'),
+        route(`user-profile`, 'routes/Api/user-profile/index.tsx'),
+        route(`user-files`, 'routes/Api/user-files/index.tsx'),
+        route(`related-videos`, 'routes/Api/related-videos/index.tsx'),
+        route(`download`, 'routes/Api/download/index.tsx'),
+        route(`download/status`, 'routes/Api/download/status.tsx'),
+        route(`download/cancel`, 'routes/Api/download/cancel.tsx'),
+        route(`download/file/:fileId`, 'routes/Api/download/file.$fileId.tsx'),
     ]),
     route(`:id`, 'routes/Dynamic/layout.tsx', [
         index('routes/Dynamic/index.tsx'),
@@ -34,5 +47,13 @@ export default [
     ]),
     route(`features`, 'routes/Features/layout.tsx', [
         route(`incoming`, 'routes/Features/Incoming/index.tsx'),
-    ])
+    ]),
+    route(`auth`, 'routes/Auth/layout.tsx', [
+        route(`login`, 'routes/Auth/Login/index.tsx'),
+        route(`signup`, 'routes/Auth/Signup/index.tsx'),
+        route(`verify`, 'routes/Auth/Verify/index.tsx'),
+        route(`reset`, 'routes/Auth/Reset/index.tsx'),
+        route(`reset/confirm`, 'routes/Auth/Reset/confirm.tsx'),
+    ]),
+    route(`profile/:username`, 'routes/Profile/index.tsx'),
 ] satisfies RouteConfig;

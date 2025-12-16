@@ -1,1147 +1,313 @@
-import React, { useState, useRef, useCallback } from 'react'
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '~/components/ui/dialog'
-import { Button } from '~/components/ui/button'
-import { Card, CardContent } from '~/components/ui/card'
-import { Progress } from '~/components/ui/progress'
-import { Upload, X, FileImage, FileVideo, Check, CheckCircle, XCircle, RotateCcw, Loader2 } from 'lucide-react'
-import { convertToHLS } from "~/lib/HlsHandler"
+import React, { useState } from "react"
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "~/components/ui/dialog"
+import { Button } from "~/components/ui/button"
+import { Progress } from "~/components/ui/progress"
+import { Input } from "~/components/ui/input"
+import { Textarea } from "~/components/ui/textarea"
+import { Upload, X, FileImage, FileVideo } from "lucide-react"
 import { GenerateUniqueID } from "~/lib/GenerateUniqueID"
-import { ThumbnailGenerator } from "./ThumbnailGenerator"
-import LoadFromSocials, { isValidMediaType } from './LoadFromSocials/LoadFromSocials'
-import Preview from './LoadFromSocials/Preview'
 
 interface MediaSelectionModalProps {
   isOpen: boolean
   onClose: () => void
   onFilesSelected: (files: File[]) => void
+  maxFileSizeBytes?: number
 }
 
-interface ValidationResult {
-  isValid: boolean
-  error?: string
-}
+type UploadStatus = "idle" | "uploading" | "success" | "error"
 
-interface UploadItem {
-  id: string
-  file: File
-  status: 'pending' | 'uploading' | 'success' | 'error'
-  progress: number
-  error?: string
-  retryCount: number
-  validationError?: string
-  uniqueID: string
-  statusText?: string
-  nsfwDetected?: boolean
-  isAdult?: boolean
-  waitingInQueue?: boolean
-  onCancelQueue?: () => void
-}
+export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
+  isOpen,
+  onClose,
+  onFilesSelected,
+  maxFileSizeBytes,
+}) => {
+  const [selectedFile, setSelectedFile] = useState<File | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [status, setStatus] = useState<UploadStatus>("idle")
+  const [progress, setProgress] = useState(0)
+  const [statusText, setStatusText] = useState<string | null>(null)
+  const [jobId, setJobId] = useState<string | null>(null)
+  const [title, setTitle] = useState("")
+  const [description, setDescription] = useState("")
 
-const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({ isOpen, onClose, onFilesSelected }) => {
-  const [selectedFiles, setSelectedFiles] = useState<File[]>([])
-  const [uploadQueue, setUploadQueue] = useState<UploadItem[]>([])
-  const [isUploading, setIsUploading] = useState(false)
-  const [dragActive, setDragActive] = useState(false)
-  const [previewSocialFile, setPreviewSocialFile] = useState<{ url: string; blob: Blob; fileName: string } | null>(null)
-  const [isMinimized, setIsMinimized] = useState(false)
+  const effectiveMaxSize = maxFileSizeBytes ?? 40 * 1024 * 1024
 
-  const cleanTitle = (title: string): string => {
-    if (!title) return title
-    let cleaned = title
-    cleaned = cleaned.replace(/&#x[\da-fA-F]+;/gi, '')
-    cleaned = cleaned.replace(/&#\d+;/g, '')
-    cleaned = cleaned.replace(/&[a-zA-Z][a-zA-Z0-9]*;/g, '')
-    const textarea = document.createElement('textarea')
-    textarea.innerHTML = cleaned
-    cleaned = textarea.value
-    cleaned = cleaned.split(`\n`).join(``)
-    cleaned = cleaned.replace(/[\n\r]+/g, ' ')
-    cleaned = cleaned.replace(/[<>:"/\\|?*\x00-\x1F]/g, '')
-    cleaned = cleaned.replace(/\.\.+/g, '.')
-    cleaned = cleaned.replace(/\s+/g, ' ')
-    cleaned = cleaned.trim()
-    cleaned = cleaned.replace(/^\.+|\.+$/g, '')
-    cleaned = cleaned.replace(/^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(\.|$)/gi, '')
-    if (cleaned.length > 255) {
-      cleaned = cleaned.substring(0, 255)
-    }
-    cleaned = cleaned.trim()
-    return cleaned || 'social_media_file'
+  const resetState = () => {
+    setSelectedFile(null)
+    setError(null)
+    setStatus("idle")
+    setProgress(0)
+    setStatusText(null)
+    setJobId(null)
+    setTitle("")
+    setDescription("")
   }
 
-  const validateImageFile = async (file: File): Promise<ValidationResult> => {
-    return new Promise((resolve) => {
-      const img = new Image()
-      const url = URL.createObjectURL(file)
-      
-      const cleanup = () => {
-        URL.revokeObjectURL(url)
-        img.onload = null
-        img.onerror = null
-      }
-      
-      img.onload = () => {
-        cleanup()
-        resolve({ isValid: true })
-      }
-      
-      img.onerror = () => {
-        cleanup()
-        resolve({ isValid: false, error: 'Invalid or corrupted image file' })
-      }
-      
-      img.src = url
-    })
+  const formatBytes = (bytes: number) => {
+    if (!bytes) return "0 B"
+    const k = 1024
+    const sizes = ["B", "KB", "MB", "GB"]
+    const i = Math.floor(Math.log(bytes) / Math.log(k))
+    const value = bytes / Math.pow(k, i)
+    return `${value.toFixed(2)} ${sizes[i]}`
   }
 
-  const validateVideoFile = async (file: File): Promise<ValidationResult> => {
-    return new Promise((resolve) => {
-      const video = document.createElement('video')
-      const url = URL.createObjectURL(file)
-      
-      const cleanup = () => {
-        URL.revokeObjectURL(url)
-        video.onloadedmetadata = null
-        video.onerror = null
-        video.src = ''
-      }
-      
-      video.onloadedmetadata = () => {
-        cleanup()
-        resolve({ isValid: true })
-      }
-      
-      video.onerror = () => {
-        cleanup()
-        resolve({ isValid: false, error: 'Invalid or corrupted video file' })
-      }
-      
-      video.src = url
-      video.load()
-    })
+  const validateFile = (file: File): string | null => {
+    if (!file.type.startsWith("image/") && !file.type.startsWith("video/")) {
+      return "Only image and video files are allowed."
+    }
+    if (file.size > effectiveMaxSize) {
+      return `File is too large. Maximum size is ${formatBytes(effectiveMaxSize)}.`
+    }
+    return null
   }
 
-  const validateFileType = (file: File): ValidationResult => {
-    if (file.type.startsWith('image/') && file.type !== 'image/svg+xml') {
-      return { isValid: true }
+  const handleFileChange = (fileList: FileList | null) => {
+    if (!fileList || fileList.length === 0) {
+      return
     }
-    
-    if (file.type.startsWith('video/')) {
-      return { isValid: true }
+    const file = fileList[0]
+    const validationError = validateFile(file)
+    if (validationError) {
+      setSelectedFile(null)
+      setError(validationError)
+      return
     }
-    
-    if (file.type === 'image/svg+xml') {
-      return { isValid: false, error: 'SVG files are not supported. Please use other image formats like JPEG, PNG, GIF, WebP, etc.' }
-    }
-    
-    return { isValid: false, error: `File type '${file.type}' is not supported. Only image and video files are allowed.` }
+    setSelectedFile(file)
+    setError(null)
+    setStatus("idle")
+    setProgress(0)
+    setStatusText(null)
   }
 
-  const validateFile = async (file: File): Promise<ValidationResult> => {
-    const typeValidation = validateFileType(file)
-    if (!typeValidation.isValid) {
-      return typeValidation
+  const handleUpload = async () => {
+    if (!selectedFile) {
+      setError("Select a file to upload.")
+      return
     }
-    
-    if (file.type.startsWith('image/')) {
-      return await validateImageFile(file)
+    const validationError = validateFile(selectedFile)
+    if (validationError) {
+      setError(validationError)
+      return
     }
-    
-    if (file.type.startsWith('video/')) {
-      return await validateVideoFile(file)
-    }
-    
-    return { isValid: false, error: 'Unsupported file type' }
-  }
-
-  const validateThumbnail = async (thumbnailBlob: Blob): Promise<ValidationResult> => {
-    return new Promise((resolve) => {
-      const img = new Image()
-      const url = URL.createObjectURL(thumbnailBlob)
-      
-      img.onload = () => {
-        URL.revokeObjectURL(url)
-        resolve({ isValid: true })
-      }
-      
-      img.onerror = () => {
-        URL.revokeObjectURL(url)
-        resolve({ isValid: false, error: 'Generated thumbnail is corrupted or invalid' })
-      }
-      
-      img.src = url
-    })
-  }
-
-  const uploadThumbnail = async (thumbnailBlob: Blob, uniqueID: string, videoFilename: string): Promise<boolean> => {
     try {
-      const thumbnailValidation = await validateThumbnail(thumbnailBlob)
-      if (!thumbnailValidation.isValid) {
-        return false
-      }
-      
+      setStatus("uploading")
+      setProgress(5)
+      setStatusText("Preparing upload...")
+
+      const uniqueID = GenerateUniqueID()
       const formData = new FormData()
-      formData.append('file', thumbnailBlob)
-      formData.append('name', `thumbnail_${videoFilename.replace(/\.[^/.]+$/, '.jpg')}`)
-      formData.append('uniqueID', uniqueID)
-
-      const response = await fetch('/api/upload', {
-        method: 'POST',
-        body: formData,
-      })
-      
-      if (!response.ok) {
-        return false
+      formData.append("file", selectedFile)
+      formData.append("name", selectedFile.name)
+      formData.append("uniqueID", uniqueID)
+      if (title.trim().length > 0) {
+        formData.append("title", title.trim())
+      }
+      if (description.trim().length > 0) {
+        formData.append("description", description.trim())
       }
 
-      return true
-    } catch (error) {
-      return false
-    }
-  }
+      const xhr = new XMLHttpRequest()
+      xhr.open("POST", "/api/upload", true)
 
-  const VideoFetchPush = async (segmentUrls: { blob: Blob, name: string }[], uniqueID: string, isAdult?: boolean): Promise<boolean> => {
-    try {
-      for (let i = 0; i < segmentUrls.length; i++) {
-        const segment = segmentUrls[i]
-        
-        const formData = new FormData()
-        formData.append('file', segment.blob)
-        formData.append('name', segment.name)
-        formData.append('uniqueID', uniqueID)
-        
-        if (segment.name.endsWith('.m3u8') && isAdult !== undefined) {
-          formData.append('is_adult', isAdult.toString())
-        }
-
-        const response = await fetch('/api/upload', {
-          method: 'POST',
-          body: formData,
-        })
-        
-        if (!response.ok) {
-          return false
-        }
-      }
-      
-      return true
-    } catch (error) {
-      return false
-    }
-  }
-
-  const checkQueueStatus = async (): Promise<{ available: boolean; stats?: any }> => {
-    try {
-      const response = await fetch('/api/video-processor/queue-status')
-      if (!response.ok) {
-        return { available: false }
-      }
-      const data = await response.json()
-      return { available: data.available || false, stats: data.stats }
-    } catch (error) {
-      return { available: false }
-    }
-  }
-
-  const waitForQueue = async (
-    itemId: string,
-    onStatusUpdate?: (statusText: string, nsfwDetected?: boolean) => void
-  ): Promise<boolean> => {
-    while (true) {
-      const queueStatus = await checkQueueStatus()
-      
-      if (queueStatus.available) {
-        setUploadQueue(prev => prev.map(i => i.id === itemId ? { ...i, waitingInQueue: false } : i))
-        return true
+      xhr.upload.onprogress = (event) => {
+        if (!event.lengthComputable) return
+        const percent = Math.min(95, Math.max(10, Math.round((event.loaded / event.total) * 100)))
+        setProgress(percent)
+        setStatusText("Uploading...")
       }
 
-      const pendingCount = queueStatus.stats?.pending || 0
-      const processingCount = queueStatus.stats?.processing || 0
-      
-      if (processingCount > 0) {
-        onStatusUpdate?.(`Waiting in queue... ${pendingCount + processingCount} video(s) ahead`, false)
-      } else {
-        onStatusUpdate?.(`Waiting in queue... ${pendingCount} video(s) ahead`, false)
-      }
-
-      setUploadQueue(prev => {
-        const item = prev.find(i => i.id === itemId)
-        if (item && !item.waitingInQueue) {
-          return prev.map(i => i.id === itemId ? { ...i, waitingInQueue: true } : i)
-        }
-        return prev
-      })
-
-      await new Promise(resolve => setTimeout(resolve, 3000))
-      
-      setUploadQueue(prev => {
-        const item = prev.find(i => i.id === itemId)
-        if (item && item.waitingInQueue === false) {
-          return prev
-        }
-        return prev
-      })
-
-      const currentItem = uploadQueue.find(i => i.id === itemId)
-      if (currentItem && currentItem.waitingInQueue === false) {
-        return false
-      }
-    }
-  }
-
-  const processVideoServerSide = async (
-    file: File,
-    uniqueID: string,
-    itemId: string,
-    onProgress: (value: number, statusText?: string) => void,
-    onStatusUpdate?: (statusText: string, nsfwDetected?: boolean) => void,
-    isAdult?: boolean
-  ): Promise<boolean> => {
-    try {
-      onProgress(5, 'Checking queue...')
-      onStatusUpdate?.('Checking queue...', false)
-
-      const queueStatus = await checkQueueStatus()
-      
-      if (!queueStatus.available) {
-        onStatusUpdate?.('Server is busy. Waiting in queue...', false)
-        const proceed = await waitForQueue(itemId, onStatusUpdate)
-        if (!proceed) {
-          return false
-        }
-      }
-
-      onProgress(5, 'Processing your video...')
-      onStatusUpdate?.('Processing your video...', false)
-
-      const formData = new FormData()
-      formData.append('video', file)
-      formData.append('uniqueID', uniqueID)
-      formData.append('outputFormat', 'hls')
-      formData.append('quality', 'medium')
-      formData.append('isAdult', (isAdult || false).toString())
-      formData.append('filename', file.name)
-
-      const submitResponse = await fetch('/api/video-processor', {
-        method: 'POST',
-        body: formData
-      })
-
-      if (!submitResponse.ok) {
-        return false
-      }
-
-      const { jobId } = await submitResponse.json()
-      if (!jobId) {
-        return false
-      }
-
-      let attempts = 0
-      const maxAttempts = 300
-      let jobStatus = null
-
-      while (attempts < maxAttempts) {
-        await new Promise(resolve => setTimeout(resolve, 7000))
-
-        const statusResponse = await fetch(`/api/video-processor/status/${jobId}`)
-
-        if (!statusResponse.ok) {
-          attempts++
-          continue
-        }
-
-        jobStatus = await statusResponse.json()
-
-        if (jobStatus.status === 'completed') {
-          onProgress(100, 'Upload complete')
-          return true
-        }
-
-        if (jobStatus.status === 'failed') {
-          return false
-        }
-
-        const progressValue = jobStatus.progress || Math.min(10 + (attempts / maxAttempts) * 70, 75)
-        onProgress(progressValue, `Processing your video... ${Math.round(progressValue)}%`)
-        onStatusUpdate?.(`Processing your video... ${Math.round(progressValue)}%`, false)
-        attempts++
-      }
-
-      return false
-    } catch (error) {
-      return false
-    }
-  }
-
-  const uploadVideo = async (
-    file: File, 
-    index: number, 
-    itemId: string,
-    onProgress: (value: number, statusText?: string) => void, 
-    uniqueID: string,
-    onStatusUpdate?: (statusText: string, nsfwDetected?: boolean) => void
-  ): Promise<boolean> => {
-    let thumbnailGenerator: ThumbnailGenerator | null = null
-    
-    try {
-      thumbnailGenerator = new ThumbnailGenerator()
-
-      onStatusUpdate?.('Processing your video checking for adult contents...', false)
-      
-      const thumbnailResult = await thumbnailGenerator.generateThumbnail(file, {
-        maxWidth: 1920,
-        maxHeight: 1080,
-        maintainAspectRatio: true,
-        onProgress: (progress, message) => {
-          const progressPercent = Math.max(1, Math.min(progress, 100))
-          onProgress(progressPercent, `Processing your video checking for adult contents... checks ${progressPercent}%`)
-        }
-      })
-
-      let isAdult = false
-      
-      if (thumbnailResult.success && thumbnailResult.thumbnailBlob) {
-        if (thumbnailResult.nsfw !== undefined && thumbnailResult.nsfw) {
-          isAdult = true
-          onStatusUpdate?.('Adult content detected in the video', true)
-          await new Promise(resolve => setTimeout(resolve, 1500))
-        } else {
-          onStatusUpdate?.('Content check complete', false)
-        }
-
-        const thumbnailUploaded = await uploadThumbnail(thumbnailResult.thumbnailBlob, uniqueID, file.name)
-      }
-
-      await thumbnailGenerator.destroy()
-      thumbnailGenerator = null
-
-      setUploadQueue(prev => prev.map(uploadItem => 
-        uploadItem.id === itemId 
-          ? { ...uploadItem, isAdult, nsfwDetected: isAdult }
-          : uploadItem
-      ))
-
-      const fileSizeMB = file.size / (1024 * 1024)
-      const useClientSide = fileSizeMB > 400
-
-      if (useClientSide) {
-        onStatusUpdate?.('Processing your video...', false)
-        const { m3u8Url, segmentUrls } = await convertToHLS(file, (ratio: number) => {
-          const value = Math.max(10, Math.min(90, Math.round(10 + (ratio * 80))))
-          onProgress(value, `Processing your video... ${Math.round(value)}%`)
-          onStatusUpdate?.(`Processing your video... ${Math.round(value)}%`, false)
-        })
-        if (!m3u8Url || segmentUrls.length === 0) {
-          return false
-        }
-
-        onProgress(90, 'Processing your video...')
-        onStatusUpdate?.('Processing your video...', false)
-        const uploadSuccess = await VideoFetchPush(segmentUrls, uniqueID, isAdult)
-
-        try { URL.revokeObjectURL(m3u8Url) } catch {}
-        if (!uploadSuccess) {
-          return false
-        }
-
-        onProgress(100, 'Upload complete')
-        return true
-      } else {
-        const queueStatus = await checkQueueStatus()
-        
-        if (!queueStatus.available) {
-          setUploadQueue(prev => prev.map(uploadItem => 
-            uploadItem.id === itemId 
-              ? { 
-                  ...uploadItem, 
-                  waitingInQueue: true,
-                  onCancelQueue: () => {
-                    setUploadQueue(prev => prev.map(uploadItem => 
-                      uploadItem.id === itemId 
-                        ? { ...uploadItem, waitingInQueue: false }
-                        : uploadItem
-                    ))
-                  }
-                }
-              : uploadItem
-          ))
-        }
-
-        return await processVideoServerSide(file, uniqueID, itemId, onProgress, onStatusUpdate, isAdult)
-      }
-    } catch (error) {
-      return false
-    } finally {
-      if (thumbnailGenerator) {
-        try {
-          await thumbnailGenerator.destroy()
-        } catch (error) {
-        }
-      }
-    }
-  }
-
-  const uploadFile = async (
-    file: File, 
-    index: number,
-    itemId: string,
-    onProgress: (value: number, statusText?: string) => void, 
-    uniqueID: string,
-    onStatusUpdate?: (statusText: string, nsfwDetected?: boolean) => void
-  ): Promise<boolean> => {
-    try {
-      if(file.type.startsWith(`video/`)) {
-        return uploadVideo(file, index, itemId, onProgress, uniqueID, onStatusUpdate)
-      }
-      
-      if(file.type.startsWith(`image/`)) {
-        const thumbnailGenerator = new ThumbnailGenerator()
-        
-        try {
-          onStatusUpdate?.('Processing your image checking for adult contents...', false)
-          
-          const nsfwResult = await thumbnailGenerator.checkImageNSFW(file, (progress, message) => {
-            const progressPercent = Math.max(1, Math.min(progress, 100))
-            onProgress(progressPercent, `Processing your image checking for adult contents... checks ${progressPercent}%`)
-          })
-          
-          let isAdult = false
-          
-          if (nsfwResult.success) {
-            if (nsfwResult.nsfw) {
-              isAdult = true
-              onStatusUpdate?.('Adult content detected in the image', true)
-              await new Promise(resolve => setTimeout(resolve, 1500))
+      const uploadPromise = new Promise<any>((resolve, reject) => {
+        xhr.onreadystatechange = () => {
+          if (xhr.readyState === XMLHttpRequest.DONE) {
+            if (xhr.status >= 200 && xhr.status < 300) {
+              try {
+                const text = xhr.responseText || ""
+                const parsed = text ? JSON.parse(text) : null
+                resolve(parsed)
+              } catch {
+                resolve(null)
+              }
             } else {
-              onStatusUpdate?.('Content check complete', false)
+              reject(new Error("Upload failed"))
             }
           }
-          
-          await thumbnailGenerator.destroy()
-          
-          onStatusUpdate?.('Uploading image...', false)
-          const formData = new FormData()
-          formData.append('file', file)
-          formData.append('name', file.name)
-          formData.append('uniqueID', uniqueID)
-          formData.append('is_adult', isAdult.toString())
-
-          const response = await fetch('/api/upload', {
-            method: 'POST',
-            body: formData,
-          })
-          
-          if (!response.ok) {
-            throw new Error(`Upload failed: ${response.statusText}`)
-          }
-
-          const result = await response.json()
-          if (result.success) {
-            onProgress(100, 'Upload complete')
-          }
-          return result.success
-          
-          onProgress(100, 'Upload complete')
-          return true
-        } finally {
-          try {
-            await thumbnailGenerator.destroy()
-          } catch (error) {
-            // Silent cleanup
-          }
         }
-      }
-      
-      return true
-    } catch (error) {
-      return false
-    }
-  }
+        xhr.onerror = () => reject(new Error("Upload failed"))
+      })
 
-  const processUploadQueue = useCallback(async () => {
-    if (isUploading || uploadQueue.length === 0) return
-    
-    setIsUploading(true)
-    const pendingItems = uploadQueue.filter(item => item.status === 'pending')
-    
-    const timeoutId = setTimeout(() => {
-      setIsUploading(false)
-    }, 300000) // 5 minute timeout
-    
-    try {
-      for (let i = 0; i < pendingItems.length; i++) {
-        const item = pendingItems[i]
-        const itemIndex = uploadQueue.findIndex(uploadItem => uploadItem.id === item.id)
-        
-        setUploadQueue(prev => prev.map(uploadItem => 
-          uploadItem.id === item.id 
-            ? { ...uploadItem, status: 'uploading', progress: 0, statusText: 'Starting...' }
-            : uploadItem
-        ))
+      xhr.send(formData)
+      const result = await uploadPromise
+      const newJobId = result && (result.jobId || result.job_id)
 
-        const success = await uploadFile(
-          item.file, 
-          i,
-          item.id,
-          (value: number, statusText?: string) => {
-            setUploadQueue(prev => prev.map(uploadItem => 
-              uploadItem.id === item.id 
-                ? { ...uploadItem, progress: value, status: 'uploading', statusText: statusText || uploadItem.statusText }
-                : uploadItem
-            ))
-          }, 
-          item.uniqueID,
-          (statusText: string, nsfwDetected?: boolean) => {
-            setUploadQueue(prev => prev.map(uploadItem => 
-              uploadItem.id === item.id 
-                ? { ...uploadItem, statusText, nsfwDetected: nsfwDetected || false }
-                : uploadItem
-            ))
+      console.log(result)
+      setProgress(100)
+      setJobId(newJobId || null)
+      if (newJobId) {
+        setStatusText("Upload queued. Waiting for processing...")
+        try {
+          let attempts = 0
+          const maxAttempts = 120
+          while (attempts < maxAttempts) {
+            attempts += 1
+            const res = await fetch(`/api/upload/status/${newJobId}`)
+            if (!res.ok) {
+              await new Promise((resolve) => setTimeout(resolve, 3000))
+              continue
+            }
+            const json = await res.json()
+            if (json.status === "queued" || json.status === "running") {
+              setStatus("uploading")
+              setStatusText("Processing video...")
+              await new Promise((resolve) => setTimeout(resolve, 3000))
+              continue
+            }
+            if (json.status === "completed") {
+              setStatus("success")
+              setStatusText("Processing complete.")
+              break
+            }
+            if (json.status === "failed") {
+              setStatus("error")
+              setStatusText("Processing failed.")
+              setError(json.error || "Video processing failed.")
+              break
+            }
+            await new Promise((resolve) => setTimeout(resolve, 3000))
           }
-        )
-
-        setUploadQueue(prev => prev.map(uploadItem => 
-          uploadItem.id === item.id 
-            ? { 
-                ...uploadItem, 
-                status: success ? 'success' : 'error',
-                progress: success ? 100 : uploadItem.progress,
-                error: success ? undefined : 'Failed to upload file'
-              }
-            : uploadItem
-        ))
-      }
-    } finally {
-      clearTimeout(timeoutId)
-      setIsUploading(false)
-    }
-  }, [isUploading, uploadQueue])
-
-  const retryItem = (id: string) => {
-    setUploadQueue(prev => prev.map(uploadItem => 
-      uploadItem.id === id 
-        ? { ...uploadItem, status: 'pending', progress: 0, error: undefined }
-        : uploadItem
-    ))
-  }
-
-  const handleFileSelect = useCallback(async (files: FileList | null) => {
-    if (!files) return
-
-    const fileArray = Array.from(files)
-    const validFiles: File[] = []
-    const invalidFiles: { file: File, error: string }[] = []
-    
-    for (const file of fileArray) {
-      const validation = await validateFile(file)
-      if (validation.isValid) {
-        validFiles.push(file)
+        } catch {
+          setStatus("error")
+          setStatusText("Processing failed.")
+        }
       } else {
-        invalidFiles.push({ file, error: validation.error || 'Unknown validation error' })
+        setStatus("success")
+        setStatusText("Upload complete.")
       }
+      onFilesSelected([selectedFile])
+    } catch (e) {
+      setStatus("error")
+      setStatusText("Upload failed.")
+      setError("Failed to upload file. Try again.")
     }
-    
-    if (invalidFiles.length > 0) {
-      alert(`The following files were rejected:\n${invalidFiles.map(f => `• ${f.file.name}: ${f.error}`).join('\n')}`)
-    }
-    
-    if (validFiles.length > 0) {
-      const newUploadItems: UploadItem[] = validFiles.map(file => ({
-        id: Math.random().toString(36).substr(2, 9),
-        file,
-        status: 'pending' as const,
-        progress: 0,
-        retryCount: 0,
-        uniqueID: GenerateUniqueID()
-      }))
-      
-      setUploadQueue(prev => [...prev, ...newUploadItems])
-    }
-    
-    setSelectedFiles([])
-  }, [])
-
-  React.useEffect(() => {
-    if (uploadQueue.length > 0 && !isUploading) {
-      processUploadQueue()
-    }
-  }, [uploadQueue, isUploading])
-
-  React.useEffect(() => {
-    return () => {
-      // Cleanup on unmount
-    }
-  }, [])
-
-  const handleDrag = (e: React.DragEvent) => {
-    e.preventDefault()
-    e.stopPropagation()
-    if (e.type === 'dragenter' || e.type === 'dragover') {
-      setDragActive(true)
-    } else if (e.type === 'dragleave') {
-      setDragActive(false)
-    }
-  }
-
-  const handleDrop = (e: React.DragEvent) => {
-    e.preventDefault()
-    e.stopPropagation()
-    setDragActive(false)
-    handleFileSelect(e.dataTransfer.files)
-  }
-
-  const removeFile = (index: number) => {
-    setSelectedFiles(prev => prev.filter((_, i) => i !== index))
   }
 
   const handleClose = () => {
-    const hasActiveUploads = uploadQueue.some(item => item.status === 'uploading' || item.waitingInQueue)
-    
-    if (hasActiveUploads) {
-      setIsMinimized(true)
-      onClose()
-    } else {
-      if (uploadQueue.length === 0 || uploadQueue.every(item => item.status === 'success' || item.status === 'error')) {
-        onFilesSelected([])
-        setUploadQueue([])
-        setSelectedFiles([])
-        setIsMinimized(false)
-        onClose()
-      }
+    if (status === "uploading") {
+      return
     }
+    resetState()
+    onClose()
   }
 
-  const handleReopen = () => {
-    setIsMinimized(false)
-  }
-
-  const getStatusIcon = (status: UploadItem['status']) => {
-    switch (status) {
-      case 'pending':
-        return <Upload className="w-4 h-4 text-muted-foreground" />
-      case 'uploading':
-        return <Loader2 className="w-4 h-4 text-primary animate-spin" />
-      case 'success':
-        return <CheckCircle className="w-4 h-4 text-green-500" />
-      case 'error':
-        return <XCircle className="w-4 h-4 text-destructive" />
-    }
-  }
-
-  const getStatusColor = (status: UploadItem['status']) => {
-    switch (status) {
-      case 'pending':
-        return 'text-muted-foreground'
-      case 'uploading':
-        return 'text-primary'
-      case 'success':
-        return 'text-green-500'
-      case 'error':
-        return 'text-destructive'
-    }
-  }
-
-  const getFileIcon = (file: File) => {
-    if (file.type.startsWith('image/')) return <FileImage className="w-5 h-5" />
-    if (file.type.startsWith('video/')) return <FileVideo className="w-5 h-5" />
-    return <FileImage className="w-5 h-5" />
-  }
-
-  const formatFileSize = (bytes: number) => {
-    if (bytes === 0) return '0 Bytes'
-    const k = 1024
-    const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB']
-    const i = Math.floor(Math.log(bytes) / Math.log(k))
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i]
-  }
-
-  const handleDownloadSocialsCallBack = (data: { blob: Blob; info: any }) => {
-    try {
-      if(!isValidMediaType(data.blob)) {
-        alert('The downloaded file is not an image or video.')
-        return;
-      }
-
-      const reader = new FileReader()
-      
-      reader.onload = (e) => {
-        try {
-          const arrayBuffer = e.target?.result as ArrayBuffer
-          if (!arrayBuffer) {
-            alert('Failed to read the downloaded file.')
-            return
-          }
-
-          let mimeType = data.blob.type
-          
-          if (!mimeType || (!mimeType.startsWith('image/') && !mimeType.startsWith('video/'))) {
-            const fileName = data.info?.title || 'social_media_file'
-            const extension = fileName.split('.').pop()?.toLowerCase()
-            
-            if (extension) {
-              const imageExtensions: { [key: string]: string } = {
-                'jpg': 'image/jpeg',
-                'jpeg': 'image/jpeg',
-                'png': 'image/png',
-                'gif': 'image/gif',
-                'webp': 'image/webp',
-                'bmp': 'image/bmp',
-                'ico': 'image/x-icon'
-              }
-              
-              const videoExtensions: { [key: string]: string } = {
-                'mp4': 'video/mp4',
-                'webm': 'video/webm',
-                'ogg': 'video/ogg',
-                'mov': 'video/quicktime',
-                'avi': 'video/x-msvideo',
-                'mkv': 'video/x-matroska'
-              }
-              
-              mimeType = imageExtensions[extension] || videoExtensions[extension] || 'application/octet-stream'
-            } else {
-              mimeType = 'application/octet-stream'
-            }
-          }
-
-          const blob = new Blob([arrayBuffer], { type: mimeType })
-          const cleanedTitle = data.info?.title ? cleanTitle(data.info.title) : 'social_media_file'
-          const file = new File([blob], cleanedTitle || 'social_media_file', { type: mimeType })
-          
-          if (!isValidMediaType(blob)) {
-            alert('The downloaded file is not an image or video.')
-            return
-          }
-
-          const previewUrl = URL.createObjectURL(blob)
-          setPreviewSocialFile({
-            url: previewUrl,
-            blob: blob,
-            fileName: file.name
-          })
-        } catch (error) {
-          console.error('Error processing downloaded file:', error)
-          alert('Failed to process the downloaded file.')
-        }
-      }
-
-      reader.onerror = () => {
-        console.error('Error reading blob with FileReader')
-        alert('Failed to read the downloaded file.')
-      }
-
-      reader.readAsArrayBuffer(data.blob)
-    }
-    catch (error) {
-      console.error('Error downloading from social media:', error)
-      alert('Failed to download file from social media.')
-    }
+  const renderFileIcon = () => {
+    if (!selectedFile) return <Upload className="w-8 h-8 text-primary" />
+    if (selectedFile.type.startsWith("image/")) return <FileImage className="w-8 h-8 text-primary" />
+    if (selectedFile.type.startsWith("video/")) return <FileVideo className="w-8 h-8 text-primary" />
+    return <Upload className="w-8 h-8 text-primary" />
   }
 
   return (
-    <>
-      <Dialog open={isOpen && !isMinimized} onOpenChange={handleClose}>
-      <DialogContent className="max-w-md max-h-[85vh] overflow-hidden flex flex-col bg-background/95 backdrop-blur-xl border-0 shadow-2xl">
-        <DialogHeader className="pb-4">
-          <DialogTitle className="text-xl font-semibold text-center">
-            {uploadQueue.length > 0 ? 'Processing Files' : 'Add Media'}
-          </DialogTitle>
+    <Dialog open={isOpen} onOpenChange={handleClose}>
+      <DialogContent className="max-w-md w-full rounded-2xl p-0 overflow-hidden">
+        <DialogHeader className="px-6 pt-6 pb-3">
+          <DialogTitle className="text-lg font-semibold text-center">Add Media</DialogTitle>
           <DialogDescription className="text-center text-sm text-muted-foreground">
-            {uploadQueue.length > 0 
-              ? 'Files are being processed automatically' 
-              : 'Choose any image or video files'
-            }
+            Upload a single image or video file. Guests can upload up to 40MB, signed-in users up to 400MB.
           </DialogDescription>
         </DialogHeader>
-
-        <div className="flex-1 overflow-y-auto px-1">
-          {/* <LoadFromSocials onDownloadCallback={handleDownloadSocialsCallBack} />
-          {previewSocialFile && (
-            <div className="mb-4">
-              <Preview
-                previewUrl={previewSocialFile.url}
-                blob={previewSocialFile.blob}
-                fileName={previewSocialFile.fileName}
-                onClose={() => {
-                  if (previewSocialFile.url) {
-                    URL.revokeObjectURL(previewSocialFile.url)
+        <div className="px-6 pb-4 space-y-4">
+          <div className="border border-dashed rounded-2xl p-6 text-center cursor-pointer hover:border-primary/60 transition-colors">
+            <div className="flex items-center justify-center mb-4">
+              <div className="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center">
+                {renderFileIcon()}
+              </div>
+            </div>
+            <p className="text-sm font-medium mb-1">
+              {selectedFile ? selectedFile.name : "Choose an image or video file"}
+            </p>
+            <p className="text-xs text-muted-foreground mb-4">
+              Max size {formatBytes(effectiveMaxSize)}. Allowed types: image/*, video/*.
+            </p>
+            <Button
+              type="button"
+              variant="outline"
+              className="rounded-full px-6"
+              onClick={() => {
+                const input = document.createElement("input")
+                input.type = "file"
+                input.accept = "image/*,video/*"
+                input.onchange = (e) => {
+                  const target = e.target as HTMLInputElement
+                  handleFileChange(target.files)
+                  if (document.body.contains(input)) {
+                    document.body.removeChild(input)
                   }
-                  setPreviewSocialFile(null)
-                }}
-                onUse={() => {
-                  if (previewSocialFile.blob) {
-                    const file = new File([previewSocialFile.blob], previewSocialFile.fileName, { type: previewSocialFile.blob.type })
-                    const dataTransfer = new DataTransfer()
-                    dataTransfer.items.add(file)
-                    handleFileSelect(dataTransfer.files)
-                    if (previewSocialFile.url) {
-                      URL.revokeObjectURL(previewSocialFile.url)
-                    }
-                    setPreviewSocialFile(null)
-                  }
-                }}
+                }
+                document.body.appendChild(input)
+                input.click()
+              }}
+            >
+              {selectedFile ? "Change file" : "Browse files"}
+            </Button>
+          </div>
+          <div className="space-y-3 text-left">
+            <div className="space-y-1">
+              <p className="text-xs font-medium text-foreground">Title</p>
+              <Input
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                placeholder="Enter a title for this file"
+                maxLength={200}
               />
             </div>
-          )} */}
-          {uploadQueue.length === 0 ? (
-            <div
-              className={`border-2 border-dashed rounded-2xl p-8 text-center transition-all duration-200 ${
-                dragActive 
-                  ? 'border-primary bg-primary/10 scale-[1.02]' 
-                  : 'border-muted-foreground/20 hover:border-muted-foreground/40 hover:bg-muted/30'
-              }`}
-              onDragEnter={handleDrag}
-              onDragLeave={handleDrag}
-              onDragOver={handleDrag}
-              onDrop={handleDrop}
-            >
-              <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-primary/10 flex items-center justify-center">
-                <Upload className="w-8 h-8 text-primary" />
-              </div>
-              <h3 className="text-lg font-medium mb-2">Drop files here</h3>
-              <p className="text-sm text-muted-foreground mb-6">
-                or tap to browse
-              </p>
-              <Button
-                variant="default"
-                onClick={async () => {
-                  const input = document.createElement('input')
-                  input.type = 'file'
-                  input.multiple = true
-                  input.accept = 'image/*,video/*'
-                  input.onchange = async (e) => {
-                    const target = e.target as HTMLInputElement
-                    await handleFileSelect(target.files)
-                    if (document.body.contains(input)) {
-                      document.body.removeChild(input)
-                    }
-                  }
-                  document.body.appendChild(input)
-                  input.click()
-                }}
-                className="rounded-full px-8 py-2 font-medium shadow-lg"
-              >
-                Choose Files
-              </Button>
+            <div className="space-y-1">
+              <p className="text-xs font-medium text-foreground">Description</p>
+              <Textarea
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                placeholder="Describe this file"
+                rows={3}
+                maxLength={1000}
+              />
             </div>
-          ) : (
+          </div>
+          {error && <p className="text-xs text-destructive text-center">{error}</p>}
+          {status !== "idle" && (
             <div className="space-y-2">
-              <div className="flex items-center justify-between mb-4">
-                <h4 className="font-semibold text-base">Processing ({uploadQueue.length})</h4>
-                <div className="text-sm text-muted-foreground">
-                  {uploadQueue.filter(item => item.status === 'success').length} completed
-                </div>
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-muted-foreground">{statusText}</span>
+                <span className="text-muted-foreground">{progress}%</span>
               </div>
-              <div className="bg-card/50 rounded-2xl overflow-hidden border border-border/20 ios-shadow max-h-64 overflow-y-auto">
-                {uploadQueue.map((item, index) => (
-                  <div 
-                    key={item.id} 
-                    className={`flex items-center justify-between px-4 py-3.5 text-sm font-medium transition-colors ${
-                      index !== uploadQueue.length - 1 ? 'border-b border-border/20' : ''
-                    }`}
-                  >
-                    <div className="flex items-center gap-3 flex-1 min-w-0">
-                      {getStatusIcon(item.status)}
-                      <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center flex-shrink-0">
-                        {getFileIcon(item.file)}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="font-medium text-sm truncate">{item.file.name}</p>
-                        <p className="text-xs text-muted-foreground">
-                          {formatFileSize(item.file.size)}
-                        </p>
-                        {item.status === 'uploading' && (
-                          <>
-                            <Progress value={item.progress} className="mt-1 h-1" />
-                            {item.statusText && (
-                              <p className={`text-xs mt-1 ${item.nsfwDetected ? 'text-destructive font-medium' : 'text-muted-foreground'}`}>
-                                {item.statusText}
-                              </p>
-                            )}
-                          </>
-                        )}
-                        {item.validationError && (
-                          <p className="text-xs text-destructive mt-1">{item.validationError}</p>
-                        )}
-                        {item.status === 'error' && item.error && (
-                          <p className="text-xs text-destructive mt-1">{item.error}</p>
-                        )}
-                        {item.waitingInQueue && (
-                          <p className="text-xs text-muted-foreground mt-1">Waiting in queue...</p>
-                        )}
-                      </div>
-                    </div>
-                    {item.waitingInQueue && (
-                      <div className="ml-3 flex-shrink-0">
-                        <Button 
-                          variant="outline" 
-                          onClick={async () => {
-                            setUploadQueue(prev => prev.map(uploadItem => 
-                              uploadItem.id === item.id 
-                                ? { ...uploadItem, waitingInQueue: false, status: 'uploading', statusText: 'Processing locally...' }
-                                : uploadItem
-                            ))
-                            
-                            const isAdult = item.isAdult || false
-                            
-                            try {
-                              setUploadQueue(prev => prev.map(uploadItem => 
-                                uploadItem.id === item.id 
-                                  ? { ...uploadItem, statusText: 'Processing your video...', progress: 10 }
-                                  : uploadItem
-                              ))
-                              
-                              const { m3u8Url, segmentUrls } = await convertToHLS(item.file, (ratio: number) => {
-                                const value = Math.max(10, Math.min(90, Math.round(10 + (ratio * 80))))
-                                setUploadQueue(prev => prev.map(uploadItem => 
-                                  uploadItem.id === item.id 
-                                    ? { ...uploadItem, progress: value, statusText: `Processing your video... ${Math.round(value)}%` }
-                                    : uploadItem
-                                ))
-                              })
-                              
-                              if (m3u8Url && segmentUrls.length > 0) {
-                                setUploadQueue(prev => prev.map(uploadItem => 
-                                  uploadItem.id === item.id 
-                                    ? { ...uploadItem, progress: 90, statusText: 'Uploading...' }
-                                    : uploadItem
-                                ))
-                                
-                                const uploadSuccess = await VideoFetchPush(segmentUrls, item.uniqueID, isAdult)
-                                
-                                try { URL.revokeObjectURL(m3u8Url) } catch {}
-                                
-                                if (uploadSuccess) {
-                                  setUploadQueue(prev => prev.map(uploadItem => 
-                                    uploadItem.id === item.id 
-                                      ? { ...uploadItem, status: 'success', progress: 100, statusText: 'Upload complete' }
-                                      : uploadItem
-                                  ))
-                                } else {
-                                  setUploadQueue(prev => prev.map(uploadItem => 
-                                    uploadItem.id === item.id 
-                                      ? { ...uploadItem, status: 'error', error: 'Upload failed' }
-                                      : uploadItem
-                                  ))
-                                }
-                              } else {
-                                setUploadQueue(prev => prev.map(uploadItem => 
-                                  uploadItem.id === item.id 
-                                    ? { ...uploadItem, status: 'error', error: 'Failed to process video' }
-                                    : uploadItem
-                                ))
-                              }
-                            } catch (error) {
-                              setUploadQueue(prev => prev.map(uploadItem => 
-                                uploadItem.id === item.id 
-                                  ? { ...uploadItem, status: 'error', error: 'Processing failed' }
-                                  : uploadItem
-                              ))
-                            }
-                          }} 
-                          className="h-8 px-3 rounded-full text-xs"
-                        >
-                          Process Locally
-                        </Button>
-                      </div>
-                    )}
-                    {item.status === 'error' && (
-                      <div className="ml-3 flex-shrink-0">
-                        <Button variant="outline" onClick={() => retryItem(item.id)} className="h-8 px-3 rounded-full">
-                          Retry
-                        </Button>
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
+              <Progress value={progress} className="h-1.5" />
             </div>
           )}
         </div>
-
-        <DialogFooter className="pt-6 pb-2 px-1">
-          <div className="flex gap-3 w-full">
-            {uploadQueue.length === 0 ? (
-              <>
-                <Button 
-                  variant="outline" 
-                  onClick={handleClose}
-                  className="flex-1 rounded-full py-3 font-medium"
-                >
-                  Cancel
-                </Button>
-                <Button 
-                  onClick={async () => {
-                    const input = document.createElement('input')
-                    input.type = 'file'
-                    input.multiple = true
-                    input.accept = 'image/*,video/*'
-                    input.onchange = async (e) => {
-                      const target = e.target as HTMLInputElement
-                      await handleFileSelect(target.files)
-                      if (document.body.contains(input)) {
-                        document.body.removeChild(input)
-                      }
-                    }
-                    document.body.appendChild(input)
-                    input.click()
-                  }} 
-                  className="flex-1 rounded-full py-3 font-medium shadow-lg"
-                >
-                  Choose Files
-                </Button>
-              </>
-            ) : (
-              <Button 
-                onClick={handleClose}
-                disabled={uploadQueue.some(item => item.status === 'uploading')}
-                className="w-full rounded-full py-3 font-medium"
-              >
-                {uploadQueue.some(item => item.status === 'uploading') 
-                  ? 'Processing...' 
-                  : uploadQueue.every(item => item.status === 'success') 
-                    ? 'Done' 
-                    : 'Close'
-                }
-              </Button>
-            )}
-          </div>
+        <DialogFooter className="px-6 pb-4 flex items-center justify-between gap-3">
+          <Button
+            type="button"
+            variant="ghost"
+            className="rounded-full px-4"
+            onClick={handleClose}
+            disabled={status === "uploading"}
+          >
+            <X className="w-4 h-4 mr-1" />
+            Cancel
+          </Button>
+          <Button
+            type="button"
+            className="rounded-full px-6"
+            onClick={handleUpload}
+            disabled={!selectedFile || status === "uploading"}
+          >
+            {status === "uploading" ? "Uploading..." : "Upload"}
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
-
-    {isMinimized && uploadQueue.some(item => item.status === 'uploading' || item.waitingInQueue) && (
-      <div className="fixed bottom-4 right-4 z-50">
-        <div className="relative inline-flex items-center">
-          <Button
-            onClick={handleReopen}
-            className="rounded-full px-4 py-2 shadow-lg flex items-center gap-2 pr-8"
-            variant="default"
-          >
-            <Loader2 className="w-4 h-4 animate-spin" />
-            <span className="text-sm font-medium">
-              {uploadQueue.filter(item => item.status === 'uploading' || item.waitingInQueue).length} processing
-            </span>
-          </Button>
-          <button
-            onClick={(e) => {
-              e.stopPropagation()
-              setIsMinimized(false)
-              onFilesSelected([])
-              setUploadQueue([])
-              setSelectedFiles([])
-              onClose()
-            }}
-            className="absolute right-1 top-1/2 -translate-y-1/2 p-1 hover:bg-background/50 rounded-full transition-colors"
-            aria-label="Close"
-          >
-            <X className="w-3 h-3" />
-          </button>
-        </div>
-      </div>
-    )}
-    </>
   )
 }
 
 export default MediaSelectionModal
+
+

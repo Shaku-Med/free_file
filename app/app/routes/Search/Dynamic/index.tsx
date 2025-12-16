@@ -17,6 +17,7 @@ import {
 } from "~/components/ui/pagination";
 import VideoCard from "~/routes/Home/components/VideoCard";
 import db from "~/lib/Database/supabase";
+import { filterFilesByAccess } from "~/routes/Api/fun/accessControl";
 
 export const loader = async ({ request }: { request: Request }) => {
   try {
@@ -27,7 +28,6 @@ export const loader = async ({ request }: { request: Request }) => {
     } catch (decodeError) {
       console.error("Error decoding search term:", decodeError);
     }
-    // Try server-side search if db is available; fall back to client
     let results: FileType[] | null = null;
     try {
       if (db) {
@@ -38,9 +38,10 @@ export const loader = async ({ request }: { request: Request }) => {
             .select('*')
             .or(`filename.ilike.%${normalized}%,file_type.ilike.%${normalized}%,unique_id.ilike.%${normalized}%`)
             .order('created_at', { ascending: false })
-            .limit(500);
+            .limit(20);
           if (!error && Array.isArray(rows)) {
-            results = rows as FileType[];
+            const filteredRows = await filterFilesByAccess(request, rows);
+            results = filteredRows as FileType[];
           } else if (error) {
             console.error("Supabase search error:", error);
           }

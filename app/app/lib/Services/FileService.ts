@@ -6,6 +6,9 @@ export interface FileUploadData {
   uniqueID: string;
   filename: string;
   isAdult?: boolean;
+  title?: string;
+  description?: string;
+  ownerId?: string;
 }
 
 export interface FileRecord {
@@ -96,9 +99,20 @@ export class FileService {
           file_size: fileData.file.size
         };
 
-        // Only include is_adult if it's provided (for video files)
         if (fileData.isAdult !== undefined) {
           insertData.is_adult = fileData.isAdult;
+        }
+
+        if (fileData.title) {
+          insertData.file_title = fileData.title;
+        }
+
+        if (fileData.description) {
+          insertData.file_description = fileData.description;
+        }
+
+        if (fileData.ownerId) {
+          insertData.owner_id = fileData.ownerId;
         }
 
         const { data, error } = await db

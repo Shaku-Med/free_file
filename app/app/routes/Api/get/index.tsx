@@ -2,6 +2,11 @@ import { VerifyToken } from '~/lib/Security/unsharedkeyEncryption/Combined/Verif
 import { FileService } from '../../../lib/Services/FileService';
 import type { PaginationParams } from '../../../lib/Services/FileService';
 import { getCookie } from '~/lib/Security/Token';
+import { filterFilesByAccess } from '../fun/accessControl';
+import db from '~/lib/Database/supabase';
+import { ownerService } from '~/lib/Services/OwnerService';
+import { userActionsService } from '~/lib/Services/UserActionsService';
+import { isAuthenticated } from '~/lib/Security/Password';
 
 export const loader = async ({ request }: { request: Request }) => {
     try {
@@ -43,7 +48,7 @@ export const loader = async ({ request }: { request: Request }) => {
             });
         }
 
-        const validSortFields = ['created_at', 'filename', 'file_size', 'file_type', 'is_adult'];
+        const validSortFields = ['created_at', 'filename', 'file_size', 'file_type', 'is_adult', 'up_count', 'down_count'];
         if (!validSortFields.includes(sortBy)) {
             return new Response(JSON.stringify({ 
                 error: `Invalid sortBy field. Must be one of: ${validSortFields.join(', ')}` 
@@ -53,26 +58,82 @@ export const loader = async ({ request }: { request: Request }) => {
             });
         }
 
-        const fileService = new FileService(
-            process.env.GITHUB_TOKEN || '',
-            process.env.GITHUB_OWNER || ''
-        );
+        if (!db) {
+            return new Response(JSON.stringify({ 
+                error: 'Database not initialized' 
+            }), { 
+                status: 500,
+                headers: { 'Content-Type': 'application/json' }
+            });
+        }
 
-        const paginationParams: PaginationParams = {
-            page,
-            limit,
-            sortBy,
-            sortOrder,
-            fileType
+        const fetchMultiplier = 3;
+        const fetchLimit = limit * fetchMultiplier;
+        const offset = (page - 1) * limit;
+
+        let query = db
+            .from('files')
+            .select('*', { count: 'exact' });
+
+        if (fileType) {
+            query = query.like('file_type', `${fileType}%`);
+        }
+
+        const { data: allFiles, error: queryError, count } = await query
+            .order(sortBy, { ascending: sortOrder === 'asc' })
+            .range(offset, offset + fetchLimit - 1);
+
+        if (queryError) {
+            console.error('Database query error:', queryError);
+            return new Response(JSON.stringify({ 
+                error: 'Failed to fetch files' 
+            }), { 
+                status: 500,
+                headers: { 'Content-Type': 'application/json' }
+            });
+        }
+
+        const filteredFiles = await filterFilesByAccess(request, allFiles || []);
+        const paginatedFiles = filteredFiles.slice(0, limit);
+
+        // Enrich files with owner data
+        const filesWithOwners = await ownerService.enrichFilesWithOwners(paginatedFiles);
+
+        // Fetch user actions in one query
+        const user = await isAuthenticated(request, ['id']);
+        let userActions = { likedFileIds: [], dislikedFileIds: [] };
+        if (user?.id && filesWithOwners.length > 0) {
+          const fileIds = filesWithOwners.map((f: any) => f.id).filter(Boolean);
+          if (fileIds.length > 0) {
+            const actions = await userActionsService.getUserActions(user.id, fileIds);
+            userActions = {
+              likedFileIds: Array.from(actions.likedFileIds),
+              dislikedFileIds: Array.from(actions.dislikedFileIds)
+            };
+          }
+        }
+
+        const total = count || 0;
+        const estimatedTotal = Math.floor(total * (filteredFiles.length / (allFiles?.length || 1)));
+        const totalPages = Math.ceil(estimatedTotal / limit);
+
+        const result = {
+            data: filesWithOwners,
+            userActions,
+            pagination: {
+                page,
+                limit,
+                total: estimatedTotal,
+                totalPages,
+                hasNext: paginatedFiles.length === limit && (page * limit < estimatedTotal),
+                hasPrev: page > 1
+            }
         };
-
-        const result = await fileService.getFilesPaginated(paginationParams);
         
         return new Response(JSON.stringify(result), {
             headers: { 
                 'Content-Type': 'application/json',
                 'Access-Control-Allow-Origin': '*',
-                // 'Cache-Control': 'public, max-age=1800',
              }
         });
     }

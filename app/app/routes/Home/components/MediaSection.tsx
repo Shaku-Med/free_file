@@ -7,9 +7,10 @@ import { Plus } from 'lucide-react';
 import { Button } from '../../../components/ui/button';
 
 const MediaSection = () => {
-  const { files } = useFileContext();
+  const { files, userId } = useFileContext();
   const [playingVideos, setPlayingVideos] = useState<Set<number>>(new Set());
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const maxFileSizeBytes = userId ? 400 * 1024 * 1024 : 40 * 1024 * 1024;
 
   const togglePlayPause = (index: number) => {
     const newPlayingVideos = new Set(playingVideos);
@@ -46,6 +47,7 @@ const MediaSection = () => {
           isOpen={isModalOpen}
           onClose={() => setIsModalOpen(false)}
           onFilesSelected={() => {}}
+          maxFileSizeBytes={maxFileSizeBytes}
         />
       </>
     );
@@ -191,6 +193,7 @@ const MediaSection = () => {
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}
         onFilesSelected={() => {}}
+        maxFileSizeBytes={maxFileSizeBytes}
       />
     </>
   );

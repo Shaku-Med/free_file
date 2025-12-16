@@ -34,6 +34,7 @@ import { useFileContext } from "~/lib/Context/Context"
 import { ParseFilename } from "~/lib/utils"
 import type { FileType } from "~/lib/types"
 import { Magnetic } from "components/motion-primitives/magnetic"
+import SidebarUserProfile from "./SidebarUserProfile"
 
 const menuItems = [
   {
@@ -196,17 +197,17 @@ export function AppSidebar() {
           </SidebarGroup>
         )}
       </SidebarContent>
-      <SidebarFooter className="border-t border-sidebar-border p-4">
-        <Magnetic
-          intensity={0.5}
-          range={100}
-          actionArea="global"
-          springOptions={{
-            stiffness: 100,
-            damping: 10,
-          }}
-        >
-
+      <SidebarFooter className="border-t border-sidebar-border">
+        <div className="p-4 space-y-3">
+          <Magnetic
+            intensity={0.5}
+            range={100}
+            actionArea="global"
+            springOptions={{
+              stiffness: 100,
+              damping: 10,
+            }}
+          >
             <Button
               onClick={() => setIsModalOpen(true)}
               className="w-full"
@@ -215,8 +216,9 @@ export function AppSidebar() {
               <Plus className="mr-2 h-4 w-4" />
               <span>Add New</span>
             </Button>
-
-        </Magnetic>
+          </Magnetic>
+        </div>
+        <SidebarUserProfile />
       </SidebarFooter>
     </Sidebar>
   )

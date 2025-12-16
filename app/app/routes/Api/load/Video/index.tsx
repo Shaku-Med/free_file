@@ -75,4 +75,7 @@ export const loader = async ({ request }: { request: Request }) => {
         return new Response(null, { status: 500 });
     }
 };
-  
+
+const VideoLoaderRoute = () => null;
+
+export default VideoLoaderRoute;

@@ -6,6 +6,7 @@ import { existsSync } from 'fs'
 import { join } from 'path'
 import { randomUUID } from 'crypto'
 import { videoQueue } from './processFunctions/queue'
+import { isAuthenticated } from "~/lib/Security/Password"
 
 const VerifyB4VideoProcessing = async (headers: Headers) => {
     try {
@@ -56,10 +57,24 @@ export const action = async ({ request }: { request: Request }) => {
         const uniqueID = formData.get('uniqueID') as string
         const outputFormat = (formData.get('outputFormat') as string) || 'hls'
         const quality = (formData.get('quality') as string) || 'medium'
+        const fileTitle = formData.get('title') as string | null
+        const fileDescription = formData.get('description') as string | null
 
         if (!videoFile || !uniqueID) {
             return new Response(JSON.stringify({ error: 'Missing required fields' }), {
                 status: 400,
+                headers: { 'Content-Type': 'application/json' }
+            })
+        }
+
+        const user = await isAuthenticated(request, ['id'])
+        const ownerId = user && typeof user !== 'boolean' && user.id ? user.id : process.env.DEFAULT_ID
+        const maxBytes = ownerId === process.env.DEFAULT_ID ? 50 * 1024 * 1024 : 400 * 1024 * 1024
+
+        if (videoFile.size > maxBytes) {
+            const label = maxBytes >= 400 * 1024 * 1024 ? '400MB' : '50MB'
+            return new Response(JSON.stringify({ error: `File exceeds maximum size of ${label}` }), {
+                status: 413,
                 headers: { 'Content-Type': 'application/json' }
             })
         }
@@ -93,6 +108,9 @@ export const action = async ({ request }: { request: Request }) => {
             headers: request.headers,
             baseUrl,
             filename: videoFile.name,
+            ownerId: ownerId || undefined,
+            fileTitle: fileTitle || undefined,
+            fileDescription: fileDescription || undefined,
             options: {
                 outputFormat: outputFormat as 'mp4' | 'hls',
                 quality: quality as 'low' | 'medium' | 'high'

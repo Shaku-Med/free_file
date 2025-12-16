@@ -3,7 +3,7 @@ import type { FileType } from '~/lib/types'
 import { cn } from '~/lib/utils'
 import { Loader2, LoaderCircle } from 'lucide-react'
 import { getImageBlob, hasImageBlob, storeImageBlob } from './IndexDb'
-import { generateEffectImage, getImageColorsHEX } from './Canvas/Functions'
+import { getImageColorsHEX } from './Canvas/Functions'
 
 interface CallBackProps {
     src: string
@@ -22,28 +22,6 @@ interface ImageLoadProps {
 const ImageLoad = ({link, className, imageID, index, retry, callBack, quality, hasAdultTag }: ImageLoadProps) => {
     const [src, setSrc] = useState<string | null | boolean>(null)
     const [loaded, setLoaded] = useState<boolean>(false)
-    
-    if(hasAdultTag === undefined || hasAdultTag === null) {
-        return (
-            <div className="w-full h-full flex items-center justify-center bg-background text-xl uppercase font-semibold tracking-wide bg-muted p-4">
-                <span>We can&apos;t show you the image. </span>
-            </div>
-        )
-    }
-
-
-    let handleSrcSet = async (src: string) => {
-        if(hasAdultTag) {
-            let effectImage = await generateEffectImage({src, effect: `blur`, effectDeptLevel: 100})
-            if(effectImage) {
-                setSrc(effectImage)
-                return
-            }
-        }
-        else {
-            setSrc(src)
-        }
-    }
 
     useLayoutEffect(() => {
         let fetchImage = async () => {
@@ -53,7 +31,7 @@ const ImageLoad = ({link, className, imageID, index, retry, callBack, quality, h
             imageID = quality ? `${imageID}_${quality}` : imageID
             
             if(imageID && (window as any)[`_${imageID}`]) {
-                handleSrcSet((window as any)[`_${imageID}`].imageUrl)
+                setSrc((window as any)[`_${imageID}`].imageUrl)
                 return
             }
 
@@ -65,7 +43,7 @@ const ImageLoad = ({link, className, imageID, index, retry, callBack, quality, h
                         ...currentCache,
                         imageUrl: cachedImage.url
                     }
-                    handleSrcSet(cachedImage.url)
+                    setSrc(cachedImage.url)
                     return
                 }
             }
@@ -97,7 +75,7 @@ const ImageLoad = ({link, className, imageID, index, retry, callBack, quality, h
             let image = new Image()
             image.src = blobURL
             image.onload = () => {
-                handleSrcSet(image.src)
+                setSrc(image.src)
             }
             image.onerror = () => {
                 retry()

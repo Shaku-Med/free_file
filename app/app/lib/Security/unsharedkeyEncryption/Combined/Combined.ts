@@ -21,7 +21,7 @@ export const EncryptCombine = async (data: any, keys: any[], options?: object) =
         if(!encryptedData) return null;
         const finalKey = keys[keys.length - 1];
         const jwtToken = jwt.sign({ data: encryptedData }, finalKey, options || {
-            algorithm: 'HS512'
+            algorithm: 'HS512',
         });
         
         return jwtToken;
