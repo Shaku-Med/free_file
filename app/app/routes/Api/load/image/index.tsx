@@ -2,46 +2,63 @@ import { createCanvas, loadImage } from 'canvas';
 import db from '~/lib/Database/supabase';
 import { canAccessFile } from '~/routes/Api/fun/accessControl';
 
-const applyBlur = (canvas: any, blurRadius: number = 50): void => {
+const applyBlur = (canvas: any, blurRadius: number = 30): void => {
   const ctx = canvas.getContext('2d');
   const width = canvas.width;
   const height = canvas.height;
   
-  const radius = Math.min(blurRadius, 100);
-  const passes = 3;
+  const radius = Math.min(Math.max(Math.floor(blurRadius), 5), 40);
+  const imageData = ctx.getImageData(0, 0, width, height);
+  const data = imageData.data;
+  const tempData = new Uint8ClampedArray(data);
   
-  for (let pass = 0; pass < passes; pass++) {
-    const imageData = ctx.getImageData(0, 0, width, height);
-    const data = imageData.data;
-    const tempData = new Uint8ClampedArray(data);
-    
-    for (let y = 0; y < height; y++) {
-      for (let x = 0; x < width; x++) {
-        let r = 0, g = 0, b = 0, count = 0;
-        
-        for (let dy = -radius; dy <= radius; dy++) {
-          for (let dx = -radius; dx <= radius; dx++) {
-            const nx = Math.max(0, Math.min(width - 1, x + dx));
-            const ny = Math.max(0, Math.min(height - 1, y + dy));
-            const idx = (ny * width + nx) * 4;
-            r += tempData[idx];
-            g += tempData[idx + 1];
-            b += tempData[idx + 2];
-            count++;
-          }
-        }
-        
-        const idx = (y * width + x) * 4;
-        data[idx] = Math.floor(r / count);
-        data[idx + 1] = Math.floor(g / count);
-        data[idx + 2] = Math.floor(b / count);
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      let r = 0, g = 0, b = 0, count = 0;
+      const startX = Math.max(0, x - radius);
+      const endX = Math.min(width - 1, x + radius);
+      
+      for (let nx = startX; nx <= endX; nx++) {
+        const idx = (y * width + nx) * 4;
+        r += tempData[idx];
+        g += tempData[idx + 1];
+        b += tempData[idx + 2];
+        count++;
       }
+      
+      const idx = (y * width + x) * 4;
+      data[idx] = Math.floor(r / count);
+      data[idx + 1] = Math.floor(g / count);
+      data[idx + 2] = Math.floor(b / count);
     }
-    
-    ctx.putImageData(imageData, 0, 0);
   }
   
-  ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+  const horizontalBlurred = new Uint8ClampedArray(data);
+  
+  for (let x = 0; x < width; x++) {
+    for (let y = 0; y < height; y++) {
+      let r = 0, g = 0, b = 0, count = 0;
+      const startY = Math.max(0, y - radius);
+      const endY = Math.min(height - 1, y + radius);
+      
+      for (let ny = startY; ny <= endY; ny++) {
+        const idx = (ny * width + x) * 4;
+        r += horizontalBlurred[idx];
+        g += horizontalBlurred[idx + 1];
+        b += horizontalBlurred[idx + 2];
+        count++;
+      }
+      
+      const idx = (y * width + x) * 4;
+      data[idx] = Math.floor(r / count);
+      data[idx + 1] = Math.floor(g / count);
+      data[idx + 2] = Math.floor(b / count);
+    }
+  }
+  
+  ctx.putImageData(imageData, 0, 0);
+  
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.75)';
   ctx.fillRect(0, 0, width, height);
 };
 
@@ -76,7 +93,7 @@ const loadImageWithRetry = async (splitUrl: string, qualityParam: string | null,
         ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
         
         if (shouldBlur) {
-          applyBlur(canvas, 80);
+          applyBlur(canvas, 40);
         }
         
         const processedBuffer = canvas.toBuffer('image/png');
