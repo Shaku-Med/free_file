@@ -26,5 +26,9 @@ export default defineConfig(({mode}) => {
         external: ['@ffmpeg/ffmpeg', '@ffmpeg/util'],
       }
     },
+    ssr: {
+      noExternal: [],
+      external: ['bullmq']
+    }
   }
 });
