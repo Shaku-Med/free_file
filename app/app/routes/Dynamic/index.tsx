@@ -6,7 +6,7 @@ import RelatedVideos from "./components/RelatedVideos";
 import type { FileType } from "~/lib/types";
 import { BASE_URL } from "~/lib/URLS";
 import ImageLoad from "../Home/components/ImageLoad/ImageLoad";
-import { arrangeDateForThumbnail, ParseFilename } from "~/lib/utils";
+import { arrangeDateForThumbnail, ParseFilename, getRandomThumbnail } from "~/lib/utils";
 import { motion } from "framer-motion";
 import { MakeVideoToken } from "./components/Functions";
 import { ShieldAlert } from "lucide-react";
@@ -174,9 +174,28 @@ export const meta: MetaFunction<ReturnType<typeof loader>> = ({ data }: {data: a
       ? `${file.file_description} | ${statsText}`
       : `${ParseFilename(file?.filename || '')} | ${statsText} | ${file?.file_type} | ${file?.file_size}`;
 
-    const isHLS = file?.file_type === 'application/vnd.apple.mpegurl' || file?.endpoint?.includes('.m3u8');
-    let thumbnail = isHLS ? `/api/load/image/${arrangeDateForThumbnail(file?.created_at)}/${file?.unique_id}/thumbnail_${ParseFilename(file?.filename)}.jpg` : `/api/load/image/${file?.endpoint}`;
+    let thumbnail = (() => {
+      if (file?.file_type?.startsWith('image/') && file?.endpoint) {
+        return `/api/load/image/${file.endpoint}`;
+      }
+      const randomThumbnail = getRandomThumbnail(file?.thumbnails);
+      if (randomThumbnail) {
+        return `/api/load/image/${randomThumbnail}`;
+      }
+      const isHLS = file?.file_type === 'application/vnd.apple.mpegurl' || file?.endpoint?.includes('.m3u8');
+      if (isHLS) {
+        return `/api/load/image/${arrangeDateForThumbnail(file?.created_at)}/${file?.unique_id}/thumbnail_${ParseFilename(file?.filename)}.jpg`;
+      }
+      return `/api/load/image/${file?.endpoint}`;
+    })();
     thumbnail = `${thumbnail}?quality=15`
+
+    const isVideo = file?.file_type?.includes('video') || file?.file_type === 'application/vnd.apple.mpegurl' || file?.endpoint?.includes('.m3u8');
+    const isImage = file?.file_type?.startsWith('image/');
+    const ogType = isVideo ? 'video.other' : isImage ? 'image' : 'website';
+    const twitterCard = isVideo ? 'player' : 'summary_large_image';
+    const pageUrl = `${BASE_URL}/${data?.id}`;
+    const thumbnailUrl = `${BASE_URL}${thumbnail}`;
 
     return [
       {
@@ -186,15 +205,36 @@ export const meta: MetaFunction<ReturnType<typeof loader>> = ({ data }: {data: a
         name: 'description',
         content: `${displayDescription} - Memories`
       },
+      { name: "keywords", content: `${file?.file_type || ''}, ${isVideo ? 'video' : isImage ? 'image' : 'media'}, memories, share` },
+      { name: "author", content: data?.owner?.username || 'Memories' },
+      { name: "canonical", content: pageUrl },
+      { name: "robots", content: "index, follow" },
+      { property: "og:type", content: ogType },
       { property: "og:title", content: `${displayTitle} - Memories` },
-      { property: "og:image", content: `${BASE_URL}${thumbnail}` },
       { property: "og:description", content: `${displayDescription} - Memories` },
+      { property: "og:image", content: thumbnailUrl },
+      { property: "og:image:alt", content: displayTitle },
+      { property: "og:image:type", content: "image/jpeg" },
+      { property: "og:url", content: pageUrl },
+      { property: "og:site_name", content: "Memories" },
+      { property: "og:locale", content: "en_US" },
+      ...(isVideo ? [
+        { property: "og:video:type", content: file?.file_type || "video/mp4" },
+        { property: "og:video:url", content: `${BASE_URL}/api/load/video/${file?.endpoint}` },
+      ] : []),
+      ...(data?.owner ? [
+        { property: "article:author", content: data.owner.username },
+      ] : []),
+      ...(file?.created_at ? [
+        { property: "article:published_time", content: new Date(file.created_at).toISOString() },
+      ] : []),
+      { name: "twitter:card", content: twitterCard },
       { name: "twitter:title", content: `${displayTitle} - Memories` },
       { name: "twitter:description", content: `${displayDescription} - Memories` },
-      { name: "twitter:image", content: `${BASE_URL}${thumbnail}` },
-      { name: "canonical", content: `${BASE_URL}/${data?.id}` },
-      { name: "robots", content: "index, follow" },
-      {rel: `preconnect`, href: `${BASE_URL}${thumbnail}`, as: `image`}
+      { name: "twitter:image", content: thumbnailUrl },
+      { name: "twitter:image:alt", content: displayTitle },
+      { rel: "preconnect", href: thumbnailUrl, as: "image" },
+      { rel: "dns-prefetch", href: BASE_URL },
     ]
   }
   catch (error) {
