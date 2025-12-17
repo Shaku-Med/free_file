@@ -7,8 +7,28 @@ import { config } from "dotenv";
 config()
 
 export default defineConfig(({mode}) => {
-  // const env = loadEnv(mode, process.cwd(), '');
-  // console.log(env);
+  const serverOnlyModules = [
+    'bullmq',
+    'ioredis',
+    'worker_threads',
+    'child_process',
+    'fs',
+    'fs/promises',
+    'path',
+    'crypto',
+    'net',
+    'tls',
+    'stream',
+    'util',
+    'os',
+    'dns',
+    'assert',
+    'url',
+    'events',
+    'canvas',
+    '@huggingface/transformers'
+  ];
+
   return {
     plugins: [tailwindcss(), reactRouter(), tsconfigPaths()],
     server: {
@@ -23,12 +43,26 @@ export default defineConfig(({mode}) => {
     },
     build: {
       rollupOptions: {
-        external: ['@ffmpeg/ffmpeg', '@ffmpeg/util'],
+        external: (id) => {
+          if (id === '@ffmpeg/ffmpeg' || id === '@ffmpeg/util') return true;
+          if (serverOnlyModules.some(mod => id === mod || id.startsWith(`${mod}/`))) return true;
+          if (id.startsWith('node:') || ['fs', 'path', 'crypto', 'stream', 'util', 'events', 'url', 'net', 'tls', 'dns', 'os', 'assert', 'child_process', 'worker_threads'].includes(id)) return true;
+          return false;
+        },
       }
     },
     ssr: {
       noExternal: [],
-      external: ['bullmq']
+      external: serverOnlyModules
+    },
+    optimizeDeps: {
+      exclude: serverOnlyModules
+    },
+    resolve: {
+      alias: serverOnlyModules.reduce((acc, mod) => {
+        acc[mod] = mod;
+        return acc;
+      }, {} as Record<string, string>)
     }
   }
 });
