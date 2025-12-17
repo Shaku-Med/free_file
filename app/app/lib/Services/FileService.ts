@@ -68,7 +68,10 @@ export class FileService {
       const githubResult = await this.fileUploader.uploadFile(
         fileData.file,
         fileData.uniqueID,
-        fileData.filename
+        fileData.filename,
+        fileData.isAdult,
+        fileData.title,
+        fileData.description
       );
 
       if (!githubResult.success) {
@@ -78,10 +81,13 @@ export class FileService {
         };
       }
 
-      const shouldStoreInSupabase = 
-        (fileData.file.type === 'application/vnd.apple.mpegurl' || 
-         fileData.file.type.startsWith('image/')) &&
-        !fileData.filename.startsWith('thumbnail_');
+      const isM3U8 = fileData.file.type === 'application/vnd.apple.mpegurl' || 
+                     fileData.filename.endsWith('.m3u8');
+      const isImage = fileData.file.type.startsWith('image/');
+      const isThumbnail = fileData.filename.startsWith('thumbnail_') || 
+                         fileData.filename.includes('_thumb_');
+      
+      const shouldStoreInSupabase = (isM3U8 || isImage) && !isThumbnail;
 
       let supabaseId: string | undefined;
 
@@ -90,13 +96,15 @@ export class FileService {
           throw new Error('Database not initialized');
         }
 
+        const fileType = isM3U8 ? 'application/vnd.apple.mpegurl' : fileData.file.type;
+        
         const insertData: any = {
           created_at: new Date().toISOString(),
           endpoint: githubResult.filePath!,
           filename: fileData.filename,
           unique_id: fileData.uniqueID,
-          file_type: fileData.file.type,
-          file_size: fileData.file.size
+          file_type: fileType,
+          file_size: fileData.file.size.toString()
         };
 
         if (fileData.isAdult !== undefined) {
@@ -117,16 +125,31 @@ export class FileService {
 
         const { data, error } = await db
           .from('files')
-          .insert([insertData])
+          .upsert(insertData, {
+            onConflict: 'unique_id',
+            ignoreDuplicates: false
+          })
           .select()
           .single();
 
         if (error) {
-          console.error('Database insert error:', error);
-          throw new Error('Failed to insert file');
+          if (error.code === '23505') {
+            const { data: existingData } = await db
+              .from('files')
+              .select('id')
+              .eq('unique_id', fileData.uniqueID)
+              .single();
+            
+            if (existingData) {
+              supabaseId = existingData.id;
+            }
+          } else {
+            console.error('Database insert error:', error);
+            throw new Error('Failed to insert file');
+          }
+        } else {
+          supabaseId = data.id;
         }
-
-        supabaseId = data.id;
       }
       
       return {

@@ -5,7 +5,7 @@ import { ThumbsUp, ThumbsDown } from "lucide-react"
 import { Button } from "~/components/ui/button"
 import type { FileType } from "~/lib/types"
 import ImageLoad from "./ImageLoad/ImageLoad"
-import { arrangeDateForThumbnail, ParseFilename } from "~/lib/utils"
+import { arrangeDateForThumbnail, ParseFilename, getRandomThumbnail } from "~/lib/utils"
 import AdultContentBadge from "~/routes/Dynamic/components/AdultContentBadge"
 import OwnerProfile from "~/components/OwnerProfile/OwnerProfile"
 
@@ -17,6 +17,7 @@ interface VideoCardProps {
 }
 
 const VideoCard = ({ data, index, currentUserId, userActions }: VideoCardProps) => {
+  
   const [error, setError] = useState<boolean>(false)
   const [retryAttempt, setRetryAttempt] = useState<number>(0)
   const [loaded, setLoaded] = useState<boolean>(false)
@@ -199,12 +200,25 @@ const VideoCard = ({ data, index, currentUserId, userActions }: VideoCardProps) 
         >
           {!error ? (
             <ImageLoad 
-              link={data.file_type.startsWith('image/') && data.endpoint
-                ? `/api/load/image/${data.endpoint}`
-                : `/api/load/image/${arrangeDateForThumbnail(data.created_at, retryAttempt)}/${data.unique_id}/thumbnail_${ParseFilename(data.filename)}.jpg`} 
+              link={(() => {
+                if (data.file_type.startsWith('image/') && data.endpoint) {
+                  return `/api/load/image/${data.endpoint}`
+                }
+                const randomThumbnail = getRandomThumbnail(data.thumbnails)
+                if (randomThumbnail) {
+                  return `/api/load/image/${randomThumbnail}`
+                }
+                return `/api/load/image/${arrangeDateForThumbnail(data.created_at, retryAttempt)}/${data.unique_id}/thumbnail_${ParseFilename(data.filename)}.jpg`
+              })()} 
               imageID={data.unique_id}
               index={index}
-              retry={retry}
+              retry={() => {
+                if (retryAttempt >= 1) {
+                  setError(true)
+                  return
+                }
+                setRetryAttempt(prev => prev + 1)
+              }}
               className="w-full h-full object-cover transition-all duration-300"
               callBack={e => {
                 if(e) {

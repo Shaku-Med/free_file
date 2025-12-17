@@ -138,11 +138,17 @@ export function AppSidebar() {
                   <SidebarMenuButton
                     asChild
                     isActive={true}
-                    tooltip={ParseFilename(currentFile.filename)}
+                    tooltip={(currentFile.file_title && currentFile.file_title.trim() !== '') 
+                      ? currentFile.file_title 
+                      : ParseFilename(currentFile.filename)}
                   >
                     <Link to={`/${currentFile.unique_id}`} className="flex items-center gap-2 w-full">
                       <File />
-                      <span className="truncate flex-1">{ParseFilename(currentFile.filename)}</span>
+                      <span className="truncate flex-1">
+                        {(currentFile.file_title && currentFile.file_title.trim() !== '') 
+                          ? currentFile.file_title 
+                          : ParseFilename(currentFile.filename)}
+                      </span>
                       {currentFile.is_adult && (
                         <Badge variant="destructive" className="shrink-0 text-[10px] px-1.5 py-0.5 h-5">
                           18PG
@@ -165,11 +171,17 @@ export function AppSidebar() {
                     <SidebarMenuButton
                       asChild
                       isActive={location.pathname === `/${file.unique_id}`}
-                      tooltip={ParseFilename(file.filename)}
+                      tooltip={(file.file_title && file.file_title.trim() !== '') 
+                        ? file.file_title 
+                        : ParseFilename(file.filename)}
                     >
                       <Link to={`/${file.unique_id}`} className="flex items-center gap-2 w-full">
                         <File />
-                        <span className="truncate flex-1">{ParseFilename(file.filename)}</span>
+                        <span className="truncate flex-1">
+                          {(file.file_title && file.file_title.trim() !== '') 
+                            ? file.file_title 
+                            : ParseFilename(file.filename)}
+                        </span>
                         {file.is_adult && (
                           <Badge variant="destructive" className="shrink-0 text-[10px] px-1.5 py-0.5 h-5">
                             18PG

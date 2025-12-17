@@ -26,6 +26,14 @@ export const ParseFilename = (filename: string) => {
   return filename
 }
 
+export const getRandomThumbnail = (thumbnails?: string[]): string | null => {
+  if (!thumbnails || thumbnails.length === 0) {
+    return null
+  }
+  const randomIndex = Math.floor(Math.random() * thumbnails.length)
+  return thumbnails[randomIndex]
+}
+
 
 
 export const CheckNSFW = async (imageUrl: string): Promise<boolean> => {

@@ -30,14 +30,20 @@ export const loader = async ({ request }: { request: Request }) => {
     }
 
     // Filter by access control
-    let files = await filterFilesByAccess(request, filesResult.data);
+    const filesWithDefaults = filesResult.data.map(file => ({
+      ...file,
+      is_adult: file.is_adult ?? false,
+      is_public: file.is_public ?? true,
+      owner_id: file.owner_id ?? ''
+    }));
+    let files = await filterFilesByAccess(request, filesWithDefaults);
 
     // Enrich with owner data
     files = await ownerService.enrichFilesWithOwners(files);
 
     // Fetch user actions in one query
     const user = await isAuthenticated(request, ['id']);
-    let userActions = { likedFileIds: [], dislikedFileIds: [] };
+    let userActions: { likedFileIds: string[]; dislikedFileIds: string[] } = { likedFileIds: [], dislikedFileIds: [] };
     if (user?.id && files.length > 0) {
       const fileIds = files.map(f => f.id).filter(Boolean);
       if (fileIds.length > 0) {

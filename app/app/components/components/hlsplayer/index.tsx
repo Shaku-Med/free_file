@@ -2,7 +2,7 @@ import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import Hls from 'hls.js';
 import ImageLoad from '~/routes/Home/components/ImageLoad/ImageLoad';
 import type { FileType } from '~/lib/types';
-import { arrangeDateForThumbnail } from '~/lib/utils';
+import { arrangeDateForThumbnail, getRandomThumbnail } from '~/lib/utils';
 import { PictureInPicture2 } from 'lucide-react';
 import { usePictureInPictureContext } from '~/lib/Context/PictureInPictureContext';
 import Cookies from 'js-cookie';
@@ -494,7 +494,13 @@ const HLSPlayer: React.FC<HLSPlayerProps> = ({
                 colors: e.colors || []
               })
             }
-          }} hasAdultTag={false} link={file ? `/api/load/image/${arrangeDateForThumbnail(file.created_at, retryAttempt)}/${file.unique_id}/thumbnail_${file.filename.split(`.mp4.m3u8`)[0]}.jpg` : poster} retry={retry} className="w-full h-full object-cover object-center" imageID={imageID} index={0} />
+          }} hasAdultTag={false} link={file ? (() => {
+            const randomThumbnail = getRandomThumbnail(file.thumbnails)
+            if (randomThumbnail) {
+              return `/api/load/image/${randomThumbnail}`
+            }
+            return `/api/load/image/${arrangeDateForThumbnail(file.created_at, retryAttempt)}/${file.unique_id}/thumbnail_${file.filename.split(`.mp4.m3u8`)[0]}.jpg`
+          })() : poster} retry={retry} className="w-full h-full object-cover object-center" imageID={imageID} index={0} />
         ) : (
           <div className="w-full h-full flex items-center justify-center bg-muted text-xs text-center">
             <span>Failed to load image</span>

@@ -48,7 +48,7 @@ export const loader = async ({ request }: { request: Request }) => {
             });
         }
 
-        const validSortFields = ['created_at', 'filename', 'file_size', 'file_type', 'is_adult', 'up_count', 'down_count'];
+        const validSortFields = ['created_at', 'filename', 'file_size', 'file_type', 'is_adult', 'up_count', 'down_count', 'file_title', 'category'];
         if (!validSortFields.includes(sortBy)) {
             return new Response(JSON.stringify({ 
                 error: `Invalid sortBy field. Must be one of: ${validSortFields.join(', ')}` 
@@ -73,7 +73,7 @@ export const loader = async ({ request }: { request: Request }) => {
 
         let query = db
             .from('files')
-            .select('*', { count: 'exact' });
+            .select('id, filename, unique_id, up_count, down_count, file_size, file_type, endpoint, created_at, is_adult, is_public, owner_id, thumbnails, file_title, category', { count: 'exact' });
 
         if (fileType) {
             query = query.like('file_type', `${fileType}%`);
@@ -101,7 +101,7 @@ export const loader = async ({ request }: { request: Request }) => {
 
         // Fetch user actions in one query
         const user = await isAuthenticated(request, ['id']);
-        let userActions = { likedFileIds: [], dislikedFileIds: [] };
+        let userActions: { likedFileIds: string[]; dislikedFileIds: string[] } = { likedFileIds: [], dislikedFileIds: [] };
         if (user?.id && filesWithOwners.length > 0) {
           const fileIds = filesWithOwners.map((f: any) => f.id).filter(Boolean);
           if (fileIds.length > 0) {

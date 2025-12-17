@@ -61,7 +61,7 @@ interface ContextProviderProps {
 }
 
 export const FloatingButton = () => {
-    const { setIsModalOpen } = useFileContext();
+    const { setIsModalOpen, userId } = useFileContext();
     useLayoutEffect(() => {
         const isDriverCompleted = Cookies.get('isDriverCompleted');
         if (!isDriverCompleted) {
@@ -75,6 +75,10 @@ export const FloatingButton = () => {
             });
         }
     }, [])
+
+    if (!userId) {
+        return null;
+    }
 
     return (
         <Button

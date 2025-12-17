@@ -3,7 +3,7 @@ import { Link } from "react-router";
 import { ThumbsUp, ThumbsDown } from "lucide-react";
 import { Button } from "~/components/ui/button";
 import type { FileType } from "~/lib/types";
-import { ParseFilename, arrangeDateForThumbnail } from "~/lib/utils";
+import { ParseFilename, arrangeDateForThumbnail, getRandomThumbnail } from "~/lib/utils";
 import ImageLoad from "~/routes/Home/components/ImageLoad/ImageLoad";
 import AdultContentBadge from "./AdultContentBadge";
 import OwnerProfile from "~/components/OwnerProfile/OwnerProfile";
@@ -195,7 +195,13 @@ const RelatedVideoCard = ({ data, currentUserId, userActions }: RelatedVideoCard
 
   const imageLink = data.file_type?.startsWith('image/') && data.endpoint 
     ? `/api/load/image/${data.endpoint}` 
-    : `/api/load/image/${arrangeDateForThumbnail(data.created_at, retryAttempt)}/${data.unique_id}/thumbnail_${ParseFilename(data.filename)}.jpg`;
+    : (() => {
+        const randomThumbnail = getRandomThumbnail(data.thumbnails)
+        if (randomThumbnail) {
+          return `/api/load/image/${randomThumbnail}`
+        }
+        return `/api/load/image/${arrangeDateForThumbnail(data.created_at, retryAttempt)}/${data.unique_id}/thumbnail_${ParseFilename(data.filename)}.jpg`
+      })();
 
   return (
     <div className="flex gap-3 group">

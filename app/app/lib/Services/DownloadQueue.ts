@@ -151,18 +151,17 @@ class DownloadQueue {
    */
   private async processJob(job: DownloadJob): Promise<void> {
     const { join } = await import('path');
-    const { mkdir, writeFile, unlink } = await import('fs/promises');
+    const { mkdir, unlink } = await import('fs/promises');
     const { existsSync } = await import('fs');
-    const { createWriteStream } = await import('fs');
+    const tempDir = join(process.cwd(), 'temp', 'downloads');
+    let tempFilesToCleanup: string[] = [];
 
     try {
-      // Check if cancelled
       if (job.cancelled) {
         job.status = 'cancelled';
         return;
       }
 
-      const tempDir = join(process.cwd(), 'temp', 'downloads');
       if (!existsSync(tempDir)) {
         await mkdir(tempDir, { recursive: true });
       }
@@ -170,21 +169,17 @@ class DownloadQueue {
       this.updateProgress(job.jobId, 10);
 
       if (job.fileType === 'image') {
-        // Download image
+        const outputPath = join(tempDir, `${job.jobId}_${job.filename}`);
+        tempFilesToCleanup.push(outputPath);
         await this.downloadImage(job, tempDir);
       } else if (job.fileType === 'video') {
-        // Download HLS video (all segments)
-        await this.downloadHLSVideo(job, tempDir);
+        const outputPath = join(tempDir, `${job.jobId}_${job.filename.replace(/\.m3u8$/, '.mp4')}`);
+        tempFilesToCleanup.push(outputPath);
+        await this.downloadHLSVideo(job, tempDir, tempFilesToCleanup);
       }
 
-      // Check if cancelled before completing
       if (job.cancelled) {
         job.status = 'cancelled';
-        // Cleanup
-        const outputPath = join(tempDir, `${job.jobId}_${job.filename}`);
-        if (existsSync(outputPath)) {
-          await unlink(outputPath).catch(() => {});
-        }
         return;
       }
 
@@ -197,6 +192,10 @@ class DownloadQueue {
       job.status = 'failed';
       job.error = error instanceof Error ? error.message : 'Unknown error';
       console.error(`Download job ${job.jobId} failed:`, error);
+    } finally {
+      if (job.status === 'cancelled' || job.status === 'failed') {
+        await this.cleanupTempFiles(tempFilesToCleanup);
+      }
     }
   }
 
@@ -232,19 +231,18 @@ class DownloadQueue {
   /**
    * Download HLS video (all segments)
    */
-  private async downloadHLSVideo(job: DownloadJob, tempDir: string): Promise<void> {
+  private async downloadHLSVideo(job: DownloadJob, tempDir: string, tempFilesToCleanup: string[]): Promise<void> {
     const { join } = await import('path');
     const { writeFile, unlink } = await import('fs/promises');
     const { existsSync } = await import('fs');
     const { createWriteStream } = await import('fs');
     const { createReadStream } = await import('fs');
     const { pipeline } = await import('stream/promises');
-    const { Readable } = await import('stream');
+    const segmentFiles: string[] = [];
 
     try {
       this.updateProgress(job.jobId, 15);
 
-      // Fetch m3u8 manifest
       const manifestResponse = await fetch(job.fileUrl, {
         headers: job.headers || {}
       });
@@ -255,7 +253,6 @@ class DownloadQueue {
       const manifestText = await manifestResponse.text();
       if (job.cancelled) return;
 
-      // Parse manifest to get segment URLs
       const manifestBaseUrl = new URL(job.fileUrl);
       const manifestDir = manifestBaseUrl.pathname.substring(0, manifestBaseUrl.pathname.lastIndexOf('/') + 1);
       const segmentUrls: string[] = [];
@@ -265,10 +262,8 @@ class DownloadQueue {
         const line = lines[i].trim();
         if (line && !line.startsWith('#')) {
           if (line.startsWith('http://') || line.startsWith('https://')) {
-            // Absolute URL
             segmentUrls.push(line);
           } else {
-            // Relative URL - construct absolute URL
             const segmentUrl = new URL(line, `${manifestBaseUrl.origin}${manifestDir}`).href;
             segmentUrls.push(segmentUrl);
           }
@@ -281,21 +276,11 @@ class DownloadQueue {
 
       this.updateProgress(job.jobId, 25);
 
-      // Download all segments
-      const segmentFiles: string[] = [];
       const totalSegments = segmentUrls.length;
-      const progressPerSegment = 70 / totalSegments; // 70% for downloading segments
+      const progressPerSegment = 70 / totalSegments;
 
       for (let i = 0; i < segmentUrls.length; i++) {
-        if (job.cancelled) {
-          // Cleanup downloaded segments
-          for (const segFile of segmentFiles) {
-            if (existsSync(segFile)) {
-              await unlink(segFile).catch(() => {});
-            }
-          }
-          return;
-        }
+        if (job.cancelled) return;
 
         const segmentUrl = segmentUrls[i];
         const segmentResponse = await fetch(segmentUrl, {
@@ -310,52 +295,57 @@ class DownloadQueue {
         const segmentPath = join(tempDir, `${job.jobId}_segment_${i}.ts`);
         await writeFile(segmentPath, Buffer.from(segmentBuffer));
         segmentFiles.push(segmentPath);
+        tempFilesToCleanup.push(segmentPath);
 
         const progress = 25 + (i + 1) * progressPerSegment;
         this.updateProgress(job.jobId, progress);
       }
 
-      if (job.cancelled) {
-        // Cleanup
-        for (const segFile of segmentFiles) {
-          if (existsSync(segFile)) {
-            await unlink(segFile).catch(() => {});
-          }
-        }
-        return;
-      }
+      if (job.cancelled) return;
 
       this.updateProgress(job.jobId, 95);
 
-      // Merge segments into single file
       const outputPath = join(tempDir, `${job.jobId}_${job.filename.replace(/\.m3u8$/, '.mp4')}`);
       const outputStream = createWriteStream(outputPath);
 
       for (const segmentFile of segmentFiles) {
         if (job.cancelled) {
           outputStream.close();
-          if (existsSync(outputPath)) {
-            await unlink(outputPath).catch(() => {});
-          }
-          // Cleanup segments
-          for (const segFile of segmentFiles) {
-            if (existsSync(segFile)) {
-              await unlink(segFile).catch(() => {});
-            }
-          }
           return;
         }
 
         const segmentStream = createReadStream(segmentFile);
         await pipeline(segmentStream, outputStream, { end: false });
         await unlink(segmentFile).catch(() => {});
+        const index = tempFilesToCleanup.indexOf(segmentFile);
+        if (index > -1) {
+          tempFilesToCleanup.splice(index, 1);
+        }
       }
 
       outputStream.end();
       this.updateProgress(job.jobId, 100);
 
     } catch (error) {
+      const outputPath = join(tempDir, `${job.jobId}_${job.filename.replace(/\.m3u8$/, '.mp4')}`);
+      segmentFiles.push(outputPath);
+      await this.cleanupTempFiles(segmentFiles);
       throw error;
+    }
+  }
+
+  private async cleanupTempFiles(files: string[]): Promise<void> {
+    const { unlink } = await import('fs/promises');
+    const { existsSync } = await import('fs');
+    
+    for (const file of files) {
+      try {
+        if (existsSync(file)) {
+          await unlink(file);
+        }
+      } catch (error) {
+        console.error(`Failed to cleanup temp file ${file}:`, error);
+      }
     }
   }
 
@@ -400,6 +390,100 @@ class DownloadQueue {
       }
     }
   }
+
+  /**
+   * Cleanup temp directory files
+   */
+  async cleanupTempDirectory(): Promise<void> {
+    const { join } = await import('path');
+    const { readdir, unlink, stat, rmdir } = await import('fs/promises');
+    const { existsSync } = await import('fs');
+    
+    const tempDir = join(process.cwd(), 'temp');
+    if (!existsSync(tempDir)) {
+      return;
+    }
+
+    try {
+      const twoHoursAgo = Date.now() - 2 * 60 * 60 * 1000;
+      const entries = await readdir(tempDir, { withFileTypes: true });
+
+      for (const entry of entries) {
+        const entryPath = join(tempDir, entry.name);
+        try {
+          if (entry.isFile()) {
+            const stats = await stat(entryPath);
+            if (stats.mtimeMs < twoHoursAgo) {
+              await unlink(entryPath);
+              console.log(`[Cleanup] Deleted old temp file: ${entryPath}`);
+            }
+          } else if (entry.isDirectory()) {
+            const subEntries = await readdir(entryPath, { withFileTypes: true });
+            let deletedCount = 0;
+            
+            for (const subEntry of subEntries) {
+              const subEntryPath = join(entryPath, subEntry.name);
+              try {
+                if (subEntry.isFile()) {
+                  const stats = await stat(subEntryPath);
+                  if (stats.mtimeMs < twoHoursAgo) {
+                    await unlink(subEntryPath);
+                    deletedCount++;
+                    console.log(`[Cleanup] Deleted old temp file: ${subEntryPath}`);
+                  }
+                } else if (subEntry.isDirectory()) {
+                  const deepEntries = await readdir(subEntryPath, { withFileTypes: true });
+                  for (const deepEntry of deepEntries) {
+                    const deepEntryPath = join(subEntryPath, deepEntry.name);
+                    try {
+                      if (deepEntry.isFile()) {
+                        const stats = await stat(deepEntryPath);
+                        if (stats.mtimeMs < twoHoursAgo) {
+                          await unlink(deepEntryPath);
+                          deletedCount++;
+                          console.log(`[Cleanup] Deleted old temp file: ${deepEntryPath}`);
+                        }
+                      }
+                    } catch (error) {
+                      console.error(`[Cleanup] Failed to delete ${deepEntryPath}:`, error);
+                    }
+                  }
+                }
+              } catch (error) {
+                console.error(`[Cleanup] Failed to process ${subEntryPath}:`, error);
+              }
+            }
+            
+            if (deletedCount > 0) {
+              const remainingEntries = await readdir(entryPath, { withFileTypes: true });
+              if (remainingEntries.length === 0) {
+                try {
+                  await rmdir(entryPath);
+                  console.log(`[Cleanup] Removed empty directory: ${entryPath}`);
+                } catch (error) {
+                  console.error(`[Cleanup] Failed to remove empty directory ${entryPath}:`, error);
+                }
+              }
+            }
+          }
+        } catch (error) {
+          console.error(`[Cleanup] Failed to process ${entryPath}:`, error);
+        }
+      }
+      
+      const remainingEntries = await readdir(tempDir, { withFileTypes: true });
+      if (remainingEntries.length === 0) {
+        try {
+          await rmdir(tempDir);
+          console.log(`[Cleanup] Removed empty temp directory: ${tempDir}`);
+        } catch (error) {
+          console.error(`[Cleanup] Failed to remove empty temp directory:`, error);
+        }
+      }
+    } catch (error) {
+      console.error(`[Cleanup] Failed to cleanup temp directory:`, error);
+    }
+  }
 }
 
 // Singleton instance
@@ -409,4 +493,11 @@ export const downloadQueue = new DownloadQueue();
 setInterval(() => {
   downloadQueue.cleanupOldJobs();
 }, 30 * 60 * 1000);
+
+// Cleanup temp directory every 2 hours
+setInterval(() => {
+  downloadQueue.cleanupTempDirectory().catch((error) => {
+    console.error('[Cleanup] Scheduled temp cleanup failed:', error);
+  });
+}, 2 * 60 * 60 * 1000);
 

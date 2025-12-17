@@ -65,7 +65,7 @@ export class OwnerService {
 
       // Create a map of owner_id -> owner data
       const ownersMap = new Map(
-        (ownersData || []).map(owner => [
+        (ownersData || []).map((owner: any) => [
           owner.id,
           {
             id: owner.id,

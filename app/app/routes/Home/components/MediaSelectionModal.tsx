@@ -1,4 +1,4 @@
-import React, { useState } from "react"
+import React, { useState, useEffect } from "react"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "~/components/ui/dialog"
 import { Button } from "~/components/ui/button"
 import { Progress } from "~/components/ui/progress"
@@ -6,6 +6,8 @@ import { Input } from "~/components/ui/input"
 import { Textarea } from "~/components/ui/textarea"
 import { Upload, X, FileImage, FileVideo } from "lucide-react"
 import { GenerateUniqueID } from "~/lib/GenerateUniqueID"
+import { useFileContext } from "~/lib/Context/Context"
+import { useNavigate } from "react-router"
 
 interface MediaSelectionModalProps {
   isOpen: boolean
@@ -22,6 +24,8 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
   onFilesSelected,
   maxFileSizeBytes,
 }) => {
+  const { userId } = useFileContext()
+  const navigate = useNavigate()
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [status, setStatus] = useState<UploadStatus>("idle")
@@ -30,6 +34,13 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
   const [jobId, setJobId] = useState<string | null>(null)
   const [title, setTitle] = useState("")
   const [description, setDescription] = useState("")
+
+  useEffect(() => {
+    if (isOpen && !userId) {
+      onClose()
+      navigate('/auth/login')
+    }
+  }, [isOpen, userId, onClose, navigate])
 
   const effectiveMaxSize = maxFileSizeBytes ?? 40 * 1024 * 1024
 
@@ -166,6 +177,16 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
             if (json.status === "completed") {
               setStatus("success")
               setStatusText("Processing complete.")
+              setTimeout(() => {
+                setSelectedFile(null)
+                setTitle("")
+                setDescription("")
+                setStatus("idle")
+                setProgress(0)
+                setStatusText(null)
+                setJobId(null)
+                setError(null)
+              }, 2000)
               break
             }
             if (json.status === "failed") {
@@ -183,6 +204,16 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
       } else {
         setStatus("success")
         setStatusText("Upload complete.")
+        setTimeout(() => {
+          setSelectedFile(null)
+          setTitle("")
+          setDescription("")
+          setStatus("idle")
+          setProgress(0)
+          setStatusText(null)
+          setJobId(null)
+          setError(null)
+        }, 2000)
       }
       onFilesSelected([selectedFile])
     } catch (e) {
@@ -273,7 +304,13 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
             </div>
           </div>
           {error && <p className="text-xs text-destructive text-center">{error}</p>}
-          {status !== "idle" && (
+          {status === "success" && (
+            <div className="rounded-lg bg-primary/10 border border-primary/20 p-4 text-center">
+              <p className="text-sm font-medium text-primary mb-1">Upload Successful!</p>
+              <p className="text-xs text-muted-foreground">Your upload will appear here soon.</p>
+            </div>
+          )}
+          {status !== "idle" && status !== "success" && (
             <div className="space-y-2">
               <div className="flex items-center justify-between text-xs">
                 <span className="text-muted-foreground">{statusText}</span>

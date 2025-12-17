@@ -126,7 +126,7 @@ export const loader = async ({request}: {request: Request}) => {
 
     const { data: files, error } = await db
       .from('files')
-      .select('id, filename, unique_id, up_count, down_count, file_size, file_type, endpoint, created_at, is_adult, is_public, owner_id')
+      .select('id, filename, unique_id, up_count, down_count, file_size, file_type, endpoint, created_at, is_adult, is_public, owner_id, thumbnails, file_title, category')
       .order('created_at', { ascending: false })
       .limit(30);
 
@@ -168,7 +168,10 @@ export const loader = async ({request}: {request: Request}) => {
           is_adult: file.is_adult,
           up_count: Number(file.up_count) || 0,
           down_count: Number(file.down_count) || 0,
-          owner: file.owner || null
+          owner: file.owner || null,
+          thumbnails: file.thumbnails || [],
+          file_title: file.file_title || '',
+          category: file.category || [],
         };
       }
       return {
@@ -182,7 +185,10 @@ export const loader = async ({request}: {request: Request}) => {
         is_adult: file.is_adult,
         up_count: Number(file.up_count) || 0,
         down_count: Number(file.down_count) || 0,
-        owner: file.owner || null
+        owner: file.owner || null,
+        thumbnails: file.thumbnails || [],
+        file_title: file.file_title || '',
+        category: file.category || [],
       };
     });
     return data({ files: processedFiles, st: sessionToken, user_agent: request.headers.get('user-agent'), userId, userActions: { likedFileIds: Array.from(userActions.likedFileIds), dislikedFileIds: Array.from(userActions.dislikedFileIds) } }, {

@@ -1,6 +1,7 @@
 import { Upload, Search, Filter, Grid3X3, List } from "lucide-react";
 import { Button } from "~/components/ui/button";
 import { Input } from "~/components/ui/input";
+import { useFileContext } from "~/lib/Context/Context";
 
 interface HeaderProps {
   totalPhotos: number;
@@ -9,6 +10,7 @@ interface HeaderProps {
 }
 
 export default function Header({ totalPhotos, searchQuery, onSearchChange }: HeaderProps) {
+  const { userId, setIsModalOpen } = useFileContext();
   return (
     <div className="mb-8 sm:mb-12">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-6 mb-8">
@@ -59,10 +61,15 @@ export default function Header({ totalPhotos, searchQuery, onSearchChange }: Hea
             </Button>
           </div>
           
-          <Button className="rounded-2xl h-12 px-6 shadow-lg hover:shadow-xl transition-all bg-primary hover:bg-primary/90">
-            <Upload className="mr-2 h-4 w-4" />
-            Upload Photos
-          </Button>
+          {userId && (
+            <Button 
+              onClick={() => setIsModalOpen(true)}
+              className="rounded-2xl h-12 px-6 shadow-lg hover:shadow-xl transition-all bg-primary hover:bg-primary/90"
+            >
+              <Upload className="mr-2 h-4 w-4" />
+              Upload Photos
+            </Button>
+          )}
         </div>
       </div>
     </div>

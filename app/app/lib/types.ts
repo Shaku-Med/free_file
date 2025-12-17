@@ -17,4 +17,5 @@ export interface FileType {
   file_description?: string;
   category?: unknown[];
   file_title?: string;
+  thumbnails?: string[];
 }

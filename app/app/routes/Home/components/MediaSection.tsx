@@ -179,22 +179,26 @@ const MediaSection = () => {
         </div>
       </div>
 
-      <div className="fixed bottom-6 right-6 z-40">
-        <Button
-          onClick={() => setIsModalOpen(true)}
-          size="icon"
-          className="h-16 w-16 rounded-3xl shadow-lg hover:shadow-xl transition-all duration-300 bg-primary hover:bg-primary/90"
-        >
-          <Plus className="h-7 w-7" />
-        </Button>
-      </div>
+      {userId && (
+        <>
+          <div className="fixed bottom-6 right-6 z-40">
+            <Button
+              onClick={() => setIsModalOpen(true)}
+              size="icon"
+              className="h-16 w-16 rounded-3xl shadow-lg hover:shadow-xl transition-all duration-300 bg-primary hover:bg-primary/90"
+            >
+              <Plus className="h-7 w-7" />
+            </Button>
+          </div>
 
-      <MediaSelectionModal
-        isOpen={isModalOpen}
-        onClose={() => setIsModalOpen(false)}
-        onFilesSelected={() => {}}
-        maxFileSizeBytes={maxFileSizeBytes}
-      />
+          <MediaSelectionModal
+            isOpen={isModalOpen}
+            onClose={() => setIsModalOpen(false)}
+            onFilesSelected={() => {}}
+            maxFileSizeBytes={maxFileSizeBytes}
+          />
+        </>
+      )}
     </>
   );
 };

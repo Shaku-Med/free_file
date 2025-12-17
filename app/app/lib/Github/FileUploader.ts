@@ -33,11 +33,19 @@ export class FileUploader {
   async uploadFile(
     file: File,
     uniqueID: string,
-    filename: string
+    filename: string,
+    isAdult?: boolean,
+    title?: string,
+    description?: string
   ): Promise<UploadResult> {
     try {
       const dateFolder = this.getDateFolder();
       const filePath = `${dateFolder}/${uniqueID}/${filename}`;
+      const metadata = {
+        is_adult: isAdult,
+        title: title,
+        description: description
+      };
       
       const buffer = await file.arrayBuffer();
       const message = `Upload ${filename} for ${uniqueID}`;
