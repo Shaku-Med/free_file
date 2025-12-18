@@ -90,7 +90,7 @@ const HLSPlayer: React.FC<HLSPlayerProps> = ({
 
       navigator.mediaSession.metadata = new MediaMetadata({
         title: title,
-        artist: 'Video Player',
+        artist: `${file?.owner?.username || 'Memories'}`,
         artwork: mediaSessionImage ? [
           { src: mediaSessionImage, sizes: '512x512', type: 'image/jpeg' }
         ] : []
