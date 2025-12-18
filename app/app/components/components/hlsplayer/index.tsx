@@ -3,10 +3,12 @@ import Hls from 'hls.js';
 import ImageLoad from '~/routes/Home/components/ImageLoad/ImageLoad';
 import type { FileType } from '~/lib/types';
 import { arrangeDateForThumbnail, getRandomThumbnail } from '~/lib/utils';
-import { PictureInPicture2 } from 'lucide-react';
+import { PictureInPicture2, Volume2, VolumeX } from 'lucide-react';
 import { usePictureInPictureContext } from '~/lib/Context/PictureInPictureContext';
 import Cookies from 'js-cookie';
 import { driverObj } from '~/lib/Context/Context';
+import { autoplayService } from '~/lib/Services/AutoplayService';
+import { videoPlaybackDB } from '~/lib/Database/VideoPlaybackDB';
 
 declare global {
   interface Window {
@@ -65,6 +67,9 @@ const HLSPlayer: React.FC<HLSPlayerProps> = ({
   const [retryAttempt, setRetryAttempt] = useState<number>(0);
   const [error, setError] = useState<boolean>(false);
   const [mediaSessionImage, setMediaSessionImage] = useState<string | null>(null);
+  const [autoplayBlocked, setAutoplayBlocked] = useState(false);
+  const [showAutoplayPrompt, setShowAutoplayPrompt] = useState(false);
+  const savePositionTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   
   const {
     isPipActive,
@@ -153,9 +158,35 @@ const HLSPlayer: React.FC<HLSPlayerProps> = ({
         setIsLoading(true);
         setHasError(false);
 
-        if (imageID && (window as any)[`_${imageID}`]?.playState) {
-          const cachedState = (window as any)[`_${imageID}`].playState;
-          video.currentTime = cachedState.currentTime || 0;
+        // Load saved playback position from IndexedDB
+        if (imageID) {
+          try {
+            const savedPosition = await videoPlaybackDB.getPosition(imageID);
+            if (savedPosition && savedPosition.currentTime > 0) {
+              // Restore position after metadata loads
+              const restorePosition = () => {
+                if (video.duration > 0) {
+                  // Only restore if position is valid and not at the very end (>95%)
+                  const isNearEnd = savedPosition.duration > 0 && 
+                    (savedPosition.currentTime / savedPosition.duration) > 0.95;
+                  
+                  if (!isNearEnd && savedPosition.currentTime < video.duration) {
+                    video.currentTime = Math.min(savedPosition.currentTime, video.duration - 1);
+                  }
+                }
+              };
+
+              // Try to restore immediately if duration is already available
+              if (video.readyState >= 1 && video.duration > 0) {
+                restorePosition();
+              } else {
+                // Wait for metadata
+                video.addEventListener('loadedmetadata', restorePosition, { once: true });
+              }
+            }
+          } catch (error) {
+            console.error('Failed to load saved playback position:', error);
+          }
         }
 
         const isHLSStream = src.includes('.m3u8') || src.includes('application/vnd.apple.mpegurl');
@@ -289,11 +320,33 @@ const HLSPlayer: React.FC<HLSPlayerProps> = ({
     const video = videoRef.current;
     if (!video || !autoPlay) return;
 
-    const playVideo = () => {
+    const playVideo = async () => {
       if (isPipActive && !isContentInPip(imageID)) {
         return;
       }
-      video.play().catch(console.error);
+
+      // Use autoplay service to attempt play with sound
+      if (autoplayService.isAutoplayEnabled()) {
+        const success = await autoplayService.attemptAutoplayWithSound(video);
+        if (!success && !video.muted) {
+          // Autoplay with sound was blocked
+          setAutoplayBlocked(true);
+          setShowAutoplayPrompt(true);
+        } else if (success) {
+          setAutoplayBlocked(false);
+          setShowAutoplayPrompt(false);
+        }
+      } else {
+        // Autoplay not enabled, try normal play
+        try {
+          await video.play();
+        } catch (error: any) {
+          if (error.name === 'NotAllowedError') {
+            setAutoplayBlocked(true);
+            setShowAutoplayPrompt(true);
+          }
+        }
+      }
     };
 
     if (video.readyState >= 2) {
@@ -316,21 +369,92 @@ const HLSPlayer: React.FC<HLSPlayerProps> = ({
     }
   }, [isPipActive, isContentInPip, imageID]);
 
+  // Intersection Observer - detect when video enters viewport (used by YouTube/Pornhub)
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video || !autoPlay) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting && entry.intersectionRatio > 0.5) {
+            // Video is in viewport, attempt autoplay
+            if (autoplayService.isAutoplayEnabled() && video.paused) {
+              autoplayService.attemptAutoplayWithSound(video).then((success) => {
+                if (!success && !video.muted) {
+                  setAutoplayBlocked(true);
+                  setShowAutoplayPrompt(true);
+                }
+              });
+            }
+          }
+        });
+      },
+      {
+        threshold: [0.5], // Trigger when 50% visible
+        rootMargin: '0px',
+      }
+    );
+
+    observer.observe(video);
+
+    return () => {
+      observer.disconnect();
+    };
+  }, [autoPlay, imageID]);
+
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
 
-    const savePlayState = () => {
-      if (imageID) {
-        const currentCache = (window as any)[`_${imageID}`] || {};
-        (window as any)[`_${imageID}`] = {
-          ...currentCache,
-          playState: {
-            currentTime: video.currentTime,
-            paused: video.paused,
-            duration: video.duration
-          }
-        };
+    /**
+     * Save playback position to IndexedDB
+     * Uses debouncing to avoid too frequent writes
+     */
+    const savePlaybackPosition = () => {
+      if (!imageID || !video.duration || isNaN(video.currentTime)) return;
+
+      // Clear existing timeout
+      if (savePositionTimeoutRef.current) {
+        clearTimeout(savePositionTimeoutRef.current);
+      }
+
+      // Debounce: save after 2 seconds of no updates
+      savePositionTimeoutRef.current = setTimeout(async () => {
+        try {
+          await videoPlaybackDB.savePosition(
+            imageID,
+            video.currentTime,
+            video.duration,
+            src
+          );
+        } catch (error) {
+          console.error('Failed to save playback position:', error);
+        }
+      }, 2000); // Save 2 seconds after last update
+    };
+
+    /**
+     * Save immediately (for pause/end events)
+     */
+    const savePlaybackPositionImmediate = async () => {
+      if (!imageID || !video.duration || isNaN(video.currentTime)) return;
+
+      // Clear debounced save
+      if (savePositionTimeoutRef.current) {
+        clearTimeout(savePositionTimeoutRef.current);
+        savePositionTimeoutRef.current = null;
+      }
+
+      try {
+        await videoPlaybackDB.savePosition(
+          imageID,
+          video.currentTime,
+          video.duration,
+          src
+        );
+      } catch (error) {
+        console.error('Failed to save playback position:', error);
       }
     };
 
@@ -341,23 +465,26 @@ const HLSPlayer: React.FC<HLSPlayerProps> = ({
       }
       
       setIsLoading(false);
-      savePlayState();
+      savePlaybackPosition();
       if (!isPipActive) {
         updateMediaSession(true, video.currentTime, video.duration);
       }
       if (onPlay) onPlay();
     };
 
-    const handlePause = () => {
-      savePlayState();
+    const handlePause = async () => {
+      await savePlaybackPositionImmediate();
       if (!isPipActive) {
         updateMediaSession(false, video.currentTime, video.duration);
       }
       if (onPause) onPause();
     };
 
-    const handleEnded = () => {
-      savePlayState();
+    const handleEnded = async () => {
+      // Don't save position at the end - user should start from beginning next time
+      // But we can optionally save it if you want to resume from end
+      // await savePlaybackPositionImmediate();
+      
       if (!isPipActive) {
         updateMediaSession(false, video.currentTime, video.duration);
       }
@@ -379,7 +506,7 @@ const HLSPlayer: React.FC<HLSPlayerProps> = ({
     };
 
     const handleTimeUpdate = () => {
-      savePlayState();
+      savePlaybackPosition(); // Debounced save
       if (!isPipActive) {
         updateMediaSession(!video.paused, video.currentTime, video.duration);
       }
@@ -432,6 +559,21 @@ const HLSPlayer: React.FC<HLSPlayerProps> = ({
     window.addEventListener('leavepictureinpicture', handleWindowLeavePictureInPicture);
 
     return () => {
+      // Save position before cleanup
+      if (imageID && video && video.duration && !isNaN(video.currentTime)) {
+        videoPlaybackDB.savePosition(
+          imageID,
+          video.currentTime,
+          video.duration,
+          src
+        ).catch(console.error);
+      }
+
+      // Clear timeout
+      if (savePositionTimeoutRef.current) {
+        clearTimeout(savePositionTimeoutRef.current);
+      }
+
       video.removeEventListener('play', handlePlay);
       video.removeEventListener('pause', handlePause);
       video.removeEventListener('ended', handleEnded);
@@ -446,7 +588,7 @@ const HLSPlayer: React.FC<HLSPlayerProps> = ({
       window.removeEventListener('enterpictureinpicture', handleWindowEnterPictureInPicture);
       window.removeEventListener('leavepictureinpicture', handleWindowLeavePictureInPicture);
     };
-  }, [onPlay, onPause, onEnded, onError, imageID, mediaSessionImage, file, isPipActive]);
+  }, [onPlay, onPause, onEnded, onError, imageID, mediaSessionImage, file, isPipActive, src]);
 
   if (hasError) {
     return (
@@ -511,7 +653,7 @@ const HLSPlayer: React.FC<HLSPlayerProps> = ({
       <div className="relative z-[10000] w-full h-full">
         <video ref={videoRef}
           className={`w-full h-full object-contain transition-all duration-300 ${isPipActive ? 'opacity-0 pointer-events-none' : 'opacity-[1] pointer-events-auto'}`}
-          muted={muted}
+          muted={autoplayService.isAutoplayEnabled() ? muted : (muted || autoplayBlocked)}
           loop={loop}
           playsInline={playsInline}
           controls
@@ -540,6 +682,57 @@ const HLSPlayer: React.FC<HLSPlayerProps> = ({
         {isPipActive && !isContentInPip(imageID) && (
           <div className="absolute top-4 left-4 z-[10001] bg-orange-500/80 text-white px-3 py-1 rounded-lg backdrop-blur-sm text-sm font-medium">
             Another video is playing in Picture-in-Picture
+          </div>
+        )}
+        {showAutoplayPrompt && autoPlay && (
+          <div className="absolute inset-0 z-[10002] flex items-center justify-center bg-black/60 backdrop-blur-sm">
+            <div className="bg-background/95 border border-border rounded-lg p-6 max-w-md mx-4 shadow-xl">
+              <div className="flex items-center gap-3 mb-4">
+                {videoRef.current?.muted ? (
+                  <VolumeX className="w-6 h-6 text-muted-foreground" />
+                ) : (
+                  <Volume2 className="w-6 h-6 text-primary" />
+                )}
+                <h3 className="text-lg font-semibold">Enable Autoplay with Sound</h3>
+              </div>
+              <p className="text-sm text-muted-foreground mb-4">
+                Click the button below to enable autoplay with sound. This will allow videos to automatically play with sound on future visits.
+              </p>
+              <div className="flex gap-3">
+                <button
+                  onClick={async () => {
+                    autoplayService.enableAutoplay();
+                    setShowAutoplayPrompt(false);
+                    const video = videoRef.current;
+                    if (video) {
+                      video.muted = false;
+                      try {
+                        await video.play();
+                        setAutoplayBlocked(false);
+                      } catch (error) {
+                        console.error('Failed to play after enabling autoplay:', error);
+                      }
+                    }
+                  }}
+                  className="flex-1 bg-primary text-primary-foreground px-4 py-2 rounded-md hover:bg-primary/90 transition-colors font-medium"
+                >
+                  Enable Autoplay
+                </button>
+                <button
+                  onClick={() => {
+                    setShowAutoplayPrompt(false);
+                    const video = videoRef.current;
+                    if (video && !video.paused) {
+                      // Keep playing but muted
+                      video.muted = true;
+                    }
+                  }}
+                  className="px-4 py-2 rounded-md border border-border hover:bg-muted transition-colors"
+                >
+                  Dismiss
+                </button>
+              </div>
+            </div>
           </div>
         )}
       </div>

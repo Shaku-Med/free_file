@@ -41,28 +41,28 @@ export default defineConfig(({mode}) => {
       allowedHosts: ['localhost', 'memories.brozy.org'],
       cors: true,
     },
-    build: {
-      rollupOptions: {
-        external: (id) => {
-          if (id === '@ffmpeg/ffmpeg' || id === '@ffmpeg/util') return true;
-          if (serverOnlyModules.some(mod => id === mod || id.startsWith(`${mod}/`))) return true;
-          if (id.startsWith('node:') || ['fs', 'path', 'crypto', 'stream', 'util', 'events', 'url', 'net', 'tls', 'dns', 'os', 'assert', 'child_process', 'worker_threads'].includes(id)) return true;
-          return false;
-        },
-      }
-    },
+    // build: {
+    //   rollupOptions: {
+    //     external: (id) => {
+    //       if (id === '@ffmpeg/ffmpeg' || id === '@ffmpeg/util') return true;
+    //       if (serverOnlyModules.some(mod => id === mod || id.startsWith(`${mod}/`))) return true;
+    //       if (id.startsWith('node:') || ['fs', 'path', 'crypto', 'stream', 'util', 'events', 'url', 'net', 'tls', 'dns', 'os', 'assert', 'child_process', 'worker_threads'].includes(id)) return true;
+    //       return false;
+    //     },
+    //   }
+    // },
     ssr: {
       noExternal: [],
       external: serverOnlyModules
     },
-    optimizeDeps: {
-      exclude: serverOnlyModules
-    },
-    resolve: {
-      alias: serverOnlyModules.reduce((acc, mod) => {
-        acc[mod] = mod;
-        return acc;
-      }, {} as Record<string, string>)
-    }
+    // optimizeDeps: {
+    //   exclude: serverOnlyModules
+    // },
+    // resolve: {
+    //   alias: serverOnlyModules.reduce((acc, mod) => {
+    //     acc[mod] = mod;
+    //     return acc;
+    //   }, {} as Record<string, string>)
+    // }
   }
 });
