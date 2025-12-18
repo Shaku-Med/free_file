@@ -188,7 +188,7 @@ export const meta: MetaFunction<ReturnType<typeof loader>> = ({ data }: {data: a
       }
       return `/api/load/image/${file?.endpoint}`;
     })();
-    thumbnail = `${thumbnail}?quality=15`
+    thumbnail = `${thumbnail}?quality=50`
 
     const isVideo = file?.file_type?.includes('video') || file?.file_type === 'application/vnd.apple.mpegurl' || file?.endpoint?.includes('.m3u8');
     const isImage = file?.file_type?.startsWith('image/');

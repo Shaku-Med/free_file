@@ -2,7 +2,7 @@ import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import Hls from 'hls.js';
 import ImageLoad from '~/routes/Home/components/ImageLoad/ImageLoad';
 import type { FileType } from '~/lib/types';
-import { arrangeDateForThumbnail, getRandomThumbnail } from '~/lib/utils';
+import { arrangeDateForThumbnail, getRandomThumbnail, ParseFilename } from '~/lib/utils';
 import { PictureInPicture2, Volume2, VolumeX } from 'lucide-react';
 import { usePictureInPictureContext } from '~/lib/Context/PictureInPictureContext';
 import Cookies from 'js-cookie';
@@ -85,7 +85,8 @@ const HLSPlayer: React.FC<HLSPlayerProps> = ({
 
   const updateMediaSession = (isPlaying: boolean, currentTime: number, duration: number) => {
     if ('mediaSession' in navigator && file) {
-      const title = file.filename.replace('.mp4.m3u8', '');
+      // Use file_title if available, otherwise parse filename (same as VideoCard)
+      const title = file.file_title || ParseFilename(file.filename);
 
       navigator.mediaSession.metadata = new MediaMetadata({
         title: title,
