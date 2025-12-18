@@ -355,7 +355,7 @@ const index = () => {
                         return newSet;
                       })}
                     autoPlay={true}
-                    muted={true}
+                    muted={false}
                       loop={true}
                       playsInline
                       imageID={file_data.unique_id}
