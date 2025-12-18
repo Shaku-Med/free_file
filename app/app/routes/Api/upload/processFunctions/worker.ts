@@ -180,6 +180,7 @@ export class UploadWorker {
 
         if (!uploadResult.success) {
           console.error(`[Upload Worker] Image upload failed for ${uniqueID}:`, uploadResult.error);
+          await this.cleanupTempFiles(tempFilesToCleanup);
           return {
             success: false,
             error: uploadResult.error || 'Upload failed'
@@ -187,6 +188,8 @@ export class UploadWorker {
         }
 
         console.log(`[Upload Worker] Image uploaded successfully for ${uniqueID}. GitHub: ${uploadResult.githubPath}, Supabase ID: ${uploadResult.supabaseId}`);
+        
+        await this.cleanupTempFiles(tempFilesToCleanup);
       }
 
       if (isVideo) {
