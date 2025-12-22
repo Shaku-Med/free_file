@@ -24,15 +24,17 @@ export function usePlaylists(): UsePlaylistsReturn {
     try {
       setLoading(true);
       setError(null);
-      
-      const response = await fetch('/api/get/?next=2');
+
+      const response = await fetch('/api/feed');
       const data = await response.json();
-      
-      if (data.success) {
-        setPlaylists(data.data);
-      } else {
-        setError(data.error || 'Failed to fetch playlists');
+
+      if (!response.ok) {
+        setError(data?.error || 'Failed to fetch playlists');
+        return;
       }
+
+      // /api/feed returns { data: filesWithOwners[], userActions }
+      setPlaylists(data?.data || []);
     } catch (err) {
       setError('Network error');
       console.error('Error fetching playlists:', err);

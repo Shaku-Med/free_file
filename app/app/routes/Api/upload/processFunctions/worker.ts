@@ -327,7 +327,7 @@ export class UploadWorker {
       await this.cleanupTempFiles(tempFilesToCleanup);
       return {
         success: false,
-        error: error instanceof Error ? error.message : 'Unknown error'
+        error: 'Upload processing failed'
       };
     }
   }

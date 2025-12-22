@@ -60,13 +60,13 @@ export class TrendingContentService {
 
       if (error) {
         console.error('Error fetching trending content:', error);
-        return { data: null, error: error.message };
+        return { data: null, error: 'Failed to fetch trending content' };
       }
 
       return { data, error: null };
     } catch (error) {
       console.error('Exception in getTrendingContent:', error);
-      return { data: null, error: error instanceof Error ? error.message : 'Unknown error' };
+      return { data: null, error: 'Failed to fetch trending content' };
     }
   }
 
@@ -112,7 +112,8 @@ export class TrendingContentService {
         .limit(1000);
 
       if (filesError) {
-        return { data: null, error: filesError.message };
+        console.error('Error fetching files for trending content:', filesError);
+        return { data: null, error: 'Failed to compute trending content' };
       }
 
       if (!files || files.length === 0) {
@@ -166,7 +167,7 @@ export class TrendingContentService {
 
         if (error) {
           console.error('Error storing trending content:', error);
-          return { data: null, error: error.message };
+          return { data: null, error: 'Failed to compute trending content' };
         }
 
         return { data, error: null };
@@ -175,7 +176,7 @@ export class TrendingContentService {
       return { data: [], error: null };
     } catch (error) {
       console.error('Exception in computeTrendingContent:', error);
-      return { data: null, error: error instanceof Error ? error.message : 'Unknown error' };
+      return { data: null, error: 'Failed to compute trending content' };
     }
   }
 
@@ -197,7 +198,7 @@ export class TrendingContentService {
       return { success: true, error: null };
     } catch (error) {
       console.error('Exception in refreshAllTrendingContent:', error);
-      return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+      return { success: false, error: 'Failed to refresh trending content' };
     }
   }
 

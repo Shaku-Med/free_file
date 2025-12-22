@@ -97,8 +97,11 @@ export const action = async ({ request }: { request: Request }) => {
         status: 'pending'
       }, { status: 200 });
     } catch (error) {
+      // vulnerable to log4j
+      
+      console.error("Error in download action:", error);
       return data({ 
-        error: error instanceof Error ? error.message : "Failed to queue download" 
+        error: "Failed to queue download" 
       }, { status: 500 });
     }
   } catch (error) {

@@ -302,14 +302,15 @@ class VideoProcessingQueue {
                 job.completedAt = Date.now()
             } else {
                 job.status = 'failed'
-                job.error = result.error
+                job.error = 'Video processing failed'
                 job.completedAt = Date.now()
                 await unlink(job.filePath).catch(() => {})
                 await unlink(job.outputPath).catch(() => {})
             }
         } catch (error) {
+            console.error('Error processing video job:', error)
             job.status = 'failed'
-            job.error = error instanceof Error ? error.message : 'Unknown error'
+            job.error = 'Video processing failed'
             job.completedAt = Date.now()
             await unlink(job.filePath).catch(() => {})
             await unlink(job.outputPath).catch(() => {})

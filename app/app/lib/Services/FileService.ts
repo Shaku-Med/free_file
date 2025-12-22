@@ -161,7 +161,7 @@ export class FileService {
       console.error('Error in file service:', error);
       return {
         success: false,
-        error: error instanceof Error ? error.message : 'Unknown error'
+        error: 'Upload failed'
       };
     }
   }

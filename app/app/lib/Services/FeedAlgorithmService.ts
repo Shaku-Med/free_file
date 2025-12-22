@@ -138,7 +138,7 @@ export class FeedAlgorithmService {
       };
     } catch (error) {
       console.error('Exception in generateFeed:', error);
-      return { data: null, error: error instanceof Error ? error.message : 'Unknown error' };
+      return { data: null, error: 'Failed to generate feed' };
     }
   }
 

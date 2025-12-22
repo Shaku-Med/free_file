@@ -131,7 +131,7 @@ class DownloadQueue {
       console.error(`Error processing download job ${pendingJob.jobId}:`, error);
       if (pendingJob) {
         pendingJob.status = 'failed';
-        pendingJob.error = error instanceof Error ? error.message : 'Unknown error';
+        pendingJob.error = 'Download failed';
       }
     }).finally(() => {
       if (pendingJob) {
@@ -190,7 +190,7 @@ class DownloadQueue {
 
     } catch (error) {
       job.status = 'failed';
-      job.error = error instanceof Error ? error.message : 'Unknown error';
+      job.error = 'Download failed';
       console.error(`Download job ${job.jobId} failed:`, error);
     } finally {
       if (job.status === 'cancelled' || job.status === 'failed') {

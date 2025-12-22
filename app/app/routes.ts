@@ -59,5 +59,6 @@ export default [
         route(`reset`, 'routes/Auth/Reset/index.tsx'),
         route(`reset/confirm`, 'routes/Auth/Reset/confirm.tsx'),
     ]),
+    route(`logout`, 'routes/Auth/Logout/index.tsx'),
     route(`profile/:username`, 'routes/Profile/index.tsx'),
 ] satisfies RouteConfig;

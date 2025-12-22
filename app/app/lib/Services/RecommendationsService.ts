@@ -57,13 +57,13 @@ export class RecommendationsService {
 
       if (error) {
         console.error('Error fetching recommendations:', error);
-        return { data: null, error: error.message };
+        return { data: null, error: 'Failed to fetch recommendations' };
       }
 
       return { data, error: null };
     } catch (error) {
       console.error('Exception in getRecommendations:', error);
-      return { data: null, error: error instanceof Error ? error.message : 'Unknown error' };
+      return { data: null, error: 'Failed to fetch recommendations' };
     }
   }
 
@@ -93,13 +93,13 @@ export class RecommendationsService {
 
       if (error) {
         console.error('Error storing recommendation:', error);
-        return { data: null, error: error.message };
+        return { data: null, error: 'Failed to store recommendation' };
       }
 
       return { data, error: null };
     } catch (error) {
       console.error('Exception in storeRecommendation:', error);
-      return { data: null, error: error instanceof Error ? error.message : 'Unknown error' };
+      return { data: null, error: 'Failed to store recommendation' };
     }
   }
 
@@ -128,13 +128,13 @@ export class RecommendationsService {
 
       if (error) {
         console.error('Error storing recommendations:', error);
-        return { data: null, error: error.message };
+        return { data: null, error: 'Failed to store recommendations' };
       }
 
       return { data, error: null };
     } catch (error) {
       console.error('Exception in storeRecommendations:', error);
-      return { data: null, error: error instanceof Error ? error.message : 'Unknown error' };
+      return { data: null, error: 'Failed to store recommendations' };
     }
   }
 
@@ -154,13 +154,13 @@ export class RecommendationsService {
 
       if (error) {
         console.error('Error clearing recommendations:', error);
-        return { success: false, error: error.message };
+        return { success: false, error: 'Failed to clear recommendations' };
       }
 
       return { success: true, error: null };
     } catch (error) {
       console.error('Exception in clearUserRecommendations:', error);
-      return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+      return { success: false, error: 'Failed to clear recommendations' };
     }
   }
 
@@ -183,7 +183,8 @@ export class RecommendationsService {
         .limit(100);
 
       if (filesError) {
-        return { data: null, error: filesError.message };
+        console.error('Error fetching files for recommendations:', filesError);
+        return { data: null, error: 'Failed to compute recommendations' };
       }
 
       // Generate recommendations with scores
@@ -208,7 +209,7 @@ export class RecommendationsService {
       return { data: [], error: null };
     } catch (error) {
       console.error('Exception in computeRecommendations:', error);
-      return { data: null, error: error instanceof Error ? error.message : 'Unknown error' };
+      return { data: null, error: 'Failed to compute recommendations' };
     }
   }
 }

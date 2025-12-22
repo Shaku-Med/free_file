@@ -180,7 +180,8 @@ async function processVideoWithFFmpeg(
       if (useGPU) {
         resolve({ success: false, error: 'GPU_ERROR', usedGPU: false });
       } else {
-        resolve({ success: false, error: error.message, usedGPU: false });
+        console.error('FFmpeg HLS processing error (CPU):', error);
+        resolve({ success: false, error: 'Video processing failed', usedGPU: false });
       }
     });
   });

@@ -71,7 +71,7 @@ export class VideoThumbnailService {
       console.error('Video thumbnail extraction error:', error);
       return {
         success: false,
-        error: error instanceof Error ? error.message : 'Unknown error'
+        error: 'Failed to extract thumbnails'
       };
     }
   }

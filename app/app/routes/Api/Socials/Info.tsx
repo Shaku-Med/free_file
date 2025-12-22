@@ -413,8 +413,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
 
     } catch (error) {
         console.error('Error fetching socials info:', error);
-        const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
-        return new Response(JSON.stringify({ error: errorMessage }), {
+        return new Response(JSON.stringify({ error: 'Failed to fetch URL metadata' }), {
             status: 500,
             headers: { 'Content-Type': 'application/json' }
         });
