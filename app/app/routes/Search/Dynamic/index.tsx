@@ -19,6 +19,8 @@ import VideoCard from "~/routes/Home/components/VideoCard";
 import db from "~/lib/Database/supabase";
 import { filterFilesByAccess } from "~/routes/Api/fun/accessControl";
 
+import { sanitizeSearchQuery } from "~/lib/Security/inputValidation";
+
 export const loader = async ({ request }: { request: Request }) => {
   try {
     let term = request.url.split(`/search/`)[1];
@@ -27,30 +29,38 @@ export const loader = async ({ request }: { request: Request }) => {
       term = decodeURIComponent(term);
     } catch (decodeError) {
       console.error("Error decoding search term:", decodeError);
+      return data(null, { status: 400 });
     }
+    
+    // Sanitize search query to prevent injection
+    const sanitizedTerm = sanitizeSearchQuery(term);
+    if (!sanitizedTerm) {
+      return data({ url: '', results: [] }, { status: 200 });
+    }
+    
     let results: FileType[] | null = null;
     try {
       if (db) {
-        const normalized = (term || "").trim();
-        if (normalized) {
-          const { data: rows, error } = await db
-            .from('files')
-            .select('*')
-            .or(`filename.ilike.%${normalized}%,file_type.ilike.%${normalized}%,unique_id.ilike.%${normalized}%`)
-            .order('created_at', { ascending: false })
-            .limit(20);
-          if (!error && Array.isArray(rows)) {
-            const filteredRows = await filterFilesByAccess(request, rows);
-            results = filteredRows as FileType[];
-          } else if (error) {
-            console.error("Supabase search error:", error);
-          }
+        // Use parameterized query pattern - Supabase handles this safely
+        // But we still sanitize the input
+        const searchPattern = `%${sanitizedTerm}%`;
+        const { data: rows, error } = await db
+          .from('files')
+          .select('*')
+          .or(`filename.ilike.${searchPattern},file_type.ilike.${searchPattern},unique_id.ilike.${searchPattern}`)
+          .order('created_at', { ascending: false })
+          .limit(20);
+        if (!error && Array.isArray(rows)) {
+          const filteredRows = await filterFilesByAccess(request, rows);
+          results = filteredRows as FileType[];
+        } else if (error) {
+          console.error("Supabase search error:", error);
         }
       }
     } catch (e) {
       console.error("Server search failed:", e);
     }
-    return data({ url: term, results }, { status: 200 });
+    return data({ url: sanitizedTerm, results }, { status: 200 });
   } catch (error) {
     console.error("Search loader error:", error);
     return data(null, { status: 500 });

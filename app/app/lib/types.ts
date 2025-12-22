@@ -11,6 +11,10 @@ export interface FileType {
   is_adult?: boolean;
   up_count?: number;
   down_count?: number;
+  views?: number;
+  view_count?: number;
+  shares?: number;
+  share_count?: number;
   owner_id?: string;
   owner?: OwnerInfo | null;
   is_public?: boolean;

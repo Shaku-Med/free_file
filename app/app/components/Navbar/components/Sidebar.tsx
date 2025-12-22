@@ -31,10 +31,11 @@ import { Button } from "~/components/ui/button"
 import { Badge } from "~/components/ui/badge"
 import Logo from "../Logo/Logo"
 import { useFileContext } from "~/lib/Context/Context"
-import { ParseFilename } from "~/lib/utils"
+import { ParseFilename, arrangeDateForThumbnail, getRandomThumbnail } from "~/lib/utils"
 import type { FileType } from "~/lib/types"
 import { Magnetic } from "components/motion-primitives/magnetic"
 import SidebarUserProfile from "./SidebarUserProfile"
+import ImageLoad from "~/routes/Home/components/ImageLoad/ImageLoad"
 
 const menuItems = [
   {
@@ -95,6 +96,17 @@ export function AppSidebar() {
     setDisplayCount(prev => prev + 100)
   }
 
+  const getFileThumbnailLink = (file: FileType) => {
+    if (file.file_type?.startsWith("image/") && file.endpoint) {
+      return `/api/load/image/${file.endpoint}`
+    }
+    const randomThumbnail = getRandomThumbnail(file.thumbnails)
+    if (randomThumbnail) {
+      return `/api/load/image/${randomThumbnail}`
+    }
+    return `/api/load/image/${arrangeDateForThumbnail(file.created_at)}/${file.unique_id}/thumbnail_${ParseFilename(file.filename)}.jpg`
+  }
+
   return (
     <Sidebar variant="sidebar" collapsible="offcanvas" className="bg-background border-none">
       <SidebarHeader className={`${!isMobile ? `pt-[28px]` : `pt-[14px]`}`}>
@@ -143,7 +155,17 @@ export function AppSidebar() {
                       : ParseFilename(currentFile.filename)}
                   >
                     <Link to={`/${currentFile.unique_id}`} className="flex items-center gap-2 w-full">
-                      <File />
+                      <div className="relative h-9 w-16 flex-shrink-0 overflow-hidden rounded-md bg-muted">
+                        <ImageLoad
+                          link={getFileThumbnailLink(currentFile)}
+                          imageID={`${currentFile.unique_id}_sidebar`}
+                          index={0}
+                          retry={() => {}}
+                          className="w-full h-full object-cover"
+                          quality={5}
+                          hasAdultTag={Boolean(currentFile.is_adult)}
+                        />
+                      </div>
                       <span className="truncate flex-1">
                         {(currentFile.file_title && currentFile.file_title.trim() !== '') 
                           ? currentFile.file_title 
@@ -176,7 +198,17 @@ export function AppSidebar() {
                         : ParseFilename(file.filename)}
                     >
                       <Link to={`/${file.unique_id}`} className="flex items-center gap-2 w-full">
-                        <File />
+                        <div className="relative h-8 w-14 flex-shrink-0 overflow-hidden rounded-md bg-muted">
+                          <ImageLoad
+                            link={getFileThumbnailLink(file)}
+                            imageID={`${file.unique_id}_sidebar`}
+                            index={0}
+                            retry={() => {}}
+                            className="w-full h-full object-cover"
+                            quality={5}
+                            hasAdultTag={Boolean(file.is_adult)}
+                          />
+                        </div>
                         <span className="truncate flex-1">
                           {(file.file_title && file.file_title.trim() !== '') 
                             ? file.file_title 

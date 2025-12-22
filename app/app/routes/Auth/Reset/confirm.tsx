@@ -7,6 +7,7 @@ import { CreatePassword } from '~/lib/Security/Password';
 import db from '~/lib/Database/supabase';
 import { isAuthenticated } from '~/lib/Security/Password';
 import { sendPasswordResetNotification } from '../fun/email';
+import { validatePasswordStrength, constantTimeDelay } from '../fun/validation';
 
 export const loader = async ({ request }: { request: Request }) => {
   const is_auth = await isAuthenticated(request);
@@ -54,11 +55,14 @@ export const action = async ({ request }: { request: Request }) => {
       return data({ error: 'Invalid username/email or password' }, { status: 400 });
     }
 
-    if (password.length < 8) {
-      return data({ error: 'Password must be at least 8 characters' }, { status: 400 });
+    // Validate password strength
+    const passwordValidation = validatePasswordStrength(password);
+    if (!passwordValidation.valid) {
+      return data({ error: passwordValidation.errors[0] || 'Password does not meet requirements' }, { status: 400 });
     }
 
     if (password !== confirmPassword) {
+      await constantTimeDelay();
       return data({ error: 'Passwords do not match' }, { status: 400 });
     }
 

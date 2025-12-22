@@ -1,5 +1,6 @@
 import { isAuthenticated } from "~/lib/Security/Password";
 import db from "~/lib/Database/supabase";
+import { isValidFileId } from "~/lib/Security/inputValidation";
 
 const toJson = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), {
@@ -21,8 +22,8 @@ export const loader = async ({ request }: { request: Request }) => {
     const url = new URL(request.url);
     const fileId = url.searchParams.get('fileId');
 
-    if (!fileId) {
-      return toJson({ error: "fileId is required" }, 400);
+    if (!fileId || !isValidFileId(fileId)) {
+      return toJson({ error: "Invalid fileId" }, 400);
     }
 
     const { data } = await db
@@ -53,7 +54,7 @@ export const action = async ({ request }: { request: Request }) => {
     const body = await request.json();
     const { fileId } = body;
 
-    if (!fileId || typeof fileId !== 'string') {
+    if (!fileId || !isValidFileId(fileId)) {
       return toJson({ error: "Invalid fileId" }, 400);
     }
 

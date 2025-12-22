@@ -114,6 +114,9 @@ export const loader = async ({request}: {request: Request}) => {
     let keys = ['token1', 'token2']
     let verified = await VerifyB4Making(request.headers, keys)
 
+    const user = await isAuthenticated(request, ['id']);
+    const userId = user?.id || null;
+
     let token: string | null = null
     if(!verified){
       let t = await SetToken(request.headers, {
@@ -124,11 +127,15 @@ export const loader = async ({request}: {request: Request}) => {
       token = t?.data
     }
 
-    const { data: files, error } = await db
-      .from('files')
-      .select('id, filename, unique_id, up_count, down_count, file_size, file_type, endpoint, created_at, is_adult, is_public, owner_id, thumbnails, file_title, category')
-      .order('created_at', { ascending: false })
-      .limit(30);
+    const { data: files, error } = await db.rpc('get_feed', {
+      p_user_id: userId,
+      p_limit: 30,
+      p_seen_ids: [],
+      p_liked_ids: [],
+      p_disliked_ids: [],
+      p_preferred_categories: [],
+      p_foryou_ids: []
+    });
 
     if (error) {
       console.error('Error fetching files:', error)
@@ -136,9 +143,6 @@ export const loader = async ({request}: {request: Request}) => {
     }
 
     const filteredFiles = await filterFilesByAccess(request, files || []);
-
-    const user = await isAuthenticated(request, ['id']);
-    const userId = user?.id || null;
 
     // Enrich files with owner data
     const { ownerService } = await import('~/lib/Services/OwnerService');
@@ -191,9 +195,10 @@ export const loader = async ({request}: {request: Request}) => {
         category: file.category || [],
       };
     });
+    
     return data({ files: processedFiles, st: sessionToken, user_agent: request.headers.get('user-agent'), userId, userActions: { likedFileIds: Array.from(userActions.likedFileIds), dislikedFileIds: Array.from(userActions.dislikedFileIds) } }, {
       status: 200,
-      headers: token ? {
+      headers: (token && !user) ? {
         'Set-Cookie': `token=${token}; Path=/; HttpOnly; Max-Age=86400; ${process.env.NODE_ENV === 'production' ? 'Secure' : ''}; SameSite=Strict`
       } : undefined
     } as ResponseInit);

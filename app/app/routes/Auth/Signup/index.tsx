@@ -1,10 +1,11 @@
 import { useState } from 'react';
-import { data, redirect, useActionData, useNavigation, Link } from 'react-router';
+import { data, redirect, useActionData, useNavigation, Link, type MetaFunction } from 'react-router';
 import { Button } from '~/components/ui/button';
 import { Input } from '~/components/ui/input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '~/components/ui/card';
 import { createUser } from '../fun/auth';
 import { isAuthenticated } from '~/lib/Security/Password';
+import { checkAuthRateLimit, resetAuthRateLimit } from '../fun/rateLimit';
 
 export const loader = async ({ request }: { request: Request }) => {
   const is_auth = await isAuthenticated(request);
@@ -22,27 +23,13 @@ export const action = async ({ request }: { request: Request }) => {
     const password = formData.get('password') as string;
     const dob = formData.get('dob') as string;
 
-    if (!username || !email || !password || !dob) {
-      return data({ error: 'All fields are required' }, { status: 400 });
-    }
-
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(email)) {
-      return data({ error: 'Invalid email format' }, { status: 400 });
-    }
-
-    if (password.length < 8) {
-      return data({ error: 'Password must be at least 8 characters' }, { status: 400 });
-    }
-
-    const dobDate = new Date(dob);
-    const today = new Date();
-    const age = today.getFullYear() - dobDate.getFullYear();
-    const monthDiff = today.getMonth() - dobDate.getMonth();
-    const actualAge = monthDiff < 0 || (monthDiff === 0 && today.getDate() < dobDate.getDate()) ? age - 1 : age;
-
-    if (actualAge < 18) {
-      return data({ error: 'You must be at least 18 years old' }, { status: 400 });
+    // Validation is now handled in createUser, but we check rate limit first
+    const normalizedEmail = email?.toLowerCase() || '';
+    
+    // Check rate limit
+    const rateLimitCheck = checkAuthRateLimit(request, 'signup', normalizedEmail);
+    if (!rateLimitCheck.allowed) {
+      return data({ error: rateLimitCheck.error || 'Too many signup attempts. Please try again later.' }, { status: 429 });
     }
 
     const result = await createUser({ username, email, password, dob });
@@ -51,11 +38,21 @@ export const action = async ({ request }: { request: Request }) => {
       return data({ error: result.error || 'Failed to create account' }, { status: 400 });
     }
 
+    // Reset rate limit on successful signup
+    resetAuthRateLimit(request, 'signup', email.toLowerCase());
+
     return redirect(`/auth/verify?userId=${result.userId}&email=${encodeURIComponent(email)}&type=signup`);
   } catch (error) {
     console.error('Error in signup action:', error);
     return data({ error: 'An unexpected error occurred' }, { status: 500 });
   }
+};
+
+export const meta: MetaFunction = () => {
+  return [
+    { title: 'Create Account | Memories' },
+    { name: 'description', content: 'Create your Memories account to start sharing and discovering content.' }
+  ];
 };
 
 const Signup = () => {
@@ -66,23 +63,25 @@ const Signup = () => {
 
   return (
     <div className="min-h-screen flex items-center justify-center p-4">
-      <Card className="w-full max-w-md">
-        <CardHeader className="space-y-1">
-          <CardTitle className="text-2xl font-bold text-center">Create an account</CardTitle>
-          <CardDescription className="text-center">
-            Enter your information to get started
+      <Card className="w-full max-w-md shadow-lg border-2 animate-in fade-in-0 zoom-in-95 duration-300">
+        <CardHeader className="space-y-2 pb-6">
+          <CardTitle className="text-3xl font-bold text-center bg-gradient-to-r from-primary to-primary/60 bg-clip-text text-transparent">
+            Create Account
+          </CardTitle>
+          <CardDescription className="text-center text-base">
+            Join Memories and start your journey today
           </CardDescription>
         </CardHeader>
-        <CardContent>
-          <form method="post" className="space-y-4">
+        <CardContent className="space-y-5">
+          <form method="post" className="space-y-5">
             {actionData?.error && (
-              <div className="p-3 text-sm text-destructive bg-destructive/10 border border-destructive/20 rounded-md">
+              <div className="p-4 text-sm text-destructive bg-destructive/10 border border-destructive/20 rounded-lg animate-in slide-in-from-top-2 duration-200">
                 {actionData.error}
               </div>
             )}
             
-            <div className="space-y-2">
-              <label htmlFor="username" className="text-sm font-medium">
+            <div className="space-y-2.5">
+              <label htmlFor="username" className="text-sm font-semibold text-foreground">
                 Username
               </label>
               <Input
@@ -90,14 +89,14 @@ const Signup = () => {
                 name="username"
                 type="text"
                 required
-                placeholder="johndoe"
+                placeholder="Choose a username"
                 autoComplete="username"
-                className="w-full"
+                className="w-full h-11 transition-all focus:ring-2 focus:ring-primary/20"
               />
             </div>
 
-            <div className="space-y-2">
-              <label htmlFor="email" className="text-sm font-medium">
+            <div className="space-y-2.5">
+              <label htmlFor="email" className="text-sm font-semibold text-foreground">
                 Email
               </label>
               <Input
@@ -105,14 +104,14 @@ const Signup = () => {
                 name="email"
                 type="email"
                 required
-                placeholder="john@example.com"
+                placeholder="Enter your email"
                 autoComplete="email"
-                className="w-full"
+                className="w-full h-11 transition-all focus:ring-2 focus:ring-primary/20"
               />
             </div>
 
-            <div className="space-y-2">
-              <label htmlFor="dob" className="text-sm font-medium">
+            <div className="space-y-2.5">
+              <label htmlFor="dob" className="text-sm font-semibold text-foreground">
                 Date of Birth
               </label>
               <Input
@@ -121,12 +120,12 @@ const Signup = () => {
                 type="date"
                 required
                 max={new Date(new Date().setFullYear(new Date().getFullYear() - 18)).toISOString().split('T')[0]}
-                className="w-full"
+                className="w-full h-11 transition-all focus:ring-2 focus:ring-primary/20"
               />
             </div>
 
-            <div className="space-y-2">
-              <label htmlFor="password" className="text-sm font-medium">
+            <div className="space-y-2.5">
+              <label htmlFor="password" className="text-sm font-semibold text-foreground">
                 Password
               </label>
               <div className="relative">
@@ -135,29 +134,37 @@ const Signup = () => {
                   name="password"
                   type={showPassword ? 'text' : 'password'}
                   required
-                  placeholder="••••••••"
+                  placeholder="Create a strong password"
                   autoComplete="new-password"
                   minLength={8}
-                  className="w-full pr-10"
+                  className="w-full h-11 pr-12 transition-all focus:ring-2 focus:ring-primary/20"
                 />
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground text-sm font-medium transition-colors"
                 >
                   {showPassword ? 'Hide' : 'Show'}
                 </button>
               </div>
+              <p className="text-xs text-muted-foreground">Must be at least 8 characters</p>
             </div>
 
-            <Button type="submit" className="w-full" disabled={isSubmitting}>
-              {isSubmitting ? 'Creating account...' : 'Create account'}
+            <Button 
+              type="submit" 
+              className="w-full h-11 text-base font-semibold shadow-md hover:shadow-lg transition-all" 
+              disabled={isSubmitting}
+            >
+              {isSubmitting ? 'Creating account...' : 'Create Account'}
             </Button>
           </form>
 
-          <div className="mt-4 text-center text-sm">
-            <span className="text-muted-foreground">Already have an account? </span>
-            <Link to="/auth/login" className="text-primary hover:underline font-medium">
+          <div className="mt-6 pt-6 border-t border-border text-center">
+            <span className="text-sm text-muted-foreground">Already have an account? </span>
+            <Link 
+              to="/auth/login" 
+              className="text-sm text-primary hover:text-primary/80 font-semibold transition-colors hover:underline"
+            >
               Sign in
             </Link>
           </div>

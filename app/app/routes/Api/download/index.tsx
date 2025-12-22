@@ -5,6 +5,7 @@ import { checkFileAccess } from "~/routes/Dynamic/fun/accessControl";
 import db from "~/lib/Database/supabase";
 import { randomUUID } from "crypto";
 import { BASE_URL } from "~/lib/URLS";
+import { isValidUUID } from "~/lib/Security/inputValidation";
 
 export const action = async ({ request }: { request: Request }) => {
   try {
@@ -24,8 +25,8 @@ export const action = async ({ request }: { request: Request }) => {
     const body = await request.json();
     const { fileId } = body;
 
-    if (!fileId || typeof fileId !== 'string') {
-      return data({ error: "fileId is required" }, { status: 400 });
+    if (!fileId || !isValidUUID(fileId)) {
+      return data({ error: "Invalid fileId format" }, { status: 400 });
     }
 
     // Fetch file data

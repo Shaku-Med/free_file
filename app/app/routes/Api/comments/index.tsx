@@ -1,5 +1,6 @@
 import { isAuthenticated } from "~/lib/Security/Password";
 import { commentService, type CreateCommentInput } from "~/lib/Services/CommentService";
+import { validatePagination, isValidFileId, sanitizeCommentContent, validateInteger } from "~/lib/Security/inputValidation";
 
 const toJson = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), {
@@ -11,20 +12,17 @@ export const loader = async ({ request }: { request: Request }) => {
   try {
     const url = new URL(request.url);
     const fileId = url.searchParams.get('fileId');
-    const limit = parseInt(url.searchParams.get('limit') || '50');
-    const offset = parseInt(url.searchParams.get('offset') || '0');
+    const limitParam = url.searchParams.get('limit');
+    const offsetParam = url.searchParams.get('offset');
 
-    if (!fileId) {
-      return toJson({ error: "fileId is required" }, 400);
+    // Validate fileId
+    if (!fileId || !isValidFileId(fileId)) {
+      return toJson({ error: "Invalid fileId" }, 400);
     }
 
-    if (limit < 1 || limit > 100) {
-      return toJson({ error: "limit must be between 1 and 100" }, 400);
-    }
-
-    if (offset < 0) {
-      return toJson({ error: "offset must be >= 0" }, 400);
-    }
+    // Validate pagination
+    const limit = validateInteger(limitParam, 1, 100) || 50;
+    const offset = validateInteger(offsetParam, 0, 10000) || 0;
 
     const result = await commentService.getCommentsByFileId(fileId, limit, offset);
 
@@ -50,13 +48,29 @@ export const action = async ({ request }: { request: Request }) => {
       const body = await request.json();
       const { fileId, content, parentId }: CreateCommentInput & { fileId: string; content: string; parentId?: string } = body;
 
-      if (!fileId || !content) {
-        return toJson({ error: "fileId and content are required" }, 400);
+      // Validate inputs
+      if (!fileId || !isValidFileId(fileId)) {
+        return toJson({ error: "Invalid fileId" }, 400);
+      }
+
+      if (!content || typeof content !== 'string') {
+        return toJson({ error: "content is required" }, 400);
+      }
+
+      // Sanitize comment content
+      const sanitizedContent = sanitizeCommentContent(content);
+      if (!sanitizedContent || sanitizedContent.length < 1) {
+        return toJson({ error: "Comment content is too short or invalid" }, 400);
+      }
+
+      // Validate parentId if provided
+      if (parentId && !isValidFileId(parentId)) {
+        return toJson({ error: "Invalid parentId" }, 400);
       }
 
       const result = await commentService.createComment(user.id, {
         fileId,
-        content,
+        content: sanitizedContent,
         parentId: parentId || null
       });
 
@@ -71,11 +85,21 @@ export const action = async ({ request }: { request: Request }) => {
       const body = await request.json();
       const { commentId, content } = body;
 
-      if (!commentId || !content) {
-        return toJson({ error: "commentId and content are required" }, 400);
+      if (!commentId || !isValidFileId(commentId)) {
+        return toJson({ error: "Invalid commentId" }, 400);
       }
 
-      const result = await commentService.updateComment(user.id, commentId, content);
+      if (!content || typeof content !== 'string') {
+        return toJson({ error: "content is required" }, 400);
+      }
+
+      // Sanitize comment content
+      const sanitizedContent = sanitizeCommentContent(content);
+      if (!sanitizedContent || sanitizedContent.length < 1) {
+        return toJson({ error: "Comment content is too short or invalid" }, 400);
+      }
+
+      const result = await commentService.updateComment(user.id, commentId, sanitizedContent);
 
       if (result.error) {
         return toJson({ error: result.error }, 400);
@@ -88,8 +112,8 @@ export const action = async ({ request }: { request: Request }) => {
       const body = await request.json();
       const { commentId } = body;
 
-      if (!commentId) {
-        return toJson({ error: "commentId is required" }, 400);
+      if (!commentId || !isValidFileId(commentId)) {
+        return toJson({ error: "Invalid commentId" }, 400);
       }
 
       const result = await commentService.deleteComment(user.id, commentId);

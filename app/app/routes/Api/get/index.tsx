@@ -7,6 +7,7 @@ import db from '~/lib/Database/supabase';
 import { ownerService } from '~/lib/Services/OwnerService';
 import { userActionsService } from '~/lib/Services/UserActionsService';
 import { isAuthenticated } from '~/lib/Security/Password';
+import { validatePagination, sanitizeString } from '~/lib/Security/inputValidation';
 
 export const loader = async ({ request }: { request: Request }) => {
     try {
@@ -33,13 +34,18 @@ export const loader = async ({ request }: { request: Request }) => {
         const url = new URL(request.url);
         const searchParams = url.searchParams;
         
-        const page = parseInt(searchParams.get('page') || '1');
-        const limit = parseInt(searchParams.get('limit') || '10');
-        const sortBy = searchParams.get('sortBy') || 'created_at';
-        const sortOrder = (searchParams.get('sortOrder') || 'desc') as 'asc' | 'desc';
-        const fileType = searchParams.get('fileType') || undefined;
+        const pageParam = searchParams.get('page') || '1';
+        const limitParam = searchParams.get('limit') || '20';
+        const sortBy = searchParams.get('sortBy') || 'views';
+        const sortOrder = (searchParams.get('sortOrder') || 'asc') as 'asc' | 'desc';
+        const fileTypeParam = searchParams.get('fileType');
+        
+        // Sanitize fileType if provided
+        const fileType = fileTypeParam ? sanitizeString(fileTypeParam, 50) : undefined;
 
-        if (page < 1 || limit < 1 || limit > 100) {
+        // Validate pagination
+        const validatedPagination = validatePagination(pageParam, limitParam, 100);
+        if (!validatedPagination) {
             return new Response(JSON.stringify({ 
                 error: 'Invalid pagination parameters. Page must be >= 1, limit must be between 1-100' 
             }), { 
@@ -47,11 +53,23 @@ export const loader = async ({ request }: { request: Request }) => {
                 headers: { 'Content-Type': 'application/json' }
             });
         }
+        const { page: validatedPage, limit: validatedLimit } = validatedPagination;
 
-        const validSortFields = ['created_at', 'filename', 'file_size', 'file_type', 'is_adult', 'up_count', 'down_count', 'file_title', 'category'];
+        // Validate sortBy field
+        const validSortFields = ['created_at', 'filename', 'file_size', 'file_type', 'is_adult', 'up_count', 'down_count', 'file_title', 'category', 'views', 'shares', 'likes', 'watch_time'];
         if (!validSortFields.includes(sortBy)) {
             return new Response(JSON.stringify({ 
                 error: `Invalid sortBy field. Must be one of: ${validSortFields.join(', ')}` 
+            }), { 
+                status: 400,
+                headers: { 'Content-Type': 'application/json' }
+            });
+        }
+
+        // Validate fileType if provided
+        if (fileType && fileType.length > 50) {
+            return new Response(JSON.stringify({ 
+                error: 'fileType parameter is too long' 
             }), { 
                 status: 400,
                 headers: { 'Content-Type': 'application/json' }
@@ -68,12 +86,12 @@ export const loader = async ({ request }: { request: Request }) => {
         }
 
         const fetchMultiplier = 3;
-        const fetchLimit = limit * fetchMultiplier;
-        const offset = (page - 1) * limit;
+        const fetchLimit = validatedLimit * fetchMultiplier;
+        const offset = (validatedPage - 1) * validatedLimit;
 
         let query = db
             .from('files')
-            .select('id, filename, unique_id, up_count, down_count, file_size, file_type, endpoint, created_at, is_adult, is_public, owner_id, thumbnails, file_title, category', { count: 'exact' });
+            .select('id, filename, unique_id, up_count, down_count, views, view_count, shares, share_count, file_size, file_type, endpoint, created_at, is_adult, is_public, owner_id, thumbnails, file_title, category', { count: 'exact' });
 
         if (fileType) {
             query = query.like('file_type', `${fileType}%`);
@@ -93,8 +111,9 @@ export const loader = async ({ request }: { request: Request }) => {
             });
         }
 
+        // Filter by access control first, then paginate
         const filteredFiles = await filterFilesByAccess(request, allFiles || []);
-        const paginatedFiles = filteredFiles.slice(0, limit);
+        const paginatedFiles = filteredFiles.slice(0, validatedLimit);
 
         // Enrich files with owner data
         const filesWithOwners = await ownerService.enrichFilesWithOwners(paginatedFiles);
@@ -115,18 +134,18 @@ export const loader = async ({ request }: { request: Request }) => {
 
         const total = count || 0;
         const estimatedTotal = Math.floor(total * (filteredFiles.length / (allFiles?.length || 1)));
-        const totalPages = Math.ceil(estimatedTotal / limit);
+        const totalPages = Math.ceil(estimatedTotal / validatedLimit);
 
         const result = {
             data: filesWithOwners,
             userActions,
             pagination: {
-                page,
-                limit,
+                page: validatedPage,
+                limit: validatedLimit,
                 total: estimatedTotal,
                 totalPages,
-                hasNext: paginatedFiles.length === limit && (page * limit < estimatedTotal),
-                hasPrev: page > 1
+                hasNext: paginatedFiles.length === validatedLimit && (validatedPage * validatedLimit < estimatedTotal),
+                hasPrev: validatedPage > 1
             }
         };
         

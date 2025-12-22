@@ -7,6 +7,7 @@ import { config } from "dotenv";
 config()
 
 export default defineConfig(({mode}) => {
+  let isProduction = mode === 'production';
   const serverOnlyModules = [
     'bullmq',
     'ioredis',
@@ -29,21 +30,10 @@ export default defineConfig(({mode}) => {
     '@huggingface/transformers'
   ];
 
-  return {
-    plugins: [tailwindcss(), reactRouter(), tsconfigPaths()],
-    server: {
-      port: 3000,
-      host: true,
-      headers: {
-        'Cross-Origin-Embedder-Policy': 'require-corp',
-        'Cross-Origin-Opener-Policy': 'same-origin',
-      },
-      allowedHosts: ['localhost', 'memories.brozy.org'],
-      cors: true,
-    },
+  let addedModules = isProduction ? {
     build: {
       rollupOptions: {
-        external: (id) => {
+        external: (id: string) => {
           if (id === '@ffmpeg/ffmpeg' || id === '@ffmpeg/util') return true;
           if (serverOnlyModules.some(mod => id === mod || id.startsWith(`${mod}/`))) return true;
           if (id.startsWith('node:') || ['fs', 'path', 'crypto', 'stream', 'util', 'events', 'url', 'net', 'tls', 'dns', 'os', 'assert', 'child_process', 'worker_threads'].includes(id)) return true;
@@ -64,5 +54,20 @@ export default defineConfig(({mode}) => {
         return acc;
       }, {} as Record<string, string>)
     }
+  } : {};
+
+  return {
+    plugins: [tailwindcss(), reactRouter(), tsconfigPaths()],
+    ...addedModules,
+    server: {
+      port: 3000,
+      host: true,
+      headers: {
+        'Cross-Origin-Embedder-Policy': 'require-corp',
+        'Cross-Origin-Opener-Policy': 'same-origin',
+      },
+      allowedHosts: ['localhost', 'memories.brozy.org'],
+      cors: true,
+    },
   }
 });

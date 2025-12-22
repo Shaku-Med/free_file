@@ -42,9 +42,7 @@ export const Context = createContext<ContextProps>({
     isModalOpen: false,
     setIsModalOpen: () => {},
     isLoading: false,
-    hasMore: false,
     observerRef: null,
-    currentPage: 1,
     loadMoreVideos: () => {},
     user_agent: '',
     userId: null,
@@ -98,52 +96,51 @@ export const ContextProvider = ({ children, f, st, user_agent, userId, userActio
     const [userActions, setUserActions] = useState(initialUserActions);
 
     const [isLoading, setIsLoading] = useState(false);
-    const [hasMore, setHasMore] = useState(true);
     const observerRef = useRef<HTMLDivElement | null>(null)
-    const [currentPage, setCurrentPage] = useState(1);
     const nav = useNavigation()
   
     const loadMoreVideos = useCallback(async () => {
-      if (isLoading || !hasMore) return
+      if (isLoading) return
   
       setIsLoading(true)
       try {
-        const nextPage = currentPage + 1
-        try {
-          let response = await fetch(`/api/get/?page=${nextPage}&currentPage=${currentPage}`)
-          if(!response.ok) {
-              setHasMore(false)
-              return
-          }
-          let data = await response.json()
-          if (data?.data) {
-            setFiles((prev: FileType[]) => [...prev, ...data.data])
-            // Merge user actions from API response
-            if (data?.userActions) {
-              setUserActions(prev => {
-                const newLikedIds = new Set(prev.likedFileIds);
-                const newDislikedIds = new Set(prev.dislikedFileIds);
-                data.userActions.likedFileIds?.forEach((id: string) => newLikedIds.add(id));
-                data.userActions.dislikedFileIds?.forEach((id: string) => newDislikedIds.add(id));
-                return { likedFileIds: newLikedIds, dislikedFileIds: newDislikedIds };
-              });
-            }
-          }
-          setCurrentPage(data.pagination.page)
-          setHasMore(Boolean(data?.pagination?.hasNext))
+        const seenIds = files
+          .map((file: any) => file?.id)
+          .filter((id: any): id is string => typeof id === 'string' && id.length > 0);
+
+        const response = await fetch(`/api/feed`);
+        if (!response.ok) {
+          return;
         }
-        catch (error) {
-          console.log(`Error Found In loadMoreVideos: `, error)
+
+        const data = await response.json();
+
+        if (Array.isArray(data?.data) && data.data.length > 0) {
+          setFiles((prev: FileType[]) => [...prev, ...data.data]);
+
+          // Merge user actions from API response
+          if (data?.userActions) {
+            setUserActions(prev => {
+              const newLikedIds = new Set(prev.likedFileIds);
+              const newDislikedIds = new Set(prev.dislikedFileIds);
+              data.userActions.likedFileIds?.forEach((id: string) => newLikedIds.add(id));
+              data.userActions.dislikedFileIds?.forEach((id: string) => newDislikedIds.add(id));
+              return { likedFileIds: newLikedIds, dislikedFileIds: newDislikedIds };
+            });
+          }
         }
+      }
+      catch (error) {
+        console.log(`Error Found In loadMoreVideos: `, error)
       } finally {
         setIsLoading(false)
       }
-    }, [currentPage, isLoading, hasMore])
+    }, [files, isLoading])
   
     useEffect(() => {
       const observer = new IntersectionObserver(
         (entries) => {
-          if (entries[0].isIntersecting && hasMore && !isLoading) {
+          if (entries[0].isIntersecting && !isLoading) {
             loadMoreVideos()
           }
         },
@@ -151,7 +148,7 @@ export const ContextProvider = ({ children, f, st, user_agent, userId, userActio
       )
       if (observerRef.current) observer.observe(observerRef.current)
       return () => observer.disconnect()
-    }, [loadMoreVideos, hasMore, isLoading, nav.location])
+    }, [loadMoreVideos, isLoading, nav.location])
 
     useLayoutEffect(() => {
         let fetchPublicKey = async () => {
@@ -203,15 +200,13 @@ export const ContextProvider = ({ children, f, st, user_agent, userId, userActio
             isModalOpen,
             setIsModalOpen,
             isLoading,
-            hasMore,
             observerRef: observerRef as React.RefObject<HTMLDivElement>,
-            currentPage,
             loadMoreVideos,
             user_agent,
             userId: safeUserId,
             userActions
         }),
-        [files, isModalOpen, isLoading, hasMore, currentPage, loadMoreVideos, user_agent, safeUserId, userActions]
+        [files, isModalOpen, isLoading, loadMoreVideos, user_agent, safeUserId, userActions]
     );
     return (
         <div className={`w-full h-full`}>

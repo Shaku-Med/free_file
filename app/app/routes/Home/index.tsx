@@ -5,7 +5,7 @@ import { Button } from "~/components/ui/button";
 import { Plus } from "lucide-react";
 
 export default function PhotoDashboard() {
-  const { files, setIsModalOpen, hasMore, observerRef, isLoading, userId, userActions } = useFileContext();
+  const { files, setIsModalOpen, observerRef, isLoading, userId, userActions } = useFileContext();
 
   return (
     <div className="">
@@ -19,16 +19,14 @@ export default function PhotoDashboard() {
                     <VideoCard key={index || 0} data={file as FileType} index={index || 0} currentUserId={userId || undefined} userActions={userActions} />
                   ))}
               </div>
-              {hasMore && (
-                <div ref={observerRef} className="h-10 flex items-center justify-center">
-                  {isLoading && (
-                    <div className="flex items-center space-x-2">
-                      <div className="w-4 h-4 border-2 border-primary border-t-transparent rounded-full animate-spin"></div>
-                      <span className="text-sm text-muted-foreground">Loading more...</span>
-                    </div>
-                  )}
-                </div>
-              )}
+              <div ref={observerRef} className="h-10 flex items-center justify-center">
+                {isLoading && (
+                  <div className="flex items-center space-x-2">
+                    <div className="w-4 h-4 border-2 border-primary border-t-transparent rounded-full animate-spin"></div>
+                    <span className="text-sm text-muted-foreground">Loading more...</span>
+                  </div>
+                )}
+              </div>
             </>
         ) : (
           <>

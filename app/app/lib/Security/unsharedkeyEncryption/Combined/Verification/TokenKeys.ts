@@ -77,6 +77,12 @@ const TOKEN_KEY_CONFIGS: readonly TokenKeyConfig[] = [
         envKey: "C_USER",
         algorithm: "HS512",
         expiresIn: "1d"
+    },
+    {
+        name: "server_auth",
+        envKey: "SERVER_AUTH",
+        algorithm: "HS512",
+        expiresIn: "1m"
     }
 ] as const;
 

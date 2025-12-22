@@ -4,6 +4,7 @@ import { generateVerificationCode, hashVerificationCode, saveVerificationCode } 
 import { sendVerificationEmail as sendEmail } from './email';
 import { EncryptCombine } from '~/lib/Security/unsharedkeyEncryption/Combined/Combined';
 import { getAllKeys } from '~/lib/Security/unsharedkeyEncryption/Combined/Verification/TokenKeys';
+import { validateSignupInputs, validateLoginInputs, normalizeIdentifier, constantTimeDelay } from './validation';
 
 export interface SignupData {
   username: string;
@@ -19,35 +20,61 @@ export interface LoginData {
 
 export const createUser = async (data: SignupData): Promise<{ success: boolean; userId?: string; error?: string }> => {
   try {
+    // Validate and sanitize inputs
+    const validation = validateSignupInputs(data);
+    if (!validation.valid) {
+      return { success: false, error: validation.errors[0] || 'Invalid input' };
+    }
+
+    const sanitized = validation.sanitized!;
+
     if (!db) {
-      return { success: false, error: 'Database not initialized' };
+      return { success: false, error: 'An error occurred. Please try again later.' };
     }
 
-    const { data: existingUsers, error: checkError } = await db
+    // Check for existing email (prevent account enumeration by using same error message)
+    const { data: emailUser, error: emailError } = await db
       .from('users')
-      .select('id, email, username, is_memories');
+      .select('id, is_memories')
+      .eq('email', sanitized.email)
+      .maybeSingle();
 
-    if (checkError) {
-      console.error('Error checking existing users:', checkError);
-      return { success: false, error: 'Failed to check existing users' };
+    if (emailError) {
+      console.error('Error checking existing email:', emailError);
+      // Add delay to prevent timing attacks
+      await constantTimeDelay();
+      return { success: false, error: 'An error occurred. Please try again later.' };
     }
 
-    if (existingUsers) {
-      const emailUser = existingUsers.find((user: { email: string; is_memories?: boolean }) => user.email.toLowerCase() === data.email.toLowerCase());
-      if (emailUser) {
-        if (emailUser.is_memories) {
-          return { success: false, error: 'Invalid username/email or password' };
-        }
-        return { success: false, error: 'Email already exists' };
+    if (emailUser) {
+      if (emailUser.is_memories) {
+        await constantTimeDelay();
+        return { success: false, error: 'An error occurred. Please try again later.' };
       }
+      await constantTimeDelay();
+      return { success: false, error: 'An account with this email or username already exists' };
+    }
 
-      const usernameUser = existingUsers.find((user: { username: string; is_memories?: boolean }) => user.username.toLowerCase() === data.username.toLowerCase());
-      if (usernameUser) {
-        if (usernameUser.is_memories) {
-          return { success: false, error: 'Invalid username/email or password' };
-        }
-        return { success: false, error: 'Username already exists' };
+    // Check for existing username (prevent account enumeration)
+    const { data: usernameUser, error: usernameError } = await db
+      .from('users')
+      .select('id, is_memories')
+      .eq('username', sanitized.username)
+      .maybeSingle();
+
+    if (usernameError) {
+      console.error('Error checking existing username:', usernameError);
+      await constantTimeDelay();
+      return { success: false, error: 'An error occurred. Please try again later.' };
+    }
+
+    if (usernameUser) {
+      if (usernameUser.is_memories) {
+        await constantTimeDelay();
+        return { success: false, error: 'An error occurred. Please try again later.' };
       }
+      await constantTimeDelay();
+      return { success: false, error: 'An account with this email or username already exists' };
     }
 
     const unverifiedExpire = new Date();
@@ -56,9 +83,9 @@ export const createUser = async (data: SignupData): Promise<{ success: boolean; 
     const { data: user, error } = await db
       .from('users')
       .insert({
-        username: data.username,
-        email: data.email,
-        dob: data.dob,
+        username: sanitized.username,
+        email: sanitized.email,
+        dob: sanitized.dob,
         verified: false,
         unverified_expire: unverifiedExpire.toISOString()
       })
@@ -67,10 +94,11 @@ export const createUser = async (data: SignupData): Promise<{ success: boolean; 
 
     if (error || !user) {
       console.error('Error creating user:', error);
-      return { success: false, error: 'Failed to create user' };
+      await constantTimeDelay();
+      return { success: false, error: 'An error occurred. Please try again later.' };
     }
 
-    const passwordHash = await CreatePassword(data.password);
+    const passwordHash = await CreatePassword(sanitized.password);
     if (!passwordHash) {
       return { success: false, error: 'Failed to hash password' };
     }
@@ -100,7 +128,7 @@ export const createUser = async (data: SignupData): Promise<{ success: boolean; 
       return { success: false, error: 'Failed to save verification code' };
     }
 
-    const emailSent = await sendEmail(data.email, code, 'signup');
+    const emailSent = await sendEmail(sanitized.email, code, 'signup');
     if (!emailSent) {
       console.warn('Failed to send verification email, but user created');
     }
@@ -114,68 +142,89 @@ export const createUser = async (data: SignupData): Promise<{ success: boolean; 
 
 export const loginUser = async (data: LoginData, request: Request): Promise<{ success: boolean; error?: string; token?: string; userId?: string; email?: string; needsVerification?: boolean }> => {
   try {
-    if (!db) {
-      return { success: false, error: 'Database not initialized' };
+    // Validate inputs
+    const validation = validateLoginInputs(data);
+    if (!validation.valid) {
+      await constantTimeDelay(); // Prevent timing attacks
+      return { success: false, error: 'Invalid username/email or password' };
     }
 
-    const isEmail = data.identifier.includes('@');
-    let userId: string;
-    let userEmail: string;
-    let userC_usr: string;
-    let isVerified: boolean;
-    let isMemories: boolean;
+    const sanitized = validation.sanitized!;
+    const normalizedIdentifier = normalizeIdentifier(sanitized.identifier);
 
+    if (!db) {
+      await constantTimeDelay();
+      return { success: false, error: 'Invalid username/email or password' };
+    }
+
+    const isEmail = normalizedIdentifier.includes('@');
+    let userId: string | null = null;
+    let userEmail: string | null = null;
+    let userC_usr: string | null = null;
+    let isVerified: boolean = false;
+    let isMemories: boolean = false;
+
+    // Efficient lookup - use database query instead of fetching all users
     if (isEmail) {
       const { data: userData, error } = await db
         .from('users')
         .select('id, email, username, c_usr, verified, is_memories')
-        .eq('email', data.identifier.toLowerCase())
+        .eq('email', normalizedIdentifier)
         .maybeSingle();
 
-      if (error || !userData) {
-        return { success: false, error: 'Invalid username/email or password' };
+      if (!error && userData && !userData.is_memories) {
+        userId = userData.id;
+        userEmail = userData.email;
+        userC_usr = userData.c_usr;
+        isVerified = userData.verified;
+        isMemories = userData.is_memories;
       }
-      userId = userData.id;
-      userEmail = userData.email;
-      userC_usr = userData.c_usr;
-      isVerified = userData.verified;
-      isMemories = userData.is_memories;
     } else {
-      const { data: allUsers, error: fetchError } = await db
+      // Use database query for username lookup instead of fetching all users
+      const { data: userData, error } = await db
         .from('users')
-        .select('id, email, username, c_usr, verified, is_memories');
+        .select('id, email, username, c_usr, verified, is_memories')
+        .eq('username', normalizedIdentifier)
+        .maybeSingle();
 
-      if (fetchError || !allUsers) {
-        return { success: false, error: 'Invalid username/email or password' };
+      if (!error && userData && !userData.is_memories) {
+        userId = userData.id;
+        userEmail = userData.email;
+        userC_usr = userData.c_usr;
+        isVerified = userData.verified;
+        isMemories = userData.is_memories;
       }
+    }
 
-      const foundUser = allUsers.find((u: { username: string }) => u.username.toLowerCase() === data.identifier.toLowerCase());
-      if (!foundUser) {
-        return { success: false, error: 'Invalid username/email or password' };
+    // Always perform password verification to prevent timing attacks
+    // Use a dummy hash if user not found
+    let passwordHash: string | null = null;
+    if (userId) {
+      const { data: passwordData, error: passwordError } = await db
+        .from('passwords')
+        .select('password')
+        .eq('id', userId)
+        .maybeSingle();
+
+      if (!passwordError && passwordData) {
+        passwordHash = passwordData.password;
       }
-      userId = foundUser.id;
-      userEmail = foundUser.email;
-      userC_usr = foundUser.c_usr;
-      isVerified = foundUser.verified;
-      isMemories = foundUser.is_memories;
     }
 
-    if (isMemories) {
-      return { success: false, error: 'Invalid username/email or password' };
+    // Always verify password (even with dummy) to prevent timing attacks
+    let isValid = false;
+    if (passwordHash) {
+      isValid = await VerifyPassword(sanitized.password, passwordHash) || false;
+    } else {
+      // Verify against dummy hash to maintain constant time
+      const dummyHash = '$2b$10$dummy.hash.for.timing.attack.protection';
+      await VerifyPassword('dummy', dummyHash);
     }
 
-    const { data: passwordData, error: passwordError } = await db
-      .from('passwords')
-      .select('password')
-      .eq('id', userId)
-      .maybeSingle();
+    // Add constant delay regardless of outcome
+    await constantTimeDelay(100);
 
-    if (passwordError || !passwordData) {
-      return { success: false, error: 'Invalid username/email or password' };
-    }
-
-    const isValid = await VerifyPassword(data.password, passwordData.password);
-    if (!isValid) {
+    if (!userId || !isValid || isMemories) {
       return { success: false, error: 'Invalid username/email or password' };
     }
 
@@ -183,17 +232,21 @@ export const loginUser = async (data: LoginData, request: Request): Promise<{ su
       const code = generateVerificationCode();
       const codeHash = await hashVerificationCode(code);
       
-      if (codeHash) {
+      if (codeHash && userEmail) {
         await saveVerificationCode(userId, codeHash, 1);
         await sendEmail(userEmail, code, 'signup');
       }
 
-      return { success: false, needsVerification: true, userId, email: userEmail };
+      return { success: false, needsVerification: true, userId, email: userEmail! };
     }
 
     const keys = await getAllKeys(['token1', 'c_user']);
     if (!keys) {
       return { success: false, error: 'Failed to generate authentication token' };
+    }
+
+    if (!userC_usr) {
+      return { success: false, error: 'Invalid username/email or password' };
     }
 
     const tokenData = { c_usr: userC_usr };

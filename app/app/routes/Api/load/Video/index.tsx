@@ -1,6 +1,7 @@
 import { getCookie } from "~/lib/Security/Token";
 import { VerifyToken } from "~/lib/Security/unsharedkeyEncryption/Combined/Verification/VerifyToken";
 import { VerifyVideoToken } from "~/routes/Dynamic/components/Functions";
+import { sanitizeFilePath } from "~/lib/Security/inputValidation";
 
 export const VKF = async (request: Request) => {
     try {
@@ -43,13 +44,33 @@ export const loader = async ({ request }: { request: Request }) => {
         let token = await GetVideoToken(request)
         if(!token) return new Response(null, { status: 401 });
         
-        const splitUrl = request.url.split('/api/load/video/')[1];
-        const videoUrl = `https://github.com/${process.env.GITHUB_OWNER}/Memories/raw/main/${splitUrl}`;
+        let splitUrl = request.url.split('/api/load/video/')[1];
+        if (!splitUrl) {
+            return new Response(null, { status: 400 });
+        }
+        
+        // Decode URL encoding
+        try {
+            if(splitUrl.includes(`%`)){
+                splitUrl = decodeURIComponent(splitUrl);
+            }
+        } catch (decodeError) {
+            console.error('Error decoding URL:', decodeError);
+            return new Response(null, { status: 400 });
+        }
+        
+        // Sanitize path to prevent path traversal attacks
+        const sanitizedPath = sanitizeFilePath(splitUrl);
+        if (!sanitizedPath) {
+            return new Response(null, { status: 400 });
+        }
+        
+        const videoUrl = `https://github.com/${process.env.GITHUB_OWNER}/Memories/raw/main/${sanitizedPath}`;
         const response = await fetch(videoUrl);
     
         if (!response.ok) throw new Error('Fetch failed');
     
-        const ext = splitUrl.split('.').pop();
+        const ext = sanitizedPath.split('.').pop();
         const isText = ext === 'm3u8';
         const body = isText ? await response.text() : new Uint8Array(await response.arrayBuffer());
         const contentType =

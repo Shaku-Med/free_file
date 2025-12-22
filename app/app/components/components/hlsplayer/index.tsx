@@ -41,6 +41,7 @@ interface HLSPlayerProps {
   imageID?: string;
   file?: FileType | null
   callBack?: (props: CallBackProps) => void
+  onVideoRef?: (ref: HTMLVideoElement | null) => void;
 }
 
 const HLSPlayer: React.FC<HLSPlayerProps> = ({
@@ -59,8 +60,21 @@ const HLSPlayer: React.FC<HLSPlayerProps> = ({
   imageID = '',
   file = null,
   callBack,
+  onVideoRef,
 }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
+  
+  // Expose video ref to parent
+  useEffect(() => {
+    if (onVideoRef && videoRef.current) {
+      onVideoRef(videoRef.current);
+    }
+    return () => {
+      if (onVideoRef) {
+        onVideoRef(null);
+      }
+    };
+  }, [onVideoRef]);
   const hlsRef = useRef<Hls | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [hasError, setHasError] = useState(false);

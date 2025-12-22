@@ -1,7 +1,7 @@
-import { data, Link, useLoaderData, useNavigate, type MetaFunction } from "react-router";
+import { data, Link, useLoaderData, useNavigate, useParams, useNavigation, type MetaFunction } from "react-router";
 import db from "~/lib/Database/supabase";
 import HLSPlayer from "~/components/components/hlsplayer";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import RelatedVideos from "./components/RelatedVideos";
 import type { FileType } from "~/lib/types";
 import { BASE_URL } from "~/lib/URLS";
@@ -9,7 +9,7 @@ import ImageLoad from "../Home/components/ImageLoad/ImageLoad";
 import { arrangeDateForThumbnail, ParseFilename, getRandomThumbnail } from "~/lib/utils";
 import { motion } from "framer-motion";
 import { MakeVideoToken } from "./components/Functions";
-import { ShieldAlert } from "lucide-react";
+import { ShieldAlert, Eye, Share2 } from "lucide-react";
 import { useSidebar } from "~/components/ui/sidebar";
 import { checkFileAccess } from "./fun/accessControl";
 import AdultContentBadge from "./components/AdultContentBadge";
@@ -23,6 +23,8 @@ import OwnerProfile from "~/components/OwnerProfile/OwnerProfile";
 import { commentService } from "~/lib/Services/CommentService";
 import { userActionsService } from "~/lib/Services/UserActionsService";
 import DownloadButton from "./components/DownloadButton";
+import { formatNumber } from "~/lib/utils/formatNumber";
+import { useWatchTracking } from "~/lib/hooks/useWatchTracking";
 
 
 export const loader = async ({ request, params }: { request: Request, params: { id: string } }) => {
@@ -163,12 +165,19 @@ export const meta: MetaFunction<ReturnType<typeof loader>> = ({ data }: {data: a
       ? file.file_title 
       : ParseFilename(file?.filename || '');
     
-    // Get likes and comments count
+    // Get likes, comments, views, and shares count
     const likesCount = Number(file?.up_count) || 0;
     const commentsCount = data?.commentsCount || 0;
+    const viewsCount = Number(file?.views || file?.view_count || 0);
+    const sharesCount = Number(file?.shares || file?.share_count || 0);
     
-    // Build description with likes and comments
-    const statsText = `${likesCount} ${likesCount === 1 ? 'like' : 'likes'}${commentsCount > 0 ? ` • ${commentsCount} ${commentsCount === 1 ? 'comment' : 'comments'}` : ''}`;
+    // Build description with stats
+    const statsParts = [];
+    if (viewsCount > 0) statsParts.push(`${formatNumber(viewsCount)} views`);
+    if (likesCount > 0) statsParts.push(`${likesCount} ${likesCount === 1 ? 'like' : 'likes'}`);
+    if (sharesCount > 0) statsParts.push(`${formatNumber(sharesCount)} shares`);
+    if (commentsCount > 0) statsParts.push(`${commentsCount} ${commentsCount === 1 ? 'comment' : 'comments'}`);
+    const statsText = statsParts.join(' • ');
     
     const displayDescription = (file?.file_description && file.file_description.trim() !== '')
       ? `${file.file_description} | ${statsText}`
@@ -248,9 +257,50 @@ export const meta: MetaFunction<ReturnType<typeof loader>> = ({ data }: {data: a
   }
 }
 const index = () => {
+  const params = useParams();
+  const navigation = useNavigation();
+  const navigate = useNavigate();
+  const currentId = params.id;
+  
   const [playingVideos, setPlayingVideos] = useState<Set<number>>(new Set());
   const data = useLoaderData<typeof loader>();
   const file_data = data?.file;
+  const [views, setViews] = useState<number>(Number(file_data?.views || file_data?.view_count || 0));
+  const [shares, setShares] = useState<number>(Number(file_data?.shares || file_data?.share_count || 0));
+  const [hasIncrementedView, setHasIncrementedView] = useState(false);
+  const videoElementRef = useRef<HTMLVideoElement | null>(null);
+  
+  // Track previous ID to detect route changes
+  const prevIdRef = useRef<string | undefined>(currentId);
+  
+  // Reset all state when route ID changes
+  useEffect(() => {
+    if (prevIdRef.current && prevIdRef.current !== currentId) {
+      // Route changed - reset all state
+      setPlayingVideos(new Set());
+      setHasIncrementedView(false);
+      setRetryAttempt(0);
+      setImageUrl(null);
+      setImageColors(null);
+      setMadeImageUrl(null);
+      videoElementRef.current = null;
+      
+      // Scroll to top on route change
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+    prevIdRef.current = currentId;
+  }, [currentId]);
+  
+  // Update views and shares when new file data loads
+  useEffect(() => {
+    if (file_data) {
+      const newViews = Number(file_data.views || file_data.view_count || 0);
+      const newShares = Number(file_data.shares || file_data.share_count || 0);
+      
+      setViews(newViews);
+      setShares(newShares);
+    }
+  }, [file_data?.id, file_data?.views, file_data?.view_count, file_data?.shares, file_data?.share_count]);
 
   if (data?.accessDenied) {
     const getAccessDeniedMessage = () => {
@@ -317,6 +367,18 @@ const index = () => {
   }
 
   const isHLS = file_data?.file_type === 'application/vnd.apple.mpegurl' || file_data?.endpoint?.includes('.m3u8');
+  const isVideo = isHLS || file_data?.file_type?.includes('video');
+  const userId = ('userId' in data && data.userId) || null;
+
+  // Track watch time and watch percentage
+  // Only track if we have a valid file ID and it matches the current route
+  useWatchTracking({
+    fileId: file_data?.id || '',
+    userId: userId,
+    isVideo: isVideo,
+    videoElement: videoElementRef.current,
+    source: 'page_view',
+  });
 
   const [retryAttempt, setRetryAttempt] = useState<number>(0)
   const [imageUrl, setImageUrl] = useState<{ url: string, imageID: string } | null>(null)
@@ -332,13 +394,54 @@ const index = () => {
   }
 
   const relatedVideos = (data && 'relatedVideos' in data) ? data.relatedVideos : [];
+  
+  // Show loading state during navigation
+  const isNavigating = navigation.state === 'loading' && navigation.location?.pathname !== window.location.pathname;
+
+  // Increment views when component mounts or when file ID changes
+  useEffect(() => {
+    if (!file_data?.id || hasIncrementedView || !file_data?.unique_id) return;
+    
+    // Reset increment flag if file ID changed
+    if (prevIdRef.current !== currentId) {
+      setHasIncrementedView(false);
+    }
+
+    const incrementViews = async () => {
+      try {
+        const response = await fetch('/api/views/increment', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            fileId: file_data.id,
+            uniqueId: file_data.unique_id,
+          }),
+        });
+
+        if (response.ok) {
+          const result = await response.json();
+          if (result.success) {
+            setViews(result.views || result.view_count || views + 1);
+            setHasIncrementedView(true);
+          }
+        }
+      } catch (error) {
+        console.error('Error incrementing views:', error);
+        // Silently fail - don't show error to user
+      }
+    };
+
+    incrementViews();
+  }, [file_data?.id, file_data?.unique_id, currentId, hasIncrementedView, views]);
 
   return (
-    <div className="min-h-screen overflow-x-hidden">
+    <div className="min-h-screen overflow-x-hidden" key={`dynamic-${currentId}`}>
       <div className="mx-auto max-w-full xl:container py-8">
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           <div className="lg:col-span-2 space-y-4">
-            <motion.div layoutId={`video_id_${file_data.unique_id}`} className="relative w-full">
+            <motion.div layoutId={`video_id_${file_data.unique_id}`} className="relative w-full" key={`motion-${file_data.unique_id}-${currentId}`}>
               {file_data?.is_adult && (
                 <AdultContentBadge isPlaying={playingVideos.has(1)} className="top-3 left-3" />
               )}
@@ -360,7 +463,10 @@ const index = () => {
                       playsInline
                       imageID={file_data.unique_id}
                       file={file_data}
-                      key={file_data.unique_id}
+                      key={`hls-${file_data.unique_id}-${currentId}`}
+                      onVideoRef={(ref) => {
+                        videoElementRef.current = ref;
+                      }}
                       callBack={e => {
                         setImageColors(e.colors)
                         setMadeImageUrl(e.src)
@@ -417,6 +523,7 @@ const index = () => {
               <Separator />
 
               <UserAction 
+                key={`user-action-${file_data.id}-${currentId}`}
                 upCount={Number(file_data.up_count) || 0} 
                 downCount={Number(file_data.down_count) || 0}
                 fileId={file_data.id}
@@ -424,6 +531,22 @@ const index = () => {
                 initialDisliked={('userDisliked' in data && data.userDisliked) || false}
                 canDownload={('userId' in data && Boolean(data.userId))}
               />
+
+              <Separator />
+
+              {/* Views and Shares Count */}
+              <div className="flex items-center gap-6 text-sm text-muted-foreground">
+                <div className="flex items-center gap-2">
+                  <Eye className="w-4 h-4" />
+                  <span className="font-medium">{formatNumber(views)}</span>
+                  <span className="text-xs">views</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Share2 className="w-4 h-4" />
+                  <span className="font-medium">{formatNumber(shares)}</span>
+                  <span className="text-xs">shares</span>
+                </div>
+              </div>
 
               <Separator />
 
@@ -442,13 +565,18 @@ const index = () => {
 
               <Separator />
 
-              <CommentSection fileId={file_data.id} currentUserId={('userId' in data && data.userId) || undefined} />
+              <CommentSection 
+                key={`comments-${file_data.id}-${currentId}`}
+                fileId={file_data.id} 
+                currentUserId={('userId' in data && data.userId) || undefined} 
+              />
             </div>
           </div>
 
           <div className="lg:col-span-1">
             <div className="sticky top-6">
               <RelatedVideos 
+                key={`related-${file_data.unique_id}-${currentId}`}
                 videos={relatedVideos} 
                 currentVideoId={file_data.unique_id} 
                 currentUserId={('userId' in data && data.userId) || undefined}

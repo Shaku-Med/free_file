@@ -12,9 +12,7 @@ export type ContextProps = {
     isModalOpen: boolean;
     setIsModalOpen: (isModalOpen: boolean) => void;
     isLoading: boolean;
-    hasMore: boolean;
     observerRef: React.RefObject<HTMLDivElement> | null;
-    currentPage: number;
     loadMoreVideos: () => void;
     user_agent: string;
     userId: string | null;

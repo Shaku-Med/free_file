@@ -101,6 +101,7 @@ export const action = async ({ request }: { request: Request }) => {
     const title = formData.get('title') as string | null;
     const description = formData.get('description') as string | null;
     
+    // Validate required fields
     if (!file || !uniqueID || !title) {
       return new Response(JSON.stringify({ error: 'Invalid request' }), { 
         status: 400,
@@ -108,11 +109,62 @@ export const action = async ({ request }: { request: Request }) => {
       });
     }
 
+    // Validate file size (max 500MB)
+    const MAX_FILE_SIZE = 500 * 1024 * 1024; // 500MB
+    if (file.size > MAX_FILE_SIZE) {
+      return new Response(JSON.stringify({ error: 'File size exceeds maximum limit of 500MB' }), { 
+        status: 400,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+
+    // Validate uniqueID format
+    if (!/^[a-zA-Z0-9_-]{1,100}$/.test(uniqueID)) {
+      return new Response(JSON.stringify({ error: 'Invalid uniqueID format' }), { 
+        status: 400,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+
+    // Validate title length
+    if (title.length > 200) {
+      return new Response(JSON.stringify({ error: 'Title must be 200 characters or less' }), { 
+        status: 400,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+
+    // Validate description length
+    if (description && description.length > 5000) {
+      return new Response(JSON.stringify({ error: 'Description must be 5000 characters or less' }), { 
+        status: 400,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+
+    // Validate file type by MIME type
     const isImage = file.type.startsWith('image/');
     const isVideo = file.type.startsWith('video/');
 
     if (!isImage && !isVideo) {
       return new Response(JSON.stringify({ error: 'Unsupported file type. Only images and videos are allowed.' }), { 
+        status: 400,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+
+    // Additional validation: Check file extension matches MIME type
+    const fileName = file.name.toLowerCase();
+    const validImageExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp'];
+    const validVideoExtensions = ['.mp4', '.webm', '.mov', '.avi', '.mkv', '.m3u8'];
+    
+    const fileExtension = fileName.substring(fileName.lastIndexOf('.'));
+    const isValidExtension = isImage 
+      ? validImageExtensions.includes(fileExtension)
+      : validVideoExtensions.includes(fileExtension);
+
+    if (!isValidExtension) {
+      return new Response(JSON.stringify({ error: 'File extension does not match file type' }), { 
         status: 400,
         headers: { 'Content-Type': 'application/json' }
       });

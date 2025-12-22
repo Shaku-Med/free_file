@@ -17,25 +17,53 @@ try {
 }
 
 if (!db) {
-  const fallbackMethods = {
-    select: () => ({ data: null, error: new Error('Supabase client not initialized') }),
-    insert: () => ({ data: null, error: new Error('Supabase client not initialized') }),
-    update: () => ({ data: null, error: new Error('Supabase client not initialized') }),
-    delete: () => ({ data: null, error: new Error('Supabase client not initialized') }),
-    upsert: () => ({ data: null, error: new Error('Supabase client not initialized') }),
-    order: () => ({ 
-      limit: () => ({ data: null, error: new Error('Supabase client not initialized') }),
-      select: () => ({ data: null, error: new Error('Supabase client not initialized') })
-    }),
-    limit: () => ({ data: null, error: new Error('Supabase client not initialized') }),
-    range: () => ({ data: null, error: new Error('Supabase client not initialized') }),
-    single: () => ({ data: null, error: new Error('Supabase client not initialized') }),
-    maybeSingle: () => ({ data: null, error: new Error('Supabase client not initialized') }),
+  // Create a chainable fallback that supports method chaining
+  const createChainableFallback = () => {
+    const errorResponse = { data: null, error: new Error('Supabase client not initialized') };
+    const errorPromise = Promise.resolve(errorResponse);
+    
+    // Create a chainable object that supports all Supabase query methods
+    // The object itself is awaitable (thenable) and also has chainable methods
+    const createChainable = (): any => {
+      const chainable: any = {
+        // Chainable methods
+        select: () => createChainable(),
+        insert: () => createChainable(),
+        update: () => createChainable(),
+        delete: () => createChainable(),
+        upsert: () => createChainable(),
+        eq: () => createChainable(),
+        neq: () => createChainable(),
+        in: () => createChainable(),
+        not: () => createChainable(),
+        like: () => createChainable(),
+        ilike: () => createChainable(),
+        or: () => createChainable(),
+        order: () => createChainable(),
+        limit: () => createChainable(),
+        range: () => createChainable(),
+        is: () => createChainable(),
+        gte: () => createChainable(),
+        lte: () => createChainable(),
+        // Terminal methods that return promises
+        single: () => errorPromise,
+        maybeSingle: () => errorPromise,
+      };
+      
+      // Make the chainable object itself awaitable (thenable)
+      chainable.then = errorPromise.then.bind(errorPromise);
+      chainable.catch = errorPromise.catch.bind(errorPromise);
+      chainable.finally = errorPromise.finally?.bind(errorPromise);
+      
+      return chainable;
+    };
+    
+    return createChainable();
   };
 
   db = {
-    from: () => fallbackMethods,
-    rpc: () => ({ data: null, error: new Error('Supabase client not initialized') }),
+    from: () => createChainableFallback(),
+    rpc: () => Promise.resolve({ data: null, error: new Error('Supabase client not initialized') }),
   };
 }
 
