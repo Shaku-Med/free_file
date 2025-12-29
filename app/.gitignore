@@ -7,3 +7,9 @@
 /build/
 
 .env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+/app/upload/
+/app/temp/

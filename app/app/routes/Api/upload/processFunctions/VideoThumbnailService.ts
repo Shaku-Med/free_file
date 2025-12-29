@@ -7,6 +7,7 @@ import { randomUUID } from 'crypto';
 export interface ThumbnailResult {
   success: boolean;
   thumbnails?: { buffer: Buffer; timeOffset: number }[];
+  duration?: number;
   error?: string;
 }
 
@@ -64,7 +65,8 @@ export class VideoThumbnailService {
 
       return {
         success: true,
-        thumbnails
+        thumbnails,
+        duration
       };
     } catch (error) {
       await unlink(tempVideoPath).catch(() => {});

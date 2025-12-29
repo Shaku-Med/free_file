@@ -9,6 +9,8 @@ export interface FileUploadData {
   title?: string;
   description?: string;
   ownerId?: string;
+  durationSeconds?: number;
+  isReel?: boolean;
 }
 
 export interface FileRecord {
@@ -121,6 +123,14 @@ export class FileService {
 
         if (fileData.ownerId) {
           insertData.owner_id = fileData.ownerId;
+        }
+
+        if (typeof fileData.durationSeconds === 'number' && Number.isFinite(fileData.durationSeconds) && fileData.durationSeconds >= 0) {
+          insertData.duration = fileData.durationSeconds;
+        }
+
+        if (typeof fileData.isReel === 'boolean') {
+          insertData.is_reel = fileData.isReel;
         }
 
         const { data, error } = await db

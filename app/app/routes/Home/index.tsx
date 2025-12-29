@@ -14,7 +14,7 @@ export default function PhotoDashboard() {
       {
         files.length > 0 ? (
             <>
-              <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-5 gap-2">
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-2">
                   {files.map((file, index) => (
                     <VideoCard key={index || 0} data={file as FileType} index={index || 0} currentUserId={userId || undefined} userActions={userActions} />
                   ))}

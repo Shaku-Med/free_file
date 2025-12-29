@@ -120,6 +120,7 @@ export class UploadWorker {
 
       let isAdult: boolean | undefined = undefined;
       let videoThumbnails: { buffer: Buffer; timeOffset: number }[] | undefined = undefined;
+      let durationSeconds: number | undefined = undefined;
 
       if (isImage) {
         await job.updateProgress(30);
@@ -133,6 +134,9 @@ export class UploadWorker {
         
         if (thumbnailResult.success && thumbnailResult.thumbnails) {
           videoThumbnails = thumbnailResult.thumbnails;
+          if (typeof thumbnailResult.duration === 'number' && Number.isFinite(thumbnailResult.duration) && thumbnailResult.duration > 0) {
+            durationSeconds = Math.round(thumbnailResult.duration);
+          }
           await job.updateProgress(45);
           
           isAdult = false;
@@ -223,6 +227,11 @@ export class UploadWorker {
         const m3u8Blob = new Blob([m3u8Content], { type: 'application/vnd.apple.mpegurl' });
         const m3u8File = new File([m3u8Blob], `${uniqueID}.m3u8`, { type: 'application/vnd.apple.mpegurl' });
 
+        const safeDurationSeconds = typeof durationSeconds === 'number' && Number.isFinite(durationSeconds) && durationSeconds > 0
+          ? Math.min(durationSeconds, 24 * 60 * 60)
+          : undefined;
+        const isReel = typeof safeDurationSeconds === 'number' && safeDurationSeconds > 0 && safeDurationSeconds <= 60;
+
         const m3u8UploadResult = await this.fileService.uploadFile({
           file: m3u8File,
           uniqueID,
@@ -230,7 +239,9 @@ export class UploadWorker {
           isAdult,
           title,
           description,
-          ownerId
+          ownerId,
+          durationSeconds: safeDurationSeconds,
+          isReel
         });
 
         if (!m3u8UploadResult.success) {

@@ -34,6 +34,7 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
   const [jobId, setJobId] = useState<string | null>(null)
   const [title, setTitle] = useState("")
   const [description, setDescription] = useState("")
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null)
 
   useEffect(() => {
     if (isOpen && !userId) {
@@ -42,10 +43,35 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
     }
   }, [isOpen, userId, onClose, navigate])
 
+  useEffect(() => {
+    if (selectedFile && isOpen) {
+      if (!previewUrl) {
+        const url = URL.createObjectURL(selectedFile)
+        setPreviewUrl(url)
+      }
+    }
+    if (!selectedFile && previewUrl) {
+      URL.revokeObjectURL(previewUrl)
+      setPreviewUrl(null)
+    }
+  }, [selectedFile, isOpen])
+
+  useEffect(() => {
+    return () => {
+      if (previewUrl) {
+        URL.revokeObjectURL(previewUrl)
+      }
+    }
+  }, [previewUrl])
+
   const effectiveMaxSize = maxFileSizeBytes ?? 40 * 1024 * 1024
 
   const resetState = () => {
+    if (previewUrl) {
+      URL.revokeObjectURL(previewUrl)
+    }
     setSelectedFile(null)
+    setPreviewUrl(null)
     setError(null)
     setStatus("idle")
     setProgress(0)
@@ -90,6 +116,10 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
     setStatus("idle")
     setProgress(0)
     setStatusText(null)
+    const baseName = file.name.replace(/\.[^./\\]+$/, "")
+    if (!title) {
+      setTitle(baseName.slice(0, 200))
+    }
   }
 
   const handleUpload = async () => {
@@ -178,14 +208,8 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
               setStatus("success")
               setStatusText("Processing complete.")
               setTimeout(() => {
-                setSelectedFile(null)
-                setTitle("")
-                setDescription("")
-                setStatus("idle")
-                setProgress(0)
-                setStatusText(null)
-                setJobId(null)
-                setError(null)
+                resetState()
+                onClose()
               }, 2000)
               break
             }
@@ -205,14 +229,8 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
         setStatus("success")
         setStatusText("Upload complete.")
         setTimeout(() => {
-          setSelectedFile(null)
-          setTitle("")
-          setDescription("")
-          setStatus("idle")
-          setProgress(0)
-          setStatusText(null)
-          setJobId(null)
-          setError(null)
+          resetState()
+          onClose()
         }, 2000)
       }
       onFilesSelected([selectedFile])
@@ -227,7 +245,11 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
     if (status === "uploading") {
       return
     }
-    resetState()
+    setError(null)
+    setStatus("idle")
+    setProgress(0)
+    setStatusText(null)
+    setJobId(null)
     onClose()
   }
 
@@ -248,40 +270,67 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
           </DialogDescription>
         </DialogHeader>
         <div className="px-6 pb-4 space-y-4">
-          <div className="border border-dashed rounded-2xl p-6 text-center cursor-pointer hover:border-primary/60 transition-colors">
-            <div className="flex items-center justify-center mb-4">
-              <div className="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center">
-                {renderFileIcon()}
+          {previewUrl && selectedFile ? (
+            <div className="border border-border rounded-2xl overflow-hidden bg-muted/50">
+              {selectedFile.type.startsWith("image/") ? (
+                <div className="relative w-full aspect-video bg-muted flex items-center justify-center">
+                  <img
+                    src={previewUrl}
+                    alt="Preview"
+                    className="w-full h-full object-contain"
+                  />
+                </div>
+              ) : selectedFile.type.startsWith("video/") ? (
+                <div className="relative w-full aspect-video bg-black">
+                  <video
+                    src={previewUrl}
+                    controls
+                    className="w-full h-full object-contain"
+                    preload="metadata"
+                  />
+                </div>
+              ) : null}
+              <div className="p-3 border-t border-border">
+                <p className="text-xs font-medium text-foreground truncate">{selectedFile.name}</p>
+                <p className="text-xs text-muted-foreground">{formatBytes(selectedFile.size)}</p>
               </div>
             </div>
-            <p className="text-sm font-medium mb-1">
-              {selectedFile ? selectedFile.name : "Choose an image or video file"}
-            </p>
-            <p className="text-xs text-muted-foreground mb-4">
-              Max size {formatBytes(effectiveMaxSize)}. Allowed types: image/*, video/*.
-            </p>
-            <Button
-              type="button"
-              variant="outline"
-              className="rounded-full px-6"
-              onClick={() => {
-                const input = document.createElement("input")
-                input.type = "file"
-                input.accept = "image/*,video/*"
-                input.onchange = (e) => {
-                  const target = e.target as HTMLInputElement
-                  handleFileChange(target.files)
-                  if (document.body.contains(input)) {
-                    document.body.removeChild(input)
-                  }
+          ) : (
+            <div className="border border-dashed rounded-2xl p-6 text-center cursor-pointer hover:border-primary/60 transition-colors">
+              <div className="flex items-center justify-center mb-4">
+                <div className="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center">
+                  {renderFileIcon()}
+                </div>
+              </div>
+              <p className="text-sm font-medium mb-1">
+                Choose an image or video file
+              </p>
+              <p className="text-xs text-muted-foreground mb-4">
+                Max size {formatBytes(effectiveMaxSize)}. Allowed types: image/*, video/*.
+              </p>
+            </div>
+          )}
+          <Button
+            type="button"
+            variant="outline"
+            className="w-full rounded-full"
+            onClick={() => {
+              const input = document.createElement("input")
+              input.type = "file"
+              input.accept = "image/*,video/*"
+              input.onchange = (e) => {
+                const target = e.target as HTMLInputElement
+                handleFileChange(target.files)
+                if (document.body.contains(input)) {
+                  document.body.removeChild(input)
                 }
-                document.body.appendChild(input)
-                input.click()
-              }}
-            >
-              {selectedFile ? "Change file" : "Browse files"}
-            </Button>
-          </div>
+              }
+              document.body.appendChild(input)
+              input.click()
+            }}
+          >
+            {selectedFile ? "Change file" : "Browse files"}
+          </Button>
           <div className="space-y-3 text-left">
             <div className="space-y-1">
               <p className="text-xs font-medium text-foreground">Title</p>
