@@ -118,7 +118,7 @@ async function processVideoWithFFmpeg(
       '-threads', cpuThreads.toString(),
       '-i', inputPath,
       '-c:v', config.encoder,
-      '-preset', useGPU ? 'p1' : 'ultrafast',
+      '-preset', useGPU ? 'p1' : 'fast',
       '-tune', useGPU ? 'zerolatency' : 'fastdecode',
       '-c:a', 'aac',
       '-b:a', '128k',
