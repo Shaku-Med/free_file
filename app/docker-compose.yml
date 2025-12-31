@@ -15,8 +15,41 @@ services:
       interval: 10s
       timeout: 3s
       retries: 3
+    networks:
+      - app-network
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: free-file-app
+    ports:
+      - "3000:3000"
+    environment:
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      # Add other environment variables from your .env file
+      # Or use env_file to load from .env
+    env_file:
+      - .env  # Make sure .env file exists
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3000/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
 
 volumes:
   redis-data:
     driver: local
+
+networks:
+  app-network:
+    driver: bridge
 

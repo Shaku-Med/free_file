@@ -9,6 +9,8 @@ import { existsSync } from 'fs';
 import { join } from 'path';
 import { randomUUID } from 'crypto';
 import db from '~/lib/Database/supabase';
+import { reassembleChunks } from './chunking';
+import type { ChunkInfo } from './chunking';
 
 interface UploadJobData {
   file: {
@@ -21,6 +23,7 @@ interface UploadJobData {
   title: string;
   description?: string;
   ownerId?: string;
+  chunks?: ChunkInfo[];
 }
 
 interface ProcessResult {
@@ -96,17 +99,30 @@ export class UploadWorker {
       await job.updateProgress(10);
       await this.fileService.initialize();
 
-      const { file, uniqueID, title, description, ownerId } = job.data;
+      const { file, uniqueID, title, description, ownerId, chunks } = job.data;
       
-      if (!existsSync(file.filePath)) {
-        return {
-          success: false,
-          error: 'File not found at specified path'
-        };
-      }
+      let fileBuffer: Buffer;
+      let actualFilePath: string;
 
-      const fileBuffer = await readFile(file.filePath);
-      tempFilesToCleanup.push(file.filePath);
+      if (chunks && chunks.length > 0) {
+        actualFilePath = join(tempDir, `reassembled_${uniqueID}_${randomUUID()}`);
+        await reassembleChunks(chunks, actualFilePath);
+        fileBuffer = await readFile(actualFilePath);
+        tempFilesToCleanup.push(actualFilePath);
+        for (const chunk of chunks) {
+          tempFilesToCleanup.push(chunk.filePath);
+        }
+      } else {
+        if (!existsSync(file.filePath)) {
+          return {
+            success: false,
+            error: 'File not found at specified path'
+          };
+        }
+        actualFilePath = file.filePath;
+        fileBuffer = await readFile(file.filePath);
+        tempFilesToCleanup.push(file.filePath);
+      }
       
       const isImage = file.mimeType.startsWith('image/');
       const isVideo = file.mimeType.startsWith('video/');
@@ -203,7 +219,6 @@ export class UploadWorker {
         const outputPath = join(tempDir, `output_${uniqueID}_${randomUUID()}.m3u8`);
         
         tempFilesToCleanup.push(inputPath);
-
         await writeFile(inputPath, fileBuffer);
 
         const hlsResult = await processVideoToHLS(inputPath, outputPath, 'medium');

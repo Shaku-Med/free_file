@@ -1,4 +1,5 @@
 import { Queue } from 'bullmq';
+import type { ChunkInfo } from './chunking';
 
 interface UploadJobData {
   file: {
@@ -11,6 +12,7 @@ interface UploadJobData {
   title: string;
   description?: string;
   ownerId?: string;
+  chunks?: ChunkInfo[];
 }
 
 export class UploadQueue {

@@ -1,4 +1,5 @@
 import React, { useEffect, useLayoutEffect, useState } from 'react'
+import { useInView } from 'react-intersection-observer'
 import type { FileType } from '~/lib/types'
 import { cn } from '~/lib/utils'
 import { Loader2, LoaderCircle } from 'lucide-react'
@@ -22,8 +23,15 @@ interface ImageLoadProps {
 const ImageLoad = ({link, className, imageID, index, retry, callBack, quality, hasAdultTag }: ImageLoadProps) => {
     const [src, setSrc] = useState<string | null | boolean>(null)
     const [loaded, setLoaded] = useState<boolean>(false)
+    const { ref, inView } = useInView({
+        threshold: 0,
+        triggerOnce: false,
+        rootMargin: '50px' // Start loading 50px before entering viewport
+    })
 
     useLayoutEffect(() => {
+        if (!inView || !link) return
+
         let fetchImage = async () => {
             if(!link) return
             let videoTypes = [`.mp4`, `.mov`, `.m4v`, `.avi`, `.wmv`, `.flv`, `.webm`, `.mkv`, `.m3u8`, `.ts`]
@@ -48,7 +56,7 @@ const ImageLoad = ({link, className, imageID, index, retry, callBack, quality, h
                 }
             }
 
-            await new Promise(resolve => setTimeout(resolve, 100 * (index || 0)))
+            // await new Promise(resolve => setTimeout(resolve, 100 * (index || 0)))
             
             let response = await fetch(link)
             if(!response.ok) {
@@ -81,13 +89,11 @@ const ImageLoad = ({link, className, imageID, index, retry, callBack, quality, h
                 retry()
             }
         }
-        if(link) {
-            fetchImage()
-        }
-    }, [link, imageID, index])
+        fetchImage()
+    }, [inView, link, imageID, index, quality, retry])
 
     useEffect(() => {
-        if(src && typeof src === 'string' && callBack) {
+        if(src && typeof src === 'string' && callBack && inView) {
             let CLBK = async () => {
                 let colors = await getImageColorsHEX({src: src as string})
                 callBack && callBack({
@@ -97,10 +103,10 @@ const ImageLoad = ({link, className, imageID, index, retry, callBack, quality, h
             }
             CLBK()
         }
-    }, [src])
+    }, [src, inView, callBack])
 
     return (
-        <>
+        <div ref={ref} className={cn("w-full h-full relative", className)}>
             {
                 src ? (
                     <>
@@ -135,7 +141,7 @@ const ImageLoad = ({link, className, imageID, index, retry, callBack, quality, h
                     </div>
                 )
             }
-        </>
+        </div>
     )
 }
 

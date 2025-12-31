@@ -1,0 +1,6 @@
+# Ignore actual secret files (keep templates)
+secret.yaml
+*.secret.yaml
+
+# Keep template files
+!secret.yaml.template

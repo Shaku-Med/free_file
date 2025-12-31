@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: app-config
+  namespace: free-file
+data:
+  # Add your non-sensitive configuration here
+  # Example:
+  # NODE_ENV: "production"
+  # REDIS_HOST: "redis"
+  # REDIS_PORT: "6379"

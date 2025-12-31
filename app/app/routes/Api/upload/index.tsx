@@ -7,7 +7,9 @@ import { writeFile, mkdir, unlink } from 'fs/promises';
 import { existsSync } from 'fs';
 import { join } from 'path';
 import { randomUUID } from 'crypto';
-import * as crypto from 'crypto'
+import * as crypto from 'crypto';
+import { chunkFile } from './processFunctions/chunking';
+import type { ChunkInfo } from './processFunctions/chunking';
 
 if (typeof process !== 'undefined') {
   try {
@@ -188,9 +190,19 @@ export const action = async ({ request }: { request: Request }) => {
       });
     }
 
-    const filePath = join(tempDir, `upload_${uniqueID}_${randomUUID()}`);
     const fileBuffer = Buffer.from(await file.arrayBuffer());
-    await writeFile(filePath, fileBuffer);
+    const chunkResult = await chunkFile(fileBuffer, uniqueID, tempDir);
+    
+    let filePath: string;
+    let chunks: ChunkInfo[] | undefined;
+
+    if (chunkResult.isChunked && chunkResult.chunks.length > 0) {
+      chunks = chunkResult.chunks;
+      filePath = join(tempDir, `upload_${uniqueID}_${randomUUID()}_chunked`);
+    } else {
+      filePath = join(tempDir, `upload_${uniqueID}_${randomUUID()}`);
+      await writeFile(filePath, fileBuffer);
+    }
 
     const jobId = await uploadQueue.addJob({
       file: {
@@ -202,11 +214,18 @@ export const action = async ({ request }: { request: Request }) => {
       uniqueID,
       title,
       description: description || undefined,
-      ownerId
+      ownerId,
+      chunks: chunks
     });
 
     if (!jobId) {
-      await unlink(filePath).catch(() => {});
+      if (chunks) {
+        for (const chunk of chunks) {
+          await unlink(chunk.filePath).catch(() => {});
+        }
+      } else {
+        await unlink(filePath).catch(() => {});
+      }
       return new Response(JSON.stringify({ error: 'Failed to queue upload' }), { 
         status: 500,
         headers: { 'Content-Type': 'application/json' }

@@ -262,7 +262,7 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
 
   return (
     <Dialog open={isOpen} onOpenChange={handleClose}>
-      <DialogContent className="max-w-md w-full rounded-2xl p-0 overflow-hidden">
+      <DialogContent className=" w-full rounded-2xl p-0 overflow-hidden md:min-w-2xl max-w-lg">
         <DialogHeader className="px-6 pt-6 pb-3">
           <DialogTitle className="text-lg font-semibold text-center">Add Media</DialogTitle>
           <DialogDescription className="text-center text-sm text-muted-foreground">
@@ -291,7 +291,9 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
                 </div>
               ) : null}
               <div className="p-3 border-t border-border">
-                <p className="text-xs font-medium text-foreground truncate">{selectedFile.name}</p>
+                <p className="text-xs font-medium text-foreground truncate">{
+                  selectedFile.name.length > 20 ? selectedFile.name.slice(0, 20) + "..." : selectedFile.name
+                  }</p>
                 <p className="text-xs text-muted-foreground">{formatBytes(selectedFile.size)}</p>
               </div>
             </div>

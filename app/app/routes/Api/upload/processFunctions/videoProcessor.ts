@@ -1,6 +1,6 @@
 import { spawn } from 'child_process';
 import { existsSync } from 'fs';
-import { platform } from 'os';
+import { platform, cpus } from 'os';
 import { join, dirname } from 'path';
 
 interface ProcessingOptions {
@@ -94,6 +94,11 @@ function getQualitySettings(quality: 'low' | 'medium' | 'high' = 'medium') {
   }
 }
 
+function getCpuThreads(): number {
+  const cpuCount = cpus().length;
+  return Math.max(1, Math.floor(cpuCount * 0.5));
+}
+
 async function processVideoWithFFmpeg(
   inputPath: string,
   outputPath: string,
@@ -106,12 +111,15 @@ async function processVideoWithFFmpeg(
   return new Promise((resolve) => {
     const config = getEncodingConfig(useGPU);
     const qualitySettings = getQualitySettings(options.quality);
+    const cpuThreads = getCpuThreads();
 
     const args = [
       ...config.hwaccel,
+      '-threads', cpuThreads.toString(),
       '-i', inputPath,
       '-c:v', config.encoder,
-      '-preset', useGPU ? 'fast' : 'medium',
+      '-preset', useGPU ? 'p1' : 'ultrafast',
+      '-tune', useGPU ? 'zerolatency' : 'fastdecode',
       '-c:a', 'aac',
       '-b:a', '128k',
       ...qualitySettings
@@ -133,8 +141,21 @@ async function processVideoWithFFmpeg(
     args.push('-y', outputPath);
 
     const ffmpeg = spawn('ffmpeg', args, {
-      stdio: ['ignore', 'pipe', 'pipe']
+      stdio: ['ignore', 'pipe', 'pipe'],
+      windowsHide: true,
+      detached: false
     });
+    
+    if (process.platform === 'win32') {
+      try {
+        const { exec } = require('child_process');
+        exec(`wmic process where processid=${ffmpeg.pid} CALL setpriority "below normal"`, () => {});
+      } catch {}
+    } else {
+      try {
+        ffmpeg.unref();
+      } catch {}
+    }
 
     let stderr = '';
     let stdout = '';

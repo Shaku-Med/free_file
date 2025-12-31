@@ -1,0 +1,28 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: free-file-ingress
+  namespace: free-file
+  annotations:
+    # For NGINX Ingress Controller
+    nginx.ingress.kubernetes.io/rewrite-target: /
+    # For SSL/TLS (uncomment and configure)
+    # cert-manager.io/cluster-issuer: "letsencrypt-prod"
+spec:
+  ingressClassName: nginx  # Change to match your ingress controller
+  rules:
+  - host: your-domain.com  # Change to your actual domain
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: free-file-app
+            port:
+              number: 80
+  # Uncomment for TLS/SSL
+  # tls:
+  # - hosts:
+  #   - your-domain.com
+  #   secretName: free-file-tls

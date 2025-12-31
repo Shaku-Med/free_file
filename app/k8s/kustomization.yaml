@@ -1,0 +1,21 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: free-file
+
+resources:
+  - namespace.yaml
+  - redis/deployment.yaml
+  - redis/service.yaml
+  - redis/pvc.yaml
+  - app/deployment.yaml
+  - app/service.yaml
+  - app/configmap.yaml
+  - app/secret.yaml.template
+  - ingress.yaml
+
+# Uncomment to use images from a registry
+# images:
+# - name: free-file-app
+#   newName: your-registry.io/free-file-app
+#   newTag: v1.0.0
