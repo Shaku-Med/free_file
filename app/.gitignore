@@ -1,7 +1,8 @@
 .DS_Store
 .env
 /node_modules/
-
+node_modules
+node_modules/
 # React Router
 /.react-router/
 /build/
@@ -11,9 +12,6 @@
 .env.test.local
 .env.production.local
 
-/app/upload/
-/app/temp/
-
 temp
 uploads
-upload
+/upload
