@@ -1,5 +1,5 @@
 import { Queue } from 'bullmq';
-import type { ChunkInfo } from './chunking';
+import type { ChunkInfo } from './chunking.js';
 
 interface UploadJobData {
   file: {

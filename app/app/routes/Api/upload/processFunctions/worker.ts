@@ -9,8 +9,8 @@ import { existsSync } from 'fs';
 import { join } from 'path';
 import { randomUUID } from 'crypto';
 import db from '~/lib/Database/supabase';
-import { reassembleChunks } from './chunking';
-import type { ChunkInfo } from './chunking';
+import { reassembleChunks } from './chunking.js';
+import type { ChunkInfo } from './chunking.js';
 
 interface UploadJobData {
   file: {
