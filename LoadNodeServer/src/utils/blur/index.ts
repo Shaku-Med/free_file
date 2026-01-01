@@ -3,4 +3,4 @@
  * Exports blur processing functions for obscuring sensitive content
  */
 
-export { applyHeavyBlur } from './blurProcessor';
+export { applyHeavyBlur } from './blurProcessor.js';
