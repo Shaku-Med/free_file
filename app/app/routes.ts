@@ -41,6 +41,7 @@ export default [
         route(`trending`, 'routes/Api/trending/index.tsx'),
         route(`feed`, 'routes/Api/feed/index.tsx'),
         route(`views/increment`, 'routes/Api/views/increment.tsx'),
+        route(`server-env`, 'routes/Api/server-env/index.tsx'),
     ]),
     route(`:id`, 'routes/Dynamic/layout.tsx', [
         index('routes/Dynamic/index.tsx'),
@@ -61,4 +62,7 @@ export default [
     ]),
     route(`logout`, 'routes/Auth/Logout/index.tsx'),
     route(`profile/:username`, 'routes/Profile/index.tsx'),
+    route(`reel`, 'routes/reel/layout.tsx', [
+        index('routes/reel/index.tsx'),
+    ]),
 ] satisfies RouteConfig;

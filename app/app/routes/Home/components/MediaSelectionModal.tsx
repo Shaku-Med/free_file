@@ -266,7 +266,7 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
         <DialogHeader className="px-6 pt-6 pb-3">
           <DialogTitle className="text-lg font-semibold text-center">Add Media</DialogTitle>
           <DialogDescription className="text-center text-sm text-muted-foreground">
-            Upload a single image or video file. Guests can upload up to 40MB, signed-in users up to 400MB.
+            Upload up to {formatBytes(effectiveMaxSize)} of media.
           </DialogDescription>
         </DialogHeader>
         <div className="px-6 pb-4 space-y-4">

@@ -13,6 +13,7 @@ import {
   ChevronDown,
   Shield,
   Star,
+  Play,
 } from "lucide-react"
 import {
   Sidebar,
@@ -44,6 +45,11 @@ const menuItems = [
     href: "/",
   },
   {
+    title: "Reels",
+    icon: Play,
+    href: "/reel",
+  },
+  {
     title: "Search",
     icon: Search,
     href: "/search",
@@ -62,7 +68,7 @@ const menuItems = [
     title: "Incoming Features List",
     icon: Star,
     href: "/features/incoming",
-  }
+  },
 ]
 
 export function AppSidebar() {

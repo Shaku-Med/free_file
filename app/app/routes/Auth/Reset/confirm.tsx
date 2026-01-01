@@ -8,6 +8,8 @@ import db from '~/lib/Database/supabase';
 import { isAuthenticated } from '~/lib/Security/Password';
 import { sendPasswordResetNotification } from '../fun/email';
 import { validatePasswordStrength, constantTimeDelay } from '../fun/validation';
+import { validateResetToken, markResetTokenAsUsed } from '../fun/verification';
+import crypto from 'crypto';
 
 export const loader = async ({ request }: { request: Request }) => {
   const is_auth = await isAuthenticated(request);
@@ -16,14 +18,18 @@ export const loader = async ({ request }: { request: Request }) => {
   }
 
   const url = new URL(request.url);
-  const userId = url.searchParams.get('userId');
-  const email = url.searchParams.get('email');
+  const token = url.searchParams.get('token');
 
-  if (!userId || !email) {
+  if (!token) {
     return redirect('/auth/reset');
   }
 
-  return data({ userId, email });
+  const tokenData = await validateResetToken(token, request.headers);
+  if (!tokenData) {
+    return redirect('/auth/reset');
+  }
+
+  return data({ userId: tokenData.userId, email: tokenData.email, token });
 };
 
 export const action = async ({ request }: { request: Request }) => {
@@ -31,10 +37,16 @@ export const action = async ({ request }: { request: Request }) => {
     const formData = await request.formData();
     const password = formData.get('password') as string;
     const confirmPassword = formData.get('confirmPassword') as string;
-    const userId = formData.get('userId') as string;
+    const token = formData.get('token') as string;
 
-    if (!password || !confirmPassword) {
+    if (!password || !confirmPassword || !token) {
       return data({ error: 'All fields are required' }, { status: 400 });
+    }
+
+    const tokenData = await validateResetToken(token, request.headers);
+    if (!tokenData) {
+      await constantTimeDelay();
+      return data({ error: 'Invalid or expired reset link. Please request a new password reset.' }, { status: 400 });
     }
 
     if (!db) {
@@ -44,7 +56,7 @@ export const action = async ({ request }: { request: Request }) => {
     const { data: user, error: userError } = await db
       .from('users')
       .select('is_memories')
-      .eq('id', userId)
+      .eq('id', tokenData.userId)
       .maybeSingle();
 
     if (userError || !user) {
@@ -78,7 +90,7 @@ export const action = async ({ request }: { request: Request }) => {
     const { error } = await db
       .from('passwords')
       .upsert({
-        id: userId,
+        id: tokenData.userId,
         password: passwordHash,
         updated_at: new Date().toISOString()
       }, {
@@ -87,14 +99,27 @@ export const action = async ({ request }: { request: Request }) => {
 
     if (error) {
       console.error('Error updating password:', error);
-      return data({ error: 'Failed to update password' }, { status: 500 });
+      return data({ error: 'An error occurred. Please try again later.' }, { status: 500 });
+    }
+
+    const newC_usr = crypto.randomUUID();
+    const { error: cUserError } = await db
+      .from('users')
+      .update({ c_usr: newC_usr })
+      .eq('id', tokenData.userId);
+
+    if (cUserError) {
+      console.error('Error updating c_usr:', cUserError);
+      return data({ error: 'An error occurred. Please try again later.' }, { status: 500 });
     }
 
     const { data: userData } = await db
       .from('users')
       .select('email')
-      .eq('id', userId)
+      .eq('id', tokenData.userId)
       .maybeSingle();
+
+    await markResetTokenAsUsed(tokenData.userId);
 
     if (userData?.email) {
       await sendPasswordResetNotification(userData.email, request);
@@ -126,7 +151,7 @@ const ResetConfirm = () => {
         </CardHeader>
         <CardContent>
           <form method="post" className="space-y-4">
-            <input type="hidden" name="userId" value={loaderData.userId} />
+            <input type="hidden" name="token" value={loaderData.token} />
 
             {actionData?.error && (
               <div className="p-3 text-sm text-destructive bg-destructive/10 border border-destructive/20 rounded-md">

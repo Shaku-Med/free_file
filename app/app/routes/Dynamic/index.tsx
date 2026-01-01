@@ -25,7 +25,7 @@ import { userActionsService } from "~/lib/Services/UserActionsService";
 import DownloadButton from "./components/DownloadButton";
 import { formatNumber } from "~/lib/utils/formatNumber";
 import { useWatchTracking } from "~/lib/hooks/useWatchTracking";
-
+import { IMAGE_BASE_URL } from "~/lib/URLS";
 
 export const loader = async ({ request, params }: { request: Request, params: { id: string } }) => {
   try {

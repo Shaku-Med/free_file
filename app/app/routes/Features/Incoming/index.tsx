@@ -7,6 +7,11 @@ const features = [
     fulfilled: false
   },
   {
+    title: `Realtime end-to-end encrypted private chat.`,
+    description: 'Chat with your friends and family in real-time.',
+    fulfilled: false
+  },
+  {
     title: 'AI-assisted scripting',
     description: 'Generate polished video scripts from briefs and adjust tone in one click.',
     fulfilled: false
@@ -29,13 +34,8 @@ const features = [
   {
     title: `Commenting system`,
     description: 'Comment on videos and images.',
-    fulfilled: false
+    fulfilled: true
   },
-  {
-    title: `Realtime end-to-end encrypted private chat.`,
-    description: 'Chat with your friends and family in real-time.',
-    fulfilled: false
-  }
 ]
 
 const Index = () => {

@@ -5,6 +5,7 @@ import { cn } from '~/lib/utils'
 import { Loader2, LoaderCircle } from 'lucide-react'
 import { getImageBlob, hasImageBlob, storeImageBlob } from './IndexDb'
 import { getImageColorsHEX } from './Canvas/Functions'
+import { IMAGE_BASE_URL } from '~/lib/URLS'
 
 interface CallBackProps {
     src: string
@@ -58,7 +59,7 @@ const ImageLoad = ({link, className, imageID, index, retry, callBack, quality, h
 
             // await new Promise(resolve => setTimeout(resolve, 100 * (index || 0)))
             
-            let response = await fetch(link)
+            let response = await fetch(`${IMAGE_BASE_URL}${link}`)
             if(!response.ok) {
                 retry()
                 return

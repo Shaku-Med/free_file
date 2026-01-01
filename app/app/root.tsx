@@ -31,6 +31,7 @@ import { SidebarProvider, SidebarInset, SidebarTrigger } from "./components/ui/s
 import { AppSidebar } from "./components/Navbar/components/Sidebar";
 import ScrollRestoration from "./lib/Context/ScrollRestoration";
 import BodyComponent from "./components/Navbar/components/BodyComponent";
+import BottomPlayer from "./components/BottomPlayer";
 
 export const links: Route.LinksFunction = () => [
   { rel: "preconnect", href: "https://fonts.googleapis.com" },
@@ -294,12 +295,12 @@ export function Layout({ children }: { children: React.ReactNode }) {
         <Meta />
         <Links />
       </head>
-      <body className={`lg:flex block fixed top-0 left-0 w-full h-full`}>
+      <body className={`flex flex-col fixed top-0 left-0 w-full h-full`}>
         <ErrorBoundary>
           <ContextProvider f={files} st={st} user_agent={user_agent || ''} userId={userId || null} userActions={userActionsSet}>
             <LikeProvider>
               <PictureInPictureProvider>
-                <SidebarProvider className={`w-full h-full`}>
+                <SidebarProvider className={`w-full h-full flex-1 min-h-0`}>
                   <AppSidebar />
                   <SidebarInset className={`w-full h-full`}>
                       <BodyComponent>

@@ -3,7 +3,7 @@ import { data, redirect, useActionData, useLoaderData, useNavigation, useSearchP
 import { Button } from '~/components/ui/button';
 import { Input } from '~/components/ui/input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '~/components/ui/card';
-import { getVerificationRecord, verifyCode, isVerificationCodeExpired, deleteVerificationRecord } from '../fun/verification';
+import { getVerificationRecord, verifyCode, isVerificationCodeExpired, deleteVerificationRecord, generateResetToken } from '../fun/verification';
 import { resendVerificationCode } from '../fun/auth';
 import db from '~/lib/Database/supabase';
 import { isAuthenticated } from '~/lib/Security/Password';
@@ -123,7 +123,11 @@ export const action = async ({ request }: { request: Request }) => {
     }
 
     if (type === 'reset') {
-      return redirect(`/auth/reset/confirm?userId=${userId}&email=${encodeURIComponent(email)}`);
+      const resetToken = await generateResetToken(userId, email, request.headers);
+      if (!resetToken) {
+        return data({ error: 'An error occurred. Please try again later.' }, { status: 500 });
+      }
+      return redirect(`/auth/reset/confirm?token=${encodeURIComponent(resetToken)}`);
     }
 
     return redirect('/auth/login?verified=true');

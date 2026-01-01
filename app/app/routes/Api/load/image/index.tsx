@@ -2,6 +2,18 @@ import { createCanvas, loadImage } from 'canvas';
 import db from '~/lib/Database/supabase';
 import { canAccessFile } from '~/routes/Api/fun/accessControl';
 
+let sharpModule: any = null;
+const getSharp = async () => {
+    if (sharpModule !== null) return sharpModule;
+    try {
+        sharpModule = await import('sharp');
+        return sharpModule.default || sharpModule;
+    } catch (e) {
+        sharpModule = false;
+        return null;
+    }
+};
+
 const applyBlur = (canvas: any, blurRadius: number = 30): void => {
   const ctx = canvas.getContext('2d');
   const width = canvas.width;
@@ -69,20 +81,94 @@ const loadImageWithRetry = async (splitUrl: string, qualityParam: string | null,
     
         if (!response.ok) throw new Error('Fetch failed');
     
+        // Get the image buffer first
         const imageBuffer = await response.arrayBuffer();
-        const image = await loadImage(Buffer.from(imageBuffer));
+        let buffer = Buffer.from(imageBuffer);
         
+        // Check if the response is actually an image
+        const contentType = response.headers.get('content-type') || '';
+        const isImageContentType = contentType.startsWith('image/');
+        
+        // Always validate the image format by checking magic bytes
+        if (buffer.length < 12) {
+            throw new Error(`Response too small to be a valid image. Size: ${buffer.length} bytes, URL: ${videoUrl}`);
+        }
+        
+        // Check the first few bytes to determine if it's an image
+        const isPNG = buffer[0] === 0x89 && buffer[1] === 0x50 && buffer[2] === 0x4E && buffer[3] === 0x47;
+        const isJPEG = buffer[0] === 0xFF && buffer[1] === 0xD8 && buffer[2] === 0xFF;
+        const isGIF = buffer[0] === 0x47 && buffer[1] === 0x49 && buffer[2] === 0x46;
+        // WebP: RIFF (bytes 0-3) then WEBP (bytes 8-11)
+        const isWebP = buffer.length >= 12 && 
+            buffer[0] === 0x52 && buffer[1] === 0x49 && buffer[2] === 0x46 && buffer[3] === 0x46 &&
+            buffer[8] === 0x57 && buffer[9] === 0x45 && buffer[10] === 0x42 && buffer[11] === 0x50;
+        
+        if (!isPNG && !isJPEG && !isGIF && !isWebP) {
+            // Try to detect if it's HTML or text
+            const textStart = buffer.slice(0, 100).toString('utf-8').toLowerCase();
+            if (textStart.includes('<html') || textStart.includes('<!doctype')) {
+                throw new Error(`Received HTML instead of image. URL: ${videoUrl}, Content-Type: ${contentType}`);
+            }
+            const hexPreview = buffer.slice(0, 16).toString('hex');
+            throw new Error(`Unsupported image type. Content-Type: ${contentType}, First bytes (hex): ${hexPreview}, URL: ${videoUrl}`);
+        }
+        
+        // Check if processing is needed
+        let needsProcessing = shouldBlur;
         let scale = 1;
-        
         if (qualityParam) {
             const qualityNum = parseFloat(qualityParam);
             if (!isNaN(qualityNum)) {
                 if (qualityNum > 0 && qualityNum < 1) {
                     scale = qualityNum;
+                    needsProcessing = true;
                 } else if (qualityNum >= 1 && qualityNum <= 100) {
                     scale = qualityNum / 100;
+                    if (scale !== 1) needsProcessing = true;
                 }
             }
+        }
+        
+        if (isWebP && !needsProcessing) {
+            return new Response(new Uint8Array(buffer), {
+                status: 200,
+                headers: {
+                    'Content-Type': 'image/webp',
+                    'Access-Control-Allow-Origin': '*',
+                    'Cache-Control': 'public, max-age=31536000, immutable',
+                },
+            });
+        }
+        
+        if (isWebP && needsProcessing) {
+            const sharp = await getSharp();
+            if (sharp) {
+                const pngBuffer = await sharp(buffer).png().toBuffer();
+                buffer = Buffer.from(pngBuffer);
+            } else {
+                throw new Error(
+                    `WebP format requires processing but 'sharp' package is not available. ` +
+                    `Install 'sharp' package for WebP support. ` +
+                    `URL: ${videoUrl}`
+                );
+            }
+        }
+    
+        let image;
+        try {
+            image = await loadImage(buffer);
+        } catch (loadError: any) {
+            const hexPreview = buffer.slice(0, 16).toString('hex');
+            const detectedFormat = isPNG ? 'PNG' : isJPEG ? 'JPEG' : isGIF ? 'GIF' : isWebP ? 'WebP' : 'Unknown';
+            
+            throw new Error(
+                `Failed to load image (detected as ${detectedFormat}). ` +
+                `Content-Type: ${contentType}, ` +
+                `First bytes (hex): ${hexPreview}, ` +
+                `Buffer size: ${buffer.length}, ` +
+                `URL: ${videoUrl}, ` +
+                `Error: ${loadError?.message || 'Unknown error'}`
+            );
         }
 
         const canvas = createCanvas(

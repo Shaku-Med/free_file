@@ -10,7 +10,7 @@ const MediaSection = () => {
   const { files, userId } = useFileContext();
   const [playingVideos, setPlayingVideos] = useState<Set<number>>(new Set());
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const maxFileSizeBytes = userId ? 400 * 1024 * 1024 : 40 * 1024 * 1024;
+  const maxFileSizeBytes = 400 * 1024 * 1024;
 
   const togglePlayPause = (index: number) => {
     const newPlayingVideos = new Set(playingVideos);

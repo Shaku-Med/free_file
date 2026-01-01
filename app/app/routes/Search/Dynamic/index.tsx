@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { data, useLoaderData, useNavigate } from "react-router";
-import { Search as SearchIcon, X as XIcon } from "lucide-react";
+import { data, useLoaderData, useNavigate, Link } from "react-router";
+import { Search as SearchIcon, X as XIcon, User } from "lucide-react";
 
 import { useFileContext } from "~/lib/Context/Context";
 import type { FileType } from "~/lib/types";
@@ -23,7 +23,11 @@ import { sanitizeSearchQuery } from "~/lib/Security/inputValidation";
 
 export const loader = async ({ request }: { request: Request }) => {
   try {
+    const url = new URL(request.url);
     let term = request.url.split(`/search/`)[1];
+    if (term && term.includes('?')) {
+      term = term.split('?')[0];
+    }
     if (!term) return data(null, { status: 404 });
     try {
       term = decodeURIComponent(term);
@@ -31,36 +35,105 @@ export const loader = async ({ request }: { request: Request }) => {
       console.error("Error decoding search term:", decodeError);
       return data(null, { status: 400 });
     }
-    
-    // Sanitize search query to prevent injection
     const sanitizedTerm = sanitizeSearchQuery(term);
     if (!sanitizedTerm) {
-      return data({ url: '', results: [] }, { status: 200 });
+      return data({ url: '', results: [], users: [], filesTotal: 0, usersTotal: 0, currentPage: 1 }, { status: 200 });
     }
+
+    const filesPerPage = 20;
+    const usersPerPage = 10;
+    const currentPage = Math.max(1, parseInt(url.searchParams.get('page') || '1', 10));
+    const filesOffset = (currentPage - 1) * filesPerPage;
+    const usersOffset = (currentPage - 1) * usersPerPage;
     
     let results: FileType[] | null = null;
+    let users: Array<{ id: string; username: string; profile_pic: string; file_count: number }> | null = null;
+    let filesTotal = 0;
+    let usersTotal = 0;
+    
     try {
       if (db) {
-        // Use parameterized query pattern - Supabase handles this safely
-        // But we still sanitize the input
         const searchPattern = `%${sanitizedTerm}%`;
-        const { data: rows, error } = await db
-          .from('files')
-          .select('*')
-          .or(`filename.ilike.${searchPattern},file_type.ilike.${searchPattern},unique_id.ilike.${searchPattern}`)
-          .order('created_at', { ascending: false })
-          .limit(20);
-        if (!error && Array.isArray(rows)) {
-          const filteredRows = await filterFilesByAccess(request, rows);
+        
+        const [filesResult, usersResult, filesCountResult, usersCountResult] = await Promise.all([
+          db
+            .from('files')
+            .select('*')
+            .or(`filename.ilike.${searchPattern},file_type.ilike.${searchPattern},unique_id.ilike.${searchPattern}`)
+            .order('created_at', { ascending: false })
+            .range(filesOffset, filesOffset + filesPerPage - 1),
+          db
+            .from('users')
+            .select('id, username, profile_pic')
+            .ilike('username', searchPattern)
+            .eq('is_memories', false)
+            .range(usersOffset, usersOffset + usersPerPage - 1),
+          db
+            .from('files')
+            .select('*', { count: 'exact', head: true })
+            .or(`filename.ilike.${searchPattern},file_type.ilike.${searchPattern},unique_id.ilike.${searchPattern}`),
+          db
+            .from('users')
+            .select('*', { count: 'exact', head: true })
+            .ilike('username', searchPattern)
+            .eq('is_memories', false)
+        ]);
+
+        if (filesResult.error) {
+          console.error("Supabase files search error:", filesResult.error);
+        } else if (Array.isArray(filesResult.data)) {
+          const filteredRows = await filterFilesByAccess(request, filesResult.data);
           results = filteredRows as FileType[];
-        } else if (error) {
-          console.error("Supabase search error:", error);
+        }
+
+        if (filesCountResult.error) {
+          console.error("Supabase files count error:", filesCountResult.error);
+        } else {
+          filesTotal = filesCountResult.count || 0;
+        }
+
+        if (usersCountResult.error) {
+          console.error("Supabase users count error:", usersCountResult.error);
+        } else {
+          usersTotal = usersCountResult.count || 0;
+        }
+
+        if (usersResult.error) {
+          console.error("Supabase users search error:", usersResult.error);
+        } else if (Array.isArray(usersResult.data)) {
+          if (usersResult.data.length > 0) {
+            const userData = usersResult.data as Array<{ id: string; username: string; profile_pic: string }>;
+            const fileCountPromises = userData.map(async (user: { id: string; username: string; profile_pic: string }) => {
+              const { count, error: countError } = await db
+                .from('files')
+                .select('*', { count: 'exact', head: true })
+                .eq('owner_id', user.id);
+
+              return {
+                id: user.id,
+                username: user.username,
+                profile_pic: user.profile_pic || '',
+                file_count: countError ? 0 : (count || 0)
+              };
+            });
+
+            users = await Promise.all(fileCountPromises);
+          } else {
+            users = [];
+          }
         }
       }
     } catch (e) {
       console.error("Server search failed:", e);
     }
-    return data({ url: sanitizedTerm, results }, { status: 200 });
+    return data({ 
+      url: sanitizedTerm, 
+      results, 
+      users: users || [], 
+      filesTotal,
+      usersTotal,
+      currentPage 
+    }, { status: 200 });
   } catch (error) {
     console.error("Search loader error:", error);
     return data(null, { status: 500 });
@@ -69,27 +142,12 @@ export const loader = async ({ request }: { request: Request }) => {
 
 const ITEMS_PER_PAGE = 20;
 
-const getRandomSuggestions = (items: FileType[], count = 6) => {
-  if (!Array.isArray(items) || items.length === 0) return [];
-  const pool = [...items];
-  const suggestions: FileType[] = [];
-
-  for (let i = pool.length - 1; i > 0; i -= 1) {
-    const randomIndex = Math.floor(Math.random() * (i + 1));
-    [pool[i], pool[randomIndex]] = [pool[randomIndex], pool[i]];
-  }
-
-  for (let i = 0; i < Math.min(count, pool.length); i += 1) {
-    suggestions.push(pool[i]);
-  }
-
-  return suggestions;
-};
 
 const Search = () => {
   const loaderData = useLoaderData<typeof loader>();
   const navigate = useNavigate();
-  const { files } = useFileContext();
+  const { userActions, userId } = useFileContext();
+  const [suggestions, setSuggestions] = useState<FileType[]>([]);
 
   const initialTerm = useMemo(() => {
     if (!loaderData || typeof loaderData?.url !== "string") return "";
@@ -98,12 +156,31 @@ const Search = () => {
 
   const [inputValue, setInputValue] = useState(initialTerm);
   const [activeTerm, setActiveTerm] = useState(initialTerm);
-  const [currentPage, setCurrentPage] = useState(1);
+
+  const currentPage = useMemo(() => {
+    if (loaderData && typeof loaderData === 'object' && 'currentPage' in loaderData) {
+      return (loaderData as any).currentPage || 1;
+    }
+    return 1;
+  }, [loaderData]);
+
+  const filesTotal = useMemo(() => {
+    if (loaderData && typeof loaderData === 'object' && 'filesTotal' in loaderData) {
+      return (loaderData as any).filesTotal || 0;
+    }
+    return 0;
+  }, [loaderData]);
+
+  const usersTotal = useMemo(() => {
+    if (loaderData && typeof loaderData === 'object' && 'usersTotal' in loaderData) {
+      return (loaderData as any).usersTotal || 0;
+    }
+    return 0;
+  }, [loaderData]);
 
   useEffect(() => {
     setInputValue(initialTerm);
     setActiveTerm(initialTerm);
-    setCurrentPage(1);
   }, [initialTerm]);
 
   const handleSubmit = useCallback(
@@ -113,8 +190,7 @@ const Search = () => {
         const trimmed = inputValue.trim();
         if (!trimmed) return;
         setActiveTerm(trimmed);
-        setCurrentPage(1);
-        navigate(`/search/${encodeURIComponent(trimmed)}`, { replace: false });
+        navigate(`/search/${encodeURIComponent(trimmed)}?page=1`, { replace: false });
       } catch (error) {
         console.error("Error handling search submit:", error);
       }
@@ -122,56 +198,31 @@ const Search = () => {
     [inputValue, navigate]
   );
 
-  // If server returned results, prefer them; else filter client-side files
+  const handlePageChange = useCallback((page: number) => {
+    navigate(`/search/${encodeURIComponent(activeTerm)}?page=${page}`, { replace: false });
+  }, [activeTerm, navigate]);
+
   const filteredResults = useMemo(() => {
-    if (Array.isArray((loaderData as any)?.results) && (loaderData as any)?.results.length > 0) {
+    if (Array.isArray((loaderData as any)?.results)) {
       return ((loaderData as any).results as FileType[]);
     }
-    const normalizedTerm = activeTerm.trim().toLowerCase();
-    if (!normalizedTerm) return [];
+    return [];
+  }, [loaderData]);
 
-    return files.filter((file) => {
-      try {
-        const parsedName = ParseFilename(file.filename || "").toLowerCase();
-        const fileType = file.file_type?.toLowerCase() ?? "";
-        const identifier = file.unique_id?.toLowerCase() ?? "";
-
-        return (
-          parsedName.includes(normalizedTerm) ||
-          fileType.includes(normalizedTerm) ||
-          identifier.includes(normalizedTerm)
-        );
-      } catch (error) {
-        console.error("Error filtering search results:", error);
-        return false;
-      }
-    });
-  }, [activeTerm, files]);
-
-  useEffect(() => {
-    const start = (currentPage - 1) * ITEMS_PER_PAGE;
-    if (start >= filteredResults.length && currentPage > 1) {
-      setCurrentPage(1);
-    }
-  }, [filteredResults, currentPage]);
-
-  const paginatedResults = useMemo(() => {
-    const start = (currentPage - 1) * ITEMS_PER_PAGE;
-    return filteredResults.slice(start, start + ITEMS_PER_PAGE);
-  }, [filteredResults, currentPage]);
-
-  const totalPages = Math.ceil(filteredResults.length / ITEMS_PER_PAGE);
+  const filesTotalPages = useMemo(() => {
+    return Math.ceil(filesTotal / ITEMS_PER_PAGE);
+  }, [filesTotal]);
 
   const pageNumbers = useMemo(() => {
-    if (totalPages <= 1) return [];
+    if (filesTotalPages <= 1) return [];
 
     const pages: number[] = [];
     const maxVisible = 5;
     let start = Math.max(1, currentPage - Math.floor(maxVisible / 2));
     let end = start + maxVisible - 1;
 
-    if (end > totalPages) {
-      end = totalPages;
+    if (end > filesTotalPages) {
+      end = filesTotalPages;
       start = Math.max(1, end - maxVisible + 1);
     }
 
@@ -180,11 +231,36 @@ const Search = () => {
     }
 
     return pages;
-  }, [currentPage, totalPages]);
+  }, [currentPage, filesTotalPages]);
 
-  const suggestions = useMemo(() => getRandomSuggestions(files), [files]);
+  useEffect(() => {
+    const fetchFeed = async () => {
+      try {
+        const response = await fetch('/api/feed?seen=[]');
+        if (response.ok) {
+          const result = await response.json();
+          if (result.data && Array.isArray(result.data)) {
+            setSuggestions(result.data);
+          }
+        }
+      } catch (error) {
+        console.error('Error fetching feed for suggestions:', error);
+      }
+    };
 
-  const showSuggestions = activeTerm && filteredResults.length === 0;
+    if (!activeTerm) {
+      fetchFeed();
+    }
+  }, [activeTerm]);
+
+  const searchUsers = useMemo(() => {
+    if (loaderData && typeof loaderData === 'object' && 'users' in loaderData) {
+      return Array.isArray((loaderData as any).users) ? (loaderData as any).users : [];
+    }
+    return [];
+  }, [loaderData]);
+
+  const showSuggestions = activeTerm && filteredResults.length === 0 && searchUsers.length === 0;
 
   return (
     <div className="mx-auto w-full max-w-full xl:container py-10">
@@ -213,7 +289,7 @@ const Search = () => {
                   inputMode="search"
                   value={inputValue}
                   onChange={(event) => setInputValue(event.target.value)}
-                  placeholder="Search photos, videos, IDs"
+                  placeholder="Search photos, videos, users, IDs"
                   className="h-12 border-0 px-0 text-base shadow-none focus-visible:ring-0 placeholder:text-muted-foreground/70"
                 />
                 {inputValue && (
@@ -238,19 +314,63 @@ const Search = () => {
         </form>
 
         {activeTerm ? (
-          filteredResults.length > 0 ? (
+          (filteredResults.length > 0 || searchUsers.length > 0) ? (
             <div className="space-y-6">
-              <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-5 gap-2">
-                {paginatedResults.map((file, index) => (
-                  <VideoCard
-                    data={file}
-                    index={index + (currentPage - 1) * ITEMS_PER_PAGE}
-                    key={index}
-                  />
-                ))}
-              </div>
+              {searchUsers.length > 0 && (
+                <div className="space-y-4">
+                  <h3 className="text-lg font-semibold text-foreground">Users</h3>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
+                    {searchUsers.map((user: { id: string; username: string; profile_pic: string; file_count: number }) => (
+                      <Link
+                        key={user.id}
+                        to={`/profile/${user.username}`}
+                        className="group flex flex-col items-center p-4 rounded-xl border border-border/30 bg-card hover:bg-accent/50 transition-all hover:shadow-md"
+                      >
+                        <div className="relative w-20 h-20 rounded-full overflow-hidden mb-3 ring-2 ring-border/50 group-hover:ring-primary/50 transition-all">
+                          {user.profile_pic ? (
+                            <img
+                              src={user.profile_pic}
+                              alt={user.username}
+                              className="w-full h-full object-cover"
+                            />
+                          ) : (
+                            <div className="w-full h-full bg-primary/10 flex items-center justify-center">
+                              <User className="w-8 h-8 text-primary/60" />
+                            </div>
+                          )}
+                        </div>
+                        <h4 className="font-semibold text-sm text-foreground text-center mb-1 line-clamp-1 group-hover:text-primary transition-colors">
+                          {user.username}
+                        </h4>
+                        <p className="text-xs text-muted-foreground">
+                          {user.file_count} {user.file_count === 1 ? 'file' : 'files'}
+                        </p>
+                      </Link>
+                    ))}
+                  </div>
+                </div>
+              )}
 
-              {totalPages > 1 && (
+              {filteredResults.length > 0 && (
+                <div className="space-y-4">
+                  {searchUsers.length > 0 && (
+                    <h3 className="text-lg font-semibold text-foreground">Files</h3>
+                  )}
+                  <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-2">
+                    {filteredResults.map((file: FileType, index: number) => (
+                      <VideoCard
+                        data={file}
+                        index={index + (currentPage - 1) * ITEMS_PER_PAGE}
+                        key={index}
+                        userActions={userActions}
+                        currentUserId={userId || undefined}
+                      />
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {filesTotalPages > 1 && (
                 <Pagination>
                   <PaginationContent>
                     <PaginationItem>
@@ -258,7 +378,9 @@ const Search = () => {
                         href="#previous"
                         onClick={(event) => {
                           event.preventDefault();
-                          setCurrentPage((prev) => Math.max(prev - 1, 1));
+                          if (currentPage > 1) {
+                            handlePageChange(currentPage - 1);
+                          }
                         }}
                         aria-disabled={currentPage === 1}
                         className={currentPage === 1 ? "pointer-events-none opacity-50" : ""}
@@ -271,7 +393,7 @@ const Search = () => {
                             href="#page-1"
                             onClick={(event) => {
                               event.preventDefault();
-                              setCurrentPage(1);
+                              handlePageChange(1);
                             }}
                           >
                             1
@@ -291,29 +413,29 @@ const Search = () => {
                           isActive={page === currentPage}
                           onClick={(event) => {
                             event.preventDefault();
-                            setCurrentPage(page);
+                            handlePageChange(page);
                           }}
                         >
                           {page}
                         </PaginationLink>
                       </PaginationItem>
                     ))}
-                    {pageNumbers[pageNumbers.length - 1] < totalPages && (
+                    {pageNumbers[pageNumbers.length - 1] < filesTotalPages && (
                       <>
-                        {pageNumbers[pageNumbers.length - 1] < totalPages - 1 && (
+                        {pageNumbers[pageNumbers.length - 1] < filesTotalPages - 1 && (
                           <PaginationItem>
                             <span className="px-2 text-sm text-muted-foreground">...</span>
                           </PaginationItem>
                         )}
                         <PaginationItem>
                           <PaginationLink
-                            href={`#page-${totalPages}`}
+                            href={`#page-${filesTotalPages}`}
                             onClick={(event) => {
                               event.preventDefault();
-                              setCurrentPage(totalPages);
+                              handlePageChange(filesTotalPages);
                             }}
                           >
-                            {totalPages}
+                            {filesTotalPages}
                           </PaginationLink>
                         </PaginationItem>
                       </>
@@ -323,12 +445,12 @@ const Search = () => {
                         href="#next"
                         onClick={(event) => {
                           event.preventDefault();
-                          setCurrentPage((prev) =>
-                            Math.min(prev + 1, totalPages)
-                          );
+                          if (currentPage < filesTotalPages) {
+                            handlePageChange(currentPage + 1);
+                          }
                         }}
-                        aria-disabled={currentPage === totalPages}
-                        className={currentPage === totalPages ? "pointer-events-none opacity-50" : ""}
+                        aria-disabled={currentPage === filesTotalPages}
+                        className={currentPage === filesTotalPages ? "pointer-events-none opacity-50" : ""}
                       />
                     </PaginationItem>
                   </PaginationContent>
@@ -351,12 +473,14 @@ const Search = () => {
                   <h3 className="text-lg font-semibold text-foreground">
                     Suggested for you
                   </h3>
-                  <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-5 gap-2">
-                    {suggestions.map((file, index) => (
+                  <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-2">
+                    {suggestions.map((file: FileType, index: number) => (
                       <VideoCard
-                        key={index}
+                        key={file.id || index}
                         data={file}
                         index={index}
+                        userActions={userActions}
+                        currentUserId={userId || undefined}
                       />
                     ))}
                   </div>
@@ -370,12 +494,14 @@ const Search = () => {
               <h3 className="text-lg font-semibold text-foreground">
                 Quick suggestions
               </h3>
-              <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-5 gap-2">
-                {suggestions.map((file, index) => (
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-2">
+                {suggestions.map((file: FileType, index: number) => (
                   <VideoCard
-                    key={index}
+                    key={file.id || index}
                     data={file}
                     index={index}
+                    userActions={userActions}
+                    currentUserId={userId || undefined}
                   />
                 ))}
               </div>
