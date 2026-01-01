@@ -352,3 +352,5 @@ const addLoginRequiredOverlay = async (ctx: any, width: number, height: number):
         ctx.fillText('Login Required', width / 2, height / 2);
     }
 };
+
+
