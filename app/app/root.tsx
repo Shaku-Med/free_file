@@ -197,10 +197,14 @@ export const loader = async ({request}: {request: Request}) => {
       };
     });
     
+    // For cross-site cookie sharing with image server, use SameSite=None in production
+    const sameSite = process.env.NODE_ENV === 'production' ? 'SameSite=None' : 'SameSite=Lax';
+    const secure = process.env.NODE_ENV === 'production' ? 'Secure' : '';
+    
     return data({ files: processedFiles, st: sessionToken, user_agent: request.headers.get('user-agent'), userId, userActions: { likedFileIds: Array.from(userActions.likedFileIds), dislikedFileIds: Array.from(userActions.dislikedFileIds) } }, {
       status: 200,
       headers: (token && !user) ? {
-        'Set-Cookie': `token=${token}; Path=/; HttpOnly; Max-Age=86400; ${process.env.NODE_ENV === 'production' ? 'Secure' : ''}; SameSite=Strict`
+        'Set-Cookie': `token=${token}; Path=/; HttpOnly; Max-Age=86400; ${secure}; ${sameSite}`
       } : undefined
     } as ResponseInit);
   }

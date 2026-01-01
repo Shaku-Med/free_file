@@ -1,6 +1,7 @@
 import { createCanvas, loadImage } from 'canvas';
 import db from '~/lib/Database/supabase';
 import { canAccessFile } from '~/routes/Api/fun/accessControl';
+import { applyHeavyBlur } from '~/lib/blur/index';
 
 let sharpModule: any = null;
 const getSharp = async () => {
@@ -14,65 +15,6 @@ const getSharp = async () => {
     }
 };
 
-const applyBlur = (canvas: any, blurRadius: number = 30): void => {
-  const ctx = canvas.getContext('2d');
-  const width = canvas.width;
-  const height = canvas.height;
-  
-  const radius = Math.min(Math.max(Math.floor(blurRadius), 5), 40);
-  const imageData = ctx.getImageData(0, 0, width, height);
-  const data = imageData.data;
-  const tempData = new Uint8ClampedArray(data);
-  
-  for (let y = 0; y < height; y++) {
-    for (let x = 0; x < width; x++) {
-      let r = 0, g = 0, b = 0, count = 0;
-      const startX = Math.max(0, x - radius);
-      const endX = Math.min(width - 1, x + radius);
-      
-      for (let nx = startX; nx <= endX; nx++) {
-        const idx = (y * width + nx) * 4;
-        r += tempData[idx];
-        g += tempData[idx + 1];
-        b += tempData[idx + 2];
-        count++;
-      }
-      
-      const idx = (y * width + x) * 4;
-      data[idx] = Math.floor(r / count);
-      data[idx + 1] = Math.floor(g / count);
-      data[idx + 2] = Math.floor(b / count);
-    }
-  }
-  
-  const horizontalBlurred = new Uint8ClampedArray(data);
-  
-  for (let x = 0; x < width; x++) {
-    for (let y = 0; y < height; y++) {
-      let r = 0, g = 0, b = 0, count = 0;
-      const startY = Math.max(0, y - radius);
-      const endY = Math.min(height - 1, y + radius);
-      
-      for (let ny = startY; ny <= endY; ny++) {
-        const idx = (ny * width + x) * 4;
-        r += horizontalBlurred[idx];
-        g += horizontalBlurred[idx + 1];
-        b += horizontalBlurred[idx + 2];
-        count++;
-      }
-      
-      const idx = (y * width + x) * 4;
-      data[idx] = Math.floor(r / count);
-      data[idx + 1] = Math.floor(g / count);
-      data[idx + 2] = Math.floor(b / count);
-    }
-  }
-  
-  ctx.putImageData(imageData, 0, 0);
-  
-  ctx.fillStyle = 'rgba(0, 0, 0, 0.75)';
-  ctx.fillRect(0, 0, width, height);
-};
 
 const loadImageWithRetry = async (splitUrl: string, qualityParam: string | null, shouldBlur: boolean = false): Promise<Response> => {
     const tryLoadImage = async (urlPath: string): Promise<Response> => {
@@ -113,7 +55,8 @@ const loadImageWithRetry = async (splitUrl: string, qualityParam: string | null,
             throw new Error(`Unsupported image type. Content-Type: ${contentType}, First bytes (hex): ${hexPreview}, URL: ${videoUrl}`);
         }
         
-        // Check if processing is needed
+        // SECURITY: Always process if blur is required, regardless of quality parameter
+        // Force processing if blur is needed to prevent bypassing access control
         let needsProcessing = shouldBlur;
         let scale = 1;
         if (qualityParam) {
@@ -129,7 +72,15 @@ const loadImageWithRetry = async (splitUrl: string, qualityParam: string | null,
             }
         }
         
-        if (isWebP && !needsProcessing) {
+        // SECURITY: CRITICAL - Never return unprocessed image if blur is required
+        // This prevents bypassing access control via quality parameter or any other means
+        // Always force processing when shouldBlur is true, regardless of format or quality
+        if (shouldBlur) {
+            needsProcessing = true;
+        }
+        
+        // Only return unprocessed WebP if we don't need processing AND blur is not required
+        if (isWebP && !needsProcessing && !shouldBlur) {
             return new Response(new Uint8Array(buffer), {
                 status: 200,
                 headers: {
@@ -178,8 +129,13 @@ const loadImageWithRetry = async (splitUrl: string, qualityParam: string | null,
         const ctx = canvas.getContext('2d');
         ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
         
+        // SECURITY: CRITICAL - Always apply blur if required, regardless of quality parameter
+        // This ensures access control cannot be bypassed via ?quality= parameter
         if (shouldBlur) {
-          applyBlur(canvas, 40);
+            // Apply heavy blur to make patterns completely unseeable
+            // Only color information will remain visible
+            // Also adds "Login Required" text and app logo
+            await applyHeavyBlur(canvas, 100);
         }
         
         const processedBuffer = canvas.toBuffer('image/png');
@@ -330,48 +286,59 @@ const getFileFromPath = async (path: string): Promise<any> => {
   if (!db) return null;
 
   const pathParts = path.split('/');
-  let file = null;
 
-  if (path.includes('_thumb_')) {
-    const uniqueIdMatch = path.match(/([^\/]+)_thumb_\d+\.jpg/);
-    if (uniqueIdMatch) {
-      const uniqueId = uniqueIdMatch[1];
-      const { data } = await db
-        .from('files')
-        .select('*')
-        .eq('unique_id', uniqueId)
-        .maybeSingle();
-      file = data;
-    }
-  } else if (pathParts.length >= 2) {
-    const uniqueId = pathParts[pathParts.length - 2];
+  if(pathParts.length > 2){
+    const uniqueId = pathParts[1];
     const { data } = await db
       .from('files')
       .select('*')
       .eq('unique_id', uniqueId)
       .maybeSingle();
-    file = data;
-  } else if (path.includes('thumbnail_')) {
-    const uniqueIdMatch = path.match(/\/([^\/]+)\/thumbnail_/);
-    if (uniqueIdMatch) {
-      const uniqueId = uniqueIdMatch[1];
-      const { data } = await db
-        .from('files')
-        .select('*')
-        .eq('unique_id', uniqueId)
-        .maybeSingle();
-      file = data;
-    }
-  } else {
-    const { data } = await db
-      .from('files')
-      .select('*')
-      .eq('endpoint', path)
-      .maybeSingle();
-    file = data;
+    return data || null;
   }
 
-  return file;
+  return null;
+
+  // if (path.includes('_thumb_')) {
+  //   const uniqueIdMatch = path.match(/([^\/]+)_thumb_\d+\.jpg/);
+  //   if (uniqueIdMatch) {
+  //     const uniqueId = uniqueIdMatch[1];
+  //     const { data } = await db
+  //       .from('files')
+  //       .select('*')
+  //       .eq('unique_id', uniqueId)
+  //       .maybeSingle();
+  //     file = data;
+  //   }
+  // } else if (pathParts.length >= 2) {
+  //   const uniqueId = pathParts[pathParts.length - 2];
+  //   const { data } = await db
+  //     .from('files')
+  //     .select('*')
+  //     .eq('unique_id', uniqueId)
+  //     .maybeSingle();
+  //   file = data;
+  // } else if (path.includes('thumbnail_')) {
+  //   const uniqueIdMatch = path.match(/\/([^\/]+)\/thumbnail_/);
+  //   if (uniqueIdMatch) {
+  //     const uniqueId = uniqueIdMatch[1];
+  //     const { data } = await db
+  //       .from('files')
+  //       .select('*')
+  //       .eq('unique_id', uniqueId)
+  //       .maybeSingle();
+  //     file = data;
+  //   }
+  // } else {
+  //   const { data } = await db
+  //     .from('files')
+  //     .select('*')
+  //     .eq('endpoint', path)
+  //     .maybeSingle();
+  //   file = data;
+  // }
+
+  // return file;
 };
 
 export const loader = async ({ request }: { request: Request }) => {
@@ -390,16 +357,35 @@ export const loader = async ({ request }: { request: Request }) => {
             splitUrl = decodeURIComponent(splitUrl)
         }
 
+        // SECURITY: CRITICAL - Check access BEFORE fetching image from GitHub
+        // This ensures we know if we should blur before making any external requests
         const file = await getFileFromPath(splitUrl);
+        if(!file){
+            return new Response(null, { status: 404 });
+        }
         
+        // Determine if we should blur the image BEFORE fetching
+        // SECURITY: Check access before fetching to enforce access control
+        let shouldBlur = false;
         if (file) {
-          const hasAccess = await canAccessFile(request, file);
-          if (!hasAccess && file.is_adult) {
-            return await loadImageWithRetry(splitUrl, qualityParam, true);
-          }
+            // Check access BEFORE fetching image
+            const hasAccess = await canAccessFile(request, file);
+            // Show blurred image for unauthenticated/underage users viewing adult content
+            if (!hasAccess && file.is_adult) {
+                shouldBlur = true;
+            }
+            // Block private content for users without access
+            if (!hasAccess && !file.is_public && !file.is_adult) {
+                return new Response(
+                    JSON.stringify({ error: 'Access denied. You do not have permission to view this file.' }),
+                    { status: 403, headers: { 'Content-Type': 'application/json' } }
+                );
+            }
         }
 
-        return await loadImageWithRetry(splitUrl, qualityParam, false);
+        // SECURITY: Now fetch image with shouldBlur flag already determined
+        // The shouldBlur flag is set BEFORE this call, ensuring access control is enforced
+        return await loadImageWithRetry(splitUrl, qualityParam, shouldBlur);
     } catch (error) {
         console.error('Error loading image:', error)
         return new Response(null, { status: 500 });

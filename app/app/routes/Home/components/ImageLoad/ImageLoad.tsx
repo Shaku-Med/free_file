@@ -59,7 +59,10 @@ const ImageLoad = ({link, className, imageID, index, retry, callBack, quality, h
 
             // await new Promise(resolve => setTimeout(resolve, 100 * (index || 0)))
             
-            let response = await fetch(`${IMAGE_BASE_URL}${link}`)
+            let response = await fetch(`${IMAGE_BASE_URL}${link}`, {
+                credentials: 'include', // Include cookies for authentication
+                mode: 'cors'
+            })
             if(!response.ok) {
                 retry()
                 return

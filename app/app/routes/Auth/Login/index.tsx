@@ -52,10 +52,15 @@ export const action = async ({ request }: { request: Request }) => {
     const url = new URL(request.url);
     const redirectTo = url.searchParams.get('redirect') || '/';
     
+    // For cross-site cookie sharing with image server, use SameSite=None in production
+    // SameSite=None requires Secure flag (HTTPS only)
+    const sameSite = process.env.NODE_ENV === 'production' ? 'SameSite=None' : 'SameSite=Lax';
+    const secure = process.env.NODE_ENV === 'production' ? 'Secure' : '';
+    
     const headers = new Headers();
     headers.append(
       'Set-Cookie',
-      `c_user=${result.token}; Path=/; Max-Age=${30 * 24 * 60 * 60}; HttpOnly; ${process.env.NODE_ENV === 'production' ? 'Secure' : ''}; SameSite=Strict`
+      `c_user=${result.token}; Path=/; Max-Age=${30 * 24 * 60 * 60}; HttpOnly; ${secure}; ${sameSite}`
     );
 
     return redirect(redirectTo, { headers });
