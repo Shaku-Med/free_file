@@ -398,16 +398,14 @@ router.get('/*', async (req: Request, res: Response) => {
             // The main security is handled by the file lookup - if it's in the DB and is_adult, blur is applied
         }
 
-        console.log('shouldBlur:', shouldBlur);
-        console.log('qualityParam:', qualityParam);
-        console.log('splitUrl:', splitUrl);
-
         // SECURITY: Now fetch image with shouldBlur flag already determined
         // The shouldBlur flag is set BEFORE this call, ensuring access control is enforced
         const result = await loadImageWithRetry(splitUrl, qualityParam, shouldBlur);
         res.set({
             'Content-Type': result.contentType,
             'Cache-Control': result.cacheControl,
+            'CDN-Cache-Control': shouldBlur ? 'no-store' : result.cacheControl,
+            'Vercel-CDN-Cache-Control': shouldBlur ? 'no-store' : result.cacheControl,
         });
         return res.send(result.buffer);
     } catch (error) {
