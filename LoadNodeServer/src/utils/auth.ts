@@ -11,8 +11,9 @@ type ReturnUserSelect = string[] | undefined | null;
 export const isAuthenticated = async (request: Request, returnUser_Select?: ReturnUserSelect, response?: Response): Promise<any | boolean | null> => {
     try {
         if (!db) return null;
-        const ck = getCookie('c_user', request.headers);
-        const c_user = ck || request.headers['c-user'] as string | null;
+        // const ck = getCookie('c_user', request.headers);
+        const c_user = request.headers['c-user'] as string | null;
+        console.log('c_user:', c_user);
         if (!c_user) return null;
         const keys = await getAllKeys(['token1', 'c_user']);
         if (!keys) return null;
