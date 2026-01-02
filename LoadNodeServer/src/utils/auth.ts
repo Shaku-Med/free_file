@@ -33,9 +33,9 @@ export const isAuthenticated = async (request: Request, returnUser_Select?: Retu
             .eq('c_usr', decoded.c_usr).maybeSingle();
         if (error) return null;
         
-        if(!ck){
-            response?.setHeader(`c_user`, c_user);
-        }
+        // if(!ck){
+        //     response?.setHeader(`c_user`, c_user);
+        // }
         return shouldReturnUser ? user : true;
     } catch (error) {
         console.error(error);

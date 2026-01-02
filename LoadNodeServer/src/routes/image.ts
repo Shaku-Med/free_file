@@ -397,6 +397,9 @@ router.get('/*', async (req: Request, res: Response) => {
             // The main security is handled by the file lookup - if it's in the DB and is_adult, blur is applied
         }
 
+        console.log('shouldBlur:', shouldBlur);
+        console.log('qualityParam:', qualityParam);
+        console.log('splitUrl:', splitUrl);
 
         // SECURITY: Now fetch image with shouldBlur flag already determined
         // The shouldBlur flag is set BEFORE this call, ensuring access control is enforced
