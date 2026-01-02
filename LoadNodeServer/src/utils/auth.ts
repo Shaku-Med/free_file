@@ -1,6 +1,5 @@
 import express from 'express';
 type Request = express.Request;
-type Response = express.Response;
 import db from './database.js';
 import { getCookie } from './security.js';
 import { getAllKeys } from './tokenKeys.js';
@@ -8,12 +7,11 @@ import { DecryptCombine } from './combined.js';
 
 type ReturnUserSelect = string[] | undefined | null;
 
-export const isAuthenticated = async (request: Request, returnUser_Select?: ReturnUserSelect, response?: Response): Promise<any | boolean | null> => {
+export const isAuthenticated = async (request: Request, returnUser_Select?: ReturnUserSelect): Promise<any | boolean | null> => {
     try {
         if (!db) return null;
         // const ck = getCookie('c_user', request.headers);
         const c_user = request.headers['c-user'] as string | null;
-        console.log('c_user:', c_user);
         if (!c_user) return null;
         const keys = await getAllKeys(['token1', 'c_user']);
         if (!keys) return null;
@@ -77,13 +75,12 @@ interface UserData {
 export const canAccessFile = async (
     request: Request,
     file: FileData,
-    response: Response
 ): Promise<boolean> => {
     if (!file.is_adult && file.is_public) {
         return true;
     }
 
-    const user = await isAuthenticated(request, ['id', 'dob', 'verified'], response) as UserData | null | boolean;
+    const user = await isAuthenticated(request, ['id', 'dob', 'verified']) as UserData | null | boolean;
 
     if (!user || typeof user === 'boolean') {
         return false;
