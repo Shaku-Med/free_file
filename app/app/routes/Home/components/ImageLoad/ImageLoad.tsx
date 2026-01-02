@@ -102,7 +102,7 @@ const ImageLoad = ({link, className, imageID, index, retry, callBack, quality, h
     }, [inView, link, imageID, index, quality, retry])
 
     useEffect(() => {
-        if(src && typeof src === 'string' && callBack && inView) {
+        if(src && typeof src === 'string' && callBack && inView && !loaded) {
             let CLBK = async () => {
                 let colors = await getImageColorsHEX({src: src as string})
                 callBack && callBack({
@@ -112,7 +112,7 @@ const ImageLoad = ({link, className, imageID, index, retry, callBack, quality, h
             }
             CLBK()
         }
-    }, [src, inView, callBack])
+    }, [src, inView, callBack, loaded])
 
     return (
         <div ref={ref} className={cn("w-full h-full relative", className)}>

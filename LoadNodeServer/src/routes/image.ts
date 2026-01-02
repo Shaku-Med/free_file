@@ -378,7 +378,7 @@ router.get('/*', async (req: Request, res: Response) => {
         // SECURITY: Default to blurring if we can't verify the file exists
         let shouldBlur = false;
         if (file) {
-            console.log('file:', file);
+            // console.log('file:', file);
             // Check access BEFORE fetching image
             const hasAccess = await canAccessFile(req, file);
             // Show blurred image for unauthenticated/underage users viewing adult content

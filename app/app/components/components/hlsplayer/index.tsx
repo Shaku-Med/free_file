@@ -3,7 +3,7 @@ import Hls from 'hls.js';
 import ImageLoad from '~/routes/Home/components/ImageLoad/ImageLoad';
 import type { FileType } from '~/lib/types';
 import { arrangeDateForThumbnail, getRandomThumbnail, ParseFilename } from '~/lib/utils';
-import { PictureInPicture2, Volume2, VolumeX } from 'lucide-react';
+import { LoaderCircle, PictureInPicture2, Volume2, VolumeX } from 'lucide-react';
 import { usePictureInPictureContext } from '~/lib/Context/PictureInPictureContext';
 import Cookies from 'js-cookie';
 import { driverObj } from '~/lib/Context/Context';
@@ -84,6 +84,9 @@ const HLSPlayer: React.FC<HLSPlayerProps> = ({
   const [autoplayBlocked, setAutoplayBlocked] = useState(false);
   const [showAutoplayPrompt, setShowAutoplayPrompt] = useState(false);
   const savePositionTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const [loaded, setLoaded] = useState<boolean>(false);
+  const [isBuffering, setIsBuffering] = useState<boolean>(false);
+  const bufferingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   
   const {
     isPipActive,
@@ -169,9 +172,11 @@ const HLSPlayer: React.FC<HLSPlayerProps> = ({
     if (!video || !src) return;
 
     const initializeHLS = async () => {
-      try {
-        setIsLoading(true);
-        setHasError(false);
+        try {
+          setIsLoading(true);
+          setHasError(false);
+          setIsBuffering(false);
+          setLoaded(false);
 
         // Load saved playback position from IndexedDB
         if (imageID) {
@@ -268,11 +273,23 @@ const HLSPlayer: React.FC<HLSPlayerProps> = ({
             onHLSReady(hls);
           }
 
+          // Track buffering state through HLS events
+          hls.on(Hls.Events.MANIFEST_PARSED, () => {
+            // Manifest parsed successfully - initial load progressing
+            console.log('HLS manifest parsed');
+          });
+
           hls.on(Hls.Events.ERROR, (event: any, data: any) => {
             console.error('HLS Error:', data);
 
+            // Show loader when error occurs and recovery is attempted
+            if (data.fatal || (data.type === 'networkError' && data.details === 'manifestLoadError')) {
+              setIsBuffering(true);
+            }
+
             if (data.type === 'mediaError' && data.details === 'fragParsingError') {
               console.warn('Fragment parsing error detected, attempting recovery...');
+              setIsBuffering(true);
               if (data.frag && data.frag.loader) {
                 data.frag.loader.abort();
               }
@@ -284,15 +301,18 @@ const HLSPlayer: React.FC<HLSPlayerProps> = ({
               switch (data.type) {
                 case Hls.ErrorTypes.NETWORK_ERROR:
                   console.error('Fatal network error encountered, trying to recover...');
+                  setIsBuffering(true);
                   hls.startLoad();
                   break;
                 case Hls.ErrorTypes.MEDIA_ERROR:
                   console.error('Fatal media error encountered, trying to recover...');
+                  setIsBuffering(true);
                   hls.recoverMediaError();
                   break;
                 default:
                   setHasError(true);
                   setIsLoading(false);
+                  setIsBuffering(false);
                   if (onError) {
                     onError(data);
                   }
@@ -480,6 +500,12 @@ const HLSPlayer: React.FC<HLSPlayerProps> = ({
       }
       
       setIsLoading(false);
+      // Clear buffering when video starts playing
+      setIsBuffering(false);
+      if (bufferingTimeoutRef.current) {
+        clearTimeout(bufferingTimeoutRef.current);
+        bufferingTimeoutRef.current = null;
+      }
       savePlaybackPosition();
       if (!isPipActive) {
         updateMediaSession(true, video.currentTime, video.duration);
@@ -518,10 +544,22 @@ const HLSPlayer: React.FC<HLSPlayerProps> = ({
 
     const handleCanPlay = () => {
       setIsLoading(false);
+      // If video can play, clear buffering
+      if (video.readyState >= 3) {
+        setIsBuffering(false);
+      }
+      if (bufferingTimeoutRef.current) {
+        clearTimeout(bufferingTimeoutRef.current);
+        bufferingTimeoutRef.current = null;
+      }
     };
 
     const handleTimeUpdate = () => {
       savePlaybackPosition(); // Debounced save
+      // If video is playing and time is updating, we're not buffering
+      if (!video.paused && !video.ended && video.readyState >= 3) {
+        setIsBuffering(false);
+      }
       if (!isPipActive) {
         updateMediaSession(!video.paused, video.currentTime, video.duration);
       }
@@ -536,6 +574,47 @@ const HLSPlayer: React.FC<HLSPlayerProps> = ({
     const handleLoadedMetadata = () => {
       if (!isPipActive) {
         updateMediaSession(!video.paused, video.currentTime, video.duration);
+      }
+      // Video metadata loaded - initial load complete
+      setLoaded(true);
+      setIsLoading(false);
+    };
+
+    const handleWaiting = () => {
+      // Video is waiting for data (buffering)
+      // Only show loader if video is actually playing or trying to play
+      if (!video.paused || video.readyState < 3) {
+        setIsBuffering(true);
+      }
+      
+      // Clear any existing timeout
+      if (bufferingTimeoutRef.current) {
+        clearTimeout(bufferingTimeoutRef.current);
+        bufferingTimeoutRef.current = null;
+      }
+    };
+
+    const handlePlaying = () => {
+      // Video started playing - buffering ended
+      setIsBuffering(false);
+      if (bufferingTimeoutRef.current) {
+        clearTimeout(bufferingTimeoutRef.current);
+        bufferingTimeoutRef.current = null;
+      }
+    };
+
+    const handleStalled = () => {
+      // Playback has stalled - show loader
+      setIsBuffering(true);
+    };
+
+    const handleCanPlayThrough = () => {
+      // Video has enough data to play through without stopping
+      setIsBuffering(false);
+      setIsLoading(false);
+      if (bufferingTimeoutRef.current) {
+        clearTimeout(bufferingTimeoutRef.current);
+        bufferingTimeoutRef.current = null;
       }
     };
 
@@ -568,6 +647,10 @@ const HLSPlayer: React.FC<HLSPlayerProps> = ({
     video.addEventListener('timeupdate', handleTimeUpdate);
     video.addEventListener('seeked', handleSeeked);
     video.addEventListener('loadedmetadata', handleLoadedMetadata);
+    video.addEventListener('waiting', handleWaiting);
+    video.addEventListener('playing', handlePlaying);
+    video.addEventListener('stalled', handleStalled);
+    video.addEventListener('canplaythrough', handleCanPlayThrough);
     video.addEventListener('enterpictureinpicture', handleEnterPictureInPicture);
     video.addEventListener('leavepictureinpicture', handleLeavePictureInPicture);
     window.addEventListener('enterpictureinpicture', handleWindowEnterPictureInPicture);
@@ -584,9 +667,12 @@ const HLSPlayer: React.FC<HLSPlayerProps> = ({
         ).catch(console.error);
       }
 
-      // Clear timeout
+      // Clear timeouts
       if (savePositionTimeoutRef.current) {
         clearTimeout(savePositionTimeoutRef.current);
+      }
+      if (bufferingTimeoutRef.current) {
+        clearTimeout(bufferingTimeoutRef.current);
       }
 
       video.removeEventListener('play', handlePlay);
@@ -598,6 +684,10 @@ const HLSPlayer: React.FC<HLSPlayerProps> = ({
       video.removeEventListener('timeupdate', handleTimeUpdate);
       video.removeEventListener('seeked', handleSeeked);
       video.removeEventListener('loadedmetadata', handleLoadedMetadata);
+      video.removeEventListener('waiting', handleWaiting);
+      video.removeEventListener('playing', handlePlaying);
+      video.removeEventListener('stalled', handleStalled);
+      video.removeEventListener('canplaythrough', handleCanPlayThrough);
       video.removeEventListener('enterpictureinpicture', handleEnterPictureInPicture);
       video.removeEventListener('leavepictureinpicture', handleLeavePictureInPicture);
       window.removeEventListener('enterpictureinpicture', handleWindowEnterPictureInPicture);
@@ -666,6 +756,13 @@ const HLSPlayer: React.FC<HLSPlayerProps> = ({
         }
       </div>
       <div className="relative z-[10000] w-full h-full">
+        {
+          (!loaded || (isBuffering && videoRef.current && videoRef.current.readyState < 3)) && (
+            <div className="absolute z-[1000001] inset-0 flex items-center justify-center bg-background/80 backdrop-blur-xl rounded-lg">
+              <LoaderCircle className="w-20 h-20 animate-spin opacity-50" />
+            </div>
+          )
+        }
         <video ref={videoRef}
           className={`w-full h-full object-contain transition-all duration-300 ${isPipActive ? 'opacity-0 pointer-events-none' : 'opacity-[1] pointer-events-auto'}`}
           muted={autoplayService.isAutoplayEnabled() ? muted : (muted || autoplayBlocked)}
