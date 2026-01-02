@@ -403,9 +403,9 @@ router.get('/*', async (req: Request, res: Response) => {
         const result = await loadImageWithRetry(splitUrl, qualityParam, shouldBlur);
         res.set({
             'Content-Type': result.contentType,
-            'Cache-Control': result.cacheControl,
-            'CDN-Cache-Control': shouldBlur ? 'no-store' : result.cacheControl,
-            'Vercel-CDN-Cache-Control': shouldBlur ? 'no-store' : result.cacheControl,
+            'Cache-Control': result.cacheControl,  // browser can still cache
+            'CDN-Cache-Control': 'no-store',        // but Vercel edge won't
+            'Vercel-CDN-Cache-Control': 'no-store',
         });
         return res.send(result.buffer);
     } catch (error) {
