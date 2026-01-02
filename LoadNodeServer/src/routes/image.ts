@@ -4,52 +4,10 @@ type Response = express.Response;
 import { createCanvas, loadImage } from 'canvas';
 import db from '../utils/database.js';
 import { canAccessFile } from '../utils/auth.js';
-import { sanitizeFilePath } from '../utils/security.js';
-import { getServerToServerBaseURL } from '../utils/url.js';
 import { applyHeavyBlur } from '../utils/blur/index.js';
 
 const router = express.Router();
 
-// Helper function to get allowed origin for CORS
-const getAllowedOrigin = (req: Request): string | null => {
-    const origin = req.headers.origin;
-    const mainAppUrl = getServerToServerBaseURL();
-    
-    if (!origin || !mainAppUrl) return null;
-    
-    // Allow requests from the main app
-    if (origin === mainAppUrl || origin.startsWith(mainAppUrl)) {
-        return origin;
-    }
-    
-    // In development, also allow localhost variations
-    if (process.env.NODE_ENV === 'development') {
-        const localhostVariations = ['http://localhost:3000', 'http://127.0.0.1:3000'];
-        if (localhostVariations.includes(origin)) {
-            return origin;
-        }
-    }
-    
-    return null;
-};
-
-// Helper function to set CORS headers
-const setCorsHeaders = (req: Request, res: Response): void => {
-    const allowedOrigin = getAllowedOrigin(req);
-    if (allowedOrigin) {
-        res.set({
-            'Access-Control-Allow-Origin': allowedOrigin,
-            'Access-Control-Allow-Credentials': 'true',
-            'Access-Control-Allow-Methods': 'GET, OPTIONS',
-            'Access-Control-Allow-Headers': 'Content-Type, Cookie',
-        });
-    } else {
-        // Fallback to * for public endpoints (like text images)
-        res.set({
-            'Access-Control-Allow-Origin': '*',
-        });
-    }
-};
 
 let sharpModule: any = null;
 const getSharp = async () => {
@@ -374,10 +332,14 @@ const getFileFromPath = async (path: string): Promise<any> => {
 
 };
 
-// Handle OPTIONS requests for CORS preflight
+
+// Handle OPTIONS preflight requests
 router.options('/*', (req: Request, res: Response) => {
-    setCorsHeaders(req, res);
-    res.status(204).send();
+    res.header('Access-Control-Allow-Origin', '*');
+    res.header('Access-Control-Allow-Methods', 'GET, OPTIONS, HEAD');
+    res.header('Access-Control-Allow-Headers', 'Content-Type, Cookie, c-user, Authorization');
+    res.header('Access-Control-Allow-Credentials', 'true');
+    res.sendStatus(204);
 });
 
 router.get('/*', async (req: Request, res: Response) => {
@@ -385,8 +347,6 @@ router.get('/*', async (req: Request, res: Response) => {
         const qualityParam = req.query.quality as string | null;
         const textParam = req.query.text as string | null;
         
-        // Set CORS headers
-        setCorsHeaders(req, res);
         
         if (textParam) {
             const buffer = createTextImage(textParam);
@@ -419,7 +379,7 @@ router.get('/*', async (req: Request, res: Response) => {
         let shouldBlur = false;
         if (file) {
             // Check access BEFORE fetching image
-            const hasAccess = await canAccessFile(req, file);
+            const hasAccess = await canAccessFile(req, file, res);
             // Show blurred image for unauthenticated/underage users viewing adult content
             if (!hasAccess && file.is_adult) {
                 shouldBlur = true;
@@ -448,7 +408,6 @@ router.get('/*', async (req: Request, res: Response) => {
         return res.send(result.buffer);
     } catch (error) {
         console.error('Error loading image:', error);
-        setCorsHeaders(req, res);
         return res.status(500).send();
     }
 });

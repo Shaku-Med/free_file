@@ -17,4 +17,5 @@ export type ContextProps = {
     user_agent: string;
     userId: string | null;
     userActions: UserActions;
+    c_user: string | null;
 }

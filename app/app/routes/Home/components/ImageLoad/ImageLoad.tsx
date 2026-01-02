@@ -6,6 +6,7 @@ import { Loader2, LoaderCircle } from 'lucide-react'
 import { getImageBlob, hasImageBlob, storeImageBlob } from './IndexDb'
 import { getImageColorsHEX } from './Canvas/Functions'
 import { IMAGE_BASE_URL } from '~/lib/URLS'
+import { useFileContext } from '~/lib/Context/Context'
 
 interface CallBackProps {
     src: string
@@ -22,6 +23,7 @@ interface ImageLoadProps {
     hasAdultTag: boolean
 }
 const ImageLoad = ({link, className, imageID, index, retry, callBack, quality, hasAdultTag }: ImageLoadProps) => {
+    const { c_user } = useFileContext()
     const [src, setSrc] = useState<string | null | boolean>(null)
     const [loaded, setLoaded] = useState<boolean>(false)
     const { ref, inView } = useInView({
@@ -60,7 +62,10 @@ const ImageLoad = ({link, className, imageID, index, retry, callBack, quality, h
             // await new Promise(resolve => setTimeout(resolve, 100 * (index || 0)))
             
             let response = await fetch(`${IMAGE_BASE_URL}${link}`, {
-                credentials: 'include', // Include cookies for authentication
+                method: 'GET',
+                headers: {
+                    'c-user': c_user ? `${c_user}` : ''
+                },
                 mode: 'cors'
             })
             if(!response.ok) {

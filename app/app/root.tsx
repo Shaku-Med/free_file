@@ -200,8 +200,10 @@ export const loader = async ({request}: {request: Request}) => {
     // For cross-site cookie sharing with image server, use SameSite=None in production
     const sameSite = process.env.NODE_ENV === 'production' ? 'SameSite=None' : 'SameSite=Lax';
     const secure = process.env.NODE_ENV === 'production' ? 'Secure' : '';
+
+    let c_user = getCookie('c_user', request.headers);
     
-    return data({ files: processedFiles, st: sessionToken, user_agent: request.headers.get('user-agent'), userId, userActions: { likedFileIds: Array.from(userActions.likedFileIds), dislikedFileIds: Array.from(userActions.dislikedFileIds) } }, {
+    return data({ files: processedFiles, st: sessionToken, user_agent: request.headers.get('user-agent'), userId, userActions: { likedFileIds: Array.from(userActions.likedFileIds), dislikedFileIds: Array.from(userActions.dislikedFileIds) }, c_user }, {
       status: 200,
       headers: (token && !user) ? {
         'Set-Cookie': `token=${token}; Path=/; HttpOnly; Max-Age=86400; ${secure}; ${sameSite}`
@@ -275,7 +277,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
     )
   }
 
-  const { files, st, user_agent, userId, userActions } = data;
+  const { files, st, user_agent, userId, userActions, c_user } = data;
   const userActionsSet = {
     likedFileIds: new Set(userActions?.likedFileIds || []),
     dislikedFileIds: new Set(userActions?.dislikedFileIds || [])
@@ -301,7 +303,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
       </head>
       <body className={`flex flex-col fixed top-0 left-0 w-full h-full`}>
         <ErrorBoundary>
-          <ContextProvider f={files} st={st} user_agent={user_agent || ''} userId={userId || null} userActions={userActionsSet}>
+          <ContextProvider f={files} st={st} user_agent={user_agent || ''} userId={userId || null} userActions={userActionsSet} c_user={c_user || null}>
             <LikeProvider>
               <PictureInPictureProvider>
                 <SidebarProvider className={`w-full h-full flex-1 min-h-0`}>

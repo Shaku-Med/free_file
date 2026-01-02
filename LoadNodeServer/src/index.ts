@@ -1,4 +1,5 @@
 import express from 'express';
+import cors from 'cors';
 import { initializeEnv, refreshEnv } from './utils/envFetcher.js';
 import { reinitializeDatabase } from './utils/database.js';
 import { getServerToServerBaseURL } from './utils/url.js';
@@ -7,6 +8,20 @@ dotenv.config();
 
 const app = express();
 const PORT = 3001;
+
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+
+app.use(cors({
+    origin: '*',
+    credentials: true,
+    methods: ['GET', 'OPTIONS', 'HEAD'],
+    allowedHeaders: ['Content-Type', 'Cookie', 'c-user', 'Authorization'],
+    exposedHeaders: ['Content-Type', 'Cache-Control'],
+    preflightContinue: false,
+    optionsSuccessStatus: 204
+}));
+
 
 const MAIN_APP_URL = getServerToServerBaseURL();
 const SERVER_TO_SERVER_KEY = process.env.SERVER_TO_SERVER_KEY;
@@ -34,8 +49,6 @@ const startServer = async () => {
     envInitialized = true;
 
     const imageRouter = (await import('./routes/image.js')).default;
-
-    app.use(express.json());
 
     app.use('/api/load/image', imageRouter);
 
