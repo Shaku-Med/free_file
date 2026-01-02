@@ -82,6 +82,7 @@ export const canAccessFile = async (
 
     const user = await isAuthenticated(request, ['id', 'dob', 'verified']) as UserData | null | boolean;
 
+    console.log('user:', user);
     if (!user || typeof user === 'boolean') {
         return false;
     }
