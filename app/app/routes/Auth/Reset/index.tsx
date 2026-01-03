@@ -106,7 +106,7 @@ export const action = async ({ request }: { request: Request }) => {
     // Reset rate limit on successful reset request
     resetAuthRateLimit(request, 'reset', identifier.toLowerCase());
 
-    return redirect(`/auth/verify?userId=${user.id}&email=${encodeURIComponent(user.email)}&type=reset`);
+    return redirect(`/auth/verify?userId=${user.id}&type=reset`);
   } catch (error) {
     console.error('Error in reset action:', error);
     return data({ error: 'An unexpected error occurred' }, { status: 500 });

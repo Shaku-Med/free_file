@@ -18,14 +18,28 @@ export const loader = async ({ request }: { request: Request }) => {
 
   const url = new URL(request.url);
   const userId = url.searchParams.get('userId');
-  const email = url.searchParams.get('email');
   const type = url.searchParams.get('type') || 'verify';
 
-  if (!userId || !email) {
+  if (!userId) {
     return redirect('/auth/login');
   }
 
-  return data({ userId, email, type });
+  if (!db) {
+    return redirect('/auth/login');
+  }
+
+  // Get email from database using userId - never trust email from URL
+  const { data: user, error: userError } = await db
+    .from('users')
+    .select('email, is_memories')
+    .eq('id', userId)
+    .maybeSingle();
+
+  if (userError || !user || user.is_memories) {
+    return redirect('/auth/login');
+  }
+
+  return data({ userId, email: user.email, type });
 };
 
 export const action = async ({ request }: { request: Request }) => {
@@ -33,7 +47,6 @@ export const action = async ({ request }: { request: Request }) => {
     const formData = await request.formData();
     const code = formData.get('code') as string;
     const userId = formData.get('userId') as string;
-    const email = formData.get('email') as string;
     const type = formData.get('type') as string;
     const actionType = formData.get('actionType') as string;
 
@@ -44,7 +57,8 @@ export const action = async ({ request }: { request: Request }) => {
         return data({ error: rateLimitCheck.error || 'Too many resend attempts. Please try again later.' }, { status: 429 });
       }
 
-      const result = await resendVerificationCode(userId, email, type as 'signup' | 'reset' | 'verify');
+      // resendVerificationCode now gets email from database using userId
+      const result = await resendVerificationCode(userId, type as 'signup' | 'reset' | 'verify');
       if (!result.success) {
         return data({ error: result.error || 'Failed to resend code' }, { status: 400 });
       }
@@ -123,7 +137,8 @@ export const action = async ({ request }: { request: Request }) => {
     }
 
     if (type === 'reset') {
-      const resetToken = await generateResetToken(userId, email, request.headers);
+      // generateResetToken now gets email from database using userId
+      const resetToken = await generateResetToken(userId, request.headers);
       if (!resetToken) {
         return data({ error: 'An error occurred. Please try again later.' }, { status: 500 });
       }
@@ -167,7 +182,6 @@ const Verify = () => {
     form.innerHTML = `
       <input type="hidden" name="actionType" value="resend" />
       <input type="hidden" name="userId" value="${loaderData.userId}" />
-      <input type="hidden" name="email" value="${loaderData.email}" />
       <input type="hidden" name="type" value="${loaderData.type}" />
     `;
     document.body.appendChild(form);

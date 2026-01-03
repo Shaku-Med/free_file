@@ -267,15 +267,16 @@ export const loginUser = async (data: LoginData, request: Request): Promise<{ su
   }
 };
 
-export const resendVerificationCode = async (userId: string, email: string, type: 'signup' | 'reset' | 'verify' = 'verify'): Promise<{ success: boolean; error?: string }> => {
+export const resendVerificationCode = async (userId: string, type: 'signup' | 'reset' | 'verify' = 'verify'): Promise<{ success: boolean; error?: string }> => {
   try {
     if (!db) {
       return { success: false, error: 'Database not initialized' };
     }
 
+    // Get email from database using userId - never trust email from client
     const { data: user, error: userError } = await db
       .from('users')
-      .select('is_memories')
+      .select('email, is_memories')
       .eq('id', userId)
       .maybeSingle();
 
@@ -299,7 +300,8 @@ export const resendVerificationCode = async (userId: string, email: string, type
       return { success: false, error: 'Failed to save verification code' };
     }
 
-    const emailSent = await sendEmail(email, code, type);
+    // Send email to the email address from database, not from client
+    const emailSent = await sendEmail(user.email, code, type);
     if (!emailSent) {
       return { success: false, error: 'Failed to send verification email' };
     }

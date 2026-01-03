@@ -129,8 +129,25 @@ export const deleteVerificationRecord = async (userId: string): Promise<boolean>
   }
 };
 
-export const generateResetToken = async (userId: string, email: string, headers: Headers): Promise<string | null> => {
+export const generateResetToken = async (userId: string, headers: Headers): Promise<string | null> => {
   try {
+    if (!db) {
+      return null;
+    }
+
+    // Get email from database using userId - never trust email from client
+    const { data: user, error: userError } = await db
+      .from('users')
+      .select('email, is_memories')
+      .eq('id', userId)
+      .maybeSingle();
+
+    if (userError || !user || user.is_memories) {
+      return null;
+    }
+
+    const email = user.email;
+
     const nonce = crypto.randomBytes(32).toString('hex');
     const timestamp = Date.now();
     const ip = await getClientIP(headers);
