@@ -32,6 +32,7 @@ export default [
         route(`profile`, 'routes/Api/profile/index.tsx'),
         route(`user-profile`, 'routes/Api/user-profile/index.tsx'),
         route(`user-files`, 'routes/Api/user-files/index.tsx'),
+        route(`owner-videos`, 'routes/Api/owner-videos/index.tsx'),
         route(`related-videos`, 'routes/Api/related-videos/index.tsx'),
         route(`download`, 'routes/Api/download/index.tsx'),
         route(`download/status`, 'routes/Api/download/status.tsx'),

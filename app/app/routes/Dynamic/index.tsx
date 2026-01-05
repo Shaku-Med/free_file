@@ -578,7 +578,9 @@ const index = () => {
               <RelatedVideos 
                 key={`related-${file_data.unique_id}-${currentId}`}
                 videos={relatedVideos} 
-                currentVideoId={file_data.unique_id} 
+                currentVideoId={file_data.unique_id}
+                currentVideoDbId={file_data.id}
+                ownerId={file_data.owner_id}
                 currentUserId={('userId' in data && data.userId) || undefined}
                 currentFileType={file_data.file_type}
                 userActions={('relatedVideosUserActions' in data && data.relatedVideosUserActions) ? {
