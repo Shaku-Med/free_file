@@ -253,6 +253,16 @@ export const action = async ({ request }: { request: Request }) => {
     const jobId = await uploadQueue.addJob(jobPayload as any);
 
     if (!jobId) {
+      if (db) {
+        try {
+          await db
+            .from('files')
+            .delete()
+            .eq('unique_id', uniqueID);
+        } catch (error) {
+          console.warn('Failed to cleanup queued upload record:', error);
+        }
+      }
       if (chunks) {
         for (const chunk of chunks) {
           await unlink(chunk.filePath).catch(() => {});

@@ -117,6 +117,7 @@ export class UploadWorker {
       } else {
         if (!existsSync(file.filePath)) {
           await this.updateUploadStatus(uniqueID, 'failed', isPublic);
+          await this.deleteUploadRecord(uniqueID);
           return {
             success: false,
             error: 'File not found at specified path'
@@ -132,6 +133,7 @@ export class UploadWorker {
 
       if (!isImage && !isVideo) {
         await this.updateUploadStatus(uniqueID, 'failed', isPublic);
+        await this.deleteUploadRecord(uniqueID);
         return {
           success: false,
           error: 'Unsupported file type. Only images and videos are allowed.'
@@ -207,6 +209,7 @@ export class UploadWorker {
         if (!uploadResult.success) {
           console.error(`[Upload Worker] Image upload failed for ${uniqueID}:`, uploadResult.error);
           await this.updateUploadStatus(uniqueID, 'failed', isPublic);
+          await this.deleteUploadRecord(uniqueID);
           await this.cleanupTempFiles(tempFilesToCleanup);
           return {
             success: false,
@@ -233,6 +236,7 @@ export class UploadWorker {
 
         if (!hlsResult.success) {
           await this.updateUploadStatus(uniqueID, 'failed', isPublic);
+          await this.deleteUploadRecord(uniqueID);
           await this.cleanupTempFiles(tempFilesToCleanup);
           return {
             success: false,
@@ -273,6 +277,7 @@ export class UploadWorker {
         if (!m3u8UploadResult.success) {
           console.error(`[Upload Worker] M3U8 upload failed for ${uniqueID}:`, m3u8UploadResult.error);
           await this.updateUploadStatus(uniqueID, 'failed', isPublic);
+          await this.deleteUploadRecord(uniqueID);
           await this.cleanupTempFiles(tempFilesToCleanup);
           return {
             success: false,
@@ -364,11 +369,26 @@ export class UploadWorker {
     } catch (error) {
       console.error(`[Upload Worker] Job ${job.id} failed for ${job.data.uniqueID}:`, error);
       await this.updateUploadStatus(job.data.uniqueID, 'failed', job.data.isPublic);
+      await this.deleteUploadRecord(job.data.uniqueID);
       await this.cleanupTempFiles(tempFilesToCleanup);
       return {
         success: false,
         error: 'Upload processing failed'
       };
+    }
+  }
+
+  private async deleteUploadRecord(uniqueID: string): Promise<void> {
+    try {
+      if (!db) {
+        return;
+      }
+      await db
+        .from('files')
+        .delete()
+        .eq('unique_id', uniqueID);
+    } catch (error) {
+      console.warn(`[Upload Worker] Failed to delete record for ${uniqueID}:`, error);
     }
   }
 
