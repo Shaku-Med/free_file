@@ -21,9 +21,11 @@ export const loader = async ({ request }: { request: Request }) => {
     }
 
     const offset = (page - 1) * limit;
+    const fetchMultiplier = 3;
+    const fetchLimit = limit * fetchMultiplier;
 
     // Fetch files
-    const filesResult = await userProfileService.getUserFiles(userId, limit, offset);
+    const filesResult = await userProfileService.getUserFiles(userId, fetchLimit, offset);
 
     if (filesResult.error || !filesResult.data) {
       return data({ error: filesResult.error || "Failed to fetch files", data: [] }, { status: 500 });
@@ -34,12 +36,15 @@ export const loader = async ({ request }: { request: Request }) => {
       ...file,
       is_adult: file.is_adult ?? false,
       is_public: file.is_public ?? true,
+      upload_status: file.upload_status ?? 'completed',
       owner_id: file.owner_id ?? ''
     }));
     let files = await filterFilesByAccess(request, filesWithDefaults);
+    const paginatedFiles = files.slice(0, limit);
+    const hasMore = files.length > limit;
 
     // Enrich with owner data
-    files = await ownerService.enrichFilesWithOwners(files);
+    files = await ownerService.enrichFilesWithOwners(paginatedFiles);
 
     // Fetch user actions in one query
     const user = await isAuthenticated(request, ['id']);
@@ -54,8 +59,6 @@ export const loader = async ({ request }: { request: Request }) => {
         };
       }
     }
-
-    const hasMore = files.length === limit;
 
     return data(
       {

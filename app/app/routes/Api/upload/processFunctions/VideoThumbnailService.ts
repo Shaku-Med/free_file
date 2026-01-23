@@ -80,7 +80,7 @@ export class VideoThumbnailService {
 
   private async getVideoMetadata(videoPath: string): Promise<{ duration: number } | null> {
     return new Promise((resolve) => {
-      const ffmpeg = spawn('ffmpeg', ['-i', videoPath], {
+      const ffmpeg = spawn('ffmpeg', ['-fflags', '+genpts+igndts', '-analyzeduration', '100M', '-probesize', '100M', '-err_detect', 'ignore_err', '-i', videoPath], {
         stdio: ['ignore', 'pipe', 'pipe']
       });
 
@@ -116,6 +116,10 @@ export class VideoThumbnailService {
   ): Promise<boolean> {
     return new Promise((resolve) => {
       const ffmpeg = spawn('ffmpeg', [
+        '-fflags', '+genpts+igndts',
+        '-analyzeduration', '100M',
+        '-probesize', '100M',
+        '-err_detect', 'ignore_err',
         '-i', videoPath,
         '-ss', timeOffset.toString(),
         '-vframes', '1',

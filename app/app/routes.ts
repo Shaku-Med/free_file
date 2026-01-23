@@ -30,6 +30,8 @@ export default [
         route(`dislikes`, 'routes/Api/dislikes/index.tsx'),
         route(`comments`, 'routes/Api/comments/index.tsx'),
         route(`profile`, 'routes/Api/profile/index.tsx'),
+        route(`settings`, 'routes/Api/settings/index.tsx'),
+        route(`files`, 'routes/Api/files/index.tsx'),
         route(`user-profile`, 'routes/Api/user-profile/index.tsx'),
         route(`user-files`, 'routes/Api/user-files/index.tsx'),
         route(`owner-videos`, 'routes/Api/owner-videos/index.tsx'),
@@ -62,6 +64,7 @@ export default [
         route(`reset/confirm`, 'routes/Auth/Reset/confirm.tsx'),
     ]),
     route(`logout`, 'routes/Auth/Logout/index.tsx'),
+    route(`settings`, 'routes/Settings/index.tsx'),
     route(`profile/:username`, 'routes/Profile/index.tsx'),
     route(`reel`, 'routes/reel/layout.tsx', [
         index('routes/reel/index.tsx'),

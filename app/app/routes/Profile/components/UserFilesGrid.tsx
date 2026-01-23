@@ -7,12 +7,19 @@ interface UserFilesGridProps {
   userId: string;
   currentUserId?: string;
   userActions?: { likedFileIds: Set<string>; dislikedFileIds: Set<string> };
+  initialHasMore?: boolean;
 }
 
-const UserFilesGrid = ({ files: initialFiles, userId, currentUserId, userActions: initialUserActions }: UserFilesGridProps) => {
+const UserFilesGrid = ({
+  files: initialFiles,
+  userId,
+  currentUserId,
+  userActions: initialUserActions,
+  initialHasMore
+}: UserFilesGridProps) => {
   const [files, setFiles] = useState<FileType[]>(initialFiles);
   const [isLoading, setIsLoading] = useState(false);
-  const [hasMore, setHasMore] = useState(initialFiles.length >= 20);
+  const [hasMore, setHasMore] = useState(initialHasMore ?? initialFiles.length >= 20);
   const [currentPage, setCurrentPage] = useState(1);
   const observerRef = useRef<HTMLDivElement | null>(null);
   const [userActions, setUserActions] = useState<{ likedFileIds: Set<string>; dislikedFileIds: Set<string> } | undefined>(
@@ -63,6 +70,12 @@ const UserFilesGrid = ({ files: initialFiles, userId, currentUserId, userActions
     }
   }, [isLoading, hasMore, currentPage, userId]);
 
+  const handleFileUpdate = useCallback((fileId: string, updates: Partial<FileType>) => {
+    setFiles((prev) =>
+      prev.map((file) => (file.id === fileId ? { ...file, ...updates } : file))
+    );
+  }, []);
+
   useEffect(() => {
     const observer = new IntersectionObserver(
       (entries) => {
@@ -91,7 +104,7 @@ const UserFilesGrid = ({ files: initialFiles, userId, currentUserId, userActions
   return (
     <div className="space-y-6">
       <h2 className="text-2xl font-semibold text-foreground">Uploads</h2>
-      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-5 gap-2 sm:gap-3">
+      <div className="grid grid-cols-2 gap-4">
         {files.map((file, index) => (
           <div key={file.unique_id || index} className="w-full">
             <VideoCard
@@ -99,6 +112,8 @@ const UserFilesGrid = ({ files: initialFiles, userId, currentUserId, userActions
               index={index}
               currentUserId={currentUserId}
               userActions={userActions}
+              onUpdate={handleFileUpdate}
+              showOwnerControls={true}
             />
           </div>
         ))}

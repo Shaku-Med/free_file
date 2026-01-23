@@ -321,8 +321,6 @@ export function Layout({ children }: { children: React.ReactNode }) {
         </ErrorBoundary>
         <Scripts />
 
-        <script src="/Editor/hls_converter.js"></script>
-        <script src="/Editor/ffmpeg.min.js"></script>
         <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
 
       </body>

@@ -22,4 +22,5 @@ export interface FileType {
   category?: unknown[];
   file_title?: string;
   thumbnails?: string[];
+  upload_status?: string;
 }

@@ -34,7 +34,6 @@ export default defineConfig(({mode}) => {
     build: {
       rollupOptions: {
         external: (id: string) => {
-          if (id === '@ffmpeg/ffmpeg' || id === '@ffmpeg/util') return true;
           if (serverOnlyModules.some(mod => id === mod || id.startsWith(`${mod}/`))) return true;
           if (id.startsWith('node:') || ['fs', 'path', 'crypto', 'stream', 'util', 'events', 'url', 'net', 'tls', 'dns', 'os', 'assert', 'child_process', 'worker_threads'].includes(id)) return true;
           return false;

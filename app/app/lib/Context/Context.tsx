@@ -96,6 +96,9 @@ export const ContextProvider = ({ children, f, st, user_agent, userId, userActio
     const [files, setFiles] = useState<FileType[]>(f);
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [userActions, setUserActions] = useState(initialUserActions);
+    const [isDragActive, setIsDragActive] = useState(false);
+    const [droppedFiles, setDroppedFiles] = useState<File[]>([]);
+    const dragDepthRef = useRef(0);
 
     const [isLoading, setIsLoading] = useState(false);
     const observerRef = useRef<HTMLDivElement | null>(null)
@@ -151,6 +154,57 @@ export const ContextProvider = ({ children, f, st, user_agent, userId, userActio
       if (observerRef.current) observer.observe(observerRef.current)
       return () => observer.disconnect()
     }, [loadMoreVideos, isLoading, nav.location])
+
+    useEffect(() => {
+      const hasFiles = (event: DragEvent) => {
+        if (!event.dataTransfer) return false;
+        return Array.from(event.dataTransfer.types || []).includes("Files");
+      };
+
+      const onDragEnter = (event: DragEvent) => {
+        if (!hasFiles(event)) return;
+        event.preventDefault();
+        dragDepthRef.current += 1;
+        setIsDragActive(true);
+      };
+
+      const onDragOver = (event: DragEvent) => {
+        if (!hasFiles(event)) return;
+        event.preventDefault();
+      };
+
+      const onDragLeave = (event: DragEvent) => {
+        if (!hasFiles(event)) return;
+        event.preventDefault();
+        dragDepthRef.current = Math.max(0, dragDepthRef.current - 1);
+        if (dragDepthRef.current === 0) {
+          setIsDragActive(false);
+        }
+      };
+
+      const onDrop = (event: DragEvent) => {
+        if (!hasFiles(event)) return;
+        event.preventDefault();
+        dragDepthRef.current = 0;
+        setIsDragActive(false);
+        const files = Array.from(event.dataTransfer?.files || []);
+        if (files.length === 0) return;
+        setDroppedFiles(files);
+        setIsModalOpen(true);
+      };
+
+      window.addEventListener("dragenter", onDragEnter);
+      window.addEventListener("dragover", onDragOver);
+      window.addEventListener("dragleave", onDragLeave);
+      window.addEventListener("drop", onDrop);
+
+      return () => {
+        window.removeEventListener("dragenter", onDragEnter);
+        window.removeEventListener("dragover", onDragOver);
+        window.removeEventListener("dragleave", onDragLeave);
+        window.removeEventListener("drop", onDrop);
+      };
+    }, []);
 
     useLayoutEffect(() => {
         let fetchPublicKey = async () => {
@@ -215,11 +269,21 @@ export const ContextProvider = ({ children, f, st, user_agent, userId, userActio
         <div className={`w-full h-full`}>
             <Context.Provider value={value}>
                 {children}
+                {isDragActive && (
+                    <div className="fixed inset-0 z-[10000001] bg-background/80 backdrop-blur-sm flex items-center justify-center pointer-events-none">
+                        <div className="rounded-2xl border border-dashed border-primary/60 bg-background/90 px-6 py-8 text-center shadow-lg">
+                            <p className="text-base font-semibold text-foreground">Drop files to upload</p>
+                            <p className="text-xs text-muted-foreground mt-1">Images and videos supported</p>
+                        </div>
+                    </div>
+                )}
                 <MediaSelectionModal
                     isOpen={isModalOpen}
                     onClose={() => setIsModalOpen(false)}
                     onFilesSelected={() => {}}
                     maxFileSizeBytes={safeUserId ? 400 * 1024 * 1024 : 40 * 1024 * 1024}
+                    initialFiles={droppedFiles}
+                    onFilesConsumed={() => setDroppedFiles([])}
                 />
                 {/* <FloatingButton /> */}
                 {/* <NavigationLoader/> */}

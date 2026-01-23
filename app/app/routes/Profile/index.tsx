@@ -29,12 +29,25 @@ export const loader = async ({ request, params }: { request: Request; params: { 
     const user = await isAuthenticated(request, ['id']);
     const currentUserId = user?.id || null;
 
-    // Fetch initial files
-    const filesResult = await userProfileService.getUserFiles(profileResult.data.id, 20, 0);
+    // Fetch initial files with overfetch to account for filtering
+    const limit = 20;
+    const fetchMultiplier = 3;
+    const fetchLimit = limit * fetchMultiplier;
+    const filesResult = await userProfileService.getUserFiles(profileResult.data.id, fetchLimit, 0);
 
     let files: FileType[] = [];
+    let hasMore = false;
     if (filesResult.data) {
-      files = await filterFilesByAccess(request, filesResult.data);
+      const filesWithDefaults = filesResult.data.map(file => ({
+        ...file,
+        is_adult: file.is_adult ?? false,
+        is_public: file.is_public ?? true,
+        upload_status: file.upload_status ?? 'completed',
+        owner_id: file.owner_id ?? ''
+      }));
+      const filteredFiles = await filterFilesByAccess(request, filesWithDefaults);
+      files = filteredFiles.slice(0, limit);
+      hasMore = filteredFiles.length > limit;
       // Enrich with owner data
       files = await ownerService.enrichFilesWithOwners(files);
     }
@@ -52,6 +65,11 @@ export const loader = async ({ request, params }: { request: Request; params: { 
       {
         profile: profileResult.data,
         files: files,
+        pagination: {
+          page: 1,
+          limit,
+          hasMore
+        },
         error: null,
         currentUserId,
         userActions: {
@@ -116,6 +134,7 @@ const Profile = () => {
           files={loaderData.files} 
           userId={loaderData.profile.id}
           currentUserId={loaderData.currentUserId || undefined}
+          initialHasMore={loaderData.pagination?.hasMore}
           userActions={loaderData.userActions ? {
             likedFileIds: new Set(loaderData.userActions.likedFileIds || []),
             dislikedFileIds: new Set(loaderData.userActions.dislikedFileIds || [])

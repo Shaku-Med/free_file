@@ -1,5 +1,6 @@
 import { spawn } from 'child_process';
 import { existsSync } from 'fs';
+import { readdir } from 'fs/promises';
 import { platform, cpus } from 'os';
 import { join, dirname } from 'path';
 
@@ -99,6 +100,18 @@ function getCpuThreads(): number {
   return Math.max(1, Math.floor(cpuCount * 0.5));
 }
 
+function getInputProbeSettings(): string[] {
+  return ['-fflags', '+genpts+igndts', '-analyzeduration', '100M', '-probesize', '100M', '-err_detect', 'ignore_err'];
+}
+
+function getStreamMappingSettings(): string[] {
+  return ['-map', '0:v:0', '-map', '0:a?','-sn', '-dn'];
+}
+
+function getVideoFilterSettings(): string[] {
+  return ['-vf', 'scale=trunc(iw/2)*2:trunc(ih/2)*2', '-pix_fmt', 'yuv420p'];
+}
+
 async function processVideoWithFFmpeg(
   inputPath: string,
   outputPath: string,
@@ -115,14 +128,20 @@ async function processVideoWithFFmpeg(
 
     const args = [
       ...config.hwaccel,
-      '-threads', cpuThreads.toString(),
+      ...getInputProbeSettings(),
       '-i', inputPath,
+      ...getStreamMappingSettings(),
+      '-threads', cpuThreads.toString(),
       '-c:v', config.encoder,
       '-preset', useGPU ? 'p1' : 'fast',
       '-tune', useGPU ? 'zerolatency' : 'fastdecode',
+      ...getVideoFilterSettings(),
       '-c:a', 'aac',
       '-b:a', '128k',
-      ...qualitySettings
+      '-ac', '2',
+      '-ar', '48000',
+      ...qualitySettings,
+      '-max_muxing_queue_size', '2048'
     ];
 
     if (options.outputFormat === 'hls') {
@@ -170,7 +189,6 @@ async function processVideoWithFFmpeg(
 
     ffmpeg.on('close', async (code) => {
       if (code === 0 && existsSync(outputPath)) {
-        const { readdir } = await import('fs/promises');
         const files = await readdir(outputDir);
         const segmentFiles = files
           .filter((f: string) => f.startsWith(`segment_${timestamp}_`) && f.endsWith('.ts'))
@@ -216,17 +234,19 @@ export async function processVideoToHLS(
   const hasGPU = await checkGPUAvailability();
 
   if (hasGPU) {
-    const result = await processVideoWithFFmpeg(inputPath, outputPath, { outputFormat: 'hls', quality }, true);
-    
-    if (result.success) {
-      return result;
+    const gpuResult = await processVideoWithFFmpeg(inputPath, outputPath, { outputFormat: 'hls', quality }, true);
+    if (gpuResult.success) {
+      return gpuResult;
     }
-
-    if (result.error === 'GPU_ERROR') {
-      return await processVideoWithFFmpeg(inputPath, outputPath, { outputFormat: 'hls', quality }, false);
+    const cpuResult = await processVideoWithFFmpeg(inputPath, outputPath, { outputFormat: 'hls', quality }, false);
+    if (cpuResult.success) {
+      return cpuResult;
     }
-
-    return result;
+    return {
+      success: false,
+      error: `GPU attempt failed: ${gpuResult.error || 'Unknown error'}. CPU attempt failed: ${cpuResult.error || 'Unknown error'}`,
+      usedGPU: false
+    };
   }
 
   return await processVideoWithFFmpeg(inputPath, outputPath, { outputFormat: 'hls', quality }, false);

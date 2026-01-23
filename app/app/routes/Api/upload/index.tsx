@@ -10,6 +10,7 @@ import { randomUUID } from 'crypto';
 import * as crypto from 'crypto';
 import { chunkFile } from './processFunctions/chunking';
 import type { ChunkInfo } from './processFunctions/chunking';
+import db from '~/lib/Database/supabase';
 
 if (typeof process !== 'undefined') {
   try {
@@ -102,6 +103,8 @@ export const action = async ({ request }: { request: Request }) => {
     const uniqueID = formData.get('uniqueID') as string;
     const title = formData.get('title') as string | null;
     const description = formData.get('description') as string | null;
+    const isPublicValue = formData.get('isPublic') as string | null;
+    const isPublic = isPublicValue === null ? true : isPublicValue === 'true' || isPublicValue === '1';
     
     if (!file || !uniqueID || !title) {
       return new Response(JSON.stringify({ error: 'Invalid request' }), { 
@@ -139,8 +142,18 @@ export const action = async ({ request }: { request: Request }) => {
       });
     }
 
-    const isImage = file.type.startsWith('image/');
-    const isVideo = file.type.startsWith('video/');
+    const fileName = file.name.toLowerCase();
+    const validImageExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp'];
+    const validVideoExtensions = ['.mp4', '.webm', '.mov', '.avi', '.mkv', '.m3u8', '.m4v', '.3gp', '.mpeg', '.mpg', '.wmv', '.flv', '.ts', '.m2ts', '.mts'];
+    
+    const extensionIndex = fileName.lastIndexOf('.');
+    const fileExtension = extensionIndex >= 0 ? fileName.substring(extensionIndex) : '';
+    const isTypeImage = file.type.startsWith('image/');
+    const isTypeVideo = file.type.startsWith('video/');
+    const isExtensionImage = validImageExtensions.includes(fileExtension);
+    const isExtensionVideo = validVideoExtensions.includes(fileExtension);
+    const isImage = isTypeImage || (!isTypeVideo && isExtensionImage);
+    const isVideo = isTypeVideo || (!isTypeImage && isExtensionVideo);
 
     if (!isImage && !isVideo) {
       return new Response(JSON.stringify({ error: 'Unsupported file type. Only images and videos are allowed.' }), { 
@@ -149,17 +162,8 @@ export const action = async ({ request }: { request: Request }) => {
       });
     }
 
-    const fileName = file.name.toLowerCase();
-    const validImageExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp'];
-    const validVideoExtensions = ['.mp4', '.webm', '.mov', '.avi', '.mkv', '.m3u8'];
-    
-    const fileExtension = fileName.substring(fileName.lastIndexOf('.'));
-    const isValidExtension = isImage 
-      ? validImageExtensions.includes(fileExtension)
-      : validVideoExtensions.includes(fileExtension);
-
-    if (!isValidExtension) {
-      return new Response(JSON.stringify({ error: 'File extension does not match file type' }), { 
+    if (!isExtensionImage && !isExtensionVideo) {
+      return new Response(JSON.stringify({ error: 'Unsupported file extension' }), { 
         status: 400,
         headers: { 'Content-Type': 'application/json' }
       });
@@ -190,6 +194,33 @@ export const action = async ({ request }: { request: Request }) => {
       });
     }
 
+    try {
+      if (db) {
+        const insertData: Record<string, any> = {
+          created_at: new Date().toISOString(),
+          endpoint: '',
+          filename: file.name,
+          unique_id: uniqueID,
+          file_type: file.type,
+          file_size: file.size.toString(),
+          owner_id: ownerId,
+          file_title: title,
+          file_description: description || null,
+          is_public: isPublic,
+          upload_status: 'queued'
+        };
+
+        await db
+          .from('files')
+          .upsert(insertData, {
+            onConflict: 'unique_id',
+            ignoreDuplicates: false
+          });
+      }
+    } catch (error) {
+      console.warn('Failed to create queued upload record:', error);
+    }
+
     const fileBuffer = Buffer.from(await file.arrayBuffer());
     const chunkResult = await chunkFile(fileBuffer, uniqueID, tempDir);
     
@@ -204,7 +235,7 @@ export const action = async ({ request }: { request: Request }) => {
       await writeFile(filePath, fileBuffer);
     }
 
-    const jobId = await uploadQueue.addJob({
+    const jobPayload = {
       file: {
         filePath: filePath,
         originalName: file.name,
@@ -215,8 +246,11 @@ export const action = async ({ request }: { request: Request }) => {
       title,
       description: description || undefined,
       ownerId,
-      chunks: chunks
-    });
+      chunks: chunks,
+      isPublic
+    };
+
+    const jobId = await uploadQueue.addJob(jobPayload as any);
 
     if (!jobId) {
       if (chunks) {

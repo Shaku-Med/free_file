@@ -6,7 +6,7 @@ import { processVideoToHLS } from './videoProcessor';
 import { config } from '~/lib/config';
 import { writeFile, unlink, readFile, readdir, mkdir } from 'fs/promises';
 import { existsSync } from 'fs';
-import { join } from 'path';
+import { join, extname } from 'path';
 import { randomUUID } from 'crypto';
 import db from '~/lib/Database/supabase';
 import { reassembleChunks } from './chunking.js';
@@ -24,6 +24,7 @@ interface UploadJobData {
   description?: string;
   ownerId?: string;
   chunks?: ChunkInfo[];
+  isPublic?: boolean;
 }
 
 interface ProcessResult {
@@ -99,7 +100,8 @@ export class UploadWorker {
       await job.updateProgress(10);
       await this.fileService.initialize();
 
-      const { file, uniqueID, title, description, ownerId, chunks } = job.data;
+      const { file, uniqueID, title, description, ownerId, chunks, isPublic } = job.data;
+      await this.updateUploadStatus(uniqueID, 'processing', isPublic);
       
       let fileBuffer: Buffer;
       let actualFilePath: string;
@@ -114,6 +116,7 @@ export class UploadWorker {
         }
       } else {
         if (!existsSync(file.filePath)) {
+          await this.updateUploadStatus(uniqueID, 'failed', isPublic);
           return {
             success: false,
             error: 'File not found at specified path'
@@ -124,10 +127,11 @@ export class UploadWorker {
         tempFilesToCleanup.push(file.filePath);
       }
       
-      const isImage = file.mimeType.startsWith('image/');
-      const isVideo = file.mimeType.startsWith('video/');
+      const isImage = this.isImageFile(file.mimeType, file.originalName);
+      const isVideo = this.isVideoFile(file.mimeType, file.originalName);
 
       if (!isImage && !isVideo) {
+        await this.updateUploadStatus(uniqueID, 'failed', isPublic);
         return {
           success: false,
           error: 'Unsupported file type. Only images and videos are allowed.'
@@ -193,13 +197,16 @@ export class UploadWorker {
           isAdult,
           title,
           description,
-          ownerId
+          ownerId,
+          isPublic,
+          uploadStatus: 'completed'
         });
 
         await job.updateProgress(90);
 
         if (!uploadResult.success) {
           console.error(`[Upload Worker] Image upload failed for ${uniqueID}:`, uploadResult.error);
+          await this.updateUploadStatus(uniqueID, 'failed', isPublic);
           await this.cleanupTempFiles(tempFilesToCleanup);
           return {
             success: false,
@@ -215,7 +222,8 @@ export class UploadWorker {
       if (isVideo) {
         await job.updateProgress(65);
 
-        const inputPath = join(tempDir, `input_${uniqueID}_${randomUUID()}.mp4`);
+        const inputExtension = this.getInputExtension(file.originalName, file.mimeType);
+        const inputPath = join(tempDir, `input_${uniqueID}_${randomUUID()}${inputExtension}`);
         const outputPath = join(tempDir, `output_${uniqueID}_${randomUUID()}.m3u8`);
         
         tempFilesToCleanup.push(inputPath);
@@ -224,6 +232,7 @@ export class UploadWorker {
         const hlsResult = await processVideoToHLS(inputPath, outputPath, 'medium');
 
         if (!hlsResult.success) {
+          await this.updateUploadStatus(uniqueID, 'failed', isPublic);
           await this.cleanupTempFiles(tempFilesToCleanup);
           return {
             success: false,
@@ -256,11 +265,14 @@ export class UploadWorker {
           description,
           ownerId,
           durationSeconds: safeDurationSeconds,
-          isReel
+          isReel,
+          isPublic,
+          uploadStatus: 'completed'
         });
 
         if (!m3u8UploadResult.success) {
           console.error(`[Upload Worker] M3U8 upload failed for ${uniqueID}:`, m3u8UploadResult.error);
+          await this.updateUploadStatus(uniqueID, 'failed', isPublic);
           await this.cleanupTempFiles(tempFilesToCleanup);
           return {
             success: false,
@@ -338,6 +350,7 @@ export class UploadWorker {
           }
         }
 
+        await this.updateUploadStatus(uniqueID, 'completed', isPublic);
         await this.cleanupTempFiles(tempFilesToCleanup);
       }
 
@@ -350,11 +363,30 @@ export class UploadWorker {
       };
     } catch (error) {
       console.error(`[Upload Worker] Job ${job.id} failed for ${job.data.uniqueID}:`, error);
+      await this.updateUploadStatus(job.data.uniqueID, 'failed', job.data.isPublic);
       await this.cleanupTempFiles(tempFilesToCleanup);
       return {
         success: false,
         error: 'Upload processing failed'
       };
+    }
+  }
+
+  private async updateUploadStatus(uniqueID: string, status: string, isPublic?: boolean): Promise<void> {
+    try {
+      if (!db) {
+        return;
+      }
+      const updateData: Record<string, any> = { upload_status: status };
+      if (typeof isPublic === 'boolean') {
+        updateData.is_public = isPublic;
+      }
+      await db
+        .from('files')
+        .update(updateData)
+        .eq('unique_id', uniqueID);
+    } catch (error) {
+      console.warn(`[Upload Worker] Failed to update status for ${uniqueID}:`, error);
     }
   }
 
@@ -378,6 +410,31 @@ export class UploadWorker {
     return `${day}_${month}_${year}`;
   }
 
+  private isImageFile(mimeType: string, originalName: string): boolean {
+    if (mimeType.startsWith('image/')) {
+      return true;
+    }
+    const extension = extname(originalName || '').toLowerCase();
+    return ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.svg'].includes(extension);
+  }
+
+  private isVideoFile(mimeType: string, originalName: string): boolean {
+    if (mimeType.startsWith('video/')) {
+      return true;
+    }
+    const extension = extname(originalName || '').toLowerCase();
+    return ['.mp4', '.webm', '.mov', '.avi', '.mkv', '.m3u8', '.m4v', '.3gp', '.mpeg', '.mpg', '.wmv', '.flv', '.ts', '.m2ts', '.mts'].includes(extension);
+  }
+
+  private getInputExtension(originalName: string, mimeType: string): string {
+    const extension = extname(originalName || '').toLowerCase();
+    if (extension) {
+      return extension;
+    }
+    const fallback = this.getMimeTypeExtension(mimeType);
+    return `.${fallback}`;
+  }
+
   private getMimeTypeExtension(mimeType: string): string {
     const mimeMap: Record<string, string> = {
       'image/jpeg': 'jpg',
@@ -387,9 +444,16 @@ export class UploadWorker {
       'image/webp': 'webp',
       'image/svg+xml': 'svg',
       'video/mp4': 'mp4',
+      'video/m4v': 'm4v',
+      'video/3gpp': '3gp',
+      'video/mpeg': 'mpeg',
+      'video/x-msvideo': 'avi',
+      'video/x-matroska': 'mkv',
       'video/webm': 'webm',
       'video/quicktime': 'mov',
-      'video/x-msvideo': 'avi',
+      'video/x-ms-wmv': 'wmv',
+      'video/x-flv': 'flv',
+      'video/mp2t': 'ts',
       'application/vnd.apple.mpegurl': 'm3u8',
     };
 

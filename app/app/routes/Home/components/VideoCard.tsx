@@ -1,7 +1,11 @@
 import { useState, useCallback, useRef, useEffect } from "react"
 import { motion } from "framer-motion"
 import { Link, useNavigate } from "react-router"
-import { ThumbsUp, ThumbsDown } from "lucide-react"
+import { ThumbsUp, ThumbsDown, Lock, Globe, AlertTriangle, Clock, MoreVertical } from "lucide-react"
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "~/components/ui/dialog"
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "~/components/ui/dropdown-menu"
+import { Input } from "~/components/ui/input"
+import { Textarea } from "~/components/ui/textarea"
 import { Button } from "~/components/ui/button"
 import type { FileType } from "~/lib/types"
 import ImageLoad from "./ImageLoad/ImageLoad"
@@ -14,9 +18,11 @@ interface VideoCardProps {
   index?: number
   currentUserId?: string
   userActions?: { likedFileIds: Set<string>; dislikedFileIds: Set<string> }
+  onUpdate?: (fileId: string, updates: Partial<FileType>) => void
+  showOwnerControls?: boolean
 }
 
-const VideoCard = ({ data, index, currentUserId, userActions }: VideoCardProps) => {
+const VideoCard = ({ data, index, currentUserId, userActions, onUpdate, showOwnerControls }: VideoCardProps) => {
   
   const [error, setError] = useState<boolean>(false)
   const [retryAttempt, setRetryAttempt] = useState<number>(0)
@@ -26,6 +32,17 @@ const VideoCard = ({ data, index, currentUserId, userActions }: VideoCardProps) 
   const [upCount, setUpCount] = useState(Number(data.up_count) || 0)
   const [downCount, setDownCount] = useState(Number(data.down_count) || 0)
   const [isLoading, setIsLoading] = useState(false)
+  const uploadStatus = data.upload_status || "completed"
+  const hasEndpoint = Boolean(data.endpoint)
+  const isOwner = Boolean(currentUserId && data.owner_id && currentUserId === data.owner_id)
+  const isPending = uploadStatus !== "completed" && !hasEndpoint
+  const statusLabel = hasEndpoint ? "completed" : uploadStatus
+  const [isEditing, setIsEditing] = useState(false)
+  const [editTitle, setEditTitle] = useState(data.file_title || "")
+  const [editDescription, setEditDescription] = useState(data.file_description || "")
+  const [editIsPublic, setEditIsPublic] = useState(Boolean(data.is_public))
+  const [isSaving, setIsSaving] = useState(false)
+  const [editError, setEditError] = useState<string | null>(null)
 
   const nav = useNavigate()
   const likeDebounceRef = useRef<NodeJS.Timeout | null>(null)
@@ -182,6 +199,53 @@ const VideoCard = ({ data, index, currentUserId, userActions }: VideoCardProps) 
     }
   }, [])
 
+  useEffect(() => {
+    setEditTitle(data.file_title || "")
+    setEditDescription(data.file_description || "")
+    setEditIsPublic(Boolean(data.is_public))
+  }, [data.file_title, data.file_description, data.is_public])
+
+  const handleSave = async () => {
+    if (!data.id) {
+      setEditError("Missing file id.")
+      return
+    }
+    setIsSaving(true)
+    setEditError(null)
+    try {
+      const response = await fetch("/api/files", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          fileId: data.id || data.unique_id,
+          title: editTitle,
+          description: editDescription,
+          isPublic: editIsPublic
+        })
+      })
+
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null)
+        setEditError(payload?.error || "Failed to update file.")
+        return
+      }
+
+      const payload = await response.json().catch(() => null)
+      if (payload?.file && onUpdate) {
+        onUpdate(data.id, {
+          file_title: payload.file.file_title ?? editTitle,
+          file_description: payload.file.file_description ?? editDescription,
+          is_public: payload.file.is_public ?? editIsPublic
+        })
+      }
+      setIsEditing(false)
+    } catch {
+      setEditError("Failed to update file.")
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
   return (
     <div className="item group overflow-hidden rounded-2xl relative flex flex-col justify-between bg-card ring-1 ring-border/50 shadow-sm hover:shadow-md transition-all duration-300 w-full aspect-video min-h-[200px]">
       <Link 
@@ -198,7 +262,7 @@ const VideoCard = ({ data, index, currentUserId, userActions }: VideoCardProps) 
           transition={{duration: 0.1, ease: "easeOut", damping: 10, stiffness: 100}}
           className="h-full w-full"
         >
-          {!error ? (
+          {!error && !isPending ? (
             <ImageLoad 
               link={(() => {
                 if (data.file_type.startsWith('image/') && data.endpoint) {
@@ -230,11 +294,55 @@ const VideoCard = ({ data, index, currentUserId, userActions }: VideoCardProps) 
             />
           ) : (
             <div className="w-full h-full flex items-center justify-center bg-muted text-xs text-center">
-              <span>Failed to load image</span>
+              <span>{isPending ? "Processing upload..." : "Failed to load image"}</span>
             </div>
           )}
         </motion.div>
       </Link>
+
+      {isOwner && showOwnerControls && (
+        <>
+          <div className="absolute top-3 left-3 flex items-center gap-2 z-10">
+            <div className="flex items-center gap-1 rounded-full bg-black/70 px-2 py-1 text-[11px] text-white">
+              {data.is_public ? <Globe className="h-3 w-3" /> : <Lock className="h-3 w-3" />}
+              <span>{data.is_public ? "Public" : "Private"}</span>
+            </div>
+            <div className="flex items-center gap-1 rounded-full bg-black/70 px-2 py-1 text-[11px] text-white">
+              {statusLabel === "failed" ? <AlertTriangle className="h-3 w-3 text-destructive" /> : <Clock className="h-3 w-3" />}
+              <span className="capitalize">{statusLabel}</span>
+            </div>
+          </div>
+          <div className="absolute top-3 right-3 z-10 pointer-events-auto">
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8 rounded-full bg-black/70 text-white hover:bg-black/80"
+                  onClick={(event) => {
+                    event.preventDefault()
+                    event.stopPropagation()
+                  }}
+                >
+                  <MoreVertical className="h-4 w-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="min-w-[140px]">
+                <DropdownMenuItem
+                  onClick={(event) => {
+                    event.preventDefault()
+                    event.stopPropagation()
+                    setIsEditing(true)
+                  }}
+                >
+                  Edit details
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+        </>
+      )}
       
       <div className="opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-all duration-300 p-3 space-y-2 pointer-events-none absolute flex flex-col justify-end bottom-0 left-0 right-0 bg-gradient-to-t from-black/90 via-black/60 to-transparent pb-4">
         <h3 className="text-white text-sm md:text-base font-semibold leading-tight line-clamp-2 mb-1">
@@ -271,6 +379,67 @@ const VideoCard = ({ data, index, currentUserId, userActions }: VideoCardProps) 
           <span className="text-xs text-white min-w-[20px]">{downCount}</span>
         </div>
       </div>
+
+      <Dialog open={isEditing} onOpenChange={(open) => !isSaving && setIsEditing(open)}>
+        <DialogContent className="w-full rounded-2xl max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Edit upload</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-1">
+              <p className="text-xs font-medium text-foreground">Title</p>
+              <Input
+                value={editTitle}
+                onChange={(e) => setEditTitle(e.target.value)}
+                maxLength={200}
+                disabled={isSaving}
+              />
+            </div>
+            <div className="space-y-1">
+              <p className="text-xs font-medium text-foreground">Description</p>
+              <Textarea
+                value={editDescription}
+                onChange={(e) => setEditDescription(e.target.value)}
+                rows={4}
+                maxLength={5000}
+                disabled={isSaving}
+              />
+            </div>
+            <div className="space-y-2">
+              <p className="text-xs font-medium text-foreground">Visibility</p>
+              <div className="flex items-center gap-2">
+                <Button
+                  type="button"
+                  variant={editIsPublic ? "default" : "outline"}
+                  className="rounded-full px-4"
+                  onClick={() => setEditIsPublic(true)}
+                  disabled={isSaving}
+                >
+                  Public
+                </Button>
+                <Button
+                  type="button"
+                  variant={!editIsPublic ? "default" : "outline"}
+                  className="rounded-full px-4"
+                  onClick={() => setEditIsPublic(false)}
+                  disabled={isSaving}
+                >
+                  Private
+                </Button>
+              </div>
+            </div>
+            {editError && <p className="text-xs text-destructive">{editError}</p>}
+          </div>
+          <DialogFooter className="gap-2">
+            <Button type="button" variant="ghost" onClick={() => setIsEditing(false)} disabled={isSaving}>
+              Cancel
+            </Button>
+            <Button type="button" onClick={handleSave} disabled={isSaving}>
+              {isSaving ? "Saving..." : "Save"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

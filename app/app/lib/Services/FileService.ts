@@ -11,6 +11,8 @@ export interface FileUploadData {
   ownerId?: string;
   durationSeconds?: number;
   isReel?: boolean;
+  isPublic?: boolean;
+  uploadStatus?: string;
 }
 
 export interface FileRecord {
@@ -22,6 +24,8 @@ export interface FileRecord {
   file_type: string;
   file_size: number;
   is_adult?: boolean;
+  is_public?: boolean;
+  upload_status?: string;
 }
 
 export interface PaginationParams {
@@ -106,7 +110,8 @@ export class FileService {
           filename: fileData.filename,
           unique_id: fileData.uniqueID,
           file_type: fileType,
-          file_size: fileData.file.size.toString()
+          file_size: fileData.file.size.toString(),
+          upload_status: fileData.uploadStatus || 'completed'
         };
 
         if (fileData.isAdult !== undefined) {
@@ -123,6 +128,10 @@ export class FileService {
 
         if (fileData.ownerId) {
           insertData.owner_id = fileData.ownerId;
+        }
+
+        if (typeof fileData.isPublic === 'boolean') {
+          insertData.is_public = fileData.isPublic;
         }
 
         if (typeof fileData.durationSeconds === 'number' && Number.isFinite(fileData.durationSeconds) && fileData.durationSeconds >= 0) {

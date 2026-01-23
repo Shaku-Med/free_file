@@ -116,7 +116,7 @@ export function AppSidebar() {
   return (
     <Sidebar variant="sidebar" collapsible="offcanvas" className="bg-background border-none">
       <SidebarHeader className={`${!isMobile ? `pt-[28px]` : `pt-[14px]`}`}>
-        <Link to="/" id="home_button" className="flex items-center space-x-2 group">
+        <Link to="/" id="home_button" className="flex items-center space-x-2 group w-fit">
           <div className="relative flex items-center ">
             <div className="">
               <Logo className="relative h-10 w-10 text-primary" />
