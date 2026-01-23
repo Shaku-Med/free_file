@@ -56,12 +56,14 @@ export class GitHubClient {
     message: string = 'Upload file'
   ): Promise<string> {
     try {
+      const existingSha = await this.getFileSha(filePath);
       const response = await this.octokit.rest.repos.createOrUpdateFileContents({
         owner: this.owner,
         repo: this.repo,
         path: filePath,
         message,
-        content: content
+        content: content,
+        sha: existingSha || undefined
       });
       return response.data.content?.sha || '';
     } catch (error: any) {
@@ -70,6 +72,20 @@ export class GitHubClient {
         throw new Error(`Repository ${this.owner}/${this.repo} not found. Please check if the repository exists and you have access to it.`);
       } else if (error.status === 403) {
         throw new Error('Access denied. Please check your GitHub token permissions.');
+      } else if (error.status === 422 && typeof error.message === 'string' && error.message.includes('"sha" wasn\'t supplied')) {
+        const existingSha = await this.getFileSha(filePath);
+        if (!existingSha) {
+          throw new Error(`GitHub upload failed: ${error.message || 'Missing sha'}`);
+        }
+        const retryResponse = await this.octokit.rest.repos.createOrUpdateFileContents({
+          owner: this.owner,
+          repo: this.repo,
+          path: filePath,
+          message,
+          content: content,
+          sha: existingSha
+        });
+        return retryResponse.data.content?.sha || '';
       } else {
         throw new Error(`GitHub upload failed: ${error.message || 'Unknown error'}`);
       }
@@ -99,6 +115,26 @@ export class GitHubClient {
       return null;
     } catch (error) {
       console.error('Error getting file content:', error);
+      return null;
+    }
+  }
+
+  private async getFileSha(filePath: string): Promise<string | null> {
+    try {
+      const response = await this.octokit.rest.repos.getContent({
+        owner: this.owner,
+        repo: this.repo,
+        path: filePath
+      });
+      if ('sha' in response.data) {
+        return response.data.sha || null;
+      }
+      return null;
+    } catch (error: any) {
+      if (error?.status === 404) {
+        return null;
+      }
+      console.error('Error getting file sha:', error);
       return null;
     }
   }

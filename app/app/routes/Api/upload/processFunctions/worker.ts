@@ -116,12 +116,7 @@ export class UploadWorker {
         }
       } else {
         if (!existsSync(file.filePath)) {
-          await this.updateUploadStatus(uniqueID, 'failed', isPublic);
-          await this.deleteUploadRecord(uniqueID);
-          return {
-            success: false,
-            error: 'File not found at specified path'
-          };
+          throw new Error('File not found at specified path');
         }
         actualFilePath = file.filePath;
         fileBuffer = await readFile(file.filePath);
@@ -132,12 +127,7 @@ export class UploadWorker {
       const isVideo = this.isVideoFile(file.mimeType, file.originalName);
 
       if (!isImage && !isVideo) {
-        await this.updateUploadStatus(uniqueID, 'failed', isPublic);
-        await this.deleteUploadRecord(uniqueID);
-        return {
-          success: false,
-          error: 'Unsupported file type. Only images and videos are allowed.'
-        };
+        throw new Error('Unsupported file type. Only images and videos are allowed.');
       }
 
       let isAdult: boolean | undefined = undefined;
@@ -208,13 +198,7 @@ export class UploadWorker {
 
         if (!uploadResult.success) {
           console.error(`[Upload Worker] Image upload failed for ${uniqueID}:`, uploadResult.error);
-          await this.updateUploadStatus(uniqueID, 'failed', isPublic);
-          await this.deleteUploadRecord(uniqueID);
-          await this.cleanupTempFiles(tempFilesToCleanup);
-          return {
-            success: false,
-            error: uploadResult.error || 'Upload failed'
-          };
+          throw new Error(uploadResult.error || 'Upload failed');
         }
 
         console.log(`[Upload Worker] Image uploaded successfully for ${uniqueID}. GitHub: ${uploadResult.githubPath}, Supabase ID: ${uploadResult.supabaseId}`);
@@ -235,13 +219,7 @@ export class UploadWorker {
         const hlsResult = await processVideoToHLS(inputPath, outputPath, 'medium');
 
         if (!hlsResult.success) {
-          await this.updateUploadStatus(uniqueID, 'failed', isPublic);
-          await this.deleteUploadRecord(uniqueID);
-          await this.cleanupTempFiles(tempFilesToCleanup);
-          return {
-            success: false,
-            error: hlsResult.error || 'HLS conversion failed'
-          };
+          throw new Error(hlsResult.error || 'HLS conversion failed');
         }
 
         tempFilesToCleanup.push(outputPath);
@@ -276,13 +254,7 @@ export class UploadWorker {
 
         if (!m3u8UploadResult.success) {
           console.error(`[Upload Worker] M3U8 upload failed for ${uniqueID}:`, m3u8UploadResult.error);
-          await this.updateUploadStatus(uniqueID, 'failed', isPublic);
-          await this.deleteUploadRecord(uniqueID);
-          await this.cleanupTempFiles(tempFilesToCleanup);
-          return {
-            success: false,
-            error: m3u8UploadResult.error || 'M3U8 upload failed'
-          };
+          throw new Error(m3u8UploadResult.error || 'M3U8 upload failed');
         }
 
         console.log(`[Upload Worker] M3U8 uploaded successfully for ${uniqueID}. GitHub: ${m3u8UploadResult.githubPath}, Supabase ID: ${m3u8UploadResult.supabaseId}`);
@@ -367,15 +339,23 @@ export class UploadWorker {
         isAdult
       };
     } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Upload processing failed';
+      const isFinalAttempt = this.shouldDeleteRecord(job);
       console.error(`[Upload Worker] Job ${job.id} failed for ${job.data.uniqueID}:`, error);
-      await this.updateUploadStatus(job.data.uniqueID, 'failed', job.data.isPublic);
-      await this.deleteUploadRecord(job.data.uniqueID);
-      await this.cleanupTempFiles(tempFilesToCleanup);
-      return {
-        success: false,
-        error: 'Upload processing failed'
-      };
+      if (isFinalAttempt) {
+        await this.updateUploadStatus(job.data.uniqueID, 'failed', job.data.isPublic);
+        await this.cleanupTempFiles(tempFilesToCleanup);
+        await this.deleteUploadRecord(job.data.uniqueID);
+      } else {
+        await this.updateUploadStatus(job.data.uniqueID, 'processing', job.data.isPublic);
+      }
+      throw new Error(errorMessage);
     }
+  }
+
+  private shouldDeleteRecord(job: Job<UploadJobData>): boolean {
+    const maxAttempts = job.opts.attempts ?? 1;
+    return job.attemptsMade + 1 >= maxAttempts;
   }
 
   private async deleteUploadRecord(uniqueID: string): Promise<void> {
