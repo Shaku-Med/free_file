@@ -250,9 +250,9 @@ export const loginUser = async (data: LoginData, request: Request): Promise<{ su
     }
 
     const tokenData = { c_usr: userC_usr };
-    const thirtyDaysInSeconds = 30 * 24 * 60 * 60;
+    // const thirtyDaysInSeconds = 30 * 24 * 60 * 60;
     const token = await EncryptCombine(tokenData, keys, {
-      expiresIn: thirtyDaysInSeconds,
+      expiresIn: '365d',
       algorithm: 'HS512'
     });
 
