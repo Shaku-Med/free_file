@@ -139,6 +139,14 @@ export const PictureInPictureProvider: React.FC<PictureInPictureProviderProps> =
         pipHlsRef.current = pipHls;
         pipHls.loadSource(src);
         pipHls.attachMedia(pipVideo);
+        pipHls.on(Hls.Events.MANIFEST_PARSED, () => {
+          const pref = (typeof localStorage !== 'undefined' ? localStorage.getItem('hls-quality-preference') : null) || 'auto';
+          if (pref !== 'auto' && pipHls.levels?.length) {
+            const want = parseInt(pref, 10);
+            const idx = pipHls.levels.findIndex((l: any) => l.height === want);
+            pipHls.currentLevel = idx >= 0 ? idx : -1;
+          }
+        });
       } else {
         pipVideo.src = src;
       }

@@ -27,8 +27,12 @@ const getPipeline = async () => {
 
 export const action = async ({ request }: { request: Request }) => {
   try {
-    let verified = await VKF(request)
-    if(!verified) return new Response(null, { status: 401 })
+    // Auth: X-Webhook-Secret (Go upload server) or VKF (user/browser)
+    const secret = request.headers.get('X-Webhook-Secret') ?? '';
+    const expected = typeof process !== 'undefined' ? process.env?.UPLOAD_WEBHOOK_SECRET : '';
+    const serverAuth = !!(expected && secret === expected);
+    const verified = serverAuth || (await VKF(request));
+    if (!verified) return new Response(null, { status: 401 });
     // Only accept POST requests
     if (request.method !== 'POST') {
       return new Response(

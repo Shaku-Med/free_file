@@ -43,7 +43,7 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
   initialFiles,
   onFilesConsumed,
 }) => {
-  const { userId } = useFileContext()
+  const { userId, c_user, uploadServerUrl } = useFileContext()
   const navigate = useNavigate()
   const [items, setItems] = useState<MediaItem[]>([])
   const [activeId, setActiveId] = useState<string | null>(null)
@@ -186,7 +186,124 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
     })
   }
 
-  const uploadFile = (item: MediaItem) => {
+  const GO_CHUNK_SIZE = 25 * 1024 * 1024 // 25MB, must match Go
+
+  const authHeaders = (): Record<string, string> =>
+    c_user ? { Authorization: `Bearer ${c_user}` } : {}
+
+  const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
+
+  const fetchWith503Retry = async (
+    url: string,
+    init: RequestInit,
+    onProgress?: (p: number, text: string) => void,
+    maxRetries = 3
+  ): Promise<Response> => {
+    for (let r = 0; r <= maxRetries; r++) {
+      const res = await fetch(url, init)
+      if (res.status !== 503) return res
+      onProgress?.(5, "Server busy. Retrying...")
+      let wait = 5
+      try {
+        const j = await res.json().catch(() => ({}))
+        const ra = (j as { retry_after?: number }).retry_after
+        if (typeof ra === "number" && ra > 0 && ra <= 120) wait = ra
+      } catch {}
+      await sleep(wait * 1000)
+    }
+    return fetch(url, init)
+  }
+
+  const uploadToGo = async (item: MediaItem): Promise<{ jobId: string }> => {
+    const base = uploadServerUrl.replace(/\/$/, "")
+    const totalChunks = Math.ceil(item.file.size / GO_CHUNK_SIZE)
+
+    // 1) start
+    let startRes = await fetchWith503Retry(
+      `${base}/api/upload/start`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...authHeaders() },
+        body: JSON.stringify({
+          file_name: item.file.name,
+          file_size: item.file.size,
+          total_chunks: totalChunks,
+        }),
+      },
+      (p, t) => updateItem(item.id, (c) => ({ ...c, progress: p, statusText: t }))
+    )
+    if (startRes.status === 401) throw new Error("Session expired. Please log in again.")
+    if (!startRes.ok) {
+      const j = await startRes.json().catch(() => ({}))
+      throw new Error((j as { error?: string }).error || "Upload start failed")
+    }
+    const startJson = (await startRes.json()) as { upload_id: string }
+    const uploadId = startJson.upload_id
+    if (!uploadId) throw new Error("Upload start failed")
+
+    // 2) chunks
+    for (let i = 0; i < totalChunks; i++) {
+      const start = i * GO_CHUNK_SIZE
+      const end = Math.min(start + GO_CHUNK_SIZE, item.file.size)
+      const blob = item.file.slice(start, end)
+
+      let chunkRes = await fetchWith503Retry(
+        `${base}/api/upload/chunk`,
+        {
+          method: "POST",
+          headers: {
+            "X-Upload-ID": uploadId,
+            "X-Chunk-Index": String(i),
+            ...authHeaders(),
+          },
+          body: blob,
+        },
+        (p, t) =>
+          updateItem(item.id, (c) => ({
+            ...c,
+            progress: 5 + Math.round(((i + 0.5) / totalChunks) * 90),
+            statusText: t || `Uploading chunk ${i + 1}/${totalChunks}...`,
+          }))
+      )
+      if (chunkRes.status === 401) throw new Error("Session expired. Please log in again.")
+      if (chunkRes.status === 404) throw new Error("Upload session expired. Please try again.")
+      if (!chunkRes.ok) {
+        const j = await chunkRes.json().catch(() => ({}))
+        throw new Error((j as { error?: string }).error || "Chunk upload failed")
+      }
+      updateItem(item.id, (c) => ({
+        ...c,
+        progress: 5 + Math.round(((i + 1) / totalChunks) * 90),
+        statusText: `Uploading chunk ${i + 1}/${totalChunks}...`,
+      }))
+    }
+
+    // 3) complete — send is_public, title, description so Go can push to Supabase via webhook
+    let completeRes = await fetchWith503Retry(
+      `${base}/api/upload/${uploadId}/complete`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...authHeaders() },
+        body: JSON.stringify({
+          is_public: item.isPublic,
+          title: item.title.trim(),
+          description: item.description.trim(),
+        }),
+      },
+      (p, t) => updateItem(item.id, (c) => ({ ...c, progress: 95, statusText: t }))
+    )
+    if (completeRes.status === 401) throw new Error("Session expired. Please log in again.")
+    if (!completeRes.ok) {
+      const j = await completeRes.json().catch(() => ({}))
+      throw new Error((j as { error?: string }).error || "Complete upload failed")
+    }
+    const completeJson = (await completeRes.json()) as { job_id?: string; jobId?: string }
+    const jobId = completeJson.job_id ?? completeJson.jobId
+    if (!jobId) throw new Error("Complete upload failed")
+    return { jobId }
+  }
+
+  const uploadFile = (item: MediaItem): Promise<any> => {
     updateItem(item.id, (current) => ({
       ...current,
       status: "uploading",
@@ -195,6 +312,10 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
       error: null,
       jobId: null,
     }))
+
+    if (uploadServerUrl && c_user) {
+      return uploadToGo(item)
+    }
 
     return new Promise<any>((resolve, reject) => {
       const uniqueID = GenerateUniqueID()
@@ -243,62 +364,6 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
     })
   }
 
-  const pollProcessing = async (jobId: string, itemId: string) => {
-    updateItem(itemId, (current) => ({
-      ...current,
-      status: "processing",
-      progress: 100,
-      statusText: "Upload queued. Waiting for processing...",
-      jobId,
-    }))
-    let attempts = 0
-    const maxAttempts = 120
-    while (attempts < maxAttempts) {
-      attempts += 1
-      const res = await fetch(`/api/upload/status/${jobId}`)
-      if (!res.ok) {
-        await new Promise((resolve) => setTimeout(resolve, 3000))
-        continue
-      }
-      const json = await res.json()
-      if (json.status === "queued" || json.status === "running") {
-        updateItem(itemId, (current) => ({
-          ...current,
-          status: "processing",
-          statusText: "Processing video...",
-          progress: 100,
-        }))
-        await new Promise((resolve) => setTimeout(resolve, 3000))
-        continue
-      }
-      if (json.status === "completed") {
-        updateItem(itemId, (current) => ({
-          ...current,
-          status: "success",
-          statusText: "Processing complete.",
-          progress: 100,
-        }))
-        return
-      }
-      if (json.status === "failed") {
-        updateItem(itemId, (current) => ({
-          ...current,
-          status: "error",
-          statusText: "Processing failed.",
-          error: json.error || "Video processing failed.",
-        }))
-        return
-      }
-      await new Promise((resolve) => setTimeout(resolve, 3000))
-    }
-    updateItem(itemId, (current) => ({
-      ...current,
-      status: "error",
-      statusText: "Processing timed out.",
-      error: "Processing timed out.",
-    }))
-  }
-
   const handleUpload = async () => {
     if (items.length === 0) {
       setError("Select files to upload.")
@@ -323,26 +388,24 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
         continue
       }
       try {
-        const result = await uploadFile(item)
-        const newJobId = result && (result.jobId || result.job_id)
-        if (newJobId) {
-          await pollProcessing(newJobId, item.id)
-        } else {
-          updateItem(item.id, (current) => ({
-            ...current,
-            status: "success",
-            statusText: "Upload complete.",
-            progress: 100,
-          }))
-        }
+        await uploadFile(item)
+        // Upload queued successfully - Go worker will process and update Supabase via webhook.
+        // User can see progress on their profile page.
+        updateItem(item.id, (current) => ({
+          ...current,
+          status: "success",
+          statusText: "Upload complete. Processing in background.",
+          progress: 100,
+        }))
         successfulUploads += 1
         onFilesSelected([item.file])
-      } catch {
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : "Failed to upload file. Try again."
         updateItem(item.id, (current) => ({
           ...current,
           status: "error",
           statusText: "Upload failed.",
-          error: "Failed to upload file. Try again.",
+          error: msg,
         }))
       }
     }
@@ -350,10 +413,9 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
     setIsUploadingBatch(false)
     const allSucceeded = successfulUploads > 0 && successfulUploads === snapshot.length
     if (allSucceeded) {
-      setTimeout(() => {
-        resetState()
-        onClose()
-      }, 2000)
+      // Close immediately - user can see processing status on their profile page
+      resetState()
+      onClose()
     }
   }
 

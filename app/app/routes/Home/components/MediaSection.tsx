@@ -1,6 +1,7 @@
 import React, { useState } from 'react'
 import { useFileContext } from '../../../lib/Context/Context';
 import HLSPlayer from '../../../components/components/hlsplayer';
+import { getVideoSrc } from '../../../lib/utils';
 import { LikeButton } from '../../../components/ui/like-button';
 import MediaSelectionModal from './MediaSelectionModal';
 import { Plus } from 'lucide-react';
@@ -86,7 +87,7 @@ const MediaSection = () => {
               <div className="aspect-video relative bg-muted">
                 {isHLS ? (
                   <HLSPlayer
-                    src={`/api/load/video/${file.endpoint}`}
+                    src={getVideoSrc(file?.endpoint ?? '', file?.file_type)}
                     className="w-full h-full"
                     onPlay={() => setPlayingVideos(prev => new Set(prev).add(index))}
                     onPause={() => setPlayingVideos(prev => {
@@ -101,7 +102,7 @@ const MediaSection = () => {
                   />
                 ) : isVideo ? (
                   <HLSPlayer
-                    src={`/api/load/video/${file.endpoint}`}
+                    src={getVideoSrc(file?.endpoint ?? '', file?.file_type)}
                     className="w-full h-full"
                     onPlay={() => setPlayingVideos(prev => new Set(prev).add(index))}
                     onPause={() => setPlayingVideos(prev => {
@@ -116,7 +117,7 @@ const MediaSection = () => {
                   />
                 ) : isImage ? (
                   <img
-                    src={`/api/load/video/${file.endpoint}`}
+                    src={`/api/load/image/${file.endpoint}`}
                     alt={file.filename}
                     className="w-full h-full object-cover"
                   />

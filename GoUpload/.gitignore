@@ -1,0 +1,30 @@
+# Binaries
+/goupload
+goupload
+goupload.exe
+*.exe
+
+# Env (use VPS_ENV in CI; do not commit secrets)
+.env
+.env.*
+!.env.example
+
+# Upload and temp dirs
+/upload/
+/tmp/
+
+# Go
+/vendor/
+
+# Build and logs
+*.log
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db

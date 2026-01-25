@@ -8,7 +8,7 @@ import HLSPlayer from '~/components/components/hlsplayer'
 import ImageLoad from '~/routes/Home/components/ImageLoad/ImageLoad'
 import RelatedVideos from '../Dynamic/components/RelatedVideos'
 import ImagePreview from '../Dynamic/components/ImagePreview/ImagePreview'
-import { ParseFilename } from '~/lib/utils'
+import { ParseFilename, getVideoSrc } from '~/lib/utils'
 import { Separator } from '~/components/ui/separator'
 import UserAction from './UserAction'
 
@@ -94,7 +94,7 @@ const ViewP = ({ file }: ViewPProps) => {
                          <div className={`${isHLS ? `aspect-video bg-muted rounded-3xl overflow-hidden shadow-2xl ring-1 ring-border/50 w-full` : `w-fit h-full min-h-[200px] w-full flex items-center justify-center overflow-hidden rounded-4xl ${isMobile || state === 'collapsed' ? `bg-[transparent]` : `bg-[transparent]`}`} min-w-0 h-full relative`}>
                           {isHLS ? (
                             <HLSPlayer
-                              src={`/api/load/video/${file.endpoint}`}
+                              src={getVideoSrc(file?.endpoint ?? '', file?.file_type)}
                               className="w-full h-full rounded-3xl"
                               autoPlay={true}
                               muted={false}

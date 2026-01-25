@@ -7,7 +7,8 @@ export default [
     route(`terms`, 'routes/Terms/index.tsx'),
     route(`api`, 'routes/Api/layout.tsx', [
         route(`upload`, 'routes/Api/upload/index.tsx'),
-        route(`upload/status/:jobId`, 'routes/Api/upload/Status.$jobId.tsx'),
+        route(`upload-server-check`, 'routes/Api/upload-server-check/index.tsx'),
+        route(`upload-job-status`, 'routes/Api/upload-job-status/index.tsx'),
         route(`load/video/*`, 'routes/Api/load/Video/index.tsx'),
         route(`load/image/*`, 'routes/Api/load/image/index.tsx'),
         // route(`get/*`, 'routes/Api/get/index.tsx'),

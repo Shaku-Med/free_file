@@ -3,7 +3,7 @@ import Hls from 'hls.js';
 import ImageLoad from '~/routes/Home/components/ImageLoad/ImageLoad';
 import type { FileType } from '~/lib/types';
 import { arrangeDateForThumbnail, getRandomThumbnail, ParseFilename } from '~/lib/utils';
-import { LoaderCircle, PictureInPicture2, Volume2, VolumeX } from 'lucide-react';
+import { LoaderCircle, PictureInPicture2, Settings, Volume2, VolumeX } from 'lucide-react';
 import { usePictureInPictureContext } from '~/lib/Context/PictureInPictureContext';
 import Cookies from 'js-cookie';
 import { driverObj } from '~/lib/Context/Context';
@@ -87,7 +87,12 @@ const HLSPlayer: React.FC<HLSPlayerProps> = ({
   const [loaded, setLoaded] = useState<boolean>(false);
   const [isBuffering, setIsBuffering] = useState<boolean>(false);
   const bufferingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  
+  const [qualityMenuOpen, setQualityMenuOpen] = useState(false);
+  const [levels, setLevels] = useState<{ height: number; width: number; bitrate: number }[]>([]);
+  const [currentHlsLevel, setCurrentHlsLevel] = useState<number>(-1);
+
+  const HLS_QUALITY_KEY = 'hls-quality-preference';
+
   const {
     isPipActive,
     setIsPipActive,
@@ -273,10 +278,26 @@ const HLSPlayer: React.FC<HLSPlayerProps> = ({
             onHLSReady(hls);
           }
 
-          // Track buffering state through HLS events
           hls.on(Hls.Events.MANIFEST_PARSED, () => {
-            // Manifest parsed successfully - initial load progressing
-            console.log('HLS manifest parsed');
+            const lvls = (hls.levels || []).map((l: any) => ({ height: l.height, width: l.width, bitrate: l.bitrate }));
+            setLevels(lvls);
+            const pref = (typeof localStorage !== 'undefined' ? localStorage.getItem(HLS_QUALITY_KEY) : null) || 'auto';
+            if (pref === 'auto' || lvls.length <= 1) {
+              hls.currentLevel = -1;
+            } else {
+              const want = parseInt(pref, 10);
+              let idx = lvls.findIndex((l: any) => l.height === want);
+              if (idx === -1) {
+                const sorted = lvls.map((l: any, i: number) => ({ ...l, i })).sort((a: any, b: any) => b.height - a.height);
+                const closest = sorted.find((x: any) => x.height <= want) || sorted[sorted.length - 1];
+                idx = closest.i;
+              }
+              hls.currentLevel = idx;
+            }
+          });
+
+          hls.on(Hls.Events.LEVEL_SWITCHED, (_: any, data: any) => {
+            setCurrentHlsLevel(data.level);
           });
 
           hls.on(Hls.Events.ERROR, (event: any, data: any) => {
@@ -321,10 +342,12 @@ const HLSPlayer: React.FC<HLSPlayerProps> = ({
             }
           });
         } else if (isHLSStream) {
+          setLevels([]);
           console.warn('HLS is not supported in this browser');
           setHasError(true);
           setIsLoading(false);
         } else {
+          setLevels([]);
           video.src = src;
           video.load();
           setIsLoading(false);
@@ -781,9 +804,78 @@ const HLSPlayer: React.FC<HLSPlayerProps> = ({
             </div>
           )
         }
-        {(!isPipActive || !isContentInPip(imageID)) && supportsPip && (
+        {(!isPipActive || !isContentInPip(imageID)) && (src?.includes('.m3u8') && levels.length > 1) && (
+          <div className="absolute top-4 right-4 z-[10001] flex items-center gap-2">
+            <div className="relative">
+              <button
+                id="hls_quality_button"
+                onClick={() => setQualityMenuOpen((o) => !o)}
+                className="bg-black/50 hover:bg-black/70 text-white p-2 rounded-lg backdrop-blur-sm transition-all duration-200"
+                title="Quality"
+              >
+                <Settings className="w-5 h-5" />
+              </button>
+              {qualityMenuOpen && (
+                <>
+                  <div className="absolute right-0 top-full mt-1 py-1 min-w-[120px] bg-black/90 rounded-lg shadow-xl border border-white/10 z-[10003]" role="menu">
+                    <button
+                      role="menuitem"
+                      onClick={() => {
+                        if (hlsRef.current) {
+                          hlsRef.current.currentLevel = -1;
+                          if (typeof localStorage !== 'undefined') localStorage.setItem(HLS_QUALITY_KEY, 'auto');
+                        }
+                        setCurrentHlsLevel(-1);
+                        setQualityMenuOpen(false);
+                      }}
+                      className={`w-full text-left px-4 py-2 text-sm hover:bg-white/10 ${currentHlsLevel === -1 ? 'text-primary font-medium' : 'text-white'}`}
+                    >
+                      Auto
+                    </button>
+                    {[...levels]
+                      .map((l, origIndex) => ({ ...l, origIndex }))
+                      .sort((a, b) => b.height - a.height)
+                      .map(({ height, width, origIndex }) => (
+                        <button
+                          key={`${height}-${width}`}
+                          role="menuitem"
+                          onClick={() => {
+                            if (hlsRef.current) {
+                              hlsRef.current.currentLevel = origIndex;
+                              if (typeof localStorage !== 'undefined') localStorage.setItem(HLS_QUALITY_KEY, String(height));
+                            }
+                            setCurrentHlsLevel(origIndex);
+                            setQualityMenuOpen(false);
+                          }}
+                          className={`w-full text-left px-4 py-2 text-sm hover:bg-white/10 ${currentHlsLevel === origIndex ? 'text-primary font-medium' : 'text-white'}`}
+                        >
+                          {height}p
+                        </button>
+                      ))}
+                  </div>
+                  <div
+                    className="fixed inset-0 z-[10002]"
+                    aria-hidden
+                    onClick={() => setQualityMenuOpen(false)}
+                  />
+                </>
+              )}
+            </div>
+            {supportsPip && (
+              <button
+                id="picture_in_picture_button"
+                onClick={() => toggleDocumentPip(src, videoRef, imageID, file, loop, updateMediaSession)}
+                className="bg-black/50 hover:bg-black/70 text-white p-2 rounded-lg backdrop-blur-sm transition-all duration-200"
+                title="Open in Picture-in-Picture"
+              >
+                <PictureInPicture2 className="w-5 h-5" />
+              </button>
+            )}
+          </div>
+        )}
+        {(!isPipActive || !isContentInPip(imageID)) && supportsPip && levels.length <= 1 && (
           <button
-          id="picture_in_picture_button"
+            id="picture_in_picture_button"
             onClick={() => toggleDocumentPip(src, videoRef, imageID, file, loop, updateMediaSession)}
             className="absolute top-4 right-4 z-[10001] bg-black/50 hover:bg-black/70 text-white p-2 rounded-lg backdrop-blur-sm transition-all duration-200"
             title="Open in Picture-in-Picture"

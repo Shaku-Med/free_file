@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Upload API Dev Test</title>
+    <style>
+      body { font-family: Arial, sans-serif; margin: 24px; }
+      .row { margin-bottom: 12px; }
+      input, button { padding: 8px; }
+      pre { background: #111; color: #eee; padding: 12px; overflow: auto; }
+    </style>
+  </head>
+  <body>
+    <h1>Upload API Dev Test</h1>
+    <div class="row">
+      <label>User ID</label>
+      <input id="userId" value="dev-user" />
+    </div>
+    <div class="row">
+      <input id="fileInput" type="file" />
+    </div>
+    <div class="row">
+      <button id="startBtn">Start Upload</button>
+      <button id="resumeBtn">Resume</button>
+    </div>
+    <pre id="log"></pre>
+    <script>
+      const logEl = document.getElementById("log")
+      const fileInput = document.getElementById("fileInput")
+      const userIdInput = document.getElementById("userId")
+      const chunkSize = 25 * 1024 * 1024
+      let uploadId = null
+
+      function log(msg) {
+        logEl.textContent += msg + "\n"
+      }
+
+      async function startUpload() {
+        const file = fileInput.files[0]
+        if (!file) {
+          log("Select a file first")
+          return
+        }
+        const totalChunks = Math.ceil(file.size / chunkSize)
+        const res = await fetch("/api/upload/start", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-User-ID": userIdInput.value
+          },
+          body: JSON.stringify({
+            file_name: file.name,
+            file_size: file.size,
+            total_chunks: totalChunks
+          })
+        })
+        const data = await res.json()
+        if (!res.ok) {
+          log("start error: " + JSON.stringify(data))
+          return
+        }
+        uploadId = data.upload_id
+        log("upload_id: " + uploadId)
+        await uploadChunks(file, [])
+      }
+
+      async function resumeUpload() {
+        const file = fileInput.files[0]
+        if (!file || !uploadId) {
+          log("Need file + upload_id")
+          return
+        }
+        const res = await fetch("/api/upload/" + uploadId + "/status", {
+          headers: { "X-User-ID": userIdInput.value }
+        })
+        const data = await res.json()
+        if (!res.ok) {
+          log("status error: " + JSON.stringify(data))
+          return
+        }
+        log("received chunks: " + data.received_chunks.join(","))
+        await uploadChunks(file, data.received_chunks)
+      }
+
+      async function uploadChunks(file, received) {
+        const receivedSet = new Set(received || [])
+        const totalChunks = Math.ceil(file.size / chunkSize)
+        for (let i = 0; i < totalChunks; i++) {
+          if (receivedSet.has(i)) {
+            continue
+          }
+          const start = i * chunkSize
+          const end = Math.min(start + chunkSize, file.size)
+          const chunk = file.slice(start, end)
+          const res = await fetch("/api/upload/chunk", {
+            method: "POST",
+            headers: {
+              "X-User-ID": userIdInput.value,
+              "X-Upload-ID": uploadId,
+              "X-Chunk-Index": String(i)
+            },
+            body: chunk
+          })
+          const data = await res.json()
+          if (!res.ok) {
+            log("chunk error: " + JSON.stringify(data))
+            return
+          }
+          log("uploaded chunk " + i)
+        }
+        const done = await fetch("/api/upload/" + uploadId + "/complete", {
+          method: "POST",
+          headers: { "X-User-ID": userIdInput.value }
+        })
+        const doneData = await done.json()
+        log("complete: " + JSON.stringify(doneData))
+      }
+
+      document.getElementById("startBtn").addEventListener("click", startUpload)
+      document.getElementById("resumeBtn").addEventListener("click", resumeUpload)
+    </script>
+  </body>
+</html>

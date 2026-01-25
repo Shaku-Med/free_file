@@ -1,0 +1,62 @@
+name: Deploy GoUpload to VPS
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'GoUpload/**'
+      - '.github/workflows/deploy-goupload.yml'
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    name: Deploy GoUpload
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+          cache-dependency-path: GoUpload/go.sum
+
+      - name: Build
+        run: |
+          cd GoUpload
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o goupload .
+
+      - name: Create .env for VPS
+        env:
+          VPS_ENV: ${{ secrets.VPS_ENV }}
+        run: |
+          printf '%s' "$VPS_ENV" > GoUpload/.env
+
+      - name: Ensure remote dir
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.HOSTER_SSH_KEY }}
+          script: mkdir -p /opt/goupload
+
+      - name: Copy binary and .env to VPS
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.HOSTER_SSH_KEY }}
+          source: 'GoUpload/goupload,GoUpload/.env'
+          target: /opt/goupload/
+          strip_components: 1
+
+      - name: Restart service
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.HOSTER_SSH_KEY }}
+          script: |
+            chmod +x /opt/goupload/goupload
+            sudo systemctl restart goupload || echo "Service not found, skipping restart"

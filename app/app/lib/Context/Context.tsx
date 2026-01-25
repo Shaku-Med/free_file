@@ -47,7 +47,8 @@ export const Context = createContext<ContextProps>({
     user_agent: '',
     userId: null,
     userActions: { likedFileIds: new Set(), dislikedFileIds: new Set() },
-    c_user: null
+    c_user: null,
+    uploadServerUrl: ''
 })
 
 interface ContextProviderProps {
@@ -58,6 +59,7 @@ interface ContextProviderProps {
     userId?: string | null;
     userActions?: { likedFileIds: Set<string>; dislikedFileIds: Set<string> };
     c_user: string | null;
+    uploadServerUrl?: string;
 }
 
 export const FloatingButton = () => {
@@ -92,7 +94,7 @@ export const FloatingButton = () => {
     )
 }
 
-export const ContextProvider = ({ children, f, st, user_agent, userId, userActions: initialUserActions = { likedFileIds: new Set(), dislikedFileIds: new Set() }, c_user }: ContextProviderProps) => {
+export const ContextProvider = ({ children, f, st, user_agent, userId, userActions: initialUserActions = { likedFileIds: new Set(), dislikedFileIds: new Set() }, c_user, uploadServerUrl = '' }: ContextProviderProps) => {
     const [files, setFiles] = useState<FileType[]>(f);
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [userActions, setUserActions] = useState(initialUserActions);
@@ -261,9 +263,10 @@ export const ContextProvider = ({ children, f, st, user_agent, userId, userActio
             user_agent,
             userId: safeUserId,
             userActions,
-            c_user
+            c_user,
+            uploadServerUrl
         }),
-        [files, isModalOpen, isLoading, loadMoreVideos, user_agent, safeUserId, userActions, c_user]
+        [files, isModalOpen, isLoading, loadMoreVideos, user_agent, safeUserId, userActions, c_user, uploadServerUrl]
     );
     return (
         <div className={`w-full h-full`}>

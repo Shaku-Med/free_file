@@ -18,4 +18,5 @@ export type ContextProps = {
     userId: string | null;
     userActions: UserActions;
     c_user: string | null;
+    uploadServerUrl: string;
 }

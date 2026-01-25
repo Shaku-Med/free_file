@@ -6,7 +6,7 @@ import RelatedVideos from "./components/RelatedVideos";
 import type { FileType } from "~/lib/types";
 import { BASE_URL } from "~/lib/URLS";
 import ImageLoad from "../Home/components/ImageLoad/ImageLoad";
-import { arrangeDateForThumbnail, ParseFilename, getRandomThumbnail } from "~/lib/utils";
+import { arrangeDateForThumbnail, ParseFilename, getRandomThumbnail, getVideoSrc } from "~/lib/utils";
 import { motion } from "framer-motion";
 import { MakeVideoToken } from "./components/Functions";
 import { ShieldAlert, Eye, Share2 } from "lucide-react";
@@ -229,7 +229,7 @@ export const meta: MetaFunction<ReturnType<typeof loader>> = ({ data }: {data: a
       { property: "og:locale", content: "en_US" },
       ...(isVideo ? [
         { property: "og:video:type", content: file?.file_type || "video/mp4" },
-        { property: "og:video:url", content: `${BASE_URL}/api/load/video/${file?.endpoint}` },
+        { property: "og:video:url", content: `${BASE_URL}${getVideoSrc(file?.endpoint ?? '', file?.file_type)}` },
       ] : []),
       ...(data?.owner ? [
         { property: "article:author", content: data.owner.username },
@@ -449,7 +449,7 @@ const index = () => {
                 <div className={`${isHLS ? 'aspect-video bg-black rounded-lg overflow-hidden w-full' : 'w-full flex items-center justify-center overflow-hidden rounded-lg bg-black'} relative`}>
                   {isHLS ? (
                     <HLSPlayer
-                      src={`/api/load/video/${file_data.endpoint}`}
+                      src={getVideoSrc(file_data?.endpoint ?? '', file_data?.file_type)}
                       className="w-full h-full"
                       onPlay={() => setPlayingVideos(prev => new Set(prev).add(1))}
                       onPause={() => setPlayingVideos(prev => {
