@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/google/go-github/v62/github"
+	"goupload/internal/upload"
 	"goupload/lib/assembler"
 	"goupload/lib/ffmpeg"
 	ghlib "goupload/lib/github"
@@ -74,6 +75,7 @@ func (w *Worker) Stop() {
 func (w *Worker) run() {
 	defer w.wg.Done()
 	w.log.Infof("worker started")
+	var lastOrphanCleanup time.Time
 
 	for {
 		select {
@@ -81,6 +83,13 @@ func (w *Worker) run() {
 			w.log.Infof("worker stopping")
 			return
 		default:
+		}
+
+		if lastOrphanCleanup.IsZero() || time.Since(lastOrphanCleanup) > 30*time.Minute {
+			if n, err := upload.CleanupOrphanedChunks(w.cfg.ChunksDir, 24*time.Hour); err == nil && n > 0 {
+				w.log.Infof("orphan chunk cleanup removed %d dirs", n)
+			}
+			lastOrphanCleanup = time.Now()
 		}
 
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -117,6 +126,8 @@ func (w *Worker) processJob(job *queue.Job) {
 	})
 	if err != nil {
 		w.log.Errorf("assembly failed job=%s err=%s", job.ID, err.Error())
+		_ = assembler.Cleanup(w.cfg.ChunksDir, job.UserID, job.UploadID)
+		_ = os.Remove(filepath.Join(w.cfg.ChunksDir, job.UserID))
 		_ = w.queue.SetJobStatus(context.Background(), job.ID, "failed")
 		webhook.NotifyJobStatus(webhook.Payload{JobID: job.ID, Status: "failed", UploadID: job.UploadID, UserID: job.UserID, FileName: job.FileName, FileSize: job.FileSize})
 		return
@@ -228,6 +239,13 @@ func (w *Worker) processJob(job *queue.Job) {
 		// Upload HLS to {dateFolder}/{uploadID}/ (no hls/ prefix)
 		if err := ghlib.UploadDir(context.Background(), w.cfg.GitHubClient, w.cfg.GitHubOwner, w.cfg.GitHubRepo, ghPrefix, hlsDir, w.log.Infof); err != nil {
 			w.log.Errorf("github hls upload failed job=%s err=%s", job.ID, err.Error())
+			_ = os.RemoveAll(hlsDir)
+			_ = os.Remove(filepath.Dir(hlsDir))
+			_ = os.RemoveAll(thumbDir)
+			_ = os.Remove(filepath.Dir(thumbDir))
+			_ = os.Remove(result.OutputPath)
+			_ = os.RemoveAll(filepath.Dir(result.OutputPath))
+			_ = os.Remove(filepath.Dir(filepath.Dir(result.OutputPath)))
 			_ = w.queue.SetJobStatus(context.Background(), job.ID, "failed")
 			webhook.NotifyJobStatus(webhook.Payload{JobID: job.ID, Status: "failed", UploadID: job.UploadID, UserID: job.UserID, FileName: job.FileName, FileSize: job.FileSize})
 			return
@@ -249,6 +267,14 @@ func (w *Worker) processJob(job *queue.Job) {
 		videoDuration = thumbResult.Duration
 		if err := ghlib.UploadDirFlat(context.Background(), w.cfg.GitHubClient, w.cfg.GitHubOwner, w.cfg.GitHubRepo, ghPrefix, thumbDir, w.log.Infof); err != nil {
 			w.log.Errorf("github thumbnails upload failed job=%s err=%s", job.ID, err.Error())
+			_ = os.RemoveAll(thumbDir)
+			_ = os.Remove(filepath.Dir(thumbDir))
+			_ = os.Remove(result.OutputPath)
+			_ = os.RemoveAll(filepath.Dir(result.OutputPath))
+			_ = os.Remove(filepath.Dir(filepath.Dir(result.OutputPath)))
+			_ = w.queue.SetJobStatus(context.Background(), job.ID, "failed")
+			webhook.NotifyJobStatus(webhook.Payload{JobID: job.ID, Status: "failed", UploadID: job.UploadID, UserID: job.UserID, FileName: job.FileName, FileSize: job.FileSize})
+			return
 		} else {
 			w.log.Infof("github thumbnails uploaded job=%s path=%s", job.ID, ghPrefix)
 			// Collect thumbnail paths for database
@@ -269,6 +295,14 @@ func (w *Worker) processJob(job *queue.Job) {
 			}
 		}
 	}
+
+	// Ensure hls/thumb are fully removed (handles hlsAll==nil, ExtractThumbnails fail, or empty top-level dirs)
+	_ = os.RemoveAll(hlsDir)
+	_ = os.Remove(filepath.Dir(hlsDir))
+	_ = os.Remove(w.cfg.HLSDir)
+	_ = os.RemoveAll(thumbDir)
+	_ = os.Remove(filepath.Dir(thumbDir))
+	_ = os.Remove(w.cfg.ThumbnailDir)
 
 	// Cleanup: remove assembled file, uploadID dir, and empty user dir
 	if err := os.Remove(result.OutputPath); err != nil {

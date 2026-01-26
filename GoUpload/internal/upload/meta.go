@@ -69,6 +69,45 @@ func normalizeChunks(chunks []int) []int {
 	return out
 }
 
+// CleanupOrphanedChunks removes chunk dirs under chunksDir whose meta.json has
+// LastActivity (or CreatedAt) older than olderThan. Use for uploads where /complete
+// was never called. Returns the number of upload dirs removed.
+func CleanupOrphanedChunks(chunksDir string, olderThan time.Duration) (int, error) {
+	if chunksDir == "" {
+		return 0, nil
+	}
+	var removed int
+	cutoff := time.Now().Add(-olderThan)
+	err := filepath.WalkDir(chunksDir, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				return nil
+			}
+			return err
+		}
+		if d.IsDir() || d.Name() != "meta.json" {
+			return nil
+		}
+		meta, err := readMeta(path)
+		if err != nil {
+			return nil
+		}
+		latest := meta.CreatedAt
+		if meta.LastActivity.After(latest) {
+			latest = meta.LastActivity
+		}
+		if latest.After(cutoff) {
+			return nil
+		}
+		uploadDir := filepath.Dir(path)
+		_ = os.RemoveAll(uploadDir)
+		_ = os.Remove(filepath.Dir(uploadDir))
+		removed++
+		return nil
+	})
+	return removed, err
+}
+
 func findExistingMeta(baseDir, userID, fileName string, fileSize int64) (UploadMeta, error) {
 	userDir := filepath.Join(baseDir, userID)
 	entries, err := os.ReadDir(userDir)
