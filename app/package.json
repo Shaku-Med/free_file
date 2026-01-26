@@ -5,7 +5,7 @@
   "scripts": {
     "build": "react-router build",
     "dev": "react-router dev",
-    "start": " dotenv -e .env -- react-router-serve ./build/server/index.js",
+    "start": "dotenv -e .env -- node server/startWithPreload.mjs ./build/server/index.js",
     "typecheck": "react-router typegen && tsc"
   },
   "dependencies": {

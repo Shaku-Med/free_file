@@ -7,21 +7,25 @@ let cachedPipeline: any = null;
 let pipelinePromise: Promise<any> | null = null;
 
 const getPipeline = async () => {
+  // Use preloaded pipeline from startWithPreload (avoids first-request freeze)
+  const preloaded = (globalThis as unknown as { __NSFW_PIPELINE?: unknown }).__NSFW_PIPELINE;
+  if (preloaded) return preloaded;
+
   // If pipeline is already cached, return it
   if (cachedPipeline) {
     return cachedPipeline;
   }
-  
+
   // If pipeline is being created, wait for it
   if (pipelinePromise) {
     return pipelinePromise;
   }
-  
-  // Create new pipeline
+
+  // Create new pipeline (fallback when not using startWithPreload, e.g. dev)
   pipelinePromise = pipeline('image-classification', 'AdamCodd/vit-base-nsfw-detector');
   cachedPipeline = await pipelinePromise;
   pipelinePromise = null;
-  
+
   return cachedPipeline;
 };
 
