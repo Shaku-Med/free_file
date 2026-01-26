@@ -125,6 +125,8 @@ func (w *Worker) processJob(job *queue.Job) {
 
 	if err := assembler.Cleanup(w.cfg.ChunksDir, job.UserID, job.UploadID); err != nil {
 		w.log.Errorf("chunk cleanup failed job=%s err=%s", job.ID, err.Error())
+	} else {
+		_ = os.Remove(filepath.Join(w.cfg.ChunksDir, job.UserID)) // remove empty user chunk dir
 	}
 
 	if !isVideo(job.FileName) {
@@ -156,15 +158,15 @@ func (w *Worker) processJob(job *queue.Job) {
 			}
 		}
 
-		// Cleanup: remove assembled file after upload
+		// Cleanup: remove assembled file and uploadID dir (wipe fully)
 		if err := os.Remove(result.OutputPath); err != nil {
 			w.log.Errorf("cleanup assembled file failed job=%s err=%s", job.ID, err.Error())
 		} else {
 			w.log.Infof("cleanup assembled file job=%s path=%s", job.ID, result.OutputPath)
 		}
-		// Cleanup: remove assembled directory if empty
 		assembledDir := filepath.Dir(result.OutputPath)
-		_ = os.Remove(assembledDir) // ignore error if not empty
+		_ = os.RemoveAll(assembledDir)
+		_ = os.Remove(filepath.Dir(assembledDir)) // empty user dir
 
 		_ = w.queue.SetJobStatus(context.Background(), job.ID, "completed")
 		webhook.NotifyJobStatus(webhook.Payload{JobID: job.ID, Status: "completed", UploadID: job.UploadID, UserID: job.UserID, FileName: job.FileName, FileSize: job.FileSize, Endpoint: ghPath, IsAdult: &isAdult})
@@ -234,11 +236,12 @@ func (w *Worker) processJob(job *queue.Job) {
 		// Endpoint is path to master.m3u8: {dateFolder}/{uploadID}/master.m3u8
 		videoEndpoint = dateFolder + "/" + job.UploadID + "/master.m3u8"
 		
-		// Cleanup: remove HLS directory after upload
+		// Cleanup: remove HLS dir and empty user parent
 		if err := os.RemoveAll(hlsDir); err != nil {
 			w.log.Errorf("cleanup hls failed job=%s err=%s", job.ID, err.Error())
 		} else {
 			w.log.Infof("cleanup hls job=%s path=%s", job.ID, hlsDir)
+			_ = os.Remove(filepath.Dir(hlsDir))
 		}
 	}
 
@@ -257,27 +260,25 @@ func (w *Worker) processJob(job *queue.Job) {
 			thumbnailPaths = append(thumbnailPaths, ghPrefix+"thumbnail_preview.jpg")
 			thumbnailPaths = append(thumbnailPaths, ghPrefix+"thumbnail_preview.json")
 			
-			// Cleanup: remove thumbnails directory after upload
+			// Cleanup: remove thumbnails dir and empty user parent
 			if err := os.RemoveAll(thumbDir); err != nil {
 				w.log.Errorf("cleanup thumbnails failed job=%s err=%s", job.ID, err.Error())
 			} else {
 				w.log.Infof("cleanup thumbnails job=%s path=%s", job.ID, thumbDir)
+				_ = os.Remove(filepath.Dir(thumbDir))
 			}
 		}
 	}
 
-	// Cleanup: remove assembled file after all processing
+	// Cleanup: remove assembled file, uploadID dir, and empty user dir
 	if err := os.Remove(result.OutputPath); err != nil {
 		w.log.Errorf("cleanup assembled file failed job=%s err=%s", job.ID, err.Error())
 	} else {
 		w.log.Infof("cleanup assembled file job=%s path=%s", job.ID, result.OutputPath)
 	}
-	// Cleanup: remove assembled directory if empty
 	assembledDir := filepath.Dir(result.OutputPath)
-	_ = os.Remove(assembledDir) // ignore error if not empty
-	// Cleanup: try to remove user directory if empty
-	userDir := filepath.Dir(assembledDir)
-	_ = os.Remove(userDir) // ignore error if not empty
+	_ = os.RemoveAll(assembledDir)
+	_ = os.Remove(filepath.Dir(assembledDir))
 
 	_ = w.queue.SetJobStatus(context.Background(), job.ID, "completed")
 	webhook.NotifyJobStatus(webhook.Payload{
