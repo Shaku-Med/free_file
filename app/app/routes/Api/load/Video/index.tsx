@@ -41,8 +41,13 @@ export const loader = async ({ request }: { request: Request }) => {
         let verified = await VKF(request)
         if(!verified) return new Response(null, { status: 401 });
 
-        let token = await GetVideoToken(request)
-        if(!token) return new Response(null, { status: 401 });
+        // For now, only enforce the per-video token if a videoToken cookie is present.
+        // This allows the reel player to stream without requiring a videoToken cookie.
+        const videoTokenCookie = getCookie('videoToken', request.headers)
+        if (videoTokenCookie) {
+            let token = await GetVideoToken(request)
+            if(!token) return new Response(null, { status: 401 });
+        }
         
         let splitUrl = request.url.split('/api/load/video/')[1];
         if (!splitUrl) {

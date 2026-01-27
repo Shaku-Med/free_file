@@ -72,5 +72,6 @@ export default [
     route(`profile/:username`, 'routes/Profile/index.tsx'),
     route(`reel`, 'routes/reel/layout.tsx', [
         index('routes/reel/index.tsx'),
+        route(`:id`, 'routes/reel/dynamic/index.tsx')
     ]),
 ] satisfies RouteConfig;

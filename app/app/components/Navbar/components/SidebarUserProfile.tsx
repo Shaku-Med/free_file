@@ -1,4 +1,3 @@
-import { useState, useEffect } from "react";
 import { Link } from "react-router";
 import { Avatar, AvatarFallback, AvatarImage } from "~/components/ui/avatar";
 import { Button } from "~/components/ui/button";
@@ -7,47 +6,15 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { useFileContext } from "~/lib/Context/Context";
 import { getProfilePicUrl } from "~/lib/utils/profilePic";
 
-interface UserProfileData {
-  id: string;
-  username: string;
-  profile_pic: string;
-  about: string | null;
-}
-
 const SidebarUserProfile = () => {
-  const { userId } = useFileContext();
-  const [userProfile, setUserProfile] = useState<UserProfileData | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const { userId, userProfile, userProfileLoading } = useFileContext();
 
   const handleLogout = () => {
     // Use server-side logout so HttpOnly cookies are cleared correctly
     window.location.href = "/logout";
   };
 
-  useEffect(() => {
-    const fetchUserProfile = async () => {
-      if (!userId) {
-        setIsLoading(false);
-        return;
-      }
-
-      try {
-        const response = await fetch(`/api/user-profile?userId=${userId}`);
-        if (response.ok) {
-          const data = await response.json();
-          setUserProfile(data);
-        }
-      } catch (error) {
-        console.error("Error fetching user profile:", error);
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
-    fetchUserProfile();
-  }, [userId]);
-
-  if (isLoading) {
+  if (userProfileLoading && userId) {
     return (
       <div className="p-4">
         <div className="h-10 w-full bg-muted animate-pulse rounded"></div>

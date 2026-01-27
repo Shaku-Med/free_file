@@ -1,11 +1,12 @@
-const Reel = () => {
+import React from 'react'
+import Reel from './components/Reel'
+
+const index = () => {
   return (
     <>
-      <div className='h-full w-full px-6 py-20 font-bold text-2xl text-center opacity-50'>
-        <h1>Feature will be coming soon</h1>
-      </div>
+      <Reel />
     </>
   )
 }
 
-export default Reel
+export default index

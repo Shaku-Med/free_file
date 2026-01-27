@@ -323,6 +323,23 @@ input[type="file"] {
   height: 100vh;
 }
 
+.reel-snap-container {
+  scroll-snap-type: y mandatory;
+}
+
+.reel-snap-item {
+  scroll-snap-align: start;
+  scroll-snap-stop: always;
+}
+
+.reel-scroll {
+  height: 100%;
+  width: 100%;
+  overflow-y: auto;
+  scroll-snap-type: y mandatory;
+  scroll-behavior: smooth;
+}
+
 .tiktok-swiper .swiper-pagination {
   right: 8px;
   left: auto;
@@ -451,4 +468,66 @@ input[type="file"] {
   text-overflow: ellipsis;
   text-wrap: wrap;
   text-wrap: balance;
+}
+
+
+.reel_adjust {
+  max-width: 500px;
+  margin-left: 180px;
+}
+
+
+@media screen and (max-width: 1063px) {
+  .reel_adjust {
+    margin-left:350px;
+  }
+}
+@media screen and (max-width: 898.65px) {
+  .reel_adjust {
+    margin-left:0;
+  }
+}
+
+@media screen and (max-width: 650px) {
+  .reel_adjust {
+    width: 100%;
+    max-width: 100%;
+  }
+}
+
+.reel_p * video::-webkit-media-controls {
+  display: none !important;
+}
+
+.reel_p * video::-webkit-media-controls-panel {
+  display: none !important;
+}
+
+.reel_p * video::-webkit-media-controls-enclosure {
+  display: none !important;
+}
+
+.reel_p * video::-webkit-media-controls-timeline {
+  display: none !important;
+}
+
+/* YouTube-like play / pause burst indicator for reels */
+.reel-play-indicator {
+  animation: reel-play-burst 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+  transform-origin: center;
+}
+
+@keyframes reel-play-burst {
+  0% {
+    transform: scale(0.5);
+    opacity: 0;
+  }
+  40% {
+    transform: scale(1.15);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 0;
+  }
 }

@@ -42,6 +42,8 @@ interface HLSPlayerProps {
   file?: FileType | null
   callBack?: (props: CallBackProps) => void
   onVideoRef?: (ref: HTMLVideoElement | null) => void;
+  // When used inside the vertical reel feed
+  isReel?: boolean;
 }
 
 const HLSPlayer: React.FC<HLSPlayerProps> = ({
@@ -60,7 +62,8 @@ const HLSPlayer: React.FC<HLSPlayerProps> = ({
   imageID = '',
   file = null,
   callBack,
-  onVideoRef,
+  onVideoRef, 
+  isReel = false
 }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   
@@ -148,16 +151,19 @@ const HLSPlayer: React.FC<HLSPlayerProps> = ({
     });
 
     navigator.mediaSession.setActionHandler('seekbackward', (details) => {
+      if(isReel) return;
       const activeVideo = isPipActive && pipVideoRef.current ? pipVideoRef.current : video;
       activeVideo.currentTime = Math.max(activeVideo.currentTime - (details.seekOffset || 10), 0);
     });
 
     navigator.mediaSession.setActionHandler('seekforward', (details) => {
+      if(isReel) return;
       const activeVideo = isPipActive && pipVideoRef.current ? pipVideoRef.current : video;
       activeVideo.currentTime = Math.min(activeVideo.currentTime + (details.seekOffset || 10), activeVideo.duration);
     });
 
     navigator.mediaSession.setActionHandler('seekto', (details) => {
+      if(isReel) return;
       if (details.seekTime !== null && details.seekTime !== undefined) {
         const activeVideo = isPipActive && pipVideoRef.current ? pipVideoRef.current : video;
         activeVideo.currentTime = details.seekTime;
@@ -376,7 +382,19 @@ const HLSPlayer: React.FC<HLSPlayerProps> = ({
 
   useEffect(() => {
     const video = videoRef.current;
-    if (!video || !autoPlay) return;
+    if (!video) return;
+
+    // When autoplay is turned off (e.g. a reel is no longer active),
+    // immediately pause and mute the video and clear any autoplay UI state.
+    if (!autoPlay) {
+      if (!video.paused) {
+        video.pause();
+      }
+      video.muted = true;
+      setAutoplayBlocked(false);
+      setShowAutoplayPrompt(false);
+      return;
+    }
 
     const playVideo = async () => {
       if (isPipActive && !isContentInPip(imageID)) {
@@ -426,6 +444,29 @@ const HLSPlayer: React.FC<HLSPlayerProps> = ({
       video.pause();
     }
   }, [isPipActive, isContentInPip, imageID]);
+
+  // Pause when tab/window is not visible; resume (respecting autoplay) when it becomes visible again
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') {
+        if (!video.paused) {
+          video.pause();
+        }
+      } else if (document.visibilityState === 'visible' && autoPlay && video.paused) {
+        // Try to resume playback for active/autoplay videos when tab becomes visible
+        video.play().catch(() => undefined);
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [autoPlay, imageID]);
 
   // Intersection Observer - detect when video enters viewport (used by YouTube/Pornhub)
   useEffect(() => {
@@ -641,7 +682,19 @@ const HLSPlayer: React.FC<HLSPlayerProps> = ({
       }
     };
 
-    const handleEnterPictureInPicture = () => {
+    const handleEnterPictureInPicture = async () => {
+      // For reels, immediately exit PiP if it ever opens (defensive against DOM tweaks)
+      if (isReel) {
+        try {
+          if (document.pictureInPictureElement) {
+            await document.exitPictureInPicture().catch(() => undefined);
+          }
+        } catch {
+          // ignore
+        }
+        return;
+      }
+
       setIsPipActive(true);
       setPipContentId(null);
     };
@@ -651,7 +704,19 @@ const HLSPlayer: React.FC<HLSPlayerProps> = ({
       setPipContentId(null);
     };
 
-    const handleWindowEnterPictureInPicture = () => {
+    const handleWindowEnterPictureInPicture = async () => {
+      // Same safeguard for window-level PiP events
+      if (isReel) {
+        try {
+          if (document.pictureInPictureElement) {
+            await document.exitPictureInPicture().catch(() => undefined);
+          }
+        } catch {
+          // ignore
+        }
+        return;
+      }
+
       setIsPipActive(true);
       setPipContentId(null);
     };
@@ -751,8 +816,10 @@ const HLSPlayer: React.FC<HLSPlayerProps> = ({
     }
   }, [])
 
+
+
   return (
-    <div className={`relative ${className}`}>
+    <div className={`relative ${isReel && `z-[1] reel_p`} ${className}`}>
       <div className="poster_blur absolute inset-0 pointer-events-none h-full w-full supports-[filter]:blur-xl blur-2xl">
         <div className="dim bg-background/50 absolute inset-0 w-full h-full" />
         {!error ? (
@@ -787,107 +854,116 @@ const HLSPlayer: React.FC<HLSPlayerProps> = ({
           )
         }
         <video ref={videoRef}
-          className={`w-full h-full object-contain transition-all duration-300 ${isPipActive ? 'opacity-0 pointer-events-none' : 'opacity-[1] pointer-events-auto'}`}
+          className={`w-full h-full object-contain transition-all duration-300 ${isReel ? 'pointer-events-none' : 'pointer-events-auto'} ${isPipActive ? 'opacity-0 pointer-events-none' : 'opacity-[1] pointer-events-auto'}`}
           muted={autoplayService.isAutoplayEnabled() ? muted : (muted || autoplayBlocked)}
           loop={loop}
           playsInline={playsInline}
-          controls
+          controls={!isReel}
+          // Hard-disable browser PiP controls in the reel context
+          {...(isReel ? { disablePictureInPicture: true, controlsList: "nopictureinpicture" } : {})}
           preload="metadata"
           autoPlay
         />
         {
-          isPipActive && isContentInPip(imageID) && (
-            <div onClick={() => toggleDocumentPip(src, videoRef, imageID, file, loop, updateMediaSession)} className="pip_div absolute bottom-0 left-0 w-full h-full flex items-center justify-center gap-2 flex-col backdrop-blur-sm cursor-pointer hover:bg-background/70 transition-all duration-300">
-              <PictureInPicture2 className="w-12 h-12 text-white" />
-              <h1 className="text-white text-xl">You are in Picture in Picture mode</h1>
-              <p className="text-white/70 text-sm">Click to exit</p>
-            </div>
+          !isReel && (
+            <>
+                {
+                  isPipActive && isContentInPip(imageID) && (
+                    <div onClick={() => toggleDocumentPip(src, videoRef, imageID, file, loop, updateMediaSession)} className="pip_div absolute bottom-0 left-0 w-full h-full flex items-center justify-center gap-2 flex-col backdrop-blur-sm cursor-pointer hover:bg-background/70 transition-all duration-300">
+                      <PictureInPicture2 className="w-12 h-12 text-white" />
+                      <h1 className="text-white text-xl">You are in Picture in Picture mode</h1>
+                      <p className="text-white/70 text-sm">Click to exit</p>
+                    </div>
+                  )
+                }
+                {(!isPipActive || !isContentInPip(imageID)) && (src?.includes('.m3u8') && levels.length > 1) && (
+                  <div className="absolute top-4 right-4 z-[10001] flex items-center gap-2">
+                    <div className="relative">
+                      <button
+                        id="hls_quality_button"
+                        onClick={() => setQualityMenuOpen((o) => !o)}
+                        className="bg-black/50 hover:bg-black/70 text-white p-2 rounded-lg backdrop-blur-sm transition-all duration-200"
+                        title="Quality"
+                      >
+                        <Settings className="w-5 h-5" />
+                      </button>
+                      {qualityMenuOpen && (
+                        <>
+                          <div className="absolute right-0 top-full mt-1 py-1 min-w-[120px] bg-black/90 rounded-lg shadow-xl border border-white/10 z-[10003]" role="menu">
+                            <button
+                              role="menuitem"
+                              onClick={() => {
+                                if (hlsRef.current) {
+                                  hlsRef.current.currentLevel = -1;
+                                  if (typeof localStorage !== 'undefined') localStorage.setItem(HLS_QUALITY_KEY, 'auto');
+                                }
+                                setCurrentHlsLevel(-1);
+                                setQualityMenuOpen(false);
+                              }}
+                              className={`w-full text-left px-4 py-2 text-sm hover:bg-white/10 ${currentHlsLevel === -1 ? 'text-primary font-medium' : 'text-white'}`}
+                            >
+                              Auto
+                            </button>
+                            {[...levels]
+                              .map((l, origIndex) => ({ ...l, origIndex }))
+                              .sort((a, b) => b.height - a.height)
+                              .map(({ height, width, origIndex }) => (
+                                <button
+                                  key={`${height}-${width}`}
+                                  role="menuitem"
+                                  onClick={() => {
+                                    if (hlsRef.current) {
+                                      hlsRef.current.currentLevel = origIndex;
+                                      if (typeof localStorage !== 'undefined') localStorage.setItem(HLS_QUALITY_KEY, String(height));
+                                    }
+                                    setCurrentHlsLevel(origIndex);
+                                    setQualityMenuOpen(false);
+                                  }}
+                                  className={`w-full text-left px-4 py-2 text-sm hover:bg-white/10 ${currentHlsLevel === origIndex ? 'text-primary font-medium' : 'text-white'}`}
+                                >
+                                  {height}p
+                                </button>
+                              ))}
+                          </div>
+                          <div
+                            className="fixed inset-0 z-[10002]"
+                            aria-hidden
+                            onClick={() => setQualityMenuOpen(false)}
+                          />
+                        </>
+                      )}
+                    </div>
+                    {supportsPip && (
+                      <button
+                        id="picture_in_picture_button"
+                        onClick={() => toggleDocumentPip(src, videoRef, imageID, file, loop, updateMediaSession)}
+                        className="bg-black/50 hover:bg-black/70 text-white p-2 rounded-lg backdrop-blur-sm transition-all duration-200"
+                        title="Open in Picture-in-Picture"
+                      >
+                        <PictureInPicture2 className="w-5 h-5" />
+                      </button>
+                    )}
+                  </div>
+                )}
+                {(!isPipActive || !isContentInPip(imageID)) && supportsPip && levels.length <= 1 && (
+                  <button
+                    id="picture_in_picture_button"
+                    onClick={() => toggleDocumentPip(src, videoRef, imageID, file, loop, updateMediaSession)}
+                    className="absolute top-4 right-4 z-[10001] bg-black/50 hover:bg-black/70 text-white p-2 rounded-lg backdrop-blur-sm transition-all duration-200"
+                    title="Open in Picture-in-Picture"
+                  >
+                    <PictureInPicture2 className="w-5 h-5" />
+                  </button>
+                )}
+                {isPipActive && !isContentInPip(imageID) && (
+                  <div className="absolute top-4 left-4 z-[10001] bg-orange-500/80 text-white px-3 py-1 rounded-lg backdrop-blur-sm text-sm font-medium">
+                    Another video is playing in Picture-in-Picture
+                  </div>
+                )}
+            
+            </>
           )
         }
-        {(!isPipActive || !isContentInPip(imageID)) && (src?.includes('.m3u8') && levels.length > 1) && (
-          <div className="absolute top-4 right-4 z-[10001] flex items-center gap-2">
-            <div className="relative">
-              <button
-                id="hls_quality_button"
-                onClick={() => setQualityMenuOpen((o) => !o)}
-                className="bg-black/50 hover:bg-black/70 text-white p-2 rounded-lg backdrop-blur-sm transition-all duration-200"
-                title="Quality"
-              >
-                <Settings className="w-5 h-5" />
-              </button>
-              {qualityMenuOpen && (
-                <>
-                  <div className="absolute right-0 top-full mt-1 py-1 min-w-[120px] bg-black/90 rounded-lg shadow-xl border border-white/10 z-[10003]" role="menu">
-                    <button
-                      role="menuitem"
-                      onClick={() => {
-                        if (hlsRef.current) {
-                          hlsRef.current.currentLevel = -1;
-                          if (typeof localStorage !== 'undefined') localStorage.setItem(HLS_QUALITY_KEY, 'auto');
-                        }
-                        setCurrentHlsLevel(-1);
-                        setQualityMenuOpen(false);
-                      }}
-                      className={`w-full text-left px-4 py-2 text-sm hover:bg-white/10 ${currentHlsLevel === -1 ? 'text-primary font-medium' : 'text-white'}`}
-                    >
-                      Auto
-                    </button>
-                    {[...levels]
-                      .map((l, origIndex) => ({ ...l, origIndex }))
-                      .sort((a, b) => b.height - a.height)
-                      .map(({ height, width, origIndex }) => (
-                        <button
-                          key={`${height}-${width}`}
-                          role="menuitem"
-                          onClick={() => {
-                            if (hlsRef.current) {
-                              hlsRef.current.currentLevel = origIndex;
-                              if (typeof localStorage !== 'undefined') localStorage.setItem(HLS_QUALITY_KEY, String(height));
-                            }
-                            setCurrentHlsLevel(origIndex);
-                            setQualityMenuOpen(false);
-                          }}
-                          className={`w-full text-left px-4 py-2 text-sm hover:bg-white/10 ${currentHlsLevel === origIndex ? 'text-primary font-medium' : 'text-white'}`}
-                        >
-                          {height}p
-                        </button>
-                      ))}
-                  </div>
-                  <div
-                    className="fixed inset-0 z-[10002]"
-                    aria-hidden
-                    onClick={() => setQualityMenuOpen(false)}
-                  />
-                </>
-              )}
-            </div>
-            {supportsPip && (
-              <button
-                id="picture_in_picture_button"
-                onClick={() => toggleDocumentPip(src, videoRef, imageID, file, loop, updateMediaSession)}
-                className="bg-black/50 hover:bg-black/70 text-white p-2 rounded-lg backdrop-blur-sm transition-all duration-200"
-                title="Open in Picture-in-Picture"
-              >
-                <PictureInPicture2 className="w-5 h-5" />
-              </button>
-            )}
-          </div>
-        )}
-        {(!isPipActive || !isContentInPip(imageID)) && supportsPip && levels.length <= 1 && (
-          <button
-            id="picture_in_picture_button"
-            onClick={() => toggleDocumentPip(src, videoRef, imageID, file, loop, updateMediaSession)}
-            className="absolute top-4 right-4 z-[10001] bg-black/50 hover:bg-black/70 text-white p-2 rounded-lg backdrop-blur-sm transition-all duration-200"
-            title="Open in Picture-in-Picture"
-          >
-            <PictureInPicture2 className="w-5 h-5" />
-          </button>
-        )}
-        {isPipActive && !isContentInPip(imageID) && (
-          <div className="absolute top-4 left-4 z-[10001] bg-orange-500/80 text-white px-3 py-1 rounded-lg backdrop-blur-sm text-sm font-medium">
-            Another video is playing in Picture-in-Picture
-          </div>
-        )}
         {showAutoplayPrompt && autoPlay && (
           <div className="absolute inset-0 z-[10002] flex items-center justify-center bg-black/60 backdrop-blur-sm">
             <div className="bg-background/95 border border-border rounded-lg p-6 max-w-md mx-4 shadow-xl">

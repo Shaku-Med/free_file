@@ -131,6 +131,7 @@ export const loader = async ({ request }: { request: Request }) => {
   try {
     const url = new URL(request.url);
     const seenParam = url.searchParams.get('seen');
+    const fileTypeFilter = url.searchParams.get('file_type');
     const seenIds = parseSeenIds(seenParam);
 
     let userId: string | undefined;
@@ -181,12 +182,33 @@ export const loader = async ({ request }: { request: Request }) => {
       });
     }
 
-    const filteredFeed = await filterFilesByAccess(request, feed || []);
+    let filteredFeed = await filterFilesByAccess(request, feed || []);
+
+    // Optional file_type filtering (e.g. /api/feed?file_type=video)
+    if (fileTypeFilter) {
+      const filter = fileTypeFilter.toLowerCase();
+      filteredFeed = filteredFeed.filter((file: any) => {
+        const type = (file.file_type || '').toLowerCase();
+        const endpoint = file.endpoint || '';
+
+        if (filter === 'video') {
+          const isHls =
+            type === 'application/vnd.apple.mpegurl' ||
+            endpoint.includes('.m3u8');
+          const isVideoType = type.startsWith('video/');
+          return isHls || isVideoType;
+        }
+
+        // Fallback: exact match on file_type
+        return type === filter;
+      });
+    }
+
     const filesWithOwners = await ownerService.enrichFilesWithOwners(filteredFeed);
 
     let userActions: { likedFileIds: string[]; dislikedFileIds: string[] } = { likedFileIds: [], dislikedFileIds: [] };
-    if (userId && filesWithOwners.length > 0) {
-      const fileIds = filesWithOwners.map((f: any) => f.id).filter(Boolean);
+    if (userId && filteredFeed.length > 0) {
+      const fileIds = filteredFeed.map((f: any) => f.id).filter(Boolean);
       if (fileIds.length > 0) {
         const actions = await userActionsService.getUserActions(userId, fileIds);
         userActions = {

@@ -9,6 +9,7 @@ import {
   DropdownMenuTrigger
 } from "~/components/ui/dropdown-menu";
 import DownloadButton from "~/routes/Dynamic/components/DownloadButton";
+import { BASE_URL } from "~/lib/URLS";
 
 interface UserActionProps {
   upCount?: number;
@@ -17,9 +18,11 @@ interface UserActionProps {
   initialLiked?: boolean;
   initialDisliked?: boolean;
   canDownload?: boolean;
+  isReel?: boolean;
+  reelId?: string;
 }
 
-const UserAction = ({ upCount = 0, downCount = 0, fileId, initialLiked = false, initialDisliked = false, canDownload = false }: UserActionProps) => {
+const UserAction = ({ upCount = 0, downCount = 0, fileId, initialLiked = false, initialDisliked = false, canDownload = false, isReel = false, reelId }: UserActionProps) => {
   const [liked, setLiked] = useState(initialLiked);
   const [disliked, setDisliked] = useState(initialDisliked);
   const [displayUpCount, setDisplayUpCount] = useState(upCount);
@@ -37,7 +40,8 @@ const UserAction = ({ upCount = 0, downCount = 0, fileId, initialLiked = false, 
   }, [initialLiked, initialDisliked, upCount, downCount]);
 
   const handleLike = useCallback(() => {
-    if (!fileId) return;
+    const targetFileId = (isReel && reelId) ? reelId : fileId;
+    if (!targetFileId) return;
 
     const wasLiked = liked;
     const wasDisliked = disliked;
@@ -64,7 +68,7 @@ const UserAction = ({ upCount = 0, downCount = 0, fileId, initialLiked = false, 
           headers: {
             'Content-Type': 'application/json',
           },
-          body: JSON.stringify({ fileId }),
+          body: JSON.stringify({ fileId: targetFileId }),
         });
 
         if (!response.ok) {
@@ -91,10 +95,11 @@ const UserAction = ({ upCount = 0, downCount = 0, fileId, initialLiked = false, 
         setIsLoading(false);
       }
     }, 500);
-  }, [liked, disliked, fileId, upCount, downCount]);
+  }, [liked, disliked, fileId, upCount, downCount, isReel, reelId]);
 
   const handleDislike = useCallback(() => {
-    if (!fileId) return;
+    const targetFileId = (isReel && reelId) ? reelId : fileId;
+    if (!targetFileId) return;
 
     const wasLiked = liked;
     const wasDisliked = disliked;
@@ -121,7 +126,7 @@ const UserAction = ({ upCount = 0, downCount = 0, fileId, initialLiked = false, 
           headers: {
             'Content-Type': 'application/json',
           },
-          body: JSON.stringify({ fileId }),
+          body: JSON.stringify({ fileId: targetFileId }),
         });
 
         if (!response.ok) {
@@ -148,16 +153,16 @@ const UserAction = ({ upCount = 0, downCount = 0, fileId, initialLiked = false, 
         setIsLoading(false);
       }
     }, 500);
-  }, [liked, disliked, fileId, upCount, downCount]);
+  }, [liked, disliked, fileId, upCount, downCount, isReel, reelId]);
 
   const handleShare = () => {
     if (navigator.share) {
       navigator.share({
         title: document.title,
-        url: window.location.href,
+        url: !fileId ? window.location.href : `${BASE_URL}/${isReel ? 'reel' : ''}/${fileId}`,
       }).catch(() => {});
     } else {
-      navigator.clipboard.writeText(window.location.href).catch(() => {});
+      navigator.clipboard.writeText(!fileId ? window.location.href : `${BASE_URL}/${isReel ? 'reel' : ''}/${fileId}`).catch(() => {});
     }
   };
 
@@ -171,6 +176,60 @@ const UserAction = ({ upCount = 0, downCount = 0, fileId, initialLiked = false, 
       }
     };
   }, []);
+
+  if (isReel) {
+    const targetFileId = (isReel && reelId) ? reelId : fileId;
+
+    return (
+      <div className="flex flex-col items-center gap-4 text-white sm:gap-5 z-[1000]">
+        <button
+          type="button"
+          onClick={handleLike}
+          disabled={isLoading || !targetFileId}
+          className={`flex flex-col items-center gap-1 rounded-full p-1.5 transition ${
+            liked ? 'text-primary' : 'text-white/90 hover:text-white'
+          }`}
+        >
+          <div className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-black/60 shadow-md backdrop-blur-md sm:h-11 sm:w-11">
+            <ThumbsUp className={`h-4 w-4 sm:h-5 sm:w-5 ${liked ? 'fill-current' : ''}`} />
+          </div>
+          <span className="text-[10px] sm:text-[11px] font-medium tabular-nums">
+            {displayUpCount.toLocaleString('en-US')}
+          </span>
+        </button>
+
+        <button
+          type="button"
+          onClick={handleDislike}
+          disabled={isLoading || !targetFileId}
+          className={`flex flex-col items-center gap-1 rounded-full p-1.5 transition ${
+            disliked ? 'text-destructive' : 'text-white/90 hover:text-white'
+          }`}
+        >
+          <div className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-black/60 shadow-md backdrop-blur-md sm:h-11 sm:w-11">
+            <ThumbsDown className={`h-4 w-4 sm:h-5 sm:w-5 ${disliked ? 'fill-current' : ''}`} />
+          </div>
+          <span className="text-[10px] sm:text-[11px] font-medium tabular-nums">
+            {displayDownCount.toLocaleString('en-US')}
+          </span>
+        </button>
+
+        <button
+          type="button"
+          onClick={handleShare}
+          className="flex flex-col items-center gap-1 text-white/90 hover:text-white"
+        >
+          <div className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-black/60 shadow-md backdrop-blur-md sm:h-11 sm:w-11">
+            <Share2 className="h-4 w-4 sm:h-5 sm:w-5" />
+          </div>
+          <span className="text-[10px] sm:text-[11px] font-medium tabular-nums">
+            {/* Shares count is not tracked here; keep label generic */}
+            Share
+          </span>
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col gap-4">

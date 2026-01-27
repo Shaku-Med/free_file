@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link } from "react-router";
+import { Link, useLocation } from "react-router";
 import { 
   Camera, 
   Menu, 
@@ -70,20 +70,33 @@ export default function Navbar() {
   const [searchQuery, setSearchQuery] = useState("");
   // const [input, setInput] = useState<string>("");
   const { isMobile, state } = useSidebar();
+  const location = useLocation();
+  const isReelRoute = location.pathname.startsWith("/reel");
 
   return (
-    <nav className={`sticky top-0 z-50 w-full ${isMobile || state === 'collapsed' ? `bg-background` : `bg-card/95 backdrop-blur-xl `} shadow-lg z-[100000000000] border-b`}>
+    <nav
+      className={`sticky top-0 z-50 w-full ${
+        isReelRoute
+          ? "bg-transparent border-none shadow-none"
+          : isMobile || state === "collapsed"
+          ? "bg-background shadow-lg border-b"
+          : "bg-card/95 backdrop-blur-xl shadow-lg border-b"
+      }`}
+    >
       <div className="mx-auto px-6 xl:px-8 max-w-full xl:container">
-        <div className="flex py-3 items-center justify-between">
-          <div className="flex items-center space-x-8">
-            <Link to="/" id="home_button" className="flex items-center space-x-2 group ios-scale">
-              <div className="relative flex items-center ">
-                <div className="">
-                  <Logo className="relative h-10 w-10 text-primary" />
+        <div className={`flex py-3 items-center ${isReelRoute ? "justify-end" : "justify-between"}`}>
+          {!isReelRoute && (
+            <div className="flex items-center space-x-8">
+              <Link to="/" id="home_button" className="flex items-center space-x-2 group ios-scale">
+                <div className="relative flex items-center ">
+                  <div className="">
+                    <Logo className="relative h-10 w-10 text-primary" />
+                  </div>
+                  <span className="text-xl font-bold bg-gradient-to-r from-primary to-primary/70 bg-clip-text text-transparent line-clamp-1">
+                    Memories
+                  </span>
                 </div>
-                <span className="text-xl font-bold bg-gradient-to-r from-primary to-primary/70 bg-clip-text text-transparent line-clamp-1">Memories</span>
-              </div>
-            </Link>
+              </Link>
             
             {/* <NavigationMenu className="hidden xl:flex">
               <NavigationMenuList className="space-x-1">
@@ -124,7 +137,8 @@ export default function Navbar() {
                 </NavigationMenuItem>
               </NavigationMenuList>
             </NavigationMenu> */}
-          </div>
+            </div>
+          )}
 
           <div className="flex items-center space-x-3">
              <div onClick={() => setIsModalOpen(true)} className="cursor-pointer rounded-lg h-10 w-10 flex items-center justify-center hover:bg-primary/10 ios-scale">

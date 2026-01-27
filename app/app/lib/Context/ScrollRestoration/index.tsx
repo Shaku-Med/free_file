@@ -66,6 +66,12 @@ export default function ScrollRestoration() {
 
     currentPathRef.current = currentPath;
 
+    if (currentPath.startsWith("/reel")) {
+      container.scrollTop = 0;
+      container.scrollLeft = 0;
+      return;
+    }
+
     const savedData = getScrollData(currentPath);
     if (savedData) {
       isRestoringRef.current = true;

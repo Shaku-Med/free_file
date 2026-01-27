@@ -289,7 +289,7 @@ const VideoCard = ({ data, index, currentUserId, userActions, onUpdate, showOwne
                   setLoaded(true)
                 }
               }}
-              quality={25}
+              quality={40}
               hasAdultTag={Boolean(data.is_adult)}
             />
           ) : (

@@ -285,6 +285,7 @@ const Search = () => {
               <div className="flex flex-1 items-center gap-2 rounded-full border border-border/30 bg-primary/5 backdrop-blur-xl px-4 h-12 shadow-xs focus-within:ring-4 focus-within:ring-primary/10">
                 <SearchIcon className="h-4 w-4 text-muted-foreground" />
                 <Input
+                  autoFocus
                   type="search"
                   enterKeyHint="search"
                   inputMode="search"

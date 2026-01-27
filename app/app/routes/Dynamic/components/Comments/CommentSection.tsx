@@ -10,9 +10,10 @@ import { createClient } from "@supabase/supabase-js";
 interface CommentSectionProps {
   fileId: string;
   currentUserId?: string;
+  isReel?: boolean;
 }
 
-const CommentSection = ({ fileId, currentUserId: initialUserId }: CommentSectionProps) => {
+const CommentSection = ({ fileId, currentUserId: initialUserId, isReel = false }: CommentSectionProps) => {
   const [comments, setComments] = useState<Comment[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -46,60 +47,6 @@ const CommentSection = ({ fileId, currentUserId: initialUserId }: CommentSection
     fetchComments();
 
     if (typeof window === "undefined") return;
-
-    const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || '';
-    const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
-
-    if (!supabaseUrl || !supabaseKey) {
-      return;
-    }
-
-    const supabaseClient = createClient(supabaseUrl, supabaseKey);
-
-    const channel = supabaseClient
-      .channel(`comments:${fileId}`)
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'comments',
-          filter: `file_id=eq.${fileId}`,
-        },
-        (payload: any) => {
-          if (payload.eventType === 'INSERT') {
-            fetchComments();
-          } else if (payload.eventType === 'UPDATE') {
-            setComments((prev) =>
-              prev.map((comment) => {
-                if (comment.id === payload.new.id) {
-                  return { ...comment, ...payload.new };
-                }
-                if (comment.replies) {
-                  const updatedReplies = comment.replies.map((reply: Comment) =>
-                    reply.id === payload.new.id ? { ...reply, ...payload.new } : reply
-                  );
-                  return { ...comment, replies: updatedReplies };
-                }
-                return comment;
-              })
-            );
-          } else if (payload.eventType === 'DELETE') {
-            setComments((prev) =>
-              prev.filter((comment) => comment.id !== payload.old.id)
-            );
-          }
-        }
-      )
-      .subscribe();
-
-    channelRef.current = channel;
-
-    return () => {
-      if (channelRef.current && supabaseClient) {
-        supabaseClient.removeChannel(channelRef.current);
-      }
-    };
   }, [fileId, fetchComments]);
 
   const handleSubmit = useCallback(

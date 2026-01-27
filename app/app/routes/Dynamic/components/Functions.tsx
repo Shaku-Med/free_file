@@ -12,7 +12,7 @@ export const MakeVideoToken = async (file: string, id: string, headers: Headers)
         if(!file && file.startsWith('image/') || !id) return null
         let keys = ['video_token']
         let token = await SetToken(headers, {
-            expiresIn: '1d',
+            expiresIn: '30d',
             algorithm: 'HS512'
         }, keys, {
             file: file,

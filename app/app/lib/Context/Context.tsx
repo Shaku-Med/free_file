@@ -48,7 +48,9 @@ export const Context = createContext<ContextProps>({
     userId: null,
     userActions: { likedFileIds: new Set(), dislikedFileIds: new Set() },
     c_user: null,
-    uploadServerUrl: ''
+  uploadServerUrl: '',
+  userProfile: null,
+  userProfileLoading: false
 })
 
 interface ContextProviderProps {
@@ -101,6 +103,14 @@ export const ContextProvider = ({ children, f, st, user_agent, userId, userActio
     const [isDragActive, setIsDragActive] = useState(false);
     const [droppedFiles, setDroppedFiles] = useState<File[]>([]);
     const dragDepthRef = useRef(0);
+    const [userProfile, setUserProfile] = useState<{
+        id: string;
+        username: string;
+        profile_pic: string;
+        about: string | null;
+    } | null>(null);
+    const [userProfileLoading, setUserProfileLoading] = useState(false);
+    const hasFetchedProfileRef = useRef(false);
 
     const [isLoading, setIsLoading] = useState(false);
     const observerRef = useRef<HTMLDivElement | null>(null)
@@ -156,6 +166,26 @@ export const ContextProvider = ({ children, f, st, user_agent, userId, userActio
       if (observerRef.current) observer.observe(observerRef.current)
       return () => observer.disconnect()
     }, [loadMoreVideos, isLoading, nav.location])
+
+    useEffect(() => {
+      if (!userId || hasFetchedProfileRef.current) return;
+      const fetchUserProfile = async () => {
+        try {
+          setUserProfileLoading(true);
+          const response = await fetch(`/api/user-profile?userId=${userId}`);
+          if (response.ok) {
+            const data = await response.json();
+            setUserProfile(data);
+          }
+        } catch (error) {
+          console.error("Error fetching user profile:", error);
+        } finally {
+          setUserProfileLoading(false);
+          hasFetchedProfileRef.current = true;
+        }
+      };
+      fetchUserProfile();
+    }, [userId])
 
     useEffect(() => {
       const hasFiles = (event: DragEvent) => {
@@ -264,9 +294,11 @@ export const ContextProvider = ({ children, f, st, user_agent, userId, userActio
             userId: safeUserId,
             userActions,
             c_user,
-            uploadServerUrl
+            uploadServerUrl,
+            userProfile,
+            userProfileLoading
         }),
-        [files, isModalOpen, isLoading, loadMoreVideos, user_agent, safeUserId, userActions, c_user, uploadServerUrl]
+        [files, isModalOpen, isLoading, loadMoreVideos, user_agent, safeUserId, userActions, c_user, uploadServerUrl, userProfile, userProfileLoading]
     );
     return (
         <div className={`w-full h-full`}>
