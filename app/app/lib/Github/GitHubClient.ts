@@ -119,7 +119,7 @@ export class GitHubClient {
     }
   }
 
-  private async getFileSha(filePath: string): Promise<string | null> {
+  async getFileSha(filePath: string): Promise<string | null> {
     try {
       const response = await this.octokit.rest.repos.getContent({
         owner: this.owner,
@@ -134,8 +134,31 @@ export class GitHubClient {
       if (error?.status === 404) {
         return null;
       }
-      console.error('Error getting file sha:', error);
+      if (error?.status !== 404) {
+        console.error('Error getting file sha:', error);
+      }
       return null;
+    }
+  }
+
+  async deleteFile(filePath: string, message: string = 'Delete file'): Promise<void> {
+    try {
+      const sha = await this.getFileSha(filePath);
+      if (!sha) {
+        return;
+      }
+      await this.octokit.rest.repos.deleteFile({
+        owner: this.owner,
+        repo: this.repo,
+        path: filePath,
+        message,
+        sha
+      });
+    } catch (error: any) {
+      if (error?.status === 404) {
+        return;
+      }
+      throw new Error(`Failed to delete file: ${error.message || 'Unknown error'}`);
     }
   }
 }

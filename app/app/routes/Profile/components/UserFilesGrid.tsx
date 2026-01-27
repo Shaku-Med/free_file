@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, useEffect } from "react";
+import { useState, useCallback, useRef, useEffect, useMemo } from "react";
 import type { FileType } from "~/lib/types";
 import VideoCard from "~/routes/Home/components/VideoCard";
 
@@ -29,6 +29,25 @@ const UserFilesGrid = ({
     } : undefined
   );
 
+  // Create a stable key based on userId and initial files to detect profile changes
+  const profileKey = useMemo(() => {
+    return `${userId}-${initialFiles.length}-${initialFiles[0]?.id || ''}`;
+  }, [userId, initialFiles]);
+
+  // Reset state when userId or initialFiles change (when navigating to different profile)
+  useEffect(() => {
+    setFiles(initialFiles);
+    setCurrentPage(1);
+    setHasMore(initialHasMore ?? initialFiles.length >= 20);
+    setIsLoading(false);
+    setUserActions(
+      initialUserActions ? {
+        likedFileIds: new Set(initialUserActions.likedFileIds),
+        dislikedFileIds: new Set(initialUserActions.dislikedFileIds)
+      } : undefined
+    );
+  }, [profileKey, userId, initialHasMore]); // Reset when profile key changes
+
   const loadMore = useCallback(async () => {
     if (isLoading || !hasMore) return;
 
@@ -45,7 +64,14 @@ const UserFilesGrid = ({
       const result = await response.json();
       
       if (result.data && result.data.length > 0) {
-        setFiles(prev => [...prev, ...result.data]);
+        // Prevent duplicates by checking if file already exists
+        setFiles(prev => {
+          const existingIds = new Set(prev.map(f => f.id || f.unique_id));
+          const newFiles = result.data.filter((file: FileType) => 
+            !existingIds.has(file.id || file.unique_id)
+          );
+          return [...prev, ...newFiles];
+        });
         setCurrentPage(nextPage);
         setHasMore(result.pagination?.hasMore || false);
         

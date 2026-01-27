@@ -102,6 +102,8 @@ setTimeout(() => {
 }, 5000);
 
 export class NSFWDetectionService {
+  private readonly NSFW_THRESHOLD = 0.15;
+
   async detectNSFW(imageBuffer: Buffer, mimeType: string): Promise<boolean> {
     try {
       const image = await RawImage.fromBlob(
@@ -109,10 +111,28 @@ export class NSFWDetectionService {
       );
       
       const pip = await getPipeline();
-      const result = await pip(image);
-      const isNSFW = (result as ImageClassificationSingle[])[0].label === 'nsfw';
+      const results = await pip(image) as ImageClassificationSingle[];
       
-      return isNSFW;
+      if (!results || results.length === 0) {
+        return false;
+      }
+
+      const nsfwResult = results.find(r => r.label.toLowerCase() === 'nsfw');
+      const topResult = results[0];
+
+      if (nsfwResult && nsfwResult.score >= this.NSFW_THRESHOLD) {
+        return true;
+      }
+
+      if (topResult.label.toLowerCase() === 'nsfw' && topResult.score >= this.NSFW_THRESHOLD) {
+        return true;
+      }
+
+      if (topResult.label.toLowerCase() === 'nsfw') {
+        return true;
+      }
+      
+      return false;
     } catch (error) {
       console.error('NSFW detection error:', error);
       return false;

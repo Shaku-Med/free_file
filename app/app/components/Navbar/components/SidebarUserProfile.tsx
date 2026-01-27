@@ -5,6 +5,7 @@ import { Button } from "~/components/ui/button";
 import { LogIn, User, Settings, LogOut, ChevronDown } from "lucide-react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator } from "~/components/ui/dropdown-menu";
 import { useFileContext } from "~/lib/Context/Context";
+import { getProfilePicUrl } from "~/lib/utils/profilePic";
 
 interface UserProfileData {
   id: string;
@@ -77,7 +78,7 @@ const SidebarUserProfile = () => {
         <DropdownMenuTrigger asChild>
           <button className="w-full flex items-center gap-3 p-2 rounded-lg hover:bg-muted transition-colors group text-left">
             <Avatar className="h-10 w-10 flex-shrink-0">
-              <AvatarImage src={userProfile.profile_pic} alt={userProfile.username} />
+              <AvatarImage src={getProfilePicUrl(userProfile.profile_pic)} alt={userProfile.username} />
               <AvatarFallback>
                 {userProfile.username.charAt(0).toUpperCase()}
               </AvatarFallback>

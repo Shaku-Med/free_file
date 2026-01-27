@@ -7,6 +7,7 @@ import type { FileType } from "~/lib/types";
 import { ParseFilename } from "~/lib/utils";
 import { Input } from "~/components/ui/input";
 import { Button } from "~/components/ui/button";
+import { getProfilePicUrl } from "~/lib/utils/profilePic";
 import {
   Pagination,
   PaginationContent,
@@ -329,7 +330,7 @@ const Search = () => {
                         <div className="relative w-20 h-20 rounded-full overflow-hidden mb-3 ring-2 ring-border/50 group-hover:ring-primary/50 transition-all">
                           {user.profile_pic ? (
                             <img
-                              src={user.profile_pic}
+                              src={getProfilePicUrl(user.profile_pic)}
                               alt={user.username}
                               className="w-full h-full object-cover"
                             />

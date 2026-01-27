@@ -7,10 +7,12 @@ export default [
     route(`terms`, 'routes/Terms/index.tsx'),
     route(`api`, 'routes/Api/layout.tsx', [
         route(`upload`, 'routes/Api/upload/index.tsx'),
+        route(`upload/profilepic`, 'routes/Api/upload/profilepic/index.tsx'),
         route(`upload-server-check`, 'routes/Api/upload-server-check/index.tsx'),
         route(`upload-job-status`, 'routes/Api/upload-job-status/index.tsx'),
         route(`load/video/*`, 'routes/Api/load/Video/index.tsx'),
         route(`load/image/*`, 'routes/Api/load/image/index.tsx'),
+        route(`load/profilepic/*`, 'routes/Api/load/profilepic/index.tsx'),
         // route(`get/*`, 'routes/Api/get/index.tsx'),
         route(`public-key`, 'routes/Api/PublicKey/index.tsx'),
         route(`handshake`, 'routes/Api/handshake/index.tsx'),
@@ -46,6 +48,7 @@ export default [
         route(`feed`, 'routes/Api/feed/index.tsx'),
         route(`views/increment`, 'routes/Api/views/increment.tsx'),
         route(`server-env`, 'routes/Api/server-env/index.tsx'),
+        route(`sitemap`, 'routes/Api/sitemap/index.tsx'),
     ]),
     route(`:id`, 'routes/Dynamic/layout.tsx', [
         index('routes/Dynamic/index.tsx'),

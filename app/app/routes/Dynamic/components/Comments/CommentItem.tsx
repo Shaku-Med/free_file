@@ -12,6 +12,7 @@ import {
 import type { Comment as CommentType } from "~/lib/Services/CommentService";
 import CommentForm from "./CommentForm";
 import { formatDistanceToNow } from "date-fns";
+import { getProfilePicUrl } from "~/lib/utils/profilePic";
 
 interface CommentItemProps {
   comment: CommentType;
@@ -62,7 +63,7 @@ const CommentItem = ({
         {comment.user?.username ? (
           <Link to={`/profile/${comment.user.username}`}>
             <Avatar className="h-8 w-8 flex-shrink-0 hover:ring-2 ring-primary transition-all cursor-pointer">
-              <AvatarImage src={comment.user.profile_pic} alt={comment.user.username} />
+              <AvatarImage src={getProfilePicUrl(comment.user.profile_pic)} alt={comment.user.username} />
               <AvatarFallback>
                 {comment.user.username.charAt(0).toUpperCase()}
               </AvatarFallback>

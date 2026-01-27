@@ -73,13 +73,29 @@ export const action = async ({ request }: { request: Request }) => {
     // Run NSFW detection using Hugging Face transformers
     // Use cached pipeline instance to avoid reloading model on every request
     const pip = await getPipeline();
-    const result = await pip(image);
-    const isNSFW = (result as ImageClassificationSingle[])[0].label === 'nsfw';
+    const results = await pip(image) as ImageClassificationSingle[];
+    
+    const NSFW_THRESHOLD = 0.15;
+    let isNSFW = false;
+    
+    if (results && results.length > 0) {
+      const nsfwResult = results.find(r => r.label.toLowerCase() === 'nsfw');
+      const topResult = results[0];
+      
+      if (nsfwResult && nsfwResult.score >= NSFW_THRESHOLD) {
+        isNSFW = true;
+      } else if (topResult.label.toLowerCase() === 'nsfw' && topResult.score >= NSFW_THRESHOLD) {
+        isNSFW = true;
+      } else if (topResult.label.toLowerCase() === 'nsfw') {
+        isNSFW = true;
+      }
+    }
 
     return new Response(
       JSON.stringify({ 
         success: true,
-        nsfw: isNSFW 
+        nsfw: isNSFW,
+        scores: results?.map(r => ({ label: r.label, score: r.score })) || []
       }),
       { 
         status: 200,

@@ -1,5 +1,6 @@
 import { Link } from "react-router";
 import { Avatar, AvatarFallback, AvatarImage } from "~/components/ui/avatar";
+import { getProfilePicUrl } from "~/lib/utils/profilePic";
 
 export interface OwnerInfo {
   id: string;
@@ -34,7 +35,7 @@ const OwnerProfile = ({ owner, size = "md", showUsername = true, className = "" 
       onClick={(e) => e.stopPropagation()}
     >
       <Avatar className={avatarSize}>
-        <AvatarImage src={owner.profile_pic} alt={owner.username} />
+        <AvatarImage src={getProfilePicUrl(owner.profile_pic)} alt={owner.username} />
         <AvatarFallback className="text-[10px]">
           {owner.username.charAt(0).toUpperCase()}
         </AvatarFallback>
