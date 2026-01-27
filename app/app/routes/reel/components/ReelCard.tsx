@@ -59,11 +59,12 @@ export const ReelCard = ({ data }: { data: FileType }) => {
       // Update the browser tab title for the current reel
       window.document.title = `${data.file_title || ParseFilename(data.filename)} - Memories`;
       video
-        .play()
-        .then(() => {
-          setIsPlaying(true);
-        })
-        .catch(() => undefined);
+      .play()
+      .then(() => {
+        setIsPlaying(true);
+      })
+      .catch(() => undefined);
+      video.muted = false
     } else {
       video.pause();
       setIsPlaying(false);
