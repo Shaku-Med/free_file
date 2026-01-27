@@ -171,7 +171,7 @@ export const ReelCard = ({ data }: { data: FileType }) => {
       >
         <article className="relative h-full w-full overflow-hidden bg-neutral-900 lg:rounded-2xl">
           {/* Actions / comments overlay above the player */}
-          <aside className="pointer-events-auto absolute right-2 sm:right-4 bottom-4 sm:bottom-5 z-20">
+          <aside className="pointer-events-auto absolute right-2 sm:right-4 bottom-10 sm:bottom-10 z-20">
             <div className="flex flex-col items-center gap-4 sm:gap-5 text-white">
               {/* If you want like/dislike in reels, uncomment and
                   wire these props from FileType / feed metadata. */}
@@ -268,7 +268,7 @@ export const ReelCard = ({ data }: { data: FileType }) => {
           </div>
         </article>
 
-        <div className="absolute left-3 sm:left-4 bottom-4 flex items-start flex-col gap-1 text-white z-[10]">
+        <div className="absolute left-3 sm:left-4 bottom-10 sm:bottom-10 flex items-start flex-col gap-1 text-white z-[10]">
           {data.owner && (
             <div className="pointer-events-auto">
               <OwnerProfile
