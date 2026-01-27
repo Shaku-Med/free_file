@@ -52,6 +52,7 @@ export const ReelCard = ({ data }: { data: FileType }) => {
     const video = videoElementRef.current;
     if (!video) return;
 
+    video.muted = false
     if (isInView) {
       // using the windows history stuff let's change the url to the dynamic reel route
       window.history.pushState(null, "", `/reel/${data.id}`);
