@@ -1,4 +1,4 @@
-name: Deploy GoUpload to VPS
+name: Deploy to VPS
 
 on:
   push:
@@ -11,12 +11,13 @@ on:
 
 jobs:
   deploy:
-    name: Deploy GoUpload
+    name: Deploy to VPS
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # ==================== GoUpload Deployment ====================
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
@@ -28,24 +29,13 @@ jobs:
           cd GoUpload
           CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o goupload .
 
-      - name: Create .env for VPS
+      - name: Create .env for GoUpload
         env:
           VPS_ENV: ${{ secrets.VPS_ENV }}
         run: |
           printf '%s' "$VPS_ENV" > GoUpload/.env
 
-      - name: Ensure remote directories
-        uses: appleboy/ssh-action@v1.0.3
-        with:
-          host: ${{ secrets.VPS_HOST }}
-          username: ${{ secrets.VPS_USER }}
-          key: ${{ secrets.HOSTER_SSH_KEY }}
-          script: |
-            sudo mkdir -p /opt/goupload
-            sudo chown -R $USER:$USER /opt/goupload
-            mkdir -p /opt/goupload/nsfwapi
-
-      - name: Copy GoUpload binary and .env to VPS
+      - name: Copy GoUpload to VPS
         uses: appleboy/scp-action@v0.1.7
         with:
           host: ${{ secrets.VPS_HOST }}
@@ -55,6 +45,20 @@ jobs:
           target: /opt/goupload/
           strip_components: 1
 
+      - name: Restart GoUpload Service
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.HOSTER_SSH_KEY }}
+          script: |
+            sudo chown hoster:hoster /opt/goupload/goupload
+            sudo chown hoster:hoster /opt/goupload/.env
+            sudo chmod +x /opt/goupload/goupload
+            sudo systemctl restart goupload
+            echo "✅ GoUpload restarted"
+
+      # ==================== NSFWAPI Deployment ====================
       - name: Copy NSFWAPI to VPS
         uses: appleboy/scp-action@v0.1.7
         with:
@@ -73,15 +77,21 @@ jobs:
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.HOSTER_SSH_KEY }}
           script: |
+            # Fix ownership
+            sudo chown -R hoster:hoster /opt/goupload/nsfwapi
+            
             cd /opt/goupload/nsfwapi
             
-            # Install dependencies
-            npm ci --omit=dev || npm install --omit=dev
+            # Clean up
+            rm -rf node_modules package-lock.json dist
+            
+            # Install all dependencies (including dev for build)
+            npm install
             
             # Build TypeScript
             npm run build
             
-            # Verify build output
+            # Verify build
             if [ ! -f "dist/index.js" ]; then
               echo "❌ Build failed - dist/index.js not found"
               exit 1
@@ -89,75 +99,29 @@ jobs:
             
             echo "✅ NSFWAPI built successfully"
 
-      - name: Restart GoUpload Service
+      # ==================== Deployment Complete ====================
+      - name: Show Deployment Status
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.HOSTER_SSH_KEY }}
           script: |
-            chmod +x /opt/goupload/goupload
-            
-            if sudo systemctl list-unit-files | grep -q goupload.service; then
-              echo "🔄 Restarting goupload service..."
-              sudo systemctl restart goupload
-              sudo systemctl status goupload --no-pager || true
-            else
-              echo "⚠️  goupload.service not found, starting manually..."
-              sudo pkill -f "/opt/goupload/goupload" || true
-              cd /opt/goupload
-              nohup ./goupload > goupload.log 2>&1 &
-              echo "✅ GoUpload started"
-            fi
-
-      - name: Restart NSFWAPI with PM2
-        uses: appleboy/ssh-action@v1.0.3
-        with:
-          host: ${{ secrets.VPS_HOST }}
-          username: ${{ secrets.VPS_USER }}
-          key: ${{ secrets.HOSTER_SSH_KEY }}
-          script: |
-            # Ensure PM2 is installed
-            if ! command -v pm2 >/dev/null 2>&1; then
-              echo "📦 Installing PM2..."
-              sudo npm install -g pm2
-            fi
-            
-            cd /opt/goupload/nsfwapi
-            
-            # Delete old process if exists
-            pm2 delete nsfwapi 2>/dev/null || true
-            
-            # Start new process
-            pm2 start dist/index.js --name nsfwapi
-            
-            # Save PM2 process list
-            pm2 save
-            
-            # Show status
-            pm2 list
-            
-            echo "✅ NSFWAPI deployed successfully"
-
-      - name: Verify Deployment
-        uses: appleboy/ssh-action@v1.0.3
-        with:
-          host: ${{ secrets.VPS_HOST }}
-          username: ${{ secrets.VPS_USER }}
-          key: ${{ secrets.HOSTER_SSH_KEY }}
-          script: |
+            echo ""
             echo "📊 Deployment Status:"
+            echo "===================="
             echo ""
-            echo "GoUpload:"
-            if pgrep -f "/opt/goupload/goupload" > /dev/null; then
-              echo "  ✅ Running"
-            else
-              echo "  ❌ Not running"
-            fi
+            echo "GoUpload Service:"
+            sudo systemctl status goupload --no-pager | head -10
             echo ""
-            echo "NSFWAPI:"
-            pm2 list | grep nsfwapi || echo "  ❌ Not running"
+            echo "NSFWAPI Files:"
+            ls -lh /opt/goupload/nsfwapi/dist/
             echo ""
-            echo "🌐 Services should be accessible at:"
-            echo "  GoUpload: http://$(curl -s ifconfig.me):8080"
-            echo "  NSFWAPI: http://localhost:3004"
+            echo "✅ Deployment complete!"
+            echo ""
+            echo "🔧 Manual steps remaining:"
+            echo "   1. SSH into your VPS"
+            echo "   2. cd /opt/goupload/nsfwapi"
+            echo "   3. pm2 delete nsfwapi || true"
+            echo "   4. pm2 start dist/index.js --name nsfwapi"
+            echo "   5. pm2 save"
