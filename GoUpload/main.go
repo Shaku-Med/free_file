@@ -42,14 +42,7 @@ func main() {
 		ChunkSize:     25 << 20,
 	})
 
-	nsfwAPI := env.Get("NSFW_API_URL", "")
-	if nsfwAPI == "" {
-		if env.IsDev() {
-			nsfwAPI = "http://localhost:3004/api/nsfw/detect"
-		} else {
-			nsfwAPI = "https://nsfw-memories.vercel.app/api/nsfw/detect"
-		}
-	}
+	nsfwAPI := env.Get("NSFW_API_URL", "http://localhost:3004/api/nsfw/detect")
 	webhookSecret := env.Get("UPLOAD_WEBHOOK_SECRET", "")
 
 	ghToken := env.Get("GITHUB_TOKEN", "")

@@ -51,6 +51,16 @@ jobs:
           target: /opt/goupload/
           strip_components: 1
 
+      - name: Copy NSFWAPI to VPS
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.HOSTER_SSH_KEY }}
+          source: 'NSFWAPI/*'
+          target: /opt/goupload/nsfwapi/
+          overwrite: true
+
       - name: Restart service
         uses: appleboy/ssh-action@v1.0.3
         with:
@@ -60,3 +70,24 @@ jobs:
           script: |
             chmod +x /opt/goupload/goupload
             sudo systemctl restart goupload || echo "Service not found, skipping restart"
+
+      - name: Start NSFWAPI
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.HOSTER_SSH_KEY }}
+          script: |
+            cd /opt/goupload/nsfwapi
+            if [ -f package-lock.json ]; then
+              npm ci --omit=dev
+            else
+              npm install --omit=dev
+            fi
+            npm run build
+            if ! command -v pm2 >/dev/null 2>&1; then
+              sudo npm install -g pm2
+            fi
+            pm2 delete nsfwapi || true
+            pm2 start dist/index.js --name nsfwapi --update-env
+            pm2 save || true
