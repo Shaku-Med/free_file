@@ -1,8 +1,11 @@
 name: Deploy Memories to EC2
 on:
   push:
-    branches:
-      - main
+    branches: [main]
+    paths:
+      - 'app/**'
+      - '.github/workflows/deploy.yml'
+  workflow_dispatch:
 
 jobs:
   deploy:
