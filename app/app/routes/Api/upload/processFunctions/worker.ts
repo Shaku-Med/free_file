@@ -1,6 +1,5 @@
 import { Worker, Job } from 'bullmq';
 import { FileService } from '~/lib/Services/FileService';
-import { NSFWDetectionService } from './NSFWDetectionService';
 import { VideoThumbnailService } from './VideoThumbnailService';
 import { processVideoToHLS } from './videoProcessor';
 import { config } from '~/lib/config';
@@ -37,7 +36,6 @@ interface ProcessResult {
 export class UploadWorker {
   private worker: Worker<UploadJobData, ProcessResult> | null = null;
   private fileService: FileService;
-  private nsfwService: NSFWDetectionService;
   private thumbnailService: VideoThumbnailService;
   private initialized: boolean = false;
 
@@ -47,7 +45,6 @@ export class UploadWorker {
       config.github.owner
     );
 
-    this.nsfwService = new NSFWDetectionService();
     this.thumbnailService = new VideoThumbnailService();
   }
 
@@ -134,12 +131,6 @@ export class UploadWorker {
       let videoThumbnails: { buffer: Buffer; timeOffset: number }[] | undefined = undefined;
       let durationSeconds: number | undefined = undefined;
 
-      if (isImage) {
-        await job.updateProgress(30);
-        isAdult = await this.nsfwService.detectNSFW(fileBuffer, file.mimeType);
-        await job.updateProgress(50);
-      }
-
       if (isVideo) {
         await job.updateProgress(30);
         const thumbnailResult = await this.thumbnailService.extractThumbnails(fileBuffer, 10);
@@ -150,22 +141,6 @@ export class UploadWorker {
             durationSeconds = Math.round(thumbnailResult.duration);
           }
           await job.updateProgress(45);
-          
-          isAdult = false;
-          for (const thumbnail of videoThumbnails) {
-            const isThumbnailNSFW = await this.nsfwService.detectNSFW(
-              thumbnail.buffer,
-              'image/jpeg'
-            );
-            
-            if (isThumbnailNSFW) {
-              isAdult = true;
-              break;
-            }
-          }
-          await job.updateProgress(50);
-        } else {
-          isAdult = false;
         }
       }
 

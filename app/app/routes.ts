@@ -21,9 +21,6 @@ export default [
             route(`info/*`, 'routes/Api/Socials/Info.tsx'),
             route(`*`, 'routes/Api/Socials/index.tsx'),
         ]),
-        route(`nsfw`, `routes/Api/load/NSFW/layout.tsx`, [
-            route(`detect/*`, `routes/Api/load/NSFW/detect/index.tsx`),
-        ]),
         route(`video-processor`, 'routes/Api/videoProcessor/layout.tsx', [
             route(`status/:queueID`, 'routes/Api/videoProcessor/status.tsx'),
             route(`queue-status`, 'routes/Api/videoProcessor/queue-status.tsx'),

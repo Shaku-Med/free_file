@@ -15,7 +15,6 @@
     "@heroui/react": "^2.8.5",
     "@heroui/system": "^2.4.23",
     "@heroui/theme": "^2.4.23",
-    "@huggingface/transformers": "^3.7.6",
     "@octokit/rest": "^22.0.0",
     "@radix-ui/react-aspect-ratio": "^1.1.7",
     "@radix-ui/react-avatar": "^1.1.10",

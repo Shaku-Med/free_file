@@ -1,12 +1,4 @@
 #!/usr/bin/env node
-/**
- * Production server that preloads the NSFW pipeline before accepting requests.
- * Use this instead of react-router-serve to avoid first-request freeze when
- * the Hugging Face model is downloaded/loaded.
- *
- * Usage: node server/startWithPreload.mjs [build-path]
- *   build-path defaults to ./build/server/index.js
- */
 import { pathToFileURL, fileURLToPath } from "node:url";
 import { dirname, join, resolve } from "node:path";
 import fs from "node:fs";
@@ -14,22 +6,7 @@ import os from "node:os";
 
 process.env.NODE_ENV = process.env.NODE_ENV ?? "production";
 
-// 1. Preload NSFW pipeline before importing the build (avoids first-request freeze)
-if (!process.env.SKIP_NSFW_PRELOAD) {
-  console.log("[startWithPreload] Preloading NSFW pipeline (AdamCodd/vit-base-nsfw-detector)...");
-  try {
-    const { pipeline } = await import("@huggingface/transformers");
-    const p = await pipeline("image-classification", "AdamCodd/vit-base-nsfw-detector");
-    globalThis.__NSFW_PIPELINE = p;
-    console.log("[startWithPreload] NSFW pipeline ready.");
-  } catch (e) {
-    console.warn("[startWithPreload] NSFW preload failed; /api/load/nsfw/detect will load on first request:", e?.message ?? e);
-  }
-} else {
-  console.log("[startWithPreload] SKIP_NSFW_PRELOAD set; skipping NSFW preload.");
-}
-
-// 2. Dependencies (same as react-router-serve)
+// Dependencies (same as react-router-serve)
 const express = (await import("express")).default;
 const compression = (await import("compression")).default;
 const morgan = (await import("morgan")).default;

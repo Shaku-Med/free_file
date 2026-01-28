@@ -24,7 +24,7 @@ type Result struct {
 
 func NewDetector(apiURL, apiSecret string) *Detector {
 	if apiURL == "" {
-		apiURL = "http://localhost:5000/detect"
+		apiURL = "http://localhost:3004/api/nsfw/detect"
 	}
 	return &Detector{
 		apiURL:    apiURL,

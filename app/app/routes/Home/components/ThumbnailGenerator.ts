@@ -13,7 +13,6 @@ export interface ThumbnailResult {
   success: boolean;
   thumbnailBlob?: Blob;
   error?: string;
-  nsfw?: boolean;
 }
 
 export class ThumbnailGenerator {
@@ -229,58 +228,6 @@ export class ThumbnailGenerator {
   ): Promise<ThumbnailResult> {
     try {
       const videoDuration = await this.getVideoDuration(videoFile);
-      const frameCount = 10; // Number of frames to check for NSFW
-      const interval = videoDuration / (frameCount + 1);
-
-      options.onProgress?.(5, `Preparing to generate ${frameCount} thumbnails...`);
-
-      // Generate all thumbnails in parallel (much faster than sequential!)
-      const thumbnailPromises: Promise<{ index: number; blob: Blob } | null>[] = [];
-      
-      for (let i = 1; i <= frameCount; i++) {
-        const timeOffset = interval * i;
-        
-        thumbnailPromises.push(
-          this.captureFrameFromVideo(videoFile, timeOffset, options)
-            .then(blob => blob ? { index: i, blob } : null)
-            .catch(() => null)
-        );
-      }
-
-      // Wait for all thumbnails to be generated in parallel
-      const thumbnailResults = await Promise.all(thumbnailPromises);
-      const validThumbnails = thumbnailResults.filter(
-        (result): result is { index: number; blob: Blob } => result !== null
-      );
-
-      const generationProgress = Math.round(5 + (validThumbnails.length / frameCount) * 40);
-      options.onProgress?.(generationProgress, `Generated ${validThumbnails.length}/${frameCount} thumbnails`);
-
-      // Check NSFW one by one using server-side API (sending single file at a time)
-      const nsfwResults: boolean[] = [];
-      
-      for (let i = 0; i < validThumbnails.length; i++) {
-        const result = validThumbnails[i];
-        try {
-          // Update progress
-          const checkProgress = Math.round(45 + ((i + 1) / validThumbnails.length) * 40);
-          options.onProgress?.(checkProgress, `Checking frame ${i + 1}/${validThumbnails.length} for adult content...`);
-          
-          // Send single frame to server-side API
-          const isNSFW = await this.checkNSFWViaAPI(result.blob);
-          nsfwResults.push(isNSFW);
-        } catch (error) {
-          // If check fails, assume not NSFW to avoid false positives
-          nsfwResults.push(false);
-        }
-      }
-      
-      // Check if any thumbnail was NSFW
-      const hasNSFW = nsfwResults.some(result => result === true);
-
-      options.onProgress?.(90, `Generating final thumbnail...`);
-
-      // Generate final thumbnail from random time offset
       const randomTimeOffset = Math.random() * videoDuration;
       const finalThumbnailBlob = await this.captureFrameFromVideo(videoFile, randomTimeOffset, options);
 
@@ -292,14 +239,12 @@ export class ThumbnailGenerator {
 
       return {
         success: true,
-        thumbnailBlob: finalThumbnailBlob,
-        nsfw: hasNSFW
+        thumbnailBlob: finalThumbnailBlob
       };
     } catch (error) {
       return {
         success: false,
-        error: error instanceof Error ? error.message : 'Unknown error',
-        nsfw: false
+        error: error instanceof Error ? error.message : 'Unknown error'
       };
     }
   }
@@ -420,65 +365,6 @@ export class ThumbnailGenerator {
       success: false,
       error: 'Failed to generate thumbnail with all fallback time offsets'
     };
-  }
-
-  /**
-   * Check NSFW content via server-side API
-   * Sends a single image blob to the API endpoint
-   */
-  private async checkNSFWViaAPI(imageBlob: Blob): Promise<boolean> {
-    try {
-      const formData = new FormData();
-      // Convert blob to File for FormData
-      const imageFile = new File([imageBlob], 'frame.jpg', { type: 'image/jpeg' });
-      formData.append('image', imageFile);
-
-      const response = await fetch(`/api/nsfw/detect/${Math.random().toString(36).substring(2, 15)}`, {
-        method: 'POST',
-        body: formData,
-      });
-
-      if (!response.ok) {
-        throw new Error(`API request failed: ${response.statusText}`);
-      }
-
-      const result = await response.json();
-      
-      if (result.success !== undefined) {
-        return result.nsfw === true;
-      }
-      
-      return false;
-    } catch (error) {
-      console.error('NSFW API check error:', error);
-      return false; // Return false on error to avoid blocking uploads
-    }
-  }
-
-  async checkImageNSFW(
-    imageFile: File, 
-    onProgress?: (progress: number, message: string) => void
-  ): Promise<{ success: boolean; nsfw: boolean; error?: string }> {
-    try {
-      onProgress?.(50, 'Checking image for adult content...');
-      
-      // Convert File to Blob for API call
-      const imageBlob = new Blob([imageFile], { type: imageFile.type });
-      const isNSFW = await this.checkNSFWViaAPI(imageBlob);
-      
-      onProgress?.(100, isNSFW ? 'Adult content detected' : 'Content check complete');
-      
-      return {
-        success: true,
-        nsfw: isNSFW
-      };
-    } catch (error) {
-      return {
-        success: false,
-        nsfw: false,
-        error: error instanceof Error ? error.message : 'Unknown error'
-      };
-    }
   }
 
   async destroy(): Promise<void> {

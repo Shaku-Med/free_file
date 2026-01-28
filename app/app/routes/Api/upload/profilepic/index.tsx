@@ -2,7 +2,6 @@ import { data } from "react-router";
 import { isAuthenticated } from "~/lib/Security/Password";
 import db from "~/lib/Database/supabase";
 import { GitHubClient } from "~/lib/Github/GitHubClient";
-import { NSFWDetectionService } from "~/routes/Api/upload/processFunctions/NSFWDetectionService";
 import { config } from "~/lib/config";
 import { loadImage } from "canvas";
 
@@ -51,12 +50,6 @@ export const action = async ({ request }: { request: Request }) => {
   const isSquare = Math.abs(aspectRatio - 1) < 0.001;
   if (!isSquare) {
     return data({ error: 'Profile picture must have a square aspect ratio (1:1). Current aspect ratio is not 1:1' }, { status: 400 });
-  }
-
-  const nsfwService = new NSFWDetectionService();
-  const isNSFW = await nsfwService.detectNSFW(buffer, file.type);
-  if (isNSFW) {
-    return data({ error: 'This profile picture cannot be added as it shows something explicit' }, { status: 400 });
   }
 
   if (!db) {
