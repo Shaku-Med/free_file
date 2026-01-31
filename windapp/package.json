@@ -1,0 +1,52 @@
+{
+  "name": "memories-brozy",
+  "version": "1.0.0",
+  "description": "Memories Brozy - Native Desktop App",
+  "main": "main.js",
+  "author": "You",
+  "license": "MIT",
+  "scripts": {
+    "start": "electron .",
+    "build": "electron-builder --win portable",
+    "build:mac": "electron-builder --mac",
+    "build:all": "electron-builder --win portable --mac",
+    "build:installer": "electron-builder --win nsis"
+  },
+  "devDependencies": {
+    "electron": "^28.0.0",
+    "electron-builder": "^24.9.1",
+    "electron-icon-builder": "^2.0.1"
+  },
+  "build": {
+    "appId": "com.brozy.memories",
+    "productName": "Memories Brozy",
+    "directories": {
+      "output": "dist"
+    },
+    "win": {
+      "target": [
+        {
+          "target": "portable",
+          "arch": ["x64"]
+        }
+      ],
+      "icon": "icons/icons/win/icon.ico"
+    },
+    "mac": {
+      "target": [
+        {
+          "target": "dmg",
+          "arch": ["x64", "arm64"]
+        }
+      ],
+      "icon": "icons/icons/mac/icon.icns",
+      "category": "public.app-category.social-networking"
+    },
+    "dmg": {
+      "artifactName": "MemoriesBrozy.dmg"
+    },
+    "portable": {
+      "artifactName": "MemoriesBrozy.exe"
+    }
+  }
+}
