@@ -9,7 +9,6 @@
     "dev": "cross-env NODE_ENV=development tsx watch src/index.ts"
   },
   "dependencies": {
-    "@huggingface/transformers": "^3.7.6",
     "cors": "^2.8.6",
     "dotenv": "^17.2.3",
     "express": "^4.18.2"
