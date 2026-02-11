@@ -267,7 +267,7 @@ func (w *Worker) processJob(job *queue.Job) {
 		if werr != nil {
 			w.log.Infof("waveform extraction skipped job=%s err=%s", job.ID, werr.Error())
 		} else {
-			w.log.Infof("waveform job=%s path=%s", job.ID, waveformPath)
+			w.log.Infof("waveforms job=%s path=%s", job.ID, waveformPath)
 		}
 	}
 
