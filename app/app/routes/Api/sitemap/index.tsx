@@ -107,11 +107,11 @@ export const loader = async ({ request }: { request: Request }) => {
       const { data: feedFiles, error: feedError } = await db.rpc('get_feed', {
         p_user_id: null,
         p_limit: MAX_URLS_PER_SITEMAP,
-        p_seen_ids: [],
-        p_liked_ids: [],
-        p_disliked_ids: [],
-        p_preferred_categories: [],
-        p_foryou_ids: []
+        p_category: null,
+        p_reels_only: false,
+        p_seed: 'default',
+        p_cursor_pos: 0,
+        p_exclude_ids: []
       });
 
       if (feedError) {
@@ -184,11 +184,11 @@ export const loader = async ({ request }: { request: Request }) => {
     const { data: feedFiles, error: feedError } = await db.rpc('get_feed', {
       p_user_id: null,
       p_limit: 1000,
-      p_seen_ids: [],
-      p_liked_ids: [],
-      p_disliked_ids: [],
-      p_preferred_categories: [],
-      p_foryou_ids: []
+      p_category: null,
+      p_reels_only: false,
+      p_seed: 'default',
+      p_cursor_pos: 0,
+      p_exclude_ids: []
     });
 
     const recentFiles = feedError ? [] : await filterFilesByAccess(sitemapRequest, (feedFiles || []) as unknown as any[]);

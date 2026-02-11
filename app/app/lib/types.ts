@@ -11,6 +11,9 @@ export interface FileType {
   is_adult?: boolean;
   up_count?: number;
   down_count?: number;
+  like_count?: number;
+  dislike_count?: number;
+  comment_count?: number;
   views?: number;
   view_count?: number;
   shares?: number;
@@ -19,8 +22,15 @@ export interface FileType {
   owner?: OwnerInfo | null;
   is_public?: boolean;
   file_description?: string;
-  category?: unknown[];
+  category?: string[];
+  categories?: string[];
+  tags?: string[];
+  colors?: unknown;
+  metadata?: unknown;
   file_title?: string;
   thumbnails?: string[];
   upload_status?: string;
+  is_reel?: boolean;
+  duration?: number;
+  engagement_score?: number;
 }

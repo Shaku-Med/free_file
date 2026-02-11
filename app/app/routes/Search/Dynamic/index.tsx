@@ -1,30 +1,59 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { data, useLoaderData, useNavigate, Link } from "react-router";
 import { Search as SearchIcon, X as XIcon, User } from "lucide-react";
 
 import { useFileContext } from "~/lib/Context/Context";
 import type { FileType } from "~/lib/types";
-import { ParseFilename } from "~/lib/utils";
 import { Input } from "~/components/ui/input";
 import { Button } from "~/components/ui/button";
 import { getProfilePicUrl } from "~/lib/utils/profilePic";
-import {
-  Pagination,
-  PaginationContent,
-  PaginationItem,
-  PaginationLink,
-  PaginationNext,
-  PaginationPrevious,
-} from "~/components/ui/pagination";
 import VideoCard from "~/routes/Home/components/VideoCard";
 import db from "~/lib/Database/supabase";
-import { filterFilesByAccess } from "~/routes/Api/fun/accessControl";
-
+import { isAuthenticated } from "~/lib/Security/Password";
 import { sanitizeSearchQuery } from "~/lib/Security/inputValidation";
+
+const SEARCH_LIMIT = 20;
+
+function mapSearchFile(file: any) {
+  return {
+    id: file.id,
+    created_at: file.created_at,
+    endpoint: file.endpoint || '',
+    filename: file.filename,
+    unique_id: file.unique_id,
+    file_size: file.file_size,
+    file_type: file.file_type,
+    is_adult: file.is_adult,
+    owner_id: file.owner_id,
+    is_public: file.is_public,
+    file_description: file.file_description,
+    file_title: file.file_title || '',
+    thumbnails: file.thumbnails || [],
+    view_count: file.view_count,
+    share_count: file.share_count,
+    is_reel: file.is_reel,
+    duration: file.duration,
+    categories: file.categories,
+    tags: file.tags,
+    colors: file.colors,
+    metadata: file.metadata,
+    like_count: Number(file.like_count) || 0,
+    dislike_count: Number(file.dislike_count) || 0,
+    comment_count: Number(file.comment_count) || 0,
+    engagement_score: file.search_rank ?? 0,
+    owner: file.owner_username
+      ? {
+          id: file.owner_id,
+          username: file.owner_username,
+          profile_pic: file.owner_profile_pic || '',
+          verified: file.owner_verified ?? false,
+        }
+      : null,
+  };
+}
 
 export const loader = async ({ request }: { request: Request }) => {
   try {
-    const url = new URL(request.url);
     let term = request.url.split(`/search/`)[1];
     if (term && term.includes('?')) {
       term = term.split('?')[0];
@@ -32,108 +61,96 @@ export const loader = async ({ request }: { request: Request }) => {
     if (!term) return data(null, { status: 404 });
     try {
       term = decodeURIComponent(term);
-    } catch (decodeError) {
-      console.error("Error decoding search term:", decodeError);
+    } catch {
       return data(null, { status: 400 });
     }
     const sanitizedTerm = sanitizeSearchQuery(term);
     if (!sanitizedTerm) {
-      return data({ url: '', results: [], users: [], filesTotal: 0, usersTotal: 0, currentPage: 1 }, { status: 200 });
+      return data({
+        url: '',
+        results: [],
+        users: [],
+        userActions: { likedFileIds: [], dislikedFileIds: [] },
+        nextCursor: null,
+        hasMore: false,
+      }, { status: 200 });
     }
 
-    const filesPerPage = 20;
-    const usersPerPage = 10;
-    const currentPage = Math.max(1, parseInt(url.searchParams.get('page') || '1', 10));
-    const filesOffset = (currentPage - 1) * filesPerPage;
-    const usersOffset = (currentPage - 1) * usersPerPage;
-    
-    let results: FileType[] | null = null;
-    let users: Array<{ id: string; username: string; profile_pic: string; file_count: number }> | null = null;
-    let filesTotal = 0;
-    let usersTotal = 0;
-    
+    const user = await isAuthenticated(request, ['id']);
+    const userId: string | undefined = user?.id || undefined;
+
+    let results: any[] = [];
+    let likedFileIds: string[] = [];
+    let dislikedFileIds: string[] = [];
+    let nextCursor: { cursor_score: number; cursor_id: string } | null = null;
+    let users: Array<{ id: string; username: string; profile_pic: string; file_count: number }> = [];
+
     try {
       if (db) {
-        const searchPattern = `%${sanitizedTerm}%`;
-        
-        const [filesResult, usersResult, filesCountResult, usersCountResult] = await Promise.all([
-          db
-            .from('files')
-            .select('*')
-            .or(`filename.ilike.${searchPattern},file_type.ilike.${searchPattern},unique_id.ilike.${searchPattern}`)
-            .order('created_at', { ascending: false })
-            .range(filesOffset, filesOffset + filesPerPage - 1),
+        const [searchResult, usersResult] = await Promise.all([
+          db.rpc('search_files', {
+            p_query: sanitizedTerm,
+            p_user_id: userId || null,
+            p_limit: SEARCH_LIMIT,
+            p_file_type: null,
+            p_category: null,
+            p_sort_by: 'relevance',
+            p_cursor_score: null,
+            p_cursor_id: null,
+          }),
           db
             .from('users')
             .select('id, username, profile_pic')
-            .ilike('username', searchPattern)
+            .ilike('username', `%${sanitizedTerm}%`)
             .eq('is_memories', false)
-            .range(usersOffset, usersOffset + usersPerPage - 1),
-          db
-            .from('files')
-            .select('*', { count: 'exact', head: true })
-            .or(`filename.ilike.${searchPattern},file_type.ilike.${searchPattern},unique_id.ilike.${searchPattern}`),
-          db
-            .from('users')
-            .select('*', { count: 'exact', head: true })
-            .ilike('username', searchPattern)
-            .eq('is_memories', false)
+            .limit(10),
         ]);
 
-        if (filesResult.error) {
-          console.error("Supabase files search error:", filesResult.error);
-        } else if (Array.isArray(filesResult.data)) {
-          const filteredRows = await filterFilesByAccess(request, filesResult.data);
-          results = filteredRows as FileType[];
+        if (searchResult.error) {
+          console.error("search_files RPC error:", searchResult.error);
+        } else if (Array.isArray(searchResult.data)) {
+          results = searchResult.data.map((file: any) => {
+            if (file.user_has_liked) likedFileIds.push(file.id);
+            if (file.user_has_disliked) dislikedFileIds.push(file.id);
+            return mapSearchFile(file);
+          });
+
+          const lastItem = results[results.length - 1];
+          if (lastItem && results.length >= SEARCH_LIMIT) {
+            nextCursor = { cursor_score: lastItem.engagement_score, cursor_id: lastItem.id };
+          }
         }
 
-        if (filesCountResult.error) {
-          console.error("Supabase files count error:", filesCountResult.error);
-        } else {
-          filesTotal = filesCountResult.count || 0;
-        }
-
-        if (usersCountResult.error) {
-          console.error("Supabase users count error:", usersCountResult.error);
-        } else {
-          usersTotal = usersCountResult.count || 0;
-        }
-
-        if (usersResult.error) {
-          console.error("Supabase users search error:", usersResult.error);
-        } else if (Array.isArray(usersResult.data)) {
-          if (usersResult.data.length > 0) {
-            const userData = usersResult.data as Array<{ id: string; username: string; profile_pic: string }>;
-            const fileCountPromises = userData.map(async (user: { id: string; username: string; profile_pic: string }) => {
-              const { count, error: countError } = await db
+        if (!usersResult.error && Array.isArray(usersResult.data) && usersResult.data.length > 0) {
+          const userData = usersResult.data as Array<{ id: string; username: string; profile_pic: string }>;
+          const withCounts = await Promise.all(
+            userData.map(async (u) => {
+              const { count } = await db
                 .from('files')
                 .select('*', { count: 'exact', head: true })
-                .eq('owner_id', user.id);
-
+                .eq('owner_id', u.id);
               return {
-                id: user.id,
-                username: user.username,
-                profile_pic: user.profile_pic || '',
-                file_count: countError ? 0 : (count || 0)
+                id: u.id,
+                username: u.username,
+                profile_pic: u.profile_pic || '',
+                file_count: count || 0,
               };
-            });
-
-            users = await Promise.all(fileCountPromises);
-          } else {
-            users = [];
-          }
+            })
+          );
+          users = withCounts;
         }
       }
     } catch (e) {
       console.error("Server search failed:", e);
     }
-    return data({ 
-      url: sanitizedTerm, 
-      results, 
-      users: users || [], 
-      filesTotal,
-      usersTotal,
-      currentPage 
+
+    return data({
+      url: sanitizedTerm,
+      results,
+      users,
+      userActions: { likedFileIds, dislikedFileIds },
+      nextCursor,
+      hasMore: Boolean(nextCursor),
     }, { status: 200 });
   } catch (error) {
     console.error("Search loader error:", error);
@@ -141,14 +158,25 @@ export const loader = async ({ request }: { request: Request }) => {
   }
 };
 
-const ITEMS_PER_PAGE = 20;
-
+function SkeletonCard() {
+  return (
+    <div className="animate-pulse">
+      <div className="aspect-video bg-muted rounded-xl" />
+      <div className="flex gap-3 mt-3">
+        <div className="w-9 h-9 rounded-full bg-muted shrink-0" />
+        <div className="flex-1 space-y-2">
+          <div className="h-4 bg-muted rounded w-[85%]" />
+          <div className="h-3 bg-muted rounded w-[60%]" />
+        </div>
+      </div>
+    </div>
+  );
+}
 
 const Search = () => {
   const loaderData = useLoaderData<typeof loader>();
   const navigate = useNavigate();
-  const { userActions, userId } = useFileContext();
-  const [suggestions, setSuggestions] = useState<FileType[]>([]);
+  const { userActions: globalUserActions, userId } = useFileContext();
 
   const initialTerm = useMemo(() => {
     if (!loaderData || typeof loaderData?.url !== "string") return "";
@@ -157,27 +185,31 @@ const Search = () => {
 
   const [inputValue, setInputValue] = useState(initialTerm);
   const [activeTerm, setActiveTerm] = useState(initialTerm);
+  const [files, setFiles] = useState<FileType[]>([]);
+  const [localUserActions, setLocalUserActions] = useState<{ likedFileIds: Set<string>; dislikedFileIds: Set<string> }>({
+    likedFileIds: new Set(),
+    dislikedFileIds: new Set(),
+  });
+  const [hasMore, setHasMore] = useState(false);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const nextCursorRef = useRef<{ cursor_score: number; cursor_id: string } | null>(null);
+  const [suggestions, setSuggestions] = useState<FileType[]>([]);
 
-  const currentPage = useMemo(() => {
-    if (loaderData && typeof loaderData === 'object' && 'currentPage' in loaderData) {
-      return (loaderData as any).currentPage || 1;
-    }
-    return 1;
-  }, [loaderData]);
+  useEffect(() => {
+    if (!loaderData || typeof loaderData !== 'object') return;
+    const ld = loaderData as any;
+    setFiles(Array.isArray(ld.results) ? ld.results : []);
+    setHasMore(Boolean(ld.hasMore));
+    nextCursorRef.current = ld.nextCursor ?? null;
 
-  const filesTotal = useMemo(() => {
-    if (loaderData && typeof loaderData === 'object' && 'filesTotal' in loaderData) {
-      return (loaderData as any).filesTotal || 0;
+    const liked = new Set<string>(globalUserActions.likedFileIds);
+    const disliked = new Set<string>(globalUserActions.dislikedFileIds);
+    if (ld.userActions) {
+      ld.userActions.likedFileIds?.forEach((id: string) => liked.add(id));
+      ld.userActions.dislikedFileIds?.forEach((id: string) => disliked.add(id));
     }
-    return 0;
-  }, [loaderData]);
-
-  const usersTotal = useMemo(() => {
-    if (loaderData && typeof loaderData === 'object' && 'usersTotal' in loaderData) {
-      return (loaderData as any).usersTotal || 0;
-    }
-    return 0;
-  }, [loaderData]);
+    setLocalUserActions({ likedFileIds: liked, dislikedFileIds: disliked });
+  }, [loaderData, globalUserActions]);
 
   useEffect(() => {
     setInputValue(initialTerm);
@@ -187,72 +219,62 @@ const Search = () => {
   const handleSubmit = useCallback(
     (event: React.FormEvent<HTMLFormElement>) => {
       event.preventDefault();
-      try {
-        const trimmed = inputValue.trim();
-        if (!trimmed) return;
-        setActiveTerm(trimmed);
-        navigate(`/search/${encodeURIComponent(trimmed)}?page=1`, { replace: false });
-      } catch (error) {
-        console.error("Error handling search submit:", error);
-      }
+      const trimmed = inputValue.trim();
+      if (!trimmed) return;
+      setActiveTerm(trimmed);
+      navigate(`/search/${encodeURIComponent(trimmed)}`, { replace: false });
     },
     [inputValue, navigate]
   );
 
-  const handlePageChange = useCallback((page: number) => {
-    navigate(`/search/${encodeURIComponent(activeTerm)}?page=${page}`, { replace: false });
-  }, [activeTerm, navigate]);
+  const loadMore = useCallback(async () => {
+    if (isLoadingMore || !hasMore || !activeTerm) return;
+    const cursor = nextCursorRef.current;
+    if (!cursor) return;
 
-  const filteredResults = useMemo(() => {
-    if (Array.isArray((loaderData as any)?.results)) {
-      return ((loaderData as any).results as FileType[]);
-    }
-    return [];
-  }, [loaderData]);
+    setIsLoadingMore(true);
+    try {
+      const params = new URLSearchParams();
+      params.set("q", activeTerm);
+      params.set("cursor_score", String(cursor.cursor_score));
+      params.set("cursor_id", cursor.cursor_id);
 
-  const filesTotalPages = useMemo(() => {
-    return Math.ceil(filesTotal / ITEMS_PER_PAGE);
-  }, [filesTotal]);
-
-  const pageNumbers = useMemo(() => {
-    if (filesTotalPages <= 1) return [];
-
-    const pages: number[] = [];
-    const maxVisible = 5;
-    let start = Math.max(1, currentPage - Math.floor(maxVisible / 2));
-    let end = start + maxVisible - 1;
-
-    if (end > filesTotalPages) {
-      end = filesTotalPages;
-      start = Math.max(1, end - maxVisible + 1);
-    }
-
-    for (let i = start; i <= end; i += 1) {
-      pages.push(i);
-    }
-
-    return pages;
-  }, [currentPage, filesTotalPages]);
-
-  useEffect(() => {
-    const fetchFeed = async () => {
-      try {
-        const response = await fetch('/api/feed?seen=[]');
-        if (response.ok) {
-          const result = await response.json();
-          if (result.data && Array.isArray(result.data)) {
-            setSuggestions(result.data);
-          }
-        }
-      } catch (error) {
-        console.error('Error fetching feed for suggestions:', error);
+      const response = await fetch(`/api/search?${params}`);
+      if (!response.ok) {
+        setHasMore(false);
+        return;
       }
-    };
 
-    if (!activeTerm) {
-      fetchFeed();
+      const result = await response.json();
+
+      if (Array.isArray(result.data) && result.data.length > 0) {
+        setFiles(prev => {
+          const existingIds = new Set(prev.map((f: FileType) => f.id));
+          const newItems = result.data.filter((f: FileType) => !existingIds.has(f.id));
+          return [...prev, ...newItems];
+        });
+
+        nextCursorRef.current = result.nextCursor ?? null;
+        setHasMore(Boolean(result.nextCursor));
+
+        if (result.userActions) {
+          setLocalUserActions(prev => {
+            const liked = new Set(prev.likedFileIds);
+            const disliked = new Set(prev.dislikedFileIds);
+            result.userActions.likedFileIds?.forEach((id: string) => liked.add(id));
+            result.userActions.dislikedFileIds?.forEach((id: string) => disliked.add(id));
+            return { likedFileIds: liked, dislikedFileIds: disliked };
+          });
+        }
+      } else {
+        setHasMore(false);
+      }
+    } catch {
+      setHasMore(false);
+    } finally {
+      setIsLoadingMore(false);
     }
-  }, [activeTerm]);
+  }, [isLoadingMore, hasMore, activeTerm]);
 
   const searchUsers = useMemo(() => {
     if (loaderData && typeof loaderData === 'object' && 'users' in loaderData) {
@@ -261,24 +283,27 @@ const Search = () => {
     return [];
   }, [loaderData]);
 
-  const showSuggestions = activeTerm && filteredResults.length === 0 && searchUsers.length === 0;
+  useEffect(() => {
+    if (activeTerm) return;
+    const fetchFeed = async () => {
+      try {
+        const response = await fetch('/api/feed');
+        if (response.ok) {
+          const result = await response.json();
+          if (Array.isArray(result.data)) {
+            setSuggestions(result.data);
+          }
+        }
+      } catch {}
+    };
+    fetchFeed();
+  }, [activeTerm]);
+
+  const showSuggestions = activeTerm && files.length === 0 && searchUsers.length === 0;
 
   return (
     <div className="mx-auto w-full max-w-full xl:container py-10">
       <div className="space-y-8">
-        {/* <div className="space-y-2">
-          <h1 className="text-3xl font-semibold text-foreground">Search</h1>
-          {activeTerm ? (
-            <p className="text-sm text-muted-foreground">
-              Showing results for <span className="font-medium">&ldquo;{activeTerm}&rdquo;</span>
-            </p>
-          ) : (
-            <p className="text-sm text-muted-foreground">
-              Start typing to explore your media library.
-            </p>
-          )}
-        </div> */}
-
         <form onSubmit={handleSubmit} className="w-full">
           <div className="mx-auto w-full md:max-w-2xl">
             <div className="flex flex-col gap-3 sm:flex-row">
@@ -305,10 +330,7 @@ const Search = () => {
                   </button>
                 )}
               </div>
-              <Button
-                type="submit"
-                className="h-12 rounded-full px-6 font-medium shadow-sm"
-              >
+              <Button type="submit" className="h-12 rounded-full px-6 font-medium shadow-sm">
                 Search
               </Button>
             </div>
@@ -316,7 +338,7 @@ const Search = () => {
         </form>
 
         {activeTerm ? (
-          (filteredResults.length > 0 || searchUsers.length > 0) ? (
+          (files.length > 0 || searchUsers.length > 0) ? (
             <div className="space-y-6">
               {searchUsers.length > 0 && (
                 <div className="space-y-4">
@@ -353,118 +375,45 @@ const Search = () => {
                 </div>
               )}
 
-              {filteredResults.length > 0 && (
+              {files.length > 0 && (
                 <div className="space-y-4">
                   {searchUsers.length > 0 && (
                     <h3 className="text-lg font-semibold text-foreground">Files</h3>
                   )}
-                  <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-2">
-                    {filteredResults.map((file: FileType, index: number) => (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-2">
+                    {files.map((file: FileType, index: number) => (
                       <VideoCard
+                        key={file.id || index}
                         data={file}
-                        index={index + (currentPage - 1) * ITEMS_PER_PAGE}
-                        key={index}
-                        userActions={userActions}
+                        index={index}
+                        userActions={localUserActions}
                         currentUserId={userId || undefined}
                       />
                     ))}
                   </div>
-                </div>
-              )}
 
-              {filesTotalPages > 1 && (
-                <Pagination>
-                  <PaginationContent>
-                    <PaginationItem>
-                      <PaginationPrevious
-                        href="#previous"
-                        onClick={(event) => {
-                          event.preventDefault();
-                          if (currentPage > 1) {
-                            handlePageChange(currentPage - 1);
-                          }
-                        }}
-                        aria-disabled={currentPage === 1}
-                        className={currentPage === 1 ? "pointer-events-none opacity-50" : ""}
-                      />
-                    </PaginationItem>
-                    {pageNumbers[0] > 1 && (
-                      <>
-                        <PaginationItem>
-                          <PaginationLink
-                            href="#page-1"
-                            onClick={(event) => {
-                              event.preventDefault();
-                              handlePageChange(1);
-                            }}
-                          >
-                            1
-                          </PaginationLink>
-                        </PaginationItem>
-                        {pageNumbers[0] > 2 && (
-                          <PaginationItem>
-                            <span className="px-2 text-sm text-muted-foreground">...</span>
-                          </PaginationItem>
-                        )}
-                      </>
-                    )}
-                    {pageNumbers.map((page) => (
-                      <PaginationItem key={page}>
-                        <PaginationLink
-                          href={`#page-${page}`}
-                          isActive={page === currentPage}
-                          onClick={(event) => {
-                            event.preventDefault();
-                            handlePageChange(page);
-                          }}
-                        >
-                          {page}
-                        </PaginationLink>
-                      </PaginationItem>
-                    ))}
-                    {pageNumbers[pageNumbers.length - 1] < filesTotalPages && (
-                      <>
-                        {pageNumbers[pageNumbers.length - 1] < filesTotalPages - 1 && (
-                          <PaginationItem>
-                            <span className="px-2 text-sm text-muted-foreground">...</span>
-                          </PaginationItem>
-                        )}
-                        <PaginationItem>
-                          <PaginationLink
-                            href={`#page-${filesTotalPages}`}
-                            onClick={(event) => {
-                              event.preventDefault();
-                              handlePageChange(filesTotalPages);
-                            }}
-                          >
-                            {filesTotalPages}
-                          </PaginationLink>
-                        </PaginationItem>
-                      </>
-                    )}
-                    <PaginationItem>
-                      <PaginationNext
-                        href="#next"
-                        onClick={(event) => {
-                          event.preventDefault();
-                          if (currentPage < filesTotalPages) {
-                            handlePageChange(currentPage + 1);
-                          }
-                        }}
-                        aria-disabled={currentPage === filesTotalPages}
-                        className={currentPage === filesTotalPages ? "pointer-events-none opacity-50" : ""}
-                      />
-                    </PaginationItem>
-                  </PaginationContent>
-                </Pagination>
+                  {isLoadingMore && (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-2">
+                      {Array.from({ length: 4 }).map((_, i) => (
+                        <SkeletonCard key={`skeleton-${i}`} />
+                      ))}
+                    </div>
+                  )}
+
+                  {hasMore && !isLoadingMore && (
+                    <div className="flex justify-center pt-2">
+                      <Button variant="outline" className="rounded-full px-8" onClick={loadMore}>
+                        Load more results
+                      </Button>
+                    </div>
+                  )}
+                </div>
               )}
             </div>
           ) : (
             <div className="space-y-6">
               <div className="rounded-2xl border border-border bg-card p-8 text-center shadow-sm">
-                <h2 className="text-xl font-semibold text-foreground">
-                  No results found
-                </h2>
+                <h2 className="text-xl font-semibold text-foreground">No results found</h2>
                 <p className="mt-2 text-sm text-muted-foreground">
                   Try adjusting your search or explore these suggestions.
                 </p>
@@ -472,16 +421,14 @@ const Search = () => {
 
               {showSuggestions && suggestions.length > 0 && (
                 <div className="space-y-4">
-                  <h3 className="text-lg font-semibold text-foreground">
-                    Suggested for you
-                  </h3>
-                  <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-2">
+                  <h3 className="text-lg font-semibold text-foreground">Suggested for you</h3>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-2">
                     {suggestions.map((file: FileType, index: number) => (
                       <VideoCard
                         key={file.id || index}
                         data={file}
                         index={index}
-                        userActions={userActions}
+                        userActions={localUserActions}
                         currentUserId={userId || undefined}
                       />
                     ))}
@@ -493,16 +440,14 @@ const Search = () => {
         ) : (
           suggestions.length > 0 && (
             <div className="space-y-4">
-              <h3 className="text-lg font-semibold text-foreground">
-                Quick suggestions
-              </h3>
-              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-2">
+              <h3 className="text-lg font-semibold text-foreground">Quick suggestions</h3>
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-2">
                 {suggestions.map((file: FileType, index: number) => (
                   <VideoCard
                     key={file.id || index}
                     data={file}
                     index={index}
-                    userActions={userActions}
+                    userActions={localUserActions}
                     currentUserId={userId || undefined}
                   />
                 ))}

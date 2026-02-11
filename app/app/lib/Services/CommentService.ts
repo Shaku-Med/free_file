@@ -30,61 +30,131 @@ export interface CommentServiceResponse<T> {
   error: string | null;
 }
 
+/** Result of getCommentsByFileId when using tree: includes totalCount for display */
+export interface CommentsTreeResult {
+  data: Comment[];
+  totalCount: number;
+}
+
 export class CommentService {
+  /**
+   * Fetches all comments (including nested) via get_comments RPC, builds tree, returns total count.
+   */
   async getCommentsByFileId(fileId: string, limit: number = 50, offset: number = 0): Promise<CommentServiceResponse<Comment[]>> {
+    const result = await this.getCommentsTreeByFileId(fileId, limit, offset);
+    if (result.error || !result.data) return { data: result.data, error: result.error };
+    return { data: result.data.data, error: null };
+  }
+
+  /**
+   * Fetches ALL comments for a file from the table, builds tree in JS, then applies limit/offset to roots.
+   * This guarantees we see every comment; the RPC can sometimes return partial results.
+   */
+  async getCommentsTreeByFileId(
+    fileId: string,
+    limit: number = 50,
+    offset: number = 0
+  ): Promise<CommentServiceResponse<CommentsTreeResult>> {
     try {
       if (!db) {
         return { data: null, error: 'Database not initialized' };
       }
 
-      const { data: commentsData, error } = await db
+      const maxComments = 500;
+      const { data: rows, error } = await db
         .from('comments')
-        .select('*')
+        .select('id, user_id, file_id, content, parent_id, created_at, updated_at, is_edited, is_deleted')
         .eq('file_id', fileId)
         .eq('is_deleted', false)
-        .is('parent_id', null)
-        .order('created_at', { ascending: false })
-        .range(offset, offset + limit - 1);
+        .limit(maxComments);
 
       if (error) {
         console.error('Error fetching comments:', error);
         return { data: null, error: 'Failed to fetch comments' };
       }
 
-      const commentsWithUsers = await Promise.all(
-        (commentsData || []).map(async (comment: any) => {
-          const { data: userData, error: userError } = await db
-            .from('users')
-            .select('id, username, profile_pic')
-            .eq('id', comment.user_id)
-            .maybeSingle();
+      const list = (rows || []) as Array<{
+        id: string;
+        user_id: string;
+        file_id: string;
+        content: string;
+        parent_id: string | null;
+        created_at: string;
+        updated_at: string;
+        is_edited: boolean;
+        is_deleted: boolean;
+      }>;
 
-          if (userError || !userData) {
-            console.error(`Error fetching user for comment ${comment.id}:`, userError);
-            return {
-              ...comment,
-              user: null
-            };
+      const totalCount = list.length;
+      const userIds = [...new Set(list.map((r) => r.user_id))];
+      const userMap = new Map<string, { id: string; username: string; profile_pic: string }>();
+      if (userIds.length > 0) {
+        const { data: userRows } = await db
+          .from('users')
+          .select('id, username, profile_pic')
+          .in('id', userIds);
+        for (const u of userRows || []) {
+          userMap.set(u.id, {
+            id: u.id,
+            username: (u as any).username ?? '',
+            profile_pic: (u as any).profile_pic ?? '',
+          });
+        }
+      }
+
+      const byId = new Map<string, Comment>();
+      const roots: Comment[] = [];
+
+      for (const row of list) {
+        const user = userMap.get(row.user_id);
+        const comment: Comment = {
+          id: row.id,
+          user_id: row.user_id,
+          file_id: row.file_id,
+          content: row.content,
+          parent_id: row.parent_id,
+          created_at: row.created_at,
+          updated_at: row.updated_at,
+          is_edited: row.is_edited,
+          is_deleted: row.is_deleted ?? false,
+          user: user ?? undefined,
+          replies: [],
+          reply_count: 0,
+        };
+        byId.set(row.id, comment);
+      }
+
+      for (const row of list) {
+        const comment = byId.get(row.id)!;
+        if (row.parent_id == null) {
+          roots.push(comment);
+        } else {
+          const parent = byId.get(row.parent_id);
+          if (parent) {
+            parent.replies = parent.replies ?? [];
+            parent.replies.push(comment);
+            parent.reply_count = parent.replies.length;
+          } else {
+            roots.push(comment);
           }
-
-          return {
-            ...comment,
-            user: userData
-          };
-        })
-      );
-
-      const data = commentsWithUsers;
-
-      if (error) {
-        console.error('Error fetching comments:', error);
-        return { data: null, error: 'Failed to fetch comments' };
+        }
       }
 
-      const comments = await this.enrichCommentsWithReplies(data || []);
-      return { data: comments, error: null };
+      roots.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+      for (const r of byId.values()) {
+        if (r.replies?.length) {
+          r.replies.sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+        }
+      }
+
+      const paginatedRoots = roots.slice(offset, offset + limit);
+
+      return {
+        data: { data: paginatedRoots, totalCount },
+        error: null,
+      };
     } catch (error) {
-      console.error('Error in getCommentsByFileId:', error);
+      console.error('Error in getCommentsTreeByFileId:', error);
       return { data: null, error: 'Internal server error' };
     }
   }

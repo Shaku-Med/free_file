@@ -64,6 +64,10 @@ export const RelatedVideosProvider = ({
   const [hasMoreOwner, setHasMoreOwner] = useState(true)
   const [ownerPage, setOwnerPage] = useState(1)
   const observerRef = useRef<HTMLDivElement | null>(null)
+  // Next page for related: server gave us filteredVideos.length for page 1, so next is cursor_pos = that count
+  const nextCursorRef = useRef<{ cursor_pos: number } | null>(
+    filteredVideos.length > 0 ? { cursor_pos: filteredVideos.length } : null
+  )
   const [userActions, setUserActions] = useState<{ likedFileIds: Set<string>; dislikedFileIds: Set<string> } | undefined>(
     initialUserActions ? {
       likedFileIds: new Set(initialUserActions.likedFileIds),
@@ -118,35 +122,35 @@ export const RelatedVideosProvider = ({
   }, [ownerId, isLoadingOwner, hasMoreOwner, ownerPage, currentVideoId, currentVideoDbId])
 
   const loadMore = useCallback(async () => {
-    if (isLoading || !hasMore) return
+    if (isLoading || !hasMore || !currentVideoDbId) return
 
     setIsLoading(true)
     try {
-      const seenIds = [
-        ...(currentVideoDbId ? [currentVideoDbId] : []),
-        ...displayVideos.map(v => v.id).filter((id): id is string => typeof id === 'string' && id.length > 0)
-      ]
+      const params = new URLSearchParams()
+      params.set("fileId", currentVideoDbId)
+      const cursor = nextCursorRef.current
+      if (cursor) {
+        params.set("cursor_pos", String(cursor.cursor_pos))
+      }
 
-      const seenParam = seenIds.length > 0 ? seenIds.join(',') : ''
-      const url = seenParam ? `/api/feed?seen=${encodeURIComponent(seenParam)}` : '/api/feed'
-      const response = await fetch(url)
-
+      const response = await fetch(`/api/related-videos?${params}`)
       if (!response.ok) {
         setHasMore(false)
         return
       }
 
       const result = await response.json()
-
-      if (result.data && result.data.length > 0) {
+      if (Array.isArray(result?.data)) {
         const filtered = result.data.filter((video: FileType) => video.unique_id !== currentVideoId)
         if (filtered.length > 0) {
-          setDisplayVideos(prev => [...prev, ...filtered])
-          setHasMore(true)
-        } else {
-          setHasMore(false)
+          setDisplayVideos(prev => {
+            const existingIds = new Set(prev.map((v: FileType) => v.id))
+            const newItems = filtered.filter((v: FileType) => !existingIds.has(v.id))
+            return [...prev, ...newItems]
+          })
         }
-
+        nextCursorRef.current = result.nextCursor ?? null
+        setHasMore(Boolean(result.nextCursor))
         if (result.userActions) {
           setUserActions(prev => {
             const newLikedIds = new Set(prev?.likedFileIds || [])

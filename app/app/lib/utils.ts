@@ -1,3 +1,4 @@
+import React from "react"
 import { clsx, type ClassValue } from "clsx"
 import { twMerge } from "tailwind-merge"
 
@@ -14,7 +15,9 @@ export const arrangeDateForThumbnail = (created_at: string, retryAttempt: number
   return `${day}_${month}_${year}`
 }
 
-export const ParseFilename = (filename: string) => {
+
+
+export const ParseFilename = (filename: string, showLimit?: number) => {
   const parts = filename.split('.')
   if (parts.length >= 3 && parts[parts.length - 1] === 'm3u8') {
     parts.splice(-2, 2)
@@ -22,6 +25,7 @@ export const ParseFilename = (filename: string) => {
   }
   return filename
 }
+
 
 export const getRandomThumbnail = (thumbnails?: string[]): string | null => {
   if (!thumbnails || thumbnails.length === 0) {

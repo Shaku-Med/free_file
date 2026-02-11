@@ -11,6 +11,7 @@ import {
 } from "~/components/ui/dropdown-menu";
 import type { Comment as CommentType } from "~/lib/Services/CommentService";
 import CommentForm from "./CommentForm";
+import { FormattedText } from "~/components/FormattedText";
 import { formatDistanceToNow } from "date-fns";
 import { getProfilePicUrl } from "~/lib/utils/profilePic";
 
@@ -105,9 +106,9 @@ const CommentItem = ({
                   placeholder="Edit your comment..."
                 />
               ) : (
-                <p className="text-sm text-foreground whitespace-pre-wrap break-words">
-                  {comment.content}
-                </p>
+                <div className="text-sm text-foreground border-0">
+                  <FormattedText text={comment.content} />
+                </div>
               )}
             </div>
             {isOwner && !isEditing && (

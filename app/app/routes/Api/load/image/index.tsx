@@ -383,8 +383,21 @@ export const loader = async ({ request }: { request: Request }) => {
             }
         }
 
+        if (splitUrl?.toLowerCase().endsWith('.json')) {
+            const jsonUrl = `https://github.com/${process.env.GITHUB_OWNER}/Memories/raw/main/${splitUrl}`;
+            const res = await fetch(jsonUrl);
+            if (!res.ok) return new Response(null, { status: res.status });
+            const body = await res.text();
+            return new Response(body, {
+                status: 200,
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Cache-Control': 'public, max-age=300',
+                },
+            });
+        }
+
         // SECURITY: Now fetch image with shouldBlur flag already determined
-        // The shouldBlur flag is set BEFORE this call, ensuring access control is enforced
         return await loadImageWithRetry(splitUrl, qualityParam, shouldBlur);
     } catch (error) {
         console.error('Error loading image:', error)

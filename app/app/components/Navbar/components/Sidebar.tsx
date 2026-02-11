@@ -3,7 +3,6 @@
 import { useState, useEffect, useMemo } from "react"
 import { Link, useLocation } from "react-router"
 import {
-  Home,
   Search,
   Heart,
   Settings,
@@ -14,6 +13,7 @@ import {
   Shield,
   Star,
   Play,
+  ListVideo,
 } from "lucide-react"
 import {
   Sidebar,
@@ -37,11 +37,12 @@ import type { FileType } from "~/lib/types"
 import { Magnetic } from "components/motion-primitives/magnetic"
 import SidebarUserProfile from "./SidebarUserProfile"
 import ImageLoad from "~/routes/Home/components/ImageLoad/ImageLoad"
+import HomeIcon from "~/components/ui/Icons/Home"
 
 const menuItems = [
   {
     title: "Home",
-    icon: Home,
+    icon: HomeIcon,
     href: "/",
   },
   {
@@ -53,6 +54,11 @@ const menuItems = [
     title: "Search",
     icon: Search,
     href: "/search",
+  },
+  {
+    title: "Playlist",
+    icon: ListVideo,
+    href: "/playlist",
   },
   {
     title: "Privacy",
@@ -144,7 +150,7 @@ export function AppSidebar() {
                       tooltip={item.title}
                     >
                       <Link to={item.href}>
-                        <item.icon />
+                        <item.icon className={`w-5 h-5 fill-none stroke-current`} />
                         <span>{item.title}</span>
                       </Link>
                     </SidebarMenuButton>

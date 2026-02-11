@@ -66,9 +66,9 @@ const RelatedVideosContent = ({ currentUserId }: { currentUserId?: string }) => 
             </div>
           ) : (
             <>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <div className="grid grid-cols-1 gap-2">
                 {displayVideos.map((video, index) => (
-                  <VideoCard key={video.unique_id} data={video} index={index} currentUserId={currentUserId} userActions={userActions} />
+                  <VideoCard related={true} key={video.unique_id} data={video} index={index} currentUserId={currentUserId} userActions={userActions} />
                 ))}
               </div>
               {hasMore && (
@@ -103,7 +103,7 @@ const RelatedVideosContent = ({ currentUserId }: { currentUserId?: string }) => 
             </div>
           ) : (
             <>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <div className="grid grid-cols-1 gap-2">
                 {ownerVideos.map((video, index) => (
                   <VideoCard key={video.unique_id} data={video} index={index} currentUserId={currentUserId} userActions={userActions} />
                 ))}

@@ -15,22 +15,28 @@ export const loader = async ({ request }: { request: Request }) => {
     const limitParam = url.searchParams.get('limit');
     const offsetParam = url.searchParams.get('offset');
 
-    // Validate fileId
     if (!fileId || !isValidFileId(fileId)) {
       return toJson({ error: "Invalid fileId" }, 400);
     }
 
-    // Validate pagination
     const limit = validateInteger(limitParam, 1, 100) || 50;
     const offset = validateInteger(offsetParam, 0, 10000) || 0;
 
-    const result = await commentService.getCommentsByFileId(fileId, limit, offset);
+    const result = await commentService.getCommentsTreeByFileId(fileId, limit, offset);
 
     if (result.error) {
       return toJson({ error: result.error }, 500);
     }
 
-    return toJson({ data: result.data, success: true });
+    if (!result.data) {
+      return toJson({ data: [], totalCount: 0, success: true });
+    }
+
+    return toJson({
+      data: result.data.data,
+      totalCount: result.data.totalCount,
+      success: true,
+    });
   } catch (error) {
     console.error('Error in comments loader:', error);
     return toJson({ error: "Internal server error" }, 500);

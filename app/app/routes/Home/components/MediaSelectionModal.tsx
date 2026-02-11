@@ -4,10 +4,27 @@ import { Button } from "~/components/ui/button"
 import { Progress } from "~/components/ui/progress"
 import { Input } from "~/components/ui/input"
 import { Textarea } from "~/components/ui/textarea"
-import { Upload, X, FileImage, FileVideo, Trash2 } from "lucide-react"
+import { Upload, X, FileImage, FileVideo, Trash2, ChevronDown, Tag } from "lucide-react"
 import { GenerateUniqueID } from "~/lib/GenerateUniqueID"
 import { useFileContext } from "~/lib/Context/Context"
 import { useNavigate } from "react-router"
+
+const CATEGORY_OPTIONS = [
+  "Gaming",
+  "Music",
+  "Entertainment",
+  "Education",
+  "Technology",
+  "Sports",
+  "News",
+  "Lifestyle",
+  "Anime",
+  "Film",
+  "Automotive",
+  "Art",
+  "Nature",
+  "Other",
+]
 
 interface MediaSelectionModalProps {
   isOpen: boolean
@@ -27,6 +44,8 @@ interface MediaItem {
   title: string
   description: string
   isPublic: boolean
+  categories: string[]
+  tags: string[]
   status: UploadStatus
   progress: number
   statusText: string | null
@@ -49,6 +68,9 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
   const [activeId, setActiveId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [isUploadingBatch, setIsUploadingBatch] = useState(false)
+  const [tagInput, setTagInput] = useState("")
+  const [showCategoryDropdown, setShowCategoryDropdown] = useState(false)
+  const categoryRef = useRef<HTMLDivElement>(null)
   const itemsRef = useRef<MediaItem[]>([])
 
   useEffect(() => {
@@ -76,6 +98,16 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
     onFilesConsumed?.()
   }, [isOpen, initialFiles, onFilesConsumed])
 
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (categoryRef.current && !categoryRef.current.contains(e.target as Node)) {
+        setShowCategoryDropdown(false)
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside)
+    return () => document.removeEventListener("mousedown", handleClickOutside)
+  }, [])
+
   const effectiveMaxSize = maxFileSizeBytes ?? 40 * 1024 * 1024
 
   const resetState = () => {
@@ -86,6 +118,8 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
     setActiveId(null)
     setError(null)
     setIsUploadingBatch(false)
+    setTagInput("")
+    setShowCategoryDropdown(false)
   }
 
   const formatBytes = (bytes: number) => {
@@ -116,6 +150,8 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
       title: baseName.slice(0, 200),
       description: "",
       isPublic: true,
+      categories: [],
+      tags: [],
       status: "idle",
       progress: 0,
       statusText: null,
@@ -186,7 +222,51 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
     })
   }
 
-  const GO_CHUNK_SIZE = 25 * 1024 * 1024 // 25MB, must match Go
+  const toggleCategory = (cat: string) => {
+    if (!activeItem) return
+    updateItem(activeItem.id, (current) => {
+      const has = current.categories.includes(cat)
+      return {
+        ...current,
+        categories: has
+          ? current.categories.filter((c) => c !== cat)
+          : [...current.categories, cat],
+      }
+    })
+  }
+
+  const addTag = (value: string) => {
+    if (!activeItem) return
+    const tag = value.trim().toLowerCase()
+    if (!tag || tag.length > 50) return
+    if (activeItem.tags.includes(tag)) return
+    if (activeItem.tags.length >= 15) return
+    updateItem(activeItem.id, (current) => ({
+      ...current,
+      tags: [...current.tags, tag],
+    }))
+  }
+
+  const removeTag = (tag: string) => {
+    if (!activeItem) return
+    updateItem(activeItem.id, (current) => ({
+      ...current,
+      tags: current.tags.filter((t) => t !== tag),
+    }))
+  }
+
+  const handleTagKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Enter" || e.key === ",") {
+      e.preventDefault()
+      addTag(tagInput)
+      setTagInput("")
+    }
+    if (e.key === "Backspace" && tagInput === "" && activeItem && activeItem.tags.length > 0) {
+      removeTag(activeItem.tags[activeItem.tags.length - 1])
+    }
+  }
+
+  const GO_CHUNK_SIZE = 25 * 1024 * 1024
 
   const authHeaders = (): Record<string, string> =>
     c_user ? { Authorization: `Bearer ${c_user}` } : {}
@@ -218,7 +298,6 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
     const base = uploadServerUrl.replace(/\/$/, "")
     const totalChunks = Math.ceil(item.file.size / GO_CHUNK_SIZE)
 
-    // 1) start
     let startRes = await fetchWith503Retry(
       `${base}/api/upload/start`,
       {
@@ -241,7 +320,6 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
     const uploadId = startJson.upload_id
     if (!uploadId) throw new Error("Upload start failed")
 
-    // 2) chunks
     for (let i = 0; i < totalChunks; i++) {
       const start = i * GO_CHUNK_SIZE
       const end = Math.min(start + GO_CHUNK_SIZE, item.file.size)
@@ -278,7 +356,6 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
       }))
     }
 
-    // 3) complete — send is_public, title, description so Go can push to Supabase via webhook
     let completeRes = await fetchWith503Retry(
       `${base}/api/upload/${uploadId}/complete`,
       {
@@ -288,6 +365,8 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
           is_public: item.isPublic,
           title: item.title.trim(),
           description: item.description.trim(),
+          categories: item.categories,
+          tags: item.tags,
         }),
       },
       (p, t) => updateItem(item.id, (c) => ({ ...c, progress: 95, statusText: t }))
@@ -330,6 +409,12 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
         formData.append("description", item.description.trim())
       }
       formData.append("isPublic", String(item.isPublic))
+      if (item.categories.length > 0) {
+        formData.append("categories", JSON.stringify(item.categories))
+      }
+      if (item.tags.length > 0) {
+        formData.append("tags", JSON.stringify(item.tags))
+      }
 
       const xhr = new XMLHttpRequest()
       xhr.open("POST", "/api/upload", true)
@@ -389,8 +474,6 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
       }
       try {
         await uploadFile(item)
-        // Upload queued successfully - Go worker will process and update Supabase via webhook.
-        // User can see progress on their profile page.
         updateItem(item.id, (current) => ({
           ...current,
           status: "success",
@@ -413,7 +496,6 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
     setIsUploadingBatch(false)
     const allSucceeded = successfulUploads > 0 && successfulUploads === snapshot.length
     if (allSucceeded) {
-      // Close immediately - user can see processing status on their profile page
       resetState()
       onClose()
     }
@@ -437,23 +519,25 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
     return <Upload className="w-8 h-8 text-primary" />
   }
 
+  const isFieldDisabled = !activeItem || isUploadingBatch || !!activeItem?.isLocked
+
   return (
     <Dialog open={isOpen} onOpenChange={handleClose}>
-      <DialogContent className="w-[96vw] max-w-[520px] sm:max-w-xl md:max-w-3xl lg:max-w-4xl xl:max-w-5xl rounded-2xl sm:rounded-3xl p-0 overflow-hidden max-h-[92vh] overflow-y-auto h-[92vh] sm:h-auto">
-        <DialogHeader className="px-6 pt-6 pb-3">
+      <DialogContent className="w-[96vw] max-w-[520px] sm:max-w-xl md:max-w-3xl lg:max-w-4xl xl:max-w-5xl rounded-2xl sm:rounded-3xl p-0 overflow-hidden max-h-[92vh] flex flex-col">
+        <DialogHeader className="px-6 pt-6 pb-3 shrink-0">
           <DialogTitle className="text-lg font-semibold text-center">Add Media</DialogTitle>
           <DialogDescription className="text-center text-sm text-muted-foreground">
             Upload images or videos.
           </DialogDescription>
         </DialogHeader>
-        <div className="px-6 pb-4 space-y-4">
-          <div className="grid gap-4 md:grid-cols-[220px_1fr]">
+        <div className="px-6 pb-4 space-y-4 overflow-y-auto min-h-0 flex-1">
+          <div className="grid gap-4 md:grid-cols-[200px_1fr]">
             <div className="space-y-3">
               <div className="flex items-center justify-between">
                 <p className="text-xs font-medium text-foreground">Selected files</p>
                 <span className="text-xs text-muted-foreground">{items.length}</span>
               </div>
-              <div className="space-y-2 max-h-[40vh] md:max-h-[380px] overflow-y-auto pr-1">
+              <div className="space-y-2 max-h-[30vh] md:max-h-[320px] overflow-y-auto pr-1">
                 {items.length === 0 && (
                   <div className="border border-dashed rounded-2xl p-4 text-center">
                     <div className="flex items-center justify-center mb-3">
@@ -476,7 +560,7 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
                     <div className="flex items-start justify-between gap-2">
                       <div className="flex-1 min-w-0">
                         <p className="text-xs font-medium text-foreground truncate">{item.file.name}</p>
-                        <p className="text-[11px] text-muted-foreground">
+                        <p className="text-[11px] text-muted-foreground truncate">
                           {formatBytes(item.file.size)} · {item.isPublic ? "Public" : "Private"}
                         </p>
                       </div>
@@ -484,7 +568,7 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
                         type="button"
                         size="icon"
                         variant="ghost"
-                        className="h-7 w-7"
+                        className="h-7 w-7 shrink-0"
                         onClick={(event) => {
                           event.stopPropagation()
                           removeItem(item.id)
@@ -497,14 +581,14 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
                     {item.status !== "idle" && (
                       <div className="mt-2 space-y-1">
                         <div className="flex items-center justify-between text-[11px] text-muted-foreground">
-                          <span>{item.statusText || item.status}</span>
-                          <span>{item.progress}%</span>
+                          <span className="truncate">{item.statusText || item.status}</span>
+                          <span className="shrink-0 ml-1">{item.progress}%</span>
                         </div>
                         <Progress value={item.progress} className="h-1.5" />
                       </div>
                     )}
                     {item.error && (
-                      <p className="mt-1 text-[11px] text-destructive">{item.error}</p>
+                      <p className="mt-1 text-[11px] text-destructive truncate">{item.error}</p>
                     )}
                   </button>
                 ))}
@@ -534,7 +618,7 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
               </Button>
             </div>
 
-            <div className="space-y-4">
+            <div className="space-y-3 min-w-0">
               {activeItem ? (
                 <div className="border border-border rounded-2xl overflow-hidden bg-muted/50">
                   {activeItem.file.type.startsWith("image/") ? (
@@ -556,9 +640,7 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
                     </div>
                   ) : null}
                   <div className="p-3 border-t border-border">
-                    <p className="text-xs font-medium text-foreground truncate">{
-                      activeItem.file.name.length > 20 ? activeItem.file.name.slice(0, 20) + "..." : activeItem.file.name
-                      }</p>
+                    <p className="text-xs font-medium text-foreground truncate">{activeItem.file.name}</p>
                     <p className="text-xs text-muted-foreground">{formatBytes(activeItem.file.size)}</p>
                   </div>
                 </div>
@@ -589,7 +671,8 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
                     }}
                     placeholder="Enter a title for this file"
                     maxLength={200}
-                    disabled={!activeItem || isUploadingBatch || activeItem.isLocked}
+                    disabled={isFieldDisabled}
+                    className="text-sm"
                   />
                 </div>
                 <div className="space-y-1">
@@ -601,11 +684,122 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
                       updateItem(activeItem.id, (current) => ({ ...current, description: e.target.value }))
                     }}
                     placeholder="Describe this file"
-                    rows={3}
+                    rows={2}
                     maxLength={1000}
-                    disabled={!activeItem || isUploadingBatch || activeItem.isLocked}
+                    disabled={isFieldDisabled}
+                    className="text-sm resize-none"
                   />
                 </div>
+
+                <div className="space-y-1" ref={categoryRef}>
+                  <p className="text-xs font-medium text-foreground">Category</p>
+                  <div className="relative">
+                    <button
+                      type="button"
+                      onClick={() => !isFieldDisabled && setShowCategoryDropdown((p) => !p)}
+                      disabled={isFieldDisabled}
+                      className="w-full flex items-center justify-between border border-input rounded-md px-3 py-2 text-sm bg-background hover:bg-accent/50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed min-h-[38px]"
+                    >
+                      <span className="flex flex-wrap gap-1 min-w-0 flex-1">
+                        {activeItem && activeItem.categories.length > 0 ? (
+                          activeItem.categories.map((cat) => (
+                            <span
+                              key={cat}
+                              className="inline-flex items-center gap-1 bg-primary/10 text-primary text-xs px-2 py-0.5 rounded-full"
+                            >
+                              {cat}
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  toggleCategory(cat)
+                                }}
+                                className="hover:text-destructive"
+                              >
+                                <X className="w-3 h-3" />
+                              </button>
+                            </span>
+                          ))
+                        ) : (
+                          <span className="text-muted-foreground">Select categories...</span>
+                        )}
+                      </span>
+                      <ChevronDown className="w-4 h-4 shrink-0 text-muted-foreground ml-2" />
+                    </button>
+                    {showCategoryDropdown && (
+                      <div className="absolute z-50 mt-1 w-full bg-popover border border-border rounded-lg shadow-lg max-h-[180px] overflow-y-auto">
+                        {CATEGORY_OPTIONS.map((cat) => {
+                          const selected = activeItem?.categories.includes(cat)
+                          return (
+                            <button
+                              key={cat}
+                              type="button"
+                              onClick={() => toggleCategory(cat)}
+                              className={`w-full text-left px-3 py-2 text-sm transition-colors hover:bg-accent ${
+                                selected ? "bg-primary/10 text-primary font-medium" : "text-foreground"
+                              }`}
+                            >
+                              <span className="flex items-center gap-2">
+                                <span className={`w-4 h-4 rounded border flex items-center justify-center text-xs ${
+                                  selected ? "bg-primary border-primary text-primary-foreground" : "border-input"
+                                }`}>
+                                  {selected && "✓"}
+                                </span>
+                                {cat}
+                              </span>
+                            </button>
+                          )
+                        })}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <div className="space-y-1">
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs font-medium text-foreground">Tags</p>
+                    {activeItem && (
+                      <span className="text-[11px] text-muted-foreground">{activeItem.tags.length}/15</span>
+                    )}
+                  </div>
+                  <div className={`flex flex-wrap gap-1.5 border border-input rounded-md px-3 py-2 bg-background min-h-[38px] ${isFieldDisabled ? "opacity-50 cursor-not-allowed" : ""}`}>
+                    {activeItem?.tags.map((tag) => (
+                      <span
+                        key={tag}
+                        className="inline-flex items-center gap-1 bg-muted text-foreground text-xs px-2 py-0.5 rounded-full"
+                      >
+                        <Tag className="w-3 h-3" />
+                        {tag}
+                        {!isFieldDisabled && (
+                          <button
+                            type="button"
+                            onClick={() => removeTag(tag)}
+                            className="hover:text-destructive"
+                          >
+                            <X className="w-3 h-3" />
+                          </button>
+                        )}
+                      </span>
+                    ))}
+                    <input
+                      type="text"
+                      value={tagInput}
+                      onChange={(e) => setTagInput(e.target.value)}
+                      onKeyDown={handleTagKeyDown}
+                      onBlur={() => {
+                        if (tagInput.trim()) {
+                          addTag(tagInput)
+                          setTagInput("")
+                        }
+                      }}
+                      placeholder={activeItem?.tags.length ? "" : "Type and press Enter..."}
+                      disabled={isFieldDisabled}
+                      className="flex-1 min-w-[100px] bg-transparent outline-none text-sm placeholder:text-muted-foreground disabled:cursor-not-allowed"
+                    />
+                  </div>
+                  <p className="text-[11px] text-muted-foreground">Press Enter or comma to add a tag</p>
+                </div>
+
                 <div className="space-y-2">
                   <p className="text-xs font-medium text-foreground">Visibility</p>
                   <div className="flex items-center gap-2">
@@ -617,7 +811,7 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
                         if (!activeItem) return
                         updateItem(activeItem.id, (current) => ({ ...current, isPublic: true }))
                       }}
-                      disabled={!activeItem || isUploadingBatch || activeItem.isLocked}
+                      disabled={isFieldDisabled}
                     >
                       Public
                     </Button>
@@ -629,7 +823,7 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
                         if (!activeItem) return
                         updateItem(activeItem.id, (current) => ({ ...current, isPublic: false }))
                       }}
-                      disabled={!activeItem || isUploadingBatch || activeItem.isLocked}
+                      disabled={isFieldDisabled}
                     >
                       Private
                     </Button>
@@ -641,7 +835,7 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
 
           {error && <p className="text-xs text-destructive text-center">{error}</p>}
         </div>
-        <DialogFooter className="px-6 pb-4 flex items-center justify-between gap-3">
+        <DialogFooter className="px-6 py-4 flex items-center justify-between gap-3 border-t border-border shrink-0">
           <Button
             type="button"
             variant="ghost"
@@ -667,5 +861,3 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
 }
 
 export default MediaSelectionModal
-
-

@@ -14,19 +14,23 @@ import (
 // Payload is sent to the app's /api/upload-job-status. The app upserts upload_jobs
 // and creates/updates files in Supabase so the user sees progress on their page.
 type Payload struct {
-	JobID       string   `json:"job_id"`
-	Status      string   `json:"status"`
-	UploadID    string   `json:"upload_id"`
-	UserID      string   `json:"user_id"`
-	FileName    string   `json:"file_name,omitempty"`
-	FileSize    int64    `json:"file_size,omitempty"`
-	IsPublic    *bool    `json:"is_public,omitempty"`
-	Title       string   `json:"title,omitempty"`
-	Description string   `json:"description,omitempty"`
-	Endpoint    string   `json:"endpoint,omitempty"`    // GitHub path, sent on completed
-	Thumbnails  []string `json:"thumbnails,omitempty"`  // Array of thumbnail paths
-	Duration    float64  `json:"duration,omitempty"`    // Video duration in seconds
-	IsAdult     *bool    `json:"is_adult,omitempty"`    // NSFW detection result
+	JobID       string                 `json:"job_id"`
+	Status      string                 `json:"status"`
+	UploadID    string                 `json:"upload_id"`
+	UserID      string                 `json:"user_id"`
+	FileName    string                 `json:"file_name,omitempty"`
+	FileSize    int64                  `json:"file_size,omitempty"`
+	IsPublic    *bool                  `json:"is_public,omitempty"`
+	Title       string                 `json:"title,omitempty"`
+	Description string                 `json:"description,omitempty"`
+	Endpoint    string                 `json:"endpoint,omitempty"`
+	Thumbnails  []string               `json:"thumbnails,omitempty"`
+	Duration    float64                `json:"duration,omitempty"`
+	IsAdult     *bool                  `json:"is_adult,omitempty"`
+	Colors      []string               `json:"colors,omitempty"`
+	Categories  []string               `json:"categories,omitempty"`
+	Tags        []string               `json:"tags,omitempty"`
+	Metadata    map[string]interface{} `json:"metadata,omitempty"`
 }
 
 // NotifyJobStatus sends the payload to the app's /api/upload-job-status.

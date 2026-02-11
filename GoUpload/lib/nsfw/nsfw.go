@@ -2,24 +2,39 @@ package nsfw
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
-	"mime/multipart"
 	"net/http"
 	"sync"
 	"time"
 )
 
+type VisionLabel struct {
+	Name  string  `json:"name"`
+	Score float64 `json:"score"`
+}
+
+type SafeSearch struct {
+	Adult    string `json:"adult"`
+	Violence string `json:"violence"`
+	Racy     string `json:"racy"`
+	Spoof    string `json:"spoof"`
+	Medical  string `json:"medical"`
+}
+
+type Result struct {
+	IsNSFW      bool          `json:"isNSFW"`
+	Description string        `json:"description"`
+	SafeSearch  *SafeSearch   `json:"safeSearch"`
+	Labels      []VisionLabel `json:"labels"`
+}
+
 type Detector struct {
 	apiURL    string
 	apiSecret string
 	client    *http.Client
-}
-
-type Result struct {
-	IsNSFW bool
-	Score  float64
 }
 
 func NewDetector(apiURL, apiSecret string) *Detector {
@@ -29,45 +44,44 @@ func NewDetector(apiURL, apiSecret string) *Detector {
 	return &Detector{
 		apiURL:    apiURL,
 		apiSecret: apiSecret,
-		client:    &http.Client{Timeout: 30 * time.Second},
+		client:    &http.Client{Timeout: 60 * time.Second},
 	}
 }
 
 func (d *Detector) Detect(imageData []byte) (Result, error) {
 	if d.apiURL == "" || d.apiURL == "disabled" {
-		return Result{IsNSFW: false, Score: 0}, nil
+		return Result{IsNSFW: false}, nil
 	}
 
-	var body bytes.Buffer
-	writer := multipart.NewWriter(&body)
-	part, err := writer.CreateFormFile("image", "image.jpg")
+	payload := struct {
+		Image string `json:"image"`
+	}{
+		Image: base64.StdEncoding.EncodeToString(imageData),
+	}
+
+	jsonBody, err := json.Marshal(payload)
 	if err != nil {
 		return Result{}, err
 	}
-	if _, err := part.Write(imageData); err != nil {
-		return Result{}, err
-	}
-	if err := writer.Close(); err != nil {
-		return Result{}, err
-	}
 
-	req, err := http.NewRequest("POST", d.apiURL, &body)
+	req, err := http.NewRequest("POST", d.apiURL, bytes.NewReader(jsonBody))
 	if err != nil {
 		return Result{}, err
 	}
-	req.Header.Set("Content-Type", writer.FormDataContentType())
+	req.Header.Set("Content-Type", "application/json")
 	if d.apiSecret != "" {
 		req.Header.Set("X-Webhook-Secret", d.apiSecret)
 	}
 
 	resp, err := d.client.Do(req)
 	if err != nil {
-		return Result{IsNSFW: false, Score: 0}, nil
+		return Result{}, fmt.Errorf("vision API request failed: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return Result{IsNSFW: false, Score: 0}, nil
+		body, _ := io.ReadAll(resp.Body)
+		return Result{}, fmt.Errorf("vision API returned HTTP %d: %s", resp.StatusCode, string(body[:min(len(body), 300)]))
 	}
 
 	respBody, err := io.ReadAll(resp.Body)
@@ -75,63 +89,62 @@ func (d *Detector) Detect(imageData []byte) (Result, error) {
 		return Result{}, err
 	}
 
-	// App returns { success, nsfw }; standalone may send { nsfw, score }
-	var result struct {
-		NSFW   bool    `json:"nsfw"`
-		Score  float64 `json:"score"`
-		Success *bool  `json:"success,omitempty"`
-	}
+	var result Result
 	if err := json.Unmarshal(respBody, &result); err != nil {
 		return Result{}, err
 	}
-	// If success=false explicitly, treat as not NSFW
-	if result.Success != nil && !*result.Success {
-		return Result{IsNSFW: false, Score: 0}, nil
-	}
-	return Result{IsNSFW: result.NSFW, Score: result.Score}, nil
+	return result, nil
 }
 
-func (d *Detector) DetectBatch(images [][]byte) (bool, error) {
+func (d *Detector) DetectBatch(images [][]byte) (bool, *Result, error) {
 	if len(images) == 0 {
-		return false, nil
+		return false, nil, nil
 	}
 
 	if d.apiURL == "" || d.apiURL == "disabled" {
-		return false, nil
+		return false, nil, nil
+	}
+
+	type batchResult struct {
+		result Result
+		err    error
 	}
 
 	var wg sync.WaitGroup
-	resultCh := make(chan bool, len(images))
-	errCh := make(chan error, len(images))
+	results := make([]batchResult, len(images))
 
-	for _, img := range images {
+	for i, img := range images {
 		wg.Add(1)
-		go func(data []byte) {
+		go func(idx int, data []byte) {
 			defer wg.Done()
 			res, err := d.Detect(data)
-			if err != nil {
-				errCh <- err
-				return
-			}
-			if res.IsNSFW {
-				resultCh <- true
-			}
-		}(img)
+			results[idx] = batchResult{result: res, err: err}
+		}(i, img)
 	}
 
 	wg.Wait()
-	close(resultCh)
-	close(errCh)
 
-	for nsfw := range resultCh {
-		if nsfw {
-			return true, nil
+	isAdult := false
+	var firstResult *Result
+	errCount := 0
+
+	for _, br := range results {
+		if br.err != nil {
+			errCount++
+			continue
+		}
+		if firstResult == nil {
+			r := br.result
+			firstResult = &r
+		}
+		if br.result.IsNSFW {
+			isAdult = true
 		}
 	}
 
-	if len(errCh) == len(images) {
-		return false, fmt.Errorf("all detections failed")
+	if errCount == len(images) {
+		return false, nil, fmt.Errorf("all detections failed")
 	}
 
-	return false, nil
+	return isAdult, firstResult, nil
 }

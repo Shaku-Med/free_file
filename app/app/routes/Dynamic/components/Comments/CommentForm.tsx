@@ -12,7 +12,7 @@ interface CommentFormProps {
   placeholder?: string;
 }
 
-const CommentForm = ({ fileId, parentId, onSubmit, onCancel, placeholder = "Write a comment..." }: CommentFormProps) => {
+const CommentForm = ({ fileId, parentId, onSubmit, onCancel, placeholder = "Add a comment..." }: CommentFormProps) => {
   const [content, setContent] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -32,19 +32,17 @@ const CommentForm = ({ fileId, parentId, onSubmit, onCancel, placeholder = "Writ
   };
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-2">
+    <form onSubmit={handleSubmit} className="flex flex-col gap-2">
       <Textarea
         value={content}
         onChange={(e) => setContent(e.target.value)}
         placeholder={placeholder}
-        className="min-h-[80px] resize-none"
+        className="min-h-[88px] resize-y rounded-xl border-0 bg-muted/50 focus-visible:ring-2"
         maxLength={2000}
         disabled={isSubmitting}
       />
       <div className="flex items-center justify-between">
-        <span className="text-xs text-muted-foreground">
-          {content.length}/2000
-        </span>
+        <span className="text-xs text-muted-foreground">{content.length}/2000</span>
         <div className="flex gap-2">
           {onCancel && (
             <Button

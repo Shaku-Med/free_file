@@ -12,8 +12,10 @@ export type ContextProps = {
     isModalOpen: boolean;
     setIsModalOpen: (isModalOpen: boolean) => void;
     isLoading: boolean;
+    initialLoading: boolean;
     observerRef: React.RefObject<HTMLDivElement> | null;
     loadMoreVideos: () => void;
+    clearFeedHistory: () => Promise<void>;
     user_agent: string;
     userId: string | null;
     userActions: UserActions;

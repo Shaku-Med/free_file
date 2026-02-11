@@ -21,7 +21,7 @@ export const action = async ({ request }: { request: Request }) => {
     }
 
     const body = await request.json();
-    const { fileId, title, description, isPublic } = body || {};
+    const { fileId, title, description, isPublic, categories, tags } = body || {};
 
     if (!fileId || !isValidFileId(fileId)) {
       return toJson({ error: "Invalid fileId" }, 400);
@@ -40,6 +40,14 @@ export const action = async ({ request }: { request: Request }) => {
 
     if (isPublic !== undefined && typeof isPublic !== "boolean") {
       return toJson({ error: "isPublic must be boolean" }, 400);
+    }
+
+    if (categories !== undefined && !Array.isArray(categories)) {
+      return toJson({ error: "categories must be an array" }, 400);
+    }
+
+    if (tags !== undefined && !Array.isArray(tags)) {
+      return toJson({ error: "tags must be an array" }, 400);
     }
 
     const lookupField = isValidUUID(fileId) ? "id" : "unique_id";
@@ -67,6 +75,18 @@ export const action = async ({ request }: { request: Request }) => {
     if (typeof isPublic === "boolean") {
       updateData.is_public = isPublic;
     }
+    if (Array.isArray(categories)) {
+      updateData.categories = categories
+        .filter((c): c is string => typeof c === "string" && c.trim().length > 0)
+        .map((c) => c.trim())
+        .slice(0, 20);
+    }
+    if (Array.isArray(tags)) {
+      updateData.tags = tags
+        .filter((t): t is string => typeof t === "string" && t.trim().length > 0)
+        .map((t) => t.trim().slice(0, 50))
+        .slice(0, 30);
+    }
 
     if (Object.keys(updateData).length === 0) {
       return toJson({ error: "No changes provided" }, 400);
@@ -76,7 +96,7 @@ export const action = async ({ request }: { request: Request }) => {
       .from("files")
       .update(updateData)
       .eq(lookupField, fileId)
-      .select("id, file_title, file_description, is_public")
+      .select("id, file_title, file_description, is_public, categories, tags")
       .single();
 
     if (updateError) {

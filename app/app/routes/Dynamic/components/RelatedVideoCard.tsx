@@ -1,12 +1,25 @@
-import { useState, useCallback, useRef, useEffect } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { Link } from "react-router";
-import { ThumbsUp, ThumbsDown } from "lucide-react";
-import { Button } from "~/components/ui/button";
 import type { FileType } from "~/lib/types";
 import { ParseFilename, arrangeDateForThumbnail, getRandomThumbnail } from "~/lib/utils";
 import ImageLoad from "~/routes/Home/components/ImageLoad/ImageLoad";
 import AdultContentBadge from "./AdultContentBadge";
 import OwnerProfile from "~/components/OwnerProfile/OwnerProfile";
+import Actions from "~/routes/Home/components/VideoCard/Actions";
+import { Separator } from "~/components/ui/separator";
+import CategoryBadges from "~/components/CategoryBadges";
+import { Info } from "lucide-react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "~/components/ui/dialog";
+import { Button } from "~/components/ui/button";
+import { Tooltip, TooltipContent, TooltipTrigger } from "~/components/ui/tooltip";
+
+function getMetadataWarning(metadata: unknown): string | null {
+  if (metadata && typeof metadata === "object" && "warning" in metadata) {
+    const w = (metadata as Record<string, unknown>).warning;
+    return typeof w === "string" && w.trim() ? w : null;
+  }
+  return null;
+}
 
 interface RelatedVideoCardProps {
   data: FileType;
@@ -14,43 +27,39 @@ interface RelatedVideoCardProps {
   userActions?: { likedFileIds: Set<string>; dislikedFileIds: Set<string> };
 }
 
-const formatFileSize = (size: string | number): string => {
-  if (typeof size === 'string') {
-    const numSize = parseFloat(size);
-    if (isNaN(numSize)) return size;
-    size = numSize;
-  }
-  if (size === 0) return '0 B'
-  
-  const k = 1024
-  const sizes = ['B', 'KB', 'MB', 'GB', 'TB']
-  const i = Math.floor(Math.log(size) / Math.log(k))
-  
-  return parseFloat((size / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i]
+function formatViews(count: number): string {
+  if (count >= 1_000_000) return `${(count / 1_000_000).toFixed(1).replace(/\.0$/, "")}M`;
+  if (count >= 1_000) return `${(count / 1_000).toFixed(1).replace(/\.0$/, "")}K`;
+  return String(count);
+}
+
+function formatDuration(seconds: number): string {
+  if (!seconds || seconds <= 0) return "";
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  const s = Math.floor(seconds % 60);
+  if (h > 0) return `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+  return `${m}:${String(s).padStart(2, "0")}`;
 }
 
 const RelatedVideoCard = ({ data, currentUserId, userActions }: RelatedVideoCardProps) => {
   const [retryAttempt, setRetryAttempt] = useState(0);
-  const [liked, setLiked] = useState(userActions?.likedFileIds?.has(data.id) || false);
-  const [disliked, setDisliked] = useState(userActions?.dislikedFileIds?.has(data.id) || false);
-  const [upCount, setUpCount] = useState(Number(data.up_count) || 0);
-  const [downCount, setDownCount] = useState(Number(data.down_count) || 0);
-  const [isLoading, setIsLoading] = useState(false);
+  const [infoModalOpen, setInfoModalOpen] = useState(false);
+  const [liked, setLiked] = useState(userActions?.likedFileIds?.has(data.id) ?? false);
+  const [disliked, setDisliked] = useState(userActions?.dislikedFileIds?.has(data.id) ?? false);
+  const [likeCount, setLikeCount] = useState(Number(data.like_count ?? data.up_count) || 0);
+  const [dislikeCount, setDislikeCount] = useState(Number(data.dislike_count ?? data.down_count) || 0);
+  const commentCount = Number(data.comment_count) || 0;
+  const viewCount = Number(data.view_count ?? data.views) || 0;
+  const metadataWarning = getMetadataWarning(data.metadata);
 
-  const isVideo = data.file_type?.includes('video') || data.file_type === 'application/vnd.apple.mpegurl' || data.endpoint?.includes('.m3u8');
-  const isImage = data.file_type?.startsWith('image/');
+  const isVideo = data.file_type?.includes("video") || data.file_type === "application/vnd.apple.mpegurl" || data.endpoint?.includes(".m3u8");
 
   const retry = useCallback(() => {
-    if (retryAttempt >= 1) {
-      return;
-    }
-    setRetryAttempt(prev => prev + 1);
+    if (retryAttempt >= 1) return;
+    setRetryAttempt((prev) => prev + 1);
   }, [retryAttempt]);
 
-  const likeDebounceRef = useRef<NodeJS.Timeout | null>(null);
-  const dislikeDebounceRef = useRef<NodeJS.Timeout | null>(null);
-
-  // Update liked/disliked state when userActions change
   useEffect(() => {
     if (userActions && data.id) {
       setLiked(userActions.likedFileIds.has(data.id));
@@ -58,228 +67,132 @@ const RelatedVideoCard = ({ data, currentUserId, userActions }: RelatedVideoCard
     }
   }, [userActions, data.id]);
 
-  const handleLike = useCallback((e: React.MouseEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    
-    if (!currentUserId || !data.id) {
-      window.location.href = '/auth/login';
-      return;
-    }
+  const handleInteractionUpdate = (updates: { liked: boolean; disliked: boolean; like_count: number; dislike_count: number }) => {
+    setLiked(updates.liked);
+    setDisliked(updates.disliked);
+    setLikeCount(updates.like_count);
+    setDislikeCount(updates.dislike_count);
+  };
 
-    const wasLiked = liked;
-    const wasDisliked = disliked;
-
-    if (wasDisliked) {
-      setDisliked(false);
-      setDownCount(prev => Math.max(0, prev - 1));
-    }
-
-    const newLiked = !wasLiked;
-    setLiked(newLiked);
-    setUpCount(prev => newLiked ? prev + 1 : Math.max(0, prev - 1));
-
-    if (likeDebounceRef.current) {
-      clearTimeout(likeDebounceRef.current);
-    }
-
-    likeDebounceRef.current = setTimeout(async () => {
-      setIsLoading(true);
-      try {
-        const method = newLiked ? 'POST' : 'DELETE';
-        const response = await fetch('/api/likes', {
-          method,
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({ fileId: data.id }),
-        });
-
-        if (!response.ok) {
-          if (response.status === 401) {
-            window.location.href = '/auth/login';
-            return;
-          }
-          throw new Error('Failed to update like');
-        }
-
-        const result = await response.json();
-        if (result.success && result.upCount !== undefined && result.downCount !== undefined) {
-          setUpCount(result.upCount);
-          setDownCount(result.downCount);
-        }
-      } catch (error) {
-        console.error('Error updating like:', error);
-        setLiked(wasLiked);
-        setDisliked(wasDisliked);
-        setUpCount(Number(data.up_count) || 0);
-        setDownCount(Number(data.down_count) || 0);
-      } finally {
-        setIsLoading(false);
-      }
-    }, 500);
-  }, [liked, disliked, data.id, data.up_count, data.down_count, currentUserId]);
-
-  const handleDislike = useCallback((e: React.MouseEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    
-    if (!currentUserId || !data.id) {
-      window.location.href = '/auth/login';
-      return;
-    }
-
-    const wasLiked = liked;
-    const wasDisliked = disliked;
-
-    if (wasLiked) {
-      setLiked(false);
-      setUpCount(prev => Math.max(0, prev - 1));
-    }
-
-    const newDisliked = !wasDisliked;
-    setDisliked(newDisliked);
-    setDownCount(prev => newDisliked ? prev + 1 : Math.max(0, prev - 1));
-
-    if (dislikeDebounceRef.current) {
-      clearTimeout(dislikeDebounceRef.current);
-    }
-
-    dislikeDebounceRef.current = setTimeout(async () => {
-      setIsLoading(true);
-      try {
-        const method = newDisliked ? 'POST' : 'DELETE';
-        const response = await fetch('/api/dislikes', {
-          method,
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({ fileId: data.id }),
-        });
-
-        if (!response.ok) {
-          if (response.status === 401) {
-            window.location.href = '/auth/login';
-            return;
-          }
-          throw new Error('Failed to update dislike');
-        }
-
-        const result = await response.json();
-        if (result.success && result.upCount !== undefined && result.downCount !== undefined) {
-          setUpCount(result.upCount);
-          setDownCount(result.downCount);
-        }
-      } catch (error) {
-        console.error('Error updating dislike:', error);
-        setLiked(wasLiked);
-        setDisliked(wasDisliked);
-        setUpCount(Number(data.up_count) || 0);
-        setDownCount(Number(data.down_count) || 0);
-      } finally {
-        setIsLoading(false);
-      }
-    }, 500);
-  }, [liked, disliked, data.id, data.up_count, data.down_count, currentUserId]);
-
-  useEffect(() => {
-    return () => {
-      if (likeDebounceRef.current) {
-        clearTimeout(likeDebounceRef.current);
-      }
-      if (dislikeDebounceRef.current) {
-        clearTimeout(dislikeDebounceRef.current);
-      }
-    };
-  }, []);
-
-  const imageLink = data.file_type?.startsWith('image/') && data.endpoint 
-    ? `/api/load/image/${data.endpoint}` 
-    : (() => {
-        const randomThumbnail = getRandomThumbnail(data.thumbnails)
-        if (randomThumbnail) {
-          return `/api/load/image/${randomThumbnail}`
-        }
-        return `/api/load/image/${arrangeDateForThumbnail(data.created_at, retryAttempt)}/${data.unique_id}/thumbnail_${ParseFilename(data.filename)}.jpg`
-      })();
+  const imageLink =
+    data.file_type?.startsWith("image/") && data.endpoint
+      ? `/api/load/image/${data.endpoint}`
+      : (() => {
+          const randomThumbnail = getRandomThumbnail(data.thumbnails);
+          if (randomThumbnail) return `/api/load/image/${randomThumbnail}`;
+          return `/api/load/image/${arrangeDateForThumbnail(data.created_at, retryAttempt)}/${data.unique_id}/thumbnail_${ParseFilename(data.filename)}.jpg`;
+        })();
 
   return (
-    <div className="flex gap-3 group">
-      <Link to={`/${data.unique_id}`} className="relative flex-shrink-0 w-40 h-24 overflow-hidden rounded-lg bg-muted">
-        {data.is_adult && <AdultContentBadge />}
-        
-        <ImageLoad
-          link={imageLink}
-          retry={retry}
-          className="w-full h-full object-cover transition-transform duration-200 group-hover:scale-105"
-          imageID={data.unique_id}
-          index={0}
-          hasAdultTag={data.is_adult || false}
-          quality={15}
-        />
-        
-        {(isVideo || isImage) && (
-          <div className="absolute bottom-1 right-1 px-1 py-0.5 bg-black/80 rounded text-[10px] text-white font-medium z-10">
-            {isVideo ? 'VIDEO' : 'IMAGE'}
-          </div>
-        )}
+    <div className="block group">
+      <Link to={`/${data.unique_id}`}>
+        <div className="relative rounded-xl overflow-hidden bg-card aspect-video">
+          {data.is_adult && <AdultContentBadge />}
+          <ImageLoad
+            link={imageLink}
+            imageID={data.unique_id}
+            retry={retry}
+            className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
+            quality={40}
+            hasAdultTag={Boolean(data.is_adult)}
+          />
+          {isVideo && (
+            <div className="absolute inset-0 flex items-center justify-center bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity">
+              <div className="rounded-full bg-black/50 p-2">
+                <div className="w-3 h-3 border-l-2 border-t-2 border-white rounded-sm rotate-[-30deg]" />
+              </div>
+            </div>
+          )}
+          <CategoryBadges categories={data.categories} max={2} size="sm" />
+          {data.duration && data.duration > 0 && (
+            <div className="absolute right-2 bottom-2 bg-black/70 backdrop-blur-sm rounded-md px-1.5 py-0.5 text-[11px] font-medium text-white">
+              {formatDuration(data.duration)}
+            </div>
+          )}
+        </div>
       </Link>
-      
-      <div className="flex-1 min-w-0 space-y-1">
-        <Link to={`/${data.unique_id}`}>
-          <h3 className="text-sm font-medium text-foreground line-clamp-2 leading-tight group-hover:text-primary transition-colors">
-            {(data.file_title && data.file_title.trim() !== '') 
-              ? data.file_title 
-              : ParseFilename(data.filename)}
-          </h3>
-        </Link>
-        
-        {data.owner && (
-          <div className="mt-1">
-            <OwnerProfile owner={data.owner} size="sm" />
+
+      <div className="py-2 flex items-start justify-between flex-col">
+        <div className="mb-1 flex items-start gap-3">
+          {data.owner && (
+            <OwnerProfile owner={data.owner} size="sm" className="text-muted-foreground" />
+          )}
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-1.5">
+              <Link to={`/${data.unique_id}`} className="hover:text-primary transition-colors flex-1 min-w-0">
+                <p className="text-sm font-medium leading-tight line-clamp-2">
+                  {data.file_title || ParseFilename(data.filename)}
+                </p>
+              </Link>
+              {metadataWarning && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        setInfoModalOpen(true);
+                      }}
+                      className="shrink-0 rounded-full p-1 text-muted-foreground hover:text-foreground hover:bg-muted/80 transition-colors"
+                      aria-label="Content information"
+                    >
+                      <Info className="size-4" />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent side="top" className="max-w-[200px]">
+                    <p>Content information</p>
+                  </TooltipContent>
+                </Tooltip>
+              )}
+            </div>
+            <div className="flex items-center gap-1 text-xs text-muted-foreground mt-0.5">
+              {data.owner && (
+                <Link to={`/profile/${data.owner.username}`} className="hover:text-foreground transition-colors truncate max-w-[120px]">
+                  {data.owner.username}
+                </Link>
+              )}
+              {data.owner && viewCount > 0 && <span>·</span>}
+              {viewCount > 0 && <span>{formatViews(viewCount)} views</span>}
+            </div>
           </div>
-        )}
-        
-        <div className="flex flex-col gap-0.5">
-          <span className="text-xs text-muted-foreground">
-            {new Date(data.created_at).toLocaleDateString('en-US', { 
-              month: 'short', 
-              day: 'numeric',
-              year: 'numeric'
-            })}
-          </span>
-          <span className="text-xs text-muted-foreground">
-            {formatFileSize(data.file_size || 0)}
-          </span>
         </div>
 
-        <div className="flex items-center gap-1 mt-1">
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            onClick={handleLike}
-            disabled={isLoading || !data.id}
-            className={`h-6 w-6 p-0 ${liked ? 'text-primary' : 'text-muted-foreground'}`}
-          >
-            <ThumbsUp className={`h-3 w-3 ${liked ? 'fill-current' : ''}`} />
-          </Button>
-          <span className="text-xs text-muted-foreground min-w-[20px]">{upCount}</span>
-          
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            onClick={handleDislike}
-            disabled={isLoading || !data.id}
-            className={`h-6 w-6 p-0 ${disliked ? 'text-destructive' : 'text-muted-foreground'}`}
-          >
-            <ThumbsDown className={`h-3 w-3 ${disliked ? 'fill-current' : ''}`} />
-          </Button>
-          <span className="text-xs text-muted-foreground min-w-[20px]">{downCount}</span>
+        <div className="w-full">
+          <Separator className="my-2" />
+          <Actions
+            fileId={data.id}
+            uniqueId={data.unique_id}
+            likeCount={likeCount}
+            dislikeCount={dislikeCount}
+            commentCount={commentCount}
+            liked={liked}
+            disliked={disliked}
+            onUpdate={currentUserId ? handleInteractionUpdate : undefined}
+          />
         </div>
       </div>
+
+      {metadataWarning && (
+        <Dialog open={infoModalOpen} onOpenChange={setInfoModalOpen}>
+          <DialogContent className="rounded-2xl max-w-md">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <Info className="size-5 text-muted-foreground" />
+                Content information
+              </DialogTitle>
+            </DialogHeader>
+            <p className="text-sm text-muted-foreground">{metadataWarning}</p>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setInfoModalOpen(false)}>
+                Close
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
     </div>
   );
 };
 
 export default RelatedVideoCard;
-

@@ -1,7 +1,7 @@
-import { ThumbsUp, ThumbsDown, Share2, Download, MoreHorizontal, Link2 } from "lucide-react";
+import { ThumbsUp, ThumbsDown, Share2, Download, MoreHorizontal, Link2, Bookmark } from "lucide-react";
 import { Button } from "~/components/ui/button";
 import { Separator } from "~/components/ui/separator";
-import { useState, useCallback, useRef, useEffect } from "react";
+import { useState, useCallback, useEffect } from "react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -10,6 +10,12 @@ import {
 } from "~/components/ui/dropdown-menu";
 import DownloadButton from "~/routes/Dynamic/components/DownloadButton";
 import { BASE_URL } from "~/lib/URLS";
+
+function formatCompact(n: number): string {
+  if (n >= 1e6) return (n / 1e6).toFixed(1).replace(/\.0$/, "") + "M";
+  if (n >= 1e3) return (n / 1e3).toFixed(1).replace(/\.0$/, "") + "K";
+  return String(n);
+}
 
 interface UserActionProps {
   upCount?: number;
@@ -20,17 +26,15 @@ interface UserActionProps {
   canDownload?: boolean;
   isReel?: boolean;
   reelId?: string;
+  variant?: "default" | "pill";
 }
 
-const UserAction = ({ upCount = 0, downCount = 0, fileId, initialLiked = false, initialDisliked = false, canDownload = false, isReel = false, reelId }: UserActionProps) => {
+const UserAction = ({ upCount = 0, downCount = 0, fileId, initialLiked = false, initialDisliked = false, canDownload = false, isReel = false, reelId, variant = "default" }: UserActionProps) => {
   const [liked, setLiked] = useState(initialLiked);
   const [disliked, setDisliked] = useState(initialDisliked);
   const [displayUpCount, setDisplayUpCount] = useState(upCount);
   const [displayDownCount, setDisplayDownCount] = useState(downCount);
   const [isLoading, setIsLoading] = useState(false);
-
-  const likeDebounceRef = useRef<NodeJS.Timeout | null>(null);
-  const dislikeDebounceRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
     setLiked(initialLiked);
@@ -39,121 +43,79 @@ const UserAction = ({ upCount = 0, downCount = 0, fileId, initialLiked = false, 
     setDisplayDownCount(downCount);
   }, [initialLiked, initialDisliked, upCount, downCount]);
 
-  const handleLike = useCallback(() => {
+  const handleLike = useCallback(async () => {
     const targetFileId = (isReel && reelId) ? reelId : fileId;
-    if (!targetFileId) return;
-
+    if (!targetFileId || isLoading) return;
     const wasLiked = liked;
     const wasDisliked = disliked;
-
+    setLiked(!wasLiked);
+    setDisplayUpCount((c) => (wasLiked ? Math.max(0, c - 1) : c + 1));
     if (wasDisliked) {
       setDisliked(false);
-      setDisplayDownCount(prev => Math.max(0, prev - 1));
+      setDisplayDownCount((c) => Math.max(0, c - 1));
     }
-
-    const newLiked = !wasLiked;
-    setLiked(newLiked);
-    setDisplayUpCount(prev => newLiked ? prev + 1 : Math.max(0, prev - 1));
-
-    if (likeDebounceRef.current) {
-      clearTimeout(likeDebounceRef.current);
-    }
-
-    likeDebounceRef.current = setTimeout(async () => {
-      setIsLoading(true);
-      try {
-        const method = newLiked ? 'POST' : 'DELETE';
-        const response = await fetch('/api/likes', {
-          method,
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({ fileId: targetFileId }),
-        });
-
-        if (!response.ok) {
-          if (response.status === 401) {
-            window.location.href = '/auth/login';
-            return;
-          }
-          const error = await response.json();
-          throw new Error(error.error || 'Failed to update like');
-        }
-
-        const result = await response.json();
-        if (result.success && result.upCount !== undefined && result.downCount !== undefined) {
-          setDisplayUpCount(result.upCount);
-          setDisplayDownCount(result.downCount);
-        }
-      } catch (error) {
-        console.error('Error updating like:', error);
+    setIsLoading(true);
+    try {
+      const res = await fetch('/api/likes', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ fileId: targetFileId }) });
+      if (res.status === 401) { window.location.href = '/auth/login'; return; }
+      const result = await res.json();
+      if (result.success) {
+        setLiked(result.liked);
+        setDisliked(result.disliked);
+        setDisplayUpCount(result.like_count ?? 0);
+        setDisplayDownCount(result.dislike_count ?? 0);
+      } else {
         setLiked(wasLiked);
         setDisliked(wasDisliked);
         setDisplayUpCount(upCount);
         setDisplayDownCount(downCount);
-      } finally {
-        setIsLoading(false);
       }
-    }, 500);
-  }, [liked, disliked, fileId, upCount, downCount, isReel, reelId]);
+    } catch {
+      setLiked(wasLiked);
+      setDisliked(wasDisliked);
+      setDisplayUpCount(upCount);
+      setDisplayDownCount(downCount);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [liked, disliked, fileId, upCount, downCount, isReel, reelId, isLoading]);
 
-  const handleDislike = useCallback(() => {
+  const handleDislike = useCallback(async () => {
     const targetFileId = (isReel && reelId) ? reelId : fileId;
-    if (!targetFileId) return;
-
+    if (!targetFileId || isLoading) return;
     const wasLiked = liked;
     const wasDisliked = disliked;
-
+    setDisliked(!wasDisliked);
+    setDisplayDownCount((c) => (wasDisliked ? Math.max(0, c - 1) : c + 1));
     if (wasLiked) {
       setLiked(false);
-      setDisplayUpCount(prev => Math.max(0, prev - 1));
+      setDisplayUpCount((c) => Math.max(0, c - 1));
     }
-
-    const newDisliked = !wasDisliked;
-    setDisliked(newDisliked);
-    setDisplayDownCount(prev => newDisliked ? prev + 1 : Math.max(0, prev - 1));
-
-    if (dislikeDebounceRef.current) {
-      clearTimeout(dislikeDebounceRef.current);
-    }
-
-    dislikeDebounceRef.current = setTimeout(async () => {
-      setIsLoading(true);
-      try {
-        const method = newDisliked ? 'POST' : 'DELETE';
-        const response = await fetch('/api/dislikes', {
-          method,
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({ fileId: targetFileId }),
-        });
-
-        if (!response.ok) {
-          if (response.status === 401) {
-            window.location.href = '/auth/login';
-            return;
-          }
-          const error = await response.json();
-          throw new Error(error.error || 'Failed to update dislike');
-        }
-
-        const result = await response.json();
-        if (result.success && result.upCount !== undefined && result.downCount !== undefined) {
-          setDisplayUpCount(result.upCount);
-          setDisplayDownCount(result.downCount);
-        }
-      } catch (error) {
-        console.error('Error updating dislike:', error);
+    setIsLoading(true);
+    try {
+      const res = await fetch('/api/dislikes', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ fileId: targetFileId }) });
+      if (res.status === 401) { window.location.href = '/auth/login'; return; }
+      const result = await res.json();
+      if (result.success) {
+        setLiked(result.liked);
+        setDisliked(result.disliked);
+        setDisplayUpCount(result.like_count ?? 0);
+        setDisplayDownCount(result.dislike_count ?? 0);
+      } else {
         setLiked(wasLiked);
         setDisliked(wasDisliked);
         setDisplayUpCount(upCount);
         setDisplayDownCount(downCount);
-      } finally {
-        setIsLoading(false);
       }
-    }, 500);
-  }, [liked, disliked, fileId, upCount, downCount, isReel, reelId]);
+    } catch {
+      setLiked(wasLiked);
+      setDisliked(wasDisliked);
+      setDisplayUpCount(upCount);
+      setDisplayDownCount(downCount);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [liked, disliked, fileId, upCount, downCount, isReel, reelId, isLoading]);
 
   const handleShare = () => {
     if (navigator.share) {
@@ -165,17 +127,6 @@ const UserAction = ({ upCount = 0, downCount = 0, fileId, initialLiked = false, 
       navigator.clipboard.writeText(!fileId ? window.location.href : `${BASE_URL}/${isReel ? 'reel' : ''}/${fileId}`).catch(() => {});
     }
   };
-
-  useEffect(() => {
-    return () => {
-      if (likeDebounceRef.current) {
-        clearTimeout(likeDebounceRef.current);
-      }
-      if (dislikeDebounceRef.current) {
-        clearTimeout(dislikeDebounceRef.current);
-      }
-    };
-  }, []);
 
   if (isReel) {
     const targetFileId = (isReel && reelId) ? reelId : fileId;
@@ -227,6 +178,62 @@ const UserAction = ({ upCount = 0, downCount = 0, fileId, initialLiked = false, 
             Share
           </span>
         </button>
+      </div>
+    );
+  }
+
+  if (variant === "pill") {
+    const pillClass = "rounded-full bg-zinc-800 hover:bg-zinc-700 text-white border-0 h-9 px-4 flex items-center gap-2 text-sm font-medium transition-colors";
+    const likeDislikePill = (
+      <div className="flex items-stretch rounded-full bg-zinc-800 overflow-hidden border border-zinc-700/50">
+        <button
+          type="button"
+          onClick={handleLike}
+          disabled={isLoading || !fileId}
+          className={`flex items-center gap-2 pl-4 pr-3 py-2 transition-colors ${liked ? "text-primary" : "text-white hover:bg-zinc-700"}`}
+        >
+          <ThumbsUp className={`h-4 w-4 ${liked ? "fill-current" : ""}`} />
+          <span className="tabular-nums">{displayUpCount > 0 ? formatCompact(displayUpCount) : ""}</span>
+        </button>
+        <div className="w-px bg-white/20 shrink-0" aria-hidden />
+        <button
+          type="button"
+          onClick={handleDislike}
+          disabled={isLoading || !fileId}
+          className={`flex items-center justify-center p-2 transition-colors ${disliked ? "text-primary" : "text-white hover:bg-zinc-700"}`}
+        >
+          <ThumbsDown className={`h-4 w-4 ${disliked ? "fill-current" : ""}`} />
+        </button>
+      </div>
+    );
+    return (
+      <div className="flex flex-wrap items-center gap-2">
+        {likeDislikePill}
+        <button type="button" onClick={handleShare} className={pillClass}>
+          <Share2 className="h-4 w-4" />
+          Share
+        </button>
+        <button
+          type="button"
+          onClick={() => navigator.clipboard.writeText(window.location.href).catch(() => {})}
+          className={pillClass}
+        >
+          <Bookmark className="h-4 w-4" />
+          Save
+        </button>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button type="button" className="rounded-full h-9 w-9 flex items-center justify-center bg-zinc-800 hover:bg-zinc-700 text-white border-0 transition-colors">
+              <MoreHorizontal className="h-4 w-4" />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-52 space-y-1">
+            <DropdownMenuItem className="gap-2 cursor-pointer" onSelect={(e) => { e.preventDefault(); navigator.clipboard.writeText(window.location.href).catch(() => {}); }}>
+              <Link2 className="h-4 w-4" />
+              <span className="text-sm">Copy link</span>
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
     );
   }

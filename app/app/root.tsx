@@ -1,6 +1,5 @@
 import {
   data,
-  isRouteErrorResponse,
   Links,
   Meta,
   Outlet,
@@ -11,27 +10,20 @@ import {
 
 import type { Route } from "./+types/root";
 import "./app.css";
-import Navbar from "./components/Navbar";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { ContextProvider } from "./lib/Context/Context";
 import { LikeProvider } from "./lib/Context/LikeContext";
 import { PictureInPictureProvider } from "./lib/Context/PictureInPictureContext";
 import db from "./lib/Database/supabase";
-import type { FileRecord } from "./lib/Services/FileService";
-import { useEffect } from "react";
-import Footer from "./components/components/Footer";
 import ErrorMessage from "./components/ErrorMessage";
 import { getCookie } from "./lib/Security/Token";
 import { VerifyToken } from "./lib/Security/unsharedkeyEncryption/Combined/Verification/VerifyToken";
 import SetToken from "./lib/Security/unsharedkeyEncryption/Combined/Verification/SetToken";
-import { filterFilesByAccess } from "./routes/Api/fun/accessControl";
 import { isAuthenticated } from "./lib/Security/Password";
 import NavProgress from "./routes/Home/NavProgress/NavProgress";
-import { SidebarProvider, SidebarInset, SidebarTrigger } from "./components/ui/sidebar";
+import { SidebarProvider, SidebarInset } from "./components/ui/sidebar";
 import { AppSidebar } from "./components/Navbar/components/Sidebar";
-import ScrollRestoration from "./lib/Context/ScrollRestoration";
 import BodyComponent from "./components/Navbar/components/BodyComponent";
-import BottomPlayer from "./components/BottomPlayer";
 
 export const links: Route.LinksFunction = () => [
   { rel: "preconnect", href: "https://fonts.googleapis.com" },
@@ -128,89 +120,19 @@ export const loader = async ({request}: {request: Request}) => {
       token = t?.data
     }
 
-    const { data: files, error } = await db.rpc('get_feed', {
-      p_user_id: userId,
-      p_limit: 30,
-      p_seen_ids: [],
-      p_liked_ids: [],
-      p_disliked_ids: [],
-      p_preferred_categories: [],
-      p_foryou_ids: []
-    });
-
-    if (error) {
-      console.error('Error fetching files:', error)
-      return data(null, { status: 500 })
-    }
-
-    const filteredFiles = await filterFilesByAccess(request, files || []);
-
-    // Enrich files with owner data
-    const { ownerService } = await import('~/lib/Services/OwnerService');
-    const filesWithOwners = await ownerService.enrichFilesWithOwners(filteredFiles.slice(0, 10));
-
-    // Fetch all user likes and dislikes in one query
-    let userActions = { likedFileIds: new Set<string>(), dislikedFileIds: new Set<string>() };
-    if (userId && filesWithOwners.length > 0) {
-      const { userActionsService } = await import('~/lib/Services/UserActionsService');
-      const fileIds = filesWithOwners.map((f: any) => f.id).filter(Boolean);
-      if (fileIds.length > 0) {
-        const actions = await userActionsService.getUserActions(userId, fileIds);
-        userActions = actions;
-      }
-    }
-
-    const processedFiles = filesWithOwners.map((file: any) => {
-      if (!file.file_type.startsWith('image/')) {
-        return {
-          id: file.id || '',
-          created_at: file.created_at,
-          endpoint: '',
-          filename: file.filename,
-          unique_id: file.unique_id,
-          file_type: file.file_type,
-          file_size: file.file_size,
-          is_adult: file.is_adult,
-          up_count: Number(file.up_count) || 0,
-          down_count: Number(file.down_count) || 0,
-          owner: file.owner || null,
-          thumbnails: file.thumbnails || [],
-          file_title: file.file_title || '',
-          category: file.category || [],
-        };
-      }
-      return {
-        id: file.id || '',
-        created_at: file.created_at,
-        endpoint: file.endpoint || '',
-        filename: file.filename,
-        unique_id: file.unique_id,
-        file_type: file.file_type,
-        file_size: file.file_size,
-        is_adult: file.is_adult,
-        up_count: Number(file.up_count) || 0,
-        down_count: Number(file.down_count) || 0,
-        owner: file.owner || null,
-        thumbnails: file.thumbnails || [],
-        file_title: file.file_title || '',
-        category: file.category || [],
-      };
-    });
-    
-    // For cross-site cookie sharing with image server, use SameSite=None in production
     const sameSite = process.env.NODE_ENV === 'production' ? 'SameSite=None' : 'SameSite=Lax';
     const secure = process.env.NODE_ENV === 'production' ? 'Secure' : '';
 
     let c_user = getCookie('c_user', request.headers);
 
-    const uploadServerUrl =
-      typeof process !== 'undefined' && process.env?.UPLOAD_SERVER_URL
-        ? process.env.UPLOAD_SERVER_URL
-        : (typeof process !== 'undefined' && process.env?.NODE_ENV === 'development'
-          ? 'http://localhost:3003'
-          : '');
-    
-    return data({ files: processedFiles, st: sessionToken, user_agent: request.headers.get('user-agent'), userId, userActions: { likedFileIds: Array.from(userActions.likedFileIds), dislikedFileIds: Array.from(userActions.dislikedFileIds) }, c_user, uploadServerUrl }, {
+    const uploadServerUrl = "http://localhost:3003"
+      // typeof process !== 'undefined' && process.env?.UPLOAD_SERVER_URL
+      //   ? process.env.UPLOAD_SERVER_URL
+      //   : (typeof process !== 'undefined' && process.env?.NODE_ENV === 'development'
+      //     ? 'http://localhost:3003'
+      //     : '');
+
+    return data({ st: sessionToken, user_agent: request.headers.get('user-agent'), userId, c_user, uploadServerUrl }, {
       status: 200,
       headers: (token && !user) ? {
         'Set-Cookie': `token=${token}; Path=/; HttpOnly; Max-Age=86400; ${secure}; ${sameSite}`
@@ -284,11 +206,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
     )
   }
 
-  const { files, st, user_agent, userId, userActions, c_user, uploadServerUrl } = data;
-  const userActionsSet = {
-    likedFileIds: new Set(userActions?.likedFileIds || []),
-    dislikedFileIds: new Set(userActions?.dislikedFileIds || [])
-  };
+  const { st, user_agent, userId, c_user, uploadServerUrl } = data;
 
   return (
     <html className={`system overflow-hidden h-full w-full fixed top-0 left-0`} lang="en">
@@ -310,7 +228,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
       </head>
       <body className={`flex flex-col fixed top-0 left-0 w-full h-full`}>
         <ErrorBoundary>
-          <ContextProvider f={files} st={st} user_agent={user_agent || ''} userId={userId || null} userActions={userActionsSet} c_user={c_user || null} uploadServerUrl={uploadServerUrl || ''}>
+          <ContextProvider st={st} user_agent={user_agent || ''} userId={userId || null} c_user={c_user || null} uploadServerUrl={uploadServerUrl || ''}>
             <LikeProvider>
               <PictureInPictureProvider>
                 <SidebarProvider className={`w-full h-full flex-1 min-h-0`}>

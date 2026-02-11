@@ -21,7 +21,7 @@ type uploadServerCheckResponse struct {
 // Client must send: Authorization: Bearer <c_user>
 // On success sets c.Locals(LocalsUserID, userId). On failure returns a generic error only (no internal details).
 func AuthUpload() fiber.Handler {
-	appBaseURL := env.Get("APP_BASE_URL", "http://127.0.0.1:5173")
+	appBaseURL := env.Get("APP_BASE_URL", "http://localhost:3000")
 	appBaseURL = strings.TrimSuffix(appBaseURL, "/")
 	checkURL := appBaseURL + "/api/upload-server-check"
 

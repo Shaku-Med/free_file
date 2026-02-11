@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 )
@@ -49,6 +50,9 @@ func NewManager(cfg ManagerConfig) *Manager {
 func (m *Manager) StartUpload(userID string, req StartRequest) (StartResponse, *BusyReason, error) {
 	if userID == "" || req.FileName == "" || req.FileSize <= 0 || req.TotalChunks <= 0 {
 		return StartResponse{}, nil, errors.New("invalid_request")
+	}
+	if !isAllowedExtension(req.FileName) {
+		return StartResponse{}, nil, errors.New("unsupported_file_type")
 	}
 	if req.TotalChunks > 0 && int64(req.TotalChunks)*m.chunkSize < req.FileSize {
 		return StartResponse{}, nil, errors.New("invalid_chunks")
@@ -283,4 +287,14 @@ func newID() string {
 		return hex.EncodeToString([]byte(time.Now().Format("20060102150405.000000000")))
 	}
 	return hex.EncodeToString(b)
+}
+
+var allowedExtensions = map[string]bool{
+	".jpg": true, ".jpeg": true, ".png": true, ".gif": true, ".webp": true, ".bmp": true,
+	".mp4": true, ".webm": true, ".mkv": true, ".avi": true, ".mov": true, ".wmv": true, ".flv": true, ".m4v": true,
+}
+
+func isAllowedExtension(filename string) bool {
+	ext := strings.ToLower(filepath.Ext(filename))
+	return allowedExtensions[ext]
 }

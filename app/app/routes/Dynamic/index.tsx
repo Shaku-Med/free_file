@@ -9,16 +9,16 @@ import ImageLoad from "../Home/components/ImageLoad/ImageLoad";
 import { arrangeDateForThumbnail, ParseFilename, getRandomThumbnail, getVideoSrc } from "~/lib/utils";
 import { motion } from "framer-motion";
 import { MakeVideoToken } from "./components/Functions";
-import { ShieldAlert, Eye, Share2 } from "lucide-react";
+import { ShieldAlert } from "lucide-react";
 import { useSidebar } from "~/components/ui/sidebar";
 import { checkFileAccess } from "./fun/accessControl";
 import AdultContentBadge from "./components/AdultContentBadge";
 import ImagePreview from "./components/ImagePreview/ImagePreview";
-import UserAction from "../components/UserAction";
-import { Separator } from "~/components/ui/separator";
-import { getRandomVideos } from "./components/RelatedVideosService";
+import Actions from "../Home/components/VideoCard/Actions";
 import { isAuthenticated } from "~/lib/Security/Password";
+import { filterFilesByAccess } from "~/routes/Api/fun/accessControl";
 import CommentSection from "./components/Comments/CommentSection";
+import { FormattedText } from "~/components/FormattedText";
 import OwnerProfile from "~/components/OwnerProfile/OwnerProfile";
 import { commentService } from "~/lib/Services/CommentService";
 import { userActionsService } from "~/lib/Services/UserActionsService";
@@ -68,10 +68,55 @@ export const loader = async ({ request, params }: { request: Request, params: { 
       headers.append('Set-Cookie', `validator=${videoToken}; Path=/; Max-Age=86400; HttpOnly; ${process.env.NODE_ENV === 'production' ? 'Secure' : ''}; SameSite=Strict, priority=high`);
     }
 
-    const relatedVideos = await getRandomVideos(request, params.id, file, 20);
-
     const user = await isAuthenticated(request, ['id']);
-    const userId = user?.id || null;
+    const userId = user?.id ?? null;
+
+    const { data: relatedRows, error: relatedError } = await db.rpc('get_related', {
+      p_file_id: file.id,
+      p_user_id: userId,
+      p_limit: 20,
+      p_cursor_pos: 0,
+    });
+
+    let relatedVideos: FileType[] = [];
+    if (!relatedError && relatedRows && relatedRows.length > 0) {
+      const filtered = await filterFilesByAccess(request, relatedRows);
+      relatedVideos = filtered.map((row: Record<string, unknown>) => ({
+        id: row.id,
+        created_at: row.created_at,
+        endpoint: row.endpoint || '',
+        filename: row.filename,
+        unique_id: row.unique_id,
+        file_size: row.file_size,
+        file_type: row.file_type,
+        is_adult: row.is_adult,
+        owner_id: row.owner_id,
+        is_public: row.is_public,
+        file_description: row.file_description,
+        file_title: row.file_title || '',
+        thumbnails: row.thumbnails || [],
+        view_count: row.view_count,
+        share_count: row.share_count,
+        is_reel: row.is_reel,
+        duration: row.duration,
+        categories: row.categories,
+        tags: row.tags,
+        colors: row.colors,
+        metadata: row.metadata,
+        like_count: Number(row.like_count) || 0,
+        dislike_count: Number(row.dislike_count) || 0,
+        comment_count: Number(row.comment_count) || 0,
+        owner: row.owner_username
+          ? {
+              id: row.owner_id,
+              username: row.owner_username,
+              profile_pic: row.owner_profile_pic || '',
+              verified: row.owner_verified ?? false,
+              about: row.owner_about ?? null,
+            }
+          : null,
+      })) as FileType[];
+    }
 
     let userLiked = false;
     let userDisliked = false;
@@ -384,7 +429,40 @@ const index = () => {
   const [imageUrl, setImageUrl] = useState<{ url: string, imageID: string } | null>(null)
   const [imageColors, setImageColors] = useState<string[] | null>(null)
   const [madeImageUrl, setMadeImageUrl] = useState<string | null>(null)
+  const [theaterMode, setTheaterModeState] = useState(() => {
+    try {
+      if (typeof localStorage === 'undefined') return false;
+      return localStorage.getItem('player-theater-mode') === 'true';
+    } catch { return false; }
+  })
+  const setTheaterMode = (v: boolean) => {
+    setTheaterModeState(v);
+    try { localStorage.setItem('player-theater-mode', v ? 'true' : 'false'); } catch {}
+  }
+  const [descriptionExpanded, setDescriptionExpanded] = useState(false)
+  const [liked, setLiked] = useState(('userLiked' in data && data.userLiked) || false)
+  const [disliked, setDisliked] = useState(('userDisliked' in data && data.userDisliked) || false)
+  const [likeCount, setLikeCount] = useState(Number(file_data?.up_count) || 0)
+  const [dislikeCount, setDislikeCount] = useState(Number(file_data?.down_count) || 0)
   const {isMobile, state} = useSidebar();
+
+  useEffect(() => {
+    if (!file_data) return
+    setLiked(('userLiked' in data && data.userLiked) || false)
+    setDisliked(('userDisliked' in data && data.userDisliked) || false)
+    setLikeCount(Number(file_data.up_count) || 0)
+    setDislikeCount(Number(file_data.down_count) || 0)
+  }, [currentId, file_data?.id])
+
+  const handleInteractionUpdate = (updates: { liked: boolean; disliked: boolean; like_count: number; dislike_count: number }) => {
+    setLiked(updates.liked)
+    setDisliked(updates.disliked)
+    setLikeCount(updates.like_count)
+    setDislikeCount(updates.dislike_count)
+  }
+
+  const commentsCount = ('commentsCount' in data ? data.commentsCount : 0) || 0
+  const isOwner = Boolean(('userId' in data && data.userId) && file_data?.owner_id && ('userId' in data && data.userId) === file_data.owner_id)
 
   const retry = () => {
     if(retryAttempt >= 1) {
@@ -394,7 +472,8 @@ const index = () => {
   }
 
   const relatedVideos = (data && 'relatedVideos' in data) ? data.relatedVideos : [];
-  
+  const suggestedVideos = relatedVideos.filter((v: FileType) => v.unique_id !== currentId).slice(0, 8);
+
   // Show loading state during navigation
   const isNavigating = navigation.state === 'loading' && navigation.location?.pathname !== window.location.pathname;
 
@@ -436,43 +515,41 @@ const index = () => {
     incrementViews();
   }, [file_data?.id, file_data?.unique_id, currentId, hasIncrementedView, views]);
 
-  return (
-    <div className="min-h-screen overflow-x-hidden" key={`dynamic-${currentId}`}>
-      <div className="mx-auto max-w-full xl:container py-8">
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <div className="lg:col-span-2 space-y-4">
-            <motion.div layoutId={`video_id_${file_data.unique_id}`} className="relative w-full" key={`motion-${file_data.unique_id}-${currentId}`}>
-              {file_data?.is_adult && (
-                <AdultContentBadge isPlaying={playingVideos.has(1)} className="top-3 left-3" />
-              )}
-
-                <div className={`${isHLS ? 'aspect-video bg-black rounded-lg overflow-hidden w-full' : 'w-full flex items-center justify-center overflow-hidden rounded-lg bg-black'} relative`}>
-                  {isHLS ? (
-                    <HLSPlayer
-                      src={getVideoSrc(file_data?.endpoint ?? '', file_data?.file_type)}
-                      className="w-full h-full"
-                      onPlay={() => setPlayingVideos(prev => new Set(prev).add(1))}
-                      onPause={() => setPlayingVideos(prev => {
-                        const newSet = new Set(prev);
-                        newSet.delete(1);
-                        return newSet;
-                      })}
-                    autoPlay={true}
-                    muted={false}
-                      loop={true}
-                      playsInline
-                      imageID={file_data.unique_id}
-                      file={file_data}
-                      key={`hls-${file_data.unique_id}-${currentId}`}
-                      onVideoRef={(ref) => {
-                        videoElementRef.current = ref;
-                      }}
-                      callBack={e => {
-                        setImageColors(e.colors)
-                        setMadeImageUrl(e.src)
-                      }}
-                    />
-                  ) : (
+  const videoBlock = (
+    <motion.div layoutId={`video_id_${file_data.unique_id}`} className="relative w-full" key={`motion-${file_data.unique_id}-${currentId}`}>
+      {file_data?.is_adult && (
+        <AdultContentBadge isPlaying={playingVideos.has(1)} className="top-3 left-3" />
+      )}
+      <div className={`${isHLS ? 'aspect-video bg-black rounded-lg overflow-hidden w-full' : 'w-full flex items-center justify-center overflow-hidden rounded-lg bg-black'} relative`}>
+        {isHLS ? (
+          <HLSPlayer
+            src={getVideoSrc(file_data?.endpoint ?? '', file_data?.file_type)}
+            className="w-full h-full"
+            onPlay={() => setPlayingVideos(prev => new Set(prev).add(1))}
+            onPause={() => setPlayingVideos(prev => {
+              const newSet = new Set(prev);
+              newSet.delete(1);
+              return newSet;
+            })}
+            autoPlay={true}
+            muted={false}
+            playsInline
+            imageID={file_data.unique_id}
+            file={file_data}
+            key={`hls-${file_data.unique_id}-${currentId}`}
+            onVideoRef={(ref) => {
+              videoElementRef.current = ref;
+            }}
+            callBack={e => {
+              setImageColors(e.colors)
+              setMadeImageUrl(e.src)
+            }}
+            theaterMode={isMobile ? false : theaterMode}
+            onTheaterModeChange={isMobile ? undefined : setTheaterMode}
+            suggestedVideos={suggestedVideos}
+            onVideoSelect={(video) => navigate(`/${video.unique_id}`)}
+          />
+        ) : (
                     <motion.div 
                       transition={{ duration: 0.1 }} 
                       onClick={() => {
@@ -498,81 +575,123 @@ const index = () => {
                       />
                     </motion.div>
                   )}
-                </div>
-            </motion.div>
+      </div>
+    </motion.div>
+  );
 
+  const description = file_data.file_description?.trim() ?? "";
+  const descriptionPreviewLength = 120;
+  const hasLongDescription = description.length > descriptionPreviewLength;
+  const descriptionToShow = descriptionExpanded || !hasLongDescription ? description : description.slice(0, descriptionPreviewLength);
+
+  const categoriesList: string[] = Array.isArray(file_data.categories)
+    ? (file_data.categories as unknown[]).filter((c: unknown): c is string => typeof c === "string")
+    : [];
+  const tagsList: string[] = Array.isArray(file_data.tags)
+    ? (file_data.tags as unknown[]).filter((t: unknown): t is string => typeof t === "string")
+    : [];
+
+  const contentColumn = (
             <div className="space-y-4">
-              <div>
-                <h1 className="text-xl font-semibold text-foreground leading-tight mb-2">
-                  {(file_data.file_title && file_data.file_title.trim() !== '') 
-                    ? file_data.file_title 
-                    : ParseFilename(file_data.filename)}
-                </h1>
-                <div className="flex items-center gap-4 text-sm text-muted-foreground mb-4">
-                  {('owner' in data && data.owner) && (
-                    <OwnerProfile owner={data.owner} size="md" />
-                  )}
-                  <span>{new Date(file_data.created_at).toLocaleDateString('en-US', { 
-                    year: 'numeric', 
-                    month: 'long', 
-                    day: 'numeric' 
-                  })}</span>
-                </div>
-              </div>
+              {/* Title */}
+              <h1 className="text-xl font-bold text-foreground leading-tight">
+                {ParseFilename(file_data.file_title || file_data.filename)}
+              </h1>
 
-              <Separator />
-
-              <UserAction 
-                key={`user-action-${file_data.id}-${currentId}`}
-                upCount={Number(file_data.up_count) || 0} 
-                downCount={Number(file_data.down_count) || 0}
-                fileId={file_data.id}
-                initialLiked={('userLiked' in data && data.userLiked) || false}
-                initialDisliked={('userDisliked' in data && data.userDisliked) || false}
-                canDownload={('userId' in data && Boolean(data.userId))}
-              />
-
-              <Separator />
-
-              {/* Views and Shares Count */}
-              <div className="flex items-center gap-6 text-sm text-muted-foreground">
-                <div className="flex items-center gap-2">
-                  <Eye className="w-4 h-4" />
-                  <span className="font-medium">{formatNumber(views)}</span>
-                  <span className="text-xs">views</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Share2 className="w-4 h-4" />
-                  <span className="font-medium">{formatNumber(shares)}</span>
-                  <span className="text-xs">shares</span>
-                </div>
-              </div>
-
-              <Separator />
-
-              {/* <DownloadButton fileId={file_data.id} /> */}
-
-              {(file_data.file_description && file_data.file_description.trim() !== '') && (
-                <>
-                  <Separator />
-                  <div className="bg-muted/50 rounded-lg p-4">
-                    <p className="text-sm text-foreground whitespace-pre-wrap">
-                      {file_data.file_description}
-                    </p>
-                  </div>
-                </>
+              {/* Channel row: avatar + name only */}
+              {('owner' in data && data.owner) && (
+                <OwnerProfile owner={data.owner} size="md" showUsername />
               )}
 
-              <Separator />
+              {/* Same Actions as VideoCard: Like, Dislike, Comments, Options */}
+              <Actions
+                key={`actions-${file_data.id}-${currentId}`}
+                fileId={String(file_data.id)}
+                uniqueId={file_data.unique_id}
+                likeCount={likeCount}
+                dislikeCount={dislikeCount}
+                commentCount={commentsCount}
+                liked={liked}
+                disliked={disliked}
+                isOwner={isOwner}
+                onEdit={undefined}
+                onUpdate={('userId' in data && data.userId) ? handleInteractionUpdate : undefined}
+              />
 
-              <CommentSection 
+              {/* Description box: views, then description, then categories & tags */}
+              <div className="rounded-xl bg-zinc-900/80 overflow-hidden">
+                <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground px-4 pt-3 pb-1">
+                  <span className="font-medium text-foreground">{formatNumber(views)} views</span>
+                  <span>{new Date(file_data.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span>
+                  {shares > 0 && (
+                    <>
+                      <span aria-hidden>•</span>
+                      <span>{formatNumber(shares)} shares</span>
+                    </>
+                  )}
+                </div>
+                {(description || hasLongDescription) && (
+                  <div className="px-4 pt-1">
+                    <p className="text-sm text-foreground whitespace-pre-wrap break-words">
+                      {descriptionToShow}
+                      {hasLongDescription && !descriptionExpanded && (
+                        <>
+                          {" "}
+                          <button
+                            type="button"
+                            onClick={() => setDescriptionExpanded(true)}
+                            className="font-medium text-foreground hover:underline inline-flex items-center gap-0.5"
+                          >
+                            ...more
+                          </button>
+                        </>
+                      )}
+                    </p>
+                  </div>
+                )}
+                {(categoriesList.length > 0 || tagsList.length > 0) && (
+                  <div className="px-4 pb-3 pt-2 space-y-2">
+                    {categoriesList.length > 0 && (
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <span className="text-xs font-medium text-muted-foreground mr-1">Categories</span>
+                        {categoriesList.map((c) => (
+                          <Link
+                            key={c}
+                            to={`/tag/${encodeURIComponent(c)}`}
+                            className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-primary/15 text-primary hover:bg-primary/25 transition-colors"
+                          >
+                            {c}
+                          </Link>
+                        ))}
+                      </div>
+                    )}
+                    {tagsList.length > 0 && (
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <span className="text-xs font-medium text-muted-foreground mr-1">Tags</span>
+                        {tagsList.map((t) => (
+                          <Link
+                            key={t}
+                            to={`/tag/${encodeURIComponent(t)}`}
+                            className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-muted text-foreground hover:bg-muted/80 transition-colors"
+                          >
+                            {t}
+                          </Link>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              <CommentSection
                 key={`comments-${file_data.id}-${currentId}`}
-                fileId={file_data.id} 
-                currentUserId={('userId' in data && data.userId) || undefined} 
+                fileId={file_data.id}
+                currentUserId={('userId' in data && data.userId) || undefined}
               />
             </div>
-          </div>
+  );
 
+  const relatedColumn = (
           <div className="lg:col-span-1">
             <div className="sticky top-6">
               <RelatedVideos 
@@ -590,13 +709,42 @@ const index = () => {
               />
             </div>
           </div>
+  );
+
+  return (
+    <div className="min-h-screen reel_p overflow-x-hidden" key={`dynamic-${currentId}`}>
+      {theaterMode && !isMobile ? (
+        <>
+          <div className="w-full py-4">
+            <div className="mx-auto max-w-7xl px-4 max-h-[85vh] overflow-hidden [&_.aspect-video]:max-h-[85vh] [&_.aspect-video]:max-w-full [&_.aspect-video]:aspect-video">
+              {videoBlock}
+            </div>
+          </div>
+          <div className="mx-auto max-w-full xl:container py-6 px-4">
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              <div className="lg:col-span-2">
+                {contentColumn}
+              </div>
+              {relatedColumn}
+            </div>
+          </div>
+        </>
+      ) : (
+        <div className="mx-auto max-w-full xl:container py-8">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <div className="lg:col-span-2 space-y-4">
+              {videoBlock}
+              {contentColumn}
+            </div>
+            {relatedColumn}
+          </div>
         </div>
-      </div>
+      )}
 
       {imageUrl && (
         <ImagePreview imageUrl={imageUrl} setImageUrl={setImageUrl} />
       )}
     </div>
-  )
+  );
 }
 export default index

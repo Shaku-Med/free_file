@@ -1,28 +1,28 @@
-import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import Hls from 'hls.js';
-import ImageLoad from '~/routes/Home/components/ImageLoad/ImageLoad';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import type { FileType } from '~/lib/types';
-import { arrangeDateForThumbnail, getRandomThumbnail, ParseFilename } from '~/lib/utils';
-import { LoaderCircle, PictureInPicture2, Settings, Volume2, VolumeX } from 'lucide-react';
+import { PlayerProvider, usePlayerContext, type ThumbnailSpriteMeta } from './PlayerContext';
+import { useHLS } from './hooks/useHLS';
+import { useVideoEvents } from './hooks/useVideoEvents';
+import { useMediaSession } from './hooks/useMediaSession';
+import { usePlaybackPosition } from './hooks/usePlaybackPosition';
+import { useAutoplay } from './hooks/useAutoplay';
+import { useControlsVisibility } from './hooks/useControlsVisibility';
+import { useFullscreen } from './hooks/useFullscreen';
+import ControlBar from './controls/ControlBar';
+import EndScreen from './controls/endscreen/EndScreen';
+import BufferingSpinner from './overlays/BufferingSpinner';
+import ErrorOverlay from './overlays/ErrorOverlay';
+import AutoplayPrompt from './overlays/AutoplayPrompt';
+import PipOverlay from './overlays/PipOverlay';
+import PlayPauseFeedback from './overlays/PlayPauseFeedback';
+import PosterBackground from './overlays/PosterBackground';
+import AmbientBackground from '~/components/components/hlsplayer/overlays/AmbientBackground';
 import { usePictureInPictureContext } from '~/lib/Context/PictureInPictureContext';
-import Cookies from 'js-cookie';
-import { driverObj } from '~/lib/Context/Context';
-import { autoplayService } from '~/lib/Services/AutoplayService';
-import { videoPlaybackDB } from '~/lib/Database/VideoPlaybackDB';
-
-declare global {
-  interface Window {
-    documentPictureInPicture?: {
-      requestWindow: (options?: { width?: number; height?: number }) => Promise<Window>;
-      window: Window | null;
-    };
-  }
-}
-
+import { getRandomThumbnail } from '~/lib/utils';
 
 interface CallBackProps {
-  src: string
-  colors: string[]
+  src: string;
+  colors: string[];
 }
 
 interface HLSPlayerProps {
@@ -32,1000 +32,318 @@ interface HLSPlayerProps {
   onPause?: () => void;
   onEnded?: () => void;
   onError?: (error: any) => void;
-  onHLSReady?: (hls: Hls) => void;
+  onHLSReady?: (hls: any) => void;
   autoPlay?: boolean;
   muted?: boolean;
   loop?: boolean;
   playsInline?: boolean;
   poster?: string;
   imageID?: string;
-  file?: FileType | null
-  callBack?: (props: CallBackProps) => void
+  file?: FileType | null;
+  callBack?: (props: CallBackProps) => void;
   onVideoRef?: (ref: HTMLVideoElement | null) => void;
-  // When used inside the vertical reel feed
   isReel?: boolean;
+  suggestedVideos?: FileType[];
+  onVideoSelect?: (video: FileType) => void;
+  onNext?: () => void;
+  theaterMode?: boolean;
+  onTheaterModeChange?: (active: boolean) => void;
 }
 
-const HLSPlayer: React.FC<HLSPlayerProps> = ({
+const HLSPlayer: React.FC<HLSPlayerProps> = (props) => {
+  return (
+    <PlayerProvider
+      src={props.src}
+      file={props.file ?? null}
+      imageID={props.imageID ?? ''}
+      isReel={props.isReel ?? false}
+      loop={props.loop ?? false}
+      initialMuted={props.muted ?? false}
+      initialAutoPlay={props.autoPlay ?? false}
+    >
+      <PlayerInner {...props} />
+    </PlayerProvider>
+  );
+};
+
+function PlayerInner({
   src,
   className = '',
   onPlay,
   onPause,
   onEnded,
   onError,
-  onHLSReady,
   autoPlay = false,
   muted = false,
   loop = false,
   playsInline = true,
-  poster = '',
   imageID = '',
   file = null,
   callBack,
-  onVideoRef, 
-  isReel = false
-}) => {
-  const videoRef = useRef<HTMLVideoElement>(null);
-  
-  // Expose video ref to parent
-  useEffect(() => {
-    if (onVideoRef && videoRef.current) {
-      onVideoRef(videoRef.current);
-    }
-    return () => {
-      if (onVideoRef) {
-        onVideoRef(null);
-      }
-    };
-  }, [onVideoRef]);
-  const hlsRef = useRef<Hls | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [hasError, setHasError] = useState(false);
-  const [retryAttempt, setRetryAttempt] = useState<number>(0);
-  const [error, setError] = useState<boolean>(false);
-  const [mediaSessionImage, setMediaSessionImage] = useState<string | null>(null);
-  const [autoplayBlocked, setAutoplayBlocked] = useState(false);
-  const [showAutoplayPrompt, setShowAutoplayPrompt] = useState(false);
-  const savePositionTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const [loaded, setLoaded] = useState<boolean>(false);
-  const [isBuffering, setIsBuffering] = useState<boolean>(false);
-  const bufferingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const [qualityMenuOpen, setQualityMenuOpen] = useState(false);
-  const [levels, setLevels] = useState<{ height: number; width: number; bitrate: number }[]>([]);
-  const [currentHlsLevel, setCurrentHlsLevel] = useState<number>(-1);
-
-  const HLS_QUALITY_KEY = 'hls-quality-preference';
-
+  onVideoRef,
+  isReel = false,
+  suggestedVideos,
+  onVideoSelect,
+  onNext,
+  theaterMode = false,
+  onTheaterModeChange,
+}: HLSPlayerProps) {
   const {
-    isPipActive,
-    setIsPipActive,
-    pipVideoRef,
-    pipHlsRef,
-    supportsPip,
-    toggleDocumentPip,
-    isContentInPip,
-    setPipContentId
-  } = usePictureInPictureContext();
+    videoRef,
+    containerRef,
+    state,
+    setState,
+    togglePlay,
+    isReel: isReelCtx,
+    setSpriteMeta,
+    setSpriteUrl,
+    ambientMode,
+    autoPlay: autoPlayEnabled,
+    loop: loopEnabled,
+  } = usePlayerContext();
 
+  const { isPipActive, isContentInPip } = usePictureInPictureContext();
+  const [mediaSessionImage, setMediaSessionImage] = useState<string | null>(null);
+  const [showPlayPauseFeedback, setShowPlayPauseFeedback] = useState(false);
+  const [feedbackFading, setFeedbackFading] = useState(false);
+  const [feedbackIconPlaying, setFeedbackIconPlaying] = useState(true);
+  const feedbackTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const updateMediaSession = (isPlaying: boolean, currentTime: number, duration: number) => {
-    if ('mediaSession' in navigator && file) {
-      // Use file_title if available, otherwise parse filename (same as VideoCard)
-      const title = file.file_title || ParseFilename(file.filename);
+  const triggerPlayPauseFeedback = useCallback(() => {
+    if (isReelCtx) return;
+    setFeedbackIconPlaying(!state.isPlaying);
+    setShowPlayPauseFeedback(true);
+    setFeedbackFading(false);
+    if (feedbackTimeoutRef.current) clearTimeout(feedbackTimeoutRef.current);
+    feedbackTimeoutRef.current = setTimeout(() => {
+      setFeedbackFading(true);
+      feedbackTimeoutRef.current = setTimeout(() => {
+        setShowPlayPauseFeedback(false);
+        setFeedbackFading(false);
+        feedbackTimeoutRef.current = null;
+      }, 300);
+    }, 600);
+  }, [isReelCtx, state.isPlaying]);
 
-      navigator.mediaSession.metadata = new MediaMetadata({
-        title: title,
-        artist: `${file?.owner?.username || 'Memories'}`,
-        artwork: mediaSessionImage ? [
-          { src: mediaSessionImage, sizes: '512x512', type: 'image/jpeg' }
-        ] : []
-      });
+  useEffect(() => () => {
+    if (feedbackTimeoutRef.current) clearTimeout(feedbackTimeoutRef.current);
+  }, []);
 
-      navigator.mediaSession.setPositionState({
-        duration: duration || 0,
-        playbackRate: 1,
-        position: currentTime || 0
-      });
-
-      navigator.mediaSession.playbackState = isPlaying ? 'playing' : 'paused';
-    }
-  };
-
-  const setupMediaSessionHandlers = (video: HTMLVideoElement) => {
-    if (!('mediaSession' in navigator)) return;
-
-    navigator.mediaSession.setActionHandler('play', () => {
-      if (isPipActive && pipVideoRef.current) {
-        pipVideoRef.current.play();
-      } else {
-        video.play();
-      }
-    });
-
-    navigator.mediaSession.setActionHandler('pause', () => {
-      if (isPipActive && pipVideoRef.current) {
-        pipVideoRef.current.pause();
-      } else {
-        video.pause();
-      }
-    });
-
-    navigator.mediaSession.setActionHandler('seekbackward', (details) => {
-      if(isReel) return;
-      const activeVideo = isPipActive && pipVideoRef.current ? pipVideoRef.current : video;
-      activeVideo.currentTime = Math.max(activeVideo.currentTime - (details.seekOffset || 10), 0);
-    });
-
-    navigator.mediaSession.setActionHandler('seekforward', (details) => {
-      if(isReel) return;
-      const activeVideo = isPipActive && pipVideoRef.current ? pipVideoRef.current : video;
-      activeVideo.currentTime = Math.min(activeVideo.currentTime + (details.seekOffset || 10), activeVideo.duration);
-    });
-
-    navigator.mediaSession.setActionHandler('seekto', (details) => {
-      if(isReel) return;
-      if (details.seekTime !== null && details.seekTime !== undefined) {
-        const activeVideo = isPipActive && pipVideoRef.current ? pipVideoRef.current : video;
-        activeVideo.currentTime = details.seekTime;
-      }
-    });
-
-    navigator.mediaSession.setActionHandler('stop', () => {
-      const activeVideo = isPipActive && pipVideoRef.current ? pipVideoRef.current : video;
-      activeVideo.pause();
-      activeVideo.currentTime = 0;
-    });
-  };
-
+  useHLS();
+  useVideoEvents({ onPlay, onPause, onEnded, onError });
+  useMediaSession(mediaSessionImage);
+  usePlaybackPosition();
+  useFullscreen();
+  const { showPrompt, enableAutoplay, dismissPrompt } = useAutoplay(autoPlayEnabled);
+  useControlsVisibility();
 
   useEffect(() => {
-    const video = videoRef.current;
-    if (!video || !src) return;
-
-    const initializeHLS = async () => {
-        try {
-          setIsLoading(true);
-          setHasError(false);
-          setIsBuffering(false);
-          setLoaded(false);
-
-        // Load saved playback position from IndexedDB
-        if (imageID) {
-          try {
-            const savedPosition = await videoPlaybackDB.getPosition(imageID);
-            if (savedPosition && savedPosition.currentTime > 0) {
-              // Restore position after metadata loads
-              const restorePosition = () => {
-                if (video.duration > 0) {
-                  // Only restore if position is valid and not at the very end (>95%)
-                  const isNearEnd = savedPosition.duration > 0 && 
-                    (savedPosition.currentTime / savedPosition.duration) > 0.95;
-                  
-                  if (!isNearEnd && savedPosition.currentTime < video.duration) {
-                    video.currentTime = Math.min(savedPosition.currentTime, video.duration - 1);
-                  }
-                }
-              };
-
-              // Try to restore immediately if duration is already available
-              if (video.readyState >= 1 && video.duration > 0) {
-                restorePosition();
-              } else {
-                // Wait for metadata
-                video.addEventListener('loadedmetadata', restorePosition, { once: true });
-              }
-            }
-          } catch (error) {
-            console.error('Failed to load saved playback position:', error);
-          }
-        }
-
-        const isHLSStream = src.includes('.m3u8') || src.includes('application/vnd.apple.mpegurl');
-
-        if (isHLSStream && Hls.isSupported()) {
-          if (hlsRef.current) {
-            hlsRef.current.destroy();
-          }
-
-          const hls = new Hls({
-            enableWorker: true,
-            lowLatencyMode: false,
-            backBufferLength: 30,
-            maxBufferLength: 60,
-            maxMaxBufferLength: 120,
-            liveSyncDurationCount: 3,
-            liveMaxLatencyDurationCount: 5,
-            liveDurationInfinity: false,
-            highBufferWatchdogPeriod: 2,
-            nudgeOffset: 0.1,
-            nudgeMaxRetry: 3,
-            maxFragLookUpTolerance: 0.25,
-            liveBackBufferLength: 0,
-            maxBufferHole: 0.5,
-            forceKeyFrameOnDiscontinuity: true,
-            abrEwmaFastLive: 3.0,
-            abrEwmaSlowLive: 9.0,
-            abrEwmaFastVoD: 3.0,
-            abrEwmaSlowVoD: 9.0,
-            abrEwmaDefaultEstimate: 500000,
-            abrBandWidthFactor: 0.95,
-            abrBandWidthUpFactor: 0.7,
-            abrMaxWithRealBitrate: false,
-            maxStarvationDelay: 4,
-            maxLoadingDelay: 4,
-            minAutoBitrate: 0,
-            emeEnabled: false,
-            fragLoadingTimeOut: 20000,
-            manifestLoadingTimeOut: 10000,
-            levelLoadingTimeOut: 10000,
-            fragLoadingMaxRetry: 6,
-            manifestLoadingMaxRetry: 4,
-            levelLoadingMaxRetry: 4,
-            startLevel: -1,
-            capLevelToPlayerSize: true,
-            testBandwidth: false
-          });
-
-          // Ensure cookies are sent with media segment requests
-          // for routes that require authentication via cookies.
-          // Works with the default XHR loader.
-          // If Fetch loader is used in the future, switch to fetchSetup with credentials: 'include'.
-          (hls as any).config.xhrSetup = (xhr: XMLHttpRequest) => {
-            try {
-              xhr.withCredentials = true;
-            } catch {}
-          };
-
-          hlsRef.current = hls;
-          hls.loadSource(src);
-          hls.attachMedia(video);
-
-          if (onHLSReady) {
-            onHLSReady(hls);
-          }
-
-          hls.on(Hls.Events.MANIFEST_PARSED, () => {
-            const lvls = (hls.levels || []).map((l: any) => ({ height: l.height, width: l.width, bitrate: l.bitrate }));
-            setLevels(lvls);
-            const pref = (typeof localStorage !== 'undefined' ? localStorage.getItem(HLS_QUALITY_KEY) : null) || 'auto';
-            if (pref === 'auto' || lvls.length <= 1) {
-              hls.currentLevel = -1;
-            } else {
-              const want = parseInt(pref, 10);
-              let idx = lvls.findIndex((l: any) => l.height === want);
-              if (idx === -1) {
-                const sorted = lvls.map((l: any, i: number) => ({ ...l, i })).sort((a: any, b: any) => b.height - a.height);
-                const closest = sorted.find((x: any) => x.height <= want) || sorted[sorted.length - 1];
-                idx = closest.i;
-              }
-              hls.currentLevel = idx;
-            }
-          });
-
-          hls.on(Hls.Events.LEVEL_SWITCHED, (_: any, data: any) => {
-            setCurrentHlsLevel(data.level);
-          });
-
-          hls.on(Hls.Events.ERROR, (event: any, data: any) => {
-            console.error('HLS Error:', data);
-
-            // Show loader when error occurs and recovery is attempted
-            if (data.fatal || (data.type === 'networkError' && data.details === 'manifestLoadError')) {
-              setIsBuffering(true);
-            }
-
-            if (data.type === 'mediaError' && data.details === 'fragParsingError') {
-              console.warn('Fragment parsing error detected, attempting recovery...');
-              setIsBuffering(true);
-              if (data.frag && data.frag.loader) {
-                data.frag.loader.abort();
-              }
-              hls.startLoad();
-              return;
-            }
-
-            if (data.fatal) {
-              switch (data.type) {
-                case Hls.ErrorTypes.NETWORK_ERROR:
-                  console.error('Fatal network error encountered, trying to recover...');
-                  setIsBuffering(true);
-                  hls.startLoad();
-                  break;
-                case Hls.ErrorTypes.MEDIA_ERROR:
-                  console.error('Fatal media error encountered, trying to recover...');
-                  setIsBuffering(true);
-                  hls.recoverMediaError();
-                  break;
-                default:
-                  setHasError(true);
-                  setIsLoading(false);
-                  setIsBuffering(false);
-                  if (onError) {
-                    onError(data);
-                  }
-                  break;
-              }
-            }
-          });
-        } else if (isHLSStream) {
-          setLevels([]);
-          console.warn('HLS is not supported in this browser');
-          setHasError(true);
-          setIsLoading(false);
-        } else {
-          setLevels([]);
-          video.src = src;
-          video.load();
-          setIsLoading(false);
-        }
-
-        setupMediaSessionHandlers(video);
-      } catch (error) {
-        console.error('Error initializing HLS:', error);
-        setHasError(true);
-        setIsLoading(false);
-        if (onError) {
-          onError(error);
-        }
-      }
-    };
-
-    initializeHLS();
-
-    return () => {
-      if (hlsRef.current) {
-        hlsRef.current.destroy();
-        hlsRef.current = null;
-      }
-    };
-  }, [src]);
+    if (onVideoRef && videoRef.current) onVideoRef(videoRef.current);
+    return () => { if (onVideoRef) onVideoRef(null); };
+  }, [onVideoRef]);
 
   useEffect(() => {
-    const video = videoRef.current;
-    if (!video) return;
-
-    // When autoplay is turned off (e.g. a reel is no longer active),
-    // immediately pause and mute the video and clear any autoplay UI state.
-    if (!autoPlay) {
-      if (!video.paused) {
-        video.pause();
-      }
-      video.muted = true;
-      setAutoplayBlocked(false);
-      setShowAutoplayPrompt(false);
-      return;
-    }
-
-    const playVideo = async () => {
-      if (isPipActive && !isContentInPip(imageID)) {
-        return;
-      }
-
-      // Use autoplay service to attempt play with sound
-      if (autoplayService.isAutoplayEnabled()) {
-        const success = await autoplayService.attemptAutoplayWithSound(video);
-        if (!success && !video.muted) {
-          // Autoplay with sound was blocked
-          setAutoplayBlocked(true);
-          setShowAutoplayPrompt(true);
-        } else if (success) {
-          setAutoplayBlocked(false);
-          setShowAutoplayPrompt(false);
-        }
-      } else {
-        // Autoplay not enabled, try normal play
-        try {
-          await video.play();
-        } catch (error: any) {
-          if (error.name === 'NotAllowedError') {
-            setAutoplayBlocked(true);
-            setShowAutoplayPrompt(true);
-          }
-        }
-      }
-    };
-
-    if (video.readyState >= 2) {
-      playVideo();
-    } else {
-      video.addEventListener('canplay', playVideo, { once: true });
-    }
-
-    return () => {
-      video.removeEventListener('canplay', playVideo);
-    };
-  }, [autoPlay, isPipActive, isContentInPip, imageID]);
-
-  useEffect(() => {
-    const video = videoRef.current;
-    if (!video) return;
-
-    if (isPipActive && !isContentInPip(imageID) && !video.paused) {
-      video.pause();
-    }
-  }, [isPipActive, isContentInPip, imageID]);
-
-  // Pause when tab/window is not visible; resume (respecting autoplay) when it becomes visible again
-  useEffect(() => {
-    const video = videoRef.current;
-    if (!video) return;
-
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === 'hidden') {
-        if (!video.paused) {
-          video.pause();
-        }
-      } else if (document.visibilityState === 'visible' && autoPlay && video.paused) {
-        // Try to resume playback for active/autoplay videos when tab becomes visible
-        video.play().catch(() => undefined);
-      }
-    };
-
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-
-    return () => {
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
-    };
-  }, [autoPlay, imageID]);
-
-  // Intersection Observer - detect when video enters viewport (used by YouTube/Pornhub)
-  useEffect(() => {
-    const video = videoRef.current;
-    if (!video || !autoPlay) return;
-
-    const observer = new IntersectionObserver(
-      (entries) => {
-        entries.forEach((entry) => {
-          if (entry.isIntersecting && entry.intersectionRatio > 0.5) {
-            // Video is in viewport, attempt autoplay
-            if (autoplayService.isAutoplayEnabled() && video.paused) {
-              autoplayService.attemptAutoplayWithSound(video).then((success) => {
-                if (!success && !video.muted) {
-                  setAutoplayBlocked(true);
-                  setShowAutoplayPrompt(true);
-                }
-              });
-            }
-          }
-        });
-      },
-      {
-        threshold: [0.5], // Trigger when 50% visible
-        rootMargin: '0px',
-      }
-    );
-
-    observer.observe(video);
-
-    return () => {
-      observer.disconnect();
-    };
-  }, [autoPlay, imageID]);
-
-  useEffect(() => {
-    const video = videoRef.current;
-    if (!video) return;
-
-    /**
-     * Save playback position to IndexedDB
-     * Uses debouncing to avoid too frequent writes
-     */
-    const savePlaybackPosition = () => {
-      if (!imageID || !video.duration || isNaN(video.currentTime)) return;
-
-      // Clear existing timeout
-      if (savePositionTimeoutRef.current) {
-        clearTimeout(savePositionTimeoutRef.current);
-      }
-
-      // Debounce: save after 2 seconds of no updates
-      savePositionTimeoutRef.current = setTimeout(async () => {
-        try {
-          await videoPlaybackDB.savePosition(
-            imageID,
-            video.currentTime,
-            video.duration,
-            src
-          );
-        } catch (error) {
-          console.error('Failed to save playback position:', error);
-        }
-      }, 2000); // Save 2 seconds after last update
-    };
-
-    /**
-     * Save immediately (for pause/end events)
-     */
-    const savePlaybackPositionImmediate = async () => {
-      if (!imageID || !video.duration || isNaN(video.currentTime)) return;
-
-      // Clear debounced save
-      if (savePositionTimeoutRef.current) {
-        clearTimeout(savePositionTimeoutRef.current);
-        savePositionTimeoutRef.current = null;
-      }
-
+    const prefix =
+      file?.thumbnails?.length && typeof file.thumbnails[0] === 'string'
+        ? file.thumbnails[0].replace(/[^/]+$/, '')
+        : '';
+    if (!prefix) return;
+    const loadSpriteMeta = async () => {
+      const metaUrl = `/api/load/image/${prefix}thumbnail_preview.json`;
+      const spriteImgUrl = `/api/load/image/${prefix}thumbnail_preview.jpg`;
       try {
-        await videoPlaybackDB.savePosition(
-          imageID,
-          video.currentTime,
-          video.duration,
-          src
-        );
-      } catch (error) {
-        console.error('Failed to save playback position:', error);
+        const res = await fetch(metaUrl);
+        if (!res.ok) return;
+        const meta = (await res.json()) as ThumbnailSpriteMeta;
+        if (meta?.cells?.length) {
+          setSpriteMeta(meta);
+          setSpriteUrl(spriteImgUrl);
+        }
+      } catch {}
+    };
+    loadSpriteMeta();
+  }, [file?.thumbnails, setSpriteMeta, setSpriteUrl]);
+
+  const handleVideoClick = useCallback(() => {
+    if (isReelCtx) return;
+    togglePlay();
+    triggerPlayPauseFeedback();
+  }, [isReelCtx, togglePlay, triggerPlayPauseFeedback]);
+
+  const handleDoubleClick = useCallback((e: React.MouseEvent) => {
+    if (isReelCtx) return;
+    const container = containerRef.current;
+    if (!container) return;
+    const rect = container.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const video = videoRef.current;
+    if (!video) return;
+    if (x < rect.width / 3) {
+      video.currentTime = Math.max(0, video.currentTime - 10);
+    } else if (x > (rect.width * 2) / 3) {
+      video.currentTime = Math.min(video.duration, video.currentTime + 10);
+    }
+  }, [isReelCtx]);
+
+  useEffect(() => {
+    if (isReelCtx) return;
+    const handleKey = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement)?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+
+      const video = videoRef.current;
+      if (!video) return;
+
+      switch (e.key) {
+        case ' ':
+        case 'k':
+          e.preventDefault();
+          togglePlay();
+          triggerPlayPauseFeedback();
+          break;
+        case 'ArrowLeft':
+        case 'j':
+          e.preventDefault();
+          video.currentTime = Math.max(0, video.currentTime - 5);
+          break;
+        case 'ArrowRight':
+        case 'l':
+          e.preventDefault();
+          video.currentTime = Math.min(video.duration, video.currentTime + 5);
+          break;
+        case 'ArrowUp':
+          e.preventDefault();
+          video.volume = Math.min(1, video.volume + 0.05);
+          break;
+        case 'ArrowDown':
+          e.preventDefault();
+          video.volume = Math.max(0, video.volume - 0.05);
+          break;
+        case 'm':
+          e.preventDefault();
+          video.muted = !video.muted;
+          break;
+        case 'f':
+          e.preventDefault();
+          if (document.fullscreenElement) {
+            document.exitFullscreen().catch(() => {});
+          } else {
+            containerRef.current?.requestFullscreen().catch(() => {});
+          }
+          break;
       }
     };
 
-    const handlePlay = () => {
-      if (isPipActive && !isContentInPip(imageID)) {
+    window.addEventListener('keydown', handleKey);
+    return () => window.removeEventListener('keydown', handleKey);
+  }, [isReelCtx, togglePlay, triggerPlayPauseFeedback]);
+
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video || isReelCtx) return;
+    const handleVisibility = () => {
+      if (document.visibilityState === 'hidden' && !video.paused) {
         video.pause();
-        return;
-      }
-      
-      setIsLoading(false);
-      // Clear buffering when video starts playing
-      setIsBuffering(false);
-      if (bufferingTimeoutRef.current) {
-        clearTimeout(bufferingTimeoutRef.current);
-        bufferingTimeoutRef.current = null;
-      }
-      savePlaybackPosition();
-      if (!isPipActive) {
-        updateMediaSession(true, video.currentTime, video.duration);
-      }
-      if (onPlay) onPlay();
-    };
-
-    const handlePause = async () => {
-      await savePlaybackPositionImmediate();
-      if (!isPipActive) {
-        updateMediaSession(false, video.currentTime, video.duration);
-      }
-      if (onPause) onPause();
-    };
-
-    const handleEnded = async () => {
-      // Don't save position at the end - user should start from beginning next time
-      // But we can optionally save it if you want to resume from end
-      // await savePlaybackPositionImmediate();
-      
-      if (!isPipActive) {
-        updateMediaSession(false, video.currentTime, video.duration);
-      }
-      if (onEnded) onEnded();
-    };
-
-    const handleError = (e: any) => {
-      setHasError(true);
-      setIsLoading(false);
-      if (onError) onError(e);
-    };
-
-    const handleLoadStart = () => {
-      setIsLoading(true);
-    };
-
-    const handleCanPlay = () => {
-      setIsLoading(false);
-      // If video can play, clear buffering
-      if (video.readyState >= 3) {
-        setIsBuffering(false);
-      }
-      if (bufferingTimeoutRef.current) {
-        clearTimeout(bufferingTimeoutRef.current);
-        bufferingTimeoutRef.current = null;
+      } else if (document.visibilityState === 'visible' && autoPlayEnabled && video.paused && !state.isEnded) {
+        video.play().catch(() => {});
       }
     };
+    document.addEventListener('visibilitychange', handleVisibility);
+    return () => document.removeEventListener('visibilitychange', handleVisibility);
+  }, [autoPlayEnabled, isReelCtx, state.isEnded]);
 
-    const handleTimeUpdate = () => {
-      savePlaybackPosition(); // Debounced save
-      // If video is playing and time is updating, we're not buffering
-      if (!video.paused && !video.ended && video.readyState >= 3) {
-        setIsBuffering(false);
-      }
-      if (!isPipActive) {
-        updateMediaSession(!video.paused, video.currentTime, video.duration);
-      }
-    };
-
-    const handleSeeked = () => {
-      if (!isPipActive) {
-        updateMediaSession(!video.paused, video.currentTime, video.duration);
-      }
-    };
-
-    const handleLoadedMetadata = () => {
-      if (!isPipActive) {
-        updateMediaSession(!video.paused, video.currentTime, video.duration);
-      }
-      // Video metadata loaded - initial load complete
-      setLoaded(true);
-      setIsLoading(false);
-    };
-
-    const handleWaiting = () => {
-      // Video is waiting for data (buffering)
-      // Only show loader if video is actually playing or trying to play
-      if (!video.paused || video.readyState < 3) {
-        setIsBuffering(true);
-      }
-      
-      // Clear any existing timeout
-      if (bufferingTimeoutRef.current) {
-        clearTimeout(bufferingTimeoutRef.current);
-        bufferingTimeoutRef.current = null;
-      }
-    };
-
-    const handlePlaying = () => {
-      // Video started playing - buffering ended
-      setIsBuffering(false);
-      if (bufferingTimeoutRef.current) {
-        clearTimeout(bufferingTimeoutRef.current);
-        bufferingTimeoutRef.current = null;
-      }
-    };
-
-    const handleStalled = () => {
-      // Playback has stalled - show loader
-      setIsBuffering(true);
-    };
-
-    const handleCanPlayThrough = () => {
-      // Video has enough data to play through without stopping
-      setIsBuffering(false);
-      setIsLoading(false);
-      if (bufferingTimeoutRef.current) {
-        clearTimeout(bufferingTimeoutRef.current);
-        bufferingTimeoutRef.current = null;
-      }
-    };
-
-    const handleEnterPictureInPicture = async () => {
-      // For reels, immediately exit PiP if it ever opens (defensive against DOM tweaks)
-      if (isReel) {
-        try {
-          if (document.pictureInPictureElement) {
-            await document.exitPictureInPicture().catch(() => undefined);
-          }
-        } catch {
-          // ignore
-        }
-        return;
-      }
-
-      setIsPipActive(true);
-      setPipContentId(null);
-    };
-
-    const handleLeavePictureInPicture = () => {
-      setIsPipActive(false);
-      setPipContentId(null);
-    };
-
-    const handleWindowEnterPictureInPicture = async () => {
-      // Same safeguard for window-level PiP events
-      if (isReel) {
-        try {
-          if (document.pictureInPictureElement) {
-            await document.exitPictureInPicture().catch(() => undefined);
-          }
-        } catch {
-          // ignore
-        }
-        return;
-      }
-
-      setIsPipActive(true);
-      setPipContentId(null);
-    };
-
-    const handleWindowLeavePictureInPicture = () => {
-      setIsPipActive(false);
-      setPipContentId(null);
-    };
-
-    video.addEventListener('play', handlePlay);
-    video.addEventListener('pause', handlePause);
-    video.addEventListener('ended', handleEnded);
-    video.addEventListener('error', handleError);
-    video.addEventListener('loadstart', handleLoadStart);
-    video.addEventListener('canplay', handleCanPlay);
-    video.addEventListener('timeupdate', handleTimeUpdate);
-    video.addEventListener('seeked', handleSeeked);
-    video.addEventListener('loadedmetadata', handleLoadedMetadata);
-    video.addEventListener('waiting', handleWaiting);
-    video.addEventListener('playing', handlePlaying);
-    video.addEventListener('stalled', handleStalled);
-    video.addEventListener('canplaythrough', handleCanPlayThrough);
-    video.addEventListener('enterpictureinpicture', handleEnterPictureInPicture);
-    video.addEventListener('leavepictureinpicture', handleLeavePictureInPicture);
-    window.addEventListener('enterpictureinpicture', handleWindowEnterPictureInPicture);
-    window.addEventListener('leavepictureinpicture', handleWindowLeavePictureInPicture);
-
-    return () => {
-      // Save position before cleanup
-      if (imageID && video && video.duration && !isNaN(video.currentTime)) {
-        videoPlaybackDB.savePosition(
-          imageID,
-          video.currentTime,
-          video.duration,
-          src
-        ).catch(console.error);
-      }
-
-      // Clear timeouts
-      if (savePositionTimeoutRef.current) {
-        clearTimeout(savePositionTimeoutRef.current);
-      }
-      if (bufferingTimeoutRef.current) {
-        clearTimeout(bufferingTimeoutRef.current);
-      }
-
-      video.removeEventListener('play', handlePlay);
-      video.removeEventListener('pause', handlePause);
-      video.removeEventListener('ended', handleEnded);
-      video.removeEventListener('error', handleError);
-      video.removeEventListener('loadstart', handleLoadStart);
-      video.removeEventListener('canplay', handleCanPlay);
-      video.removeEventListener('timeupdate', handleTimeUpdate);
-      video.removeEventListener('seeked', handleSeeked);
-      video.removeEventListener('loadedmetadata', handleLoadedMetadata);
-      video.removeEventListener('waiting', handleWaiting);
-      video.removeEventListener('playing', handlePlaying);
-      video.removeEventListener('stalled', handleStalled);
-      video.removeEventListener('canplaythrough', handleCanPlayThrough);
-      video.removeEventListener('enterpictureinpicture', handleEnterPictureInPicture);
-      video.removeEventListener('leavepictureinpicture', handleLeavePictureInPicture);
-      window.removeEventListener('enterpictureinpicture', handleWindowEnterPictureInPicture);
-      window.removeEventListener('leavepictureinpicture', handleWindowLeavePictureInPicture);
-    };
-  }, [onPlay, onPause, onEnded, onError, imageID, mediaSessionImage, file, isPipActive, src]);
-
-  if (hasError) {
-    return (
-      <div className={`flex items-center justify-center bg-black ${className}`}>
-        <div className="text-white text-center">
-          <div className="text-4xl mb-2">⚠️</div>
-          <p className="text-sm">Failed to load video</p>
-        </div>
-      </div>
-    );
-  }
-
-  const retry = () => {
-    if (retryAttempt >= 1) {
-      setError(true);
-      return;
+  useEffect(() => {
+    const savedVol = safeGet('player-volume');
+    const savedSpeed = safeGet('player-speed');
+    const savedMuted = safeGet('player-muted');
+    const video = videoRef.current;
+    if (!video) return;
+    if (savedVol) {
+      const v = parseFloat(savedVol);
+      if (!isNaN(v)) { video.volume = v; setState(s => ({ ...s, volume: v })); }
     }
-    setRetryAttempt(retryAttempt + 1);
-  };
-
-  useLayoutEffect(() => {
-    const dynamicDriverCompleted = Cookies.get('dynamicDriverCompleted');
-    if (!dynamicDriverCompleted) {
-      Cookies.set('dynamicDriverCompleted', 'true', {
-        expires: 365,
-        path: '/',
-        secure: process.env.NODE_ENV === 'production',
-        sameSite: 'strict',
-        priority: 'low'
-      });
-      driverObj.drive(1)
+    if (!isReelCtx && savedMuted !== null) {
+      const muted = savedMuted === 'true';
+      video.muted = muted;
+      setState(s => ({ ...s, isMuted: muted }));
     }
-  }, [])
+    if (savedSpeed) {
+      const s = parseFloat(savedSpeed);
+      if (!isNaN(s)) { video.playbackRate = s; setState(s2 => ({ ...s2, playbackRate: s })); }
+    }
+  }, [isReelCtx]);
 
-
+  const showControls = state.controlsVisible && !isReelCtx;
+  const showBuffer = state.isBuffering && !state.isLoaded || (state.isBuffering && videoRef.current && videoRef.current.readyState < 3);
 
   return (
-    <div className={`relative ${isReel && `z-[1] reel_p`} ${className}`}>
-      <div className="poster_blur absolute inset-0 pointer-events-none h-full w-full supports-[filter]:blur-xl blur-2xl">
-        <div className="dim bg-background/50 absolute inset-0 w-full h-full" />
-        {!error ? (
-          <ImageLoad callBack={e => {
-            if(e) {
-            setMediaSessionImage(e.src);
-            callBack && callBack({
-              src: e.src,
-                colors: e.colors || []
-              })
-            }
-          }} hasAdultTag={false} link={file ? (() => {
-            const randomThumbnail = getRandomThumbnail(file.thumbnails)
-            if (randomThumbnail) {
-              return `/api/load/image/${randomThumbnail}`
-            }
-            return `/api/load/image/${arrangeDateForThumbnail(file.created_at, retryAttempt)}/${file.unique_id}/thumbnail_${file.filename.split(`.mp4.m3u8`)[0]}.jpg`
-          })() : poster} retry={retry} className="w-full h-full object-cover object-center" imageID={imageID} index={0} />
-        ) : (
-          <div className="w-full h-full flex items-center justify-center bg-muted text-xs text-center">
-            <span>Failed to load image</span>
-          </div>
-        )
-        }
-      </div>
-      <div className="relative z-[10000] w-full h-full">
-        {
-          (!loaded || (isBuffering && videoRef.current && videoRef.current.readyState < 3)) && (
-            <div className="absolute z-[1000001] inset-0 flex items-center justify-center bg-background/80 backdrop-blur-xl rounded-lg">
-              <LoaderCircle className="w-20 h-20 animate-spin opacity-50" />
-            </div>
-          )
-        }
-        <video ref={videoRef}
-          className={`w-full h-full object-contain transition-all duration-300 ${isReel ? 'pointer-events-none' : 'pointer-events-auto'} ${isPipActive ? 'opacity-0 pointer-events-none' : 'opacity-[1] pointer-events-auto'}`}
-          muted={autoplayService.isAutoplayEnabled() ? muted : (muted || autoplayBlocked)}
-          loop={loop}
+    <div
+      ref={containerRef}
+      className={`relative bg-black overflow-hidden select-none ${isReelCtx ? 'z-[1]' : ''} ${className}`}
+      style={{ cursor: showControls ? 'default' : 'none' }}
+    >
+      {/* Ambient gradient at the very back of the player (spread, behind poster & video) */}
+      {ambientMode && <AmbientBackground />}
+      <PosterBackground
+        onImageLoaded={(imgSrc, colors) => {
+          setMediaSessionImage(imgSrc);
+          callBack?.({ src: imgSrc, colors });
+        }}
+      />
+
+      <div className="relative z-10 w-full h-full">
+        {state.hasError && <ErrorOverlay />}
+
+        {showBuffer && <BufferingSpinner />}
+
+        <PipOverlay />
+
+        {showPlayPauseFeedback && !isReelCtx && (
+          <PlayPauseFeedback isPlaying={feedbackIconPlaying} fading={feedbackFading} />
+        )}
+
+        <video
+          ref={videoRef}
+          className={`w-full h-full object-contain ${
+            isReelCtx ? 'pointer-events-none' : ''
+          } ${isPipActive && isContentInPip(imageID) ? 'opacity-0' : ''}`}
+          muted={muted}
+          loop={loopEnabled}
           playsInline={playsInline}
-          controls={!isReel}
-          // Hard-disable browser PiP controls in the reel context
-          {...(isReel ? { disablePictureInPicture: true, controlsList: "nopictureinpicture" } : {})}
           preload="metadata"
-          autoPlay
+          onClick={handleVideoClick}
+          onDoubleClick={handleDoubleClick}
+          {...(isReelCtx ? { disablePictureInPicture: true, controlsList: 'nopictureinpicture' } : {})}
         />
-        {
-          !isReel && (
-            <>
-                {
-                  isPipActive && isContentInPip(imageID) && (
-                    <div onClick={() => toggleDocumentPip(src, videoRef, imageID, file, loop, updateMediaSession)} className="pip_div absolute bottom-0 left-0 w-full h-full flex items-center justify-center gap-2 flex-col backdrop-blur-sm cursor-pointer hover:bg-background/70 transition-all duration-300">
-                      <PictureInPicture2 className="w-12 h-12 text-white" />
-                      <h1 className="text-white text-xl">You are in Picture in Picture mode</h1>
-                      <p className="text-white/70 text-sm">Click to exit</p>
-                    </div>
-                  )
-                }
-                {(!isPipActive || !isContentInPip(imageID)) && (src?.includes('.m3u8') && levels.length > 1) && (
-                  <div className="absolute top-4 right-4 z-[10001] flex items-center gap-2">
-                    <div className="relative">
-                      <button
-                        id="hls_quality_button"
-                        onClick={() => setQualityMenuOpen((o) => !o)}
-                        className="bg-black/50 hover:bg-black/70 text-white p-2 rounded-lg backdrop-blur-sm transition-all duration-200"
-                        title="Quality"
-                      >
-                        <Settings className="w-5 h-5" />
-                      </button>
-                      {qualityMenuOpen && (
-                        <>
-                          <div className="absolute right-0 top-full mt-1 py-1 min-w-[120px] bg-black/90 rounded-lg shadow-xl border border-white/10 z-[10003]" role="menu">
-                            <button
-                              role="menuitem"
-                              onClick={() => {
-                                if (hlsRef.current) {
-                                  hlsRef.current.currentLevel = -1;
-                                  if (typeof localStorage !== 'undefined') localStorage.setItem(HLS_QUALITY_KEY, 'auto');
-                                }
-                                setCurrentHlsLevel(-1);
-                                setQualityMenuOpen(false);
-                              }}
-                              className={`w-full text-left px-4 py-2 text-sm hover:bg-white/10 ${currentHlsLevel === -1 ? 'text-primary font-medium' : 'text-white'}`}
-                            >
-                              Auto
-                            </button>
-                            {[...levels]
-                              .map((l, origIndex) => ({ ...l, origIndex }))
-                              .sort((a, b) => b.height - a.height)
-                              .map(({ height, width, origIndex }) => (
-                                <button
-                                  key={`${height}-${width}`}
-                                  role="menuitem"
-                                  onClick={() => {
-                                    if (hlsRef.current) {
-                                      hlsRef.current.currentLevel = origIndex;
-                                      if (typeof localStorage !== 'undefined') localStorage.setItem(HLS_QUALITY_KEY, String(height));
-                                    }
-                                    setCurrentHlsLevel(origIndex);
-                                    setQualityMenuOpen(false);
-                                  }}
-                                  className={`w-full text-left px-4 py-2 text-sm hover:bg-white/10 ${currentHlsLevel === origIndex ? 'text-primary font-medium' : 'text-white'}`}
-                                >
-                                  {height}p
-                                </button>
-                              ))}
-                          </div>
-                          <div
-                            className="fixed inset-0 z-[10002]"
-                            aria-hidden
-                            onClick={() => setQualityMenuOpen(false)}
-                          />
-                        </>
-                      )}
-                    </div>
-                    {supportsPip && (
-                      <button
-                        id="picture_in_picture_button"
-                        onClick={() => toggleDocumentPip(src, videoRef, imageID, file, loop, updateMediaSession)}
-                        className="bg-black/50 hover:bg-black/70 text-white p-2 rounded-lg backdrop-blur-sm transition-all duration-200"
-                        title="Open in Picture-in-Picture"
-                      >
-                        <PictureInPicture2 className="w-5 h-5" />
-                      </button>
-                    )}
-                  </div>
-                )}
-                {(!isPipActive || !isContentInPip(imageID)) && supportsPip && levels.length <= 1 && (
-                  <button
-                    id="picture_in_picture_button"
-                    onClick={() => toggleDocumentPip(src, videoRef, imageID, file, loop, updateMediaSession)}
-                    className="absolute top-4 right-4 z-[10001] bg-black/50 hover:bg-black/70 text-white p-2 rounded-lg backdrop-blur-sm transition-all duration-200"
-                    title="Open in Picture-in-Picture"
-                  >
-                    <PictureInPicture2 className="w-5 h-5" />
-                  </button>
-                )}
-                {isPipActive && !isContentInPip(imageID) && (
-                  <div className="absolute top-4 left-4 z-[10001] bg-orange-500/80 text-white px-3 py-1 rounded-lg backdrop-blur-sm text-sm font-medium">
-                    Another video is playing in Picture-in-Picture
-                  </div>
-                )}
-            
-            </>
-          )
-        }
-        {showAutoplayPrompt && autoPlay && (
-          <div className="absolute inset-0 z-[10002] flex items-center justify-center bg-black/60 backdrop-blur-sm">
-            <div className="bg-background/95 border border-border rounded-lg p-6 max-w-md mx-4 shadow-xl">
-              <div className="flex items-center gap-3 mb-4">
-                {videoRef.current?.muted ? (
-                  <VolumeX className="w-6 h-6 text-muted-foreground" />
-                ) : (
-                  <Volume2 className="w-6 h-6 text-primary" />
-                )}
-                <h3 className="text-lg font-semibold">Enable Autoplay with Sound</h3>
-              </div>
-              <p className="text-sm text-muted-foreground mb-4">
-                Click the button below to enable autoplay with sound. This will allow videos to automatically play with sound on future visits.
-              </p>
-              <div className="flex gap-3">
-                <button
-                  onClick={async () => {
-                    autoplayService.enableAutoplay();
-                    setShowAutoplayPrompt(false);
-                    const video = videoRef.current;
-                    if (video) {
-                      video.muted = false;
-                      try {
-                        await video.play();
-                        setAutoplayBlocked(false);
-                      } catch (error) {
-                        console.error('Failed to play after enabling autoplay:', error);
-                      }
-                    }
-                  }}
-                  className="flex-1 bg-primary text-primary-foreground px-4 py-2 rounded-md hover:bg-primary/90 transition-colors font-medium"
-                >
-                  Enable Autoplay
-                </button>
-                <button
-                  onClick={() => {
-                    setShowAutoplayPrompt(false);
-                    const video = videoRef.current;
-                    if (video && !video.paused) {
-                      // Keep playing but muted
-                      video.muted = true;
-                    }
-                  }}
-                  className="px-4 py-2 rounded-md border border-border hover:bg-muted transition-colors"
-                >
-                  Dismiss
-                </button>
-              </div>
-            </div>
+
+        {!isReelCtx && !loopEnabled && (
+          <EndScreen
+            suggestedVideos={suggestedVideos}
+            onVideoSelect={onVideoSelect}
+          />
+        )}
+
+        {!isReelCtx && (
+          <div
+            className={`transition-opacity duration-300 ${
+              showControls ? 'opacity-100' : 'opacity-0 pointer-events-none'
+            }`}
+          >
+            <div className="absolute bottom-0 left-0 right-0 h-32 bg-gradient-to-t from-black/80 to-transparent pointer-events-none" />
+            <ControlBar onNext={onNext} theaterMode={theaterMode} onTheaterModeChange={onTheaterModeChange} onPlayPauseClick={triggerPlayPauseFeedback} />
           </div>
         )}
+
+        {showPrompt && autoPlayEnabled && !isReelCtx && (
+          <AutoplayPrompt onEnable={enableAutoplay} onDismiss={dismissPrompt} />
+        )}
       </div>
-      {isLoading && (
-        <div className="absolute inset-0 flex items-center justify-center bg-black/50">
-          <div className="text-white text-center">
-            <div className="animate-spin w-8 h-8 border-2 border-white border-t-transparent rounded-full mb-2"></div>
-            <p className="text-sm">Loading...</p>
-          </div>
-        </div>
-      )}
     </div>
   );
-};
+}
+
+function safeGet(key: string): string | null {
+  try { return typeof localStorage !== 'undefined' ? localStorage.getItem(key) : null; } catch { return null; }
+}
 
 export default HLSPlayer;

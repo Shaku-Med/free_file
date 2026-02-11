@@ -21,10 +21,10 @@ export const ReelCard = ({ data }: { data: FileType }) => {
   const [isPlaying, setIsPlaying] = useState(false);
   const [playPauseIndicator, setPlayPauseIndicator] = useState<"play" | "pause" | null>(null);
   const [isCommentsOpen, setIsCommentsOpen] = useState(false);
-  const [likeCount, setLikeCount] = useState<number>(Number((data as any).up_count || 0));
-  const [dislikeCount, setDislikeCount] = useState<number>(Number((data as any).down_count || 0));
+  const [likeCount, setLikeCount] = useState<number>(Number((data as any).like_count ?? (data as any).up_count ?? 0));
+  const [dislikeCount, setDislikeCount] = useState<number>(Number((data as any).dislike_count ?? (data as any).down_count ?? 0));
   const [commentsCount, setCommentsCount] = useState<number | null>(
-    typeof (data as any).comments_count === "number" ? Number((data as any).comments_count) : null
+    typeof (data as any).comment_count === "number" ? Number((data as any).comment_count) : null
   );
   const [initialMetaLoaded, setInitialMetaLoaded] = useState(false);
   const [initialLiked, setInitialLiked] = useState(false);
@@ -79,9 +79,8 @@ export const ReelCard = ({ data }: { data: FileType }) => {
 
     const fetchMeta = async () => {
       try {
-        const [likeRes, dislikeRes, commentsRes] = await Promise.all([
-          fetch(`/api/likes?fileId=${encodeURIComponent(data.id)}`).catch(() => null),
-          fetch(`/api/dislikes?fileId=${encodeURIComponent(data.id)}`).catch(() => null),
+        const [interactionsRes, commentsRes] = await Promise.all([
+          fetch(`/api/interactions?fileId=${encodeURIComponent(data.id)}`).catch(() => null),
           fetch(`/api/comments?fileId=${encodeURIComponent(data.id)}&limit=50&offset=0`).catch(() => null),
         ]);
 
@@ -91,21 +90,14 @@ export const ReelCard = ({ data }: { data: FileType }) => {
         let nextDislikeCount = dislikeCount;
         let nextCommentsCount = commentsCount;
 
-        if (likeRes && likeRes.ok) {
-          const json = await likeRes.json().catch(() => null);
+        if (interactionsRes && interactionsRes.ok) {
+          const json = await interactionsRes.json().catch(() => null);
           if (json) {
-            if (typeof json.liked === "boolean") nextLiked = json.liked;
-            if (typeof json.upCount === "number") nextLikeCount = json.upCount;
-            if (typeof json.downCount === "number") nextDislikeCount = json.downCount;
-          }
-        }
-
-        if (dislikeRes && dislikeRes.ok) {
-          const json = await dislikeRes.json().catch(() => null);
-          if (json) {
-            if (typeof json.disliked === "boolean") nextDisliked = json.disliked;
-            if (typeof json.upCount === "number") nextLikeCount = json.upCount;
-            if (typeof json.downCount === "number") nextDislikeCount = json.downCount;
+            if (typeof json.user_has_liked === "boolean") nextLiked = json.user_has_liked;
+            if (typeof json.user_has_disliked === "boolean") nextDisliked = json.user_has_disliked;
+            if (typeof json.like_count === "number") nextLikeCount = json.like_count;
+            if (typeof json.dislike_count === "number") nextDislikeCount = json.dislike_count;
+            if (typeof json.comment_count === "number") nextCommentsCount = json.comment_count;
           }
         }
 

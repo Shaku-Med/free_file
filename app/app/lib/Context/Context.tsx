@@ -42,8 +42,10 @@ export const Context = createContext<ContextProps>({
     isModalOpen: false,
     setIsModalOpen: () => {},
     isLoading: false,
+    initialLoading: true,
     observerRef: null,
     loadMoreVideos: () => {},
+    clearFeedHistory: async () => {},
     user_agent: '',
     userId: null,
     userActions: { likedFileIds: new Set(), dislikedFileIds: new Set() },
@@ -55,11 +57,9 @@ export const Context = createContext<ContextProps>({
 
 interface ContextProviderProps {
     children: React.ReactNode;
-    f: FileType[];
     st: string;
     user_agent: string;
     userId?: string | null;
-    userActions?: { likedFileIds: Set<string>; dislikedFileIds: Set<string> };
     c_user: string | null;
     uploadServerUrl?: string;
 }
@@ -96,10 +96,10 @@ export const FloatingButton = () => {
     )
 }
 
-export const ContextProvider = ({ children, f, st, user_agent, userId, userActions: initialUserActions = { likedFileIds: new Set(), dislikedFileIds: new Set() }, c_user, uploadServerUrl = '' }: ContextProviderProps) => {
-    const [files, setFiles] = useState<FileType[]>(f);
+export const ContextProvider = ({ children, st, user_agent, userId, c_user, uploadServerUrl = '' }: ContextProviderProps) => {
+    const [files, setFiles] = useState<FileType[]>([]);
     const [isModalOpen, setIsModalOpen] = useState(false);
-    const [userActions, setUserActions] = useState(initialUserActions);
+    const [userActions, setUserActions] = useState<{ likedFileIds: Set<string>; dislikedFileIds: Set<string> }>({ likedFileIds: new Set(), dislikedFileIds: new Set() });
     const [isDragActive, setIsDragActive] = useState(false);
     const [droppedFiles, setDroppedFiles] = useState<File[]>([]);
     const dragDepthRef = useRef(0);
@@ -113,47 +113,113 @@ export const ContextProvider = ({ children, f, st, user_agent, userId, userActio
     const hasFetchedProfileRef = useRef(false);
 
     const [isLoading, setIsLoading] = useState(false);
+    const [initialLoading, setInitialLoading] = useState(true);
+    const [hasMore, setHasMore] = useState(true);
+    const nextCursorRef = useRef<{ cursor_pos: number } | null>(null);
+    const shownIdsRef = useRef<Set<string>>(new Set());
     const observerRef = useRef<HTMLDivElement | null>(null)
     const nav = useNavigation()
-  
-    const loadMoreVideos = useCallback(async () => {
+
+    const fetchFeed = useCallback(async (append: boolean) => {
       if (isLoading) return
-  
+
       setIsLoading(true)
       try {
-        const seenIds = files
-          .map((file: any) => file?.id)
-          .filter((id: any): id is string => typeof id === 'string' && id.length > 0);
-
-        const response = await fetch(`/api/feed`);
-        if (!response.ok) {
-          return;
+        const params = new URLSearchParams()
+        const cursor = nextCursorRef.current
+        if (append && cursor) {
+          params.set("cursor_pos", String(cursor.cursor_pos))
         }
+        // Don't send exclude_ids: position-based pagination (cursor_pos) already
+        // returns the next window; sending shown IDs can make get_feed over-filter
+        // and return nothing. shownIdsRef is still used for mark-seen on leave.
 
-        const data = await response.json();
+        const response = await fetch(`/api/feed?${params}`)
+        if (!response.ok) return
 
-        if (Array.isArray(data?.data) && data.data.length > 0) {
-          setFiles((prev: FileType[]) => [...prev, ...data.data]);
+        const data = await response.json()
 
-          // Merge user actions from API response
-          if (data?.userActions) {
-            setUserActions(prev => {
-              const newLikedIds = new Set(prev.likedFileIds);
-              const newDislikedIds = new Set(prev.dislikedFileIds);
-              data.userActions.likedFileIds?.forEach((id: string) => newLikedIds.add(id));
-              data.userActions.dislikedFileIds?.forEach((id: string) => newDislikedIds.add(id));
-              return { likedFileIds: newLikedIds, dislikedFileIds: newDislikedIds };
-            });
+        if (Array.isArray(data?.data)) {
+          if (data.data.length > 0) {
+            data.data.forEach((f: FileType) => {
+              if (f.id) shownIdsRef.current.add(f.id)
+            })
+            setFiles(prev => {
+              if (!append) return data.data
+              const existingIds = new Set(prev.map((f: FileType) => f.id))
+              const newItems = data.data.filter((f: FileType) => !existingIds.has(f.id))
+              return [...prev, ...newItems]
+            })
+            if (data?.userActions) {
+              setUserActions(prev => {
+                const newLikedIds = new Set(prev.likedFileIds)
+                const newDislikedIds = new Set(prev.dislikedFileIds)
+                data.userActions.likedFileIds?.forEach((id: string) => newLikedIds.add(id))
+                data.userActions.dislikedFileIds?.forEach((id: string) => newDislikedIds.add(id))
+                return { likedFileIds: newLikedIds, dislikedFileIds: newDislikedIds }
+              })
+            }
           }
+          // Always update cursor and hasMore from response (even when data.data is empty)
+          nextCursorRef.current = data.nextCursor ?? null
+          setHasMore(Boolean(data.nextCursor))
+        } else {
+          setHasMore(false)
         }
-      }
-      catch (error) {
-        console.log(`Error Found In loadMoreVideos: `, error)
+      } catch (error) {
+        console.log(`Error Found In fetchFeed: `, error)
       } finally {
         setIsLoading(false)
+        setInitialLoading(false)
       }
-    }, [files, isLoading])
-  
+    }, [isLoading])
+
+    useEffect(() => {
+      fetchFeed(false)
+    }, [])
+
+    // Mark feed items as seen when user leaves so next session gets fresh content.
+    // Doing it here (not in API) keeps the "unseen" set stable during pagination.
+    useEffect(() => {
+      const markSeenOnLeave = () => {
+        const ids = Array.from(shownIdsRef.current)
+        if (ids.length === 0) return
+        fetch('/api/mark-seen', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ fileIds: ids })
+        }).catch(() => {})
+      }
+      const handleVisibility = () => {
+        if (document.visibilityState === 'hidden') markSeenOnLeave()
+      }
+      const handleBeforeUnload = () => markSeenOnLeave()
+      document.addEventListener('visibilitychange', handleVisibility)
+      window.addEventListener('beforeunload', handleBeforeUnload)
+      return () => {
+        document.removeEventListener('visibilitychange', handleVisibility)
+        window.removeEventListener('beforeunload', handleBeforeUnload)
+      }
+    }, [])
+
+    const loadMoreVideos = useCallback(() => {
+      if (!hasMore) return
+      fetchFeed(true)
+    }, [fetchFeed, hasMore])
+
+    const clearFeedHistory = useCallback(async () => {
+      try {
+        const res = await fetch('/api/feed/clear-history', { method: 'POST' })
+        if (!res.ok) return
+        nextCursorRef.current = null
+        shownIdsRef.current = new Set()
+        setHasMore(true)
+        await fetchFeed(false)
+      } catch (e) {
+        console.error('Clear feed history failed:', e)
+      }
+    }, [fetchFeed])
+
     useEffect(() => {
       const observer = new IntersectionObserver(
         (entries) => {
@@ -288,8 +354,10 @@ export const ContextProvider = ({ children, f, st, user_agent, userId, userActio
             isModalOpen,
             setIsModalOpen,
             isLoading,
+            initialLoading,
             observerRef: observerRef as React.RefObject<HTMLDivElement>,
             loadMoreVideos,
+            clearFeedHistory,
             user_agent,
             userId: safeUserId,
             userActions,
@@ -298,7 +366,7 @@ export const ContextProvider = ({ children, f, st, user_agent, userId, userActio
             userProfile,
             userProfileLoading
         }),
-        [files, isModalOpen, isLoading, loadMoreVideos, user_agent, safeUserId, userActions, c_user, uploadServerUrl, userProfile, userProfileLoading]
+        [files, isModalOpen, isLoading, initialLoading, loadMoreVideos, clearFeedHistory, user_agent, safeUserId, userActions, c_user, uploadServerUrl, userProfile, userProfileLoading]
     );
     return (
         <div className={`w-full h-full`}>

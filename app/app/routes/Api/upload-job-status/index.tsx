@@ -1,4 +1,5 @@
 import db from '~/lib/Database/supabase';
+import { textContainsNsfw, DEFAULT_METADATA_WARNING } from '~/lib/nsfwTextCheck';
 
 function inferFileType(filename: string): string {
   if (!filename) return 'application/octet-stream';
@@ -38,10 +39,14 @@ export const action = async ({ request }: { request: Request }) => {
     is_public?: boolean;
     title?: string;
     description?: string;
-    endpoint?: string;      // GitHub path, sent on completed
-    thumbnails?: string[];  // Array of thumbnail paths
-    duration?: number;      // Video duration in seconds
-    is_adult?: boolean;     // NSFW detection result
+    endpoint?: string;
+    thumbnails?: string[];
+    duration?: number;
+    is_adult?: boolean;
+    colors?: string[];
+    categories?: string[];
+    tags?: string[];
+    metadata?: Record<string, unknown>;
   };
   try {
     body = await request.json();
@@ -57,7 +62,20 @@ export const action = async ({ request }: { request: Request }) => {
   const upload_id = typeof body?.upload_id === 'string' ? body.upload_id.trim() : '';
   const user_id = typeof body?.user_id === 'string' ? body.user_id.trim() : '';
   
-  console.log('[upload-job-status] received:', { status, upload_id, user_id, file_name: body?.file_name, endpoint: body?.endpoint });
+  console.log('[upload-job-status] ========== WEBHOOK RECEIVED ==========');
+  console.log('[upload-job-status] status:', status);
+  console.log('[upload-job-status] upload_id:', upload_id);
+  console.log('[upload-job-status] user_id:', user_id);
+  console.log('[upload-job-status] file_name:', body?.file_name);
+  console.log('[upload-job-status] endpoint:', body?.endpoint);
+  console.log('[upload-job-status] is_adult:', body?.is_adult);
+  console.log('[upload-job-status] colors:', body?.colors);
+  console.log('[upload-job-status] categories:', body?.categories);
+  console.log('[upload-job-status] tags:', body?.tags);
+  console.log('[upload-job-status] metadata:', body?.metadata ? JSON.stringify(body.metadata).slice(0, 500) : 'null');
+  console.log('[upload-job-status] thumbnails:', body?.thumbnails?.length ?? 0);
+  console.log('[upload-job-status] duration:', body?.duration);
+  console.log('[upload-job-status] ======================================');
   
   if (!allowed.includes(status) || !upload_id) {
     console.warn('[upload-job-status] invalid status or upload_id:', { status, upload_id });
@@ -127,13 +145,33 @@ export const action = async ({ request }: { request: Request }) => {
       console.warn('[upload-job-status] files update (running):', updateErr);
     }
   } else if (status === 'completed' && upload_id) {
-    // Update status, endpoint, thumbnails, duration, is_adult
     const endpoint = typeof body?.endpoint === 'string' ? body.endpoint.trim() : '';
     const thumbnails = Array.isArray(body?.thumbnails) ? body.thumbnails.filter((t): t is string => typeof t === 'string' && t.trim() !== '') : [];
     const duration = typeof body?.duration === 'number' && body.duration >= 0 ? Math.round(body.duration) : null;
     const is_adult = typeof body?.is_adult === 'boolean' ? body.is_adult : null;
-    
-    const updateData: Record<string, any> = { upload_status: 'completed' };
+    const colors = Array.isArray(body?.colors) ? body.colors.filter((c): c is string => typeof c === 'string') : [];
+    const categories = Array.isArray(body?.categories) ? body.categories.filter((c): c is string => typeof c === 'string') : [];
+    const tags = Array.isArray(body?.tags) ? body.tags.filter((t): t is string => typeof t === 'string') : [];
+    let metadata = body?.metadata && typeof body.metadata === 'object' && !Array.isArray(body.metadata) ? { ...body.metadata } : ({} as Record<string, unknown>);
+
+    const titleForCheck = typeof body?.title === 'string' ? body.title.trim() : '';
+    const descriptionForCheck = typeof body?.description === 'string' ? body.description.trim() : '';
+    let title = titleForCheck;
+    let description = descriptionForCheck;
+    if ((!title || !description) && db) {
+      const { data: fileRow } = await db.from('files').select('file_title, file_description').eq('unique_id', upload_id).maybeSingle();
+      if (fileRow) {
+        if (!title) title = typeof fileRow.file_title === 'string' ? fileRow.file_title : '';
+        if (!description) description = typeof fileRow.file_description === 'string' ? fileRow.file_description : '';
+      }
+    }
+    const contentIsAdult = is_adult === true;
+    const textMayBeNsfw = textContainsNsfw(title) || textContainsNsfw(description);
+    if (!contentIsAdult && textMayBeNsfw) {
+      metadata.warning = DEFAULT_METADATA_WARNING;
+    }
+
+    const updateData: Record<string, any> = { upload_status: 'complete' };
     if (endpoint) {
       updateData.endpoint = endpoint;
     }
@@ -146,15 +184,39 @@ export const action = async ({ request }: { request: Request }) => {
     if (is_adult !== null) {
       updateData.is_adult = is_adult;
     }
-    
+    if (colors.length > 0) {
+      updateData.colors = colors;
+    }
+    if (categories.length > 0) {
+      updateData.categories = categories;
+    }
+    if (tags.length > 0) {
+      updateData.tags = tags;
+    }
+    if (Object.keys(metadata).length > 0) {
+      updateData.metadata = metadata;
+    }
+
+    console.log('[upload-job-status] >>> DB UPDATE for', upload_id);
+    console.log('[upload-job-status] >>> updateData keys:', Object.keys(updateData));
+    console.log('[upload-job-status] >>> updateData:', JSON.stringify(updateData, null, 2).slice(0, 1000));
+
     const { error: updateErr } = await db
       .from('files')
       .update(updateData)
       .eq('unique_id', upload_id);
     if (updateErr) {
-      console.warn('[upload-job-status] files update (completed):', updateErr);
+      console.error('[upload-job-status] >>> DB UPDATE FAILED:', updateErr);
     } else {
-      console.log('[upload-job-status] files updated for', upload_id, 'endpoint:', endpoint, 'thumbnails:', thumbnails.length, 'duration:', duration, 'is_adult:', is_adult);
+      console.log('[upload-job-status] >>> DB UPDATE SUCCESS for', upload_id);
+      console.log('[upload-job-status] >>> endpoint:', endpoint);
+      console.log('[upload-job-status] >>> thumbnails:', thumbnails.length);
+      console.log('[upload-job-status] >>> duration:', duration);
+      console.log('[upload-job-status] >>> is_adult:', is_adult);
+      console.log('[upload-job-status] >>> colors:', colors);
+      console.log('[upload-job-status] >>> categories:', categories);
+      console.log('[upload-job-status] >>> tags:', tags);
+      console.log('[upload-job-status] >>> metadata keys:', Object.keys(metadata));
     }
   }
 

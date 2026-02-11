@@ -10,6 +10,28 @@ import (
 	"strings"
 )
 
+type QualityTier struct {
+	Name      string
+	Label     string
+	Width     int
+	Height    int
+	CRF       string
+	MaxRate   string
+	BufSize   string
+	Bandwidth int
+	AudioBR   string
+}
+
+var allTiers = []QualityTier{
+	{Name: "360p", Label: "360p", Width: 640, Height: 360, CRF: "28", MaxRate: "1M", BufSize: "2M", Bandwidth: 800000, AudioBR: "96k"},
+	{Name: "480p", Label: "480p", Width: 854, Height: 480, CRF: "26", MaxRate: "1.5M", BufSize: "3M", Bandwidth: 1200000, AudioBR: "128k"},
+	{Name: "720p", Label: "720p HD", Width: 1280, Height: 720, CRF: "23", MaxRate: "3M", BufSize: "6M", Bandwidth: 2500000, AudioBR: "128k"},
+	{Name: "1080p", Label: "1080p Full HD", Width: 1920, Height: 1080, CRF: "20", MaxRate: "5M", BufSize: "10M", Bandwidth: 5000000, AudioBR: "192k"},
+	{Name: "1440p", Label: "1440p 2K", Width: 2560, Height: 1440, CRF: "18", MaxRate: "10M", BufSize: "20M", Bandwidth: 10000000, AudioBR: "192k"},
+	{Name: "2160p", Label: "2160p 4K", Width: 3840, Height: 2160, CRF: "16", MaxRate: "20M", BufSize: "40M", Bandwidth: 20000000, AudioBR: "256k"},
+	{Name: "4320p", Label: "4320p 8K", Width: 7680, Height: 4320, CRF: "14", MaxRate: "40M", BufSize: "80M", Bandwidth: 40000000, AudioBR: "320k"},
+}
+
 type HLSResult struct {
 	M3U8Path     string
 	SegmentFiles []string
@@ -17,13 +39,12 @@ type HLSResult struct {
 	Width        int
 	Height       int
 	Bandwidth    int
+	TierName     string
 }
 
 type HLSAllResult struct {
 	MasterPath string
-	Low        *HLSResult
-	Medium     *HLSResult
-	High       *HLSResult
+	Tiers      []*HLSResult
 }
 
 type HLSOptions struct {
@@ -35,7 +56,77 @@ func ConvertToHLS(inputPath, outputDir string, opts HLSOptions) (*HLSResult, err
 	if opts.Quality == "" {
 		opts.Quality = "medium"
 	}
-	return convertToHLSOne(inputPath, outputDir, opts, checkGPU())
+	tier := allTiers[2]
+	return convertTier(inputPath, outputDir, opts, tier, checkGPU())
+}
+
+func selectTiers(srcWidth, srcHeight int) []QualityTier {
+	srcShort := srcHeight
+	if srcWidth < srcHeight {
+		srcShort = srcWidth
+	}
+
+	var selected []QualityTier
+	for _, t := range allTiers {
+		tierShort := t.Height
+		if t.Width < t.Height {
+			tierShort = t.Width
+		}
+		if tierShort < srcShort {
+			selected = append(selected, t)
+		}
+	}
+
+	originalTier := QualityTier{
+		Name:    "source",
+		Label:   fmt.Sprintf("%dp Original", srcHeight),
+		Width:   srcWidth,
+		Height:  srcHeight,
+		CRF:     "16",
+		MaxRate: "50M",
+		BufSize: "100M",
+		AudioBR: "256k",
+	}
+
+	for _, t := range allTiers {
+		if t.Height >= srcHeight {
+			originalTier.CRF = t.CRF
+			originalTier.MaxRate = t.MaxRate
+			originalTier.BufSize = t.BufSize
+			originalTier.Bandwidth = t.Bandwidth
+			originalTier.AudioBR = t.AudioBR
+			break
+		}
+	}
+	if originalTier.Bandwidth == 0 {
+		last := allTiers[len(allTiers)-1]
+		originalTier.CRF = last.CRF
+		originalTier.MaxRate = last.MaxRate
+		originalTier.BufSize = last.BufSize
+		originalTier.Bandwidth = last.Bandwidth
+		originalTier.AudioBR = last.AudioBR
+	}
+	selected = append(selected, originalTier)
+
+	if len(selected) <= 1 {
+		return selected
+	}
+	if len(selected) > 5 {
+		step := float64(len(selected)-1) / 4.0
+		var pruned []QualityTier
+		pruned = append(pruned, selected[0])
+		for i := 1; i < 4; i++ {
+			idx := int(float64(i)*step + 0.5)
+			if idx >= len(selected)-1 {
+				idx = len(selected) - 2
+			}
+			pruned = append(pruned, selected[idx])
+		}
+		pruned = append(pruned, selected[len(selected)-1])
+		selected = pruned
+	}
+
+	return selected
 }
 
 func ConvertToHLSAllQualities(inputPath, outputDir string, opts HLSOptions) (*HLSAllResult, error) {
@@ -46,48 +137,51 @@ func ConvertToHLSAllQualities(inputPath, outputDir string, opts HLSOptions) (*HL
 		opts.SegmentTime = 10
 	}
 
-	hasGPU := checkGPU()
+	probe, err := ProbeVideo(inputPath)
+	if err != nil {
+		return nil, fmt.Errorf("probe source: %w", err)
+	}
 
-	run := func(q string) (*HLSResult, error) {
-		dir := filepath.Join(outputDir, q)
+	tiers := selectTiers(probe.Width, probe.Height)
+	if len(tiers) == 0 {
+		return nil, fmt.Errorf("no quality tiers for %dx%d", probe.Width, probe.Height)
+	}
+
+	hasGPU := checkGPU()
+	var results []*HLSResult
+
+	for _, tier := range tiers {
+		dir := filepath.Join(outputDir, tier.Name)
 		if err := os.MkdirAll(dir, 0700); err != nil {
 			return nil, err
 		}
-		o := opts
-		o.Quality = q
-		return convertToHLSOne(inputPath, dir, o, hasGPU)
+		r, err := convertTier(inputPath, dir, opts, tier, hasGPU)
+		if err != nil {
+			return nil, fmt.Errorf("hls %s: %w", tier.Name, err)
+		}
+		r.TierName = tier.Name
+		results = append(results, r)
 	}
 
-	low, err := run("low")
-	if err != nil {
-		return nil, fmt.Errorf("hls low: %w", err)
+	var masterLines []string
+	masterLines = append(masterLines, "#EXTM3U", "#EXT-X-VERSION:3")
+	for _, r := range results {
+		masterLines = append(masterLines,
+			fmt.Sprintf("#EXT-X-STREAM-INF:BANDWIDTH=%d,RESOLUTION=%dx%d", r.Bandwidth, r.Width, r.Height),
+			r.TierName+"/playlist.m3u8",
+		)
 	}
-	medium, err := run("medium")
-	if err != nil {
-		return nil, fmt.Errorf("hls medium: %w", err)
-	}
-	high, err := run("high")
-	if err != nil {
-		return nil, fmt.Errorf("hls high: %w", err)
-	}
+	masterLines = append(masterLines, "")
 
 	masterPath := filepath.Join(outputDir, "master.m3u8")
-	content := fmt.Sprintf("#EXTM3U\n#EXT-X-VERSION:3\n"+
-		"#EXT-X-STREAM-INF:BANDWIDTH=%d,RESOLUTION=%dx%d\nlow/playlist.m3u8\n"+
-		"#EXT-X-STREAM-INF:BANDWIDTH=%d,RESOLUTION=%dx%d\nmedium/playlist.m3u8\n"+
-		"#EXT-X-STREAM-INF:BANDWIDTH=%d,RESOLUTION=%dx%d\nhigh/playlist.m3u8\n",
-		low.Bandwidth, low.Width, low.Height,
-		medium.Bandwidth, medium.Width, medium.Height,
-		high.Bandwidth, high.Width, high.Height,
-	)
-	if err := os.WriteFile(masterPath, []byte(content), 0644); err != nil {
+	if err := os.WriteFile(masterPath, []byte(strings.Join(masterLines, "\n")), 0644); err != nil {
 		return nil, fmt.Errorf("write master: %w", err)
 	}
 
-	return &HLSAllResult{MasterPath: masterPath, Low: low, Medium: medium, High: high}, nil
+	return &HLSAllResult{MasterPath: masterPath, Tiers: results}, nil
 }
 
-func convertToHLSOne(inputPath, outputDir string, opts HLSOptions, tryGPU bool) (*HLSResult, error) {
+func convertTier(inputPath, outputDir string, opts HLSOptions, tier QualityTier, tryGPU bool) (*HLSResult, error) {
 	if err := os.MkdirAll(outputDir, 0700); err != nil {
 		return nil, err
 	}
@@ -99,16 +193,16 @@ func convertToHLSOne(inputPath, outputDir string, opts HLSOptions, tryGPU bool) 
 	segmentPattern := filepath.Join(outputDir, "segment_%03d.ts")
 
 	if tryGPU {
-		r, err := runHLSConversion(inputPath, m3u8Path, segmentPattern, opts, true)
+		r, err := runTierConversion(inputPath, m3u8Path, segmentPattern, opts, tier, true)
 		if err == nil {
 			return r, nil
 		}
 	}
 
-	return runHLSConversion(inputPath, m3u8Path, segmentPattern, opts, false)
+	return runTierConversion(inputPath, m3u8Path, segmentPattern, opts, tier, false)
 }
 
-func runHLSConversion(inputPath, m3u8Path, segmentPattern string, opts HLSOptions, useGPU bool) (*HLSResult, error) {
+func runTierConversion(inputPath, m3u8Path, segmentPattern string, opts HLSOptions, tier QualityTier, useGPU bool) (*HLSResult, error) {
 	cpuThreads := runtime.NumCPU()
 	if cpuThreads > 8 {
 		cpuThreads = 8
@@ -120,11 +214,7 @@ func runHLSConversion(inputPath, m3u8Path, segmentPattern string, opts HLSOption
 		args = append(args, "-hwaccel", "cuda", "-hwaccel_output_format", "cuda")
 	}
 
-	crf, maxrate, bufsize, w, h, bw := getQualitySettings(opts.Quality)
-	// Scale to target width, auto-calculate height to preserve aspect ratio
-	// -2 ensures height is divisible by 2 (required for h264)
-	// Only downscale, never upscale: min(target, original)
-	scale := fmt.Sprintf("scale='min(%d,iw)':-2", w)
+	scale := fmt.Sprintf("scale='min(%d,iw)':-2", tier.Width)
 
 	args = append(args,
 		"-fflags", "+genpts+igndts",
@@ -153,11 +243,11 @@ func runHLSConversion(inputPath, m3u8Path, segmentPattern string, opts HLSOption
 	}
 
 	args = append(args,
-		"-crf", crf,
-		"-maxrate", maxrate,
-		"-bufsize", bufsize,
+		"-crf", tier.CRF,
+		"-maxrate", tier.MaxRate,
+		"-bufsize", tier.BufSize,
 		"-c:a", "aac",
-		"-b:a", "128k",
+		"-b:a", tier.AudioBR,
 		"-ac", "2",
 		"-ar", "48000",
 		"-max_muxing_queue_size", "2048",
@@ -193,21 +283,11 @@ func runHLSConversion(inputPath, m3u8Path, segmentPattern string, opts HLSOption
 		M3U8Path:     m3u8Path,
 		SegmentFiles: segments,
 		UsedGPU:      useGPU,
-		Width:        w,
-		Height:       h,
-		Bandwidth:    bw,
+		Width:        tier.Width,
+		Height:       tier.Height,
+		Bandwidth:    tier.Bandwidth,
+		TierName:     tier.Name,
 	}, nil
-}
-
-func getQualitySettings(quality string) (crf, maxrate, bufsize string, width, height, bandwidth int) {
-	switch quality {
-	case "low":
-		return "28", "1M", "2M", 640, 360, 800000
-	case "high":
-		return "20", "5M", "10M", 1920, 1080, 5000000
-	default:
-		return "23", "3M", "6M", 1280, 720, 2000000
-	}
 }
 
 func findSegments(dir string) ([]string, error) {

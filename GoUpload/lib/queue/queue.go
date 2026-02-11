@@ -16,13 +16,17 @@ type Client struct {
 }
 
 type Job struct {
-	ID          string    `json:"id"`
-	UserID      string    `json:"user_id"`
-	UploadID    string    `json:"upload_id"`
-	FileName    string    `json:"file_name"`
-	FileSize    int64     `json:"file_size"`
-	TotalChunks int       `json:"total_chunks"`
-	CreatedAt   time.Time `json:"created_at"`
+	ID             string    `json:"id"`
+	UserID         string    `json:"user_id"`
+	UploadID       string    `json:"upload_id"`
+	FileName       string    `json:"file_name"`
+	FileSize       int64     `json:"file_size"`
+	TotalChunks    int       `json:"total_chunks"`
+	Title          string    `json:"title,omitempty"`
+	Description    string    `json:"description,omitempty"`
+	UserCategories []string  `json:"user_categories,omitempty"`
+	UserTags       []string  `json:"user_tags,omitempty"`
+	CreatedAt      time.Time `json:"created_at"`
 }
 
 func NewClient(addr, password string, db int, queueName string) (*Client, error) {
@@ -42,16 +46,20 @@ func NewClient(addr, password string, db int, queueName string) (*Client, error)
 	return &Client{rdb: rdb, queueName: queueName}, nil
 }
 
-func (c *Client) Enqueue(ctx context.Context, userID, uploadID, fileName string, fileSize int64, totalChunks int) (string, error) {
+func (c *Client) Enqueue(ctx context.Context, userID, uploadID, fileName string, fileSize int64, totalChunks int, title, description string, userCategories, userTags []string) (string, error) {
 	jobID := newJobID()
 	job := Job{
-		ID:          jobID,
-		UserID:      userID,
-		UploadID:    uploadID,
-		FileName:    fileName,
-		FileSize:    fileSize,
-		TotalChunks: totalChunks,
-		CreatedAt:   time.Now().UTC(),
+		ID:             jobID,
+		UserID:         userID,
+		UploadID:       uploadID,
+		FileName:       fileName,
+		FileSize:       fileSize,
+		TotalChunks:    totalChunks,
+		Title:          title,
+		Description:    description,
+		UserCategories: userCategories,
+		UserTags:       userTags,
+		CreatedAt:      time.Now().UTC(),
 	}
 	data, err := json.Marshal(job)
 	if err != nil {

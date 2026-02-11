@@ -15,6 +15,7 @@ interface CommentSectionProps {
 
 const CommentSection = ({ fileId, currentUserId: initialUserId, isReel = false }: CommentSectionProps) => {
   const [comments, setComments] = useState<Comment[]>([]);
+  const [totalCount, setTotalCount] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [currentUserId] = useState<string | undefined>(initialUserId);
@@ -25,14 +26,15 @@ const CommentSection = ({ fileId, currentUserId: initialUserId, isReel = false }
     try {
       setIsLoading(true);
       const response = await fetch(`/api/comments?fileId=${fileId}&limit=50&offset=0`);
-      
+
       if (!response.ok) {
         throw new Error("Failed to fetch comments");
       }
 
       const result = await response.json();
-      if (result.success && result.data) {
-        setComments(result.data);
+      if (result.success) {
+        setComments(Array.isArray(result.data) ? result.data : []);
+        setTotalCount(typeof result.totalCount === 'number' ? result.totalCount : (result.data?.length ?? 0));
         setError(null);
       }
     } catch (err) {
@@ -161,7 +163,7 @@ const CommentSection = ({ fileId, currentUserId: initialUserId, isReel = false }
       <div className="flex items-center gap-2">
         <MessageSquare className="h-5 w-5 text-foreground" />
         <h2 className="text-lg font-semibold text-foreground">
-          Comments ({comments.length})
+          Comments ({totalCount})
         </h2>
       </div>
 
@@ -197,7 +199,7 @@ const CommentSection = ({ fileId, currentUserId: initialUserId, isReel = false }
         <div className="flex items-center justify-center py-8">
           <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
         </div>
-      ) : comments.length === 0 ? (
+      ) : (comments.length === 0 || totalCount === 0) ? (
         <div className="text-center py-8 text-muted-foreground">
           <MessageSquare className="h-12 w-12 mx-auto mb-2 opacity-50" />
           <p>No comments yet. Be the first to comment!</p>

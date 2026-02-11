@@ -130,9 +130,8 @@ const UserFilesGrid = ({
   return (
     <div className="space-y-6">
       <h2 className="text-2xl font-semibold text-foreground">Uploads</h2>
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-2">
         {files.map((file, index) => (
-          <div key={file.unique_id || index} className="w-full">
             <VideoCard
               data={file}
               index={index}
@@ -141,7 +140,6 @@ const UserFilesGrid = ({
               onUpdate={handleFileUpdate}
               showOwnerControls={true}
             />
-          </div>
         ))}
       </div>
       {hasMore && (

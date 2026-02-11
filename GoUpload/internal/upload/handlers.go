@@ -94,9 +94,11 @@ func (h *Handler) uploadChunk(c *fiber.Ctx) error {
 }
 
 type completeBody struct {
-	IsPublic    *bool  `json:"is_public"`
-	Title       string `json:"title"`
-	Description string `json:"description"`
+	IsPublic    *bool    `json:"is_public"`
+	Title       string   `json:"title"`
+	Description string   `json:"description"`
+	Categories  []string `json:"categories"`
+	Tags        []string `json:"tags"`
 }
 
 func (h *Handler) completeUpload(c *fiber.Ctx) error {
@@ -111,6 +113,7 @@ func (h *Handler) completeUpload(c *fiber.Ctx) error {
 
 	isPublic := true
 	title, description := "", ""
+	var userCategories, userTags []string
 	if len(c.Body()) > 0 {
 		var b completeBody
 		if err := json.Unmarshal(c.Body(), &b); err == nil {
@@ -123,6 +126,8 @@ func (h *Handler) completeUpload(c *fiber.Ctx) error {
 			if b.Description != "" {
 				description = b.Description
 			}
+			userCategories = b.Categories
+			userTags = b.Tags
 		}
 	}
 
@@ -130,7 +135,7 @@ func (h *Handler) completeUpload(c *fiber.Ctx) error {
 	if err != nil {
 		return badRequest(c, err.Error())
 	}
-	jobID, err := h.queue.Enqueue(context.Background(), meta.UserID, meta.UploadID, meta.FileName, meta.FileSize, meta.TotalChunks)
+	jobID, err := h.queue.Enqueue(context.Background(), meta.UserID, meta.UploadID, meta.FileName, meta.FileSize, meta.TotalChunks, title, description, userCategories, userTags)
 	if err != nil {
 		if h.log != nil {
 			h.log.Errorf("queue_error user=%s upload=%s err=%s", userID, uploadID, err.Error())
