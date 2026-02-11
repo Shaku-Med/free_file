@@ -1,4 +1,4 @@
-import { Worker, Job } from 'bullmq';
+import { Worker, type Job } from 'bullmq';
 import { FileService } from '~/lib/Services/FileService';
 import { VideoThumbnailService } from './VideoThumbnailService';
 import { processVideoToHLS } from './videoProcessor';

@@ -26,7 +26,8 @@ export default defineConfig(({mode}) => {
     'assert',
     'url',
     'events',
-    'canvas'
+    'canvas',
+    'sharp',
   ];
 
   let addedModules = isProduction ? {
