@@ -125,12 +125,12 @@ export const loader = async ({request}: {request: Request}) => {
 
     let c_user = getCookie('c_user', request.headers);
 
-    const uploadServerUrl = "http://localhost:3003"
-      // typeof process !== 'undefined' && process.env?.UPLOAD_SERVER_URL
-      //   ? process.env.UPLOAD_SERVER_URL
-      //   : (typeof process !== 'undefined' && process.env?.NODE_ENV === 'development'
-      //     ? 'http://localhost:3003'
-      //     : '');
+    const uploadServerUrl =
+      typeof process !== 'undefined' && process.env?.UPLOAD_SERVER_URL
+        ? process.env.UPLOAD_SERVER_URL
+        : (typeof process !== 'undefined' && process.env?.NODE_ENV === 'development'
+          ? 'http://localhost:3003'
+          : '');
 
     return data({ st: sessionToken, user_agent: request.headers.get('user-agent'), userId, c_user, uploadServerUrl }, {
       status: 200,
