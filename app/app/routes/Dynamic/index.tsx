@@ -671,8 +671,8 @@ const index = () => {
                 </div>
                 {(description || hasLongDescription) && (
                   <div className="px-4 pt-1">
-                    <p className="text-sm text-foreground whitespace-pre-wrap break-words">
-                      {descriptionToShow}
+                    <div className="text-sm text-foreground break-words">
+                      <FormattedText text={descriptionToShow} />
                       {hasLongDescription && !descriptionExpanded && (
                         <>
                           {" "}
@@ -685,7 +685,7 @@ const index = () => {
                           </button>
                         </>
                       )}
-                    </p>
+                    </div>
                   </div>
                 )}
                 {(categoriesList.length > 0 || tagsList.length > 0) && (

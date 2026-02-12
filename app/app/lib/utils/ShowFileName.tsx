@@ -1,13 +1,15 @@
 import type React from "react";
 import { Link } from "react-router";
 
-const URL_PATTERN = /(https?:\/\/[^\s<>\[\]()]+|www\.[^\s<>\[\]()]+)/gi;
-const EMAIL_PATTERN = /([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/g;
-const HASHTAG_PATTERN = /(#[\w-]+)/g;
-const MENTION_PATTERN = /(@[\w.-]+)/g;
+// Use non-capturing groups (?:) so .source doesn't add extra capture groups
+const URL_RE = /(?:https?:\/\/[^\s<>\[\]()]+|www\.[^\s<>\[\]()]+)/gi;
+const EMAIL_RE = /(?:[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/g;
+const HASHTAG_RE = /(?:#[\w-]+)/g;
+const MENTION_RE = /(?:@[\w.-]+)/g;
 
+// Exactly 4 capture groups: m[1]=URL, m[2]=EMAIL, m[3]=HASHTAG, m[4]=MENTION
 const LINKIFY_REGEX = new RegExp(
-  `(${URL_PATTERN.source})|(${EMAIL_PATTERN.source})|(${HASHTAG_PATTERN.source})|(${MENTION_PATTERN.source})`,
+  `(${URL_RE.source})|(${EMAIL_RE.source})|(${HASHTAG_RE.source})|(${MENTION_RE.source})`,
   "gi"
 );
 
@@ -27,14 +29,15 @@ function parseWithLinks(text: string): Segment[] {
     const before = text.slice(pos, m.index);
     if (before) segments.push({ type: "text", value: before });
     const full = m[0];
-    if (m[1]) {
+    // Determine type by leading character — bulletproof regardless of group numbering
+    if (full.match(/^https?:\/\//i) || full.match(/^www\./i)) {
       const href = full.toLowerCase().startsWith("http") ? full : `https://${full}`;
       segments.push({ type: "url", value: full, href });
-    } else if (m[2]) {
+    } else if (full.includes("@") && full.includes(".") && !full.startsWith("@")) {
       segments.push({ type: "email", value: full });
-    } else if (m[3]) {
+    } else if (full.startsWith("#")) {
       segments.push({ type: "hashtag", value: full });
-    } else {
+    } else if (full.startsWith("@")) {
       segments.push({ type: "mention", value: full });
     }
     pos = LINKIFY_REGEX.lastIndex;
@@ -77,23 +80,23 @@ function renderSegments(segments: Segment[], keyPrefix: string): React.ReactNode
         </a>
       );
     } else if (seg.type === "hashtag") {
-      const tag = seg.value.slice(1);
+      const tag = seg.value.slice(1); // strip leading #
       out.push(
         <Link
           key={k}
           to={`/tag/${encodeURIComponent(tag)}`}
-          className="text-primary hover:underline inline"
+          className="text-primary hover:text-primary/50 hover:underline inline"
         >
           {seg.value}
         </Link>
       );
     } else if (seg.type === "mention") {
-      const username = seg.value.slice(1);
+      const username = seg.value.slice(1); // strip leading @
       out.push(
         <Link
           key={k}
           to={`/profile/${encodeURIComponent(username)}`}
-          className="text-primary hover:underline inline"
+          className="text-primary hover:text-primary/50 hover:underline font-medium inline"
         >
           {seg.value}
         </Link>

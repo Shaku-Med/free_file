@@ -305,20 +305,6 @@ function PlayerInner({
   }, [isReelCtx, togglePlay, triggerPlayPauseFeedback]);
 
   useEffect(() => {
-    const video = videoRef.current;
-    if (!video || isReelCtx) return;
-    const handleVisibility = () => {
-      if (document.visibilityState === 'hidden' && !video.paused) {
-        video.pause();
-      } else if (document.visibilityState === 'visible' && autoPlayEnabled && video.paused && !state.isEnded) {
-        video.play().catch(() => {});
-      }
-    };
-    document.addEventListener('visibilitychange', handleVisibility);
-    return () => document.removeEventListener('visibilitychange', handleVisibility);
-  }, [autoPlayEnabled, isReelCtx, state.isEnded]);
-
-  useEffect(() => {
     const savedVol = safeGet('player-volume');
     const savedSpeed = safeGet('player-speed');
     const savedMuted = safeGet('player-muted');

@@ -106,7 +106,7 @@ export const action = async ({ request }: { request: Request }) => {
               fileId,
               commentId: parentId,
             });
-            sendPushForNotification(parentRow.user_id, 'comment_reply', user.id, fileId).catch(() => {});
+            sendPushForNotification(parentRow.user_id, 'comment_reply', user.id, fileId).catch((e) => console.error("[Push] comment_reply failed:", e));
           }
         } else {
           const { data: fileRow } = await db.from('files').select('owner_id').eq('id', fileId).maybeSingle();
@@ -118,7 +118,7 @@ export const action = async ({ request }: { request: Request }) => {
               fileId,
               commentId: comment.id,
             });
-            sendPushForNotification(fileRow.owner_id, 'file_comment', user.id, fileId).catch(() => {});
+            sendPushForNotification(fileRow.owner_id, 'file_comment', user.id, fileId).catch((e) => console.error("[Push] file_comment failed:", e));
           }
         }
         // Notify mentioned users (only if they exist and are not the commenter)
@@ -141,7 +141,7 @@ export const action = async ({ request }: { request: Request }) => {
                   fileId,
                   commentId: comment.id,
                 });
-                sendPushForNotification(row.id, 'comment_mention', user.id, fileId).catch(() => {});
+                sendPushForNotification(row.id, 'comment_mention', user.id, fileId).catch((e) => console.error("[Push] comment_mention failed:", e));
               }
             }
           }

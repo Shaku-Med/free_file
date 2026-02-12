@@ -48,7 +48,7 @@ export const action = async ({ request }: { request: Request }) => {
           actorId: user.id,
           fileId,
         });
-        sendPushForNotification(fileRow.owner_id, 'file_like', user.id, fileId).catch(() => {});
+        sendPushForNotification(fileRow.owner_id, 'file_like', user.id, fileId).catch((e) => console.error("[Push] file_like failed:", e));
       }
     }
     return toJson({

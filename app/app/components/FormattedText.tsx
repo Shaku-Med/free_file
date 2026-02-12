@@ -4,13 +4,15 @@ import { Link } from "react-router";
 import { cn } from "~/lib/utils";
 
 const MD_LINK = /\[([^\]]+)\]\(([^)\s]+)\)/g;
-const URL_PATTERN = /(https?:\/\/[^\s<>\[\]()]+|www\.[^\s<>\[\]()]+)/gi;
-const EMAIL_PATTERN = /([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/g;
-const PHONE_PATTERN = /(\+?[\d][\d\s\-().]{9,}\d|\(\d{3}\)\s*\d{3}[-.\s]?\d{4})/g;
 
-const HASHTAG_PATTERN = /#[\w-]+/g;
-const MENTION_PATTERN = /@[\w.-]+/g;
-const HASHTAG_OR_MENTION = new RegExp(`(${HASHTAG_PATTERN.source})|(${MENTION_PATTERN.source})`, "g");
+// Use non-capturing groups (?:) inside each pattern so .source doesn't add extra capture groups
+const URL_RE = /(?:https?:\/\/[^\s<>\[\]()]+|www\.[^\s<>\[\]()]+)/gi;
+const EMAIL_RE = /(?:[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/g;
+const PHONE_RE = /(?:\+?[\d][\d\s\-().]{9,}\d|\(\d{3}\)\s*\d{3}[-.\s]?\d{4})/g;
+
+// #hashtag: starts with # followed by word chars / hyphens
+// @mention: starts with @ followed by word chars / dots / hyphens
+const HASHTAG_OR_MENTION = /(?:#[\w-]+)|(?:@[\w.-]+)/g;
 
 type Segment =
   | { type: "text"; value: string; bold?: boolean; italic?: boolean; code?: boolean }
@@ -21,8 +23,10 @@ type Segment =
   | { type: "hashtag"; value: string }
   | { type: "mention"; value: string };
 
+// Each .source is a non-capturing group, so wrapping in () gives exactly 3 numbered groups:
+//   m[1] = URL, m[2] = EMAIL, m[3] = PHONE
 const LINKIFY_REGEX = new RegExp(
-  `(${URL_PATTERN.source})|(${EMAIL_PATTERN.source})|(${PHONE_PATTERN.source})`,
+  `(${URL_RE.source})|(${EMAIL_RE.source})|(${PHONE_RE.source})`,
   "gi"
 );
 
@@ -86,8 +90,13 @@ function pushTextWithHashtagMention(s: string, segments: Segment[]) {
   let m;
   while ((m = HASHTAG_OR_MENTION.exec(s)) !== null) {
     if (m.index > pos) segments.push({ type: "text", value: s.slice(pos, m.index) });
-    if (m[1]) segments.push({ type: "hashtag", value: m[1] });
-    else if (m[2]) segments.push({ type: "mention", value: m[2] });
+    const matched = m[0];
+    // Determine type by the leading character — bulletproof, no group-numbering issues
+    if (matched.startsWith("#")) {
+      segments.push({ type: "hashtag", value: matched });
+    } else if (matched.startsWith("@")) {
+      segments.push({ type: "mention", value: matched });
+    }
     pos = HASHTAG_OR_MENTION.lastIndex;
   }
   if (pos < s.length) segments.push({ type: "text", value: s.slice(pos) });
@@ -184,23 +193,23 @@ function renderSegments(segments: Segment[], keyPrefix: string): React.ReactNode
         );
       }
     } else if (seg.type === "hashtag") {
-      const tag = seg.value.slice(1);
+      const tag = seg.value.slice(1); // strip leading #
       out.push(
         <Link
           key={k}
           to={`/tag/${encodeURIComponent(tag)}`}
-          className="text-primary hover:underline"
+          className="text-emerald-400 hover:text-emerald-300 hover:underline"
         >
           {seg.value}
         </Link>
       );
     } else if (seg.type === "mention") {
-      const username = seg.value.slice(1);
+      const username = seg.value.slice(1); // strip leading @
       out.push(
         <Link
           key={k}
           to={`/profile/${encodeURIComponent(username)}`}
-          className="text-primary hover:underline"
+          className="text-sky-400 hover:text-sky-300 hover:underline font-medium"
         >
           {seg.value}
         </Link>

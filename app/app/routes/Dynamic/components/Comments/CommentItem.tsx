@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { Link } from "react-router";
 import { Avatar, AvatarFallback, AvatarImage } from "~/components/ui/avatar";
 import { Button } from "~/components/ui/button";
@@ -43,6 +43,13 @@ const CommentItem = ({
   const [likeCount, setLikeCount] = useState(comment.like_count ?? 0);
   const [userLiked, setUserLiked] = useState(comment.user_has_liked ?? false);
   const [liking, setLiking] = useState(false);
+  const [floatingHearts, setFloatingHearts] = useState<
+    { id: number; x: number; y: number; size: number; drift: number; delay: number; rotation: number }[]
+  >([]);
+  const lastTapRef = useRef(0);
+  const lastTapPosRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+  const heartIdRef = useRef(0);
+  const contentRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     setLikeCount(comment.like_count ?? 0);
@@ -58,7 +65,7 @@ const CommentItem = ({
     setShowReplies(true);
   };
 
-  const handleLike = async () => {
+  const handleLike = useCallback(async () => {
     if (!onLike || liking || !currentUserId) return;
     setLiking(true);
     try {
@@ -68,7 +75,77 @@ const CommentItem = ({
     } finally {
       setLiking(false);
     }
-  };
+  }, [onLike, liking, currentUserId, comment.id, userLiked]);
+
+  const spawnHearts = useCallback((clientX: number, clientY: number) => {
+    const container = contentRef.current;
+    if (!container) return;
+    const rect = container.getBoundingClientRect();
+    const x = clientX - rect.left;
+    const y = clientY - rect.top;
+    const count = 5 + Math.floor(Math.random() * 4); // 5-8 hearts
+    const newHearts = Array.from({ length: count }, () => {
+      heartIdRef.current += 1;
+      return {
+        id: heartIdRef.current,
+        x: x + (Math.random() - 0.5) * 20,
+        y,
+        size: 14 + Math.random() * 14, // 14-28px
+        drift: (Math.random() - 0.5) * 60, // random horizontal drift
+        delay: Math.random() * 150, // stagger start
+        rotation: (Math.random() - 0.5) * 50, // random tilt
+      };
+    });
+    setFloatingHearts((prev) => [...prev, ...newHearts]);
+    // Remove after animation finishes
+    setTimeout(() => {
+      setFloatingHearts((prev) =>
+        prev.filter((h) => !newHearts.some((n) => n.id === h.id))
+      );
+    }, 1200);
+  }, []);
+
+  const handleDoubleTapLike = useCallback(
+    (clientX: number, clientY: number) => {
+      if (!onLike || liking || !currentUserId) return;
+      spawnHearts(clientX, clientY);
+      // Only like (never unlike) on double-tap
+      if (!userLiked) handleLike();
+    },
+    [onLike, liking, currentUserId, userLiked, handleLike, spawnHearts]
+  );
+
+  const handleContentClick = useCallback(
+    (e: React.MouseEvent) => {
+      const now = Date.now();
+      const pos = { x: e.clientX, y: e.clientY };
+      if (now - lastTapRef.current < 350) {
+        handleDoubleTapLike(pos.x, pos.y);
+        lastTapRef.current = 0;
+      } else {
+        lastTapRef.current = now;
+        lastTapPosRef.current = pos;
+      }
+    },
+    [handleDoubleTapLike]
+  );
+
+  const handleContentTouchEnd = useCallback(
+    (e: React.TouchEvent) => {
+      const touch = e.changedTouches[0];
+      if (!touch) return;
+      const now = Date.now();
+      const pos = { x: touch.clientX, y: touch.clientY };
+      if (now - lastTapRef.current < 350) {
+        handleDoubleTapLike(pos.x, pos.y);
+        lastTapRef.current = 0;
+      } else {
+        lastTapRef.current = now;
+        lastTapPosRef.current = pos;
+      }
+    },
+    [handleDoubleTapLike]
+  );
 
   const handleEdit = async (content: string) => {
     await onEdit(comment.id, content);
@@ -129,7 +206,12 @@ const CommentItem = ({
                   placeholder="Edit your comment..."
                 />
               ) : (
-                <div className="text-sm text-foreground border-0 space-y-1">
+                <div
+                  ref={contentRef}
+                  className="text-sm text-foreground border-0 space-y-1 relative select-none"
+                  onClick={handleContentClick}
+                  onTouchEnd={handleContentTouchEnd}
+                >
                   {comment.content ? (
                     <div>
                       <FormattedText text={comment.content} />
@@ -142,6 +224,27 @@ const CommentItem = ({
                       className="max-h-40 w-auto rounded-lg border border-border object-cover"
                     />
                   ) : null}
+                  {/* Floating hearts on double-tap */}
+                  {floatingHearts.length > 0 && (
+                    <div className="absolute inset-0 overflow-visible pointer-events-none z-10">
+                      {floatingHearts.map((h) => (
+                        <Heart
+                          key={h.id}
+                          className="absolute text-primary fill-primary drop-shadow-md"
+                          style={{
+                            left: h.x,
+                            top: h.y,
+                            width: h.size,
+                            height: h.size,
+                            transform: `rotate(${h.rotation}deg)`,
+                            animation: `heart-float 1s ease-out ${h.delay}ms forwards`,
+                            ['--drift' as string]: `${h.drift}px`,
+                            opacity: 0,
+                          }}
+                        />
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
             </div>

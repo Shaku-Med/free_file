@@ -65,7 +65,7 @@ export const action = async ({ request }: { request: Request }) => {
         "comment_like",
         user.id,
         commentRow.file_id ?? undefined
-      ).catch(() => {});
+      ).catch((e) => console.error("[Push] comment_like failed:", e));
     }
 
     return toJson({ liked: true, success: true });

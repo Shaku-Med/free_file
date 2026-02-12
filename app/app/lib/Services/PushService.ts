@@ -7,48 +7,98 @@ export interface PushPayload {
   url: string;
 }
 
-let vapidSet = false;
+let webpush: typeof import("web-push") | null = null;
 
 function ensureVapid(): boolean {
-  if (vapidSet) return true;
+  if (webpush) return true;
   const publicKey = process.env.VAPID_PUBLIC_KEY;
   const privateKey = process.env.VAPID_PRIVATE_KEY;
-  if (!publicKey || !privateKey) return false;
+  if (!publicKey || !privateKey) {
+    console.warn("[Push] VAPID keys not configured. Set VAPID_PUBLIC_KEY and VAPID_PRIVATE_KEY in .env");
+    return false;
+  }
   try {
-    const webpush = require("web-push");
-    webpush.setVapidDetails("mailto:noreply@memories.app", publicKey, privateKey);
-    vapidSet = true;
+    // Dynamic import for server-only module
+    const wp = require("web-push") as typeof import("web-push");
+    wp.setVapidDetails("mailto:noreply@memories.app", publicKey, privateKey);
+    webpush = wp;
+    console.log("[Push] VAPID configured successfully");
     return true;
-  } catch {
+  } catch (err) {
+    console.error("[Push] Failed to initialize web-push:", err);
     return false;
   }
 }
 
 /**
  * Send a push notification to all subscriptions for the given user.
- * No-op if VAPID is not configured or user has no subscriptions.
+ * Cleans up expired/invalid subscriptions automatically.
  */
 export async function sendPushToUser(userId: string, payload: PushPayload): Promise<void> {
-  if (!db || !ensureVapid()) return;
+  if (!db) {
+    console.warn("[Push] Database not available, skipping push");
+    return;
+  }
+  if (!ensureVapid() || !webpush) {
+    console.warn("[Push] VAPID not ready, skipping push");
+    return;
+  }
 
-  const { data: subs } = await db
+  const { data: subs, error: subsError } = await db
     .from("push_subscriptions")
     .select("endpoint, p256dh, auth")
     .eq("user_id", userId);
 
-  if (!subs?.length) return;
+  if (subsError) {
+    console.error("[Push] Failed to fetch subscriptions for user", userId, subsError.message);
+    return;
+  }
+  if (!subs?.length) {
+    console.log("[Push] No subscriptions found for user", userId);
+    return;
+  }
 
-  const webpush = require("web-push");
   const body = JSON.stringify(payload);
+  console.log(`[Push] Sending to ${subs.length} subscription(s) for user ${userId}: "${payload.body}"`);
 
-  await Promise.allSettled(
+  const results = await Promise.allSettled(
     subs.map((sub) =>
-      webpush.sendNotification(
+      webpush!.sendNotification(
         { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
         body
       )
     )
   );
+
+  // Log results and clean up expired subscriptions
+  const expiredEndpoints: string[] = [];
+  results.forEach((result, i) => {
+    if (result.status === "fulfilled") {
+      console.log(`[Push] Sent successfully to subscription ${i + 1}/${subs.length}`);
+    } else {
+      const err = result.reason;
+      const statusCode = err?.statusCode || err?.status;
+      console.error(`[Push] Failed to send to subscription ${i + 1}/${subs.length}:`, statusCode, err?.body || err?.message || err);
+
+      // 404 or 410 means the subscription is expired/invalid — remove it
+      if (statusCode === 404 || statusCode === 410) {
+        expiredEndpoints.push(subs[i].endpoint);
+      }
+    }
+  });
+
+  // Clean up expired subscriptions from DB
+  if (expiredEndpoints.length > 0) {
+    console.log(`[Push] Cleaning up ${expiredEndpoints.length} expired subscription(s)`);
+    await db
+      .from("push_subscriptions")
+      .delete()
+      .in("endpoint", expiredEndpoints)
+      .then(({ error }) => {
+        if (error) console.error("[Push] Failed to clean up expired subs:", error.message);
+        else console.log("[Push] Expired subscriptions removed");
+      });
+  }
 }
 
 function getMessage(type: NotificationType, actorName: string): string {
@@ -71,6 +121,7 @@ function getMessage(type: NotificationType, actorName: string): string {
 /**
  * Build payload and send push for an in-app notification.
  * Fetches actor username and file unique_id for the link.
+ * Skips sending if recipient is the same as the actor (no self-notifications).
  */
 export async function sendPushForNotification(
   recipientUserId: string,
@@ -80,12 +131,20 @@ export async function sendPushForNotification(
 ): Promise<void> {
   if (!db) return;
 
+  // Don't send push notifications to yourself
+  if (recipientUserId === actorId) {
+    console.log("[Push] Skipping self-notification for user", actorId);
+    return;
+  }
+
   const [userResult, fileResult] = await Promise.all([
     db.from("users").select("username").eq("id", actorId).maybeSingle(),
     fileId ? db.from("files").select("unique_id").eq("id", fileId).maybeSingle() : Promise.resolve({ data: null }),
   ]);
   const actorName = userResult?.data?.username ?? "Someone";
   const url = fileResult?.data?.unique_id ? `/${fileResult.data.unique_id}` : "/";
+
+  console.log(`[Push] Sending "${type}" notification to user ${recipientUserId} from ${actorName}`);
 
   await sendPushToUser(recipientUserId, {
     title: "Memories",

@@ -531,3 +531,22 @@ input[type="file"] {
     opacity: 0;
   }
 }
+
+@keyframes heart-float {
+  0% {
+    opacity: 1;
+    transform: translateY(0) translateX(0) scale(0.3) rotate(var(--rotation, 0deg));
+  }
+  15% {
+    opacity: 1;
+    transform: translateY(-15px) translateX(calc(var(--drift, 0px) * 0.2)) scale(1.1) rotate(var(--rotation, 0deg));
+  }
+  50% {
+    opacity: 0.9;
+    transform: translateY(-50px) translateX(calc(var(--drift, 0px) * 0.6)) scale(1) rotate(var(--rotation, 0deg));
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-100px) translateX(var(--drift, 0px)) scale(0.7) rotate(var(--rotation, 0deg));
+  }
+}

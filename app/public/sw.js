@@ -1,22 +1,33 @@
 /* Service worker for Web Push – handle push and notification click */
 self.addEventListener("push", function (event) {
+  console.log("[SW] Push event received");
   let payload = { title: "Memories", body: "", url: "/" };
   if (event.data) {
     try {
       payload = { ...payload, ...event.data.json() };
+      console.log("[SW] Push payload:", JSON.stringify(payload));
     } catch (_) {
       payload.body = event.data.text();
+      console.log("[SW] Push payload (text):", payload.body);
     }
+  } else {
+    console.log("[SW] Push event has no data");
   }
   const options = {
     body: payload.body || payload.title,
-    icon: "/icons/web/icon-192.png",
-    badge: "/icons/web/icon-192.png",
+    icon: "/logo.svg",
+    badge: "/logo.svg",
     data: { url: payload.url || "/" },
-    tag: payload.tag || "memories-notification",
+    tag: payload.tag || "memories-" + Date.now(),
     renotify: true,
   };
-  event.waitUntil(self.registration.showNotification(payload.title, options));
+  event.waitUntil(
+    self.registration.showNotification(payload.title, options).then(function () {
+      console.log("[SW] Notification shown successfully");
+    }).catch(function (err) {
+      console.error("[SW] Failed to show notification:", err);
+    })
+  );
 });
 
 self.addEventListener("notificationclick", function (event) {
