@@ -17,12 +17,18 @@ export interface Comment {
   };
   replies?: Comment[];
   reply_count?: number;
+  like_count?: number;
+  user_has_liked?: boolean;
+  gif_id?: string | null;
+  gif_url?: string | null;
+  gif_preview_url?: string | null;
 }
 
 export interface CreateCommentInput {
   fileId: string;
   content: string;
   parentId?: string | null;
+  gif?: { id: string; url: string; previewUrl: string } | null;
 }
 
 export interface CommentServiceResponse<T> {
@@ -47,13 +53,14 @@ export class CommentService {
   }
 
   /**
-   * Fetches ALL comments for a file from the table, builds tree in JS, then applies limit/offset to roots.
-   * This guarantees we see every comment; the RPC can sometimes return partial results.
+   * Fetches ALL comments for a file from the table, builds tree in JS, attaches like counts and user_has_liked,
+   * sorts roots by like_count DESC then reply_count DESC then created_at DESC (Instagram-style), then applies limit/offset.
    */
   async getCommentsTreeByFileId(
     fileId: string,
     limit: number = 50,
-    offset: number = 0
+    offset: number = 0,
+    currentUserId?: string | null
   ): Promise<CommentServiceResponse<CommentsTreeResult>> {
     try {
       if (!db) {
@@ -63,7 +70,7 @@ export class CommentService {
       const maxComments = 500;
       const { data: rows, error } = await db
         .from('comments')
-        .select('id, user_id, file_id, content, parent_id, created_at, updated_at, is_edited, is_deleted')
+        .select('id, user_id, file_id, content, parent_id, created_at, updated_at, is_edited, is_deleted, gif_id, gif_url, gif_preview_url')
         .eq('file_id', fileId)
         .eq('is_deleted', false)
         .limit(maxComments);
@@ -83,6 +90,9 @@ export class CommentService {
         updated_at: string;
         is_edited: boolean;
         is_deleted: boolean;
+        gif_id?: string | null;
+        gif_url?: string | null;
+        gif_preview_url?: string | null;
       }>;
 
       const totalCount = list.length;
@@ -102,6 +112,22 @@ export class CommentService {
         }
       }
 
+      const commentIds = list.map((r) => r.id);
+      const likeCountByComment = new Map<string, number>();
+      const userLikedCommentIds = new Set<string>();
+      if (commentIds.length > 0) {
+        const { data: likeRows } = await db
+          .from('comment_likes')
+          .select('comment_id, user_id')
+          .in('comment_id', commentIds);
+        const likes = likeRows || [];
+        for (const like of likes) {
+          const cid = like.comment_id;
+          likeCountByComment.set(cid, (likeCountByComment.get(cid) || 0) + 1);
+          if (currentUserId && like.user_id === currentUserId) userLikedCommentIds.add(cid);
+        }
+      }
+
       const byId = new Map<string, Comment>();
       const roots: Comment[] = [];
 
@@ -111,7 +137,7 @@ export class CommentService {
           id: row.id,
           user_id: row.user_id,
           file_id: row.file_id,
-          content: row.content,
+          content: row.content ?? '',
           parent_id: row.parent_id,
           created_at: row.created_at,
           updated_at: row.updated_at,
@@ -120,6 +146,11 @@ export class CommentService {
           user: user ?? undefined,
           replies: [],
           reply_count: 0,
+          like_count: likeCountByComment.get(row.id) || 0,
+          user_has_liked: userLikedCommentIds.has(row.id),
+          gif_id: row.gif_id ?? undefined,
+          gif_url: row.gif_url ?? undefined,
+          gif_preview_url: row.gif_preview_url ?? undefined,
         };
         byId.set(row.id, comment);
       }
@@ -140,7 +171,13 @@ export class CommentService {
         }
       }
 
-      roots.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+      roots.sort((a, b) => {
+        const likesA = a.like_count ?? 0, likesB = b.like_count ?? 0;
+        if (likesB !== likesA) return likesB - likesA;
+        const repliesA = a.reply_count ?? 0, repliesB = b.reply_count ?? 0;
+        if (repliesB !== repliesA) return repliesB - repliesA;
+        return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+      });
       for (const r of byId.values()) {
         if (r.replies?.length) {
           r.replies.sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
@@ -221,22 +258,30 @@ export class CommentService {
         return { data: null, error: 'Database not initialized' };
       }
 
-      if (!input.content || input.content.trim().length === 0) {
-        return { data: null, error: 'Comment content cannot be empty' };
+      const hasText = input.content != null && input.content.trim().length > 0;
+      const hasGif = input.gif != null && input.gif.id && input.gif.url;
+      if (!hasText && !hasGif) {
+        return { data: null, error: 'Comment must have text or a GIF' };
+      }
+      if (hasText && input.content!.length > 2000) {
+        return { data: null, error: 'Comment content exceeds maximum length' };
       }
 
-      if (input.content.length > 2000) {
-        return { data: null, error: 'Comment content exceeds maximum length' };
+      const payload: Record<string, unknown> = {
+        user_id: userId,
+        file_id: input.fileId,
+        content: hasText ? input.content!.trim() : '',
+        parent_id: input.parentId || null,
+      };
+      if (hasGif) {
+        payload.gif_id = input.gif!.id;
+        payload.gif_url = input.gif!.url;
+        payload.gif_preview_url = input.gif!.previewUrl || input.gif!.url;
       }
 
       const { data: insertedData, error: insertError } = await db
         .from('comments')
-        .insert([{
-          user_id: userId,
-          file_id: input.fileId,
-          content: input.content.trim(),
-          parent_id: input.parentId || null
-        }])
+        .insert([payload])
         .select('*')
         .single();
 

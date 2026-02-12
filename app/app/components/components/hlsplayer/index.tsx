@@ -15,6 +15,7 @@ import ErrorOverlay from './overlays/ErrorOverlay';
 import AutoplayPrompt from './overlays/AutoplayPrompt';
 import PipOverlay from './overlays/PipOverlay';
 import PlayPauseFeedback from './overlays/PlayPauseFeedback';
+import SeekFeedback from './overlays/SeekFeedback';
 import PosterBackground from './overlays/PosterBackground';
 import AmbientBackground from '~/components/components/hlsplayer/overlays/AmbientBackground';
 import { usePictureInPictureContext } from '~/lib/Context/PictureInPictureContext';
@@ -109,6 +110,14 @@ function PlayerInner({
   const [feedbackIconPlaying, setFeedbackIconPlaying] = useState(true);
   const feedbackTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  const [showSeekFeedback, setShowSeekFeedback] = useState(false);
+  const [seekFeedbackDirection, setSeekFeedbackDirection] = useState<'back' | 'forward'>('back');
+  const [seekFeedbackFading, setSeekFeedbackFading] = useState(false);
+  const seekFeedbackTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastTapRef = useRef<{ time: number; x: number } | null>(null);
+  const lastDoubleTapTimeRef = useRef(0);
+  const SEEK_SECONDS = 10;
+
   const triggerPlayPauseFeedback = useCallback(() => {
     if (isReelCtx) return;
     setFeedbackIconPlaying(!state.isPlaying);
@@ -127,6 +136,7 @@ function PlayerInner({
 
   useEffect(() => () => {
     if (feedbackTimeoutRef.current) clearTimeout(feedbackTimeoutRef.current);
+    if (seekFeedbackTimeoutRef.current) clearTimeout(seekFeedbackTimeoutRef.current);
   }, []);
 
   useHLS();
@@ -164,26 +174,77 @@ function PlayerInner({
     loadSpriteMeta();
   }, [file?.thumbnails, setSpriteMeta, setSpriteUrl]);
 
+  const performSeekByTap = useCallback(
+    (clientX: number) => {
+      const container = containerRef.current;
+      const video = videoRef.current;
+      if (!container || !video || isReelCtx) return;
+      const rect = container.getBoundingClientRect();
+      const x = clientX - rect.left;
+      const width = rect.width;
+      if (x < width / 3) {
+        video.currentTime = Math.max(0, video.currentTime - SEEK_SECONDS);
+        setSeekFeedbackDirection('back');
+      } else if (x > (width * 2) / 3) {
+        video.currentTime = Math.min(video.duration || 0, video.currentTime + SEEK_SECONDS);
+        setSeekFeedbackDirection('forward');
+      } else {
+        return;
+      }
+      // Avoid conflict with play/pause feedback: cancel it when showing seek
+      if (feedbackTimeoutRef.current) {
+        clearTimeout(feedbackTimeoutRef.current);
+        feedbackTimeoutRef.current = null;
+      }
+      setShowPlayPauseFeedback(false);
+      setSeekFeedbackFading(false);
+      setShowSeekFeedback(true);
+      if (seekFeedbackTimeoutRef.current) clearTimeout(seekFeedbackTimeoutRef.current);
+      seekFeedbackTimeoutRef.current = setTimeout(() => {
+        setSeekFeedbackFading(true);
+        seekFeedbackTimeoutRef.current = setTimeout(() => {
+          setShowSeekFeedback(false);
+          seekFeedbackTimeoutRef.current = null;
+        }, 300);
+      }, 600);
+    },
+    [isReelCtx]
+  );
+
   const handleVideoClick = useCallback(() => {
     if (isReelCtx) return;
+    if (Date.now() - lastDoubleTapTimeRef.current < 300) return;
     togglePlay();
     triggerPlayPauseFeedback();
   }, [isReelCtx, togglePlay, triggerPlayPauseFeedback]);
 
-  const handleDoubleClick = useCallback((e: React.MouseEvent) => {
-    if (isReelCtx) return;
-    const container = containerRef.current;
-    if (!container) return;
-    const rect = container.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const video = videoRef.current;
-    if (!video) return;
-    if (x < rect.width / 3) {
-      video.currentTime = Math.max(0, video.currentTime - 10);
-    } else if (x > (rect.width * 2) / 3) {
-      video.currentTime = Math.min(video.duration, video.currentTime + 10);
-    }
-  }, [isReelCtx]);
+  const handleDoubleClick = useCallback(
+    (e: React.MouseEvent) => {
+      if (isReelCtx) return;
+      e.preventDefault();
+      lastDoubleTapTimeRef.current = Date.now();
+      performSeekByTap(e.clientX);
+    },
+    [isReelCtx, performSeekByTap]
+  );
+
+  const handleTouchEnd = useCallback(
+    (e: React.TouchEvent) => {
+      if (isReelCtx) return;
+      const touch = e.changedTouches[0];
+      if (!touch) return;
+      const now = Date.now();
+      const x = touch.clientX;
+      const prev = lastTapRef.current;
+      const isDoubleTap = prev && now - prev.time < 350 && Math.abs(x - prev.x) < 80;
+      lastTapRef.current = { time: now, x };
+      if (isDoubleTap) {
+        lastDoubleTapTimeRef.current = now;
+        performSeekByTap(x);
+      }
+    },
+    [isReelCtx, performSeekByTap]
+  );
 
   useEffect(() => {
     if (isReelCtx) return;
@@ -223,14 +284,19 @@ function PlayerInner({
           e.preventDefault();
           video.muted = !video.muted;
           break;
-        case 'f':
+        case 'f': {
           e.preventDefault();
           if (document.fullscreenElement) {
             document.exitFullscreen().catch(() => {});
           } else {
-            containerRef.current?.requestFullscreen().catch(() => {});
+            const isMobile =
+              typeof window !== 'undefined' &&
+              (window.innerWidth < 768 || 'ontouchstart' in window);
+            const el = isMobile ? videoRef.current : containerRef.current;
+            el?.requestFullscreen().catch(() => {});
           }
           break;
+        }
       }
     };
 
@@ -291,15 +357,19 @@ function PlayerInner({
         }}
       />
 
-      <div className="relative z-10 w-full h-full">
+      <div className="relative z-10 w-full h-full" onTouchEnd={handleTouchEnd}>
         {state.hasError && <ErrorOverlay />}
 
         {showBuffer && <BufferingSpinner />}
 
         <PipOverlay />
 
-        {showPlayPauseFeedback && !isReelCtx && (
+        {showPlayPauseFeedback && !showSeekFeedback && !isReelCtx && (
           <PlayPauseFeedback isPlaying={feedbackIconPlaying} fading={feedbackFading} />
+        )}
+
+        {showSeekFeedback && !isReelCtx && (
+          <SeekFeedback direction={seekFeedbackDirection} seconds={SEEK_SECONDS} fading={seekFeedbackFading} />
         )}
 
         <video

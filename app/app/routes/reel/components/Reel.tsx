@@ -1,7 +1,6 @@
 import { useEffect, useState, useCallback, useLayoutEffect, useRef } from "react";
 import { ReelSwiper } from "~/routes/reel/components/ReelSwiper";
-import { getRandomThumbnail, getVideoSrc } from "~/lib/utils";
-import type {FileType} from '~/lib/types'
+import type { FileType } from "~/lib/types";
 
 interface ReelProps {
   initialItems?: FileType[];
@@ -9,9 +8,11 @@ interface ReelProps {
 
 const Reel = ({ initialItems }: ReelProps) => {
   const [items, setItems] = useState<FileType[]>(initialItems || []);
-  const [nextCursor, setNextCursor] = useState<{ cursor_score: number; cursor_id: string } | null>(null);
+  const [nextCursor, setNextCursor] = useState<{ cursor_pos: number } | null>(null);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(true);
+  const [initialLoadDone, setInitialLoadDone] = useState(false);
+  const [userActions, setUserActions] = useState<{ likedFileIds: string[]; dislikedFileIds: string[] }>({ likedFileIds: [], dislikedFileIds: [] });
   const shownIdsRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
@@ -37,16 +38,14 @@ const Reel = ({ initialItems }: ReelProps) => {
         }
 
         const params = new URLSearchParams();
-        params.set("file_type", "video");
         if (append && nextCursor) {
-          params.set("cursor_score", String(nextCursor.cursor_score));
-          params.set("cursor_id", nextCursor.cursor_id);
+          params.set("cursor_pos", String(nextCursor.cursor_pos));
         }
         if (shownIdsRef.current.size > 0) {
           params.set("exclude_ids", JSON.stringify(Array.from(shownIdsRef.current).slice(0, 500)));
         }
 
-        const response = await fetch(`/api/feed?${params}`, {
+        const response = await fetch(`/api/reel-feed?${params}`, {
           headers: { Accept: "application/json" },
         });
 
@@ -61,15 +60,23 @@ const Reel = ({ initialItems }: ReelProps) => {
           data.data.forEach((f: FileType) => { if (f.id) shownIdsRef.current.add(f.id); });
         }
         setItems((prev) => {
-          if (!append) return data.data;
+          if (!append) return data.data ?? [];
           const existingIds = new Set(prev.map((f: FileType) => f.id));
-          const newItems = data.data.filter((f: FileType) => !existingIds.has(f.id));
+          const newItems = (data.data ?? []).filter((f: FileType) => !existingIds.has(f.id));
           return [...prev, ...newItems];
         });
         setNextCursor(data.nextCursor ?? null);
         setHasMore(Boolean(data.nextCursor));
+        if (data.userActions) {
+          setUserActions((prev) => ({
+            likedFileIds: [...new Set([...prev.likedFileIds, ...(data.userActions.likedFileIds ?? [])])],
+            dislikedFileIds: [...new Set([...prev.dislikedFileIds, ...(data.userActions.dislikedFileIds ?? [])])],
+          }));
+        }
+        if (!append) setInitialLoadDone(true);
       } catch (e) {
         setHasMore(false);
+        if (!append) setInitialLoadDone(true);
       } finally {
         setIsLoadingMore(false);
       }
@@ -87,8 +94,19 @@ const Reel = ({ initialItems }: ReelProps) => {
   }, [hasMore, loadFeed]);
 
   return (
-    <div className="fixed inset-0 z-0">
-      {items.length > 0 && <ReelSwiper items={items} onEndReached={handleEndReached} />}
+    <div className="fixed inset-0 z-0 bg-black">
+      {items.length > 0 ? (
+        <ReelSwiper items={items} onEndReached={handleEndReached} userActions={userActions} />
+      ) : initialLoadDone ? (
+        <div className="h-full w-full flex flex-col items-center justify-center gap-4 text-white/80 px-4">
+          <p className="text-center text-lg">No reels to show yet.</p>
+          <p className="text-center text-sm">Upload or mark content as reels to see them here.</p>
+        </div>
+      ) : (
+        <div className="h-full w-full flex items-center justify-center">
+          <div className="w-10 h-10 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+        </div>
+      )}
     </div>
   );
 };

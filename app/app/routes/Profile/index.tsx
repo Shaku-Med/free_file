@@ -3,7 +3,7 @@ import { userProfileService } from "~/lib/Services/UserProfileService";
 import { filterFilesByAccess } from "~/routes/Api/fun/accessControl";
 import { isAuthenticated } from "~/lib/Security/Password";
 import { ownerService } from "~/lib/Services/OwnerService";
-import { userActionsService } from "~/lib/Services/UserActionsService";
+import db from "~/lib/Database/supabase";
 import type { FileType } from "~/lib/types";
 import UserProfileHeader from "./components/UserProfileHeader";
 import UserFilesGrid from "./components/UserFilesGrid";
@@ -54,12 +54,36 @@ export const loader = async ({ request, params }: { request: Request; params: { 
       files = await ownerService.enrichFilesWithOwners(files);
     }
 
-    // Fetch user actions in one query
-    let userActions = { likedFileIds: new Set<string>(), dislikedFileIds: new Set<string>() };
-    if (currentUserId && files.length > 0) {
-      const fileIds = files.map(f => f.id).filter(Boolean);
-      if (fileIds.length > 0) {
-        userActions = await userActionsService.getUserActions(currentUserId, fileIds);
+    // Live like/dislike/comment counts and user liked state from get_batch_interactions
+    const fileIds = files.map(f => f.id).filter(Boolean);
+    const likedFileIds: string[] = [];
+    const dislikedFileIds: string[] = [];
+    if (fileIds.length > 0 && db) {
+      const { data: batch } = await db.rpc('get_batch_interactions', {
+        p_file_ids: fileIds,
+        p_user_id: currentUserId,
+      });
+      if (Array.isArray(batch)) {
+        const interactionsByFile = new Map<string, { like_count: number; dislike_count: number; comment_count: number; user_has_liked: boolean; user_has_disliked: boolean }>();
+        for (const row of batch) {
+          if (row?.file_id) {
+            const fid = String(row.file_id);
+            interactionsByFile.set(fid, {
+              like_count: Number(row.like_count) ?? 0,
+              dislike_count: Number(row.dislike_count) ?? 0,
+              comment_count: Number(row.comment_count) ?? 0,
+              user_has_liked: !!row.user_has_liked,
+              user_has_disliked: !!row.user_has_disliked,
+            });
+            if (row.user_has_liked) likedFileIds.push(fid);
+            if (row.user_has_disliked) dislikedFileIds.push(fid);
+          }
+        }
+        files = files.map(f => {
+          const ix = f.id ? interactionsByFile.get(String(f.id)) : undefined;
+          if (!ix) return f;
+          return { ...f, like_count: ix.like_count, dislike_count: ix.dislike_count, comment_count: ix.comment_count };
+        });
       }
     }
 
@@ -67,7 +91,7 @@ export const loader = async ({ request, params }: { request: Request; params: { 
     return data(
       {
         profile: profileResult.data,
-        files: files,
+        files,
         pagination: {
           page: 1,
           limit,
@@ -76,8 +100,8 @@ export const loader = async ({ request, params }: { request: Request; params: { 
         error: null,
         currentUserId,
         userActions: {
-          likedFileIds: Array.from(userActions.likedFileIds),
-          dislikedFileIds: Array.from(userActions.dislikedFileIds)
+          likedFileIds,
+          dislikedFileIds
         },
         pageUrl: url.pathname
       },

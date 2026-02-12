@@ -1,8 +1,8 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Link } from "react-router";
 import { Avatar, AvatarFallback, AvatarImage } from "~/components/ui/avatar";
 import { Button } from "~/components/ui/button";
-import { MoreVertical, Reply, Edit2, Trash2 } from "lucide-react";
+import { MoreVertical, Reply, Edit2, Trash2, Heart } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -11,6 +11,7 @@ import {
 } from "~/components/ui/dropdown-menu";
 import type { Comment as CommentType } from "~/lib/Services/CommentService";
 import CommentForm from "./CommentForm";
+import type { CommentGif } from "./CommentForm";
 import { FormattedText } from "~/components/FormattedText";
 import { formatDistanceToNow } from "date-fns";
 import { getProfilePicUrl } from "~/lib/utils/profilePic";
@@ -19,9 +20,10 @@ interface CommentItemProps {
   comment: CommentType;
   currentUserId?: string;
   fileId: string;
-  onReply: (parentId: string, content: string) => Promise<void>;
+  onReply: (parentId: string, content: string, gif?: CommentGif | null) => Promise<void>;
   onEdit: (commentId: string, content: string) => Promise<void>;
   onDelete: (commentId: string) => Promise<void>;
+  onLike?: (commentId: string) => Promise<void>;
   level?: number;
 }
 
@@ -32,19 +34,40 @@ const CommentItem = ({
   onReply,
   onEdit,
   onDelete,
+  onLike,
   level = 0,
 }: CommentItemProps) => {
   const [isReplying, setIsReplying] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
-  const [showReplies, setShowReplies] = useState(level === 0);
+  const [showReplies, setShowReplies] = useState(true);
+  const [likeCount, setLikeCount] = useState(comment.like_count ?? 0);
+  const [userLiked, setUserLiked] = useState(comment.user_has_liked ?? false);
+  const [liking, setLiking] = useState(false);
+
+  useEffect(() => {
+    setLikeCount(comment.like_count ?? 0);
+    setUserLiked(comment.user_has_liked ?? false);
+  }, [comment.like_count, comment.user_has_liked]);
 
   const isOwner = currentUserId === comment.user_id;
   const hasReplies = comment.replies && comment.replies.length > 0;
 
-  const handleReply = async (content: string) => {
-    await onReply(comment.id, content);
+  const handleReply = async (content: string, gif?: CommentGif | null) => {
+    await onReply(comment.id, content, gif);
     setIsReplying(false);
     setShowReplies(true);
+  };
+
+  const handleLike = async () => {
+    if (!onLike || liking || !currentUserId) return;
+    setLiking(true);
+    try {
+      await onLike(comment.id);
+      setUserLiked((prev) => !prev);
+      setLikeCount((prev) => (userLiked ? prev - 1 : prev + 1));
+    } finally {
+      setLiking(false);
+    }
   };
 
   const handleEdit = async (content: string) => {
@@ -106,8 +129,19 @@ const CommentItem = ({
                   placeholder="Edit your comment..."
                 />
               ) : (
-                <div className="text-sm text-foreground border-0">
-                  <FormattedText text={comment.content} />
+                <div className="text-sm text-foreground border-0 space-y-1">
+                  {comment.content ? (
+                    <div>
+                      <FormattedText text={comment.content} />
+                    </div>
+                  ) : null}
+                  {comment.gif_url || comment.gif_preview_url ? (
+                    <img
+                      src={comment.gif_preview_url || comment.gif_url || ""}
+                      alt="GIF"
+                      className="max-h-40 w-auto rounded-lg border border-border object-cover"
+                    />
+                  ) : null}
                 </div>
               )}
             </div>
@@ -132,7 +166,19 @@ const CommentItem = ({
             )}
           </div>
           {!isEditing && (
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
+              {onLike && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={handleLike}
+                  disabled={liking || !currentUserId}
+                  className={`h-7 text-xs gap-1 ${userLiked ? "text-primary" : ""}`}
+                >
+                  <Heart className={`h-3 w-3 ${userLiked ? "fill-current" : ""}`} />
+                  {likeCount > 0 ? likeCount : "Like"}
+                </Button>
+              )}
               <Button
                 variant="ghost"
                 size="sm"
@@ -162,7 +208,7 @@ const CommentItem = ({
           <CommentForm
             fileId={fileId}
             parentId={comment.id}
-            onSubmit={handleReply}
+            onSubmit={(content, gif) => handleReply(content, gif)}
             onCancel={() => setIsReplying(false)}
             placeholder="Write a reply..."
           />
@@ -180,6 +226,7 @@ const CommentItem = ({
               onReply={onReply}
               onEdit={onEdit}
               onDelete={onDelete}
+              onLike={onLike}
               level={level + 1}
             />
           ))}

@@ -21,11 +21,11 @@ import CommentSection from "./components/Comments/CommentSection";
 import { FormattedText } from "~/components/FormattedText";
 import OwnerProfile from "~/components/OwnerProfile/OwnerProfile";
 import { commentService } from "~/lib/Services/CommentService";
-import { userActionsService } from "~/lib/Services/UserActionsService";
 import DownloadButton from "./components/DownloadButton";
 import { formatNumber } from "~/lib/utils/formatNumber";
 import { useWatchTracking } from "~/lib/hooks/useWatchTracking";
 import { IMAGE_BASE_URL } from "~/lib/URLS";
+import ParseFilenameInsert from "~/lib/utils/ShowFileName";
 
 export const loader = async ({ request, params }: { request: Request, params: { id: string } }) => {
   try {
@@ -44,7 +44,7 @@ export const loader = async ({ request, params }: { request: Request, params: { 
     }
 
     if (!file) {
-      return data({ file: null, id: params.id, relatedVideos: [], userLiked: false, userDisliked: false, userId: null, accessDenied: false as const, reason: undefined }, { status: 404 });
+      return data({ file: null, id: params.id, relatedVideos: [], userLiked: false, userDisliked: false, likeCount: 0, dislikeCount: 0, userId: null, accessDenied: false as const, reason: undefined }, { status: 404 });
     }
 
     const accessControl = await checkFileAccess(request, file);
@@ -53,6 +53,12 @@ export const loader = async ({ request, params }: { request: Request, params: { 
       return data({ 
         file: null, 
         id: params.id, 
+        relatedVideos: [],
+        userLiked: false,
+        userDisliked: false,
+        likeCount: 0,
+        dislikeCount: 0,
+        userId: null,
         accessDenied: true as const, 
         reason: accessControl.reason
       }, { status: 403 });
@@ -120,23 +126,54 @@ export const loader = async ({ request, params }: { request: Request, params: { 
 
     let userLiked = false;
     let userDisliked = false;
+    let likeCount = 0;
+    let dislikeCount = 0;
     let relatedVideosUserActions = { likedFileIds: new Set<string>(), dislikedFileIds: new Set<string>() };
 
-    if (user && user.id && file.id) {
-      // Check like/dislike for current file
-      const [likeResult, dislikeResult] = await Promise.all([
-        db.from('likes').select('id').eq('user_id', user.id).eq('file_id', file.id).maybeSingle(),
-        db.from('dislike').select('id').eq('user_id', user.id).eq('file_id', file.id).maybeSingle()
-      ]);
+    if (file.id) {
+      const { data: interactionsData } = await db.rpc('get_file_interactions', {
+        p_file_id: file.id,
+        p_user_id: user?.id ?? null,
+      });
+      const interactions = Array.isArray(interactionsData) ? interactionsData[0] : interactionsData;
+      if (interactions) {
+        likeCount = Number(interactions.like_count) || 0;
+        dislikeCount = Number(interactions.dislike_count) || 0;
+        userLiked = !!interactions.user_has_liked;
+        userDisliked = !!interactions.user_has_disliked;
+      }
+    }
 
-      userLiked = !!likeResult.data;
-      userDisliked = !!dislikeResult.data;
-
-      // Fetch user actions for related videos in one query
-      if (relatedVideos.length > 0) {
-        const relatedFileIds = relatedVideos.map(v => v.id).filter(Boolean);
-        if (relatedFileIds.length > 0) {
-          relatedVideosUserActions = await userActionsService.getUserActions(user.id, relatedFileIds);
+    if (relatedVideos.length > 0) {
+      const relatedFileIds = relatedVideos.map(v => v.id).filter(Boolean);
+      if (relatedFileIds.length > 0) {
+        const { data: batch } = await db.rpc('get_batch_interactions', {
+          p_file_ids: relatedFileIds,
+          p_user_id: user?.id ?? null,
+        });
+        if (Array.isArray(batch)) {
+          const interactionsByFile = new Map<
+            string,
+            { like_count: number; dislike_count: number; comment_count: number; user_has_liked: boolean; user_has_disliked: boolean }
+          >();
+          for (const row of batch) {
+            if (row?.file_id) {
+              interactionsByFile.set(row.file_id as string, {
+                like_count: Number(row.like_count) ?? 0,
+                dislike_count: Number(row.dislike_count) ?? 0,
+                comment_count: Number(row.comment_count) ?? 0,
+                user_has_liked: !!row.user_has_liked,
+                user_has_disliked: !!row.user_has_disliked,
+              });
+              if (row.user_has_liked) relatedVideosUserActions.likedFileIds.add(row.file_id as string);
+              if (row.user_has_disliked) relatedVideosUserActions.dislikedFileIds.add(row.file_id as string);
+            }
+          }
+          relatedVideos = relatedVideos.map((v) => {
+            const ix = v.id ? interactionsByFile.get(v.id) : undefined;
+            if (!ix) return v;
+            return { ...v, like_count: ix.like_count, dislike_count: ix.dislike_count, comment_count: ix.comment_count };
+          });
         }
       }
     }
@@ -172,6 +209,8 @@ export const loader = async ({ request, params }: { request: Request, params: { 
       relatedVideos, 
       userLiked, 
       userDisliked, 
+      likeCount,
+      dislikeCount,
       userId, 
       owner, 
       commentsCount,
@@ -442,16 +481,16 @@ const index = () => {
   const [descriptionExpanded, setDescriptionExpanded] = useState(false)
   const [liked, setLiked] = useState(('userLiked' in data && data.userLiked) || false)
   const [disliked, setDisliked] = useState(('userDisliked' in data && data.userDisliked) || false)
-  const [likeCount, setLikeCount] = useState(Number(file_data?.up_count) || 0)
-  const [dislikeCount, setDislikeCount] = useState(Number(file_data?.down_count) || 0)
+  const [likeCount, setLikeCount] = useState(Number(data?.likeCount) || 0)
+  const [dislikeCount, setDislikeCount] = useState(Number(data?.dislikeCount) || 0)
   const {isMobile, state} = useSidebar();
 
   useEffect(() => {
     if (!file_data) return
     setLiked(('userLiked' in data && data.userLiked) || false)
     setDisliked(('userDisliked' in data && data.userDisliked) || false)
-    setLikeCount(Number(file_data.up_count) || 0)
-    setDislikeCount(Number(file_data.down_count) || 0)
+    setLikeCount(Number(data?.likeCount) || 0)
+    setDislikeCount(Number(data?.dislikeCount) || 0)
   }, [currentId, file_data?.id])
 
   const handleInteractionUpdate = (updates: { liked: boolean; disliked: boolean; like_count: number; dislike_count: number }) => {
@@ -594,8 +633,8 @@ const index = () => {
   const contentColumn = (
             <div className="space-y-4">
               {/* Title */}
-              <h1 className="text-xl font-bold text-foreground leading-tight">
-                {ParseFilename(file_data.file_title || file_data.filename)}
+              <h1 className="text-xl font-bold text-foreground leading-tight select-text">
+                <ParseFilenameInsert filename={file_data.file_title || file_data.filename}/>  
               </h1>
 
               {/* Channel row: avatar + name only */}

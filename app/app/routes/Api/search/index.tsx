@@ -82,13 +82,48 @@ export const loader = async ({ request }: { request: Request }) => {
       });
     }
 
+    const rawList = results || [];
+    const fileIds = rawList.map((f: any) => f.id).filter(Boolean);
+    const interactionsByFile = new Map<
+      string,
+      { like_count: number; dislike_count: number; comment_count: number; user_has_liked: boolean; user_has_disliked: boolean }
+    >();
+    if (fileIds.length > 0) {
+      const { data: batch } = await db.rpc('get_batch_interactions', {
+        p_file_ids: fileIds,
+        p_user_id: userId || null,
+      });
+      if (Array.isArray(batch)) {
+        for (const row of batch) {
+          if (row?.file_id) {
+            const fid = String(row.file_id);
+            interactionsByFile.set(fid, {
+              like_count: Number(row.like_count) ?? 0,
+              dislike_count: Number(row.dislike_count) ?? 0,
+              comment_count: Number(row.comment_count) ?? 0,
+              user_has_liked: !!row.user_has_liked,
+              user_has_disliked: !!row.user_has_disliked,
+            });
+          }
+        }
+      }
+    }
+
     const likedFileIds: string[] = [];
     const dislikedFileIds: string[] = [];
 
-    const data = (results || []).map((file: any) => {
-      if (file.user_has_liked) likedFileIds.push(file.id);
-      if (file.user_has_disliked) dislikedFileIds.push(file.id);
-      return mapSearchFile(file);
+    const data = rawList.map((file: any) => {
+      const fid = file.id ? String(file.id) : '';
+      const interactions = fid ? interactionsByFile.get(fid) : undefined;
+      const likeCount = interactions ? interactions.like_count : Number(file.like_count) || 0;
+      const dislikeCount = interactions ? interactions.dislike_count : Number(file.dislike_count) || 0;
+      const commentCount = interactions ? interactions.comment_count : Number(file.comment_count) || 0;
+      const userHasLiked = interactions ? interactions.user_has_liked : !!file.user_has_liked;
+      const userHasDisliked = interactions ? interactions.user_has_disliked : !!file.user_has_disliked;
+      if (userHasLiked) likedFileIds.push(file.id);
+      if (userHasDisliked) dislikedFileIds.push(file.id);
+      const mapped = mapSearchFile(file);
+      return { ...mapped, like_count: likeCount, dislike_count: dislikeCount, comment_count: commentCount };
     });
 
     const lastItem = data[data.length - 1];

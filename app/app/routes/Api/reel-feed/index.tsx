@@ -2,7 +2,7 @@ import { filterFilesByAccess } from '../fun/accessControl';
 import db from '~/lib/Database/supabase';
 import { isAuthenticated } from '~/lib/Security/Password';
 
-const FEED_LIMIT = 20;
+const REEL_LIMIT = 15;
 
 function parseIdsParam(param: string | null): string[] {
   if (!param) return [];
@@ -11,7 +11,7 @@ function parseIdsParam(param: string | null): string[] {
     const parsed = JSON.parse(param);
     if (Array.isArray(parsed)) {
       return parsed
-        .filter((id: any) => typeof id === 'string' && id.length > 0)
+        .filter((id: unknown) => typeof id === 'string' && id.length > 0)
         .slice(0, 500);
     }
   } catch {
@@ -35,10 +35,11 @@ function parseExcludeIds(url: URL): string[] {
 export const loader = async ({ request }: { request: Request }) => {
   try {
     const url = new URL(request.url);
-    const fileTypeFilter = url.searchParams.get('file_type');
     const excludeIds = parseExcludeIds(url);
     const cursorPosParam = url.searchParams.get('cursor_pos');
     const seedParam = url.searchParams.get('seed') ?? 'default';
+    const categoryParam = url.searchParams.get('category');
+    const maxDurationParam = url.searchParams.get('max_duration');
 
     const cursorPos = cursorPosParam ? Math.max(0, parseInt(cursorPosParam, 10)) : 0;
     const pExcludeIds =
@@ -49,49 +50,32 @@ export const loader = async ({ request }: { request: Request }) => {
     const user = await isAuthenticated(request, ['id']);
     const userId: string | undefined = user?.id || undefined;
 
-    // Only pass p_exclude_ids when we have IDs; some DB implementations treat
-    // empty array differently (e.g. bad WHERE id NOT IN ()), so omit when empty.
-    const feedParams: Record<string, unknown> = {
+    const maxDuration = maxDurationParam != null && maxDurationParam !== ''
+      ? parseFloat(maxDurationParam)
+      : undefined;
+
+    const reelParams: Record<string, unknown> = {
       p_user_id: userId || null,
-      p_limit: FEED_LIMIT,
-      p_category: null,
-      p_reels_only: false,
+      p_limit: REEL_LIMIT,
+      p_category: categoryParam || null,
       p_seed: seedParam,
       p_cursor_pos: Number.isFinite(cursorPos) ? cursorPos : 0,
-      ...(pExcludeIds.length > 0 ? { p_exclude_ids: pExcludeIds } : {})
+      ...(pExcludeIds.length > 0 ? { p_exclude_ids: pExcludeIds } : {}),
+      ...(Number.isFinite(maxDuration) && maxDuration > 0 ? { p_max_duration: maxDuration } : {}),
     };
 
-    const { data: feed, error } = await db.rpc('get_feed', feedParams);
+    const { data: reelFeed, error } = await db.rpc('get_reel_feed', reelParams);
     if (error) {
-      console.error('Feed RPC error:', error);
-      return new Response(JSON.stringify({ error: 'Failed to fetch feed' }), {
+      console.error('Reel feed RPC error:', error);
+      return new Response(JSON.stringify({ error: 'Failed to fetch reel feed' }), {
         status: 500,
         headers: { 'Content-Type': 'application/json' }
       });
     }
 
-    let filteredFeed = await filterFilesByAccess(request, feed || []);
+    let filtered = await filterFilesByAccess(request, reelFeed || []);
 
-    if (fileTypeFilter) {
-      const filter = fileTypeFilter.toLowerCase();
-      filteredFeed = filteredFeed.filter((file: any) => {
-        const type = (file.file_type || '').toLowerCase();
-        const endpoint = file.endpoint || '';
-
-        if (filter === 'video') {
-          const isHls =
-            type === 'application/vnd.apple.mpegurl' ||
-            endpoint.includes('.m3u8');
-          const isVideoType = type.startsWith('video/');
-          return isHls || isVideoType;
-        }
-
-        return type === filter;
-      });
-    }
-
-    // Live like/dislike/comment counts and user state (bypasses stale materialized view)
-    const fileIds = filteredFeed.map((f: any) => f.id).filter(Boolean);
+    const fileIds = filtered.map((f: { id?: string }) => f.id).filter(Boolean);
     const interactionsByFile = new Map<
       string,
       { like_count: number; dislike_count: number; comment_count: number; user_has_liked: boolean; user_has_disliked: boolean }
@@ -104,7 +88,8 @@ export const loader = async ({ request }: { request: Request }) => {
       if (Array.isArray(batch)) {
         for (const row of batch) {
           if (row?.file_id) {
-            interactionsByFile.set(row.file_id as string, {
+            const fid = String(row.file_id);
+            interactionsByFile.set(fid, {
               like_count: Number(row.like_count) ?? 0,
               dislike_count: Number(row.dislike_count) ?? 0,
               comment_count: Number(row.comment_count) ?? 0,
@@ -119,15 +104,16 @@ export const loader = async ({ request }: { request: Request }) => {
     const likedFileIds: string[] = [];
     const dislikedFileIds: string[] = [];
 
-    const data = filteredFeed.map((file: any) => {
-      const interactions = file.id ? interactionsByFile.get(file.id) : undefined;
+    const data = filtered.map((file: Record<string, unknown>) => {
+      const fid = file.id ? String(file.id) : '';
+      const interactions = fid ? interactionsByFile.get(fid) : undefined;
       const likeCount = interactions ? interactions.like_count : Number(file.like_count) || 0;
       const dislikeCount = interactions ? interactions.dislike_count : Number(file.dislike_count) || 0;
       const commentCount = interactions ? interactions.comment_count : Number(file.comment_count) || 0;
       const userHasLiked = interactions ? interactions.user_has_liked : !!file.user_has_liked;
       const userHasDisliked = interactions ? interactions.user_has_disliked : !!file.user_has_disliked;
-      if (userHasLiked) likedFileIds.push(file.id);
-      if (userHasDisliked) dislikedFileIds.push(file.id);
+      if (userHasLiked) likedFileIds.push(file.id as string);
+      if (userHasDisliked) dislikedFileIds.push(file.id as string);
 
       return {
         id: file.id,
@@ -167,14 +153,7 @@ export const loader = async ({ request }: { request: Request }) => {
       };
     });
 
-    // Don't mark as seen here — it would shrink the "unseen" set before load-more
-    // requests, breaking cursor_pos pagination. Frontend marks on page leave instead.
-
-    // Use position-based pagination: next page starts at cursorPos + rawCount.
-    // Return a next cursor whenever we got any rows so load-more can run (pool-based
-    // get_feed may return fewer than p_limit rows). When the next request returns 0 rows,
-    // we'll send nextCursor: null and the client stops.
-    const rawCount = (feed || []).length;
+    const rawCount = (reelFeed || []).length;
     const nextCursor =
       rawCount > 0
         ? { cursor_pos: cursorPos + rawCount }
@@ -183,21 +162,21 @@ export const loader = async ({ request }: { request: Request }) => {
     const result = {
       data,
       userActions: { likedFileIds, dislikedFileIds },
-      nextCursor
+      nextCursor,
     };
 
     return new Response(JSON.stringify(result), {
       headers: {
         'Content-Type': 'application/json',
         'Cache-Control': 'no-store',
-        'X-Feed-Raw-Count': String(rawCount)
-      }
+        'X-Reel-Feed-Count': String(rawCount),
+      },
     });
   } catch (error) {
-    console.error('Feed error:', error);
+    console.error('Reel feed error:', error);
     return new Response(JSON.stringify({ error: 'Internal server error' }), {
       status: 500,
-      headers: { 'Content-Type': 'application/json' }
+      headers: { 'Content-Type': 'application/json' },
     });
   }
 };

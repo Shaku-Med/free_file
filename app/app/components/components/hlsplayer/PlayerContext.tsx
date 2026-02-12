@@ -1,6 +1,7 @@
 import { createContext, useContext, useRef, useState, useCallback, useMemo, useEffect, type ReactNode, type RefObject } from 'react';
 import type Hls from 'hls.js';
 import type { FileType } from '~/lib/types';
+import { isMobile } from 'react-device-detect';
 
 export interface QualityLevel {
   height: number;
@@ -250,13 +251,26 @@ export function PlayerProvider({ children, src, file, imageID, isReel, loop: ini
   }, []);
 
   const toggleFullscreen = useCallback(async () => {
-    const el = containerRef.current;
-    if (!el) return;
     try {
       if (document.fullscreenElement) {
         await document.exitFullscreen();
-      } else {
-        await el.requestFullscreen();
+        return;
+      }
+      const is_mobile = isMobile
+      const el = is_mobile ? videoRef.current : containerRef.current;
+      if (el) {
+        if (is_mobile){
+          const v = videoRef.current as HTMLVideoElement & { webkitEnterFullscreen?: () => void };
+          if (typeof v.webkitEnterFullscreen === 'function') {
+            v.webkitEnterFullscreen();
+          }
+          else {
+            el.requestFullscreen()
+          }
+        }
+        else {
+          await el.requestFullscreen()
+        }
       }
     } catch {}
   }, []);

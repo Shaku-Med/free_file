@@ -113,15 +113,16 @@ export default function ControlBar({ onNext, theaterMode = false, onTheaterModeC
           )}
         </div>
 
-        {/* Right group: separate transparent bar; theater + fullscreen */}
+        {/* Right group: fullscreen always visible; theater + settings inline or in dropdown */}
         <div className={`flex items-center gap-1 shrink-0 ${barBg} px-2 py-1.5`} ref={overflowRef}>
+          {/* Fullscreen always side by side with ellipsis so user can always see it */}
+          <FullscreenButton />
           {showRightInline ? (
             <>
               <SettingsMenu />
               {onTheaterModeChange && (
                 <TheaterButton theaterMode={theaterMode} onTheaterModeChange={onTheaterModeChange} />
               )}
-              <FullscreenButton />
             </>
           ) : (
             <>
@@ -152,9 +153,6 @@ export default function ControlBar({ onNext, theaterMode = false, onTheaterModeC
                         <TheaterButton theaterMode={theaterMode} onTheaterModeChange={onTheaterModeChange} />
                       </div>
                     )}
-                    <div className="px-2 py-1" onClick={() => setOverflowOpen(false)}>
-                      <FullscreenButton />
-                    </div>
                   </div>,
                   document.body
                 )}

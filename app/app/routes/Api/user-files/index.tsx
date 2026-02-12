@@ -3,7 +3,7 @@ import { isAuthenticated } from "~/lib/Security/Password";
 import { userProfileService } from "~/lib/Services/UserProfileService";
 import { filterFilesByAccess } from "../fun/accessControl";
 import { ownerService } from "~/lib/Services/OwnerService";
-import { userActionsService } from "~/lib/Services/UserActionsService";
+import db from "~/lib/Database/supabase";
 
 export const loader = async ({ request }: { request: Request }) => {
   try {
@@ -58,26 +58,47 @@ export const loader = async ({ request }: { request: Request }) => {
     const hasMore = filteredFiles.length > limit;
 
     // Enrich with owner data
-    const enrichedFiles = await ownerService.enrichFilesWithOwners(paginatedFiles);
+    let enrichedFiles = await ownerService.enrichFilesWithOwners(paginatedFiles);
 
-    // Fetch user actions in one query
+    // Live like/dislike/comment counts and user liked state from get_batch_interactions
     const user = await isAuthenticated(request, ['id']);
-    let userActions: { likedFileIds: string[]; dislikedFileIds: string[] } = { likedFileIds: [], dislikedFileIds: [] };
-    if (user?.id && enrichedFiles.length > 0) {
-      const fileIds = enrichedFiles.map(f => f.id).filter(Boolean);
-      if (fileIds.length > 0) {
-        const actions = await userActionsService.getUserActions(user.id, fileIds);
-        userActions = {
-          likedFileIds: Array.from(actions.likedFileIds),
-          dislikedFileIds: Array.from(actions.dislikedFileIds)
-        };
+    const currentUserId = user?.id ?? null;
+    const fileIds = enrichedFiles.map(f => f.id).filter(Boolean);
+    const likedFileIds: string[] = [];
+    const dislikedFileIds: string[] = [];
+    if (fileIds.length > 0 && db) {
+      const { data: batch } = await db.rpc('get_batch_interactions', {
+        p_file_ids: fileIds,
+        p_user_id: currentUserId,
+      });
+      if (Array.isArray(batch)) {
+        const interactionsByFile = new Map<string, { like_count: number; dislike_count: number; comment_count: number; user_has_liked: boolean; user_has_disliked: boolean }>();
+        for (const row of batch) {
+          if (row?.file_id) {
+            const fid = String(row.file_id);
+            interactionsByFile.set(fid, {
+              like_count: Number(row.like_count) ?? 0,
+              dislike_count: Number(row.dislike_count) ?? 0,
+              comment_count: Number(row.comment_count) ?? 0,
+              user_has_liked: !!row.user_has_liked,
+              user_has_disliked: !!row.user_has_disliked,
+            });
+            if (row.user_has_liked) likedFileIds.push(fid);
+            if (row.user_has_disliked) dislikedFileIds.push(fid);
+          }
+        }
+        enrichedFiles = enrichedFiles.map(f => {
+          const ix = f.id ? interactionsByFile.get(String(f.id)) : undefined;
+          if (!ix) return { ...f, like_count: 0, dislike_count: 0, comment_count: 0 };
+          return { ...f, like_count: ix.like_count, dislike_count: ix.dislike_count, comment_count: ix.comment_count };
+        });
       }
     }
 
     return data(
       {
         data: enrichedFiles,
-        userActions,
+        userActions: { likedFileIds, dislikedFileIds },
         pagination: {
           page,
           limit,

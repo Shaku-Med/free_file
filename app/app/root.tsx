@@ -24,6 +24,7 @@ import NavProgress from "./routes/Home/NavProgress/NavProgress";
 import { SidebarProvider, SidebarInset } from "./components/ui/sidebar";
 import { AppSidebar } from "./components/Navbar/components/Sidebar";
 import BodyComponent from "./components/Navbar/components/BodyComponent";
+import RegisterServiceWorker from "./components/RegisterServiceWorker";
 
 export const links: Route.LinksFunction = () => [
   { rel: "preconnect", href: "https://fonts.googleapis.com" },
@@ -227,6 +228,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
         <Links />
       </head>
       <body className={`flex flex-col fixed top-0 left-0 w-full h-full`}>
+        <RegisterServiceWorker />
         <ErrorBoundary>
           <ContextProvider st={st} user_agent={user_agent || ''} userId={userId || null} c_user={c_user || null} uploadServerUrl={uploadServerUrl || ''}>
             <LikeProvider>

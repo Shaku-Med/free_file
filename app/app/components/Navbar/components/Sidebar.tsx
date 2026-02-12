@@ -80,7 +80,7 @@ const menuItems = [
 export function AppSidebar() {
   const location = useLocation()
   const { setIsModalOpen, files } = useFileContext()
-  const {isMobile} = useSidebar()
+  const { isMobile, setOpenMobile } = useSidebar()
   const [monitoredFiles, setMonitoredFiles] = useState<FileType[]>([])
   const [displayCount, setDisplayCount] = useState(100)
 
@@ -88,6 +88,10 @@ export function AppSidebar() {
     setMonitoredFiles(files)
     setDisplayCount(100)
   }, [files])
+
+  useEffect(() => {
+    setOpenMobile(false)
+  }, [location.pathname, setOpenMobile])
 
   const currentFileId = location.pathname.replace(/^\//, "")
   const currentFile = useMemo(() => 

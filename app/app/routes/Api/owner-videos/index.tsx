@@ -2,7 +2,6 @@ import { data } from "react-router"
 import { isAuthenticated } from "~/lib/Security/Password"
 import { filterFilesByAccess } from "../fun/accessControl"
 import { ownerService } from "~/lib/Services/OwnerService"
-import { userActionsService } from "~/lib/Services/UserActionsService"
 import db from "~/lib/Database/supabase"
 
 export const loader = async ({ request }: { request: Request }) => {
@@ -56,26 +55,55 @@ export const loader = async ({ request }: { request: Request }) => {
     filteredFiles = await ownerService.enrichFilesWithOwners(filteredFiles)
 
     const user = await isAuthenticated(request, ["id"])
+    const userId: string | null = user?.id ?? null
+    const fileIds = filteredFiles.map((f: any) => f.id).filter(Boolean)
+    const interactionsByFile = new Map<
+      string,
+      { like_count: number; dislike_count: number; comment_count: number; user_has_liked: boolean; user_has_disliked: boolean }
+    >()
     let userActions: { likedFileIds: string[]; dislikedFileIds: string[] } = {
       likedFileIds: [],
       dislikedFileIds: []
     }
-    if (user?.id && filteredFiles.length > 0) {
-      const fileIds = filteredFiles.map((f: any) => f.id).filter(Boolean)
-      if (fileIds.length > 0) {
-        const actions = await userActionsService.getUserActions(user.id, fileIds)
+    if (fileIds.length > 0) {
+      const { data: batch } = await db.rpc("get_batch_interactions", {
+        p_file_ids: fileIds,
+        p_user_id: userId,
+      })
+      if (Array.isArray(batch)) {
+        for (const row of batch) {
+          if (row?.file_id) {
+            interactionsByFile.set(row.file_id as string, {
+              like_count: Number(row.like_count) ?? 0,
+              dislike_count: Number(row.dislike_count) ?? 0,
+              comment_count: Number(row.comment_count) ?? 0,
+              user_has_liked: !!row.user_has_liked,
+              user_has_disliked: !!row.user_has_disliked,
+            })
+          }
+        }
         userActions = {
-          likedFileIds: Array.from(actions.likedFileIds),
-          dislikedFileIds: Array.from(actions.dislikedFileIds)
+          likedFileIds: batch.filter((r: any) => r.user_has_liked).map((r: any) => r.file_id),
+          dislikedFileIds: batch.filter((r: any) => r.user_has_disliked).map((r: any) => r.file_id),
         }
       }
     }
+
+    const filesWithCounts = filteredFiles.map((file: any) => {
+      const interactions = file.id ? interactionsByFile.get(file.id) : undefined
+      return {
+        ...file,
+        like_count: interactions ? interactions.like_count : 0,
+        dislike_count: interactions ? interactions.dislike_count : 0,
+        comment_count: interactions ? interactions.comment_count : 0,
+      }
+    })
 
     const hasMore = filteredFiles.length === limit
 
     return data(
       {
-        data: filteredFiles,
+        data: filesWithCounts,
         userActions,
         pagination: {
           page,

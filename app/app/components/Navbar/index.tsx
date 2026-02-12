@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useLocation } from "react-router";
 import { 
   Camera, 
@@ -16,7 +16,8 @@ import {
   ChevronRight,
   Plus,
   MenuIcon,
-  Hamburger
+  Hamburger,
+  Bell
 } from "lucide-react";
 import { Button } from "~/components/ui/button";
 import { Input } from "~/components/ui/input";
@@ -65,13 +66,30 @@ const userMenuItems = [
 ];
 
 export default function Navbar() {
-  const { setIsModalOpen } = useFileContext();
+  const { setIsModalOpen, userId } = useFileContext();
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
-  // const [input, setInput] = useState<string>("");
+  const [unreadCount, setUnreadCount] = useState(0);
   const { isMobile, state } = useSidebar();
   const location = useLocation();
   const isReelRoute = location.pathname.startsWith("/reel");
+
+  useEffect(() => {
+    if (!userId) {
+      setUnreadCount(0);
+      return;
+    }
+    let cancelled = false;
+    fetch("/api/notifications?count=1")
+      .then((r) => r.json())
+      .then((d) => {
+        if (!cancelled && d.success && typeof d.unreadCount === "number") setUnreadCount(d.unreadCount);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [userId, location.pathname]);
 
   return (
     <nav
@@ -107,6 +125,16 @@ export default function Navbar() {
              <Link to="/search" className="cursor-pointer rounded-lg h-10 w-10 flex items-center justify-center hover:bg-primary/10 ios-scale">
               <Search className="h-5 w-5" />
              </Link>
+             {userId ? (
+               <Link to="/notifications" className="relative cursor-pointer rounded-lg h-10 w-10 flex items-center justify-center hover:bg-primary/10 ios-scale">
+                 <Bell className="h-5 w-5" />
+                 {unreadCount > 0 && (
+                   <span className="absolute -top-0.5 -right-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-medium text-primary-foreground">
+                     {unreadCount > 99 ? "99+" : unreadCount}
+                   </span>
+                 )}
+               </Link>
+             ) : null}
              <SidebarTrigger className="cursor-pointer rounded-lg h-10 w-10 flex items-center justify-center hover:bg-primary/10 ios-scale"/>
           </div>
 

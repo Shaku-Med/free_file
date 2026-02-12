@@ -1,6 +1,8 @@
 import { isAuthenticated } from "~/lib/Security/Password";
 import db from "~/lib/Database/supabase";
 import { isValidFileId } from "~/lib/Security/inputValidation";
+import { createNotification } from "~/lib/Services/NotificationService";
+import { sendPushForNotification } from "~/lib/Services/PushService";
 
 const toJson = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), {
@@ -36,12 +38,25 @@ export const action = async ({ request }: { request: Request }) => {
       return toJson({ error: "Failed to update like" }, 500);
     }
     const row = Array.isArray(data) ? data[0] : data;
+    const liked = row?.liked ?? false;
+    if (liked && db) {
+      const { data: fileRow } = await db.from('files').select('owner_id').eq('id', fileId).maybeSingle();
+      if (fileRow?.owner_id) {
+        await createNotification({
+          userId: fileRow.owner_id,
+          type: 'file_like',
+          actorId: user.id,
+          fileId,
+        });
+        sendPushForNotification(fileRow.owner_id, 'file_like', user.id, fileId).catch(() => {});
+      }
+    }
     return toJson({
       success: true,
-      liked: row?.liked ?? false,
+      liked,
       disliked: row?.disliked ?? false,
-      like_count: row?.like_count ?? 0,
-      dislike_count: row?.dislike_count ?? 0
+      like_count: Number(row?.like_count) ?? 0,
+      dislike_count: Number(row?.dislike_count) ?? 0
     });
   } catch (error) {
     console.error('Like action error:', error);

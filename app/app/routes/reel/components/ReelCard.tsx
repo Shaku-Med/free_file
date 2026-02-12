@@ -16,19 +16,24 @@ import type { FileType } from "~/lib/types";
 import { getVideoSrc, ParseFilename } from "~/lib/utils";
 import { useFileContext } from "~/lib/Context/Context";
 
-export const ReelCard = ({ data }: { data: FileType }) => {
+interface ReelCardProps {
+  data: FileType;
+  userActions?: { likedFileIds: string[]; dislikedFileIds: string[] };
+}
+
+export const ReelCard = ({ data, userActions }: ReelCardProps) => {
   const [muted, setMuted] = useState(true);
   const [isPlaying, setIsPlaying] = useState(false);
   const [playPauseIndicator, setPlayPauseIndicator] = useState<"play" | "pause" | null>(null);
   const [isCommentsOpen, setIsCommentsOpen] = useState(false);
-  const [likeCount, setLikeCount] = useState<number>(Number((data as any).like_count ?? (data as any).up_count ?? 0));
-  const [dislikeCount, setDislikeCount] = useState<number>(Number((data as any).dislike_count ?? (data as any).down_count ?? 0));
+  const [likeCount, setLikeCount] = useState<number>(Number(data.like_count ?? (data as any).up_count ?? 0));
+  const [dislikeCount, setDislikeCount] = useState<number>(Number(data.dislike_count ?? (data as any).down_count ?? 0));
   const [commentsCount, setCommentsCount] = useState<number | null>(
-    typeof (data as any).comment_count === "number" ? Number((data as any).comment_count) : null
+    typeof data.comment_count === "number" ? data.comment_count : (Number(data.comment_count) || null)
   );
   const [initialMetaLoaded, setInitialMetaLoaded] = useState(false);
-  const [initialLiked, setInitialLiked] = useState(false);
-  const [initialDisliked, setInitialDisliked] = useState(false);
+  const [initialLiked, setInitialLiked] = useState(() => Boolean(data.id && userActions?.likedFileIds?.includes(data.id)));
+  const [initialDisliked, setInitialDisliked] = useState(() => Boolean(data.id && userActions?.dislikedFileIds?.includes(data.id)));
   const videoElementRef = useRef<HTMLVideoElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const indicatorTimeoutRef = useRef<number | null>(null);
@@ -52,24 +57,16 @@ export const ReelCard = ({ data }: { data: FileType }) => {
     const video = videoElementRef.current;
     if (!video) return;
 
-    video.muted = false
     if (isInView) {
-      // using the windows history stuff let's change the url to the dynamic reel route
       window.history.pushState(null, "", `/reel/${data.id}`);
-      // Update the browser tab title for the current reel
       window.document.title = `${data.file_title || ParseFilename(data.filename)} - Memories`;
-      video
-      .play()
-      .then(() => {
-        setIsPlaying(true);
-      })
-      .catch(() => undefined);
-      video.muted = false
+      video.muted = muted;
+      video.play().then(() => setIsPlaying(true)).catch(() => undefined);
     } else {
       video.pause();
       setIsPlaying(false);
     }
-  }, [isInView, data.file_title, data.filename, data.id]);
+  }, [isInView, data.file_title, data.filename, data.id, muted]);
 
   // When the reel first comes into view, fetch fresh like/dislike state and comment count.
   useEffect(() => {
@@ -197,7 +194,7 @@ export const ReelCard = ({ data }: { data: FileType }) => {
                 </DialogTrigger>
                 <DialogContent className="max-h-[90vh] w-full max-w-lg overflow-hidden p-0">
                   <div className="max-h-[80vh] overflow-y-auto px-4 py-3">
-                    <CommentSection fileId={data.id} currentUserId={c_user || undefined || (null as unknown as string)} isReel={true} />
+                    <CommentSection fileId={data.id} currentUserId={c_user ?? undefined} isReel={true} />
                   </div>
                 </DialogContent>
               </Dialog>
@@ -214,7 +211,7 @@ export const ReelCard = ({ data }: { data: FileType }) => {
                   src={videoSrc}
                   className="w-full h-full sm:rounded-none"
                   autoPlay={isInView}
-                  muted={false}
+                  muted={muted}
                   loop
                   playsInline
                   imageID={data.unique_id}

@@ -8,12 +8,18 @@ const URL_PATTERN = /(https?:\/\/[^\s<>\[\]()]+|www\.[^\s<>\[\]()]+)/gi;
 const EMAIL_PATTERN = /([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/g;
 const PHONE_PATTERN = /(\+?[\d][\d\s\-().]{9,}\d|\(\d{3}\)\s*\d{3}[-.\s]?\d{4})/g;
 
+const HASHTAG_PATTERN = /#[\w-]+/g;
+const MENTION_PATTERN = /@[\w.-]+/g;
+const HASHTAG_OR_MENTION = new RegExp(`(${HASHTAG_PATTERN.source})|(${MENTION_PATTERN.source})`, "g");
+
 type Segment =
   | { type: "text"; value: string; bold?: boolean; italic?: boolean; code?: boolean }
   | { type: "url"; value: string; href: string }
   | { type: "email"; value: string }
   | { type: "phone"; value: string }
-  | { type: "mdlink"; label: string; href: string };
+  | { type: "mdlink"; label: string; href: string }
+  | { type: "hashtag"; value: string }
+  | { type: "mention"; value: string };
 
 const LINKIFY_REGEX = new RegExp(
   `(${URL_PATTERN.source})|(${EMAIL_PATTERN.source})|(${PHONE_PATTERN.source})`,
@@ -73,13 +79,27 @@ function pushTextWithMdLinks(s: string, segments: Segment[]) {
   }
 }
 
+function pushTextWithHashtagMention(s: string, segments: Segment[]) {
+  if (!s) return;
+  HASHTAG_OR_MENTION.lastIndex = 0;
+  let pos = 0;
+  let m;
+  while ((m = HASHTAG_OR_MENTION.exec(s)) !== null) {
+    if (m.index > pos) segments.push({ type: "text", value: s.slice(pos, m.index) });
+    if (m[1]) segments.push({ type: "hashtag", value: m[1] });
+    else if (m[2]) segments.push({ type: "mention", value: m[2] });
+    pos = HASHTAG_OR_MENTION.lastIndex;
+  }
+  if (pos < s.length) segments.push({ type: "text", value: s.slice(pos) });
+}
+
 function pushMarkdownSegments(text: string, segments: Segment[]) {
   const re = /(\*\*([^*]+)\*\*)|(\*([^*]+)\*)|(`([^`]+)`)/g;
   let lastEnd = 0;
   let match;
   while ((match = re.exec(text)) !== null) {
     if (match.index > lastEnd) {
-      segments.push({ type: "text", value: text.slice(lastEnd, match.index) });
+      pushTextWithHashtagMention(text.slice(lastEnd, match.index), segments);
     }
     if (match[2] !== undefined) {
       segments.push({ type: "text", value: match[2], bold: true });
@@ -91,7 +111,7 @@ function pushMarkdownSegments(text: string, segments: Segment[]) {
     lastEnd = re.lastIndex;
   }
   if (lastEnd < text.length) {
-    segments.push({ type: "text", value: text.slice(lastEnd) });
+    pushTextWithHashtagMention(text.slice(lastEnd), segments);
   }
 }
 
@@ -163,6 +183,28 @@ function renderSegments(segments: Segment[], keyPrefix: string): React.ReactNode
           </a>
         );
       }
+    } else if (seg.type === "hashtag") {
+      const tag = seg.value.slice(1);
+      out.push(
+        <Link
+          key={k}
+          to={`/tag/${encodeURIComponent(tag)}`}
+          className="text-primary hover:underline"
+        >
+          {seg.value}
+        </Link>
+      );
+    } else if (seg.type === "mention") {
+      const username = seg.value.slice(1);
+      out.push(
+        <Link
+          key={k}
+          to={`/profile/${encodeURIComponent(username)}`}
+          className="text-primary hover:underline"
+        >
+          {seg.value}
+        </Link>
+      );
     }
     i++;
   }
