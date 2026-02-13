@@ -8,7 +8,6 @@ import { BASE_URL } from "~/lib/URLS";
 import ImageLoad from "../Home/components/ImageLoad/ImageLoad";
 import { arrangeDateForThumbnail, ParseFilename, getRandomThumbnail, getVideoSrc } from "~/lib/utils";
 import { motion } from "framer-motion";
-import { MakeVideoToken } from "./components/Functions";
 import { ShieldAlert } from "lucide-react";
 import { useSidebar } from "~/components/ui/sidebar";
 import { checkFileAccess } from "./fun/accessControl";
@@ -64,15 +63,7 @@ export const loader = async ({ request, params }: { request: Request, params: { 
       }, { status: 403 });
     }
 
-    let videoToken = await MakeVideoToken(file?.file_type, params.id, request.headers)
-    const path = new URL(request.url).pathname;
     let headers = new Headers();
-    
-    if(videoToken) {
-      let vid_path = `/api/load/video/${file.endpoint.split(`${path}`)[0]}${path}`
-      headers.append('Set-Cookie', `videoToken=${videoToken}; Path=${vid_path}; Max-Age=86400; HttpOnly; ${process.env.NODE_ENV === 'production' ? 'Secure' : ''}; SameSite=Strict, priority=high`);
-      headers.append('Set-Cookie', `validator=${videoToken}; Path=/; Max-Age=86400; HttpOnly; ${process.env.NODE_ENV === 'production' ? 'Secure' : ''}; SameSite=Strict, priority=high`);
-    }
 
     const user = await isAuthenticated(request, ['id']);
     const userId = user?.id ?? null;

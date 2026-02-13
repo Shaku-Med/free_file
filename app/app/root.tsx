@@ -102,9 +102,10 @@ let makeSessionToken = async (headers: Headers) => {
 export const loader = async ({request}: {request: Request}) => {
   try {
     let sessionToken = await makeSessionToken(request.headers);
+
     if (!sessionToken) {
       console.warn("[root] makeSessionToken failed; serving page without session.");
-      sessionToken = "not_needed";
+      return data(null, { status: 400 });
     }
 
     if (!db) return data(null, { status: 500 });

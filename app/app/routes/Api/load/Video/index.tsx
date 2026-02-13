@@ -1,103 +1,107 @@
 import { getCookie } from "~/lib/Security/Token";
 import { VerifyToken } from "~/lib/Security/unsharedkeyEncryption/Combined/Verification/VerifyToken";
-import { VerifyVideoToken } from "~/routes/Dynamic/components/Functions";
 import { sanitizeFilePath } from "~/lib/Security/inputValidation";
+import {
+  verifySegmentToken,
+  rewriteM3U8,
+} from "~/lib/Services/SegmentTokenService";
 
-export const VKF = async (request: Request) => {
-    try {
-        let keys = ['token1', 'token2']
-        let token = getCookie('token', request.headers)
-        if(!token) return null
-
-        let decoded = await VerifyToken({
-            token: token,
-            addedKeyNames: keys || []
-        }, request.headers)
-        if(!decoded) return null
-        return true
-    }
-    catch (error) {
-        console.error('Error in VKF:', error)
-        return null
-    }
-}
-
-export const GetVideoToken = async (request: Request) => {
-    try {
-        let token = getCookie('videoToken', request.headers)
-        if(!token) return null
-        const verified = await VerifyVideoToken(token, request.headers)
-        if(!verified ||!request.url.includes(`/${verified?.id}/`)) return null
-        return true
-    }
-    catch (error) {
-        console.error('Error in GetVideoToken:', error)
-        return null
-    }
-}
+const VKF = async (request: Request) => {
+  try {
+    const keys = ["token1", "token2"];
+    const token = getCookie("token", request.headers);
+    if (!token) return null;
+    const decoded = await VerifyToken(
+      { token, addedKeyNames: keys },
+      request.headers
+    );
+    return decoded ? true : null;
+  } catch {
+    return null;
+  }
+};
 
 export const loader = async ({ request }: { request: Request }) => {
-    try {
-        let verified = await VKF(request)
-        if(!verified) return new Response(null, { status: 401 });
+  try {
+    const verified = await VKF(request);
+    if (!verified) return new Response(null, { status: 401 });
 
-        // For now, only enforce the per-video token if a videoToken cookie is present.
-        // This allows the reel player to stream without requiring a videoToken cookie.
-        const videoTokenCookie = getCookie('videoToken', request.headers)
-        if (videoTokenCookie) {
-            let token = await GetVideoToken(request)
-            if(!token) return new Response(null, { status: 401 });
-        }
-        
-        let splitUrl = request.url.split('/api/load/video/')[1];
-        if (!splitUrl) {
-            return new Response(null, { status: 400 });
-        }
-        
-        // Decode URL encoding
-        try {
-            if(splitUrl.includes(`%`)){
-                splitUrl = decodeURIComponent(splitUrl);
-            }
-        } catch (decodeError) {
-            console.error('Error decoding URL:', decodeError);
-            return new Response(null, { status: 400 });
-        }
-        
-        // Sanitize path to prevent path traversal attacks
-        const sanitizedPath = sanitizeFilePath(splitUrl);
-        if (!sanitizedPath) {
-            return new Response(null, { status: 400 });
-        }
-        
-        const videoUrl = `https://github.com/${process.env.GITHUB_OWNER}/Memories/raw/main/${sanitizedPath}`;
-        const response = await fetch(videoUrl);
-    
-        if (!response.ok) throw new Error('Fetch failed');
-    
-        const ext = sanitizedPath.split('.').pop();
-        const isText = ext === 'm3u8';
-        const body = isText ? await response.text() : new Uint8Array(await response.arrayBuffer());
-        const contentType =
-            ext === 'm3u8'
-            ? 'application/vnd.apple.mpegurl'
-            : ext === 'ts'
-            ? 'video/mp2t'
-            : 'application/octet-stream';
-    
-        const origin = new URL(request.url).origin;
-        return new Response(body, {
-            status: 200,
-            headers: {
-            'Content-Type': contentType,
-            'Access-Control-Allow-Origin': origin,
-            'Access-Control-Allow-Credentials': 'true',
-            'Vary': 'Origin',
-            'Cache-Control': 'public, max-age=31536000, immutable',
-            },
-        });
-    } catch (error) {
-        console.error('Error loading video:', error);
-        return new Response(null, { status: 500 });
+    const url = new URL(request.url);
+    const pathAfterPrefix = url.pathname.split("/api/load/video/")[1];
+    if (!pathAfterPrefix) return new Response(null, { status: 400 });
+
+    let filePath = pathAfterPrefix;
+    try {
+      if (filePath.includes("%")) filePath = decodeURIComponent(filePath);
+    } catch {
+      return new Response(null, { status: 400 });
     }
+
+    const sanitizedPath = sanitizeFilePath(filePath);
+    if (!sanitizedPath) return new Response(null, { status: 400 });
+
+    const ext = sanitizedPath.split(".").pop()?.toLowerCase();
+    const isM3U8 = ext === "m3u8";
+    const isSegment = ext === "ts";
+
+    if (isSegment) {
+      const st = url.searchParams.get("_st");
+      if (!st || !verifySegmentToken(st, sanitizedPath, request.headers)) {
+        return new Response(null, { status: 403 });
+      }
+    }
+
+    if (isM3U8) {
+      const st = url.searchParams.get("_st");
+      if (st && !verifySegmentToken(st, sanitizedPath, request.headers)) {
+        return new Response(null, { status: 403 });
+      }
+    }
+
+    const videoUrl = `https://github.com/${process.env.GITHUB_OWNER}/Memories/raw/main/${sanitizedPath}`;
+    const response = await fetch(videoUrl);
+    if (!response.ok) throw new Error("Fetch failed");
+
+    const origin = url.origin;
+
+    if (isM3U8) {
+      const raw = await response.text();
+      const basePath = sanitizedPath.substring(
+        0,
+        sanitizedPath.lastIndexOf("/")
+      );
+      const rewritten = rewriteM3U8(raw, basePath, request.headers);
+      return new Response(rewritten, {
+        status: 200,
+        headers: {
+          "Content-Type": "application/vnd.apple.mpegurl",
+          "Access-Control-Allow-Origin": origin,
+          "Access-Control-Allow-Credentials": "true",
+          "Vary": "Origin",
+          "Cache-Control": "no-store, no-cache, must-revalidate",
+          "X-Content-Type-Options": "nosniff",
+        },
+      });
+    }
+
+    const body = new Uint8Array(await response.arrayBuffer());
+    const contentType = isSegment ? "video/mp2t" : "application/octet-stream";
+
+    return new Response(body, {
+      status: 200,
+      headers: {
+        "Content-Type": contentType,
+        "Access-Control-Allow-Origin": origin,
+        "Access-Control-Allow-Credentials": "true",
+        "Vary": "Origin",
+        "Cache-Control": isSegment
+          ? "private, max-age=300"
+          : "public, max-age=31536000, immutable",
+        "X-Content-Type-Options": "nosniff",
+      },
+    });
+  } catch (error) {
+    console.error("Error loading video:", error);
+    return new Response(null, { status: 500 });
+  }
 };
