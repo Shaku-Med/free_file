@@ -55,8 +55,8 @@ const userMiddleware: Route.MiddlewareFunction = async ({ context }, next) => {
   // COEP/COOP removed: they block extension-injected resources and cause
   // ERR_BLOCKED_BY_RESPONSE.NotSameOriginAfterDefaultedToSameOriginByCoep.
   // Re-enable only if you need SharedArrayBuffer (e.g. require-corp + same-origin).
-  response.headers.set("Content-Security-Policy", "frame-ancestors 'none'");
-  response.headers.set("X-Frame-Options", "DENY");
+  response.headers.set("Content-Security-Policy", "frame-ancestors 'none'"); // disable iframeing
+  // response.headers.set("X-Frame-Options", "DENY");
   return response;
 };
 
