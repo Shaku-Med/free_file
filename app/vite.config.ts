@@ -68,7 +68,7 @@ export default defineConfig(({mode}) => {
         // 'Cross-Origin-Embedder-Policy': 'require-corp',
         // 'Cross-Origin-Opener-Policy': 'same-origin',
         // disable iframeing 
-        'X-Frame-Options': 'DENY',
+        // 'X-Frame-Options': 'DENY',
         'X-Content-Type-Options': 'nosniff',
         'X-XSS-Protection': '1; mode=block',
       },
