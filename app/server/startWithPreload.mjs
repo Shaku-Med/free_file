@@ -97,6 +97,14 @@ async function run() {
   app.use(express.static("public", { maxAge: "1h" }));
   app.use(morgan("tiny"));
 
+  // Chrome DevTools / extensions request this; 404 without hitting React Router (no stack trace)
+  app.use((req, res, next) => {
+    if (req.path === "/.well-known/appspecific/com.chrome.devtools.json") {
+      return res.status(404).end();
+    }
+    next();
+  });
+
   if (build.fetch) {
     app.all("*", createRequestListener(build.fetch));
   } else {

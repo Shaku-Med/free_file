@@ -51,13 +51,13 @@ const VerifyB4Making = async (headers: Headers, keys: string[]) => {
 }
 
 const userMiddleware: Route.MiddlewareFunction = async ({ context }, next) => {
-  let response = await next()
-  response.headers.set("Cross-Origin-Embedder-Policy", "require-corp")
-  response.headers.set("Cross-Origin-Opener-Policy", "same-origin")
-  response.headers.set("Content-Security-Policy", "frame-ancestors 'none'")
-  response.headers.set("X-Frame-Options", "DENY")
-  // 
-  return response
+  let response = await next();
+  // COEP/COOP removed: they block extension-injected resources and cause
+  // ERR_BLOCKED_BY_RESPONSE.NotSameOriginAfterDefaultedToSameOriginByCoep.
+  // Re-enable only if you need SharedArrayBuffer (e.g. require-corp + same-origin).
+  response.headers.set("Content-Security-Policy", "frame-ancestors 'none'");
+  response.headers.set("X-Frame-Options", "DENY");
+  return response;
 };
 
 export const middleware = [userMiddleware] satisfies Route.MiddlewareFunction[]
@@ -101,24 +101,31 @@ let makeSessionToken = async (headers: Headers) => {
 
 export const loader = async ({request}: {request: Request}) => {
   try {
-    let sessionToken = await makeSessionToken(request.headers)
-    if(!sessionToken) return data(null, { status: 500 });
-    
-    if(!db) return data(null, { status: 500 })
-    let keys = ['token1', 'token2']
-    let verified = await VerifyB4Making(request.headers, keys)
+    let sessionToken = await makeSessionToken(request.headers);
+    if (!sessionToken) {
+      console.warn("[root] makeSessionToken failed; serving page without session.");
+      sessionToken = "not_needed";
+    }
+
+    if (!db) return data(null, { status: 500 });
+
+    let keys = ['token1', 'token2'];
+    let verified = await VerifyB4Making(request.headers, keys);
 
     const user = await isAuthenticated(request, ['id']);
     const userId = user?.id || null;
 
-    let token: string | null = null
-    if(!verified){
+    let token: string | null = null;
+    if (!verified) {
       let t = await SetToken(request.headers, {
         expiresIn: '1d',
         algorithm: 'HS512'
-      }, keys)
-      if(!t) return data(null, { status: 500 });
-      token = t?.data
+      }, keys);
+      if (!t) {
+        console.warn("[root] SetToken failed; continuing without auth cookie.");
+      } else {
+        token = t?.data;
+      }
     }
 
     const sameSite = process.env.NODE_ENV === 'production' ? 'SameSite=None' : 'SameSite=Lax';
@@ -141,7 +148,7 @@ export const loader = async ({request}: {request: Request}) => {
     } as ResponseInit);
   }
   catch (error) {
-    console.error('Error in loader:', error)
+    console.error('Error in root loader:', error);
     return data(null, { status: 500 });
   }
 }
