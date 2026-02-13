@@ -78,7 +78,7 @@ export const loader = async ({ request }: { request: Request }) => {
           "Access-Control-Allow-Origin": origin,
           "Access-Control-Allow-Credentials": "true",
           "Vary": "Origin",
-          "Cache-Control": "no-store, no-cache, must-revalidate",
+          "Cache-Control": "private, max-age=300",
           "X-Content-Type-Options": "nosniff",
         },
       });
