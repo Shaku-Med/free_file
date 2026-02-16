@@ -14,6 +14,7 @@ const Reel = ({ initialItems }: ReelProps) => {
   const [initialLoadDone, setInitialLoadDone] = useState(false);
   const [userActions, setUserActions] = useState<{ likedFileIds: string[]; dislikedFileIds: string[] }>({ likedFileIds: [], dislikedFileIds: [] });
   const shownIdsRef = useRef<Set<string>>(new Set());
+  const feedSeedRef = useRef<string>(Date.now().toString());
 
   useEffect(() => {
     const container = document.getElementById("scroll_container");
@@ -32,12 +33,17 @@ const Reel = ({ initialItems }: ReelProps) => {
       if (isLoadingMore) return;
       if (!append && items.length > 1) return;
 
+      if (!append) {
+        feedSeedRef.current = Date.now().toString();
+      }
+
       try {
         if (append) {
           setIsLoadingMore(true);
         }
 
         const params = new URLSearchParams();
+        params.set("seed", feedSeedRef.current);
         if (append && nextCursor) {
           params.set("cursor_pos", String(nextCursor.cursor_pos));
         }

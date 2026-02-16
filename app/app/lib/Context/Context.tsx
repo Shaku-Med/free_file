@@ -117,22 +117,25 @@ export const ContextProvider = ({ children, st, user_agent, userId, c_user, uplo
     const [hasMore, setHasMore] = useState(true);
     const nextCursorRef = useRef<{ cursor_pos: number } | null>(null);
     const shownIdsRef = useRef<Set<string>>(new Set());
+    const feedSeedRef = useRef<string>(Date.now().toString());
     const observerRef = useRef<HTMLDivElement | null>(null)
     const nav = useNavigation()
 
     const fetchFeed = useCallback(async (append: boolean) => {
       if (isLoading) return
 
+      if (!append) {
+        feedSeedRef.current = Date.now().toString();
+      }
+
       setIsLoading(true)
       try {
         const params = new URLSearchParams()
+        params.set("seed", feedSeedRef.current)
         const cursor = nextCursorRef.current
         if (append && cursor) {
           params.set("cursor_pos", String(cursor.cursor_pos))
         }
-        // Don't send exclude_ids: position-based pagination (cursor_pos) already
-        // returns the next window; sending shown IDs can make get_feed over-filter
-        // and return nothing. shownIdsRef is still used for mark-seen on leave.
 
         const response = await fetch(`/api/feed?${params}`)
         if (!response.ok) return
@@ -213,6 +216,7 @@ export const ContextProvider = ({ children, st, user_agent, userId, c_user, uplo
         if (!res.ok) return
         nextCursorRef.current = null
         shownIdsRef.current = new Set()
+        feedSeedRef.current = Date.now().toString()
         setHasMore(true)
         await fetchFeed(false)
       } catch (e) {

@@ -61,7 +61,7 @@ export const loader = async ({ request }: { request: Request }) => {
       p_seed: seedParam,
       p_cursor_pos: Number.isFinite(cursorPos) ? cursorPos : 0,
       ...(pExcludeIds.length > 0 ? { p_exclude_ids: pExcludeIds } : {}),
-      ...(Number.isFinite(maxDuration) && maxDuration > 0 ? { p_max_duration: maxDuration } : {}),
+      ...(maxDuration != null && Number.isFinite(maxDuration) && maxDuration > 0 ? { p_max_duration: maxDuration } : {}),
     };
 
     const { data: reelFeed, error } = await db.rpc('get_reel_feed', reelParams);
@@ -75,7 +75,7 @@ export const loader = async ({ request }: { request: Request }) => {
 
     let filtered = await filterFilesByAccess(request, reelFeed || []);
 
-    const fileIds = filtered.map((f: { id?: string }) => f.id).filter(Boolean);
+    const fileIds = filtered.map((f) => f.id as string | undefined).filter(Boolean);
     const interactionsByFile = new Map<
       string,
       { like_count: number; dislike_count: number; comment_count: number; user_has_liked: boolean; user_has_disliked: boolean }
