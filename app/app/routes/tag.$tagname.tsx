@@ -1,8 +1,24 @@
 import { useEffect, useCallback, useRef, useState } from "react";
-import { useParams, Link } from "react-router";
+import { useParams, Link, type MetaFunction } from "react-router";
 import VideoCard from "~/routes/Home/components/VideoCard";
 import type { FileType } from "~/lib/types";
 import { useFileContext } from "~/lib/Context/Context";
+import { buildPageMeta } from "~/lib/seo";
+
+export const meta: MetaFunction<{ tagname?: string }> = ({ params }) => {
+  const tag = params?.tagname ? decodeURIComponent(params.tagname) : "";
+  const title = tag
+    ? `#${tag} – Photos and videos | Memories`
+    : "Tag | Memories";
+  const description = tag
+    ? `Browse photos and videos tagged with ${tag} on Memories. Discover related content and creators.`
+    : "Browse content by tag on Memories.";
+  return buildPageMeta({
+    title,
+    description,
+    canonicalPath: tag ? `/tag/${encodeURIComponent(tag)}` : "/tag",
+  });
+};
 
 function SkeletonCard() {
   return (

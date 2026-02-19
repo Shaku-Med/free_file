@@ -155,8 +155,8 @@ export const action = async ({ request }: { request: Request }) => {
 
 export const meta: MetaFunction = () =>
   buildPageMeta({
-    title: 'Verify Email | Memories',
-    description: 'Verify your email address to complete your Memories account setup.',
+    title: 'Verify your email | Memories',
+    description: 'Verify your email address to complete your Memories account setup and start using your profile.',
     canonicalPath: '/auth/verify',
     noindex: true,
   });

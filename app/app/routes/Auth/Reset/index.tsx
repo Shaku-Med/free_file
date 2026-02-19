@@ -99,8 +99,8 @@ export const action = async ({ request }: { request: Request }) => {
 
 export const meta: MetaFunction = () =>
   buildPageMeta({
-    title: 'Reset Password | Memories',
-    description: 'Reset your Memories account password to regain access to your account.',
+    title: 'Reset your password | Memories',
+    description: 'Reset your Memories account password to regain access to your account and content.',
     canonicalPath: '/auth/reset',
     noindex: true,
   });

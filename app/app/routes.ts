@@ -60,6 +60,7 @@ export default [
         route(`views/increment`, 'routes/Api/views/increment.tsx'),
         route(`server-env`, 'routes/Api/server-env/index.tsx'),
         route(`sitemap`, 'routes/Api/sitemap/index.tsx'),
+        route(`indexnow`, 'routes/Api/indexnow/index.tsx'),
     ]),
     route(`playlist`, 'routes/Playlist/index.tsx'),
     route(`tag/:tagname`, 'routes/tag.$tagname.tsx'),

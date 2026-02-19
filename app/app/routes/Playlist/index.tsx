@@ -1,10 +1,19 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import { Link } from "react-router";
+import { Link, type MetaFunction } from "react-router";
 import VideoCard from "~/routes/Home/components/VideoCard";
 import type { FileType } from "~/lib/types";
 import { useFileContext } from "~/lib/Context/Context";
 import { useLocalPlaylist } from "~/lib/hooks/useLocalPlaylist";
 import { Button } from "~/components/ui/button";
+import { buildPageMeta } from "~/lib/seo";
+
+export const meta: MetaFunction = () =>
+  buildPageMeta({
+    title: "Your playlist and saved videos | Memories",
+    description:
+      "View and manage your saved playlist on Memories. Revisit your watch-later list and organize the photos and videos you've saved.",
+    canonicalPath: "/playlist",
+  });
 
 function SkeletonCard() {
   return (

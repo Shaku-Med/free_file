@@ -1,3 +1,14 @@
+import type { MetaFunction } from "react-router";
+import { buildPageMeta } from "~/lib/seo";
+
+export const meta: MetaFunction = () =>
+  buildPageMeta({
+    title: "Terms of Service – Rules and usage | Memories",
+    description:
+      "Memories terms of service: user responsibilities, content policy, and acceptable use when uploading and sharing photos and videos.",
+    canonicalPath: "/terms",
+  });
+
 export default function TermsPage() {
   return (
     <article className="max-w-3xl py-8 mandatory_select">

@@ -51,8 +51,8 @@ export const action = async ({ request }: { request: Request }) => {
 
 export const meta: MetaFunction = () =>
   buildPageMeta({
-    title: 'Create Account | Memories',
-    description: 'Create your Memories account to start sharing and discovering content.',
+    title: 'Create your free account | Memories',
+    description: 'Create your Memories account to upload photos and videos, build a gallery, and discover content from other creators.',
     canonicalPath: '/auth/signup',
     noindex: true,
   });

@@ -1,3 +1,14 @@
+import type { MetaFunction } from "react-router";
+import { buildPageMeta } from "~/lib/seo";
+
+export const meta: MetaFunction = () =>
+  buildPageMeta({
+    title: "Privacy Policy – How we use your data | Memories",
+    description:
+      "Read the Memories privacy policy: how we collect, use, and protect your information when you upload and share photos and videos.",
+    canonicalPath: "/privacy",
+  });
+
 export default function PrivacyPage() {
   return (
     <article className="max-w-3xl py-8 mandatory_select">

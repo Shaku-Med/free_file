@@ -1,4 +1,14 @@
-import React from 'react'
+import React from "react";
+import type { MetaFunction } from "react-router";
+import { buildPageMeta } from "~/lib/seo";
+
+export const meta: MetaFunction = () =>
+  buildPageMeta({
+    title: "Roadmap and upcoming features | Memories",
+    description:
+      "See what we're building next at Memories: realtime collaboration, private chat, AI scripting, reels, and more. Check our roadmap and live features.",
+    canonicalPath: "/features/incoming",
+  });
 
 const features = [
   {

@@ -3,6 +3,16 @@ import VideoCard from "./components/VideoCard";
 import type { FileType } from "~/lib/types";
 import { Button } from "~/components/ui/button";
 import { Plus } from "lucide-react";
+import type { MetaFunction } from "react-router";
+import { buildPageMeta } from "~/lib/seo";
+
+export const meta: MetaFunction = () =>
+  buildPageMeta({
+    title: "Memories – Your feed of photos and videos",
+    description:
+      "Discover and watch photos and videos on your personalized feed. Upload your own, like, comment, and share with the Memories community.",
+    canonicalPath: "/",
+  });
 
 function SkeletonCard() {
   return (

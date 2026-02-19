@@ -1,7 +1,7 @@
 export const SITE_NAME = "Memories";
-export const DEFAULT_TITLE = "Memories";
+export const DEFAULT_TITLE = "Memories – Share and discover photos and videos";
 export const DEFAULT_DESCRIPTION =
-  "Upload, share, and keep your photos and videos forever. Private or public—your memories stay yours. Free media hosting and gallery.";
+  "Memories lets you upload, share, and keep your photos and videos forever. Choose private or public—your memories stay yours. Free media hosting, galleries, and discovery.";
 export const DEFAULT_KEYWORDS = [
   "memories",
   "photo gallery",
