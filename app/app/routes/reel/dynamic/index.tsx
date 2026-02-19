@@ -17,6 +17,7 @@ import {
 } from "~/lib/utils";
 import { formatNumber } from "~/lib/utils/formatNumber";
 import { ownerService } from "~/lib/Services/OwnerService";
+import { buildPageMeta } from "~/lib/seo";
 
 export const loader = async ({ request, params }: LoaderFunctionArgs) => {
   try {
@@ -92,78 +93,49 @@ export const meta: MetaFunction<typeof loader> = ({ data: loaderData }) => {
   try {
     if (!loaderData || !loaderData.file) {
       const title = loaderData?.accessDenied
-        ? "Access Denied - Memories"
-        : "Reel Not Found - Memories";
+        ? "Access Denied | Memories"
+        : "Reel Not Found | Memories";
       const description = loaderData?.accessDenied
         ? "You do not have permission to view this reel."
         : "Reel not found";
-
-      return [
-        {
-          title,
-          description,
-        },
-      ];
+      return buildPageMeta({
+        title,
+        description,
+        canonicalPath: loaderData?.id ? `/reel/${loaderData.id}` : "/reel",
+        noindex: true,
+      });
     }
 
     const file = loaderData.file as FileType;
-
     const displayTitle =
       file.file_title && file.file_title.trim() !== ""
         ? file.file_title
         : ParseFilename(file.filename || "");
-
     const likesCount = Number((file as any).up_count || 0);
     const commentsCount = Number((file as any).comments_count || 0);
     const viewsCount = Number((file as any).views || (file as any).view_count || 0);
     const sharesCount = Number((file as any).shares || (file as any).share_count || 0);
-
     const statsParts: string[] = [];
-    if (viewsCount > 0) {
-      statsParts.push(`${formatNumber(viewsCount)} views`);
-    }
-    if (likesCount > 0) {
-      statsParts.push(
-        `${likesCount} ${likesCount === 1 ? "like" : "likes"}`,
-      );
-    }
-    if (sharesCount > 0) {
-      statsParts.push(`${formatNumber(sharesCount)} shares`);
-    }
-    if (commentsCount > 0) {
-      statsParts.push(
-        `${commentsCount} ${commentsCount === 1 ? "comment" : "comments"}`,
-      );
-    }
-
+    if (viewsCount > 0) statsParts.push(`${formatNumber(viewsCount)} views`);
+    if (likesCount > 0) statsParts.push(`${likesCount} ${likesCount === 1 ? "like" : "likes"}`);
+    if (sharesCount > 0) statsParts.push(`${formatNumber(sharesCount)} shares`);
+    if (commentsCount > 0) statsParts.push(`${commentsCount} ${commentsCount === 1 ? "comment" : "comments"}`);
     const statsText = statsParts.join(" • ");
-
     const displayDescription =
       file.file_description && file.file_description.trim() !== ""
         ? `${file.file_description} | ${statsText}`
-        : `${ParseFilename(file.filename || "")} | ${statsText} | ${
-            file.file_type
-          } | ${file.file_size}`;
+        : `${ParseFilename(file.filename || "")} | ${statsText} | ${file.file_type} | ${file.file_size}`;
 
     let thumbnail = (() => {
-      if (file.file_type?.startsWith("image/") && file.endpoint) {
-        return `/api/load/image/${file.endpoint}`;
-      }
+      if (file.file_type?.startsWith("image/") && file.endpoint) return `/api/load/image/${file.endpoint}`;
       const randomThumbnail = getRandomThumbnail(file.thumbnails);
-      if (randomThumbnail) {
-        return `/api/load/image/${randomThumbnail}`;
-      }
+      if (randomThumbnail) return `/api/load/image/${randomThumbnail}`;
       const isHls =
-        file.file_type === "application/vnd.apple.mpegurl" ||
-        file.endpoint?.includes(".m3u8");
-      if (isHls) {
-        return `/api/load/image/${arrangeDateForThumbnail(
-          file.created_at,
-        )}/${file.unique_id}/thumbnail_${ParseFilename(file.filename)}.jpg`;
-      }
+        file.file_type === "application/vnd.apple.mpegurl" || file.endpoint?.includes(".m3u8");
+      if (isHls)
+        return `/api/load/image/${arrangeDateForThumbnail(file.created_at)}/${file.unique_id}/thumbnail_${ParseFilename(file.filename)}.jpg`;
       return `/api/load/image/${file.endpoint}`;
     })();
-
     thumbnail = `${thumbnail}?quality=50`;
 
     const isVideo =
@@ -172,84 +144,39 @@ export const meta: MetaFunction<typeof loader> = ({ data: loaderData }) => {
       file.endpoint?.includes(".m3u8");
     const isImage = file.file_type?.startsWith("image/");
     const ogType = isVideo ? "video.other" : isImage ? "image" : "website";
-    const twitterCard = isVideo ? "player" : "summary_large_image";
+    const ownerUsername = (loaderData?.file as any)?.owner?.username;
 
-    const pageUrl = `${BASE_URL}/reel/${loaderData.id}`;
-    const thumbnailUrl = `${BASE_URL}${thumbnail}`;
-
-    return [
-      {
-        title: `${displayTitle} - Memories`,
-      },
-      {
-        name: "description",
-        content: `${displayDescription} - Memories`,
-      },
-      {
-        name: "keywords",
-        content: `${file.file_type || ""}, ${
-          isVideo ? "video" : isImage ? "image" : "media"
-        }, memories, reel`,
-      },
-      {
-        name: "author",
-        content:
-          ((loaderData?.file as any)?.owner &&
-            (loaderData.file as any).owner.username) ||
-          "Memories",
-      },
-      {
-        name: "canonical",
-        content: pageUrl,
-      },
-      {
-        name: "robots",
-        content: "index, follow",
-      },
-      { property: "og:type", content: ogType },
-      { property: "og:title", content: `${displayTitle} - Memories` },
-      {
-        property: "og:description",
-        content: `${displayDescription} - Memories`,
-      },
-      { property: "og:image", content: thumbnailUrl },
-      { property: "og:image:alt", content: displayTitle },
+    const extra: import("react-router").MetaDescriptor[] = [
       { property: "og:image:type", content: "image/jpeg" },
-      { property: "og:url", content: pageUrl },
-      { property: "og:site_name", content: "Memories" },
-      { property: "og:locale", content: "en_US" },
       ...(isVideo
         ? [
-            {
-              property: "og:video:type",
-              content: file.file_type || "video/mp4",
-            },
+            { property: "og:video:type", content: file.file_type || "video/mp4" },
             {
               property: "og:video:url",
-              content: `${BASE_URL}${getVideoSrc(
-                file.endpoint ?? "",
-                file.file_type,
-              )}`,
+              content: `${BASE_URL}${getVideoSrc(file.endpoint ?? "", file.file_type)}`,
             },
           ]
         : []),
-      { name: "twitter:card", content: twitterCard },
-      { name: "twitter:title", content: `${displayTitle} - Memories` },
-      {
-        name: "twitter:description",
-        content: `${displayDescription} - Memories`,
-      },
-      { name: "twitter:image", content: thumbnailUrl },
-      { name: "twitter:image:alt", content: displayTitle },
+      { name: "twitter:card", content: isVideo ? "player" : "summary_large_image" },
     ];
-  } catch (error) {
-    console.error("Error in reel meta:", error);
-    return [
-      {
-        title: "Error - Memories",
-        description: "Error loading reel",
-      },
-    ];
+
+    return buildPageMeta({
+      title: `${displayTitle} | Memories`,
+      description: `${displayDescription} | Memories`,
+      canonicalPath: `/reel/${loaderData.id}`,
+      ogImage: thumbnail,
+      ogImageAlt: displayTitle,
+      keywords: [file.file_type, isVideo ? "video" : isImage ? "image" : "media", "memories", "reel"].filter(Boolean).join(", "),
+      author: ownerUsername,
+      ogType,
+      extra,
+    });
+  } catch {
+    return buildPageMeta({
+      title: "Error | Memories",
+      description: "Error loading reel",
+      noindex: true,
+    });
   }
 };
 

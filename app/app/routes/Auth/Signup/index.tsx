@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { data, redirect, useActionData, useNavigation, Link, type MetaFunction } from 'react-router';
+import { buildPageMeta } from '~/lib/seo';
 import { Button } from '~/components/ui/button';
 import { Input } from '~/components/ui/input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '~/components/ui/card';
@@ -48,12 +49,13 @@ export const action = async ({ request }: { request: Request }) => {
   }
 };
 
-export const meta: MetaFunction = () => {
-  return [
-    { title: 'Create Account | Memories' },
-    { name: 'description', content: 'Create your Memories account to start sharing and discovering content.' }
-  ];
-};
+export const meta: MetaFunction = () =>
+  buildPageMeta({
+    title: 'Create Account | Memories',
+    description: 'Create your Memories account to start sharing and discovering content.',
+    canonicalPath: '/auth/signup',
+    noindex: true,
+  });
 
 const Signup = () => {
   const actionData = useActionData<typeof action>();
@@ -62,111 +64,69 @@ const Signup = () => {
   const isSubmitting = navigation.state === 'submitting';
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-4">
-      <Card className="w-full max-w-md shadow-lg border-2 animate-in fade-in-0 zoom-in-95 duration-300">
-        <CardHeader className="space-y-2 pb-6">
-          <CardTitle className="text-3xl font-bold text-center bg-gradient-to-r from-primary to-primary/60 bg-clip-text text-transparent">
-            Create Account
+    <div className="w-full max-w-md">
+      <Card className="border shadow-sm">
+        <CardHeader className="space-y-1 pb-4">
+          <CardTitle className="text-2xl font-semibold text-center text-foreground">
+            Create account
           </CardTitle>
-          <CardDescription className="text-center text-base">
-            Join Memories and start your journey today
+          <CardDescription className="text-center text-muted-foreground">
+            Sign up to get started
           </CardDescription>
         </CardHeader>
-        <CardContent className="space-y-5">
-          <form method="post" className="space-y-5">
+        <CardContent className="space-y-4">
+          <form method="post" className="space-y-4">
             {actionData?.error && (
-              <div className="p-4 text-sm text-destructive bg-destructive/10 border border-destructive/20 rounded-lg animate-in slide-in-from-top-2 duration-200">
+              <div className="p-3 text-sm text-destructive bg-destructive/10 border border-destructive/20 rounded-md">
                 {actionData.error}
               </div>
             )}
-            
-            <div className="space-y-2.5">
-              <label htmlFor="username" className="text-sm font-semibold text-foreground">
-                Username
-              </label>
-              <Input
-                id="username"
-                name="username"
-                type="text"
-                required
-                placeholder="Choose a username"
-                autoComplete="username"
-                className="w-full h-11 transition-all focus:ring-2 focus:ring-primary/20"
-              />
-            </div>
 
-            <div className="space-y-2.5">
-              <label htmlFor="email" className="text-sm font-semibold text-foreground">
-                Email
-              </label>
-              <Input
-                id="email"
-                name="email"
-                type="email"
-                required
-                placeholder="Enter your email"
-                autoComplete="email"
-                className="w-full h-11 transition-all focus:ring-2 focus:ring-primary/20"
-              />
+            <div className="space-y-2">
+              <label htmlFor="username" className="text-sm font-medium text-foreground">Username</label>
+              <Input id="username" name="username" type="text" required placeholder="Choose a username" autoComplete="username" className="w-full" />
             </div>
-
-            <div className="space-y-2.5">
-              <label htmlFor="dob" className="text-sm font-semibold text-foreground">
-                Date of Birth
-              </label>
+            <div className="space-y-2">
+              <label htmlFor="email" className="text-sm font-medium text-foreground">Email</label>
+              <Input id="email" name="email" type="email" required placeholder="Enter your email" autoComplete="email" className="w-full" />
+            </div>
+            <div className="space-y-2">
+              <label htmlFor="dob" className="text-sm font-medium text-foreground">Date of birth</label>
               <Input
                 id="dob"
                 name="dob"
                 type="date"
                 required
                 max={new Date(new Date().setFullYear(new Date().getFullYear() - 18)).toISOString().split('T')[0]}
-                className="w-full h-11 transition-all focus:ring-2 focus:ring-primary/20"
+                className="w-full"
               />
             </div>
-
-            <div className="space-y-2.5">
-              <label htmlFor="password" className="text-sm font-semibold text-foreground">
-                Password
-              </label>
+            <div className="space-y-2">
+              <label htmlFor="password" className="text-sm font-medium text-foreground">Password</label>
               <div className="relative">
                 <Input
                   id="password"
                   name="password"
                   type={showPassword ? 'text' : 'password'}
                   required
-                  placeholder="Create a strong password"
+                  placeholder="At least 8 characters"
                   autoComplete="new-password"
                   minLength={8}
-                  className="w-full h-11 pr-12 transition-all focus:ring-2 focus:ring-primary/20"
+                  className="w-full pr-12"
                 />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground text-sm font-medium transition-colors"
-                >
+                <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground text-sm">
                   {showPassword ? 'Hide' : 'Show'}
                 </button>
               </div>
-              <p className="text-xs text-muted-foreground">Must be at least 8 characters</p>
             </div>
 
-            <Button 
-              type="submit" 
-              className="w-full h-11 text-base font-semibold shadow-md hover:shadow-lg transition-all" 
-              disabled={isSubmitting}
-            >
-              {isSubmitting ? 'Creating account...' : 'Create Account'}
+            <Button type="submit" className="w-full" disabled={isSubmitting}>
+              {isSubmitting ? 'Creating account...' : 'Create account'}
             </Button>
           </form>
 
-          <div className="mt-6 pt-6 border-t border-border text-center">
-            <span className="text-sm text-muted-foreground">Already have an account? </span>
-            <Link 
-              to="/auth/login" 
-              className="text-sm text-primary hover:text-primary/80 font-semibold transition-colors hover:underline"
-            >
-              Sign in
-            </Link>
+          <div className="mt-4 pt-4 border-t text-center text-sm text-muted-foreground">
+            Already have an account? <Link to="/auth/login" className="text-foreground font-medium hover:underline">Sign in</Link>
           </div>
         </CardContent>
       </Card>

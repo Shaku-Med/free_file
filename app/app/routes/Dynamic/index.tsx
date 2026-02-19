@@ -1,10 +1,11 @@
 import { data, Link, useLoaderData, useNavigate, useParams, useNavigation, type MetaFunction } from "react-router";
 import db from "~/lib/Database/supabase";
 import HLSPlayer from "~/components/components/hlsplayer";
-import { useEffect, useState, useRef } from "react";
+import { useCallback, useEffect, useState, useRef } from "react";
 import RelatedVideos from "./components/RelatedVideos";
 import type { FileType } from "~/lib/types";
 import { BASE_URL } from "~/lib/URLS";
+import { buildPageMeta } from "~/lib/seo";
 import ImageLoad from "../Home/components/ImageLoad/ImageLoad";
 import { arrangeDateForThumbnail, ParseFilename, getRandomThumbnail, getVideoSrc } from "~/lib/utils";
 import { motion } from "framer-motion";
@@ -222,115 +223,108 @@ export const loader = async ({ request, params }: { request: Request, params: { 
   }
 }
 
-export const meta: MetaFunction<ReturnType<typeof loader>> = ({ data }: {data: any}) => {
+export const meta: MetaFunction<ReturnType<typeof loader>> = ({ data }: { data: any }) => {
   try {
-    if(!data || !data?.file) {
-      const title = data?.accessDenied ? 'Access Denied - Memories' : 'Not Found - Memories';
-      const description = data?.accessDenied ? 'You do not have permission to view this content.' : 'File not found';
-      return [
-        {
-          title,
-          description,
-        }
-      ];
+    if (!data || !data?.file) {
+      const title = data?.accessDenied ? "Access Denied | Memories" : "Not Found | Memories";
+      const description = data?.accessDenied
+        ? "You do not have permission to view this content."
+        : "File not found";
+      return buildPageMeta({
+        title,
+        description,
+        canonicalPath: data?.id ? `/${data.id}` : undefined,
+        noindex: true,
+      });
     }
 
-    const file = data?.file;
-    const displayTitle = (file?.file_title && file.file_title.trim() !== '') 
-      ? file.file_title 
-      : ParseFilename(file?.filename || '');
-    
-    // Get likes, comments, views, and shares count
+    const file = data.file;
+    const isVideo =
+      file?.file_type?.includes("video") ||
+      file?.file_type === "application/vnd.apple.mpegurl" ||
+      file?.endpoint?.includes(".m3u8");
+    const isImage = file?.file_type?.startsWith("image/");
+    const displayTitle =
+      file?.file_title && file.file_title.trim() !== "" ? file.file_title : ParseFilename(file?.filename || "");
     const likesCount = Number(file?.up_count) || 0;
     const commentsCount = data?.commentsCount || 0;
-    const viewsCount = Number(file?.views || file?.view_count || 0);
-    const sharesCount = Number(file?.shares || file?.share_count || 0);
-    
-    // Build description with stats
-    const statsParts = [];
+    const viewsCount = Number(file?.views ?? file?.view_count ?? 0);
+    const statsParts: string[] = [];
     if (viewsCount > 0) statsParts.push(`${formatNumber(viewsCount)} views`);
-    if (likesCount > 0) statsParts.push(`${likesCount} ${likesCount === 1 ? 'like' : 'likes'}`);
-    if (sharesCount > 0) statsParts.push(`${formatNumber(sharesCount)} shares`);
-    if (commentsCount > 0) statsParts.push(`${commentsCount} ${commentsCount === 1 ? 'comment' : 'comments'}`);
-    const statsText = statsParts.join(' • ');
-    
-    const displayDescription = (file?.file_description && file.file_description.trim() !== '')
-      ? `${file.file_description} | ${statsText}`
-      : `${ParseFilename(file?.filename || '')} | ${statsText} | ${file?.file_type} | ${file?.file_size}`;
+    if (likesCount > 0) statsParts.push(`${likesCount} ${likesCount === 1 ? "like" : "likes"}`);
+    if (commentsCount > 0) statsParts.push(`${commentsCount} ${commentsCount === 1 ? "comment" : "comments"}`);
+    const statsText = statsParts.length > 0 ? statsParts.join(" · ") : "";
+    const baseDescription =
+      file?.file_description && file.file_description.trim() !== ""
+        ? file.file_description.trim()
+        : displayTitle;
+    const intentPrefix = isVideo ? "Watch " : isImage ? "View " : "";
+    const displayDescription = statsText
+      ? `${intentPrefix}${baseDescription} on Memories. ${statsText}`
+      : `${intentPrefix}${baseDescription} on Memories.`;
+    const metaDescription = displayDescription.slice(0, 155).trim();
+    const metaTitle =
+      displayTitle.length > 48
+        ? `${displayTitle.slice(0, 47).trim()}… | Memories`
+        : `${displayTitle} | Memories`;
 
     let thumbnail = (() => {
-      if (file?.file_type?.startsWith('image/') && file?.endpoint) {
-        return `/api/load/image/${file.endpoint}`;
-      }
+      if (file?.file_type?.startsWith("image/") && file?.endpoint) return `/api/load/image/${file.endpoint}`;
       const randomThumbnail = getRandomThumbnail(file?.thumbnails);
-      if (randomThumbnail) {
-        return `/api/load/image/${randomThumbnail}`;
-      }
-      const isHLS = file?.file_type === 'application/vnd.apple.mpegurl' || file?.endpoint?.includes('.m3u8');
-      if (isHLS) {
+      if (randomThumbnail) return `/api/load/image/${randomThumbnail}`;
+      const isHLS =
+        file?.file_type === "application/vnd.apple.mpegurl" || file?.endpoint?.includes(".m3u8");
+      if (isHLS)
         return `/api/load/image/${arrangeDateForThumbnail(file?.created_at)}/${file?.unique_id}/thumbnail_${ParseFilename(file?.filename)}.jpg`;
-      }
       return `/api/load/image/${file?.endpoint}`;
     })();
-    thumbnail = `${thumbnail}?quality=50`
+    thumbnail = `${thumbnail}?quality=50`;
 
-    const isVideo = file?.file_type?.includes('video') || file?.file_type === 'application/vnd.apple.mpegurl' || file?.endpoint?.includes('.m3u8');
-    const isImage = file?.file_type?.startsWith('image/');
-    const ogType = isVideo ? 'video.other' : isImage ? 'image' : 'website';
-    const twitterCard = isVideo ? 'player' : 'summary_large_image';
-    const pageUrl = `${BASE_URL}/${data?.id}`;
+    const ogType = isImage ? "image" : "website";
     const thumbnailUrl = `${BASE_URL}${thumbnail}`;
 
-    return [
-      {
-        title: `${displayTitle} - Memories`,
-      },
-      {
-        name: 'description',
-        content: `${displayDescription} - Memories`
-      },
-      { name: "keywords", content: `${file?.file_type || ''}, ${isVideo ? 'video' : isImage ? 'image' : 'media'}, memories, share` },
-      { name: "author", content: data?.owner?.username || 'Memories' },
-      { name: "canonical", content: pageUrl },
-      { name: "robots", content: "index, follow" },
-      { property: "og:type", content: ogType },
-      { property: "og:title", content: `${displayTitle} - Memories` },
-      { property: "og:description", content: `${displayDescription} - Memories` },
-      { property: "og:image", content: thumbnailUrl },
-      { property: "og:image:alt", content: displayTitle },
+    const extra: import("react-router").MetaDescriptor[] = [
       { property: "og:image:type", content: "image/jpeg" },
-      { property: "og:url", content: pageUrl },
-      { property: "og:site_name", content: "Memories" },
-      { property: "og:locale", content: "en_US" },
-      ...(isVideo ? [
-        { property: "og:video:type", content: file?.file_type || "video/mp4" },
-        { property: "og:video:url", content: `${BASE_URL}${getVideoSrc(file?.endpoint ?? '', file?.file_type)}` },
-      ] : []),
-      ...(data?.owner ? [
-        { property: "article:author", content: data.owner.username },
-      ] : []),
-      ...(file?.created_at ? [
-        { property: "article:published_time", content: new Date(file.created_at).toISOString() },
-      ] : []),
-      { name: "twitter:card", content: twitterCard },
-      { name: "twitter:title", content: `${displayTitle} - Memories` },
-      { name: "twitter:description", content: `${displayDescription} - Memories` },
-      { name: "twitter:image", content: thumbnailUrl },
-      { name: "twitter:image:alt", content: displayTitle },
+      { property: "og:image:secure_url", content: thumbnailUrl },
+      { property: "og:image:width", content: "1200" },
+      { property: "og:image:height", content: "630" },
+      ...(data?.owner ? [{ property: "article:author", content: data.owner.username }] : []),
+      ...(file?.created_at
+        ? [{ property: "article:published_time", content: new Date(file.created_at).toISOString() }]
+        : []),
+      { name: "twitter:card", content: "summary_large_image" },
+      ...(data?.owner ? [{ name: "twitter:creator", content: `@${data.owner.username}` }] : []),
       { rel: "preconnect", href: thumbnailUrl, as: "image" },
       { rel: "dns-prefetch", href: BASE_URL },
-    ]
-  }
-  catch (error) {
-    console.error('Error in meta:', error);
-    return [
-      {
-        title: 'Error',
-        description: 'Error loading file',
-      }
     ];
+
+    const categoriesList: string[] = Array.isArray(file?.categories)
+      ? (file.categories as unknown[]).filter((c: unknown): c is string => typeof c === "string")
+      : [];
+    const tagsList: string[] = Array.isArray(file?.tags)
+      ? (file.tags as unknown[]).filter((t: unknown): t is string => typeof t === "string")
+      : [];
+    const keywords = [...categoriesList, ...tagsList, "memories", "share"].filter(Boolean).join(", ");
+
+    return buildPageMeta({
+      title: metaTitle,
+      description: metaDescription,
+      canonicalPath: `/${data?.id}`,
+      ogImage: thumbnail,
+      ogImageAlt: displayTitle,
+      keywords: keywords || [isVideo ? "video" : isImage ? "image" : "media", "memories", "share"].join(", "),
+      author: data?.owner?.username,
+      ogType,
+      extra,
+    });
+  } catch {
+    return buildPageMeta({
+      title: "Error | Memories",
+      description: "Error loading file",
+      noindex: true,
+    });
   }
-}
+};
 const index = () => {
   const params = useParams();
   const navigation = useNavigation();
@@ -347,20 +341,18 @@ const index = () => {
   
   // Track previous ID to detect route changes
   const prevIdRef = useRef<string | undefined>(currentId);
-  
-  // Reset all state when route ID changes
+  const viewIncrementSentRef = useRef(false);
+
   useEffect(() => {
     if (prevIdRef.current && prevIdRef.current !== currentId) {
-      // Route changed - reset all state
       setPlayingVideos(new Set());
       setHasIncrementedView(false);
+      viewIncrementSentRef.current = false;
       setRetryAttempt(0);
       setImageUrl(null);
       setImageColors(null);
       setMadeImageUrl(null);
       videoElementRef.current = null;
-      
-      // Scroll to top on route change
       window.scrollTo({ top: 0, behavior: 'smooth' });
     }
     prevIdRef.current = currentId;
@@ -507,43 +499,53 @@ const index = () => {
   // Show loading state during navigation
   const isNavigating = navigation.state === 'loading' && navigation.location?.pathname !== window.location.pathname;
 
-  // Increment views when component mounts or when file ID changes
-  useEffect(() => {
-    if (!file_data?.id || hasIncrementedView || !file_data?.unique_id) return;
-    
-    // Reset increment flag if file ID changed
-    if (prevIdRef.current !== currentId) {
-      setHasIncrementedView(false);
+  const requiredViewSeconds = (() => {
+    if (isHLS && file_data?.duration != null && Number(file_data.duration) > 0) {
+      const d = Number(file_data.duration);
+      const half = Math.ceil(d * 0.5);
+      return Math.min(30, Math.max(3, half));
     }
+    return 30;
+  })();
 
-    const incrementViews = async () => {
-      try {
-        const response = await fetch('/api/views/increment', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            fileId: file_data.id,
-            uniqueId: file_data.unique_id,
-          }),
-        });
-
-        if (response.ok) {
-          const result = await response.json();
-          if (result.success) {
-            setViews(result.views || result.view_count || views + 1);
-            setHasIncrementedView(true);
-          }
-        }
-      } catch (error) {
-        console.error('Error incrementing views:', error);
-        // Silently fail - don't show error to user
-      }
+  const runViewIncrement = useCallback(() => {
+    if (!file_data?.id || !file_data?.unique_id || hasIncrementedView || viewIncrementSentRef.current) return;
+    viewIncrementSentRef.current = true;
+    const payload = {
+      fileId: file_data.id,
+      uniqueId: file_data.unique_id,
+      minimumWatchSeconds: requiredViewSeconds,
+      ...(file_data.duration != null && { durationSeconds: Number(file_data.duration) }),
     };
+    fetch('/api/views/increment', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((result) => {
+        if (result?.success && result.counted !== false) {
+          setViews((v) => result.views ?? result.view_count ?? v + 1);
+          setHasIncrementedView(true);
+        }
+      })
+      .catch(() => {});
+  }, [file_data?.id, file_data?.unique_id, file_data?.duration, hasIncrementedView, requiredViewSeconds]);
 
-    incrementViews();
-  }, [file_data?.id, file_data?.unique_id, currentId, hasIncrementedView, views]);
+  const viewIncrementTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const onVideoPlayForView = useCallback(() => {
+    if (hasIncrementedView || viewIncrementSentRef.current || viewIncrementTimerRef.current) return;
+    viewIncrementTimerRef.current = setTimeout(() => {
+      viewIncrementTimerRef.current = null;
+      runViewIncrement();
+    }, requiredViewSeconds * 1000);
+  }, [hasIncrementedView, runViewIncrement, requiredViewSeconds]);
+
+  useEffect(() => () => {
+    if (viewIncrementTimerRef.current) clearTimeout(viewIncrementTimerRef.current);
+  }, []);
+
+  useEffect(() => {
+    if (isHLS || hasIncrementedView || !file_data?.id) return;
+    const t = setTimeout(runViewIncrement, requiredViewSeconds * 1000);
+    return () => clearTimeout(t);
+  }, [isHLS, file_data?.id, hasIncrementedView, runViewIncrement, requiredViewSeconds]);
 
   const videoBlock = (
     <motion.div layoutId={`video_id_${file_data.unique_id}`} className="relative w-full" key={`motion-${file_data.unique_id}-${currentId}`}>
@@ -555,7 +557,10 @@ const index = () => {
           <HLSPlayer
             src={getVideoSrc(file_data?.endpoint ?? '', file_data?.file_type)}
             className="w-full h-full"
-            onPlay={() => setPlayingVideos(prev => new Set(prev).add(1))}
+            onPlay={() => {
+              setPlayingVideos(prev => new Set(prev).add(1));
+              onVideoPlayForView();
+            }}
             onPause={() => setPlayingVideos(prev => {
               const newSet = new Set(prev);
               newSet.delete(1);
@@ -621,6 +626,41 @@ const index = () => {
     ? (file_data.tags as unknown[]).filter((t: unknown): t is string => typeof t === "string")
     : [];
 
+  const jsonLdThumbnail = (() => {
+    if (file_data?.file_type?.startsWith("image/") && file_data?.endpoint)
+      return `${BASE_URL}/api/load/image/${file_data.endpoint}?quality=50`;
+    const randomThumb = getRandomThumbnail(file_data?.thumbnails);
+    if (randomThumb) return `${BASE_URL}/api/load/image/${randomThumb}?quality=50`;
+    if (isHLS && file_data?.created_at && file_data?.unique_id && file_data?.filename)
+      return `${BASE_URL}/api/load/image/${arrangeDateForThumbnail(file_data.created_at)}/${file_data.unique_id}/thumbnail_${ParseFilename(file_data.filename)}.jpg?quality=50`;
+    return file_data?.endpoint ? `${BASE_URL}/api/load/image/${file_data.endpoint}?quality=50` : "";
+  })();
+  const pageUrlForLd = `${BASE_URL}/${data?.id ?? currentId}`;
+  const ldTitle = (file_data?.file_title?.trim() || ParseFilename(file_data?.filename || "")) || "Media";
+  const ldDescription = (file_data?.file_description?.trim() || ldTitle).slice(0, 200);
+  const ownerName = "owner" in data && data.owner ? data.owner.username : undefined;
+  const jsonLd = isVideo
+    ? {
+        "@context": "https://schema.org",
+        "@type": "CreativeWork",
+        name: ldTitle,
+        description: ldDescription,
+        thumbnailUrl: jsonLdThumbnail,
+        uploadDate: file_data?.created_at ? new Date(file_data.created_at).toISOString() : undefined,
+        url: pageUrlForLd,
+        ...(ownerName ? { author: { "@type": "Person", name: ownerName } } : {}),
+      }
+    : {
+        "@context": "https://schema.org",
+        "@type": "ImageObject",
+        name: ldTitle,
+        description: ldDescription,
+        contentUrl: file_data?.endpoint ? `${BASE_URL}/api/load/image/${file_data.endpoint}` : undefined,
+        thumbnail: jsonLdThumbnail,
+        url: pageUrlForLd,
+        ...(ownerName ? { author: { "@type": "Person", name: ownerName } } : {}),
+      };
+
   const contentColumn = (
             <div className="space-y-4">
               {/* Title */}
@@ -649,7 +689,7 @@ const index = () => {
               />
 
               {/* Description box: views, then description, then categories & tags */}
-              <div className="rounded-xl bg-zinc-900/80 overflow-hidden">
+              <div className="rounded-xl overflow-hidden">
                 <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground px-4 pt-3 pb-1">
                   <span className="font-medium text-foreground">{formatNumber(views)} views</span>
                   <span>{new Date(file_data.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span>
@@ -743,6 +783,10 @@ const index = () => {
 
   return (
     <div className="min-h-screen reel_p overflow-x-hidden" key={`dynamic-${currentId}`}>
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+      />
       {theaterMode && !isMobile ? (
         <>
           <div className="w-full py-4">

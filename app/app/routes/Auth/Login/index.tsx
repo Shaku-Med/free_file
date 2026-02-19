@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { data, redirect, useActionData, useNavigation, Link, type MetaFunction } from 'react-router';
+import { buildPageMeta } from '~/lib/seo';
 import { Button } from '~/components/ui/button';
 import { Input } from '~/components/ui/input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '~/components/ui/card';
@@ -70,12 +71,13 @@ export const action = async ({ request }: { request: Request }) => {
   }
 };
 
-export const meta: MetaFunction = () => {
-  return [
-    { title: 'Sign In | Memories' },
-    { name: 'description', content: 'Sign in to your Memories account to access all features and content.' }
-  ];
-};
+export const meta: MetaFunction = () =>
+  buildPageMeta({
+    title: 'Sign In | Memories',
+    description: 'Sign in to your Memories account to access all features and content.',
+    canonicalPath: '/auth/login',
+    noindex: true,
+  });
 
 const Login = () => {
   const actionData = useActionData<typeof action>();
@@ -84,27 +86,27 @@ const Login = () => {
   const isSubmitting = navigation.state === 'submitting';
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-4 ">
-      <Card className="w-full max-w-md shadow-lg border-2 animate-in fade-in-0 zoom-in-95 duration-300">
-        <CardHeader className="space-y-2 pb-6">
-          <CardTitle className="text-3xl font-bold text-center bg-gradient-to-r from-primary to-primary/60 bg-clip-text text-transparent">
-            Welcome Back
+    <div className="w-full max-w-md">
+      <Card className="border shadow-sm">
+        <CardHeader className="space-y-1 pb-4">
+          <CardTitle className="text-2xl font-semibold text-center text-foreground">
+            Sign in
           </CardTitle>
-          <CardDescription className="text-center text-base">
+          <CardDescription className="text-center text-muted-foreground">
             Sign in to continue to your account
           </CardDescription>
         </CardHeader>
-        <CardContent className="space-y-5">
-          <form method="post" className="space-y-5">
+        <CardContent className="space-y-4">
+          <form method="post" className="space-y-4">
             {actionData && 'error' in actionData && (
-              <div className="p-4 text-sm text-destructive bg-destructive/10 border border-destructive/20 rounded-lg animate-in slide-in-from-top-2 duration-200">
+              <div className="p-3 text-sm text-destructive bg-destructive/10 border border-destructive/20 rounded-md">
                 {actionData.error}
               </div>
             )}
             
-            <div className="space-y-2.5">
-              <label htmlFor="identifier" className="text-sm font-semibold text-foreground">
-                Username or Email
+            <div className="space-y-2">
+              <label htmlFor="identifier" className="text-sm font-medium text-foreground">
+                Username or email
               </label>
               <Input
                 id="identifier"
@@ -113,12 +115,12 @@ const Login = () => {
                 required
                 placeholder="Enter your username or email"
                 autoComplete="username"
-                className="w-full h-11 transition-all focus:ring-2 focus:ring-primary/20"
+                className="w-full"
               />
             </div>
 
-            <div className="space-y-2.5">
-              <label htmlFor="password" className="text-sm font-semibold text-foreground">
+            <div className="space-y-2">
+              <label htmlFor="password" className="text-sm font-medium text-foreground">
                 Password
               </label>
               <div className="relative">
@@ -129,7 +131,7 @@ const Login = () => {
                   required
                   placeholder="Enter your password"
                   autoComplete="current-password"
-                  className="w-full h-11 pr-12 transition-all focus:ring-2 focus:ring-primary/20"
+                  className="w-full pr-12"
                 />
                 <button
                   type="button"
@@ -141,37 +143,24 @@ const Login = () => {
               </div>
             </div>
 
-            <div className="flex items-center justify-end pt-1">
-              <Link 
-                to="/auth/reset" 
-                className="text-sm text-primary hover:text-primary/80 font-medium transition-colors hover:underline"
-              >
+            <div className="flex items-center justify-end">
+              <Link to="/auth/reset" className="text-sm text-muted-foreground hover:text-foreground hover:underline">
                 Forgot password?
               </Link>
             </div>
 
-            <Button 
-              type="submit" 
-              className="w-full h-11 text-base font-semibold shadow-md hover:shadow-lg transition-all" 
-              disabled={isSubmitting}
-            >
-              {isSubmitting ? 'Signing in...' : 'Sign In'}
+            <Button type="submit" className="w-full" disabled={isSubmitting}>
+              {isSubmitting ? 'Signing in...' : 'Sign in'}
             </Button>
           </form>
 
-          <div className="mt-6 pt-6 border-t border-border text-center">
-            <span className="text-sm text-muted-foreground">Don't have an account? </span>
-            <Link 
-              to="/auth/signup" 
-              className="text-sm text-primary hover:text-primary/80 font-semibold transition-colors hover:underline"
-            >
-              Create account
-            </Link>
+          <div className="mt-4 pt-4 border-t text-center text-sm text-muted-foreground">
+            Don't have an account? <Link to="/auth/signup" className="text-foreground font-medium hover:underline">Create account</Link>
           </div>
         </CardContent>
       </Card>
     </div>
   );
-};
+}
 
 export default Login;

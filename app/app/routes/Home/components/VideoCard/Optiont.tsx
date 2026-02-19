@@ -10,6 +10,7 @@ import { useSidebar } from "~/components/ui/sidebar";
 import ShareIcon from "./Icons/Options/Share";
 import AddIcon from "./Icons/Options/Add";
 import { useLocalPlaylist } from "~/lib/hooks/useLocalPlaylist";
+import { ShareModal } from "~/components/ShareModal";
 
 interface OptiontProps {
   fileId: string;
@@ -21,16 +22,11 @@ interface OptiontProps {
 const Optiont = ({ fileId, uniqueId, isOwner, onEdit }: OptiontProps) => {
   const { isMobile, state } = useSidebar();
   const { has, toggle } = useLocalPlaylist();
-  const [copied, setCopied] = useState(false);
+  const [shareModalOpen, setShareModalOpen] = useState(false);
   const inPlaylist = has(fileId);
+  const shareUrl = `${typeof window !== "undefined" ? window.location.origin : ""}/${uniqueId}`;
 
-  const handleShare = () => {
-    const url = `${window.location.origin}/${uniqueId}`;
-    navigator.clipboard.writeText(url).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    }).catch(() => {});
-  };
+  const handleShare = () => setShareModalOpen(true);
 
   const handleTogglePlaylist = () => {
     toggle(fileId);
@@ -51,7 +47,7 @@ const Optiont = ({ fileId, uniqueId, isOwner, onEdit }: OptiontProps) => {
         <DropdownMenuContent>
           <DropdownMenuItem onClick={handleShare}>
             <ShareIcon className="w-10 h-10 fill-current" />
-            {copied ? "Link copied!" : "Share"}
+            Share
           </DropdownMenuItem>
           <DropdownMenuItem onClick={handleTogglePlaylist}>
             <AddIcon className="w-10 h-10 fill-current" />
@@ -68,6 +64,7 @@ const Optiont = ({ fileId, uniqueId, isOwner, onEdit }: OptiontProps) => {
           )}
         </DropdownMenuContent>
       </DropdownMenu>
+      <ShareModal open={shareModalOpen} onOpenChange={setShareModalOpen} shareUrl={shareUrl} />
     </div>
   );
 };

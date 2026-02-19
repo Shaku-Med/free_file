@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { data, redirect, useActionData, useLoaderData, useNavigation, useSearchParams, Link, type MetaFunction } from 'react-router';
+import { buildPageMeta } from '~/lib/seo';
 import { Button } from '~/components/ui/button';
 import { Input } from '~/components/ui/input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '~/components/ui/card';
@@ -152,12 +153,13 @@ export const action = async ({ request }: { request: Request }) => {
   }
 };
 
-export const meta: MetaFunction = () => {
-  return [
-    { title: 'Verify Email | Memories' },
-    { name: 'description', content: 'Verify your email address to complete your Memories account setup.' }
-  ];
-};
+export const meta: MetaFunction = () =>
+  buildPageMeta({
+    title: 'Verify Email | Memories',
+    description: 'Verify your email address to complete your Memories account setup.',
+    canonicalPath: '/auth/verify',
+    noindex: true,
+  });
 
 const Verify = () => {
   const loaderData = useLoaderData<typeof loader>();
@@ -195,39 +197,36 @@ const Verify = () => {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-4 bg-background">
-      <Card className="w-full max-w-md shadow-lg border-2 animate-in fade-in-0 zoom-in-95 duration-300">
-        <CardHeader className="space-y-2 pb-6">
-          <CardTitle className="text-3xl font-bold text-center bg-gradient-to-r from-primary to-primary/60 bg-clip-text text-transparent">
-            Verify Your Email
+    <div className="w-full max-w-md">
+      <Card className="border shadow-sm">
+        <CardHeader className="space-y-1 pb-4">
+          <CardTitle className="text-2xl font-semibold text-center text-foreground">
+            Verify your email
           </CardTitle>
-          <CardDescription className="text-center text-base">
-            We've sent a 6-digit verification code to
-            <br />
-            <span className="font-semibold text-foreground">{loaderData.email}</span>
+          <CardDescription className="text-center text-muted-foreground">
+            We sent a 6-digit code to <span className="font-medium text-foreground">{loaderData.email}</span>
           </CardDescription>
         </CardHeader>
-        <CardContent className="space-y-5">
-          <form method="post" className="space-y-5">
+        <CardContent className="space-y-4">
+          <form method="post" className="space-y-4">
             <input type="hidden" name="userId" value={loaderData.userId} />
             <input type="hidden" name="email" value={loaderData.email} />
             <input type="hidden" name="type" value={loaderData.type} />
 
             {actionData && 'error' in actionData && (
-              <div className="p-4 text-sm text-destructive bg-destructive/10 border border-destructive/20 rounded-lg animate-in slide-in-from-top-2 duration-200">
+              <div className="p-3 text-sm text-destructive bg-destructive/10 border border-destructive/20 rounded-md">
                 {actionData.error}
               </div>
             )}
-
             {actionData && 'message' in actionData && (
-              <div className="p-4 text-sm text-green-600 bg-green-50 border border-green-200 rounded-lg dark:bg-green-900/20 dark:border-green-800 dark:text-green-400 animate-in slide-in-from-top-2 duration-200">
+              <div className="p-3 text-sm text-green-700 bg-green-50 border border-green-200 rounded-md dark:text-green-300 dark:bg-green-900/20 dark:border-green-800">
                 {actionData.message}
               </div>
             )}
-            
-            <div className="space-y-2.5">
-              <label htmlFor="code" className="text-sm font-semibold text-foreground text-center block">
-                Verification Code
+
+            <div className="space-y-2">
+              <label htmlFor="code" className="text-sm font-medium text-foreground block text-center">
+                Verification code
               </label>
               <Input
                 id="code"
@@ -238,45 +237,30 @@ const Verify = () => {
                 onChange={handleCodeChange}
                 placeholder="000000"
                 maxLength={6}
-                className="w-full text-center text-3xl tracking-[0.5em] font-mono h-16 transition-all focus:ring-2 focus:ring-primary/20"
+                className="w-full text-center text-2xl tracking-[0.4em] font-mono h-14"
                 autoComplete="one-time-code"
                 autoFocus
               />
-              <p className="text-xs text-muted-foreground text-center">
-                Enter the 6-digit code sent to your email
-              </p>
             </div>
 
-            <Button 
-              type="submit" 
-              className="w-full h-11 text-base font-semibold shadow-md hover:shadow-lg transition-all" 
-              disabled={isSubmitting || code.length !== 6}
-            >
-              {isSubmitting ? 'Verifying...' : 'Verify Email'}
+            <Button type="submit" className="w-full" disabled={isSubmitting || code.length !== 6}>
+              {isSubmitting ? 'Verifying...' : 'Verify'}
             </Button>
 
-            <div className="text-center space-y-3 pt-2">
-              <p className="text-sm text-muted-foreground">
-                Didn't receive the code?
-              </p>
+            <div className="text-center text-sm">
               <button
                 type="button"
                 onClick={handleResend}
                 disabled={resendCooldown > 0 || isSubmitting}
-                className="text-sm text-primary hover:text-primary/80 font-semibold transition-colors hover:underline disabled:text-muted-foreground disabled:cursor-not-allowed disabled:no-underline"
+                className="text-muted-foreground hover:text-foreground hover:underline disabled:opacity-50 disabled:cursor-not-allowed disabled:no-underline"
               >
-                {resendCooldown > 0 
-                  ? `Resend code in ${resendCooldown}s` 
-                  : 'Resend Verification Code'}
+                {resendCooldown > 0 ? `Resend in ${resendCooldown}s` : 'Resend code'}
               </button>
             </div>
           </form>
 
-          <div className="mt-6 pt-6 border-t border-border text-center">
-            <Link 
-              to="/auth/login" 
-              className="text-sm text-primary hover:text-primary/80 font-semibold transition-colors hover:underline"
-            >
+          <div className="mt-4 pt-4 border-t text-center text-sm">
+            <Link to="/auth/login" className="text-muted-foreground hover:text-foreground hover:underline">
               Back to sign in
             </Link>
           </div>

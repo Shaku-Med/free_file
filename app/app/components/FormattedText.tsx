@@ -152,21 +152,21 @@ function renderSegments(segments: Segment[], keyPrefix: string): React.ReactNode
           href={seg.href}
           target="_blank"
           rel="noopener noreferrer"
-          className="text-primary hover:underline break-all"
+          className="text-primary hover:underline break-all text-inherit"
         >
           {seg.value}
         </a>
       );
     } else if (seg.type === "email") {
       out.push(
-        <a key={k} href={`mailto:${seg.value}`} className="text-primary hover:underline break-all">
+        <a key={k} href={`mailto:${seg.value}`} className="text-primary hover:underline break-all text-inherit">
           {seg.value}
         </a>
       );
     } else if (seg.type === "phone") {
       const tel = seg.value.replace(/\s/g, "").replace(/[().-]/g, "");
       out.push(
-        <a key={k} href={`tel:${tel}`} className="text-primary hover:underline">
+        <a key={k} href={`tel:${tel}`} className="text-primary hover:underline text-inherit">
           {seg.value}
         </a>
       );
@@ -174,7 +174,7 @@ function renderSegments(segments: Segment[], keyPrefix: string): React.ReactNode
       const isRelative = seg.href.startsWith("/") || seg.href.startsWith("#");
       if (isRelative) {
         out.push(
-          <Link key={k} to={seg.href} className="text-primary hover:underline">
+          <Link key={k} to={seg.href} className="text-primary hover:underline text-inherit">
             {seg.label}
           </Link>
         );
@@ -186,7 +186,7 @@ function renderSegments(segments: Segment[], keyPrefix: string): React.ReactNode
             href={href}
             target="_blank"
             rel="noopener noreferrer"
-            className="text-primary hover:underline break-all"
+            className="text-primary hover:underline break-all text-inherit"
           >
             {seg.label}
           </a>
@@ -198,7 +198,7 @@ function renderSegments(segments: Segment[], keyPrefix: string): React.ReactNode
         <Link
           key={k}
           to={`/tag/${encodeURIComponent(tag)}`}
-          className="text-emerald-400 hover:text-emerald-300 hover:underline"
+          className="text-primary hover:underline"
         >
           {seg.value}
         </Link>
@@ -209,7 +209,7 @@ function renderSegments(segments: Segment[], keyPrefix: string): React.ReactNode
         <Link
           key={k}
           to={`/profile/${encodeURIComponent(username)}`}
-          className="text-sky-400 hover:text-sky-300 hover:underline font-medium"
+          className="text-primary hover:underline font-medium"
         >
           {seg.value}
         </Link>

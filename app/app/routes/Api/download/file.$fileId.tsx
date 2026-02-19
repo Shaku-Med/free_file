@@ -1,17 +1,25 @@
 import { data } from "react-router";
+import { isAuthenticated } from "~/lib/Security/Password";
 import { downloadQueue } from "~/lib/Services/DownloadQueue";
 
-export const loader = async ({ params }: { params: { fileId: string } }) => {
+export const loader = async ({ request, params }: { request: Request; params: { fileId: string } }) => {
   const { readFile, unlink } = await import('fs/promises');
   const { basename } = await import('path');
   let filePath: string | null = null;
 
   try {
+    const user = await isAuthenticated(request, ['id']);
+    if (!user?.id) {
+      return data({ error: "Unauthorized" }, { status: 401 });
+    }
+
     const jobId = params.fileId;
     const job = downloadQueue.getJobStatus(jobId);
-    
     if (!job || job.status !== 'completed') {
       return data({ error: "Download not ready" }, { status: 404 });
+    }
+    if (job.userId && job.userId !== user.id) {
+      return data({ error: "Forbidden" }, { status: 403 });
     }
 
     filePath = await downloadQueue.getDownloadPath(jobId);

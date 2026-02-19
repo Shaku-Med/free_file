@@ -54,6 +54,8 @@ export default [
         route(`tag/:tagname`, 'routes/Api/tag.$tagname/index.tsx'),
         route(`playlist`, 'routes/Api/playlist/index.tsx'),
         route(`search`, 'routes/Api/search/index.tsx'),
+        route(`mentions`, 'routes/Api/mentions/index.tsx'),
+        route(`tags`, 'routes/Api/tags/index.tsx'),
         route(`mark-seen`, 'routes/Api/mark-seen/index.tsx'),
         route(`views/increment`, 'routes/Api/views/increment.tsx'),
         route(`server-env`, 'routes/Api/server-env/index.tsx'),

@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import type React from "react";
 import { Button } from "~/components/ui/button";
 import { Textarea } from "~/components/ui/textarea";
@@ -9,11 +9,24 @@ import {
   DialogContent,
   DialogTitle,
 } from "~/components/ui/dialog";
+import { Avatar, AvatarImage, AvatarFallback } from "~/components/ui/avatar";
+import { getProfilePicUrl } from "~/lib/utils/profilePic";
 
 export interface CommentGif {
   id: string;
   url: string;
   previewUrl: string;
+}
+
+interface TagSuggestion {
+  tag: string;
+  count: number;
+}
+
+interface MentionSuggestion {
+  id: string;
+  username: string;
+  profile_pic: string;
 }
 
 interface CommentFormProps {
@@ -22,6 +35,26 @@ interface CommentFormProps {
   onSubmit: (content: string, gif?: CommentGif | null) => Promise<void>;
   onCancel?: () => void;
   placeholder?: string;
+}
+
+const SUGGEST_DEBOUNCE_MS = 300;
+const MIN_QUERY_LEN = 1;
+const MAX_SUGGESTIONS = 10;
+
+function parseTrigger(text: string, cursor: number): { type: "tag" | "mention"; query: string; start: number } | null {
+  const before = text.slice(0, cursor);
+  const atIdx = before.lastIndexOf("@");
+  const hashIdx = before.lastIndexOf("#");
+  const lastAt = atIdx >= 0 ? atIdx : -1;
+  const lastHash = hashIdx >= 0 ? hashIdx : -1;
+  const last = Math.max(lastAt, lastHash);
+  if (last === -1) return null;
+  const afterTrigger = text.slice(last + 1, cursor);
+  if (/\s/.test(afterTrigger)) return null;
+  const match = /^[\w.-]*/.exec(text.slice(last + 1));
+  const query = (match ? match[0] : "").toLowerCase();
+  if (last === lastAt) return { type: "mention", query, start: last };
+  return { type: "tag", query, start: last };
 }
 
 const CommentForm = ({
@@ -39,6 +72,19 @@ const CommentForm = ({
   const [gifResults, setGifResults] = useState<CommentGif[]>([]);
   const [gifLoading, setGifLoading] = useState(false);
   const [gifError, setGifError] = useState<string | null>(null);
+
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const cursorRef = useRef(0);
+  const [suggestOpen, setSuggestOpen] = useState(false);
+  const [suggestType, setSuggestType] = useState<"tag" | "mention">("tag");
+  const [suggestQuery, setSuggestQuery] = useState("");
+  const [tagSuggestions, setTagSuggestions] = useState<TagSuggestion[]>([]);
+  const [mentionSuggestions, setMentionSuggestions] = useState<MentionSuggestion[]>([]);
+  const [suggestLoading, setSuggestLoading] = useState(false);
+  const [suggestIndex, setSuggestIndex] = useState(0);
+  const suggestStartRef = useRef(0);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
 
   const fetchGifs = useCallback(async (query: string, isTrending: boolean) => {
     setGifLoading(true);
@@ -76,6 +122,100 @@ const CommentForm = ({
       fetchGifs("", true);
     }
   }, [gifQuery, fetchGifs]);
+
+  const fetchTagSuggestions = useCallback(async (q: string) => {
+    abortRef.current?.abort();
+    abortRef.current = new AbortController();
+    setSuggestLoading(true);
+    setTagSuggestions([]);
+    try {
+      const params = new URLSearchParams({ limit: String(MAX_SUGGESTIONS) });
+      if (q.length >= MIN_QUERY_LEN) params.set("q", q);
+      const res = await fetch(`/api/tags?${params}`, { signal: abortRef.current.signal });
+      const data = await res.json();
+      setTagSuggestions(Array.isArray(data.results) ? data.results : []);
+    } catch (e) {
+      if ((e as Error).name !== "AbortError") setTagSuggestions([]);
+    } finally {
+      setSuggestLoading(false);
+    }
+  }, []);
+
+  const fetchMentionSuggestions = useCallback(async (q: string) => {
+    abortRef.current?.abort();
+    abortRef.current = new AbortController();
+    setSuggestLoading(true);
+    setMentionSuggestions([]);
+    try {
+      if (q.length < MIN_QUERY_LEN) {
+        setMentionSuggestions([]);
+        setSuggestLoading(false);
+        return;
+      }
+      const res = await fetch(`/api/mentions?q=${encodeURIComponent(q)}&limit=${MAX_SUGGESTIONS}`, {
+        signal: abortRef.current.signal,
+      });
+      const data = await res.json();
+      setMentionSuggestions(Array.isArray(data.results) ? data.results : []);
+    } catch (e) {
+      if ((e as Error).name !== "AbortError") setMentionSuggestions([]);
+    } finally {
+      setSuggestLoading(false);
+    }
+  }, []);
+
+  const applySuggestion = useCallback(
+    (replaceWith: string) => {
+      const start = suggestStartRef.current;
+      const textarea = textareaRef.current;
+      if (!textarea) return;
+      const before = content.slice(0, start);
+      const after = content.slice(cursorRef.current);
+      const next = before + replaceWith + " " + after;
+      setContent(next);
+      setSuggestOpen(false);
+      setTagSuggestions([]);
+      setMentionSuggestions([]);
+      requestAnimationFrame(() => {
+        textarea.focus();
+        const pos = start + replaceWith.length + 1;
+        textarea.setSelectionRange(pos, pos);
+        cursorRef.current = pos;
+      });
+    },
+    [content]
+  );
+
+  useEffect(() => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    const cursor = textareaRef.current?.selectionStart ?? content.length;
+    cursorRef.current = cursor;
+    const parsed = parseTrigger(content, cursor);
+    if (!parsed) {
+      setSuggestOpen(false);
+      setTagSuggestions([]);
+      setMentionSuggestions([]);
+      return;
+    }
+    suggestStartRef.current = parsed.start;
+    setSuggestType(parsed.type);
+    setSuggestQuery(parsed.query);
+    setSuggestOpen(true);
+    setSuggestIndex(0);
+
+    debounceRef.current = setTimeout(() => {
+      debounceRef.current = null;
+      if (parsed.type === "tag") {
+        fetchTagSuggestions(parsed.query);
+      } else {
+        fetchMentionSuggestions(parsed.query);
+      }
+    }, SUGGEST_DEBOUNCE_MS);
+
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
+  }, [content, fetchTagSuggestions, fetchMentionSuggestions]);
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -119,14 +259,109 @@ const CommentForm = ({
             </Button>
           </div>
         )}
-        <Textarea
-          value={content}
-          onChange={(e) => setContent(e.target.value)}
-          placeholder={placeholder}
-          className="min-h-[40px] max-h-[160px] resize-none rounded-none border-0 border-b-2 border-muted-foreground/30 bg-transparent px-0 py-2 text-sm placeholder:text-muted-foreground/50 focus-visible:ring-0 focus-visible:border-primary transition-colors"
-          maxLength={2000}
-          disabled={isSubmitting}
-        />
+        <div className="relative">
+          <Textarea
+            ref={textareaRef}
+            value={content}
+            onChange={(e) => {
+              setContent(e.target.value);
+              cursorRef.current = e.target.selectionStart ?? 0;
+            }}
+            onSelect={(e) => {
+              cursorRef.current = (e.target as HTMLTextAreaElement).selectionStart ?? 0;
+            }}
+            onKeyDown={(e) => {
+              if (!suggestOpen) return;
+              const list = suggestType === "tag" ? tagSuggestions : mentionSuggestions;
+              if (e.key === "ArrowDown") {
+                e.preventDefault();
+                setSuggestIndex((i) => (i + 1) % Math.max(1, list.length));
+                return;
+              }
+              if (e.key === "ArrowUp") {
+                e.preventDefault();
+                setSuggestIndex((i) => (list.length ? (i - 1 + list.length) % list.length : 0));
+                return;
+              }
+              if (e.key === "Enter" && list.length > 0) {
+                e.preventDefault();
+                if (suggestType === "tag") {
+                  const item = tagSuggestions[suggestIndex];
+                  if (item) applySuggestion(`#${item.tag}`);
+                } else {
+                  const item = mentionSuggestions[suggestIndex];
+                  if (item) applySuggestion(`@${item.username}`);
+                }
+                return;
+              }
+              if (e.key === "Escape") {
+                setSuggestOpen(false);
+              }
+            }}
+            placeholder={placeholder}
+            className="min-h-[40px] max-h-[160px] resize-none rounded-none border-0 border-b-2 border-muted-foreground/30 bg-transparent px-0 py-2 text-sm placeholder:text-muted-foreground/50 focus-visible:ring-0 focus-visible:border-primary transition-colors"
+            maxLength={2000}
+            disabled={isSubmitting}
+          />
+          {suggestOpen && (
+            <div
+              className="absolute left-0 right-0 top-full z-50 mt-1 max-h-[220px] overflow-y-auto rounded-lg border border-border bg-popover shadow-lg"
+              role="listbox"
+            >
+              {suggestLoading ? (
+                <div className="flex items-center justify-center gap-2 py-4 text-sm text-muted-foreground">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  <span>Loading...</span>
+                </div>
+              ) : suggestType === "tag" ? (
+                tagSuggestions.length === 0 ? (
+                  <p className="py-3 px-3 text-sm text-muted-foreground">No tags found</p>
+                ) : (
+                  tagSuggestions.map((item, i) => (
+                    <button
+                      key={item.tag}
+                      type="button"
+                      role="option"
+                      aria-selected={i === suggestIndex}
+                      className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-accent ${i === suggestIndex ? "bg-accent" : ""}`}
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        applySuggestion(`#${item.tag}`);
+                      }}
+                    >
+                      <span className="font-medium text-primary">#{item.tag}</span>
+                      {item.count != null && (
+                        <span className="text-xs text-muted-foreground">{item.count} uses</span>
+                      )}
+                    </button>
+                  ))
+                )
+              ) : mentionSuggestions.length === 0 ? (
+                <p className="py-3 px-3 text-sm text-muted-foreground">No users found</p>
+              ) : (
+                mentionSuggestions.map((item, i) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    role="option"
+                    aria-selected={i === suggestIndex}
+                    className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-accent ${i === suggestIndex ? "bg-accent" : ""}`}
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      applySuggestion(`@${item.username}`);
+                    }}
+                  >
+                    <Avatar className="h-6 w-6">
+                      <AvatarImage src={getProfilePicUrl(item.profile_pic)} alt={item.username} />
+                      <AvatarFallback className="text-xs">{item.username.charAt(0).toUpperCase()}</AvatarFallback>
+                    </Avatar>
+                    <span className="font-medium text-foreground">@{item.username}</span>
+                  </button>
+                ))
+              )}
+            </div>
+          )}
+        </div>
         <div className="flex items-center justify-between pt-1">
           <div className="flex items-center gap-1">
             <button

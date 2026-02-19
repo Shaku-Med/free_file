@@ -122,7 +122,7 @@ export const loader = async ({ request }: { request: Request }) => {
       const filteredFiles = await filterFilesByAccess(sitemapRequest, (feedFiles || []) as unknown as any[]);
 
       const fileUrls = filteredFiles.map((file: any) => ({
-        loc: `${BASE_URL}/${file.id || file.unique_id}`,
+        loc: `${BASE_URL}/${file.unique_id}`,
         lastmod: formatDate(file.created_at),
         changefreq: 'weekly' as const,
         priority: '0.7',
@@ -204,7 +204,7 @@ export const loader = async ({ request }: { request: Request }) => {
     }));
 
     const fileUrls = (recentFiles || []).map((file: any) => ({
-      loc: `${BASE_URL}/${file.id || file.unique_id}`,
+      loc: `${BASE_URL}/${file.unique_id}`,
       lastmod: formatDate(file.created_at),
       changefreq: 'weekly' as const,
       priority: '0.7',

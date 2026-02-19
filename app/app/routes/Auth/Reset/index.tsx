@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { data, redirect, useActionData, useNavigation, Link, type MetaFunction } from 'react-router';
+import { buildPageMeta } from '~/lib/seo';
 import { Button } from '~/components/ui/button';
 import { Input } from '~/components/ui/input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '~/components/ui/card';
@@ -23,67 +24,50 @@ export const action = async ({ request }: { request: Request }) => {
     const formData = await request.formData();
     const identifier = formData.get('identifier') as string;
 
-    if (!identifier) {
-      await constantTimeDelay();
-      return data({ success: true, message: 'If an account exists, a verification code has been sent.' });
+    if (!identifier || !identifier.trim()) {
+      return data({ error: 'Please enter your username or email.' }, { status: 400 });
     }
 
-    // Sanitize and normalize
     const sanitized = sanitizeString(identifier, 320);
     const normalized = normalizeIdentifier(sanitized);
 
     if (normalized.length < 3) {
-      await constantTimeDelay();
-      return data({ success: true, message: 'If an account exists, a verification code has been sent.' });
+      return data({ error: 'Please enter a valid username or email.' }, { status: 400 });
     }
 
-    // Check rate limit
     const rateLimitCheck = checkAuthRateLimit(request, 'reset', normalized);
     if (!rateLimitCheck.allowed) {
       return data({ error: rateLimitCheck.error || 'Too many reset attempts. Please try again later.' }, { status: 429 });
     }
 
     if (!db) {
-      await constantTimeDelay();
-      return data({ success: true, message: 'If an account exists, a verification code has been sent.' });
+      return data({ error: 'Service temporarily unavailable. Please try again later.' }, { status: 500 });
     }
 
     const isEmail = normalized.includes('@');
     let user = null;
 
-    // Prevent account enumeration - always return same message
     if (isEmail) {
       if (!isValidEmail(normalized)) {
-        await constantTimeDelay();
-        return data({ success: true, message: 'If an account exists, a verification code has been sent.' });
+        return data({ error: 'Please enter a valid email address.' }, { status: 400 });
       }
-
       const { data: userData, error } = await db
         .from('users')
         .select('id, email, is_memories')
         .eq('email', normalized)
         .maybeSingle();
-
-      if (!error && userData && !userData.is_memories) {
-        user = userData;
-      }
+      if (!error && userData && !userData.is_memories) user = userData;
     } else {
-      // Use efficient database query instead of fetching all users
       const { data: userData, error } = await db
         .from('users')
         .select('id, email, is_memories')
         .eq('username', normalized)
         .maybeSingle();
-
-      if (!error && userData && !userData.is_memories) {
-        user = userData;
-      }
+      if (!error && userData && !userData.is_memories) user = userData;
     }
 
-    // Always return same message to prevent account enumeration
     if (!user) {
-      await constantTimeDelay();
-      return data({ success: true, message: 'If an account exists, a verification code has been sent.' });
+      return data({ error: 'No account found with that username or email.' }, { status: 404 });
     }
 
     const code = generateVerificationCode();
@@ -113,12 +97,13 @@ export const action = async ({ request }: { request: Request }) => {
   }
 };
 
-export const meta: MetaFunction = () => {
-  return [
-    { title: 'Reset Password | Memories' },
-    { name: 'description', content: 'Reset your Memories account password to regain access to your account.' },
-  ];
-};
+export const meta: MetaFunction = () =>
+  buildPageMeta({
+    title: 'Reset Password | Memories',
+    description: 'Reset your Memories account password to regain access to your account.',
+    canonicalPath: '/auth/reset',
+    noindex: true,
+  });
 
 const Reset = () => {
   const actionData = useActionData<typeof action>();
@@ -126,33 +111,27 @@ const Reset = () => {
   const isSubmitting = navigation.state === 'submitting';
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-4">
-      <Card className="w-full max-w-md shadow-lg border-2 animate-in fade-in-0 zoom-in-95 duration-300">
-        <CardHeader className="space-y-2 pb-6">
-          <CardTitle className="text-3xl font-bold text-center bg-gradient-to-r from-primary to-primary/60 bg-clip-text text-transparent">
-            Reset Password
+    <div className="w-full max-w-md">
+      <Card className="border shadow-sm">
+        <CardHeader className="space-y-1 pb-4">
+          <CardTitle className="text-2xl font-semibold text-center text-foreground">
+            Reset password
           </CardTitle>
-          <CardDescription className="text-center text-base">
+          <CardDescription className="text-center text-muted-foreground">
             Enter your username or email to receive a verification code
           </CardDescription>
         </CardHeader>
-        <CardContent className="space-y-5">
-          <form method="post" className="space-y-5">
+        <CardContent className="space-y-4">
+          <form method="post" className="space-y-4">
             {actionData && 'error' in actionData && (
-              <div className="p-4 text-sm text-destructive bg-destructive/10 border border-destructive/20 rounded-lg animate-in slide-in-from-top-2 duration-200">
+              <div className="p-3 text-sm text-destructive bg-destructive/10 border border-destructive/20 rounded-md">
                 {actionData.error}
               </div>
             )}
 
-            {actionData && 'message' in actionData && (
-              <div className="p-4 text-sm text-green-600 bg-green-50 border border-green-200 rounded-lg dark:bg-green-900/20 dark:border-green-800 dark:text-green-400 animate-in slide-in-from-top-2 duration-200">
-                {actionData.message}
-              </div>
-            )}
-            
-            <div className="space-y-2.5">
-              <label htmlFor="identifier" className="text-sm font-semibold text-foreground">
-                Username or Email
+            <div className="space-y-2">
+              <label htmlFor="identifier" className="text-sm font-medium text-foreground">
+                Username or email
               </label>
               <Input
                 id="identifier"
@@ -161,24 +140,17 @@ const Reset = () => {
                 required
                 placeholder="Enter your username or email"
                 autoComplete="username"
-                className="w-full h-11 transition-all focus:ring-2 focus:ring-primary/20"
+                className="w-full"
               />
             </div>
 
-            <Button 
-              type="submit" 
-              className="w-full h-11 text-base font-semibold shadow-md hover:shadow-lg transition-all" 
-              disabled={isSubmitting}
-            >
-              {isSubmitting ? 'Sending code...' : 'Send Verification Code'}
+            <Button type="submit" className="w-full" disabled={isSubmitting}>
+              {isSubmitting ? 'Sending code...' : 'Send code'}
             </Button>
           </form>
 
-          <div className="mt-6 pt-6 border-t border-border text-center">
-            <Link 
-              to="/auth/login" 
-              className="text-sm text-primary hover:text-primary/80 font-semibold transition-colors hover:underline"
-            >
+          <div className="mt-4 pt-4 border-t text-center text-sm">
+            <Link to="/auth/login" className="text-muted-foreground hover:text-foreground hover:underline">
               Back to sign in
             </Link>
           </div>

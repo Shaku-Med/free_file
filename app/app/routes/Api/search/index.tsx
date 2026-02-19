@@ -46,7 +46,7 @@ export const loader = async ({ request }: { request: Request }) => {
     const url = new URL(request.url);
     const query = url.searchParams.get('q')?.trim();
     if (!query) {
-      return new Response(JSON.stringify({ data: [], userActions: { likedFileIds: [], dislikedFileIds: [] }, nextCursor: null }), {
+      return new Response(JSON.stringify({ data: [], users: [], userActions: { likedFileIds: [], dislikedFileIds: [] }, nextCursor: null }), {
         headers: { 'Content-Type': 'application/json' }
       });
     }
@@ -59,6 +59,7 @@ export const loader = async ({ request }: { request: Request }) => {
 
     const cursorScore = cursorScoreParam ? parseFloat(cursorScoreParam) : null;
     const cursorId = cursorIdParam ?? null;
+    const isInitialSearch = !Number.isFinite(cursorScore) && !cursorId;
 
     const user = await isAuthenticated(request, ['id']);
     const userId: string | undefined = user?.id || undefined;
@@ -132,8 +133,28 @@ export const loader = async ({ request }: { request: Request }) => {
         ? { cursor_score: lastItem.engagement_score, cursor_id: lastItem.id }
         : null;
 
+    let users: Array<{ id: string; username: string; profile_pic: string; file_count: number }> = [];
+    if (db && isInitialSearch) {
+      const usersResult = await db
+        .from('users')
+        .select('id, username, profile_pic')
+        .ilike('username', `%${query}%`)
+        .eq('is_memories', false)
+        .limit(10);
+      if (!usersResult.error && Array.isArray(usersResult.data)) {
+        const userData = usersResult.data as Array<{ id: string; username: string; profile_pic: string }>;
+        users = await Promise.all(
+          userData.map(async (u) => {
+            const { count } = await db.from('files').select('*', { count: 'exact', head: true }).eq('owner_id', u.id);
+            return { id: u.id, username: u.username, profile_pic: u.profile_pic || '', file_count: count || 0 };
+          })
+        );
+      }
+    }
+
     return new Response(JSON.stringify({
       data,
+      users,
       userActions: { likedFileIds, dislikedFileIds },
       nextCursor
     }), {

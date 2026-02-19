@@ -33,21 +33,35 @@ export const loader = async ({ request }: { request: Request }) => {
 
 const layout = () => {
   const data = useLoaderData<typeof loader>();
-  
-  if(data?.error) {
+
+  if (data?.error) {
     return (
-      <div className="flex items-center justify-center min-h-screen py-6 px-4">
-        <div className="text-center space-y-4 max-w-md">
-          <h1 className="text-2xl font-bold">Authentication is unavailable at the moment</h1>
-          <p className="text-muted-foreground">Please try again later.</p>
+      <div className="min-h-screen flex items-center justify-center p-4">
+        <div className="w-full max-w-md rounded-lg border bg-card p-6 text-center shadow-sm">
+          <h1 className="text-xl font-semibold text-foreground">Authentication unavailable</h1>
+          <p className="mt-2 text-sm text-muted-foreground">Please try again later.</p>
         </div>
       </div>
     );
   }
-  
+
   return (
-    <Outlet />
-  )
-}
+    <div className="min-h-screen grid grid-cols-1 md:grid-cols-2">
+      <aside className="hidden md:flex flex-col justify-center px-10 lg:px-16 py-12 border-r border-border/80">
+        <div className="max-w-[280px]">
+          <h1 className="text-3xl font-semibold tracking-tight text-foreground">Memories</h1>
+          <p className="mt-4 text-muted-foreground leading-relaxed">
+            A place where anything that enters never leaves.
+          </p>
+        </div>
+      </aside>
+      <main className="flex flex-col justify-center items-center w-full min-h-screen py-10 px-4 md:px-8 lg:px-12">
+        <div className="w-full max-w-[380px]">
+          <Outlet />
+        </div>
+      </main>
+    </div>
+  );
+};
 
 export default layout

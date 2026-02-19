@@ -141,11 +141,11 @@ const ResetConfirm = () => {
   const isSubmitting = navigation.state === 'submitting';
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-4">
-      <Card className="w-full max-w-md">
-        <CardHeader className="space-y-1">
-          <CardTitle className="text-2xl font-bold text-center">Set new password</CardTitle>
-          <CardDescription className="text-center">
+    <div className="w-full max-w-md">
+      <Card className="border shadow-sm">
+        <CardHeader className="space-y-1 pb-4">
+          <CardTitle className="text-2xl font-semibold text-center text-foreground">Set new password</CardTitle>
+          <CardDescription className="text-center text-muted-foreground">
             Enter your new password for {loaderData.email}
           </CardDescription>
         </CardHeader>
@@ -214,9 +214,9 @@ const ResetConfirm = () => {
             </Button>
           </form>
 
-          <div className="mt-4 text-center text-sm">
-            <Link to="/auth/login" className="text-primary hover:underline">
-              Back to login
+          <div className="mt-4 pt-4 border-t text-center text-sm">
+            <Link to="/auth/login" className="text-muted-foreground hover:text-foreground hover:underline">
+              Back to sign in
             </Link>
           </div>
         </CardContent>

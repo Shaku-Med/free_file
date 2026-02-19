@@ -7,6 +7,18 @@ export const action = async ({ request }: { request: Request }) => {
       });
     }
 
+    const secret = request.headers.get('Authorization')?.replace(/^Bearer\s+/i, '').trim()
+      ?? request.headers.get('X-Email-Api-Secret');
+    const expected = typeof process !== 'undefined'
+      ? (process.env.EMAIL_API_SECRET || process.env.AUTHORIZATION_KEY)
+      : '';
+    if (!expected || secret !== expected) {
+      return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+        status: 401,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+
     const body = await request.json();
     const { to, subject, html } = body;
 

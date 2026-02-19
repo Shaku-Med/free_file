@@ -11,6 +11,7 @@ import {
 import type { Route } from "./+types/root";
 import "./app.css";
 import { ErrorBoundary } from "./components/ErrorBoundary";
+import { buildDefaultMeta, buildErrorMeta, SITE_NAME } from "./lib/seo";
 import { ContextProvider } from "./lib/Context/Context";
 import { LikeProvider } from "./lib/Context/LikeContext";
 import { PictureInPictureProvider } from "./lib/Context/PictureInPictureContext";
@@ -25,6 +26,9 @@ import { SidebarProvider, SidebarInset } from "./components/ui/sidebar";
 import { AppSidebar } from "./components/Navbar/components/Sidebar";
 import BodyComponent from "./components/Navbar/components/BodyComponent";
 import RegisterServiceWorker from "./components/RegisterServiceWorker";
+import { ThemeApply } from "./components/ThemeApply";
+import type { UserTheme } from "./lib/theme/constants";
+import { parseUserTheme } from "./lib/theme/constants";
 
 export const links: Route.LinksFunction = () => [
   { rel: "preconnect", href: "https://fonts.googleapis.com" },
@@ -141,10 +145,17 @@ export const loader = async ({request}: {request: Request}) => {
           ? 'http://localhost:3003'
           : '');
 
-    return data({ st: sessionToken, user_agent: request.headers.get('user-agent'), userId, c_user, uploadServerUrl }, {
+    let userTheme: UserTheme | null = null;
+    if (userId && db) {
+      const { data: row } = await db.from("users").select("theme").eq("id", userId).single();
+      const parsed = parseUserTheme(row?.theme ?? null);
+      if (parsed) userTheme = parsed;
+    }
+
+    return data({ st: sessionToken, user_agent: request.headers.get('user-agent'), userId, c_user, uploadServerUrl, userTheme }, {
       status: 200,
       headers: (token && !user) ? {
-        'Set-Cookie': `token=${token}; Path=/; HttpOnly; Max-Age=86400; ${secure}; ${sameSite}`
+        'Set-Cookie': `token=${token}; Path=/; HttpOnly; ${secure}; ${sameSite}`
       } : undefined
     } as ResponseInit);
   }
@@ -154,52 +165,23 @@ export const loader = async ({request}: {request: Request}) => {
   }
 }
 
-export const meta: MetaFunction<ReturnType<typeof loader>> = ({ data }) => {
-  try {
-    if(!data) {
-      return [
-        {
-          title: 'Error',
-          description: 'Error loading data',
-        },
-      ]
-    }
-    return [
-      {
-        title: 'Memories',
-        description: `A place where anything that enters never leaves.`,
-      },
-    ]
-  }
-  catch (error) {
-    // console.error('Error in meta:', error);
-    return [
-      {
-        title: 'Error',
-        description: 'Error loading data',
-      },
-    ]
-  }
-}
+export const meta: MetaFunction<ReturnType<typeof loader>> = ({ data }) =>
+  data ? buildDefaultMeta() : buildErrorMeta();
 
 export function Layout({ children }: { children: React.ReactNode }) {
   const data = useLoaderData<typeof loader>();
   if (!data) {
     return (
-       <html className="system">
+       <html className="system" lang="en">
         <head>
-          <title>Error</title>
           <meta charSet="utf-8" />
           <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
           <meta name="apple-mobile-web-app-capable" content="yes" />
           <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
           <meta name="mobile-web-app-capable" content="yes" />
-          <meta name="apple-mobile-web-app-title" content="Memories" />
-          <meta name="mobile-web-app-title" content="Memories" />
-          <meta name="description" content="Memories is a photo gallery app that allows you to view and share your photos." />
-          <meta name="keywords" content="photo, gallery, app, share, view" />
-          <link rel="shortcut icon" href="/favicon.ico" />
-          <link rel="apple-touch-icon" href="/icons/web/apple-touch-icon.png" />
+          <meta name="apple-mobile-web-app-title" content={SITE_NAME} />
+          <meta name="mobile-web-app-title" content={SITE_NAME} />
+          <link rel="stylesheet" href="/themes/default.css" />
           <Meta />
           <Links />
         </head>
@@ -215,27 +197,26 @@ export function Layout({ children }: { children: React.ReactNode }) {
     )
   }
 
-  const { st, user_agent, userId, c_user, uploadServerUrl } = data;
+  const { st, user_agent, userId, c_user, uploadServerUrl, userTheme } = data;
+  const themeClass = userTheme?.theme ?? "system";
+  const themeStyle = userTheme?.style ?? "default";
 
   return (
-    <html className={`system overflow-hidden h-full w-full fixed top-0 left-0`} lang="en">
+    <html className={`${themeClass} overflow-hidden h-full w-full fixed top-0 left-0`} lang="en">
       <head>
         <meta charSet="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
         <meta name="mobile-web-app-capable" content="yes" />
-        <meta name="apple-mobile-web-app-title" content="Memories" />
-        <meta name="mobile-web-app-title" content="Memories" />
-        <meta name="description" content="Memories is a photo gallery app that allows you to view and share your photos." />
-        <meta name="keywords" content="photo, gallery, app, share, view" />
-        <link rel="shortcut icon" href="/favicon.ico" />
-        <link rel="apple-touch-icon" href="/icons/web/apple-touch-icon.png" />
-        <link rel="manifest" href="/manifest.json" />
+        <meta name="apple-mobile-web-app-title" content={SITE_NAME} />
+        <meta name="mobile-web-app-title" content={SITE_NAME} />
+        <link rel="stylesheet" href={`/themes/${themeStyle}.css`} />
         <Meta />
         <Links />
       </head>
       <body className={`flex flex-col fixed top-0 left-0 w-full h-full`}>
+        <ThemeApply userTheme={userTheme ?? null} />
         <RegisterServiceWorker />
         <ErrorBoundary>
           <ContextProvider st={st} user_agent={user_agent || ''} userId={userId || null} c_user={c_user || null} uploadServerUrl={uploadServerUrl || ''}>

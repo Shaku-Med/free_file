@@ -1,35 +1,9 @@
 import { useEffect, useState } from "react";
 import { Link, useLocation } from "react-router";
-import { 
-  Camera, 
-  Menu, 
-  X, 
-  Search, 
-  User, 
-  Heart, 
-  ShoppingCart, 
-  Filter,
-  Grid3X3,
-  List,
-  Settings,
-  LogOut,
-  ChevronRight,
-  Plus,
-  MenuIcon,
-  Hamburger,
-  Bell
-} from "lucide-react";
+import { Search, Plus, Bell } from "lucide-react";
 import { Button } from "~/components/ui/button";
 import { Input } from "~/components/ui/input";
 import { Badge } from "~/components/ui/badge";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "~/components/ui/dropdown-menu";
 import {
   Sheet,
   SheetClose,
@@ -49,6 +23,8 @@ import {
 import Logo from "./Logo/Logo";
 import { useFileContext } from "~/lib/Context/Context";
 import { SidebarTrigger, useSidebar } from "../ui/sidebar";
+import { UserProfileDropdown } from "~/components/UserProfileDropdown";
+import { SearchModal } from "~/components/SearchModal";
 
 const galleryCategories = [
   { name: "Portraits", href: "/gallery/portraits" },
@@ -59,16 +35,9 @@ const galleryCategories = [
   { name: "Commercial", href: "/gallery/commercial" },
 ];
 
-const userMenuItems = [
-  { name: "Profile", href: "/profile", icon: User },
-  { name: "Favorites", href: "/favorites", icon: Heart },
-  { name: "Settings", href: "/settings", icon: Settings },
-];
-
 export default function Navbar() {
   const { setIsModalOpen, userId } = useFileContext();
-  const [isSearchOpen, setIsSearchOpen] = useState(false);
-  const [searchQuery, setSearchQuery] = useState("");
+  const [searchModalOpen, setSearchModalOpen] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
   const { isMobile, state } = useSidebar();
   const location = useLocation();
@@ -101,33 +70,35 @@ export default function Navbar() {
           : "bg-card/95 backdrop-blur-xl"
       }`}
     >
-      <div className="mx-auto px-6 xl:px-8 max-w-full xl:container">
-        <div className={`flex py-3 items-center ${isReelRoute ? "justify-end" : "justify-between"}`}>
+      <div className="mx-auto px-3 sm:px-6 xl:px-8 max-w-full xl:container min-w-0">
+        <div className={`flex py-2 sm:py-3 items-center gap-2 min-w-0 ${isReelRoute ? "justify-end" : "justify-between"}`}>
           {!isReelRoute && (
-            <div className="flex items-center space-x-8">
-              <Link to="/" id="home_button" className="flex items-center space-x-2 group">
-                <div className="relative flex items-center ">
-                  <div className="">
-                    <Logo className="relative h-10 w-10 text-primary" />
-                  </div>
-                  <span className="text-xl font-bold text-primary">
-                    Memories
-                  </span>
-                </div>
+            <div className="flex items-center min-w-0 shrink-0">
+              <Link to="/" id="home_button" className="flex items-center gap-1.5 sm:gap-2 group min-w-0">
+                <Logo className="relative h-8 w-8 sm:h-10 sm:w-10 text-primary shrink-0" />
+                <span className="text-base sm:text-xl font-bold text-primary truncate">
+                  Memories
+                </span>
               </Link>
             </div>
           )}
 
-          <div className="flex items-center space-x-3">
-             <div onClick={() => setIsModalOpen(true)} className="cursor-pointer rounded-lg h-10 w-10 flex items-center justify-center hover:bg-primary/10 ios-scale">
-                  <Plus className="h-5 w-5" />
+          <div className="flex items-center gap-1 sm:gap-2 md:gap-3 shrink-0">
+             <div onClick={() => setIsModalOpen(true)} className="cursor-pointer rounded-lg h-9 w-9 sm:h-10 sm:w-10 flex items-center justify-center hover:bg-primary/10 ios-scale shrink-0">
+                  <Plus className="h-4 w-4 sm:h-5 sm:w-5" />
              </div>
-             <Link to="/search" className="cursor-pointer rounded-lg h-10 w-10 flex items-center justify-center hover:bg-primary/10 ios-scale">
-              <Search className="h-5 w-5" />
-             </Link>
+             <button
+               type="button"
+               onClick={() => setSearchModalOpen(true)}
+               className="cursor-pointer rounded-lg h-9 w-9 sm:h-10 sm:w-10 flex items-center justify-center hover:bg-primary/10 ios-scale shrink-0"
+               aria-label="Search"
+             >
+               <Search className="h-4 w-4 sm:h-5 sm:w-5" />
+             </button>
+             <SearchModal open={searchModalOpen} onOpenChange={setSearchModalOpen} />
              {userId ? (
-               <Link to="/notifications" className="relative cursor-pointer rounded-lg h-10 w-10 flex items-center justify-center hover:bg-primary/10 ios-scale">
-                 <Bell className="h-5 w-5" />
+               <Link to="/notifications" className="relative cursor-pointer rounded-lg h-9 w-9 sm:h-10 sm:w-10 flex items-center justify-center hover:bg-primary/10 ios-scale shrink-0">
+                 <Bell className="h-4 w-4 sm:h-5 sm:w-5" />
                  {unreadCount > 0 && (
                    <span className="absolute -top-0.5 -right-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-medium text-primary-foreground">
                      {unreadCount > 99 ? "99+" : unreadCount}
@@ -135,7 +106,8 @@ export default function Navbar() {
                  )}
                </Link>
              ) : null}
-             <SidebarTrigger className="cursor-pointer rounded-lg h-10 w-10 flex items-center justify-center hover:bg-primary/10 ios-scale"/>
+             <UserProfileDropdown variant="topbar" />
+             <SidebarTrigger className="cursor-pointer rounded-lg h-9 w-9 sm:h-10 sm:w-10 flex items-center justify-center hover:bg-primary/10 ios-scale shrink-0"/>
           </div>
 
           

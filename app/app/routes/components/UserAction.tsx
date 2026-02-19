@@ -9,6 +9,7 @@ import {
   DropdownMenuTrigger
 } from "~/components/ui/dropdown-menu";
 import DownloadButton from "~/routes/Dynamic/components/DownloadButton";
+import { ShareModal } from "~/components/ShareModal";
 import { BASE_URL } from "~/lib/URLS";
 
 function formatCompact(n: number): string {
@@ -35,6 +36,7 @@ const UserAction = ({ upCount = 0, downCount = 0, fileId, initialLiked = false, 
   const [displayUpCount, setDisplayUpCount] = useState(upCount);
   const [displayDownCount, setDisplayDownCount] = useState(downCount);
   const [isLoading, setIsLoading] = useState(false);
+  const [shareModalOpen, setShareModalOpen] = useState(false);
 
   useEffect(() => {
     setLiked(initialLiked);
@@ -117,16 +119,9 @@ const UserAction = ({ upCount = 0, downCount = 0, fileId, initialLiked = false, 
     }
   }, [liked, disliked, fileId, upCount, downCount, isReel, reelId, isLoading]);
 
-  const handleShare = () => {
-    if (navigator.share) {
-      navigator.share({
-        title: document.title,
-        url: !fileId ? window.location.href : `${BASE_URL}/${isReel ? 'reel' : ''}/${fileId}`,
-      }).catch(() => {});
-    } else {
-      navigator.clipboard.writeText(!fileId ? window.location.href : `${BASE_URL}/${isReel ? 'reel' : ''}/${fileId}`).catch(() => {});
-    }
-  };
+  const shareId = (isReel && reelId) ? reelId : fileId;
+  const shareUrl = !shareId ? (typeof window !== "undefined" ? window.location.href : BASE_URL) : `${BASE_URL}/${isReel ? "reel/" : ""}${shareId}`;
+  const handleShare = () => setShareModalOpen(true);
 
   if (isReel) {
     const targetFileId = (isReel && reelId) ? reelId : fileId;
@@ -174,10 +169,10 @@ const UserAction = ({ upCount = 0, downCount = 0, fileId, initialLiked = false, 
             <Share2 className="h-4 w-4 sm:h-5 sm:w-5" />
           </div>
           <span className="text-[10px] sm:text-[11px] font-medium tabular-nums">
-            {/* Shares count is not tracked here; keep label generic */}
             Share
           </span>
         </button>
+        <ShareModal open={shareModalOpen} onOpenChange={setShareModalOpen} shareUrl={shareUrl} shareTitle={document.title} />
       </div>
     );
   }
@@ -234,6 +229,7 @@ const UserAction = ({ upCount = 0, downCount = 0, fileId, initialLiked = false, 
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
+        <ShareModal open={shareModalOpen} onOpenChange={setShareModalOpen} shareUrl={shareUrl} shareTitle={document.title} />
       </div>
     );
   }
@@ -305,6 +301,7 @@ const UserAction = ({ upCount = 0, downCount = 0, fileId, initialLiked = false, 
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
+        <ShareModal open={shareModalOpen} onOpenChange={setShareModalOpen} shareUrl={shareUrl} shareTitle={document.title} />
       </div>
     </div>
   );

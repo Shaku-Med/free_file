@@ -9,6 +9,7 @@ import UserProfileHeader from "./components/UserProfileHeader";
 import UserFilesGrid from "./components/UserFilesGrid";
 import { getProfilePicUrl } from "~/lib/utils/profilePic";
 import { BASE_URL } from "~/lib/URLS";
+import { buildPageMeta, buildErrorMeta, SITE_NAME, THEME_COLOR } from "~/lib/seo";
 
 export const loader = async ({ request, params }: { request: Request; params: { username: string } }) => {
   try {
@@ -116,236 +117,100 @@ export const loader = async ({ request, params }: { request: Request; params: { 
   }
 };
 
-export const meta: MetaFunction<ReturnType<typeof loader>> = ({ data, location }: { data: any; location?: any }) => {
+export const meta: MetaFunction<ReturnType<typeof loader>> = ({ data }: { data: any }) => {
   try {
     if (!data || !data.profile) {
-      return [
-        {
-          title: "User Not Found - Memories",
-        },
-        {
-          name: "description",
-          content: "The user profile you're looking for doesn't exist on Memories",
-        },
-        { name: "robots", content: "noindex, nofollow" },
-      ];
+      return buildPageMeta({
+        title: "User Not Found | Memories",
+        description: "The user profile you're looking for doesn't exist on Memories",
+        canonicalPath: data?.pageUrl ?? "/profile",
+        noindex: true,
+      });
     }
 
     const profile = data.profile;
-    const username = profile.username || 'User';
-    const about = profile.about || '';
+    const username = profile.username || "User";
+    const about = profile.about || "";
     const fileCount = profile.file_count || 0;
     const createdAt = profile.created_at ? new Date(profile.created_at).toISOString() : null;
-    
-    const profilePicUrl = profile.profile_pic 
+
+    const profilePicUrl = profile.profile_pic
       ? (() => {
           const picUrl = getProfilePicUrl(profile.profile_pic);
-          if (!picUrl) return null;
-          const absoluteUrl = picUrl.startsWith('http') ? picUrl : `${BASE_URL}${picUrl.startsWith('/') ? '' : '/'}${picUrl}`;
-          return absoluteUrl;
+          if (!picUrl) return undefined;
+          return picUrl.startsWith("http") ? picUrl : `${BASE_URL}${picUrl.startsWith("/") ? "" : "/"}${picUrl}`;
         })()
-      : null;
+      : undefined;
 
-    const pageUrl = `${BASE_URL}${data?.pageUrl || `/profile/${username}`}`;
-    
-    const baseDescription = about 
-      ? about.substring(0, 150)
-      : `View ${username}'s profile on Memories`;
-    
-    const statsText = fileCount > 0 ? ` • ${fileCount} ${fileCount === 1 ? 'upload' : 'uploads'}` : '';
+    const baseDescription = about ? about.substring(0, 150) : `View ${username}'s profile on Memories`;
+    const statsText = fileCount > 0 ? ` • ${fileCount} ${fileCount === 1 ? "upload" : "uploads"}` : "";
     const description = `${baseDescription}${statsText}`.substring(0, 200);
-
     const title = `${username} - Profile | Memories`.substring(0, 60);
-
     const keywords = [
       username,
-      'memories',
-      'profile',
-      'user profile',
-      'social media',
-      'content sharing',
-      'memories app',
-      'share memories',
-      ...(about ? about.split(' ').filter((w: string) => w.length > 3).slice(0, 5) : [])
-    ].join(', ');
+      "memories",
+      "profile",
+      "user profile",
+      "social media",
+      "content sharing",
+      "memories app",
+      "share memories",
+      ...(about ? about.split(" ").filter((w: string) => w.length > 3).slice(0, 5) : []),
+    ].join(", ");
 
-    return [
-      {
-        title,
-      },
-      {
-        name: "description",
-        content: description,
-      },
-      {
-        name: "keywords",
-        content: keywords,
-      },
-      {
-        name: "author",
-        content: username,
-      },
-      {
-        name: "canonical",
-        content: pageUrl,
-      },
-      {
-        name: "robots",
-        content: "index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1",
-      },
-      {
-        name: "googlebot",
-        content: "index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1",
-      },
-      {
-        property: "og:type",
-        content: "profile",
-      },
-      {
-        property: "og:title",
-        content: title,
-      },
-      {
-        property: "og:description",
-        content: description,
-      },
-      ...(profilePicUrl ? [
-        {
-          property: "og:image",
-          content: profilePicUrl,
-        },
-        {
-          property: "og:image:secure_url",
-          content: profilePicUrl,
-        },
-        {
-          property: "og:image:alt",
-          content: `${username}'s profile picture on Memories`,
-        },
-        {
-          property: "og:image:type",
-          content: "image/jpeg",
-        },
-        {
-          property: "og:image:width",
-          content: "1200",
-        },
-        {
-          property: "og:image:height",
-          content: "1200",
-        },
-      ] : []),
-      {
-        property: "og:url",
-        content: pageUrl,
-      },
-      {
-        property: "og:site_name",
-        content: "Memories",
-      },
-      {
-        property: "og:locale",
-        content: "en_US",
-      },
-      {
-        property: "og:locale:alternate",
-        content: "en_US",
-      },
-      {
-        property: "profile:username",
-        content: username,
-      },
-      {
-        property: "profile:first_name",
-        content: username,
-      },
-      ...(createdAt ? [
-        {
-          property: "profile:created_time",
-          content: createdAt,
-        },
-      ] : []),
-      {
-        name: "twitter:card",
-        content: profilePicUrl ? "summary_large_image" : "summary",
-      },
-      {
-        name: "twitter:title",
-        content: title,
-      },
-      {
-        name: "twitter:description",
-        content: description,
-      },
-      {
-        name: "twitter:site",
-        content: "@Memories",
-      },
-      {
-        name: "twitter:creator",
-        content: `@${username}`,
-      },
-      ...(profilePicUrl ? [
-        {
-          name: "twitter:image",
-          content: profilePicUrl,
-        },
-        {
-          name: "twitter:image:alt",
-          content: `${username}'s profile picture`,
-        },
-        {
-          name: "twitter:image:src",
-          content: profilePicUrl,
-        },
-      ] : []),
-      {
-        name: "application-name",
-        content: "Memories",
-      },
-      {
-        name: "apple-mobile-web-app-title",
-        content: "Memories",
-      },
-      {
-        name: "theme-color",
-        content: "#000000",
-      },
-      {
-        rel: "preconnect",
-        href: BASE_URL,
-        as: "document",
-      },
-      {
-        rel: "dns-prefetch",
-        href: BASE_URL,
-      },
-      ...(profilePicUrl ? (() => {
-        try {
-          const urlOrigin = new URL(profilePicUrl).origin;
-          return [
-            {
-              rel: "preconnect",
-              href: urlOrigin,
-              as: "image",
-            },
-            {
-              rel: "dns-prefetch",
-              href: urlOrigin,
-            },
-          ];
-        } catch {
-          return [];
-        }
-      })() : []),
+    const extra: import("react-router").MetaDescriptor[] = [
+      ...(profilePicUrl
+        ? [
+            { property: "og:image:secure_url", content: profilePicUrl },
+            { property: "og:image:type", content: "image/jpeg" },
+            { property: "og:image:width", content: "1200" },
+            { property: "og:image:height", content: "1200" },
+          ]
+        : []),
+      { property: "profile:username", content: username },
+      { property: "profile:first_name", content: username },
+      ...(createdAt ? [{ property: "profile:created_time", content: createdAt }] : []),
+      { name: "twitter:card", content: profilePicUrl ? "summary_large_image" : "summary" },
+      { name: "twitter:site", content: "@Memories" },
+      { name: "twitter:creator", content: `@${username}` },
+      ...(profilePicUrl
+        ? [
+            { name: "twitter:image", content: profilePicUrl },
+            { name: "twitter:image:alt", content: `${username}'s profile picture` },
+          ]
+        : []),
+      { name: "application-name", content: SITE_NAME },
+      { name: "apple-mobile-web-app-title", content: SITE_NAME },
+      { name: "theme-color", content: THEME_COLOR },
+      { rel: "preconnect", href: BASE_URL, as: "document" },
+      { rel: "dns-prefetch", href: BASE_URL },
     ];
-  } catch (error) {
-    console.error('Error in profile meta:', error);
-    return [
-      {
-        title: "Profile - Memories",
-      },
-    ];
+
+    if (profilePicUrl) {
+      try {
+        const urlOrigin = new URL(profilePicUrl).origin;
+        extra.push({ rel: "preconnect", href: urlOrigin, as: "image" });
+        extra.push({ rel: "dns-prefetch", href: urlOrigin });
+      } catch {}
+    }
+
+    return buildPageMeta({
+      title,
+      description,
+      canonicalPath: data?.pageUrl ?? `/profile/${username}`,
+      ogImage: profilePicUrl,
+      ogImageAlt: `${username}'s profile picture on Memories`,
+      keywords,
+      author: username,
+      ogType: "profile",
+      extra,
+    });
+  } catch {
+    return buildPageMeta({
+      title: "Profile | Memories",
+      description: "User profile on Memories",
+      noindex: true,
+    });
   }
 };
 

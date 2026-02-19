@@ -45,11 +45,11 @@ const menuItems = [
     icon: HomeIcon,
     href: "/",
   },
-  {
-    title: "Reels",
-    icon: Play,
-    href: "/reel",
-  },
+  // {
+  //   title: "Reels",
+  //   icon: Play,
+  //   href: "/reel",
+  // },
   {
     title: "Search",
     icon: Search,

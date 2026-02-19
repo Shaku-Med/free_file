@@ -1,6 +1,7 @@
 import { data } from "react-router";
 import { isAuthenticated } from "~/lib/Security/Password";
 import db from "~/lib/Database/supabase";
+import { parseUserTheme } from "~/lib/theme/constants";
 
 const toJson = (body: unknown, status = 200) => data(body, { status });
 
@@ -17,7 +18,7 @@ export const loader = async ({ request }: { request: Request }) => {
 
     const { data: settings, error } = await db
       .from("users")
-      .select("id, show_nsfw")
+      .select("id, show_nsfw, theme")
       .eq("id", user.id)
       .single();
 
@@ -26,7 +27,11 @@ export const loader = async ({ request }: { request: Request }) => {
       return toJson({ error: "Failed to load settings" }, 500);
     }
 
-    return toJson({ showNsfw: settings?.show_nsfw ?? false }, 200);
+    const theme = parseUserTheme(settings?.theme ?? null);
+    return toJson({
+      showNsfw: settings?.show_nsfw ?? false,
+      theme: theme ?? { theme: "system", style: "default" },
+    }, 200);
   } catch (error) {
     console.error("Settings loader error:", error);
     return toJson({ error: "Internal server error" }, 500);
@@ -49,17 +54,30 @@ export const action = async ({ request }: { request: Request }) => {
     }
 
     const body = await request.json();
-    const { showNsfw } = body || {};
+    const { showNsfw, theme: themePayload } = body || {};
 
-    if (typeof showNsfw !== "boolean") {
-      return toJson({ error: "showNsfw must be boolean" }, 400);
+    const updates: { show_nsfw?: boolean; theme?: { theme: string; style: string } } = {};
+
+    if (typeof showNsfw === "boolean") {
+      updates.show_nsfw = showNsfw;
+    }
+
+    if (themePayload != null) {
+      const theme = parseUserTheme(themePayload);
+      if (theme) {
+        updates.theme = { theme: theme.theme, style: theme.style };
+      }
+    }
+
+    if (Object.keys(updates).length === 0) {
+      return toJson({ error: "No valid fields to update" }, 400);
     }
 
     const { data: updated, error } = await db
       .from("users")
-      .update({ show_nsfw: showNsfw })
+      .update(updates)
       .eq("id", user.id)
-      .select("show_nsfw")
+      .select("show_nsfw, theme")
       .single();
 
     if (error) {
@@ -67,7 +85,12 @@ export const action = async ({ request }: { request: Request }) => {
       return toJson({ error: "Failed to update settings" }, 500);
     }
 
-    return toJson({ success: true, showNsfw: updated?.show_nsfw ?? showNsfw }, 200);
+    const theme = parseUserTheme(updated?.theme ?? null);
+    return toJson({
+      success: true,
+      showNsfw: updated?.show_nsfw,
+      theme: theme ?? { theme: "system", style: "default" },
+    }, 200);
   } catch (error) {
     console.error("Settings action error:", error);
     return toJson({ error: "Internal server error" }, 500);
