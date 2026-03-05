@@ -212,6 +212,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
         <meta name="apple-mobile-web-app-title" content={SITE_NAME} />
         <meta name="mobile-web-app-title" content={SITE_NAME} />
         <link rel="stylesheet" href={`/themes/${themeStyle}.css`} />
+        <link rel="manifest" href="/manifest.json" />
         <Meta />
         <Links />
       </head>
