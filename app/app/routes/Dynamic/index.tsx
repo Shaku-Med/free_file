@@ -478,8 +478,6 @@ const index = () => {
       setImageUrl(null);
       setImageColors(null);
       setMadeImageUrl(null);
-      videoElementRef.current = null;
-      setVideoRefReady(false);
       hasCachedRef.current = null;
       window.scrollTo({ top: 0, behavior: 'smooth' });
     }
