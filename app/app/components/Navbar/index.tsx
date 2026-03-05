@@ -25,6 +25,7 @@ import { useFileContext } from "~/lib/Context/Context";
 import { SidebarTrigger, useSidebar } from "../ui/sidebar";
 import { UserProfileDropdown } from "~/components/UserProfileDropdown";
 import { SearchModal } from "~/components/SearchModal";
+import { useStandalone } from "~/lib/hooks/useStandalone";
 
 const galleryCategories = [
   { name: "Portraits", href: "/gallery/portraits" },
@@ -42,6 +43,7 @@ export default function Navbar() {
   const { isMobile, state } = useSidebar();
   const location = useLocation();
   const isReelRoute = location.pathname.startsWith("/reel");
+  const isStandalone = useStandalone();
 
   useEffect(() => {
     if (!userId) {
@@ -62,12 +64,12 @@ export default function Navbar() {
 
   return (
     <nav
-      className={`sticky top-0 z-[100000000] w-full ${
+      className={`sticky top-[env(safe-area-inset-top)] z-[100000000] w-full ${isStandalone ? "pt-env(safe-area-inset-top)" : ""} ${
         isReelRoute
           ? "bg-transparent border-none shadow-none"
           : isMobile || state === "collapsed"
-          ? "bg-background/95 backdrop-blur-xl"
-          : "bg-card/95 backdrop-blur-xl"
+          ? "bg-transparent"
+          : "bg-transparent"
       }`}
     >
       <div className="mx-auto px-3 sm:px-6 xl:px-8 max-w-full xl:container min-w-0">

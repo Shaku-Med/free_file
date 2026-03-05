@@ -34,3 +34,13 @@ export interface FileType {
   duration?: number;
   engagement_score?: number;
 }
+
+export interface PageCacheData {
+  data: unknown;
+  currentPageNumber: number;
+  nextPageNumber: number;
+  totalPages: number;
+  hasMore: boolean;
+}
+
+export type PageCacheEntry = Array<Record<string, PageCacheData>>;

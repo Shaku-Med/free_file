@@ -38,7 +38,6 @@ export interface PlayerState {
 }
 
 interface PlayerContextValue {
-  videoRef: RefObject<HTMLVideoElement | null>;
   hlsRef: RefObject<Hls | null>;
   containerRef: RefObject<HTMLDivElement | null>;
   state: PlayerState;
@@ -137,6 +136,22 @@ const INITIAL_STATE: PlayerState = {
   controlsVisible: true,
 };
 
+function getCookieBoolean(name: string, fallback: boolean): boolean {
+  try {
+    if (typeof document === 'undefined') return fallback;
+    const cookies = document.cookie ? document.cookie.split('; ') : [];
+    for (const cookie of cookies) {
+      const [key, value] = cookie.split('=');
+      if (key === name) {
+        return decodeURIComponent(value) === '1';
+      }
+    }
+    return fallback;
+  } catch {
+    return fallback;
+  }
+}
+
 interface PlayerProviderProps {
   children: ReactNode;
   src: string;
@@ -146,10 +161,10 @@ interface PlayerProviderProps {
   loop: boolean;
   initialMuted: boolean;
   initialAutoPlay?: boolean;
+  videoRef: React.RefObject<HTMLVideoElement>;
 }
 
-export function PlayerProvider({ children, src, file, imageID, isReel, loop: initialLoop, initialMuted, initialAutoPlay = false }: PlayerProviderProps) {
-  const videoRef = useRef<HTMLVideoElement>(null);
+export function PlayerProvider({ children, src, file, imageID, isReel, loop: initialLoop, initialMuted, initialAutoPlay = false, videoRef }: PlayerProviderProps) {
   const hlsRef = useRef<Hls | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [state, setState] = useState<PlayerState>({ ...INITIAL_STATE, isMuted: initialMuted });
@@ -169,7 +184,9 @@ export function PlayerProvider({ children, src, file, imageID, isReel, loop: ini
 
   const [spriteMeta, setSpriteMeta] = useState<ThumbnailSpriteMeta | null>(null);
   const [spriteUrl, setSpriteUrl] = useState<string | null>(null);
-  const [ambientMode, setAmbientMode] = useState(false);
+  const [ambientModeState, setAmbientModeState] = useState(() =>
+    getCookieBoolean('player-ambient-mode', false)
+  );
   const [ambientColors, setAmbientColors] = useState<string[]>([]);
 
   const [stableVolume, setStableVolumeState] = useState(() => getStoredBoolean(STORAGE_KEYS.stableVolume, false));
@@ -300,8 +317,15 @@ export function PlayerProvider({ children, src, file, imageID, isReel, loop: ini
     interactingRef.current = false;
   }, []);
 
+  const setAmbientMode = useCallback((v: boolean) => {
+    setAmbientModeState(v);
+    try {
+      const expires = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toUTCString();
+      document.cookie = `player-ambient-mode=${v ? '1' : '0'}; path=/; expires=${expires}`;
+    } catch {}
+  }, []);
+
   const value: PlayerContextValue = {
-    videoRef,
     hlsRef,
     containerRef,
     state,
@@ -332,7 +356,7 @@ export function PlayerProvider({ children, src, file, imageID, isReel, loop: ini
     setSpriteMeta,
     setSpriteUrl,
     waveformUrl,
-    ambientMode,
+    ambientMode: ambientModeState,
     setAmbientMode,
     ambientColors,
     setAmbientColors,

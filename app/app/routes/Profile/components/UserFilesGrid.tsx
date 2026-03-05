@@ -8,6 +8,12 @@ interface UserFilesGridProps {
   currentUserId?: string;
   userActions?: { likedFileIds: Set<string>; dislikedFileIds: Set<string> };
   initialHasMore?: boolean;
+  /** When restoring from cache, pass the page we left off at so we can continue from there. */
+  initialPage?: number;
+  /** Called after load more succeeds so the parent can update page cache. */
+  onCacheUpdate?: (payload: { files: FileType[]; currentPage: number; hasMore: boolean }) => void;
+  /** When true, scroll snap (or other layout) can be activated; wait for this before enabling. */
+  dataReady?: boolean;
 }
 
 const UserFilesGrid = ({
@@ -15,12 +21,15 @@ const UserFilesGrid = ({
   userId,
   currentUserId,
   userActions: initialUserActions,
-  initialHasMore
+  initialHasMore,
+  initialPage = 1,
+  onCacheUpdate,
+  dataReady = true,
 }: UserFilesGridProps) => {
   const [files, setFiles] = useState<FileType[]>(initialFiles);
   const [isLoading, setIsLoading] = useState(false);
   const [hasMore, setHasMore] = useState(initialHasMore ?? initialFiles.length >= 20);
-  const [currentPage, setCurrentPage] = useState(1);
+  const [currentPage, setCurrentPage] = useState(initialPage);
   const observerRef = useRef<HTMLDivElement | null>(null);
   const [userActions, setUserActions] = useState<{ likedFileIds: Set<string>; dislikedFileIds: Set<string> } | undefined>(
     initialUserActions ? {
@@ -37,7 +46,7 @@ const UserFilesGrid = ({
   // Reset state when userId or initialFiles change (when navigating to different profile)
   useEffect(() => {
     setFiles(initialFiles);
-    setCurrentPage(1);
+    setCurrentPage(initialPage);
     setHasMore(initialHasMore ?? initialFiles.length >= 20);
     setIsLoading(false);
     setUserActions(
@@ -46,7 +55,7 @@ const UserFilesGrid = ({
         dislikedFileIds: new Set(initialUserActions.dislikedFileIds)
       } : undefined
     );
-  }, [profileKey, userId, initialHasMore]); // Reset when profile key changes
+  }, [profileKey, userId, initialHasMore, initialPage]); // Reset when profile key changes
 
   const loadMore = useCallback(async () => {
     if (isLoading || !hasMore) return;
@@ -65,16 +74,25 @@ const UserFilesGrid = ({
       
       if (result.data && result.data.length > 0) {
         // Prevent duplicates by checking if file already exists
+        let mergedFiles: FileType[] = [];
         setFiles(prev => {
           const existingIds = new Set(prev.map(f => f.id || f.unique_id));
-          const newFiles = result.data.filter((file: FileType) => 
+          const newFiles = result.data.filter((file: FileType) =>
             !existingIds.has(file.id || file.unique_id)
           );
-          return [...prev, ...newFiles];
+          mergedFiles = [...prev, ...newFiles];
+          return mergedFiles;
         });
         setCurrentPage(nextPage);
-        setHasMore(result.pagination?.hasMore || false);
-        
+        const newHasMore = result.pagination?.hasMore || false;
+        setHasMore(newHasMore);
+
+        onCacheUpdate?.({
+          files: mergedFiles,
+          currentPage: nextPage,
+          hasMore: newHasMore,
+        });
+
         // Merge user actions from API response
         if (result.userActions) {
           setUserActions(prev => {
@@ -94,7 +112,7 @@ const UserFilesGrid = ({
     } finally {
       setIsLoading(false);
     }
-  }, [isLoading, hasMore, currentPage, userId]);
+  }, [isLoading, hasMore, currentPage, userId, onCacheUpdate]);
 
   const handleFileUpdate = useCallback((fileId: string, updates: Partial<FileType>) => {
     setFiles((prev) =>
@@ -128,9 +146,12 @@ const UserFilesGrid = ({
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6" data-data-ready={dataReady}>
       <h2 className="text-2xl font-semibold text-foreground">Uploads</h2>
-      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-2">
+      <div
+        className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-2"
+        data-data-ready={dataReady}
+      >
         {files.map((file, index) => (
             <VideoCard
               data={file}

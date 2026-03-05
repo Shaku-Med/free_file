@@ -2,8 +2,8 @@ import { useEffect, useRef } from 'react';
 import Hls from 'hls.js';
 import { usePlayerContext } from '../PlayerContext';
 
-export function useHLS() {
-  const { videoRef, hlsRef, setState, src } = usePlayerContext();
+export function useHLS(videoRef: React.RefObject<HTMLVideoElement>) {
+  const { hlsRef, setState, src } = usePlayerContext();
   const mountedRef = useRef(true);
 
   useEffect(() => {

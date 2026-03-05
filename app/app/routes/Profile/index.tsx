@@ -1,5 +1,6 @@
-import { data, useLoaderData, type MetaFunction } from "react-router";
-import { userProfileService } from "~/lib/Services/UserProfileService";
+import { useCallback, useEffect, useMemo, useRef } from "react";
+import { data, useLoaderData, useLocation, type MetaFunction } from "react-router";
+import { userProfileService, type UserProfile } from "~/lib/Services/UserProfileService";
 import { filterFilesByAccess } from "~/routes/Api/fun/accessControl";
 import { isAuthenticated } from "~/lib/Security/Password";
 import { ownerService } from "~/lib/Services/OwnerService";
@@ -10,6 +11,16 @@ import UserFilesGrid from "./components/UserFilesGrid";
 import { getProfilePicUrl } from "~/lib/utils/profilePic";
 import { BASE_URL } from "~/lib/URLS";
 import { buildPageMeta, buildErrorMeta, SITE_NAME, THEME_COLOR } from "~/lib/seo";
+import { usePageCache } from "~/lib/hooks/usePageCache";
+import { useFileContext } from "~/lib/Context/Context";
+
+interface ProfileCachePayload {
+  profile: UserProfile;
+  files: FileType[];
+  pagination: { page: number; limit: number; hasMore: boolean };
+  userActions: { likedFileIds: string[]; dislikedFileIds: string[] };
+  currentUserId: string | null;
+}
 
 export const loader = async ({ request, params }: { request: Request; params: { username: string } }) => {
   try {
@@ -28,11 +39,9 @@ export const loader = async ({ request, params }: { request: Request; params: { 
       );
     }
 
-    // Get current user for access control
     const user = await isAuthenticated(request, ['id']);
     const currentUserId = user?.id || null;
 
-    // Fetch initial files with overfetch to account for filtering
     const limit = 20;
     const fetchMultiplier = 3;
     const fetchLimit = limit * fetchMultiplier;
@@ -51,11 +60,9 @@ export const loader = async ({ request, params }: { request: Request; params: { 
       const filteredFiles = await filterFilesByAccess(request, filesWithDefaults);
       files = filteredFiles.slice(0, limit);
       hasMore = filteredFiles.length > limit;
-      // Enrich with owner data
       files = await ownerService.enrichFilesWithOwners(files);
     }
 
-    // Live like/dislike/comment counts and user liked state from get_batch_interactions
     const fileIds = files.map(f => f.id).filter(Boolean);
     const likedFileIds: string[] = [];
     const dislikedFileIds: string[] = [];
@@ -214,37 +221,179 @@ export const meta: MetaFunction<ReturnType<typeof loader>> = ({ data }: { data: 
   }
 };
 
+function blendFilesWithFresh(cachedFiles: FileType[], freshFiles: FileType[]): FileType[] {
+  const freshById = new Map<string, FileType>();
+  for (const f of freshFiles) {
+    if (f.id) freshById.set(String(f.id), f);
+  }
+
+  const blended = cachedFiles.map(cached => {
+    const fresh = cached.id ? freshById.get(String(cached.id)) : undefined;
+    if (fresh) {
+      freshById.delete(String(cached.id));
+      return { ...cached, like_count: fresh.like_count, dislike_count: fresh.dislike_count, comment_count: fresh.comment_count, views: fresh.views, view_count: fresh.view_count, shares: fresh.shares, share_count: fresh.share_count };
+    }
+    return cached;
+  });
+
+  for (const fresh of freshById.values()) {
+    const exists = blended.some(b => b.id && String(b.id) === String(fresh.id));
+    if (!exists) blended.unshift(fresh);
+  }
+
+  return blended;
+}
+
 const Profile = () => {
   const loaderData = useLoaderData<typeof loader>();
+  const location = useLocation();
+  const pathname = location.pathname;
+  const { getFromCache, addToCache } = usePageCache();
+  const { setScrollDataReady } = useFileContext();
+  const hasBlendedRef = useRef<string | null>(null);
 
-  if (loaderData.error || !loaderData.profile) {
-    return (
-      <div className="flex items-center justify-center min-h-screen py-6 px-4">
-        <div className="text-center space-y-4 max-w-md">
-          <h1 className="text-2xl font-bold">User Not Found</h1>
-          <p className="text-muted-foreground">
-            {loaderData.error || "The user you're looking for doesn't exist."}
-          </p>
+  const cached = getFromCache(pathname);
+  const cachedData = cached?.data as ProfileCachePayload | undefined;
+
+  const loaderValid = !!(loaderData && loaderData.profile && !loaderData.error);
+  const cacheValid = !!(cachedData?.profile && cachedData?.files?.length > 0);
+
+  const effectiveData = useMemo((): ProfileCachePayload | null => {
+    if (cacheValid && loaderValid && cachedData && loaderData) {
+      const cachedPage = cachedData.pagination?.page ?? 1;
+
+      if (cachedPage > 1) {
+        const blendedFiles = blendFilesWithFresh(cachedData.files, loaderData.files ?? []);
+        const freshLiked = new Set(loaderData.userActions?.likedFileIds ?? []);
+        const freshDisliked = new Set(loaderData.userActions?.dislikedFileIds ?? []);
+        const cachedLiked = new Set(cachedData.userActions?.likedFileIds ?? []);
+        const cachedDisliked = new Set(cachedData.userActions?.dislikedFileIds ?? []);
+        const mergedLiked = [...new Set([...cachedLiked, ...freshLiked])];
+        const mergedDisliked = [...new Set([...cachedDisliked, ...freshDisliked])];
+
+        return {
+          profile: loaderData.profile,
+          files: blendedFiles,
+          pagination: cachedData.pagination,
+          userActions: { likedFileIds: mergedLiked, dislikedFileIds: mergedDisliked },
+          currentUserId: loaderData.currentUserId ?? cachedData.currentUserId,
+        };
+      }
+
+      return {
+        profile: loaderData.profile,
+        files: loaderData.files ?? [],
+        pagination: loaderData.pagination ?? { page: 1, limit: 20, hasMore: false },
+        userActions: {
+          likedFileIds: loaderData.userActions?.likedFileIds ?? [],
+          dislikedFileIds: loaderData.userActions?.dislikedFileIds ?? [],
+        },
+        currentUserId: loaderData.currentUserId ?? null,
+      };
+    }
+
+    if (cacheValid && cachedData) return cachedData;
+
+    if (loaderValid && loaderData) {
+      return {
+        profile: loaderData.profile,
+        files: loaderData.files ?? [],
+        pagination: loaderData.pagination ?? { page: 1, limit: 20, hasMore: false },
+        userActions: {
+          likedFileIds: loaderData.userActions?.likedFileIds ?? [],
+          dislikedFileIds: loaderData.userActions?.dislikedFileIds ?? [],
+        },
+        currentUserId: loaderData.currentUserId ?? null,
+      };
+    }
+
+    return null;
+  }, [loaderValid, cacheValid, loaderData, cachedData]);
+
+  useEffect(() => {
+    if (!effectiveData) return;
+    const cacheKey = `${pathname}:${effectiveData.pagination?.page ?? 1}`;
+    if (hasBlendedRef.current === cacheKey) return;
+    hasBlendedRef.current = cacheKey;
+
+    addToCache(pathname, {
+      data: effectiveData,
+      currentPageNumber: effectiveData.pagination?.page ?? 1,
+      nextPageNumber: (effectiveData.pagination?.page ?? 1) + 1,
+      totalPages: 0,
+      hasMore: effectiveData.pagination?.hasMore ?? false,
+    });
+  }, [pathname, effectiveData, addToCache]);
+
+  useEffect(() => {
+    if (effectiveData) setScrollDataReady(true);
+    return () => setScrollDataReady(false);
+  }, [effectiveData, setScrollDataReady]);
+
+  const initialPage = cacheValid && cached ? cached.currentPageNumber : 1;
+
+  const handleCacheUpdate = useCallback(
+    (payload: { files: FileType[]; currentPage: number; hasMore: boolean }) => {
+      if (!effectiveData) return;
+      const updated: ProfileCachePayload = {
+        ...effectiveData,
+        files: payload.files,
+        pagination: {
+          ...effectiveData.pagination,
+          page: payload.currentPage,
+          hasMore: payload.hasMore,
+        },
+      };
+      hasBlendedRef.current = `${pathname}:${payload.currentPage}`;
+      addToCache(pathname, {
+        data: updated,
+        currentPageNumber: payload.currentPage,
+        nextPageNumber: payload.currentPage + 1,
+        totalPages: 0,
+        hasMore: payload.hasMore,
+      });
+    },
+    [pathname, effectiveData, addToCache]
+  );
+
+  if (!effectiveData) {
+    if (loaderData && (loaderData.error || !loaderData.profile)) {
+      const errorMessage = loaderData.error ?? "The user you're looking for doesn't exist.";
+      return (
+        <div className="flex items-center justify-center min-h-screen py-6 px-4">
+          <div className="text-center space-y-4 max-w-md">
+            <h1 className="text-2xl font-bold">User Not Found</h1>
+            <p className="text-muted-foreground">{errorMessage}</p>
+          </div>
         </div>
+      );
+    }
+
+    return (
+      <div className="flex min-h-screen items-center justify-center">
+        <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
       </div>
     );
   }
 
-  const isOwner = loaderData.currentUserId === loaderData.profile.id;
+  const isOwner = effectiveData.currentUserId === effectiveData.profile.id;
 
   return (
-    <div className="min-h-screen">
+    <div className="min-h-screen" data-data-ready={true}>
       <div className="mx-auto max-w-7xl px-4 py-6">
-        <UserProfileHeader profile={loaderData.profile} isOwner={isOwner} />
-        <UserFilesGrid 
-          files={loaderData.files} 
-          userId={loaderData.profile.id}
-          currentUserId={loaderData.currentUserId || undefined}
-          initialHasMore={loaderData.pagination?.hasMore}
-          userActions={loaderData.userActions ? {
-            likedFileIds: new Set(loaderData.userActions.likedFileIds || []),
-            dislikedFileIds: new Set(loaderData.userActions.dislikedFileIds || [])
-          } : undefined}
+        <UserProfileHeader profile={effectiveData.profile} isOwner={isOwner} />
+        <UserFilesGrid
+          files={effectiveData.files}
+          userId={effectiveData.profile.id}
+          currentUserId={effectiveData.currentUserId ?? undefined}
+          initialHasMore={effectiveData.pagination?.hasMore}
+          initialPage={initialPage}
+          userActions={{
+            likedFileIds: new Set(effectiveData.userActions.likedFileIds ?? []),
+            dislikedFileIds: new Set(effectiveData.userActions.dislikedFileIds ?? []),
+          }}
+          onCacheUpdate={handleCacheUpdate}
+          dataReady={true}
         />
       </div>
     </div>
@@ -252,4 +401,3 @@ const Profile = () => {
 };
 
 export default Profile;
-

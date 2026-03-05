@@ -3,8 +3,8 @@ import { autoplayService } from '~/lib/Services/AutoplayService';
 import { usePictureInPictureContext } from '~/lib/Context/PictureInPictureContext';
 import { usePlayerContext } from '../PlayerContext';
 
-export function useAutoplay(autoPlay: boolean) {
-  const { videoRef, imageID } = usePlayerContext();
+export function useAutoplay(autoPlay: boolean, videoRef: React.RefObject<HTMLVideoElement>) {
+  const { imageID } = usePlayerContext();
   const { isPipActive, isContentInPip } = usePictureInPictureContext();
   const [autoplayBlocked, setAutoplayBlocked] = useState(false);
   const [showPrompt, setShowPrompt] = useState(false);

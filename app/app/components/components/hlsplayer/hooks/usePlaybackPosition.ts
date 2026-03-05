@@ -2,8 +2,8 @@ import { useEffect, useRef } from 'react';
 import { videoPlaybackDB } from '~/lib/Database/VideoPlaybackDB';
 import { usePlayerContext } from '../PlayerContext';
 
-export function usePlaybackPosition() {
-  const { videoRef, imageID, src, state } = usePlayerContext();
+export function usePlaybackPosition(videoRef: React.RefObject<HTMLVideoElement>) {
+  const { imageID, src, state } = usePlayerContext();
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {

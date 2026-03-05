@@ -1,7 +1,7 @@
-import { data, Link, useLoaderData, useNavigate, useParams, useNavigation, type MetaFunction } from "react-router";
+import { data, Link, useLoaderData, useNavigate, useParams, useNavigation, useLocation, type MetaFunction } from "react-router";
 import db from "~/lib/Database/supabase";
 import HLSPlayer from "~/components/components/hlsplayer";
-import { useCallback, useEffect, useState, useRef } from "react";
+import { useCallback, useEffect, useState, useRef, useMemo } from "react";
 import RelatedVideos from "./components/RelatedVideos";
 import type { FileType } from "~/lib/types";
 import { BASE_URL } from "~/lib/URLS";
@@ -11,6 +11,7 @@ import { arrangeDateForThumbnail, ParseFilename, getRandomThumbnail, getVideoSrc
 import { motion } from "framer-motion";
 import { ShieldAlert } from "lucide-react";
 import { useSidebar } from "~/components/ui/sidebar";
+import { useStandalone } from "~/lib/hooks/useStandalone";
 import { checkFileAccess } from "./fun/accessControl";
 import AdultContentBadge from "./components/AdultContentBadge";
 import ImagePreview from "./components/ImagePreview/ImagePreview";
@@ -26,6 +27,23 @@ import { formatNumber } from "~/lib/utils/formatNumber";
 import { useWatchTracking } from "~/lib/hooks/useWatchTracking";
 import { IMAGE_BASE_URL } from "~/lib/URLS";
 import ParseFilenameInsert from "~/lib/utils/ShowFileName";
+import { usePageCache } from "~/lib/hooks/usePageCache";
+import CanvasGradient from "~/components/accessories/CanvasGradient/CanvasGradient";
+import Ambience from "~/components/accessories/CanvasGradient/Ambience";
+
+interface DynamicCachePayload {
+  file: any;
+  id: string;
+  relatedVideos: FileType[];
+  userLiked: boolean;
+  userDisliked: boolean;
+  likeCount: number;
+  dislikeCount: number;
+  userId: string | null;
+  owner: { id: string; username: string; profile_pic: string } | null;
+  commentsCount: number;
+  relatedVideosUserActions: { likedFileIds: string[]; dislikedFileIds: string[] };
+}
 
 export const loader = async ({ request, params }: { request: Request, params: { id: string } }) => {
   try {
@@ -170,7 +188,6 @@ export const loader = async ({ request, params }: { request: Request, params: { 
       }
     }
 
-    // Fetch owner profile
     let owner = null;
     if (file.owner_id) {
       const { data: ownerData } = await db
@@ -188,7 +205,6 @@ export const loader = async ({ request, params }: { request: Request, params: { 
       }
     }
 
-    // Fetch comments count
     let commentsCount = 0;
     if (file.id) {
       const commentsCountResult = await commentService.getCommentsCount(file.id);
@@ -325,21 +341,131 @@ export const meta: MetaFunction<ReturnType<typeof loader>> = ({ data }: { data: 
     });
   }
 };
+
+function blendDynamicData(cached: DynamicCachePayload, fresh: DynamicCachePayload): DynamicCachePayload {
+  const freshRelatedById = new Map<string, FileType>();
+  for (const v of fresh.relatedVideos) {
+    if (v.id) freshRelatedById.set(String(v.id), v);
+  }
+
+  const blendedRelated = cached.relatedVideos.map(cv => {
+    const fv = cv.id ? freshRelatedById.get(String(cv.id)) : undefined;
+    if (fv) {
+      freshRelatedById.delete(String(cv.id));
+      return { ...cv, like_count: fv.like_count, dislike_count: fv.dislike_count, comment_count: fv.comment_count, view_count: fv.view_count, views: fv.views };
+    }
+    return cv;
+  });
+
+  for (const fv of freshRelatedById.values()) {
+    blendedRelated.push(fv);
+  }
+
+  const mergedLiked = [...new Set([
+    ...(cached.relatedVideosUserActions?.likedFileIds ?? []),
+    ...(fresh.relatedVideosUserActions?.likedFileIds ?? []),
+  ])];
+  const mergedDisliked = [...new Set([
+    ...(cached.relatedVideosUserActions?.dislikedFileIds ?? []),
+    ...(fresh.relatedVideosUserActions?.dislikedFileIds ?? []),
+  ])];
+
+  return {
+    file: fresh.file,
+    id: fresh.id,
+    relatedVideos: blendedRelated,
+    userLiked: fresh.userLiked,
+    userDisliked: fresh.userDisliked,
+    likeCount: fresh.likeCount,
+    dislikeCount: fresh.dislikeCount,
+    userId: fresh.userId,
+    owner: fresh.owner ?? cached.owner,
+    commentsCount: fresh.commentsCount,
+    relatedVideosUserActions: { likedFileIds: mergedLiked, dislikedFileIds: mergedDisliked },
+  };
+}
+
 const index = () => {
   const params = useParams();
   const navigation = useNavigation();
   const navigate = useNavigate();
+  const location = useLocation();
   const currentId = params.id;
-  
+  const pathname = location.pathname;
+  const { getFromCache, addToCache } = usePageCache();
+  const hasCachedRef = useRef<string | null>(null);
+
   const [playingVideos, setPlayingVideos] = useState<Set<number>>(new Set());
-  const data = useLoaderData<typeof loader>();
-  const file_data = data?.file;
+  const loaderData = useLoaderData<typeof loader>();
+
+  const cached = getFromCache(pathname);
+  const cachedData = cached?.data as DynamicCachePayload | undefined;
+
+  const loaderValid = !!(loaderData && loaderData.file && !loaderData.accessDenied);
+  const cacheValid = !!(cachedData?.file && cachedData?.id === currentId);
+
+  const effectiveData = useMemo((): DynamicCachePayload | null => {
+    if (cacheValid && loaderValid && cachedData && loaderData) {
+      const freshPayload: DynamicCachePayload = {
+        file: loaderData.file,
+        id: loaderData.id ?? currentId ?? '',
+        relatedVideos: ('relatedVideos' in loaderData ? loaderData.relatedVideos : []) as FileType[],
+        userLiked: ('userLiked' in loaderData && loaderData.userLiked) || false,
+        userDisliked: ('userDisliked' in loaderData && loaderData.userDisliked) || false,
+        likeCount: Number(loaderData.likeCount) || 0,
+        dislikeCount: Number(loaderData.dislikeCount) || 0,
+        userId: ('userId' in loaderData ? loaderData.userId : null) as string | null,
+        owner: ('owner' in loaderData ? loaderData.owner : null) as any,
+        commentsCount: ('commentsCount' in loaderData ? loaderData.commentsCount : 0) as number,
+        relatedVideosUserActions: ('relatedVideosUserActions' in loaderData ? loaderData.relatedVideosUserActions : { likedFileIds: [], dislikedFileIds: [] }) as any,
+      };
+      return blendDynamicData(cachedData, freshPayload);
+    }
+
+    if (cacheValid && cachedData) return cachedData;
+
+    if (loaderValid && loaderData) {
+      return {
+        file: loaderData.file,
+        id: loaderData.id ?? currentId ?? '',
+        relatedVideos: ('relatedVideos' in loaderData ? loaderData.relatedVideos : []) as FileType[],
+        userLiked: ('userLiked' in loaderData && loaderData.userLiked) || false,
+        userDisliked: ('userDisliked' in loaderData && loaderData.userDisliked) || false,
+        likeCount: Number(loaderData.likeCount) || 0,
+        dislikeCount: Number(loaderData.dislikeCount) || 0,
+        userId: ('userId' in loaderData ? loaderData.userId : null) as string | null,
+        owner: ('owner' in loaderData ? loaderData.owner : null) as any,
+        commentsCount: ('commentsCount' in loaderData ? loaderData.commentsCount : 0) as number,
+        relatedVideosUserActions: ('relatedVideosUserActions' in loaderData ? loaderData.relatedVideosUserActions : { likedFileIds: [], dislikedFileIds: [] }) as any,
+      };
+    }
+
+    return null;
+  }, [loaderValid, cacheValid, loaderData, cachedData, currentId]);
+
+  useEffect(() => {
+    if (!effectiveData?.file) return;
+    const cacheKey = `${pathname}:${effectiveData.id}`;
+    if (hasCachedRef.current === cacheKey) return;
+    hasCachedRef.current = cacheKey;
+    addToCache(pathname, {
+      data: effectiveData,
+      currentPageNumber: 1,
+      nextPageNumber: 1,
+      totalPages: 0,
+      hasMore: false,
+    });
+  }, [pathname, effectiveData, addToCache]);
+
+  const file_data = effectiveData?.file;
+  const data = effectiveData;
+
   const [views, setViews] = useState<number>(Number(file_data?.views || file_data?.view_count || 0));
   const [shares, setShares] = useState<number>(Number(file_data?.shares || file_data?.share_count || 0));
   const [hasIncrementedView, setHasIncrementedView] = useState(false);
   const videoElementRef = useRef<HTMLVideoElement | null>(null);
-  
-  // Track previous ID to detect route changes
+  const [videoRefReady, setVideoRefReady] = useState(false);
+
   const prevIdRef = useRef<string | undefined>(currentId);
   const viewIncrementSentRef = useRef(false);
 
@@ -353,25 +479,25 @@ const index = () => {
       setImageColors(null);
       setMadeImageUrl(null);
       videoElementRef.current = null;
+      setVideoRefReady(false);
+      hasCachedRef.current = null;
       window.scrollTo({ top: 0, behavior: 'smooth' });
     }
     prevIdRef.current = currentId;
   }, [currentId]);
   
-  // Update views and shares when new file data loads
   useEffect(() => {
     if (file_data) {
       const newViews = Number(file_data.views || file_data.view_count || 0);
       const newShares = Number(file_data.shares || file_data.share_count || 0);
-      
       setViews(newViews);
       setShares(newShares);
     }
   }, [file_data?.id, file_data?.views, file_data?.view_count, file_data?.shares, file_data?.share_count]);
 
-  if (data?.accessDenied) {
+  if (loaderData?.accessDenied) {
     const getAccessDeniedMessage = () => {
-      switch (data.reason) {
+      switch (loaderData.reason) {
         case 'not_authenticated':
           return {
             title: 'Authentication Required',
@@ -423,22 +549,18 @@ const index = () => {
     );
   }
   
-  if(!file_data) {
+  if(!file_data || !data) {
     return (
-      <>
-        <div className={`flex items-center justify-center text-2xl py-6 px-4 min-h-[200px]`}>
-          <h1>File not found</h1>
-        </div>
-      </>
-    )
+      <div className="flex items-center justify-center text-2xl py-6 px-4 min-h-[200px]">
+        <h1>File not found</h1>
+      </div>
+    );
   }
 
   const isHLS = file_data?.file_type === 'application/vnd.apple.mpegurl' || file_data?.endpoint?.includes('.m3u8');
   const isVideo = isHLS || file_data?.file_type?.includes('video');
-  const userId = ('userId' in data && data.userId) || null;
+  const userId = data.userId || null;
 
-  // Track watch time and watch percentage
-  // Only track if we have a valid file ID and it matches the current route
   useWatchTracking({
     fileId: file_data?.id || '',
     userId: userId,
@@ -451,6 +573,21 @@ const index = () => {
   const [imageUrl, setImageUrl] = useState<{ url: string, imageID: string } | null>(null)
   const [imageColors, setImageColors] = useState<string[] | null>(null)
   const [madeImageUrl, setMadeImageUrl] = useState<string | null>(null)
+  const [ambientEnabled, setAmbientEnabled] = useState<boolean>(() => {
+    try {
+      if (typeof document === 'undefined') return false;
+      const cookies = document.cookie ? document.cookie.split('; ') : [];
+      for (const cookie of cookies) {
+        const [key, value] = cookie.split('=');
+        if (key === 'player-ambient-mode') {
+          return decodeURIComponent(value) === '1';
+        }
+      }
+      return false;
+    } catch {
+      return false;
+    }
+  })
   const [theaterMode, setTheaterModeState] = useState(() => {
     try {
       if (typeof localStorage === 'undefined') return false;
@@ -462,41 +599,39 @@ const index = () => {
     try { localStorage.setItem('player-theater-mode', v ? 'true' : 'false'); } catch {}
   }
   const [descriptionExpanded, setDescriptionExpanded] = useState(false)
-  const [liked, setLiked] = useState(('userLiked' in data && data.userLiked) || false)
-  const [disliked, setDisliked] = useState(('userDisliked' in data && data.userDisliked) || false)
-  const [likeCount, setLikeCount] = useState(Number(data?.likeCount) || 0)
-  const [dislikeCount, setDislikeCount] = useState(Number(data?.dislikeCount) || 0)
+  const [liked, setLiked] = useState(data.userLiked || false)
+  const [disliked, setDisliked] = useState(data.userDisliked || false)
+  const [likeCount, setLikeCount] = useState(Number(data.likeCount) || 0)
+  const [dislikeCount, setDislikeCount] = useState(Number(data.dislikeCount) || 0)
   const {isMobile, state} = useSidebar();
+  const isStandalone = useStandalone();
 
   useEffect(() => {
-    if (!file_data) return
-    setLiked(('userLiked' in data && data.userLiked) || false)
-    setDisliked(('userDisliked' in data && data.userDisliked) || false)
-    setLikeCount(Number(data?.likeCount) || 0)
-    setDislikeCount(Number(data?.dislikeCount) || 0)
-  }, [currentId, file_data?.id])
+    if (!file_data || !data) return;
+    setLiked(data.userLiked || false);
+    setDisliked(data.userDisliked || false);
+    setLikeCount(Number(data.likeCount) || 0);
+    setDislikeCount(Number(data.dislikeCount) || 0);
+  }, [currentId, file_data?.id]);
 
   const handleInteractionUpdate = (updates: { liked: boolean; disliked: boolean; like_count: number; dislike_count: number }) => {
-    setLiked(updates.liked)
-    setDisliked(updates.disliked)
-    setLikeCount(updates.like_count)
-    setDislikeCount(updates.dislike_count)
+    setLiked(updates.liked);
+    setDisliked(updates.disliked);
+    setLikeCount(updates.like_count);
+    setDislikeCount(updates.dislike_count);
   }
 
-  const commentsCount = ('commentsCount' in data ? data.commentsCount : 0) || 0
-  const isOwner = Boolean(('userId' in data && data.userId) && file_data?.owner_id && ('userId' in data && data.userId) === file_data.owner_id)
+  const commentsCount = data.commentsCount || 0;
+  const isOwner = Boolean(data.userId && file_data?.owner_id && data.userId === file_data.owner_id);
 
   const retry = () => {
-    if(retryAttempt >= 1) {
-      return
-    }
-    setRetryAttempt(retryAttempt + 1)
+    if(retryAttempt >= 1) return;
+    setRetryAttempt(retryAttempt + 1);
   }
 
-  const relatedVideos = (data && 'relatedVideos' in data) ? data.relatedVideos : [];
+  const relatedVideos = data.relatedVideos ?? [];
   const suggestedVideos = relatedVideos.filter((v: FileType) => v.unique_id !== currentId).slice(0, 8);
 
-  // Show loading state during navigation
   const isNavigating = navigation.state === 'loading' && navigation.location?.pathname !== window.location.pathname;
 
   const requiredViewSeconds = (() => {
@@ -548,13 +683,15 @@ const index = () => {
   }, [isHLS, file_data?.id, hasIncrementedView, runViewIncrement, requiredViewSeconds]);
 
   const videoBlock = (
-    <motion.div layoutId={`video_id_${file_data.unique_id}`} className="relative w-full" key={`motion-${file_data.unique_id}-${currentId}`}>
+    <motion.div layoutId={`video_id_${file_data.unique_id}`} className={`relative z-10 w-full overflow-hidden rounded-lg ${isStandalone ? "pt-8" : ""}`} key={`motion-${file_data.unique_id}-${currentId}`}>
       {file_data?.is_adult && (
         <AdultContentBadge isPlaying={playingVideos.has(1)} className="top-3 left-3" />
       )}
-      <div className={`${isHLS ? 'aspect-video bg-black rounded-lg overflow-hidden w-full' : 'w-full flex items-center justify-center overflow-hidden rounded-lg bg-black'} relative`}>
+      <CanvasGradient colors={imageColors || []} />
+      <div className={`${isHLS ? `aspect-video rounded-lg overflow-hidden w-full ` : 'w-full flex items-center justify-center overflow-hidden rounded-lg'} relative`}>
         {isHLS ? (
           <HLSPlayer
+            videoRef={videoElementRef as React.RefObject<HTMLVideoElement>}
             src={getVideoSrc(file_data?.endpoint ?? '', file_data?.file_type)}
             className="w-full h-full"
             onPlay={() => {
@@ -573,7 +710,7 @@ const index = () => {
             file={file_data}
             key={`hls-${file_data.unique_id}-${currentId}`}
             onVideoRef={(ref) => {
-              videoElementRef.current = ref;
+              setVideoRefReady(!!ref);
             }}
             callBack={e => {
               setImageColors(e.colors)
@@ -583,33 +720,35 @@ const index = () => {
             onTheaterModeChange={isMobile ? undefined : setTheaterMode}
             suggestedVideos={suggestedVideos}
             onVideoSelect={(video) => navigate(`/${video.unique_id}`)}
+            onAmbientModeChange={setAmbientEnabled}
           />
         ) : (
-                    <motion.div 
-                      transition={{ duration: 0.1 }} 
-                      onClick={() => {
-                        if(madeImageUrl) {
-                          setImageUrl({ url: madeImageUrl, imageID: file_data.unique_id })
-                        }
-                      }} 
-                      layoutId={`image_id_${file_data.unique_id}`} 
-                      className="w-full aspect-video cursor-zoom-in relative"
-                    >
-                      <ImageLoad
-                        link={`/api/load/image/${file_data.endpoint}`}
-                        retry={retry}
-                        className="w-full h-full object-contain"
-                        imageID={file_data.unique_id}
-                        index={0}
-                        hasAdultTag={false}
-                        callBack={e => {
-                          setMadeImageUrl(e.src)
-                          setImageColors(e.colors)
-                        }}
-                        key={file_data.unique_id}
-                      />
-                    </motion.div>
-                  )}
+          <motion.div 
+            transition={{ duration: 0.1 }} 
+            onClick={() => {
+              if(madeImageUrl) {
+                setImageUrl({ url: madeImageUrl, imageID: file_data.unique_id })
+              }
+            }} 
+            layoutId={`image_id_${file_data.unique_id}`} 
+            className="w-full aspect-video cursor-zoom-in relative"
+          >
+            <ImageLoad
+              link={`/api/load/image/${file_data.endpoint}`}
+              retry={retry}
+              className="w-full h-full object-contain"
+              imageID={file_data.unique_id}
+              index={0}
+              hasAdultTag={false}
+              callBack={e => {
+                setMadeImageUrl(e.src)
+                setImageColors(e.colors)
+              }}
+              key={file_data.unique_id}
+              shouldShowPreview={true}
+            />
+          </motion.div>
+        )}
       </div>
     </motion.div>
   );
@@ -635,10 +774,10 @@ const index = () => {
       return `${BASE_URL}/api/load/image/${arrangeDateForThumbnail(file_data.created_at)}/${file_data.unique_id}/thumbnail_${ParseFilename(file_data.filename)}.jpg?quality=50`;
     return file_data?.endpoint ? `${BASE_URL}/api/load/image/${file_data.endpoint}?quality=50` : "";
   })();
-  const pageUrlForLd = `${BASE_URL}/${data?.id ?? currentId}`;
+  const pageUrlForLd = `${BASE_URL}/${data.id ?? currentId}`;
   const ldTitle = (file_data?.file_title?.trim() || ParseFilename(file_data?.filename || "")) || "Media";
   const ldDescription = (file_data?.file_description?.trim() || ldTitle).slice(0, 200);
-  const ownerName = "owner" in data && data.owner ? data.owner.username : undefined;
+  const ownerName = data.owner ? data.owner.username : undefined;
   const jsonLd = isVideo
     ? {
         "@context": "https://schema.org",
@@ -662,162 +801,181 @@ const index = () => {
       };
 
   const contentColumn = (
-            <div className="space-y-4">
-              {/* Title */}
-              <h1 className="text-xl font-bold text-foreground leading-tight select-text">
-                <ParseFilenameInsert filename={file_data.file_title || file_data.filename}/>  
-              </h1>
+    <div className="space-y-4 z-[10000]">
+      <h1 className="text-xl font-bold text-foreground leading-tight select-text z-[10000]">
+        <ParseFilenameInsert filename={file_data.file_title || file_data.filename}/>  
+      </h1>
 
-              {/* Channel row: avatar + name only */}
-              {('owner' in data && data.owner) && (
-                <OwnerProfile owner={data.owner} size="md" showUsername />
+      {data.owner && (
+        <OwnerProfile owner={data.owner} size="md" showUsername />
+      )}
+
+      <Actions
+        key={`actions-${file_data.id}-${currentId}`}
+        fileId={String(file_data.id)}
+        uniqueId={file_data.unique_id}
+        likeCount={likeCount}
+        dislikeCount={dislikeCount}
+        commentCount={commentsCount}
+        liked={liked}
+        disliked={disliked}
+        isOwner={isOwner}
+        onEdit={undefined}
+        onUpdate={data.userId ? handleInteractionUpdate : undefined}
+      />
+
+      <div className="rounded-xl overflow-hidden">
+        <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground px-4 pt-3 pb-1">
+          <span className="font-medium text-foreground">{formatNumber(views)} views</span>
+          <span>{new Date(file_data.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span>
+          {shares > 0 && (
+            <>
+              <span aria-hidden>•</span>
+              <span>{formatNumber(shares)} shares</span>
+            </>
+          )}
+        </div>
+        {(description || hasLongDescription) && (
+          <div className="px-4 pt-1">
+            <div className="text-sm text-foreground break-words">
+              <FormattedText text={descriptionToShow} />
+              {hasLongDescription && !descriptionExpanded && (
+                <>
+                  {" "}
+                  <button
+                    type="button"
+                    onClick={() => setDescriptionExpanded(true)}
+                    className="font-medium text-foreground hover:underline inline-flex items-center gap-0.5"
+                  >
+                    ...more
+                  </button>
+                </>
               )}
-
-              {/* Same Actions as VideoCard: Like, Dislike, Comments, Options */}
-              <Actions
-                key={`actions-${file_data.id}-${currentId}`}
-                fileId={String(file_data.id)}
-                uniqueId={file_data.unique_id}
-                likeCount={likeCount}
-                dislikeCount={dislikeCount}
-                commentCount={commentsCount}
-                liked={liked}
-                disliked={disliked}
-                isOwner={isOwner}
-                onEdit={undefined}
-                onUpdate={('userId' in data && data.userId) ? handleInteractionUpdate : undefined}
-              />
-
-              {/* Description box: views, then description, then categories & tags */}
-              <div className="rounded-xl overflow-hidden">
-                <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground px-4 pt-3 pb-1">
-                  <span className="font-medium text-foreground">{formatNumber(views)} views</span>
-                  <span>{new Date(file_data.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span>
-                  {shares > 0 && (
-                    <>
-                      <span aria-hidden>•</span>
-                      <span>{formatNumber(shares)} shares</span>
-                    </>
-                  )}
-                </div>
-                {(description || hasLongDescription) && (
-                  <div className="px-4 pt-1">
-                    <div className="text-sm text-foreground break-words">
-                      <FormattedText text={descriptionToShow} />
-                      {hasLongDescription && !descriptionExpanded && (
-                        <>
-                          {" "}
-                          <button
-                            type="button"
-                            onClick={() => setDescriptionExpanded(true)}
-                            className="font-medium text-foreground hover:underline inline-flex items-center gap-0.5"
-                          >
-                            ...more
-                          </button>
-                        </>
-                      )}
-                    </div>
-                  </div>
-                )}
-                {(categoriesList.length > 0 || tagsList.length > 0) && (
-                  <div className="px-4 pb-3 pt-2 space-y-2">
-                    {categoriesList.length > 0 && (
-                      <div className="flex flex-wrap items-center gap-1.5">
-                        <span className="text-xs font-medium text-muted-foreground mr-1">Categories</span>
-                        {categoriesList.map((c) => (
-                          <Link
-                            key={c}
-                            to={`/tag/${encodeURIComponent(c)}`}
-                            className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-primary/15 text-primary hover:bg-primary/25 transition-colors"
-                          >
-                            {c}
-                          </Link>
-                        ))}
-                      </div>
-                    )}
-                    {tagsList.length > 0 && (
-                      <div className="flex flex-wrap items-center gap-1.5">
-                        <span className="text-xs font-medium text-muted-foreground mr-1">Tags</span>
-                        {tagsList.map((t) => (
-                          <Link
-                            key={t}
-                            to={`/tag/${encodeURIComponent(t)}`}
-                            className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-muted text-foreground hover:bg-muted/80 transition-colors"
-                          >
-                            {t}
-                          </Link>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-
-              <CommentSection
-                key={`comments-${file_data.id}-${currentId}`}
-                fileId={file_data.id}
-                currentUserId={('userId' in data && data.userId) || undefined}
-              />
             </div>
+          </div>
+        )}
+        {(categoriesList.length > 0 || tagsList.length > 0) && (
+          <div className="px-4 pb-3 pt-2 space-y-2">
+            {categoriesList.length > 0 && (
+              <div className="flex flex-wrap items-center gap-1.5">
+                <span className="text-xs font-medium text-muted-foreground mr-1">Categories</span>
+                {categoriesList.map((c) => (
+                  <Link
+                    key={c}
+                    to={`/tag/${encodeURIComponent(c)}`}
+                    className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-primary/15 text-primary hover:bg-primary/25 transition-colors"
+                  >
+                    {c}
+                  </Link>
+                ))}
+              </div>
+            )}
+            {tagsList.length > 0 && (
+              <div className="flex flex-wrap items-center gap-1.5">
+                <span className="text-xs font-medium text-muted-foreground mr-1">Tags</span>
+                {tagsList.map((t) => (
+                  <Link
+                    key={t}
+                    to={`/tag/${encodeURIComponent(t)}`}
+                    className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-muted text-foreground hover:bg-muted/80 transition-colors"
+                  >
+                    {t}
+                  </Link>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      <CommentSection
+        key={`comments-${file_data.id}-${currentId}`}
+        fileId={file_data.id}
+        currentUserId={data.userId || undefined}
+      />
+    </div>
   );
 
   const relatedColumn = (
-          <div className="lg:col-span-1">
-            <div className="sticky top-6">
-              <RelatedVideos 
-                key={`related-${file_data.unique_id}-${currentId}`}
-                videos={relatedVideos} 
-                currentVideoId={file_data.unique_id}
-                currentVideoDbId={file_data.id}
-                ownerId={file_data.owner_id}
-                currentUserId={('userId' in data && data.userId) || undefined}
-                currentFileType={file_data.file_type}
-                userActions={('relatedVideosUserActions' in data && data.relatedVideosUserActions) ? {
-                  likedFileIds: new Set(data.relatedVideosUserActions.likedFileIds || []),
-                  dislikedFileIds: new Set(data.relatedVideosUserActions.dislikedFileIds || [])
-                } : undefined}
-              />
-            </div>
-          </div>
+    <div className="lg:col-span-1">
+      <div className="sticky top-6">
+        <RelatedVideos 
+          key={`related-${file_data.unique_id}-${currentId}`}
+          videos={relatedVideos} 
+          currentVideoId={file_data.unique_id}
+          currentVideoDbId={file_data.id}
+          ownerId={file_data.owner_id}
+          currentUserId={data.userId || undefined}
+          currentFileType={file_data.file_type}
+          userActions={data.relatedVideosUserActions ? {
+            likedFileIds: new Set(data.relatedVideosUserActions.likedFileIds || []),
+            dislikedFileIds: new Set(data.relatedVideosUserActions.dislikedFileIds || [])
+          } : undefined}
+        />
+      </div>
+    </div>
   );
 
   return (
-    <div className="min-h-screen reel_p overflow-x-hidden" key={`dynamic-${currentId}`}>
+    <div className="relative min-h-screen reel_p" key={`dynamic-${currentId}`}>
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
       />
-      {theaterMode && !isMobile ? (
-        <>
-          <div className="w-full py-4">
-            <div className="mx-auto max-w-7xl px-4 max-h-[85vh] overflow-hidden [&_.aspect-video]:max-h-[85vh] [&_.aspect-video]:max-w-full [&_.aspect-video]:aspect-video">
+      <div className={`relative z-10 mx-auto max-w-full xl:container py-8`}>
+        <div className={`${!theaterMode ? `grid grid-cols-1 lg:grid-cols-3 gap-6` : ``}`}>
+          <div className={`${!theaterMode ? `lg:col-span-2 space-y-4` : ``}`}>
+            <div className="relative">
               {videoBlock}
+              {ambientEnabled && (
+                <div className={`ambience-wrap z-[-1] absolute scale-[1.8] w-full min-w-screen h-full inset-0 pointer-events-none overflow-hidden rounded-lg ${isMobile && `blur-lg`}`}>
+                  {
+                    isMobile && (
+                      <>
+                        <div className="mobile_blur_overlay absolute inset-x-0 bottom-0 h-full z-[10] bg-gradient-to-t from-background/95 via-background/60 to-transparent" />
+                      </>
+                    )
+                  }
+                  <div className="absolute inset-0">
+                    <Ambience colors={imageColors || []} videoRef={videoElementRef} videoReady={videoRefReady} />
+                  </div>
+                  <div
+                    className="gradient-overlay absolute inset-0  pointer-events-none"
+                    style={{
+                      background: state !== 'expanded' || isMobile
+                        ? `linear-gradient(to bottom, var(--background) 0%, transparent 12%, transparent 88%, var(--background) 100%)`
+                        : `radial-gradient(ellipse 100% 100% at 50% 50%, transparent 10%, var(--card) 50%, var(--card) 100%)`
+                    }}
+                  />
+                </div>
+              )}
             </div>
-          </div>
-          <div className="mx-auto max-w-full xl:container py-6 px-4">
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-              <div className="lg:col-span-2">
-                {contentColumn}
-              </div>
-              {relatedColumn}
-            </div>
-          </div>
-        </>
-      ) : (
-        <div className="mx-auto max-w-full xl:container py-8">
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            <div className="lg:col-span-2 space-y-4">
-              {videoBlock}
-              {contentColumn}
-            </div>
-            {relatedColumn}
-          </div>
-        </div>
-      )}
+            
 
-      {imageUrl && (
-        <ImagePreview imageUrl={imageUrl} setImageUrl={setImageUrl} />
-      )}
+            {
+              !theaterMode && (
+                <div className="z-[100000]">
+                  {contentColumn}
+                </div>
+              )
+            }
+          </div>
+          {
+            !theaterMode ? 
+            relatedColumn :
+            (
+              <div className="mx-auto max-w-full xl:container py-6 px-4 z-[100000]">
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <div className="lg:col-span-2">
+                  {contentColumn}
+                </div>
+                {relatedColumn}
+              </div>
+            </div>
+            )
+          }
+        </div>
+      </div>
     </div>
   );
 }

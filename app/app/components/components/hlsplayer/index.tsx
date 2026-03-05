@@ -19,7 +19,6 @@ import SeekFeedback from './overlays/SeekFeedback';
 import PosterBackground from './overlays/PosterBackground';
 import AmbientBackground from '~/components/components/hlsplayer/overlays/AmbientBackground';
 import { usePictureInPictureContext } from '~/lib/Context/PictureInPictureContext';
-import { getRandomThumbnail } from '~/lib/utils';
 
 interface CallBackProps {
   src: string;
@@ -49,6 +48,8 @@ interface HLSPlayerProps {
   onNext?: () => void;
   theaterMode?: boolean;
   onTheaterModeChange?: (active: boolean) => void;
+  videoRef: React.RefObject<HTMLVideoElement>;
+  onAmbientModeChange?: (active: boolean) => void;
 }
 
 const HLSPlayer: React.FC<HLSPlayerProps> = (props) => {
@@ -61,6 +62,7 @@ const HLSPlayer: React.FC<HLSPlayerProps> = (props) => {
       loop={props.loop ?? false}
       initialMuted={props.muted ?? false}
       initialAutoPlay={props.autoPlay ?? false}
+      videoRef={props.videoRef}
     >
       <PlayerInner {...props} />
     </PlayerProvider>
@@ -88,9 +90,10 @@ function PlayerInner({
   onNext,
   theaterMode = false,
   onTheaterModeChange,
+  videoRef,
+  onAmbientModeChange,
 }: HLSPlayerProps) {
   const {
-    videoRef,
     containerRef,
     state,
     setState,
@@ -139,13 +142,20 @@ function PlayerInner({
     if (seekFeedbackTimeoutRef.current) clearTimeout(seekFeedbackTimeoutRef.current);
   }, []);
 
-  useHLS();
-  useVideoEvents({ onPlay, onPause, onEnded, onError });
-  useMediaSession(mediaSessionImage);
-  usePlaybackPosition();
+  useHLS(videoRef);
+  useVideoEvents(videoRef, { onPlay, onPause, onEnded, onError });
+  useMediaSession(mediaSessionImage, videoRef);
+  usePlaybackPosition(videoRef);
   useFullscreen();
-  const { showPrompt, enableAutoplay, dismissPrompt } = useAutoplay(autoPlayEnabled);
+  const { showPrompt, enableAutoplay, dismissPrompt } = useAutoplay(autoPlayEnabled, videoRef);
   useControlsVisibility();
+
+  // Notify parent when ambient mode changes so outer ambience can sync with player setting
+  useEffect(() => {
+    if (onAmbientModeChange) {
+      onAmbientModeChange(ambientMode);
+    }
+  }, [ambientMode, onAmbientModeChange]);
 
   useEffect(() => {
     if (onVideoRef && videoRef.current) onVideoRef(videoRef.current);

@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import type { ContextProps } from "./types";
+import type { ContextProps } from "~/lib/Context/types";
 import type { FileType } from "../types";
 import MediaSelectionModal from "~/routes/Home/components/MediaSelectionModal";
 import { Button } from "~/components/ui/button";
@@ -10,7 +10,7 @@ import "driver.js/dist/driver.css";
 import Cookies from "js-cookie";
 import ClientEncryption from "../Security/Client/Encryption";
 import { useNavigation } from "react-router";
-
+import type { PageCacheEntry } from "../types";
 
 export const driverObj = driver({
     showProgress: true,
@@ -43,7 +43,7 @@ export const Context = createContext<ContextProps>({
     setIsModalOpen: () => {},
     isLoading: false,
     initialLoading: true,
-    observerRef: null,
+    observerRef: { current: null },
     loadMoreVideos: () => {},
     clearFeedHistory: async () => {},
     user_agent: '',
@@ -52,7 +52,11 @@ export const Context = createContext<ContextProps>({
     c_user: null,
   uploadServerUrl: '',
   userProfile: null,
-  userProfileLoading: false
+  userProfileLoading: false,
+  pageCache: [],
+  setPageCache: () => {},
+  scrollDataReady: false,
+  setScrollDataReady: () => {}
 })
 
 interface ContextProviderProps {
@@ -98,6 +102,7 @@ export const FloatingButton = () => {
 
 export const ContextProvider = ({ children, st, user_agent, userId, c_user, uploadServerUrl = '' }: ContextProviderProps) => {
     const [files, setFiles] = useState<FileType[]>([]);
+    const [pageCache, setPageCache] = useState<PageCacheEntry>([]);
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [userActions, setUserActions] = useState<{ likedFileIds: Set<string>; dislikedFileIds: Set<string> }>({ likedFileIds: new Set(), dislikedFileIds: new Set() });
     const [isDragActive, setIsDragActive] = useState(false);
@@ -111,6 +116,7 @@ export const ContextProvider = ({ children, st, user_agent, userId, c_user, uplo
     } | null>(null);
     const [userProfileLoading, setUserProfileLoading] = useState(false);
     const hasFetchedProfileRef = useRef(false);
+    const [scrollDataReady, setScrollDataReady] = useState(false);
 
     const [isLoading, setIsLoading] = useState(false);
     const [initialLoading, setInitialLoading] = useState(true);
@@ -368,9 +374,13 @@ export const ContextProvider = ({ children, st, user_agent, userId, c_user, uplo
             c_user,
             uploadServerUrl,
             userProfile,
-            userProfileLoading
+            userProfileLoading,
+            pageCache,
+            setPageCache,
+            scrollDataReady,
+            setScrollDataReady
         }),
-        [files, isModalOpen, isLoading, initialLoading, loadMoreVideos, clearFeedHistory, user_agent, safeUserId, userActions, c_user, uploadServerUrl, userProfile, userProfileLoading]
+        [files, isModalOpen, isLoading, initialLoading, loadMoreVideos, clearFeedHistory, user_agent, safeUserId, userActions, c_user, uploadServerUrl, userProfile, userProfileLoading, pageCache, scrollDataReady]
     );
     return (
         <div className={`w-full h-full`}>

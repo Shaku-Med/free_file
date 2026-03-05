@@ -1,13 +1,13 @@
 import { useEffect, useCallback, useRef } from 'react';
 import { usePlayerContext } from '../PlayerContext';
 
-export function useVideoEvents(callbacks?: {
+export function useVideoEvents(videoRef: React.RefObject<HTMLVideoElement>, callbacks?: {
   onPlay?: () => void;
   onPause?: () => void;
   onEnded?: () => void;
   onError?: (e: any) => void;
 }) {
-  const { videoRef, setState } = usePlayerContext();
+  const { setState } = usePlayerContext();
   const cbRef = useRef(callbacks);
   cbRef.current = callbacks;
 

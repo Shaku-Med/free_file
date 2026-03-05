@@ -13,6 +13,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "~/components/ui/dialog";
+import { useStandalone } from "~/lib/hooks/useStandalone";
 
 type SearchUser = { id: string; username: string; profile_pic: string; file_count: number };
 
@@ -41,6 +42,7 @@ export function SearchModal({ open, onOpenChange }: SearchModalProps) {
   const location = useLocation();
   const prevLocationKeyRef = useRef(location.key);
   const [inputValue, setInputValue] = useState("");
+  const isStandalone = useStandalone();
 
   useEffect(() => {
     if (location.key !== prevLocationKeyRef.current) {
@@ -174,8 +176,8 @@ export function SearchModal({ open, onOpenChange }: SearchModalProps) {
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="w-[95vw] max-w-2xl sm:max-w-3xl md:max-w-4xl rounded-2xl p-0 overflow-hidden max-h-[90vh] flex flex-col">
-        <DialogHeader className="px-4 sm:px-6 pt-4 pb-3 shrink-0 border-b border-border">
+      <DialogContent className={`w-[95vw] max-w-2xl sm:max-w-3xl md:max-w-4xl rounded-2xl p-0 overflow-hidden max-h-[90vh] flex flex-col ${isStandalone ? " border-none min-h-[80%] min-w-full rounded-none max-h-[80%]" : ""}`}>
+        <DialogHeader className={`px-4 sm:px-6 pt-4 pb-3 shrink-0 border-b border-border ${isStandalone ? "" : ""}`}>
           <DialogTitle className="text-lg font-semibold">Search</DialogTitle>
         </DialogHeader>
 
