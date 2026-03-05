@@ -685,7 +685,7 @@ const index = () => {
       {file_data?.is_adult && (
         <AdultContentBadge isPlaying={playingVideos.has(1)} className="top-3 left-3" />
       )}
-      <CanvasGradient colors={imageColors || []} />
+      <CanvasGradient className={`${isStandalone ? "mt-8" : ""}`} colors={imageColors || []} />
       <div className={`${isHLS ? `aspect-video rounded-lg overflow-hidden w-full ` : 'w-full flex items-center justify-center overflow-hidden rounded-lg'} relative`}>
         {isHLS ? (
           <HLSPlayer
