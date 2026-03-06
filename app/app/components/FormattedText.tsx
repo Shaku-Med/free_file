@@ -5,13 +5,10 @@ import { cn } from "~/lib/utils";
 
 const MD_LINK = /\[([^\]]+)\]\(([^)\s]+)\)/g;
 
-// Use non-capturing groups (?:) inside each pattern so .source doesn't add extra capture groups
 const URL_RE = /(?:https?:\/\/[^\s<>\[\]()]+|www\.[^\s<>\[\]()]+)/gi;
 const EMAIL_RE = /(?:[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/g;
 const PHONE_RE = /(?:\+?[\d][\d\s\-().]{9,}\d|\(\d{3}\)\s*\d{3}[-.\s]?\d{4})/g;
 
-// #hashtag: starts with # followed by word chars / hyphens
-// @mention: starts with @ followed by word chars / dots / hyphens
 const HASHTAG_OR_MENTION = /(?:#[\w-]+)|(?:@[\w.-]+)/g;
 
 type Segment =
@@ -23,8 +20,6 @@ type Segment =
   | { type: "hashtag"; value: string }
   | { type: "mention"; value: string };
 
-// Each .source is a non-capturing group, so wrapping in () gives exactly 3 numbered groups:
-//   m[1] = URL, m[2] = EMAIL, m[3] = PHONE
 const LINKIFY_REGEX = new RegExp(
   `(${URL_RE.source})|(${EMAIL_RE.source})|(${PHONE_RE.source})`,
   "gi"
@@ -34,7 +29,6 @@ function linkifyLine(line: string): Segment[] {
   const segments: Segment[] = [];
   let remaining = line;
 
-  // 1) Replace markdown links [text](url) with placeholder
   MD_LINK.lastIndex = 0;
   let match = MD_LINK.exec(line);
   if (match) {
@@ -49,7 +43,6 @@ function linkifyLine(line: string): Segment[] {
     remaining = rebuilt.join("");
   }
 
-  // 2) Split by URL, email, phone
   let pos = 0;
   let m;
   LINKIFY_REGEX.lastIndex = 0;
@@ -91,7 +84,6 @@ function pushTextWithHashtagMention(s: string, segments: Segment[]) {
   while ((m = HASHTAG_OR_MENTION.exec(s)) !== null) {
     if (m.index > pos) segments.push({ type: "text", value: s.slice(pos, m.index) });
     const matched = m[0];
-    // Determine type by the leading character — bulletproof, no group-numbering issues
     if (matched.startsWith("#")) {
       segments.push({ type: "hashtag", value: matched });
     } else if (matched.startsWith("@")) {
@@ -133,16 +125,16 @@ function renderSegments(segments: Segment[], keyPrefix: string): React.ReactNode
       let content: React.ReactNode = seg.value;
       if (seg.code) {
         content = (
-          <code key={k} className="rounded bg-muted px-1 py-0.5 text-sm font-mono">
+          <code key={k} className="rounded bg-muted px-1 py-0.5 text-sm font-mono whitespace-pre-wrap">
             {seg.value}
           </code>
         );
       } else if (seg.bold) {
-        content = <strong key={k}>{seg.value}</strong>;
+        content = <strong key={k} className="whitespace-pre-wrap">{seg.value}</strong>;
       } else if (seg.italic) {
-        content = <em key={k}>{seg.value}</em>;
+        content = <em key={k} className="whitespace-pre-wrap">{seg.value}</em>;
       } else {
-        content = <Fragment key={k}>{seg.value}</Fragment>;
+        content = <span key={k} className="whitespace-pre-wrap">{seg.value}</span>;
       }
       out.push(content);
     } else if (seg.type === "url") {
@@ -152,21 +144,21 @@ function renderSegments(segments: Segment[], keyPrefix: string): React.ReactNode
           href={seg.href}
           target="_blank"
           rel="noopener noreferrer"
-          className="text-primary hover:underline break-all text-inherit"
+          className="text-primary hover:underline break-all"
         >
           {seg.value}
         </a>
       );
     } else if (seg.type === "email") {
       out.push(
-        <a key={k} href={`mailto:${seg.value}`} className="text-primary hover:underline break-all text-inherit">
+        <a key={k} href={`mailto:${seg.value}`} className="text-primary hover:underline break-all">
           {seg.value}
         </a>
       );
     } else if (seg.type === "phone") {
       const tel = seg.value.replace(/\s/g, "").replace(/[().-]/g, "");
       out.push(
-        <a key={k} href={`tel:${tel}`} className="text-primary hover:underline text-inherit">
+        <a key={k} href={`tel:${tel}`} className="text-primary hover:underline">
           {seg.value}
         </a>
       );
@@ -174,7 +166,7 @@ function renderSegments(segments: Segment[], keyPrefix: string): React.ReactNode
       const isRelative = seg.href.startsWith("/") || seg.href.startsWith("#");
       if (isRelative) {
         out.push(
-          <Link key={k} to={seg.href} className="text-primary hover:underline text-inherit">
+          <Link key={k} to={seg.href} className="text-primary hover:underline">
             {seg.label}
           </Link>
         );
@@ -186,14 +178,14 @@ function renderSegments(segments: Segment[], keyPrefix: string): React.ReactNode
             href={href}
             target="_blank"
             rel="noopener noreferrer"
-            className="text-primary hover:underline break-all text-inherit"
+            className="text-primary hover:underline break-all"
           >
             {seg.label}
           </a>
         );
       }
     } else if (seg.type === "hashtag") {
-      const tag = seg.value.slice(1); // strip leading #
+      const tag = seg.value.slice(1);
       out.push(
         <Link
           key={k}
@@ -204,7 +196,7 @@ function renderSegments(segments: Segment[], keyPrefix: string): React.ReactNode
         </Link>
       );
     } else if (seg.type === "mention") {
-      const username = seg.value.slice(1); // strip leading @
+      const username = seg.value.slice(1);
       out.push(
         <Link
           key={k}
@@ -221,18 +213,10 @@ function renderSegments(segments: Segment[], keyPrefix: string): React.ReactNode
 }
 
 export interface FormattedTextProps {
-  /** Raw text (supports \n, \t, URLs, emails, phones, **bold**, *italic*, `code`, [text](url)) */
   text: string;
   className?: string;
 }
 
-/**
- * Renders text with:
- * - Newlines and tabs preserved (pre-wrap)
- * - URLs, emails, phone numbers linkified
- * - Basic markdown: **bold**, *italic*, `code`, [text](url)
- * No border; use for comment and description previews.
- */
 export function FormattedText({ text, className }: FormattedTextProps) {
   if (!text) return null;
 
@@ -245,7 +229,7 @@ export function FormattedText({ text, className }: FormattedTextProps) {
     const rendered = renderSegments(segments, lineKey);
     nodes.push(
       <Fragment key={lineKey}>
-        {rendered.length > 0 ? rendered : <br />}
+        {rendered.length > 0 ? rendered : "\u00A0"}
       </Fragment>
     );
     if (i < lines.length - 1) {
@@ -254,6 +238,6 @@ export function FormattedText({ text, className }: FormattedTextProps) {
   }
 
   return (
-    <span className={cn("whitespace-pre-wrap break-words text-inherit", className)}>{nodes}</span>
+    <span className={cn("whitespace-pre-wrap break-words", className)}>{nodes}</span>
   );
 }

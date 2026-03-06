@@ -71,7 +71,7 @@ interface VideoCardProps {
 const CATEGORIES = ["Gaming", "Music", "Entertainment", "Education", "Technology", "Sports", "News", "Lifestyle", "Anime", "Film", "Automotive", "Art", "Nature", "Other"];
 
 const VideoCard = ({ data, index, currentUserId, userActions, onUpdate, showOwnerControls, related, layout = "default" }: VideoCardProps) => {
-  const isMobile = useIsMobile(true) as {isMobile: boolean, currentWidth: number};
+  const isMobile = useIsMobile();
   const {state} = useSidebar()
   // 
   const [error, setError] = useState<boolean>(false);
@@ -469,7 +469,7 @@ const VideoCard = ({ data, index, currentUserId, userActions, onUpdate, showOwne
 
   if (layout === "horizontal") {
     return (
-      <div className={`flex ${(state !== 'expanded' && isMobile.currentWidth < 1400) ? `flex-col` : `flex-col md:flex-row flex-wrap` } gap-3 p-2 rounded-xl hover:bg-muted/50 transition-colors w-full`}>
+      <div className={`flex ${(state === 'expanded') ? `fl_break_layout text-sm` : `flex-col md:flex-row flex-wrap` } gap-3 p-2 rounded-xl hover:bg-muted/50 transition-colors w-full`}>
         <Link
           onClick={(e) => {
             e.preventDefault();

@@ -19,6 +19,7 @@ import SeekFeedback from './overlays/SeekFeedback';
 import PosterBackground from './overlays/PosterBackground';
 import AmbientBackground from '~/components/components/hlsplayer/overlays/AmbientBackground';
 import { usePictureInPictureContext } from '~/lib/Context/PictureInPictureContext';
+import { useFileContext } from '~/lib/Context/Context';
 
 interface CallBackProps {
   src: string;
@@ -46,8 +47,6 @@ interface HLSPlayerProps {
   suggestedVideos?: FileType[];
   onVideoSelect?: (video: FileType) => void;
   onNext?: () => void;
-  theaterMode?: boolean;
-  onTheaterModeChange?: (active: boolean) => void;
   videoRef: React.RefObject<HTMLVideoElement>;
   onAmbientModeChange?: (active: boolean) => void;
 }
@@ -88,11 +87,10 @@ function PlayerInner({
   suggestedVideos,
   onVideoSelect,
   onNext,
-  theaterMode = false,
-  onTheaterModeChange,
   videoRef,
   onAmbientModeChange,
 }: HLSPlayerProps) {
+  const { theaterMode, setTheaterMode, setPlayerSettings, savePlayerSettings } = useFileContext();
   const {
     containerRef,
     state,
@@ -149,6 +147,15 @@ function PlayerInner({
   useFullscreen();
   const { showPrompt, enableAutoplay, dismissPrompt } = useAutoplay(autoPlayEnabled, videoRef);
   useControlsVisibility();
+
+  const handleTheaterModeChange = useCallback(
+    (active: boolean) => {
+      setTheaterMode(active);
+      setPlayerSettings(prev => (prev ? { ...prev, theaterMode: active } : prev));
+      savePlayerSettings({ theaterMode: active }).catch(() => {});
+    },
+    [setTheaterMode, setPlayerSettings, savePlayerSettings]
+  );
 
   // Notify parent when ambient mode changes so outer ambience can sync with player setting
   useEffect(() => {
@@ -314,26 +321,7 @@ function PlayerInner({
     return () => window.removeEventListener('keydown', handleKey);
   }, [isReelCtx, togglePlay, triggerPlayPauseFeedback]);
 
-  useEffect(() => {
-    const savedVol = safeGet('player-volume');
-    const savedSpeed = safeGet('player-speed');
-    const savedMuted = safeGet('player-muted');
-    const video = videoRef.current;
-    if (!video) return;
-    if (savedVol) {
-      const v = parseFloat(savedVol);
-      if (!isNaN(v)) { video.volume = v; setState(s => ({ ...s, volume: v })); }
-    }
-    if (!isReelCtx && savedMuted !== null) {
-      const muted = savedMuted === 'true';
-      video.muted = muted;
-      setState(s => ({ ...s, isMuted: muted }));
-    }
-    if (savedSpeed) {
-      const s = parseFloat(savedSpeed);
-      if (!isNaN(s)) { video.playbackRate = s; setState(s2 => ({ ...s2, playbackRate: s })); }
-    }
-  }, [isReelCtx]);
+  // Initial volume/muted/speed are applied from playerSettings in PlayerContext
 
   const showControls = state.controlsVisible && !isReelCtx;
   const showBuffer = state.isBuffering && !state.isLoaded || (state.isBuffering && videoRef.current && videoRef.current.readyState < 3);
@@ -396,7 +384,7 @@ function PlayerInner({
             }`}
           >
             <div className="absolute bottom-0 left-0 right-0 h-32 bg-gradient-to-t from-black/80 to-transparent pointer-events-none" />
-            <ControlBar onNext={onNext} theaterMode={theaterMode} onTheaterModeChange={onTheaterModeChange} onPlayPauseClick={triggerPlayPauseFeedback} />
+            <ControlBar onNext={onNext} theaterMode={theaterMode} onTheaterModeChange={handleTheaterModeChange} onPlayPauseClick={triggerPlayPauseFeedback} />
           </div>
         )}
 
@@ -406,10 +394,6 @@ function PlayerInner({
       </div>
     </div>
   );
-}
-
-function safeGet(key: string): string | null {
-  try { return typeof localStorage !== 'undefined' ? localStorage.getItem(key) : null; } catch { return null; }
 }
 
 export default HLSPlayer;

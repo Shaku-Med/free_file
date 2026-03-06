@@ -1,10 +1,14 @@
 import { useEffect, useRef } from 'react';
 import Hls from 'hls.js';
 import { usePlayerContext } from '../PlayerContext';
+import { useFileContext } from '~/lib/Context/Context';
 
 export function useHLS(videoRef: React.RefObject<HTMLVideoElement>) {
   const { hlsRef, setState, src } = usePlayerContext();
+  const { playerSettings } = useFileContext();
   const mountedRef = useRef(true);
+  const qualityPrefRef = useRef(playerSettings?.quality ?? 'auto');
+  qualityPrefRef.current = playerSettings?.quality ?? 'auto';
 
   useEffect(() => {
     mountedRef.current = true;
@@ -72,7 +76,7 @@ export function useHLS(videoRef: React.RefObject<HTMLVideoElement>) {
         }));
         setState(s => ({ ...s, levels: lvls }));
 
-        const pref = safeGet('hls-quality-preference') || 'auto';
+        const pref = qualityPrefRef.current || 'auto';
         if (pref === 'auto' || lvls.length <= 1) {
           hls.currentLevel = -1;
         } else {
@@ -133,6 +137,3 @@ export function useHLS(videoRef: React.RefObject<HTMLVideoElement>) {
   }, [src]);
 }
 
-function safeGet(key: string): string | null {
-  try { return typeof localStorage !== 'undefined' ? localStorage.getItem(key) : null; } catch { return null; }
-}

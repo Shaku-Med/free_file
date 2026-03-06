@@ -1,6 +1,20 @@
 import type React from "react";
 import type { FileType, PageCacheEntry } from "../types";
 
+export type PlayerSettings = {
+  theaterMode: boolean;
+  volume: number;
+  muted: boolean;
+  playbackRate: number;
+  stableVolume: boolean;
+  loop: boolean;
+  autoPlay: boolean;
+  ambientMode: boolean;
+  quality: string;
+};
+
+export type PlayerSettingsPatch = Partial<PlayerSettings>;
+
 export interface ContextProps {
   files: FileType[];
   setFiles: React.Dispatch<React.SetStateAction<FileType[]>>;
@@ -25,7 +39,11 @@ export interface ContextProps {
   userProfileLoading: boolean;
   pageCache: PageCacheEntry;
   setPageCache: React.Dispatch<React.SetStateAction<PageCacheEntry>>;
-  /** Set true when current route's data is loaded so scroll restoration can run. */
   scrollDataReady: boolean;
   setScrollDataReady: React.Dispatch<React.SetStateAction<boolean>>;
+  theaterMode: boolean;
+  setTheaterMode: React.Dispatch<React.SetStateAction<boolean>>;
+  playerSettings: PlayerSettings | null;
+  setPlayerSettings: React.Dispatch<React.SetStateAction<PlayerSettings | null>>;
+  savePlayerSettings: (patch: PlayerSettingsPatch) => Promise<void>;
 }

@@ -26,13 +26,13 @@ export default function AutoplayPrompt({ onEnable, onDismiss }: AutoplayPromptPr
         <div className="flex gap-3">
           <button
             onClick={onEnable}
-            className="flex-1 bg-sky-500 text-white px-4 py-2 rounded-lg hover:bg-sky-400 transition-colors font-medium text-sm"
+            className="flex-1 bg-primary text-foreground px-4 py-2 rounded-lg hover:bg-primary/90 transition-colors font-medium text-sm"
           >
             Enable
           </button>
           <button
             onClick={onDismiss}
-            className="px-4 py-2 rounded-lg border border-white/10 text-white hover:bg-white/5 transition-colors text-sm"
+            className="px-4 py-2 rounded-lg border border-white/10 text-foreground hover:bg-primary/10 transition-colors text-sm"
           >
             Not now
           </button>

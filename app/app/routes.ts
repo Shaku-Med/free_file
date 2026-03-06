@@ -57,6 +57,7 @@ export default [
         route(`mentions`, 'routes/Api/mentions/index.tsx'),
         route(`tags`, 'routes/Api/tags/index.tsx'),
         route(`mark-seen`, 'routes/Api/mark-seen/index.tsx'),
+        route(`player-settings`, 'routes/Api/player-settings/index.tsx'),
         route(`views/increment`, 'routes/Api/views/increment.tsx'),
         route(`server-env`, 'routes/Api/server-env/index.tsx'),
         route(`sitemap`, 'routes/Api/sitemap/index.tsx'),

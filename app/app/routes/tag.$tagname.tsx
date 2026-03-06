@@ -38,7 +38,7 @@ function SkeletonCard() {
 
 function FeedSkeleton() {
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-2">
+    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-3 gap-2">
       {Array.from({ length: 12 }).map((_, i) => (
         <SkeletonCard key={i} />
       ))}
@@ -136,14 +136,11 @@ export default function TagPage() {
         <h1 className="text-2xl font-bold text-foreground">
           Tag: <span className="text-primary">{decodedTag}</span>
         </h1>
-        <p className="text-muted-foreground text-sm mt-1">
-          <Link to="/" className="hover:underline">← Back to feed</Link>
-        </p>
       </div>
 
       {files.length > 0 ? (
         <>
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-2">
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-3 gap-2">
             {files.map((file, index) => (
               <VideoCard
                 key={file.id ?? index}
@@ -155,7 +152,7 @@ export default function TagPage() {
             ))}
           </div>
           {isLoading && (
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-2 mt-2">
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-3 gap-2 mt-2">
               {Array.from({ length: 4 }).map((_, i) => (
                 <SkeletonCard key={`sk-${i}`} />
               ))}

@@ -503,3 +503,10 @@ input[type="search"] {
 .aspect-video {
   aspect-ratio: 16/9;
 }
+
+
+@media screen and (max-width: 1450px) {
+  .fl_break_layout {
+    flex-direction: column !important;
+  }
+}

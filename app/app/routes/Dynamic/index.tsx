@@ -30,6 +30,7 @@ import ParseFilenameInsert from "~/lib/utils/ShowFileName";
 import { usePageCache } from "~/lib/hooks/usePageCache";
 import CanvasGradient from "~/components/accessories/CanvasGradient/CanvasGradient";
 import Ambience from "~/components/accessories/CanvasGradient/Ambience";
+import { useFileContext } from "~/lib/Context/Context";
 
 interface DynamicCachePayload {
   file: any;
@@ -586,16 +587,8 @@ const index = () => {
       return false;
     }
   })
-  const [theaterMode, setTheaterModeState] = useState(() => {
-    try {
-      if (typeof localStorage === 'undefined') return false;
-      return localStorage.getItem('player-theater-mode') === 'true';
-    } catch { return false; }
-  })
-  const setTheaterMode = (v: boolean) => {
-    setTheaterModeState(v);
-    try { localStorage.setItem('player-theater-mode', v ? 'true' : 'false'); } catch {}
-  }
+  const { theaterMode, setTheaterMode } = useFileContext();
+
   const [descriptionExpanded, setDescriptionExpanded] = useState(false)
   const [liked, setLiked] = useState(data.userLiked || false)
   const [disliked, setDisliked] = useState(data.userDisliked || false)
@@ -691,7 +684,7 @@ const index = () => {
           <HLSPlayer
             videoRef={videoElementRef as React.RefObject<HTMLVideoElement>}
             src={getVideoSrc(file_data?.endpoint ?? '', file_data?.file_type)}
-            className="w-full h-full"
+            className={`w-full h-full`}
             onPlay={() => {
               setPlayingVideos(prev => new Set(prev).add(1));
               onVideoPlayForView();
@@ -714,8 +707,6 @@ const index = () => {
               setImageColors(e.colors)
               setMadeImageUrl(e.src)
             }}
-            theaterMode={isMobile ? false : theaterMode}
-            onTheaterModeChange={isMobile ? undefined : setTheaterMode}
             suggestedVideos={suggestedVideos}
             onVideoSelect={(video) => navigate(`/${video.unique_id}`)}
             onAmbientModeChange={setAmbientEnabled}

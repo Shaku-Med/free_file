@@ -29,6 +29,7 @@ import RegisterServiceWorker from "./components/RegisterServiceWorker";
 import { ThemeApply } from "./components/ThemeApply";
 import type { UserTheme } from "./lib/theme/constants";
 import { parseUserTheme } from "./lib/theme/constants";
+import { getPlayerSettingsFromCookies } from "./routes/Api/player-settings";
 
 export const links: Route.LinksFunction = () => [
   { rel: "preconnect", href: "https://fonts.googleapis.com" },
@@ -152,7 +153,8 @@ export const loader = async ({request}: {request: Request}) => {
       if (parsed) userTheme = parsed;
     }
 
-    return data({ st: sessionToken, user_agent: request.headers.get('user-agent'), userId, c_user, uploadServerUrl, userTheme }, {
+    const playerSettingsFromLoader = getPlayerSettingsFromCookies(request.headers.get('Cookie'));
+    return data({ st: sessionToken, user_agent: request.headers.get('user-agent'), userId, c_user, uploadServerUrl, userTheme, playerSettingsFromLoader }, {
       status: 200,
       headers: (token && !user) ? {
         'Set-Cookie': `token=${token}; Path=/; HttpOnly; ${secure}; ${sameSite}`
@@ -197,7 +199,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
     )
   }
 
-  const { st, user_agent, userId, c_user, uploadServerUrl, userTheme } = data;
+  const { st, user_agent, userId, c_user, uploadServerUrl, userTheme, playerSettingsFromLoader } = data;
   const themeClass = userTheme?.theme ?? "system";
   const themeStyle = userTheme?.style ?? "default";
 
@@ -220,7 +222,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
         <ThemeApply userTheme={userTheme ?? null} />
         <RegisterServiceWorker />
         <ErrorBoundary>
-          <ContextProvider st={st} user_agent={user_agent || ''} userId={userId || null} c_user={c_user || null} uploadServerUrl={uploadServerUrl || ''}>
+          <ContextProvider st={st} user_agent={user_agent || ''} userId={userId || null} c_user={c_user || null} uploadServerUrl={uploadServerUrl || ''} playerSettingsFromLoader={playerSettingsFromLoader ?? null}>
             <LikeProvider>
               <PictureInPictureProvider>
                 <SidebarProvider className={`w-full h-full flex-1 min-h-0`}>

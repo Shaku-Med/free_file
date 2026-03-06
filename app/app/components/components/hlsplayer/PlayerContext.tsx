@@ -2,6 +2,7 @@ import { createContext, useContext, useRef, useState, useCallback, useMemo, useE
 import type Hls from 'hls.js';
 import type { FileType } from '~/lib/types';
 import { isMobile } from 'react-device-detect';
+import { useFileContext } from '~/lib/Context/Context';
 
 export interface QualityLevel {
   height: number;
@@ -88,35 +89,6 @@ export function usePlayerContext() {
   return ctx;
 }
 
-const STORAGE_KEYS = {
-  volume: 'player-volume',
-  muted: 'player-muted',
-  speed: 'player-speed',
-  stableVolume: 'player-stable-volume',
-  quality: 'hls-quality-preference',
-  loop: 'player-loop',
-  autoPlay: 'player-autoplay',
-} as const;
-
-function getStoredNumber(key: string, fallback: number): number {
-  try {
-    if (typeof localStorage === 'undefined') return fallback;
-    const v = localStorage.getItem(key);
-    if (v == null) return fallback;
-    const n = parseFloat(v);
-    return Number.isFinite(n) ? n : fallback;
-  } catch { return fallback; }
-}
-
-function getStoredBoolean(key: string, fallback: boolean): boolean {
-  try {
-    if (typeof localStorage === 'undefined') return fallback;
-    const v = localStorage.getItem(key);
-    if (v == null) return fallback;
-    return v === 'true';
-  } catch { return fallback; }
-}
-
 const INITIAL_STATE: PlayerState = {
   isPlaying: false,
   isPaused: true,
@@ -127,30 +99,14 @@ const INITIAL_STATE: PlayerState = {
   currentTime: 0,
   duration: 0,
   buffered: 0,
-  volume: getStoredNumber(STORAGE_KEYS.volume, 1),
-  isMuted: getStoredBoolean(STORAGE_KEYS.muted, false),
-  playbackRate: getStoredNumber(STORAGE_KEYS.speed, 1),
+  volume: 1,
+  isMuted: false,
+  playbackRate: 1,
   isFullscreen: false,
   levels: [],
   currentLevel: -1,
   controlsVisible: true,
 };
-
-function getCookieBoolean(name: string, fallback: boolean): boolean {
-  try {
-    if (typeof document === 'undefined') return fallback;
-    const cookies = document.cookie ? document.cookie.split('; ') : [];
-    for (const cookie of cookies) {
-      const [key, value] = cookie.split('=');
-      if (key === name) {
-        return decodeURIComponent(value) === '1';
-      }
-    }
-    return fallback;
-  } catch {
-    return fallback;
-  }
-}
 
 interface PlayerProviderProps {
   children: ReactNode;
@@ -165,35 +121,58 @@ interface PlayerProviderProps {
 }
 
 export function PlayerProvider({ children, src, file, imageID, isReel, loop: initialLoop, initialMuted, initialAutoPlay = false, videoRef }: PlayerProviderProps) {
+  const { playerSettings, setPlayerSettings, savePlayerSettings } = useFileContext();
   const hlsRef = useRef<Hls | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [state, setState] = useState<PlayerState>({ ...INITIAL_STATE, isMuted: initialMuted });
+  const appliedInitialRef = useRef(false);
 
-  const [loop, setLoopState] = useState(() => getStoredBoolean(STORAGE_KEYS.loop, initialLoop));
-  const [autoPlay, setAutoPlayState] = useState(() => getStoredBoolean(STORAGE_KEYS.autoPlay, initialAutoPlay));
+  const [loop, setLoopState] = useState(initialLoop);
+  const [autoPlay, setAutoPlayState] = useState(initialAutoPlay);
 
   const setLoop = useCallback((v: boolean) => {
     setLoopState(v);
-    try { localStorage.setItem(STORAGE_KEYS.loop, v ? 'true' : 'false'); } catch {}
-  }, []);
+    setPlayerSettings(prev => (prev ? { ...prev, loop: v } : prev));
+    savePlayerSettings({ loop: v }).catch(() => {});
+  }, [setPlayerSettings, savePlayerSettings]);
   const setAutoPlay = useCallback((v: boolean) => {
     setAutoPlayState(v);
-    try { localStorage.setItem(STORAGE_KEYS.autoPlay, v ? 'true' : 'false'); } catch {}
-  }, []);
-
+    setPlayerSettings(prev => (prev ? { ...prev, autoPlay: v } : prev));
+    savePlayerSettings({ autoPlay: v }).catch(() => {});
+  }, [setPlayerSettings, savePlayerSettings]);
 
   const [spriteMeta, setSpriteMeta] = useState<ThumbnailSpriteMeta | null>(null);
   const [spriteUrl, setSpriteUrl] = useState<string | null>(null);
-  const [ambientModeState, setAmbientModeState] = useState(() =>
-    getCookieBoolean('player-ambient-mode', false)
-  );
+  const [ambientModeState, setAmbientModeState] = useState(false);
   const [ambientColors, setAmbientColors] = useState<string[]>([]);
 
-  const [stableVolume, setStableVolumeState] = useState(() => getStoredBoolean(STORAGE_KEYS.stableVolume, false));
+  const [stableVolume, setStableVolumeState] = useState(false);
   const setStableVolume = useCallback((v: boolean) => {
     setStableVolumeState(v);
-    try { localStorage.setItem(STORAGE_KEYS.stableVolume, v ? 'true' : 'false'); } catch {}
-  }, []);
+    setPlayerSettings(prev => (prev ? { ...prev, stableVolume: v } : prev));
+    savePlayerSettings({ stableVolume: v }).catch(() => {});
+  }, [setPlayerSettings, savePlayerSettings]);
+
+  useEffect(() => {
+    if (!playerSettings || appliedInitialRef.current) return;
+    appliedInitialRef.current = true;
+    setState(s => ({
+      ...s,
+      volume: playerSettings.volume,
+      isMuted: playerSettings.muted,
+      playbackRate: playerSettings.playbackRate,
+    }));
+    setLoopState(playerSettings.loop);
+    setAutoPlayState(playerSettings.autoPlay);
+    setStableVolumeState(playerSettings.stableVolume);
+    setAmbientModeState(playerSettings.ambientMode);
+    const v = videoRef.current;
+    if (v) {
+      v.volume = playerSettings.volume;
+      v.muted = playerSettings.muted;
+      v.playbackRate = playerSettings.playbackRate;
+    }
+  }, [playerSettings, videoRef]);
 
   const waveformUrl = useMemo(() => {
     if (!file?.thumbnails?.length) return null;
@@ -235,10 +214,7 @@ export function PlayerProvider({ children, src, file, imageID, isReel, loop: ini
     v.volume = clamped;
     v.muted = clamped === 0;
     setState(s => ({ ...s, volume: clamped, isMuted: clamped === 0 }));
-    try {
-      localStorage.setItem(STORAGE_KEYS.volume, String(clamped));
-      localStorage.setItem(STORAGE_KEYS.muted, clamped === 0 ? 'true' : 'false');
-    } catch {}
+    // Volume is not persisted (no API/cookies) to avoid flooding on slider drag
   }, []);
 
   const toggleMute = useCallback(() => {
@@ -246,7 +222,7 @@ export function PlayerProvider({ children, src, file, imageID, isReel, loop: ini
     if (!v) return;
     v.muted = !v.muted;
     setState(s => ({ ...s, isMuted: v.muted }));
-    try { localStorage.setItem(STORAGE_KEYS.muted, v.muted ? 'true' : 'false'); } catch {}
+    // Muted is not persisted (no API/cookies) for volume slider flow
   }, []);
 
   const setPlaybackRate = useCallback((rate: number) => {
@@ -254,18 +230,19 @@ export function PlayerProvider({ children, src, file, imageID, isReel, loop: ini
     if (!v) return;
     v.playbackRate = rate;
     setState(s => ({ ...s, playbackRate: rate }));
-    try { localStorage.setItem(STORAGE_KEYS.speed, String(rate)); } catch {}
-  }, []);
+    setPlayerSettings(prev => (prev ? { ...prev, playbackRate: rate } : prev));
+    savePlayerSettings({ playbackRate: rate }).catch(() => {});
+  }, [setPlayerSettings, savePlayerSettings]);
 
   const setQualityLevel = useCallback((level: number) => {
     const hls = hlsRef.current;
     if (!hls) return;
     hls.currentLevel = level;
     setState(s => ({ ...s, currentLevel: level }));
-    try {
-      localStorage.setItem(STORAGE_KEYS.quality, level === -1 ? 'auto' : String(hls.levels?.[level]?.height ?? 'auto'));
-    } catch {}
-  }, []);
+    const quality = level === -1 ? 'auto' : String(hls.levels?.[level]?.height ?? 'auto');
+    setPlayerSettings(prev => (prev ? { ...prev, quality } : prev));
+    savePlayerSettings({ quality }).catch(() => {});
+  }, [setPlayerSettings, savePlayerSettings]);
 
   const toggleFullscreen = useCallback(async () => {
     try {
@@ -319,11 +296,9 @@ export function PlayerProvider({ children, src, file, imageID, isReel, loop: ini
 
   const setAmbientMode = useCallback((v: boolean) => {
     setAmbientModeState(v);
-    try {
-      const expires = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toUTCString();
-      document.cookie = `player-ambient-mode=${v ? '1' : '0'}; path=/; expires=${expires}`;
-    } catch {}
-  }, []);
+    setPlayerSettings(prev => (prev ? { ...prev, ambientMode: v } : prev));
+    savePlayerSettings({ ambientMode: v }).catch(() => {});
+  }, [setPlayerSettings, savePlayerSettings]);
 
   const value: PlayerContextValue = {
     hlsRef,

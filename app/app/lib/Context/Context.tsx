@@ -4,11 +4,11 @@ import type { FileType } from "../types";
 import MediaSelectionModal from "~/routes/Home/components/MediaSelectionModal";
 import { Button } from "~/components/ui/button";
 import { Plus } from "lucide-react";
-// import NavigationLoader from "~/routes/Home/components/NavigationLoader";
 import { driver } from "driver.js";
 import "driver.js/dist/driver.css";
 import Cookies from "js-cookie";
 import ClientEncryption from "../Security/Client/Encryption";
+import { setPlayerSettings as setPlayerSettingsApi } from "~/lib/Services/playerSettingsApi";
 import { useNavigation } from "react-router";
 import type { PageCacheEntry } from "../types";
 
@@ -50,13 +50,18 @@ export const Context = createContext<ContextProps>({
     userId: null,
     userActions: { likedFileIds: new Set(), dislikedFileIds: new Set() },
     c_user: null,
-  uploadServerUrl: '',
-  userProfile: null,
-  userProfileLoading: false,
-  pageCache: [],
-  setPageCache: () => {},
-  scrollDataReady: false,
-  setScrollDataReady: () => {}
+    uploadServerUrl: '',
+    userProfile: null,
+    userProfileLoading: false,
+    pageCache: [],
+    setPageCache: () => {},
+    scrollDataReady: false,
+    setScrollDataReady: () => {},
+    theaterMode: false,
+    setTheaterMode: () => {},
+    playerSettings: null,
+    setPlayerSettings: () => {},
+    savePlayerSettings: async () => {},
 })
 
 interface ContextProviderProps {
@@ -66,6 +71,7 @@ interface ContextProviderProps {
     userId?: string | null;
     c_user: string | null;
     uploadServerUrl?: string;
+    playerSettingsFromLoader?: ContextProps['playerSettings'] | null;
 }
 
 export const FloatingButton = () => {
@@ -100,7 +106,7 @@ export const FloatingButton = () => {
     )
 }
 
-export const ContextProvider = ({ children, st, user_agent, userId, c_user, uploadServerUrl = '' }: ContextProviderProps) => {
+export const ContextProvider = ({ children, st, user_agent, userId, c_user, uploadServerUrl = '', playerSettingsFromLoader = null }: ContextProviderProps) => {
     const [files, setFiles] = useState<FileType[]>([]);
     const [pageCache, setPageCache] = useState<PageCacheEntry>([]);
     const [isModalOpen, setIsModalOpen] = useState(false);
@@ -126,6 +132,17 @@ export const ContextProvider = ({ children, st, user_agent, userId, c_user, uplo
     const feedSeedRef = useRef<string>(Date.now().toString());
     const observerRef = useRef<HTMLDivElement | null>(null)
     const nav = useNavigation()
+    
+    const [playerSettings, setPlayerSettings] = useState<ContextProps['playerSettings']>(playerSettingsFromLoader ?? null);
+    const [theaterMode, setTheaterMode] = useState<boolean>(playerSettings?.theaterMode ?? false);
+
+    const savePlayerSettings = useCallback(async (settings: Partial<NonNullable<ContextProps['playerSettings']>>) => {
+      try {
+        await setPlayerSettingsApi(settings);
+      } catch (error) {
+        console.error('Failed to save player settings:', error);
+      }
+    }, []);
 
     const fetchFeed = useCallback(async (append: boolean) => {
       if (isLoading) return
@@ -169,7 +186,6 @@ export const ContextProvider = ({ children, st, user_agent, userId, c_user, uplo
               })
             }
           }
-          // Always update cursor and hasMore from response (even when data.data is empty)
           nextCursorRef.current = data.nextCursor ?? null
           setHasMore(Boolean(data.nextCursor))
         } else {
@@ -187,8 +203,6 @@ export const ContextProvider = ({ children, st, user_agent, userId, c_user, uplo
       fetchFeed(false)
     }, [])
 
-    // Mark feed items as seen when user leaves so next session gets fresh content.
-    // Doing it here (not in API) keeps the "unseen" set stable during pagination.
     useEffect(() => {
       const markSeenOnLeave = () => {
         const ids = Array.from(shownIdsRef.current)
@@ -378,10 +392,16 @@ export const ContextProvider = ({ children, st, user_agent, userId, c_user, uplo
             pageCache,
             setPageCache,
             scrollDataReady,
-            setScrollDataReady
+            setScrollDataReady,
+            theaterMode,
+            setTheaterMode,
+            playerSettings,
+            setPlayerSettings,
+            savePlayerSettings,
         }),
-        [files, isModalOpen, isLoading, initialLoading, loadMoreVideos, clearFeedHistory, user_agent, safeUserId, userActions, c_user, uploadServerUrl, userProfile, userProfileLoading, pageCache, scrollDataReady]
+        [files, isModalOpen, isLoading, initialLoading, loadMoreVideos, clearFeedHistory, user_agent, safeUserId, userActions, c_user, uploadServerUrl, userProfile, userProfileLoading, pageCache, scrollDataReady, theaterMode, playerSettings, savePlayerSettings]
     );
+    
     return (
         <div className={`w-full h-full`}>
             <Context.Provider value={value}>
@@ -402,8 +422,6 @@ export const ContextProvider = ({ children, st, user_agent, userId, c_user, uplo
                     initialFiles={droppedFiles}
                     onFilesConsumed={() => setDroppedFiles([])}
                 />
-                {/* <FloatingButton /> */}
-                {/* <NavigationLoader/> */}
             </Context.Provider>
         </div>
     )
