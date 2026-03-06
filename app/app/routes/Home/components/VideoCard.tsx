@@ -16,6 +16,8 @@ import { Separator } from "~/components/ui/separator";
 import CategoryBadges from "~/components/CategoryBadges";
 import { Info, MoreVertical, Clock, ListVideo, ChevronDown, X, Check } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "~/components/ui/tooltip";
+import { useIsMobile } from "~/hooks/use-mobile";
+import { useSidebar } from "~/components/ui/sidebar";
 
 function getMetadataWarning(metadata: unknown): string | null {
   if (metadata && typeof metadata === "object" && "warning" in metadata) {
@@ -69,6 +71,9 @@ interface VideoCardProps {
 const CATEGORIES = ["Gaming", "Music", "Entertainment", "Education", "Technology", "Sports", "News", "Lifestyle", "Anime", "Film", "Automotive", "Art", "Nature", "Other"];
 
 const VideoCard = ({ data, index, currentUserId, userActions, onUpdate, showOwnerControls, related, layout = "default" }: VideoCardProps) => {
+  const isMobile = useIsMobile(true) as {isMobile: boolean, currentWidth: number};
+  const {state} = useSidebar()
+  // 
   const [error, setError] = useState<boolean>(false);
   const [retryAttempt, setRetryAttempt] = useState<number>(0);
   const [loaded, setLoaded] = useState<boolean>(false);
@@ -464,16 +469,16 @@ const VideoCard = ({ data, index, currentUserId, userActions, onUpdate, showOwne
 
   if (layout === "horizontal") {
     return (
-      <div className="group flex gap-3 p-2 rounded-xl hover:bg-muted/50 transition-colors">
+      <div className={`flex ${(state !== 'expanded' && isMobile.currentWidth < 1400) ? `flex-col` : `flex-col md:flex-row flex-wrap` } gap-3 p-2 rounded-xl hover:bg-muted/50 transition-colors w-full`}>
         <Link
           onClick={(e) => {
             e.preventDefault();
             nav(`/${data.unique_id}`);
           }}
           to={`/${data.unique_id}`}
-          className="shrink-0 w-40 md:w-44 aspect-video bg-card rounded-xl overflow-hidden relative"
+          className="shrink-0 w-full min-w-40 max-w-40 md:max-w-44 aspect-video bg-card rounded-xl overflow-hidden relative flex-1"
         >
-          {renderThumbnail("w-full h-full")}
+          {renderThumbnail("w-full h-full aspect-video")}
           <div className="absolute top-2 right-2 flex flex-col gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
             <button 
               type="button"
@@ -492,19 +497,13 @@ const VideoCard = ({ data, index, currentUserId, userActions, onUpdate, showOwne
           </div>
         </Link>
 
-        <div className="flex-1 min-w-0 flex flex-col justify-center py-0.5">
+        <div className="flex-1 min-w-0 flex flex-col justify-center py-0.5 w-full">
           <div className="flex items-start justify-between gap-2">
             <Link to={`/${data.unique_id}`} className="hover:text-primary transition-colors flex-1 min-w-0">
               <h3 className="text-sm font-semibold leading-tight line-clamp-2">
                 <ParseFilenameInsert filename={data.file_title || data.filename} showLimit={60} />
               </h3>
             </Link>
-            <button 
-              type="button"
-              className="shrink-0 p-1 rounded-full hover:bg-muted transition-colors opacity-0 group-hover:opacity-100"
-            >
-              <MoreVertical className="size-5 text-muted-foreground" />
-            </button>
           </div>
           
           {data.owner && (
@@ -517,6 +516,22 @@ const VideoCard = ({ data, index, currentUserId, userActions, onUpdate, showOwne
             {viewCount > 0 && <span>{formatViews(viewCount)} views</span>}
             {viewCount > 0 && data.created_at && <span>·</span>}
             {data.created_at && <span>{formatTimeAgo(data.created_at)}</span>}
+          </div>
+
+          <div className="w-full">
+            <Separator className="my-1" />
+            <Actions
+              fileId={data.id}
+              uniqueId={data.unique_id}
+              likeCount={likeCount}
+              dislikeCount={dislikeCount}
+              commentCount={commentCount}
+              liked={liked}
+              disliked={disliked}
+              isOwner={isOwner}
+              onEdit={isOwner ? () => setIsEditing(true) : undefined}
+              onUpdate={currentUserId ? handleInteractionUpdate : undefined}
+            />
           </div>
         </div>
 
