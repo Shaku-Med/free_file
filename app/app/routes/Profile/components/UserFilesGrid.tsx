@@ -149,7 +149,7 @@ const UserFilesGrid = ({
     <div className="space-y-6" data-data-ready={dataReady}>
       <h2 className="text-2xl font-semibold text-foreground">Uploads</h2>
       <div
-        className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-2"
+        className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-3 gap-4"
         data-data-ready={dataReady}
       >
         {files.map((file, index) => (

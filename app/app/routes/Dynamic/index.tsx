@@ -674,12 +674,28 @@ const index = () => {
   }, [isHLS, file_data?.id, hasIncrementedView, runViewIncrement, requiredViewSeconds]);
 
   const videoBlock = (
-    <motion.div layoutId={`video_id_${file_data.unique_id}`} className={`relative z-10 w-full overflow-hidden rounded-lg ${isStandalone ? "pt-8" : ""}`} key={`motion-${file_data.unique_id}-${currentId}`}>
+    <motion.div layoutId={`video_id_${file_data.unique_id}`}
+    className={`
+      relative z-10 w-full overflow-hidden
+      ${isStandalone ? "pt-8" : ""}
+      ${theaterMode ? "bg-black" : "rounded-lg"}
+    `} 
+    key={`video-wrapper-${file_data.unique_id}-${currentId}`}
+    >
       {file_data?.is_adult && (
         <AdultContentBadge isPlaying={playingVideos.has(1)} className="top-3 left-3" />
       )}
-      <CanvasGradient className={`${isStandalone ? "mt-8" : ""}`} colors={imageColors || []} />
-      <div className={`${isHLS ? `aspect-video rounded-lg overflow-hidden w-full ` : 'w-full flex items-center justify-center overflow-hidden rounded-lg'} relative`}>
+      {
+        !isHLS && (
+          <CanvasGradient className={`${isStandalone ? "mt-8" : ""}`} colors={imageColors || []} />
+        )
+      }
+      <div className={` relative w-full
+        ${theaterMode 
+          ? "max-h-[calc(100vh-64px)] aspect-video mx-auto" 
+          : "aspect-video"
+        }
+      `}>
         {isHLS ? (
           <HLSPlayer
             videoRef={videoElementRef as React.RefObject<HTMLVideoElement>}

@@ -215,7 +215,7 @@ export function SearchModal({ open, onOpenChange }: SearchModalProps) {
 
           <div className="flex-1 overflow-y-auto px-4 sm:px-6 pb-6 space-y-6">
             {activeTerm && isLoading && !isLoadingMore ? (
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 {[1, 2, 3, 4].map((i) => (
                   <SkeletonCard key={i} />
                 ))}
@@ -226,7 +226,7 @@ export function SearchModal({ open, onOpenChange }: SearchModalProps) {
                   {searchUsers.length > 0 && (
                     <div className="space-y-3">
                       <h3 className="text-sm font-semibold text-foreground">Users</h3>
-                      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+                      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
                         {searchUsers.map((user) => (
                           <Link
                             key={user.id}
@@ -264,7 +264,7 @@ export function SearchModal({ open, onOpenChange }: SearchModalProps) {
                       {searchUsers.length > 0 && (
                         <h3 className="text-sm font-semibold text-foreground">Files</h3>
                       )}
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         {files.map((file, index) => (
                           <VideoCard
                             key={file.id ?? index}
@@ -276,7 +276,7 @@ export function SearchModal({ open, onOpenChange }: SearchModalProps) {
                         ))}
                       </div>
                       {isLoadingMore && (
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                           <SkeletonCard />
                           <SkeletonCard />
                         </div>
@@ -300,7 +300,7 @@ export function SearchModal({ open, onOpenChange }: SearchModalProps) {
                   {showSuggestions && suggestions.length > 0 && (
                     <div className="space-y-3">
                       <h3 className="text-sm font-semibold text-foreground">Suggested</h3>
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         {suggestions.slice(0, 4).map((file, index) => (
                           <VideoCard
                             key={file.id ?? index}
@@ -319,7 +319,7 @@ export function SearchModal({ open, onOpenChange }: SearchModalProps) {
               suggestions.length > 0 && (
                 <div className="space-y-3">
                   <h3 className="text-sm font-semibold text-foreground">Quick suggestions</h3>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     {suggestions.slice(0, 4).map((file, index) => (
                       <VideoCard
                         key={file.id ?? index}

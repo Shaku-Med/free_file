@@ -465,7 +465,7 @@ const Search = () => {
               {showSuggestions && suggestions.length > 0 && (
                 <div className="space-y-4">
                   <h3 className="text-lg font-semibold text-foreground">Suggested for you</h3>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-2">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-3 gap-4">
                     {suggestions.map((file: FileType, index: number) => (
                       <VideoCard
                         key={file.id || index}
@@ -484,7 +484,7 @@ const Search = () => {
           suggestions.length > 0 && (
             <div className="space-y-4">
               <h3 className="text-lg font-semibold text-foreground">Quick suggestions</h3>
-              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-2">
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-3 gap-4">
                 {suggestions.map((file: FileType, index: number) => (
                   <VideoCard
                     key={file.id || index}

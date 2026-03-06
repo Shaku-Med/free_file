@@ -380,7 +380,7 @@ const Profile = () => {
 
   return (
     <div className="min-h-screen" data-data-ready={true}>
-      <div className="mx-auto max-w-7xl px-4 py-6">
+      <div className="">
         <UserProfileHeader profile={effectiveData.profile} isOwner={isOwner} />
         <UserFilesGrid
           files={effectiveData.files}

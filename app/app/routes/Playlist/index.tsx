@@ -123,7 +123,7 @@ export default function PlaylistPage() {
         <div className="flex items-center justify-between mb-6">
           <h1 className="text-2xl font-bold">My Playlist</h1>
         </div>
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-2">
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-3 gap-4">
           {Array.from({ length: 8 }).map((_, i) => (
             <SkeletonCard key={i} />
           ))}
@@ -150,7 +150,7 @@ export default function PlaylistPage() {
 
       {files.length > 0 ? (
         <>
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-2">
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-3 gap-4">
             {files.map((file, index) => (
               <VideoCard
                 key={file.id || index}
@@ -162,7 +162,7 @@ export default function PlaylistPage() {
             ))}
           </div>
           {loadingMore && (
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-2 mt-2">
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-3 gap-4 mt-2">
               {Array.from({ length: 4 }).map((_, i) => (
                 <SkeletonCard key={`more-${i}`} />
               ))}

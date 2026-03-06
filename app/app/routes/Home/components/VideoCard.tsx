@@ -584,12 +584,16 @@ const VideoCard = ({ data, index, currentUserId, userActions, onUpdate, showOwne
           nav(`/${data.unique_id}`);
         }}
         to={`/${data.unique_id}`}
-        className="w-full bg-card rounded-2xl overflow-hidden relative aspect-video"
+        className="w-full bg-card rounded-2xl overflow-hidden relative aspect-video group-hover:z-[1000000] z-[10]"
       >
         {renderThumbnail("w-full h-full")}
       </Link>
 
-      <div className="py-2 flex flex-col z-[1000]">
+      <div
+        className="hover_overlay pointer-events-none absolute inset-0 z-[10] rounded-2xl bg-muted/50 opacity-0 scale-100 group-hover:z-[100] group-hover:opacity-100 group-hover:scale-105 transition-all duration-300 ease-out"
+      />
+
+      <div className="py-2 flex flex-col z-[1000000]">
         <div className="pointer-events-auto mb-1 flex items-start gap-3">
           {data.owner && (
             <OwnerProfile 

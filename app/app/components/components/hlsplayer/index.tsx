@@ -157,7 +157,6 @@ function PlayerInner({
     [setTheaterMode, setPlayerSettings, savePlayerSettings]
   );
 
-  // Notify parent when ambient mode changes so outer ambience can sync with player setting
   useEffect(() => {
     if (onAmbientModeChange) {
       onAmbientModeChange(ambientMode);
@@ -208,7 +207,6 @@ function PlayerInner({
       } else {
         return;
       }
-      // Avoid conflict with play/pause feedback: cancel it when showing seek
       if (feedbackTimeoutRef.current) {
         clearTimeout(feedbackTimeoutRef.current);
         feedbackTimeoutRef.current = null;
@@ -314,14 +312,16 @@ function PlayerInner({
           }
           break;
         }
+        case 't':
+          e.preventDefault();
+          handleTheaterModeChange(!theaterMode);
+          break;
       }
     };
 
     window.addEventListener('keydown', handleKey);
     return () => window.removeEventListener('keydown', handleKey);
-  }, [isReelCtx, togglePlay, triggerPlayPauseFeedback]);
-
-  // Initial volume/muted/speed are applied from playerSettings in PlayerContext
+  }, [isReelCtx, togglePlay, triggerPlayPauseFeedback, theaterMode, handleTheaterModeChange]);
 
   const showControls = state.controlsVisible && !isReelCtx;
   const showBuffer = state.isBuffering && !state.isLoaded || (state.isBuffering && videoRef.current && videoRef.current.readyState < 3);
@@ -332,7 +332,6 @@ function PlayerInner({
       className={`relative bg-black overflow-hidden select-none ${isReelCtx ? 'z-[1]' : ''} ${className}`}
       style={{ cursor: showControls ? 'default' : 'none' }}
     >
-      {/* Ambient gradient at the very back of the player (spread, behind poster & video) */}
       {ambientMode && <AmbientBackground />}
       <PosterBackground
         onImageLoaded={(imgSrc, colors) => {
@@ -358,9 +357,7 @@ function PlayerInner({
 
         <video
           ref={videoRef}
-          className={`w-full h-full object-contain ${
-            isReelCtx ? 'pointer-events-none' : ''
-          } ${isPipActive && isContentInPip(imageID) ? 'opacity-0' : ''}`}
+          className={`w-full h-full object-contain ${isReelCtx ? 'pointer-events-none' : ''} ${isPipActive && isContentInPip(imageID) ? 'opacity-0' : ''}`}
           muted={muted}
           loop={loopEnabled}
           playsInline={playsInline}
@@ -373,18 +370,19 @@ function PlayerInner({
         {!isReelCtx && !loopEnabled && (
           <EndScreen
             suggestedVideos={suggestedVideos}
-            onVideoSelect={onVideoSelect}
           />
         )}
 
         {!isReelCtx && (
           <div
-            className={`transition-opacity duration-300 ${
-              showControls ? 'opacity-100' : 'opacity-0 pointer-events-none'
-            }`}
+            className={`transition-opacity duration-300 ${showControls ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
           >
             <div className="absolute bottom-0 left-0 right-0 h-32 bg-gradient-to-t from-black/80 to-transparent pointer-events-none" />
-            <ControlBar onNext={onNext} theaterMode={theaterMode} onTheaterModeChange={handleTheaterModeChange} onPlayPauseClick={triggerPlayPauseFeedback} />
+            <ControlBar onNext={onNext} 
+            onPlayPauseClick={triggerPlayPauseFeedback} 
+            theaterMode={theaterMode}
+            onTheaterModeChange={handleTheaterModeChange}
+             />
           </div>
         )}
 
