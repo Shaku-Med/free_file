@@ -345,7 +345,7 @@ const Search = () => {
   const showSuggestions = activeTerm && files.length === 0 && searchUsers.length === 0;
 
   return (
-    <div className="mx-auto w-full max-w-full xl:container py-10">
+    <div className="mx-auto w-full py-10">
       <div className="space-y-8">
         <form onSubmit={handleSubmit} className="w-full">
           <div className="mx-auto w-full md:max-w-2xl">

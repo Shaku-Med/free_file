@@ -920,7 +920,7 @@ const index = () => {
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
       />
-      <div className={`relative z-10 mx-auto max-w-full xl:container py-8`}>
+      <div className={`relative z-10 mx-auto max-w-full `}>
         <div className={`${!theaterMode ? `grid grid-cols-1 lg:grid-cols-3 gap-6` : ``}`}>
           <div className={`${!theaterMode ? `lg:col-span-2 space-y-4` : ``}`}>
             <div className="relative">
@@ -962,7 +962,7 @@ const index = () => {
             !theaterMode ? 
             relatedColumn :
             (
-              <div className="mx-auto max-w-full xl:container py-6 px-4 z-[100000]">
+              <div className="mx-auto py-6 px-4 z-[100000]">
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 <div className="lg:col-span-2">
                   {contentColumn}

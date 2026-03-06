@@ -497,3 +497,9 @@ input[type="search"] {
     display: none !important;
   }
 }
+
+
+
+.aspect-video {
+  aspect-ratio: 16/9;
+}

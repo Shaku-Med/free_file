@@ -30,7 +30,7 @@ export default function ThumbnailPreview({ meta, spriteUrl, time, parentWidth, c
       style={{ left, width: previewW }}
     >
       <div
-        className="rounded-lg overflow-hidden border border-zinc-600/40 shadow-xl shadow-black/30 bg-zinc-900 flex items-center justify-center"
+        className="rounded-lg overflow-hidden border border-none shadow-xl shadow-black/30 bg-background/80 flex items-center justify-center"
         style={{ width: previewW, height: previewH }}
       >
         <div
@@ -44,7 +44,7 @@ export default function ThumbnailPreview({ meta, spriteUrl, time, parentWidth, c
         />
       </div>
       <div className="text-center mt-1">
-        <span className="text-[11px] font-medium text-zinc-100 bg-zinc-800/90 px-1.5 py-0.5 rounded-md">
+        <span className="text-[11px] font-medium text-white bg-secondary px-1.5 py-0.5 rounded-md">
           {formatTime(time)}
         </span>
       </div>

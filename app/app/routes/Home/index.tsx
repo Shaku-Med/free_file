@@ -32,7 +32,7 @@ function SkeletonCard() {
 
 function FeedSkeleton() {
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-2">
+    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-3 gap-2">
       {Array.from({ length: 12 }).map((_, i) => (
         <SkeletonCard key={i} />
       ))}
@@ -46,7 +46,7 @@ export default function PhotoDashboard() {
   if (initialLoading) {
     return (
       <div className="">
-        <div className="mx-auto max-w-full xl:container py-8">
+        <div className="mx-auto">
           <FeedSkeleton />
         </div>
       </div>
@@ -55,16 +55,16 @@ export default function PhotoDashboard() {
 
   return (
     <div className="">
-      <div className="mx-auto max-w-full xl:container py-8">
+      <div className="mx-auto">
       {files.length > 0 ? (
         <>
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-2">
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-3 gap-2">
             {files.map((file, index) => (
               <VideoCard key={file.id || index} data={file as FileType} index={index} currentUserId={userId || undefined} userActions={userActions} />
             ))}
           </div>
           {isLoading && (
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-2 mt-2">
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-3 gap-2 mt-2">
               {Array.from({ length: 4 }).map((_, i) => (
                 <SkeletonCard key={`skeleton-${i}`} />
               ))}

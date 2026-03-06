@@ -72,7 +72,7 @@ export default function Navbar() {
           : "bg-transparent"
       }`}
     >
-      <div className="mx-auto px-3 sm:px-6 xl:px-8 max-w-full xl:container min-w-0">
+      <div className="mx-auto px-3 sm:px-6 xl:px-8 min-w-0">
         <div className={`flex py-2 sm:py-3 items-center gap-2 min-w-0 ${isReelRoute ? "justify-end" : "justify-between"}`}>
           {!isReelRoute && (
             <div className="flex items-center min-w-0 shrink-0">

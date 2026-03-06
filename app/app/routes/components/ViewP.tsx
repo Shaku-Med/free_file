@@ -74,7 +74,7 @@ const ViewP = ({ file }: ViewPProps) => {
 
   return (
     <>
-          <div className="mx-auto max-w-full xl:container py-6">
+          <div className="mx-auto py-6">
             <div className="gap-6 flex flex-col">
               <div className="xl:col-span-3 space-y-6">
                 <motion.div layoutId={`video_id_${file.unique_id}`} className="relative group flex items-center justify-between min-h-[300px] gap-4 w-full">
@@ -107,6 +107,7 @@ const ViewP = ({ file }: ViewPProps) => {
                                 setImageColors(e.colors)
                                 setMadeImageUrl(e.src)
                               }}
+                              videoRef={null as unknown as React.RefObject<HTMLVideoElement>}
                             />
                           ) : (
                               <motion.div 

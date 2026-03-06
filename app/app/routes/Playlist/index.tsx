@@ -119,7 +119,7 @@ export default function PlaylistPage() {
 
   if (loading) {
     return (
-      <div className="mx-auto max-w-full xl:container py-8 px-4">
+      <div className="mx-auto py-8 px-4">
         <div className="flex items-center justify-between mb-6">
           <h1 className="text-2xl font-bold">My Playlist</h1>
         </div>
@@ -133,7 +133,7 @@ export default function PlaylistPage() {
   }
 
   return (
-    <div className="mx-auto max-w-full xl:container py-8 px-4">
+    <div className="mx-auto py-8 px-4">
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-2xl font-bold">My Playlist</h1>

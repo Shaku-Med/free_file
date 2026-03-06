@@ -16,7 +16,7 @@ const Footer = () => {
 
   return (
     <footer className="border-t border-border bg-muted/30 mt-auto">
-      <div className="mx-auto max-w-full xl:container px-3 py-6 sm:px-6 sm:py-8 xl:px-8">
+      <div className="mx-auto px-3 py-6 sm:px-6 sm:py-8 xl:px-8">
         <div className="flex flex-col gap-5 sm:flex-row sm:items-start sm:justify-between sm:gap-6 lg:gap-8">
           <nav
             className="flex flex-wrap items-center justify-center gap-x-4 gap-y-2 sm:justify-start sm:gap-x-6"

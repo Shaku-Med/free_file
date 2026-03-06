@@ -14,7 +14,7 @@ const BodyComponent = ({ children }: BodyComponentProps) => {
       <div id="scroll_container" className={` ${!isMobile && state === 'expanded' && `rounded-tl-3xl bg-card`} h-full w-full overflow-y-auto overflow-x-hidden pb-20`}>
           <ScrollRestoration />
           <Navbar />
-          <div className={`mx-auto px-6 xl:px-8 max-w-full xl:container w-full`}>
+          <div className={`mx-auto px-6 xl:px-8 sidebar_body w-full`}>
             {children}
           </div>
           <Footer />
