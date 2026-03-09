@@ -1,0 +1,35 @@
+root = "."
+tmp_dir = "tmp"
+
+[build]
+  cmd = "go build -o ./tmp/server.exe ./cmd"
+  bin = "tmp\\server.exe"
+  delay = 1000
+  exclude_dir = ["tmp", "vendor", ".git"]
+  exclude_regex = ["_test\\.go$"]
+  exclude_unchanged = false
+  follow_symlink = false
+  include_ext = ["go", "toml"]
+  include_dir = ["cmd", "internal", "config", "lib"]
+  kill_delay = "0s"
+  log = "tmp/build-errors.log"
+  poll = false
+  poll_interval = 0
+  rerun = false
+  rerun_delay = 500
+  send_interrupt = true
+  stop_on_error = false
+
+[color]
+  app = ""
+  build = "yellow"
+  main = "magenta"
+  runner = "green"
+  watcher = "cyan"
+
+[log]
+  main_only = false
+  time = false
+
+[misc]
+  clean_on_exit = true
