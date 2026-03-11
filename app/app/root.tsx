@@ -216,11 +216,11 @@ export function Layout({ children }: { children: React.ReactNode }) {
         <meta name="mobile-web-app-title" content={SITE_NAME} />
         <link rel="stylesheet" href={`/themes/${themeStyle}.css`} />
         <link rel="manifest" href="/manifest.json" />
-        <link rel="icon" href="/favicon.ico" />
-        <link rel="icon" type="image/png" sizes="192x192" href="/icons/web/icon-192.png" />
-        <link rel="icon" type="image/png" sizes="512x512" href="/icons/web/icon-512.png" />
-        <link rel="icon" type="image/png" sizes="192x192" href="/icons/web/icon-192-maskable.png" />
-        <link rel="icon" type="image/png" sizes="512x512" href="/icons/web/icon-512-maskable.png" />
+        <link rel="shortcut icon" href="/favicon.ico" sizes="any" type="image/x-icon" />
+        <link rel="icon" href="/icons/web/icon-192.png" type="image/png" sizes="192x192" />
+        <link rel="icon" href="/icons/web/icon-512.png" type="image/png" sizes="512x512" />
+        <link rel="icon" href="/icons/web/icon-192-maskable.png" type="image/png" sizes="192x192" />
+        <link rel="icon" href="/icons/web/icon-512-maskable.png" type="image/png" sizes="512x512" />
         <link rel="apple-touch-icon" href="/icons/web/apple-touch-icon.png" />
         <script
           type="application/ld+json"
