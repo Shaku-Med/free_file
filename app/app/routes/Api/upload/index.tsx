@@ -113,9 +113,9 @@ export const action = async ({ request }: { request: Request }) => {
       });
     }
 
-    const MAX_FILE_SIZE = 500 * 1024 * 1024;
+    const MAX_FILE_SIZE = 4 * 1024 * 1024 * 1024; // 4GB
     if (file.size > MAX_FILE_SIZE) {
-      return new Response(JSON.stringify({ error: 'File size exceeds maximum limit of 500MB' }), { 
+      return new Response(JSON.stringify({ error: 'File size exceeds maximum limit of 4GB' }), { 
         status: 400,
         headers: { 'Content-Type': 'application/json' }
       });
