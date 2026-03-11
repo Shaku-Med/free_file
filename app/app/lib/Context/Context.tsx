@@ -418,7 +418,7 @@ export const ContextProvider = ({ children, st, user_agent, userId, c_user, uplo
                     isOpen={isModalOpen}
                     onClose={() => setIsModalOpen(false)}
                     onFilesSelected={() => {}}
-                    maxFileSizeBytes={safeUserId ? 400 * 1024 * 1024 : 40 * 1024 * 1024}
+                    maxFileSizeBytes={4 * 1024 * 1024 * 1024} // 4GB default
                     initialFiles={droppedFiles}
                     onFilesConsumed={() => setDroppedFiles([])}
                 />
