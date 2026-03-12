@@ -39,6 +39,33 @@ import SidebarUserProfile from "./SidebarUserProfile"
 import ImageLoad from "~/routes/Home/components/ImageLoad/ImageLoad"
 import HomeIcon from "~/components/ui/Icons/Home"
 
+const noopRetry = () => {}
+
+function SidebarThumbnail({ file, imageID }: { file: FileType; imageID: string }) {
+  const link = useMemo(() => {
+    if (file.file_type?.startsWith("image/") && file.endpoint) {
+      return `/api/load/image/${file.endpoint}`
+    }
+    const randomThumbnail = getRandomThumbnail(file.thumbnails)
+    if (randomThumbnail) {
+      return `/api/load/image/${randomThumbnail}`
+    }
+    return `/api/load/image/${arrangeDateForThumbnail(file.created_at)}/${file.unique_id}/thumbnail_${ParseFilename(file.filename)}.jpg`
+  }, [file.file_type, file.endpoint, file.thumbnails, file.created_at, file.unique_id, file.filename])
+
+  return (
+    <ImageLoad
+      link={link}
+      imageID={imageID}
+      index={0}
+      retry={noopRetry}
+      className="w-full h-full object-cover"
+      quality={10}
+      hasAdultTag={Boolean(file.is_adult)}
+    />
+  )
+}
+
 const menuItems = [
   {
     title: "Home",
@@ -112,17 +139,6 @@ export function AppSidebar() {
     setDisplayCount(prev => prev + 100)
   }
 
-  const getFileThumbnailLink = (file: FileType) => {
-    if (file.file_type?.startsWith("image/") && file.endpoint) {
-      return `/api/load/image/${file.endpoint}`
-    }
-    const randomThumbnail = getRandomThumbnail(file.thumbnails)
-    if (randomThumbnail) {
-      return `/api/load/image/${randomThumbnail}`
-    }
-    return `/api/load/image/${arrangeDateForThumbnail(file.created_at)}/${file.unique_id}/thumbnail_${ParseFilename(file.filename)}.jpg`
-  }
-
   return (
     <Sidebar variant="sidebar" collapsible="offcanvas" className="bg-background border-none">
       <SidebarHeader className={`${!isMobile ? `pt-[28px]` : `pt-[14px]`}`}>
@@ -179,15 +195,7 @@ export function AppSidebar() {
                   >
                     <Link to={`/${currentFile.unique_id}`} className="flex items-center gap-2 w-full">
                       <div className="relative h-9 w-16 flex-shrink-0 overflow-hidden rounded-md bg-muted">
-                        <ImageLoad
-                          link={getFileThumbnailLink(currentFile)}
-                          imageID={`${currentFile.unique_id}_sidebar`}
-                          index={0}
-                          retry={() => {}}
-                          className="w-full h-full object-cover"
-                          quality={5}
-                          hasAdultTag={Boolean(currentFile.is_adult)}
-                        />
+                        <SidebarThumbnail file={currentFile} imageID={`${currentFile.unique_id}_sidebar`} />
                       </div>
                       <span className="truncate flex-1">
                         {(currentFile.file_title && currentFile.file_title.trim() !== '') 
@@ -222,15 +230,7 @@ export function AppSidebar() {
                     >
                       <Link to={`/${file.unique_id}`} className="flex items-center gap-2 w-full">
                         <div className="relative h-8 w-14 flex-shrink-0 overflow-hidden rounded-md bg-muted">
-                          <ImageLoad
-                            link={getFileThumbnailLink(file)}
-                            imageID={`${file.unique_id}_sidebar`}
-                            index={0}
-                            retry={() => {}}
-                            className="w-full h-full object-cover"
-                            quality={5}
-                            hasAdultTag={Boolean(file.is_adult)}
-                          />
+                          <SidebarThumbnail file={file} imageID={`${file.unique_id}_sidebar`} />
                         </div>
                         <span className="truncate flex-1">
                           {(file.file_title && file.file_title.trim() !== '') 
