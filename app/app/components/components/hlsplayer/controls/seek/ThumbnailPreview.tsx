@@ -11,12 +11,24 @@ interface ThumbnailPreviewProps {
   cursorX: number;
 }
 
+const PREVIEW_MAX_W = 160;
+const PREVIEW_MAX_H = 120;
+
 export default function ThumbnailPreview({ meta, spriteUrl, time, parentWidth, cursorX }: ThumbnailPreviewProps) {
   const frame = useMemo(() => getFrameAtTime(meta, time), [meta, time]);
   if (!frame) return null;
 
-  const previewW = 160;
-  const previewH = 90;
+  const cellAspect = frame.width / frame.height;
+  let previewW: number;
+  let previewH: number;
+  if (cellAspect >= 1) {
+    previewW = PREVIEW_MAX_W;
+    previewH = Math.round(PREVIEW_MAX_W / cellAspect);
+  } else {
+    previewH = PREVIEW_MAX_H;
+    previewW = Math.round(PREVIEW_MAX_H * cellAspect);
+  }
+
   const half = previewW / 2;
   const left = Math.max(0, Math.min(cursorX - half, parentWidth - previewW));
 

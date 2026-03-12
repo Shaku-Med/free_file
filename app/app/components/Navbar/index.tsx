@@ -36,7 +36,14 @@ const galleryCategories = [
   { name: "Commercial", href: "/gallery/commercial" },
 ];
 
-export default function Navbar() {
+
+import type { ScrollState } from "./components/BodyComponent";
+
+interface NavbarProps {
+  hasScrolled?: ScrollState;
+}
+
+export default function Navbar({ hasScrolled = { state: false, opacityLevel: 0 } }: NavbarProps) {
   const { setIsModalOpen, userId } = useFileContext();
   const [searchModalOpen, setSearchModalOpen] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
@@ -64,15 +71,17 @@ export default function Navbar() {
 
   return (
     <nav
-      className={`sticky top-[env(safe-area-inset-top)] z-[100000000] w-full ${isStandalone ? "pt-env(safe-area-inset-top)" : ""} ${
+      className={`sticky top-[env(safe-area-inset-top)] z-[100000000] w-full relative ${isStandalone ? "pt-env(safe-area-inset-top)" : ""} ${
         isReelRoute
           ? "bg-transparent border-none shadow-none"
-          : isMobile || state === "collapsed"
-          ? "bg-transparent"
           : "bg-transparent"
       }`}
     >
-      <div className="mx-auto px-3 sm:px-6 xl:px-8 min-w-0">
+      <div
+        className="background_scroll absolute inset-0 bg-card shadow-lg border-b transition-opacity duration-200 ease-out pointer-events-none"
+        style={{ opacity: hasScrolled.opacityLevel }}
+      />
+      <div className="relative mx-auto px-3 sm:px-6 xl:px-8 min-w-0">
         <div className={`flex py-2 sm:py-3 items-center gap-2 min-w-0 ${isReelRoute ? "justify-end" : "justify-between"}`}>
           {!isReelRoute && (
             <div className="flex items-center min-w-0 shrink-0">

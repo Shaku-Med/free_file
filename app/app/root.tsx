@@ -31,6 +31,7 @@ import type { UserTheme } from "./lib/theme/constants";
 import { parseUserTheme } from "./lib/theme/constants";
 import { getPlayerSettingsFromCookies } from "./routes/Api/player-settings";
 import { BASE_URL } from "./lib/URLS";
+import { isMobileUserAgent } from "./lib/device.server";
 
 export const links: Route.LinksFunction = () => [
   { rel: "preconnect", href: "https://fonts.googleapis.com" },
@@ -155,9 +156,12 @@ export const loader = async ({request}: {request: Request}) => {
     }
 
     const playerSettingsFromLoader = getPlayerSettingsFromCookies(request.headers.get('Cookie'));
-    return data({ st: sessionToken, user_agent: request.headers.get('user-agent'), userId, c_user, uploadServerUrl, userTheme, playerSettingsFromLoader }, {
+    const isMobileServer = isMobileUserAgent(request.headers.get('user-agent'));
+    const isDevelopmentServer = process.env.NODE_ENV === 'development';
+
+    return data({ st: sessionToken, user_agent: request.headers.get('user-agent'), userId, c_user, uploadServerUrl, userTheme, playerSettingsFromLoader, isMobileServer, isDevelopmentServer }, {
       status: 200,
-      headers: (token && !user) ? {
+      headers: (token) ? { // I left this part open for now. Fix will be done later.
         'Set-Cookie': `token=${token}; Path=/; HttpOnly; ${secure}; ${sameSite}`
       } : undefined
     } as ResponseInit);
@@ -200,7 +204,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
     )
   }
 
-  const { st, user_agent, userId, c_user, uploadServerUrl, userTheme, playerSettingsFromLoader } = data;
+  const { st, user_agent, userId, c_user, uploadServerUrl, userTheme, playerSettingsFromLoader, isMobileServer, isDevelopmentServer } = data;
   const themeClass = userTheme?.theme ?? "system";
   const themeStyle = userTheme?.style ?? "default";
 
@@ -247,7 +251,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
         <ThemeApply userTheme={userTheme ?? null} />
         <RegisterServiceWorker />
         <ErrorBoundary>
-          <ContextProvider st={st} user_agent={user_agent || ''} userId={userId || null} c_user={c_user || null} uploadServerUrl={uploadServerUrl || ''} playerSettingsFromLoader={playerSettingsFromLoader ?? null}>
+          <ContextProvider st={st} user_agent={user_agent || ''} userId={userId || null} c_user={c_user || null} uploadServerUrl={uploadServerUrl || ''} playerSettingsFromLoader={playerSettingsFromLoader ?? null} isMobileServer={isMobileServer ?? false} isDevelopment={isDevelopmentServer ?? false}>
             <LikeProvider>
               <PictureInPictureProvider>
                 <SidebarProvider className={`w-full h-full flex-1 min-h-0`}>

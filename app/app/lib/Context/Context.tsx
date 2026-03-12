@@ -11,6 +11,7 @@ import ClientEncryption from "../Security/Client/Encryption";
 import { setPlayerSettings as setPlayerSettingsApi } from "~/lib/Services/playerSettingsApi";
 import { useNavigation } from "react-router";
 import type { PageCacheEntry } from "../types";
+import { isMobile } from "react-device-detect";
 
 export const driverObj = driver({
     showProgress: true,
@@ -62,6 +63,7 @@ export const Context = createContext<ContextProps>({
     playerSettings: null,
     setPlayerSettings: () => {},
     savePlayerSettings: async () => {},
+    isDevelopment: false,
 })
 
 interface ContextProviderProps {
@@ -72,6 +74,8 @@ interface ContextProviderProps {
     c_user: string | null;
     uploadServerUrl?: string;
     playerSettingsFromLoader?: ContextProps['playerSettings'] | null;
+    isMobileServer?: boolean;
+    isDevelopment?: boolean;
 }
 
 export const FloatingButton = () => {
@@ -106,7 +110,7 @@ export const FloatingButton = () => {
     )
 }
 
-export const ContextProvider = ({ children, st, user_agent, userId, c_user, uploadServerUrl = '', playerSettingsFromLoader = null }: ContextProviderProps) => {
+export const ContextProvider = ({ children, st, user_agent, userId, c_user, uploadServerUrl = '', playerSettingsFromLoader = null, isMobileServer = false, isDevelopment = false }: ContextProviderProps) => {
     const [files, setFiles] = useState<FileType[]>([]);
     const [pageCache, setPageCache] = useState<PageCacheEntry>([]);
     const [isModalOpen, setIsModalOpen] = useState(false);
@@ -134,7 +138,23 @@ export const ContextProvider = ({ children, st, user_agent, userId, c_user, uplo
     const nav = useNavigation()
     
     const [playerSettings, setPlayerSettings] = useState<ContextProps['playerSettings']>(playerSettingsFromLoader ?? null);
-    const [theaterMode, setTheaterMode] = useState<boolean>(playerSettings?.theaterMode ?? false);
+    const isMobileDevice = isMobileServer || isMobile;
+    const [theaterMode, setTheaterMode] = useState<boolean>(isMobileDevice ? true : (playerSettings?.theaterMode ?? false));
+
+    useEffect(() => {
+        if (typeof window === "undefined") return;
+        const mql = window.matchMedia("(max-width: 767px)");
+        const sync = () => {
+            if (isMobileDevice || mql.matches) {
+                setTheaterMode(true);
+            } else {
+                setTheaterMode(playerSettings?.theaterMode ?? false);
+            }
+        };
+        sync();
+        mql.addEventListener("change", sync);
+        return () => mql.removeEventListener("change", sync);
+    }, [isMobileDevice, playerSettings?.theaterMode]);
 
     const savePlayerSettings = useCallback(async (settings: Partial<NonNullable<ContextProps['playerSettings']>>) => {
       try {
@@ -204,6 +224,7 @@ export const ContextProvider = ({ children, st, user_agent, userId, c_user, uplo
     }, [])
 
     useEffect(() => {
+      if (!userId) return
       const markSeenOnLeave = () => {
         const ids = Array.from(shownIdsRef.current)
         if (ids.length === 0) return
@@ -223,7 +244,7 @@ export const ContextProvider = ({ children, st, user_agent, userId, c_user, uplo
         document.removeEventListener('visibilitychange', handleVisibility)
         window.removeEventListener('beforeunload', handleBeforeUnload)
       }
-    }, [])
+    }, [userId])
 
     const loadMoreVideos = useCallback(() => {
       if (!hasMore) return
@@ -398,6 +419,7 @@ export const ContextProvider = ({ children, st, user_agent, userId, c_user, uplo
             playerSettings,
             setPlayerSettings,
             savePlayerSettings,
+            isDevelopment,
         }),
         [files, isModalOpen, isLoading, initialLoading, loadMoreVideos, clearFeedHistory, user_agent, safeUserId, userActions, c_user, uploadServerUrl, userProfile, userProfileLoading, pageCache, scrollDataReady, theaterMode, playerSettings, savePlayerSettings]
     );

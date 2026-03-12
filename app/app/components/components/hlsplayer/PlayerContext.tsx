@@ -15,8 +15,15 @@ export interface ThumbnailSpriteMeta {
   cols: number;
   rows: number;
   cellSize: number;
+  cellWidth?: number;
+  cellHeight?: number;
   interval: number;
   cells: { index: number; start: number; end: number }[];
+}
+
+export interface BufferedRange {
+  start: number;
+  end: number;
 }
 
 export interface PlayerState {
@@ -28,7 +35,7 @@ export interface PlayerState {
   isEnded: boolean;
   currentTime: number;
   duration: number;
-  buffered: number;
+  bufferedRanges: BufferedRange[];
   volume: number;
   isMuted: boolean;
   playbackRate: number;
@@ -98,7 +105,7 @@ const INITIAL_STATE: PlayerState = {
   isEnded: false,
   currentTime: 0,
   duration: 0,
-  buffered: 0,
+  bufferedRanges: [],
   volume: 1,
   isMuted: false,
   playbackRate: 1,

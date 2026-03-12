@@ -298,7 +298,7 @@ export const meta: MetaFunction<ReturnType<typeof loader>> = ({ data }: { data: 
     thumbnail = `${thumbnail}?quality=50`;
 
     const ogType = isImage ? "image" : "website";
-    const thumbnailUrl = `${BASE_URL}${thumbnail}`;
+    const thumbnailUrl = `${IMAGE_BASE_URL}${thumbnail}`;
 
     const extra: import("react-router").MetaDescriptor[] = [
       { property: "og:image:type", content: "image/jpeg" },
@@ -327,7 +327,7 @@ export const meta: MetaFunction<ReturnType<typeof loader>> = ({ data }: { data: 
       title: metaTitle,
       description: metaDescription,
       canonicalPath: `/${data?.id}`,
-      ogImage: thumbnail,
+      ogImage: thumbnailUrl,
       ogImageAlt: displayTitle,
       keywords: keywords || [isVideo ? "video" : isImage ? "image" : "media", "memories", "share"].join(", "),
       author: data?.owner?.username,

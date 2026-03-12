@@ -20,6 +20,7 @@ import PosterBackground from './overlays/PosterBackground';
 import AmbientBackground from '~/components/components/hlsplayer/overlays/AmbientBackground';
 import { usePictureInPictureContext } from '~/lib/Context/PictureInPictureContext';
 import { useFileContext } from '~/lib/Context/Context';
+import { isMobile } from 'react-device-detect';
 
 interface CallBackProps {
   src: string;
@@ -103,6 +104,15 @@ function PlayerInner({
     autoPlay: autoPlayEnabled,
     loop: loopEnabled,
   } = usePlayerContext();
+
+  const [isMobileView, setIsMobileView] = useState(isMobile);
+  useEffect(() => {
+    const mql = window.matchMedia("(max-width: 767px)");
+    const update = () => setIsMobileView(isMobile || mql.matches);
+    update();
+    mql.addEventListener("change", update);
+    return () => mql.removeEventListener("change", update);
+  }, []);
 
   const { isPipActive, isContentInPip } = usePictureInPictureContext();
   const [mediaSessionImage, setMediaSessionImage] = useState<string | null>(null);
@@ -313,6 +323,7 @@ function PlayerInner({
           break;
         }
         case 't':
+          if (isMobileView) break;
           e.preventDefault();
           handleTheaterModeChange(!theaterMode);
           break;
@@ -321,7 +332,7 @@ function PlayerInner({
 
     window.addEventListener('keydown', handleKey);
     return () => window.removeEventListener('keydown', handleKey);
-  }, [isReelCtx, togglePlay, triggerPlayPauseFeedback, theaterMode, handleTheaterModeChange]);
+  }, [isReelCtx, togglePlay, triggerPlayPauseFeedback, theaterMode, handleTheaterModeChange, isMobileView]);
 
   const showControls = state.controlsVisible && !isReelCtx;
   const showBuffer = state.isBuffering && !state.isLoaded || (state.isBuffering && videoRef.current && videoRef.current.readyState < 3);
@@ -378,11 +389,12 @@ function PlayerInner({
             className={`transition-opacity duration-300 ${showControls ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
           >
             <div className="absolute bottom-0 left-0 right-0 h-32 bg-gradient-to-t from-black/80 to-transparent pointer-events-none" />
-            <ControlBar onNext={onNext} 
-            onPlayPauseClick={triggerPlayPauseFeedback} 
-            theaterMode={theaterMode}
-            onTheaterModeChange={handleTheaterModeChange}
-             />
+            <ControlBar
+              onNext={onNext}
+              onPlayPauseClick={triggerPlayPauseFeedback}
+              theaterMode={theaterMode}
+              onTheaterModeChange={isMobileView ? undefined : handleTheaterModeChange}
+            />
           </div>
         )}
 

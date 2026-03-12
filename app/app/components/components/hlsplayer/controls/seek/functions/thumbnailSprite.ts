@@ -17,11 +17,14 @@ export function getFrameAtTime(meta: ThumbnailSpriteMeta, time: number): SpriteF
   const col = idx % meta.cols;
   const row = Math.floor(idx / meta.cols);
 
+  const cellW = meta.cellWidth ?? meta.cellSize;
+  const cellH = meta.cellHeight ?? meta.cellSize;
+
   return {
-    x: col * meta.cellSize,
-    y: row * meta.cellSize,
-    width: meta.cellSize,
-    height: meta.cellSize,
+    x: col * cellW,
+    y: row * cellH,
+    width: cellW,
+    height: cellH,
     time: meta.cells[idx].start,
   };
 }

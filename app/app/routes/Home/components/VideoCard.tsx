@@ -261,7 +261,7 @@ const VideoCard = ({ data, index, currentUserId, userActions, onUpdate, showOwne
             callBack={(e) => {
               if (e) setLoaded(true);
             }}
-            quality={40}
+            quality={50}
             hasAdultTag={Boolean(data.is_adult)}
           />
         ) : (

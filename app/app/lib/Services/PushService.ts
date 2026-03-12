@@ -9,7 +9,7 @@ export interface PushPayload {
 
 let webpush: typeof import("web-push") | null = null;
 
-function ensureVapid(): boolean {
+async function ensureVapid(): Promise<boolean> {
   if (webpush) return true;
   const publicKey = process.env.VAPID_PUBLIC_KEY;
   const privateKey = process.env.VAPID_PRIVATE_KEY;
@@ -18,9 +18,9 @@ function ensureVapid(): boolean {
     return false;
   }
   try {
-    // Dynamic import for server-only module
-    const wp = require("web-push") as typeof import("web-push");
-    wp.setVapidDetails("mailto:noreply@memories.app", publicKey, privateKey);
+    const mod = await import("web-push");
+    const wp = mod.default ?? mod;
+    wp.setVapidDetails("mailto:jujubelt124@gmail.com", publicKey, privateKey);
     webpush = wp;
     console.log("[Push] VAPID configured successfully");
     return true;
@@ -39,7 +39,7 @@ export async function sendPushToUser(userId: string, payload: PushPayload): Prom
     console.warn("[Push] Database not available, skipping push");
     return;
   }
-  if (!ensureVapid() || !webpush) {
+  if (!(await ensureVapid()) || !webpush) {
     console.warn("[Push] VAPID not ready, skipping push");
     return;
   }
@@ -62,7 +62,7 @@ export async function sendPushToUser(userId: string, payload: PushPayload): Prom
   console.log(`[Push] Sending to ${subs.length} subscription(s) for user ${userId}: "${payload.body}"`);
 
   const results = await Promise.allSettled(
-    subs.map((sub) =>
+    subs.map((sub: { endpoint: string; p256dh: string; auth: string }) =>
       webpush!.sendNotification(
         { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
         body
@@ -94,7 +94,7 @@ export async function sendPushToUser(userId: string, payload: PushPayload): Prom
       .from("push_subscriptions")
       .delete()
       .in("endpoint", expiredEndpoints)
-      .then(({ error }) => {
+      .then(({ error }: { error: { message: string } | null }) => {
         if (error) console.error("[Push] Failed to clean up expired subs:", error.message);
         else console.log("[Push] Expired subscriptions removed");
       });

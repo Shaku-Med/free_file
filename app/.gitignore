@@ -1,17 +1,24 @@
-.DS_Store
+# Environment files
 .env
-/node_modules/
-node_modules
+.env.*
+!.env.example
+
+# Push notification VAPID keys (auto-generated)
+.env.notification
+
+# Dependencies
 node_modules/
-# React Router
-/.react-router/
-/build/
 
-.env.local
-.env.development.local
-.env.test.local
-.env.production.local
+# Build output
+build/
+dist/
 
-temp
-uploads
-/upload
+# Logs
+*.log
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Dump files
+dump.rdb

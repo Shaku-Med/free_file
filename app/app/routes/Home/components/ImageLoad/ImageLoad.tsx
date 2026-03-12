@@ -1,4 +1,4 @@
-import React, { useEffect, useLayoutEffect, useState, useRef } from 'react'
+import React, { useEffect, useLayoutEffect, useMemo, useState, useRef } from 'react'
 import { useInView } from 'react-intersection-observer'
 import { cn } from '~/lib/utils'
 import { Loader2, LoaderCircle } from 'lucide-react'
@@ -41,10 +41,12 @@ const ImageLoad = ({
     multipleImages = [],
     multipleCurrentImageIndex = 0,
 }: ImageLoadProps) => {
-    const { c_user } = useFileContext()
+    const { c_user, userId, files, isDevelopment } = useFileContext()
     const [src, setSrc] = useState<string | null | boolean>(null)
+    const [error, setError] = useState<boolean>(false)
     const [loaded, setLoaded] = useState<boolean>(false)
     const [isPreviewOpen, setIsPreviewOpen] = useState(false)
+    const [secondaryBaseUrl, setSecondaryBaseUrl] = useState<null | string>(null)
     const [previewData, setPreviewData] = useState<{ images: string[]; index: number }>({
         images: [],
         index: 0,
@@ -56,86 +58,130 @@ const ImageLoad = ({
         rootMargin: '50px',
     })
 
+    const resolvedLink = useMemo(() => {
+        if (!link) return null;
+        try {
+            let videoTypes = [`.mp4`, `.mov`, `.m4v`, `.avi`, `.wmv`, `.flv`, `.webm`, `.mkv`, `.m3u8`, `.ts`]
+            let lk = `${videoTypes.reduce((url, ext) => url.replace(new RegExp(ext.replace('.', '\\.'), 'gi'), ''), link)}${quality ? `/?quality=${quality}` : ''}`
+            imageID = quality ? `${imageID}_${quality}` : imageID
+            return lk
+        } catch (error) {
+            console.error('Failed to resolve link:', error)
+            return null
+        }
+    }, [link, quality, imageID, retry]);
+
+    const resolvedImageID = useMemo(
+        () => (quality && imageID ? `${imageID}_${quality}` : imageID ?? ''),
+        [imageID, quality, retry],
+    );
+
     useLayoutEffect(() => {
-        if (!inView || !link) return
+        if (!inView || !resolvedLink) return
 
         let fetchImage = async () => {
-            if (!link) return
-            let videoTypes = [`.mp4`, `.mov`, `.m4v`, `.avi`, `.wmv`, `.flv`, `.webm`, `.mkv`, `.m3u8`, `.ts`]
-            link = `${videoTypes.reduce((url, ext) => url.replace(new RegExp(ext.replace('.', '\\.'), 'gi'), ''), link)}${quality ? `/?quality=${quality}` : ''}`
-            imageID = quality ? `${imageID}_${quality}` : imageID
+            if (!resolvedLink) return
 
-            if (imageID && (window as any)[`_${imageID}`]) {
-                setSrc((window as any)[`_${imageID}`].imageUrl)
+            if (resolvedImageID && (window as any)[`_${resolvedImageID}`]) {
+                setSrc((window as any)[`_${resolvedImageID}`].imageUrl)
+                setError(false)
                 return
             }
 
-            if (imageID && await hasImageBlob(imageID)) {
-                const cachedImage = await getImageBlob(imageID)
+            if (resolvedImageID && await hasImageBlob(resolvedImageID)) {
+                const cachedImage = await getImageBlob(resolvedImageID)
                 if (cachedImage) {
-                    const currentCache = (window as any)[`_${imageID}`] || {};
-                    (window as any)[`_${imageID}`] = {
+                    const currentCache = (window as any)[`_${resolvedImageID}`] || {};
+                    (window as any)[`_${resolvedImageID}`] = {
                         ...currentCache,
                         imageUrl: cachedImage.url,
                     }
                     setSrc(cachedImage.url)
+                    setError(false)
                     return
                 }
             }
 
-            let response = await fetch(`${IMAGE_BASE_URL}${link}`, {
-                method: 'GET',
-                headers: {
-                    'c-user': c_user ? `${c_user}` : '',
-                },
-                mode: 'cors',
-            })
-            if (!response.ok) {
-                retry()
-                return
-            }
-            let blob = await response.blob()
-            let blobURL = URL.createObjectURL(blob)
+            try {
 
-            if (imageID) {
-                const currentCache = (window as any)[`_${imageID}`] || {};
-                (window as any)[`_${imageID}`] = {
-                    ...currentCache,
-                    imageUrl: blobURL,
+                let response = await fetch(`${secondaryBaseUrl || IMAGE_BASE_URL}${resolvedLink}`, {
+                    method: 'GET',
+                    headers: {
+                        'c-user': c_user ? `${c_user}` : '',
+                    },
+                    mode: 'cors',
+                })
+                if (!response.ok) {
+                    setError(true)
+                    return
                 }
-
-                try {
-                    await storeImageBlob(imageID, blob, link)
-                } catch (error) {
-                    console.error('Failed to store image in IndexedDB:', error)
+                let blob = await response.blob()
+                let blobURL = URL.createObjectURL(blob)
+    
+                if (resolvedImageID) {
+                    const currentCache = (window as any)[`_${resolvedImageID}`] || {};
+                    (window as any)[`_${resolvedImageID}`] = {
+                        ...currentCache,
+                        imageUrl: blobURL,
+                    }
+    
+                    try {
+                        await storeImageBlob(resolvedImageID, blob, resolvedLink)
+                    } catch (error) {
+                        return;
+                    }
+                }
+    
+                let image = new Image()
+                image.src = blobURL
+                image.onload = () => {
+                    setSrc(image.src)
+                    setError(false)
+                }
+                image.onerror = () => {
+                    setError(true)
+                    return;
                 }
             }
+            catch {
+                setError(true)
+                return;
+            }
 
-            let image = new Image()
-            image.src = blobURL
-            image.onload = () => {
-                setSrc(image.src)
-            }
-            image.onerror = () => {
-                retry()
-            }
         }
         fetchImage()
-    }, [inView, link, imageID, index, quality, retry])
+    }, [inView, resolvedLink, resolvedImageID, index, quality, retry])
 
     useEffect(() => {
         if (src && typeof src === 'string' && callBack && inView && !loaded) {
             let CLBK = async () => {
-                let colors = await getImageColorsHEX({ src: src as string })
-                setColors(colors || [])
-                callBack && callBack({
-                    src: src as string,
-                    colors: colors || [],
-                })
+                try {
+                    let colors = await getImageColorsHEX({ src: src as string })
+                    setColors(colors || [])
+                    callBack && callBack({
+                        src: src as string,
+                        colors: colors || [],
+                    })
+                    return
+                }
+                catch (error) {
+                    console.error('Failed to get image colors:', error)
+                    retry()
+                }
             }
             CLBK()
         }
     }, [src, inView, callBack, loaded])
+
+    useEffect(() => {
+        if(window !== undefined) {
+            if(isDevelopment) {
+                setSecondaryBaseUrl(`${window.location.protocol}//${window.location.hostname}:3001`)
+            }
+        } else {
+            setSecondaryBaseUrl(null)
+        }
+    }, [])
 
     const handlePreviewOpen = (e: React.MouseEvent) => {
         if (!shouldShowPreview) return
@@ -155,19 +201,19 @@ const ImageLoad = ({
                 className={cn("w-full h-full relative", shouldShowPreview && "cursor-pointer", className)}
                 onClick={handlePreviewOpen}
             >
-                {src ? (
+                {src || resolvedLink && !error ? (
                     <>
                         {!loaded && (
-                            <div className="absolute inset-0 flex items-center justify-center bg-background text-xs flex-col gap-2">
-                                <LoaderCircle className="w-8 h-8 animate-spin opacity-50" />
+                            <div className="absolute top-2 right-2 h-fit w-fit flex items-center justify-center text-xs flex-col gap-2">
+                                <LoaderCircle className="w-full h-full min-h-2 min-w-2 max-w-8 max-h-8 animate-spin opacity-50" />
                             </div>
                         )}
                         <img
-                            src={`${src}`}
+                            src={!files.length && typeof src === 'string' && src ? src : `${secondaryBaseUrl || IMAGE_BASE_URL}${resolvedLink}`}
                             alt="Thumbnail"
                             className={cn("w-full h-full object-cover animate-in fade-in-0 zoom-in-95", className)}
-                            onError={() => retry()}
                             loading="lazy"
+                            onError={() => retry()}
                             onLoad={() => setLoaded(true)}
                         />
                         {multipleImages.length > 1 && (
@@ -176,7 +222,7 @@ const ImageLoad = ({
                             </div>
                         )}
                     </>
-                ) : src === null ? (
+                ) : src === null && !error ? (
                     <div className={cn("w-full h-full flex flex-col items-center justify-center bg-background text-xs", className)}>
                         <Loader2 className="w-4 h-4 animate-spin" />
                         <span>Loading...</span>

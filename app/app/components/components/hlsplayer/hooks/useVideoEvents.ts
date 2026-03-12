@@ -70,10 +70,11 @@ export function useVideoEvents(videoRef: React.RefObject<HTMLVideoElement>, call
     };
 
     const onProgress = () => {
-      if (video.buffered.length > 0) {
-        const end = video.buffered.end(video.buffered.length - 1);
-        setState(s => ({ ...s, buffered: end }));
+      const ranges: { start: number; end: number }[] = [];
+      for (let i = 0; i < video.buffered.length; i++) {
+        ranges.push({ start: video.buffered.start(i), end: video.buffered.end(i) });
       }
+      setState(s => ({ ...s, bufferedRanges: ranges }));
     };
 
     const onVolumeChange = () => {

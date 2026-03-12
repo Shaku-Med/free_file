@@ -16,7 +16,8 @@ const getSharp = async () => {
 };
 
 
-const loadImageWithRetry = async (splitUrl: string, qualityParam: string | null, shouldBlur: boolean = false): Promise<Response> => {
+const retryCountLimit = 3;
+const loadImageWithRetry = async (splitUrl: string, qualityParam: string | null, shouldBlur: boolean = false, retryCount: number = 0): Promise<Response> => {
     const tryLoadImage = async (urlPath: string): Promise<Response> => {
         const videoUrl = `https://github.com/${process.env.GITHUB_OWNER}/Memories/raw/main/${urlPath}`;
         const response = await fetch(videoUrl);
@@ -154,12 +155,32 @@ const loadImageWithRetry = async (splitUrl: string, qualityParam: string | null,
     try {
         return await tryLoadImage(splitUrl);
     } catch (error) {
-        const modifiedUrl = splitUrl.replace(/\.jpg.*$/, '');
-        try {
-            return await tryLoadImage(modifiedUrl);
-        } catch (secondError) {
-            throw secondError;
+        if (retryCount >= retryCountLimit) {
+            throw new Error('All the attempts to load the image have failed!', { cause: { splitUrl, qualityParam, shouldBlur, retryCount } });
         }
+
+        let modifiedUrl: string | null = null;
+        switch (retryCount) {
+            case 0:
+                modifiedUrl = splitUrl.replace(/\.jpg.*$/, '.jpg');
+                break;
+            case 1: {
+                const match = splitUrl.match(/^(\d+)(_[^/]+\/.+)$/);
+                if (match) {
+                    const incremented = parseInt(match[1]) + 1;
+                    if (incremented === 0) break;
+                    const padLen = Math.max(2, match[1].length);
+                    modifiedUrl = `${String(incremented).padStart(padLen, '0')}${match[2]}`;
+                }
+                break;
+            }
+        }
+
+        if (!modifiedUrl) {
+            throw new Error('All the attempts to load the image have failed!', { cause: { splitUrl, qualityParam, shouldBlur, retryCount } });
+        }
+
+        return await loadImageWithRetry(modifiedUrl, qualityParam, shouldBlur, retryCount + 1);
     }
 };
 
@@ -400,7 +421,7 @@ export const loader = async ({ request }: { request: Request }) => {
         // SECURITY: Now fetch image with shouldBlur flag already determined
         return await loadImageWithRetry(splitUrl, qualityParam, shouldBlur);
     } catch (error) {
-        console.error('Error loading image:', error)
+        // console.error('Error loading image:', error)
         return new Response(null, { status: 500 });
     }
 };

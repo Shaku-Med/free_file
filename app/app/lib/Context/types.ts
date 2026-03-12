@@ -46,4 +46,5 @@ export interface ContextProps {
   playerSettings: PlayerSettings | null;
   setPlayerSettings: React.Dispatch<React.SetStateAction<PlayerSettings | null>>;
   savePlayerSettings: (patch: PlayerSettingsPatch) => Promise<void>;
+  isDevelopment: boolean;
 }

@@ -3,9 +3,11 @@ import React, { useCallback, useEffect, useRef } from "react";
 type CanvasGradientProps = {
   colors: string[];
   className?: string;
+  animate?: boolean;
 };
 
-/** Blob positions (x, y) as 0–1, spread so colors overlap in a liquid way */
+const POLL_INTERVAL = 2000;
+
 const BLOB_OFFSETS: [number, number][] = [
   [0.15, 0.25],
   [0.82, 0.72],
@@ -27,9 +29,10 @@ function hexToRgba(hex: string, alpha: number): string {
   return `rgba(${r},${g},${b},${alpha})`;
 }
 
-const CanvasGradient = ({ colors, className = "" }: CanvasGradientProps) => {
+const CanvasGradient = ({ colors, className = "", animate = false }: CanvasGradientProps) => {
   const wrapperRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const lastSizeRef = useRef<{ w: number; h: number }>({ w: 0, h: 0 });
 
   const draw = useCallback(() => {
     const wrapper = wrapperRef.current;
@@ -49,6 +52,8 @@ const CanvasGradient = ({ colors, className = "" }: CanvasGradientProps) => {
     canvas.height = h;
     canvas.style.width = `${width}px`;
     canvas.style.height = `${height}px`;
+
+    lastSizeRef.current = { w, h };
 
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
@@ -105,6 +110,26 @@ const CanvasGradient = ({ colors, className = "" }: CanvasGradientProps) => {
   }, [draw]);
 
   useEffect(() => {
+    if (animate) return;
+    if (colors.length === 0) return;
+
+    const id = setInterval(() => {
+      const wrapper = wrapperRef.current;
+      if (!wrapper) return;
+      const rect = wrapper.getBoundingClientRect();
+      const dpr = Math.min(window.devicePixelRatio ?? 1, 2);
+      const w = Math.round(rect.width * dpr);
+      const h = Math.round(rect.height * dpr);
+      if (w !== lastSizeRef.current.w || h !== lastSizeRef.current.h) {
+        draw();
+      }
+    }, POLL_INTERVAL);
+
+    return () => clearInterval(id);
+  }, [animate, colors.length, draw]);
+
+  useEffect(() => {
+    if (!animate) return;
     if (colors.length === 0) return;
     const wrapper = wrapperRef.current;
     if (!wrapper) return;
@@ -113,13 +138,14 @@ const CanvasGradient = ({ colors, className = "" }: CanvasGradientProps) => {
     });
     ro.observe(wrapper);
     return () => ro.disconnect();
-  }, [colors.length, draw]);
+  }, [animate, colors.length, draw]);
 
   useEffect(() => {
+    if (!animate) return;
     const onResize = () => requestAnimationFrame(draw);
     window.addEventListener("resize", onResize);
     return () => window.removeEventListener("resize", onResize);
-  }, [draw]);
+  }, [animate, draw]);
 
   if (colors.length === 0) return null;
 

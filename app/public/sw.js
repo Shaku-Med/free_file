@@ -1,4 +1,13 @@
 /* Service worker for Web Push – handle push and notification click */
+
+self.addEventListener("install", function () {
+  self.skipWaiting();
+});
+
+self.addEventListener("activate", function (event) {
+  event.waitUntil(self.clients.claim());
+});
+
 self.addEventListener("push", function (event) {
   console.log("[SW] Push event received");
   let payload = { title: "Memories", body: "", url: "/" };

@@ -65,11 +65,14 @@ export function usePushNotifications() {
       }
       log("1. Permission granted");
 
-      log("2. Registering service worker...");
-      const reg = await navigator.serviceWorker.register("/sw.js", { scope: "/" });
-      await reg.update();
-      await navigator.serviceWorker.ready;
-      log("2. Service worker ready");
+      log("2. Waiting for service worker...");
+      const reg = await navigator.serviceWorker.ready;
+      if (!reg.active) {
+        log("2. No active service worker, registering...");
+        await navigator.serviceWorker.register("/sw.js", { scope: "/" });
+        await navigator.serviceWorker.ready;
+      }
+      log("2. Service worker active");
 
       log("3. Fetching VAPID public key...");
       const vapidRes = await fetch("/api/push-vapid-public");
@@ -79,17 +82,26 @@ export function usePushNotifications() {
         setError("Something went wrong. Please try again.");
         return false;
       }
-      log("3. VAPID key received (status " + vapidRes.status + ")");
+      log("3. VAPID key received");
 
-      log("4. Subscribing to push manager...");
-      const applicationServerKey = urlBase64ToUint8Array(vapidData.publicKey);
+      log("4. Clearing stale push subscription...");
+      const existingSub = await reg.pushManager.getSubscription();
+      if (existingSub) {
+        try { await existingSub.unsubscribe(); } catch { /* ignore */ }
+        log("4. Stale subscription removed");
+      } else {
+        log("4. No stale subscription");
+      }
+
+      log("5. Subscribing to push manager...");
+      const keyBytes = urlBase64ToUint8Array(vapidData.publicKey);
       const subscription = await reg.pushManager.subscribe({
         userVisibleOnly: true,
-        applicationServerKey,
+        applicationServerKey: keyBytes.buffer as ArrayBuffer,
       });
-      log("4. Push subscription created");
+      log("5. Push subscription created");
 
-      log("5. Sending subscription to server...");
+      log("6. Sending subscription to server...");
       const subJson = subscription.toJSON();
       const res = await fetch("/api/push-subscribe", {
         method: "POST",
@@ -102,11 +114,11 @@ export function usePushNotifications() {
       });
       if (!res.ok) {
         const errBody = await res.json().catch(() => ({}));
-        log("5. Server rejected save:", { status: res.status, body: errBody });
+        log("6. Server rejected save:", { status: res.status, body: errBody });
         setError("Something went wrong. Please try again.");
         return false;
       }
-      log("5. Server saved subscription, done.");
+      log("6. Server saved subscription, done.");
       setIsSubscribed(true);
       return true;
     } catch (e) {

@@ -4,7 +4,8 @@ import { defineConfig, loadEnv } from "vite";
 import tsconfigPaths from "vite-tsconfig-paths";
 
 import { config } from "dotenv";
-config()
+config();
+config({ path: ".env.notification" });
 
 export default defineConfig(({mode}) => {
   let isProduction = mode === 'production';

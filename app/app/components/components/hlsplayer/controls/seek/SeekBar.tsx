@@ -1,10 +1,34 @@
 import { useRef, useState, useCallback, useEffect } from 'react';
 import { ChevronsUp } from 'lucide-react';
 import { usePlayerContext } from '../../PlayerContext';
+import type { BufferedRange } from '../../PlayerContext';
 import ThumbnailPreview from './ThumbnailPreview';
 import { formatTime } from './functions/formatTime';
 
 const WAVEFORM_STRIP_HEIGHT = 40;
+
+function BufferSegments({ ranges, duration, className }: {
+  ranges: BufferedRange[];
+  duration: number;
+  className?: string;
+}) {
+  if (duration <= 0 || ranges.length === 0) return null;
+  return (
+    <>
+      {ranges.map((range, i) => {
+        const left = (range.start / duration) * 100;
+        const width = ((range.end - range.start) / duration) * 100;
+        return (
+          <div
+            key={i}
+            className={`absolute top-0 h-full transition-[width,left] duration-300 ease-out ${className ?? 'bg-white/25 rounded-full'}`}
+            style={{ left: `${left}%`, width: `${width}%` }}
+          />
+        );
+      })}
+    </>
+  );
+}
 
 export default function SeekBar() {
   const { state, seek, spriteMeta, spriteUrl, waveformUrl, startInteraction, endInteraction } =
@@ -25,7 +49,7 @@ export default function SeekBar() {
   }, [waveformUrl]);
 
   const progress = state.duration > 0 ? (state.currentTime / state.duration) * 100 : 0;
-  const buffered = state.duration > 0 ? (state.buffered / state.duration) * 100 : 0;
+  const { bufferedRanges } = state;
 
   const getTimeFromX = useCallback(
     (clientX: number) => {
@@ -135,7 +159,7 @@ export default function SeekBar() {
           onPointerUp={handlePointerUp}
           onMouseLeave={handleMouseLeave}
         >
-          {/* White outline waveform - no fill, no reflection */}
+          {/* White outline waveform */}
           <div
             className="absolute inset-0 opacity-90"
             style={{
@@ -148,8 +172,13 @@ export default function SeekBar() {
             }}
           />
 
-          {/* Thin progress bar at bottom: secondary = unplayed, primary = played */}
+          {/* Thin progress bar at bottom with buffer segments */}
           <div className="absolute bottom-0 left-0 right-0 h-[3px] bg-secondary">
+            <BufferSegments
+              ranges={bufferedRanges}
+              duration={state.duration}
+              className="bg-white/20 rounded-full"
+            />
             <div
               className="absolute top-0 left-0 h-full bg-primary"
               style={{ width: `${progress}%` }}
@@ -165,7 +194,7 @@ export default function SeekBar() {
             }}
           />
 
-          {/* Time above handle + vertical white guide line down to bottom (like image) */}
+          {/* Time above handle + vertical white guide line */}
           {showHandle && (
             <div
               className="absolute pointer-events-none z-20 flex flex-col items-center"
@@ -213,9 +242,10 @@ export default function SeekBar() {
               onPointerUp={handlePointerUp}
               onMouseLeave={handleMouseLeave}
             >
-              <div
-                className="absolute top-0 left-0 h-full rounded-full bg-secondary/80"
-                style={{ width: `${buffered}%` }}
+              <BufferSegments
+                ranges={bufferedRanges}
+                duration={state.duration}
+                className="bg-white/25 rounded-full"
               />
               <div
                 className="absolute top-0 left-0 h-full bg-primary rounded-full"
@@ -260,9 +290,10 @@ export default function SeekBar() {
         onPointerUp={handlePointerUp}
         onMouseLeave={handleMouseLeave}
       >
-        <div
-          className="absolute top-0 left-0 h-full rounded-full bg-secondary/80"
-          style={{ width: `${buffered}%` }}
+        <BufferSegments
+          ranges={bufferedRanges}
+          duration={state.duration}
+          className="bg-white/25 rounded-full"
         />
         <div
           className="absolute top-0 left-0 h-full bg-primary rounded-full"

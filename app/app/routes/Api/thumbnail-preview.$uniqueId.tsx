@@ -2,7 +2,8 @@ import { data } from 'react-router';
 import db from '~/lib/Database/supabase';
 import { canAccessFile } from '~/routes/Api/fun/accessControl';
 
-const CELL_SIZE = 160;
+const CELL_WIDTH = 160;
+const CELL_HEIGHT = 90;
 
 export const loader = async ({
   request,
@@ -64,7 +65,9 @@ export const loader = async ({
     duration: safeDuration,
     cols,
     rows,
-    cellSize: CELL_SIZE,
+    cellSize: CELL_WIDTH,
+    cellWidth: CELL_WIDTH,
+    cellHeight: CELL_HEIGHT,
     interval,
     cells,
   };
@@ -72,7 +75,6 @@ export const loader = async ({
   if (wantSprite) {
     let sharp: any = null;
     try {
-      // @ts-expect-error sharp is optional; types may be missing
       sharp = (await import('sharp')).default;
     } catch {
       sharp = null;
@@ -82,8 +84,8 @@ export const loader = async ({
     }
 
     const baseUrl = `https://github.com/${process.env.GITHUB_OWNER}/Memories/raw/main/`;
-    const width = cols * CELL_SIZE;
-    const height = rows * CELL_SIZE;
+    const width = cols * CELL_WIDTH;
+    const height = rows * CELL_HEIGHT;
     const compositeInput: { input: Buffer; top: number; left: number }[] = [];
     let filled = 0;
 
@@ -95,14 +97,14 @@ export const loader = async ({
         if (!res.ok) continue;
         const buf = Buffer.from(await res.arrayBuffer());
         const resized = await sharp(buf)
-          .resize(CELL_SIZE, CELL_SIZE, { fit: 'cover' })
+          .resize(CELL_WIDTH, CELL_HEIGHT, { fit: 'contain', background: { r: 0, g: 0, b: 0 } })
           .toBuffer();
         const row = Math.floor(i / cols);
         const col = i % cols;
         compositeInput.push({
           input: resized,
-          top: row * CELL_SIZE,
-          left: col * CELL_SIZE,
+          top: row * CELL_HEIGHT,
+          left: col * CELL_WIDTH,
         });
         filled++;
       } catch {
