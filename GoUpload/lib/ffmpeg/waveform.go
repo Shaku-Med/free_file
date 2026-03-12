@@ -1,10 +1,12 @@
 package ffmpeg
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"time"
 )
 
 const (
@@ -33,10 +35,16 @@ func ExtractWaveform(videoPath, outputDir string) (outPath string, err error) {
 		outPath,
 	}
 
-	cmd := exec.Command("ffmpeg", args...)
-	if out, runErr := cmd.CombinedOutput(); runErr != nil {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Hour)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "ffmpeg", args...)
+	var stderr limitedWriter
+	stderr.max = 1 << 20
+	cmd.Stderr = &stderr
+	if runErr := cmd.Run(); runErr != nil {
 		_ = os.Remove(outPath)
-		return "", fmt.Errorf("ffmpeg waveform: %w, output: %s", runErr, string(out))
+		return "", fmt.Errorf("ffmpeg waveform: %w, stderr: %s", runErr, stderr.String())
 	}
 
 	return outPath, nil

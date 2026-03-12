@@ -5,7 +5,7 @@ tmp_dir = "tmp"
 cmd = "go build -o ./tmp/server.exe ./"
 bin = "./tmp/server.exe"
 include_ext = ["go", "mod", "sum"]
-exclude_dir = ["tmp", "vendor"]
+exclude_dir = ["tmp", "vendor", "upload"]
 delay = 200
 
 [log]

@@ -9,7 +9,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/google/go-github/v62/github"
 	"goupload/internal/upload"
 	"goupload/lib/assembler"
 	"goupload/lib/colors"
@@ -19,15 +18,17 @@ import (
 	"goupload/lib/nsfw"
 	"goupload/lib/queue"
 	"goupload/lib/webhook"
+
+	"github.com/google/go-github/v62/github"
 )
 
 type Config struct {
-	ChunksDir    string
-	OutputDir    string
-	TempDir      string
-	HLSDir       string
-	ThumbnailDir string
-	NSFWApiURL   string
+	ChunksDir     string
+	OutputDir     string
+	TempDir       string
+	HLSDir        string
+	ThumbnailDir  string
+	NSFWApiURL    string
 	NSFWApiSecret string // X-Webhook-Secret for app /api/nsfw/detect; often UPLOAD_WEBHOOK_SECRET
 	// GitHub: if GitHubClient is nil, uploads to GitHub are skipped.
 	GitHubClient *github.Client
@@ -36,12 +37,12 @@ type Config struct {
 }
 
 type Worker struct {
-	queue    *queue.Client
-	log      *logger.Logger
-	nsfw     *nsfw.Detector
-	cfg      Config
-	stopCh   chan struct{}
-	wg       sync.WaitGroup
+	queue  *queue.Client
+	log    *logger.Logger
+	nsfw   *nsfw.Detector
+	cfg    Config
+	stopCh chan struct{}
+	wg     sync.WaitGroup
 }
 
 func New(q *queue.Client, log *logger.Logger, cfg Config) *Worker {
@@ -385,17 +386,49 @@ func (w *Worker) processJob(job *queue.Job) {
 		w.log.Infof("hls job=%s tiers=[%s]", job.ID, strings.Join(tierNames, ", "))
 	}
 
-	// Upload to {dateFolder}/{uploadID}/ - same structure as app
 	dateFolder := ghlib.DateFolder(time.Now())
 	ghPrefix := dateFolder + "/" + job.UploadID + "/"
 	videoEndpoint := ""
 	var thumbnailPaths []string
 	var videoDuration float64
 
+	// Collect all files for a single batch commit (Git Data API: blobs→tree→commit)
+	var batchFiles []ghlib.BatchFile
+
 	if hlsAll != nil {
-		// Upload HLS to {dateFolder}/{uploadID}/ (no hls/ prefix)
-		if err := ghlib.UploadDir(context.Background(), w.cfg.GitHubClient, w.cfg.GitHubOwner, w.cfg.GitHubRepo, ghPrefix, hlsDir, w.log.Infof); err != nil {
-			w.log.Errorf("github hls upload failed job=%s err=%s", job.ID, err.Error())
+		hlsFiles, cerr := ghlib.CollectDir(hlsDir, ghPrefix)
+		if cerr != nil {
+			w.failJob(job, "collect hls files: "+cerr.Error(), result.OutputPath, filepath.Dir(result.OutputPath), filepath.Dir(filepath.Dir(result.OutputPath)), hlsDir, filepath.Dir(hlsDir), thumbDir, filepath.Dir(thumbDir))
+			return
+		}
+		batchFiles = append(batchFiles, hlsFiles...)
+		videoEndpoint = dateFolder + "/" + job.UploadID + "/master.m3u8"
+		w.log.Infof("collected %d hls files job=%s", len(hlsFiles), job.ID)
+	}
+
+	if thumbResult != nil {
+		videoDuration = thumbResult.Duration
+		thumbFiles, cerr := ghlib.CollectDirFlat(thumbDir, ghPrefix)
+		if cerr != nil {
+			w.failJob(job, "collect thumbnail files: "+cerr.Error(), result.OutputPath, filepath.Dir(result.OutputPath), filepath.Dir(filepath.Dir(result.OutputPath)), hlsDir, filepath.Dir(hlsDir), thumbDir, filepath.Dir(thumbDir))
+			return
+		}
+		batchFiles = append(batchFiles, thumbFiles...)
+		for i := range thumbResult.Thumbnails {
+			thumbnailPaths = append(thumbnailPaths, ghPrefix+filepath.Base(thumbResult.Thumbnails[i].Path))
+		}
+		thumbnailPaths = append(thumbnailPaths, ghPrefix+"thumbnail_preview.jpg")
+		thumbnailPaths = append(thumbnailPaths, ghPrefix+"thumbnail_preview.json")
+		w.log.Infof("collected %d thumbnail files job=%s", len(thumbFiles), job.ID)
+	}
+
+	if len(batchFiles) > 0 {
+		ghBranch := os.Getenv("GITHUB_BRANCH")
+		if ghBranch == "" {
+			ghBranch = "main"
+		}
+		if err := ghlib.BatchCommit(context.Background(), w.cfg.GitHubClient, w.cfg.GitHubOwner, w.cfg.GitHubRepo, ghBranch, "Upload "+job.UploadID, batchFiles, 4, w.log.Infof); err != nil {
+			w.log.Errorf("github batch upload failed job=%s files=%d err=%s", job.ID, len(batchFiles), err.Error())
 			_ = os.RemoveAll(hlsDir)
 			_ = os.Remove(filepath.Dir(hlsDir))
 			_ = os.RemoveAll(thumbDir)
@@ -407,53 +440,10 @@ func (w *Worker) processJob(job *queue.Job) {
 			webhook.NotifyJobStatus(webhook.Payload{JobID: job.ID, Status: "failed", UploadID: job.UploadID, UserID: job.UserID, FileName: job.FileName, FileSize: job.FileSize})
 			return
 		}
-		w.log.Infof("github hls uploaded job=%s path=%s", job.ID, ghPrefix)
-		// Endpoint is path to master.m3u8: {dateFolder}/{uploadID}/master.m3u8
-		videoEndpoint = dateFolder + "/" + job.UploadID + "/master.m3u8"
-		
-		// Cleanup: remove HLS dir and empty user parent
-		if err := os.RemoveAll(hlsDir); err != nil {
-			w.log.Errorf("cleanup hls failed job=%s err=%s", job.ID, err.Error())
-		} else {
-			w.log.Infof("cleanup hls job=%s path=%s", job.ID, hlsDir)
-			_ = os.Remove(filepath.Dir(hlsDir))
-		}
+		w.log.Infof("github batch uploaded job=%s files=%d", job.ID, len(batchFiles))
 	}
 
-	if thumbResult != nil {
-		videoDuration = thumbResult.Duration
-		if err := ghlib.UploadDirFlat(context.Background(), w.cfg.GitHubClient, w.cfg.GitHubOwner, w.cfg.GitHubRepo, ghPrefix, thumbDir, w.log.Infof); err != nil {
-			w.log.Errorf("github thumbnails upload failed job=%s err=%s", job.ID, err.Error())
-			_ = os.RemoveAll(thumbDir)
-			_ = os.Remove(filepath.Dir(thumbDir))
-			_ = os.Remove(result.OutputPath)
-			_ = os.RemoveAll(filepath.Dir(result.OutputPath))
-			_ = os.Remove(filepath.Dir(filepath.Dir(result.OutputPath)))
-			_ = w.queue.SetJobStatus(context.Background(), job.ID, "failed")
-			webhook.NotifyJobStatus(webhook.Payload{JobID: job.ID, Status: "failed", UploadID: job.UploadID, UserID: job.UserID, FileName: job.FileName, FileSize: job.FileSize})
-			return
-		} else {
-			w.log.Infof("github thumbnails uploaded job=%s path=%s", job.ID, ghPrefix)
-			// Collect thumbnail paths for database
-			for i := range thumbResult.Thumbnails {
-				// Individual thumbnails: {prefix}thumb_0001.jpg, thumb_0002.jpg, etc.
-				thumbnailPaths = append(thumbnailPaths, ghPrefix+filepath.Base(thumbResult.Thumbnails[i].Path))
-			}
-			// Add preview files
-			thumbnailPaths = append(thumbnailPaths, ghPrefix+"thumbnail_preview.jpg")
-			thumbnailPaths = append(thumbnailPaths, ghPrefix+"thumbnail_preview.json")
-			
-			// Cleanup: remove thumbnails dir and empty user parent
-			if err := os.RemoveAll(thumbDir); err != nil {
-				w.log.Errorf("cleanup thumbnails failed job=%s err=%s", job.ID, err.Error())
-			} else {
-				w.log.Infof("cleanup thumbnails job=%s path=%s", job.ID, thumbDir)
-				_ = os.Remove(filepath.Dir(thumbDir))
-			}
-		}
-	}
-
-	// Ensure hls/thumb are fully removed (handles hlsAll==nil, ExtractThumbnails fail, or empty top-level dirs)
+	// Cleanup local HLS + thumbnail dirs
 	_ = os.RemoveAll(hlsDir)
 	_ = os.Remove(filepath.Dir(hlsDir))
 	_ = os.Remove(w.cfg.HLSDir)
@@ -528,7 +518,7 @@ func validateImageFile(path string) bool {
 	if header[0] == 0x89 && header[1] == 0x50 && header[2] == 0x4E && header[3] == 0x47 {
 		return true
 	}
-	if (header[0] == 0x47 && header[1] == 0x49 && header[2] == 0x46) {
+	if header[0] == 0x47 && header[1] == 0x49 && header[2] == 0x46 {
 		return true
 	}
 	if n >= 12 && header[0] == 0x52 && header[1] == 0x49 && header[2] == 0x46 && header[3] == 0x46 &&

@@ -1,13 +1,14 @@
 package ffmpeg
 
 import (
-	"bytes"
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
+	"time"
 )
 
 type QualityTier struct {
@@ -218,8 +219,8 @@ func runTierConversion(inputPath, m3u8Path, segmentPattern string, opts HLSOptio
 
 	args = append(args,
 		"-fflags", "+genpts+igndts",
-		"-analyzeduration", "100M",
-		"-probesize", "100M",
+		"-analyzeduration", "200M",
+		"-probesize", "200M",
 		"-err_detect", "ignore_err",
 		"-i", inputPath,
 		"-map", "0:v:0?",
@@ -250,7 +251,7 @@ func runTierConversion(inputPath, m3u8Path, segmentPattern string, opts HLSOptio
 		"-b:a", tier.AudioBR,
 		"-ac", "2",
 		"-ar", "48000",
-		"-max_muxing_queue_size", "2048",
+		"-max_muxing_queue_size", "9999",
 		"-hls_time", fmt.Sprintf("%d", opts.SegmentTime),
 		"-hls_list_size", "0",
 		"-hls_segment_filename", segmentPattern,
@@ -262,8 +263,12 @@ func runTierConversion(inputPath, m3u8Path, segmentPattern string, opts HLSOptio
 		m3u8Path,
 	)
 
-	cmd := exec.Command("ffmpeg", args...)
-	var stderr bytes.Buffer
+	ctx, cancel := context.WithTimeout(context.Background(), 6*time.Hour)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "ffmpeg", args...)
+	var stderr limitedWriter
+	stderr.max = 2 << 20
 	cmd.Stderr = &stderr
 
 	if err := cmd.Run(); err != nil {
@@ -307,8 +312,11 @@ func findSegments(dir string) ([]string, error) {
 }
 
 func checkGPU() bool {
-	cmd := exec.Command("ffmpeg", "-hide_banner", "-encoders")
-	var out bytes.Buffer
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "ffmpeg", "-hide_banner", "-encoders")
+	var out limitedWriter
+	out.max = 512 << 10
 	cmd.Stdout = &out
 	if err := cmd.Run(); err != nil {
 		return false

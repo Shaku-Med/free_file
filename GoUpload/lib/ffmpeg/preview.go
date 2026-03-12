@@ -13,12 +13,14 @@ import (
 )
 
 type PreviewMeta struct {
-	Duration float64     `json:"duration"`
-	Cols     int         `json:"cols"`
-	Rows     int         `json:"rows"`
-	CellSize int         `json:"cellSize"`
-	Interval float64     `json:"interval"`
-	Cells    []PreviewCell `json:"cells"`
+	Duration   float64       `json:"duration"`
+	Cols       int           `json:"cols"`
+	Rows       int           `json:"rows"`
+	CellWidth  int           `json:"cellWidth"`
+	CellHeight int           `json:"cellHeight"`
+	CellSize   int           `json:"cellSize"`
+	Interval   float64       `json:"interval"`
+	Cells      []PreviewCell `json:"cells"`
 }
 
 type PreviewCell struct {
@@ -32,16 +34,26 @@ func BuildThumbnailPreview(thumbDir string, result *ThumbnailResult) (previewPat
 		return "", "", fmt.Errorf("no thumbnails")
 	}
 
+	firstImg, _, err := image.Decode(bytes.NewReader(result.Thumbnails[0].Data))
+	if err != nil {
+		return "", "", fmt.Errorf("decode first thumbnail: %w", err)
+	}
+	cellW := firstImg.Bounds().Dx()
+	cellH := firstImg.Bounds().Dy()
+	if cellW <= 0 || cellH <= 0 {
+		cellW = ThumbCellSize
+		cellH = ThumbCellSize
+	}
+
 	N := len(result.Thumbnails)
-	cell := ThumbCellSize
 	cols := int(math.Ceil(math.Sqrt(float64(N))))
 	if cols < 1 {
 		cols = 1
 	}
 	rows := (N + cols - 1) / cols
 
-	width := cols * cell
-	height := rows * cell
+	width := cols * cellW
+	height := rows * cellH
 
 	img := image.NewRGBA(image.Rect(0, 0, width, height))
 
@@ -53,13 +65,13 @@ func BuildThumbnailPreview(thumbDir string, result *ThumbnailResult) (previewPat
 
 		col := i % cols
 		row := i / cols
-		dr := image.Rect(col*cell, row*cell, (col+1)*cell, (row+1)*cell)
+		dr := image.Rect(col*cellW, row*cellH, (col+1)*cellW, (row+1)*cellH)
 
 		b := src.Bounds()
-		if b.Dx() == cell && b.Dy() == cell {
+		if b.Dx() == cellW && b.Dy() == cellH {
 			draw.Draw(img, dr, src, b.Min, draw.Src)
 		} else {
-			scaled := image.NewRGBA(image.Rect(0, 0, cell, cell))
+			scaled := image.NewRGBA(image.Rect(0, 0, cellW, cellH))
 			drawScaled(scaled, scaled.Bounds(), src, b)
 			draw.Draw(img, dr, scaled, image.Pt(0, 0), draw.Src)
 		}
@@ -88,12 +100,14 @@ func BuildThumbnailPreview(thumbDir string, result *ThumbnailResult) (previewPat
 	}
 
 	meta := PreviewMeta{
-		Duration: result.Duration,
-		Cols:     cols,
-		Rows:     rows,
-		CellSize: cell,
-		Interval: result.Interval,
-		Cells:    cells,
+		Duration:   result.Duration,
+		Cols:       cols,
+		Rows:       rows,
+		CellWidth:  cellW,
+		CellHeight: cellH,
+		CellSize:   cellW,
+		Interval:   result.Interval,
+		Cells:      cells,
 	}
 
 	metaPath = filepath.Join(thumbDir, "thumbnail_preview.json")

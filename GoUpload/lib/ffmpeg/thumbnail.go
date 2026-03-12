@@ -1,7 +1,7 @@
 package ffmpeg
 
 import (
-	"bytes"
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 )
 
 const (
@@ -48,14 +49,13 @@ func ExtractThumbnails(videoPath, outputDir string) (*ThumbnailResult, error) {
 		interval = ThumbMinInterval
 	}
 
-	vf := fmt.Sprintf("fps=1/%.2f,scale=%d:%d:force_original_aspect_ratio=increase,crop=%d:%d:(iw-%d)/2:(ih-%d)/2",
-		interval, ThumbCellSize, ThumbCellSize, ThumbCellSize, ThumbCellSize, ThumbCellSize, ThumbCellSize)
+	vf := fmt.Sprintf("fps=1/%.2f,scale=%d:-2", interval, ThumbCellSize)
 
 	pattern := filepath.Join(outputDir, "thumb_%04d.jpg")
 	args := []string{
 		"-fflags", "+genpts+igndts",
-		"-analyzeduration", "100M",
-		"-probesize", "100M",
+		"-analyzeduration", "200M",
+		"-probesize", "200M",
 		"-err_detect", "ignore_err",
 		"-i", videoPath,
 		"-vf", vf,
@@ -65,8 +65,12 @@ func ExtractThumbnails(videoPath, outputDir string) (*ThumbnailResult, error) {
 		pattern,
 	}
 
-	cmd := exec.Command("ffmpeg", args...)
-	var stderr bytes.Buffer
+	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Hour)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "ffmpeg", args...)
+	var stderr limitedWriter
+	stderr.max = 1 << 20
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
 		return nil, fmt.Errorf("ffmpeg: %w, stderr: %s", err, stderr.String())
@@ -113,14 +117,18 @@ func ExtractThumbnails(videoPath, outputDir string) (*ThumbnailResult, error) {
 func GetDuration(videoPath string) (float64, error) {
 	args := []string{
 		"-fflags", "+genpts+igndts",
-		"-analyzeduration", "100M",
-		"-probesize", "100M",
+		"-analyzeduration", "200M",
+		"-probesize", "200M",
 		"-err_detect", "ignore_err",
 		"-i", videoPath,
 	}
 
-	cmd := exec.Command("ffmpeg", args...)
-	var stderr bytes.Buffer
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "ffmpeg", args...)
+	var stderr limitedWriter
+	stderr.max = 256 << 10
 	cmd.Stderr = &stderr
 	_ = cmd.Run()
 

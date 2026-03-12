@@ -24,10 +24,10 @@ func main() {
 	server := &http.Server{
 		Addr:              ":" + port,
 		Handler:           handler,
-		ReadTimeout:       15 * time.Second,
-		ReadHeaderTimeout: 10 * time.Second,
-		WriteTimeout:      20 * time.Second,
-		IdleTimeout:       60 * time.Second,
+		ReadTimeout:       30 * time.Minute,
+		ReadHeaderTimeout: 30 * time.Second,
+		WriteTimeout:      30 * time.Minute,
+		IdleTimeout:       120 * time.Second,
 	}
 
 	go func() {

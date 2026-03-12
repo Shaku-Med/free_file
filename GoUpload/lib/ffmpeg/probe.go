@@ -2,6 +2,7 @@ package ffmpeg
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"math"
@@ -9,6 +10,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 )
 
 type VideoInfo struct {
@@ -34,19 +36,24 @@ type LoudnessInfo struct {
 func ProbeVideo(path string) (*VideoInfo, error) {
 	args := []string{
 		"-v", "quiet",
+		"-analyzeduration", "200M",
+		"-probesize", "200M",
 		"-print_format", "json",
 		"-show_streams",
 		"-show_format",
 		path,
 	}
 
-	cmd := exec.Command("ffprobe", args...)
-	var stdout, stderr bytes.Buffer
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "ffprobe", args...)
+	var stdout bytes.Buffer
 	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
+	cmd.Stderr = &limitedWriter{max: 1 << 20}
 
 	if err := cmd.Run(); err != nil {
-		return nil, fmt.Errorf("ffprobe: %w, stderr: %s", err, stderr.String())
+		return nil, fmt.Errorf("ffprobe: %w", err)
 	}
 
 	var result struct {
@@ -117,6 +124,9 @@ func ProbeVideo(path string) (*VideoInfo, error) {
 
 func ProbeLoudness(path string) (*LoudnessInfo, error) {
 	args := []string{
+		"-fflags", "+genpts+igndts",
+		"-analyzeduration", "200M",
+		"-probesize", "200M",
 		"-i", path,
 		"-af", "loudnorm=I=-16:TP=-1.5:LRA=11:print_format=json",
 		"-f", "null",
@@ -125,8 +135,12 @@ func ProbeLoudness(path string) (*LoudnessInfo, error) {
 		"-",
 	}
 
-	cmd := exec.Command("ffmpeg", args...)
-	var stderr bytes.Buffer
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Hour)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "ffmpeg", args...)
+	var stderr limitedWriter
+	stderr.max = 2 << 20
 	cmd.Stderr = &stderr
 	_ = cmd.Run()
 
@@ -203,4 +217,59 @@ func gcd(a, b int) int {
 		a, b = b, a%b
 	}
 	return a
+}
+
+// ValidateVideo runs a quick decode test on the first few seconds and checks
+// that ffprobe can read at least one video stream. Returns nil if the file is
+// a valid, decodable video.
+func ValidateVideo(path string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+
+	args := []string{
+		"-v", "error",
+		"-fflags", "+genpts+igndts",
+		"-analyzeduration", "200M",
+		"-probesize", "200M",
+		"-i", path,
+		"-t", "5",
+		"-f", "null",
+		"-",
+	}
+	cmd := exec.CommandContext(ctx, "ffmpeg", args...)
+	var stderr limitedWriter
+	stderr.max = 512 << 10
+	cmd.Stderr = &stderr
+
+	if err := cmd.Run(); err != nil {
+		out := stderr.String()
+		if out != "" {
+			return fmt.Errorf("invalid video: %s", out)
+		}
+		return fmt.Errorf("invalid video: %w", err)
+	}
+	return nil
+}
+
+// limitedWriter is an io.Writer that silently stops accepting data after max
+// bytes, preventing unbounded memory growth from FFmpeg's stderr progress output.
+type limitedWriter struct {
+	buf bytes.Buffer
+	max int
+}
+
+func (w *limitedWriter) Write(p []byte) (int, error) {
+	remaining := w.max - w.buf.Len()
+	if remaining <= 0 {
+		return len(p), nil
+	}
+	if len(p) > remaining {
+		p = p[:remaining]
+	}
+	w.buf.Write(p)
+	return len(p), nil
+}
+
+func (w *limitedWriter) String() string {
+	return w.buf.String()
 }
