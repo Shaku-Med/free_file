@@ -615,10 +615,28 @@ const index = () => {
   const commentsCount = data.commentsCount || 0;
   const isOwner = Boolean(data.userId && file_data?.owner_id && data.userId === file_data.owner_id);
 
-  const retry = () => {
+  const retry = useCallback(() => {
     if(retryAttempt >= 1) return;
-    setRetryAttempt(retryAttempt + 1);
-  }
+    setRetryAttempt(prev => prev + 1);
+  }, [retryAttempt])
+
+  const imageLoadCallBack = useCallback((e: { src: string; colors: string[] }) => {
+    setMadeImageUrl(e.src)
+    setImageColors(e.colors)
+  }, [])
+
+  const hlsCallBack = useCallback((e: { src: string; colors: string[] }) => {
+    setImageColors(e.colors)
+    setMadeImageUrl(e.src)
+  }, [])
+
+  const handleVideoRef = useCallback((ref: HTMLVideoElement | null) => {
+    setVideoRefReady(!!ref);
+  }, [])
+
+  const handleVideoSelect = useCallback((video: FileType) => {
+    navigate(`/${video.unique_id}`);
+  }, [navigate])
 
   const relatedVideos = data.relatedVideos ?? [];
   const suggestedVideos = relatedVideos.filter((v: FileType) => v.unique_id !== currentId).slice(0, 8);
@@ -716,15 +734,10 @@ const index = () => {
             imageID={file_data.unique_id}
             file={file_data}
             key={`hls-${file_data.unique_id}-${currentId}`}
-            onVideoRef={(ref) => {
-              setVideoRefReady(!!ref);
-            }}
-            callBack={e => {
-              setImageColors(e.colors)
-              setMadeImageUrl(e.src)
-            }}
+            onVideoRef={handleVideoRef}
+            callBack={hlsCallBack}
             suggestedVideos={suggestedVideos}
-            onVideoSelect={(video) => navigate(`/${video.unique_id}`)}
+            onVideoSelect={handleVideoSelect}
             onAmbientModeChange={setAmbientEnabled}
           />
         ) : (
@@ -745,10 +758,7 @@ const index = () => {
               imageID={file_data.unique_id}
               index={0}
               hasAdultTag={false}
-              callBack={e => {
-                setMadeImageUrl(e.src)
-                setImageColors(e.colors)
-              }}
+              callBack={imageLoadCallBack}
               key={file_data.unique_id}
               shouldShowPreview={true}
             />

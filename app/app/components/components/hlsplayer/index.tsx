@@ -115,6 +115,8 @@ function PlayerInner({
   }, []);
 
   const { isPipActive, isContentInPip } = usePictureInPictureContext();
+  const callBackRef = useRef(callBack);
+  callBackRef.current = callBack;
   const [mediaSessionImage, setMediaSessionImage] = useState<string | null>(null);
   const [showPlayPauseFeedback, setShowPlayPauseFeedback] = useState(false);
   const [feedbackFading, setFeedbackFading] = useState(false);
@@ -166,6 +168,11 @@ function PlayerInner({
     },
     [setTheaterMode, setPlayerSettings, savePlayerSettings]
   );
+
+  const handlePosterImageLoaded = useCallback((imgSrc: string, colors: string[]) => {
+    setMediaSessionImage(imgSrc);
+    callBackRef.current?.({ src: imgSrc, colors });
+  }, []);
 
   useEffect(() => {
     if (onAmbientModeChange) {
@@ -345,10 +352,7 @@ function PlayerInner({
     >
       {ambientMode && <AmbientBackground />}
       <PosterBackground
-        onImageLoaded={(imgSrc, colors) => {
-          setMediaSessionImage(imgSrc);
-          callBack?.({ src: imgSrc, colors });
-        }}
+        onImageLoaded={handlePosterImageLoaded}
       />
 
       <div className="relative z-10 w-full h-full" onTouchEnd={handleTouchEnd}>

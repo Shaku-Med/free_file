@@ -1,4 +1,4 @@
-import React, { useEffect, useLayoutEffect, useMemo, useState, useRef } from 'react'
+import React, { useEffect, useLayoutEffect, useMemo, useState, useRef, useCallback } from 'react'
 import { useInView } from 'react-intersection-observer'
 import { cn } from '~/lib/utils'
 import { Loader2, LoaderCircle } from 'lucide-react'
@@ -58,39 +58,54 @@ const ImageLoad = ({
         rootMargin: '50px',
     })
 
+    const retryRef = useRef(retry)
+    retryRef.current = retry
+    const callBackRef = useRef(callBack)
+    callBackRef.current = callBack
+
     const resolvedLink = useMemo(() => {
         if (!link) return null;
         try {
             let videoTypes = [`.mp4`, `.mov`, `.m4v`, `.avi`, `.wmv`, `.flv`, `.webm`, `.mkv`, `.m3u8`, `.ts`]
             let lk = `${videoTypes.reduce((url, ext) => url.replace(new RegExp(ext.replace('.', '\\.'), 'gi'), ''), link)}${quality ? `/?quality=${quality}` : ''}`
-            imageID = quality ? `${imageID}_${quality}` : imageID
             return lk
         } catch (error) {
             console.error('Failed to resolve link:', error)
             return null
         }
-    }, [link, quality, imageID, retry]);
+    }, [link, quality]);
 
     const resolvedImageID = useMemo(
         () => (quality && imageID ? `${imageID}_${quality}` : imageID ?? ''),
-        [imageID, quality, retry],
+        [imageID, quality],
     );
 
+    const hasFetchedRef = useRef(false)
+
     useLayoutEffect(() => {
-        if (!inView || !resolvedLink) return
+        hasFetchedRef.current = false
+    }, [resolvedLink, resolvedImageID])
+
+    useLayoutEffect(() => {
+        if (!inView || !resolvedLink || hasFetchedRef.current) return
+        hasFetchedRef.current = true
+
+        let cancelled = false
 
         let fetchImage = async () => {
             if (!resolvedLink) return
 
             if (resolvedImageID && (window as any)[`_${resolvedImageID}`]) {
-                setSrc((window as any)[`_${resolvedImageID}`].imageUrl)
-                setError(false)
+                if (!cancelled) {
+                    setSrc((window as any)[`_${resolvedImageID}`].imageUrl)
+                    setError(false)
+                }
                 return
             }
 
             if (resolvedImageID && await hasImageBlob(resolvedImageID)) {
                 const cachedImage = await getImageBlob(resolvedImageID)
-                if (cachedImage) {
+                if (cachedImage && !cancelled) {
                     const currentCache = (window as any)[`_${resolvedImageID}`] || {};
                     (window as any)[`_${resolvedImageID}`] = {
                         ...currentCache,
@@ -103,7 +118,6 @@ const ImageLoad = ({
             }
 
             try {
-
                 let response = await fetch(`${secondaryBaseUrl || IMAGE_BASE_URL}${resolvedLink}`, {
                     method: 'GET',
                     headers: {
@@ -112,10 +126,11 @@ const ImageLoad = ({
                     mode: 'cors',
                 })
                 if (!response.ok) {
-                    setError(true)
+                    if (!cancelled) setError(true)
                     return
                 }
                 let blob = await response.blob()
+                if (cancelled) return
                 let blobURL = URL.createObjectURL(blob)
     
                 if (resolvedImageID) {
@@ -135,30 +150,32 @@ const ImageLoad = ({
                 let image = new Image()
                 image.src = blobURL
                 image.onload = () => {
-                    setSrc(image.src)
-                    setError(false)
+                    if (!cancelled) {
+                        setSrc(image.src)
+                        setError(false)
+                    }
                 }
                 image.onerror = () => {
-                    setError(true)
-                    return;
+                    if (!cancelled) setError(true)
                 }
             }
             catch {
-                setError(true)
-                return;
+                if (!cancelled) setError(true)
             }
 
         }
         fetchImage()
-    }, [inView, resolvedLink, resolvedImageID, index, quality, retry])
+
+        return () => { cancelled = true }
+    }, [inView, resolvedLink, resolvedImageID])
 
     useEffect(() => {
-        if (src && typeof src === 'string' && callBack && inView && !loaded) {
+        if (src && typeof src === 'string' && callBackRef.current && inView && !loaded) {
             let CLBK = async () => {
                 try {
                     let colors = await getImageColorsHEX({ src: src as string })
                     setColors(colors || [])
-                    callBack && callBack({
+                    callBackRef.current?.({
                         src: src as string,
                         colors: colors || [],
                     })
@@ -166,12 +183,12 @@ const ImageLoad = ({
                 }
                 catch (error) {
                     console.error('Failed to get image colors:', error)
-                    retry()
+                    retryRef.current()
                 }
             }
             CLBK()
         }
-    }, [src, inView, callBack, loaded])
+    }, [src, inView, loaded])
 
     useEffect(() => {
         if(window !== undefined) {
@@ -213,7 +230,7 @@ const ImageLoad = ({
                             alt="Thumbnail"
                             className={cn("w-full h-full object-cover animate-in fade-in-0 zoom-in-95", className)}
                             loading="lazy"
-                            onError={() => retry()}
+                            onError={() => retryRef.current()}
                             onLoad={() => setLoaded(true)}
                         />
                         {multipleImages.length > 1 && (

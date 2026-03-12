@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { motion } from "framer-motion";
 import { Link, useNavigate } from "react-router";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "~/components/ui/dialog";
@@ -224,7 +224,7 @@ const VideoCard = ({ data, index, currentUserId, userActions, onUpdate, showOwne
     }
   };
 
-  const getThumbnailLink = () => {
+  const thumbnailLink = useMemo(() => {
     if (data.file_type.startsWith("image/") && data.endpoint) {
       return `/api/load/image/${data.endpoint}`;
     }
@@ -236,7 +236,19 @@ const VideoCard = ({ data, index, currentUserId, userActions, onUpdate, showOwne
       return `/api/load/image/${randomThumbnail}`;
     }
     return `/api/load/image/${arrangeDateForThumbnail(data.created_at, retryAttempt)}/${data.unique_id}/thumbnail_${ParseFilename(data.filename)}.jpg`;
-  };
+  }, [data.file_type, data.endpoint, data.thumbnails, data.created_at, data.unique_id, data.filename, retryAttempt]);
+
+  const handleRetry = useCallback(() => {
+    if (retryAttempt >= 1) {
+      setError(true);
+      return;
+    }
+    setRetryAttempt((prev) => prev + 1);
+  }, [retryAttempt]);
+
+  const handleImageLoaded = useCallback((e: { src: string; colors: string[] }) => {
+    if (e) setLoaded(true);
+  }, []);
 
   const renderThumbnail = (className?: string) => (
     <div className={`relative ${className || ""}`}>
@@ -247,20 +259,12 @@ const VideoCard = ({ data, index, currentUserId, userActions, onUpdate, showOwne
       >
         {!error && !isPending ? (
           <ImageLoad
-            link={getThumbnailLink()}
+            link={thumbnailLink}
             imageID={data.unique_id}
             index={index}
-            retry={() => {
-              if (retryAttempt >= 1) {
-                setError(true);
-                return;
-              }
-              setRetryAttempt((prev) => prev + 1);
-            }}
+            retry={handleRetry}
             className="w-full h-full object-cover transition-all duration-300"
-            callBack={(e) => {
-              if (e) setLoaded(true);
-            }}
+            callBack={handleImageLoaded}
             quality={50}
             hasAdultTag={Boolean(data.is_adult)}
           />

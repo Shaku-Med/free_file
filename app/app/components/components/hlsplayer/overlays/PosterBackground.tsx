@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useCallback, useMemo, useRef } from 'react';
 import ImageLoad from '~/routes/Home/components/ImageLoad/ImageLoad';
 import { getRandomThumbnail, arrangeDateForThumbnail } from '~/lib/utils';
 import { usePlayerContext } from '../PlayerContext';
@@ -12,32 +12,40 @@ export default function PosterBackground({ onImageLoaded }: PosterBackgroundProp
   const [retryCount, setRetryCount] = useState(0);
   const [hasError, setHasError] = useState(false);
 
-  if (!file) return null;
+  const onImageLoadedRef = useRef(onImageLoaded);
+  onImageLoadedRef.current = onImageLoaded;
 
-  const link = (() => {
+  const link = useMemo(() => {
+    if (!file) return '';
     const thumb = getRandomThumbnail(file.thumbnails);
     if (thumb) return `/api/load/image/${thumb}`;
     return `/api/load/image/${arrangeDateForThumbnail(file.created_at, retryCount)}/${file.unique_id}/thumbnail_${file.filename.split('.mp4.m3u8')[0]}.jpg`;
-  })();
+  }, [file?.thumbnails, file?.created_at, file?.unique_id, file?.filename, retryCount]);
+
+  const handleRetry = useCallback(() => {
+    if (retryCount < 1) setRetryCount(prev => prev + 1);
+    else setHasError(true);
+  }, [retryCount]);
+
+  const handleCallBack = useCallback((e: { src: string; colors: string[] }) => {
+    if (e) {
+      const colors = e.colors || [];
+      setAmbientColors(colors);
+      onImageLoadedRef.current?.(e.src, colors);
+    }
+  }, [setAmbientColors]);
+
+  if (!file) return null;
 
   return (
     <div className="absolute inset-0 pointer-events-none overflow-hidden">
       <div className="w-full h-full blur-2xl scale-110">
         {!hasError ? (
           <ImageLoad
-            callBack={e => {
-              if (e) {
-                const colors = e.colors || [];
-                setAmbientColors(colors);
-                onImageLoaded?.(e.src, colors);
-              }
-            }}
+            callBack={handleCallBack}
             hasAdultTag={false}
             link={link}
-            retry={() => {
-              if (retryCount < 1) setRetryCount(retryCount + 1);
-              else setHasError(true);
-            }}
+            retry={handleRetry}
             className="w-full h-full object-cover"
             imageID={imageID}
             index={0}
