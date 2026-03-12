@@ -108,7 +108,7 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
     return () => document.removeEventListener("mousedown", handleClickOutside)
   }, [])
 
-  const effectiveMaxSize = maxFileSizeBytes ?? 40 * 1024 * 1024
+  const effectiveMaxSize = maxFileSizeBytes ?? 4 * 1024 * 1024 * 1024 // 4GB default
 
   const resetState = () => {
     items.forEach((item) => {

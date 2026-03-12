@@ -30,6 +30,7 @@ import { ThemeApply } from "./components/ThemeApply";
 import type { UserTheme } from "./lib/theme/constants";
 import { parseUserTheme } from "./lib/theme/constants";
 import { getPlayerSettingsFromCookies } from "./routes/Api/player-settings";
+import { BASE_URL } from "./lib/URLS";
 
 export const links: Route.LinksFunction = () => [
   { rel: "preconnect", href: "https://fonts.googleapis.com" },
@@ -215,8 +216,32 @@ export function Layout({ children }: { children: React.ReactNode }) {
         <meta name="mobile-web-app-title" content={SITE_NAME} />
         <link rel="stylesheet" href={`/themes/${themeStyle}.css`} />
         <link rel="manifest" href="/manifest.json" />
+        <link rel="shortcut icon" href="/favicon.ico" sizes="any" type="image/x-icon" />
+        <link rel="icon" href="/icons/web/icon-192.png" type="image/png" sizes="192x192" />
+        <link rel="icon" href="/icons/web/icon-512.png" type="image/png" sizes="512x512" />
+        <link rel="icon" href="/icons/web/icon-192-maskable.png" type="image/png" sizes="192x192" />
+        <link rel="icon" href="/icons/web/icon-512-maskable.png" type="image/png" sizes="512x512" />
+        <link rel="apple-touch-icon" href="/icons/web/apple-touch-icon.png" />
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{
+            __html: JSON.stringify({
+              "@context": "https://schema.org",
+              "@type": "WebSite",
+              name: SITE_NAME,
+              url: BASE_URL,
+              potentialAction: {
+                "@type": "SearchAction",
+                target: `${BASE_URL}/search/{search_term_string}`,
+                "query-input": "required name=search_term_string",
+              },
+            }),
+          }}
+        />
         <Meta />
         <Links />
+
+        <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-3095543324642261" crossOrigin="anonymous"></script>
       </head>
       <body className={`flex flex-col fixed top-0 left-0 w-full h-full`}>
         <ThemeApply userTheme={userTheme ?? null} />
