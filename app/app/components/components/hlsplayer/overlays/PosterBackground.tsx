@@ -4,7 +4,7 @@ import { getRandomThumbnail, arrangeDateForThumbnail } from '~/lib/utils';
 import { usePlayerContext } from '../PlayerContext';
 
 interface PosterBackgroundProps {
-  onImageLoaded?: (src: string, colors: string[]) => void;
+  onImageLoaded?: (src: string, colors: string[], mediaSessionUrl?: string) => void;
 }
 
 export default function PosterBackground({ onImageLoaded }: PosterBackgroundProps) {
@@ -31,9 +31,13 @@ export default function PosterBackground({ onImageLoaded }: PosterBackgroundProp
     if (e) {
       const colors = e.colors || [];
       setAmbientColors(colors);
-      onImageLoadedRef.current?.(e.src, colors);
+      // Use absolute URL for media session (blob URLs don't work in lock screen/notifications)
+      const mediaSessionUrl = typeof window !== 'undefined' && link
+        ? `${window.location.origin}${link}`
+        : e.src;
+      onImageLoadedRef.current?.(e.src, colors, mediaSessionUrl);
     }
-  }, [setAmbientColors]);
+  }, [setAmbientColors, link]);
 
   if (!file) return null;
 

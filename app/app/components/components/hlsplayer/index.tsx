@@ -170,8 +170,8 @@ function PlayerInner({
     [setTheaterMode, setPlayerSettings, savePlayerSettings]
   );
 
-  const handlePosterImageLoaded = useCallback((imgSrc: string, colors: string[]) => {
-    setMediaSessionImage(imgSrc);
+  const handlePosterImageLoaded = useCallback((imgSrc: string, colors: string[], mediaSessionUrl?: string) => {
+    setMediaSessionImage(mediaSessionUrl ?? imgSrc);
     callBackRef.current?.({ src: imgSrc, colors });
   }, []);
 

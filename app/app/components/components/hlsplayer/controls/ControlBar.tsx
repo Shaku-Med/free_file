@@ -118,7 +118,7 @@ export default function ControlBar({ onNext, theaterMode = false, onTheaterModeC
         {/* Right group: fullscreen always visible; theater + settings inline or in dropdown */}
         <div className={`flex items-center gap-1 shrink-0 ${barBg} px-2 py-1.5`} ref={overflowRef}>
           <CastButton />
-          <PipButton />
+          {/* <PipButton /> */}
           <FullscreenButton />
           {showRightInline ? (
             <>

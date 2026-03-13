@@ -6,7 +6,7 @@ export const meta: MetaFunction = () =>
   buildPageMeta({
     title: "Roadmap and upcoming features | Memories",
     description:
-      "See what we're building next at Memories: realtime collaboration, private chat, AI scripting, reels, and more. Check our roadmap and live features.",
+      "See what we're building next at Memories: live streaming, floating PiP player, real-time chat, multi-lingual transcription, AI analyser, UI upgrade, and more.",
     canonicalPath: "/features/incoming",
   });
 
@@ -39,6 +39,36 @@ const features = [
   {
     title: `Live video transcription`,
     description: 'Transcribe live videos in real-time.',
+    fulfilled: false
+  },
+  {
+    title: 'Live streaming',
+    description: 'Stream live to your audience in real-time.',
+    fulfilled: false
+  },
+  {
+    title: 'Floating Picture-in-Picture player',
+    description: 'Watch creators while scrolling—a draggable mini player so you never miss out. Move to the next video with easy swipe controls.',
+    fulfilled: false
+  },
+  {
+    title: 'Real-time chat',
+    description: 'Chat with creators and viewers during streams and on videos.',
+    fulfilled: false
+  },
+  {
+    title: 'Video transcription — multi-lingual',
+    description: 'Auto-transcribe videos and support subtitles in multiple languages.',
+    fulfilled: false
+  },
+  {
+    title: 'AI analyser',
+    description: 'AI-powered insights: content analysis, tags, summaries, and recommendations.',
+    fulfilled: false
+  },
+  {
+    title: 'UI upgrade',
+    description: 'A refreshed, modern interface with improved navigation and experience.',
     fulfilled: false
   },
   {
