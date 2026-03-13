@@ -48,6 +48,7 @@ export interface PlayerState {
 interface PlayerContextValue {
   hlsRef: RefObject<Hls | null>;
   containerRef: RefObject<HTMLDivElement | null>;
+  videoRef: RefObject<HTMLVideoElement>;
   state: PlayerState;
   setState: React.Dispatch<React.SetStateAction<PlayerState>>;
 
@@ -310,6 +311,7 @@ export function PlayerProvider({ children, src, file, imageID, isReel, loop: ini
   const value: PlayerContextValue = {
     hlsRef,
     containerRef,
+    videoRef,
     state,
     setState,
     src,

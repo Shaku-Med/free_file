@@ -97,6 +97,7 @@ function PlayerInner({
     state,
     setState,
     togglePlay,
+    setPlaybackRate,
     isReel: isReelCtx,
     setSpriteMeta,
     setSpriteUrl,
@@ -334,12 +335,22 @@ function PlayerInner({
           e.preventDefault();
           handleTheaterModeChange(!theaterMode);
           break;
+        case ',':
+          if (!e.shiftKey) break; // < is Shift+,
+          e.preventDefault();
+          setPlaybackRate(Math.max(0.25, (video.playbackRate || 1) - 0.25));
+          break;
+        case '.':
+          if (!e.shiftKey) break; // > is Shift+.
+          e.preventDefault();
+          setPlaybackRate(Math.min(2, (video.playbackRate || 1) + 0.25));
+          break;
       }
     };
 
     window.addEventListener('keydown', handleKey);
     return () => window.removeEventListener('keydown', handleKey);
-  }, [isReelCtx, togglePlay, triggerPlayPauseFeedback, theaterMode, handleTheaterModeChange, isMobileView]);
+  }, [isReelCtx, togglePlay, triggerPlayPauseFeedback, theaterMode, handleTheaterModeChange, isMobileView, setPlaybackRate]);
 
   const showControls = state.controlsVisible && !isReelCtx;
   const showBuffer = state.isBuffering && !state.isLoaded || (state.isBuffering && videoRef.current && videoRef.current.readyState < 3);
@@ -379,7 +390,8 @@ function PlayerInner({
           preload="metadata"
           onClick={handleVideoClick}
           onDoubleClick={handleDoubleClick}
-          {...(isReelCtx ? { disablePictureInPicture: true, controlsList: 'nopictureinpicture' } : {})}
+          disableRemotePlayback={false}
+          {...(isReelCtx ? { disablePictureInPicture: true, controlsList: 'nopictureinpicture noremoteplayback' } : {})}
         />
 
         {!isReelCtx && !loopEnabled && (

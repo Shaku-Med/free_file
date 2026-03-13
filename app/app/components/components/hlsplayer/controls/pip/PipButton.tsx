@@ -1,22 +1,20 @@
 import { PictureInPicture2 } from 'lucide-react';
-import { usePictureInPictureContext } from '~/lib/Context/PictureInPictureContext';
 import { usePlayerContext } from '../../PlayerContext';
+import { usePictureInPictureContext } from '~/lib/Context/PictureInPictureContext';
 
 export default function PipButton() {
-  const { videoRef, src, imageID, file, loop } = usePlayerContext();
-  const { supportsPip, toggleDocumentPip } = usePictureInPictureContext();
+  const { videoRef, src, imageID, file, loop, isReel } = usePlayerContext();
+  const { supportsPip, isContentInPip, toggleDocumentPip } = usePictureInPictureContext();
 
-  if (!supportsPip) return null;
-
-  const handleClick = () => {
-    toggleDocumentPip(src, videoRef, imageID, file, loop);
-  };
+  if (!supportsPip || isReel) return null;
+  if (isContentInPip(imageID)) return null; // Already in PiP - overlay handles exit
 
   return (
     <button
-      onClick={handleClick}
+      onClick={() => toggleDocumentPip(src, videoRef, imageID, file, loop)}
       className="p-1.5 rounded-md hover:bg-white/10 transition-colors text-white"
-      aria-label="Picture in Picture"
+      aria-label="Picture-in-Picture"
+      title="Picture-in-Picture"
     >
       <PictureInPicture2 className="w-5 h-5" />
     </button>

@@ -732,7 +732,7 @@ const index = () => {
             muted={false}
             playsInline
             imageID={file_data.unique_id}
-            file={file_data}
+            file={{ ...file_data, owner: data?.owner }}
             key={`hls-${file_data.unique_id}-${currentId}`}
             onVideoRef={handleVideoRef}
             callBack={hlsCallBack}

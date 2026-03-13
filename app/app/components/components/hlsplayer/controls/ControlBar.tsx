@@ -8,6 +8,8 @@ import VolumeControl from './volume/VolumeControl';
 import SettingsMenu from './settings/SettingsMenu';
 import TheaterButton from './theater/TheaterButton';
 import FullscreenButton from './fullscreen/FullscreenButton';
+import CastButton from './cast/CastButton';
+import PipButton from './pip/PipButton';
 import { formatTime } from './seek/functions/formatTime';
 
 const DROPDOWN_GAP = 8;
@@ -115,7 +117,8 @@ export default function ControlBar({ onNext, theaterMode = false, onTheaterModeC
 
         {/* Right group: fullscreen always visible; theater + settings inline or in dropdown */}
         <div className={`flex items-center gap-1 shrink-0 ${barBg} px-2 py-1.5`} ref={overflowRef}>
-          {/* Fullscreen always side by side with ellipsis so user can always see it */}
+          <CastButton />
+          <PipButton />
           <FullscreenButton />
           {showRightInline ? (
             <>

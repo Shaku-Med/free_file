@@ -66,5 +66,5 @@ export function useMediaSession(mediaSessionImage: string | null, videoRef: Reac
       video.removeEventListener('play', handlePlayPause);
       video.removeEventListener('pause', handlePlayPause);
     };
-  }, [file, isReel, state.isPlaying]);
+  }, [file, isReel, state.isPlaying, mediaSessionImage]);
 }
