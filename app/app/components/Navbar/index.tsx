@@ -38,6 +38,7 @@ const galleryCategories = [
 
 
 import type { ScrollState } from "./components/BodyComponent";
+import { useIsMobile, useIsMobileByUserAgent } from "~/hooks/use-mobile";
 
 interface NavbarProps {
   hasScrolled?: ScrollState;
@@ -51,6 +52,7 @@ export default function Navbar({ hasScrolled = { state: false, opacityLevel: 0 }
   const location = useLocation();
   const isReelRoute = location.pathname.startsWith("/reel");
   const isStandalone = useStandalone();
+  const C_IsMobile = useIsMobile()
 
   useEffect(() => {
     if (!userId) {
@@ -78,7 +80,7 @@ export default function Navbar({ hasScrolled = { state: false, opacityLevel: 0 }
       }`}
     >
       <div
-        className="background_scroll absolute inset-0 bg-card shadow-lg border-b transition-opacity duration-200 ease-out pointer-events-none"
+        className={`background_scroll absolute inset-0 ${C_IsMobile ? `bg-background` : `bg-card`} shadow-lg border-b transition-opacity duration-200 ease-out pointer-events-none`}
         style={{ opacity: hasScrolled.opacityLevel }}
       />
       <div className="relative mx-auto px-3 sm:px-6 xl:px-8 min-w-0">
