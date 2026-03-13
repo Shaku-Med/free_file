@@ -211,6 +211,10 @@ const ImageLoad = ({
         })
     }
 
+    const hasBlobSrc = typeof src === 'string' && !!src
+    const canShowFromUrl = !hasAdultTag && (resolvedLink && !error)
+    const canShowImage = hasAdultTag ? hasBlobSrc : (hasBlobSrc || canShowFromUrl)
+
     return (
         <>
             <div
@@ -218,7 +222,7 @@ const ImageLoad = ({
                 className={cn("w-full h-full relative", shouldShowPreview && "cursor-pointer", className)}
                 onClick={handlePreviewOpen}
             >
-                {src || resolvedLink && !error ? (
+                {canShowImage ? (
                     <>
                         {!loaded && (
                             <div className="absolute top-2 right-2 h-fit w-fit flex items-center justify-center text-xs flex-col gap-2">
@@ -226,7 +230,7 @@ const ImageLoad = ({
                             </div>
                         )}
                         <img
-                            src={!files.length && typeof src === 'string' && src ? src : `${secondaryBaseUrl || IMAGE_BASE_URL}${resolvedLink}`}
+                            src={hasAdultTag ? (src as string) : (!files.length && hasBlobSrc ? src : `${secondaryBaseUrl || IMAGE_BASE_URL}${resolvedLink}`)}
                             alt="Thumbnail"
                             className={cn("w-full h-full object-cover animate-in fade-in-0 zoom-in-95", className)}
                             loading="lazy"

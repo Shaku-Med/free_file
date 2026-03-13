@@ -757,7 +757,7 @@ const index = () => {
               className="w-full h-full object-contain"
               imageID={file_data.unique_id}
               index={0}
-              hasAdultTag={false}
+              hasAdultTag={Boolean(file_data.is_adult)}
               callBack={imageLoadCallBack}
               key={file_data.unique_id}
               shouldShowPreview={true}

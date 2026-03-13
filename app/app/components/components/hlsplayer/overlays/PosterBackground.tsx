@@ -43,7 +43,7 @@ export default function PosterBackground({ onImageLoaded }: PosterBackgroundProp
         {!hasError ? (
           <ImageLoad
             callBack={handleCallBack}
-            hasAdultTag={false}
+            hasAdultTag={Boolean(file?.is_adult)}
             link={link}
             retry={handleRetry}
             className="w-full h-full object-cover"
