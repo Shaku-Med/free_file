@@ -5,6 +5,20 @@ import {
   verifySegmentToken,
   rewriteM3U8,
 } from "~/lib/Services/SegmentTokenService";
+import db from "~/lib/Database/supabase";
+import { checkFileAccess } from "~/routes/Dynamic/fun/accessControl";
+
+const getFileFromPath = async (path: string) => {
+  if (!db) return null;
+  const pathParts = path.split("/");
+  const uniqueId = pathParts.length > 2 ? pathParts[1] : pathParts[0];
+  const { data } = await db
+    .from("files")
+    .select("id, is_adult, is_public, owner_id")
+    .eq("unique_id", uniqueId)
+    .maybeSingle();
+  return data || null;
+};
 
 const VKF = async (request: Request) => {
   try {
@@ -39,6 +53,14 @@ export const loader = async ({ request }: { request: Request }) => {
 
     const sanitizedPath = sanitizeFilePath(filePath);
     if (!sanitizedPath) return new Response(null, { status: 400 });
+
+    const file = await getFileFromPath(sanitizedPath);
+    if (file) {
+      const accessControl = await checkFileAccess(request, file);
+      if (!accessControl.allowed) {
+        return new Response(null, { status: 403 });
+      }
+    }
 
     const ext = sanitizedPath.split(".").pop()?.toLowerCase();
     const isM3U8 = ext === "m3u8";
