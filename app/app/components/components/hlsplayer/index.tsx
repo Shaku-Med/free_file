@@ -391,6 +391,7 @@ function PlayerInner({
           onClick={handleVideoClick}
           onDoubleClick={handleDoubleClick}
           disableRemotePlayback={false}
+          {...({ 'x-webkit-airplay': 'allow' } as any)}
           {...(isReelCtx ? { disablePictureInPicture: true, controlsList: 'nopictureinpicture noremoteplayback' } : {})}
         />
 

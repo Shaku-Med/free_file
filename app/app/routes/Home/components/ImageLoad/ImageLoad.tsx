@@ -12,6 +12,8 @@ import ImgPreview from './ImgPreview/ImgPreview'
 interface CallBackProps {
     src: string
     colors: string[]
+    /** Blob URL from fetch, for media session (when getMediaSessionURL is true) */
+    mediaSessionUrl?: string
 }
 
 interface ImageLoadProps {
@@ -26,6 +28,7 @@ interface ImageLoadProps {
     shouldShowPreview?: boolean
     multipleImages?: string[]
     multipleCurrentImageIndex?: number
+    getMediaSessionURL?: boolean
 }
 
 const ImageLoad = ({
@@ -40,6 +43,7 @@ const ImageLoad = ({
     shouldShowPreview = false,
     multipleImages = [],
     multipleCurrentImageIndex = 0,
+    getMediaSessionURL = false,
 }: ImageLoadProps) => {
     const { c_user, userId, files, isDevelopment } = useFileContext()
     const [src, setSrc] = useState<string | null | boolean>(null)
@@ -178,6 +182,7 @@ const ImageLoad = ({
                     callBackRef.current?.({
                         src: src as string,
                         colors: colors || [],
+                        ...(getMediaSessionURL && { mediaSessionUrl: src as string }),
                     })
                     return
                 }
@@ -188,7 +193,7 @@ const ImageLoad = ({
             }
             CLBK()
         }
-    }, [src, inView, loaded])
+    }, [src, inView, loaded, getMediaSessionURL])
 
     useEffect(() => {
         if(window !== undefined) {

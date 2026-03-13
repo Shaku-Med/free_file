@@ -27,17 +27,13 @@ export default function PosterBackground({ onImageLoaded }: PosterBackgroundProp
     else setHasError(true);
   }, [retryCount]);
 
-  const handleCallBack = useCallback((e: { src: string; colors: string[] }) => {
+  const handleCallBack = useCallback((e: { src: string; colors: string[]; mediaSessionUrl?: string }) => {
     if (e) {
       const colors = e.colors || [];
       setAmbientColors(colors);
-      // Use absolute URL for media session (blob URLs don't work in lock screen/notifications)
-      const mediaSessionUrl = typeof window !== 'undefined' && link
-        ? `${window.location.origin}${link}`
-        : e.src;
-      onImageLoadedRef.current?.(e.src, colors, mediaSessionUrl);
+      onImageLoadedRef.current?.(e.src, colors, e.mediaSessionUrl);
     }
-  }, [setAmbientColors, link]);
+  }, [setAmbientColors]);
 
   if (!file) return null;
 
@@ -47,6 +43,7 @@ export default function PosterBackground({ onImageLoaded }: PosterBackgroundProp
         {!hasError ? (
           <ImageLoad
             callBack={handleCallBack}
+            getMediaSessionURL={true}
             hasAdultTag={Boolean(file?.is_adult)}
             link={link}
             retry={handleRetry}
