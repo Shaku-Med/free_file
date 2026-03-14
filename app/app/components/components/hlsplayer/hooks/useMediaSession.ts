@@ -1,11 +1,52 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useCallback } from 'react';
 import { usePlayerContext } from '../PlayerContext';
 import { ParseFilename } from '~/lib/utils';
 
 export function useMediaSession(mediaSessionImage: string | null, videoRef: React.RefObject<HTMLVideoElement>) {
-  const {  state, file, isReel } = usePlayerContext();
+  const { file, isReel } = usePlayerContext();
   const imageRef = useRef(mediaSessionImage);
   imageRef.current = mediaSessionImage;
+  const fileRef = useRef(file);
+  fileRef.current = file;
+  const mountedRef = useRef(true);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; };
+  }, []);
+
+  const updateMetadata = useCallback(() => {
+    if (!('mediaSession' in navigator) || !mountedRef.current) return;
+    const currentFile = fileRef.current;
+    const video = videoRef.current;
+    if (!currentFile || !video) return;
+
+    const title = currentFile.file_title || ParseFilename(currentFile.filename);
+    navigator.mediaSession.metadata = new MediaMetadata({
+      title: typeof title === 'string' ? title : (title as string[]).join(''),
+      artist: currentFile.owner?.username || 'Memories',
+      artwork: imageRef.current
+        ? [{ src: imageRef.current, sizes: '512x512', type: 'image/jpeg' }]
+        : [],
+    });
+
+    try {
+      const dur = video.duration;
+      if (Number.isFinite(dur) && dur > 0) {
+        navigator.mediaSession.setPositionState({
+          duration: dur,
+          playbackRate: video.playbackRate || 1,
+          position: Math.min(Math.max(video.currentTime || 0, 0), dur),
+        });
+      }
+    } catch {}
+
+    navigator.mediaSession.playbackState = video.paused ? 'paused' : 'playing';
+  }, [videoRef]);
+
+  useEffect(() => {
+    if (mediaSessionImage) updateMetadata();
+  }, [mediaSessionImage, updateMetadata]);
 
   useEffect(() => {
     if (!('mediaSession' in navigator) || !file) return;
@@ -13,29 +54,15 @@ export function useMediaSession(mediaSessionImage: string | null, videoRef: Reac
     const video = videoRef.current;
     if (!video) return;
 
-    const update = () => {
-      const title = file.file_title || ParseFilename(file.filename);
-      navigator.mediaSession.metadata = new MediaMetadata({
-        title: typeof title === 'string' ? title : (title as string[]).join(''),
-        artist: file.owner?.username || 'Memories',
-        artwork: imageRef.current
-          ? [{ src: imageRef.current, sizes: '512x512', type: 'image/jpeg' }]
-          : [],
-      });
+    updateMetadata();
 
-      navigator.mediaSession.setPositionState({
-        duration: video.duration || 0,
-        playbackRate: video.playbackRate || 1,
-        position: Math.min(video.currentTime || 0, video.duration || 0),
-      });
+    const playHandler = () => video.play().catch(() => {});
+    const pauseHandler = () => video.pause();
+    const stopHandler = () => { video.pause(); video.currentTime = 0; };
 
-      navigator.mediaSession.playbackState = video.paused ? 'paused' : 'playing';
-    };
-
-    update();
-
-    navigator.mediaSession.setActionHandler('play', () => video.play().catch(() => {}));
-    navigator.mediaSession.setActionHandler('pause', () => video.pause());
+    navigator.mediaSession.setActionHandler('play', playHandler);
+    navigator.mediaSession.setActionHandler('pause', pauseHandler);
+    navigator.mediaSession.setActionHandler('stop', stopHandler);
 
     if (!isReel) {
       navigator.mediaSession.setActionHandler('seekbackward', (d) => {
@@ -49,22 +76,17 @@ export function useMediaSession(mediaSessionImage: string | null, videoRef: Reac
       });
     }
 
-    navigator.mediaSession.setActionHandler('stop', () => {
-      video.pause();
-      video.currentTime = 0;
-    });
+    const handlePlayPause = () => updateMetadata();
+    const handleLoadedMetadata = () => updateMetadata();
 
-    const handleTimeUpdate = () => update();
-    const handlePlayPause = () => update();
-
-    video.addEventListener('timeupdate', handleTimeUpdate);
     video.addEventListener('play', handlePlayPause);
     video.addEventListener('pause', handlePlayPause);
+    video.addEventListener('loadedmetadata', handleLoadedMetadata);
 
     return () => {
-      video.removeEventListener('timeupdate', handleTimeUpdate);
       video.removeEventListener('play', handlePlayPause);
       video.removeEventListener('pause', handlePlayPause);
+      video.removeEventListener('loadedmetadata', handleLoadedMetadata);
     };
-  }, [file, isReel, state.isPlaying, mediaSessionImage]);
+  }, [file, isReel, videoRef, updateMetadata]);
 }

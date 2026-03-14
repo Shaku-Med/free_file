@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo, useRef } from 'react';
+import { useState, useCallback, useMemo, useRef, useEffect } from 'react';
 import ImageLoad from '~/routes/Home/components/ImageLoad/ImageLoad';
 import { getRandomThumbnail, arrangeDateForThumbnail } from '~/lib/utils';
 import { usePlayerContext } from '../PlayerContext';
@@ -15,6 +15,12 @@ export default function PosterBackground({ onImageLoaded }: PosterBackgroundProp
   const onImageLoadedRef = useRef(onImageLoaded);
   onImageLoadedRef.current = onImageLoaded;
 
+  const fileIdentity = file?.unique_id;
+  useEffect(() => {
+    setRetryCount(0);
+    setHasError(false);
+  }, [fileIdentity]);
+
   const link = useMemo(() => {
     if (!file) return '';
     const thumb = getRandomThumbnail(file.thumbnails);
@@ -27,11 +33,17 @@ export default function PosterBackground({ onImageLoaded }: PosterBackgroundProp
     else setHasError(true);
   }, [retryCount]);
 
+  const linkRef = useRef(link);
+  linkRef.current = link;
+
   const handleCallBack = useCallback((e: { src: string; colors: string[]; mediaSessionUrl?: string }) => {
     if (e) {
       const colors = e.colors || [];
       setAmbientColors(colors);
-      onImageLoadedRef.current?.(e.src, colors, e.mediaSessionUrl);
+      const httpArtworkUrl = linkRef.current
+        ? `${window.location.origin}${linkRef.current}`
+        : e.mediaSessionUrl;
+      onImageLoadedRef.current?.(e.src, colors, httpArtworkUrl);
     }
   }, [setAmbientColors]);
 
@@ -42,6 +54,7 @@ export default function PosterBackground({ onImageLoaded }: PosterBackgroundProp
       <div className="w-full h-full blur-2xl scale-110">
         {!hasError ? (
           <ImageLoad
+            key={fileIdentity}
             callBack={handleCallBack}
             getMediaSessionURL={true}
             hasAdultTag={Boolean(file?.is_adult)}

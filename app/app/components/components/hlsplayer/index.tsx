@@ -119,6 +119,10 @@ function PlayerInner({
   const callBackRef = useRef(callBack);
   callBackRef.current = callBack;
   const [mediaSessionImage, setMediaSessionImage] = useState<string | null>(null);
+
+  useEffect(() => {
+    setMediaSessionImage(null);
+  }, [file?.unique_id]);
   const [showPlayPauseFeedback, setShowPlayPauseFeedback] = useState(false);
   const [feedbackFading, setFeedbackFading] = useState(false);
   const [feedbackIconPlaying, setFeedbackIconPlaying] = useState(true);

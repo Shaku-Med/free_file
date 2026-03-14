@@ -88,6 +88,9 @@ const ImageLoad = ({
 
     useLayoutEffect(() => {
         hasFetchedRef.current = false
+        setSrc(null)
+        setError(false)
+        setLoaded(false)
     }, [resolvedLink, resolvedImageID])
 
     useLayoutEffect(() => {
@@ -117,6 +120,13 @@ const ImageLoad = ({
                     }
                     setSrc(cachedImage.url)
                     setError(false)
+
+                    let colors = shouldShowPreview ? await getImageColorsHEX({ src: cachedImage.url }) : []
+                    callBackRef.current?.({
+                        src: cachedImage.url,
+                        colors: colors || [],
+                        ...(getMediaSessionURL && { mediaSessionUrl: cachedImage.url }),
+                    })
                     return
                 }
             }
@@ -153,10 +163,16 @@ const ImageLoad = ({
     
                 let image = new Image()
                 image.src = blobURL
-                image.onload = () => {
+                image.onload = async () => {
                     if (!cancelled) {
                         setSrc(image.src)
                         setError(false)
+                        let colors = shouldShowPreview ? await getImageColorsHEX({ src: image.src }) : []
+                        callBackRef.current?.({
+                            src: image.src,
+                            colors: colors || [],
+                            ...(getMediaSessionURL && { mediaSessionUrl: image.src }),
+                        })
                     }
                 }
                 image.onerror = () => {
@@ -177,7 +193,7 @@ const ImageLoad = ({
         if (src && typeof src === 'string' && callBackRef.current && inView && !loaded) {
             let CLBK = async () => {
                 try {
-                    let colors = await getImageColorsHEX({ src: src as string })
+                    let colors = shouldShowPreview ? await getImageColorsHEX({ src: src as string }) : []
                     setColors(colors || [])
                     callBackRef.current?.({
                         src: src as string,
@@ -193,7 +209,7 @@ const ImageLoad = ({
             }
             CLBK()
         }
-    }, [src, inView, loaded, getMediaSessionURL])
+    }, [src, inView, loaded, getMediaSessionURL, shouldShowPreview])
 
     useEffect(() => {
         if(window !== undefined) {
@@ -217,8 +233,9 @@ const ImageLoad = ({
     }
 
     const hasBlobSrc = typeof src === 'string' && !!src
-    const canShowFromUrl = !hasAdultTag && (resolvedLink && !error)
-    const canShowImage = hasAdultTag ? hasBlobSrc : (hasBlobSrc || canShowFromUrl)
+    const needsBlobFetch = hasAdultTag || getMediaSessionURL
+    const canShowFromUrl = !needsBlobFetch && (resolvedLink && !error)
+    const canShowImage = needsBlobFetch ? hasBlobSrc : (hasBlobSrc || canShowFromUrl)
 
     return (
         <>
@@ -235,7 +252,7 @@ const ImageLoad = ({
                             </div>
                         )}
                         <img
-                            src={hasAdultTag ? (src as string) : (!files.length && hasBlobSrc ? src : `${secondaryBaseUrl || IMAGE_BASE_URL}${resolvedLink}`)}
+                            src={needsBlobFetch ? (src as string) : (!files.length && hasBlobSrc ? src : `${secondaryBaseUrl || IMAGE_BASE_URL}${resolvedLink}`)}
                             alt="Thumbnail"
                             className={cn("w-full h-full object-cover animate-in fade-in-0 zoom-in-95", className)}
                             loading="lazy"
