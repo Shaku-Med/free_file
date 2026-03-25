@@ -22,3 +22,15 @@ Thumbs.db
 
 # Dump files
 dump.rdb
+
+.claude
+.claude/*
+
+.cursor
+.cursor/*
+
+.vscode
+.vscode/*
+
+dump.rdb
+dumb.rdb

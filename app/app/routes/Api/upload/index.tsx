@@ -15,8 +15,8 @@ import db from '~/lib/Database/supabase';
 if (typeof process !== 'undefined') {
   try {
     initializeWorker();
-  } catch (error) {
-    console.warn('Upload worker will be initialized when Redis is available.');
+  } catch {
+    console.warn('Upload worker initialization failed.');
   }
 }
 

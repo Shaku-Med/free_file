@@ -2,8 +2,6 @@
 -- get_by_tag — Tag page feed: match tag in tags, categories,
 -- file_title, or file_description. Cursor pagination, sort options.
 -- ============================================================
--- Run in Supabase SQL editor. Requires file_engagement_stats (materialized view).
--- ============================================================
 
 DROP FUNCTION IF EXISTS get_by_tag(text, uuid, int, float, uuid, text, boolean);
 
@@ -56,7 +54,6 @@ SET search_path = public
 AS $$
 DECLARE
   v_tag     text := lower(trim(p_tag));
-  v_nsfw_on boolean;
   v_escaped text := replace(replace(replace(v_tag, '\', '\\'), '%', '\%'), '_', '\_');
   v_pattern text := '%' || v_escaped || '%';
 BEGIN
@@ -64,11 +61,7 @@ BEGIN
     RETURN;
   END IF;
 
-  IF p_user_id IS NOT NULL THEN
-    SELECT COALESCE(u.show_nsfw, false) INTO v_nsfw_on FROM users u WHERE u.id = p_user_id;
-  ELSE
-    v_nsfw_on := false;
-  END IF;
+  -- v_nsfw_on removed — never show adult content
 
   RETURN QUERY
   WITH
@@ -114,7 +107,7 @@ BEGIN
     LEFT JOIN user_likes ul ON ul.file_id = f.id
     LEFT JOIN user_dislikes ud ON ud.file_id = f.id
     WHERE f.is_public = true
-      AND (v_nsfw_on = true OR f.is_adult = false)
+      AND f.is_adult = false              -- HARD BLOCK: never show adult content
       AND f.upload_status = 'complete'
       AND (p_reels_only = false OR f.is_reel = true)
       AND (

@@ -2,6 +2,22 @@ import { useState, useCallback, useRef, useEffect, useMemo } from "react";
 import type { FileType } from "~/lib/types";
 import VideoCard from "~/routes/Home/components/VideoCard";
 
+function SkeletonCard() {
+  return (
+    <div className="animate-pulse">
+      <div className="aspect-video bg-muted rounded-xl" />
+      <div className="flex gap-3 mt-3">
+        <div className="w-9 h-9 rounded-full bg-muted shrink-0" />
+        <div className="flex-1 space-y-2">
+          <div className="h-4 bg-muted rounded w-[85%]" />
+          <div className="h-3 bg-muted rounded w-[60%]" />
+          <div className="h-3 bg-muted rounded w-[40%]" />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 interface UserFilesGridProps {
   files: FileType[];
   userId: string;
@@ -31,6 +47,7 @@ const UserFilesGrid = ({
   const [hasMore, setHasMore] = useState(initialHasMore ?? initialFiles.length >= 20);
   const [currentPage, setCurrentPage] = useState(initialPage);
   const observerRef = useRef<HTMLDivElement | null>(null);
+  const loadingRef = useRef(false);
   const [userActions, setUserActions] = useState<{ likedFileIds: Set<string>; dislikedFileIds: Set<string> } | undefined>(
     initialUserActions ? {
       likedFileIds: new Set(initialUserActions.likedFileIds),
@@ -49,6 +66,7 @@ const UserFilesGrid = ({
     setCurrentPage(initialPage);
     setHasMore(initialHasMore ?? initialFiles.length >= 20);
     setIsLoading(false);
+    loadingRef.current = false;
     setUserActions(
       initialUserActions ? {
         likedFileIds: new Set(initialUserActions.likedFileIds),
@@ -58,40 +76,43 @@ const UserFilesGrid = ({
   }, [profileKey, userId, initialHasMore, initialPage]); // Reset when profile key changes
 
   const loadMore = useCallback(async () => {
-    if (isLoading || !hasMore) return;
-
+    if (loadingRef.current || !hasMore) return;
+    loadingRef.current = true;
     setIsLoading(true);
+
     try {
       const nextPage = currentPage + 1;
       const response = await fetch(`/api/user-files?userId=${userId}&page=${nextPage}&limit=20`);
-      
+
       if (!response.ok) {
         setHasMore(false);
         return;
       }
 
       const result = await response.json();
-      
+
       if (result.data && result.data.length > 0) {
-        // Prevent duplicates by checking if file already exists
-        let mergedFiles: FileType[] = [];
         setFiles(prev => {
           const existingIds = new Set(prev.map(f => f.id || f.unique_id));
           const newFiles = result.data.filter((file: FileType) =>
             !existingIds.has(file.id || file.unique_id)
           );
-          mergedFiles = [...prev, ...newFiles];
-          return mergedFiles;
-        });
-        setCurrentPage(nextPage);
-        const newHasMore = result.pagination?.hasMore || false;
-        setHasMore(newHasMore);
+          const merged = [...prev, ...newFiles];
 
-        onCacheUpdate?.({
-          files: mergedFiles,
-          currentPage: nextPage,
-          hasMore: newHasMore,
+          // Defer cache update to after state settles
+          setTimeout(() => {
+            onCacheUpdate?.({
+              files: merged,
+              currentPage: nextPage,
+              hasMore: result.pagination?.hasMore || false,
+            });
+          }, 0);
+
+          return merged;
         });
+
+        setCurrentPage(nextPage);
+        setHasMore(result.pagination?.hasMore || false);
 
         // Merge user actions from API response
         if (result.userActions) {
@@ -111,8 +132,9 @@ const UserFilesGrid = ({
       setHasMore(false);
     } finally {
       setIsLoading(false);
+      loadingRef.current = false;
     }
-  }, [isLoading, hasMore, currentPage, userId, onCacheUpdate]);
+  }, [hasMore, currentPage, userId, onCacheUpdate]);
 
   const handleFileUpdate = useCallback((fileId: string, updates: Partial<FileType>) => {
     setFiles((prev) =>
@@ -120,22 +142,23 @@ const UserFilesGrid = ({
     );
   }, []);
 
+  // Observer: only trigger loadMore when the sentinel enters view and we're not already loading
   useEffect(() => {
+    const el = observerRef.current;
+    if (!el || !hasMore) return;
+
     const observer = new IntersectionObserver(
       (entries) => {
-        if (entries[0].isIntersecting && hasMore && !isLoading) {
+        if (entries[0].isIntersecting && !loadingRef.current) {
           loadMore();
         }
       },
-      { threshold: 0.1 }
+      { threshold: 0.1, rootMargin: "200px" }
     );
 
-    if (observerRef.current) {
-      observer.observe(observerRef.current);
-    }
-
+    observer.observe(el);
     return () => observer.disconnect();
-  }, [loadMore, hasMore, isLoading]);
+  }, [loadMore, hasMore]);
 
   if (files.length === 0) {
     return (
@@ -162,17 +185,14 @@ const UserFilesGrid = ({
               showOwnerControls={true}
             />
         ))}
+        {isLoading &&
+          Array.from({ length: 4 }).map((_, i) => (
+            <SkeletonCard key={`skel-${i}`} />
+          ))
+        }
       </div>
-      {hasMore && (
-        <div ref={observerRef} className="h-10 flex items-center justify-center mt-4">
-          {isLoading && (
-            <div className="flex items-center space-x-2">
-              <div className="w-4 h-4 border-2 border-primary border-t-transparent rounded-full animate-spin"></div>
-              <span className="text-sm text-muted-foreground">Loading more...</span>
-            </div>
-          )}
-        </div>
-      )}
+      {/* Sentinel — always rendered when there's more data, even during loading */}
+      {hasMore && <div ref={observerRef} className="h-1" />}
     </div>
   );
 };

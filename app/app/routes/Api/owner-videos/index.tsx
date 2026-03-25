@@ -11,6 +11,11 @@ export const loader = async ({ request }: { request: Request }) => {
     const excludeId = url.searchParams.get("excludeId")
     const page = parseInt(url.searchParams.get("page") || "1")
     const limit = parseInt(url.searchParams.get("limit") || "20")
+    const safeOnlyParam = url.searchParams.get("safeOnly")
+    const safeOnly =
+      safeOnlyParam === "1" ||
+      safeOnlyParam === "true" ||
+      safeOnlyParam === "yes"
 
     if (!ownerId) {
       return data({ error: "Owner ID is required" }, { status: 400 })
@@ -43,7 +48,19 @@ export const loader = async ({ request }: { request: Request }) => {
       return data({ error: "Failed to fetch owner videos", data: [] }, { status: 500 })
     }
 
-    const filesWithDefaults = (files || []).map((file: any) => ({
+    let rows = files || []
+    if (safeOnly) {
+      rows = rows.filter((file: { is_adult?: unknown }) => {
+        const a = file.is_adult
+        if (a === true || a === 1) return false
+        if (typeof a === "string" && ["true", "t", "1", "yes", "y"].includes(a.trim().toLowerCase())) {
+          return false
+        }
+        return true
+      })
+    }
+
+    const filesWithDefaults = rows.map((file: any) => ({
       ...file,
       is_adult: file.is_adult ?? false,
       is_public: file.is_public ?? true,

@@ -15,7 +15,7 @@ interface BodyComponentProps {
   children: React.ReactNode
 }
 
-const staticRoutes = ["/", "/privacy", "/terms", "/features", "/auth", "/api", '/search', '/playlist', '/profile'];
+const staticRoutes = ["/", "/privacy", "/terms", "/features", "/auth", "/api", '/search', '/playlist', '/profile', '/subscriptions'];
 const SCROLL_THRESHOLD = 300;
 
 // Easing function — starts slow, accelerates, then eases into full opacity.

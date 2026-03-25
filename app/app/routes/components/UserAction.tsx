@@ -172,7 +172,7 @@ const UserAction = ({ upCount = 0, downCount = 0, fileId, initialLiked = false, 
             Share
           </span>
         </button>
-        <ShareModal open={shareModalOpen} onOpenChange={setShareModalOpen} shareUrl={shareUrl} shareTitle={document.title} />
+        <ShareModal open={shareModalOpen} onOpenChange={setShareModalOpen} shareUrl={shareUrl} />
       </div>
     );
   }
@@ -229,7 +229,7 @@ const UserAction = ({ upCount = 0, downCount = 0, fileId, initialLiked = false, 
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
-        <ShareModal open={shareModalOpen} onOpenChange={setShareModalOpen} shareUrl={shareUrl} shareTitle={document.title} />
+        <ShareModal open={shareModalOpen} onOpenChange={setShareModalOpen} shareUrl={shareUrl} />
       </div>
     );
   }
@@ -301,7 +301,7 @@ const UserAction = ({ upCount = 0, downCount = 0, fileId, initialLiked = false, 
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
-        <ShareModal open={shareModalOpen} onOpenChange={setShareModalOpen} shareUrl={shareUrl} shareTitle={document.title} />
+        <ShareModal open={shareModalOpen} onOpenChange={setShareModalOpen} shareUrl={shareUrl} />
       </div>
     </div>
   );

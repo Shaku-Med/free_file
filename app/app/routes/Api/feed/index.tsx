@@ -1,4 +1,5 @@
 import { filterFilesByAccess } from '../fun/accessControl';
+import { enrichFeedFilesWithInteractions } from '../fun/enrichFeedFiles';
 import db from '~/lib/Database/supabase';
 import { isAuthenticated } from '~/lib/Security/Password';
 
@@ -90,82 +91,11 @@ export const loader = async ({ request }: { request: Request }) => {
       });
     }
 
-    // Live like/dislike/comment counts and user state (bypasses stale materialized view)
-    const fileIds = filteredFeed.map((f: any) => f.id).filter(Boolean);
-    const interactionsByFile = new Map<
-      string,
-      { like_count: number; dislike_count: number; comment_count: number; user_has_liked: boolean; user_has_disliked: boolean }
-    >();
-    if (fileIds.length > 0) {
-      const { data: batch } = await db.rpc('get_batch_interactions', {
-        p_file_ids: fileIds,
-        p_user_id: userId || null,
-      });
-      if (Array.isArray(batch)) {
-        for (const row of batch) {
-          if (row?.file_id) {
-            interactionsByFile.set(row.file_id as string, {
-              like_count: Number(row.like_count) ?? 0,
-              dislike_count: Number(row.dislike_count) ?? 0,
-              comment_count: Number(row.comment_count) ?? 0,
-              user_has_liked: !!row.user_has_liked,
-              user_has_disliked: !!row.user_has_disliked,
-            });
-          }
-        }
-      }
-    }
-
-    const likedFileIds: string[] = [];
-    const dislikedFileIds: string[] = [];
-
-    const data = filteredFeed.map((file: any) => {
-      const interactions = file.id ? interactionsByFile.get(file.id) : undefined;
-      const likeCount = interactions ? interactions.like_count : Number(file.like_count) || 0;
-      const dislikeCount = interactions ? interactions.dislike_count : Number(file.dislike_count) || 0;
-      const commentCount = interactions ? interactions.comment_count : Number(file.comment_count) || 0;
-      const userHasLiked = interactions ? interactions.user_has_liked : !!file.user_has_liked;
-      const userHasDisliked = interactions ? interactions.user_has_disliked : !!file.user_has_disliked;
-      if (userHasLiked) likedFileIds.push(file.id);
-      if (userHasDisliked) dislikedFileIds.push(file.id);
-
-      return {
-        id: file.id,
-        created_at: file.created_at,
-        endpoint: file.endpoint || '',
-        filename: file.filename,
-        unique_id: file.unique_id,
-        file_size: file.file_size,
-        file_type: file.file_type,
-        is_adult: file.is_adult,
-        owner_id: file.owner_id,
-        is_public: file.is_public,
-        file_description: file.file_description,
-        file_title: file.file_title || '',
-        thumbnails: file.thumbnails || [],
-        view_count: file.view_count,
-        share_count: file.share_count,
-        is_reel: file.is_reel,
-        duration: file.duration,
-        categories: file.categories,
-        tags: file.tags,
-        colors: file.colors,
-        metadata: file.metadata,
-        like_count: likeCount,
-        dislike_count: dislikeCount,
-        comment_count: commentCount,
-        engagement_score: file.engagement_score ?? 0,
-        owner: file.owner_username
-          ? {
-              id: file.owner_id,
-              username: file.owner_username,
-              profile_pic: file.owner_profile_pic || '',
-              verified: file.owner_verified ?? false,
-              about: file.owner_about ?? null,
-            }
-          : null,
-      };
-    });
+    const { data, likedFileIds, dislikedFileIds } = await enrichFeedFilesWithInteractions(
+      db,
+      filteredFeed as Record<string, unknown>[],
+      userId
+    );
 
     // Don't mark as seen here — it would shrink the "unseen" set before load-more
     // requests, breaking cursor_pos pagination. Frontend marks on page leave instead.

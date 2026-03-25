@@ -428,6 +428,15 @@ const VideoCard = ({ data, index, currentUserId, userActions, onUpdate, showOwne
               disabled={isSaving || editTags.length >= 15}
             />
           </div>
+          {data.is_adult && (
+            <div className="flex items-center gap-2 rounded-lg border border-red-200 dark:border-red-900/50 bg-red-50 dark:bg-red-950/30 px-3 py-2.5">
+              <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-red-500 text-white text-[10px] font-bold shrink-0">18</span>
+              <div className="min-w-0">
+                <p className="text-xs font-medium text-red-700 dark:text-red-400">Adult content</p>
+                <p className="text-[11px] text-red-600/70 dark:text-red-400/60">This post is marked as adult content. This cannot be changed.</p>
+              </div>
+            </div>
+          )}
           {editError && <p className="text-xs text-destructive">{editError}</p>}
         </div>
         <DialogFooter className="gap-2 shrink-0 border-t pt-4">
@@ -535,6 +544,7 @@ const VideoCard = ({ data, index, currentUserId, userActions, onUpdate, showOwne
               isOwner={isOwner}
               onEdit={isOwner ? () => setIsEditing(true) : undefined}
               onUpdate={currentUserId ? handleInteractionUpdate : undefined}
+              currentUserId={currentUserId}
             />
           </div>
         </div>
@@ -661,6 +671,7 @@ const VideoCard = ({ data, index, currentUserId, userActions, onUpdate, showOwne
             isOwner={isOwner}
             onEdit={isOwner ? () => setIsEditing(true) : undefined}
             onUpdate={currentUserId ? handleInteractionUpdate : undefined}
+            currentUserId={currentUserId}
           />
         </div>
       </div>

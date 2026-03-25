@@ -2,8 +2,8 @@ import { useEffect, useRef } from 'react';
 import { videoPlaybackDB } from '~/lib/Database/VideoPlaybackDB';
 import { usePlayerContext } from '../PlayerContext';
 
-export function usePlaybackPosition(videoRef: React.RefObject<HTMLVideoElement>) {
-  const { imageID, src, state } = usePlayerContext();
+export function usePlaybackPosition(videoRef: React.RefObject<HTMLVideoElement | null>) {
+  const { imageID, src, startTime } = usePlayerContext();
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
@@ -12,6 +12,19 @@ export function usePlaybackPosition(videoRef: React.RefObject<HTMLVideoElement>)
 
     const restore = async () => {
       try {
+        if (typeof startTime === 'number' && startTime > 0) {
+          const apply = () => {
+            if (video.duration <= 0) return;
+            video.currentTime = Math.min(startTime, video.duration - 1);
+          };
+          if (video.readyState >= 1 && video.duration > 0) {
+            apply();
+          } else {
+            video.addEventListener('loadedmetadata', apply, { once: true });
+          }
+          return;
+        }
+
         const saved = await videoPlaybackDB.getPosition(imageID);
         if (!saved || saved.currentTime <= 0) return;
 
@@ -32,7 +45,7 @@ export function usePlaybackPosition(videoRef: React.RefObject<HTMLVideoElement>)
     };
 
     restore();
-  }, [imageID, src]);
+  }, [imageID, src, startTime]);
 
   useEffect(() => {
     const video = videoRef.current;

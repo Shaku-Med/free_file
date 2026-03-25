@@ -1,4 +1,4 @@
-import { data, Link, useLoaderData, useNavigate, useParams, useNavigation, useLocation, type MetaFunction } from "react-router";
+import { data, Link, useLoaderData, useNavigate, useParams, useNavigation, useLocation, useSearchParams, type MetaFunction } from "react-router";
 import db from "~/lib/Database/supabase";
 import HLSPlayer from "~/components/components/hlsplayer";
 import { useCallback, useEffect, useState, useRef, useMemo } from "react";
@@ -21,6 +21,7 @@ import { filterFilesByAccess } from "~/routes/Api/fun/accessControl";
 import CommentSection from "./components/Comments/CommentSection";
 import { FormattedText } from "~/components/FormattedText";
 import OwnerProfile from "~/components/OwnerProfile/OwnerProfile";
+import SubscribeButton, { formatSubscriberCount } from "~/components/SubscribeButton";
 import { commentService } from "~/lib/Services/CommentService";
 import DownloadButton from "./components/DownloadButton";
 import { formatNumber } from "~/lib/utils/formatNumber";
@@ -31,6 +32,7 @@ import { usePageCache } from "~/lib/hooks/usePageCache";
 import CanvasGradient from "~/components/accessories/CanvasGradient/CanvasGradient";
 import Ambience from "~/components/accessories/CanvasGradient/Ambience";
 import { useFileContext } from "~/lib/Context/Context";
+import { useMiniPlayerContext } from "~/lib/Context/MiniPlayerContext";
 
 interface DynamicCachePayload {
   file: any;
@@ -41,7 +43,8 @@ interface DynamicCachePayload {
   likeCount: number;
   dislikeCount: number;
   userId: string | null;
-  owner: { id: string; username: string; profile_pic: string } | null;
+  owner: { id: string; username: string; profile_pic: string; verified?: boolean } | null;
+  channelStats: { subscriber_count: number; is_subscribed: boolean; notify: boolean } | null;
   commentsCount: number;
   relatedVideosUserActions: { likedFileIds: string[]; dislikedFileIds: string[] };
 }
@@ -190,18 +193,28 @@ export const loader = async ({ request, params }: { request: Request, params: { 
     }
 
     let owner = null;
+    let channelStats: { subscriber_count: number; is_subscribed: boolean; notify: boolean } | null = null;
     if (file.owner_id) {
-      const { data: ownerData } = await db
-        .from('users')
-        .select('id, username, profile_pic')
-        .eq('id', file.owner_id)
-        .maybeSingle();
-      
-      if (ownerData) {
+      const [ownerResult, statsResult] = await Promise.all([
+        db.from('users').select('id, username, profile_pic, verified').eq('id', file.owner_id).maybeSingle(),
+        db.rpc('get_channel_stats', { p_user_id: file.owner_id, p_viewer_id: userId }),
+      ]);
+
+      if (ownerResult.data) {
         owner = {
-          id: ownerData.id,
-          username: ownerData.username,
-          profile_pic: ownerData.profile_pic
+          id: ownerResult.data.id,
+          username: ownerResult.data.username,
+          profile_pic: ownerResult.data.profile_pic,
+          verified: ownerResult.data.verified ?? false,
+        };
+      }
+
+      if (statsResult.data) {
+        const stats = typeof statsResult.data === 'string' ? JSON.parse(statsResult.data) : statsResult.data;
+        channelStats = {
+          subscriber_count: Number(stats.subscriber_count) || 0,
+          is_subscribed: !!stats.is_subscribed,
+          notify: stats.notify !== false,
         };
       }
     }
@@ -220,8 +233,9 @@ export const loader = async ({ request, params }: { request: Request, params: { 
       userDisliked, 
       likeCount,
       dislikeCount,
-      userId, 
-      owner, 
+      userId,
+      owner,
+      channelStats,
       commentsCount,
       relatedVideosUserActions: {
         likedFileIds: Array.from(relatedVideosUserActions.likedFileIds),
@@ -381,6 +395,7 @@ function blendDynamicData(cached: DynamicCachePayload, fresh: DynamicCachePayloa
     dislikeCount: fresh.dislikeCount,
     userId: fresh.userId,
     owner: fresh.owner ?? cached.owner,
+    channelStats: fresh.channelStats ?? cached.channelStats ?? null,
     commentsCount: fresh.commentsCount,
     relatedVideosUserActions: { likedFileIds: mergedLiked, dislikedFileIds: mergedDisliked },
   };
@@ -391,8 +406,11 @@ const index = () => {
   const navigation = useNavigation();
   const navigate = useNavigate();
   const location = useLocation();
+  const [searchParams] = useSearchParams();
   const currentId = params.id;
   const pathname = location.pathname;
+  const startTimeParam = searchParams.get('t');
+  const startTimeFromParam = startTimeParam ? parseFloat(startTimeParam) : undefined;
   const { getFromCache, addToCache } = usePageCache();
   const hasCachedRef = useRef<string | null>(null);
 
@@ -417,6 +435,7 @@ const index = () => {
         dislikeCount: Number(loaderData.dislikeCount) || 0,
         userId: ('userId' in loaderData ? loaderData.userId : null) as string | null,
         owner: ('owner' in loaderData ? loaderData.owner : null) as any,
+        channelStats: ('channelStats' in loaderData ? loaderData.channelStats : null) as any,
         commentsCount: ('commentsCount' in loaderData ? loaderData.commentsCount : 0) as number,
         relatedVideosUserActions: ('relatedVideosUserActions' in loaderData ? loaderData.relatedVideosUserActions : { likedFileIds: [], dislikedFileIds: [] }) as any,
       };
@@ -436,6 +455,7 @@ const index = () => {
         dislikeCount: Number(loaderData.dislikeCount) || 0,
         userId: ('userId' in loaderData ? loaderData.userId : null) as string | null,
         owner: ('owner' in loaderData ? loaderData.owner : null) as any,
+        channelStats: ('channelStats' in loaderData ? loaderData.channelStats : null) as any,
         commentsCount: ('commentsCount' in loaderData ? loaderData.commentsCount : 0) as number,
         relatedVideosUserActions: ('relatedVideosUserActions' in loaderData ? loaderData.relatedVideosUserActions : { likedFileIds: [], dislikedFileIds: [] }) as any,
       };
@@ -466,6 +486,13 @@ const index = () => {
   const [hasIncrementedView, setHasIncrementedView] = useState(false);
   const videoElementRef = useRef<HTMLVideoElement | null>(null);
   const [videoRefReady, setVideoRefReady] = useState(false);
+  const { activateMiniPlayer, miniPlayer: activeMiniPlayer, signalMainPlayerReady, isExpanding, expandPlaybackState, sourceVideoRef } = useMiniPlayerContext();
+  const activeMiniPlayerRef = useRef(activeMiniPlayer);
+  activeMiniPlayerRef.current = activeMiniPlayer;
+
+  // If expanding from mini player with matching ID, use mini player's current time + settings
+  const expandMatch = expandPlaybackState && expandPlaybackState.fileId === currentId ? expandPlaybackState : null;
+  const startTime = expandMatch?.currentTime ?? startTimeFromParam;
 
   const prevIdRef = useRef<string | undefined>(currentId);
   const viewIncrementSentRef = useRef(false);
@@ -630,6 +657,32 @@ const index = () => {
     setMadeImageUrl(e.src)
   }, [])
 
+  // When expanding from mini player, apply the mini player's volume/muted/playbackRate to the main video
+  const appliedExpandRef = useRef(false);
+  useEffect(() => {
+    if (!expandMatch || appliedExpandRef.current) return;
+    const video = videoElementRef.current;
+    if (!video) return;
+
+    const applyExpandState = () => {
+      if (appliedExpandRef.current) return;
+      appliedExpandRef.current = true;
+      video.volume = expandMatch.volume;
+      video.muted = expandMatch.muted;
+      video.playbackRate = expandMatch.playbackRate;
+      if (expandMatch.wasPlaying) {
+        video.play().catch(() => {});
+      }
+    };
+
+    if (video.readyState >= 2) {
+      applyExpandState();
+    } else {
+      video.addEventListener('canplay', applyExpandState, { once: true });
+      return () => video.removeEventListener('canplay', applyExpandState);
+    }
+  }, [expandMatch]);
+
   const handleVideoRef = useCallback((ref: HTMLVideoElement | null) => {
     setVideoRefReady(!!ref);
   }, [])
@@ -685,6 +738,36 @@ const index = () => {
     if (viewIncrementTimerRef.current) clearTimeout(viewIncrementTimerRef.current);
   }, []);
 
+  const fileDataRef = useRef(file_data);
+  fileDataRef.current = file_data;
+  const isHLSRef = useRef(false);
+
+  useEffect(() => {
+    const fd = fileDataRef.current;
+    isHLSRef.current = fd?.file_type === 'application/vnd.apple.mpegurl' || !!fd?.endpoint?.includes('.m3u8');
+  });
+
+  useEffect(() => {
+    return () => {
+      // Don't override if mini player was already activated (e.g. by the button)
+      if (activeMiniPlayerRef.current) return;
+      const video = videoElementRef.current;
+      const fd = fileDataRef.current;
+      if (!video || !fd || !isHLSRef.current) return;
+      if (video.paused || video.ended) return;
+      activateMiniPlayer({
+        src: getVideoSrc(fd.endpoint ?? '', fd.file_type),
+        file: fd,
+        currentTime: video.currentTime,
+        imageID: fd.unique_id,
+        wasPlaying: !video.paused,
+        volume: video.volume,
+        muted: video.muted,
+        playbackRate: video.playbackRate,
+      });
+    };
+  }, [activateMiniPlayer, currentId]);
+
   useEffect(() => {
     if (isHLS || hasIncrementedView || !file_data?.id) return;
     const t = setTimeout(runViewIncrement, requiredViewSeconds * 1000);
@@ -722,6 +805,7 @@ const index = () => {
             onPlay={() => {
               setPlayingVideos(prev => new Set(prev).add(1));
               onVideoPlayForView();
+              signalMainPlayerReady();
             }}
             onPause={() => setPlayingVideos(prev => {
               const newSet = new Set(prev);
@@ -739,6 +823,7 @@ const index = () => {
             suggestedVideos={suggestedVideos}
             onVideoSelect={handleVideoSelect}
             onAmbientModeChange={setAmbientEnabled}
+            startTime={startTime}
           />
         ) : (
           <motion.div 
@@ -822,7 +907,31 @@ const index = () => {
       </h1>
 
       {data.owner && (
-        <OwnerProfile owner={data.owner} size="md" showUsername />
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3 min-w-0">
+            <OwnerProfile owner={data.owner} size="md" showUsername={false} />
+            <div className="min-w-0">
+              <Link to={`/profile/${data.owner.username}`} className="font-semibold text-foreground hover:text-primary transition-colors truncate block">
+                {data.owner.username}
+              </Link>
+              {data.channelStats && (
+                <p className="text-xs text-muted-foreground tabular-nums">
+                  {formatSubscriberCount(data.channelStats.subscriber_count)} subscribers
+                </p>
+              )}
+            </div>
+          </div>
+          {data.channelStats && !isOwner && (
+            <SubscribeButton
+              channelId={data.owner.id}
+              currentUserId={data.userId}
+              initialSubscribed={data.channelStats.is_subscribed}
+              initialNotify={data.channelStats.notify}
+              initialCount={data.channelStats.subscriber_count}
+              isOwner={isOwner}
+            />
+          )}
+        </div>
       )}
 
       <Actions
@@ -837,6 +946,14 @@ const index = () => {
         isOwner={isOwner}
         onEdit={undefined}
         onUpdate={data.userId ? handleInteractionUpdate : undefined}
+        getShareTimestamp={isHLS ? () => videoElementRef.current?.currentTime ?? 0 : undefined}
+        onShareSuccess={(serverCount) => {
+          if (typeof serverCount === "number" && !Number.isNaN(serverCount)) setShares(serverCount);
+          else setShares((s) => s + 1);
+        }}
+        currentTime={isHLS ? (videoElementRef.current?.currentTime ?? 0) : undefined}
+        currentUserId={data.userId}
+        isAdult={file_data.is_adult}
       />
 
       <div className="rounded-xl overflow-hidden">
@@ -903,11 +1020,13 @@ const index = () => {
         )}
       </div>
 
-      <CommentSection
-        key={`comments-${file_data.id}-${currentId}`}
-        fileId={file_data.id}
-        currentUserId={data.userId || undefined}
-      />
+      <div id="comments" className="scroll-mt-24">
+        <CommentSection
+          key={`comments-${file_data.id}-${currentId}`}
+          fileId={file_data.id}
+          currentUserId={data.userId || undefined}
+        />
+      </div>
     </div>
   );
 

@@ -169,6 +169,8 @@ const RelatedVideoCard = ({ data, currentUserId, userActions }: RelatedVideoCard
             liked={liked}
             disliked={disliked}
             onUpdate={currentUserId ? handleInteractionUpdate : undefined}
+            currentUserId={currentUserId}
+            isOwner={data.owner?.id === currentUserId}
           />
         </div>
       </div>

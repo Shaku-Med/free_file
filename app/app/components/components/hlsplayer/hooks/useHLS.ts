@@ -3,7 +3,7 @@ import Hls from 'hls.js';
 import { usePlayerContext } from '../PlayerContext';
 import { useFileContext } from '~/lib/Context/Context';
 
-export function useHLS(videoRef: React.RefObject<HTMLVideoElement>) {
+export function useHLS(videoRef: React.RefObject<HTMLVideoElement | null>) {
   const { hlsRef, setState, src } = usePlayerContext();
   const { playerSettings } = useFileContext();
   const mountedRef = useRef(true);
@@ -12,16 +12,31 @@ export function useHLS(videoRef: React.RefObject<HTMLVideoElement>) {
 
   useEffect(() => {
     mountedRef.current = true;
-    return () => { mountedRef.current = false; };
+    return () => {
+      mountedRef.current = false;
+    };
   }, []);
 
   useEffect(() => {
     const video = videoRef.current;
     if (!video || !src) return;
 
-    setState(s => ({ ...s, isLoaded: false, hasError: false, isBuffering: false, isEnded: false }));
+    setState((s) => ({
+      ...s,
+      isLoaded: false,
+      hasError: false,
+      isBuffering: false,
+      isEnded: false,
+    }));
 
-    const isHLSStream = src.includes('.m3u8') || src.includes('application/vnd.apple.mpegurl');
+    const isHLSStream =
+      src.includes('.m3u8') || src.includes('application/vnd.apple.mpegurl');
+
+    // Use hls.js whenever it is supported (including Safari) so multi-variant
+    // manifests expose levels for the quality menu. Native HLS is only a fallback
+    // when MSE / hls.js is not available (e.g. some older WebViews).
+    const canNativeHLS =
+      isHLSStream && video.canPlayType('application/vnd.apple.mpegurl');
 
     if (isHLSStream && Hls.isSupported()) {
       if (hlsRef.current) {
@@ -60,7 +75,11 @@ export function useHLS(videoRef: React.RefObject<HTMLVideoElement>) {
       });
 
       (hls as any).config.xhrSetup = (xhr: XMLHttpRequest) => {
-        try { xhr.withCredentials = true; } catch {}
+        try {
+          xhr.withCredentials = true;
+        } catch {
+          /* ignore */
+        }
       };
 
       hlsRef.current = hls;
@@ -74,17 +93,20 @@ export function useHLS(videoRef: React.RefObject<HTMLVideoElement>) {
           width: l.width,
           bitrate: l.bitrate,
         }));
-        setState(s => ({ ...s, levels: lvls }));
+        setState((s) => ({ ...s, levels: lvls }));
 
         const pref = qualityPrefRef.current || 'auto';
         if (pref === 'auto' || lvls.length <= 1) {
           hls.currentLevel = -1;
         } else {
           const want = parseInt(pref, 10);
-          let idx = lvls.findIndex(l => l.height === want);
+          let idx = lvls.findIndex((l) => l.height === want);
           if (idx === -1) {
-            const sorted = lvls.map((l, i) => ({ ...l, i })).sort((a, b) => b.height - a.height);
-            const closest = sorted.find(x => x.height <= want) || sorted[sorted.length - 1];
+            const sorted = lvls
+              .map((l, i) => ({ ...l, i }))
+              .sort((a, b) => b.height - a.height);
+            const closest =
+              sorted.find((x) => x.height <= want) || sorted[sorted.length - 1];
             idx = closest.i;
           }
           hls.currentLevel = idx;
@@ -93,7 +115,24 @@ export function useHLS(videoRef: React.RefObject<HTMLVideoElement>) {
 
       hls.on(Hls.Events.LEVEL_SWITCHED, (_: any, data: any) => {
         if (mountedRef.current) {
-          setState(s => ({ ...s, currentLevel: data.level }));
+          setState((s) => ({ ...s, currentLevel: data.level }));
+        }
+      });
+
+      hls.on(Hls.Events.SUBTITLE_TRACKS_UPDATED, () => {
+        if (!mountedRef.current) return;
+        const tracks = (hls.subtitleTracks || []).map((t: any, i: number) => ({
+          id: i,
+          label: t.name || t.lang || `Track ${i + 1}`,
+          lang: t.lang || '',
+          kind: t.type || 'subtitles',
+        }));
+        setState((s) => ({ ...s, subtitleTracks: tracks }));
+      });
+
+      hls.on(Hls.Events.SUBTITLE_TRACK_SWITCH, (_: any, data: any) => {
+        if (mountedRef.current) {
+          setState((s) => ({ ...s, currentSubtitleTrack: data.id ?? -1 }));
         }
       });
 
@@ -115,17 +154,69 @@ export function useHLS(videoRef: React.RefObject<HTMLVideoElement>) {
               hls.recoverMediaError();
               break;
             default:
-              setState(s => ({ ...s, hasError: true, isLoaded: false, isBuffering: false }));
+              setState((s) => ({
+                ...s,
+                hasError: true,
+                isLoaded: false,
+                isBuffering: false,
+              }));
               break;
           }
         }
       });
+    } else if (isHLSStream && canNativeHLS) {
+      const isWireless = (video as any).webkitCurrentPlaybackTargetIsWireless;
+      let sameSrc = false;
+      try {
+        const absVideoSrc = video.src
+          ? new URL(video.src, location.href).href
+          : '';
+        const absNewSrc = new URL(src, location.href).href;
+        sameSrc = absVideoSrc === absNewSrc;
+      } catch {
+        sameSrc = video.src === src;
+      }
+      if (isWireless && sameSrc) {
+        return;
+      }
+      video.src = src;
+      video.load();
+
+      const handleLoaded = () => {
+        if (!mountedRef.current) return;
+        const vTracks = (video as any).videoTracks;
+        if (vTracks && vTracks.length >= 1) {
+          const lvls = Array.from(vTracks).map((t: any) => ({
+            height: Number(t.height) || video.videoHeight || 0,
+            width: Number(t.width) || video.videoWidth || 0,
+            bitrate: 0,
+          }));
+          setState((s) => ({ ...s, levels: lvls }));
+        } else if (video.videoHeight > 0 || video.videoWidth > 0) {
+          setState((s) => ({
+            ...s,
+            levels: [
+              {
+                height: video.videoHeight || 0,
+                width: video.videoWidth || 0,
+                bitrate: 0,
+              },
+            ],
+          }));
+        } else {
+          setState((s) => ({ ...s, levels: [] }));
+        }
+      };
+      video.addEventListener('loadedmetadata', handleLoaded);
+      return () => {
+        video.removeEventListener('loadedmetadata', handleLoaded);
+      };
     } else if (isHLSStream) {
-      setState(s => ({ ...s, hasError: true, levels: [] }));
+      setState((s) => ({ ...s, hasError: true, levels: [] }));
     } else {
       video.src = src;
       video.load();
-      setState(s => ({ ...s, levels: [] }));
+      setState((s) => ({ ...s, levels: [] }));
     }
 
     return () => {
@@ -136,4 +227,3 @@ export function useHLS(videoRef: React.RefObject<HTMLVideoElement>) {
     };
   }, [src]);
 }
-

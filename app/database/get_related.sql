@@ -6,6 +6,8 @@
 -- Pagination: p_cursor_pos (0, 20, 40...) and p_limit.
 -- ============================================================
 
+DROP FUNCTION IF EXISTS get_related;
+
 CREATE OR REPLACE FUNCTION get_related(
   p_file_id      uuid,
   p_user_id      uuid    DEFAULT NULL,
@@ -51,17 +53,12 @@ LANGUAGE plpgsql
 STABLE
 AS $$
 DECLARE
-  v_nsfw_on   boolean;
-  v_owner_id  uuid;
-  v_tags      jsonb;
+  v_owner_id   uuid;
+  v_tags       jsonb;
   v_categories jsonb;
-  v_file_type text;
+  v_file_type  text;
 BEGIN
-  IF p_user_id IS NOT NULL THEN
-    SELECT COALESCE(u.show_nsfw, false) INTO v_nsfw_on FROM users u WHERE u.id = p_user_id;
-  ELSE
-    v_nsfw_on := false;
-  END IF;
+  -- v_nsfw_on removed — related never shows adult content
 
   -- Source file (for relevance scoring)
   SELECT f.owner_id, f.tags, f.categories, f.file_type
@@ -147,7 +144,7 @@ BEGIN
     LEFT JOIN user_dislikes ud ON ud.file_id = f.id
     WHERE f.id != p_file_id
       AND f.is_public = true
-      AND (v_nsfw_on = true OR f.is_adult = false)
+      AND f.is_adult = false              -- HARD BLOCK: never show adult content
       AND f.upload_status = 'complete'
       AND (p_user_id IS NULL OR ud.file_id IS NULL)
       AND (p_exclude_ids = '{}'::uuid[] OR f.id != ALL(p_exclude_ids))

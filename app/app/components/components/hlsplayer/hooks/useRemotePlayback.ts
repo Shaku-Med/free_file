@@ -1,11 +1,12 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 
 interface RemotePlaybackAPI {
+  state: 'connected' | 'connecting' | 'disconnected';
   watchAvailability: (cb: (available: boolean) => void) => Promise<number>;
   cancelWatchAvailability?: (id: number) => Promise<void>;
   prompt: () => Promise<void>;
-  addEventListener?: (event: string, cb: () => void) => void;
-  removeEventListener?: (event: string, cb: () => void) => void;
+  addEventListener: (event: string, cb: () => void) => void;
+  removeEventListener: (event: string, cb: () => void) => void;
 }
 
 interface WebKitVideoElement extends HTMLVideoElement {
@@ -13,11 +14,30 @@ interface WebKitVideoElement extends HTMLVideoElement {
   webkitCurrentPlaybackTargetIsWireless?: boolean;
 }
 
+type VideoWithRemote = HTMLVideoElement & { remote?: RemotePlaybackAPI };
+
 export function useRemotePlayback(videoRef: React.RefObject<HTMLVideoElement | null>) {
   const [isAvailable, setIsAvailable] = useState(false);
   const [isCasting, setIsCasting] = useState(false);
   const watchIdRef = useRef<number | null>(null);
   const isAirPlayRef = useRef(false);
+  // Track whether the video element has been set up so we can re-run on mount
+  const [videoMounted, setVideoMounted] = useState(false);
+
+  // Poll until the video element is available
+  useEffect(() => {
+    if (videoRef.current) {
+      setVideoMounted(true);
+      return;
+    }
+    const interval = setInterval(() => {
+      if (videoRef.current) {
+        setVideoMounted(true);
+        clearInterval(interval);
+      }
+    }, 200);
+    return () => clearInterval(interval);
+  }, [videoRef]);
 
   const prompt = useCallback(async () => {
     const video = videoRef.current;
@@ -29,52 +49,40 @@ export function useRemotePlayback(videoRef: React.RefObject<HTMLVideoElement | n
       return;
     }
 
-    const remote = (video as HTMLVideoElement & { remote?: RemotePlaybackAPI })?.remote;
-    if (!remote?.prompt) return;
-    try {
-      await remote.prompt();
-    } catch {
-      // User cancelled or not supported
+    const remote = (video as VideoWithRemote).remote;
+    if (remote?.prompt) {
+      try {
+        await remote.prompt();
+      } catch {
+        // User cancelled or not supported
+      }
     }
-  }, []);
+  }, [videoRef]);
 
   useEffect(() => {
+    if (!videoMounted) return;
     const video = videoRef.current;
-
-    // Video not mounted yet — retry until it is
-    if (!video) {
-      const interval = setInterval(() => {
-        if (videoRef.current) {
-          clearInterval(interval);
-          // Re-trigger effect by forcing state update
-          setIsAvailable(prev => prev);
-        }
-      }, 200);
-      return () => clearInterval(interval);
-    }
+    if (!video) return;
 
     const webkitVideo = video as WebKitVideoElement;
 
-    // Safari / iOS — AirPlay
+    // ─── Safari / iOS — AirPlay ───
     if (
       (window as any).WebKitPlaybackTargetAvailabilityEvent ||
       webkitVideo.webkitShowPlaybackTargetPicker
     ) {
-      // On iOS Safari, the picker works even if the event never fires
-      // so we default to available and let the event refine it
-      if (webkitVideo.webkitShowPlaybackTargetPicker) {
-        isAirPlayRef.current = true;
-        setIsAvailable(true);
+      isAirPlayRef.current = true;
+      setIsAvailable(true);
+
+      // Check initial wireless state
+      if (webkitVideo.webkitCurrentPlaybackTargetIsWireless) {
+        setIsCasting(true);
       }
 
       const handleAvailability = (event: any) => {
-        if (event.availability === 'available') {
-          isAirPlayRef.current = true;
-          setIsAvailable(true);
-        } else {
-          isAirPlayRef.current = false;
-          setIsAvailable(false);
-        }
+        const available = event.availability === 'available';
+        isAirPlayRef.current = available;
+        setIsAvailable(available);
       };
 
       const handleWirelessChanged = () => {
@@ -90,54 +98,68 @@ export function useRemotePlayback(videoRef: React.RefObject<HTMLVideoElement | n
       };
     }
 
-    // Chrome — Remote Playback API
-    const remote = (video as HTMLVideoElement & { remote?: RemotePlaybackAPI }).remote;
+    // ─── Chrome / Edge — Remote Playback API ───
+    const remote = (video as VideoWithRemote).remote;
 
-    const handleConnect = () => setIsCasting(true);
-    const handleDisconnect = () => setIsCasting(false);
+    if (remote) {
+      // Check initial state
+      if (remote.state === 'connected') {
+        setIsCasting(true);
+        setIsAvailable(true);
+      } else if (remote.state === 'connecting') {
+        setIsCasting(false);
+        setIsAvailable(true);
+      }
 
-    // No remote API at all — show button anyway, prompt will just no-op gracefully
-    if (!remote) {
+      const handleConnect = () => setIsCasting(true);
+      const handleDisconnect = () => setIsCasting(false);
+      const handleConnecting = () => setIsCasting(false);
+
+      remote.addEventListener('connect', handleConnect);
+      remote.addEventListener('disconnect', handleDisconnect);
+      remote.addEventListener('connecting', handleConnecting);
+
+      if (remote.watchAvailability) {
+        let cancelled = false;
+        remote
+          .watchAvailability((available: boolean) => {
+            if (!cancelled) setIsAvailable(available);
+          })
+          .then((id: number) => {
+            if (!cancelled) watchIdRef.current = id;
+          })
+          .catch(() => {
+            // watchAvailability not supported — show button anyway
+            if (!cancelled) setIsAvailable(true);
+          });
+
+        return () => {
+          cancelled = true;
+          const id = watchIdRef.current;
+          if (id != null && remote.cancelWatchAvailability) {
+            remote.cancelWatchAvailability(id);
+            watchIdRef.current = null;
+          }
+          remote.removeEventListener('connect', handleConnect);
+          remote.removeEventListener('disconnect', handleDisconnect);
+          remote.removeEventListener('connecting', handleConnecting);
+        };
+      }
+
+      // No watchAvailability — just show the button
       setIsAvailable(true);
-      return;
-    }
-
-    if (!remote.watchAvailability) {
-      setIsAvailable(true);
-      remote.addEventListener?.('connect', handleConnect);
-      remote.addEventListener?.('disconnect', handleDisconnect);
       return () => {
-        remote.removeEventListener?.('connect', handleConnect);
-        remote.removeEventListener?.('disconnect', handleDisconnect);
+        remote.removeEventListener('connect', handleConnect);
+        remote.removeEventListener('disconnect', handleDisconnect);
+        remote.removeEventListener('connecting', handleConnecting);
       };
     }
 
-    let cancelled = false;
-    remote
-      .watchAvailability((available: boolean) => {
-        if (!cancelled) setIsAvailable(available);
-      })
-      .then((id: number) => {
-        if (!cancelled) watchIdRef.current = id;
-      })
-      .catch(() => {
-        if (!cancelled) setIsAvailable(true);
-      });
-
-    remote.addEventListener?.('connect', handleConnect);
-    remote.addEventListener?.('disconnect', handleDisconnect);
-
-    return () => {
-      cancelled = true;
-      const id = watchIdRef.current;
-      if (id != null && remote.cancelWatchAvailability) {
-        remote.cancelWatchAvailability(id);
-        watchIdRef.current = null;
-      }
-      remote.removeEventListener?.('connect', handleConnect);
-      remote.removeEventListener?.('disconnect', handleDisconnect);
-    };
-  }, [videoRef.current]);
+    // ─── Fallback: no remote API at all ───
+    // On desktop browsers without Remote Playback API (Firefox, etc.),
+    // don't show the button since there's nothing to cast to.
+    setIsAvailable(false);
+  }, [videoMounted, videoRef]);
 
   return { isAvailable, isCasting, prompt };
 }

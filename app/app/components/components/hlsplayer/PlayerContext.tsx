@@ -26,6 +26,13 @@ export interface BufferedRange {
   end: number;
 }
 
+export interface SubtitleTrack {
+  id: number;
+  label: string;
+  lang: string;
+  kind: string;
+}
+
 export interface PlayerState {
   isPlaying: boolean;
   isPaused: boolean;
@@ -43,12 +50,14 @@ export interface PlayerState {
   levels: QualityLevel[];
   currentLevel: number;
   controlsVisible: boolean;
+  subtitleTracks: SubtitleTrack[];
+  currentSubtitleTrack: number;
 }
 
 interface PlayerContextValue {
   hlsRef: RefObject<Hls | null>;
   containerRef: RefObject<HTMLDivElement | null>;
-  videoRef: RefObject<HTMLVideoElement>;
+  videoRef: RefObject<HTMLVideoElement | null>;
   state: PlayerState;
   setState: React.Dispatch<React.SetStateAction<PlayerState>>;
 
@@ -87,6 +96,8 @@ interface PlayerContextValue {
   setAmbientColors: (v: string[]) => void;
   stableVolume: boolean;
   setStableVolume: (v: boolean) => void;
+  startTime?: number;
+  setSubtitleTrack: (id: number) => void;
 }
 
 const PlayerContext = createContext<PlayerContextValue | null>(null);
@@ -114,6 +125,8 @@ const INITIAL_STATE: PlayerState = {
   levels: [],
   currentLevel: -1,
   controlsVisible: true,
+  subtitleTracks: [],
+  currentSubtitleTrack: -1,
 };
 
 interface PlayerProviderProps {
@@ -125,10 +138,11 @@ interface PlayerProviderProps {
   loop: boolean;
   initialMuted: boolean;
   initialAutoPlay?: boolean;
-  videoRef: React.RefObject<HTMLVideoElement>;
+  videoRef: React.RefObject<HTMLVideoElement | null>;
+  startTime?: number;
 }
 
-export function PlayerProvider({ children, src, file, imageID, isReel, loop: initialLoop, initialMuted, initialAutoPlay = false, videoRef }: PlayerProviderProps) {
+export function PlayerProvider({ children, src, file, imageID, isReel, loop: initialLoop, initialMuted, initialAutoPlay = false, videoRef, startTime }: PlayerProviderProps) {
   const { playerSettings, setPlayerSettings, savePlayerSettings } = useFileContext();
   const hlsRef = useRef<Hls | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -176,9 +190,16 @@ export function PlayerProvider({ children, src, file, imageID, isReel, loop: ini
     setAmbientModeState(playerSettings.ambientMode);
     const v = videoRef.current;
     if (v) {
-      v.volume = playerSettings.volume;
-      v.muted = playerSettings.muted;
-      v.playbackRate = playerSettings.playbackRate;
+      // Don't touch the video element while AirPlay / Chromecast is active —
+      // changing volume, muted, or playbackRate can interrupt the remote session.
+      const isRemote =
+        (v as any).webkitCurrentPlaybackTargetIsWireless ||
+        (v as any).remote?.state === 'connected';
+      if (!isRemote) {
+        v.volume = playerSettings.volume;
+        v.muted = playerSettings.muted;
+        v.playbackRate = playerSettings.playbackRate;
+      }
     }
   }, [playerSettings, videoRef]);
 
@@ -302,6 +323,15 @@ export function PlayerProvider({ children, src, file, imageID, isReel, loop: ini
     interactingRef.current = false;
   }, []);
 
+  const setSubtitleTrack = useCallback((id: number) => {
+    const hls = hlsRef.current;
+    if (hls) {
+      hls.subtitleTrack = id;
+      hls.subtitleDisplay = id !== -1;
+    }
+    setState(s => ({ ...s, currentSubtitleTrack: id }));
+  }, []);
+
   const setAmbientMode = useCallback((v: boolean) => {
     setAmbientModeState(v);
     setPlayerSettings(prev => (prev ? { ...prev, ambientMode: v } : prev));
@@ -346,6 +376,8 @@ export function PlayerProvider({ children, src, file, imageID, isReel, loop: ini
     setAmbientColors,
     stableVolume,
     setStableVolume,
+    startTime,
+    setSubtitleTrack,
   };
 
   return (

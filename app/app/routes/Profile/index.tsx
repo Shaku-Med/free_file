@@ -1,9 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import { data, useLoaderData, useLocation, type MetaFunction } from "react-router";
 import { userProfileService, type UserProfile } from "~/lib/Services/UserProfileService";
-import { filterFilesByAccess } from "~/routes/Api/fun/accessControl";
 import { isAuthenticated } from "~/lib/Security/Password";
-import { ownerService } from "~/lib/Services/OwnerService";
 import db from "~/lib/Database/supabase";
 import type { FileType } from "~/lib/types";
 import UserProfileHeader from "./components/UserProfileHeader";
@@ -43,54 +41,39 @@ export const loader = async ({ request, params }: { request: Request; params: { 
     const currentUserId = user?.id || null;
 
     const limit = 20;
-    const fetchMultiplier = 3;
-    const fetchLimit = limit * fetchMultiplier;
-    const filesResult = await userProfileService.getUserFiles(profileResult.data.id, fetchLimit, 0);
-
     let files: FileType[] = [];
     let hasMore = false;
-    if (filesResult.data) {
-      const filesWithDefaults = filesResult.data.map(file => ({
-        ...file,
-        is_adult: file.is_adult ?? false,
-        is_public: file.is_public ?? true,
-        upload_status: file.upload_status ?? 'completed',
-        owner_id: file.owner_id ?? ''
-      }));
-      const filteredFiles = await filterFilesByAccess(request, filesWithDefaults);
-      files = filteredFiles.slice(0, limit);
-      hasMore = filteredFiles.length > limit;
-      files = await ownerService.enrichFilesWithOwners(files);
-    }
-
-    const fileIds = files.map(f => f.id).filter(Boolean);
     const likedFileIds: string[] = [];
     const dislikedFileIds: string[] = [];
-    if (fileIds.length > 0 && db) {
-      const { data: batch } = await db.rpc('get_batch_interactions', {
-        p_file_ids: fileIds,
-        p_user_id: currentUserId,
+
+    if (db) {
+      const { data: rows, error: rpcError } = await db.rpc('get_profile_files', {
+        p_profile_user_id: profileResult.data.id,
+        p_viewer_id: currentUserId,
+        p_limit: limit + 1,  // fetch one extra to detect hasMore
+        p_cursor_pos: 0,
       });
-      if (Array.isArray(batch)) {
-        const interactionsByFile = new Map<string, { like_count: number; dislike_count: number; comment_count: number; user_has_liked: boolean; user_has_disliked: boolean }>();
-        for (const row of batch) {
-          if (row?.file_id) {
-            const fid = String(row.file_id);
-            interactionsByFile.set(fid, {
-              like_count: Number(row.like_count) ?? 0,
-              dislike_count: Number(row.dislike_count) ?? 0,
-              comment_count: Number(row.comment_count) ?? 0,
-              user_has_liked: !!row.user_has_liked,
-              user_has_disliked: !!row.user_has_disliked,
-            });
-            if (row.user_has_liked) likedFileIds.push(fid);
-            if (row.user_has_disliked) dislikedFileIds.push(fid);
-          }
-        }
-        files = files.map(f => {
-          const ix = f.id ? interactionsByFile.get(String(f.id)) : undefined;
-          if (!ix) return f;
-          return { ...f, like_count: ix.like_count, dislike_count: ix.dislike_count, comment_count: ix.comment_count };
+
+      if (!rpcError && Array.isArray(rows)) {
+        hasMore = rows.length > limit;
+        const sliced = rows.slice(0, limit);
+        files = sliced.map((r: any) => {
+          const fid = String(r.id);
+          if (r.user_has_liked) likedFileIds.push(fid);
+          if (r.user_has_disliked) dislikedFileIds.push(fid);
+          return {
+            ...r,
+            like_count: Number(r.like_count) || 0,
+            dislike_count: Number(r.dislike_count) || 0,
+            comment_count: Number(r.comment_count) || 0,
+            owner: r.owner_username ? {
+              id: r.owner_id,
+              username: r.owner_username,
+              profile_pic: r.owner_profile_pic || '',
+              verified: r.owner_verified || false,
+              about: r.owner_about || null,
+            } : null,
+          } as FileType;
         });
       }
     }

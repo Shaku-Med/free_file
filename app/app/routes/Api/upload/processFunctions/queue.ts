@@ -1,5 +1,5 @@
-import { Queue } from 'bullmq';
 import type { ChunkInfo } from './chunking.js';
+import { getUploadWorker, type UploadJobHandle } from './worker';
 
 export interface UploadJobData {
   file: {
@@ -16,53 +16,83 @@ export interface UploadJobData {
   isPublic?: boolean;
 }
 
+type JobState = 'waiting' | 'active' | 'completed' | 'failed';
+
+type JobRecord = {
+  state: JobState;
+  progress: number | object;
+  result?: unknown;
+  failedReason?: string;
+};
+
+const jobs = new Map<string, JobRecord>();
+
+function createJobHandle(data: UploadJobData, jobId: string): UploadJobHandle {
+  return {
+    id: jobId,
+    data,
+    opts: { attempts: 3 },
+    attemptsMade: 0,
+    async updateProgress(n: number | object) {
+      const p = typeof n === 'number' ? n : 0;
+      const rec = jobs.get(jobId);
+      if (rec) {
+        rec.progress = p;
+        if (rec.state === 'waiting') {
+          rec.state = 'active';
+        }
+      }
+    },
+  };
+}
+
 export class UploadQueue {
-  private queue: Queue<UploadJobData>;
-
-  constructor() {
-    this.queue = new Queue<UploadJobData>('upload-processing');
-    
-    this.queue.on('error', (error) => {
-      console.error('Upload queue error:', error);
-    });
-  }
-
   async addJob(data: UploadJobData): Promise<string> {
-    const job = await this.queue.add('process-upload', data, {
-      jobId: data.uniqueID,
-      attempts: 3,
-      backoff: {
-        type: 'exponential',
-        delay: 2000,
-      },
-      removeOnComplete: {
-        age: 3600,
-        count: 1000,
-      },
-      removeOnFail: {
-        age: 86400,
-      },
-    });
-    return job.id!;
+    const jobId = data.uniqueID;
+    jobs.set(jobId, { state: 'waiting', progress: 0 });
+
+    const worker = getUploadWorker();
+    const handle = createJobHandle(data, jobId);
+
+    void (async () => {
+      const rec = jobs.get(jobId);
+      if (rec) {
+        rec.state = 'active';
+      }
+      try {
+        const result = await worker.processUpload(handle);
+        jobs.set(jobId, {
+          state: 'completed',
+          progress: 100,
+          result,
+        });
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : 'Upload processing failed';
+        const prev = jobs.get(jobId);
+        jobs.set(jobId, {
+          state: 'failed',
+          progress: prev?.progress ?? 0,
+          failedReason: msg,
+        });
+      }
+    })();
+
+    return jobId;
   }
 
   async getJobStatus(jobId: string) {
     try {
-      const job = await this.queue.getJob(jobId);
-      if (!job) {
+      const rec = jobs.get(jobId);
+      if (!rec) {
         return null;
       }
 
-      const state = await job.getState();
-      const progress = job.progress;
-      const result = await job.returnvalue;
-
       return {
-        id: job.id,
-        state,
-        progress,
-        result,
-        failedReason: job.failedReason,
+        id: jobId,
+        state: rec.state,
+        progress: rec.progress,
+        result: rec.state === 'completed' ? rec.result : undefined,
+        failedReason: rec.failedReason,
       };
     } catch (error) {
       console.error('Failed to get job status:', error);
@@ -71,7 +101,7 @@ export class UploadQueue {
   }
 
   async close(): Promise<void> {
-    await this.queue.close();
+    // In-process queue: nothing to close
   }
 }
 

@@ -11,18 +11,22 @@ import ShareIcon from "./Icons/Options/Share";
 import AddIcon from "./Icons/Options/Add";
 import { useLocalPlaylist } from "~/lib/hooks/useLocalPlaylist";
 import { ShareModal } from "~/components/ShareModal";
+import AddToPlaylistModal from "~/components/Playlist/AddToPlaylistModal";
+import { ListPlus } from "lucide-react";
 
 interface OptiontProps {
   fileId: string;
   uniqueId: string;
   isOwner: boolean;
   onEdit?: () => void;
+  currentTime?: number;
 }
 
-const Optiont = ({ fileId, uniqueId, isOwner, onEdit }: OptiontProps) => {
+const Optiont = ({ fileId, uniqueId, isOwner, onEdit, currentTime }: OptiontProps) => {
   const { isMobile, state } = useSidebar();
   const { has, toggle } = useLocalPlaylist();
   const [shareModalOpen, setShareModalOpen] = useState(false);
+  const [addToPlaylistOpen, setAddToPlaylistOpen] = useState(false);
   const inPlaylist = has(fileId);
   const shareUrl = `${typeof window !== "undefined" ? window.location.origin : ""}/${uniqueId}`;
 
@@ -51,7 +55,11 @@ const Optiont = ({ fileId, uniqueId, isOwner, onEdit }: OptiontProps) => {
           </DropdownMenuItem>
           <DropdownMenuItem onClick={handleTogglePlaylist}>
             <AddIcon className="w-10 h-10 fill-current" />
-            {inPlaylist ? "Remove from playlist" : "Add to playlist"}
+            {inPlaylist ? "Remove from local list" : "Save locally"}
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={() => setAddToPlaylistOpen(true)}>
+            <ListPlus className="w-5 h-5 mr-1" />
+            Add to playlist
           </DropdownMenuItem>
           {isOwner && onEdit && (
             <DropdownMenuItem onClick={onEdit}>
@@ -64,7 +72,8 @@ const Optiont = ({ fileId, uniqueId, isOwner, onEdit }: OptiontProps) => {
           )}
         </DropdownMenuContent>
       </DropdownMenu>
-      <ShareModal open={shareModalOpen} onOpenChange={setShareModalOpen} shareUrl={shareUrl} />
+      <ShareModal open={shareModalOpen} onOpenChange={setShareModalOpen} shareUrl={shareUrl} currentTime={currentTime} />
+      <AddToPlaylistModal open={addToPlaylistOpen} onOpenChange={setAddToPlaylistOpen} fileId={fileId} />
     </div>
   );
 };

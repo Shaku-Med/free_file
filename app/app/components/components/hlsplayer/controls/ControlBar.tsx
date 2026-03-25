@@ -9,8 +9,13 @@ import SettingsMenu from './settings/SettingsMenu';
 import TheaterButton from './theater/TheaterButton';
 import FullscreenButton from './fullscreen/FullscreenButton';
 import CastButton from './cast/CastButton';
-import PipButton from './pip/PipButton';
+import SubtitleButton from './subtitles/SubtitleButton';
+import MiniPlayerButton from './miniplayer/MiniPlayerButton';
 import { formatTime } from './seek/functions/formatTime';
+import type { HideControls } from '../types';
+
+const isHidden = (hide?: HideControls, key?: keyof NonNullable<HideControls>) =>
+  !!(hide && key && hide[key]);
 
 const DROPDOWN_GAP = 8;
 const VIEWPORT_PADDING = 16;
@@ -23,9 +28,10 @@ interface ControlBarProps {
   theaterMode?: boolean;
   onTheaterModeChange?: (active: boolean) => void;
   onPlayPauseClick?: () => void;
+  hideControls?: HideControls;
 }
 
-export default function ControlBar({ onNext, theaterMode = false, onTheaterModeChange, onPlayPauseClick }: ControlBarProps) {
+export default function ControlBar({ onNext, theaterMode = false, onTheaterModeChange, onPlayPauseClick, hideControls }: ControlBarProps) {
   const { state, togglePlay } = usePlayerContext();
   const containerRef = useRef<HTMLDivElement>(null);
   const { showTime, showRightInline, showVolumeSlider } = useControlBarWidth(containerRef);
@@ -79,22 +85,24 @@ export default function ControlBar({ onNext, theaterMode = false, onTheaterModeC
       <div className="flex items-center justify-between gap-3 px-3 pt-1 pb-1 min-w-0">
         {/* Left group: same transparent background as waveform */}
         <div className={`flex items-center gap-1 min-w-0 shrink-0 ${barBg} px-2.5 py-1.5`}>
-          <button
-            onClick={() => {
-              togglePlay();
-              onPlayPauseClick?.();
-            }}
-            className="p-1.5 rounded-md hover:bg-white/10 transition-colors text-white shrink-0"
-            aria-label={state.isPlaying ? 'Pause' : 'Play'}
-          >
-            {state.isPlaying ? (
-              <Pause className="w-5 h-5 fill-white" />
-            ) : (
-              <Play className="w-5 h-5 fill-white" />
-            )}
-          </button>
+          {!isHidden(hideControls, 'playPause') && (
+            <button
+              onClick={() => {
+                togglePlay();
+                onPlayPauseClick?.();
+              }}
+              className="p-1.5 rounded-md hover:bg-white/10 transition-colors text-white shrink-0"
+              aria-label={state.isPlaying ? 'Pause' : 'Play'}
+            >
+              {state.isPlaying ? (
+                <Pause className="w-5 h-5 fill-white" />
+              ) : (
+                <Play className="w-5 h-5 fill-white" />
+              )}
+            </button>
+          )}
 
-          {onNext && (
+          {!isHidden(hideControls, 'next') && onNext && (
             <button
               onClick={onNext}
               className="p-1.5 rounded-md hover:bg-white/10 transition-colors text-white shrink-0"
@@ -104,9 +112,11 @@ export default function ControlBar({ onNext, theaterMode = false, onTheaterModeC
             </button>
           )}
 
-          <VolumeControl showSlider={showVolumeSlider} />
+          {!isHidden(hideControls, 'volume') && (
+            <VolumeControl showSlider={showVolumeSlider} />
+          )}
 
-          {showTime && (
+          {!isHidden(hideControls, 'time') && showTime && (
             <span className="text-white/90 text-xs font-medium ml-1 select-none tabular-nums shrink-0">
               {formatTime(state.currentTime)}
               <span className="text-white/40 mx-1">/</span>
@@ -117,26 +127,29 @@ export default function ControlBar({ onNext, theaterMode = false, onTheaterModeC
 
         {/* Right group: fullscreen always visible; theater + settings inline or in dropdown */}
         <div className={`flex items-center gap-1 shrink-0 ${barBg} px-2 py-1.5`} ref={overflowRef}>
-          <CastButton />
-          {/* <PipButton /> */}
-          <FullscreenButton />
+          {!isHidden(hideControls, 'subtitles') && <SubtitleButton />}
+          {!isHidden(hideControls, 'miniPlayer') && <MiniPlayerButton />}
+          {!isHidden(hideControls, 'cast') && <CastButton />}
+          {!isHidden(hideControls, 'fullscreen') && <FullscreenButton />}
           {showRightInline ? (
             <>
-              <SettingsMenu />
-              {onTheaterModeChange && (
+              {!isHidden(hideControls, 'settings') && <SettingsMenu />}
+              {!isHidden(hideControls, 'theater') && onTheaterModeChange && (
                 <TheaterButton theaterMode={theaterMode} onTheaterModeChange={onTheaterModeChange} />
               )}
             </>
           ) : (
             <>
-              <button
-                ref={moreButtonRef}
-                onClick={() => setOverflowOpen((o) => !o)}
-                className="p-1.5 rounded-md hover:bg-white/10 transition-colors text-white"
-                aria-label="More controls"
-              >
-                <MoreVertical className="w-5 h-5" />
-              </button>
+              {(!isHidden(hideControls, 'settings') || !isHidden(hideControls, 'theater')) && (
+                <button
+                  ref={moreButtonRef}
+                  onClick={() => setOverflowOpen((o) => !o)}
+                  className="p-1.5 rounded-md hover:bg-white/10 transition-colors text-white"
+                  aria-label="More controls"
+                >
+                  <MoreVertical className="w-5 h-5" />
+                </button>
+              )}
               {overflowOpen &&
                 typeof document !== 'undefined' &&
                 createPortal(
@@ -150,8 +163,8 @@ export default function ControlBar({ onNext, theaterMode = false, onTheaterModeC
                       maxHeight: dropdownStyle.maxHeight,
                     }}
                   >
-                    <SettingsMenu nested />
-                    {onTheaterModeChange && (
+                    {!isHidden(hideControls, 'settings') && <SettingsMenu nested />}
+                    {!isHidden(hideControls, 'theater') && onTheaterModeChange && (
                       <div className="px-2 py-1" onClick={() => setOverflowOpen(false)}>
                         <TheaterButton theaterMode={theaterMode} onTheaterModeChange={onTheaterModeChange} />
                       </div>
@@ -164,9 +177,11 @@ export default function ControlBar({ onNext, theaterMode = false, onTheaterModeC
         </div>
       </div>
 
-      <div className="px-3 pb-2 pt-0">
-        <SeekBar />
-      </div>
+      {!isHidden(hideControls, 'seek') && (
+        <div className="px-3 pb-2 pt-0">
+          <SeekBar />
+        </div>
+      )}
     </div>
   );
 }

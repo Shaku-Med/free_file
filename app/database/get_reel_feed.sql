@@ -132,7 +132,7 @@ BEGIN
     LEFT JOIN user_dislikes ud ON ud.file_id = f.id
     LEFT JOIN user_seen us ON us.file_id = f.id
     WHERE f.is_public = true
-      AND (v_nsfw_on = true OR f.is_adult = false)
+      AND f.is_adult = false  -- HARD BLOCK: never show adult content in feeds
       AND f.upload_status = 'complete'
       AND f.is_reel = true
       AND (p_max_duration IS NULL OR f.duration IS NULL OR (f.duration IS NOT NULL AND f.duration <= p_max_duration))

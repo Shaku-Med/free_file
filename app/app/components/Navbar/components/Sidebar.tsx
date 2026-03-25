@@ -14,6 +14,7 @@ import {
   Star,
   Play,
   ListVideo,
+  Users,
 } from "lucide-react"
 import {
   Sidebar,
@@ -77,6 +78,11 @@ const menuItems = [
   //   icon: Play,
   //   href: "/reel",
   // },
+  {
+    title: "Subscriptions",
+    icon: Users,
+    href: "/subscriptions",
+  },
   {
     title: "Search",
     icon: Search,

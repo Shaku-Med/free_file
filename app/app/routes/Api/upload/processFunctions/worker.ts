@@ -1,4 +1,3 @@
-import { Worker, type Job } from 'bullmq';
 import { FileService } from '~/lib/Services/FileService';
 import { VideoThumbnailService } from './VideoThumbnailService';
 import { processVideoToHLS } from './videoProcessor';
@@ -26,6 +25,15 @@ interface UploadJobData {
   isPublic?: boolean;
 }
 
+/** Minimal job surface used by the upload processor (replaces bullmq `Job`). */
+export interface UploadJobHandle {
+  id: string | undefined;
+  data: UploadJobData;
+  opts: { attempts?: number };
+  attemptsMade: number;
+  updateProgress: (progress: number | object) => Promise<void>;
+}
+
 interface ProcessResult {
   success: boolean;
   isAdult?: boolean;
@@ -34,10 +42,8 @@ interface ProcessResult {
 }
 
 export class UploadWorker {
-  private worker: Worker<UploadJobData, ProcessResult> | null = null;
   private fileService: FileService;
   private thumbnailService: VideoThumbnailService;
-  private initialized: boolean = false;
 
   constructor() {
     this.fileService = new FileService(
@@ -49,46 +55,10 @@ export class UploadWorker {
   }
 
   initializeWorker(): boolean {
-    if (this.initialized && this.worker) {
-      return true;
-    }
-
-    try {
-      this.worker = new Worker<UploadJobData, ProcessResult>(
-        'upload-processing',
-        async (job: Job<UploadJobData>) => {
-          return await this.processUpload(job);
-        },
-        {
-          connection: {},
-          concurrency: 1,
-          limiter: {
-            max: 5,
-            duration: 1000,
-          },
-        }
-      );
-
-      this.setupEventHandlers();
-      this.initialized = true;
-      return true;
-    } catch (error) {
-      console.warn('Upload worker initialization skipped. Redis connection required for queue processing.');
-      console.warn('Start Redis with: docker compose up -d (in free_file/app directory)');
-      this.worker = null;
-      this.initialized = false;
-      return false;
-    }
+    return true;
   }
 
-  getWorker(): Worker<UploadJobData, ProcessResult> | null {
-    if (!this.initialized) {
-      this.initializeWorker();
-    }
-    return this.worker;
-  }
-
-  async processUpload(job: Job<UploadJobData>): Promise<ProcessResult> {
+  async processUpload(job: UploadJobHandle): Promise<ProcessResult> {
     const tempDir = join(process.cwd(), 'upload', 'temp');
     let tempFilesToCleanup: string[] = [];
 
@@ -328,7 +298,7 @@ export class UploadWorker {
     }
   }
 
-  private shouldDeleteRecord(job: Job<UploadJobData>): boolean {
+  private shouldDeleteRecord(job: UploadJobHandle): boolean {
     const maxAttempts = job.opts.attempts ?? 1;
     return job.attemptsMade + 1 >= maxAttempts;
   }
@@ -435,30 +405,8 @@ export class UploadWorker {
     return mimeMap[mimeType.toLowerCase()] || 'bin';
   }
 
-  private setupEventHandlers(): void {
-    if (!this.worker) return;
-
-    this.worker.on('completed', (job) => {
-      console.log(`Upload job ${job.id} completed`);
-    });
-
-    this.worker.on('failed', (job, err) => {
-      console.error(`Upload job ${job?.id} failed:`, err);
-    });
-
-    this.worker.on('error', (err) => {
-      console.error('Upload worker error:', err);
-    });
-
-    this.worker.on('closing', () => {
-      console.log('Upload worker is closing...');
-    });
-  }
-
   async close(): Promise<void> {
-    if (this.worker) {
-      await this.worker.close();
-    }
+    // No background worker connection to close
   }
 }
 
@@ -475,8 +423,7 @@ export function initializeWorker(): boolean {
   try {
     const worker = getUploadWorker();
     return worker.initializeWorker();
-  } catch (error) {
-    console.warn('Upload worker initialization skipped. Redis connection required for queue processing.');
+  } catch {
     return false;
   }
 }

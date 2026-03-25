@@ -1,0 +1,158 @@
+-- ============================================================
+-- PROFILE FILES — paginated file listing for user profiles
+-- Counts directly via subqueries (not materialized view)
+-- Adult content only visible to the profile owner
+-- ============================================================
+
+DROP FUNCTION IF EXISTS get_profile_files(uuid, uuid, int, int);
+
+CREATE OR REPLACE FUNCTION get_profile_files(
+  p_profile_user_id  uuid,
+  p_viewer_id        uuid    DEFAULT NULL,
+  p_limit            int     DEFAULT 20,
+  p_cursor_pos       int     DEFAULT 0
+)
+RETURNS TABLE (
+  id               uuid,
+  created_at       timestamptz,
+  endpoint         text,
+  filename         text,
+  unique_id        text,
+  file_size        text,
+  file_type        text,
+  is_adult         boolean,
+  owner_id         uuid,
+  is_public        boolean,
+  file_description text,
+  file_title       text,
+  thumbnails       jsonb[],
+  view_count       numeric,
+  share_count      numeric,
+  is_reel          boolean,
+  duration         numeric,
+  categories       jsonb,
+  tags             jsonb,
+  colors           jsonb,
+  metadata         jsonb,
+  like_count       bigint,
+  dislike_count    bigint,
+  comment_count    bigint,
+  engagement_score float,
+  feed_pool        text,
+  owner_username    text,
+  owner_profile_pic text,
+  owner_verified    boolean,
+  owner_about       text,
+  user_has_liked    boolean,
+  user_has_disliked boolean,
+  upload_status     text,
+  total_count       bigint
+)
+LANGUAGE plpgsql
+STABLE
+AS $$
+DECLARE
+  v_is_owner boolean := (p_viewer_id IS NOT NULL AND p_viewer_id = p_profile_user_id);
+BEGIN
+  RETURN QUERY
+  WITH
+  filtered AS (
+    SELECT
+      f.id,
+      f.created_at,
+      f.endpoint,
+      f.filename,
+      f.unique_id,
+      f.file_size,
+      f.file_type,
+      f.is_adult,
+      f.owner_id,
+      f.is_public,
+      f.file_description,
+      f.file_title,
+      f.thumbnails,
+      f.view_count,
+      f.share_count,
+      f.is_reel,
+      f.duration,
+      f.categories,
+      f.tags,
+      f.colors,
+      f.metadata,
+      f.upload_status,
+      -- Live counts via subqueries
+      (SELECT COUNT(*) FROM likes l WHERE l.file_id = f.id)::bigint        AS _like_count,
+      (SELECT COUNT(*) FROM dislike d WHERE d.file_id = f.id)::bigint      AS _dislike_count,
+      (SELECT COUNT(*) FROM comments c WHERE c.file_id = f.id AND c.is_deleted = false)::bigint AS _comment_count,
+      -- Viewer interaction status
+      (p_viewer_id IS NOT NULL AND EXISTS (SELECT 1 FROM likes l WHERE l.file_id = f.id AND l.user_id = p_viewer_id))   AS _viewer_liked,
+      (p_viewer_id IS NOT NULL AND EXISTS (SELECT 1 FROM dislike d WHERE d.file_id = f.id AND d.user_id = p_viewer_id)) AS _viewer_disliked
+    FROM files f
+    WHERE f.owner_id = p_profile_user_id
+      AND (
+        v_is_owner
+        OR (
+          f.is_public = true
+          AND f.is_adult = false
+          AND (f.upload_status = 'complete' OR f.upload_status = 'completed')
+        )
+      )
+  ),
+  counted AS (
+    SELECT COUNT(*)::bigint AS cnt FROM filtered
+  ),
+  ranked AS (
+    SELECT
+      fl.*,
+      ROW_NUMBER() OVER (ORDER BY fl.created_at DESC, fl.id DESC) AS _rn
+    FROM filtered fl
+  )
+
+  SELECT
+    r.id,
+    r.created_at,
+    r.endpoint,
+    r.filename,
+    r.unique_id,
+    r.file_size,
+    r.file_type,
+    r.is_adult,
+    r.owner_id,
+    r.is_public,
+    r.file_description,
+    r.file_title,
+    r.thumbnails,
+    r.view_count,
+    r.share_count,
+    r.is_reel,
+    r.duration,
+    r.categories,
+    r.tags,
+    r.colors,
+    r.metadata,
+    r._like_count,
+    r._dislike_count,
+    r._comment_count,
+    CASE WHEN GREATEST(r.view_count, 1) > 0 THEN
+      (r._like_count + r._comment_count + r.share_count)::float
+      / GREATEST(r.view_count, 1)::float
+    ELSE 0.0 END,
+    'profile'::text,
+    u.username,
+    u.profile_pic,
+    u.verified,
+    u.about,
+    r._viewer_liked,
+    r._viewer_disliked,
+    r.upload_status,
+    c.cnt
+  FROM ranked r
+  JOIN users u ON u.id = r.owner_id
+  CROSS JOIN counted c
+  WHERE r._rn > p_cursor_pos
+  ORDER BY r._rn ASC
+  LIMIT p_limit;
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION get_profile_files(uuid, uuid, int, int) TO anon, authenticated;

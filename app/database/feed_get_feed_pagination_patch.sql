@@ -1,12 +1,5 @@
 -- ============================================================
--- FEED PAGINATION PATCH — get_feed v4
--- ============================================================
--- Problem: get_feed built only ONE page (20 rows) in "combined",
--- so cursor_pos=20 returned nothing. Load more never had data.
---
--- Fix: Build a larger feed window (e.g. 10 pages = 200 rows)
--- so WHERE _final_pos > p_cursor_pos LIMIT p_limit returns
--- the correct slice for each request.
+-- FEED v4.1 — hard block adult content, everything else unchanged
 -- ============================================================
 
 DROP FUNCTION IF EXISTS get_feed;
@@ -58,18 +51,13 @@ LANGUAGE plpgsql
 STABLE
 AS $$
 DECLARE
-  v_nsfw_on    boolean;
   v_fresh_lim  int;
   v_trend_lim  int;
   v_pop_lim    int;
   v_disc_lim   int;
-  v_page_mult  int := 10;  -- number of pages to build (so load-more works)
+  v_page_mult  int := 10;
 BEGIN
-  IF p_user_id IS NOT NULL THEN
-    SELECT COALESCE(u.show_nsfw, false) INTO v_nsfw_on FROM users u WHERE u.id = p_user_id;
-  ELSE
-    v_nsfw_on := false;
-  END IF;
+  -- v_nsfw_on removed — feed never shows adult content
 
   v_fresh_lim := GREATEST(CEIL(p_limit * 0.30)::int, 1);
   v_trend_lim := GREATEST(CEIL(p_limit * 0.25)::int, 1);
@@ -133,7 +121,7 @@ BEGIN
     LEFT JOIN user_dislikes ud ON ud.file_id = f.id
     LEFT JOIN user_seen us ON us.file_id = f.id
     WHERE f.is_public = true
-      AND (v_nsfw_on = true OR f.is_adult = false)
+      AND f.is_adult = false              -- HARD BLOCK: never show adult content
       AND f.upload_status = 'complete'
       AND (p_category IS NULL OR f.categories @> to_jsonb(p_category)::jsonb)
       AND (p_reels_only = false OR f.is_reel = true)
@@ -141,7 +129,6 @@ BEGIN
       AND (p_exclude_ids = '{}'::uuid[] OR f.id != ALL(p_exclude_ids))
   ),
 
-  -- Pools: fetch more rows so we have multiple pages (v_page_mult * per-pool limit)
   pool_fresh AS (
     SELECT b.*, 'fresh'::text AS _pool,
       ROW_NUMBER() OVER (
@@ -191,7 +178,6 @@ BEGIN
     LIMIT (v_disc_lim * v_page_mult) * 2
   ),
 
-  -- Combined: take up to (v_X_lim * v_page_mult) from each pool = multiple pages
   combined AS (
     SELECT * FROM (SELECT * FROM pool_fresh    WHERE _rn <= v_fresh_lim * v_page_mult) f
     UNION ALL

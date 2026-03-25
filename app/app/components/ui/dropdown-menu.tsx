@@ -30,11 +30,12 @@ function DropdownMenuTrigger({
 }
 
 const contentBase =
-  "z-[1000000000000001] max-h-(--radix-dropdown-menu-content-available-height) min-w-[8rem] origin-(--radix-dropdown-menu-content-transform-origin) overflow-x-hidden overflow-y-auto rounded-xl border border-border bg-popover text-popover-foreground p-1.5 shadow-xl shadow-black/20 backdrop-blur-sm data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[state=closed]:duration-150 data-[state=open]:duration-200 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2"
+  "z-[1000000000000001] max-h-[var(--radix-dropdown-menu-content-available-height)] min-w-[8rem] origin-[var(--radix-dropdown-menu-content-transform-origin)] overflow-visible rounded-xl border border-border bg-popover text-popover-foreground p-1.5 shadow-xl shadow-black/20 backdrop-blur-sm data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[state=closed]:duration-150 data-[state=open]:duration-200 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2"
 
 function DropdownMenuContent({
   className,
   sideOffset = 6,
+  children,
   ...props
 }: React.ComponentProps<typeof DropdownMenuPrimitive.Content>) {
   return (
@@ -44,7 +45,11 @@ function DropdownMenuContent({
         sideOffset={sideOffset}
         className={cn(contentBase, className)}
         {...props}
-      />
+      >
+        <div className="max-h-[inherit] overflow-x-hidden overflow-y-auto overscroll-contain [scrollbar-gutter:stable]">
+          {children}
+        </div>
+      </DropdownMenuPrimitive.Content>
     </DropdownMenuPrimitive.Portal>
   )
 }
@@ -227,7 +232,11 @@ function DropdownMenuSubContent({
   return (
     <DropdownMenuPrimitive.SubContent
       data-slot="dropdown-menu-sub-content"
-      className={cn(contentBase, "overflow-hidden data-[state=closed]:duration-150 data-[state=open]:duration-200", className)}
+      className={cn(
+        contentBase,
+        "data-[state=closed]:duration-150 data-[state=open]:duration-200",
+        className,
+      )}
       {...props}
     />
   )

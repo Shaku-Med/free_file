@@ -2,7 +2,7 @@ import { useEffect, useRef, useCallback } from 'react';
 import { usePlayerContext } from '../PlayerContext';
 import { ParseFilename } from '~/lib/utils';
 
-export function useMediaSession(mediaSessionImage: string | null, videoRef: React.RefObject<HTMLVideoElement>) {
+export function useMediaSession(mediaSessionImage: string | null, videoRef: React.RefObject<HTMLVideoElement | null>) {
   const { file, isReel } = usePlayerContext();
   const imageRef = useRef(mediaSessionImage);
   imageRef.current = mediaSessionImage;

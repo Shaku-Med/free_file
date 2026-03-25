@@ -1,7 +1,6 @@
 import { Link } from "react-router";
 import { Avatar, AvatarFallback, AvatarImage } from "~/components/ui/avatar";
 import { getProfilePicUrl } from "~/lib/utils/profilePic";
-import { BadgeCheck } from "lucide-react";
 
 export interface OwnerInfo {
   id: string;
@@ -44,9 +43,8 @@ const OwnerProfile = ({ owner, size = "md", showUsername = true, className = "" 
         </AvatarFallback>
       </Avatar>
       {showUsername && (
-        <span className="flex items-center gap-1.5 font-semibold text-foreground">
+        <span className="font-semibold text-foreground">
           {owner.username}
-          {owner.verified && <BadgeCheck className="h-4 w-4 text-muted-foreground shrink-0" aria-label="Verified" />}
         </span>
       )}
     </Link>

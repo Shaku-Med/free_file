@@ -15,6 +15,9 @@ import { buildDefaultMeta, buildErrorMeta, SITE_NAME } from "./lib/seo";
 import { ContextProvider } from "./lib/Context/Context";
 import { LikeProvider } from "./lib/Context/LikeContext";
 import { PictureInPictureProvider } from "./lib/Context/PictureInPictureContext";
+import { MiniPlayerProvider } from "./lib/Context/MiniPlayerContext";
+import MiniPlayer from "./components/MiniPlayer/MiniPlayer";
+import { CloseMiniPlayerOnNavigateToVideo } from "./components/MiniPlayer/CloseMiniPlayerOnNavigateToVideo";
 import db from "./lib/Database/supabase";
 import ErrorMessage from "./components/ErrorMessage";
 import { getCookie } from "./lib/Security/Token";
@@ -254,15 +257,19 @@ export function Layout({ children }: { children: React.ReactNode }) {
           <ContextProvider st={st} user_agent={user_agent || ''} userId={userId || null} c_user={c_user || null} uploadServerUrl={uploadServerUrl || ''} playerSettingsFromLoader={playerSettingsFromLoader ?? null} isMobileServer={isMobileServer ?? false} isDevelopment={isDevelopmentServer ?? false}>
             <LikeProvider>
               <PictureInPictureProvider>
-                <SidebarProvider className={`w-full h-full flex-1 min-h-0`}>
-                  <AppSidebar />
-                  <SidebarInset className={`w-full h-full`}>
-                      <BodyComponent>
-                          {children}
-                      </BodyComponent>
-                    <NavProgress/>
-                  </SidebarInset>
-                </SidebarProvider>
+                <MiniPlayerProvider>
+                  <CloseMiniPlayerOnNavigateToVideo />
+                  <SidebarProvider className={`w-full h-full flex-1 min-h-0`}>
+                    <AppSidebar />
+                    <SidebarInset className={`w-full h-full`}>
+                        <BodyComponent>
+                            {children}
+                        </BodyComponent>
+                      <NavProgress/>
+                    </SidebarInset>
+                  </SidebarProvider>
+                  <MiniPlayer />
+                </MiniPlayerProvider>
               </PictureInPictureProvider>
             </LikeProvider>
           </ContextProvider>

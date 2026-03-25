@@ -1,6 +1,10 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import type { FileType } from '~/lib/types';
 import { PlayerProvider, usePlayerContext, type ThumbnailSpriteMeta } from './PlayerContext';
+import type { HideControls } from './types';
+import { HIDE_ALL_EXCEPT_SEEK } from './types';
+import SeekBar from './controls/seek/SeekBar';
 import { useHLS } from './hooks/useHLS';
 import { useVideoEvents } from './hooks/useVideoEvents';
 import { useMediaSession } from './hooks/useMediaSession';
@@ -8,6 +12,7 @@ import { usePlaybackPosition } from './hooks/usePlaybackPosition';
 import { useAutoplay } from './hooks/useAutoplay';
 import { useControlsVisibility } from './hooks/useControlsVisibility';
 import { useFullscreen } from './hooks/useFullscreen';
+import { useWakeLock } from './hooks/useWakeLock';
 import ControlBar from './controls/ControlBar';
 import EndScreen from './controls/endscreen/EndScreen';
 import BufferingSpinner from './overlays/BufferingSpinner';
@@ -17,10 +22,13 @@ import PipOverlay from './overlays/PipOverlay';
 import PlayPauseFeedback from './overlays/PlayPauseFeedback';
 import SeekFeedback from './overlays/SeekFeedback';
 import PosterBackground from './overlays/PosterBackground';
+import ShortcutOverlay from './overlays/ShortcutOverlay';
 import AmbientBackground from '~/components/components/hlsplayer/overlays/AmbientBackground';
 import { usePictureInPictureContext } from '~/lib/Context/PictureInPictureContext';
 import { useFileContext } from '~/lib/Context/Context';
+import { useMiniPlayerContext } from '~/lib/Context/MiniPlayerContext';
 import { isMobile } from 'react-device-detect';
+import { getVideoSrc } from '~/lib/utils';
 
 interface CallBackProps {
   src: string;
@@ -48,26 +56,27 @@ interface HLSPlayerProps {
   suggestedVideos?: FileType[];
   onVideoSelect?: (video: FileType) => void;
   onNext?: () => void;
-  videoRef: React.RefObject<HTMLVideoElement>;
+  videoRef: React.RefObject<HTMLVideoElement | null>;
   onAmbientModeChange?: (active: boolean) => void;
+  startTime?: number;
+  hideControls?: HideControls;
 }
 
-const HLSPlayer: React.FC<HLSPlayerProps> = (props) => {
-  return (
-    <PlayerProvider
-      src={props.src}
-      file={props.file ?? null}
-      imageID={props.imageID ?? ''}
-      isReel={props.isReel ?? false}
-      loop={props.loop ?? false}
-      initialMuted={props.muted ?? false}
-      initialAutoPlay={props.autoPlay ?? false}
-      videoRef={props.videoRef}
-    >
-      <PlayerInner {...props} />
-    </PlayerProvider>
-  );
-};
+const HLSPlayer: React.FC<HLSPlayerProps> = (props) => (
+  <PlayerProvider
+    src={props.src}
+    file={props.file ?? null}
+    imageID={props.imageID ?? ''}
+    isReel={props.isReel ?? false}
+    loop={props.loop ?? false}
+    initialMuted={props.muted ?? false}
+    initialAutoPlay={props.autoPlay ?? false}
+    videoRef={props.videoRef}
+    startTime={props.startTime}
+  >
+    <PlayerInner {...props} />
+  </PlayerProvider>
+);
 
 function PlayerInner({
   src,
@@ -90,6 +99,7 @@ function PlayerInner({
   onNext,
   videoRef,
   onAmbientModeChange,
+  hideControls,
 }: HLSPlayerProps) {
   const { theaterMode, setTheaterMode, setPlayerSettings, savePlayerSettings } = useFileContext();
   const {
@@ -116,6 +126,11 @@ function PlayerInner({
   }, []);
 
   const { isPipActive, isContentInPip } = usePictureInPictureContext();
+  const { miniPlayer, activateMiniPlayer: triggerMiniPlayer, containerRef: miniPlayerContainerRef, isPortalMode, containerReady, getNavigateBackTarget, sourceVideoRef: miniPlayerSourceVideoRef } = useMiniPlayerContext();
+
+  const isMiniPlayerPortalActive = Boolean(
+    miniPlayer && isPortalMode && file && miniPlayer.file?.unique_id === file.unique_id && containerReady && miniPlayerContainerRef.current
+  );
   const callBackRef = useRef(callBack);
   callBackRef.current = callBack;
   const [mediaSessionImage, setMediaSessionImage] = useState<string | null>(null);
@@ -135,6 +150,7 @@ function PlayerInner({
   const lastTapRef = useRef<{ time: number; x: number } | null>(null);
   const lastDoubleTapTimeRef = useRef(0);
   const SEEK_SECONDS = 10;
+  const [showShortcuts, setShowShortcuts] = useState(false);
 
   const triggerPlayPauseFeedback = useCallback(() => {
     if (isReelCtx) return;
@@ -162,6 +178,7 @@ function PlayerInner({
   useMediaSession(mediaSessionImage, videoRef);
   usePlaybackPosition(videoRef);
   useFullscreen();
+  useWakeLock(videoRef);
   const { showPrompt, enableAutoplay, dismissPrompt } = useAutoplay(autoPlayEnabled, videoRef);
   useControlsVisibility();
 
@@ -349,12 +366,42 @@ function PlayerInner({
           e.preventDefault();
           setPlaybackRate(Math.min(2, (video.playbackRate || 1) + 0.25));
           break;
+        case 'i':
+          e.preventDefault();
+          if (file && video) {
+            const backTarget = getNavigateBackTarget();
+            miniPlayerSourceVideoRef.current = video;
+            triggerMiniPlayer(
+              {
+                src: src || getVideoSrc(file.endpoint ?? '', file.file_type),
+                file,
+                currentTime: video.currentTime,
+                imageID: imageID || file.unique_id,
+                wasPlaying: !video.paused,
+                volume: video.volume,
+                muted: video.muted,
+                playbackRate: video.playbackRate,
+              },
+              { navigateTo: backTarget }
+            );
+          }
+          break;
+        case '?':
+          e.preventDefault();
+          setShowShortcuts(prev => !prev);
+          break;
+        case 'Escape':
+          if (showShortcuts) {
+            e.preventDefault();
+            setShowShortcuts(false);
+          }
+          break;
       }
     };
 
     window.addEventListener('keydown', handleKey);
     return () => window.removeEventListener('keydown', handleKey);
-  }, [isReelCtx, togglePlay, triggerPlayPauseFeedback, theaterMode, handleTheaterModeChange, isMobileView, setPlaybackRate]);
+  }, [isReelCtx, togglePlay, triggerPlayPauseFeedback, theaterMode, handleTheaterModeChange, isMobileView, setPlaybackRate, showShortcuts, file, src, imageID, triggerMiniPlayer, getNavigateBackTarget, miniPlayerSourceVideoRef]);
 
   const showControls = state.controlsVisible && !isReelCtx;
   const showBuffer = state.isBuffering && !state.isLoaded || (state.isBuffering && videoRef.current && videoRef.current.readyState < 3);
@@ -385,19 +432,42 @@ function PlayerInner({
           <SeekFeedback direction={seekFeedbackDirection} seconds={SEEK_SECONDS} fading={seekFeedbackFading} />
         )}
 
-        <video
-          ref={videoRef}
-          className={`w-full h-full object-contain ${isReelCtx ? 'pointer-events-none' : ''} ${isPipActive && isContentInPip(imageID) ? 'opacity-0' : ''}`}
-          muted={muted}
-          loop={loopEnabled}
-          playsInline={playsInline}
-          preload="metadata"
-          onClick={handleVideoClick}
-          onDoubleClick={handleDoubleClick}
-          disableRemotePlayback={false}
-          {...({ 'x-webkit-airplay': 'allow' } as any)}
-          {...(isReelCtx ? { disablePictureInPicture: true, controlsList: 'nopictureinpicture noremoteplayback' } : {})}
-        />
+        {isMiniPlayerPortalActive && miniPlayerContainerRef.current
+          ? createPortal(
+              <div className="w-full h-full flex flex-col bg-black">
+                <video
+                  ref={videoRef}
+                  className="w-full flex-1 object-contain"
+                  muted={muted}
+                  loop={loopEnabled}
+                  playsInline={playsInline}
+                  preload="metadata"
+                  onClick={handleVideoClick}
+                  onDoubleClick={handleDoubleClick}
+                  disableRemotePlayback={false}
+                  {...({ 'x-webkit-airplay': 'allow' } as any)}
+                />
+                <div className="px-3 pb-2 pt-0 shrink-0">
+                  <SeekBar />
+                </div>
+              </div>,
+              miniPlayerContainerRef.current
+            )
+          : (
+            <video
+              ref={videoRef}
+              className={`w-full h-full object-contain ${isReelCtx ? 'pointer-events-none' : ''} ${isPipActive && isContentInPip(imageID) ? 'opacity-0' : ''}`}
+              muted={muted}
+              loop={loopEnabled}
+              playsInline={playsInline}
+              preload="metadata"
+              onClick={handleVideoClick}
+              onDoubleClick={handleDoubleClick}
+              disableRemotePlayback={false}
+              {...({ 'x-webkit-airplay': 'allow' } as any)}
+              {...(isReelCtx ? { disablePictureInPicture: true, controlsList: 'nopictureinpicture noremoteplayback' } : {})}
+            />
+          )}
 
         {!isReelCtx && !loopEnabled && (
           <EndScreen
@@ -405,7 +475,7 @@ function PlayerInner({
           />
         )}
 
-        {!isReelCtx && (
+        {!isReelCtx && !isMiniPlayerPortalActive && (
           <div
             className={`transition-opacity duration-300 ${showControls ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
           >
@@ -415,12 +485,17 @@ function PlayerInner({
               onPlayPauseClick={triggerPlayPauseFeedback}
               theaterMode={theaterMode}
               onTheaterModeChange={isMobileView ? undefined : handleTheaterModeChange}
+              hideControls={hideControls}
             />
           </div>
         )}
 
         {showPrompt && autoPlayEnabled && !isReelCtx && (
           <AutoplayPrompt onEnable={enableAutoplay} onDismiss={dismissPrompt} />
+        )}
+
+        {showShortcuts && !isReelCtx && (
+          <ShortcutOverlay onClose={() => setShowShortcuts(false)} />
         )}
       </div>
     </div>
