@@ -1,5 +1,6 @@
 import { data } from 'react-router';
 import { trendingContentService } from '~/lib/Services/TrendingContentService';
+import { isAuthenticated } from '~/lib/Security/Password';
 
 const toJson = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), {
@@ -47,6 +48,12 @@ export const action = async ({ request }: { request: Request }) => {
   try {
     if (request.method !== 'POST') {
       return toJson({ error: 'Method not allowed' }, 405);
+    }
+
+    // Auth check — only authenticated users can trigger trending refresh
+    const user = await isAuthenticated(request, ['id']);
+    if (!user?.id) {
+      return toJson({ error: 'Unauthorized' }, 401);
     }
 
     const body = await request.json();

@@ -14,7 +14,7 @@ import OwnerProfile from "~/components/OwnerProfile/OwnerProfile";
 import Actions from "./VideoCard/Actions";
 import { Separator } from "~/components/ui/separator";
 import CategoryBadges from "~/components/CategoryBadges";
-import { Info, MoreVertical, Clock, ListVideo, ChevronDown, X, Check } from "lucide-react";
+import { Info, MoreVertical, Clock, ListVideo, ChevronDown, X, Check, AlertTriangle, Send, Loader2 } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "~/components/ui/tooltip";
 import { useIsMobile } from "~/hooks/use-mobile";
 import { useSidebar } from "~/components/ui/sidebar";
@@ -102,6 +102,20 @@ const VideoCard = ({ data, index, currentUserId, userActions, onUpdate, showOwne
   const [isSaving, setIsSaving] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
   const [infoModalOpen, setInfoModalOpen] = useState(false);
+
+  // Adult review request state
+  const [reviewStatus, setReviewStatus] = useState<{
+    has_request: boolean;
+    request_count: number;
+    status?: string;
+    response_message?: string;
+    accepted?: boolean;
+    can_request: boolean;
+  } | null>(null);
+  const [reviewReason, setReviewReason] = useState("");
+  const [isSubmittingReview, setIsSubmittingReview] = useState(false);
+  const [reviewMessage, setReviewMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
+  const [showReviewForm, setShowReviewForm] = useState(false);
   
   const catDropdownRef = useRef<HTMLDivElement>(null);
 
@@ -224,6 +238,60 @@ const VideoCard = ({ data, index, currentUserId, userActions, onUpdate, showOwne
     }
   };
 
+  // Fetch adult review status when edit dialog opens for adult content
+  useEffect(() => {
+    if (isEditing && data.is_adult && isOwner && data.id) {
+      fetch("/api/adult-review", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ file_id: data.id, action: "status" }),
+      })
+        .then((r) => r.json())
+        .then((res) => {
+          if (res.success) {
+            setReviewStatus(res);
+          }
+        })
+        .catch(() => {});
+    }
+  }, [isEditing, data.is_adult, isOwner, data.id]);
+
+  const handleSubmitReview = async () => {
+    if (!data.id || isSubmittingReview) return;
+    setIsSubmittingReview(true);
+    setReviewMessage(null);
+    try {
+      const res = await fetch("/api/adult-review", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          file_id: data.id,
+          action: "submit",
+          reason: reviewReason.trim() || null,
+        }),
+      });
+      const result = await res.json();
+      if (result.success) {
+        setReviewMessage({ type: "success", text: "Review request submitted. You will be notified of the decision." });
+        setReviewStatus((prev) => prev ? {
+          ...prev,
+          has_request: true,
+          request_count: result.request_count,
+          status: "pending",
+          can_request: false,
+        } : prev);
+        setShowReviewForm(false);
+        setReviewReason("");
+      } else {
+        setReviewMessage({ type: "error", text: result.error || "Failed to submit request." });
+      }
+    } catch {
+      setReviewMessage({ type: "error", text: "Failed to submit request." });
+    } finally {
+      setIsSubmittingReview(false);
+    }
+  };
+
   const thumbnailLink = useMemo(() => {
     if (data.file_type.startsWith("image/") && data.endpoint) {
       return `/api/load/image/${data.endpoint}`;
@@ -297,42 +365,44 @@ const VideoCard = ({ data, index, currentUserId, userActions, onUpdate, showOwne
           <DialogTitle>Edit upload</DialogTitle>
         </DialogHeader>
         <div className="space-y-4 overflow-y-auto flex-1 pr-1">
-          <div className="space-y-1">
-            <p className="text-xs font-medium text-foreground">Title</p>
-            <Input 
-              value={editTitle} 
-              onChange={(e) => setEditTitle(e.target.value)} 
-              maxLength={200} 
-              disabled={isSaving} 
+          <div className="space-y-1.5">
+            <label className="text-xs font-medium text-muted-foreground">Title</label>
+            <Input
+              value={editTitle}
+              onChange={(e) => setEditTitle(e.target.value)}
+              maxLength={200}
+              disabled={isSaving}
+              className="bg-muted/50 text-foreground placeholder:text-muted-foreground"
             />
           </div>
-          <div className="space-y-1">
-            <p className="text-xs font-medium text-foreground">Description</p>
-            <Textarea 
-              value={editDescription} 
-              onChange={(e) => setEditDescription(e.target.value)} 
-              rows={3} 
-              maxLength={5000} 
-              disabled={isSaving} 
+          <div className="space-y-1.5">
+            <label className="text-xs font-medium text-muted-foreground">Description</label>
+            <Textarea
+              value={editDescription}
+              onChange={(e) => setEditDescription(e.target.value)}
+              rows={3}
+              maxLength={5000}
+              disabled={isSaving}
+              className="bg-muted/50 text-foreground placeholder:text-muted-foreground"
             />
           </div>
           <div className="space-y-2">
-            <p className="text-xs font-medium text-foreground">Visibility</p>
+            <label className="text-xs font-medium text-muted-foreground">Visibility</label>
             <div className="flex items-center gap-2">
-              <Button 
-                type="button" 
-                variant={editIsPublic ? "default" : "outline"} 
-                className="rounded-full px-4" 
-                onClick={() => setEditIsPublic(true)} 
+              <Button
+                type="button"
+                variant={editIsPublic ? "default" : "outline"}
+                className="rounded-full px-4"
+                onClick={() => setEditIsPublic(true)}
                 disabled={isSaving}
               >
                 Public
               </Button>
-              <Button 
-                type="button" 
-                variant={!editIsPublic ? "default" : "outline"} 
-                className="rounded-full px-4" 
-                onClick={() => setEditIsPublic(false)} 
+              <Button
+                type="button"
+                variant={!editIsPublic ? "default" : "outline"}
+                className="rounded-full px-4"
+                onClick={() => setEditIsPublic(false)}
                 disabled={isSaving}
               >
                 Private
@@ -340,18 +410,18 @@ const VideoCard = ({ data, index, currentUserId, userActions, onUpdate, showOwne
             </div>
           </div>
           <div className="space-y-2">
-            <p className="text-xs font-medium text-foreground">Categories</p>
+            <label className="text-xs font-medium text-muted-foreground">Categories</label>
             {editCategories.length > 0 && (
               <div className="flex flex-wrap gap-1.5">
                 {editCategories.map((cat) => (
-                  <span 
-                    key={cat} 
+                  <span
+                    key={cat}
                     className="inline-flex items-center gap-1 bg-primary/10 text-primary text-xs font-medium px-2 py-1 rounded-full"
                   >
                     {cat}
-                    <button 
-                      type="button" 
-                      onClick={() => handleRemoveCategory(cat)} 
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveCategory(cat)}
                       className="hover:text-destructive transition-colors"
                       disabled={isSaving}
                     >
@@ -366,13 +436,13 @@ const VideoCard = ({ data, index, currentUserId, userActions, onUpdate, showOwne
                 type="button"
                 disabled={isSaving}
                 onClick={() => setCatDropdownOpen((prev) => !prev)}
-                className="w-full flex items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm text-muted-foreground hover:bg-accent transition-colors"
+                className="w-full flex items-center justify-between rounded-md border border-input bg-muted/50 px-3 py-2 text-sm text-muted-foreground hover:bg-muted transition-colors"
               >
                 <span>Select categories...</span>
                 <ChevronDown className={`w-4 h-4 transition-transform duration-200 ${catDropdownOpen ? "rotate-180" : ""}`} />
               </button>
               {catDropdownOpen && (
-                <div className="absolute z-[100] mt-1 w-full max-h-48 overflow-y-auto rounded-md border bg-popover shadow-lg">
+                <div className="absolute z-[100] mt-1 w-full max-h-48 overflow-y-auto rounded-md border border-border bg-popover shadow-lg">
                   {CATEGORIES.map((cat) => {
                     const selected = editCategories.includes(cat);
                     return (
@@ -396,20 +466,20 @@ const VideoCard = ({ data, index, currentUserId, userActions, onUpdate, showOwne
           </div>
           <div className="space-y-2">
             <div className="flex items-center justify-between">
-              <p className="text-xs font-medium text-foreground">Tags</p>
-              <p className="text-xs text-muted-foreground">{editTags.length}/15</p>
+              <label className="text-xs font-medium text-muted-foreground">Tags</label>
+              <span className="text-xs text-muted-foreground tabular-nums">{editTags.length}/15</span>
             </div>
             {editTags.length > 0 && (
               <div className="flex flex-wrap gap-1.5">
                 {editTags.map((tag, i) => (
-                  <span 
-                    key={`${tag}-${i}`} 
+                  <span
+                    key={`${tag}-${i}`}
                     className="inline-flex items-center gap-1 bg-muted text-foreground text-xs px-2 py-1 rounded-full"
                   >
                     {tag}
-                    <button 
-                      type="button" 
-                      onClick={() => handleRemoveTag(i)} 
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveTag(i)}
                       className="hover:text-destructive transition-colors"
                       disabled={isSaving}
                     >
@@ -426,15 +496,125 @@ const VideoCard = ({ data, index, currentUserId, userActions, onUpdate, showOwne
               placeholder="Type a tag and press Enter..."
               maxLength={50}
               disabled={isSaving || editTags.length >= 15}
+              className="bg-muted/50 text-foreground placeholder:text-muted-foreground"
             />
           </div>
           {data.is_adult && (
-            <div className="flex items-center gap-2 rounded-lg border border-red-200 dark:border-red-900/50 bg-red-50 dark:bg-red-950/30 px-3 py-2.5">
-              <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-red-500 text-white text-[10px] font-bold shrink-0">18</span>
-              <div className="min-w-0">
-                <p className="text-xs font-medium text-red-700 dark:text-red-400">Adult content</p>
-                <p className="text-[11px] text-red-600/70 dark:text-red-400/60">This post is marked as adult content. This cannot be changed.</p>
+            <div className="space-y-2">
+              <div className="rounded-lg border border-red-200 dark:border-red-900/50 bg-red-50 dark:bg-red-950/30 px-3 py-2.5">
+                <div className="flex items-center gap-2">
+                  <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-red-500 text-white text-[10px] font-bold shrink-0">18</span>
+                  <p className="text-xs font-medium text-red-700 dark:text-red-400">Adult content</p>
+                </div>
+                <div className="mt-1.5 flex items-start gap-1.5">
+                  <AlertTriangle className="w-3.5 h-3.5 text-red-500 shrink-0 mt-0.5" />
+                  <p className="text-[11px] text-red-600/80 dark:text-red-400/70 leading-relaxed">
+                    This post is flagged as adult content. Even if set to public, it can <strong>only be accessed via direct link</strong> and will <strong>not appear in feeds</strong>, search results, or suggestions.
+                  </p>
+                </div>
               </div>
+
+              {/* Review request section */}
+              {isOwner && reviewStatus && (
+                <div className="rounded-lg border border-amber-200 dark:border-amber-900/50 bg-amber-50 dark:bg-amber-950/20 px-3 py-2.5">
+                  {reviewStatus.status === "pending" && (
+                    <div className="flex items-center gap-2">
+                      <Loader2 className="w-3.5 h-3.5 text-amber-600 animate-spin shrink-0" />
+                      <p className="text-[11px] text-amber-700 dark:text-amber-400">
+                        Review request pending ({reviewStatus.request_count}/2 requests used)
+                      </p>
+                    </div>
+                  )}
+
+                  {reviewStatus.status === "accepted" && (
+                    <div className="flex items-center gap-2">
+                      <Check className="w-3.5 h-3.5 text-green-600 shrink-0" />
+                      <p className="text-[11px] text-green-700 dark:text-green-400">
+                        Review accepted — adult flag has been removed.
+                      </p>
+                    </div>
+                  )}
+
+                  {reviewStatus.status === "denied" && (
+                    <div className="space-y-1.5">
+                      <div className="flex items-center gap-2">
+                        <X className="w-3.5 h-3.5 text-red-500 shrink-0" />
+                        <p className="text-[11px] text-red-600 dark:text-red-400">
+                          Review denied{reviewStatus.response_message ? `: ${reviewStatus.response_message}` : ""} ({reviewStatus.request_count}/2 requests used)
+                        </p>
+                      </div>
+                    </div>
+                  )}
+
+                  {!reviewStatus.has_request && reviewStatus.can_request && (
+                    <p className="text-[11px] text-amber-700 dark:text-amber-400">
+                      Think this was incorrectly flagged? You can request a manual review (max 2 per file).
+                    </p>
+                  )}
+
+                  {/* Show request button */}
+                  {reviewStatus.can_request && !showReviewForm && (
+                    <button
+                      type="button"
+                      onClick={() => setShowReviewForm(true)}
+                      className="mt-1.5 inline-flex items-center gap-1.5 text-[11px] font-medium text-amber-700 dark:text-amber-400 hover:text-amber-800 dark:hover:text-amber-300 transition-colors"
+                    >
+                      <Send className="w-3 h-3" />
+                      Request review
+                    </button>
+                  )}
+
+                  {/* Review form */}
+                  {showReviewForm && reviewStatus.can_request && (
+                    <div className="mt-2 space-y-2">
+                      <Textarea
+                        value={reviewReason}
+                        onChange={(e) => setReviewReason(e.target.value)}
+                        placeholder="Why do you think this was incorrectly flagged? (optional)"
+                        rows={2}
+                        maxLength={500}
+                        className="text-xs bg-muted/50 text-foreground placeholder:text-muted-foreground"
+                        disabled={isSubmittingReview}
+                      />
+                      <div className="flex items-center gap-2">
+                        <Button
+                          type="button"
+                          size="sm"
+                          onClick={handleSubmitReview}
+                          disabled={isSubmittingReview}
+                          className="h-7 text-xs px-3"
+                        >
+                          {isSubmittingReview ? (
+                            <>
+                              <Loader2 className="w-3 h-3 animate-spin mr-1" />
+                              Sending...
+                            </>
+                          ) : (
+                            "Submit request"
+                          )}
+                        </Button>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => { setShowReviewForm(false); setReviewReason(""); }}
+                          disabled={isSubmittingReview}
+                          className="h-7 text-xs px-3"
+                        >
+                          Cancel
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Review message feedback */}
+                  {reviewMessage && (
+                    <p className={`mt-1.5 text-[11px] ${reviewMessage.type === "success" ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"}`}>
+                      {reviewMessage.text}
+                    </p>
+                  )}
+                </div>
+              )}
             </div>
           )}
           {editError && <p className="text-xs text-destructive">{editError}</p>}

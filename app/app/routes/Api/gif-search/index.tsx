@@ -1,4 +1,5 @@
 import { EnvValidator } from "~/lib/EnvValidator";
+import { isAuthenticated } from "~/lib/Security/Password";
 
 /**
  * GIF search + trending via GIPHY API.
@@ -33,6 +34,13 @@ function mapGiphyToResults(data: {
 
 export const loader = async ({ request }: { request: Request }) => {
   try {
+    const user = await isAuthenticated(request, ["id"]);
+    if (!user?.id) {
+      return new Response(JSON.stringify({ error: "Unauthorized", results: [] }), {
+        status: 401, headers: { "Content-Type": "application/json" },
+      });
+    }
+
     const url = new URL(request.url);
     const q = url.searchParams.get("q")?.trim() || "";
     const trending = url.searchParams.get("trending") === "1";

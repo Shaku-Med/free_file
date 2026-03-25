@@ -273,9 +273,11 @@ func BatchCommit(ctx context.Context, client *github.Client, owner, repo, branch
 		}
 	}
 
-	// GitHub 502s on huge trees, so commit in chunks of <=150 entries.
+	// GitHub 502s on huge trees, so commit in chunks of <=100 entries.
+	// Reduced from 150 to 100 for better reliability on large uploads.
 	// Each chunk builds on the previous commit's tree.
-	const treeChunkSize = 150
+	const treeChunkSize = 100
+	const maxTreeRetries = 4
 	currentTreeSHA := baseTreeSHA
 	currentCommitSHA := baseCommitSHA
 
@@ -288,7 +290,27 @@ func BatchCommit(ctx context.Context, client *github.Client, owner, repo, branch
 		chunkNum := (start / treeChunkSize) + 1
 		totalChunks := (len(allEntries) + treeChunkSize - 1) / treeChunkSize
 
-		tree, _, terr := client.Git.CreateTree(ctx, owner, repo, currentTreeSHA, chunk)
+		// Retry tree creation with exponential backoff
+		var tree *github.Tree
+		var terr error
+		for attempt := 1; attempt <= maxTreeRetries; attempt++ {
+			tree, _, terr = client.Git.CreateTree(ctx, owner, repo, currentTreeSHA, chunk)
+			if terr == nil {
+				break
+			}
+			wait := rateLimitWait(terr, attempt)
+			if wait > 0 {
+				logf("batch: rate-limited on tree chunk %d/%d, waiting %s (attempt %d/%d)", chunkNum, totalChunks, wait, attempt, maxTreeRetries)
+				time.Sleep(wait)
+				continue
+			}
+			// Exponential backoff for 502/500 errors
+			if attempt < maxTreeRetries {
+				backoff := time.Duration(attempt*attempt) * 2 * time.Second
+				logf("batch: tree chunk %d/%d failed (attempt %d/%d): %v — retrying in %s", chunkNum, totalChunks, attempt, maxTreeRetries, terr, backoff)
+				time.Sleep(backoff)
+			}
+		}
 		if terr != nil {
 			return fmt.Errorf("create tree chunk %d/%d (%d entries): %w", chunkNum, totalChunks, len(chunk), terr)
 		}
@@ -297,11 +319,31 @@ func BatchCommit(ctx context.Context, client *github.Client, owner, repo, branch
 		if totalChunks > 1 {
 			commitMsg = fmt.Sprintf("%s (%d/%d)", message, chunkNum, totalChunks)
 		}
-		commit, _, cerr := client.Git.CreateCommit(ctx, owner, repo, &github.Commit{
-			Message: &commitMsg,
-			Tree:    tree,
-			Parents: []*github.Commit{{SHA: &currentCommitSHA}},
-		}, nil)
+
+		// Retry commit creation with exponential backoff
+		var commit *github.Commit
+		var cerr error
+		for attempt := 1; attempt <= maxTreeRetries; attempt++ {
+			commit, _, cerr = client.Git.CreateCommit(ctx, owner, repo, &github.Commit{
+				Message: &commitMsg,
+				Tree:    tree,
+				Parents: []*github.Commit{{SHA: &currentCommitSHA}},
+			}, nil)
+			if cerr == nil {
+				break
+			}
+			wait := rateLimitWait(cerr, attempt)
+			if wait > 0 {
+				logf("batch: rate-limited on commit chunk %d/%d, waiting %s (attempt %d/%d)", chunkNum, totalChunks, wait, attempt, maxTreeRetries)
+				time.Sleep(wait)
+				continue
+			}
+			if attempt < maxTreeRetries {
+				backoff := time.Duration(attempt*attempt) * 2 * time.Second
+				logf("batch: commit chunk %d/%d failed (attempt %d/%d): %v — retrying in %s", chunkNum, totalChunks, attempt, maxTreeRetries, cerr, backoff)
+				time.Sleep(backoff)
+			}
+		}
 		if cerr != nil {
 			return fmt.Errorf("create commit chunk %d/%d: %w", chunkNum, totalChunks, cerr)
 		}
@@ -309,10 +351,32 @@ func BatchCommit(ctx context.Context, client *github.Client, owner, repo, branch
 		currentTreeSHA = tree.GetSHA()
 		currentCommitSHA = commit.GetSHA()
 		logf("batch: chunk %d/%d committed (%d files) → %s", chunkNum, totalChunks, len(chunk), short(currentCommitSHA))
+
+		// Pause between chunks to avoid secondary rate limits on large uploads
+		if start+treeChunkSize < len(allEntries) {
+			time.Sleep(500 * time.Millisecond)
+		}
 	}
 
-	ref.Object.SHA = &currentCommitSHA
-	_, _, err = client.Git.UpdateRef(ctx, owner, repo, ref, false)
+	// Retry ref update — this is the final critical step
+	for attempt := 1; attempt <= maxTreeRetries; attempt++ {
+		ref.Object.SHA = &currentCommitSHA
+		_, _, err = client.Git.UpdateRef(ctx, owner, repo, ref, false)
+		if err == nil {
+			break
+		}
+		wait := rateLimitWait(err, attempt)
+		if wait > 0 {
+			logf("batch: rate-limited on ref update, waiting %s (attempt %d/%d)", wait, attempt, maxTreeRetries)
+			time.Sleep(wait)
+			continue
+		}
+		if attempt < maxTreeRetries {
+			backoff := time.Duration(attempt*attempt) * 2 * time.Second
+			logf("batch: ref update failed (attempt %d/%d): %v — retrying in %s", attempt, maxTreeRetries, err, backoff)
+			time.Sleep(backoff)
+		}
+	}
 	if err != nil {
 		return fmt.Errorf("update ref: %w", err)
 	}
@@ -321,8 +385,8 @@ func BatchCommit(ctx context.Context, client *github.Client, owner, repo, branch
 	return nil
 }
 
-// rateLimitWait detects GitHub rate-limit errors and returns how long to wait.
-// Returns 0 for non-rate-limit errors.
+// rateLimitWait detects GitHub rate-limit and server errors, returning how long to wait.
+// Returns 0 for non-retryable errors.
 func rateLimitWait(err error, attempt int) time.Duration {
 	var abuse *github.AbuseRateLimitError
 	if errors.As(err, &abuse) {
@@ -338,6 +402,14 @@ func rateLimitWait(err error, attempt int) time.Duration {
 			wait = 60 * time.Second
 		}
 		return wait
+	}
+	// Retry on GitHub server errors (500, 502, 503) with exponential backoff
+	var ge *github.ErrorResponse
+	if errors.As(err, &ge) && ge.Response != nil {
+		code := ge.Response.StatusCode
+		if code == 500 || code == 502 || code == 503 {
+			return time.Duration(attempt*attempt) * 3 * time.Second
+		}
 	}
 	return 0
 }

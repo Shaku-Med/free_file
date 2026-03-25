@@ -1,10 +1,25 @@
-import React, { useEffect, useMemo, useRef, useState } from "react"
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "~/components/ui/dialog"
+import React, { useEffect, useMemo, useRef, useState, useCallback } from "react"
+import { Dialog, DialogContent, DialogFooter } from "~/components/ui/dialog"
 import { Button } from "~/components/ui/button"
 import { Progress } from "~/components/ui/progress"
 import { Input } from "~/components/ui/input"
 import { Textarea } from "~/components/ui/textarea"
-import { Upload, X, FileImage, FileVideo, Trash2, ChevronDown, Tag } from "lucide-react"
+import {
+  Upload,
+  X,
+  FileImage,
+  FileVideo,
+  Trash2,
+  ChevronDown,
+  Tag,
+  CloudUpload,
+  Check,
+  AlertCircle,
+  Loader2,
+  Eye,
+  EyeOff,
+  ImagePlus,
+} from "lucide-react"
 import { GenerateUniqueID } from "~/lib/GenerateUniqueID"
 import { useFileContext } from "~/lib/Context/Context"
 import { useNavigate } from "react-router"
@@ -70,8 +85,10 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
   const [isUploadingBatch, setIsUploadingBatch] = useState(false)
   const [tagInput, setTagInput] = useState("")
   const [showCategoryDropdown, setShowCategoryDropdown] = useState(false)
+  const [isDragging, setIsDragging] = useState(false)
   const categoryRef = useRef<HTMLDivElement>(null)
   const itemsRef = useRef<MediaItem[]>([])
+  const dropRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     if (isOpen && !userId) {
@@ -108,7 +125,7 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
     return () => document.removeEventListener("mousedown", handleClickOutside)
   }, [])
 
-  const effectiveMaxSize = maxFileSizeBytes ?? 4 * 1024 * 1024 * 1024 // 4GB default
+  const effectiveMaxSize = maxFileSizeBytes ?? 4 * 1024 * 1024 * 1024
 
   const resetState = () => {
     items.forEach((item) => {
@@ -120,6 +137,7 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
     setIsUploadingBatch(false)
     setTagInput("")
     setShowCategoryDropdown(false)
+    setIsDragging(false)
   }
 
   const formatBytes = (bytes: number) => {
@@ -128,7 +146,7 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
     const sizes = ["B", "KB", "MB", "GB"]
     const i = Math.floor(Math.log(bytes) / Math.log(k))
     const value = bytes / Math.pow(k, i)
-    return `${value.toFixed(2)} ${sizes[i]}`
+    return `${value.toFixed(i > 1 ? 1 : 0)} ${sizes[i]}`
   }
 
   const validateFile = (file: File): string | null => {
@@ -162,9 +180,7 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
   }
 
   const addFiles = (files: File[]) => {
-    if (files.length === 0 || isUploadingBatch) {
-      return
-    }
+    if (files.length === 0 || isUploadingBatch) return
     const nextItems: MediaItem[] = []
     const errors: string[] = []
 
@@ -183,9 +199,7 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
       setError(null)
     }
 
-    if (nextItems.length === 0) {
-      return
-    }
+    if (nextItems.length === 0) return
 
     setItems((prev) => {
       const updated = [...prev, ...nextItems]
@@ -197,11 +211,26 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
   }
 
   const handleFileChange = (fileList: FileList | null) => {
-    if (!fileList || fileList.length === 0 || isUploadingBatch) {
-      return
-    }
+    if (!fileList || fileList.length === 0 || isUploadingBatch) return
     addFiles(Array.from(fileList))
   }
+
+  const openFilePicker = useCallback(() => {
+    if (isUploadingBatch) return
+    const input = document.createElement("input")
+    input.type = "file"
+    input.accept = "image/*,video/*"
+    input.multiple = true
+    input.onchange = (e) => {
+      const target = e.target as HTMLInputElement
+      handleFileChange(target.files)
+      if (document.body.contains(input)) {
+        document.body.removeChild(input)
+      }
+    }
+    document.body.appendChild(input)
+    input.click()
+  }, [isUploadingBatch])
 
   const updateItem = (id: string, updater: (item: MediaItem) => MediaItem) => {
     setItems((prev) => prev.map((item) => (item.id === id ? updater(item) : item)))
@@ -211,13 +240,9 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
     if (isUploadingBatch) return
     setItems((prev) => {
       const target = prev.find((item) => item.id === id)
-      if (target) {
-        URL.revokeObjectURL(target.previewUrl)
-      }
+      if (target) URL.revokeObjectURL(target.previewUrl)
       const next = prev.filter((item) => item.id !== id)
-      if (activeId === id) {
-        setActiveId(next[0]?.id || null)
-      }
+      if (activeId === id) setActiveId(next[0]?.id || null)
       return next
     })
   }
@@ -228,9 +253,7 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
       const has = current.categories.includes(cat)
       return {
         ...current,
-        categories: has
-          ? current.categories.filter((c) => c !== cat)
-          : [...current.categories, cat],
+        categories: has ? current.categories.filter((c) => c !== cat) : [...current.categories, cat],
       }
     })
   }
@@ -266,6 +289,36 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
     }
   }
 
+  // --- Drag and drop ---
+  const handleDrag = useCallback((e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+  }, [])
+
+  const handleDragIn = useCallback((e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    if (e.dataTransfer?.items && e.dataTransfer.items.length > 0) {
+      setIsDragging(true)
+    }
+  }, [])
+
+  const handleDragOut = useCallback((e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setIsDragging(false)
+  }, [])
+
+  const handleDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setIsDragging(false)
+    if (e.dataTransfer?.files && e.dataTransfer.files.length > 0) {
+      addFiles(Array.from(e.dataTransfer.files))
+    }
+  }, [isUploadingBatch])
+
+  // --- Upload logic (unchanged) ---
   const GO_CHUNK_SIZE = 25 * 1024 * 1024
 
   const authHeaders = (): Record<string, string> =>
@@ -402,19 +455,11 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
       formData.append("file", item.file)
       formData.append("name", item.file.name)
       formData.append("uniqueID", uniqueID)
-      if (item.title.trim().length > 0) {
-        formData.append("title", item.title.trim())
-      }
-      if (item.description.trim().length > 0) {
-        formData.append("description", item.description.trim())
-      }
+      if (item.title.trim().length > 0) formData.append("title", item.title.trim())
+      if (item.description.trim().length > 0) formData.append("description", item.description.trim())
       formData.append("isPublic", String(item.isPublic))
-      if (item.categories.length > 0) {
-        formData.append("categories", JSON.stringify(item.categories))
-      }
-      if (item.tags.length > 0) {
-        formData.append("tags", JSON.stringify(item.tags))
-      }
+      if (item.categories.length > 0) formData.append("categories", JSON.stringify(item.categories))
+      if (item.tags.length > 0) formData.append("tags", JSON.stringify(item.tags))
 
       const xhr = new XMLHttpRequest()
       xhr.open("POST", "/api/upload", true)
@@ -502,9 +547,7 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
   }
 
   const handleClose = () => {
-    if (isUploadingBatch) {
-      return
-    }
+    if (isUploadingBatch) return
     setError(null)
     resetState()
     onClose()
@@ -512,117 +555,199 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
 
   const activeItem = useMemo(() => items.find((item) => item.id === activeId) || items[0], [items, activeId])
 
-  const renderFileIcon = (file?: File) => {
-    if (!file) return <Upload className="w-8 h-8 text-primary" />
-    if (file.type.startsWith("image/")) return <FileImage className="w-8 h-8 text-primary" />
-    if (file.type.startsWith("video/")) return <FileVideo className="w-8 h-8 text-primary" />
-    return <Upload className="w-8 h-8 text-primary" />
-  }
-
   const isFieldDisabled = !activeItem || isUploadingBatch || !!activeItem?.isLocked
 
+  const statusIcon = (status: UploadStatus) => {
+    switch (status) {
+      case "uploading": return <Loader2 className="w-3 h-3 animate-spin text-primary" />
+      case "success": return <Check className="w-3 h-3 text-green-500" />
+      case "error": return <AlertCircle className="w-3 h-3 text-destructive" />
+      default: return null
+    }
+  }
+
+  // --- No files: show drop zone ---
+  if (items.length === 0) {
+    return (
+      <Dialog open={isOpen} onOpenChange={handleClose}>
+        <DialogContent
+          className="w-[94vw] max-w-lg rounded-2xl p-0 overflow-hidden"
+          showCloseButton={true}
+        >
+          <div
+            ref={dropRef}
+            onDragEnter={handleDragIn}
+            onDragLeave={handleDragOut}
+            onDragOver={handleDrag}
+            onDrop={handleDrop}
+            onClick={openFilePicker}
+            className={`cursor-pointer group flex flex-col items-center justify-center p-10 sm:p-14 transition-all duration-200 ${
+              isDragging
+                ? "bg-primary/5 ring-2 ring-primary/30 ring-inset"
+                : "hover:bg-muted/40"
+            }`}
+          >
+            <div className={`w-16 h-16 rounded-2xl flex items-center justify-center mb-5 transition-all duration-200 ${
+              isDragging
+                ? "bg-primary/15 scale-110"
+                : "bg-primary/10 group-hover:bg-primary/15 group-hover:scale-105"
+            }`}>
+              <CloudUpload className={`w-7 h-7 transition-colors ${isDragging ? "text-primary" : "text-primary/70 group-hover:text-primary"}`} />
+            </div>
+            <p className="text-base font-semibold text-foreground mb-1">
+              {isDragging ? "Drop files here" : "Upload files"}
+            </p>
+            <p className="text-sm text-muted-foreground mb-5 text-center">
+              Drag and drop or click to browse
+            </p>
+            <div className="flex items-center gap-3 text-[11px] text-muted-foreground/70">
+              <span className="flex items-center gap-1">
+                <FileImage className="w-3 h-3" /> Images
+              </span>
+              <span className="w-px h-3 bg-border" />
+              <span className="flex items-center gap-1">
+                <FileVideo className="w-3 h-3" /> Videos
+              </span>
+              <span className="w-px h-3 bg-border" />
+              <span>Max {formatBytes(effectiveMaxSize)}</span>
+            </div>
+            {error && (
+              <div className="mt-4 flex items-center gap-2 text-xs text-destructive bg-destructive/10 px-3 py-2 rounded-lg">
+                <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                <span>{error}</span>
+              </div>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+    )
+  }
+
+  // --- Has files: show editor ---
   return (
     <Dialog open={isOpen} onOpenChange={handleClose}>
-      <DialogContent className="w-[96vw] max-w-[520px] sm:max-w-xl md:max-w-3xl lg:max-w-4xl xl:max-w-5xl rounded-2xl sm:rounded-3xl p-0 overflow-hidden max-h-[92vh] flex flex-col">
-        <DialogHeader className="px-6 pt-6 pb-3 shrink-0">
-          <DialogTitle className="text-lg font-semibold text-center">Add Media</DialogTitle>
-          <DialogDescription className="text-center text-sm text-muted-foreground">
-            Upload images or videos.
-          </DialogDescription>
-        </DialogHeader>
-        <div className="px-6 pb-4 space-y-4 overflow-y-auto min-h-0 flex-1">
-          <div className="grid gap-4 md:grid-cols-[200px_1fr]">
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <p className="text-xs font-medium text-foreground">Selected files</p>
-                <span className="text-xs text-muted-foreground">{items.length}</span>
+      <DialogContent className="w-[96vw] max-w-[520px] sm:max-w-xl md:max-w-3xl lg:max-w-4xl rounded-2xl p-0 overflow-hidden max-h-[90vh] flex flex-col gap-0">
+
+        {/* Main content */}
+        <div
+          className="flex-1 overflow-y-auto min-h-0"
+          ref={dropRef}
+          onDragEnter={handleDragIn}
+          onDragLeave={handleDragOut}
+          onDragOver={handleDrag}
+          onDrop={handleDrop}
+        >
+          {/* Drag overlay */}
+          {isDragging && (
+            <div className="absolute inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm">
+              <div className="flex flex-col items-center gap-2">
+                <CloudUpload className="w-10 h-10 text-primary animate-bounce" />
+                <p className="text-sm font-medium text-foreground">Drop to add files</p>
               </div>
-              <div className="space-y-2 max-h-[30vh] md:max-h-[320px] overflow-y-auto pr-1">
-                {items.length === 0 && (
-                  <div className="border border-dashed rounded-2xl p-4 text-center">
-                    <div className="flex items-center justify-center mb-3">
-                      <div className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center">
-                        {renderFileIcon()}
+            </div>
+          )}
+
+          <div className="grid md:grid-cols-[220px_1fr] h-full">
+            {/* Left panel — File list */}
+            <div className="border-b md:border-b-0 md:border-r border-border bg-muted/30 p-3 flex flex-col">
+              <div className="flex items-center justify-between mb-2 px-1">
+                <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Files</span>
+                <span className="text-[10px] text-muted-foreground/60 bg-muted rounded-full px-2 py-0.5 tabular-nums">{items.length}</span>
+              </div>
+
+              {/* File items */}
+              <div className="space-y-1.5 flex-1 overflow-y-auto max-h-[25vh] md:max-h-[340px] pr-0.5">
+                {items.map((item) => {
+                  const isActive = activeId === item.id
+                  const isVideo = item.file.type.startsWith("video/")
+                  return (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() => setActiveId(item.id)}
+                      className={`w-full text-left rounded-xl p-2 transition-all duration-150 flex items-center gap-2.5 group/item ${
+                        isActive
+                          ? "bg-primary/10 ring-1 ring-primary/20"
+                          : "hover:bg-muted/80"
+                      }`}
+                    >
+                      {/* Mini thumbnail */}
+                      <div className="relative w-10 h-10 rounded-lg overflow-hidden bg-muted shrink-0">
+                        {isVideo ? (
+                          <video
+                            src={item.previewUrl}
+                            className="w-full h-full object-cover"
+                            muted
+                            preload="metadata"
+                          />
+                        ) : (
+                          <img
+                            src={item.previewUrl}
+                            alt=""
+                            className="w-full h-full object-cover"
+                          />
+                        )}
+                        {item.status !== "idle" && (
+                          <div className={`absolute inset-0 flex items-center justify-center ${
+                            item.status === "success" ? "bg-green-500/20" : item.status === "error" ? "bg-destructive/20" : "bg-black/30"
+                          }`}>
+                            {statusIcon(item.status)}
+                          </div>
+                        )}
                       </div>
-                    </div>
-                    <p className="text-xs text-muted-foreground">No files selected</p>
-                  </div>
-                )}
-                {items.map((item) => (
-                  <button
-                    key={item.id}
-                    type="button"
-                    onClick={() => setActiveId(item.id)}
-                    className={`w-full text-left border rounded-2xl p-3 transition-colors ${
-                      activeId === item.id ? "border-primary/70 bg-primary/5" : "border-border bg-muted/40 hover:border-primary/40"
-                    }`}
-                  >
-                    <div className="flex items-start justify-between gap-2">
+
+                      {/* Info */}
                       <div className="flex-1 min-w-0">
-                        <p className="text-xs font-medium text-foreground truncate">{item.file.name}</p>
-                        <p className="text-[11px] text-muted-foreground truncate">
-                          {formatBytes(item.file.size)} · {item.isPublic ? "Public" : "Private"}
+                        <p className="text-xs font-medium text-foreground truncate leading-tight">{item.file.name}</p>
+                        <p className="text-[10px] text-muted-foreground truncate leading-tight mt-0.5">
+                          {formatBytes(item.file.size)}
+                          {item.status === "uploading" && ` · ${item.progress}%`}
                         </p>
+                        {item.status === "uploading" && (
+                          <Progress value={item.progress} className="h-0.5 mt-1" />
+                        )}
+                        {item.error && (
+                          <p className="text-[10px] text-destructive truncate mt-0.5">{item.error}</p>
+                        )}
                       </div>
-                      <Button
-                        type="button"
-                        size="icon"
-                        variant="ghost"
-                        className="h-7 w-7 shrink-0"
-                        onClick={(event) => {
-                          event.stopPropagation()
-                          removeItem(item.id)
-                        }}
-                        disabled={isUploadingBatch}
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </Button>
-                    </div>
-                    {item.status !== "idle" && (
-                      <div className="mt-2 space-y-1">
-                        <div className="flex items-center justify-between text-[11px] text-muted-foreground">
-                          <span className="truncate">{item.statusText || item.status}</span>
-                          <span className="shrink-0 ml-1">{item.progress}%</span>
-                        </div>
-                        <Progress value={item.progress} className="h-1.5" />
-                      </div>
-                    )}
-                    {item.error && (
-                      <p className="mt-1 text-[11px] text-destructive truncate">{item.error}</p>
-                    )}
-                  </button>
-                ))}
+
+                      {/* Remove */}
+                      {!isUploadingBatch && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            removeItem(item.id)
+                          }}
+                          className="shrink-0 w-6 h-6 rounded-md flex items-center justify-center opacity-0 group-hover/item:opacity-100 hover:bg-destructive/10 hover:text-destructive transition-all"
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      )}
+                    </button>
+                  )
+                })}
               </div>
-              <Button
+
+              {/* Add more button */}
+              <button
                 type="button"
-                variant="outline"
-                className="w-full rounded-full"
-                onClick={() => {
-                  const input = document.createElement("input")
-                  input.type = "file"
-                  input.accept = "image/*,video/*"
-                  input.multiple = true
-                  input.onchange = (e) => {
-                    const target = e.target as HTMLInputElement
-                    handleFileChange(target.files)
-                    if (document.body.contains(input)) {
-                      document.body.removeChild(input)
-                    }
-                  }
-                  document.body.appendChild(input)
-                  input.click()
-                }}
+                onClick={openFilePicker}
                 disabled={isUploadingBatch}
+                className="mt-2 w-full flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl border border-dashed border-border text-xs text-muted-foreground hover:text-foreground hover:border-primary/30 hover:bg-primary/5 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                Add files
-              </Button>
+                <ImagePlus className="w-3.5 h-3.5" />
+                Add more
+              </button>
             </div>
 
-            <div className="space-y-3 min-w-0">
-              {activeItem ? (
-                <div className="border border-border rounded-2xl overflow-hidden bg-muted/50">
+            {/* Right panel — Preview + Details */}
+            <div className="p-4 md:p-5 space-y-4 overflow-y-auto">
+              {/* Preview */}
+              {activeItem && (
+                <div className="rounded-xl overflow-hidden bg-muted/50 border border-border/50">
                   {activeItem.file.type.startsWith("image/") ? (
-                    <div className="relative w-full aspect-video bg-muted flex items-center justify-center">
+                    <div className="relative w-full aspect-video bg-muted/80 flex items-center justify-center">
                       <img
                         src={activeItem.previewUrl}
                         alt="Preview"
@@ -630,7 +755,7 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
                       />
                     </div>
                   ) : activeItem.file.type.startsWith("video/") ? (
-                    <div className="relative w-full aspect-video bg-black">
+                    <div className="relative w-full aspect-video bg-black rounded-t-xl">
                       <video
                         src={activeItem.previewUrl}
                         controls
@@ -639,73 +764,60 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
                       />
                     </div>
                   ) : null}
-                  <div className="p-3 border-t border-border">
-                    <p className="text-xs font-medium text-foreground truncate">{activeItem.file.name}</p>
-                    <p className="text-xs text-muted-foreground">{formatBytes(activeItem.file.size)}</p>
-                  </div>
-                </div>
-              ) : (
-                <div className="border border-dashed rounded-2xl p-6 text-center">
-                  <div className="flex items-center justify-center mb-4">
-                    <div className="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center">
-                      {renderFileIcon()}
-                    </div>
-                  </div>
-                  <p className="text-sm font-medium mb-1">
-                    Choose files to preview
-                  </p>
-                  <p className="text-xs text-muted-foreground">
-                    Allowed types: image/*, video/*.
-                  </p>
                 </div>
               )}
 
-              <div className="space-y-3 text-left">
-                <div className="space-y-1">
-                  <p className="text-xs font-medium text-foreground">Title</p>
+              {/* Form fields */}
+              <div className="space-y-3.5">
+                {/* Title */}
+                <div className="space-y-1.5">
+                  <label className="text-xs font-medium text-muted-foreground">Title</label>
                   <Input
                     value={activeItem?.title || ""}
                     onChange={(e) => {
                       if (!activeItem) return
                       updateItem(activeItem.id, (current) => ({ ...current, title: e.target.value }))
                     }}
-                    placeholder="Enter a title for this file"
+                    placeholder="Give your file a title"
                     maxLength={200}
                     disabled={isFieldDisabled}
-                    className="text-sm"
+                    className="text-sm h-9 bg-muted/30 border-border/50 focus:bg-background transition-colors"
                   />
                 </div>
-                <div className="space-y-1">
-                  <p className="text-xs font-medium text-foreground">Description</p>
+
+                {/* Description */}
+                <div className="space-y-1.5">
+                  <label className="text-xs font-medium text-muted-foreground">Description</label>
                   <Textarea
                     value={activeItem?.description || ""}
                     onChange={(e) => {
                       if (!activeItem) return
                       updateItem(activeItem.id, (current) => ({ ...current, description: e.target.value }))
                     }}
-                    placeholder="Describe this file"
+                    placeholder="Add a description..."
                     rows={2}
                     maxLength={1000}
                     disabled={isFieldDisabled}
-                    className="text-sm resize-none"
+                    className="text-sm resize-none bg-muted/30 border-border/50 focus:bg-background transition-colors"
                   />
                 </div>
 
-                <div className="space-y-1" ref={categoryRef}>
-                  <p className="text-xs font-medium text-foreground">Category</p>
+                {/* Category */}
+                <div className="space-y-1.5" ref={categoryRef}>
+                  <label className="text-xs font-medium text-muted-foreground">Category</label>
                   <div className="relative">
                     <button
                       type="button"
                       onClick={() => !isFieldDisabled && setShowCategoryDropdown((p) => !p)}
                       disabled={isFieldDisabled}
-                      className="w-full flex items-center justify-between border border-input rounded-md px-3 py-2 text-sm bg-background hover:bg-accent/50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed min-h-[38px]"
+                      className="w-full flex items-center justify-between border border-border/50 rounded-lg px-3 py-2 text-sm bg-muted/30 hover:bg-muted/50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed min-h-[36px]"
                     >
                       <span className="flex flex-wrap gap-1 min-w-0 flex-1">
                         {activeItem && activeItem.categories.length > 0 ? (
                           activeItem.categories.map((cat) => (
                             <span
                               key={cat}
-                              className="inline-flex items-center gap-1 bg-primary/10 text-primary text-xs px-2 py-0.5 rounded-full"
+                              className="inline-flex items-center gap-1 bg-primary/10 text-primary text-[11px] font-medium px-2 py-0.5 rounded-md"
                             >
                               {cat}
                               <button
@@ -716,7 +828,7 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
                                 }}
                                 className="hover:text-destructive"
                               >
-                                <X className="w-3 h-3" />
+                                <X className="w-2.5 h-2.5" />
                               </button>
                             </span>
                           ))
@@ -724,10 +836,10 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
                           <span className="text-muted-foreground">Select categories...</span>
                         )}
                       </span>
-                      <ChevronDown className="w-4 h-4 shrink-0 text-muted-foreground ml-2" />
+                      <ChevronDown className={`w-3.5 h-3.5 shrink-0 text-muted-foreground ml-2 transition-transform duration-200 ${showCategoryDropdown ? "rotate-180" : ""}`} />
                     </button>
                     {showCategoryDropdown && (
-                      <div className="absolute z-50 mt-1 w-full bg-popover border border-border rounded-lg shadow-lg max-h-[180px] overflow-y-auto">
+                      <div className="absolute z-50 mt-1 w-full bg-popover border border-border rounded-xl shadow-lg max-h-[180px] overflow-y-auto p-1">
                         {CATEGORY_OPTIONS.map((cat) => {
                           const selected = activeItem?.categories.includes(cat)
                           return (
@@ -735,15 +847,15 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
                               key={cat}
                               type="button"
                               onClick={() => toggleCategory(cat)}
-                              className={`w-full text-left px-3 py-2 text-sm transition-colors hover:bg-accent ${
-                                selected ? "bg-primary/10 text-primary font-medium" : "text-foreground"
+                              className={`w-full text-left px-2.5 py-1.5 text-sm rounded-lg transition-colors ${
+                                selected ? "bg-primary/10 text-primary font-medium" : "text-foreground hover:bg-muted/80"
                               }`}
                             >
                               <span className="flex items-center gap-2">
-                                <span className={`w-4 h-4 rounded border flex items-center justify-center text-xs ${
-                                  selected ? "bg-primary border-primary text-primary-foreground" : "border-input"
+                                <span className={`w-4 h-4 rounded flex items-center justify-center text-[10px] transition-colors ${
+                                  selected ? "bg-primary text-primary-foreground" : "border border-border"
                                 }`}>
-                                  {selected && "✓"}
+                                  {selected && <Check className="w-2.5 h-2.5" />}
                                 </span>
                                 {cat}
                               </span>
@@ -755,28 +867,29 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
                   </div>
                 </div>
 
-                <div className="space-y-1">
+                {/* Tags */}
+                <div className="space-y-1.5">
                   <div className="flex items-center justify-between">
-                    <p className="text-xs font-medium text-foreground">Tags</p>
+                    <label className="text-xs font-medium text-muted-foreground">Tags</label>
                     {activeItem && (
-                      <span className="text-[11px] text-muted-foreground">{activeItem.tags.length}/15</span>
+                      <span className="text-[10px] text-muted-foreground/60 tabular-nums">{activeItem.tags.length}/15</span>
                     )}
                   </div>
-                  <div className={`flex flex-wrap gap-1.5 border border-input rounded-md px-3 py-2 bg-background min-h-[38px] ${isFieldDisabled ? "opacity-50 cursor-not-allowed" : ""}`}>
+                  <div className={`flex flex-wrap gap-1.5 border border-border/50 rounded-lg px-2.5 py-2 bg-muted/30 min-h-[36px] transition-colors focus-within:bg-background focus-within:border-ring ${isFieldDisabled ? "opacity-50 cursor-not-allowed" : ""}`}>
                     {activeItem?.tags.map((tag) => (
                       <span
                         key={tag}
-                        className="inline-flex items-center gap-1 bg-muted text-foreground text-xs px-2 py-0.5 rounded-full"
+                        className="inline-flex items-center gap-1 bg-muted text-foreground text-[11px] font-medium px-2 py-0.5 rounded-md"
                       >
-                        <Tag className="w-3 h-3" />
+                        <Tag className="w-2.5 h-2.5 text-muted-foreground" />
                         {tag}
                         {!isFieldDisabled && (
                           <button
                             type="button"
                             onClick={() => removeTag(tag)}
-                            className="hover:text-destructive"
+                            className="hover:text-destructive ml-0.5"
                           >
-                            <X className="w-3 h-3" />
+                            <X className="w-2.5 h-2.5" />
                           </button>
                         )}
                       </span>
@@ -794,67 +907,96 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
                       }}
                       placeholder={activeItem?.tags.length ? "" : "Type and press Enter..."}
                       disabled={isFieldDisabled}
-                      className="flex-1 min-w-[100px] bg-transparent outline-none text-sm placeholder:text-muted-foreground disabled:cursor-not-allowed"
+                      className="flex-1 min-w-[80px] bg-transparent outline-none text-sm placeholder:text-muted-foreground/60 disabled:cursor-not-allowed"
                     />
                   </div>
-                  <p className="text-[11px] text-muted-foreground">Press Enter or comma to add a tag</p>
                 </div>
 
-                <div className="space-y-2">
-                  <p className="text-xs font-medium text-foreground">Visibility</p>
-                  <div className="flex items-center gap-2">
-                    <Button
+                {/* Visibility */}
+                <div className="space-y-1.5">
+                  <label className="text-xs font-medium text-muted-foreground">Visibility</label>
+                  <div className="flex rounded-lg border border-border/50 overflow-hidden bg-muted/30">
+                    <button
                       type="button"
-                      variant={activeItem?.isPublic ? "default" : "outline"}
-                      className="rounded-full px-4"
                       onClick={() => {
                         if (!activeItem) return
                         updateItem(activeItem.id, (current) => ({ ...current, isPublic: true }))
                       }}
                       disabled={isFieldDisabled}
+                      className={`flex-1 flex items-center justify-center gap-1.5 py-2 text-sm font-medium transition-all disabled:cursor-not-allowed ${
+                        activeItem?.isPublic
+                          ? "bg-primary text-primary-foreground shadow-sm"
+                          : "text-muted-foreground hover:text-foreground"
+                      }`}
                     >
+                      <Eye className="w-3.5 h-3.5" />
                       Public
-                    </Button>
-                    <Button
+                    </button>
+                    <button
                       type="button"
-                      variant={!activeItem?.isPublic ? "default" : "outline"}
-                      className="rounded-full px-4"
                       onClick={() => {
                         if (!activeItem) return
                         updateItem(activeItem.id, (current) => ({ ...current, isPublic: false }))
                       }}
                       disabled={isFieldDisabled}
+                      className={`flex-1 flex items-center justify-center gap-1.5 py-2 text-sm font-medium transition-all disabled:cursor-not-allowed ${
+                        !activeItem?.isPublic
+                          ? "bg-primary text-primary-foreground shadow-sm"
+                          : "text-muted-foreground hover:text-foreground"
+                      }`}
                     >
+                      <EyeOff className="w-3.5 h-3.5" />
                       Private
-                    </Button>
+                    </button>
                   </div>
                 </div>
               </div>
             </div>
           </div>
-
-          {error && <p className="text-xs text-destructive text-center">{error}</p>}
         </div>
-        <DialogFooter className="px-6 py-4 flex items-center justify-between gap-3 border-t border-border shrink-0">
+
+        {/* Error bar */}
+        {error && (
+          <div className="px-5 py-2 bg-destructive/5 border-t border-destructive/10">
+            <p className="text-xs text-destructive flex items-center gap-1.5">
+              <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+              {error}
+            </p>
+          </div>
+        )}
+
+        {/* Footer */}
+        <div className="flex items-center justify-between gap-3 px-5 py-3.5 border-t border-border bg-muted/20 shrink-0">
           <Button
             type="button"
             variant="ghost"
-            className="rounded-full px-4"
+            size="sm"
+            className="text-muted-foreground hover:text-foreground h-9 px-4"
             onClick={handleClose}
             disabled={isUploadingBatch}
           >
-            <X className="w-4 h-4 mr-1" />
             Cancel
           </Button>
           <Button
             type="button"
-            className="rounded-full px-6"
+            size="sm"
+            className="h-9 px-6 gap-2 font-medium"
             onClick={handleUpload}
             disabled={items.length === 0 || isUploadingBatch}
           >
-            {isUploadingBatch ? "Uploading..." : "Upload"}
+            {isUploadingBatch ? (
+              <>
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                Uploading...
+              </>
+            ) : (
+              <>
+                <Upload className="w-3.5 h-3.5" />
+                Upload {items.length > 1 ? `${items.length} files` : ""}
+              </>
+            )}
           </Button>
-        </DialogFooter>
+        </div>
       </DialogContent>
     </Dialog>
   )

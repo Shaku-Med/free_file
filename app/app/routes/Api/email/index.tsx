@@ -12,7 +12,17 @@ export const action = async ({ request }: { request: Request }) => {
     const expected = typeof process !== 'undefined'
       ? (process.env.EMAIL_API_SECRET || process.env.AUTHORIZATION_KEY)
       : '';
-    if (!expected || secret !== expected) {
+    if (!expected || !secret) {
+      return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+        status: 401,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+    // Timing-safe comparison to prevent timing attacks
+    const { timingSafeEqual } = await import('crypto');
+    const a = Buffer.from(secret);
+    const b = Buffer.from(expected);
+    if (a.length !== b.length || !timingSafeEqual(a, b)) {
       return new Response(JSON.stringify({ error: 'Unauthorized' }), {
         status: 401,
         headers: { 'Content-Type': 'application/json' }

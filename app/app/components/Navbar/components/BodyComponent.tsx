@@ -57,10 +57,10 @@ const BodyComponent = ({ children }: BodyComponentProps) => {
   const applyTheater = theaterMode && !isStaticRoute;
 
   return (
-    <div className={`h-full w-full ${!isMobile && state === 'expanded' && `pt-3`}`}>
-      <div 
-        id="scroll_container" 
-        className={`${!isMobile && state === 'expanded' && `rounded-tl-3xl bg-card`} h-full w-full overflow-y-auto overflow-x-hidden pb-20`}
+    <div className={`h-full w-full ${!isMobile && state === 'expanded' && 'pt-2'}`}>
+      <div
+        id="scroll_container"
+        className={`${!isMobile && state === 'expanded' && 'rounded-tl-2xl bg-card shadow-sm'} h-full w-full overflow-y-auto overflow-x-hidden pb-20`}
         ref={scrollContainerRef}
         onScroll={handleScroll}
       >

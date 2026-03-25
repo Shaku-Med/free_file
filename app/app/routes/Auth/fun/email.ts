@@ -164,7 +164,7 @@ export const sendPasswordResetNotification = async (
   }
 };
 
-const sendEmailDirectly = async ({ to, subject, html }: EmailOptions): Promise<boolean> => {
+export const sendEmailDirectly = async ({ to, subject, html }: EmailOptions): Promise<boolean> => {
   try {
     if (process.env.EMAIL_SERVICE === 'console') {
       console.log('=== EMAIL ===');

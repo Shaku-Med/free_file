@@ -82,7 +82,9 @@ const UserFilesGrid = ({
 
     try {
       const nextPage = currentPage + 1;
-      const response = await fetch(`/api/user-files?userId=${userId}&page=${nextPage}&limit=20`);
+      const response = await fetch(`/api/user-files?userId=${userId}&page=${nextPage}&limit=20`, {
+        credentials: 'include',
+      });
 
       if (!response.ok) {
         setHasMore(false);
@@ -177,6 +179,7 @@ const UserFilesGrid = ({
       >
         {files.map((file, index) => (
             <VideoCard
+              key={file.id || file.unique_id || index}
               data={file}
               index={index}
               currentUserId={currentUserId}

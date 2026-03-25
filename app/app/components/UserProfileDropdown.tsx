@@ -56,21 +56,23 @@ export function UserProfileDropdown({ variant }: UserProfileDropdownProps) {
   if (variant === "sidebar") {
     if (userProfileLoading && userId) {
       return (
-        <div className="p-4">
-          <div className="h-10 w-full bg-muted animate-pulse rounded" />
+        <div className="flex items-center gap-2.5 p-2">
+          <div className="h-8 w-8 rounded-full bg-muted animate-pulse shrink-0" />
+          <div className="flex-1 space-y-1.5">
+            <div className="h-3 w-20 bg-muted animate-pulse rounded" />
+            <div className="h-2.5 w-14 bg-muted animate-pulse rounded" />
+          </div>
         </div>
       );
     }
     if (!userId || !userProfile) {
       return (
-        <div className="p-4 border-t border-sidebar-border">
-          <Button asChild className="w-full" variant="default">
-            <Link to="/auth/login">
-              <LogIn className="mr-2 h-4 w-4" />
-              Sign In
-            </Link>
-          </Button>
-        </div>
+        <Button asChild className="w-full h-9 text-sm" variant="outline">
+          <Link to="/auth/login">
+            <LogIn className="mr-2 h-4 w-4" />
+            Sign In
+          </Link>
+        </Button>
       );
     }
     const bioPreview = userProfile.about
@@ -80,31 +82,28 @@ export function UserProfileDropdown({ variant }: UserProfileDropdownProps) {
       : null;
 
     return (
-      <div className="p-4 border-t border-sidebar-border">
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <button className="w-full flex items-center gap-3 p-2 rounded-lg hover:bg-muted transition-colors group text-left">
-              <Avatar className="h-10 w-10 flex-shrink-0">
-                <AvatarImage src={getProfilePicUrl(userProfile.profile_pic)} alt={userProfile.username} />
-                <AvatarFallback>{userProfile.username.charAt(0).toUpperCase()}</AvatarFallback>
-              </Avatar>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2">
-                  <User className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0" />
-                  <p className="font-medium text-sm text-foreground truncate group-hover:text-primary transition-colors">
-                    {userProfile.username}
-                  </p>
-                </div>
-                {bioPreview && (
-                  <p className="text-xs text-muted-foreground truncate mt-0.5">{bioPreview}</p>
-                )}
-              </div>
-              <ChevronDown className="h-4 w-4 text-muted-foreground flex-shrink-0" />
-            </button>
-          </DropdownMenuTrigger>
-          <ProfileMenuContent username={userProfile.username} />
-        </DropdownMenu>
-      </div>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <button className="w-full flex items-center gap-2.5 p-2 rounded-lg hover:bg-muted/80 transition-colors group text-left">
+            <Avatar className="h-8 w-8 flex-shrink-0 ring-1 ring-border">
+              <AvatarImage src={getProfilePicUrl(userProfile.profile_pic)} alt={userProfile.username} />
+              <AvatarFallback className="text-xs bg-primary/10 text-primary font-medium">
+                {userProfile.username.charAt(0).toUpperCase()}
+              </AvatarFallback>
+            </Avatar>
+            <div className="flex-1 min-w-0">
+              <p className="font-medium text-sm text-foreground truncate group-hover:text-primary transition-colors leading-tight">
+                {userProfile.username}
+              </p>
+              {bioPreview && (
+                <p className="text-[11px] text-muted-foreground truncate leading-tight">{bioPreview}</p>
+              )}
+            </div>
+            <ChevronDown className="h-3.5 w-3.5 text-muted-foreground/60 flex-shrink-0 group-hover:text-muted-foreground transition-colors" />
+          </button>
+        </DropdownMenuTrigger>
+        <ProfileMenuContent username={userProfile.username} />
+      </DropdownMenu>
     );
   }
 

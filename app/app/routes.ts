@@ -60,6 +60,7 @@ export default [
         route(`mentions`, 'routes/Api/mentions/index.tsx'),
         route(`tags`, 'routes/Api/tags/index.tsx'),
         route(`subscriptions`, 'routes/Api/subscriptions/index.tsx'),
+        route(`adult-review`, 'routes/Api/adult-review/index.tsx'),
         route(`subscription-feed`, 'routes/Api/subscription-feed/index.tsx'),
         route(`mark-seen`, 'routes/Api/mark-seen/index.tsx'),
         route(`player-settings`, 'routes/Api/player-settings/index.tsx'),

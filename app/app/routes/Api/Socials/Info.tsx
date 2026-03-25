@@ -1,7 +1,16 @@
 import type { LoaderFunctionArgs } from "react-router";
+import { isAuthenticated } from "~/lib/Security/Password";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
     try {
+        const user = await isAuthenticated(request, ["id"]);
+        if (!user?.id) {
+            return new Response(JSON.stringify({ error: "Unauthorized" }), {
+                status: 401,
+                headers: { "Content-Type": "application/json" },
+            });
+        }
+
         const url = new URL(request.url);
         
         const pathParts = url.pathname.split('/socials/info/');
@@ -405,8 +414,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
             status: 200,
             headers: {
                 'Content-Type': 'application/json',
-                'Access-Control-Allow-Origin': '*',
-                'Access-Control-Allow-Methods': 'GET, OPTIONS',
+                                'Access-Control-Allow-Methods': 'GET, OPTIONS',
                 'Access-Control-Allow-Headers': 'Content-Type',
             },
         });

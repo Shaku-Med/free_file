@@ -506,8 +506,18 @@ export const AllActions = async () => {
 
 export const loader = async ({ request }: { request: Request }) => {
     try {
+        // Auth check — only authenticated users can use social downloads
+        const { isAuthenticated } = await import("~/lib/Security/Password");
+        const user = await isAuthenticated(request, ["id"]);
+        if (!user?.id) {
+            return new Response(JSON.stringify({ error: "Unauthorized" }), {
+                status: 401,
+                headers: { "Content-Type": "application/json" },
+            });
+        }
+
         const url = new URL(request.url);
-        
+
         let socialUrl = decodeURIComponent(url.pathname.split(`/socials/`)[1] || '');
         
         if (socialUrl && !socialUrl.includes('?') && url.search) {
@@ -725,8 +735,7 @@ export const loader = async ({ request }: { request: Request }) => {
             headers: {
                 'Content-Type': contentType,
                 'Content-Disposition': `attachment; filename="${filename}"`,
-                'Access-Control-Allow-Origin': '*',
-                'Access-Control-Allow-Methods': 'GET, OPTIONS',
+                                'Access-Control-Allow-Methods': 'GET, OPTIONS',
                 'Access-Control-Allow-Headers': 'Content-Type',
             },
         });
