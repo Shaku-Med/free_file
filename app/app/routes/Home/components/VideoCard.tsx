@@ -714,7 +714,7 @@ const VideoCard = ({ data, index, currentUserId, userActions, onUpdate, showOwne
           <div className="w-full">
             <Separator className="my-1" />
             <Actions
-              fileId={data.id}
+              fileId={data.id ?? ""}
               uniqueId={data.unique_id}
               likeCount={likeCount}
               dislikeCount={dislikeCount}
@@ -841,7 +841,7 @@ const VideoCard = ({ data, index, currentUserId, userActions, onUpdate, showOwne
         <div className="ac_dev w-full">
           <Separator className="my-2" />
           <Actions
-            fileId={data.id}
+            fileId={data.id ?? ""}
             uniqueId={data.unique_id}
             likeCount={likeCount}
             dislikeCount={dislikeCount}

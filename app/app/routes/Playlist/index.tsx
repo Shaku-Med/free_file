@@ -96,6 +96,7 @@ export default function PlaylistPage() {
         const res = await fetch("/api/playlist", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
+          credentials: "include",
           body: JSON.stringify({ file_ids: ids, page: pageNum }),
         });
         const json = await res.json();
@@ -291,7 +292,9 @@ export default function PlaylistPage() {
             </div>
             <h3 className="text-lg font-semibold text-foreground mb-1">No saved videos</h3>
             <p className="text-sm text-muted-foreground mb-5 text-center max-w-sm">
-              Tap the options menu on any video and select "Save locally" to add it here
+              Open <span className="font-medium text-foreground">⋯</span> on a video →{" "}
+              <span className="font-medium text-foreground">Add to playlist</span> →{" "}
+              <span className="font-medium text-foreground">Save locally on this device</span>
             </p>
             <Link to="/">
               <Button variant="default" className="rounded-full px-6">

@@ -13,6 +13,7 @@ import {
   ListVideo,
   Plus,
   Pencil,
+  Bookmark,
 } from "lucide-react";
 import { formatNumber } from "~/lib/utils/formatNumber";
 import { ShareModal } from "~/components/ShareModal";
@@ -21,6 +22,7 @@ import {
   DropdownMenuContent,
   DropdownMenuGroup,
   DropdownMenuItem,
+  DropdownMenuCheckboxItem,
   DropdownMenuSub,
   DropdownMenuSubContent,
   DropdownMenuSubTrigger,
@@ -31,6 +33,7 @@ import { cn } from "~/lib/utils";
 import CreatePlaylistModal from "~/components/Playlist/CreatePlaylistModal";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "~/components/ui/dialog";
 import CommentSection from "~/routes/Dynamic/components/Comments/CommentSection";
+import { useLocalPlaylist, normalizeLocalPlaylistFileId } from "~/lib/hooks/useLocalPlaylist";
 
 export interface ActionsProps {
   fileId: string;
@@ -156,6 +159,9 @@ export default function Actions({
   const routeParams = useParams();
   const routeDynamicId = routeParams.id;
   const isOnThisFilePage = Boolean(routeDynamicId && routeDynamicId === uniqueId);
+  const { has: hasLocalSave, add: addLocalSave, remove: removeLocalSave } = useLocalPlaylist();
+  const effectiveLocalFileId = normalizeLocalPlaylistFileId(fileId);
+  const inLocalList = Boolean(effectiveLocalFileId && hasLocalSave(effectiveLocalFileId));
 
   useEffect(() => {
     setCanWebShare(typeof navigator !== "undefined" && typeof navigator.share === "function");
@@ -469,6 +475,19 @@ export default function Actions({
               </DropdownMenuSubTrigger>
               <DropdownMenuSubContent className="min-w-[13.5rem] p-0">
                 <div className="max-h-[min(280px,var(--radix-dropdown-menu-content-available-height))] overflow-y-auto overscroll-contain p-1.5">
+                  <DropdownMenuCheckboxItem
+                    checked={inLocalList}
+                    disabled={!effectiveLocalFileId}
+                    onCheckedChange={(next) => {
+                      if (!effectiveLocalFileId) return;
+                      if (next) addLocalSave(effectiveLocalFileId);
+                      else removeLocalSave(effectiveLocalFileId);
+                    }}
+                  >
+                    <Bookmark className={cn("size-4", inLocalList && "fill-current")} aria-hidden />
+                    Save locally on this device
+                  </DropdownMenuCheckboxItem>
+                  <DropdownMenuSeparator className="my-1" />
                   {!currentUserId ? (
                     <DropdownMenuItem onSelect={() => requireAuth()}>
                       <ListPlus className="size-4" aria-hidden />

@@ -1,5 +1,7 @@
 import { useState, useCallback } from 'react';
 import { Dialog, DialogContent } from '~/components/ui/dialog';
+import { Label } from '~/components/ui/label';
+import { Switch } from '~/components/ui/switch';
 
 interface CreatePlaylistModalProps {
   open: boolean;
@@ -47,7 +49,7 @@ export default function CreatePlaylistModal({ open, onOpenChange, onCreated }: C
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="w-[calc(100vw-2rem)] max-w-[420px]" showCloseButton={false}>
+      <DialogContent className="w-[calc(100vw-2rem)] max-w-[500px]" showCloseButton={false}>
         <div className="space-y-4">
           <p className="text-base font-semibold">New playlist</p>
 
@@ -70,20 +72,22 @@ export default function CreatePlaylistModal({ open, onOpenChange, onCreated }: C
             maxLength={500}
           />
 
-          <div className="flex items-center gap-2.5 py-1">
-            <button
-              type="button"
-              role="switch"
-              aria-checked={isPublic}
-              onClick={() => setIsPublic((v) => !v)}
-              className={`relative w-9 h-5 rounded-full transition-colors shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${isPublic ? 'bg-primary' : 'bg-muted'}`}
-            >
-              <span className="sr-only">Toggle public or private playlist</span>
-              <span
-                className={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${isPublic ? 'translate-x-4' : 'translate-x-0.5'}`}
-              />
-            </button>
-            <span className="text-sm text-foreground">{isPublic ? 'Public' : 'Private'}</span>
+          <div className="flex items-center justify-between gap-4 py-1">
+            <div className="min-w-0 space-y-0.5">
+              <Label htmlFor="new-playlist-public" className="text-sm font-medium text-foreground">
+                {isPublic ? 'Public' : 'Private'}
+              </Label>
+              <p className="text-xs text-muted-foreground">
+                {isPublic ? 'Anyone can find this playlist' : 'Only you can see this playlist'}
+              </p>
+            </div>
+            <Switch
+              id="new-playlist-public"
+              checked={isPublic}
+              onCheckedChange={setIsPublic}
+              disabled={loading}
+              aria-label={isPublic ? 'Playlist is public' : 'Playlist is private'}
+            />
           </div>
 
           {error && <p className="text-sm text-destructive">{error}</p>}
