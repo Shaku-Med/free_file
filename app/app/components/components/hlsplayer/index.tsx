@@ -29,6 +29,7 @@ import { useFileContext } from '~/lib/Context/Context';
 import { useMiniPlayerContext } from '~/lib/Context/MiniPlayerContext';
 import { isMobile } from 'react-device-detect';
 import { getVideoSrc } from '~/lib/utils';
+import { getSquareMediaSessionArtwork } from '~/lib/utils/mediaSessionSquareArtwork';
 
 interface CallBackProps {
   src: string;
@@ -134,6 +135,8 @@ function PlayerInner({
   const callBackRef = useRef(callBack);
   callBackRef.current = callBack;
   const [mediaSessionImage, setMediaSessionImage] = useState<string | null>(null);
+  const mediaSessionFileUidRef = useRef<string | undefined>(file?.unique_id);
+  mediaSessionFileUidRef.current = file?.unique_id;
 
   useEffect(() => {
     setMediaSessionImage(null);
@@ -192,9 +195,25 @@ function PlayerInner({
   );
 
   const handlePosterImageLoaded = useCallback((imgSrc: string, colors: string[], mediaSessionUrl?: string) => {
-    setMediaSessionImage(mediaSessionUrl ?? imgSrc);
     callBackRef.current?.({ src: imgSrc, colors });
-  }, []);
+    const source = mediaSessionUrl ?? imgSrc;
+    const uid = file?.unique_id;
+    if (!source) {
+      setMediaSessionImage(null);
+      return;
+    }
+    if (!uid) {
+      setMediaSessionImage(source);
+      return;
+    }
+    const requestUid = uid;
+    const cacheKey = `ms-sq:${requestUid}:${source}`;
+    void getSquareMediaSessionArtwork(source, cacheKey, { size: 512 }).then((url) => {
+      if (!url) return;
+      if (mediaSessionFileUidRef.current !== requestUid) return;
+      setMediaSessionImage(url);
+    });
+  }, [file?.unique_id]);
 
   useEffect(() => {
     if (onAmbientModeChange) {
