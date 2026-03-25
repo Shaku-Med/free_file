@@ -411,6 +411,12 @@ const index = () => {
   const pathname = location.pathname;
   const startTimeParam = searchParams.get('t');
   const startTimeFromParam = startTimeParam ? parseFloat(startTimeParam) : undefined;
+  const rawHighlightComment = searchParams.get("comment");
+  const highlightCommentId =
+    rawHighlightComment &&
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(rawHighlightComment)
+      ? rawHighlightComment
+      : null;
   const { getFromCache, addToCache } = usePageCache();
   const hasCachedRef = useRef<string | null>(null);
 
@@ -1022,9 +1028,10 @@ const index = () => {
 
       <div id="comments" className="scroll-mt-24">
         <CommentSection
-          key={`comments-${file_data.id}-${currentId}`}
+          key={`comments-${file_data.id}-${currentId}-${highlightCommentId ?? ""}`}
           fileId={file_data.id}
           currentUserId={data.userId || undefined}
+          highlightCommentId={highlightCommentId}
         />
       </div>
     </div>

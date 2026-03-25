@@ -15,6 +15,7 @@ import type { CommentGif } from "./CommentForm";
 import { FormattedText } from "~/components/FormattedText";
 import { formatDistanceToNow } from "date-fns";
 import { getProfilePicUrl } from "~/lib/utils/profilePic";
+import { cn } from "~/lib/utils";
 
 interface CommentItemProps {
   comment: CommentType;
@@ -25,6 +26,13 @@ interface CommentItemProps {
   onDelete: (commentId: string) => Promise<void>;
   onLike?: (commentId: string) => Promise<void>;
   level?: number;
+  highlightCommentId?: string | null;
+}
+
+function subtreeContainsHighlight(c: CommentType, targetId: string | null | undefined): boolean {
+  if (!targetId) return false;
+  if (c.id === targetId) return true;
+  return (c.replies ?? []).some((r) => subtreeContainsHighlight(r, targetId));
 }
 
 const CommentItem = ({
@@ -36,10 +44,13 @@ const CommentItem = ({
   onDelete,
   onLike,
   level = 0,
+  highlightCommentId = null,
 }: CommentItemProps) => {
   const [isReplying, setIsReplying] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
-  const [showReplies, setShowReplies] = useState(true);
+  const [showReplies, setShowReplies] = useState(() =>
+    !highlightCommentId ? true : subtreeContainsHighlight(comment, highlightCommentId)
+  );
   const [likeCount, setLikeCount] = useState(comment.like_count ?? 0);
   const [userLiked, setUserLiked] = useState(comment.user_has_liked ?? false);
   const [liking, setLiking] = useState(false);
@@ -58,6 +69,18 @@ const CommentItem = ({
 
   const isOwner = currentUserId === comment.user_id;
   const hasReplies = comment.replies && comment.replies.length > 0;
+  const isHighlighted = Boolean(highlightCommentId && comment.id === highlightCommentId);
+  const [showEmphasis, setShowEmphasis] = useState(isHighlighted);
+
+  useEffect(() => {
+    if (!isHighlighted) {
+      setShowEmphasis(false);
+      return;
+    }
+    setShowEmphasis(true);
+    const t = window.setTimeout(() => setShowEmphasis(false), 4500);
+    return () => window.clearTimeout(t);
+  }, [isHighlighted, comment.id]);
 
   const handleReply = async (content: string, gif?: CommentGif | null) => {
     await onReply(comment.id, content, gif);
@@ -159,7 +182,15 @@ const CommentItem = ({
   };
 
   return (
-    <div className={`space-y-3 ${level > 0 ? "ml-8 border-l-2 border-muted pl-4" : ""}`}>
+    <div
+      id={`comment-${comment.id}`}
+      className={cn(
+        "space-y-3 scroll-mt-28 rounded-xl transition-[box-shadow,background-color] duration-500",
+        level > 0 && "ml-8 border-l-2 border-muted pl-4",
+        showEmphasis &&
+          "ring-2 ring-primary/80 ring-offset-2 ring-offset-background bg-primary/10 shadow-sm p-2 -m-2 sm:p-3 sm:-m-3"
+      )}
+    >
       <div className="flex gap-3">
         {comment.user?.username ? (
           <Link to={`/profile/${comment.user.username}`}>
@@ -331,6 +362,7 @@ const CommentItem = ({
               onDelete={onDelete}
               onLike={onLike}
               level={level + 1}
+              highlightCommentId={highlightCommentId}
             />
           ))}
         </div>

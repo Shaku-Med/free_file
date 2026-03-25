@@ -60,7 +60,9 @@ export class CommentService {
     fileId: string,
     limit: number = 50,
     offset: number = 0,
-    currentUserId?: string | null
+    currentUserId?: string | null,
+    /** When set (e.g. from notification deep link), ensure this comment's root thread is in the first page. */
+    focusCommentId?: string | null
   ): Promise<CommentServiceResponse<CommentsTreeResult>> {
     try {
       if (!db) {
@@ -184,7 +186,22 @@ export class CommentService {
         }
       }
 
-      const paginatedRoots = roots.slice(offset, offset + limit);
+      let orderedRoots = roots;
+      if (focusCommentId && byId.has(focusCommentId)) {
+        let node = byId.get(focusCommentId)!;
+        while (node.parent_id) {
+          const p = byId.get(node.parent_id);
+          if (!p) break;
+          node = p;
+        }
+        const rootNode = node;
+        const ri = roots.findIndex((r) => r.id === rootNode.id);
+        if (ri > 0) {
+          orderedRoots = [roots[ri]!, ...roots.filter((_, i) => i !== ri)];
+        }
+      }
+
+      const paginatedRoots = orderedRoots.slice(offset, offset + limit);
 
       return {
         data: { data: paginatedRoots, totalCount },

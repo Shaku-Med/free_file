@@ -25,6 +25,7 @@ export default function CreatePlaylistModal({ open, onOpenChange, onCreated }: C
       const res = await fetch('/api/playlists', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify({ title: title.trim(), description: description.trim() || undefined, is_public: isPublic }),
       });
       const json = await res.json();
@@ -69,12 +70,21 @@ export default function CreatePlaylistModal({ open, onOpenChange, onCreated }: C
             maxLength={500}
           />
 
-          <label className="flex items-center gap-2.5 cursor-pointer select-none py-1">
-            <div className={`relative w-9 h-5 rounded-full transition-colors ${isPublic ? 'bg-primary' : 'bg-muted'}`}>
-              <div className={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${isPublic ? 'translate-x-4' : 'translate-x-0.5'}`} />
-            </div>
-            <span className="text-sm">{isPublic ? 'Public' : 'Private'}</span>
-          </label>
+          <div className="flex items-center gap-2.5 py-1">
+            <button
+              type="button"
+              role="switch"
+              aria-checked={isPublic}
+              onClick={() => setIsPublic((v) => !v)}
+              className={`relative w-9 h-5 rounded-full transition-colors shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${isPublic ? 'bg-primary' : 'bg-muted'}`}
+            >
+              <span className="sr-only">Toggle public or private playlist</span>
+              <span
+                className={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${isPublic ? 'translate-x-4' : 'translate-x-0.5'}`}
+              />
+            </button>
+            <span className="text-sm text-foreground">{isPublic ? 'Public' : 'Private'}</span>
+          </div>
 
           {error && <p className="text-sm text-destructive">{error}</p>}
 

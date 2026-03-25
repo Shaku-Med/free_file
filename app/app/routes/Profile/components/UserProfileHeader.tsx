@@ -1,6 +1,6 @@
 import { Avatar, AvatarFallback, AvatarImage } from "~/components/ui/avatar";
 import { Button } from "~/components/ui/button";
-import { Calendar, Edit2, Camera, Loader2, Upload, X } from "lucide-react";
+import { Calendar, Edit2, Camera, Upload, X, FileUp, Users, UserCheck } from "lucide-react";
 import type { UserProfile } from "~/lib/Services/UserProfileService";
 import { formatDistanceToNow } from "date-fns";
 import { useState, useRef, useEffect } from "react";
@@ -15,14 +15,42 @@ import {
 } from "~/components/ui/dialog";
 import { getProfilePicUrl } from "~/lib/utils/profilePic";
 import { TransformWrapper, TransformComponent } from "react-zoom-pan-pinch";
+import SubscribeButton, { formatSubscriberCount } from "~/components/SubscribeButton";
+
+interface ChannelStats {
+  subscriber_count: number;
+  subscription_count: number;
+  is_subscribed: boolean;
+  notify: boolean;
+}
 
 interface UserProfileHeaderProps {
   profile: UserProfile;
   isOwner: boolean;
+  currentUserId?: string | null;
+  channelStats?: ChannelStats;
   onProfileUpdate?: (updatedProfile: Partial<UserProfile>) => void;
 }
 
-const UserProfileHeader = ({ profile, isOwner, onProfileUpdate }: UserProfileHeaderProps) => {
+function StatItem({ value, label, icon }: { value: string | number; label: string; icon?: React.ReactNode }) {
+  return (
+    <div className="flex flex-col items-center gap-0.5 px-3 sm:px-5">
+      <div className="flex items-center gap-1.5">
+        {icon}
+        <span className="text-lg sm:text-xl font-bold text-foreground tabular-nums">{value}</span>
+      </div>
+      <span className="text-[11px] sm:text-xs text-muted-foreground font-medium">{label}</span>
+    </div>
+  );
+}
+
+const UserProfileHeader = ({
+  profile,
+  isOwner,
+  currentUserId,
+  channelStats,
+  onProfileUpdate,
+}: UserProfileHeaderProps) => {
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
   const [isPreviewModalOpen, setIsPreviewModalOpen] = useState(false);
@@ -69,7 +97,7 @@ const UserProfileHeader = ({ profile, isOwner, onProfileUpdate }: UserProfileHea
 
     setUploadError(null);
     setSelectedFile(file);
-    
+
     const isSquare = await checkAspectRatio(file);
     const reader = new FileReader();
     reader.onloadend = () => {
@@ -94,7 +122,7 @@ const UserProfileHeader = ({ profile, isOwner, onProfileUpdate }: UserProfileHea
 
     return new Promise<void>((resolve, reject) => {
       const xhr = new XMLHttpRequest();
-      
+
       xhr.upload.onprogress = (event) => {
         if (event.lengthComputable && onProgress) {
           const percent = Math.round((event.loaded / event.total) * 100);
@@ -145,9 +173,7 @@ const UserProfileHeader = ({ profile, isOwner, onProfileUpdate }: UserProfileHea
     }).catch((error: any) => {
       const errorMessage = error.message || 'Failed to upload profile picture';
       setUploadError(errorMessage);
-      if (onProgress) {
-        onProgress(0);
-      }
+      if (onProgress) onProgress(0);
     }).finally(() => {
       setIsUploading(false);
     });
@@ -178,65 +204,90 @@ const UserProfileHeader = ({ profile, isOwner, onProfileUpdate }: UserProfileHea
     }
   };
 
+  const subscriberCount = channelStats?.subscriber_count ?? 0;
+  const subscriptionCount = channelStats?.subscription_count ?? 0;
+
   return (
-    <div className="space-y-8 mb-12">
-      <div className="flex flex-col items-center justify-center space-y-6">
-        <div className="relative group">
-          <Avatar 
-            className={`h-40 w-40 sm:h-48 sm:w-48 border-4 border-border shadow-lg cursor-pointer hover:opacity-90 transition-opacity ${
+    <div className="mb-8">
+      {/* Profile card */}
+      <div className="flex flex-col items-center pt-8 pb-6 px-4">
+        {/* Avatar */}
+        <div className="relative group mb-5">
+          <Avatar
+            className={`h-28 w-28 sm:h-36 sm:w-36 ring-4 ring-background shadow-xl cursor-pointer hover:opacity-90 transition-all duration-200 ${
               profilePic ? '' : 'pointer-events-none'
             }`}
             onClick={handleAvatarClick}
           >
             <AvatarImage src={getProfilePicUrl(profilePic)} alt={profile.username} className="object-cover" />
-            <AvatarFallback className="text-4xl sm:text-5xl">
+            <AvatarFallback className="text-3xl sm:text-4xl font-bold bg-primary/10 text-primary">
               {profile.username.charAt(0).toUpperCase()}
             </AvatarFallback>
           </Avatar>
-          {isOwner && profilePic && (
-            <div className="absolute inset-0 flex items-center justify-center bg-black/50 rounded-full opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
-              <Camera className="h-8 w-8 text-white" />
-            </div>
+          {isOwner && (
+            <button
+              onClick={handleAvatarClick}
+              className="absolute bottom-0 right-0 w-9 h-9 rounded-full bg-primary text-primary-foreground shadow-lg flex items-center justify-center hover:bg-primary/90 transition-colors border-2 border-background"
+            >
+              <Camera className="h-4 w-4" />
+            </button>
           )}
           {!isOwner && profilePic && (
             <div className="absolute inset-0 flex items-center justify-center bg-black/30 rounded-full opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
-              <div className="text-white text-xs font-medium">View</div>
+              <span className="text-white text-xs font-medium">View</span>
             </div>
           )}
         </div>
 
-        <div className="text-center space-y-4 w-full max-w-2xl">
-          <div className="flex items-center justify-center gap-3 flex-wrap">
-            <h1 className="text-4xl sm:text-5xl font-bold text-foreground">{profile.username}</h1>
-            {isOwner && (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setIsEditOpen(true)}
-                className="gap-2"
-              >
-                <Edit2 className="h-4 w-4" />
-                Edit Profile
-              </Button>
-            )}
+        {/* Name + bio */}
+        <div className="text-center max-w-xl space-y-2 mb-5">
+          <h1 className="text-2xl sm:text-3xl font-bold text-foreground tracking-tight">
+            {profile.username}
+          </h1>
+          <div className="flex items-center justify-center gap-1.5 text-xs text-muted-foreground">
+            <Calendar className="h-3 w-3" />
+            <span>Joined {formatDistanceToNow(new Date(profile.created_at), { addSuffix: true })}</span>
           </div>
-
-          <div className="flex flex-wrap items-center justify-center gap-4 text-sm text-muted-foreground">
-            <div className="flex items-center gap-1.5">
-              <Calendar className="h-4 w-4" />
-              <span>Joined {formatDistanceToNow(new Date(profile.created_at), { addSuffix: true })}</span>
-            </div>
-            <span className="font-medium">{profile.file_count || 0} {profile.file_count === 1 ? 'upload' : 'uploads'}</span>
-          </div>
-
           {profile.about && (
-            <p className="text-foreground text-center text-lg leading-relaxed max-w-xl mx-auto">
+            <p className="text-sm text-muted-foreground leading-relaxed pt-1 max-w-md mx-auto">
               {profile.about}
             </p>
           )}
         </div>
+
+        {/* Stats row */}
+        <div className="flex items-center justify-center divide-x divide-border mb-5">
+          <StatItem value={formatSubscriberCount(subscriberCount)} label="Subscribers" />
+          <StatItem value={formatSubscriberCount(subscriptionCount)} label="Subscriptions" />
+          <StatItem value={profile.file_count || 0} label="Uploads" />
+        </div>
+
+        {/* Action buttons */}
+        <div className="flex items-center gap-2.5">
+          {!isOwner && (
+            <SubscribeButton
+              channelId={profile.id}
+              currentUserId={currentUserId ?? null}
+              initialSubscribed={channelStats?.is_subscribed ?? false}
+              initialNotify={channelStats?.notify ?? false}
+              initialCount={subscriberCount}
+            />
+          )}
+          {isOwner && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setIsEditOpen(true)}
+              className="gap-2 rounded-full px-4 h-9"
+            >
+              <Edit2 className="h-3.5 w-3.5" />
+              Edit Profile
+            </Button>
+          )}
+        </div>
       </div>
 
+      {/* Modals */}
       {isOwner && (
         <>
           <EditProfileDialog
@@ -249,7 +300,7 @@ const UserProfileHeader = ({ profile, isOwner, onProfileUpdate }: UserProfileHea
               <DialogHeader className="px-4 sm:px-6 pt-4 sm:pt-6 pb-3 sm:pb-4 border-b flex-shrink-0 bg-background sticky top-0 z-10">
                 <DialogTitle className="text-lg sm:text-xl font-semibold">Change Profile Picture</DialogTitle>
                 <DialogDescription className="text-xs sm:text-sm text-muted-foreground">
-                  {showCropper 
+                  {showCropper
                     ? "Crop your image to a square. Drag to position, pinch/scroll to zoom."
                     : isUploading
                     ? "Uploading your profile picture..."
@@ -280,10 +331,10 @@ const UserProfileHeader = ({ profile, isOwner, onProfileUpdate }: UserProfileHea
                     <div className="flex flex-col items-center space-y-4">
                       <div className="relative">
                         <Avatar className="h-32 w-32 border-2 border-border">
-                          <AvatarImage 
-                            src={preview || getProfilePicUrl(profilePic)} 
-                            alt="Preview" 
-                            className="object-cover" 
+                          <AvatarImage
+                            src={preview || getProfilePicUrl(profilePic)}
+                            alt="Preview"
+                            className="object-cover"
                           />
                           <AvatarFallback className="text-2xl">
                             {profile.username.charAt(0).toUpperCase()}

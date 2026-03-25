@@ -127,7 +127,8 @@ export async function sendPushForNotification(
   recipientUserId: string,
   type: NotificationType,
   actorId: string,
-  fileId?: string | null
+  fileId?: string | null,
+  commentId?: string | null
 ): Promise<void> {
   if (!db) return;
 
@@ -142,7 +143,11 @@ export async function sendPushForNotification(
     fileId ? db.from("files").select("unique_id").eq("id", fileId).maybeSingle() : Promise.resolve({ data: null }),
   ]);
   const actorName = userResult?.data?.username ?? "Someone";
-  const url = fileResult?.data?.unique_id ? `/${fileResult.data.unique_id}` : "/";
+  const slug = fileResult?.data?.unique_id;
+  let url = slug ? `/${slug}` : "/";
+  if (slug && commentId) {
+    url = `/${slug}?comment=${encodeURIComponent(commentId)}`;
+  }
 
   console.log(`[Push] Sending "${type}" notification to user ${recipientUserId} from ${actorName}`);
 

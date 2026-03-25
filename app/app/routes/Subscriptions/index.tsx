@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   data,
   redirect,
@@ -114,6 +114,7 @@ export const loader = async ({ request }: { request: Request }) => {
         userActions: { likedFileIds: [] as string[], dislikedFileIds: [] as string[] },
         userId: user.id,
         error: "Database unavailable",
+        shelfEnrichedById: {} as Record<string, FileType>,
       },
       { status: 503 }
     );
@@ -132,6 +133,51 @@ export const loader = async ({ request }: { request: Request }) => {
     console.error("get_subscription_channels_recent_uploads:", chErr);
   }
 
+  const channels = (channelRows ?? []) as ChannelRow[];
+
+  const shelfInputs: Record<string, unknown>[] = [];
+  for (const ch of channels) {
+    for (const u of parseRecentUploads(ch.recent_uploads)) {
+      if (!u?.id) continue;
+      shelfInputs.push({
+        id: u.id,
+        created_at: u.created_at || new Date(0).toISOString(),
+        endpoint: u.endpoint ?? "",
+        filename: u.filename,
+        unique_id: u.unique_id,
+        file_size: 0,
+        file_type: u.file_type ?? "video/mp4",
+        is_adult: false,
+        owner_id: ch.channel_id,
+        is_public: true,
+        file_title: u.file_title ?? "",
+        thumbnails: Array.isArray(u.thumbnails) ? u.thumbnails : [],
+        view_count: 0,
+        share_count: 0,
+        is_reel: Boolean(u.is_reel),
+        duration: u.duration,
+        owner_username: ch.username,
+        owner_profile_pic: ch.profile_pic,
+        owner_verified: ch.verified,
+        owner_about: ch.about,
+        upload_status: "completed",
+      });
+    }
+  }
+
+  let shelfEnrichedById: Record<string, FileType> = {};
+  let shelfLiked: string[] = [];
+  let shelfDisliked: string[] = [];
+  if (shelfInputs.length > 0) {
+    const shelfResult = await enrichFeedFilesWithInteractions(db, shelfInputs, user.id);
+    shelfLiked = shelfResult.likedFileIds;
+    shelfDisliked = shelfResult.dislikedFileIds;
+    for (const row of shelfResult.data) {
+      const rid = row.id as string | undefined;
+      if (rid) shelfEnrichedById[rid] = row as unknown as FileType;
+    }
+  }
+
   const cursorPos = 0;
   const { data: feed, error: feedErr } = await db.rpc("get_subscription_feed", {
     p_user_id: user.id,
@@ -142,12 +188,13 @@ export const loader = async ({ request }: { request: Request }) => {
   if (feedErr) {
     console.error("get_subscription_feed:", feedErr);
     return data({
-      channels: (channelRows ?? []) as ChannelRow[],
+      channels,
       initialFeed: [],
       nextCursor: null,
-      userActions: { likedFileIds: [], dislikedFileIds: [] },
+      userActions: { likedFileIds: shelfLiked, dislikedFileIds: shelfDisliked },
       userId: user.id,
       error: "Failed to load feed",
+      shelfEnrichedById,
     });
   }
 
@@ -163,13 +210,17 @@ export const loader = async ({ request }: { request: Request }) => {
   const nextCursor =
     rawCount > 0 ? { cursor_pos: cursorPos + rawCount } : null;
 
+  const mergedLiked = [...new Set([...likedFileIds, ...shelfLiked])];
+  const mergedDisliked = [...new Set([...dislikedFileIds, ...shelfDisliked])];
+
   return data({
-    channels: (channelRows ?? []) as ChannelRow[],
+    channels,
     initialFeed,
     nextCursor,
-    userActions: { likedFileIds, dislikedFileIds },
+    userActions: { likedFileIds: mergedLiked, dislikedFileIds: mergedDisliked },
     userId: user.id,
     error: null as string | null,
+    shelfEnrichedById,
   });
 };
 
@@ -193,6 +244,7 @@ export default function SubscriptionsPage() {
   const { userId: ctxUserId } = useFileContext();
   const nav = useNavigation();
 
+  const shelfById = loaderData.shelfEnrichedById ?? {};
   const channels = loaderData.channels ?? [];
   const userId = loaderData.userId ?? ctxUserId ?? undefined;
 
@@ -206,17 +258,20 @@ export default function SubscriptionsPage() {
   const [hasMore, setHasMore] = useState(Boolean(loaderData.nextCursor));
   const observerRef = useRef<HTMLDivElement | null>(null);
 
-  const userActions = useMemo(() => {
-    const liked = new Set(loaderData.userActions?.likedFileIds ?? []);
-    const disliked = new Set(loaderData.userActions?.dislikedFileIds ?? []);
-    return { likedFileIds: liked, dislikedFileIds: disliked };
-  }, [loaderData.userActions]);
+  const [userActions, setUserActions] = useState(() => ({
+    likedFileIds: new Set(loaderData.userActions?.likedFileIds ?? []),
+    dislikedFileIds: new Set(loaderData.userActions?.dislikedFileIds ?? []),
+  }));
 
   useEffect(() => {
     setFiles((loaderData.initialFeed ?? []) as unknown as FileType[]);
     setNextCursor(loaderData.nextCursor ?? null);
     setHasMore(Boolean(loaderData.nextCursor));
-  }, [loaderData.initialFeed, loaderData.nextCursor]);
+    setUserActions({
+      likedFileIds: new Set(loaderData.userActions?.likedFileIds ?? []),
+      dislikedFileIds: new Set(loaderData.userActions?.dislikedFileIds ?? []),
+    });
+  }, [loaderData.initialFeed, loaderData.nextCursor, loaderData.userActions]);
 
   const loadMore = useCallback(async () => {
     if (isLoading || !hasMore || !nextCursor) return;
@@ -224,7 +279,9 @@ export default function SubscriptionsPage() {
     try {
       const params = new URLSearchParams();
       params.set("cursor_pos", String(nextCursor.cursor_pos));
-      const res = await fetch(`/api/subscription-feed?${params}`);
+      const res = await fetch(`/api/subscription-feed?${params}`, {
+        credentials: "include",
+      });
       if (!res.ok) {
         setHasMore(false);
         return;
@@ -334,7 +391,11 @@ export default function SubscriptionsPage() {
                 </div>
                 <div className="flex gap-3 sm:gap-4 overflow-x-auto overflow-y-hidden pb-2 -mx-0.5 px-0.5 scroll-smooth">
                   {recent.map((u, uploadIndex) => {
-                    const file = recentUploadToFileType(u, ch);
+                    const base = recentUploadToFileType(u, ch);
+                    const enriched = u.id ? shelfById[u.id] : undefined;
+                    const file = enriched
+                      ? ({ ...base, ...enriched, owner: enriched.owner ?? base.owner } as FileType)
+                      : base;
                     const idx = channelIndex * 32 + uploadIndex;
                     return (
                       <div

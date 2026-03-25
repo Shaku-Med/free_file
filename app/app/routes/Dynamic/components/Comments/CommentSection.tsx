@@ -10,6 +10,8 @@ interface CommentSectionProps {
   fileId: string;
   currentUserId?: string;
   isReel?: boolean;
+  /** From `?comment=` — scroll to this comment and emphasize it (e.g. notification deep link). */
+  highlightCommentId?: string | null;
 }
 
 /** Normalize API comment to full Comment shape (replies, counts, etc.) */
@@ -90,7 +92,12 @@ function removeCommentFromTree(comments: Comment[], commentId: string): { commen
   return { comments: next, countDelta };
 }
 
-const CommentSection = ({ fileId, currentUserId: initialUserId, isReel = false }: CommentSectionProps) => {
+const CommentSection = ({
+  fileId,
+  currentUserId: initialUserId,
+  isReel = false,
+  highlightCommentId = null,
+}: CommentSectionProps) => {
   const [comments, setComments] = useState<Comment[]>([]);
   const [totalCount, setTotalCount] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
@@ -102,7 +109,17 @@ const CommentSection = ({ fileId, currentUserId: initialUserId, isReel = false }
   const fetchComments = useCallback(async () => {
     try {
       setIsLoading(true);
-      const response = await fetch(`/api/comments?fileId=${fileId}&limit=50&offset=0`);
+      const params = new URLSearchParams({
+        fileId,
+        limit: "50",
+        offset: "0",
+      });
+      if (highlightCommentId) {
+        params.set("focusCommentId", highlightCommentId);
+      }
+      const response = await fetch(`/api/comments?${params.toString()}`, {
+        credentials: "include",
+      });
 
       if (!response.ok) {
         throw new Error("Failed to fetch comments");
@@ -120,12 +137,22 @@ const CommentSection = ({ fileId, currentUserId: initialUserId, isReel = false }
     } finally {
       setIsLoading(false);
     }
-  }, [fileId]);
+  }, [fileId, highlightCommentId]);
 
   useEffect(() => {
     fetchComments();
     if (typeof window === "undefined") return;
   }, [fileId, fetchComments]);
+
+  useEffect(() => {
+    if (!highlightCommentId || isLoading) return;
+    const timer = window.setTimeout(() => {
+      const el = document.getElementById(`comment-${highlightCommentId}`);
+      if (!el) return;
+      el.scrollIntoView({ behavior: "smooth", block: "center" });
+    }, 200);
+    return () => window.clearTimeout(timer);
+  }, [highlightCommentId, isLoading, comments]);
 
   const handleSubmit = useCallback(
     async (content: string, parentId?: string | null, gif?: CommentGif | null) => {
@@ -269,11 +296,18 @@ const CommentSection = ({ fileId, currentUserId: initialUserId, isReel = false }
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center gap-2">
-        <MessageSquare className="h-5 w-5 text-foreground" />
-        <h2 className="text-lg font-semibold text-foreground">
-          Comments ({totalCount})
-        </h2>
+      <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between sm:gap-2">
+        <div className="flex items-center gap-2">
+          <MessageSquare className="h-5 w-5 text-foreground" />
+          <h2 className="text-lg font-semibold text-foreground">
+            Comments ({totalCount})
+          </h2>
+        </div>
+        {highlightCommentId && !isLoading && (
+          <p className="text-xs text-muted-foreground sm:text-right">
+            Highlighting the comment from your notification.
+          </p>
+        )}
       </div>
 
       <Separator />
@@ -325,6 +359,7 @@ const CommentSection = ({ fileId, currentUserId: initialUserId, isReel = false }
               onEdit={handleEdit}
               onDelete={handleDelete}
               onLike={handleLike}
+              highlightCommentId={highlightCommentId}
             />
           ))}
         </div>

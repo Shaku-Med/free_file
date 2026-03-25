@@ -17,6 +17,7 @@ export const loader = async ({ request }: { request: Request }) => {
     const fileId = url.searchParams.get('fileId');
     const limitParam = url.searchParams.get('limit');
     const offsetParam = url.searchParams.get('offset');
+    const focusCommentIdRaw = url.searchParams.get('focusCommentId');
 
     if (!fileId || !isValidFileId(fileId)) {
       return toJson({ error: "Invalid fileId" }, 400);
@@ -24,11 +25,19 @@ export const loader = async ({ request }: { request: Request }) => {
 
     const limit = validateInteger(limitParam, 1, 100) || 50;
     const offset = validateInteger(offsetParam, 0, 10000) || 0;
+    const focusCommentId =
+      focusCommentIdRaw && isValidFileId(focusCommentIdRaw) ? focusCommentIdRaw : null;
 
     const user = await isAuthenticated(request, ['id']).catch(() => null);
     const currentUserId = user?.id ?? null;
 
-    const result = await commentService.getCommentsTreeByFileId(fileId, limit, offset, currentUserId);
+    const result = await commentService.getCommentsTreeByFileId(
+      fileId,
+      limit,
+      offset,
+      currentUserId,
+      focusCommentId
+    );
 
     if (result.error) {
       return toJson({ error: result.error }, 500);
@@ -104,9 +113,9 @@ export const action = async ({ request }: { request: Request }) => {
               type: 'comment_reply',
               actorId: user.id,
               fileId,
-              commentId: parentId,
+              commentId: comment.id,
             });
-            sendPushForNotification(parentRow.user_id, 'comment_reply', user.id, fileId).catch((e) => console.error("[Push] comment_reply failed:", e));
+            sendPushForNotification(parentRow.user_id, 'comment_reply', user.id, fileId, comment.id).catch((e) => console.error("[Push] comment_reply failed:", e));
           }
         } else {
           const { data: fileRow } = await db.from('files').select('owner_id').eq('id', fileId).maybeSingle();
@@ -118,7 +127,7 @@ export const action = async ({ request }: { request: Request }) => {
               fileId,
               commentId: comment.id,
             });
-            sendPushForNotification(fileRow.owner_id, 'file_comment', user.id, fileId).catch((e) => console.error("[Push] file_comment failed:", e));
+            sendPushForNotification(fileRow.owner_id, 'file_comment', user.id, fileId, comment.id).catch((e) => console.error("[Push] file_comment failed:", e));
           }
         }
         // Notify mentioned users (only if they exist and are not the commenter)
@@ -141,7 +150,7 @@ export const action = async ({ request }: { request: Request }) => {
                   fileId,
                   commentId: comment.id,
                 });
-                sendPushForNotification(row.id, 'comment_mention', user.id, fileId).catch((e) => console.error("[Push] comment_mention failed:", e));
+                sendPushForNotification(row.id, 'comment_mention', user.id, fileId, comment.id).catch((e) => console.error("[Push] comment_mention failed:", e));
               }
             }
           }

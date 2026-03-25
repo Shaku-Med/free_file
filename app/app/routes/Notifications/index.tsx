@@ -73,7 +73,9 @@ export default function NotificationsPage() {
     const load = async () => {
       setLoading(true);
       try {
-        const res = await fetch("/api/notifications?limit=50&offset=0");
+        const res = await fetch("/api/notifications?limit=50&offset=0", {
+          credentials: "include",
+        });
         const data = await res.json();
         if (data.data) setList(data.data);
       } catch {
@@ -92,6 +94,7 @@ export default function NotificationsPage() {
       await fetch("/api/notifications", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
+        credentials: "include",
         body: JSON.stringify({ markAllRead: true }),
       });
       setList((prev) => prev.map((n) => ({ ...n, read_at: new Date().toISOString() })));
@@ -104,6 +107,7 @@ export default function NotificationsPage() {
     fetch("/api/notifications", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
+      credentials: "include",
       body: JSON.stringify({ notificationId }),
     }).catch(() => {});
     setList((prev) =>
@@ -112,9 +116,12 @@ export default function NotificationsPage() {
   };
 
   const linkTo = (n: NotificationRow) => {
-    const fileSlug = n.files?.unique_id ?? n.file_id;
-    if (fileSlug) return `/${fileSlug}`;
-    return "/";
+    const slug = n.files?.unique_id;
+    if (!slug) return "/";
+    if (n.comment_id) {
+      return `/${encodeURIComponent(slug)}?comment=${encodeURIComponent(n.comment_id)}`;
+    }
+    return `/${encodeURIComponent(slug)}`;
   };
 
   const unreadCount = list.filter((n) => !n.read_at).length;

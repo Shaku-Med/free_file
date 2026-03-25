@@ -12,12 +12,20 @@ import { buildPageMeta, buildErrorMeta, SITE_NAME, THEME_COLOR } from "~/lib/seo
 import { usePageCache } from "~/lib/hooks/usePageCache";
 import { useFileContext } from "~/lib/Context/Context";
 
+interface ChannelStats {
+  subscriber_count: number;
+  subscription_count: number;
+  is_subscribed: boolean;
+  notify: boolean;
+}
+
 interface ProfileCachePayload {
   profile: UserProfile;
   files: FileType[];
   pagination: { page: number; limit: number; hasMore: boolean };
   userActions: { likedFileIds: string[]; dislikedFileIds: string[] };
   currentUserId: string | null;
+  channelStats: ChannelStats;
 }
 
 export const loader = async ({ request, params }: { request: Request; params: { username: string } }) => {
@@ -78,6 +86,24 @@ export const loader = async ({ request, params }: { request: Request; params: { 
       }
     }
 
+    // Fetch channel stats (subscriber count, is_subscribed, notify)
+    let channelStats: ChannelStats = { subscriber_count: 0, subscription_count: 0, is_subscribed: false, notify: false };
+    if (db) {
+      const { data: statsResult } = await db.rpc('get_channel_stats', {
+        p_user_id: profileResult.data.id,
+        p_viewer_id: currentUserId,
+      });
+      if (statsResult) {
+        const parsed = typeof statsResult === 'string' ? JSON.parse(statsResult) : statsResult;
+        channelStats = {
+          subscriber_count: parsed.subscriber_count ?? 0,
+          subscription_count: parsed.subscription_count ?? 0,
+          is_subscribed: parsed.is_subscribed ?? false,
+          notify: parsed.notify ?? false,
+        };
+      }
+    }
+
     const url = new URL(request.url);
     return data(
       {
@@ -94,6 +120,7 @@ export const loader = async ({ request, params }: { request: Request; params: { 
           likedFileIds,
           dislikedFileIds
         },
+        channelStats,
         pageUrl: url.pathname
       },
       { status: 200 }
@@ -245,6 +272,8 @@ const Profile = () => {
     if (cacheValid && loaderValid && cachedData && loaderData) {
       const cachedPage = cachedData.pagination?.page ?? 1;
 
+      const defaultStats: ChannelStats = { subscriber_count: 0, subscription_count: 0, is_subscribed: false, notify: false };
+
       if (cachedPage > 1) {
         const blendedFiles = blendFilesWithFresh(cachedData.files, loaderData.files ?? []);
         const freshLiked = new Set(loaderData.userActions?.likedFileIds ?? []);
@@ -260,6 +289,7 @@ const Profile = () => {
           pagination: cachedData.pagination,
           userActions: { likedFileIds: mergedLiked, dislikedFileIds: mergedDisliked },
           currentUserId: loaderData.currentUserId ?? cachedData.currentUserId,
+          channelStats: loaderData.channelStats ?? cachedData.channelStats ?? defaultStats,
         };
       }
 
@@ -272,6 +302,7 @@ const Profile = () => {
           dislikedFileIds: loaderData.userActions?.dislikedFileIds ?? [],
         },
         currentUserId: loaderData.currentUserId ?? null,
+        channelStats: loaderData.channelStats ?? defaultStats,
       };
     }
 
@@ -287,6 +318,7 @@ const Profile = () => {
           dislikedFileIds: loaderData.userActions?.dislikedFileIds ?? [],
         },
         currentUserId: loaderData.currentUserId ?? null,
+        channelStats: loaderData.channelStats ?? { subscriber_count: 0, subscription_count: 0, is_subscribed: false, notify: false },
       };
     }
 
@@ -363,8 +395,13 @@ const Profile = () => {
 
   return (
     <div className="min-h-screen" data-data-ready={true}>
-      <div className="">
-        <UserProfileHeader profile={effectiveData.profile} isOwner={isOwner} />
+      <div className="max-w-6xl mx-auto">
+        <UserProfileHeader
+          profile={effectiveData.profile}
+          isOwner={isOwner}
+          currentUserId={effectiveData.currentUserId}
+          channelStats={effectiveData.channelStats}
+        />
         <UserFilesGrid
           files={effectiveData.files}
           userId={effectiveData.profile.id}

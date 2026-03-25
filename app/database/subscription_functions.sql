@@ -380,15 +380,14 @@ BEGIN
       f.tags,
       f.colors,
       f.metadata,
-      COALESCE(es.like_count, 0)    AS _like_count,
-      COALESCE(es.dislike_count, 0) AS _dislike_count,
-      COALESCE(es.comment_count, 0) AS _comment_count,
+      (SELECT COUNT(*)::bigint FROM likes l WHERE l.file_id = f.id) AS _like_count,
+      (SELECT COUNT(*)::bigint FROM dislike d WHERE d.file_id = f.id) AS _dislike_count,
+      (SELECT COUNT(*)::bigint FROM comments c WHERE c.file_id = f.id AND c.is_deleted = false) AS _comment_count,
       (ul.file_id IS NOT NULL)      AS _user_liked,
       (ud.file_id IS NOT NULL)      AS _user_disliked,
       ROW_NUMBER() OVER (ORDER BY f.created_at DESC) AS _rn
     FROM files f
     JOIN sub_channels sc ON sc.channel_id = f.owner_id
-    LEFT JOIN file_engagement_stats es ON es.file_id = f.id
     LEFT JOIN user_likes ul ON ul.file_id = f.id
     LEFT JOIN user_dislikes ud ON ud.file_id = f.id
     WHERE f.is_public = true
