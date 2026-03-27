@@ -2,6 +2,7 @@ package worker
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -243,6 +244,15 @@ func (w *Worker) processJob(job *queue.Job) {
 			Categories: categories,
 			Tags:       tags,
 			Metadata:   metadata,
+			Series: webhook.SeriesPayload{
+				SeriesID:       job.Series.SeriesID,
+				SeriesTitle:    job.Series.SeriesTitle,
+				SeriesDesc:     job.Series.SeriesDesc,
+				SeriesIsPublic: job.Series.SeriesIsPublic,
+				IsSeriesMain:   job.Series.IsSeriesMain,
+				EpisodeNumber:  job.Series.EpisodeNumber,
+				SeasonNumber:   job.Series.SeasonNumber,
+			},
 		})
 		w.log.Infof("job complete job=%s duration=%s", job.ID, time.Since(start))
 		return
@@ -386,6 +396,24 @@ func (w *Worker) processJob(job *queue.Job) {
 		w.log.Infof("hls job=%s tiers=[%s]", job.ID, strings.Join(tierNames, ", "))
 	}
 
+	// If user provided a default thumbnail, decode and save it to the thumbDir
+	// so it gets included in the batch upload with a consistent name
+	defaultThumbPath := ""
+	if job.DefaultThumbnail != "" {
+		thumbData, derr := base64.StdEncoding.DecodeString(job.DefaultThumbnail)
+		if derr != nil {
+			w.log.Errorf("failed to decode default thumbnail job=%s err=%s", job.ID, derr.Error())
+		} else {
+			dtPath := filepath.Join(thumbDir, "default_thumbnail.jpg")
+			if werr := os.WriteFile(dtPath, thumbData, 0644); werr != nil {
+				w.log.Errorf("failed to write default thumbnail job=%s err=%s", job.ID, werr.Error())
+			} else {
+				w.log.Infof("default thumbnail saved job=%s path=%s", job.ID, dtPath)
+				defaultThumbPath = "default_thumbnail.jpg"
+			}
+		}
+	}
+
 	dateFolder := ghlib.DateFolder(time.Now())
 	ghPrefix := dateFolder + "/" + job.UploadID + "/"
 	videoEndpoint := ""
@@ -461,22 +489,38 @@ func (w *Worker) processJob(job *queue.Job) {
 	_ = os.RemoveAll(assembledDir)
 	_ = os.Remove(filepath.Dir(assembledDir))
 
+	// Build default thumbnail GitHub path
+	defaultThumbGH := ""
+	if defaultThumbPath != "" {
+		defaultThumbGH = ghPrefix + defaultThumbPath
+	}
+
 	_ = w.queue.SetJobStatus(context.Background(), job.ID, "completed")
 	webhook.NotifyJobStatus(webhook.Payload{
-		JobID:      job.ID,
-		Status:     "completed",
-		UploadID:   job.UploadID,
-		UserID:     job.UserID,
-		FileName:   job.FileName,
-		FileSize:   job.FileSize,
-		Endpoint:   videoEndpoint,
-		Thumbnails: thumbnailPaths,
-		Duration:   videoDuration,
-		IsAdult:    &isAdult,
-		Colors:     vidColors,
-		Categories: categories,
-		Tags:       tags,
-		Metadata:   metadata,
+		JobID:            job.ID,
+		Status:           "completed",
+		UploadID:         job.UploadID,
+		UserID:           job.UserID,
+		FileName:         job.FileName,
+		FileSize:         job.FileSize,
+		Endpoint:         videoEndpoint,
+		Thumbnails:       thumbnailPaths,
+		Duration:         videoDuration,
+		IsAdult:          &isAdult,
+		Colors:           vidColors,
+		Categories:       categories,
+		Tags:             tags,
+		Metadata:         metadata,
+		DefaultThumbnail: defaultThumbGH,
+		Series: webhook.SeriesPayload{
+			SeriesID:       job.Series.SeriesID,
+			SeriesTitle:    job.Series.SeriesTitle,
+			SeriesDesc:     job.Series.SeriesDesc,
+			SeriesIsPublic: job.Series.SeriesIsPublic,
+			IsSeriesMain:   job.Series.IsSeriesMain,
+			EpisodeNumber:  job.Series.EpisodeNumber,
+			SeasonNumber:   job.Series.SeasonNumber,
+		},
 	})
 	w.log.Infof("job complete job=%s user=%s upload=%s duration=%s thumbnails=%d colors=%d tags=%d", job.ID, job.UserID, job.UploadID, time.Since(start), len(thumbnailPaths), len(vidColors), len(tags))
 }

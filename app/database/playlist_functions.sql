@@ -75,7 +75,7 @@ AS $$
     WHERE pi.playlist_id = p.id
   ) ic ON true
   LEFT JOIN LATERAL (
-    SELECT f.thumbnails[1]::text AS thumb
+    SELECT COALESCE(f.default_thumbnail, trim(both '"' from f.thumbnails[1]::text)) AS thumb
     FROM playlist_items pi2
     JOIN files f ON f.id = pi2.file_id
     WHERE pi2.playlist_id = p.id
@@ -121,7 +121,7 @@ RETURNS TABLE (
   f_is_public        boolean,
   f_file_description text,
   f_file_title       text,
-  f_thumbnails       jsonb[],
+  f_default_thumbnail text,
   f_view_count       numeric,
   f_share_count      numeric,
   f_is_reel          boolean,
@@ -200,7 +200,7 @@ BEGIN
     f.is_public,
     f.file_description,
     f.file_title,
-    f.thumbnails,
+    f.default_thumbnail,
     f.view_count,
     f.share_count,
     f.is_reel,

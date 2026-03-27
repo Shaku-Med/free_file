@@ -7,14 +7,15 @@ import { Textarea } from "~/components/ui/textarea";
 import { Button } from "~/components/ui/button";
 import type { FileType } from "~/lib/types";
 import ImageLoad from "./ImageLoad/ImageLoad";
-import { arrangeDateForThumbnail, ParseFilename, getRandomThumbnail } from "~/lib/utils";
+import { getThumbnailUrl } from "~/lib/utils";
 import ParseFilenameInsert from "~/lib/utils/ShowFileName";
 import AdultContentBadge from "~/routes/Dynamic/components/AdultContentBadge";
 import OwnerProfile from "~/components/OwnerProfile/OwnerProfile";
 import Actions from "./VideoCard/Actions";
 import { Separator } from "~/components/ui/separator";
 import CategoryBadges from "~/components/CategoryBadges";
-import { Info, MoreVertical, Clock, ListVideo, ChevronDown, X, Check, AlertTriangle, Send, Loader2 } from "lucide-react";
+import { Info, MoreVertical, Clock, ListVideo, ChevronDown, X, Check, AlertTriangle, Send, Loader2, ImagePlus, MessageSquare, MessageSquareOff } from "lucide-react";
+import { useFileContext } from "~/lib/Context/Context";
 import { Tooltip, TooltipContent, TooltipTrigger } from "~/components/ui/tooltip";
 import { useIsMobile } from "~/hooks/use-mobile";
 import { useSidebar } from "~/components/ui/sidebar";
@@ -102,6 +103,19 @@ const VideoCard = ({ data, index, currentUserId, userActions, onUpdate, showOwne
   const [isSaving, setIsSaving] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
   const [infoModalOpen, setInfoModalOpen] = useState(false);
+  // Thumbnail edit state
+  const [selectedThumbPath, setSelectedThumbPath] = useState<string | null>(null);
+  const [customThumbFile, setCustomThumbFile] = useState<File | null>(null);
+  const [customThumbPreview, setCustomThumbPreview] = useState<string | null>(null);
+  const [isUploadingThumb, setIsUploadingThumb] = useState(false);
+  const thumbInputRef = useRef<HTMLInputElement>(null);
+  // Thumbnail browser dialog state
+  const [thumbBrowseOpen, setThumbBrowseOpen] = useState(false);
+  const [browseThumbs, setBrowseThumbs] = useState<string[]>([]);
+  const [browseHasMore, setBrowseHasMore] = useState(false);
+  const [browseOffset, setBrowseOffset] = useState(0);
+  const [browseLoading, setBrowseLoading] = useState(false);
+  const THUMB_PAGE_SIZE = 20;
 
   // Adult review request state
   const [reviewStatus, setReviewStatus] = useState<{
@@ -116,8 +130,16 @@ const VideoCard = ({ data, index, currentUserId, userActions, onUpdate, showOwne
   const [isSubmittingReview, setIsSubmittingReview] = useState(false);
   const [reviewMessage, setReviewMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
   const [showReviewForm, setShowReviewForm] = useState(false);
-  
+  const [editCommentsEnabled, setEditCommentsEnabled] = useState(data.comments_enabled !== false);
+  const [editCommentMax, setEditCommentMax] = useState(() => {
+    const lim = data.comment_limit;
+    return typeof lim === "number" && lim > 0 ? String(lim) : "";
+  });
+  /** Latest `default_thumbnail` from GET /api/files prefill; `undefined` = use `data` until loaded. */
+  const [editLoadedDefaultThumb, setEditLoadedDefaultThumb] = useState<string | null | undefined>(undefined);
+
   const catDropdownRef = useRef<HTMLDivElement>(null);
+  const { uploadServerUrl, c_user } = useFileContext();
 
   const nav = useNavigate();
   const metadataWarning = getMetadataWarning(data.metadata);
@@ -132,12 +154,76 @@ const VideoCard = ({ data, index, currentUserId, userActions, onUpdate, showOwne
   }, [userActions, data.id]);
 
   useEffect(() => {
+    if (isEditing) return;
     setEditTitle(data.file_title || "");
     setEditDescription(data.file_description || "");
     setEditIsPublic(Boolean(data.is_public));
     setEditCategories(Array.isArray(data.categories) ? data.categories.filter((c): c is string => typeof c === "string") : []);
     setEditTags(Array.isArray(data.tags) ? data.tags.filter((t): t is string => typeof t === "string") : []);
-  }, [data.file_title, data.file_description, data.is_public, data.categories, data.tags]);
+    setEditCommentsEnabled(data.comments_enabled !== false);
+    const lim = data.comment_limit;
+    setEditCommentMax(typeof lim === "number" && lim > 0 ? String(lim) : "");
+  }, [
+    isEditing,
+    data.file_title,
+    data.file_description,
+    data.is_public,
+    data.categories,
+    data.tags,
+    data.comments_enabled,
+    data.comment_limit,
+  ]);
+
+  useEffect(() => {
+    if (!isEditing) setEditLoadedDefaultThumb(undefined);
+  }, [isEditing]);
+
+  useEffect(() => {
+    if (!isEditing || !isOwner) return;
+    const fid = data.id || data.unique_id;
+    if (!fid) return;
+    let cancelled = false;
+    setEditError(null);
+    (async () => {
+      try {
+        const res = await fetch(`/api/files?fileId=${encodeURIComponent(String(fid))}`, {
+          credentials: "include",
+        });
+        const json = (await res.json().catch(() => null)) as {
+          success?: boolean;
+          file?: Record<string, unknown>;
+          error?: string;
+        } | null;
+        if (cancelled) return;
+        if (!res.ok || !json?.success || !json.file) {
+          if (json?.error) setEditError(json.error);
+          return;
+        }
+        const f = json.file;
+        setEditTitle(typeof f.file_title === "string" ? f.file_title : "");
+        setEditDescription(typeof f.file_description === "string" ? f.file_description : "");
+        setEditIsPublic(f.is_public !== false);
+        const cats = f.categories;
+        setEditCategories(
+          Array.isArray(cats) ? cats.filter((c): c is string => typeof c === "string") : []
+        );
+        const tagList = f.tags;
+        setEditTags(Array.isArray(tagList) ? tagList.filter((t): t is string => typeof t === "string") : []);
+        setEditCommentsEnabled(f.comments_enabled !== false);
+        const lim = f.comment_limit;
+        setEditCommentMax(typeof lim === "number" && lim > 0 ? String(lim) : "");
+        if (Object.prototype.hasOwnProperty.call(f, "default_thumbnail")) {
+          const dt = f.default_thumbnail;
+          setEditLoadedDefaultThumb(typeof dt === "string" ? dt : dt == null ? null : undefined);
+        }
+      } catch {
+        if (!cancelled) setEditError("Could not load the latest file settings.");
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isEditing, isOwner, data.id, data.unique_id]);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -170,6 +256,68 @@ const VideoCard = ({ data, index, currentUserId, userActions, onUpdate, showOwne
     setIsSaving(true);
     setEditError(null);
     try {
+      let newDefaultThumbnail: string | undefined;
+
+      // Images use their own endpoint as thumbnail — no thumbnail editing allowed
+      if (!data.file_type?.startsWith("image/") && customThumbFile) {
+        setIsUploadingThumb(true);
+        try {
+          const formData = new FormData();
+          formData.append("file", customThumbFile);
+          formData.append("unique_id", data.unique_id);
+          // Build date_folder from created_at
+          const d = new Date(data.created_at);
+          const dd = String(d.getUTCDate()).padStart(2, "0");
+          const mm = String(d.getUTCMonth() + 1).padStart(2, "0");
+          const yyyy = d.getUTCFullYear();
+          formData.append("date_folder", `${dd}_${mm}_${yyyy}`);
+          formData.append("is_adult", String(!!data.is_adult));
+
+          const base = uploadServerUrl?.replace(/\/$/, "") || "";
+          const headers: Record<string, string> = {};
+          if (c_user) headers["Authorization"] = `Bearer ${c_user}`;
+
+          const thumbRes = await fetch(`${base}/api/thumbnail/upload`, {
+            method: "POST",
+            headers,
+            body: formData,
+          });
+          const thumbJson = await thumbRes.json();
+          if (!thumbRes.ok) {
+            setEditError(thumbJson.error || "Thumbnail upload failed.");
+            setIsUploadingThumb(false);
+            setIsSaving(false);
+            return;
+          }
+          newDefaultThumbnail = thumbJson.default_thumbnail;
+        } catch {
+          setEditError("Thumbnail upload failed.");
+          setIsUploadingThumb(false);
+          setIsSaving(false);
+          return;
+        }
+        setIsUploadingThumb(false);
+      } else if (selectedThumbPath) {
+        // User selected an existing frame thumbnail as default
+        newDefaultThumbnail = selectedThumbPath;
+      }
+
+      let commentLimit: number | null | undefined = undefined;
+      if (editCommentsEnabled) {
+        const t = editCommentMax.trim();
+        if (t === "") {
+          commentLimit = null;
+        } else {
+          const n = parseInt(t, 10);
+          if (!Number.isFinite(n) || n < 1 || n > 1_000_000) {
+            setEditError("Max comments must be empty (unlimited) or a number from 1 to 1000000.");
+            setIsSaving(false);
+            return;
+          }
+          commentLimit = n;
+        }
+      }
+
       const response = await fetch("/api/files", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
@@ -180,6 +328,9 @@ const VideoCard = ({ data, index, currentUserId, userActions, onUpdate, showOwne
           isPublic: editIsPublic,
           categories: editCategories,
           tags: editTags,
+          commentsEnabled: editCommentsEnabled,
+          ...(editCommentsEnabled ? { commentLimit } : {}),
+          ...(newDefaultThumbnail !== undefined ? { defaultThumbnail: newDefaultThumbnail } : {}),
         }),
       });
 
@@ -197,8 +348,16 @@ const VideoCard = ({ data, index, currentUserId, userActions, onUpdate, showOwne
           is_public: payload.file.is_public ?? editIsPublic,
           categories: payload.file.categories ?? editCategories,
           tags: payload.file.tags ?? editTags,
+          comments_enabled: payload.file.comments_enabled,
+          comment_limit: payload.file.comment_limit,
+          ...(newDefaultThumbnail !== undefined ? { default_thumbnail: newDefaultThumbnail } : {}),
         });
       }
+      // Reset thumbnail state
+      setSelectedThumbPath(null);
+      setCustomThumbFile(null);
+      if (customThumbPreview) URL.revokeObjectURL(customThumbPreview);
+      setCustomThumbPreview(null);
       setIsEditing(false);
     } catch {
       setEditError("Failed to update file.");
@@ -292,19 +451,26 @@ const VideoCard = ({ data, index, currentUserId, userActions, onUpdate, showOwne
     }
   };
 
-  const thumbnailLink = useMemo(() => {
-    if (data.file_type.startsWith("image/") && data.endpoint) {
-      return `/api/load/image/${data.endpoint}`;
-    }
-    const thumbnailsNoPreview = (data.thumbnails || []).filter(
-      (t): t is string => typeof t === "string" && !t.includes("thumbnail_preview")
-    );
-    const randomThumbnail = getRandomThumbnail(thumbnailsNoPreview.length ? thumbnailsNoPreview : undefined);
-    if (randomThumbnail) {
-      return `/api/load/image/${randomThumbnail}`;
-    }
-    return `/api/load/image/${arrangeDateForThumbnail(data.created_at, retryAttempt)}/${data.unique_id}/thumbnail_${ParseFilename(data.filename)}.jpg`;
-  }, [data.file_type, data.endpoint, data.thumbnails, data.created_at, data.unique_id, data.filename, retryAttempt]);
+  const thumbnailLink = useMemo(() => getThumbnailUrl(data, { retryAttempt }), [data.file_type, data.endpoint, data.default_thumbnail, data.thumbnails, data.created_at, data.unique_id, data.filename, retryAttempt]);
+
+  /** Saved thumbnail as shown on the card — preview in edit dialog (video/audio only). */
+  const editDialogCurrentThumbSrc = useMemo(() => {
+    if (data.file_type?.startsWith("image/")) return "";
+    const merged = {
+      ...data,
+      default_thumbnail:
+        editLoadedDefaultThumb !== undefined ? editLoadedDefaultThumb : data.default_thumbnail,
+    };
+    return getThumbnailUrl(merged, { queryString: "?quality=60" });
+  }, [
+    data.file_type,
+    data.endpoint,
+    data.default_thumbnail,
+    data.created_at,
+    data.unique_id,
+    data.filename,
+    editLoadedDefaultThumb,
+  ]);
 
   const handleRetry = useCallback(() => {
     if (retryAttempt >= 1) {
@@ -410,6 +576,52 @@ const VideoCard = ({ data, index, currentUserId, userActions, onUpdate, showOwne
             </div>
           </div>
           <div className="space-y-2">
+            <label className="text-xs font-medium text-muted-foreground">Comments</label>
+            <div className="flex rounded-lg border border-border/50 overflow-hidden bg-muted/30">
+              <button
+                type="button"
+                onClick={() => setEditCommentsEnabled(true)}
+                disabled={isSaving}
+                className={`flex-1 flex items-center justify-center gap-1.5 py-2 text-sm font-medium transition-all disabled:cursor-not-allowed ${
+                  editCommentsEnabled
+                    ? "bg-primary text-primary-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                <MessageSquare className="w-3.5 h-3.5" />
+                On
+              </button>
+              <button
+                type="button"
+                onClick={() => setEditCommentsEnabled(false)}
+                disabled={isSaving}
+                className={`flex-1 flex items-center justify-center gap-1.5 py-2 text-sm font-medium transition-all disabled:cursor-not-allowed ${
+                  !editCommentsEnabled
+                    ? "bg-primary text-primary-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                <MessageSquareOff className="w-3.5 h-3.5" />
+                Off
+              </button>
+            </div>
+            {editCommentsEnabled && (
+              <div className="space-y-1">
+                <label className="text-[11px] text-muted-foreground">Max comments (optional)</label>
+                <Input
+                  type="text"
+                  inputMode="numeric"
+                  placeholder="Unlimited"
+                  value={editCommentMax}
+                  onChange={(e) => setEditCommentMax(e.target.value.replace(/\D/g, "").slice(0, 7))}
+                  disabled={isSaving}
+                  className="bg-muted/50 text-foreground placeholder:text-muted-foreground h-9 text-sm"
+                />
+                <p className="text-[10px] text-muted-foreground/70">Leave empty for no limit. Reached limit blocks new comments.</p>
+              </div>
+            )}
+          </div>
+          <div className="space-y-2">
             <label className="text-xs font-medium text-muted-foreground">Categories</label>
             {editCategories.length > 0 && (
               <div className="flex flex-wrap gap-1.5">
@@ -499,6 +711,199 @@ const VideoCard = ({ data, index, currentUserId, userActions, onUpdate, showOwne
               className="bg-muted/50 text-foreground placeholder:text-muted-foreground"
             />
           </div>
+          {/* Thumbnail selector — only for video/audio, not images */}
+          {!data.file_type?.startsWith("image/") && <div className="space-y-2">
+            <label className="text-xs font-medium text-muted-foreground">Thumbnail</label>
+            {editDialogCurrentThumbSrc ? (
+              <div className="rounded-lg border border-border/50 bg-muted/20 overflow-hidden">
+                <p className="text-[11px] font-medium text-muted-foreground px-2.5 py-1.5 border-b border-border/40 bg-muted/30">
+                  Current thumbnail
+                </p>
+                <div className="p-2 flex justify-center items-center bg-background/40 min-h-[5rem]">
+                  <img
+                    src={editDialogCurrentThumbSrc}
+                    alt=""
+                    className="max-h-32 w-full max-w-[280px] object-contain rounded-md"
+                    loading="lazy"
+                  />
+                </div>
+                <p className="text-[10px] text-muted-foreground/70 px-2.5 pb-2">
+                  Saved thumbnail on the server. Pick a frame or upload below to replace it.
+                </p>
+              </div>
+            ) : null}
+            <input
+              ref={thumbInputRef}
+              type="file"
+              accept="image/jpeg,image/jpg,image/png,image/webp"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (thumbInputRef.current) thumbInputRef.current.value = "";
+                if (!file) return;
+                if (!file.type.startsWith("image/")) return;
+                if (file.size > 10 * 1024 * 1024) return;
+                if (customThumbPreview) URL.revokeObjectURL(customThumbPreview);
+                setCustomThumbFile(file);
+                setCustomThumbPreview(URL.createObjectURL(file));
+                setSelectedThumbPath(null);
+              }}
+              className="hidden"
+            />
+            {/* Custom upload preview */}
+            {customThumbPreview && (
+              <div className="relative inline-flex rounded-lg overflow-hidden border-2 border-primary">
+                <img src={customThumbPreview} alt="Custom thumbnail" className="h-16 w-auto object-contain rounded-lg" />
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (customThumbPreview) URL.revokeObjectURL(customThumbPreview);
+                    setCustomThumbFile(null);
+                    setCustomThumbPreview(null);
+                  }}
+                  className="absolute right-0.5 top-0.5 h-4 w-4 rounded-full bg-black/60 hover:bg-black/80 text-white flex items-center justify-center"
+                >
+                  <X className="h-2.5 w-2.5" />
+                </button>
+              </div>
+            )}
+            {/* Selected frame thumbnail preview */}
+            {selectedThumbPath && !customThumbPreview && (
+              <div className="relative inline-flex rounded-lg overflow-hidden border-2 border-primary">
+                <img src={`/api/load/image/${selectedThumbPath}?quality=30`} alt="Selected thumbnail" className="h-16 w-auto object-contain rounded-lg" />
+                <button
+                  type="button"
+                  onClick={() => setSelectedThumbPath(null)}
+                  className="absolute right-0.5 top-0.5 h-4 w-4 rounded-full bg-black/60 hover:bg-black/80 text-white flex items-center justify-center"
+                >
+                  <X className="h-2.5 w-2.5" />
+                </button>
+              </div>
+            )}
+            {/* Browse frame thumbnails button */}
+            {!customThumbPreview && (
+              <button
+                type="button"
+                onClick={async () => {
+                  setThumbBrowseOpen(true);
+                  if (browseThumbs.length === 0) {
+                    setBrowseLoading(true);
+                    try {
+                      const res = await fetch(`/api/files/thumbnails?fileId=${data.id}&limit=${THUMB_PAGE_SIZE}&offset=0`);
+                      if (res.ok) {
+                        const json = await res.json();
+                        setBrowseThumbs(json.thumbnails || []);
+                        setBrowseHasMore(json.hasMore || false);
+                        setBrowseOffset(json.thumbnails?.length || 0);
+                      }
+                    } catch {}
+                    setBrowseLoading(false);
+                  }
+                }}
+                disabled={isSaving}
+                className="w-full flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg border border-dashed border-border text-xs text-muted-foreground hover:text-foreground hover:border-primary/30 hover:bg-primary/5 transition-all disabled:opacity-50"
+              >
+                <ImagePlus className="w-3.5 h-3.5" />
+                Browse frame thumbnails
+              </button>
+            )}
+            {/* Thumbnail browser dialog */}
+            <Dialog open={thumbBrowseOpen} onOpenChange={setThumbBrowseOpen}>
+              <DialogContent className="w-[calc(100%-2rem)] max-h-[80vh] overflow-y-auto">
+                <DialogHeader>
+                  <DialogTitle className="text-sm">Choose a thumbnail</DialogTitle>
+                </DialogHeader>
+                {browseLoading && browseThumbs.length === 0 ? (
+                  <div className="flex items-center justify-center py-8">
+                    <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+                  </div>
+                ) : browseThumbs.length === 0 ? (
+                  <p className="text-xs text-muted-foreground text-center py-8">No frame thumbnails available.</p>
+                ) : (
+                  <>
+                    <div className="grid grid-cols-3 gap-2">
+                      {browseThumbs.map((thumb) => {
+                        const isSelected = selectedThumbPath === thumb;
+                        const isCurrent = data.default_thumbnail === thumb;
+                        return (
+                          <button
+                            key={thumb}
+                            type="button"
+                            onClick={() => {
+                              setSelectedThumbPath(isSelected ? null : thumb);
+                              setCustomThumbFile(null);
+                              if (customThumbPreview) URL.revokeObjectURL(customThumbPreview);
+                              setCustomThumbPreview(null);
+                              setThumbBrowseOpen(false);
+                            }}
+                            className={`relative aspect-video rounded-md overflow-hidden border-2 transition-all ${
+                              isSelected
+                                ? "border-primary ring-1 ring-primary/30"
+                                : isCurrent
+                                ? "border-primary/40"
+                                : "border-transparent hover:border-muted-foreground/40"
+                            }`}
+                          >
+                            <img
+                              src={`/api/load/image/${thumb}?quality=30`}
+                              alt="Frame"
+                              className="w-full h-full object-cover"
+                              loading="lazy"
+                            />
+                            {(isSelected || isCurrent) && (
+                              <div className="absolute inset-0 flex items-center justify-center bg-black/30">
+                                <Check className="h-3 w-3 text-white drop-shadow" />
+                              </div>
+                            )}
+                          </button>
+                        );
+                      })}
+                    </div>
+                    {browseHasMore && (
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          setBrowseLoading(true);
+                          try {
+                            const res = await fetch(`/api/files/thumbnails?fileId=${data.id}&limit=${THUMB_PAGE_SIZE}&offset=${browseOffset}`);
+                            if (res.ok) {
+                              const json = await res.json();
+                              setBrowseThumbs((prev) => [...prev, ...(json.thumbnails || [])]);
+                              setBrowseHasMore(json.hasMore || false);
+                              setBrowseOffset((prev) => prev + (json.thumbnails?.length || 0));
+                            }
+                          } catch {}
+                          setBrowseLoading(false);
+                        }}
+                        disabled={browseLoading}
+                        className="w-full flex items-center justify-center gap-1.5 px-3 py-2 mt-2 rounded-lg border border-border text-xs text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-all disabled:opacity-50"
+                      >
+                        {browseLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : "Load more"}
+                      </button>
+                    )}
+                  </>
+                )}
+              </DialogContent>
+            </Dialog>
+            {/* Upload custom button */}
+            {!customThumbPreview && (
+              <button
+                type="button"
+                onClick={() => thumbInputRef.current?.click()}
+                disabled={isSaving}
+                className="w-full flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg border border-dashed border-border text-xs text-muted-foreground hover:text-foreground hover:border-primary/30 hover:bg-primary/5 transition-all disabled:opacity-50"
+              >
+                <ImagePlus className="w-3.5 h-3.5" />
+                Upload custom thumbnail
+              </button>
+            )}
+            {isUploadingThumb && (
+              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                <Loader2 className="h-3 w-3 animate-spin" />
+                Uploading thumbnail...
+              </div>
+            )}
+          </div>}
+
           {data.is_adult && (
             <div className="space-y-2">
               <div className="rounded-lg border border-red-200 dark:border-red-900/50 bg-red-50 dark:bg-red-950/30 px-3 py-2.5">
@@ -725,6 +1130,7 @@ const VideoCard = ({ data, index, currentUserId, userActions, onUpdate, showOwne
               onEdit={isOwner ? () => setIsEditing(true) : undefined}
               onUpdate={currentUserId ? handleInteractionUpdate : undefined}
               currentUserId={currentUserId}
+              fileCreatedAt={data.created_at}
             />
           </div>
         </div>
@@ -797,10 +1203,10 @@ const VideoCard = ({ data, index, currentUserId, userActions, onUpdate, showOwne
               className="text-white/90 hover:text-white shrink-0 mt-0.5" 
             />
           )}
-          <div className="flex-1 min-w-0">
+          <div className="flex-1 min-w-0 h-[2.5rem]">
             <div className="flex items-start gap-1.5">
               <Link to={`/${data.unique_id}`} className="hover:text-primary transition-colors flex-1 min-w-0">
-                <h3 className="text-sm md:text-base font-semibold leading-tight line-clamp-2 h-[2.5rem]">
+                <h3 className="text-sm md:text-base font-semibold leading-tight line-clamp-2 ">
                   <ParseFilenameInsert filename={data.file_title || data.filename} showLimit={50} />
                 </h3>
               </Link>
@@ -852,6 +1258,7 @@ const VideoCard = ({ data, index, currentUserId, userActions, onUpdate, showOwne
             onEdit={isOwner ? () => setIsEditing(true) : undefined}
             onUpdate={currentUserId ? handleInteractionUpdate : undefined}
             currentUserId={currentUserId}
+            fileCreatedAt={data.created_at}
           />
         </div>
       </div>

@@ -1,7 +1,7 @@
 import { useState, useCallback, useEffect } from "react";
 import { Link } from "react-router";
 import type { FileType } from "~/lib/types";
-import { ParseFilename, arrangeDateForThumbnail, getRandomThumbnail } from "~/lib/utils";
+import { getThumbnailUrl, ParseFilename } from "~/lib/utils";
 import ImageLoad from "~/routes/Home/components/ImageLoad/ImageLoad";
 import AdultContentBadge from "./AdultContentBadge";
 import OwnerProfile from "~/components/OwnerProfile/OwnerProfile";
@@ -74,14 +74,7 @@ const RelatedVideoCard = ({ data, currentUserId, userActions }: RelatedVideoCard
     setDislikeCount(updates.dislike_count);
   };
 
-  const imageLink =
-    data.file_type?.startsWith("image/") && data.endpoint
-      ? `/api/load/image/${data.endpoint}`
-      : (() => {
-          const randomThumbnail = getRandomThumbnail(data.thumbnails);
-          if (randomThumbnail) return `/api/load/image/${randomThumbnail}`;
-          return `/api/load/image/${arrangeDateForThumbnail(data.created_at, retryAttempt)}/${data.unique_id}/thumbnail_${ParseFilename(data.filename)}.jpg`;
-        })();
+  const imageLink = getThumbnailUrl(data, { retryAttempt });
 
   return (
     <div className="block group">

@@ -67,17 +67,44 @@ export const action = async ({ request }: { request: Request }) => {
 
     if (request.method === "POST") {
       const body = await request.json();
-      const { fileId, content, parentId, gif }: CreateCommentInput & { fileId: string; content?: string; parentId?: string; gif?: { id: string; url: string; previewUrl?: string } } = body;
+      const { fileId, content, parentId, gif, image }: CreateCommentInput & { fileId: string; content?: string; parentId?: string; gif?: { id: string; url: string; previewUrl?: string }; image?: { url: string; type: string } } = body;
 
       // Validate inputs
       if (!fileId || !isValidFileId(fileId)) {
         return toJson({ error: "Invalid fileId" }, 400);
       }
 
+      // Check if comments are enabled and within limit
+      if (db) {
+        try {
+          const { data: fileRow } = await db.from('files').select('comments_enabled, comment_limit').eq('id', fileId).maybeSingle();
+          if (fileRow && fileRow.comments_enabled === false) {
+            return toJson({ error: "Comments are disabled for this file" }, 403);
+          }
+          // Enforce comment limit if set
+          if (fileRow && typeof fileRow.comment_limit === 'number' && fileRow.comment_limit >= 0) {
+            if (fileRow.comment_limit === 0) {
+              return toJson({ error: "Comments are disabled for this file" }, 403);
+            }
+            const { count } = await db
+              .from('comments')
+              .select('*', { count: 'exact', head: true })
+              .eq('file_id', fileId)
+              .eq('is_deleted', false);
+            if (typeof count === 'number' && count >= fileRow.comment_limit) {
+              return toJson({ error: `Comment limit reached (${fileRow.comment_limit})` }, 403);
+            }
+          }
+        } catch {
+          // columns may not exist yet — allow comments by default
+        }
+      }
+
       const hasText = typeof content === 'string' && content.trim().length > 0;
       const hasGif = gif && typeof gif.id === 'string' && typeof gif.url === 'string';
-      if (!hasText && !hasGif) {
-        return toJson({ error: "Comment must have text or a GIF" }, 400);
+      const hasImage = image && typeof image.url === 'string';
+      if (!hasText && !hasGif && !hasImage) {
+        return toJson({ error: "Comment must have text, a GIF, or an image" }, 400);
       }
 
       const sanitizedContent = hasText ? sanitizeCommentContent(content!) : '';
@@ -97,6 +124,7 @@ export const action = async ({ request }: { request: Request }) => {
         content: sanitizedContent,
         parentId: parentId || null,
         gif: hasGif ? { id: gif!.id, url: gif!.url, previewUrl: gif!.previewUrl || gif!.url } : null,
+        image: hasImage ? { url: image!.url, type: image!.type || 'image/jpeg' } : null,
       });
 
       if (result.error) {
@@ -199,6 +227,28 @@ export const action = async ({ request }: { request: Request }) => {
 
       if (result.error) {
         return toJson({ error: result.error }, 400);
+      }
+
+      return toJson({ success: true });
+    }
+
+    // HIDE/UNHIDE — file owner only
+    if (request.method === "PUT") {
+      const body = await request.json();
+      const { commentId, hidden } = body;
+
+      if (!commentId || !isValidFileId(commentId)) {
+        return toJson({ error: "Invalid commentId" }, 400);
+      }
+
+      if (typeof hidden !== 'boolean') {
+        return toJson({ error: "hidden must be a boolean" }, 400);
+      }
+
+      const result = await commentService.hideComment(user.id, commentId, hidden);
+
+      if (result.error) {
+        return toJson({ error: result.error }, result.error === 'Only the file owner can hide comments' ? 403 : 400);
       }
 
       return toJson({ success: true });

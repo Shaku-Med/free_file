@@ -3,7 +3,7 @@ import type React from "react";
 import { Button } from "~/components/ui/button";
 import { Textarea } from "~/components/ui/textarea";
 import { Input } from "~/components/ui/input";
-import { Send, X, Loader2, Search } from "lucide-react";
+import { Send, X, Loader2, Search, ImagePlus } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -11,11 +11,18 @@ import {
 } from "~/components/ui/dialog";
 import { Avatar, AvatarImage, AvatarFallback } from "~/components/ui/avatar";
 import { getProfilePicUrl } from "~/lib/utils/profilePic";
+import { useFileContext } from "~/lib/Context/Context";
 
 export interface CommentGif {
   id: string;
   url: string;
   previewUrl: string;
+}
+
+export interface CommentImage {
+  url: string;
+  type: string;
+  previewUrl?: string;
 }
 
 interface TagSuggestion {
@@ -29,12 +36,17 @@ interface MentionSuggestion {
   profile_pic: string;
 }
 
+const MAX_COMMENT_IMAGE_BYTES = 10 * 1024 * 1024;
+
 interface CommentFormProps {
   fileId: string;
   parentId?: string | null;
-  onSubmit: (content: string, gif?: CommentGif | null) => Promise<void>;
+  onSubmit: (content: string, gif?: CommentGif | null, image?: CommentImage | null) => Promise<void>;
   onCancel?: () => void;
   placeholder?: string;
+  /** GitHub path layout: store under `{dateFolder}/{uniqueId}/comments/` when both set (GoUpload). */
+  imageUploadDateFolder?: string;
+  imageUploadUniqueId?: string;
 }
 
 const SUGGEST_DEBOUNCE_MS = 300;
@@ -63,9 +75,16 @@ const CommentForm = ({
   onSubmit,
   onCancel,
   placeholder = "Add a comment...",
+  imageUploadDateFolder,
+  imageUploadUniqueId,
 }: CommentFormProps) => {
   const [content, setContent] = useState("");
   const [gif, setGif] = useState<CommentGif | null>(null);
+  const [image, setImage] = useState<CommentImage | null>(null);
+  const [pendingImageFile, setPendingImageFile] = useState<File | null>(null);
+  const [imagePreview, setImagePreview] = useState<string | null>(null);
+  const [isUploadingImage, setIsUploadingImage] = useState(false);
+  const [imageError, setImageError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [gifOpen, setGifOpen] = useState(false);
   const [gifQuery, setGifQuery] = useState("");
@@ -73,7 +92,9 @@ const CommentForm = ({
   const [gifLoading, setGifLoading] = useState(false);
   const [gifError, setGifError] = useState<string | null>(null);
 
+  const { uploadServerUrl, c_user } = useFileContext();
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const imageInputRef = useRef<HTMLInputElement>(null);
   const cursorRef = useRef(0);
   const [suggestOpen, setSuggestOpen] = useState(false);
   const [suggestType, setSuggestType] = useState<"tag" | "mention">("tag");
@@ -113,6 +134,62 @@ const CommentForm = ({
       fetchGifs("", true);
     }
   }, [gifOpen, fetchGifs]);
+
+  const handleImageSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (imageInputRef.current) imageInputRef.current.value = "";
+
+    if (!file.type.startsWith("image/")) {
+      setImageError("Please select an image file");
+      return;
+    }
+    if (file.size > MAX_COMMENT_IMAGE_BYTES) {
+      setImageError("Image must be under 10MB");
+      return;
+    }
+
+    setImageError(null);
+    // Store the file for upload at submit time — don't upload yet
+    setPendingImageFile(file);
+    setImage(null);
+    const localPreview = URL.createObjectURL(file);
+    setImagePreview(localPreview);
+    // Remove GIF if image is set
+    setGif(null);
+  }, []);
+
+  /** Upload the pending image file to GoUpload (or app proxy). Called at submit time only. */
+  const uploadImage = useCallback(async (file: File): Promise<CommentImage> => {
+    const formData = new FormData();
+    formData.append("file", file);
+    if (imageUploadDateFolder?.trim()) {
+      formData.append("date_folder", imageUploadDateFolder.trim());
+    }
+    if (imageUploadUniqueId?.trim()) {
+      formData.append("unique_id", imageUploadUniqueId.trim());
+    }
+
+    let uploadUrl = "/api/upload/comment-image";
+    const headers: Record<string, string> = {};
+    const useGoUpload = !!(uploadServerUrl && c_user);
+    if (useGoUpload) {
+      uploadUrl = `${uploadServerUrl}/api/comment-image/upload`;
+      headers["Authorization"] = `Bearer ${c_user}`;
+    }
+
+    const res = await fetch(uploadUrl, {
+      method: "POST",
+      ...(useGoUpload ? {} : { credentials: "include" as RequestCredentials }),
+      headers,
+      body: formData,
+    });
+    const json = await res.json();
+    if (!res.ok) {
+      throw new Error(json.error || "Upload failed");
+    }
+    return { url: json.image.url, type: json.image.type };
+  }, [uploadServerUrl, c_user, imageUploadDateFolder, imageUploadUniqueId]);
 
   const searchGifs = useCallback(() => {
     const trimmed = gifQuery.trim();
@@ -221,21 +298,44 @@ const CommentForm = ({
     e.preventDefault();
     const hasText = content.trim().length > 0;
     const hasGif = gif != null;
-    if ((!hasText && !hasGif) || isSubmitting) return;
+    const hasPendingImg = pendingImageFile != null;
+    if ((!hasText && !hasGif && !hasPendingImg) || isSubmitting) return;
 
     setIsSubmitting(true);
+    setImageError(null);
     try {
-      await onSubmit(content.trim(), gif || undefined);
+      // Upload the image now (at submit time), not before
+      let uploadedImage: CommentImage | null | undefined = undefined;
+      if (pendingImageFile) {
+        setIsUploadingImage(true);
+        try {
+          uploadedImage = await uploadImage(pendingImageFile);
+        } catch (err: unknown) {
+          const msg = err instanceof Error ? err.message : "Image upload failed";
+          setImageError(msg);
+          setIsUploadingImage(false);
+          setIsSubmitting(false);
+          return;
+        }
+        setIsUploadingImage(false);
+      }
+
+      await onSubmit(content.trim(), gif || undefined, uploadedImage || undefined);
       setContent("");
       setGif(null);
+      setImage(null);
+      setPendingImageFile(null);
+      setImagePreview(null);
+      setImageError(null);
     } catch (error) {
       console.error("Error submitting comment:", error);
     } finally {
       setIsSubmitting(false);
+      setIsUploadingImage(false);
     }
   };
 
-  const canSubmit = (content.trim().length > 0 || gif != null) && !isSubmitting;
+  const canSubmit = (content.trim().length > 0 || gif != null || pendingImageFile != null) && !isSubmitting;
 
   return (
     <>
@@ -258,6 +358,34 @@ const CommentForm = ({
               <X className="h-3 w-3" />
             </Button>
           </div>
+        )}
+        {imagePreview && (
+          <div className="relative inline-flex w-fit rounded-lg overflow-hidden">
+            <img
+              src={imagePreview}
+              alt="Selected image"
+              className="h-24 w-auto max-w-full object-contain rounded-lg"
+            />
+            {isUploadingImage && (
+              <div className="absolute inset-0 flex items-center justify-center bg-black/40 rounded-lg">
+                <Loader2 className="h-5 w-5 animate-spin text-white" />
+              </div>
+            )}
+            <Button
+              type="button"
+              variant="secondary"
+              size="icon"
+              className="absolute right-1 top-1 h-6 w-6 rounded-full shadow-sm bg-black/60 hover:bg-black/80 text-white"
+              onClick={() => { setImage(null); setPendingImageFile(null); setImagePreview(null); setImageError(null); }}
+              disabled={isUploadingImage}
+              aria-label="Remove image"
+            >
+              <X className="h-3 w-3" />
+            </Button>
+          </div>
+        )}
+        {imageError && (
+          <p className="text-xs text-destructive">{imageError}</p>
         )}
         <div className="relative">
           <Textarea
@@ -374,6 +502,22 @@ const CommentForm = ({
                 <rect x="2" y="4" width="20" height="16" rx="3" stroke="currentColor" strokeWidth="1.8" />
                 <text x="12" y="15.5" textAnchor="middle" fill="currentColor" fontSize="8.5" fontWeight="700" fontFamily="system-ui, sans-serif">GIF</text>
               </svg>
+            </button>
+            <input
+              ref={imageInputRef}
+              type="file"
+              accept="image/jpeg,image/jpg,image/png,image/gif,image/webp"
+              onChange={handleImageSelect}
+              className="hidden"
+            />
+            <button
+              type="button"
+              className="inline-flex items-center justify-center h-8 px-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
+              onClick={() => imageInputRef.current?.click()}
+              disabled={isUploadingImage}
+              title="Add image"
+            >
+              <ImagePlus className="h-5 w-5" />
             </button>
             <span className="text-[11px] text-muted-foreground/50 tabular-nums">
               {content.length}/2000

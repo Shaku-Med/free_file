@@ -29,7 +29,7 @@ RETURNS TABLE (
   is_public        boolean,
   file_description text,
   file_title       text,
-  thumbnails       jsonb[],
+  default_thumbnail text,
   view_count       numeric,
   share_count      numeric,
   is_reel          boolean,
@@ -85,7 +85,7 @@ BEGIN
       f.is_public,
       f.file_description,
       f.file_title,
-      f.thumbnails,
+      COALESCE(f.default_thumbnail, (SELECT t #>> '{}' FROM unnest(f.thumbnails) AS t WHERE (t #>> '{}') LIKE '%thumbnail_preview.jpg' LIMIT 1)) AS default_thumbnail,
       f.view_count,
       f.share_count,
       f.is_reel,
@@ -114,17 +114,21 @@ BEGIN
       CASE WHEN lower(f.file_title) LIKE v_pattern THEN 10.0 ELSE 0.0 END AS _title_boost,
 
       CASE WHEN EXISTS (
-        SELECT 1 FROM jsonb_array_elements_text(f.tags) t WHERE lower(t) LIKE v_pattern
+        SELECT 1 FROM jsonb_array_elements_text(COALESCE(f.tags, '[]'::jsonb)) AS tag_r(tag_txt)
+        WHERE lower(tag_r.tag_txt) LIKE v_pattern
       ) THEN 5.0 ELSE 0.0 END AS _tag_boost,
 
       CASE WHEN EXISTS (
-        SELECT 1 FROM jsonb_array_elements_text(f.categories) cat WHERE lower(cat) LIKE v_pattern
+        SELECT 1 FROM jsonb_array_elements_text(COALESCE(f.categories, '[]'::jsonb)) AS cat_r(cat_txt)
+        WHERE lower(cat_r.cat_txt) LIKE v_pattern
       ) THEN 3.0 ELSE 0.0 END AS _cat_boost,
 
       CASE WHEN (
         EXISTS (
-          SELECT 1 FROM jsonb_array_elements_text(f.metadata->'labelNames') v
-          WHERE lower(v) LIKE v_pattern
+          SELECT 1 FROM jsonb_array_elements_text(
+            CASE WHEN jsonb_typeof(f.metadata->'labelNames') = 'array' THEN f.metadata->'labelNames' ELSE '[]'::jsonb END
+          ) AS lbl_r(lbl_txt)
+          WHERE lower(lbl_r.lbl_txt) LIKE v_pattern
         )
         OR lower(f.metadata->>'description') LIKE v_pattern
       ) THEN 4.0 ELSE 0.0 END AS _vision_boost,
@@ -139,6 +143,7 @@ BEGIN
     WHERE f.is_public = true
       AND f.is_adult = false              -- HARD BLOCK: never show adult content
       AND f.upload_status = 'complete'
+      AND (f.series_id IS NULL OR f.is_series_main = true)  -- hide series sub-episodes
       AND (p_file_type IS NULL OR f.file_type ILIKE (p_file_type || '%'))
       AND (p_category IS NULL OR f.categories @> to_jsonb(p_category)::jsonb)
       AND (
@@ -150,11 +155,19 @@ BEGIN
         OR lower(f.file_title) LIKE v_pattern
         OR lower(f.file_description) LIKE v_pattern
         OR lower(f.metadata->>'description') LIKE v_pattern
-        OR EXISTS (SELECT 1 FROM jsonb_array_elements_text(f.tags) t WHERE lower(t) LIKE v_pattern)
-        OR EXISTS (SELECT 1 FROM jsonb_array_elements_text(f.categories) cat WHERE lower(cat) LIKE v_pattern)
         OR EXISTS (
-          SELECT 1 FROM jsonb_array_elements_text(f.metadata->'labelNames') v
-          WHERE lower(v) LIKE v_pattern
+          SELECT 1 FROM jsonb_array_elements_text(COALESCE(f.tags, '[]'::jsonb)) AS tag_r(tag_txt)
+          WHERE lower(tag_r.tag_txt) LIKE v_pattern
+        )
+        OR EXISTS (
+          SELECT 1 FROM jsonb_array_elements_text(COALESCE(f.categories, '[]'::jsonb)) AS cat_r(cat_txt)
+          WHERE lower(cat_r.cat_txt) LIKE v_pattern
+        )
+        OR EXISTS (
+          SELECT 1 FROM jsonb_array_elements_text(
+            CASE WHEN jsonb_typeof(f.metadata->'labelNames') = 'array' THEN f.metadata->'labelNames' ELSE '[]'::jsonb END
+          ) AS lbl_r(lbl_txt)
+          WHERE lower(lbl_r.lbl_txt) LIKE v_pattern
         )
         OR lower(f.filename) LIKE v_pattern
       )
@@ -183,7 +196,7 @@ BEGIN
     wr.is_public,
     wr.file_description,
     wr.file_title,
-    wr.thumbnails,
+    wr.default_thumbnail,
     wr.view_count,
     wr.share_count,
     wr.is_reel,

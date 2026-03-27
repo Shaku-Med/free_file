@@ -7,7 +7,7 @@ import type { FileType } from "~/lib/types";
 import { BASE_URL } from "~/lib/URLS";
 import { buildPageMeta } from "~/lib/seo";
 import ImageLoad from "../Home/components/ImageLoad/ImageLoad";
-import { arrangeDateForThumbnail, ParseFilename, getRandomThumbnail, getVideoSrc } from "~/lib/utils";
+import { arrangeDateForThumbnail, ParseFilename, getVideoSrc, getThumbnailUrl } from "~/lib/utils";
 import { motion } from "framer-motion";
 import { ShieldAlert } from "lucide-react";
 import { useSidebar } from "~/components/ui/sidebar";
@@ -24,6 +24,7 @@ import OwnerProfile from "~/components/OwnerProfile/OwnerProfile";
 import SubscribeButton, { formatSubscriberCount } from "~/components/SubscribeButton";
 import { commentService } from "~/lib/Services/CommentService";
 import DownloadButton from "./components/DownloadButton";
+import SeriesPanel from "./components/SeriesPanel";
 import { formatNumber } from "~/lib/utils/formatNumber";
 import { useWatchTracking } from "~/lib/hooks/useWatchTracking";
 import { IMAGE_BASE_URL } from "~/lib/URLS";
@@ -34,10 +35,41 @@ import Ambience from "~/components/accessories/CanvasGradient/Ambience";
 import { useFileContext } from "~/lib/Context/Context";
 import { useMiniPlayerContext } from "~/lib/Context/MiniPlayerContext";
 
+export interface SeriesEpisode {
+  id: string;
+  unique_id: string;
+  file_title: string | null;
+  file_type: string;
+  default_thumbnail: string | null;
+  endpoint: string;
+  duration: number | null;
+  view_count: number | null;
+  episode_number: number | null;
+  season_number: number | null;
+  is_series_main: boolean;
+  file_created_at: string;
+  file_owner_id: string;
+  owner_username: string | null;
+  owner_profile_pic: string | null;
+}
+
+export interface SeriesData {
+  id: string;
+  unique_id: string;
+  owner_id: string;
+  title: string;
+  description: string | null;
+  thumbnail_url: string | null;
+  is_public: boolean;
+  created_at: string;
+  episodes: SeriesEpisode[];
+}
+
 interface DynamicCachePayload {
   file: any;
   id: string;
   relatedVideos: FileType[];
+  seriesData: SeriesData | null;
   userLiked: boolean;
   userDisliked: boolean;
   likeCount: number;
@@ -114,7 +146,7 @@ export const loader = async ({ request, params }: { request: Request, params: { 
         is_public: row.is_public,
         file_description: row.file_description,
         file_title: row.file_title || '',
-        thumbnails: row.thumbnails || [],
+        default_thumbnail: row.default_thumbnail || null,
         view_count: row.view_count,
         share_count: row.share_count,
         is_reel: row.is_reel,
@@ -221,16 +253,61 @@ export const loader = async ({ request, params }: { request: Request, params: { 
 
     let commentsCount = 0;
     if (file.id) {
-      const commentsCountResult = await commentService.getCommentsCount(file.id);
+      const commentsCountResult = await commentService.getCommentsCount(file.id, userId);
       commentsCount = commentsCountResult.data || 0;
     }
 
-    return data({ 
-      file, 
-      id: params.id, 
-      relatedVideos, 
-      userLiked, 
-      userDisliked, 
+    // Fetch series data if this file belongs to a series
+    let seriesData: SeriesData | null = null;
+    if (file.series_id && file.id) {
+      const { data: seriesRows, error: seriesError } = await db.rpc('get_file_series', {
+        p_file_id: file.id,
+        p_viewer_id: userId ?? null,
+      });
+      if (seriesError) {
+        console.error('[Dynamic] get_file_series failed:', seriesError.message);
+      }
+      if (!seriesError && Array.isArray(seriesRows) && seriesRows.length > 0) {
+        const first = seriesRows[0] as Record<string, unknown>;
+        seriesData = {
+          id:            first.series_id as string,
+          unique_id:     first.series_unique_id as string,
+          owner_id:      first.series_owner_id as string,
+          title:         first.series_title as string,
+          description:   (first.series_desc as string) ?? null,
+          thumbnail_url: (first.series_thumb as string) ?? null,
+          is_public:     first.series_is_public as boolean,
+          created_at:    first.series_created as string,
+          episodes: (seriesRows as Record<string, unknown>[])
+            .filter((r) => r.file_id != null)
+            .map((r) => ({
+              id:               r.file_id as string,
+              unique_id:        r.file_unique_id as string,
+              file_title:       (r.file_title as string) ?? null,
+              file_type:        r.file_type as string,
+              default_thumbnail: (r.default_thumbnail as string) ?? null,
+              endpoint:         (r.endpoint as string) ?? '',
+              duration:         (r.duration as number) ?? null,
+              view_count:       (r.view_count as number) ?? null,
+              episode_number:   (r.episode_number as number) ?? null,
+              season_number:    (r.season_number as number) ?? null,
+              is_series_main:   (r.is_series_main as boolean) ?? false,
+              file_created_at:  r.file_created_at as string,
+              file_owner_id:    r.file_owner_id as string,
+              owner_username:   (r.owner_username as string) ?? null,
+              owner_profile_pic: (r.owner_profile_pic as string) ?? null,
+            })),
+        };
+      }
+    }
+
+    return data({
+      file,
+      id: params.id,
+      relatedVideos,
+      seriesData,
+      userLiked,
+      userDisliked,
       likeCount,
       dislikeCount,
       userId,
@@ -241,8 +318,8 @@ export const loader = async ({ request, params }: { request: Request, params: { 
         likedFileIds: Array.from(relatedVideosUserActions.likedFileIds),
         dislikedFileIds: Array.from(relatedVideosUserActions.dislikedFileIds)
       },
-      accessDenied: false as const, 
-      reason: undefined 
+      accessDenied: false as const,
+      reason: undefined
     }, { 
       status: 200,
       headers: headers as unknown as HeadersInit
@@ -299,26 +376,16 @@ export const meta: MetaFunction<ReturnType<typeof loader>> = ({ data }: { data: 
         ? `${displayTitle.slice(0, 47).trim()}… | Memories`
         : `${displayTitle} | Memories`;
 
-    let thumbnail = (() => {
-      if (file?.file_type?.startsWith("image/") && file?.endpoint) return `/api/load/image/${file.endpoint}`;
-      const randomThumbnail = getRandomThumbnail(file?.thumbnails);
-      if (randomThumbnail) return `/api/load/image/${randomThumbnail}`;
-      const isHLS =
-        file?.file_type === "application/vnd.apple.mpegurl" || file?.endpoint?.includes(".m3u8");
-      if (isHLS)
-        return `/api/load/image/${arrangeDateForThumbnail(file?.created_at)}/${file?.unique_id}/thumbnail_${ParseFilename(file?.filename)}.jpg`;
-      return `/api/load/image/${file?.endpoint}`;
-    })();
-    thumbnail = `${thumbnail}?quality=50`;
+    const thumbnail = file ? getThumbnailUrl(file, { queryString: '?quality=70&is_metadata=true' }) : '';
 
     const ogType = isImage ? "image" : "website";
-    const thumbnailUrl = `${IMAGE_BASE_URL}${thumbnail}`;
+    const thumbnailUrl = `${BASE_URL}${thumbnail}`;
 
     const extra: import("react-router").MetaDescriptor[] = [
-      { property: "og:image:type", content: "image/jpeg" },
+      { property: "og:image:type", content: "image/png" },
       { property: "og:image:secure_url", content: thumbnailUrl },
-      { property: "og:image:width", content: "1200" },
-      { property: "og:image:height", content: "630" },
+      { property: "og:image:width", content: "400" },
+      { property: "og:image:height", content: "400" },
       ...(data?.owner ? [{ property: "article:author", content: data.owner.username }] : []),
       ...(file?.created_at
         ? [{ property: "article:published_time", content: new Date(file.created_at).toISOString() }]
@@ -389,6 +456,7 @@ function blendDynamicData(cached: DynamicCachePayload, fresh: DynamicCachePayloa
     file: fresh.file,
     id: fresh.id,
     relatedVideos: blendedRelated,
+    seriesData: fresh.seriesData ?? cached.seriesData ?? null,
     userLiked: fresh.userLiked,
     userDisliked: fresh.userDisliked,
     likeCount: fresh.likeCount,
@@ -435,6 +503,7 @@ const index = () => {
         file: loaderData.file,
         id: loaderData.id ?? currentId ?? '',
         relatedVideos: ('relatedVideos' in loaderData ? loaderData.relatedVideos : []) as FileType[],
+        seriesData: ('seriesData' in loaderData ? loaderData.seriesData : null) as SeriesData | null,
         userLiked: ('userLiked' in loaderData && loaderData.userLiked) || false,
         userDisliked: ('userDisliked' in loaderData && loaderData.userDisliked) || false,
         likeCount: Number(loaderData.likeCount) || 0,
@@ -455,6 +524,7 @@ const index = () => {
         file: loaderData.file,
         id: loaderData.id ?? currentId ?? '',
         relatedVideos: ('relatedVideos' in loaderData ? loaderData.relatedVideos : []) as FileType[],
+        seriesData: ('seriesData' in loaderData ? loaderData.seriesData : null) as SeriesData | null,
         userLiked: ('userLiked' in loaderData && loaderData.userLiked) || false,
         userDisliked: ('userDisliked' in loaderData && loaderData.userDisliked) || false,
         likeCount: Number(loaderData.likeCount) || 0,
@@ -591,7 +661,9 @@ const index = () => {
 
   const isHLS = file_data?.file_type === 'application/vnd.apple.mpegurl' || file_data?.endpoint?.includes('.m3u8');
   const isVideo = isHLS || file_data?.file_type?.includes('video');
-  const userId = data.userId || null;
+
+  const { theaterMode, setTheaterMode, userId } = useFileContext();
+
 
   useWatchTracking({
     fileId: file_data?.id || '',
@@ -600,6 +672,17 @@ const index = () => {
     videoElement: videoElementRef.current,
     source: 'page_view',
   });
+
+  useEffect(() => {
+    if (!file_data?.id || !file_data?.unique_id) return;
+    const payload = { fileId: file_data.id, uniqueId: file_data.unique_id };
+    fetch('/api/views/watch-history', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+      credentials: 'include',
+    }).catch(() => {});
+  }, [currentId, file_data?.id, file_data?.unique_id]);
 
   const [retryAttempt, setRetryAttempt] = useState<number>(0)
   const [imageUrl, setImageUrl] = useState<{ url: string, imageID: string } | null>(null)
@@ -620,7 +703,6 @@ const index = () => {
       return false;
     }
   })
-  const { theaterMode, setTheaterMode } = useFileContext();
 
   const [descriptionExpanded, setDescriptionExpanded] = useState(false)
   const [liked, setLiked] = useState(data.userLiked || false)
@@ -629,6 +711,7 @@ const index = () => {
   const [dislikeCount, setDislikeCount] = useState(Number(data.dislikeCount) || 0)
   const {isMobile, state} = useSidebar();
   const isStandalone = useStandalone();
+  
 
   useEffect(() => {
     if (!file_data || !data) return;
@@ -646,7 +729,7 @@ const index = () => {
   }
 
   const commentsCount = data.commentsCount || 0;
-  const isOwner = Boolean(data.userId && file_data?.owner_id && data.userId === file_data.owner_id);
+  const isOwner = Boolean(userId && file_data?.owner_id && userId === file_data.owner_id);
 
   const retry = useCallback(() => {
     if(retryAttempt >= 1) return;
@@ -698,6 +781,7 @@ const index = () => {
   }, [navigate])
 
   const relatedVideos = data.relatedVideos ?? [];
+  const seriesData = data.seriesData ?? null;
   const suggestedVideos = relatedVideos.filter((v: FileType) => v.unique_id !== currentId).slice(0, 8);
 
   const isNavigating = navigation.state === 'loading' && navigation.location?.pathname !== window.location.pathname;
@@ -871,15 +955,9 @@ const index = () => {
     ? (file_data.tags as unknown[]).filter((t: unknown): t is string => typeof t === "string")
     : [];
 
-  const jsonLdThumbnail = (() => {
-    if (file_data?.file_type?.startsWith("image/") && file_data?.endpoint)
-      return `${BASE_URL}/api/load/image/${file_data.endpoint}?quality=50`;
-    const randomThumb = getRandomThumbnail(file_data?.thumbnails);
-    if (randomThumb) return `${BASE_URL}/api/load/image/${randomThumb}?quality=50`;
-    if (isHLS && file_data?.created_at && file_data?.unique_id && file_data?.filename)
-      return `${BASE_URL}/api/load/image/${arrangeDateForThumbnail(file_data.created_at)}/${file_data.unique_id}/thumbnail_${ParseFilename(file_data.filename)}.jpg?quality=50`;
-    return file_data?.endpoint ? `${BASE_URL}/api/load/image/${file_data.endpoint}?quality=50` : "";
-  })();
+  const jsonLdThumbnail = file_data
+    ? getThumbnailUrl(file_data, { baseUrl: BASE_URL, queryString: '?quality=70&is_metadata=true' })
+    : '';
   const pageUrlForLd = `${BASE_URL}/${data.id ?? currentId}`;
   const ldTitle = (file_data?.file_title?.trim() || ParseFilename(file_data?.filename || "")) || "Media";
   const ldDescription = (file_data?.file_description?.trim() || ldTitle).slice(0, 200);
@@ -930,7 +1008,7 @@ const index = () => {
           {data.channelStats && !isOwner && (
             <SubscribeButton
               channelId={data.owner.id}
-              currentUserId={data.userId}
+              currentUserId={userId}
               initialSubscribed={data.channelStats.is_subscribed}
               initialNotify={data.channelStats.notify}
               initialCount={data.channelStats.subscriber_count}
@@ -951,14 +1029,14 @@ const index = () => {
         disliked={disliked}
         isOwner={isOwner}
         onEdit={undefined}
-        onUpdate={data.userId ? handleInteractionUpdate : undefined}
+        onUpdate={userId ? handleInteractionUpdate : undefined}
         getShareTimestamp={isHLS ? () => videoElementRef.current?.currentTime ?? 0 : undefined}
         onShareSuccess={(serverCount) => {
           if (typeof serverCount === "number" && !Number.isNaN(serverCount)) setShares(serverCount);
           else setShares((s) => s + 1);
         }}
         currentTime={isHLS ? (videoElementRef.current?.currentTime ?? 0) : undefined}
-        currentUserId={data.userId}
+        currentUserId={userId}
         isAdult={file_data.is_adult}
       />
 
@@ -1030,8 +1108,14 @@ const index = () => {
         <CommentSection
           key={`comments-${file_data.id}-${currentId}-${highlightCommentId ?? ""}`}
           fileId={file_data.id}
-          currentUserId={data.userId || undefined}
+          currentUserId={userId || undefined}
+          fileOwnerId={file_data.owner_id || undefined}
+          commentsEnabled={file_data.comments_enabled !== false}
           highlightCommentId={highlightCommentId}
+          commentImageDateFolder={
+            file_data.created_at ? arrangeDateForThumbnail(file_data.created_at) : undefined
+          }
+          commentImageFileUniqueId={file_data.unique_id}
         />
       </div>
     </div>
@@ -1040,13 +1124,16 @@ const index = () => {
   const relatedColumn = (
     <div className="lg:col-span-1">
       <div className="sticky top-6">
-        <RelatedVideos 
+        {seriesData && seriesData.episodes.length > 0 && (
+          <SeriesPanel series={seriesData} currentFileId={file_data.id} />
+        )}
+        <RelatedVideos
           key={`related-${file_data.unique_id}-${currentId}`}
           videos={relatedVideos} 
           currentVideoId={file_data.unique_id}
           currentVideoDbId={file_data.id}
           ownerId={file_data.owner_id}
-          currentUserId={data.userId || undefined}
+          currentUserId={userId || undefined}
           currentFileType={file_data.file_type}
           userActions={data.relatedVideosUserActions ? {
             likedFileIds: new Set(data.relatedVideosUserActions.likedFileIds || []),

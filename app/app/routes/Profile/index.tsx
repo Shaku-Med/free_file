@@ -1,11 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef } from "react";
-import { data, useLoaderData, useLocation, type MetaFunction } from "react-router";
+import { data, useLoaderData, useLocation, useSearchParams, type MetaFunction } from "react-router";
 import { userProfileService, type UserProfile } from "~/lib/Services/UserProfileService";
 import { isAuthenticated } from "~/lib/Security/Password";
 import db from "~/lib/Database/supabase";
 import type { FileType } from "~/lib/types";
 import UserProfileHeader from "./components/UserProfileHeader";
 import UserFilesGrid from "./components/UserFilesGrid";
+import ProfileTabVideosGrid from "./components/ProfileTabVideosGrid";
+import ProfilePlaylistsSection from "./components/ProfilePlaylistsSection";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "~/components/ui/tabs";
 import { getProfilePicUrl } from "~/lib/utils/profilePic";
 import { BASE_URL } from "~/lib/URLS";
 import { buildPageMeta, buildErrorMeta, SITE_NAME, THEME_COLOR } from "~/lib/seo";
@@ -254,9 +257,12 @@ function blendFilesWithFresh(cachedFiles: FileType[], freshFiles: FileType[]): F
   return blended;
 }
 
+const PROFILE_TAB_VALUES = new Set(["uploads", "liked", "history", "playlists"]);
+
 const Profile = () => {
   const loaderData = useLoaderData<typeof loader>();
   const location = useLocation();
+  const [searchParams, setSearchParams] = useSearchParams();
   const pathname = location.pathname;
   const { getFromCache, addToCache } = usePageCache();
   const { setScrollDataReady } = useFileContext();
@@ -348,7 +354,12 @@ const Profile = () => {
   const initialPage = cacheValid && cached ? cached.currentPageNumber : 1;
 
   const handleCacheUpdate = useCallback(
-    (payload: { files: FileType[]; currentPage: number; hasMore: boolean }) => {
+    (payload: {
+      files: FileType[];
+      currentPage: number;
+      hasMore: boolean;
+      userActions: { likedFileIds: string[]; dislikedFileIds: string[] };
+    }) => {
       if (!effectiveData) return;
       const updated: ProfileCachePayload = {
         ...effectiveData,
@@ -357,6 +368,10 @@ const Profile = () => {
           ...effectiveData.pagination,
           page: payload.currentPage,
           hasMore: payload.hasMore,
+        },
+        userActions: {
+          likedFileIds: payload.userActions.likedFileIds,
+          dislikedFileIds: payload.userActions.dislikedFileIds,
         },
       };
       hasBlendedRef.current = `${pathname}:${payload.currentPage}`;
@@ -393,28 +408,118 @@ const Profile = () => {
 
   const isOwner = effectiveData.currentUserId === effectiveData.profile.id;
 
+  const rawTab = searchParams.get("tab") || "uploads";
+  const tabBase = PROFILE_TAB_VALUES.has(rawTab) ? rawTab : "uploads";
+  const activeTab =
+    !isOwner && (tabBase === "liked" || tabBase === "history") ? "uploads" : tabBase;
+
+  const setProfileTab = useCallback(
+    (value: string) => {
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          if (value === "uploads") next.delete("tab");
+          else next.set("tab", value);
+          return next;
+        },
+        { replace: true }
+      );
+    },
+    [setSearchParams]
+  );
+
+  const tabParam = searchParams.get("tab");
+  useEffect(() => {
+    if (isOwner) return;
+    if (tabParam === "liked" || tabParam === "history") {
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          next.delete("tab");
+          return next;
+        },
+        { replace: true }
+      );
+    }
+  }, [isOwner, tabParam, setSearchParams]);
+
   return (
     <div className="min-h-screen" data-data-ready={true}>
-      <div className="max-w-6xl mx-auto">
+      <div className="max-w-6xl mx-auto px-4 pb-10">
         <UserProfileHeader
           profile={effectiveData.profile}
           isOwner={isOwner}
           currentUserId={effectiveData.currentUserId}
           channelStats={effectiveData.channelStats}
         />
-        <UserFilesGrid
-          files={effectiveData.files}
-          userId={effectiveData.profile.id}
-          currentUserId={effectiveData.currentUserId ?? undefined}
-          initialHasMore={effectiveData.pagination?.hasMore}
-          initialPage={initialPage}
-          userActions={{
-            likedFileIds: new Set(effectiveData.userActions.likedFileIds ?? []),
-            dislikedFileIds: new Set(effectiveData.userActions.dislikedFileIds ?? []),
-          }}
-          onCacheUpdate={handleCacheUpdate}
-          dataReady={true}
-        />
+        <Tabs value={activeTab} onValueChange={setProfileTab} className="mt-6">
+          <TabsList variant="line" className="w-full flex-wrap justify-start gap-1 h-auto min-h-9 mb-6">
+            <TabsTrigger value="uploads" className="shrink-0">
+              Videos
+            </TabsTrigger>
+            {isOwner && (
+              <TabsTrigger value="liked" className="shrink-0">
+                Liked
+              </TabsTrigger>
+            )}
+            {isOwner && (
+              <TabsTrigger value="history" className="shrink-0">
+                History
+              </TabsTrigger>
+            )}
+            <TabsTrigger value="playlists" className="shrink-0">
+              Playlists
+            </TabsTrigger>
+          </TabsList>
+          <TabsContent value="uploads" className="mt-0">
+            <UserFilesGrid
+              files={effectiveData.files}
+              userId={effectiveData.profile.id}
+              currentUserId={effectiveData.currentUserId ?? undefined}
+              initialHasMore={effectiveData.pagination?.hasMore}
+              initialPage={initialPage}
+              sectionTitle="Videos"
+              emptyMessage="No videos yet"
+              userActions={{
+                likedFileIds: new Set(effectiveData.userActions.likedFileIds ?? []),
+                dislikedFileIds: new Set(effectiveData.userActions.dislikedFileIds ?? []),
+              }}
+              onCacheUpdate={handleCacheUpdate}
+              dataReady={true}
+            />
+          </TabsContent>
+          {isOwner && (
+            <TabsContent value="liked" className="mt-0">
+              <ProfileTabVideosGrid
+                tab="liked"
+                userId={effectiveData.profile.id}
+                currentUserId={effectiveData.currentUserId ?? undefined}
+                sectionTitle="Liked"
+                emptyMessage="No liked videos yet"
+                dataReady={true}
+              />
+            </TabsContent>
+          )}
+          {isOwner && (
+            <TabsContent value="history" className="mt-0">
+              <ProfileTabVideosGrid
+                tab="history"
+                userId={effectiveData.profile.id}
+                currentUserId={effectiveData.currentUserId ?? undefined}
+                sectionTitle="Watch history"
+                emptyMessage="No watch history yet — videos you finish watching will show up here"
+                dataReady={true}
+              />
+            </TabsContent>
+          )}
+          <TabsContent value="playlists" className="mt-0">
+            <ProfilePlaylistsSection
+              profileUserId={effectiveData.profile.id}
+              isOwner={isOwner}
+              dataReady={true}
+            />
+          </TabsContent>
+        </Tabs>
       </div>
     </div>
   );

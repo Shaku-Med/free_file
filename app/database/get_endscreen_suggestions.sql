@@ -7,6 +7,8 @@
 -- Requires get_related to exist (run get_related.sql first).
 -- ============================================================
 
+DROP FUNCTION IF EXISTS get_endscreen_suggestions(uuid, uuid, int);
+
 CREATE OR REPLACE FUNCTION get_endscreen_suggestions(
   p_file_id uuid,
   p_user_id uuid DEFAULT NULL,
@@ -25,7 +27,7 @@ RETURNS TABLE (
   is_public        boolean,
   file_description text,
   file_title       text,
-  thumbnails       jsonb[],
+  default_thumbnail text,
   view_count       numeric,
   share_count      numeric,
   is_reel          boolean,

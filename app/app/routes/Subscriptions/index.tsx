@@ -19,7 +19,8 @@ import OwnerProfile from "~/components/OwnerProfile/OwnerProfile";
 import { getProfilePicUrl } from "~/lib/utils/profilePic";
 import { Avatar, AvatarFallback, AvatarImage } from "~/components/ui/avatar";
 import { Button } from "~/components/ui/button";
-import { Search, Users } from "lucide-react";
+import { cn } from "~/lib/utils";
+import { ChevronLeft, ChevronRight, Search, Users } from "lucide-react";
 
 export const meta: MetaFunction = () =>
   buildPageMeta({
@@ -29,12 +30,16 @@ export const meta: MetaFunction = () =>
     canonicalPath: "/subscriptions",
   });
 
+/* ------------------------------------------------------------------ */
+/*  Types                                                              */
+/* ------------------------------------------------------------------ */
+
 type RecentUpload = {
   id: string;
   unique_id: string;
   file_title?: string;
   filename?: string;
-  thumbnails?: string[] | null;
+  default_thumbnail?: string | null;
   endpoint?: string;
   file_type?: string;
   created_at?: string;
@@ -68,8 +73,117 @@ function parseRecentUploads(raw: unknown): RecentUpload[] {
   return [];
 }
 
+/* ------------------------------------------------------------------ */
+/*  Channel avatar strip (still scrollable, it's just small avatars)   */
+/* ------------------------------------------------------------------ */
+
+const hideScrollbar =
+  "[scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:h-0 [&::-webkit-scrollbar]:w-0";
+
+function AvatarStrip({ channels }: { channels: ChannelRow[] }) {
+  const scrollerRef = useRef<HTMLDivElement>(null);
+  const [canPrev, setCanPrev] = useState(false);
+  const [canNext, setCanNext] = useState(false);
+
+  const updateEdges = useCallback(() => {
+    const el = scrollerRef.current;
+    if (!el) return;
+    setCanPrev(el.scrollLeft > 2);
+    setCanNext(el.scrollLeft + el.clientWidth < el.scrollWidth - 2);
+  }, []);
+
+  useEffect(() => {
+    const el = scrollerRef.current;
+    if (!el) return;
+    updateEdges();
+    const ro = new ResizeObserver(() => updateEdges());
+    ro.observe(el);
+    el.addEventListener("scroll", updateEdges, { passive: true });
+    return () => {
+      ro.disconnect();
+      el.removeEventListener("scroll", updateEdges);
+    };
+  }, [updateEdges, channels]);
+
+  const scroll = (dir: -1 | 1) => {
+    const el = scrollerRef.current;
+    if (!el) return;
+    el.scrollBy({ left: dir * el.clientWidth * 0.75, behavior: "smooth" });
+  };
+
+  return (
+    <div className="relative overflow-hidden">
+      <div
+        ref={scrollerRef}
+        className={cn(
+          "flex overflow-x-auto gap-4 sm:gap-5",
+          hideScrollbar
+        )}
+      >
+        {channels.map((ch) => (
+          <Link
+            key={ch.channel_id}
+            to={`/profile/${ch.username}`}
+            className="group flex shrink-0 flex-col items-center gap-1.5"
+            style={{ width: "4.25rem" }}
+          >
+            <Avatar className="h-11 w-11 ring-[1.5px] ring-border transition-all group-hover:ring-primary sm:h-[3.25rem] sm:w-[3.25rem]">
+              <AvatarImage
+                src={getProfilePicUrl(ch.profile_pic)}
+                alt={ch.username}
+                loading="lazy"
+              />
+              <AvatarFallback className="text-sm font-medium">
+                {ch.username.charAt(0).toUpperCase()}
+              </AvatarFallback>
+            </Avatar>
+            <span className="line-clamp-1 w-full text-center text-[11px] leading-tight text-muted-foreground group-hover:text-foreground transition-colors">
+              {ch.username}
+            </span>
+          </Link>
+        ))}
+      </div>
+
+      {canPrev && (
+        <>
+          <div className="pointer-events-none absolute inset-y-0 left-0 w-10 bg-gradient-to-r from-background to-transparent" />
+          <Button
+            type="button"
+            variant="secondary"
+            size="icon"
+            className="absolute left-0.5 top-1/2 z-10 h-7 w-7 -translate-y-1/2 rounded-full shadow-md border border-border/50"
+            onClick={() => scroll(-1)}
+            aria-label="Scroll left"
+          >
+            <ChevronLeft className="h-3.5 w-3.5" />
+          </Button>
+        </>
+      )}
+
+      {canNext && (
+        <>
+          <div className="pointer-events-none absolute inset-y-0 right-0 w-10 bg-gradient-to-l from-background to-transparent" />
+          <Button
+            type="button"
+            variant="secondary"
+            size="icon"
+            className="absolute right-0.5 top-1/2 z-10 h-7 w-7 -translate-y-1/2 rounded-full shadow-md border border-border/50"
+            onClick={() => scroll(1)}
+            aria-label="Scroll right"
+          >
+            <ChevronRight className="h-3.5 w-3.5" />
+          </Button>
+        </>
+      )}
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Helpers                                                            */
+/* ------------------------------------------------------------------ */
+
 function recentUploadToFileType(u: RecentUpload, ch: ChannelRow): FileType {
-  const thumbs = Array.isArray(u.thumbnails) ? u.thumbnails : [];
   return {
     id: u.id,
     created_at: u.created_at || new Date(0).toISOString(),
@@ -81,7 +195,7 @@ function recentUploadToFileType(u: RecentUpload, ch: ChannelRow): FileType {
     owner_id: ch.channel_id,
     is_public: true,
     file_title: u.file_title || "",
-    thumbnails: thumbs,
+    default_thumbnail: u.default_thumbnail || null,
     view_count: 0,
     share_count: 0,
     like_count: 0,
@@ -98,6 +212,10 @@ function recentUploadToFileType(u: RecentUpload, ch: ChannelRow): FileType {
     },
   };
 }
+
+/* ------------------------------------------------------------------ */
+/*  Loader                                                             */
+/* ------------------------------------------------------------------ */
 
 export const loader = async ({ request }: { request: Request }) => {
   const user = await isAuthenticated(request, ["id"]);
@@ -151,7 +269,7 @@ export const loader = async ({ request }: { request: Request }) => {
         owner_id: ch.channel_id,
         is_public: true,
         file_title: u.file_title ?? "",
-        thumbnails: Array.isArray(u.thumbnails) ? u.thumbnails : [],
+        default_thumbnail: u.default_thumbnail || null,
         view_count: 0,
         share_count: 0,
         is_reel: Boolean(u.is_reel),
@@ -207,8 +325,7 @@ export const loader = async ({ request }: { request: Request }) => {
     );
 
   const rawCount = (feed || []).length;
-  const nextCursor =
-    rawCount > 0 ? { cursor_pos: cursorPos + rawCount } : null;
+  const nextCursor = rawCount > 0 ? { cursor_pos: cursorPos + rawCount } : null;
 
   const mergedLiked = [...new Set([...likedFileIds, ...shelfLiked])];
   const mergedDisliked = [...new Set([...dislikedFileIds, ...shelfDisliked])];
@@ -224,6 +341,10 @@ export const loader = async ({ request }: { request: Request }) => {
   });
 };
 
+/* ------------------------------------------------------------------ */
+/*  Skeleton                                                           */
+/* ------------------------------------------------------------------ */
+
 function SkeletonCard() {
   return (
     <div className="animate-pulse">
@@ -238,6 +359,10 @@ function SkeletonCard() {
     </div>
   );
 }
+
+/* ------------------------------------------------------------------ */
+/*  Page                                                               */
+/* ------------------------------------------------------------------ */
 
 export default function SubscriptionsPage() {
   const loaderData = useLoaderData<typeof loader>();
@@ -273,6 +398,7 @@ export default function SubscriptionsPage() {
     });
   }, [loaderData.initialFeed, loaderData.nextCursor, loaderData.userActions]);
 
+  /* Infinite scroll */
   const loadMore = useCallback(async () => {
     if (isLoading || !hasMore || !nextCursor) return;
     setIsLoading(true);
@@ -301,6 +427,17 @@ export default function SubscriptionsPage() {
           return merged;
         });
       }
+      const newLiked = json?.userActions?.likedFileIds as string[] | undefined;
+      const newDisliked = json?.userActions?.dislikedFileIds as string[] | undefined;
+      if (newLiked?.length || newDisliked?.length) {
+        setUserActions((prev) => {
+          const liked = new Set(prev.likedFileIds);
+          const disliked = new Set(prev.dislikedFileIds);
+          for (const id of newLiked ?? []) liked.add(id);
+          for (const id of newDisliked ?? []) disliked.add(id);
+          return { likedFileIds: liked, dislikedFileIds: disliked };
+        });
+      }
       setNextCursor(json?.nextCursor ?? null);
       setHasMore(Boolean(json?.nextCursor));
     } catch (e) {
@@ -316,9 +453,7 @@ export default function SubscriptionsPage() {
     if (!el) return;
     const obs = new IntersectionObserver(
       (entries) => {
-        if (entries[0]?.isIntersecting && !isLoading) {
-          loadMore();
-        }
+        if (entries[0]?.isIntersecting && !isLoading) loadMore();
       },
       { threshold: 0.1 }
     );
@@ -326,131 +461,136 @@ export default function SubscriptionsPage() {
     return () => obs.disconnect();
   }, [loadMore, isLoading, nav.location]);
 
+  /* ── Error state ── */
   if (loaderData.error === "Database unavailable") {
     return (
-      <div className="max-w-lg mx-auto py-12 text-center text-muted-foreground text-sm">
+      <div className="mx-auto max-w-3xl px-4 py-12 text-center text-sm text-muted-foreground">
         {loaderData.error}
       </div>
     );
   }
 
-  return (
-    <div className="w-full max-w-[2000px] mx-auto pb-6">
-      {channels.length === 0 ? (
-        <div className="rounded-xl border border-border bg-card/40 py-12 px-4 flex flex-col items-center gap-4">
-          <div className="flex h-14 w-14 items-center justify-center rounded-full bg-muted">
-            <Users className="h-7 w-7 text-muted-foreground" />
+  /* ── Empty state ── */
+  if (channels.length === 0) {
+    return (
+      <div className="mx-auto max-w-3xl px-4 py-16">
+        <div className="flex flex-col items-center gap-4 py-14 text-center">
+          <div className="flex h-16 w-16 items-center justify-center rounded-full bg-muted">
+            <Users className="h-8 w-8 text-muted-foreground" />
           </div>
-          <Button asChild variant="default" size="sm" className="rounded-full">
+          <p className="text-base font-medium text-foreground">
+            No subscriptions yet
+          </p>
+          <p className="text-sm text-muted-foreground max-w-xs">
+            Find creators you like and subscribe to see their latest uploads here.
+          </p>
+          <Button asChild variant="default" size="sm" className="mt-2 rounded-full">
             <Link to="/search">
-              <Search className="w-4 h-4 mr-2" />
+              <Search className="mr-2 h-4 w-4" />
               Discover channels
             </Link>
           </Button>
         </div>
-      ) : (
-        <>
-          <div className="flex gap-3 sm:gap-4 overflow-x-auto overflow-y-hidden pb-3 scroll-smooth -mx-0.5 px-0.5">
-            {channels.map((ch) => (
-              <Link
-                key={ch.channel_id}
-                to={`/profile/${ch.username}`}
-                className="group flex shrink-0 flex-col items-center gap-1.5 w-[72px] sm:w-20"
-              >
-                <Avatar className="h-14 w-14 sm:h-16 sm:w-16 ring-2 ring-border group-hover:ring-primary transition-[box-shadow]">
-                  <AvatarImage
-                    src={getProfilePicUrl(ch.profile_pic)}
-                    alt={ch.username}
-                    loading="lazy"
-                  />
-                  <AvatarFallback className="text-base">
-                    {ch.username.charAt(0).toUpperCase()}
-                  </AvatarFallback>
-                </Avatar>
-                <span className="text-[11px] sm:text-xs font-medium text-center line-clamp-2 w-full text-foreground group-hover:text-primary leading-tight">
-                  {ch.username}
-                </span>
-              </Link>
-            ))}
-          </div>
+      </div>
+    );
+  }
 
-          {channels.map((ch, channelIndex) => {
-            const recent = parseRecentUploads(ch.recent_uploads);
-            if (recent.length === 0) return null;
-            const owner = {
-              id: ch.channel_id,
-              username: ch.username,
-              profile_pic: ch.profile_pic || "",
-              verified: ch.verified,
-              about: ch.about,
-            };
-            return (
-              <div key={`shelf-${ch.channel_id}`} className="mb-6 last:mb-4">
-                <div className="mb-2 pl-0.5">
-                  <OwnerProfile owner={owner} size="md" showUsername />
-                </div>
-                <div className="flex gap-3 sm:gap-4 overflow-x-auto overflow-y-hidden pb-2 -mx-0.5 px-0.5 scroll-smooth">
-                  {recent.map((u, uploadIndex) => {
-                    const base = recentUploadToFileType(u, ch);
-                    const enriched = u.id ? shelfById[u.id] : undefined;
-                    const file = enriched
-                      ? ({ ...base, ...enriched, owner: enriched.owner ?? base.owner } as FileType)
-                      : base;
-                    const idx = channelIndex * 32 + uploadIndex;
-                    return (
-                      <div
-                        key={u.id}
-                        className="shrink-0 w-[min(88vw,300px)] sm:w-[280px] md:w-[300px]"
-                      >
-                        <VideoCard
-                          data={file}
-                          index={idx}
-                          currentUserId={userId || undefined}
-                          userActions={userActions}
-                        />
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            );
-          })}
-        </>
-      )}
+  /* ── Main layout ── */
+  return (
+    <div className="w-full max-w-full overflow-x-hidden">
+      {/* Channel avatar strip */}
+      <div className="border-b border-border/40 py-3 px-3 sm:px-5">
+        <AvatarStrip channels={channels} />
+      </div>
 
-      {loaderData.error && loaderData.error !== "Database unavailable" && (
-        <p className="text-sm text-destructive mb-3">{loaderData.error}</p>
-      )}
-
-      {files.length > 0 ? (
-        <div className="mt-2">
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-3 gap-3 sm:gap-4">
-            {files.map((file, index) => (
-              <VideoCard
-                key={file.id || index}
-                data={file}
-                index={index}
-                currentUserId={userId || undefined}
-                userActions={userActions}
+      {/* Content */}
+      <div className="px-3 sm:px-5 py-5 space-y-8">
+        {/* Per-channel 2x2 grids */}
+        {channels.map((ch, channelIndex) => {
+          const recent = parseRecentUploads(ch.recent_uploads).slice(0, 4);
+          if (recent.length === 0) return null;
+          const owner = {
+            id: ch.channel_id,
+            username: ch.username,
+            profile_pic: ch.profile_pic || "",
+            verified: ch.verified,
+            about: ch.about,
+          };
+          return (
+            <section key={`shelf-${ch.channel_id}`} className="space-y-2.5">
+              <OwnerProfile
+                owner={owner}
+                size="md"
+                showUsername
+                className="max-w-full"
               />
-            ))}
-          </div>
-          {isLoading && (
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-2 xl:grid-cols-3 gap-3 sm:gap-4 mt-3">
-              {Array.from({ length: 3 }).map((_, i) => (
-                <SkeletonCard key={`sk-${i}`} />
+              <div className="grid grid-cols-2 gap-3">
+                {recent.map((u, uploadIndex) => {
+                  const base = recentUploadToFileType(u, ch);
+                  const enriched = u.id ? shelfById[u.id] : undefined;
+                  const file = enriched
+                    ? ({
+                        ...base,
+                        ...enriched,
+                        owner: enriched.owner ?? base.owner,
+                      } as FileType)
+                    : base;
+                  const idx = channelIndex * 32 + uploadIndex;
+                  return (
+                    <div key={u.id} className="min-w-0">
+                      <VideoCard
+                        data={file}
+                        index={idx}
+                        currentUserId={userId || undefined}
+                        userActions={userActions}
+                      />
+                    </div>
+                  );
+                })}
+              </div>
+            </section>
+          );
+        })}
+
+        {/* Error banner */}
+        {loaderData.error && loaderData.error !== "Database unavailable" && (
+          <p className="text-sm text-destructive">{loaderData.error}</p>
+        )}
+
+        {/* Full feed grid */}
+        {files.length > 0 ? (
+          <section>
+            <h2 className="mb-4 text-base font-semibold text-foreground">
+              Latest
+            </h2>
+            <div className="grid grid-cols-1 gap-x-4 gap-y-6 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
+              {files.map((file, index) => (
+                <div key={file.id || index} className="min-w-0">
+                  <VideoCard
+                    data={file}
+                    index={index}
+                    currentUserId={userId || undefined}
+                    userActions={userActions}
+                  />
+                </div>
               ))}
             </div>
-          )}
-          <div ref={observerRef} className="h-8" />
-        </div>
-      ) : (
-        channels.length > 0 && (
-          <div className="rounded-lg border border-dashed border-border/80 py-10 text-center text-muted-foreground text-sm mt-2">
+
+            {isLoading && (
+              <div className="mt-6 grid grid-cols-1 gap-x-4 gap-y-6 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
+                {Array.from({ length: 4 }).map((_, i) => (
+                  <SkeletonCard key={`sk-${i}`} />
+                ))}
+              </div>
+            )}
+            <div ref={observerRef} className="h-8" />
+          </section>
+        ) : (
+          <div className="rounded-xl border border-dashed border-border/60 py-10 text-center text-sm text-muted-foreground">
             Nothing new in your feed yet.
           </div>
-        )
-      )}
+        )}
+      </div>
     </div>
   );
 }

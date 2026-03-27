@@ -32,7 +32,7 @@ import { Button } from "~/components/ui/button"
 import { Badge } from "~/components/ui/badge"
 import Logo from "../Logo/Logo"
 import { useFileContext } from "~/lib/Context/Context"
-import { ParseFilename, arrangeDateForThumbnail, getRandomThumbnail } from "~/lib/utils"
+import { getThumbnailUrl, ParseFilename } from "~/lib/utils"
 import type { FileType } from "~/lib/types"
 import SidebarUserProfile from "./SidebarUserProfile"
 import ImageLoad from "~/routes/Home/components/ImageLoad/ImageLoad"
@@ -41,16 +41,7 @@ import HomeIcon from "~/components/ui/Icons/Home"
 const noopRetry = () => {}
 
 function SidebarThumbnail({ file, imageID }: { file: FileType; imageID: string }) {
-  const link = useMemo(() => {
-    if (file.file_type?.startsWith("image/") && file.endpoint) {
-      return `/api/load/image/${file.endpoint}`
-    }
-    const randomThumbnail = getRandomThumbnail(file.thumbnails)
-    if (randomThumbnail) {
-      return `/api/load/image/${randomThumbnail}`
-    }
-    return `/api/load/image/${arrangeDateForThumbnail(file.created_at)}/${file.unique_id}/thumbnail_${ParseFilename(file.filename)}.jpg`
-  }, [file.file_type, file.endpoint, file.thumbnails, file.created_at, file.unique_id, file.filename])
+  const link = useMemo(() => getThumbnailUrl(file), [file.file_type, file.endpoint, file.default_thumbnail, file.created_at, file.unique_id, file.filename])
 
   return (
     <ImageLoad

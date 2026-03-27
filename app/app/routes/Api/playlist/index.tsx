@@ -69,7 +69,7 @@ export const action = async ({ request }: { request: Request }) => {
         .select(
           `id, created_at, endpoint, filename, unique_id, file_size, file_type,
            is_adult, owner_id, is_public, file_description, file_title,
-           thumbnails, view_count, share_count, is_reel, duration,
+           default_thumbnail, view_count, share_count, is_reel, duration,
            categories, tags, colors, metadata, upload_status`
         )
         .in("id", pageIds)
@@ -169,7 +169,7 @@ export const action = async ({ request }: { request: Request }) => {
       is_public: file.is_public,
       file_description: file.file_description,
       file_title: file.file_title || "",
-      thumbnails: file.thumbnails || [],
+      default_thumbnail: file.default_thumbnail || null,
       view_count: file.view_count,
       share_count: file.share_count,
       is_reel: file.is_reel,

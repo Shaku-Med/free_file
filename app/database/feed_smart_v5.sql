@@ -62,7 +62,7 @@ RETURNS TABLE (
   is_public        boolean,
   file_description text,
   file_title       text,
-  thumbnails       jsonb[],
+  default_thumbnail text,
   view_count       numeric,
   share_count      numeric,
   is_reel          boolean,
@@ -170,7 +170,7 @@ BEGIN
       f.is_public,
       f.file_description,
       f.file_title,
-      f.thumbnails,
+      COALESCE(f.default_thumbnail, (SELECT t #>> '{}' FROM unnest(f.thumbnails) AS t WHERE (t #>> '{}') LIKE '%thumbnail_preview.jpg' LIMIT 1)) AS default_thumbnail,
       f.view_count,
       f.share_count,
       f.is_reel,
@@ -218,8 +218,8 @@ BEGIN
         WHERE f.categories IS NOT NULL
           AND jsonb_typeof(f.categories) = 'array'
           AND EXISTS (
-            SELECT 1 FROM jsonb_array_elements_text(f.categories) fc
-            WHERE fc.value = uca.category
+            SELECT 1 FROM jsonb_array_elements_text(COALESCE(f.categories, '[]'::jsonb)) AS fc(cat)
+            WHERE fc.cat = uca.category
           )
       ), 0.0) AS _cat_affinity,
 
@@ -235,6 +235,7 @@ BEGIN
     WHERE f.is_public = true
       AND f.is_adult = false
       AND f.upload_status = 'complete'
+      AND (f.series_id IS NULL OR f.is_series_main = true)  -- hide series sub-episodes
       AND (p_category IS NULL OR f.categories @> to_jsonb(p_category)::jsonb)
       AND (p_reels_only = false OR f.is_reel = true)
       AND (p_user_id IS NULL OR ud.file_id IS NULL)   -- exclude disliked
@@ -372,7 +373,7 @@ BEGIN
     s.is_public,
     s.file_description,
     s.file_title,
-    s.thumbnails,
+    s.default_thumbnail,
     s.view_count,
     s.share_count,
     s.is_reel,
@@ -438,7 +439,7 @@ RETURNS TABLE (
   is_public        boolean,
   file_description text,
   file_title       text,
-  thumbnails       jsonb[],
+  default_thumbnail text,
   view_count       numeric,
   share_count      numeric,
   is_reel          boolean,
@@ -527,7 +528,7 @@ BEGIN
     SELECT
       f.id, f.created_at, f.endpoint, f.filename, f.unique_id,
       f.file_size, f.file_type, f.is_adult, f.owner_id, f.is_public,
-      f.file_description, f.file_title, f.thumbnails, f.view_count,
+      f.file_description, f.file_title, COALESCE(f.default_thumbnail, (SELECT t #>> '{}' FROM unnest(f.thumbnails) AS t WHERE (t #>> '{}') LIKE '%thumbnail_preview.jpg' LIMIT 1)) AS default_thumbnail, f.view_count,
       f.share_count, f.is_reel, f.duration, f.categories, f.tags,
       f.colors, f.metadata,
       COALESCE(es.like_count, 0)    AS _like_count,
@@ -556,8 +557,8 @@ BEGIN
         WHERE f.categories IS NOT NULL
           AND jsonb_typeof(f.categories) = 'array'
           AND EXISTS (
-            SELECT 1 FROM jsonb_array_elements_text(f.categories) fc
-            WHERE fc.value = uca.category
+            SELECT 1 FROM jsonb_array_elements_text(COALESCE(f.categories, '[]'::jsonb)) AS fc(cat)
+            WHERE fc.cat = uca.category
           )
       ), 0.0) AS _cat_affinity,
       (((hashtext(f.id::text || p_seed) % 1000000)::float + 500000.0) / 1000000.0) AS _shuffle
@@ -570,6 +571,7 @@ BEGIN
     WHERE f.is_public = true
       AND f.is_adult = false
       AND f.upload_status = 'complete'
+      AND (f.series_id IS NULL OR f.is_series_main = true)  -- hide series sub-episodes
       AND f.is_reel = true
       AND (p_max_duration IS NULL OR f.duration IS NULL OR f.duration <= p_max_duration)
       AND (p_category IS NULL OR f.categories @> to_jsonb(p_category)::jsonb)
@@ -680,7 +682,7 @@ BEGIN
   SELECT
     s.id, s.created_at, s.endpoint, s.filename, s.unique_id,
     s.file_size, s.file_type, s.is_adult, s.owner_id, s.is_public,
-    s.file_description, s.file_title, s.thumbnails, s.view_count,
+    s.file_description, s.file_title, s.default_thumbnail, s.view_count,
     s.share_count, s.is_reel, s.duration, s.categories, s.tags,
     s.colors, s.metadata,
     s._like_count, s._dislike_count, s._comment_count,
@@ -731,7 +733,7 @@ RETURNS TABLE (
   is_public        boolean,
   file_description text,
   file_title       text,
-  thumbnails       jsonb[],
+  default_thumbnail text,
   view_count       numeric,
   share_count      numeric,
   is_reel          boolean,
@@ -802,7 +804,7 @@ BEGIN
     SELECT
       f.id, f.created_at, f.endpoint, f.filename, f.unique_id,
       f.file_size, f.file_type, f.is_adult, f.owner_id, f.is_public,
-      f.file_description, f.file_title, f.thumbnails, f.view_count,
+      f.file_description, f.file_title, COALESCE(f.default_thumbnail, (SELECT t #>> '{}' FROM unnest(f.thumbnails) AS t WHERE (t #>> '{}') LIKE '%thumbnail_preview.jpg' LIMIT 1)) AS default_thumbnail, f.view_count,
       f.share_count, f.is_reel, f.duration, f.categories, f.tags,
       f.colors, f.metadata,
       COALESCE(es.like_count, 0)    AS _like_count,
@@ -823,8 +825,8 @@ BEGIN
         WHERE f.categories IS NOT NULL
           AND jsonb_typeof(f.categories) = 'array'
           AND EXISTS (
-            SELECT 1 FROM jsonb_array_elements_text(f.categories) fc
-            WHERE fc.value = uca.category
+            SELECT 1 FROM jsonb_array_elements_text(COALESCE(f.categories, '[]'::jsonb)) AS fc(cat)
+            WHERE fc.cat = uca.category
           )
       ), 0.0) AS _cat_affinity,
       -- Relevance score: same owner > tags > categories > same type > subscribed
@@ -833,8 +835,8 @@ BEGIN
         + CASE
             WHEN v_tags IS NOT NULL AND f.tags IS NOT NULL
                  AND EXISTS (
-                   SELECT 1 FROM jsonb_array_elements_text(v_tags) vt
-                   JOIN jsonb_array_elements_text(f.tags) ft ON vt = ft
+                   SELECT 1 FROM jsonb_array_elements_text(COALESCE(v_tags, '[]'::jsonb)) AS vt(tag)
+                   JOIN jsonb_array_elements_text(COALESCE(f.tags, '[]'::jsonb)) AS ft(tag) ON vt.tag = ft.tag
                  )
             THEN 50.0
             ELSE 0.0
@@ -842,8 +844,8 @@ BEGIN
         + CASE
             WHEN v_categories IS NOT NULL AND f.categories IS NOT NULL
                  AND EXISTS (
-                   SELECT 1 FROM jsonb_array_elements_text(v_categories) vc
-                   JOIN jsonb_array_elements_text(f.categories) fc ON vc = fc
+                   SELECT 1 FROM jsonb_array_elements_text(COALESCE(v_categories, '[]'::jsonb)) AS vc(cat)
+                   JOIN jsonb_array_elements_text(COALESCE(f.categories, '[]'::jsonb)) AS fc(cat) ON vc.cat = fc.cat
                  )
             THEN 25.0
             ELSE 0.0
@@ -865,6 +867,7 @@ BEGIN
       AND f.is_public = true
       AND f.is_adult = false
       AND f.upload_status = 'complete'
+      AND (f.series_id IS NULL OR f.is_series_main = true)  -- hide series sub-episodes
       AND (p_user_id IS NULL OR ud.file_id IS NULL)
       AND (p_exclude_ids = '{}'::uuid[] OR f.id != ALL(p_exclude_ids))
   ),
@@ -884,7 +887,7 @@ BEGIN
   SELECT
     r.id, r.created_at, r.endpoint, r.filename, r.unique_id,
     r.file_size, r.file_type, r.is_adult, r.owner_id, r.is_public,
-    r.file_description, r.file_title, r.thumbnails, r.view_count,
+    r.file_description, r.file_title, r.default_thumbnail, r.view_count,
     r.share_count, r.is_reel, r.duration, r.categories, r.tags,
     r.colors, r.metadata,
     r._like_count, r._dislike_count, r._comment_count,
@@ -930,7 +933,7 @@ RETURNS TABLE (
   is_public        boolean,
   file_description text,
   file_title       text,
-  thumbnails       jsonb[],
+  default_thumbnail text,
   view_count       numeric,
   share_count      numeric,
   is_reel          boolean,
@@ -976,7 +979,7 @@ BEGIN
     SELECT
       f.id, f.created_at, f.endpoint, f.filename, f.unique_id,
       f.file_size, f.file_type, f.is_adult, f.owner_id, f.is_public,
-      f.file_description, f.file_title, f.thumbnails, f.view_count,
+      f.file_description, f.file_title, COALESCE(f.default_thumbnail, (SELECT t #>> '{}' FROM unnest(f.thumbnails) AS t WHERE (t #>> '{}') LIKE '%thumbnail_preview.jpg' LIMIT 1)) AS default_thumbnail, f.view_count,
       f.share_count, f.is_reel, f.duration, f.categories, f.tags,
       f.colors, f.metadata,
       COALESCE(es.like_count, 0)    AS _like_count,
@@ -1006,7 +1009,7 @@ BEGIN
   SELECT
     r.id, r.created_at, r.endpoint, r.filename, r.unique_id,
     r.file_size, r.file_type, r.is_adult, r.owner_id, r.is_public,
-    r.file_description, r.file_title, r.thumbnails, r.view_count,
+    r.file_description, r.file_title, r.default_thumbnail, r.view_count,
     r.share_count, r.is_reel, r.duration, r.categories, r.tags,
     r.colors, r.metadata,
     r._like_count, r._dislike_count, r._comment_count,

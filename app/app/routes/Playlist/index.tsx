@@ -169,12 +169,11 @@ export default function PlaylistPage() {
   }, [hasMore, loadingMore, page, fetchPage]);
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-8 px-2">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">Library</h1>
-          <p className="text-sm text-muted-foreground mt-0.5">Your playlists and saved content</p>
+          <h1 className="text-2xl font-bold tracking-tight">Playlists</h1>
         </div>
         {userId && (
           <Button onClick={() => setCreateOpen(true)} size="sm" className="rounded-full gap-1.5">

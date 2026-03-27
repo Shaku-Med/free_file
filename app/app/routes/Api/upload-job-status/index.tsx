@@ -12,6 +12,101 @@ function inferFileType(filename: string): string {
   return map[ext] ?? 'application/octet-stream';
 }
 
+/* -------- Series via upload webhook (disabled — uncomment block to re-enable) --------
+function isVideoForSeriesLinking(fileType: string, fileName: string): boolean {
+  const ft = (fileType || '').toLowerCase();
+  if (ft.startsWith('video/')) return true;
+  if (ft === 'application/vnd.apple.mpegurl') return true;
+  const ext = fileName.replace(/^.*\./, '').toLowerCase();
+  return ['mp4', 'webm', 'mov', 'mkv', 'avi', 'm4v', 'm3u8', 'ogv'].includes(ext);
+}
+
+type SeriesPayload = {
+  series_id?: string;
+  series_title?: string;
+  series_desc?: string;
+  series_is_public?: boolean;
+  is_series_main?: boolean;
+  episode_number?: number;
+  season_number?: number;
+};
+
+function normalizeSeriesFields(o: Record<string, unknown>): SeriesPayload {
+  const ep = o.episode_number;
+  const sn = o.season_number;
+  return {
+    series_id: typeof o.series_id === 'string' ? o.series_id : undefined,
+    series_title: typeof o.series_title === 'string' ? o.series_title : undefined,
+    series_desc: typeof o.series_desc === 'string' ? o.series_desc : undefined,
+    series_is_public: typeof o.series_is_public === 'boolean' ? o.series_is_public : undefined,
+    is_series_main: o.is_series_main === true,
+    episode_number: typeof ep === 'number' && Number.isInteger(ep) ? ep : undefined,
+    season_number: typeof sn === 'number' && Number.isInteger(sn) ? sn : undefined,
+  };
+}
+
+function pickSeriesFromBody(body: Record<string, unknown>): SeriesPayload | null {
+  const nested = body.series;
+  if (nested && typeof nested === 'object' && nested !== null && !Array.isArray(nested)) {
+    return normalizeSeriesFields(nested as Record<string, unknown>);
+  }
+  const title = typeof body.series_title === 'string' ? body.series_title.trim() : '';
+  const sid = typeof body.series_id === 'string' ? body.series_id.trim() : '';
+  if (body.is_series_main === true || title !== '' || /^[0-9a-f-]{36}$/i.test(sid)) {
+    return normalizeSeriesFields(body);
+  }
+  return null;
+}
+
+async function trySeriesPatchOnCompleted(
+  uploadId: string,
+  userId: string,
+  fileName: string,
+  s: SeriesPayload | null
+): Promise<Record<string, unknown> | null> {
+  if (!db || !s || !userId) return null;
+  const file_type = inferFileType(fileName);
+  if (!isVideoForSeriesLinking(file_type, fileName)) return null;
+
+  const { data: existing, error: selErr } = await db
+    .from('files')
+    .select('series_id, is_public, filename')
+    .eq('unique_id', uploadId)
+    .maybeSingle();
+  if (selErr || !existing || existing.series_id) return null;
+
+  const fn = typeof existing.filename === 'string' && existing.filename ? existing.filename : fileName;
+  const ftRow = inferFileType(fn);
+  if (!isVideoForSeriesLinking(ftRow, fn)) return null;
+
+  if (s.is_series_main && s.series_title?.trim()) {
+    const seriesIsPublic =
+      typeof s.series_is_public === 'boolean' ? s.series_is_public : existing.is_public !== false;
+    const { data: seriesRows, error: seriesErr } = await db.rpc('create_series', {
+      p_user_id: userId,
+      p_title: s.series_title.trim().slice(0, 200),
+      p_desc: (s.series_desc ?? '').trim().slice(0, 2000),
+      p_is_public: seriesIsPublic,
+    });
+    if (seriesErr) {
+      console.warn('[upload-job-status] create_series failed (completed fallback):', seriesErr.message);
+      return null;
+    }
+    if (Array.isArray(seriesRows) && seriesRows[0]?.id) {
+      return { series_id: seriesRows[0].id, is_series_main: true };
+    }
+    return null;
+  }
+  if (s.series_id && /^[0-9a-f-]{36}$/i.test(s.series_id)) {
+    const patch: Record<string, unknown> = { series_id: s.series_id, is_series_main: false };
+    if (s.episode_number != null && s.episode_number >= 1) patch.episode_number = s.episode_number;
+    if (s.season_number != null && s.season_number >= 1) patch.season_number = s.season_number;
+    return patch;
+  }
+  return null;
+}
+-------- end series helpers -------- */
+
 export const action = async ({ request }: { request: Request }) => {
   if (request.method !== 'POST') {
     return new Response(JSON.stringify({ error: 'method not allowed' }), {
@@ -47,6 +142,11 @@ export const action = async ({ request }: { request: Request }) => {
     categories?: string[];
     tags?: string[];
     metadata?: Record<string, unknown>;
+    comments_enabled?: boolean;
+    /** null/omitted = unlimited; 0 = no comments; positive = max comments */
+    comment_limit?: number | null;
+    default_thumbnail?: string;
+    // series?: { ... } // when re-enabling series webhook helpers
   };
   try {
     body = await request.json();
@@ -61,22 +161,9 @@ export const action = async ({ request }: { request: Request }) => {
   const allowed = ['queued', 'running', 'completed', 'failed'];
   const upload_id = typeof body?.upload_id === 'string' ? body.upload_id.trim() : '';
   const user_id = typeof body?.user_id === 'string' ? body.user_id.trim() : '';
-  
-  console.log('[upload-job-status] ========== WEBHOOK RECEIVED ==========');
-  console.log('[upload-job-status] status:', status);
-  console.log('[upload-job-status] upload_id:', upload_id);
-  console.log('[upload-job-status] user_id:', user_id);
-  console.log('[upload-job-status] file_name:', body?.file_name);
-  console.log('[upload-job-status] endpoint:', body?.endpoint);
-  console.log('[upload-job-status] is_adult:', body?.is_adult);
-  console.log('[upload-job-status] colors:', body?.colors);
-  console.log('[upload-job-status] categories:', body?.categories);
-  console.log('[upload-job-status] tags:', body?.tags);
-  console.log('[upload-job-status] metadata:', body?.metadata ? JSON.stringify(body.metadata).slice(0, 500) : 'null');
-  console.log('[upload-job-status] thumbnails:', body?.thumbnails?.length ?? 0);
-  console.log('[upload-job-status] duration:', body?.duration);
-  console.log('[upload-job-status] ======================================');
-  
+  const job_id = typeof body?.job_id === 'string' ? body.job_id.trim() : '';
+  console.log('[upload-job-status]', status, upload_id, job_id || '-');
+
   if (!allowed.includes(status) || !upload_id) {
     console.warn('[upload-job-status] invalid status or upload_id:', { status, upload_id });
     return new Response(JSON.stringify({ error: 'invalid status or upload_id' }), {
@@ -98,27 +185,69 @@ export const action = async ({ request }: { request: Request }) => {
     const file_name = body.file_name.trim();
     const file_size = typeof body?.file_size === 'number' && body.file_size >= 0 ? body.file_size : 0;
     const is_public = typeof body?.is_public === 'boolean' ? body.is_public : true;
+    const comments_enabled = typeof body?.comments_enabled === 'boolean' ? body.comments_enabled : true;
+    let comment_limit: number | null = null;
+    if (body?.comment_limit !== undefined && body?.comment_limit !== null) {
+      const n = Number(body.comment_limit);
+      if (Number.isInteger(n) && n >= 0 && n <= 1_000_000) {
+        comment_limit = n;
+      }
+    } else if (body?.comment_limit === null) {
+      comment_limit = null;
+    }
     const title = typeof body?.title === 'string' ? body.title.trim().slice(0, 500) : '';
     const description = typeof body?.description === 'string' ? body.description.trim().slice(0, 2000) : '';
     const file_type = inferFileType(file_name);
+
+    const fileRow: Record<string, unknown> = {
+      unique_id: upload_id,
+      filename: file_name,
+      endpoint: '', // Empty initially, filled when completed
+      upload_status: 'queued',
+      owner_id: user_id,
+      is_public: is_public,
+      comments_enabled,
+      comment_limit,
+      file_title: title || file_name.replace(/\.[^./\\]+$/, ''),
+      file_description: description,
+      file_size: String(file_size),
+      file_type,
+      created_at: updated_at,
+    };
+
+    /* SERIES (queued) — re-enable with helpers at top of file
+    const s = pickSeriesFromBody(body as unknown as Record<string, unknown>);
+    if (s && isVideoForSeriesLinking(file_type, file_name)) {
+      if (s.is_series_main && s.series_title?.trim()) {
+        const seriesIsPublic = typeof s.series_is_public === 'boolean' ? s.series_is_public : is_public;
+        const { data: seriesRows, error: seriesErr } = await db.rpc('create_series', {
+          p_user_id: user_id,
+          p_title: s.series_title.trim().slice(0, 200),
+          p_desc: (s.series_desc ?? '').trim().slice(0, 2000),
+          p_is_public: seriesIsPublic,
+        });
+        if (seriesErr) {
+          console.warn('[upload-job-status] create_series failed:', seriesErr.message);
+        } else if (Array.isArray(seriesRows) && seriesRows[0]?.id) {
+          fileRow.series_id = seriesRows[0].id;
+          fileRow.is_series_main = true;
+        }
+      } else if (s.series_id && /^[0-9a-f-]{36}$/i.test(s.series_id)) {
+        fileRow.series_id = s.series_id;
+        fileRow.is_series_main = false;
+        if (typeof s.episode_number === 'number' && Number.isInteger(s.episode_number) && s.episode_number >= 1) {
+          fileRow.episode_number = s.episode_number;
+        }
+        if (typeof s.season_number === 'number' && Number.isInteger(s.season_number) && s.season_number >= 1) {
+          fileRow.season_number = s.season_number;
+        }
+      }
+    }
+    */
+
     const { error: filesErr } = await db
       .from('files')
-      .upsert(
-        {
-          unique_id: upload_id,
-          filename: file_name,
-          endpoint: '', // Empty initially, filled when completed
-          upload_status: 'queued',
-          owner_id: user_id,
-          is_public: is_public,
-          file_title: title || file_name.replace(/\.[^./\\]+$/, ''),
-          file_description: description,
-          file_size: String(file_size),
-          file_type,
-          created_at: updated_at,
-        },
-        { onConflict: 'unique_id', ignoreDuplicates: false }
-      );
+      .upsert(fileRow, { onConflict: 'unique_id', ignoreDuplicates: false });
     if (filesErr) {
       // log but don't fail the webhook; upload_jobs is already updated
       console.warn('[upload-job-status] files upsert (queued):', filesErr);
@@ -196,27 +325,24 @@ export const action = async ({ request }: { request: Request }) => {
     if (Object.keys(metadata).length > 0) {
       updateData.metadata = metadata;
     }
+    const default_thumbnail = typeof body?.default_thumbnail === 'string' ? body.default_thumbnail.trim() : '';
+    if (default_thumbnail) {
+      updateData.default_thumbnail = default_thumbnail;
+    }
 
-    console.log('[upload-job-status] >>> DB UPDATE for', upload_id);
-    console.log('[upload-job-status] >>> updateData keys:', Object.keys(updateData));
-    console.log('[upload-job-status] >>> updateData:', JSON.stringify(updateData, null, 2).slice(0, 1000));
+    /* SERIES (completed fallback) — re-enable with helpers at top of file
+    const completedFileName = typeof body?.file_name === 'string' ? body.file_name.trim() : '';
+    const seriesPicked = pickSeriesFromBody(body as unknown as Record<string, unknown>);
+    const seriesPatch = await trySeriesPatchOnCompleted(upload_id, user_id, completedFileName, seriesPicked);
+    if (seriesPatch) Object.assign(updateData, seriesPatch);
+    */
 
     const { error: updateErr } = await db
       .from('files')
       .update(updateData)
       .eq('unique_id', upload_id);
     if (updateErr) {
-      console.error('[upload-job-status] >>> DB UPDATE FAILED:', updateErr);
-    } else {
-      console.log('[upload-job-status] >>> DB UPDATE SUCCESS for', upload_id);
-      console.log('[upload-job-status] >>> endpoint:', endpoint);
-      console.log('[upload-job-status] >>> thumbnails:', thumbnails.length);
-      console.log('[upload-job-status] >>> duration:', duration);
-      console.log('[upload-job-status] >>> is_adult:', is_adult);
-      console.log('[upload-job-status] >>> colors:', colors);
-      console.log('[upload-job-status] >>> categories:', categories);
-      console.log('[upload-job-status] >>> tags:', tags);
-      console.log('[upload-job-status] >>> metadata keys:', Object.keys(metadata));
+      console.error('[upload-job-status] files update (completed):', upload_id, updateErr.message ?? updateErr);
     }
   }
 

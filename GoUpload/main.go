@@ -8,8 +8,10 @@ import (
 	"syscall"
 	"time"
 
+	"goupload/internal/commentimg"
 	"goupload/internal/middleware"
 	"goupload/internal/testpage"
+	"goupload/internal/thumbnail"
 	"goupload/internal/upload"
 	"goupload/internal/worker"
 	"goupload/lib/env"
@@ -74,7 +76,7 @@ func main() {
 	})
 
 	// CORS: allow app origin for browser uploads
-	corsOrigins := env.Get("CORS_ORIGINS", env.Get("APP_BASE_URL", "http://localhost:5173"))
+	corsOrigins := env.Get("CORS_ORIGINS", env.Get("APP_BASE_URL", "http://localhost:3000"))
 	if corsOrigins == "" {
 		corsOrigins = "*"
 	}
@@ -82,12 +84,9 @@ func main() {
 
 	app.Use(cors.New(cors.Config{
 		AllowOriginsFunc: func(origin string) bool {
-			// Dev: accept any localhost or 127.0.0.1 (avoids localhost vs 127.0.0.1 and port mismatches)
 			if env.IsDev() {
-				return strings.HasPrefix(origin, "http://localhost:") || strings.HasPrefix(origin, "http://127.0.0.1:") ||
-					strings.HasPrefix(origin, "https://localhost:") || strings.HasPrefix(origin, "https://127.0.0.1:")
+				return true
 			}
-			// Prod: allow configured origins (comma-separated)
 			if origins == "*" {
 				return true
 			}
@@ -99,13 +98,29 @@ func main() {
 			return false
 		},
 		AllowMethods:     "GET, POST, PUT, PATCH, DELETE, OPTIONS, HEAD",
-		AllowHeaders:     "Accept, Authorization, Content-Type, X-Upload-ID, X-Chunk-Index",
-		AllowCredentials: false,
+		AllowHeaders:     "Accept, Authorization, Content-Type, X-Upload-ID, X-Chunk-Index, X-User-ID",
+		AllowCredentials: true,
 		MaxAge:           600,
 	}))
 
 	app.Use("/api/upload", middleware.AuthUpload())
+	app.Use("/api/thumbnail", middleware.AuthUpload())
+	app.Use("/api/comment-image", middleware.AuthUpload())
 	upload.RegisterRoutes(app, manager, q, appLog)
+	thumbnail.RegisterRoutes(app, appLog, thumbnail.Config{
+		GitHubClient:  wcfg.GitHubClient,
+		GitHubOwner:   ghOwner,
+		GitHubRepo:    ghRepo,
+		NSFWApiURL:    nsfwAPI,
+		NSFWApiSecret: webhookSecret,
+	})
+	commentimg.RegisterRoutes(app, appLog, commentimg.Config{
+		GitHubClient:  wcfg.GitHubClient,
+		GitHubOwner:   ghOwner,
+		GitHubRepo:    ghRepo,
+		NSFWApiURL:    nsfwAPI,
+		NSFWApiSecret: webhookSecret,
+	})
 	if env.IsDev() {
 		testpage.RegisterRoutes(app)
 	}

@@ -14,10 +14,17 @@ import (
 )
 
 const (
-	ThumbCellSize   = 160
-	ThumbMaxCount   = 200
-	ThumbMinInterval = 1.5
+	// ThumbExtractMaxWidth caps width of each stored frame; height scales with aspect (-2).
+	// High enough for sharp player / picker thumbnails; no downscale to tiny cells here.
+	ThumbExtractMaxWidth = 1920
+	ThumbMaxCount        = 200
+	ThumbMinInterval     = 1.5
+	// JPEG q:v for ffmpeg mjpeg (lower = better). Used only for individual thumb_*.jpg files.
+	ThumbExtractQuality = 2
 )
+
+// PreviewGridCellSize is the max edge length when building thumbnail_preview.jpg (grid/sprite only).
+const PreviewGridCellSize = 160
 
 type Thumbnail struct {
 	Path       string
@@ -49,7 +56,8 @@ func ExtractThumbnails(videoPath, outputDir string) (*ThumbnailResult, error) {
 		interval = ThumbMinInterval
 	}
 
-	vf := fmt.Sprintf("fps=1/%.2f,scale=%d:-2", interval, ThumbCellSize)
+	// Do not shrink to grid size here — that is only for thumbnail_preview.jpg in BuildThumbnailPreview.
+	vf := fmt.Sprintf("fps=1/%.2f,scale='min(%d,iw)':-2", interval, ThumbExtractMaxWidth)
 
 	pattern := filepath.Join(outputDir, "thumb_%04d.jpg")
 	args := []string{
@@ -60,7 +68,7 @@ func ExtractThumbnails(videoPath, outputDir string) (*ThumbnailResult, error) {
 		"-i", videoPath,
 		"-vf", vf,
 		"-vframes", strconv.Itoa(ThumbMaxCount),
-		"-q:v", "3",
+		"-q:v", strconv.Itoa(ThumbExtractQuality),
 		"-y",
 		pattern,
 	}

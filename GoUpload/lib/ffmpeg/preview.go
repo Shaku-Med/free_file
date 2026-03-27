@@ -29,6 +29,26 @@ type PreviewCell struct {
 	End   float64 `json:"end"`
 }
 
+func previewCellDimensions(sw, sh, maxEdge int) (dw, dh int) {
+	if sw <= 0 || sh <= 0 {
+		return maxEdge, maxEdge
+	}
+	if sw >= sh {
+		dw = maxEdge
+		dh = int(float64(sh) * float64(maxEdge) / float64(sw))
+	} else {
+		dh = maxEdge
+		dw = int(float64(sw) * float64(maxEdge) / float64(sh))
+	}
+	if dw < 1 {
+		dw = 1
+	}
+	if dh < 1 {
+		dh = 1
+	}
+	return dw, dh
+}
+
 func BuildThumbnailPreview(thumbDir string, result *ThumbnailResult) (previewPath, metaPath string, err error) {
 	if result == nil || len(result.Thumbnails) == 0 {
 		return "", "", fmt.Errorf("no thumbnails")
@@ -38,11 +58,11 @@ func BuildThumbnailPreview(thumbDir string, result *ThumbnailResult) (previewPat
 	if err != nil {
 		return "", "", fmt.Errorf("decode first thumbnail: %w", err)
 	}
-	cellW := firstImg.Bounds().Dx()
-	cellH := firstImg.Bounds().Dy()
+	b0 := firstImg.Bounds()
+	cellW, cellH := previewCellDimensions(b0.Dx(), b0.Dy(), PreviewGridCellSize)
 	if cellW <= 0 || cellH <= 0 {
-		cellW = ThumbCellSize
-		cellH = ThumbCellSize
+		cellW = PreviewGridCellSize
+		cellH = PreviewGridCellSize
 	}
 
 	N := len(result.Thumbnails)
@@ -84,7 +104,8 @@ func BuildThumbnailPreview(thumbDir string, result *ThumbnailResult) (previewPat
 	}
 	defer f.Close()
 
-	if err := jpeg.Encode(f, img, &jpeg.Options{Quality: 85}); err != nil {
+	// Grid/sprite only: smaller cells above + lower JPEG quality keeps preview light.
+	if err := jpeg.Encode(f, img, &jpeg.Options{Quality: 72}); err != nil {
 		_ = os.Remove(previewPath)
 		return "", "", err
 	}

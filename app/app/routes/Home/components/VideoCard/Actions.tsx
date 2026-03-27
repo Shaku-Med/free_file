@@ -29,11 +29,12 @@ import {
   DropdownMenuTrigger,
   DropdownMenuSeparator,
 } from "~/components/ui/dropdown-menu";
-import { cn } from "~/lib/utils";
+import { cn, arrangeDateForThumbnail } from "~/lib/utils";
 import CreatePlaylistModal from "~/components/Playlist/CreatePlaylistModal";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "~/components/ui/dialog";
 import CommentSection from "~/routes/Dynamic/components/Comments/CommentSection";
 import { useLocalPlaylist, normalizeLocalPlaylistFileId } from "~/lib/hooks/useLocalPlaylist";
+import { useFileContext } from "~/lib/Context/Context";
 
 export interface ActionsProps {
   fileId: string;
@@ -61,6 +62,8 @@ export interface ActionsProps {
   onShareSuccess?: (serverCount?: number) => void;
   /** Logged-in user id from the page loader; playlist submenu loads lists when this is set. */
   currentUserId?: string | null;
+  /** File `created_at` for comment image uploads (GitHub path under the post folder). */
+  fileCreatedAt?: string | null;
   /** Current playback time for share modal timestamp feature */
   currentTime?: number;
 }
@@ -140,6 +143,7 @@ export default function Actions({
   onShareSuccess,
   currentUserId,
   currentTime,
+  fileCreatedAt,
 }: ActionsProps) {
   const navigate = useNavigate();
   const [likeBusy, setLikeBusy] = useState(false);
@@ -162,6 +166,7 @@ export default function Actions({
   const { has: hasLocalSave, add: addLocalSave, remove: removeLocalSave } = useLocalPlaylist();
   const effectiveLocalFileId = normalizeLocalPlaylistFileId(fileId);
   const inLocalList = Boolean(effectiveLocalFileId && hasLocalSave(effectiveLocalFileId));
+
 
   useEffect(() => {
     setCanWebShare(typeof navigator !== "undefined" && typeof navigator.share === "function");
@@ -455,6 +460,17 @@ export default function Actions({
           </button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="min-w-[12rem]">
+          {isOwner && typeof onEdit === "function" ? (
+            <>
+              <DropdownMenuGroup>
+                <DropdownMenuItem onSelect={() => onEdit()}>
+                  <Pencil className="size-4" aria-hidden />
+                  Edit upload
+                </DropdownMenuItem>
+              </DropdownMenuGroup>
+              <DropdownMenuSeparator />
+            </>
+          ) : null}
           <DropdownMenuGroup>
             <DropdownMenuItem onSelect={() => setShareModalOpen(true)}>
               <Share2 className="size-4" aria-hidden />
@@ -578,17 +594,18 @@ export default function Actions({
             <DialogTitle>Comments</DialogTitle>
           </DialogHeader>
           <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-4 py-3">
-            <CommentSection key={fileId} fileId={fileId} currentUserId={currentUserId ?? undefined} />
+            <CommentSection
+              key={fileId}
+              fileId={fileId}
+              currentUserId={currentUserId ?? undefined}
+              commentImageDateFolder={
+                fileCreatedAt ? arrangeDateForThumbnail(fileCreatedAt) : undefined
+              }
+              commentImageFileUniqueId={uniqueId}
+            />
           </div>
         </DialogContent>
       </Dialog>
-
-      {isOwner && typeof onEdit === "function" && (
-        <button type="button" className={pillOuter} onClick={onEdit} aria-label="Edit">
-          <Pencil className="h-[1.125rem] w-[1.125rem] shrink-0" aria-hidden />
-          <span className="hidden sm:inline">Edit</span>
-        </button>
-      )}
 
       <ShareModal
         open={shareModalOpen}

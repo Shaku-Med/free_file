@@ -27,7 +27,7 @@ RETURNS TABLE (
   is_public        boolean,
   file_description text,
   file_title       text,
-  thumbnails       jsonb[],
+  default_thumbnail text,
   view_count       numeric,
   share_count      numeric,
   is_reel          boolean,
@@ -87,7 +87,7 @@ BEGIN
       f.is_public,
       f.file_description,
       f.file_title,
-      f.thumbnails,
+      COALESCE(f.default_thumbnail, (SELECT t #>> '{}' FROM unnest(f.thumbnails) AS t WHERE (t #>> '{}') LIKE '%thumbnail_preview.jpg' LIMIT 1)) AS default_thumbnail,
       f.view_count,
       f.share_count,
       f.is_reel,
@@ -109,15 +109,16 @@ BEGIN
     WHERE f.is_public = true
       AND f.is_adult = false              -- HARD BLOCK: never show adult content
       AND f.upload_status = 'complete'
+      AND (f.series_id IS NULL OR f.is_series_main = true)  -- hide series sub-episodes
       AND (p_reels_only = false OR f.is_reel = true)
       AND (
         EXISTS (
-          SELECT 1 FROM jsonb_array_elements_text(COALESCE(f.tags, '[]'::jsonb)) t
-          WHERE lower(trim(t::text)) = v_tag
+          SELECT 1 FROM jsonb_array_elements_text(COALESCE(f.tags, '[]'::jsonb)) AS tr(tag_txt)
+          WHERE lower(trim(tr.tag_txt)) = v_tag
         )
         OR EXISTS (
-          SELECT 1 FROM jsonb_array_elements_text(COALESCE(f.categories, '[]'::jsonb)) c
-          WHERE lower(trim(c::text)) = v_tag
+          SELECT 1 FROM jsonb_array_elements_text(COALESCE(f.categories, '[]'::jsonb)) AS cr(cat_txt)
+          WHERE lower(trim(cr.cat_txt)) = v_tag
         )
         OR f.file_title ILIKE v_pattern ESCAPE '\'
         OR COALESCE(f.file_description, '') ILIKE v_pattern ESCAPE '\'
@@ -146,7 +147,7 @@ BEGIN
     ws.is_public,
     ws.file_description,
     ws.file_title,
-    ws.thumbnails,
+    ws.default_thumbnail,
     ws.view_count,
     ws.share_count,
     ws.is_reel,

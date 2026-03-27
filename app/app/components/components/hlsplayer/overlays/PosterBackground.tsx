@@ -1,6 +1,6 @@
 import { useState, useCallback, useMemo, useRef, useEffect } from 'react';
 import ImageLoad from '~/routes/Home/components/ImageLoad/ImageLoad';
-import { getRandomThumbnail, arrangeDateForThumbnail } from '~/lib/utils';
+import { getThumbnailUrl } from '~/lib/utils';
 import { usePlayerContext } from '../PlayerContext';
 
 interface PosterBackgroundProps {
@@ -23,10 +23,8 @@ export default function PosterBackground({ onImageLoaded }: PosterBackgroundProp
 
   const link = useMemo(() => {
     if (!file) return '';
-    const thumb = getRandomThumbnail(file.thumbnails);
-    if (thumb) return `/api/load/image/${thumb}`;
-    return `/api/load/image/${arrangeDateForThumbnail(file.created_at, retryCount)}/${file.unique_id}/thumbnail_${file.filename.split('.mp4.m3u8')[0]}.jpg`;
-  }, [file?.thumbnails, file?.created_at, file?.unique_id, file?.filename, retryCount]);
+    return getThumbnailUrl(file, { retryAttempt: retryCount });
+  }, [file?.default_thumbnail, file?.thumbnails, file?.file_type, file?.endpoint, file?.created_at, file?.unique_id, file?.filename, retryCount]);
 
   const handleRetry = useCallback(() => {
     if (retryCount < 1) setRetryCount(prev => prev + 1);

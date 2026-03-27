@@ -33,17 +33,17 @@ const OwnerProfile = ({ owner, size = "md", showUsername = true, className = "" 
   return (
     <Link 
       to={`/profile/${owner.username}`}
-      className={`flex items-center gap-2 hover:text-primary transition-colors ${className} w-fit`}
+      className={`flex min-w-0 max-w-full items-center gap-2 hover:text-primary transition-colors ${className} w-fit`}
       onClick={(e) => e.stopPropagation()}
     >
-      <Avatar className={avatarSize}>
+      <Avatar className={`${avatarSize} shrink-0`}>
         <AvatarImage src={getProfilePicUrl(owner.profile_pic)} alt={owner.username} loading="lazy" />
         <AvatarFallback className="text-[10px]">
           {owner.username.charAt(0).toUpperCase()}
         </AvatarFallback>
       </Avatar>
       {showUsername && (
-        <span className="font-semibold text-foreground">
+        <span className="min-w-0 truncate font-semibold text-foreground">
           {owner.username}
         </span>
       )}

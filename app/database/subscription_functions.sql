@@ -315,7 +315,7 @@ RETURNS TABLE (
   is_public        boolean,
   file_description text,
   file_title       text,
-  thumbnails       jsonb[],
+  default_thumbnail text,
   view_count       numeric,
   share_count      numeric,
   is_reel          boolean,
@@ -371,7 +371,7 @@ BEGIN
       f.is_public,
       f.file_description,
       f.file_title,
-      f.thumbnails,
+      f.default_thumbnail,
       f.view_count,
       f.share_count,
       f.is_reel,
@@ -393,6 +393,7 @@ BEGIN
     WHERE f.is_public = true
       AND f.is_adult = false           -- HARD BLOCK: never show adult content in feeds
       AND (f.upload_status = 'complete' OR f.upload_status = 'completed')
+      AND (f.series_id IS NULL OR f.is_series_main = true)  -- hide series sub-episodes
   )
 
   SELECT
@@ -408,7 +409,7 @@ BEGIN
     r.is_public,
     r.file_description,
     r.file_title,
-    r.thumbnails,
+    r.default_thumbnail,
     r.view_count,
     r.share_count,
     r.is_reel,

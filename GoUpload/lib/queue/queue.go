@@ -15,18 +15,35 @@ type Client struct {
 	queueName string
 }
 
+// SeriesFields holds optional series-linking metadata for a job.
+// Exactly one of (SeriesTitle != "") or (SeriesID != "") should be set when
+// the upload is part of a series.
+type SeriesFields struct {
+	// SeriesID is set when adding an episode to an existing series.
+	SeriesID string `json:"series_id,omitempty"`
+	// SeriesTitle is set when this upload creates a brand-new series (is_series_main = true).
+	SeriesTitle    string `json:"series_title,omitempty"`
+	SeriesDesc     string `json:"series_desc,omitempty"`
+	SeriesIsPublic *bool  `json:"series_is_public,omitempty"`
+	IsSeriesMain   bool   `json:"is_series_main,omitempty"`
+	EpisodeNumber  *int   `json:"episode_number,omitempty"`
+	SeasonNumber   *int   `json:"season_number,omitempty"`
+}
+
 type Job struct {
-	ID             string    `json:"id"`
-	UserID         string    `json:"user_id"`
-	UploadID       string    `json:"upload_id"`
-	FileName       string    `json:"file_name"`
-	FileSize       int64     `json:"file_size"`
-	TotalChunks    int       `json:"total_chunks"`
-	Title          string    `json:"title,omitempty"`
-	Description    string    `json:"description,omitempty"`
-	UserCategories []string  `json:"user_categories,omitempty"`
-	UserTags       []string  `json:"user_tags,omitempty"`
-	CreatedAt      time.Time `json:"created_at"`
+	ID               string       `json:"id"`
+	UserID           string       `json:"user_id"`
+	UploadID         string       `json:"upload_id"`
+	FileName         string       `json:"file_name"`
+	FileSize         int64        `json:"file_size"`
+	TotalChunks      int          `json:"total_chunks"`
+	Title            string       `json:"title,omitempty"`
+	Description      string       `json:"description,omitempty"`
+	UserCategories   []string     `json:"user_categories,omitempty"`
+	UserTags         []string     `json:"user_tags,omitempty"`
+	DefaultThumbnail string       `json:"default_thumbnail,omitempty"`
+	Series           SeriesFields `json:"series,omitempty"`
+	CreatedAt        time.Time    `json:"created_at"`
 }
 
 func NewClient(addr, password string, db int, queueName string) (*Client, error) {
@@ -46,20 +63,22 @@ func NewClient(addr, password string, db int, queueName string) (*Client, error)
 	return &Client{rdb: rdb, queueName: queueName}, nil
 }
 
-func (c *Client) Enqueue(ctx context.Context, userID, uploadID, fileName string, fileSize int64, totalChunks int, title, description string, userCategories, userTags []string) (string, error) {
+func (c *Client) Enqueue(ctx context.Context, userID, uploadID, fileName string, fileSize int64, totalChunks int, title, description string, userCategories, userTags []string, defaultThumbnail string, series SeriesFields) (string, error) {
 	jobID := newJobID()
 	job := Job{
-		ID:             jobID,
-		UserID:         userID,
-		UploadID:       uploadID,
-		FileName:       fileName,
-		FileSize:       fileSize,
-		TotalChunks:    totalChunks,
-		Title:          title,
-		Description:    description,
-		UserCategories: userCategories,
-		UserTags:       userTags,
-		CreatedAt:      time.Now().UTC(),
+		ID:               jobID,
+		UserID:           userID,
+		UploadID:         uploadID,
+		FileName:         fileName,
+		FileSize:         fileSize,
+		TotalChunks:      totalChunks,
+		Title:            title,
+		Description:      description,
+		UserCategories:   userCategories,
+		UserTags:         userTags,
+		DefaultThumbnail: defaultThumbnail,
+		Series:           series,
+		CreatedAt:        time.Now().UTC(),
 	}
 	data, err := json.Marshal(job)
 	if err != nil {

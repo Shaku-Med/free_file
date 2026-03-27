@@ -1,7 +1,27 @@
 import { createCanvas, loadImage } from 'canvas';
 import db from '~/lib/Database/supabase';
+import {
+    drawImageLetterboxedInSquare,
+    SERVER_METADATA_SQUARE_SIZE,
+} from '~/lib/image/letterboxToSquare';
 import { canAccessFile } from '~/routes/Api/fun/accessControl';
 import { applyHeavyBlur } from '~/lib/blur/index';
+
+/** Fixes paths like `.../default_thumbnail.jpg/?quality=50` where a trailing slash breaks GitHub raw URLs. */
+function normalizeGithubImagePath(raw: string | undefined): string | undefined {
+    if (raw == null) return raw;
+    let p = raw.trim();
+    if (!p) return p;
+    try {
+        if (p.includes('%')) p = decodeURIComponent(p);
+    } catch {
+        /* keep p */
+    }
+    while (p.length > 1 && p.endsWith('/')) {
+        p = p.slice(0, -1);
+    }
+    return p;
+}
 
 let sharpModule: any = null;
 const getSharp = async () => {
@@ -17,7 +37,13 @@ const getSharp = async () => {
 
 
 const retryCountLimit = 3;
-const loadImageWithRetry = async (splitUrl: string, qualityParam: string | null, shouldBlur: boolean = false, retryCount: number = 0): Promise<Response> => {
+const loadImageWithRetry = async (
+    splitUrl: string,
+    qualityParam: string | null,
+    shouldBlur: boolean = false,
+    isMetadata: boolean = false,
+    retryCount: number = 0
+): Promise<Response> => {
     const tryLoadImage = async (urlPath: string): Promise<Response> => {
         const videoUrl = `https://github.com/${process.env.GITHUB_OWNER}/Memories/raw/main/${urlPath}`;
         const response = await fetch(videoUrl);
@@ -79,6 +105,11 @@ const loadImageWithRetry = async (splitUrl: string, qualityParam: string | null,
         if (shouldBlur) {
             needsProcessing = true;
         }
+
+        // Metadata / OG thumbnails: always run through canvas (letterboxed square), never raw WebP passthrough
+        if (isMetadata) {
+            needsProcessing = true;
+        }
         
         // Only return unprocessed WebP if we don't need processing AND blur is not required
         if (isWebP && !needsProcessing && !shouldBlur) {
@@ -86,6 +117,18 @@ const loadImageWithRetry = async (splitUrl: string, qualityParam: string | null,
                 status: 200,
                 headers: {
                     'Content-Type': 'image/webp',
+                    'Access-Control-Allow-Origin': '*',
+                    'Cache-Control': 'public, max-age=31536000, immutable',
+                },
+            });
+        }
+
+        // Preserve animated GIF when not resizing/blurring/metadata (canvas path is first-frame-only / PNG).
+        if (isGIF && !needsProcessing && !shouldBlur && !isMetadata) {
+            return new Response(new Uint8Array(buffer), {
+                status: 200,
+                headers: {
+                    'Content-Type': 'image/gif',
                     'Access-Control-Allow-Origin': '*',
                     'Cache-Control': 'public, max-age=31536000, immutable',
                 },
@@ -105,30 +148,50 @@ const loadImageWithRetry = async (splitUrl: string, qualityParam: string | null,
                 );
             }
         }
+
+        // Animated GIF + resize/blur/metadata: rasterize first page with sharp when available (canvas is flaky on some GIFs).
+        if (isGIF && needsProcessing) {
+            const sharp = await getSharp();
+            if (sharp) {
+                try {
+                    const pngBuffer = await sharp(buffer, { pages: 1 }).png().toBuffer();
+                    buffer = Buffer.from(pngBuffer);
+                } catch {
+                    /* fall through to loadImage */
+                }
+            }
+        }
     
         let image;
         try {
             image = await loadImage(buffer);
-        } catch (loadError: any) {
+        } catch (loadError: unknown) {
             const hexPreview = buffer.slice(0, 16).toString('hex');
             const detectedFormat = isPNG ? 'PNG' : isJPEG ? 'JPEG' : isGIF ? 'GIF' : isWebP ? 'WebP' : 'Unknown';
-            
-            throw new Error(
-                `Failed to load image (detected as ${detectedFormat}). ` +
-                `Content-Type: ${contentType}, ` +
-                `First bytes (hex): ${hexPreview}, ` +
-                `Buffer size: ${buffer.length}, ` +
-                `URL: ${videoUrl}, ` +
-                `Error: ${loadError?.message || 'Unknown error'}`
-            );
+            console.error('[load/image] decode failed', {
+                detectedFormat,
+                contentType,
+                hexPreview,
+                bufferLength: buffer.length,
+                videoUrl,
+                loadError,
+            });
+            throw new Error('Failed to decode image');
         }
 
-        const canvas = createCanvas(
-            Math.round(image.width * scale),
-            Math.round(image.height * scale)
-        );
-        const ctx = canvas.getContext('2d');
-        ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
+        let canvas;
+        if (isMetadata) {
+            const S = SERVER_METADATA_SQUARE_SIZE;
+            canvas = createCanvas(S, S);
+            const ctx = canvas.getContext('2d');
+            drawImageLetterboxedInSquare(ctx, image, S, scale);
+        } else {
+            const w = Math.max(1, Math.round(image.width * scale));
+            const h = Math.max(1, Math.round(image.height * scale));
+            canvas = createCanvas(w, h);
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
+        }
         
         // SECURITY: CRITICAL - Always apply blur if required, regardless of quality parameter
         // This ensures access control cannot be bypassed via ?quality= parameter
@@ -156,7 +219,9 @@ const loadImageWithRetry = async (splitUrl: string, qualityParam: string | null,
         return await tryLoadImage(splitUrl);
     } catch (error) {
         if (retryCount >= retryCountLimit) {
-            throw new Error('All the attempts to load the image have failed!', { cause: { splitUrl, qualityParam, shouldBlur, retryCount } });
+            throw new Error('All the attempts to load the image have failed!', {
+                cause: { splitUrl, qualityParam, shouldBlur, isMetadata, retryCount },
+            });
         }
 
         let modifiedUrl: string | null = null;
@@ -177,10 +242,12 @@ const loadImageWithRetry = async (splitUrl: string, qualityParam: string | null,
         }
 
         if (!modifiedUrl) {
-            throw new Error('All the attempts to load the image have failed!', { cause: { splitUrl, qualityParam, shouldBlur, retryCount } });
+            throw new Error('All the attempts to load the image have failed!', {
+                cause: { splitUrl, qualityParam, shouldBlur, isMetadata, retryCount },
+            });
         }
 
-        return await loadImageWithRetry(modifiedUrl, qualityParam, shouldBlur, retryCount + 1);
+        return await loadImageWithRetry(modifiedUrl, qualityParam, shouldBlur, isMetadata, retryCount + 1);
     }
 };
 
@@ -367,15 +434,24 @@ export const loader = async ({ request }: { request: Request }) => {
         const url = new URL(request.url);
         const qualityParam = url.searchParams.get('quality');
         const textParam = url.searchParams.get('text');
+        const isMetadata = url.searchParams.get('is_metadata') === 'true';
         
         // Handle text-to-image generation
         if (textParam) {
           return createTextImage(textParam);
         }
         
-        let splitUrl = request.url?.split('/api/load/image/')[1]?.split('?')[0];
-        if(splitUrl?.includes(`%`)){
-            splitUrl = decodeURIComponent(splitUrl)
+        let splitUrl = normalizeGithubImagePath(
+            request.url?.split('/api/load/image/')[1]?.split('?')[0],
+        );
+
+        if (!splitUrl) {
+            return new Response(null, { status: 404 });
+        }
+
+        // Comment images are public — no access control needed, just proxy from GitHub
+        if (splitUrl.startsWith('comment-images/')) {
+            return await loadImageWithRetry(splitUrl, qualityParam, false, isMetadata);
         }
 
         // SECURITY: CRITICAL - Check access BEFORE fetching image from GitHub
@@ -384,7 +460,7 @@ export const loader = async ({ request }: { request: Request }) => {
         if(!file){
             return new Response(null, { status: 404 });
         }
-        
+
         // Determine if we should blur the image BEFORE fetching
         // SECURITY: Check access before fetching to enforce access control
         let shouldBlur = false;
@@ -404,7 +480,7 @@ export const loader = async ({ request }: { request: Request }) => {
             }
         }
 
-        if (splitUrl?.toLowerCase().endsWith('.json')) {
+        if (splitUrl.toLowerCase().endsWith('.json')) {
             const jsonUrl = `https://github.com/${process.env.GITHUB_OWNER}/Memories/raw/main/${splitUrl}`;
             const res = await fetch(jsonUrl);
             if (!res.ok) return new Response(null, { status: res.status });
@@ -419,7 +495,7 @@ export const loader = async ({ request }: { request: Request }) => {
         }
 
         // SECURITY: Now fetch image with shouldBlur flag already determined
-        return await loadImageWithRetry(splitUrl, qualityParam, shouldBlur);
+        return await loadImageWithRetry(splitUrl, qualityParam, shouldBlur, isMetadata);
     } catch (error) {
         // console.error('Error loading image:', error)
         return new Response(null, { status: 500 });

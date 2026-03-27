@@ -228,8 +228,8 @@ function PlayerInner({
 
   useEffect(() => {
     const prefix =
-      file?.thumbnails?.length && typeof file.thumbnails[0] === 'string'
-        ? file.thumbnails[0].replace(/[^/]+$/, '')
+      file?.default_thumbnail && typeof file.default_thumbnail === 'string'
+        ? file.default_thumbnail.replace(/[^/]+$/, '')
         : '';
     if (!prefix) return;
     const loadSpriteMeta = async () => {
@@ -246,7 +246,7 @@ function PlayerInner({
       } catch {}
     };
     loadSpriteMeta();
-  }, [file?.thumbnails, setSpriteMeta, setSpriteUrl]);
+  }, [file?.default_thumbnail, setSpriteMeta, setSpriteUrl]);
 
   const performSeekByTap = useCallback(
     (clientX: number) => {

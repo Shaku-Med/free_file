@@ -1,17 +1,21 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { MessageSquare, Loader2 } from "lucide-react";
-import { Button } from "~/components/ui/button";
 import { Separator } from "~/components/ui/separator";
 import CommentItem from "./CommentItem";
 import CommentForm from "./CommentForm";
-import type { CommentGif } from "./CommentForm";
+import type { CommentGif, CommentImage } from "./CommentForm";
 import type { Comment } from "~/lib/Services/CommentService";
 interface CommentSectionProps {
   fileId: string;
   currentUserId?: string;
+  fileOwnerId?: string;
   isReel?: boolean;
+  commentsEnabled?: boolean;
   /** From `?comment=` — scroll to this comment and emphasize it (e.g. notification deep link). */
   highlightCommentId?: string | null;
+  /** GitHub folder for comment images (`DD_MM_YYYY`), same as the parent file upload. */
+  commentImageDateFolder?: string;
+  commentImageFileUniqueId?: string;
 }
 
 /** Normalize API comment to full Comment shape (replies, counts, etc.) */
@@ -34,6 +38,9 @@ function normalizeComment(raw: Record<string, unknown>): Comment {
     gif_id: (raw.gif_id as string | null) ?? null,
     gif_url: (raw.gif_url as string | null) ?? null,
     gif_preview_url: (raw.gif_preview_url as string | null) ?? null,
+    image_url: (raw.image_url as string | null) ?? null,
+    image_type: (raw.image_type as string | null) ?? null,
+    is_hidden: Boolean(raw.is_hidden),
   };
 }
 
@@ -62,41 +69,15 @@ function updateCommentInTree(comments: Comment[], commentId: string, updates: Pa
   });
 }
 
-/** Immutably remove a comment; returns { comments, countDelta } (delta is -1 for one removed). */
-function removeCommentFromTree(comments: Comment[], commentId: string): { comments: Comment[]; countDelta: number } {
-  const topLevel = comments.findIndex((c) => c.id === commentId);
-  if (topLevel >= 0) {
-    return {
-      comments: comments.filter((_, i) => i !== topLevel),
-      countDelta: -1,
-    };
-  }
-  let countDelta = 0;
-  const next = comments.map((c) => {
-    if (c.replies?.length) {
-      const inReplies = c.replies.some((r) => r.id === commentId);
-      if (inReplies) {
-        countDelta = -1;
-        return {
-          ...c,
-          replies: c.replies!.filter((r) => r.id !== commentId),
-          reply_count: Math.max(0, (c.reply_count ?? 0) - 1),
-        };
-      }
-      const { comments: newReplies, countDelta: d } = removeCommentFromTree(c.replies!, commentId);
-      countDelta += d;
-      return { ...c, replies: newReplies };
-    }
-    return c;
-  });
-  return { comments: next, countDelta };
-}
-
 const CommentSection = ({
   fileId,
   currentUserId: initialUserId,
+  fileOwnerId,
   isReel = false,
+  commentsEnabled = true,
   highlightCommentId = null,
+  commentImageDateFolder,
+  commentImageFileUniqueId,
 }: CommentSectionProps) => {
   const [comments, setComments] = useState<Comment[]>([]);
   const [totalCount, setTotalCount] = useState(0);
@@ -121,19 +102,28 @@ const CommentSection = ({
         credentials: "include",
       });
 
+      const result = await response.json().catch(() => null);
       if (!response.ok) {
-        throw new Error("Failed to fetch comments");
+        const msg = result && typeof result === "object" && "error" in result && typeof (result as { error?: string }).error === "string"
+          ? (result as { error: string }).error
+          : "Failed to fetch comments";
+        throw new Error(msg);
       }
 
-      const result = await response.json();
-      if (result.success) {
+      if (result?.success) {
         setComments(Array.isArray(result.data) ? result.data : []);
         setTotalCount(typeof result.totalCount === "number" ? result.totalCount : result.data?.length ?? 0);
         setError(null);
+      } else {
+        throw new Error(
+          result && typeof result === "object" && "error" in result && typeof (result as { error?: string }).error === "string"
+            ? (result as { error: string }).error
+            : "Failed to load comments"
+        );
       }
     } catch (err) {
       console.error("Error fetching comments:", err);
-      setError("Failed to load comments");
+      setError(err instanceof Error ? err.message : "Failed to load comments");
     } finally {
       setIsLoading(false);
     }
@@ -155,7 +145,7 @@ const CommentSection = ({
   }, [highlightCommentId, isLoading, comments]);
 
   const handleSubmit = useCallback(
-    async (content: string, parentId?: string | null, gif?: CommentGif | null) => {
+    async (content: string, parentId?: string | null, gif?: CommentGif | null, image?: CommentImage | null) => {
       if (!currentUserId) {
         window.location.href = "/auth/login";
         return;
@@ -167,11 +157,13 @@ const CommentSection = ({
         const response = await fetch("/api/comments", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
+          credentials: "include",
           body: JSON.stringify({
             fileId,
             content: content || "",
             parentId: parentId || null,
             gif: gif ? { id: gif.id, url: gif.url, previewUrl: gif.previewUrl } : undefined,
+            image: image ? { url: image.url, type: image.type } : undefined,
           }),
         });
 
@@ -206,8 +198,8 @@ const CommentSection = ({
   );
 
   const handleReply = useCallback(
-    async (parentId: string, content: string, gif?: CommentGif | null) => {
-      await handleSubmit(content, parentId, gif);
+    async (parentId: string, content: string, gif?: CommentGif | null, image?: CommentImage | null) => {
+      await handleSubmit(content, parentId, gif, image);
     },
     [handleSubmit]
   );
@@ -275,6 +267,7 @@ const CommentSection = ({
         const response = await fetch("/api/comments", {
           method: "DELETE",
           headers: { "Content-Type": "application/json" },
+          credentials: "include",
           body: JSON.stringify({ commentId }),
         });
 
@@ -283,15 +276,40 @@ const CommentSection = ({
           throw new Error(errBody.error || "Failed to delete comment");
         }
 
-        const { comments: next, countDelta } = removeCommentFromTree(comments, commentId);
-        setComments(next);
-        setTotalCount((n) => Math.max(0, n + countDelta));
+        // Server cascades soft-delete to all nested replies — refetch to stay in sync
+        await fetchComments();
       } catch (err) {
         console.error("Error deleting comment:", err);
         setError("Failed to delete comment");
       }
     },
-    [currentUserId, comments]
+    [currentUserId, fetchComments]
+  );
+
+  const handleHide = useCallback(
+    async (commentId: string, hidden: boolean) => {
+      if (!currentUserId) return;
+      setError(null);
+      try {
+        const response = await fetch("/api/comments", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({ commentId, hidden }),
+        });
+        if (!response.ok) {
+          const errBody = await response.json();
+          throw new Error(errBody.error || "Failed to hide comment");
+        }
+        setComments((prev) =>
+          updateCommentInTree(prev, commentId, { is_hidden: hidden })
+        );
+      } catch (err) {
+        console.error("Error hiding comment:", err);
+        setError("Failed to hide comment");
+      }
+    },
+    [currentUserId]
   );
 
   return (
@@ -312,25 +330,22 @@ const CommentSection = ({
 
       <Separator />
 
-      {currentUserId ? (
-        <CommentForm
-          fileId={fileId}
-          onSubmit={(content, gif) => handleSubmit(content, undefined, gif)}
-        />
-      ) : (
-        <div className="bg-muted/50 rounded-lg p-4 text-center">
-          <p className="text-sm text-muted-foreground mb-2">
-            Please log in to comment
+      {!commentsEnabled && currentUserId && (
+        <div className="bg-muted/40 rounded-lg border border-border/50 px-3 py-2.5 text-center">
+          <p className="text-sm text-muted-foreground">
+            New comments and replies are disabled. Existing comments stay visible below.
           </p>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => (window.location.href = "/auth/login")}
-          >
-            Login
-          </Button>
         </div>
       )}
+
+      {commentsEnabled && currentUserId ? (
+        <CommentForm
+          fileId={fileId}
+          onSubmit={(content, gif, image) => handleSubmit(content, undefined, gif, image)}
+          imageUploadDateFolder={commentImageDateFolder}
+          imageUploadUniqueId={commentImageFileUniqueId}
+        />
+      ) : null}
 
       {error && (
         <div className="bg-destructive/10 text-destructive text-sm p-3 rounded-lg">
@@ -345,7 +360,11 @@ const CommentSection = ({
       ) : (comments.length === 0 || totalCount === 0) ? (
         <div className="text-center py-8 text-muted-foreground">
           <MessageSquare className="h-12 w-12 mx-auto mb-2 opacity-50" />
-          <p>No comments yet. Be the first to comment!</p>
+          <p>
+            {!currentUserId || !commentsEnabled
+              ? "No comments on this upload yet."
+              : "No comments yet. Be the first to comment!"}
+          </p>
         </div>
       ) : (
         <div className="space-y-4">
@@ -354,10 +373,15 @@ const CommentSection = ({
               key={comment.id}
               comment={comment}
               currentUserId={currentUserId}
+              fileOwnerId={fileOwnerId}
               fileId={fileId}
+              imageUploadDateFolder={commentImageDateFolder}
+              imageUploadUniqueId={commentImageFileUniqueId}
+              allowNewComments={Boolean(commentsEnabled && currentUserId)}
               onReply={handleReply}
               onEdit={handleEdit}
               onDelete={handleDelete}
+              onHide={handleHide}
               onLike={handleLike}
               highlightCommentId={highlightCommentId}
             />

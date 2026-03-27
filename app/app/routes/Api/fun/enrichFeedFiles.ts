@@ -68,7 +68,7 @@ export async function enrichFeedFilesWithInteractions(
       is_public: f.is_public,
       file_description: f.file_description,
       file_title: f.file_title || '',
-      thumbnails: f.thumbnails || [],
+      default_thumbnail: f.default_thumbnail || null,
       view_count: f.view_count,
       share_count: f.share_count,
       is_reel: f.is_reel,

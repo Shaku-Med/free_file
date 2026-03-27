@@ -22,6 +22,10 @@ export interface Comment {
   gif_id?: string | null;
   gif_url?: string | null;
   gif_preview_url?: string | null;
+  image_url?: string | null;
+  image_type?: string | null;
+  /** File owner moderation; only visible to the file owner in the API response */
+  is_hidden?: boolean;
 }
 
 export interface CreateCommentInput {
@@ -29,6 +33,7 @@ export interface CreateCommentInput {
   content: string;
   parentId?: string | null;
   gif?: { id: string; url: string; previewUrl: string } | null;
+  image?: { url: string; type: string } | null;
 }
 
 export interface CommentServiceResponse<T> {
@@ -42,13 +47,43 @@ export interface CommentsTreeResult {
   totalCount: number;
 }
 
+/** IDs of comments hidden by owner or under a hidden ancestor (for non-owner viewers). */
+function effectivelyHiddenCommentIds(
+  rows: Array<{ id: string; parent_id: string | null; is_hidden: boolean }>
+): Set<string> {
+  const hidden = new Set<string>();
+  for (const r of rows) {
+    if (r.is_hidden) hidden.add(r.id);
+  }
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const r of rows) {
+      if (r.parent_id && hidden.has(r.parent_id) && !hidden.has(r.id)) {
+        hidden.add(r.id);
+        changed = true;
+      }
+    }
+  }
+  return hidden;
+}
+
+const COMMENT_SELECT_BASE =
+  'id, user_id, file_id, content, parent_id, created_at, updated_at, is_edited, is_deleted, gif_id, gif_url, gif_preview_url, image_url, image_type';
+
+function isMissingIsHiddenColumnError(err: { message?: string; details?: string; hint?: string } | null): boolean {
+  if (!err) return false;
+  const text = `${err.message || ''} ${err.details || ''} ${err.hint || ''}`.toLowerCase();
+  return text.includes('is_hidden');
+}
+
 export class CommentService {
   /**
    * Fetches all comments (including nested) via get_comments RPC, builds tree, returns total count.
    */
   async getCommentsByFileId(fileId: string, limit: number = 50, offset: number = 0): Promise<CommentServiceResponse<Comment[]>> {
     const result = await this.getCommentsTreeByFileId(fileId, limit, offset);
-    if (result.error || !result.data) return { data: result.data, error: result.error };
+    if (result.error || !result.data) return { data: null, error: result.error };
     return { data: result.data.data, error: null };
   }
 
@@ -70,19 +105,36 @@ export class CommentService {
       }
 
       const maxComments = 500;
-      const { data: rows, error } = await db
+      let rows: unknown[] | null = null;
+      let fetchError = null as { message?: string; details?: string; hint?: string } | null;
+
+      const resFull = await db
         .from('comments')
-        .select('id, user_id, file_id, content, parent_id, created_at, updated_at, is_edited, is_deleted, gif_id, gif_url, gif_preview_url')
+        .select(`${COMMENT_SELECT_BASE}, is_hidden`)
         .eq('file_id', fileId)
         .eq('is_deleted', false)
         .limit(maxComments);
 
-      if (error) {
-        console.error('Error fetching comments:', error);
+      if (resFull.error && isMissingIsHiddenColumnError(resFull.error)) {
+        const resBase = await db
+          .from('comments')
+          .select(COMMENT_SELECT_BASE)
+          .eq('file_id', fileId)
+          .eq('is_deleted', false)
+          .limit(maxComments);
+        rows = resBase.data;
+        fetchError = resBase.error;
+      } else {
+        rows = resFull.data;
+        fetchError = resFull.error;
+      }
+
+      if (fetchError) {
+        console.error('Error fetching comments:', fetchError);
         return { data: null, error: 'Failed to fetch comments' };
       }
 
-      const list = (rows || []) as Array<{
+      const rawList = (rows || []) as Array<{
         id: string;
         user_id: string;
         file_id: string;
@@ -92,10 +144,29 @@ export class CommentService {
         updated_at: string;
         is_edited: boolean;
         is_deleted: boolean;
+        is_hidden?: boolean;
         gif_id?: string | null;
         gif_url?: string | null;
         gif_preview_url?: string | null;
+        image_url?: string | null;
+        image_type?: string | null;
       }>;
+
+      const { data: ownerFile } = await db.from('files').select('owner_id').eq('id', fileId).maybeSingle();
+      const fileOwnerId = ownerFile?.owner_id as string | undefined;
+      const viewerIsFileOwner = Boolean(currentUserId && fileOwnerId && currentUserId === fileOwnerId);
+
+      let list = rawList;
+      if (!viewerIsFileOwner && rawList.length > 0) {
+        const hiddenIds = effectivelyHiddenCommentIds(
+          rawList.map((r) => ({
+            id: r.id,
+            parent_id: r.parent_id,
+            is_hidden: Boolean(r.is_hidden),
+          }))
+        );
+        list = rawList.filter((r) => !hiddenIds.has(r.id));
+      }
 
       const totalCount = list.length;
       const userIds = [...new Set(list.map((r) => r.user_id))];
@@ -153,6 +224,9 @@ export class CommentService {
           gif_id: row.gif_id ?? undefined,
           gif_url: row.gif_url ?? undefined,
           gif_preview_url: row.gif_preview_url ?? undefined,
+          image_url: row.image_url ?? undefined,
+          image_type: row.image_type ?? undefined,
+          ...(viewerIsFileOwner ? { is_hidden: Boolean(row.is_hidden) } : {}),
         };
         byId.set(row.id, comment);
       }
@@ -277,8 +351,9 @@ export class CommentService {
 
       const hasText = input.content != null && input.content.trim().length > 0;
       const hasGif = input.gif != null && input.gif.id && input.gif.url;
-      if (!hasText && !hasGif) {
-        return { data: null, error: 'Comment must have text or a GIF' };
+      const hasImage = input.image != null && input.image.url;
+      if (!hasText && !hasGif && !hasImage) {
+        return { data: null, error: 'Comment must have text, a GIF, or an image' };
       }
       if (hasText && input.content!.length > 2000) {
         return { data: null, error: 'Comment content exceeds maximum length' };
@@ -295,6 +370,10 @@ export class CommentService {
         payload.gif_url = input.gif!.url;
         payload.gif_preview_url = input.gif!.previewUrl || input.gif!.url;
       }
+      if (hasImage) {
+        payload.image_url = input.image!.url;
+        payload.image_type = input.image!.type || 'image/jpeg';
+      }
 
       const { data: insertedData, error: insertError } = await db
         .from('comments')
@@ -303,7 +382,8 @@ export class CommentService {
         .single();
 
       if (insertError || !insertedData) {
-        return { data: null, error: insertError?.message || 'Failed to create comment' };
+        if (insertError) console.error('createComment insert:', insertError);
+        return { data: null, error: 'Failed to create comment' };
       }
 
       const { data: userData, error: userError } = await db
@@ -371,7 +451,8 @@ export class CommentService {
         .single();
 
       if (updateError || !updatedData) {
-        return { data: null, error: updateError?.message || 'Failed to update comment' };
+        if (updateError) console.error('updateComment update:', updateError);
+        return { data: null, error: 'Failed to update comment' };
       }
 
       const { data: userData, error: userError } = await db
@@ -397,6 +478,10 @@ export class CommentService {
     }
   }
 
+  /**
+   * Delete a comment. Allowed for the comment author OR the file owner.
+   * When a parent comment is deleted, all nested replies are also deleted.
+   */
   async deleteComment(userId: string, commentId: string): Promise<CommentServiceResponse<boolean>> {
     try {
       if (!db) {
@@ -405,7 +490,7 @@ export class CommentService {
 
       const { data: existingComment } = await db
         .from('comments')
-        .select('user_id')
+        .select('user_id, file_id')
         .eq('id', commentId)
         .eq('is_deleted', false)
         .single();
@@ -414,19 +499,42 @@ export class CommentService {
         return { data: null, error: 'Comment not found' };
       }
 
-      if (existingComment.user_id !== userId) {
+      // Check: user is either the comment author or the file owner
+      const isCommentAuthor = existingComment.user_id === userId;
+      let isFileOwner = false;
+      if (!isCommentAuthor) {
+        const { data: fileRow } = await db
+          .from('files')
+          .select('owner_id')
+          .eq('id', existingComment.file_id)
+          .single();
+        isFileOwner = fileRow?.owner_id === userId;
+      }
+
+      if (!isCommentAuthor && !isFileOwner) {
         return { data: null, error: 'Unauthorized' };
       }
 
-      const { error } = await db
-        .from('comments')
-        .update({ is_deleted: true })
-        .eq('id', commentId)
-        .eq('user_id', userId);
+      // Soft-delete this comment and all nested replies recursively
+      const { error } = await db.rpc('delete_comment_cascade', {
+        p_comment_id: commentId,
+      });
 
       if (error) {
-        console.error('Error deleting comment:', error);
-        return { data: null, error: 'Failed to delete comment' };
+        // Fallback: just delete the single comment if RPC doesn't exist yet
+        if (error.code === 'PGRST202') {
+          const { error: fallbackError } = await db
+            .from('comments')
+            .update({ is_deleted: true })
+            .eq('id', commentId);
+          if (fallbackError) {
+            console.error('Error deleting comment:', fallbackError);
+            return { data: null, error: 'Failed to delete comment' };
+          }
+        } else {
+          console.error('Error deleting comment cascade:', error);
+          return { data: null, error: 'Failed to delete comment' };
+        }
       }
 
       return { data: true, error: null };
@@ -436,24 +544,110 @@ export class CommentService {
     }
   }
 
-  async getCommentsCount(fileId: string): Promise<CommentServiceResponse<number>> {
+  /**
+   * Hide/unhide a comment. Only the file owner can do this.
+   */
+  async hideComment(userId: string, commentId: string, hidden: boolean): Promise<CommentServiceResponse<boolean>> {
     try {
       if (!db) {
         return { data: null, error: 'Database not initialized' };
       }
 
-      const { count, error } = await db
+      const { data: existingComment } = await db
         .from('comments')
-        .select('*', { count: 'exact', head: true })
-        .eq('file_id', fileId)
-        .eq('is_deleted', false);
+        .select('file_id')
+        .eq('id', commentId)
+        .eq('is_deleted', false)
+        .single();
+
+      if (!existingComment) {
+        return { data: null, error: 'Comment not found' };
+      }
+
+      const { data: fileRow } = await db
+        .from('files')
+        .select('owner_id')
+        .eq('id', existingComment.file_id)
+        .single();
+
+      if (fileRow?.owner_id !== userId) {
+        return { data: null, error: 'Only the file owner can hide comments' };
+      }
+
+      const { error } = await db
+        .from('comments')
+        .update({ is_hidden: hidden })
+        .eq('id', commentId);
 
       if (error) {
-        console.error('Error counting comments:', error);
+        console.error('Error hiding comment:', error);
+        return { data: null, error: 'Failed to hide comment' };
+      }
+
+      return { data: true, error: null };
+    } catch (error) {
+      console.error('Error in hideComment:', error);
+      return { data: null, error: 'Internal server error' };
+    }
+  }
+
+  async getCommentsCount(
+    fileId: string,
+    viewerUserId?: string | null
+  ): Promise<CommentServiceResponse<number>> {
+    try {
+      if (!db) {
+        return { data: null, error: 'Database not initialized' };
+      }
+
+      const { data: ownerFile } = await db.from('files').select('owner_id').eq('id', fileId).maybeSingle();
+      const fileOwnerId = ownerFile?.owner_id as string | undefined;
+      const viewerIsFileOwner = Boolean(viewerUserId && fileOwnerId && viewerUserId === fileOwnerId);
+
+      if (viewerIsFileOwner) {
+        const { count, error } = await db
+          .from('comments')
+          .select('*', { count: 'exact', head: true })
+          .eq('file_id', fileId)
+          .eq('is_deleted', false);
+        if (error) {
+          console.error('Error counting comments:', error);
+          return { data: null, error: 'Failed to count comments' };
+        }
+        return { data: count || 0, error: null };
+      }
+
+      const resHidden = await db
+        .from('comments')
+        .select('id, parent_id, is_hidden')
+        .eq('file_id', fileId)
+        .eq('is_deleted', false)
+        .limit(5000);
+
+      if (resHidden.error && isMissingIsHiddenColumnError(resHidden.error)) {
+        const { count, error: cErr } = await db
+          .from('comments')
+          .select('*', { count: 'exact', head: true })
+          .eq('file_id', fileId)
+          .eq('is_deleted', false);
+        if (cErr) {
+          console.error('Error counting comments:', cErr);
+          return { data: null, error: 'Failed to count comments' };
+        }
+        return { data: count || 0, error: null };
+      }
+
+      if (resHidden.error) {
+        console.error('Error counting comments:', resHidden.error);
         return { data: null, error: 'Failed to count comments' };
       }
 
-      return { data: count || 0, error: null };
+      const list = (resHidden.data || []) as Array<{ id: string; parent_id: string | null; is_hidden?: boolean }>;
+      const hiddenIds = effectivelyHiddenCommentIds(
+        list.map((r) => ({ id: r.id, parent_id: r.parent_id, is_hidden: Boolean(r.is_hidden) }))
+      );
+      const visible = list.filter((r) => !hiddenIds.has(r.id)).length;
+      return { data: visible, error: null };
     } catch (error) {
       console.error('Error in getCommentsCount:', error);
       return { data: null, error: 'Internal server error' };

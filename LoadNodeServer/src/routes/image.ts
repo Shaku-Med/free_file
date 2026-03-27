@@ -8,6 +8,21 @@ import { applyHeavyBlur } from '../utils/blur/index.js';
 
 const router = express.Router();
 
+/** Fixes paths like `.../default_thumbnail.jpg/?quality=50` where a trailing slash breaks GitHub raw URLs. */
+function normalizeGithubImagePath(raw: string | undefined): string | undefined {
+    if (raw == null) return raw;
+    let p = raw.trim();
+    if (!p) return p;
+    try {
+        if (p.includes('%')) p = decodeURIComponent(p);
+    } catch {
+        /* keep p */
+    }
+    while (p.length > 1 && p.endsWith('/')) {
+        p = p.slice(0, -1);
+    }
+    return p;
+}
 
 let sharpModule: any = null;
 const getSharp = async () => {
@@ -94,6 +109,15 @@ const loadImageWithRetry = async (splitUrl: string, qualityParam: string | null,
                 cacheControl: 'public, max-age=31536000, immutable'
             };
         }
+
+        // Preserve animated GIF when not resizing/blurring (canvas path is first-frame-only / PNG).
+        if (isGIF && !needsProcessing && !shouldBlur) {
+            return {
+                buffer: buffer,
+                contentType: 'image/gif',
+                cacheControl: 'public, max-age=31536000, immutable'
+            };
+        }
         
         if (isWebP && needsProcessing) {
             const sharp = await getSharp();
@@ -106,6 +130,18 @@ const loadImageWithRetry = async (splitUrl: string, qualityParam: string | null,
                     `Install 'sharp' package for WebP support. ` +
                     `URL: ${videoUrl}`
                 );
+            }
+        }
+
+        if (isGIF && needsProcessing) {
+            const sharp = await getSharp();
+            if (sharp) {
+                try {
+                    const pngBuffer = await sharp(buffer, { pages: 1 }).png().toBuffer();
+                    buffer = Buffer.from(pngBuffer);
+                } catch {
+                    /* fall through to loadImage */
+                }
             }
         }
     
@@ -126,10 +162,9 @@ const loadImageWithRetry = async (splitUrl: string, qualityParam: string | null,
             );
         }
 
-        const canvas = createCanvas(
-            Math.round(image.width * scale),
-            Math.round(image.height * scale)
-        );
+        const w = Math.max(1, Math.round(image.width * scale));
+        const h = Math.max(1, Math.round(image.height * scale));
+        const canvas = createCanvas(w, h);
         const ctx = canvas.getContext('2d');
         ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
         
@@ -378,13 +413,26 @@ router.get('/*', async (req: Request, res: Response) => {
             return res.send(buffer);
         }
         
-        let splitUrl = req.path.substring(1);
-        // Remove query string if present (shouldn't be in req.path, but be safe)
-        if (splitUrl.includes('?')) {
-            splitUrl = splitUrl.split('?')[0];
+        let rawPath = req.path.startsWith('/') ? req.path.substring(1) : req.path;
+        if (rawPath.includes('?')) {
+            rawPath = rawPath.split('?')[0];
         }
-        if (splitUrl.includes(`%`)) {
-            splitUrl = decodeURIComponent(splitUrl);
+        const splitUrl = normalizeGithubImagePath(rawPath);
+
+        if (!splitUrl) {
+            return res.status(404).send(null);
+        }
+
+        // Comment images are public — no access control needed, just proxy from GitHub
+        if (splitUrl.startsWith('comment-images/')) {
+            const result = await loadImageWithRetry(splitUrl, qualityParam, false);
+            res.set({
+                'Content-Type': result.contentType,
+                'Cache-Control': result.cacheControl,
+                'CDN-Cache-Control': 'no-store',
+                'Vercel-CDN-Cache-Control': 'no-store',
+            });
+            return res.send(result.buffer);
         }
 
         // SECURITY: CRITICAL - Check access BEFORE fetching image from GitHub
@@ -394,7 +442,7 @@ router.get('/*', async (req: Request, res: Response) => {
         if(!file){
             return res.status(404).send(null);
         }
-        
+
         // Determine if we should blur the image BEFORE fetching
         // SECURITY: Default to blurring if we can't verify the file exists
         let shouldBlur = false;

@@ -27,12 +27,97 @@ export const ParseFilename = (filename: string, showLimit?: number) => {
 }
 
 
-export const getRandomThumbnail = (thumbnails?: string[]): string | null => {
-  if (!thumbnails || thumbnails.length === 0) {
-    return null
+export const getDefaultThumbnail = (defaultThumbnail?: string | null): string | null => {
+  if (!defaultThumbnail) return null
+  // Strip surrounding JSON quotes that may leak from jsonb[] storage
+  const cleaned = defaultThumbnail.replace(/^"|"$/g, '')
+  return cleaned || null
+}
+
+/** @deprecated Use getDefaultThumbnail instead */
+export const getRandomThumbnail = getDefaultThumbnail
+
+/**
+ * Build the thumbnail image URL for a file.
+ * Prefers default_thumbnail; falls back to the legacy thumbnail_{filename} path.
+ */
+export function getThumbnailUrl(file: {
+  default_thumbnail?: string | null
+  thumbnails?: string[] | null
+  file_type?: string
+  endpoint?: string
+  created_at: string
+  unique_id: string
+  filename: string
+}, opts?: { retryAttempt?: number; baseUrl?: string; queryString?: string }): string {
+  const retry = opts?.retryAttempt ?? 0
+  const base = opts?.baseUrl ?? ''
+  const qs = opts?.queryString ?? ''
+
+  // Images use endpoint directly
+  if (file.file_type?.startsWith('image/') && file.endpoint) {
+    return `${base}/api/load/image/${file.endpoint}${qs}`
   }
-  const randomIndex = Math.floor(Math.random() * thumbnails.length)
-  return thumbnails[randomIndex]
+
+  const thumb = getDefaultThumbnail(file.default_thumbnail)
+  if (thumb) {
+    return `${base}/api/load/image/${thumb}${qs}`
+  }
+
+  // Fall back to thumbnail_preview.jpg from the thumbnails array (populated by the worker)
+  if (Array.isArray(file.thumbnails) && file.thumbnails.length > 0) {
+    const preview = file.thumbnails.find(t => t.endsWith('/thumbnail_preview.jpg') || t === 'thumbnail_preview.jpg')
+    if (preview) return `${base}/api/load/image/${preview}${qs}`
+    const first = file.thumbnails.find(t => /\/thumb_\d+\.jpg$/.test(t))
+    if (first) return `${base}/api/load/image/${first}${qs}`
+  }
+
+  // Legacy fallback (old naming scheme)
+  return `${base}/api/load/image/${arrangeDateForThumbnail(file.created_at, retry)}/${file.unique_id}/thumbnail_${ParseFilename(file.filename)}.jpg${qs}`
+}
+
+/** Directory prefix (with trailing slash) where waveform.png lives alongside thumbnails / HLS output. */
+function mediaPathDirPrefix(path: string): string | null {
+  const trimmed = path.trim()
+  if (!trimmed) return null
+  const lastSlash = trimmed.lastIndexOf('/')
+  if (lastSlash < 0) return null
+  return trimmed.slice(0, lastSlash + 1)
+}
+
+/**
+ * Resolve the storage folder for waveform.png (same logic order as getThumbnailUrl, plus HLS endpoint dirname).
+ */
+export function getWaveformImagePathPrefix(file: {
+  default_thumbnail?: string | null
+  thumbnails?: string[] | null
+  endpoint?: string | null
+  file_type?: string | null
+}): string | null {
+  const thumb = getDefaultThumbnail(file.default_thumbnail)
+  if (thumb) {
+    const prefix = mediaPathDirPrefix(thumb)
+    if (prefix) return prefix
+  }
+
+  if (Array.isArray(file.thumbnails) && file.thumbnails.length > 0) {
+    const preview = file.thumbnails.find((t) => t.endsWith('/thumbnail_preview.jpg') || t === 'thumbnail_preview.jpg')
+    const path = preview ?? file.thumbnails.find((t) => /\/thumb_\d+\.jpg$/.test(t)) ?? file.thumbnails[0]
+    if (path && typeof path === 'string') {
+      const prefix = mediaPathDirPrefix(path)
+      if (prefix) return prefix
+    }
+  }
+
+  const isHls =
+    file.file_type === 'application/vnd.apple.mpegurl' ||
+    (typeof file.endpoint === 'string' && file.endpoint.includes('.m3u8'))
+  if (isHls && file.endpoint) {
+    const prefix = mediaPathDirPrefix(file.endpoint.trim())
+    if (prefix) return prefix
+  }
+
+  return null
 }
 
 export function getVideoSrc(endpoint: string, fileType?: string): string {

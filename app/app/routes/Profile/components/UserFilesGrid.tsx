@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, useEffect, useMemo } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import type { FileType } from "~/lib/types";
 import VideoCard from "~/routes/Home/components/VideoCard";
 
@@ -26,10 +26,18 @@ interface UserFilesGridProps {
   initialHasMore?: boolean;
   /** When restoring from cache, pass the page we left off at so we can continue from there. */
   initialPage?: number;
-  /** Called after load more succeeds so the parent can update page cache. */
-  onCacheUpdate?: (payload: { files: FileType[]; currentPage: number; hasMore: boolean }) => void;
+  /** Called after load more succeeds so the parent can update page cache (include userActions so like state survives prop sync). */
+  onCacheUpdate?: (payload: {
+    files: FileType[];
+    currentPage: number;
+    hasMore: boolean;
+    userActions: { likedFileIds: string[]; dislikedFileIds: string[] };
+  }) => void;
   /** When true, scroll snap (or other layout) can be activated; wait for this before enabling. */
   dataReady?: boolean;
+  /** Section heading above the grid */
+  sectionTitle?: string;
+  emptyMessage?: string;
 }
 
 const UserFilesGrid = ({
@@ -41,6 +49,8 @@ const UserFilesGrid = ({
   initialPage = 1,
   onCacheUpdate,
   dataReady = true,
+  sectionTitle = "Uploads",
+  emptyMessage = "No uploads yet",
 }: UserFilesGridProps) => {
   const [files, setFiles] = useState<FileType[]>(initialFiles);
   const [isLoading, setIsLoading] = useState(false);
@@ -48,6 +58,7 @@ const UserFilesGrid = ({
   const [currentPage, setCurrentPage] = useState(initialPage);
   const observerRef = useRef<HTMLDivElement | null>(null);
   const loadingRef = useRef(false);
+  const lastProfileUserIdRef = useRef<string | null>(null);
   const [userActions, setUserActions] = useState<{ likedFileIds: Set<string>; dislikedFileIds: Set<string> } | undefined>(
     initialUserActions ? {
       likedFileIds: new Set(initialUserActions.likedFileIds),
@@ -55,25 +66,25 @@ const UserFilesGrid = ({
     } : undefined
   );
 
-  // Create a stable key based on userId and initial files to detect profile changes
-  const profileKey = useMemo(() => {
-    return `${userId}-${initialFiles.length}-${initialFiles[0]?.id || ''}`;
-  }, [userId, initialFiles]);
-
-  // Reset state when userId or initialFiles change (when navigating to different profile)
+  // Reset only when viewing a different profile (userId). Do not reset when parent passes a longer
+  // file list after load-more — that used to wipe merged like/dislike state from the API.
   useEffect(() => {
+    if (lastProfileUserIdRef.current === userId) return;
+    lastProfileUserIdRef.current = userId;
     setFiles(initialFiles);
     setCurrentPage(initialPage);
     setHasMore(initialHasMore ?? initialFiles.length >= 20);
     setIsLoading(false);
     loadingRef.current = false;
     setUserActions(
-      initialUserActions ? {
-        likedFileIds: new Set(initialUserActions.likedFileIds),
-        dislikedFileIds: new Set(initialUserActions.dislikedFileIds)
-      } : undefined
+      initialUserActions
+        ? {
+            likedFileIds: new Set(initialUserActions.likedFileIds),
+            dislikedFileIds: new Set(initialUserActions.dislikedFileIds),
+          }
+        : undefined
     );
-  }, [profileKey, userId, initialHasMore, initialPage]); // Reset when profile key changes
+  }, [userId, initialFiles, initialHasMore, initialPage, initialUserActions]);
 
   const loadMore = useCallback(async () => {
     if (loadingRef.current || !hasMore) return;
@@ -94,20 +105,38 @@ const UserFilesGrid = ({
       const result = await response.json();
 
       if (result.data && result.data.length > 0) {
-        setFiles(prev => {
-          const existingIds = new Set(prev.map(f => f.id || f.unique_id));
-          const newFiles = result.data.filter((file: FileType) =>
-            !existingIds.has(file.id || file.unique_id)
+        const likedFromPage = (result.userActions?.likedFileIds ?? []) as string[];
+        const dislikedFromPage = (result.userActions?.dislikedFileIds ?? []) as string[];
+
+        let cacheUserActions: { likedFileIds: string[]; dislikedFileIds: string[] } | undefined;
+        setUserActions((prev) => {
+          const newLikedIds = new Set(prev?.likedFileIds || []);
+          const newDislikedIds = new Set(prev?.dislikedFileIds || []);
+          likedFromPage.forEach((id: string) => newLikedIds.add(id));
+          dislikedFromPage.forEach((id: string) => newDislikedIds.add(id));
+          cacheUserActions = {
+            likedFileIds: [...newLikedIds],
+            dislikedFileIds: [...newDislikedIds],
+          };
+          return { likedFileIds: newLikedIds, dislikedFileIds: newDislikedIds };
+        });
+
+        setFiles((prev) => {
+          const existingIds = new Set(prev.map((f) => f.id || f.unique_id));
+          const newFiles = result.data.filter(
+            (file: FileType) => !existingIds.has(file.id || file.unique_id)
           );
           const merged = [...prev, ...newFiles];
 
-          // Defer cache update to after state settles
           setTimeout(() => {
-            onCacheUpdate?.({
-              files: merged,
-              currentPage: nextPage,
-              hasMore: result.pagination?.hasMore || false,
-            });
+            if (cacheUserActions) {
+              onCacheUpdate?.({
+                files: merged,
+                currentPage: nextPage,
+                hasMore: result.pagination?.hasMore || false,
+                userActions: cacheUserActions,
+              });
+            }
           }, 0);
 
           return merged;
@@ -115,17 +144,6 @@ const UserFilesGrid = ({
 
         setCurrentPage(nextPage);
         setHasMore(result.pagination?.hasMore || false);
-
-        // Merge user actions from API response
-        if (result.userActions) {
-          setUserActions(prev => {
-            const newLikedIds = new Set(prev?.likedFileIds || []);
-            const newDislikedIds = new Set(prev?.dislikedFileIds || []);
-            result.userActions.likedFileIds?.forEach((id: string) => newLikedIds.add(id));
-            result.userActions.dislikedFileIds?.forEach((id: string) => newDislikedIds.add(id));
-            return { likedFileIds: newLikedIds, dislikedFileIds: newDislikedIds };
-          });
-        }
       } else {
         setHasMore(false);
       }
@@ -164,15 +182,16 @@ const UserFilesGrid = ({
 
   if (files.length === 0) {
     return (
-      <div className="text-center py-12">
-        <p className="text-muted-foreground text-lg">No uploads yet</p>
+      <div className="space-y-6" data-data-ready={dataReady}>
+        <div className="text-center py-12">
+          <p className="text-muted-foreground text-lg">{emptyMessage}</p>
+        </div>
       </div>
     );
   }
 
   return (
     <div className="space-y-6" data-data-ready={dataReady}>
-      <h2 className="text-2xl font-semibold text-foreground">Uploads</h2>
       <div
         className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-3 gap-4"
         data-data-ready={dataReady}

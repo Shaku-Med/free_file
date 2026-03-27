@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { Link } from "react-router";
 import { Avatar, AvatarFallback, AvatarImage } from "~/components/ui/avatar";
 import { Button } from "~/components/ui/button";
-import { MoreVertical, Reply, Edit2, Trash2, Heart } from "lucide-react";
+import { MoreVertical, Reply, Edit2, Trash2, Heart, EyeOff, Eye } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -11,22 +11,29 @@ import {
 } from "~/components/ui/dropdown-menu";
 import type { Comment as CommentType } from "~/lib/Services/CommentService";
 import CommentForm from "./CommentForm";
-import type { CommentGif } from "./CommentForm";
+import type { CommentGif, CommentImage } from "./CommentForm";
 import { FormattedText } from "~/components/FormattedText";
 import { formatDistanceToNow } from "date-fns";
 import { getProfilePicUrl } from "~/lib/utils/profilePic";
 import { cn } from "~/lib/utils";
+import ImageLoad from "~/routes/Home/components/ImageLoad/ImageLoad";
 
 interface CommentItemProps {
   comment: CommentType;
   currentUserId?: string;
+  fileOwnerId?: string;
   fileId: string;
-  onReply: (parentId: string, content: string, gif?: CommentGif | null) => Promise<void>;
+  onReply: (parentId: string, content: string, gif?: CommentGif | null, image?: CommentImage | null) => Promise<void>;
   onEdit: (commentId: string, content: string) => Promise<void>;
   onDelete: (commentId: string) => Promise<void>;
+  onHide?: (commentId: string, hidden: boolean) => Promise<void>;
   onLike?: (commentId: string) => Promise<void>;
+  /** When false, hide reply UI (file owner disabled new comments) */
+  allowNewComments?: boolean;
   level?: number;
   highlightCommentId?: string | null;
+  imageUploadDateFolder?: string;
+  imageUploadUniqueId?: string;
 }
 
 function subtreeContainsHighlight(c: CommentType, targetId: string | null | undefined): boolean {
@@ -38,13 +45,18 @@ function subtreeContainsHighlight(c: CommentType, targetId: string | null | unde
 const CommentItem = ({
   comment,
   currentUserId,
+  fileOwnerId,
   fileId,
   onReply,
   onEdit,
   onDelete,
+  onHide,
   onLike,
+  allowNewComments = true,
   level = 0,
   highlightCommentId = null,
+  imageUploadDateFolder,
+  imageUploadUniqueId,
 }: CommentItemProps) => {
   const [isReplying, setIsReplying] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
@@ -61,13 +73,28 @@ const CommentItem = ({
   const lastTapPosRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
   const heartIdRef = useRef(0);
   const contentRef = useRef<HTMLDivElement>(null);
+  const [commentImageRetry, setCommentImageRetry] = useState(0);
+  const retryCommentImage = useCallback(() => {
+    setCommentImageRetry((n) => n + 1);
+  }, []);
 
   useEffect(() => {
     setLikeCount(comment.like_count ?? 0);
     setUserLiked(comment.user_has_liked ?? false);
   }, [comment.like_count, comment.user_has_liked]);
 
-  const isOwner = currentUserId === comment.user_id;
+  useEffect(() => {
+    setCommentImageRetry(0);
+  }, [comment.id, comment.image_url]);
+
+  useEffect(() => {
+    if (!allowNewComments) setIsReplying(false);
+  }, [allowNewComments]);
+
+  const isCommentOwner = currentUserId === comment.user_id;
+  const isFileOwner = Boolean(fileOwnerId && currentUserId === fileOwnerId);
+  const canModerate = isCommentOwner || isFileOwner;
+  const isHidden = Boolean(comment.is_hidden);
   const hasReplies = comment.replies && comment.replies.length > 0;
   const isHighlighted = Boolean(highlightCommentId && comment.id === highlightCommentId);
   const [showEmphasis, setShowEmphasis] = useState(isHighlighted);
@@ -82,8 +109,8 @@ const CommentItem = ({
     return () => window.clearTimeout(t);
   }, [isHighlighted, comment.id]);
 
-  const handleReply = async (content: string, gif?: CommentGif | null) => {
-    await onReply(comment.id, content, gif);
+  const handleReply = async (content: string, gif?: CommentGif | null, image?: CommentImage | null) => {
+    await onReply(comment.id, content, gif, image);
     setIsReplying(false);
     setShowReplies(true);
   };
@@ -225,6 +252,11 @@ const CommentItem = ({
                 {comment.is_edited && (
                   <span className="text-xs text-muted-foreground">(edited)</span>
                 )}
+                {isFileOwner && isHidden && (
+                  <span className="text-[10px] font-medium uppercase tracking-wide text-amber-600 dark:text-amber-400">
+                    Hidden
+                  </span>
+                )}
                 <span className="text-xs text-muted-foreground">
                   {formatDistanceToNow(new Date(comment.created_at), { addSuffix: true })}
                 </span>
@@ -235,6 +267,8 @@ const CommentItem = ({
                   onSubmit={handleEdit}
                   onCancel={() => setIsEditing(false)}
                   placeholder="Edit your comment..."
+                  imageUploadDateFolder={imageUploadDateFolder}
+                  imageUploadUniqueId={imageUploadUniqueId}
                 />
               ) : (
                 <div
@@ -254,6 +288,19 @@ const CommentItem = ({
                       alt="GIF"
                       className="max-h-40 w-auto rounded-lg border border-border object-cover"
                     />
+                  ) : null}
+                  {comment.image_url ? (
+                    <div className="inline-block max-w-full max-h-60 align-top">
+                      <ImageLoad
+                        key={`comment-img-${comment.id}-${commentImageRetry}`}
+                        link={`/api/load/image/${comment.image_url}`}
+                        imageID={`comment-img-${comment.id}`}
+                        retry={retryCommentImage}
+                        className="max-h-60 max-w-full rounded-lg border border-border object-contain"
+                        hasAdultTag={false}
+                        shouldShowPreview={true}
+                      />
+                    </div>
                   ) : null}
                   {/* Floating hearts on double-tap */}
                   {floatingHearts.length > 0 && (
@@ -279,7 +326,7 @@ const CommentItem = ({
                 </div>
               )}
             </div>
-            {isOwner && !isEditing && (
+            {canModerate && !isEditing && (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button variant="ghost" size="icon-sm" className="h-6 w-6">
@@ -287,14 +334,24 @@ const CommentItem = ({
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
-                  <DropdownMenuItem onClick={() => setIsEditing(true)}>
-                    <Edit2 className="h-4 w-4 mr-2" />
-                    Edit
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={handleDelete} className="text-destructive">
-                    <Trash2 className="h-4 w-4 mr-2" />
-                    Delete
-                  </DropdownMenuItem>
+                  {isCommentOwner && (
+                    <DropdownMenuItem onClick={() => setIsEditing(true)}>
+                      <Edit2 className="h-4 w-4 mr-2" />
+                      Edit
+                    </DropdownMenuItem>
+                  )}
+                  {isFileOwner && onHide && (
+                    <DropdownMenuItem onClick={() => onHide(comment.id, !isHidden)}>
+                      {isHidden ? <Eye className="h-4 w-4 mr-2" /> : <EyeOff className="h-4 w-4 mr-2" />}
+                      {isHidden ? "Unhide" : "Hide from others"}
+                    </DropdownMenuItem>
+                  )}
+                  {(isCommentOwner || isFileOwner) && (
+                    <DropdownMenuItem onClick={handleDelete} className="text-destructive">
+                      <Trash2 className="h-4 w-4 mr-2" />
+                      Delete
+                    </DropdownMenuItem>
+                  )}
                 </DropdownMenuContent>
               </DropdownMenu>
             )}
@@ -313,15 +370,17 @@ const CommentItem = ({
                   {likeCount > 0 ? likeCount : "Like"}
                 </Button>
               )}
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => setIsReplying(!isReplying)}
-                className="h-7 text-xs"
-              >
-                <Reply className="h-3 w-3 mr-1" />
-                Reply
-              </Button>
+              {allowNewComments && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setIsReplying(!isReplying)}
+                  className="h-7 text-xs"
+                >
+                  <Reply className="h-3 w-3 mr-1" />
+                  Reply
+                </Button>
+              )}
               {hasReplies && level === 0 && (
                 <Button
                   variant="ghost"
@@ -337,14 +396,16 @@ const CommentItem = ({
         </div>
       </div>
 
-      {isReplying && (
+      {allowNewComments && isReplying && (
         <div className="ml-11">
           <CommentForm
             fileId={fileId}
             parentId={comment.id}
-            onSubmit={(content, gif) => handleReply(content, gif)}
+            onSubmit={(content, gif, image) => handleReply(content, gif, image)}
             onCancel={() => setIsReplying(false)}
             placeholder="Write a reply..."
+            imageUploadDateFolder={imageUploadDateFolder}
+            imageUploadUniqueId={imageUploadUniqueId}
           />
         </div>
       )}
@@ -356,10 +417,15 @@ const CommentItem = ({
               key={reply.id}
               comment={reply}
               currentUserId={currentUserId}
+              fileOwnerId={fileOwnerId}
               fileId={fileId}
+              imageUploadDateFolder={imageUploadDateFolder}
+              imageUploadUniqueId={imageUploadUniqueId}
+              allowNewComments={allowNewComments}
               onReply={onReply}
               onEdit={onEdit}
               onDelete={onDelete}
+              onHide={onHide}
               onLike={onLike}
               level={level + 1}
               highlightCommentId={highlightCommentId}

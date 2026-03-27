@@ -112,6 +112,7 @@ export const action = async ({ request }: { request: Request }) => {
       console.error('Error incrementing views:', updateError);
       return toJson({ error: 'Failed to increment views' }, 500);
     }
+
     return toJson({ success: true, views: Number(updatedFile?.views || 0), view_count: Number(updatedFile?.view_count || 0), counted: true }, 200);
   } catch (error) {
     console.error('Error in views increment action:', error);

@@ -89,7 +89,7 @@ export default function Navbar({ hasScrolled = { state: false, opacityLevel: 0 }
             <div className="flex items-center min-w-0 shrink-0">
               <Link to="/" id="home_button" className="flex items-center gap-1.5 sm:gap-2 group min-w-0">
                 <Logo className="relative h-8 w-8 sm:h-10 sm:w-10 text-primary shrink-0" />
-                <span className="text-base sm:text-xl font-bold text-primary truncate">
+                <span className="text-base sm:text-xl font-bold text-primary truncate sm:block hidden">
                   Memories
                 </span>
               </Link>

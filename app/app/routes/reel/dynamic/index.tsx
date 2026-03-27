@@ -10,10 +10,9 @@ import type { FileType } from "~/lib/types";
 import { checkFileAccess } from "~/routes/Dynamic/fun/accessControl";
 import { BASE_URL } from "~/lib/URLS";
 import {
-  arrangeDateForThumbnail,
   ParseFilename,
-  getRandomThumbnail,
   getVideoSrc,
+  getThumbnailUrl,
 } from "~/lib/utils";
 import { formatNumber } from "~/lib/utils/formatNumber";
 import { ownerService } from "~/lib/Services/OwnerService";
@@ -126,17 +125,7 @@ export const meta: MetaFunction<typeof loader> = ({ data: loaderData }) => {
         ? `${file.file_description} | ${statsText}`
         : `${ParseFilename(file.filename || "")} | ${statsText} | ${file.file_type} | ${file.file_size}`;
 
-    let thumbnail = (() => {
-      if (file.file_type?.startsWith("image/") && file.endpoint) return `/api/load/image/${file.endpoint}`;
-      const randomThumbnail = getRandomThumbnail(file.thumbnails);
-      if (randomThumbnail) return `/api/load/image/${randomThumbnail}`;
-      const isHls =
-        file.file_type === "application/vnd.apple.mpegurl" || file.endpoint?.includes(".m3u8");
-      if (isHls)
-        return `/api/load/image/${arrangeDateForThumbnail(file.created_at)}/${file.unique_id}/thumbnail_${ParseFilename(file.filename)}.jpg`;
-      return `/api/load/image/${file.endpoint}`;
-    })();
-    thumbnail = `${thumbnail}?quality=50`;
+    const thumbnail = getThumbnailUrl(file, { queryString: '?quality=50' });
 
     const isVideo =
       file.file_type?.includes("video") ||

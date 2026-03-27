@@ -3,6 +3,7 @@ import type Hls from 'hls.js';
 import type { FileType } from '~/lib/types';
 import { isMobile } from 'react-device-detect';
 import { useFileContext } from '~/lib/Context/Context';
+import { getWaveformImagePathPrefix } from '~/lib/utils';
 
 export interface QualityLevel {
   height: number;
@@ -204,13 +205,15 @@ export function PlayerProvider({ children, src, file, imageID, isReel, loop: ini
   }, [playerSettings, videoRef]);
 
   const waveformUrl = useMemo(() => {
-    if (!file?.thumbnails?.length) return null;
-    const first = file.thumbnails[0];
-    if (typeof first !== 'string') return null;
-    const lastSlash = first.lastIndexOf('/');
-    const prefix = lastSlash >= 0 ? first.slice(0, lastSlash + 1) : '';
+    if (!file) return null;
+    const prefix = getWaveformImagePathPrefix({
+      default_thumbnail: file.default_thumbnail,
+      thumbnails: file.thumbnails,
+      endpoint: file.endpoint,
+      file_type: file.file_type,
+    });
     return prefix ? `/api/load/image/${prefix}waveform.png` : null;
-  }, [file?.thumbnails]);
+  }, [file?.id, file?.default_thumbnail, file?.thumbnails, file?.endpoint, file?.file_type]);
 
   const play = useCallback(() => {
     videoRef.current?.play().catch(() => {});

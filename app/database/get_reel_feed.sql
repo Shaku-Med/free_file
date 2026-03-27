@@ -31,7 +31,7 @@ RETURNS TABLE (
   is_public        boolean,
   file_description text,
   file_title       text,
-  thumbnails       jsonb[],
+  default_thumbnail text,
   view_count       numeric,
   share_count      numeric,
   is_reel          boolean,
@@ -103,7 +103,7 @@ BEGIN
       f.is_public,
       f.file_description,
       f.file_title,
-      f.thumbnails,
+      COALESCE(f.default_thumbnail, (SELECT t #>> '{}' FROM unnest(f.thumbnails) AS t WHERE (t #>> '{}') LIKE '%thumbnail_preview.jpg' LIMIT 1)) AS default_thumbnail,
       f.view_count,
       f.share_count,
       f.is_reel,
@@ -134,6 +134,7 @@ BEGIN
     WHERE f.is_public = true
       AND f.is_adult = false  -- HARD BLOCK: never show adult content in feeds
       AND f.upload_status = 'complete'
+      AND (f.series_id IS NULL OR f.is_series_main = true)  -- hide series sub-episodes
       AND f.is_reel = true
       AND (p_max_duration IS NULL OR f.duration IS NULL OR (f.duration IS NOT NULL AND f.duration <= p_max_duration))
       AND (p_category IS NULL OR f.categories @> to_jsonb(p_category)::jsonb)
@@ -219,7 +220,7 @@ BEGIN
     s.is_public,
     s.file_description,
     s.file_title,
-    s.thumbnails,
+    s.default_thumbnail,
     s.view_count,
     s.share_count,
     s.is_reel,
