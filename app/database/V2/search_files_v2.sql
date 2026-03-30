@@ -143,7 +143,7 @@ BEGIN
     WHERE f.is_public = true
       AND f.is_adult = false              -- HARD BLOCK: never show adult content
       AND f.upload_status = 'complete'
-      AND (f.series_id IS NULL OR f.is_series_main = true)  -- hide series sub-episodes
+      AND (f.is_series_main OR COALESCE(f.is_files_series_item, false) IS NOT TRUE)
       AND (p_file_type IS NULL OR f.file_type ILIKE (p_file_type || '%'))
       AND (p_category IS NULL OR f.categories @> to_jsonb(p_category)::jsonb)
       AND (

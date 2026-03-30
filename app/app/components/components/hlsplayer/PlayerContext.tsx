@@ -4,6 +4,10 @@ import type { FileType } from '~/lib/types';
 import { isMobile } from 'react-device-detect';
 import { useFileContext } from '~/lib/Context/Context';
 import { getWaveformImagePathPrefix } from '~/lib/utils';
+import {
+  type AudioVisualizerStyle,
+  DEFAULT_AUDIO_VISUALIZER_STYLE,
+} from './audioVisualizerStyles';
 
 export interface QualityLevel {
   height: number;
@@ -97,6 +101,10 @@ interface PlayerContextValue {
   setAmbientColors: (v: string[]) => void;
   stableVolume: boolean;
   setStableVolume: (v: boolean) => void;
+  audioVisualizer: boolean;
+  setAudioVisualizer: (v: boolean) => void;
+  audioVisualizerStyle: AudioVisualizerStyle;
+  setAudioVisualizerStyle: (v: AudioVisualizerStyle) => void;
   startTime?: number;
   setSubtitleTrack: (id: number) => void;
 }
@@ -176,6 +184,30 @@ export function PlayerProvider({ children, src, file, imageID, isReel, loop: ini
     savePlayerSettings({ stableVolume: v }).catch(() => {});
   }, [setPlayerSettings, savePlayerSettings]);
 
+  const [audioVisualizer, setAudioVisualizerState] = useState(false);
+  const audioVisualizerStyleRef = useRef<AudioVisualizerStyle>(DEFAULT_AUDIO_VISUALIZER_STYLE);
+  const setAudioVisualizer = useCallback((v: boolean) => {
+    setAudioVisualizerState(v);
+    setPlayerSettings(prev => (prev ? { ...prev, audioVisualizer: v } : prev));
+    savePlayerSettings({
+      audioVisualizer: v,
+      audioVisualizerStyle: audioVisualizerStyleRef.current,
+    }).catch(() => {});
+  }, [setPlayerSettings, savePlayerSettings]);
+
+  const [audioVisualizerStyle, setAudioVisualizerStyleState] = useState<AudioVisualizerStyle>(
+    DEFAULT_AUDIO_VISUALIZER_STYLE
+  );
+  const setAudioVisualizerStyle = useCallback(
+    (style: AudioVisualizerStyle) => {
+      audioVisualizerStyleRef.current = style;
+      setAudioVisualizerStyleState(style);
+      setPlayerSettings(prev => (prev ? { ...prev, audioVisualizerStyle: style } : prev));
+      savePlayerSettings({ audioVisualizerStyle: style }).catch(() => {});
+    },
+    [setPlayerSettings, savePlayerSettings]
+  );
+
   useEffect(() => {
     if (!playerSettings || appliedInitialRef.current) return;
     appliedInitialRef.current = true;
@@ -188,6 +220,10 @@ export function PlayerProvider({ children, src, file, imageID, isReel, loop: ini
     setLoopState(playerSettings.loop);
     setAutoPlayState(playerSettings.autoPlay);
     setStableVolumeState(playerSettings.stableVolume);
+    setAudioVisualizerState(playerSettings.audioVisualizer ?? false);
+    const style = playerSettings.audioVisualizerStyle ?? DEFAULT_AUDIO_VISUALIZER_STYLE;
+    audioVisualizerStyleRef.current = style;
+    setAudioVisualizerStyleState(style);
     setAmbientModeState(playerSettings.ambientMode);
     const v = videoRef.current;
     if (v) {
@@ -379,6 +415,10 @@ export function PlayerProvider({ children, src, file, imageID, isReel, loop: ini
     setAmbientColors,
     stableVolume,
     setStableVolume,
+    audioVisualizer,
+    setAudioVisualizer,
+    audioVisualizerStyle,
+    setAudioVisualizerStyle,
     startTime,
     setSubtitleTrack,
   };

@@ -29,9 +29,18 @@ interface ControlBarProps {
   onTheaterModeChange?: (active: boolean) => void;
   onPlayPauseClick?: () => void;
   hideControls?: HideControls;
+  /** Offset from bottom so pinned audio visualizer strip is not covered */
+  liftBottomPx?: number;
 }
 
-export default function ControlBar({ onNext, theaterMode = false, onTheaterModeChange, onPlayPauseClick, hideControls }: ControlBarProps) {
+export default function ControlBar({
+  onNext,
+  theaterMode = false,
+  onTheaterModeChange,
+  onPlayPauseClick,
+  hideControls,
+  liftBottomPx = 0,
+}: ControlBarProps) {
   const { state, togglePlay } = usePlayerContext();
   const containerRef = useRef<HTMLDivElement>(null);
   const { showTime, showRightInline, showVolumeSlider } = useControlBarWidth(containerRef);
@@ -81,7 +90,11 @@ export default function ControlBar({ onNext, theaterMode = false, onTheaterModeC
   const barBg = 'bg-black/50 backdrop-blur-sm rounded-2xl';
 
   return (
-    <div ref={containerRef} className="absolute bottom-0 left-0 right-0 z-30 flex flex-col">
+    <div
+      ref={containerRef}
+      className="absolute left-0 right-0 z-30 flex flex-col"
+      style={{ bottom: liftBottomPx }}
+    >
       <div className="flex items-center justify-between gap-3 px-3 pt-1 pb-1 min-w-0">
         {/* Left group: same transparent background as waveform */}
         <div className={`flex items-center gap-1 min-w-0 shrink-0 ${barBg} px-2.5 py-1.5`}>

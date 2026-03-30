@@ -7,11 +7,12 @@ import (
 	"errors"
 	"os"
 	"strconv"
+	"strings"
 
+	"github.com/gofiber/fiber/v2"
 	"goupload/lib/logger"
 	"goupload/lib/queue"
 	"goupload/lib/webhook"
-	"github.com/gofiber/fiber/v2"
 )
 
 type Handler struct {
@@ -101,14 +102,33 @@ type completeBody struct {
 	Tags             []string `json:"tags"`
 	CommentsEnabled  *bool    `json:"comments_enabled"`
 	DefaultThumbnail string   `json:"default_thumbnail"`
-	// Series fields — only honoured for video files (checked by the worker).
-	SeriesID       string `json:"series_id"`
-	SeriesTitle    string `json:"series_title"`
-	SeriesDesc     string `json:"series_desc"`
-	SeriesIsPublic *bool  `json:"series_is_public"`
-	IsSeriesMain   bool   `json:"is_series_main"`
-	EpisodeNumber  *int   `json:"episode_number"`
-	SeasonNumber   *int   `json:"season_number"`
+	FileSeriesID        string `json:"file_series_id"`
+	FileSeriesEpisodeID string `json:"file_series_episode_id"`
+	IsNewSeries         *bool  `json:"is_new_series"`
+	NewEpisodeName      string `json:"new_episode_name"`
+}
+
+func validateFileSeriesComplete(b completeBody) error {
+	isNew := b.IsNewSeries != nil && *b.IsNewSeries
+	fsid := strings.TrimSpace(b.FileSeriesID)
+	epid := strings.TrimSpace(b.FileSeriesEpisodeID)
+	epName := strings.TrimSpace(b.NewEpisodeName)
+	if !isNew && fsid == "" {
+		return nil
+	}
+	if isNew {
+		if epName == "" {
+			return errors.New("series_episode_name_required")
+		}
+		return nil
+	}
+	if fsid == "" {
+		return errors.New("series_id_required")
+	}
+	if epid == "" && epName == "" {
+		return errors.New("series_episode_or_new_name_required")
+	}
+	return nil
 }
 
 func (h *Handler) completeUpload(c *fiber.Ctx) error {
@@ -126,7 +146,7 @@ func (h *Handler) completeUpload(c *fiber.Ctx) error {
 	title, description := "", ""
 	defaultThumbnail := ""
 	var userCategories, userTags []string
-	var seriesFields queue.SeriesFields
+	var seriesBody completeBody
 	raw := c.Body()
 	if len(raw) > 0 {
 		var b completeBody
@@ -135,6 +155,7 @@ func (h *Handler) completeUpload(c *fiber.Ctx) error {
 				h.log.Errorf("complete_upload json_unmarshal user=%s upload=%s err=%s body_prefix=%q", userID, uploadID, err.Error(), trimForLog(raw, 200))
 			}
 		} else {
+			seriesBody = b
 			if b.IsPublic != nil {
 				isPublic = *b.IsPublic
 			}
@@ -150,26 +171,29 @@ func (h *Handler) completeUpload(c *fiber.Ctx) error {
 			userCategories = b.Categories
 			userTags = b.Tags
 			defaultThumbnail = b.DefaultThumbnail
-			seriesFields = queue.SeriesFields{
-				SeriesID:       b.SeriesID,
-				SeriesTitle:    b.SeriesTitle,
-				SeriesDesc:     b.SeriesDesc,
-				SeriesIsPublic: b.SeriesIsPublic,
-				IsSeriesMain:   b.IsSeriesMain,
-				EpisodeNumber:  b.EpisodeNumber,
-				SeasonNumber:   b.SeasonNumber,
-			}
-			if h.log != nil && (b.IsSeriesMain || b.SeriesTitle != "" || b.SeriesID != "") {
-				h.log.Infof("complete_upload series user=%s upload=%s main=%v title=%q series_id=%q", userID, uploadID, b.IsSeriesMain, b.SeriesTitle, b.SeriesID)
-			}
 		}
+	}
+
+	if err := validateFileSeriesComplete(seriesBody); err != nil {
+		return badRequest(c, err.Error())
+	}
+
+	isNewSeries := seriesBody.IsNewSeries != nil && *seriesBody.IsNewSeries
+	fileSeriesID := strings.TrimSpace(seriesBody.FileSeriesID)
+	fileSeriesEpisodeID := strings.TrimSpace(seriesBody.FileSeriesEpisodeID)
+	newEpisodeName := strings.TrimSpace(seriesBody.NewEpisodeName)
+	if isNewSeries {
+		fileSeriesID = ""
+		fileSeriesEpisodeID = ""
+	} else if fileSeriesEpisodeID != "" {
+		newEpisodeName = ""
 	}
 
 	meta, err := h.manager.CompleteUpload(userID, uploadID)
 	if err != nil {
 		return badRequest(c, err.Error())
 	}
-	jobID, err := h.queue.Enqueue(context.Background(), meta.UserID, meta.UploadID, meta.FileName, meta.FileSize, meta.TotalChunks, title, description, userCategories, userTags, defaultThumbnail, seriesFields)
+	jobID, err := h.queue.Enqueue(context.Background(), meta.UserID, meta.UploadID, meta.FileName, meta.FileSize, meta.TotalChunks, title, description, userCategories, userTags, defaultThumbnail, fileSeriesID, fileSeriesEpisodeID, isNewSeries, newEpisodeName)
 	if err != nil {
 		if h.log != nil {
 			h.log.Errorf("queue_error user=%s upload=%s err=%s", userID, uploadID, err.Error())
@@ -178,25 +202,20 @@ func (h *Handler) completeUpload(c *fiber.Ctx) error {
 	}
 	_ = h.queue.SetJobStatus(c.Context(), jobID, "queued")
 	webhook.NotifyJobStatus(webhook.Payload{
-		JobID:           jobID,
-		Status:          "queued",
-		UploadID:        meta.UploadID,
-		UserID:          meta.UserID,
-		FileName:        meta.FileName,
-		FileSize:        meta.FileSize,
-		IsPublic:        &isPublic,
-		CommentsEnabled: &commentsEnabled,
-		Title:           title,
-		Description:     description,
-		Series: webhook.SeriesPayload{
-			SeriesID:       seriesFields.SeriesID,
-			SeriesTitle:    seriesFields.SeriesTitle,
-			SeriesDesc:     seriesFields.SeriesDesc,
-			SeriesIsPublic: seriesFields.SeriesIsPublic,
-			IsSeriesMain:   seriesFields.IsSeriesMain,
-			EpisodeNumber:  seriesFields.EpisodeNumber,
-			SeasonNumber:   seriesFields.SeasonNumber,
-		},
+		JobID:               jobID,
+		Status:              "queued",
+		UploadID:            meta.UploadID,
+		UserID:              meta.UserID,
+		FileName:            meta.FileName,
+		FileSize:            meta.FileSize,
+		IsPublic:            &isPublic,
+		CommentsEnabled:     &commentsEnabled,
+		Title:               title,
+		Description:         description,
+		FileSeriesID:        fileSeriesID,
+		FileSeriesEpisodeID: fileSeriesEpisodeID,
+		IsNewSeries:         isNewSeries,
+		NewEpisodeName:      newEpisodeName,
 	})
 	if h.log != nil {
 		h.log.Infof("upload_queued user=%s upload=%s job=%s", userID, uploadID, jobID)

@@ -5,6 +5,8 @@ import { PlayerProvider, usePlayerContext, type ThumbnailSpriteMeta } from './Pl
 import type { HideControls } from './types';
 import { HIDE_ALL_EXCEPT_SEEK } from './types';
 import SeekBar from './controls/seek/SeekBar';
+import PersistentBottomVisualizer from './controls/seek/PersistentBottomVisualizer';
+import AudioVisualizerBars from './controls/seek/AudioVisualizerBars';
 import { useHLS } from './hooks/useHLS';
 import { useVideoEvents } from './hooks/useVideoEvents';
 import { useMediaSession } from './hooks/useMediaSession';
@@ -55,6 +57,10 @@ interface HLSPlayerProps {
   onVideoRef?: (ref: HTMLVideoElement | null) => void;
   isReel?: boolean;
   suggestedVideos?: FileType[];
+  /** In-series order after the current video; autoplay prefers these over related. */
+  seriesUpNextVideos?: FileType[];
+  endScreenUserActions?: { likedFileIds: Set<string>; dislikedFileIds: Set<string> };
+  currentUserId?: string;
   onVideoSelect?: (video: FileType) => void;
   onNext?: () => void;
   videoRef: React.RefObject<HTMLVideoElement | null>;
@@ -96,6 +102,9 @@ function PlayerInner({
   onVideoRef,
   isReel = false,
   suggestedVideos,
+  seriesUpNextVideos,
+  endScreenUserActions,
+  currentUserId,
   onVideoSelect,
   onNext,
   videoRef,
@@ -113,6 +122,7 @@ function PlayerInner({
     setSpriteMeta,
     setSpriteUrl,
     ambientMode,
+    audioVisualizer,
     autoPlay: autoPlayEnabled,
     loop: loopEnabled,
   } = usePlayerContext();
@@ -154,6 +164,7 @@ function PlayerInner({
   const lastDoubleTapTimeRef = useRef(0);
   const SEEK_SECONDS = 10;
   const [showShortcuts, setShowShortcuts] = useState(false);
+  const [visualizerLiftPx, setVisualizerLiftPx] = useState(0);
 
   const triggerPlayPauseFeedback = useCallback(() => {
     if (isReelCtx) return;
@@ -466,6 +477,11 @@ function PlayerInner({
                   disableRemotePlayback={false}
                   {...({ 'x-webkit-airplay': 'allow' } as any)}
                 />
+                {audioVisualizer && (
+                  <div className="shrink-0 px-3 pb-1 pt-0 pointer-events-none">
+                    <AudioVisualizerBars />
+                  </div>
+                )}
                 <div className="px-3 pb-2 pt-0 shrink-0">
                   <SeekBar />
                 </div>
@@ -491,6 +507,9 @@ function PlayerInner({
         {!isReelCtx && !loopEnabled && (
           <EndScreen
             suggestedVideos={suggestedVideos}
+            seriesUpNextVideos={seriesUpNextVideos}
+            userActions={endScreenUserActions}
+            currentUserId={currentUserId}
           />
         )}
 
@@ -505,8 +524,13 @@ function PlayerInner({
               theaterMode={theaterMode}
               onTheaterModeChange={isMobileView ? undefined : handleTheaterModeChange}
               hideControls={hideControls}
+              liftBottomPx={audioVisualizer ? visualizerLiftPx : 0}
             />
           </div>
+        )}
+
+        {audioVisualizer && !isReelCtx && !isMiniPlayerPortalActive && (
+          <PersistentBottomVisualizer onLayoutHeight={setVisualizerLiftPx} />
         )}
 
         {showPrompt && autoPlayEnabled && !isReelCtx && (

@@ -1,21 +1,25 @@
-import { useEffect, useState, useCallback, useRef } from 'react';
-import { RotateCcw, X } from 'lucide-react';
-import { usePlayerContext } from '../../PlayerContext';
-import type { FileType } from '~/lib/types';
-import VideoCard from '~/routes/Home/components/VideoCard';
-import { useNavigate, useParams } from 'react-router';
+import { useEffect, useState, useCallback, useRef, useMemo } from "react";
+import { Film, RotateCcw, X } from "lucide-react";
+import { usePlayerContext } from "../../PlayerContext";
+import { usePlayerContainerSize } from "../../hooks/usePlayerContainerSize";
+import type { FileType } from "~/lib/types";
+import VideoCard from "~/routes/Home/components/VideoCard";
+import { useNavigate, useParams } from "react-router";
+import { cn } from "~/lib/utils";
 
 interface EndScreenProps {
   suggestedVideos?: FileType[];
+  seriesUpNextVideos?: FileType[];
+  userActions?: { likedFileIds: Set<string>; dislikedFileIds: Set<string> };
+  currentUserId?: string;
 }
 
 const emptyUserActions = { likedFileIds: new Set<string>(), dislikedFileIds: new Set<string>() };
 
-// Track visited videos in session to avoid loops
 const getVisitedVideos = (): Set<string> => {
   try {
-    if (typeof sessionStorage === 'undefined') return new Set();
-    const stored = sessionStorage.getItem('visited_videos');
+    if (typeof sessionStorage === "undefined") return new Set();
+    const stored = sessionStorage.getItem("visited_videos");
     return stored ? new Set(JSON.parse(stored)) : new Set();
   } catch {
     return new Set();
@@ -24,69 +28,104 @@ const getVisitedVideos = (): Set<string> => {
 
 const addVisitedVideo = (uniqueId: string) => {
   try {
-    if (typeof sessionStorage === 'undefined') return;
+    if (typeof sessionStorage === "undefined") return;
     const visited = getVisitedVideos();
     visited.add(uniqueId);
-    // Keep only last 50 to avoid memory issues
     const arr = Array.from(visited).slice(-50);
-    sessionStorage.setItem('visited_videos', JSON.stringify(arr));
+    sessionStorage.setItem("visited_videos", JSON.stringify(arr));
   } catch {}
 };
 
-export default function EndScreen({ suggestedVideos }: EndScreenProps) {
-  const { state, replay, autoPlay } = usePlayerContext();
-  const [countdown, setCountdown] = useState(5);
+function applyVisitedFilter(videos: FileType[], currentVideoId: string | undefined): FileType[] {
+  const filtered = videos.filter((video) => {
+    if (currentVideoId && video.unique_id === currentVideoId) return false;
+    const visited = getVisitedVideos();
+    return !visited.has(video.unique_id);
+  });
+  if (filtered.length > 0) return filtered;
+  return videos.filter((v) => v.unique_id !== currentVideoId);
+}
+
+const LIST_CAP = 8;
+const COUNTDOWN_SEC = 5;
+
+export default function EndScreen({
+  suggestedVideos = [],
+  seriesUpNextVideos = [],
+  userActions: userActionsProp,
+  currentUserId,
+}: EndScreenProps) {
+  const actions = userActionsProp ?? emptyUserActions;
+  const { state, replay, autoPlay, containerRef } = usePlayerContext();
+  const { width: playerW, height: playerH } = usePlayerContainerSize(containerRef);
+  const [countdown, setCountdown] = useState(COUNTDOWN_SEC);
   const [autoplayActive, setAutoplayActive] = useState(true);
   const navigate = useNavigate();
   const params = useParams();
   const currentVideoId = params.id;
   const navigatingRef = useRef(false);
 
-  // Filter out current video and recently visited videos
-  const filteredVideos = (suggestedVideos || []).filter(video => {
-    if (video.unique_id === currentVideoId) return false;
-    const visited = getVisitedVideos();
-    // Allow videos we haven't visited recently
-    return !visited.has(video.unique_id);
-  });
+  const seriesQueue = useMemo(
+    () => applyVisitedFilter(seriesUpNextVideos, currentVideoId),
+    [seriesUpNextVideos, currentVideoId]
+  );
+  const relatedQueue = useMemo(
+    () => applyVisitedFilter(suggestedVideos, currentVideoId),
+    [suggestedVideos, currentVideoId]
+  );
 
-  // If all videos were visited, fall back to full list minus current
-  const displayVideos = filteredVideos.length > 0 
-    ? filteredVideos 
-    : (suggestedVideos || []).filter(v => v.unique_id !== currentVideoId);
+  const nextVideo = seriesQueue[0] ?? relatedQueue[0] ?? null;
+  const nextFromSeries = Boolean(
+    seriesQueue.length > 0 && nextVideo && nextVideo.unique_id === seriesQueue[0].unique_id
+  );
+  const showHero = Boolean(autoPlay && autoplayActive && nextVideo);
 
-  const hasVideos = displayVideos.length > 0;
-  const nextVideo = hasVideos ? displayVideos[0] : null;
+  const seriesListForUi = showHero && nextFromSeries ? seriesQueue.slice(1) : seriesQueue;
+  const relatedListForUi = showHero && !nextFromSeries ? relatedQueue.slice(1) : relatedQueue;
+
+  const seriesToRender = seriesListForUi.slice(0, LIST_CAP);
+  const relatedToRender = relatedListForUi.slice(0, LIST_CAP);
+
+  const hasSeries = seriesQueue.length > 0;
+  const hasRelated = relatedQueue.length > 0;
+  const hasAnything = hasSeries || hasRelated;
+
+  const showSeriesPanel =
+    hasSeries && !(showHero && nextFromSeries && seriesToRender.length === 0);
+  const showRelatedPanel =
+    hasRelated && !(showHero && !nextFromSeries && relatedToRender.length === 0);
+
+  const showSuggestionsGrid = showSeriesPanel || showRelatedPanel;
 
   const handleCancelAutoplay = useCallback(() => {
     setAutoplayActive(false);
   }, []);
 
-  const handleVideoSelect = useCallback((video: FileType) => {
-    if (navigatingRef.current) return;
-    navigatingRef.current = true;
-    setAutoplayActive(false);
-    addVisitedVideo(video.unique_id);
-    navigate(`/${video.unique_id}`);
-  }, [navigate]);
+  const handleVideoSelect = useCallback(
+    (video: FileType) => {
+      if (navigatingRef.current) return;
+      navigatingRef.current = true;
+      setAutoplayActive(false);
+      addVisitedVideo(video.unique_id);
+      navigate(`/${video.unique_id}`);
+    },
+    [navigate]
+  );
 
-  // Track current video as visited
   useEffect(() => {
     if (currentVideoId) {
       addVisitedVideo(currentVideoId);
     }
   }, [currentVideoId]);
 
-  // Reset when video ends state changes
   useEffect(() => {
     if (!state.isEnded) {
-      setCountdown(5);
+      setCountdown(COUNTDOWN_SEC);
       setAutoplayActive(true);
       navigatingRef.current = false;
     }
   }, [state.isEnded]);
 
-  // Autoplay countdown timer
   useEffect(() => {
     if (!state.isEnded || !autoPlay || !autoplayActive || !nextVideo || navigatingRef.current) {
       return;
@@ -98,137 +137,350 @@ export default function EndScreen({ suggestedVideos }: EndScreenProps) {
     }
 
     const timer = setTimeout(() => {
-      setCountdown(c => c - 1);
+      setCountdown((c) => c - 1);
     }, 1000);
 
     return () => clearTimeout(timer);
   }, [state.isEnded, autoPlay, autoplayActive, nextVideo, countdown, handleVideoSelect]);
 
+  const listMaxHeightPx = useMemo(() => {
+    if (playerH <= 0) return 200;
+    return Math.round(Math.min(Math.max(playerH * 0.36, 120), 340));
+  }, [playerH]);
+
   if (!state.isEnded) return null;
 
-  return (
-    <div className="absolute inset-0 z-40 bg-gradient-to-t from-black via-black/95 to-black/90 flex items-center justify-center overflow-hidden">
-      <div className="w-full h-full flex flex-col md:flex-row items-center justify-center gap-6 p-4 md:p-8 max-w-5xl mx-auto">
-        
-        <div className="flex flex-col items-center gap-4 shrink-0">
-          <button
-            onClick={replay}
-            className="group flex flex-col items-center gap-3"
-          >
-            <div className="w-20 h-20 rounded-full border-2 border-white/30 flex items-center justify-center group-hover:border-white/60 group-hover:bg-white/10 transition-all">
-              <RotateCcw className="w-8 h-8 text-white" />
-            </div>
-            <span className="text-white text-sm font-medium">Replay</span>
-          </button>
-        </div>
+  const heroHeading = nextFromSeries ? "Next in series" : "Up next";
+  const dashLen = (countdown / COUNTDOWN_SEC) * 100.5;
 
-        {hasVideos && (
-          <div className="flex-1 min-w-0 max-w-xl w-full">
-            <div className="flex items-center justify-between mb-3">
-              <h3 className="text-white/80 text-sm font-semibold uppercase tracking-wider">
-                {autoPlay && autoplayActive && nextVideo ? 'Up Next' : 'Suggested'}
-              </h3>
-              {autoPlay && autoplayActive && nextVideo && (
-                <div className="flex items-center gap-3">
-                  <span className="text-white/50 text-xs">
-                    Playing in {countdown}s
-                  </span>
+  /** Layout breakpoints follow the player box (`containerRef`), not the viewport. */
+  const sideBySideReplay = playerW >= 420;
+  const twoColumnSuggest =
+    playerW >= 560 && showSeriesPanel && showRelatedPanel;
+  const roomierPadding = playerW >= 380;
+  const largerType = playerW >= 440;
+  const replayRailWidth = playerW >= 500;
+
+  return (
+    <div
+      className={cn(
+        "absolute inset-0 z-40 flex min-h-0 flex-col overflow-hidden",
+        "bg-gradient-to-b from-black/88 via-black/95 to-black",
+        "backdrop-blur-md supports-[backdrop-filter]:bg-black/80"
+      )}
+    >
+      <div
+        className={cn(
+          "min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain",
+          "pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-[max(0.5rem,env(safe-area-inset-top))]"
+        )}
+      >
+        <div
+          className={cn(
+            "mx-auto flex w-full max-w-full flex-col",
+            roomierPadding ? "gap-4 px-3.5 py-3.5" : "gap-3 px-2.5 py-2.5",
+            sideBySideReplay && "gap-5"
+          )}
+        >
+          <div
+            className={cn(
+              "flex items-stretch",
+              sideBySideReplay ? "flex-row gap-6" : "flex-col gap-3"
+            )}
+          >
+            <div
+              className={cn(
+                "flex shrink-0 justify-center",
+                sideBySideReplay &&
+                  cn(
+                    "flex-col items-center justify-start pt-1",
+                    replayRailWidth ? "w-28" : "w-24"
+                  )
+              )}
+            >
+              <button
+                type="button"
+                onClick={replay}
+                className={cn(
+                  "group flex items-center gap-3",
+                  sideBySideReplay ? "flex-col gap-2.5" : "flex-row"
+                )}
+              >
+                <div
+                  className={cn(
+                    "flex shrink-0 items-center justify-center rounded-full border-2 transition-all",
+                    "border-white/25 bg-white/[0.06] group-hover:border-white/50 group-hover:bg-white/10",
+                    largerType ? "h-[4.25rem] w-[4.25rem]" : "h-14 w-14"
+                  )}
+                >
+                  <RotateCcw
+                    className={cn("text-white", largerType ? "h-8 w-8" : "h-7 w-7")}
+                    strokeWidth={1.75}
+                  />
+                </div>
+                <span
+                  className={cn(
+                    "font-medium text-white/95",
+                    largerType ? "text-sm" : "text-[13px]",
+                    sideBySideReplay && "text-center"
+                  )}
+                >
+                  Replay
+                </span>
+              </button>
+            </div>
+
+            <div
+              className={cn(
+                "flex min-w-0 flex-1 flex-col",
+                sideBySideReplay ? "gap-5" : "gap-3"
+              )}
+            >
+              {showHero && nextVideo && (
+                <div className="space-y-2">
+                  <div className="flex flex-wrap items-center justify-between gap-2 gap-y-1">
+                    <div className="flex min-w-0 items-center gap-2">
+                      {nextFromSeries && (
+                        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-emerald-500/20 text-emerald-200 ring-1 ring-emerald-400/30">
+                          <Film className="h-4 w-4" strokeWidth={2} aria-hidden />
+                        </span>
+                      )}
+                      <h3
+                        className={cn(
+                          "truncate font-semibold uppercase tracking-[0.12em] text-white/75",
+                          largerType ? "text-sm" : "text-xs"
+                        )}
+                      >
+                        {heroHeading}
+                      </h3>
+                    </div>
+                    <div
+                      className={cn(
+                        "flex shrink-0 items-center",
+                        largerType ? "gap-3" : "gap-2"
+                      )}
+                    >
+                      <span
+                        className={cn(
+                          "text-white/45",
+                          largerType ? "text-xs" : "text-[11px]"
+                        )}
+                      >
+                        Playing in {countdown}s
+                      </span>
+                      <button
+                        type="button"
+                        onClick={handleCancelAutoplay}
+                        className={cn(
+                          "flex items-center gap-1 rounded-md px-2 py-1 text-white/55 transition-colors hover:bg-white/10 hover:text-white",
+                          largerType ? "text-xs" : "text-[11px]"
+                        )}
+                      >
+                        <X className="h-3.5 w-3.5" strokeWidth={2} />
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+
                   <button
-                    onClick={handleCancelAutoplay}
-                    className="text-white/60 hover:text-white text-xs flex items-center gap-1 transition-colors"
+                    type="button"
+                    className={cn(
+                      "relative w-full overflow-hidden rounded-2xl border border-white/12 bg-white/[0.06] text-left",
+                      "shadow-lg shadow-black/40 ring-1 ring-white/[0.06] transition hover:border-white/20 hover:bg-white/[0.09]"
+                    )}
+                    onClick={() => handleVideoSelect(nextVideo)}
                   >
-                    <X className="w-3.5 h-3.5" />
-                    Cancel
+                    <div
+                      className={cn(
+                        "pointer-events-none absolute left-2 top-2 z-10",
+                        largerType && "left-3 top-3"
+                      )}
+                    >
+                      <div
+                        className={cn("relative", largerType ? "h-10 w-10" : "h-9 w-9")}
+                      >
+                        <svg
+                          className={cn("h-full w-full -rotate-90")}
+                          viewBox="0 0 40 40"
+                        >
+                          <circle
+                            cx="20"
+                            cy="20"
+                            r="16"
+                            fill="rgba(0,0,0,0.55)"
+                            stroke="rgba(255,255,255,0.22)"
+                            strokeWidth="3"
+                          />
+                          <circle
+                            cx="20"
+                            cy="20"
+                            r="16"
+                            fill="none"
+                            stroke="white"
+                            strokeWidth="3"
+                            strokeLinecap="round"
+                            strokeDasharray={`${dashLen} 100.5`}
+                            className="transition-all duration-1000 ease-linear"
+                          />
+                        </svg>
+                        <div className="absolute inset-0 flex items-center justify-center">
+                          <span
+                            className={cn(
+                              "font-bold text-white",
+                              largerType ? "text-sm" : "text-xs"
+                            )}
+                          >
+                            {countdown}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="pointer-events-none">
+                      <VideoCard
+                        data={nextVideo}
+                        index={0}
+                        userActions={actions}
+                        currentUserId={currentUserId}
+                        layout="horizontal"
+                      />
+                    </div>
                   </button>
                 </div>
               )}
-            </div>
 
-            {autoPlay && autoplayActive && nextVideo && (
-              <div 
-                className="relative mb-2 rounded-xl overflow-hidden bg-white/5 border border-white/10 cursor-pointer"
-                onClick={() => handleVideoSelect(nextVideo)}
-              >
-                <div className="absolute top-2 left-2 z-10 pointer-events-none">
-                  <div className="relative w-10 h-10">
-                    <svg className="w-10 h-10 -rotate-90" viewBox="0 0 40 40">
-                      <circle
-                        cx="20"
-                        cy="20"
-                        r="16"
-                        fill="rgba(0,0,0,0.6)"
-                        stroke="rgba(255,255,255,0.3)"
-                        strokeWidth="3"
-                      />
-                      <circle
-                        cx="20"
-                        cy="20"
-                        r="16"
-                        fill="none"
-                        stroke="white"
-                        strokeWidth="3"
-                        strokeLinecap="round"
-                        strokeDasharray={`${(countdown / 5) * 100.5} 100.5`}
-                        className="transition-all duration-1000 ease-linear"
-                      />
-                    </svg>
-                    <div className="absolute inset-0 flex items-center justify-center">
-                      <span className="text-white font-bold text-sm">{countdown}</span>
-                    </div>
-                  </div>
-                </div>
-                <div className="pointer-events-none">
-                  <VideoCard
-                    data={nextVideo}
-                    index={0}
-                    userActions={emptyUserActions}
-                    layout="horizontal"
-                  />
-                </div>
-              </div>
-            )}
+              {!hasAnything && (
+                <p className="py-6 text-center text-sm text-white/55">No more videos to suggest</p>
+              )}
 
-            <div className="space-y-1 max-h-[45vh] overflow-y-auto pr-1 custom-scrollbar">
-              {displayVideos.slice(autoPlay && autoplayActive ? 1 : 0, 8).map((video, index) => (
-                <div 
-                  key={video.id ?? video.unique_id}
-                  className="cursor-pointer"
-                  onClick={() => handleVideoSelect(video)}
+              {showSuggestionsGrid && (
+                <div
+                  className={cn(
+                    "grid min-h-0 grid-cols-1 items-start",
+                    twoColumnSuggest ? "grid-cols-2 gap-5" : "gap-4"
+                  )}
                 >
-                  <div className="pointer-events-none">
-                    <VideoCard
-                      data={video}
-                      index={index}
-                      userActions={emptyUserActions}
-                      layout="compact"
-                    />
-                  </div>
+                  {showSeriesPanel && (
+                    <section
+                      className={cn(
+                        "flex min-h-0 min-w-0 flex-col rounded-2xl border border-white/[0.08] bg-white/[0.04]",
+                        roomierPadding ? "p-3.5" : "p-2.5",
+                        !showHero && "pt-3"
+                      )}
+                      aria-label="Series"
+                    >
+                      <div
+                        className={cn(
+                          "flex items-center gap-2",
+                          roomierPadding ? "mb-3" : "mb-2"
+                        )}
+                      >
+                        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white/10 text-white/90">
+                          <Film className="h-4 w-4" strokeWidth={2} aria-hidden />
+                        </span>
+                        <h4
+                          className={cn(
+                            "font-semibold text-white/90",
+                            largerType ? "text-sm" : "text-[13px]"
+                          )}
+                        >
+                          {showHero && nextFromSeries ? "Later in this series" : "From this series"}
+                        </h4>
+                      </div>
+                      <div
+                        className={cn(
+                          "min-h-0 space-y-1.5 overflow-y-auto pr-0.5",
+                          "custom-scrollbar"
+                        )}
+                        style={{ maxHeight: listMaxHeightPx }}
+                      >
+                        {seriesToRender.map((video, index) => (
+                          <button
+                            key={video.id ?? video.unique_id}
+                            type="button"
+                            className="w-full cursor-pointer rounded-xl text-left transition hover:bg-white/[0.06]"
+                            onClick={() => handleVideoSelect(video)}
+                          >
+                            <div className="pointer-events-none">
+                              <VideoCard
+                                data={video}
+                                index={index}
+                                userActions={actions}
+                                currentUserId={currentUserId}
+                                layout="compact"
+                              />
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    </section>
+                  )}
+
+                  {showRelatedPanel && (
+                    <section
+                      className={cn(
+                        "flex min-h-0 min-w-0 flex-col rounded-2xl border border-white/[0.08] bg-white/[0.04]",
+                        roomierPadding ? "p-3.5" : "p-2.5",
+                        !showHero && "pt-3"
+                      )}
+                      aria-label="Suggested videos"
+                    >
+                      <h4
+                        className={cn(
+                          "font-semibold text-white/90",
+                          roomierPadding ? "mb-3" : "mb-2",
+                          largerType ? "text-sm" : "text-[13px]"
+                        )}
+                      >
+                        More to watch
+                      </h4>
+                      <div
+                        className={cn(
+                          "min-h-0 space-y-1.5 overflow-y-auto pr-0.5",
+                          "custom-scrollbar"
+                        )}
+                        style={{ maxHeight: listMaxHeightPx }}
+                      >
+                        {relatedToRender.map((video, index) => (
+                          <button
+                            key={video.id ?? video.unique_id}
+                            type="button"
+                            className="w-full cursor-pointer rounded-xl text-left transition hover:bg-white/[0.06]"
+                            onClick={() => handleVideoSelect(video)}
+                          >
+                            <div className="pointer-events-none">
+                              <VideoCard
+                                data={video}
+                                index={index}
+                                userActions={actions}
+                                currentUserId={currentUserId}
+                                layout="compact"
+                              />
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    </section>
+                  )}
                 </div>
-              ))}
+              )}
             </div>
           </div>
-        )}
-
-        {!hasVideos && (
-          <div className="text-center">
-            <p className="text-white/60 text-sm">No more videos to suggest</p>
-          </div>
-        )}
+        </div>
       </div>
 
       <style>{`
         .custom-scrollbar::-webkit-scrollbar {
-          width: 4px;
+          width: 5px;
         }
         .custom-scrollbar::-webkit-scrollbar-track {
           background: transparent;
         }
         .custom-scrollbar::-webkit-scrollbar-thumb {
-          background: rgba(255, 255, 255, 0.2);
-          border-radius: 2px;
+          background: rgba(255, 255, 255, 0.18);
+          border-radius: 4px;
         }
         .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-          background: rgba(255, 255, 255, 0.3);
+          background: rgba(255, 255, 255, 0.28);
         }
       `}</style>
     </div>

@@ -2,6 +2,11 @@
  * Client API for player settings. All reads/writes go through the server (cookies set via API).
  */
 
+import {
+  parseAudioVisualizerStyle,
+  DEFAULT_AUDIO_VISUALIZER_STYLE,
+} from '~/components/components/hlsplayer/audioVisualizerStyles';
+
 export interface PlayerSettings {
   theaterMode: boolean;
   volume: number;
@@ -11,6 +16,8 @@ export interface PlayerSettings {
   loop: boolean;
   autoPlay: boolean;
   ambientMode: boolean;
+  audioVisualizer: boolean;
+  audioVisualizerStyle: 'scroll' | 'bars' | 'mirror' | 'ribbon' | 'pulse';
   quality: string;
 }
 
@@ -23,6 +30,8 @@ export interface PlayerSettingsPatch {
   loop?: boolean;
   autoPlay?: boolean;
   ambientMode?: boolean;
+  audioVisualizer?: boolean;
+  audioVisualizerStyle?: string;
   quality?: string;
 }
 
@@ -35,6 +44,8 @@ const DEFAULTS: PlayerSettings = {
   loop: false,
   autoPlay: false,
   ambientMode: false,
+  audioVisualizer: false,
+  audioVisualizerStyle: DEFAULT_AUDIO_VISUALIZER_STYLE,
   quality: 'auto',
 };
 
@@ -51,6 +62,10 @@ export async function getPlayerSettings(): Promise<PlayerSettings> {
     loop: data.loop === true,
     autoPlay: data.autoPlay === true,
     ambientMode: data.ambientMode === true || data.ambientMode === '1',
+    audioVisualizer: data.audioVisualizer === true || data.audioVisualizer === '1',
+    audioVisualizerStyle: parseAudioVisualizerStyle(
+      typeof data.audioVisualizerStyle === 'string' ? data.audioVisualizerStyle : undefined
+    ),
     quality: typeof data.quality === 'string' ? data.quality : DEFAULTS.quality,
   };
 }

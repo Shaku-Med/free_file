@@ -31,8 +31,15 @@ function BufferSegments({ ranges, duration, className }: {
 }
 
 export default function SeekBar() {
-  const { state, seek, spriteMeta, spriteUrl, waveformUrl, startInteraction, endInteraction } =
-    usePlayerContext();
+  const {
+    state,
+    seek,
+    spriteMeta,
+    spriteUrl,
+    waveformUrl,
+    startInteraction,
+    endInteraction,
+  } = usePlayerContext();
   const trackRef = useRef<HTMLDivElement>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [hoverTime, setHoverTime] = useState<number | null>(null);

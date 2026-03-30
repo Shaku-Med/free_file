@@ -26,8 +26,17 @@ create table public.files (
   tags jsonb null default '[]'::jsonb,
   colors jsonb null default '[]'::jsonb,
   metadata jsonb null default '{}'::jsonb,
+  comments_enabled boolean not null default true,
+  default_thumbnail text null,
+  comment_limit integer null,
+  is_series_main boolean not null default false,
+  file_series_id uuid null,
+  file_series_episode_id uuid null,
+  is_files_series_item boolean null,
   constraint playlists_pkey primary key (id),
-  constraint files_unique_id_key unique (unique_id)
+  constraint files_unique_id_key unique (unique_id),
+  constraint files_file_series_episode_id_fkey foreign KEY (file_series_episode_id) references files_series_episodes (id) on update CASCADE on delete CASCADE,
+  constraint files_file_series_id_fkey foreign KEY (file_series_id) references file_series (id) on update CASCADE on delete CASCADE
 ) TABLESPACE pg_default;
 
 create index IF not exists idx_playlists_unique_id on public.files using btree (unique_id) TABLESPACE pg_default;

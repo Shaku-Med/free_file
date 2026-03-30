@@ -11,17 +11,6 @@ import (
 	"goupload/lib/env"
 )
 
-// SeriesPayload carries optional series-linking metadata in the webhook.
-type SeriesPayload struct {
-	SeriesID       string `json:"series_id,omitempty"`
-	SeriesTitle    string `json:"series_title,omitempty"`
-	SeriesDesc     string `json:"series_desc,omitempty"`
-	SeriesIsPublic *bool  `json:"series_is_public,omitempty"`
-	IsSeriesMain   bool   `json:"is_series_main,omitempty"`
-	EpisodeNumber  *int   `json:"episode_number,omitempty"`
-	SeasonNumber   *int   `json:"season_number,omitempty"`
-}
-
 // Payload is sent to the app's /api/upload-job-status. The app upserts upload_jobs
 // and creates/updates files in Supabase so the user sees progress on their page.
 type Payload struct {
@@ -44,7 +33,10 @@ type Payload struct {
 	Metadata         map[string]interface{} `json:"metadata,omitempty"`
 	CommentsEnabled  *bool                  `json:"comments_enabled,omitempty"`
 	DefaultThumbnail string                 `json:"default_thumbnail,omitempty"`
-	Series           SeriesPayload          `json:"series,omitempty"`
+	FileSeriesID        string `json:"file_series_id,omitempty"`
+	FileSeriesEpisodeID string `json:"file_series_episode_id,omitempty"`
+	IsNewSeries         bool   `json:"is_new_series,omitempty"`
+	NewEpisodeName      string `json:"new_episode_name,omitempty"`
 }
 
 // NotifyJobStatus sends the payload to the app's /api/upload-job-status.

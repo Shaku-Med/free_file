@@ -49,6 +49,11 @@ export const loader = async ({ request }: { request: Request }) => {
     }
 
     let rows = files || []
+    rows = rows.filter((file: { is_series_main?: unknown; is_files_series_item?: unknown }) => {
+      const main = file.is_series_main === true || file.is_series_main === 1
+      const itemOnly = file.is_files_series_item === true || file.is_files_series_item === 1
+      return main || !itemOnly
+    })
     if (safeOnly) {
       rows = rows.filter((file: { is_adult?: unknown }) => {
         const a = file.is_adult

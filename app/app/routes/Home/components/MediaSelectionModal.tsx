@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState, useCallback } from "react"
-import { Dialog, DialogContent, DialogFooter } from "~/components/ui/dialog"
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "~/components/ui/dialog"
 import { Button } from "~/components/ui/button"
 import { Progress } from "~/components/ui/progress"
 import { Input } from "~/components/ui/input"
@@ -21,9 +21,7 @@ import {
   ImagePlus,
   MessageSquare,
   MessageSquareOff,
-  Tv2,
-  PlusCircle,
-  Search,
+  Layers,
 } from "lucide-react"
 import { GenerateUniqueID } from "~/lib/GenerateUniqueID"
 import { useFileContext } from "~/lib/Context/Context"
@@ -77,15 +75,14 @@ interface MediaItem {
   error: string | null
   jobId: string | null
   isLocked: boolean
-  // Series fields — only used for video files
-  seriesMode: "none" | "new" | "existing"
-  seriesTitle: string
-  seriesDesc: string
-  seriesIsPublic: boolean
-  existingSeriesId: string
-  existingSeriesName: string
-  episodeNumber: number | null
-  seasonNumber: number | null
+  /** Video-only: None | create main series | add to existing series */
+  seriesMode: "none" | "create" | "existing"
+  /** First episode name (new series) or new episode in existing series */
+  seriesEpisodeName: string
+  seriesSelected: { file_series_id: string; file_title: string } | null
+  seriesEpisodeSubmode: "existing" | "new" | null
+  seriesEpisodeId: string | null
+  seriesEpisodesList: { id: string; episode_name: string }[]
 }
 
 export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
@@ -105,16 +102,14 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
   const [tagInput, setTagInput] = useState("")
   const [showCategoryDropdown, setShowCategoryDropdown] = useState(false)
   const [isDragging, setIsDragging] = useState(false)
+  const [seriesBrowseOpen, setSeriesBrowseOpen] = useState(false)
+  const [seriesSearch, setSeriesSearch] = useState("")
+  const [seriesBrowseResults, setSeriesBrowseResults] = useState<{ file_title: string; file_series_id: string }[]>([])
+  const [seriesBrowseLoading, setSeriesBrowseLoading] = useState(false)
   const categoryRef = useRef<HTMLDivElement>(null)
   const itemsRef = useRef<MediaItem[]>([])
   const dropRef = useRef<HTMLDivElement>(null)
   const thumbInputRef = useRef<HTMLInputElement>(null)
-
-  // Series picker — kept so `false &&` series UI below typechecks; unused until feature is re-enabled
-  const [seriesList, setSeriesList] = useState<Array<{ id: string; title: string; episode_count?: number }>>([])
-  const [seriesLoading, setSeriesLoading] = useState(false)
-  const [seriesLoaded, setSeriesLoaded] = useState(false)
-  const [seriesSearchQuery, setSeriesSearchQuery] = useState("")
 
   useEffect(() => {
     if (isOpen && !userId) {
@@ -167,20 +162,6 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
     setIsDragging(false)
   }
 
-  const loadUserSeries = useCallback(async () => {
-    if (seriesLoaded || seriesLoading) return
-    setSeriesLoading(true)
-    try {
-      const res = await fetch("/api/series", { headers: c_user ? { Authorization: `Bearer ${c_user}` } : {} })
-      if (res.ok) {
-        const json = await res.json() as { series?: Array<{ id: string; title: string; episode_count?: number }> }
-        setSeriesList(json.series ?? [])
-      }
-    } catch {}
-    setSeriesLoading(false)
-    setSeriesLoaded(true)
-  }, [seriesLoaded, seriesLoading, c_user])
-
   const formatBytes = (bytes: number) => {
     if (!bytes) return "0 B"
     const k = 1024
@@ -222,13 +203,11 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
       jobId: null,
       isLocked: false,
       seriesMode: "none",
-      seriesTitle: "",
-      seriesDesc: "",
-      seriesIsPublic: true,
-      existingSeriesId: "",
-      existingSeriesName: "",
-      episodeNumber: null,
-      seasonNumber: null,
+      seriesEpisodeName: "",
+      seriesSelected: null,
+      seriesEpisodeSubmode: null,
+      seriesEpisodeId: null,
+      seriesEpisodesList: [],
     }
   }
 
@@ -287,6 +266,31 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
 
   const updateItem = (id: string, updater: (item: MediaItem) => MediaItem) => {
     setItems((prev) => prev.map((item) => (item.id === id ? updater(item) : item)))
+  }
+
+  const loadEpisodesForItem = (itemId: string, fileSeriesId: string) => {
+    void (async () => {
+      try {
+        const res = await fetch(
+          `/api/series-episodes?file_series_id=${encodeURIComponent(fileSeriesId)}`,
+          { credentials: "include" }
+        )
+        const j = await res.json().catch(() => ({}))
+        if (!res.ok) return
+        const list = Array.isArray(j.episodes)
+          ? (j.episodes as { id: string; episode_name: string }[])
+          : []
+        updateItem(itemId, (c) => ({
+          ...c,
+          seriesEpisodesList: list,
+          seriesEpisodeSubmode: list.length > 0 ? "existing" : "new",
+          seriesEpisodeId: null,
+          seriesEpisodeName: "",
+        }))
+      } catch {
+        /* ignore */
+      }
+    })()
   }
 
   const removeItem = (id: string) => {
@@ -365,8 +369,10 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
       const reader = new FileReader()
       reader.onload = () => {
         const result = reader.result as string
-        // Strip data URL prefix to get raw base64
-        resolve(result.split(",")[1] || result)
+        // Strip data URL prefix; normalize whitespace so Go base64 decode always succeeds
+        const comma = result.indexOf(",")
+        const raw = comma >= 0 ? result.slice(comma + 1) : result
+        resolve(raw.replace(/\s/g, ""))
       }
       reader.onerror = reject
       reader.readAsDataURL(file)
@@ -503,23 +509,20 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
       }
     }
 
-    /* Series payload — disabled; re-enable with upload-job-status series webhook
-    const isVideoFile =
-      item.file.type.startsWith("video/") ||
-      item.file.type === "application/vnd.apple.mpegurl" ||
-      /\.(mp4|webm|mov|mkv|avi|m4v|m3u8|ogv)$/i.test(item.file.name || "")
     const seriesPayload: Record<string, unknown> = {}
-    if (isVideoFile && item.seriesMode === "new" && item.seriesTitle.trim()) {
-      seriesPayload.is_series_main = true
-      seriesPayload.series_title = item.seriesTitle.trim()
-      seriesPayload.series_desc = item.seriesDesc.trim()
-      seriesPayload.series_is_public = item.seriesIsPublic
-    } else if (isVideoFile && item.seriesMode === "existing" && item.existingSeriesId.trim()) {
-      seriesPayload.series_id = item.existingSeriesId.trim()
-      if (item.episodeNumber != null) seriesPayload.episode_number = item.episodeNumber
-      if (item.seasonNumber != null) seriesPayload.season_number = item.seasonNumber
+    if (item.file.type.startsWith("video/")) {
+      if (item.seriesMode === "create") {
+        seriesPayload.is_new_series = true
+        seriesPayload.new_episode_name = item.seriesEpisodeName.trim()
+      } else if (item.seriesMode === "existing" && item.seriesSelected?.file_series_id) {
+        seriesPayload.file_series_id = item.seriesSelected.file_series_id
+        if (item.seriesEpisodeSubmode === "existing" && item.seriesEpisodeId) {
+          seriesPayload.file_series_episode_id = item.seriesEpisodeId
+        } else if (item.seriesEpisodeSubmode === "new") {
+          seriesPayload.new_episode_name = item.seriesEpisodeName.trim()
+        }
+      }
     }
-    */
 
     let completeRes = await fetchWith503Retry(
       `${base}/api/upload/${uploadId}/complete`,
@@ -538,7 +541,7 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
               ? item.commentLimit
               : null,
           ...(defaultThumbnailB64 ? { default_thumbnail: defaultThumbnailB64 } : {}),
-          // ...seriesPayload, // series disabled
+          ...seriesPayload,
         }),
       },
       (p, t) => updateItem(item.id, (c) => ({ ...c, progress: 95, statusText: t }))
@@ -638,6 +641,7 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
         }))
         continue
       }
+
       try {
         await uploadFile(item)
         updateItem(item.id, (current) => ({
@@ -675,6 +679,47 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
   }
 
   const activeItem = useMemo(() => items.find((item) => item.id === activeId) || items[0], [items, activeId])
+
+  const allSeriesFieldsReady = useMemo(() => {
+    return items.every((item) => {
+      if (!item.file.type.startsWith("video/")) return true
+      if (item.seriesMode === "none") return true
+      if (item.seriesMode === "create") return item.seriesEpisodeName.trim().length > 0
+      if (!item.seriesSelected?.file_series_id) return false
+      if (item.seriesEpisodeSubmode === "existing") return !!item.seriesEpisodeId
+      if (item.seriesEpisodeSubmode === "new") return item.seriesEpisodeName.trim().length > 0
+      return false
+    })
+  }, [items])
+
+  useEffect(() => {
+    if (!seriesBrowseOpen) return
+    setSeriesBrowseLoading(true)
+    const t = setTimeout(() => {
+      void (async () => {
+        try {
+          const q = encodeURIComponent(seriesSearch.trim())
+          const res = await fetch(`/api/my-series?q=${q}`, { credentials: "include" })
+          const j = await res.json().catch(() => ({}))
+          if (res.ok && Array.isArray(j.series)) {
+            setSeriesBrowseResults(j.series)
+          } else {
+            setSeriesBrowseResults([])
+          }
+        } catch {
+          setSeriesBrowseResults([])
+        } finally {
+          setSeriesBrowseLoading(false)
+        }
+      })()
+    }, 280)
+    return () => clearTimeout(t)
+  }, [seriesSearch, seriesBrowseOpen])
+
+  const openSeriesBrowse = () => {
+    setSeriesSearch("")
+    setSeriesBrowseOpen(true)
+  }
 
   const isFieldDisabled = !activeItem || isUploadingBatch || !!activeItem?.isLocked
 
@@ -746,6 +791,7 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
 
   // --- Has files: show editor ---
   return (
+    <>
     <Dialog open={isOpen} onOpenChange={handleClose}>
       <DialogContent className="w-[96vw] max-w-[520px] sm:max-w-xl md:max-w-3xl lg:max-w-4xl rounded-2xl p-0 overflow-hidden max-h-[90vh] flex flex-col gap-0">
 
@@ -922,6 +968,207 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
                     className="text-sm resize-none bg-muted/30 border-border/50 focus:bg-background transition-colors"
                   />
                 </div>
+
+                {/* File series (video only) */}
+                {activeItem?.file.type.startsWith("video/") && (
+                  <div className="space-y-2.5 rounded-xl border border-border/50 bg-muted/20 p-3">
+                    <div className="flex items-center gap-2">
+                      <Layers className="w-3.5 h-3.5 text-muted-foreground" />
+                      <span className="text-xs font-medium text-muted-foreground">Add to a series?</span>
+                    </div>
+                    <div className="flex flex-col gap-1.5">
+                      {(["none", "create", "existing"] as const).map((mode) => (
+                        <button
+                          key={mode}
+                          type="button"
+                          disabled={isFieldDisabled}
+                          onClick={() => {
+                            if (!activeItem) return
+                            updateItem(activeItem.id, (c) => {
+                              if (mode === "none") {
+                                return {
+                                  ...c,
+                                  seriesMode: "none",
+                                  seriesEpisodeName: "",
+                                  seriesSelected: null,
+                                  seriesEpisodeSubmode: null,
+                                  seriesEpisodeId: null,
+                                  seriesEpisodesList: [],
+                                }
+                              }
+                              if (mode === "create") {
+                                return {
+                                  ...c,
+                                  seriesMode: "create",
+                                  seriesSelected: null,
+                                  seriesEpisodeSubmode: null,
+                                  seriesEpisodeId: null,
+                                  seriesEpisodesList: [],
+                                }
+                              }
+                              return {
+                                ...c,
+                                seriesMode: "existing",
+                                seriesEpisodeName: "",
+                                seriesEpisodeId: null,
+                                seriesEpisodesList: [],
+                                seriesEpisodeSubmode: null,
+                                seriesSelected: c.seriesSelected,
+                              }
+                            })
+                          }}
+                          className={`text-left rounded-lg px-3 py-2 text-sm transition-colors disabled:opacity-50 ${
+                            activeItem.seriesMode === mode
+                              ? "bg-primary text-primary-foreground"
+                              : "bg-muted/50 hover:bg-muted/80 text-foreground"
+                          }`}
+                        >
+                          {mode === "none" && "None"}
+                          {mode === "create" && "Create new series"}
+                          {mode === "existing" && "Use existing series"}
+                        </button>
+                      ))}
+                    </div>
+
+                    {activeItem.seriesMode === "create" && (
+                      <div className="space-y-1.5 pt-1">
+                        <label className="text-xs font-medium text-muted-foreground">Episode name</label>
+                        <Input
+                          value={activeItem.seriesEpisodeName}
+                          onChange={(e) =>
+                            updateItem(activeItem.id, (c) => ({ ...c, seriesEpisodeName: e.target.value }))
+                          }
+                          placeholder="e.g. Episode 1 — Pilot"
+                          maxLength={500}
+                          disabled={isFieldDisabled}
+                          className="text-sm h-9 bg-muted/30 border-border/50"
+                        />
+                        <p className="text-[10px] text-muted-foreground/70">
+                          The first episode for this series (your upload is the series cover and this episode).
+                        </p>
+                      </div>
+                    )}
+
+                    {activeItem.seriesMode === "existing" && (
+                      <div className="space-y-2 pt-1">
+                        <div className="flex flex-col gap-1.5">
+                          <span className="text-[11px] text-muted-foreground">Series</span>
+                          {activeItem.seriesSelected ? (
+                            <div className="flex items-center justify-between gap-2 rounded-lg border border-border/50 bg-background px-3 py-2 text-sm">
+                              <span className="truncate">{activeItem.seriesSelected.file_title || "Series"}</span>
+                              <button
+                                type="button"
+                                disabled={isFieldDisabled}
+                                onClick={openSeriesBrowse}
+                                className="text-xs text-primary shrink-0 hover:underline"
+                              >
+                                Change
+                              </button>
+                            </div>
+                          ) : (
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              className="h-9"
+                              disabled={isFieldDisabled}
+                              onClick={openSeriesBrowse}
+                            >
+                              Choose series…
+                            </Button>
+                          )}
+                        </div>
+
+                        {activeItem.seriesSelected && (
+                          <>
+                            <div className="flex rounded-lg border border-border/50 overflow-hidden bg-muted/30">
+                              <button
+                                type="button"
+                                disabled={isFieldDisabled || activeItem.seriesEpisodesList.length === 0}
+                                onClick={() =>
+                                  updateItem(activeItem.id, (c) => ({
+                                    ...c,
+                                    seriesEpisodeSubmode: "existing",
+                                    seriesEpisodeName: "",
+                                  }))
+                                }
+                                className={`flex-1 py-2 text-xs font-medium transition-colors disabled:opacity-40 ${
+                                  activeItem.seriesEpisodeSubmode === "existing"
+                                    ? "bg-primary text-primary-foreground"
+                                    : "text-muted-foreground"
+                                }`}
+                              >
+                                Existing episode
+                              </button>
+                              <button
+                                type="button"
+                                disabled={isFieldDisabled}
+                                onClick={() =>
+                                  updateItem(activeItem.id, (c) => ({
+                                    ...c,
+                                    seriesEpisodeSubmode: "new",
+                                    seriesEpisodeId: null,
+                                  }))
+                                }
+                                className={`flex-1 py-2 text-xs font-medium transition-colors ${
+                                  activeItem.seriesEpisodeSubmode === "new"
+                                    ? "bg-primary text-primary-foreground"
+                                    : "text-muted-foreground"
+                                }`}
+                              >
+                                New episode
+                              </button>
+                            </div>
+
+                            {activeItem.seriesEpisodeSubmode === "existing" &&
+                              activeItem.seriesEpisodesList.length > 0 && (
+                                <div className="space-y-1.5">
+                                  <label className="text-xs font-medium text-muted-foreground">Episode</label>
+                                  <select
+                                    value={activeItem.seriesEpisodeId ?? ""}
+                                    onChange={(e) =>
+                                      updateItem(activeItem.id, (c) => ({
+                                        ...c,
+                                        seriesEpisodeId: e.target.value || null,
+                                      }))
+                                    }
+                                    disabled={isFieldDisabled}
+                                    className="w-full h-9 rounded-md border border-border/50 bg-background px-2 text-sm"
+                                  >
+                                    <option value="">Select episode…</option>
+                                    {activeItem.seriesEpisodesList.map((ep) => (
+                                      <option key={ep.id} value={ep.id}>
+                                        {ep.episode_name || ep.id.slice(0, 8)}
+                                      </option>
+                                    ))}
+                                  </select>
+                                </div>
+                              )}
+
+                            {activeItem.seriesEpisodeSubmode === "new" && (
+                              <div className="space-y-1.5">
+                                <label className="text-xs font-medium text-muted-foreground">New episode name</label>
+                                <Input
+                                  value={activeItem.seriesEpisodeName}
+                                  onChange={(e) =>
+                                    updateItem(activeItem.id, (c) => ({
+                                      ...c,
+                                      seriesEpisodeName: e.target.value,
+                                    }))
+                                  }
+                                  placeholder="Episode name"
+                                  maxLength={500}
+                                  disabled={isFieldDisabled}
+                                  className="text-sm h-9 bg-muted/30 border-border/50"
+                                />
+                              </div>
+                            )}
+                          </>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 {/* Category */}
                 <div className="space-y-1.5" ref={categoryRef}>
@@ -1177,218 +1424,6 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
                   )}
                 </div>
 
-                {false /** SERIES UI off — use `activeItem &&` instead of `false &&` to re-enable (restore state + loadUserSeries + seriesPayload) */ &&
-                  activeItem &&
-                  activeItem.file.type.startsWith("video/") && (
-                  <div className="space-y-1.5">
-                    <div className="flex items-center gap-1.5">
-                      <Tv2 className="w-3.5 h-3.5 text-muted-foreground" />
-                      <label className="text-xs font-medium text-muted-foreground">Series</label>
-                    </div>
-
-                    {/* Mode selector */}
-                    <div className="flex rounded-lg border border-border/50 overflow-hidden bg-muted/30">
-                      {(["none", "new", "existing"] as const).map((mode) => (
-                        <button
-                          key={mode}
-                          type="button"
-                          disabled={isFieldDisabled}
-                          onClick={() =>
-                            updateItem(activeItem.id, (c) => ({ ...c, seriesMode: mode }))
-                          }
-                          className={`flex-1 py-2 text-xs font-medium transition-all disabled:cursor-not-allowed ${
-                            activeItem.seriesMode === mode
-                              ? "bg-primary text-primary-foreground shadow-sm"
-                              : "text-muted-foreground hover:text-foreground"
-                          }`}
-                        >
-                          {mode === "none" ? "None" : mode === "new" ? "New series" : "Existing"}
-                        </button>
-                      ))}
-                    </div>
-
-                    {/* New series fields */}
-                    {activeItem.seriesMode === "new" && (
-                      <div className="space-y-2 pt-0.5">
-                        <Input
-                          placeholder="Series title *"
-                          maxLength={200}
-                          value={activeItem.seriesTitle}
-                          onChange={(e) =>
-                            updateItem(activeItem.id, (c) => ({ ...c, seriesTitle: e.target.value }))
-                          }
-                          disabled={isFieldDisabled}
-                          className="text-sm h-9 bg-muted/30 border-border/50 focus:bg-background"
-                        />
-                        <Textarea
-                          placeholder="Series description (optional)"
-                          rows={2}
-                          maxLength={1000}
-                          value={activeItem.seriesDesc}
-                          onChange={(e) =>
-                            updateItem(activeItem.id, (c) => ({ ...c, seriesDesc: e.target.value }))
-                          }
-                          disabled={isFieldDisabled}
-                          className="text-sm resize-none bg-muted/30 border-border/50 focus:bg-background"
-                        />
-                        <div className="flex rounded-lg border border-border/50 overflow-hidden bg-muted/30">
-                          {[true, false].map((pub) => (
-                            <button
-                              key={String(pub)}
-                              type="button"
-                              disabled={isFieldDisabled}
-                              onClick={() =>
-                                updateItem(activeItem.id, (c) => ({ ...c, seriesIsPublic: pub }))
-                              }
-                              className={`flex-1 flex items-center justify-center gap-1.5 py-2 text-xs font-medium transition-all disabled:cursor-not-allowed ${
-                                activeItem.seriesIsPublic === pub
-                                  ? "bg-primary text-primary-foreground shadow-sm"
-                                  : "text-muted-foreground hover:text-foreground"
-                              }`}
-                            >
-                              {pub ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />}
-                              {pub ? "Public series" : "Private series"}
-                            </button>
-                          ))}
-                        </div>
-                        <p className="text-[10px] text-muted-foreground/60">
-                          This file will be the main entry shown in feeds.
-                        </p>
-                      </div>
-                    )}
-
-                    {/* Existing series — search & select */}
-                    {activeItem.seriesMode === "existing" && (
-                      <div className="space-y-2 pt-0.5">
-                        {/* Selected badge */}
-                        {activeItem.existingSeriesId ? (
-                          <div className="flex items-center justify-between gap-2 px-2.5 py-2 rounded-lg bg-primary/8 border border-primary/20">
-                            <div className="flex items-center gap-2 min-w-0">
-                              <Tv2 className="w-3.5 h-3.5 text-primary shrink-0" />
-                              <span className="text-xs font-medium text-primary truncate">{activeItem.existingSeriesName || activeItem.existingSeriesId}</span>
-                            </div>
-                            <button
-                              type="button"
-                              disabled={isFieldDisabled}
-                              onClick={() => updateItem(activeItem.id, (c) => ({ ...c, existingSeriesId: "", existingSeriesName: "" }))}
-                              className="shrink-0 text-muted-foreground hover:text-destructive transition-colors disabled:cursor-not-allowed"
-                            >
-                              <X className="w-3.5 h-3.5" />
-                            </button>
-                          </div>
-                        ) : (
-                          <div className="space-y-1.5">
-                            {/* Search input */}
-                            <div className="relative">
-                              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground pointer-events-none" />
-                              <Input
-                                placeholder="Search your series..."
-                                value={seriesSearchQuery}
-                                onChange={(e) => setSeriesSearchQuery(e.target.value)}
-                                onFocus={() => loadUserSeries()}
-                                disabled={isFieldDisabled}
-                                className="text-sm h-9 bg-muted/30 border-border/50 focus:bg-background pl-8"
-                              />
-                            </div>
-                            {/* Results list */}
-                            <div className="rounded-lg border border-border/50 overflow-hidden max-h-[160px] overflow-y-auto bg-background">
-                              {seriesLoading ? (
-                                <div className="flex items-center justify-center gap-2 py-5 text-xs text-muted-foreground">
-                                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                                  Loading...
-                                </div>
-                              ) : seriesList.length === 0 ? (
-                                <p className="text-center text-xs text-muted-foreground py-5">
-                                  No series found. Create one first.
-                                </p>
-                              ) : (() => {
-                                const q = seriesSearchQuery.trim().toLowerCase()
-                                const filtered = q
-                                  ? seriesList.filter((s) => s.title.toLowerCase().includes(q))
-                                  : seriesList
-                                return filtered.length === 0 ? (
-                                  <p className="text-center text-xs text-muted-foreground py-4">No match</p>
-                                ) : (
-                                  filtered.map((s) => (
-                                    <button
-                                      key={s.id}
-                                      type="button"
-                                      disabled={isFieldDisabled}
-                                      onClick={() => {
-                                        updateItem(activeItem.id, (c) => ({
-                                          ...c,
-                                          existingSeriesId: s.id,
-                                          existingSeriesName: s.title,
-                                        }))
-                                        setSeriesSearchQuery("")
-                                      }}
-                                      className="w-full text-left flex items-center justify-between gap-2 px-3 py-2 text-sm hover:bg-muted/70 transition-colors border-b border-border/30 last:border-b-0 disabled:cursor-not-allowed"
-                                    >
-                                      <span className="truncate font-medium">{s.title}</span>
-                                      {s.episode_count != null && (
-                                        <span className="shrink-0 text-[10px] text-muted-foreground tabular-nums">
-                                          {s.episode_count} ep
-                                        </span>
-                                      )}
-                                    </button>
-                                  ))
-                                )
-                              })()}
-                            </div>
-                          </div>
-                        )}
-
-                        {/* Season / Episode numbers — shown once a series is selected */}
-                        {activeItem.existingSeriesId && (
-                          <div className="grid grid-cols-2 gap-2">
-                            <div className="space-y-1">
-                              <label className="text-[11px] text-muted-foreground">Season</label>
-                              <Input
-                                type="text"
-                                inputMode="numeric"
-                                placeholder="1"
-                                value={activeItem.seasonNumber != null ? String(activeItem.seasonNumber) : ""}
-                                onChange={(e) => {
-                                  const raw = e.target.value.replace(/\D/g, "").slice(0, 3)
-                                  const n = raw ? parseInt(raw, 10) : null
-                                  updateItem(activeItem.id, (c) => ({
-                                    ...c,
-                                    seasonNumber: n !== null && n >= 1 && n <= 999 ? n : null,
-                                  }))
-                                }}
-                                disabled={isFieldDisabled}
-                                className="text-sm h-9 bg-muted/30 border-border/50"
-                              />
-                            </div>
-                            <div className="space-y-1">
-                              <label className="text-[11px] text-muted-foreground">Episode</label>
-                              <Input
-                                type="text"
-                                inputMode="numeric"
-                                placeholder="1"
-                                value={activeItem.episodeNumber != null ? String(activeItem.episodeNumber) : ""}
-                                onChange={(e) => {
-                                  const raw = e.target.value.replace(/\D/g, "").slice(0, 4)
-                                  const n = raw ? parseInt(raw, 10) : null
-                                  updateItem(activeItem.id, (c) => ({
-                                    ...c,
-                                    episodeNumber: n !== null && n >= 1 && n <= 9999 ? n : null,
-                                  }))
-                                }}
-                                disabled={isFieldDisabled}
-                                className="text-sm h-9 bg-muted/30 border-border/50"
-                              />
-                            </div>
-                          </div>
-                        )}
-
-                        <p className="text-[10px] text-muted-foreground/60">
-                          This file will be hidden from feeds and linked to the series.
-                        </p>
-                      </div>
-                    )}
-                  </div>
-                )}
               </div>
             </div>
           </div>
@@ -1421,7 +1456,7 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
             size="sm"
             className="h-9 px-6 gap-2 font-medium"
             onClick={handleUpload}
-            disabled={items.length === 0 || isUploadingBatch}
+            disabled={items.length === 0 || isUploadingBatch || !allSeriesFieldsReady}
           >
             {isUploadingBatch ? (
               <>
@@ -1438,6 +1473,55 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
         </div>
       </DialogContent>
     </Dialog>
+
+    <Dialog open={seriesBrowseOpen} onOpenChange={setSeriesBrowseOpen}>
+      <DialogContent className="max-w-md rounded-2xl">
+        <DialogHeader>
+          <DialogTitle className="text-base">Your series</DialogTitle>
+        </DialogHeader>
+        <Input
+          value={seriesSearch}
+          onChange={(e) => setSeriesSearch(e.target.value)}
+          placeholder="Search by title…"
+          className="h-9 text-sm"
+        />
+        <div className="max-h-[240px] overflow-y-auto rounded-lg border border-border/50 divide-y divide-border/50">
+          {seriesBrowseLoading ? (
+            <p className="p-4 text-sm text-muted-foreground flex items-center gap-2">
+              <Loader2 className="w-4 h-4 animate-spin" />
+              Loading…
+            </p>
+          ) : seriesBrowseResults.length === 0 ? (
+            <p className="p-4 text-sm text-muted-foreground">No series match your search.</p>
+          ) : (
+            seriesBrowseResults.map((row) => (
+              <button
+                key={row.file_series_id}
+                type="button"
+                className="w-full text-left px-3 py-2.5 text-sm hover:bg-muted/80 transition-colors"
+                onClick={() => {
+                  const target = activeItem
+                  if (!target) return
+                  updateItem(target.id, (c) => ({
+                    ...c,
+                    seriesMode: "existing",
+                    seriesSelected: {
+                      file_series_id: row.file_series_id,
+                      file_title: row.file_title,
+                    },
+                  }))
+                  loadEpisodesForItem(target.id, row.file_series_id)
+                  setSeriesBrowseOpen(false)
+                }}
+              >
+                <span className="font-medium line-clamp-2">{row.file_title || "Untitled"}</span>
+              </button>
+            ))
+          )}
+        </div>
+      </DialogContent>
+    </Dialog>
+    </>
   )
 }
 

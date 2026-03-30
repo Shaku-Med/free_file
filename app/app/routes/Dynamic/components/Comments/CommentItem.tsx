@@ -17,6 +17,7 @@ import { formatDistanceToNow } from "date-fns";
 import { getProfilePicUrl } from "~/lib/utils/profilePic";
 import { cn } from "~/lib/utils";
 import ImageLoad from "~/routes/Home/components/ImageLoad/ImageLoad";
+import { CommentThreadConnector, commentThreadGutterWidthPx } from "./CommentThreadConnector";
 
 interface CommentItemProps {
   comment: CommentType;
@@ -28,12 +29,14 @@ interface CommentItemProps {
   onDelete: (commentId: string) => Promise<void>;
   onHide?: (commentId: string, hidden: boolean) => Promise<void>;
   onLike?: (commentId: string) => Promise<void>;
-  /** When false, hide reply UI (file owner disabled new comments) */
   allowNewComments?: boolean;
   level?: number;
   highlightCommentId?: string | null;
   imageUploadDateFolder?: string;
   imageUploadUniqueId?: string;
+  isLastInThread?: boolean;
+  /** Per nesting depth: vertical rail in column i if ancestor at that depth had a younger sibling. */
+  threadPrefix?: boolean[];
 }
 
 function subtreeContainsHighlight(c: CommentType, targetId: string | null | undefined): boolean {
@@ -57,6 +60,8 @@ const CommentItem = ({
   highlightCommentId = null,
   imageUploadDateFolder,
   imageUploadUniqueId,
+  isLastInThread = true,
+  threadPrefix = [],
 }: CommentItemProps) => {
   const [isReplying, setIsReplying] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
@@ -208,17 +213,29 @@ const CommentItem = ({
     }
   };
 
+  const gutterPx = level > 0 ? commentThreadGutterWidthPx(level) : 0;
+
   return (
     <div
       id={`comment-${comment.id}`}
       className={cn(
-        "space-y-3 scroll-mt-28 rounded-xl transition-[box-shadow,background-color] duration-500",
-        level > 0 && "ml-8 border-l-2 border-muted pl-4",
+        "relative space-y-3 scroll-mt-28 rounded-xl transition-[box-shadow,background-color] duration-500",
+        level > 0 && "overflow-visible min-w-0",
         showEmphasis &&
           "ring-2 ring-primary/80 ring-offset-2 ring-offset-background bg-primary/10 shadow-sm p-2 -m-2 sm:p-3 sm:-m-3"
       )}
+      style={level > 0 ? { paddingLeft: gutterPx } : undefined}
     >
-      <div className="flex gap-3">
+      {/* One wrapper so space-y-3 does not add margin between absolute connector and flex row */}
+      <div className="relative">
+        {level > 0 && (
+          <CommentThreadConnector
+            level={level}
+            threadPrefix={threadPrefix}
+            isLastInThread={isLastInThread}
+          />
+        )}
+        <div className="relative z-[1] flex items-start gap-3">
         {comment.user?.username ? (
           <Link to={`/profile/${comment.user.username}`}>
             <Avatar className="h-8 w-8 flex-shrink-0 hover:ring-2 ring-primary transition-all cursor-pointer">
@@ -233,7 +250,12 @@ const CommentItem = ({
             <AvatarFallback>U</AvatarFallback>
           </Avatar>
         )}
-        <div className="flex-1 min-w-0 space-y-1">
+        <div
+          className={cn(
+            "flex-1 space-y-1",
+            level > 0 ? "min-w-[min(100%,15rem)]" : "min-w-0"
+          )}
+        >
           <div className="flex items-start justify-between gap-2">
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2">
@@ -381,23 +403,32 @@ const CommentItem = ({
                   Reply
                 </Button>
               )}
-              {hasReplies && level === 0 && (
+              {hasReplies && (
                 <Button
                   variant="ghost"
                   size="sm"
                   onClick={() => setShowReplies(!showReplies)}
                   className="h-7 text-xs"
                 >
-                  {showReplies ? "Hide" : "Show"} {comment.reply_count} {comment.reply_count === 1 ? "reply" : "replies"}
+                  {showReplies ? "Hide" : "Show"} {comment.reply_count}{" "}
+                  {comment.reply_count === 1 ? "reply" : "replies"}
                 </Button>
               )}
             </div>
           )}
         </div>
       </div>
+      </div>
 
       {allowNewComments && isReplying && (
-        <div className="ml-11">
+        <div
+          className={cn(level > 0 ? "" : "ml-11")}
+          style={
+            level > 0
+              ? { paddingLeft: gutterPx + 32 + 12 }
+              : undefined
+          }
+        >
           <CommentForm
             fileId={fileId}
             parentId={comment.id}
@@ -411,8 +442,8 @@ const CommentItem = ({
       )}
 
       {showReplies && hasReplies && (
-        <div className="space-y-3 mt-2">
-          {comment.replies?.map((reply) => (
+        <div className="relative z-[1] mt-2 space-y-3 overflow-visible">
+          {comment.replies?.map((reply, idx, arr) => (
             <CommentItem
               key={reply.id}
               comment={reply}
@@ -429,6 +460,8 @@ const CommentItem = ({
               onLike={onLike}
               level={level + 1}
               highlightCommentId={highlightCommentId}
+              isLastInThread={idx === arr.length - 1}
+              threadPrefix={level === 0 ? [] : [...threadPrefix, !isLastInThread]}
             />
           ))}
         </div>

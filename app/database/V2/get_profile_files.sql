@@ -89,13 +89,14 @@ BEGIN
       (p_viewer_id IS NOT NULL AND EXISTS (SELECT 1 FROM dislike d WHERE d.file_id = f.id AND d.user_id = p_viewer_id)) AS _viewer_disliked
     FROM files f
     WHERE f.owner_id = p_profile_user_id
+      -- Hide episode-only assets everywhere (including owner): only main + regular files
+      AND (f.is_series_main OR COALESCE(f.is_files_series_item, false) IS NOT TRUE)
       AND (
         v_is_owner
         OR (
           f.is_public = true
           AND f.is_adult = false
           AND (f.upload_status = 'complete' OR f.upload_status = 'completed')
-          AND (f.series_id IS NULL OR f.is_series_main = true)  -- hide sub-episodes from public profile
         )
       )
   ),

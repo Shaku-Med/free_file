@@ -1,6 +1,9 @@
 import { createClient } from '@supabase/supabase-js';
 import { EnvValidator } from '../EnvValidator';
 
+// Server-only: EnvValidator reads env at runtime on the server. Do not import this module
+// from client-only entrypoints that ship to the browser.
+// SUPABASE_ANON_KEY is a legacy env name; the value is your server secret (e.g. service_role JWT).
 const supabaseUrl: string = EnvValidator(`SUPABASE_URL`) || '';
 const supabaseKey: string = EnvValidator(`SUPABASE_ANON_KEY`) || '';
 

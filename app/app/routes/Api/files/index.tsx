@@ -21,10 +21,6 @@ function fileEditResponsePayload(row: Record<string, unknown>) {
     default_thumbnail: row.default_thumbnail ?? null,
     file_type: row.file_type ?? null,
     is_adult: row.is_adult ?? false,
-    series_id: row.series_id ?? null,
-    season_number: row.season_number ?? null,
-    episode_number: row.episode_number ?? null,
-    is_series_main: row.is_series_main ?? false,
   };
 }
 
@@ -66,7 +62,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
       const { data: qrow, error: qErr } = await db
         .from("files")
         .select(
-          "id, unique_id, file_title, file_description, is_public, categories, tags, comments_enabled, comment_limit, default_thumbnail, file_type, is_adult, series_id, season_number, episode_number, is_series_main"
+          "id, unique_id, file_title, file_description, is_public, categories, tags, comments_enabled, comment_limit, default_thumbnail, file_type, is_adult"
         )
         .eq(lookupField, fileId)
         .eq("owner_id", user.id)
@@ -106,7 +102,7 @@ export const action = async ({ request }: { request: Request }) => {
     }
 
     const body = await request.json();
-    const { fileId, title, description, isPublic, categories, tags, defaultThumbnail, commentsEnabled, commentLimit, seriesId, episodeNumber, seasonNumber, isSeriesMain } = body || {};
+    const { fileId, title, description, isPublic, categories, tags, defaultThumbnail, commentsEnabled, commentLimit } = body || {};
 
     if (!fileId || !isValidFileId(fileId)) {
       return toJson({ error: "Invalid fileId" }, 400);
@@ -207,43 +203,6 @@ export const action = async ({ request }: { request: Request }) => {
     if (typeof defaultThumbnail === "string") {
       updateData.default_thumbnail = defaultThumbnail.length > 0 ? defaultThumbnail : null;
     }
-    // seriesId: string uuid = link to series, null = remove from series
-    if (seriesId !== undefined) {
-      if (seriesId === null) {
-        updateData.series_id      = null;
-        updateData.season_number  = null;
-        updateData.episode_number = null;
-      } else if (typeof seriesId === "string" && /^[0-9a-f-]{36}$/i.test(seriesId)) {
-        updateData.series_id = seriesId;
-      } else {
-        return toJson({ error: "seriesId must be a valid UUID or null" }, 400);
-      }
-    }
-    if (episodeNumber !== undefined) {
-      if (episodeNumber === null) {
-        updateData.episode_number = null;
-      } else if (typeof episodeNumber === "number" && Number.isInteger(episodeNumber) && episodeNumber >= 1 && episodeNumber <= 9999) {
-        updateData.episode_number = episodeNumber;
-      } else {
-        return toJson({ error: "episodeNumber must be an integer from 1 to 9999 or null" }, 400);
-      }
-    }
-    if (seasonNumber !== undefined) {
-      if (seasonNumber === null) {
-        updateData.season_number = null;
-      } else if (typeof seasonNumber === "number" && Number.isInteger(seasonNumber) && seasonNumber >= 1 && seasonNumber <= 999) {
-        updateData.season_number = seasonNumber;
-      } else {
-        return toJson({ error: "seasonNumber must be an integer from 1 to 999 or null" }, 400);
-      }
-    }
-    if (isSeriesMain !== undefined) {
-      if (typeof isSeriesMain !== "boolean") {
-        return toJson({ error: "isSeriesMain must be boolean" }, 400);
-      }
-      // Only meaningful when the file is already part of a series
-      updateData.is_series_main = isSeriesMain;
-    }
 
     if (Object.keys(updateData).length === 0) {
       return toJson({ error: "No changes provided" }, 400);
@@ -253,7 +212,7 @@ export const action = async ({ request }: { request: Request }) => {
       .from("files")
       .update(updateData)
       .eq(lookupField, fileId)
-      .select("id, file_title, file_description, is_public, categories, tags, comments_enabled, comment_limit, default_thumbnail, series_id, season_number, episode_number, is_series_main")
+      .select("id, file_title, file_description, is_public, categories, tags, comments_enabled, comment_limit, default_thumbnail")
       .single();
 
     if (updateError) {

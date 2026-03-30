@@ -367,7 +367,7 @@ const CommentSection = ({
           </p>
         </div>
       ) : (
-        <div className="space-y-4">
+        <div className="space-y-4 min-w-0 max-w-full overflow-x-auto overscroll-x-contain [scrollbar-gutter:stable]">
           {comments.map((comment) => (
             <CommentItem
               key={comment.id}

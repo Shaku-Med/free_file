@@ -1,18 +1,5 @@
 import type { OwnerInfo } from '~/components/OwnerProfile/OwnerProfile';
 
-export interface SeriesType {
-  id: string;
-  unique_id: string;
-  owner_id: string;
-  title: string;
-  description?: string | null;
-  thumbnail_url?: string | null;
-  is_public: boolean;
-  created_at: string;
-  updated_at?: string;
-  episode_count?: number;
-}
-
 export interface FileType {
   id: string;
   created_at: string;
@@ -50,11 +37,14 @@ export interface FileType {
   comments_enabled?: boolean;
   /** null/undefined = unlimited; 0 = no comments allowed; positive = max visible comments */
   comment_limit?: number | null;
-  series_id?: string | null;
-  season_number?: number | null;
-  episode_number?: number | null;
-  is_series_main?: boolean;
-  series?: Pick<SeriesType, 'id' | 'unique_id' | 'title'> | null;
+}
+
+/** Episodes returned for a series main file on the dynamic page */
+export interface SeriesEpisodeGroup {
+  episode_id: string;
+  episode_name: string;
+  episode_number: number | null;
+  items: FileType[];
 }
 
 export interface PageCacheData {

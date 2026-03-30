@@ -1,5 +1,6 @@
 import db from '~/lib/Database/supabase';
 import { textContainsNsfw, DEFAULT_METADATA_WARNING } from '~/lib/nsfwTextCheck';
+import { isValidUUID } from '~/lib/Security/inputValidation';
 
 function inferFileType(filename: string): string {
   if (!filename) return 'application/octet-stream';
@@ -12,100 +13,185 @@ function inferFileType(filename: string): string {
   return map[ext] ?? 'application/octet-stream';
 }
 
-/* -------- Series via upload webhook (disabled — uncomment block to re-enable) --------
-function isVideoForSeriesLinking(fileType: string, fileName: string): boolean {
-  const ft = (fileType || '').toLowerCase();
-  if (ft.startsWith('video/')) return true;
-  if (ft === 'application/vnd.apple.mpegurl') return true;
-  const ext = fileName.replace(/^.*\./, '').toLowerCase();
-  return ['mp4', 'webm', 'mov', 'mkv', 'avi', 'm4v', 'm3u8', 'ogv'].includes(ext);
+function isVideoFilename(name: string): boolean {
+  if (!name) return false;
+  const ext = name.replace(/^.*\./, '').toLowerCase();
+  return ['mp4', 'webm', 'mkv', 'avi', 'mov', 'wmv', 'flv', 'm4v'].includes(ext);
 }
 
-type SeriesPayload = {
-  series_id?: string;
-  series_title?: string;
-  series_desc?: string;
-  series_is_public?: boolean;
-  is_series_main?: boolean;
-  episode_number?: number;
-  season_number?: number;
+type SeriesWebhookBody = {
+  user_id?: string;
+  file_name?: string;
+  is_new_series?: boolean;
+  file_series_id?: string;
+  file_series_episode_id?: string;
+  new_episode_name?: string;
 };
 
-function normalizeSeriesFields(o: Record<string, unknown>): SeriesPayload {
-  const ep = o.episode_number;
-  const sn = o.season_number;
-  return {
-    series_id: typeof o.series_id === 'string' ? o.series_id : undefined,
-    series_title: typeof o.series_title === 'string' ? o.series_title : undefined,
-    series_desc: typeof o.series_desc === 'string' ? o.series_desc : undefined,
-    series_is_public: typeof o.series_is_public === 'boolean' ? o.series_is_public : undefined,
-    is_series_main: o.is_series_main === true,
-    episode_number: typeof ep === 'number' && Number.isInteger(ep) ? ep : undefined,
-    season_number: typeof sn === 'number' && Number.isInteger(sn) ? sn : undefined,
-  };
-}
-
-function pickSeriesFromBody(body: Record<string, unknown>): SeriesPayload | null {
-  const nested = body.series;
-  if (nested && typeof nested === 'object' && nested !== null && !Array.isArray(nested)) {
-    return normalizeSeriesFields(nested as Record<string, unknown>);
-  }
-  const title = typeof body.series_title === 'string' ? body.series_title.trim() : '';
-  const sid = typeof body.series_id === 'string' ? body.series_id.trim() : '';
-  if (body.is_series_main === true || title !== '' || /^[0-9a-f-]{36}$/i.test(sid)) {
-    return normalizeSeriesFields(body);
-  }
-  return null;
-}
-
-async function trySeriesPatchOnCompleted(
+/**
+ * Creates file_series / episodes / episode_items and updates `files` for video uploads.
+ * Enforces is_series_main vs is_files_series_item mutual exclusivity on updates.
+ */
+async function applyFileSeriesOnComplete(
   uploadId: string,
-  userId: string,
-  fileName: string,
-  s: SeriesPayload | null
-): Promise<Record<string, unknown> | null> {
-  if (!db || !s || !userId) return null;
-  const file_type = inferFileType(fileName);
-  if (!isVideoForSeriesLinking(file_type, fileName)) return null;
+  body: SeriesWebhookBody,
+  fileNameForTypeCheck: string
+): Promise<void> {
+  if (!db || !isVideoFilename(fileNameForTypeCheck)) return;
 
-  const { data: existing, error: selErr } = await db
-    .from('files')
-    .select('series_id, is_public, filename')
-    .eq('unique_id', uploadId)
-    .maybeSingle();
-  if (selErr || !existing || existing.series_id) return null;
+  const ownerId = typeof body.user_id === 'string' ? body.user_id.trim() : '';
+  if (!ownerId) return;
 
-  const fn = typeof existing.filename === 'string' && existing.filename ? existing.filename : fileName;
-  const ftRow = inferFileType(fn);
-  if (!isVideoForSeriesLinking(ftRow, fn)) return null;
+  const isNewSeries = body.is_new_series === true;
+  const fileSeriesId = typeof body.file_series_id === 'string' ? body.file_series_id.trim() : '';
+  let fileSeriesEpisodeId =
+    typeof body.file_series_episode_id === 'string' ? body.file_series_episode_id.trim() : '';
+  const newEpisodeName =
+    typeof body.new_episode_name === 'string' ? body.new_episode_name.trim().slice(0, 500) : '';
 
-  if (s.is_series_main && s.series_title?.trim()) {
-    const seriesIsPublic =
-      typeof s.series_is_public === 'boolean' ? s.series_is_public : existing.is_public !== false;
-    const { data: seriesRows, error: seriesErr } = await db.rpc('create_series', {
-      p_user_id: userId,
-      p_title: s.series_title.trim().slice(0, 200),
-      p_desc: (s.series_desc ?? '').trim().slice(0, 2000),
-      p_is_public: seriesIsPublic,
+  if (!isNewSeries && !fileSeriesId) return;
+
+  const { count: existingItemCount, error: existErr } = await db
+    .from('files_series_episode_items')
+    .select('id', { count: 'exact', head: true })
+    .eq('file_id', uploadId);
+  if (existErr) {
+    console.warn(
+      '[upload-job-status] series idempotency check:',
+      existErr.message || (existErr as { code?: string }).code || String(existErr)
+    );
+  } else if (existingItemCount && existingItemCount > 0) {
+    return;
+  }
+
+  if (isNewSeries) {
+    if (!newEpisodeName) {
+      console.warn('[upload-job-status] new series missing episode name');
+      return;
+    }
+    const { data: seriesRow, error: seriesErr } = await db
+      .from('file_series')
+      .insert({ file_id: uploadId, owner_id: ownerId })
+      .select('id')
+      .single();
+    if (seriesErr || !seriesRow?.id) {
+      console.error('[upload-job-status] file_series insert:', seriesErr?.message ?? seriesErr);
+      return;
+    }
+    const sid = String(seriesRow.id);
+    const { data: epRow, error: epErr } = await db
+      .from('files_series_episodes')
+      .insert({
+        feed_series_id: sid,
+        owner_id: ownerId,
+        episode_name: newEpisodeName,
+      })
+      .select('id')
+      .single();
+    if (epErr || !epRow?.id) {
+      console.error('[upload-job-status] files_series_episodes insert:', epErr?.message ?? epErr);
+      return;
+    }
+    const eid = String(epRow.id);
+    const { error: fileUp } = await db
+      .from('files')
+      .update({
+        is_series_main: true,
+        is_files_series_item: false,
+        file_series_id: sid,
+        file_series_episode_id: eid,
+      })
+      .eq('unique_id', uploadId);
+    if (fileUp) {
+      console.error('[upload-job-status] files series (new main) update:', fileUp.message);
+      return;
+    }
+    const { error: itemErr } = await db.from('files_series_episode_items').insert({
+      file_series_id: sid,
+      file_episode_id: eid,
+      owner_id: ownerId,
+      file_id: uploadId,
     });
-    if (seriesErr) {
-      console.warn('[upload-job-status] create_series failed (completed fallback):', seriesErr.message);
-      return null;
-    }
-    if (Array.isArray(seriesRows) && seriesRows[0]?.id) {
-      return { series_id: seriesRows[0].id, is_series_main: true };
-    }
-    return null;
+    if (itemErr) console.error('[upload-job-status] files_series_episode_items (new series):', itemErr.message);
+    return;
   }
-  if (s.series_id && /^[0-9a-f-]{36}$/i.test(s.series_id)) {
-    const patch: Record<string, unknown> = { series_id: s.series_id, is_series_main: false };
-    if (s.episode_number != null && s.episode_number >= 1) patch.episode_number = s.episode_number;
-    if (s.season_number != null && s.season_number >= 1) patch.season_number = s.season_number;
-    return patch;
+
+  if (!isValidUUID(fileSeriesId)) {
+    console.warn('[upload-job-status] invalid file_series_id');
+    return;
   }
-  return null;
+
+  const { data: ser, error: serErr } = await db
+    .from('file_series')
+    .select('id')
+    .eq('id', fileSeriesId)
+    .eq('owner_id', ownerId)
+    .maybeSingle();
+  if (serErr || !ser) {
+    console.warn('[upload-job-status] file_series not found or not owned');
+    return;
+  }
+
+  if (!fileSeriesEpisodeId && !newEpisodeName) {
+    console.warn('[upload-job-status] existing series: missing episode');
+    return;
+  }
+
+  if (fileSeriesEpisodeId) {
+    if (!isValidUUID(fileSeriesEpisodeId)) {
+      console.warn('[upload-job-status] invalid file_series_episode_id');
+      return;
+    }
+    const { data: ep, error: epLookupErr } = await db
+      .from('files_series_episodes')
+      .select('id')
+      .eq('id', fileSeriesEpisodeId)
+      .eq('feed_series_id', fileSeriesId)
+      .eq('owner_id', ownerId)
+      .maybeSingle();
+    if (epLookupErr || !ep) {
+      console.warn('[upload-job-status] episode not in series or not owned');
+      return;
+    }
+  } else {
+    const { data: epNew, error: epInsErr } = await db
+      .from('files_series_episodes')
+      .insert({
+        feed_series_id: fileSeriesId,
+        owner_id: ownerId,
+        episode_name: newEpisodeName,
+      })
+      .select('id')
+      .single();
+    if (epInsErr || !epNew?.id) {
+      console.error('[upload-job-status] new episode insert:', epInsErr?.message ?? epInsErr);
+      return;
+    }
+    fileSeriesEpisodeId = String(epNew.id);
+  }
+
+  const { error: fileUp2 } = await db
+    .from('files')
+    .update({
+      is_series_main: false,
+      is_files_series_item: true,
+      file_series_id: fileSeriesId,
+      file_series_episode_id: fileSeriesEpisodeId,
+    })
+    .eq('unique_id', uploadId);
+  if (fileUp2) {
+    console.error('[upload-job-status] files series (episode item) update:', fileUp2.message);
+    return;
+  }
+
+  const { error: itemErr2 } = await db.from('files_series_episode_items').insert({
+    file_series_id: fileSeriesId,
+    file_episode_id: fileSeriesEpisodeId,
+    owner_id: ownerId,
+    file_id: uploadId,
+  });
+  if (itemErr2) console.error('[upload-job-status] files_series_episode_items (existing series):', itemErr2.message);
 }
--------- end series helpers -------- */
 
 export const action = async ({ request }: { request: Request }) => {
   if (request.method !== 'POST') {
@@ -146,7 +232,10 @@ export const action = async ({ request }: { request: Request }) => {
     /** null/omitted = unlimited; 0 = no comments; positive = max comments */
     comment_limit?: number | null;
     default_thumbnail?: string;
-    // series?: { ... } // when re-enabling series webhook helpers
+    is_new_series?: boolean;
+    file_series_id?: string;
+    file_series_episode_id?: string;
+    new_episode_name?: string;
   };
   try {
     body = await request.json();
@@ -214,36 +303,6 @@ export const action = async ({ request }: { request: Request }) => {
       file_type,
       created_at: updated_at,
     };
-
-    /* SERIES (queued) — re-enable with helpers at top of file
-    const s = pickSeriesFromBody(body as unknown as Record<string, unknown>);
-    if (s && isVideoForSeriesLinking(file_type, file_name)) {
-      if (s.is_series_main && s.series_title?.trim()) {
-        const seriesIsPublic = typeof s.series_is_public === 'boolean' ? s.series_is_public : is_public;
-        const { data: seriesRows, error: seriesErr } = await db.rpc('create_series', {
-          p_user_id: user_id,
-          p_title: s.series_title.trim().slice(0, 200),
-          p_desc: (s.series_desc ?? '').trim().slice(0, 2000),
-          p_is_public: seriesIsPublic,
-        });
-        if (seriesErr) {
-          console.warn('[upload-job-status] create_series failed:', seriesErr.message);
-        } else if (Array.isArray(seriesRows) && seriesRows[0]?.id) {
-          fileRow.series_id = seriesRows[0].id;
-          fileRow.is_series_main = true;
-        }
-      } else if (s.series_id && /^[0-9a-f-]{36}$/i.test(s.series_id)) {
-        fileRow.series_id = s.series_id;
-        fileRow.is_series_main = false;
-        if (typeof s.episode_number === 'number' && Number.isInteger(s.episode_number) && s.episode_number >= 1) {
-          fileRow.episode_number = s.episode_number;
-        }
-        if (typeof s.season_number === 'number' && Number.isInteger(s.season_number) && s.season_number >= 1) {
-          fileRow.season_number = s.season_number;
-        }
-      }
-    }
-    */
 
     const { error: filesErr } = await db
       .from('files')
@@ -330,19 +389,15 @@ export const action = async ({ request }: { request: Request }) => {
       updateData.default_thumbnail = default_thumbnail;
     }
 
-    /* SERIES (completed fallback) — re-enable with helpers at top of file
-    const completedFileName = typeof body?.file_name === 'string' ? body.file_name.trim() : '';
-    const seriesPicked = pickSeriesFromBody(body as unknown as Record<string, unknown>);
-    const seriesPatch = await trySeriesPatchOnCompleted(upload_id, user_id, completedFileName, seriesPicked);
-    if (seriesPatch) Object.assign(updateData, seriesPatch);
-    */
-
     const { error: updateErr } = await db
       .from('files')
       .update(updateData)
       .eq('unique_id', upload_id);
     if (updateErr) {
       console.error('[upload-job-status] files update (completed):', upload_id, updateErr.message ?? updateErr);
+    } else {
+      const fn = typeof body.file_name === 'string' ? body.file_name.trim() : '';
+      await applyFileSeriesOnComplete(upload_id, body, fn);
     }
   }
 

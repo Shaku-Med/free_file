@@ -393,7 +393,7 @@ BEGIN
     WHERE f.is_public = true
       AND f.is_adult = false           -- HARD BLOCK: never show adult content in feeds
       AND (f.upload_status = 'complete' OR f.upload_status = 'completed')
-      AND (f.series_id IS NULL OR f.is_series_main = true)  -- hide series sub-episodes
+      AND (f.is_series_main OR COALESCE(f.is_files_series_item, false) IS NOT TRUE)
   )
 
   SELECT

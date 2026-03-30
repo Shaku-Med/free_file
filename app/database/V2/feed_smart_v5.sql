@@ -11,6 +11,7 @@
 --   7. Materialized view refresh helper
 -- ============================================================
 -- Run in Supabase SQL Editor. Replaces get_feed, get_reel_feed, get_related.
+-- Feed visibility: exclude episode-only files (is_files_series_item without is_series_main).
 -- ============================================================
 
 
@@ -235,7 +236,7 @@ BEGIN
     WHERE f.is_public = true
       AND f.is_adult = false
       AND f.upload_status = 'complete'
-      AND (f.series_id IS NULL OR f.is_series_main = true)  -- hide series sub-episodes
+      AND (f.is_series_main OR COALESCE(f.is_files_series_item, false) IS NOT TRUE)
       AND (p_category IS NULL OR f.categories @> to_jsonb(p_category)::jsonb)
       AND (p_reels_only = false OR f.is_reel = true)
       AND (p_user_id IS NULL OR ud.file_id IS NULL)   -- exclude disliked
@@ -571,7 +572,7 @@ BEGIN
     WHERE f.is_public = true
       AND f.is_adult = false
       AND f.upload_status = 'complete'
-      AND (f.series_id IS NULL OR f.is_series_main = true)  -- hide series sub-episodes
+      AND (f.is_series_main OR COALESCE(f.is_files_series_item, false) IS NOT TRUE)
       AND f.is_reel = true
       AND (p_max_duration IS NULL OR f.duration IS NULL OR f.duration <= p_max_duration)
       AND (p_category IS NULL OR f.categories @> to_jsonb(p_category)::jsonb)
@@ -867,7 +868,7 @@ BEGIN
       AND f.is_public = true
       AND f.is_adult = false
       AND f.upload_status = 'complete'
-      AND (f.series_id IS NULL OR f.is_series_main = true)  -- hide series sub-episodes
+      AND (f.is_series_main OR COALESCE(f.is_files_series_item, false) IS NOT TRUE)
       AND (p_user_id IS NULL OR ud.file_id IS NULL)
       AND (p_exclude_ids = '{}'::uuid[] OR f.id != ALL(p_exclude_ids))
   ),
@@ -1005,6 +1006,7 @@ BEGIN
     WHERE f.is_public = true
       AND f.is_adult = false
       AND (f.upload_status = 'complete' OR f.upload_status = 'completed')
+      AND (f.is_series_main OR COALESCE(f.is_files_series_item, false) IS NOT TRUE)
   )
   SELECT
     r.id, r.created_at, r.endpoint, r.filename, r.unique_id,

@@ -13,6 +13,8 @@ const COOKIE_NAMES = {
   loop: 'player-loop',
   autoPlay: 'player-autoplay',
   ambientMode: 'player-ambient-mode',
+  audioVisualizer: 'player-audio-visualizer',
+  audioVisualizerStyle: 'player-audio-visualizer-style',
   quality: 'hls-quality-preference',
 } as const;
 
@@ -51,6 +53,8 @@ export interface PlayerSettingsDto {
   loop?: boolean;
   autoPlay?: boolean;
   ambientMode?: boolean;
+  audioVisualizer?: boolean;
+  audioVisualizerStyle?: string;
   quality?: string;
 }
 
@@ -74,6 +78,14 @@ export function getPlayerSettingsFromCookies(cookieHeader: string | null) {
   const loop = get(COOKIE_NAMES.loop) === 'true';
   const autoPlay = get(COOKIE_NAMES.autoPlay) === 'true';
   const ambientMode = get(COOKIE_NAMES.ambientMode) === '1' || get(COOKIE_NAMES.ambientMode) === 'true';
+  const audioVisualizer =
+    get(COOKIE_NAMES.audioVisualizer) === '1' || get(COOKIE_NAMES.audioVisualizer) === 'true';
+  const styleRaw = get(COOKIE_NAMES.audioVisualizerStyle);
+  const validStyles = ['scroll', 'bars', 'mirror', 'ribbon', 'pulse'] as const;
+  const audioVisualizerStyle =
+    styleRaw && (validStyles as readonly string[]).includes(styleRaw)
+      ? (styleRaw as (typeof validStyles)[number])
+      : 'scroll';
   const quality = get(COOKIE_NAMES.quality) ?? 'auto';
   return {
     theaterMode,
@@ -84,6 +96,8 @@ export function getPlayerSettingsFromCookies(cookieHeader: string | null) {
     loop,
     autoPlay,
     ambientMode,
+    audioVisualizer,
+    audioVisualizerStyle,
     quality,
   };
 }
@@ -154,6 +168,21 @@ export const action = async ({ request }: { request: Request }) => {
       const v = body.ambientMode ? '1' : '0';
       setCookies.push(buildSetCookie(COOKIE_NAMES.ambientMode, v, secure));
       result.ambientMode = body.ambientMode;
+    }
+    if (typeof body.audioVisualizer === 'boolean') {
+      const v = body.audioVisualizer ? '1' : '0';
+      setCookies.push(buildSetCookie(COOKIE_NAMES.audioVisualizer, v, secure));
+      result.audioVisualizer = body.audioVisualizer;
+    }
+    if (typeof body.audioVisualizerStyle === 'string') {
+      const trimmed = body.audioVisualizerStyle.trim();
+      const validStyles = ['scroll', 'bars', 'mirror', 'ribbon', 'pulse'] as const;
+      if ((validStyles as readonly string[]).includes(trimmed)) {
+        setCookies.push(
+          buildSetCookie(COOKIE_NAMES.audioVisualizerStyle, trimmed, secure)
+        );
+        result.audioVisualizerStyle = trimmed;
+      }
     }
     if (typeof body.quality === 'string') {
       const v = body.quality.trim() || 'auto';

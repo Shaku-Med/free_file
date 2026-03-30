@@ -3,13 +3,20 @@ import db from "~/lib/Database/supabase";
 import HLSPlayer from "~/components/components/hlsplayer";
 import { useCallback, useEffect, useState, useRef, useMemo } from "react";
 import RelatedVideos from "./components/RelatedVideos";
-import type { FileType } from "~/lib/types";
+import SeriesEpisodesSection from "./components/SeriesEpisodesSection";
+import type { FileType, SeriesEpisodeGroup } from "~/lib/types";
+import {
+  collectSeriesMemberIds,
+  getSeriesUpNextVideos,
+  groupSeriesRpcRows,
+  mapSeriesRpcRowToFileType,
+} from "./fun/mapSeriesRpcRows";
 import { BASE_URL } from "~/lib/URLS";
 import { buildPageMeta } from "~/lib/seo";
 import ImageLoad from "../Home/components/ImageLoad/ImageLoad";
 import { arrangeDateForThumbnail, ParseFilename, getVideoSrc, getThumbnailUrl } from "~/lib/utils";
 import { motion } from "framer-motion";
-import { ShieldAlert } from "lucide-react";
+import { ChevronDown, ShieldAlert } from "lucide-react";
 import { useSidebar } from "~/components/ui/sidebar";
 import { useStandalone } from "~/lib/hooks/useStandalone";
 import { checkFileAccess } from "./fun/accessControl";
@@ -24,7 +31,6 @@ import OwnerProfile from "~/components/OwnerProfile/OwnerProfile";
 import SubscribeButton, { formatSubscriberCount } from "~/components/SubscribeButton";
 import { commentService } from "~/lib/Services/CommentService";
 import DownloadButton from "./components/DownloadButton";
-import SeriesPanel from "./components/SeriesPanel";
 import { formatNumber } from "~/lib/utils/formatNumber";
 import { useWatchTracking } from "~/lib/hooks/useWatchTracking";
 import { IMAGE_BASE_URL } from "~/lib/URLS";
@@ -34,42 +40,13 @@ import CanvasGradient from "~/components/accessories/CanvasGradient/CanvasGradie
 import Ambience from "~/components/accessories/CanvasGradient/Ambience";
 import { useFileContext } from "~/lib/Context/Context";
 import { useMiniPlayerContext } from "~/lib/Context/MiniPlayerContext";
-
-export interface SeriesEpisode {
-  id: string;
-  unique_id: string;
-  file_title: string | null;
-  file_type: string;
-  default_thumbnail: string | null;
-  endpoint: string;
-  duration: number | null;
-  view_count: number | null;
-  episode_number: number | null;
-  season_number: number | null;
-  is_series_main: boolean;
-  file_created_at: string;
-  file_owner_id: string;
-  owner_username: string | null;
-  owner_profile_pic: string | null;
-}
-
-export interface SeriesData {
-  id: string;
-  unique_id: string;
-  owner_id: string;
-  title: string;
-  description: string | null;
-  thumbnail_url: string | null;
-  is_public: boolean;
-  created_at: string;
-  episodes: SeriesEpisode[];
-}
+import { formatTimeAgo } from "~/lib/formatTimeAgo";
+import LiquidAmbientGradient from "./components/LiquidAmbientGradient";
 
 interface DynamicCachePayload {
   file: any;
   id: string;
   relatedVideos: FileType[];
-  seriesData: SeriesData | null;
   userLiked: boolean;
   userDisliked: boolean;
   likeCount: number;
@@ -79,6 +56,10 @@ interface DynamicCachePayload {
   channelStats: { subscriber_count: number; is_subscribed: boolean; notify: boolean } | null;
   commentsCount: number;
   relatedVideosUserActions: { likedFileIds: string[]; dislikedFileIds: string[] };
+  seriesEpisodes: SeriesEpisodeGroup[] | null;
+  /** Present only when this page is a series main file and episodes were loaded (server-verified). */
+  seriesContext: { fileSeriesId: string } | null;
+  seriesVideosUserActions: { likedFileIds: string[]; dislikedFileIds: string[] };
 }
 
 export const loader = async ({ request, params }: { request: Request, params: { id: string } }) => {
@@ -98,7 +79,21 @@ export const loader = async ({ request, params }: { request: Request, params: { 
     }
 
     if (!file) {
-      return data({ file: null, id: params.id, relatedVideos: [], userLiked: false, userDisliked: false, likeCount: 0, dislikeCount: 0, userId: null, accessDenied: false as const, reason: undefined }, { status: 404 });
+      return data({
+        file: null,
+        id: params.id,
+        relatedVideos: [],
+        userLiked: false,
+        userDisliked: false,
+        likeCount: 0,
+        dislikeCount: 0,
+        userId: null,
+        accessDenied: false as const,
+        reason: undefined,
+        seriesEpisodes: null,
+        seriesContext: null,
+        seriesVideosUserActions: { likedFileIds: [], dislikedFileIds: [] },
+      }, { status: 404 });
     }
 
     const accessControl = await checkFileAccess(request, file);
@@ -113,8 +108,11 @@ export const loader = async ({ request, params }: { request: Request, params: { 
         likeCount: 0,
         dislikeCount: 0,
         userId: null,
-        accessDenied: true as const, 
-        reason: accessControl.reason
+        accessDenied: true as const,
+        reason: accessControl.reason,
+        seriesEpisodes: null,
+        seriesContext: null,
+        seriesVideosUserActions: { likedFileIds: [], dislikedFileIds: [] },
       }, { status: 403 });
     }
 
@@ -168,6 +166,47 @@ export const loader = async ({ request, params }: { request: Request, params: { 
             }
           : null,
       })) as FileType[];
+    }
+
+    let seriesEpisodes: SeriesEpisodeGroup[] | null = null;
+    let seriesContext: { fileSeriesId: string } | null = null;
+    const seriesVideosUserActions = { likedFileIds: [] as string[], dislikedFileIds: [] as string[] };
+
+    if (file.file_series_id && file.owner_id) {
+      const { data: seriesRows, error: seriesErr } = await db.rpc(
+        "get_series_episodes_with_items_for_viewer",
+        {
+          p_file_series_id: file.file_series_id,
+          p_series_owner_id: file.owner_id,
+          p_viewer_id: userId,
+        }
+      );
+      if (!seriesErr && Array.isArray(seriesRows) && seriesRows.length > 0) {
+        const forAccess = (seriesRows as Record<string, unknown>[]).map((r) => {
+          const base = mapSeriesRpcRowToFileType(r);
+          return {
+            ...base,
+            is_adult: Boolean(r.is_adult),
+            is_public: r.is_public !== false,
+            owner_id: String(r.owner_id ?? base.owner_id ?? ""),
+            upload_status: typeof r.upload_status === "string" ? r.upload_status : undefined,
+          };
+        });
+        const allowed = await filterFilesByAccess(request, forAccess);
+        const allowedIds = new Set(allowed.map((f) => f.id).filter(Boolean));
+        const filtered = (seriesRows as Record<string, unknown>[]).filter((r) =>
+          allowedIds.has(String(r.id))
+        );
+        const seriesRowsNoAdult = filtered.filter((r) => !Boolean(r.is_adult));
+        if (seriesRowsNoAdult.length > 0) {
+          seriesEpisodes = groupSeriesRpcRows(seriesRowsNoAdult);
+          seriesContext = { fileSeriesId: String(file.file_series_id) };
+          for (const r of seriesRowsNoAdult) {
+            if (r.user_has_liked) seriesVideosUserActions.likedFileIds.push(String(r.id));
+            if (r.user_has_disliked) seriesVideosUserActions.dislikedFileIds.push(String(r.id));
+          }
+        }
+      }
     }
 
     let userLiked = false;
@@ -257,55 +296,10 @@ export const loader = async ({ request, params }: { request: Request, params: { 
       commentsCount = commentsCountResult.data || 0;
     }
 
-    // Fetch series data if this file belongs to a series
-    let seriesData: SeriesData | null = null;
-    if (file.series_id && file.id) {
-      const { data: seriesRows, error: seriesError } = await db.rpc('get_file_series', {
-        p_file_id: file.id,
-        p_viewer_id: userId ?? null,
-      });
-      if (seriesError) {
-        console.error('[Dynamic] get_file_series failed:', seriesError.message);
-      }
-      if (!seriesError && Array.isArray(seriesRows) && seriesRows.length > 0) {
-        const first = seriesRows[0] as Record<string, unknown>;
-        seriesData = {
-          id:            first.series_id as string,
-          unique_id:     first.series_unique_id as string,
-          owner_id:      first.series_owner_id as string,
-          title:         first.series_title as string,
-          description:   (first.series_desc as string) ?? null,
-          thumbnail_url: (first.series_thumb as string) ?? null,
-          is_public:     first.series_is_public as boolean,
-          created_at:    first.series_created as string,
-          episodes: (seriesRows as Record<string, unknown>[])
-            .filter((r) => r.file_id != null)
-            .map((r) => ({
-              id:               r.file_id as string,
-              unique_id:        r.file_unique_id as string,
-              file_title:       (r.file_title as string) ?? null,
-              file_type:        r.file_type as string,
-              default_thumbnail: (r.default_thumbnail as string) ?? null,
-              endpoint:         (r.endpoint as string) ?? '',
-              duration:         (r.duration as number) ?? null,
-              view_count:       (r.view_count as number) ?? null,
-              episode_number:   (r.episode_number as number) ?? null,
-              season_number:    (r.season_number as number) ?? null,
-              is_series_main:   (r.is_series_main as boolean) ?? false,
-              file_created_at:  r.file_created_at as string,
-              file_owner_id:    r.file_owner_id as string,
-              owner_username:   (r.owner_username as string) ?? null,
-              owner_profile_pic: (r.owner_profile_pic as string) ?? null,
-            })),
-        };
-      }
-    }
-
     return data({
       file,
       id: params.id,
       relatedVideos,
-      seriesData,
       userLiked,
       userDisliked,
       likeCount,
@@ -316,7 +310,13 @@ export const loader = async ({ request, params }: { request: Request, params: { 
       commentsCount,
       relatedVideosUserActions: {
         likedFileIds: Array.from(relatedVideosUserActions.likedFileIds),
-        dislikedFileIds: Array.from(relatedVideosUserActions.dislikedFileIds)
+        dislikedFileIds: Array.from(relatedVideosUserActions.dislikedFileIds),
+      },
+      seriesEpisodes,
+      seriesContext,
+      seriesVideosUserActions: {
+        likedFileIds: seriesVideosUserActions.likedFileIds,
+        dislikedFileIds: seriesVideosUserActions.dislikedFileIds,
       },
       accessDenied: false as const,
       reason: undefined
@@ -456,7 +456,6 @@ function blendDynamicData(cached: DynamicCachePayload, fresh: DynamicCachePayloa
     file: fresh.file,
     id: fresh.id,
     relatedVideos: blendedRelated,
-    seriesData: fresh.seriesData ?? cached.seriesData ?? null,
     userLiked: fresh.userLiked,
     userDisliked: fresh.userDisliked,
     likeCount: fresh.likeCount,
@@ -466,6 +465,12 @@ function blendDynamicData(cached: DynamicCachePayload, fresh: DynamicCachePayloa
     channelStats: fresh.channelStats ?? cached.channelStats ?? null,
     commentsCount: fresh.commentsCount,
     relatedVideosUserActions: { likedFileIds: mergedLiked, dislikedFileIds: mergedDisliked },
+    seriesEpisodes: fresh.seriesEpisodes,
+    seriesContext: fresh.seriesContext,
+    seriesVideosUserActions:
+      fresh.seriesVideosUserActions ??
+      (cached as Partial<DynamicCachePayload>).seriesVideosUserActions ??
+      { likedFileIds: [], dislikedFileIds: [] },
   };
 }
 
@@ -503,7 +508,6 @@ const index = () => {
         file: loaderData.file,
         id: loaderData.id ?? currentId ?? '',
         relatedVideos: ('relatedVideos' in loaderData ? loaderData.relatedVideos : []) as FileType[],
-        seriesData: ('seriesData' in loaderData ? loaderData.seriesData : null) as SeriesData | null,
         userLiked: ('userLiked' in loaderData && loaderData.userLiked) || false,
         userDisliked: ('userDisliked' in loaderData && loaderData.userDisliked) || false,
         likeCount: Number(loaderData.likeCount) || 0,
@@ -513,18 +517,33 @@ const index = () => {
         channelStats: ('channelStats' in loaderData ? loaderData.channelStats : null) as any,
         commentsCount: ('commentsCount' in loaderData ? loaderData.commentsCount : 0) as number,
         relatedVideosUserActions: ('relatedVideosUserActions' in loaderData ? loaderData.relatedVideosUserActions : { likedFileIds: [], dislikedFileIds: [] }) as any,
+        seriesEpisodes: ('seriesEpisodes' in loaderData ? loaderData.seriesEpisodes : null) as SeriesEpisodeGroup[] | null,
+        seriesContext: ('seriesContext' in loaderData ? loaderData.seriesContext : null) as { fileSeriesId: string } | null,
+        seriesVideosUserActions: ('seriesVideosUserActions' in loaderData && loaderData.seriesVideosUserActions
+          ? loaderData.seriesVideosUserActions
+          : { likedFileIds: [], dislikedFileIds: [] }) as DynamicCachePayload['seriesVideosUserActions'],
       };
       return blendDynamicData(cachedData, freshPayload);
     }
 
-    if (cacheValid && cachedData) return cachedData;
+    if (cacheValid && cachedData) {
+      const c = cachedData as Partial<DynamicCachePayload>;
+      return {
+        ...cachedData,
+        seriesEpisodes: c.seriesEpisodes ?? null,
+        seriesContext: c.seriesContext ?? null,
+        seriesVideosUserActions: c.seriesVideosUserActions ?? {
+          likedFileIds: [],
+          dislikedFileIds: [],
+        },
+      } as DynamicCachePayload;
+    }
 
     if (loaderValid && loaderData) {
       return {
         file: loaderData.file,
         id: loaderData.id ?? currentId ?? '',
         relatedVideos: ('relatedVideos' in loaderData ? loaderData.relatedVideos : []) as FileType[],
-        seriesData: ('seriesData' in loaderData ? loaderData.seriesData : null) as SeriesData | null,
         userLiked: ('userLiked' in loaderData && loaderData.userLiked) || false,
         userDisliked: ('userDisliked' in loaderData && loaderData.userDisliked) || false,
         likeCount: Number(loaderData.likeCount) || 0,
@@ -534,6 +553,11 @@ const index = () => {
         channelStats: ('channelStats' in loaderData ? loaderData.channelStats : null) as any,
         commentsCount: ('commentsCount' in loaderData ? loaderData.commentsCount : 0) as number,
         relatedVideosUserActions: ('relatedVideosUserActions' in loaderData ? loaderData.relatedVideosUserActions : { likedFileIds: [], dislikedFileIds: [] }) as any,
+        seriesEpisodes: ('seriesEpisodes' in loaderData ? loaderData.seriesEpisodes : null) as SeriesEpisodeGroup[] | null,
+        seriesContext: ('seriesContext' in loaderData ? loaderData.seriesContext : null) as { fileSeriesId: string } | null,
+        seriesVideosUserActions: ('seriesVideosUserActions' in loaderData && loaderData.seriesVideosUserActions
+          ? loaderData.seriesVideosUserActions
+          : { likedFileIds: [], dislikedFileIds: [] }) as DynamicCachePayload['seriesVideosUserActions'],
       };
     }
 
@@ -556,6 +580,20 @@ const index = () => {
 
   const file_data = effectiveData?.file;
   const data = effectiveData;
+
+  const mergedSidebarUserActions = useMemo(
+    () => ({
+      likedFileIds: new Set([
+        ...(data?.relatedVideosUserActions?.likedFileIds ?? []),
+        ...(data?.seriesVideosUserActions?.likedFileIds ?? []),
+      ]),
+      dislikedFileIds: new Set([
+        ...(data?.relatedVideosUserActions?.dislikedFileIds ?? []),
+        ...(data?.seriesVideosUserActions?.dislikedFileIds ?? []),
+      ]),
+    }),
+    [data?.relatedVideosUserActions, data?.seriesVideosUserActions]
+  );
 
   const [views, setViews] = useState<number>(Number(file_data?.views || file_data?.view_count || 0));
   const [shares, setShares] = useState<number>(Number(file_data?.shares || file_data?.share_count || 0));
@@ -781,8 +819,23 @@ const index = () => {
   }, [navigate])
 
   const relatedVideos = data.relatedVideos ?? [];
-  const seriesData = data.seriesData ?? null;
-  const suggestedVideos = relatedVideos.filter((v: FileType) => v.unique_id !== currentId).slice(0, 8);
+  const seriesMemberIds = useMemo(
+    () => collectSeriesMemberIds(data?.seriesEpisodes ?? null),
+    [data?.seriesEpisodes]
+  );
+  const seriesUpNextVideos = useMemo(
+    () => getSeriesUpNextVideos(data?.seriesEpisodes ?? null, currentId ?? ""),
+    [data?.seriesEpisodes, currentId]
+  );
+  const suggestedVideos = useMemo(
+    () =>
+      relatedVideos
+        .filter(
+          (v: FileType) => v.unique_id !== currentId && !seriesMemberIds.has(v.unique_id)
+        )
+        .slice(0, 10),
+    [relatedVideos, currentId, seriesMemberIds]
+  );
 
   const isNavigating = navigation.state === 'loading' && navigation.location?.pathname !== window.location.pathname;
 
@@ -911,6 +964,9 @@ const index = () => {
             onVideoRef={handleVideoRef}
             callBack={hlsCallBack}
             suggestedVideos={suggestedVideos}
+            seriesUpNextVideos={seriesUpNextVideos}
+            endScreenUserActions={mergedSidebarUserActions}
+            currentUserId={userId || undefined}
             onVideoSelect={handleVideoSelect}
             onAmbientModeChange={setAmbientEnabled}
             startTime={startTime}
@@ -985,7 +1041,9 @@ const index = () => {
       };
 
   const contentColumn = (
-    <div className="space-y-4 z-[10000]">
+    <div className="space-y-4 z-[10000] relative rounded-lg overflow-hidden p-4">
+      {/* <div className="dim_top bg-muted/20 absolute top-0 left-0 w-full h-full z-[1]" /> */}
+      <LiquidAmbientGradient colors={file_data.colors} />
       <h1 className="text-xl font-bold text-foreground leading-tight select-text z-[10000]">
         <ParseFilenameInsert filename={file_data.file_title || file_data.filename}/>  
       </h1>
@@ -1041,18 +1099,27 @@ const index = () => {
       />
 
       <div className="rounded-xl overflow-hidden">
-        <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground px-4 pt-3 pb-1">
+        <div className="flex flex-wrap items-center justify-between gap-2 text-sm text-muted-foreground pt-3 pb-1">
           <span className="font-medium text-foreground">{formatNumber(views)} views</span>
-          <span>{new Date(file_data.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span>
-          {shares > 0 && (
+          {file_data.created_at ? (
+            <span>
+              {new Date(file_data.created_at).toLocaleDateString("en-US", {
+                month: "short",
+                day: "numeric",
+                year: "numeric",
+              })}{" "}
+              · {formatTimeAgo(file_data.created_at)}
+            </span>
+          ) : null}
+          {/* {shares > 0 && (
             <>
               <span aria-hidden>•</span>
               <span>{formatNumber(shares)} shares</span>
             </>
-          )}
+          )} */}
         </div>
         {(description || hasLongDescription) && (
-          <div className="px-4 pt-1">
+          <div className=" p-2 border rounded-lg bg-muted/10 overflow-auto">
             <div className="text-sm text-foreground break-words">
               <FormattedText text={descriptionToShow} />
               {hasLongDescription && !descriptionExpanded && (
@@ -1071,35 +1138,55 @@ const index = () => {
           </div>
         )}
         {(categoriesList.length > 0 || tagsList.length > 0) && (
-          <div className="px-4 pb-3 pt-2 space-y-2">
-            {categoriesList.length > 0 && (
-              <div className="flex flex-wrap items-center gap-1.5">
-                <span className="text-xs font-medium text-muted-foreground mr-1">Categories</span>
-                {categoriesList.map((c) => (
-                  <Link
-                    key={c}
-                    to={`/tag/${encodeURIComponent(c)}`}
-                    className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-primary/15 text-primary hover:bg-primary/25 transition-colors"
-                  >
-                    {c}
-                  </Link>
-                ))}
+          <div className="pb-3 pt-2">
+            <details className="group rounded-lg border border-border/60 bg-muted/10 overflow-hidden">
+              <summary className="flex cursor-pointer list-none items-center justify-between gap-2 px-3 py-2.5 text-sm font-medium text-foreground hover:bg-muted/25 transition-colors [&::-webkit-details-marker]:hidden">
+                <span>Categories & tags</span>
+                <span className="flex items-center gap-2 shrink-0">
+                  <span className="text-xs font-normal text-muted-foreground tabular-nums">
+                    {categoriesList.length + tagsList.length}{" "}
+                    {categoriesList.length + tagsList.length === 1 ? "item" : "items"}
+                  </span>
+                  <ChevronDown className="h-4 w-4 text-muted-foreground transition-transform duration-200 group-open:rotate-180" />
+                </span>
+              </summary>
+              <div className="border-t border-border/50 px-3 py-3 space-y-4 bg-background/40">
+                {categoriesList.length > 0 && (
+                  <div>
+                    <p className="text-xs font-medium text-muted-foreground mb-2">Categories</p>
+                    <ul className="space-y-1.5 border-l-2 border-primary/25 pl-3">
+                      {categoriesList.map((c) => (
+                        <li key={c}>
+                          <Link
+                            to={`/tag/${encodeURIComponent(c)}`}
+                            className="text-sm text-primary hover:underline decoration-primary/40 underline-offset-2"
+                          >
+                            {c}
+                          </Link>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                {tagsList.length > 0 && (
+                  <div>
+                    <p className="text-xs font-medium text-muted-foreground mb-2">Tags</p>
+                    <ul className="space-y-1.5 border-l-2 border-border pl-3">
+                      {tagsList.map((t) => (
+                        <li key={t}>
+                          <Link
+                            to={`/tag/${encodeURIComponent(t)}`}
+                            className="text-sm text-foreground hover:text-primary hover:underline underline-offset-2"
+                          >
+                            {t}
+                          </Link>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
               </div>
-            )}
-            {tagsList.length > 0 && (
-              <div className="flex flex-wrap items-center gap-1.5">
-                <span className="text-xs font-medium text-muted-foreground mr-1">Tags</span>
-                {tagsList.map((t) => (
-                  <Link
-                    key={t}
-                    to={`/tag/${encodeURIComponent(t)}`}
-                    className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-muted text-foreground hover:bg-muted/80 transition-colors"
-                  >
-                    {t}
-                  </Link>
-                ))}
-              </div>
-            )}
+            </details>
           </div>
         )}
       </div>
@@ -1124,8 +1211,13 @@ const index = () => {
   const relatedColumn = (
     <div className="lg:col-span-1">
       <div className="sticky top-6">
-        {seriesData && seriesData.episodes.length > 0 && (
-          <SeriesPanel series={seriesData} currentFileId={file_data.id} />
+        {data.seriesEpisodes && data.seriesEpisodes.length > 0 && (
+          <SeriesEpisodesSection
+            episodes={data.seriesEpisodes}
+            currentVideoUniqueId={file_data.unique_id}
+            currentUserId={userId || undefined}
+            userActions={mergedSidebarUserActions}
+          />
         )}
         <RelatedVideos
           key={`related-${file_data.unique_id}-${currentId}`}
@@ -1135,10 +1227,7 @@ const index = () => {
           ownerId={file_data.owner_id}
           currentUserId={userId || undefined}
           currentFileType={file_data.file_type}
-          userActions={data.relatedVideosUserActions ? {
-            likedFileIds: new Set(data.relatedVideosUserActions.likedFileIds || []),
-            dislikedFileIds: new Set(data.relatedVideosUserActions.dislikedFileIds || [])
-          } : undefined}
+          userActions={mergedSidebarUserActions}
         />
       </div>
     </div>
@@ -1192,7 +1281,7 @@ const index = () => {
             !theaterMode ? 
             relatedColumn :
             (
-              <div className="mx-auto py-6 px-4 z-[100000]">
+              <div className="mx-auto py-4 px-2 z-[100000]">
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 <div className="lg:col-span-2">
                   {contentColumn}

@@ -10,6 +10,9 @@ export type PlayerSettings = {
   loop: boolean;
   autoPlay: boolean;
   ambientMode: boolean;
+  /** Bars + seek strip stay visible when controls auto-hide */
+  audioVisualizer: boolean;
+  audioVisualizerStyle: 'scroll' | 'bars' | 'mirror' | 'ribbon' | 'pulse';
   quality: string;
 };
 

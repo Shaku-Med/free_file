@@ -19,6 +19,7 @@ import { useFileContext } from "~/lib/Context/Context";
 import { Tooltip, TooltipContent, TooltipTrigger } from "~/components/ui/tooltip";
 import { useIsMobile } from "~/hooks/use-mobile";
 import { useSidebar } from "~/components/ui/sidebar";
+import { formatTimeAgo } from "~/lib/formatTimeAgo";
 
 function getMetadataWarning(metadata: unknown): string | null {
   if (metadata && typeof metadata === "object" && "warning" in metadata) {
@@ -41,19 +42,6 @@ function formatDuration(seconds: number): string {
   const s = Math.floor(seconds % 60);
   if (h > 0) return `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
   return `${m}:${String(s).padStart(2, "0")}`;
-}
-
-function formatTimeAgo(date: string | Date): string {
-  const now = new Date();
-  const past = new Date(date);
-  const diffInSeconds = Math.floor((now.getTime() - past.getTime()) / 1000);
-  
-  if (diffInSeconds < 60) return "just now";
-  if (diffInSeconds < 3600) return `${Math.floor(diffInSeconds / 60)} minutes ago`;
-  if (diffInSeconds < 86400) return `${Math.floor(diffInSeconds / 3600)} hours ago`;
-  if (diffInSeconds < 2592000) return `${Math.floor(diffInSeconds / 86400)} days ago`;
-  if (diffInSeconds < 31536000) return `${Math.floor(diffInSeconds / 2592000)} months ago`;
-  return `${Math.floor(diffInSeconds / 31536000)} years ago`;
 }
 
 type LayoutType = "default" | "horizontal" | "compact";
@@ -1150,7 +1138,7 @@ const VideoCard = ({ data, index, currentUserId, userActions, onUpdate, showOwne
             nav(`/${data.unique_id}`);
           }}
           to={`/${data.unique_id}`}
-          className="shrink-0 w-24 aspect-video bg-card rounded-lg overflow-hidden relative"
+          className="shrink-0 w-24 max-h-24 aspect-video bg-card rounded-lg overflow-hidden relative"
         >
           {renderThumbnail("w-full h-full")}
         </Link>
@@ -1168,6 +1156,24 @@ const VideoCard = ({ data, index, currentUserId, userActions, onUpdate, showOwne
             {data.owner && viewCount > 0 && <span>·</span>}
             {viewCount > 0 && <span>{formatViews(viewCount)}</span>}
           </div>
+
+          <div className="ac_dev w-full">
+          <Separator className="my-2" />
+          <Actions
+            fileId={data.id ?? ""}
+            uniqueId={data.unique_id}
+            likeCount={likeCount}
+            dislikeCount={dislikeCount}
+            commentCount={commentCount}
+            liked={liked}
+            disliked={disliked}
+            isOwner={isOwner}
+            onEdit={isOwner ? () => setIsEditing(true) : undefined}
+            onUpdate={currentUserId ? handleInteractionUpdate : undefined}
+            currentUserId={currentUserId}
+            fileCreatedAt={data.created_at}
+          />
+        </div>
         </div>
 
         {renderEditDialog()}

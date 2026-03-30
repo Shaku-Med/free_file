@@ -114,6 +114,39 @@ func (w *Worker) run() {
 	}
 }
 
+// decodeThumbnailBase64 decodes a client-provided thumbnail from the upload complete JSON.
+// Browsers often omit base64 padding; data URLs or stray whitespace break StdEncoding.DecodeString.
+func decodeThumbnailBase64(s string) ([]byte, error) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return nil, fmt.Errorf("empty thumbnail payload")
+	}
+	// Strip data:image/...;base64, prefix if present
+	if idx := strings.Index(s, ","); idx >= 0 {
+		prefix := strings.ToLower(s[:idx])
+		if strings.Contains(prefix, "base64") {
+			s = strings.TrimSpace(s[idx+1:])
+		}
+	}
+	s = strings.ReplaceAll(s, "\n", "")
+	s = strings.ReplaceAll(s, "\r", "")
+	s = strings.ReplaceAll(s, " ", "")
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return nil, fmt.Errorf("empty base64 after normalize")
+	}
+	// Pad to multiple of 4 (required by Go's decoder; some JS stacks omit '=')
+	switch len(s) % 4 {
+	case 1:
+		return nil, fmt.Errorf("illegal base64 length")
+	case 2:
+		s += "=="
+	case 3:
+		s += "="
+	}
+	return base64.StdEncoding.DecodeString(s)
+}
+
 func (w *Worker) failJob(job *queue.Job, reason string, cleanupPaths ...string) {
 	w.log.Errorf("job FAILED job=%s reason=%s", job.ID, reason)
 	for _, p := range cleanupPaths {
@@ -232,27 +265,22 @@ func (w *Worker) processJob(job *queue.Job) {
 
 		_ = w.queue.SetJobStatus(context.Background(), job.ID, "completed")
 		webhook.NotifyJobStatus(webhook.Payload{
-			JobID:      job.ID,
-			Status:     "completed",
-			UploadID:   job.UploadID,
-			UserID:     job.UserID,
-			FileName:   job.FileName,
-			FileSize:   job.FileSize,
-			Endpoint:   ghPath,
-			IsAdult:    &isAdult,
-			Colors:     imgColors,
-			Categories: categories,
-			Tags:       tags,
-			Metadata:   metadata,
-			Series: webhook.SeriesPayload{
-				SeriesID:       job.Series.SeriesID,
-				SeriesTitle:    job.Series.SeriesTitle,
-				SeriesDesc:     job.Series.SeriesDesc,
-				SeriesIsPublic: job.Series.SeriesIsPublic,
-				IsSeriesMain:   job.Series.IsSeriesMain,
-				EpisodeNumber:  job.Series.EpisodeNumber,
-				SeasonNumber:   job.Series.SeasonNumber,
-			},
+			JobID:               job.ID,
+			Status:              "completed",
+			UploadID:            job.UploadID,
+			UserID:              job.UserID,
+			FileName:            job.FileName,
+			FileSize:            job.FileSize,
+			Endpoint:            ghPath,
+			IsAdult:             &isAdult,
+			Colors:              imgColors,
+			Categories:          categories,
+			Tags:                tags,
+			Metadata:            metadata,
+			FileSeriesID:        job.FileSeriesID,
+			FileSeriesEpisodeID: job.FileSeriesEpisodeID,
+			IsNewSeries:         job.IsNewSeries,
+			NewEpisodeName:      job.NewEpisodeName,
 		})
 		w.log.Infof("job complete job=%s duration=%s", job.ID, time.Since(start))
 		return
@@ -400,15 +428,17 @@ func (w *Worker) processJob(job *queue.Job) {
 	// so it gets included in the batch upload with a consistent name
 	defaultThumbPath := ""
 	if job.DefaultThumbnail != "" {
-		thumbData, derr := base64.StdEncoding.DecodeString(job.DefaultThumbnail)
+		thumbData, derr := decodeThumbnailBase64(job.DefaultThumbnail)
 		if derr != nil {
-			w.log.Errorf("failed to decode default thumbnail job=%s err=%s", job.ID, derr.Error())
+			w.log.Errorf("failed to decode default thumbnail job=%s err=%s len=%d", job.ID, derr.Error(), len(job.DefaultThumbnail))
+		} else if len(thumbData) == 0 {
+			w.log.Errorf("default thumbnail decoded to empty job=%s", job.ID)
 		} else {
 			dtPath := filepath.Join(thumbDir, "default_thumbnail.jpg")
 			if werr := os.WriteFile(dtPath, thumbData, 0644); werr != nil {
 				w.log.Errorf("failed to write default thumbnail job=%s err=%s", job.ID, werr.Error())
 			} else {
-				w.log.Infof("default thumbnail saved job=%s path=%s", job.ID, dtPath)
+				w.log.Infof("default thumbnail saved job=%s path=%s bytes=%d", job.ID, dtPath, len(thumbData))
 				defaultThumbPath = "default_thumbnail.jpg"
 			}
 		}
@@ -442,6 +472,10 @@ func (w *Worker) processJob(job *queue.Job) {
 			return
 		}
 		batchFiles = append(batchFiles, thumbFiles...)
+		// User-chosen default first so feeds that use thumbnails[0] match DB default_thumbnail
+		if defaultThumbPath != "" {
+			thumbnailPaths = append(thumbnailPaths, ghPrefix+defaultThumbPath)
+		}
 		for i := range thumbResult.Thumbnails {
 			thumbnailPaths = append(thumbnailPaths, ghPrefix+filepath.Base(thumbResult.Thumbnails[i].Path))
 		}
@@ -497,30 +531,25 @@ func (w *Worker) processJob(job *queue.Job) {
 
 	_ = w.queue.SetJobStatus(context.Background(), job.ID, "completed")
 	webhook.NotifyJobStatus(webhook.Payload{
-		JobID:            job.ID,
-		Status:           "completed",
-		UploadID:         job.UploadID,
-		UserID:           job.UserID,
-		FileName:         job.FileName,
-		FileSize:         job.FileSize,
-		Endpoint:         videoEndpoint,
-		Thumbnails:       thumbnailPaths,
-		Duration:         videoDuration,
-		IsAdult:          &isAdult,
-		Colors:           vidColors,
-		Categories:       categories,
-		Tags:             tags,
-		Metadata:         metadata,
-		DefaultThumbnail: defaultThumbGH,
-		Series: webhook.SeriesPayload{
-			SeriesID:       job.Series.SeriesID,
-			SeriesTitle:    job.Series.SeriesTitle,
-			SeriesDesc:     job.Series.SeriesDesc,
-			SeriesIsPublic: job.Series.SeriesIsPublic,
-			IsSeriesMain:   job.Series.IsSeriesMain,
-			EpisodeNumber:  job.Series.EpisodeNumber,
-			SeasonNumber:   job.Series.SeasonNumber,
-		},
+		JobID:               job.ID,
+		Status:              "completed",
+		UploadID:            job.UploadID,
+		UserID:              job.UserID,
+		FileName:            job.FileName,
+		FileSize:            job.FileSize,
+		Endpoint:            videoEndpoint,
+		Thumbnails:          thumbnailPaths,
+		Duration:            videoDuration,
+		IsAdult:             &isAdult,
+		Colors:              vidColors,
+		Categories:          categories,
+		Tags:                tags,
+		Metadata:            metadata,
+		DefaultThumbnail:    defaultThumbGH,
+		FileSeriesID:        job.FileSeriesID,
+		FileSeriesEpisodeID: job.FileSeriesEpisodeID,
+		IsNewSeries:         job.IsNewSeries,
+		NewEpisodeName:      job.NewEpisodeName,
 	})
 	w.log.Infof("job complete job=%s user=%s upload=%s duration=%s thumbnails=%d colors=%d tags=%d", job.ID, job.UserID, job.UploadID, time.Since(start), len(thumbnailPaths), len(vidColors), len(tags))
 }

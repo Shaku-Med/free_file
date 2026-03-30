@@ -1,22 +1,17 @@
 -- ============================================================
--- REEL FEED — Advanced reel-only feed (like feed but reels + tuning)
--- ============================================================
--- Reels-only, cursor_pos pagination, exclude_ids, seed.
--- Pool mix tuned for short-form: more trending, fresh, then popular/discovery.
--- Optional: max duration (e.g. 300s) to favor short reels.
--- Run in Supabase SQL Editor after feed_get_feed_pagination_patch.sql.
+-- FEED v4.1 — hard block adult content, everything else unchanged
 -- ============================================================
 
-DROP FUNCTION IF EXISTS get_reel_feed(uuid, int, text, text, int, uuid[]);
+DROP FUNCTION IF EXISTS get_feed;
 
-CREATE OR REPLACE FUNCTION get_reel_feed(
+CREATE OR REPLACE FUNCTION get_feed(
   p_user_id       uuid    DEFAULT NULL,
-  p_limit         int     DEFAULT 15,
+  p_limit         int     DEFAULT 20,
   p_category      text    DEFAULT NULL,
+  p_reels_only    boolean DEFAULT false,
   p_seed          text    DEFAULT 'default',
   p_cursor_pos    int     DEFAULT 0,
-  p_exclude_ids   uuid[]  DEFAULT '{}'::uuid[],
-  p_max_duration  numeric DEFAULT 600.0   -- max reel duration in seconds (default 10 min; set lower e.g. 90 for strict short-form)
+  p_exclude_ids   uuid[]  DEFAULT '{}'::uuid[]
 )
 RETURNS TABLE (
   id               uuid,
@@ -45,33 +40,27 @@ RETURNS TABLE (
   comment_count    bigint,
   engagement_score float,
   feed_pool        text,
-  owner_username   text,
+  owner_username    text,
   owner_profile_pic text,
-  owner_verified   boolean,
-  owner_about      text,
-  user_has_liked   boolean,
+  owner_verified    boolean,
+  owner_about       text,
+  user_has_liked    boolean,
   user_has_disliked boolean
 )
 LANGUAGE plpgsql
 STABLE
 AS $$
 DECLARE
-  v_nsfw_on    boolean;
   v_fresh_lim  int;
   v_trend_lim  int;
   v_pop_lim    int;
   v_disc_lim   int;
   v_page_mult  int := 10;
 BEGIN
-  IF p_user_id IS NOT NULL THEN
-    SELECT COALESCE(u.show_nsfw, false) INTO v_nsfw_on FROM users u WHERE u.id = p_user_id;
-  ELSE
-    v_nsfw_on := false;
-  END IF;
+  -- v_nsfw_on removed — feed never shows adult content
 
-  -- Reel mix: more trending (40%), then fresh (30%), popular (20%), discovery (10%)
-  v_trend_lim := GREATEST(CEIL(p_limit * 0.40)::int, 1);
   v_fresh_lim := GREATEST(CEIL(p_limit * 0.30)::int, 1);
+  v_trend_lim := GREATEST(CEIL(p_limit * 0.25)::int, 1);
   v_pop_lim   := GREATEST(CEIL(p_limit * 0.20)::int, 1);
   v_disc_lim  := GREATEST(p_limit - v_fresh_lim - v_trend_lim - v_pop_lim, 1);
 
@@ -132,15 +121,18 @@ BEGIN
     LEFT JOIN user_dislikes ud ON ud.file_id = f.id
     LEFT JOIN user_seen us ON us.file_id = f.id
     WHERE f.is_public = true
-      AND f.is_adult = false  -- HARD BLOCK: never show adult content in feeds
+      AND f.is_adult = false              -- HARD BLOCK: never show adult content
       AND f.upload_status = 'complete'
-      AND (f.series_id IS NULL OR f.is_series_main = true)  -- hide series sub-episodes
-      AND f.is_reel = true
-      AND (p_max_duration IS NULL OR f.duration IS NULL OR (f.duration IS NOT NULL AND f.duration <= p_max_duration))
+      AND NOT EXISTS (
+        SELECT 1 FROM public.series s
+        WHERE s.file_id = f.id AND s.is_episode = true
+      )  -- hide series episodes (v2)
       AND (p_category IS NULL OR f.categories @> to_jsonb(p_category)::jsonb)
+      AND (p_reels_only = false OR f.is_reel = true)
       AND (p_user_id IS NULL OR ud.file_id IS NULL)
       AND (p_exclude_ids = '{}'::uuid[] OR f.id != ALL(p_exclude_ids))
   ),
+
   pool_fresh AS (
     SELECT b.*, 'fresh'::text AS _pool,
       ROW_NUMBER() OVER (
@@ -160,7 +152,7 @@ BEGIN
           b._eng_rate * 0.7 + b._shuffle * 0.3 DESC
       ) AS _rn
     FROM base b
-    WHERE b._total_eng >= 2
+    WHERE b._total_eng >= 3
       AND b.id NOT IN (SELECT pf.id FROM pool_fresh pf WHERE pf._rn <= v_fresh_lim * v_page_mult)
     LIMIT (v_trend_lim * v_page_mult) * 2
   ),
@@ -189,6 +181,7 @@ BEGIN
       AND b.id NOT IN (SELECT pp.id FROM pool_popular pp WHERE pp._rn <= v_pop_lim * v_page_mult)
     LIMIT (v_disc_lim * v_page_mult) * 2
   ),
+
   combined AS (
     SELECT * FROM (SELECT * FROM pool_fresh    WHERE _rn <= v_fresh_lim * v_page_mult) f
     UNION ALL
@@ -198,6 +191,7 @@ BEGIN
     UNION ALL
     SELECT * FROM (SELECT * FROM pool_discovery WHERE _rn <= v_disc_lim * v_page_mult) d
   ),
+
   shuffled AS (
     SELECT c.*,
       ROW_NUMBER() OVER (
@@ -207,6 +201,7 @@ BEGIN
       ) AS _final_pos
     FROM combined c
   )
+
   SELECT
     s.id,
     s.created_at,
@@ -250,4 +245,4 @@ BEGIN
 END;
 $$;
 
-GRANT EXECUTE ON FUNCTION get_reel_feed(uuid, int, text, text, int, uuid[], numeric) TO anon, authenticated;
+GRANT EXECUTE ON FUNCTION get_feed TO anon, authenticated;
