@@ -13,6 +13,7 @@ import { useNavigation } from "react-router";
 import type { PageCacheEntry } from "../types";
 import { isMobile } from "react-device-detect";
 import { MAX_UPLOAD_FILE_BYTES } from "~/lib/uploadLimits";
+import { isSearchBotUserAgent } from "~/lib/utils";
 
 export const driverObj = driver({
     showProgress: true,
@@ -65,6 +66,8 @@ export const Context = createContext<ContextProps>({
     setPlayerSettings: () => {},
     savePlayerSettings: async () => {},
     isDevelopment: false,
+    hasFetchedImages: false,
+    setHasFetchedImages: () => {},
 })
 
 interface ContextProviderProps {
@@ -141,6 +144,13 @@ export const ContextProvider = ({ children, st, user_agent, userId, c_user, uplo
     const [playerSettings, setPlayerSettings] = useState<ContextProps['playerSettings']>(playerSettingsFromLoader ?? null);
     const isMobileDevice = isMobileServer || isMobile;
     const [theaterMode, setTheaterMode] = useState<boolean>(isMobileDevice ? true : (playerSettings?.theaterMode ?? false));
+
+    const [hasFetchedImages, setHasFetchedImages] = useState<boolean>(false);
+    useEffect(() => {
+        if (typeof window === "undefined") return;
+        if (isSearchBotUserAgent(user_agent)) return;
+        setHasFetchedImages(true);
+    }, [user_agent]);
 
     useEffect(() => {
         if (typeof window === "undefined") return;
@@ -421,6 +431,8 @@ export const ContextProvider = ({ children, st, user_agent, userId, c_user, uplo
             setPlayerSettings,
             savePlayerSettings,
             isDevelopment,
+            hasFetchedImages,
+            setHasFetchedImages,
         }),
         [files, isModalOpen, isLoading, initialLoading, loadMoreVideos, clearFeedHistory, user_agent, safeUserId, userActions, c_user, uploadServerUrl, userProfile, userProfileLoading, pageCache, scrollDataReady, theaterMode, playerSettings, savePlayerSettings]
     );

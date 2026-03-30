@@ -1,12 +1,13 @@
 package ffmpeg
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"math"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -56,32 +57,60 @@ func ExtractThumbnails(videoPath, outputDir string) (*ThumbnailResult, error) {
 		interval = ThumbMinInterval
 	}
 
-	// Do not shrink to grid size here — that is only for thumbnail_preview.jpg in BuildThumbnailPreview.
-	vf := fmt.Sprintf("fps=1/%.2f,scale='min(%d,iw)':-2", interval, ThumbExtractMaxWidth)
-
-	pattern := filepath.Join(outputDir, "thumb_%04d.jpg")
-	args := []string{
-		"-fflags", "+genpts+igndts",
-		"-analyzeduration", "200M",
-		"-probesize", "200M",
-		"-err_detect", "ignore_err",
-		"-i", videoPath,
-		"-vf", vf,
-		"-vframes", strconv.Itoa(ThumbMaxCount),
-		"-q:v", strconv.Itoa(ThumbExtractQuality),
-		"-y",
-		pattern,
+	// Target timestamps (same spacing as old fps=1/interval, max ThumbMaxCount frames).
+	var times []float64
+	const eps = 0.05
+	for i := 0; i < ThumbMaxCount; i++ {
+		t := float64(i) * interval
+		if t >= duration-eps {
+			break
+		}
+		if t > duration-0.25 {
+			t = math.Max(0, duration-0.25)
+		}
+		times = append(times, t)
+	}
+	if len(times) == 0 {
+		times = append(times, 0)
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Hour)
+	// Many sequential seeks; allow headroom for long 4K / multi‑GB sources (up to ThumbMaxCount frames).
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Hour)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, "ffmpeg", args...)
-	var stderr limitedWriter
-	stderr.max = 1 << 20
-	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
-		return nil, fmt.Errorf("ffmpeg: %w, stderr: %s", err, stderr.String())
+	scaleVF := fmt.Sprintf("scale='min(%d,iw)':-2", ThumbExtractMaxWidth)
+
+	for i, t := range times {
+		outPath := filepath.Join(outputDir, fmt.Sprintf("thumb_%04d.jpg", i))
+		// -ss before -i: input seek (does not decode the whole file; avoids OOM on multi‑GB MP4/MOV).
+		args := []string{
+			"-hide_banner", "-loglevel", "error",
+			"-nostdin",
+			"-fflags", "+genpts",
+			"-ss", fmt.Sprintf("%.3f", t),
+			"-analyzeduration", "10M",
+			"-probesize", "10M",
+			"-err_detect", "ignore_err",
+			"-i", videoPath,
+			"-map", "0:v:0",
+			"-threads", "1",
+			"-vf", scaleVF,
+			"-vframes", "1",
+			"-q:v", strconv.Itoa(ThumbExtractQuality),
+			"-y",
+			outPath,
+		}
+
+		frameCtx, frameCancel := context.WithTimeout(ctx, 8*time.Minute)
+		cmd := exec.CommandContext(frameCtx, "ffmpeg", args...)
+		var stderr limitedWriter
+		stderr.max = 256 << 10
+		cmd.Stderr = &stderr
+		runErr := cmd.Run()
+		frameCancel()
+		if runErr != nil {
+			return nil, fmt.Errorf("ffmpeg frame %d @ %.2fs: %w, stderr: %s", i, t, runErr, stderr.String())
+		}
 	}
 
 	entries, err := os.ReadDir(outputDir)
@@ -104,11 +133,16 @@ func ExtractThumbnails(videoPath, outputDir string) (*ThumbnailResult, error) {
 		if err != nil {
 			continue
 		}
-		t := float64(i) * interval
-		if t > duration {
-			t = duration
+		var tOff float64
+		if i < len(times) {
+			tOff = times[i]
+		} else {
+			tOff = float64(i) * interval
 		}
-		thumbs = append(thumbs, Thumbnail{Path: p, TimeOffset: t, Data: data})
+		if tOff > duration {
+			tOff = duration
+		}
+		thumbs = append(thumbs, Thumbnail{Path: p, TimeOffset: tOff, Data: data})
 	}
 
 	if len(thumbs) == 0 {
@@ -123,34 +157,32 @@ func ExtractThumbnails(videoPath, outputDir string) (*ThumbnailResult, error) {
 }
 
 func GetDuration(videoPath string) (float64, error) {
+	// ffprobe reads container metadata only — ffmpeg -i on multi‑GB files can use huge RAM and get SIGKILL (OOM).
 	args := []string{
-		"-fflags", "+genpts+igndts",
-		"-analyzeduration", "200M",
-		"-probesize", "200M",
-		"-err_detect", "ignore_err",
-		"-i", videoPath,
+		"-v", "error",
+		"-show_entries", "format=duration",
+		"-of", "default=noprint_wrappers=1:nokey=1",
+		videoPath,
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, "ffmpeg", args...)
-	var stderr limitedWriter
-	stderr.max = 256 << 10
-	cmd.Stderr = &stderr
-	_ = cmd.Run()
+	cmd := exec.CommandContext(ctx, "ffprobe", args...)
+	var stdout bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &limitedWriter{max: 64 << 10}
 
-	re := regexp.MustCompile(`Duration: (\d{2}):(\d{2}):(\d{2}\.\d+)`)
-	matches := re.FindStringSubmatch(stderr.String())
-	if len(matches) < 4 {
-		return 0, fmt.Errorf("duration not found")
+	if err := cmd.Run(); err != nil {
+		return 0, fmt.Errorf("ffprobe duration: %w", err)
 	}
 
-	hours, _ := strconv.ParseFloat(matches[1], 64)
-	minutes, _ := strconv.ParseFloat(matches[2], 64)
-	seconds, _ := strconv.ParseFloat(matches[3], 64)
-
-	return hours*3600 + minutes*60 + seconds, nil
+	s := strings.TrimSpace(stdout.String())
+	dur, err := strconv.ParseFloat(s, 64)
+	if err != nil || dur <= 0 {
+		return 0, fmt.Errorf("invalid duration: %q", s)
+	}
+	return dur, nil
 }
 
 func CleanupThumbnails(thumbnails []Thumbnail) {

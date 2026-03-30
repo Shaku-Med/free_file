@@ -50,4 +50,6 @@ export interface ContextProps {
   setPlayerSettings: React.Dispatch<React.SetStateAction<PlayerSettings | null>>;
   savePlayerSettings: (patch: PlayerSettingsPatch) => Promise<void>;
   isDevelopment: boolean;
+  hasFetchedImages: boolean;
+  setHasFetchedImages: React.Dispatch<React.SetStateAction<boolean>>;
 }

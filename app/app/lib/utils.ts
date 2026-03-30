@@ -128,3 +128,11 @@ export function getVideoSrc(endpoint: string, fileType?: string): string {
   }
   return `/api/load/video/${endpoint}`
 }
+
+/** Search / social preview crawlers — use canonical image URLs in HTML for indexing. */
+export function isSearchBotUserAgent(ua: string | null | undefined): boolean {
+  if (!ua || typeof ua !== 'string') return false
+  return /bytespider|applebot|googlebot|google-inspectiontool|bingbot|msnbot|slurp|duckduckbot|baiduspider|yandexbot|facebookexternalhit|facebot|twitterbot|linkedinbot|slackbot|embedly|pinterest|semrushbot|ahrefsbot|petalbot/i.test(
+    ua,
+  )
+}

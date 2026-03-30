@@ -441,15 +441,15 @@ const VideoCard = ({ data, index, currentUserId, userActions, onUpdate, showOwne
 
   const thumbnailLink = useMemo(() => getThumbnailUrl(data, { retryAttempt }), [data.file_type, data.endpoint, data.default_thumbnail, data.thumbnails, data.created_at, data.unique_id, data.filename, retryAttempt]);
 
-  /** Saved thumbnail as shown on the card — preview in edit dialog (video/audio only). */
-  const editDialogCurrentThumbSrc = useMemo(() => {
+  /** Saved thumbnail path for edit dialog (video/audio only); quality set on ImageLoad. */
+  const editDialogCurrentThumbLink = useMemo(() => {
     if (data.file_type?.startsWith("image/")) return "";
     const merged = {
       ...data,
       default_thumbnail:
         editLoadedDefaultThumb !== undefined ? editLoadedDefaultThumb : data.default_thumbnail,
     };
-    return getThumbnailUrl(merged, { queryString: "?quality=60" });
+    return getThumbnailUrl(merged, {});
   }, [
     data.file_type,
     data.endpoint,
@@ -702,17 +702,22 @@ const VideoCard = ({ data, index, currentUserId, userActions, onUpdate, showOwne
           {/* Thumbnail selector — only for video/audio, not images */}
           {!data.file_type?.startsWith("image/") && <div className="space-y-2">
             <label className="text-xs font-medium text-muted-foreground">Thumbnail</label>
-            {editDialogCurrentThumbSrc ? (
+            {editDialogCurrentThumbLink ? (
               <div className="rounded-lg border border-border/50 bg-muted/20 overflow-hidden">
                 <p className="text-[11px] font-medium text-muted-foreground px-2.5 py-1.5 border-b border-border/40 bg-muted/30">
                   Current thumbnail
                 </p>
                 <div className="p-2 flex justify-center items-center bg-background/40 min-h-[5rem]">
-                  <img
-                    src={editDialogCurrentThumbSrc}
-                    alt=""
+                  <ImageLoad
+                    link={editDialogCurrentThumbLink}
+                    imageID={`${data.unique_id}_edit_dialog_thumb`}
+                    index={0}
+                    retry={() => {}}
+                    quality={60}
+                    hasAdultTag={Boolean(data.is_adult)}
                     className="max-h-32 w-full max-w-[280px] object-contain rounded-md"
-                    loading="lazy"
+                    eagerLoad
+                    useRelativeApiUrl
                   />
                 </div>
                 <p className="text-[10px] text-muted-foreground/70 px-2.5 pb-2">
@@ -796,7 +801,7 @@ const VideoCard = ({ data, index, currentUserId, userActions, onUpdate, showOwne
             )}
             {/* Thumbnail browser dialog */}
             <Dialog open={thumbBrowseOpen} onOpenChange={setThumbBrowseOpen}>
-              <DialogContent className="w-[calc(100%-2rem)] max-h-[80vh] overflow-y-auto">
+              <DialogContent className="w-[calc(100%-2rem)] max-w-5xl md:max-h-[80vh] h-fit overflow-y-auto">
                 <DialogHeader>
                   <DialogTitle className="text-sm">Choose a thumbnail</DialogTitle>
                 </DialogHeader>
@@ -809,7 +814,7 @@ const VideoCard = ({ data, index, currentUserId, userActions, onUpdate, showOwne
                 ) : (
                   <>
                     <div className="grid grid-cols-3 gap-2">
-                      {browseThumbs.map((thumb) => {
+                      {browseThumbs.map((thumb, thumbIdx) => {
                         const isSelected = selectedThumbPath === thumb;
                         const isCurrent = data.default_thumbnail === thumb;
                         return (
@@ -823,7 +828,7 @@ const VideoCard = ({ data, index, currentUserId, userActions, onUpdate, showOwne
                               setCustomThumbPreview(null);
                               setThumbBrowseOpen(false);
                             }}
-                            className={`relative aspect-video rounded-md overflow-hidden border-2 transition-all ${
+                            className={`relative bg-muted/40 aspect-video rounded-md overflow-hidden border-2 transition-all ${
                               isSelected
                                 ? "border-primary ring-1 ring-primary/30"
                                 : isCurrent
@@ -831,11 +836,16 @@ const VideoCard = ({ data, index, currentUserId, userActions, onUpdate, showOwne
                                 : "border-transparent hover:border-muted-foreground/40"
                             }`}
                           >
-                            <img
-                              src={`/api/load/image/${thumb}?quality=30`}
-                              alt="Frame"
-                              className="w-full h-full object-cover"
-                              loading="lazy"
+                            <ImageLoad
+                              link={`/api/load/image/${thumb}`}
+                              imageID={`${data.unique_id}_browse_${thumbIdx}`}
+                              index={0}
+                              retry={() => {}}
+                              quality={30}
+                              hasAdultTag={Boolean(data.is_adult)}
+                              className="w-full h-full object-contain"
+                              eagerLoad
+                              useRelativeApiUrl
                             />
                             {(isSelected || isCurrent) && (
                               <div className="absolute inset-0 flex items-center justify-center bg-black/30">
@@ -894,14 +904,13 @@ const VideoCard = ({ data, index, currentUserId, userActions, onUpdate, showOwne
 
           {data.is_adult && (
             <div className="space-y-2">
-              <div className="rounded-lg border border-red-200 dark:border-red-900/50 bg-red-50 dark:bg-red-950/30 px-3 py-2.5">
+              <div className="rounded-lg borde bg-destructive/10 px-3 py-2.5">
                 <div className="flex items-center gap-2">
-                  <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-red-500 text-white text-[10px] font-bold shrink-0">18</span>
-                  <p className="text-xs font-medium text-red-700 dark:text-red-400">Adult content</p>
+                  <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-destructive text-white text-[10px] font-bold shrink-0">18</span>
+                  <p className="text-sm font-medium text-destructive">Adult content</p>
                 </div>
-                <div className="mt-1.5 flex items-start gap-1.5">
-                  <AlertTriangle className="w-3.5 h-3.5 text-red-500 shrink-0 mt-0.5" />
-                  <p className="text-[11px] text-red-600/80 dark:text-red-400/70 leading-relaxed">
+                <div className="mt-1.5 flex items-start gap-1.5 pl-6">
+                  <p className="text-[11px] text-destructive/80 leading-relaxed">
                     This post is flagged as adult content. Even if set to public, it can <strong>only be accessed via direct link</strong> and will <strong>not appear in feeds</strong>, search results, or suggestions.
                   </p>
                 </div>
@@ -909,11 +918,11 @@ const VideoCard = ({ data, index, currentUserId, userActions, onUpdate, showOwne
 
               {/* Review request section */}
               {isOwner && reviewStatus && (
-                <div className="rounded-lg border border-amber-200 dark:border-amber-900/50 bg-amber-50 dark:bg-amber-950/20 px-3 py-2.5">
+                <div className="rounded-lg border bg-muted/40 px-3 py-2.5">
                   {reviewStatus.status === "pending" && (
                     <div className="flex items-center gap-2">
-                      <Loader2 className="w-3.5 h-3.5 text-amber-600 animate-spin shrink-0" />
-                      <p className="text-[11px] text-amber-700 dark:text-amber-400">
+                      <Loader2 className="w-3.5 h-3.5 text-primary animate-spin shrink-0" />
+                      <p className="text-[11px] text-foreground">
                         Review request pending ({reviewStatus.request_count}/2 requests used)
                       </p>
                     </div>
@@ -921,8 +930,8 @@ const VideoCard = ({ data, index, currentUserId, userActions, onUpdate, showOwne
 
                   {reviewStatus.status === "accepted" && (
                     <div className="flex items-center gap-2">
-                      <Check className="w-3.5 h-3.5 text-green-600 shrink-0" />
-                      <p className="text-[11px] text-green-700 dark:text-green-400">
+                      <Check className="w-3.5 h-3.5 text-primary shrink-0" />
+                      <p className="text-[11px] text-primary">
                         Review accepted — adult flag has been removed.
                       </p>
                     </div>
@@ -931,8 +940,8 @@ const VideoCard = ({ data, index, currentUserId, userActions, onUpdate, showOwne
                   {reviewStatus.status === "denied" && (
                     <div className="space-y-1.5">
                       <div className="flex items-center gap-2">
-                        <X className="w-3.5 h-3.5 text-red-500 shrink-0" />
-                        <p className="text-[11px] text-red-600 dark:text-red-400">
+                        <X className="w-3.5 h-3.5 text-primary shrink-0" />
+                        <p className="text-[11px] text-primary">
                           Review denied{reviewStatus.response_message ? `: ${reviewStatus.response_message}` : ""} ({reviewStatus.request_count}/2 requests used)
                         </p>
                       </div>
@@ -940,8 +949,8 @@ const VideoCard = ({ data, index, currentUserId, userActions, onUpdate, showOwne
                   )}
 
                   {!reviewStatus.has_request && reviewStatus.can_request && (
-                    <p className="text-[11px] text-amber-700 dark:text-amber-400">
-                      Think this was incorrectly flagged? You can request a manual review (max 2 per file).
+                    <p className="text-[11px] text-foreground">
+                      Think this was incorrectly flagged? <br /> You can request a manual review (max 2 per file).
                     </p>
                   )}
 
@@ -950,7 +959,7 @@ const VideoCard = ({ data, index, currentUserId, userActions, onUpdate, showOwne
                     <button
                       type="button"
                       onClick={() => setShowReviewForm(true)}
-                      className="mt-1.5 inline-flex items-center gap-1.5 text-[11px] font-medium text-amber-700 dark:text-amber-400 hover:text-amber-800 dark:hover:text-amber-300 transition-colors"
+                      className="mt-1.5 inline-flex items-center gap-1.5 text-[11px] font-medium text-primary hover:text-primary/80 transition-colors"
                     >
                       <Send className="w-3 h-3" />
                       Request review
@@ -1002,7 +1011,7 @@ const VideoCard = ({ data, index, currentUserId, userActions, onUpdate, showOwne
 
                   {/* Review message feedback */}
                   {reviewMessage && (
-                    <p className={`mt-1.5 text-[11px] ${reviewMessage.type === "success" ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"}`}>
+                    <p className={`mt-1.5 text-[11px] ${reviewMessage.type === "success" ? "text-primary" : "text-primary"}`}>
                       {reviewMessage.text}
                     </p>
                   )}
