@@ -11,6 +11,7 @@ import * as crypto from 'crypto';
 import { chunkFile } from './processFunctions/chunking';
 import type { ChunkInfo } from './processFunctions/chunking';
 import db from '~/lib/Database/supabase';
+import { MAX_UPLOAD_FILE_BYTES, MAX_UPLOAD_LABEL } from '~/lib/uploadLimits';
 
 if (typeof process !== 'undefined') {
   try {
@@ -113,12 +114,14 @@ export const action = async ({ request }: { request: Request }) => {
       });
     }
 
-    const MAX_FILE_SIZE = 4 * 1024 * 1024 * 1024; // 4GB
-    if (file.size > MAX_FILE_SIZE) {
-      return new Response(JSON.stringify({ error: 'File size exceeds maximum limit of 4GB' }), { 
-        status: 400,
-        headers: { 'Content-Type': 'application/json' }
-      });
+    if (file.size > MAX_UPLOAD_FILE_BYTES) {
+      return new Response(
+        JSON.stringify({ error: `File size exceeds maximum limit of ${MAX_UPLOAD_LABEL}` }),
+        {
+          status: 400,
+          headers: { 'Content-Type': 'application/json' },
+        }
+      );
     }
 
     if (!/^[a-zA-Z0-9_-]{1,100}$/.test(uniqueID)) {

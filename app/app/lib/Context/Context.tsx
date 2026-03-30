@@ -12,6 +12,7 @@ import { setPlayerSettings as setPlayerSettingsApi } from "~/lib/Services/player
 import { useNavigation } from "react-router";
 import type { PageCacheEntry } from "../types";
 import { isMobile } from "react-device-detect";
+import { MAX_UPLOAD_FILE_BYTES } from "~/lib/uploadLimits";
 
 export const driverObj = driver({
     showProgress: true,
@@ -440,7 +441,7 @@ export const ContextProvider = ({ children, st, user_agent, userId, c_user, uplo
                     isOpen={isModalOpen}
                     onClose={() => setIsModalOpen(false)}
                     onFilesSelected={() => {}}
-                    maxFileSizeBytes={4 * 1024 * 1024 * 1024} // 4GB default
+                    maxFileSizeBytes={MAX_UPLOAD_FILE_BYTES}
                     initialFiles={droppedFiles}
                     onFilesConsumed={() => setDroppedFiles([])}
                 />

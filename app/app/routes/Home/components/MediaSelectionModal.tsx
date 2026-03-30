@@ -26,6 +26,7 @@ import {
 import { GenerateUniqueID } from "~/lib/GenerateUniqueID"
 import { useFileContext } from "~/lib/Context/Context"
 import { useNavigate } from "react-router"
+import { MAX_UPLOAD_FILE_BYTES } from "~/lib/uploadLimits"
 
 const CATEGORY_OPTIONS = [
   "Gaming",
@@ -146,7 +147,7 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
     return () => document.removeEventListener("mousedown", handleClickOutside)
   }, [])
 
-  const effectiveMaxSize = maxFileSizeBytes ?? 4 * 1024 * 1024 * 1024
+  const effectiveMaxSize = maxFileSizeBytes ?? MAX_UPLOAD_FILE_BYTES
 
   const resetState = () => {
     items.forEach((item) => {
