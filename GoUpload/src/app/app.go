@@ -12,8 +12,8 @@ import (
 )
 
 func New() (http.Handler, error) {
-	// 6.5 GiB default; override with MAX_UPLOAD_BYTES env
-	maxSize := env.GetInt64("MAX_UPLOAD_BYTES", 6983516160)
+	// 10 GiB default; override with MAX_UPLOAD_BYTES env
+	maxSize := env.GetInt64("MAX_UPLOAD_BYTES", 10<<30)
 	uploader := upload.NewService(maxSize, 15*time.Minute)
 	log := logger.New(2048)
 	router := routes.NewRouter(uploader)
