@@ -64,12 +64,16 @@ export function getThumbnailUrl(file: {
     return `${base}/api/load/image/${thumb}${qs}`
   }
 
-  // Fall back to thumbnail_preview.jpg from the thumbnails array (populated by the worker)
+  // Prefer real frame thumbs (thumb_*.jpg); thumbnail_preview is a grid/sprite, not the default poster.
   if (Array.isArray(file.thumbnails) && file.thumbnails.length > 0) {
-    const preview = file.thumbnails.find(t => t.endsWith('/thumbnail_preview.jpg') || t === 'thumbnail_preview.jpg')
+    const frame = file.thumbnails.find(
+      (t) => /\/thumb_\d+\.jpg$/i.test(t) || /^thumb_\d+\.jpg$/i.test(t),
+    )
+    if (frame) return `${base}/api/load/image/${frame}${qs}`
+    const preview = file.thumbnails.find(
+      (t) => t.endsWith('/thumbnail_preview.jpg') || t === 'thumbnail_preview.jpg',
+    )
     if (preview) return `${base}/api/load/image/${preview}${qs}`
-    const first = file.thumbnails.find(t => /\/thumb_\d+\.jpg$/.test(t))
-    if (first) return `${base}/api/load/image/${first}${qs}`
   }
 
   // Legacy fallback (old naming scheme)
@@ -101,8 +105,13 @@ export function getWaveformImagePathPrefix(file: {
   }
 
   if (Array.isArray(file.thumbnails) && file.thumbnails.length > 0) {
-    const preview = file.thumbnails.find((t) => t.endsWith('/thumbnail_preview.jpg') || t === 'thumbnail_preview.jpg')
-    const path = preview ?? file.thumbnails.find((t) => /\/thumb_\d+\.jpg$/.test(t)) ?? file.thumbnails[0]
+    const frame = file.thumbnails.find(
+      (t) => /\/thumb_\d+\.jpg$/i.test(t) || /^thumb_\d+\.jpg$/i.test(t),
+    )
+    const preview = file.thumbnails.find(
+      (t) => t.endsWith('/thumbnail_preview.jpg') || t === 'thumbnail_preview.jpg',
+    )
+    const path = frame ?? preview ?? file.thumbnails[0]
     if (path && typeof path === 'string') {
       const prefix = mediaPathDirPrefix(path)
       if (prefix) return prefix

@@ -330,6 +330,13 @@ const VideoCard = ({ data, index, currentUserId, userActions, onUpdate, showOwne
 
       const payload = await response.json().catch(() => null);
       if (payload?.file && onUpdate) {
+        const thumbFromServer = payload.file.default_thumbnail;
+        const nextDefaultThumb =
+          thumbFromServer !== undefined && thumbFromServer !== null
+            ? String(thumbFromServer)
+            : newDefaultThumbnail !== undefined
+              ? newDefaultThumbnail
+              : undefined;
         onUpdate(data.id, {
           file_title: payload.file.file_title ?? editTitle,
           file_description: payload.file.file_description ?? editDescription,
@@ -338,8 +345,11 @@ const VideoCard = ({ data, index, currentUserId, userActions, onUpdate, showOwne
           tags: payload.file.tags ?? editTags,
           comments_enabled: payload.file.comments_enabled,
           comment_limit: payload.file.comment_limit,
-          ...(newDefaultThumbnail !== undefined ? { default_thumbnail: newDefaultThumbnail } : {}),
+          ...(nextDefaultThumb !== undefined ? { default_thumbnail: nextDefaultThumb } : {}),
         });
+        if (nextDefaultThumb !== undefined) {
+          setEditLoadedDefaultThumb(nextDefaultThumb || null);
+        }
       }
       // Reset thumbnail state
       setSelectedThumbPath(null);

@@ -1,3 +1,4 @@
+import { useCallback } from "react";
 import { useFileContext } from "~/lib/Context/Context";
 import VideoCard from "./components/VideoCard";
 import type { FileType } from "~/lib/types";
@@ -41,7 +42,14 @@ function FeedSkeleton() {
 }
 
 export default function PhotoDashboard() {
-  const { files, setIsModalOpen, observerRef, isLoading, initialLoading, userId, userActions, clearFeedHistory } = useFileContext();
+  const { files, setFiles, setIsModalOpen, observerRef, isLoading, initialLoading, userId, userActions, clearFeedHistory } =
+    useFileContext();
+
+  const handleFileUpdate = useCallback((fileId: string, updates: Partial<FileType>) => {
+    setFiles((prev) =>
+      prev.map((f) => (f.id === fileId || f.unique_id === fileId ? { ...f, ...updates } : f)),
+    );
+  }, [setFiles]);
 
   if (initialLoading) {
     return (
@@ -60,7 +68,14 @@ export default function PhotoDashboard() {
         <>
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-3 gap-4">
             {files.map((file, index) => (
-              <VideoCard key={file.id || index} data={file as FileType} index={index} currentUserId={userId || undefined} userActions={userActions} />
+              <VideoCard
+                key={file.id || index}
+                data={file as FileType}
+                index={index}
+                currentUserId={userId || undefined}
+                userActions={userActions}
+                onUpdate={handleFileUpdate}
+              />
             ))}
           </div>
           {isLoading && (

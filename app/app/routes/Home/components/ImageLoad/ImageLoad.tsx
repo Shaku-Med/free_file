@@ -67,6 +67,7 @@ const ImageLoad = ({
     const [containerBox, setContainerBox] = useState({ w: 0, h: 0 })
     const [preferFetchedBlob, setPreferFetchedBlob] = useState(false)
     const containerRef = useRef<HTMLDivElement | null>(null)
+    const imgRef = useRef<HTMLImageElement | null>(null)
     const recoveryBlobRef = useRef<string | null>(null)
     const fetchRecoveryRemaining = useRef(MAX_FETCH_RECOVERY_ATTEMPTS)
     const recoveryInFlight = useRef(false)
@@ -487,6 +488,18 @@ const ImageLoad = ({
         Math.min(40, Math.max(18, containerBox.w > 0 ? containerBox.w * 0.11 : 22)),
     )
 
+    /** Cached images often finish before `onLoad` is attached — clear spinner / opacity. */
+    useLayoutEffect(() => {
+        if (!canShowImage || !imgDisplaySrc) return
+        const el = imgRef.current
+        if (!el) return
+        if (el.complete && el.naturalWidth > 0) {
+            setLoaded(true)
+        } else {
+            setLoaded(false)
+        }
+    }, [canShowImage, imgDisplaySrc])
+
     return (
         <>
             <div
@@ -523,6 +536,7 @@ const ImageLoad = ({
                             </div>
                         )}
                         <img
+                            ref={imgRef}
                             key={imgDisplaySrc}
                             src={imgDisplaySrc}
                             alt="Thumbnail"
@@ -531,7 +545,7 @@ const ImageLoad = ({
                                 loaded ? "opacity-100" : "opacity-0",
                                 className,
                             )}
-                            loading="lazy"
+                            loading={eagerLoad || index === 0 ? 'eager' : 'lazy'}
                             onError={handleImgError}
                             onLoad={() => setLoaded(true)}
                         />

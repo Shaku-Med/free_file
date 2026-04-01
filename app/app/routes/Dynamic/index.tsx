@@ -1212,12 +1212,14 @@ const index = () => {
     <div className="lg:col-span-1">
       <div className="sticky top-6">
         {data.seriesEpisodes && data.seriesEpisodes.length > 0 && (
-          <SeriesEpisodesSection
-            episodes={data.seriesEpisodes}
-            currentVideoUniqueId={file_data.unique_id}
-            currentUserId={userId || undefined}
-            userActions={mergedSidebarUserActions}
-          />
+          <div className="hidden lg:block">
+            <SeriesEpisodesSection
+              episodes={data.seriesEpisodes}
+              currentVideoUniqueId={file_data.unique_id}
+              currentUserId={userId || undefined}
+              userActions={mergedSidebarUserActions}
+            />
+          </div>
         )}
         <RelatedVideos
           key={`related-${file_data.unique_id}-${currentId}`}
@@ -1267,7 +1269,17 @@ const index = () => {
                 </div>
               )}
             </div>
-            
+
+            {!theaterMode && data.seriesEpisodes && data.seriesEpisodes.length > 0 && (
+              <div className="z-[100000] lg:hidden -mt-1">
+                <SeriesEpisodesSection
+                  episodes={data.seriesEpisodes}
+                  currentVideoUniqueId={file_data.unique_id}
+                  currentUserId={userId || undefined}
+                  userActions={mergedSidebarUserActions}
+                />
+              </div>
+            )}
 
             {
               !theaterMode && (

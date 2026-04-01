@@ -19,6 +19,16 @@ function isVideoFilename(name: string): boolean {
   return ['mp4', 'webm', 'mkv', 'avi', 'mov', 'wmv', 'flv', 'm4v'].includes(ext);
 }
 
+/** First extracted frame path (not thumbnail_preview / json / waveform). */
+function firstFrameThumbnailFromList(thumbnails: string[]): string | null {
+  for (const t of thumbnails) {
+    const s = t.trim();
+    if (!s) continue;
+    if (/\/thumb_\d+\.jpg$/i.test(s) || /^thumb_\d+\.jpg$/i.test(s)) return s;
+  }
+  return null;
+}
+
 type SeriesWebhookBody = {
   user_id?: string;
   file_name?: string;
@@ -384,9 +394,15 @@ export const action = async ({ request }: { request: Request }) => {
     if (Object.keys(metadata).length > 0) {
       updateData.metadata = metadata;
     }
-    const default_thumbnail = typeof body?.default_thumbnail === 'string' ? body.default_thumbnail.trim() : '';
-    if (default_thumbnail) {
-      updateData.default_thumbnail = default_thumbnail;
+    const explicitDefault =
+      typeof body?.default_thumbnail === 'string' ? body.default_thumbnail.trim() : '';
+    if (explicitDefault) {
+      updateData.default_thumbnail = explicitDefault;
+    } else if (thumbnails.length > 0) {
+      const inferred = firstFrameThumbnailFromList(thumbnails);
+      if (inferred) {
+        updateData.default_thumbnail = inferred;
+      }
     }
 
     const { error: updateErr } = await db

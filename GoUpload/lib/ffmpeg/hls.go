@@ -204,9 +204,10 @@ func convertTier(inputPath, outputDir string, opts HLSOptions, tier QualityTier,
 }
 
 func runTierConversion(inputPath, m3u8Path, segmentPattern string, opts HLSOptions, tier QualityTier, useGPU bool) (*HLSResult, error) {
-	cpuThreads := runtime.NumCPU()
-	if cpuThreads > 8 {
-		cpuThreads = 8
+	// Low thread count limits libx264 frame-thread memory; high values often trigger OOM killer on 2–4GB workers.
+	cpuThreads := 2
+	if n := runtime.NumCPU(); n == 1 {
+		cpuThreads = 1
 	}
 
 	var args []string
@@ -219,8 +220,9 @@ func runTierConversion(inputPath, m3u8Path, segmentPattern string, opts HLSOptio
 
 	args = append(args,
 		"-fflags", "+genpts+igndts",
-		"-analyzeduration", "200M",
-		"-probesize", "200M",
+		// Local file already probed by ConvertToHLSAllQualities — smaller probe caps demuxer RAM.
+		"-analyzeduration", "50M",
+		"-probesize", "50M",
 		"-err_detect", "ignore_err",
 		"-i", inputPath,
 		"-map", "0:v:0?",
@@ -238,8 +240,10 @@ func runTierConversion(inputPath, m3u8Path, segmentPattern string, opts HLSOptio
 	} else {
 		args = append(args,
 			"-c:v", "libx264",
-			"-preset", "fast",
+			"-preset", "veryfast",
 			"-tune", "fastdecode",
+			// Tighter lookahead/thread pool vs defaults — less peak RAM on long 1080p encodes.
+			"-x264-params", fmt.Sprintf("threads=%d:rc-lookahead=20", cpuThreads),
 		)
 	}
 
@@ -251,7 +255,8 @@ func runTierConversion(inputPath, m3u8Path, segmentPattern string, opts HLSOptio
 		"-b:a", tier.AudioBR,
 		"-ac", "2",
 		"-ar", "48000",
-		"-max_muxing_queue_size", "9999",
+		// Huge queue + HLS muxer can blow RAM or hit “short write” under pressure.
+		"-max_muxing_queue_size", "512",
 		"-hls_time", fmt.Sprintf("%d", opts.SegmentTime),
 		"-hls_list_size", "0",
 		"-hls_segment_filename", segmentPattern,

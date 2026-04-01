@@ -13,6 +13,7 @@ import SubtitleButton from './subtitles/SubtitleButton';
 import MiniPlayerButton from './miniplayer/MiniPlayerButton';
 import { formatTime } from './seek/functions/formatTime';
 import type { HideControls } from '../types';
+import { isMobile } from 'react-device-detect';
 
 const isHidden = (hide?: HideControls, key?: keyof NonNullable<HideControls>) =>
   !!(hide && key && hide[key]);
@@ -126,7 +127,7 @@ export default function ControlBar({
           )}
 
           {!isHidden(hideControls, 'volume') && (
-            <VolumeControl showSlider={showVolumeSlider} />
+            <VolumeControl showSlider={showVolumeSlider && !isMobile} />
           )}
 
           {!isHidden(hideControls, 'time') && showTime && (

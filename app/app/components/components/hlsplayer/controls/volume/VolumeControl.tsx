@@ -1,17 +1,19 @@
 import { useRef, useState, useCallback } from 'react';
 import { Volume2, Volume1, VolumeX } from 'lucide-react';
 import { usePlayerContext } from '../../PlayerContext';
+import { useVideoHasAudio } from '../../hooks/useVideoHasAudio';
 
 interface VolumeControlProps {
   showSlider?: boolean;
 }
 
 export default function VolumeControl({ showSlider = true }: VolumeControlProps) {
-  const { state, setVolume, toggleMute } = usePlayerContext();
+  const { state, setVolume, toggleMute, videoRef, hlsRef, src } = usePlayerContext();
+  const hasAudioTrack = useVideoHasAudio(videoRef, hlsRef, src);
   const sliderRef = useRef<HTMLDivElement>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [isHovered, setIsHovered] = useState(false);
-  const canExpand = showSlider && (isHovered || isDragging);
+  const canExpand = hasAudioTrack && showSlider && (isHovered || isDragging);
 
   const VolumeIcon = state.isMuted || state.volume === 0
     ? VolumeX
@@ -48,9 +50,18 @@ export default function VolumeControl({ showSlider = true }: VolumeControlProps)
       onMouseLeave={() => { setIsHovered(false); setIsDragging(false); }}
     >
       <button
-        onClick={toggleMute}
-        className="p-1.5 rounded-md hover:bg-white/10 transition-colors text-white"
-        aria-label={state.isMuted ? 'Unmute' : 'Mute'}
+        type="button"
+        onClick={() => hasAudioTrack && toggleMute()}
+        disabled={!hasAudioTrack}
+        title={hasAudioTrack ? undefined : 'No audio on this video'}
+        className="p-1.5 rounded-md transition-colors text-white disabled:opacity-40 disabled:cursor-not-allowed enabled:hover:bg-white/10"
+        aria-label={
+          hasAudioTrack
+            ? state.isMuted
+              ? 'Unmute'
+              : 'Mute'
+            : 'No audio track'
+        }
       >
         <VolumeIcon className="w-5 h-5" />
       </button>
@@ -58,13 +69,14 @@ export default function VolumeControl({ showSlider = true }: VolumeControlProps)
       <div
         className="overflow-hidden transition-[width,opacity] duration-200"
         style={{ width: canExpand ? 80 : 0, opacity: canExpand ? 1 : 0 }}
+        aria-hidden={!showSlider || !hasAudioTrack}
       >
         <div
           ref={sliderRef}
           className="relative h-2 w-full cursor-pointer select-none rounded-full overflow-hidden bg-secondary"
-          onPointerDown={handlePointerDown}
-          onPointerMove={handlePointerMove}
-          onPointerUp={handlePointerUp}
+          onPointerDown={hasAudioTrack ? handlePointerDown : undefined}
+          onPointerMove={hasAudioTrack ? handlePointerMove : undefined}
+          onPointerUp={hasAudioTrack ? handlePointerUp : undefined}
         >
           <div
             className="absolute top-0 left-0 h-full bg-primary rounded-full"
