@@ -129,6 +129,33 @@ export function getWaveformImagePathPrefix(file: {
   return null
 }
 
+/**
+ * Relative paths (under `/api/load/image/`) to the seek-preview sprite JSON + JPEG, if the folder can be resolved.
+ * Aligns with HLSPlayer: dirname of `default_thumbnail`, else {@link getWaveformImagePathPrefix}.
+ */
+export function getThumbnailPreviewApiPaths(file: {
+  default_thumbnail?: string | null
+  thumbnails?: string[] | null
+  endpoint?: string | null
+  file_type?: string | null
+}): { json: string; jpg: string } | null {
+  const thumb = getDefaultThumbnail(file.default_thumbnail)
+  let dir = ''
+  if (thumb && thumb.includes('/')) {
+    dir = thumb.replace(/[^/]+$/, '')
+  }
+  if (!dir) {
+    const wf = getWaveformImagePathPrefix(file)
+    if (wf) dir = wf
+  }
+  if (!dir) return null
+  const base = dir.endsWith('/') ? dir : `${dir}/`
+  return {
+    json: `${base}thumbnail_preview.json`,
+    jpg: `${base}thumbnail_preview.jpg`,
+  }
+}
+
 export function getVideoSrc(endpoint: string, fileType?: string): string {
   if (!endpoint) return `/api/load/video/`
   const isHLS = fileType === 'application/vnd.apple.mpegurl' || endpoint.includes('.m3u8')

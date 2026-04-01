@@ -14,7 +14,7 @@ import {
 import { BASE_URL } from "~/lib/URLS";
 import { buildPageMeta } from "~/lib/seo";
 import ImageLoad from "../Home/components/ImageLoad/ImageLoad";
-import { arrangeDateForThumbnail, ParseFilename, getVideoSrc, getThumbnailUrl } from "~/lib/utils";
+import { arrangeDateForThumbnail, ParseFilename, getVideoSrc, getThumbnailUrl, getThumbnailPreviewApiPaths } from "~/lib/utils";
 import { motion } from "framer-motion";
 import { ChevronDown, ShieldAlert } from "lucide-react";
 import { useSidebar } from "~/components/ui/sidebar";
@@ -381,6 +381,23 @@ export const meta: MetaFunction<ReturnType<typeof loader>> = ({ data }: { data: 
     const ogType = isImage ? "image" : "website";
     const thumbnailUrl = `${BASE_URL}${thumbnail}`;
 
+    const thumbPreviewPaths = isVideo && file ? getThumbnailPreviewApiPaths(file) : null;
+    const thumbPreviewPrefetch: import("react-router").MetaDescriptor[] = thumbPreviewPaths
+      ? [
+          {
+            rel: "prefetch",
+            href: `${BASE_URL}/api/load/image/${thumbPreviewPaths.json}`,
+            crossOrigin: "anonymous",
+          },
+          {
+            rel: "prefetch",
+            href: `${BASE_URL}/api/load/image/${thumbPreviewPaths.jpg}`,
+            as: "image",
+            crossOrigin: "anonymous",
+          },
+        ]
+      : [];
+
     const extra: import("react-router").MetaDescriptor[] = [
       { property: "og:image:type", content: "image/png" },
       { property: "og:image:secure_url", content: thumbnailUrl },
@@ -394,6 +411,7 @@ export const meta: MetaFunction<ReturnType<typeof loader>> = ({ data }: { data: 
       ...(data?.owner ? [{ name: "twitter:creator", content: `@${data.owner.username}` }] : []),
       { rel: "preconnect", href: thumbnailUrl, as: "image" },
       { rel: "dns-prefetch", href: BASE_URL },
+      ...thumbPreviewPrefetch,
     ];
 
     const categoriesList: string[] = Array.isArray(file?.categories)

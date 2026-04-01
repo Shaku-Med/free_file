@@ -51,7 +51,7 @@ function addUtcCalendarDays(
 }
 
 /**
- * Retry paths after the original URL fails: fix `.jpg?…` suffix, then try +1/+2/-1/-2 calendar days
+ * Retry paths after the original URL fails: fix `.jpg?…` / `.json?…` suffix, then try +1/+2/-1/-2 calendar days
  * on the DD_MM_YYYY folder (month/year roll over correctly; leap years handled in UTC).
  */
 function buildImagePathRetryCandidates(initialPath: string): string[] {
@@ -70,6 +70,11 @@ function buildImagePathRetryCandidates(initialPath: string): string[] {
         push(jpgFixed);
     }
 
+    const jsonFixed = initialPath.replace(/\.json.*$/i, '.json');
+    if (jsonFixed !== initialPath) {
+        push(jsonFixed);
+    }
+
     const parsed = parseDateFolderPrefix(initialPath);
     if (parsed) {
         const { day, month, year, rest } = parsed;
@@ -80,6 +85,29 @@ function buildImagePathRetryCandidates(initialPath: string): string[] {
     }
 
     return out;
+}
+
+function buildGithubRawAttemptUrls(splitUrl: string): string[] {
+    return [splitUrl, ...buildImagePathRetryCandidates(splitUrl).filter((u) => u !== splitUrl)];
+}
+
+async function fetchGithubJsonWithRetry(splitUrl: string): Promise<string> {
+    const owner = process.env.GITHUB_OWNER;
+    if (!owner) {
+        throw new Error('GITHUB_OWNER is not set');
+    }
+    for (const path of buildGithubRawAttemptUrls(splitUrl)) {
+        const rawUrl = `https://github.com/${owner}/Memories/raw/main/${path}`;
+        try {
+            const res = await fetch(rawUrl);
+            if (res.ok) {
+                return await res.text();
+            }
+        } catch {
+            /* try next path */
+        }
+    }
+    throw new ImageLoadExhaustedError();
 }
 
 /** Fixes paths like `.../default_thumbnail.jpg/?quality=50` where a trailing slash breaks GitHub raw URLs. */
@@ -266,7 +294,7 @@ const loadImageWithRetry = async (splitUrl: string, qualityParam: string | null,
         };
     };
 
-    const attemptUrls = [splitUrl, ...buildImagePathRetryCandidates(splitUrl).filter((u) => u !== splitUrl)];
+    const attemptUrls = buildGithubRawAttemptUrls(splitUrl);
     let lastError: unknown;
     for (const urlPath of attemptUrls) {
         try {
@@ -518,6 +546,17 @@ router.get('/*', async (req: Request, res: Response) => {
             // For security, we should still check if the URL suggests adult content
             // But to be safe, we'll allow the image to load (it might be a public file)
             // The main security is handled by the file lookup - if it's in the DB and is_adult, blur is applied
+        }
+
+        if (splitUrl.toLowerCase().endsWith('.json')) {
+            const body = await fetchGithubJsonWithRetry(splitUrl);
+            res.set({
+                'Content-Type': 'application/json',
+                'Cache-Control': 'public, max-age=300',
+                'CDN-Cache-Control': 'no-store',
+                'Vercel-CDN-Cache-Control': 'no-store',
+            });
+            return res.send(body);
         }
 
         // SECURITY: Now fetch image with shouldBlur flag already determined

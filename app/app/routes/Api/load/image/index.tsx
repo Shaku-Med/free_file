@@ -50,7 +50,7 @@ function addUtcCalendarDays(
 }
 
 /**
- * Retry paths after the original URL fails: fix `.jpg?…` suffix, then try +1/+2/-1/-2 calendar days
+ * Retry paths after the original URL fails: fix `.jpg?…` / `.json?…` suffix, then try +1/+2/-1/-2 calendar days
  * on the DD_MM_YYYY folder (month/year roll over correctly; leap years handled in UTC).
  */
 function buildImagePathRetryCandidates(initialPath: string): string[] {
@@ -69,6 +69,11 @@ function buildImagePathRetryCandidates(initialPath: string): string[] {
         push(jpgFixed);
     }
 
+    const jsonFixed = initialPath.replace(/\.json.*$/i, '.json');
+    if (jsonFixed !== initialPath) {
+        push(jsonFixed);
+    }
+
     const parsed = parseDateFolderPrefix(initialPath);
     if (parsed) {
         const { day, month, year, rest } = parsed;
@@ -79,6 +84,38 @@ function buildImagePathRetryCandidates(initialPath: string): string[] {
     }
 
     return out;
+}
+
+/** Same date-folder alternates as images; used for `thumbnail_preview.json` and other GitHub JSON next to media. */
+function buildGithubRawAttemptUrls(splitUrl: string): string[] {
+    return [splitUrl, ...buildImagePathRetryCandidates(splitUrl).filter((u) => u !== splitUrl)];
+}
+
+async function fetchGithubJsonWithRetry(splitUrl: string): Promise<Response> {
+    const owner = process.env.GITHUB_OWNER;
+    if (!owner) {
+        throw new Error('GITHUB_OWNER is not set');
+    }
+    let lastError: unknown;
+    for (const path of buildGithubRawAttemptUrls(splitUrl)) {
+        const rawUrl = `https://github.com/${owner}/Memories/raw/main/${path}`;
+        try {
+            const res = await fetch(rawUrl);
+            if (res.ok) {
+                const body = await res.text();
+                return new Response(body, {
+                    status: 200,
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Cache-Control': 'public, max-age=300',
+                    },
+                });
+            }
+        } catch (e) {
+            lastError = e;
+        }
+    }
+    throw new ImageLoadExhaustedError(lastError);
 }
 
 /** Fixes paths like `.../default_thumbnail.jpg/?quality=50` where a trailing slash breaks GitHub raw URLs. */
@@ -287,7 +324,7 @@ const loadImageWithRetry = async (
         });
     };
 
-    const attemptUrls = [splitUrl, ...buildImagePathRetryCandidates(splitUrl).filter((u) => u !== splitUrl)];
+    const attemptUrls = buildGithubRawAttemptUrls(splitUrl);
     let lastError: unknown;
     for (const urlPath of attemptUrls) {
         try {
@@ -529,17 +566,7 @@ export const loader = async ({ request }: { request: Request }) => {
         }
 
         if (splitUrl.toLowerCase().endsWith('.json')) {
-            const jsonUrl = `https://github.com/${process.env.GITHUB_OWNER}/Memories/raw/main/${splitUrl}`;
-            const res = await fetch(jsonUrl);
-            if (!res.ok) return new Response(null, { status: res.status });
-            const body = await res.text();
-            return new Response(body, {
-                status: 200,
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Cache-Control': 'public, max-age=300',
-                },
-            });
+            return await fetchGithubJsonWithRetry(splitUrl);
         }
 
         // SECURITY: Now fetch image with shouldBlur flag already determined
