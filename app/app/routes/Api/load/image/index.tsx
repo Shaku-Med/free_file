@@ -7,6 +7,80 @@ import {
 import { canAccessFile } from '~/routes/Api/fun/accessControl';
 import { applyHeavyBlur } from '~/lib/blur/index';
 
+/** Thrown when every GitHub fetch / decode attempt failed (loader maps to 404). */
+class ImageLoadExhaustedError extends Error {
+    constructor(cause?: unknown) {
+        super('All image load retries failed', cause !== undefined ? { cause } : undefined);
+        this.name = 'ImageLoadExhaustedError';
+    }
+}
+
+/** GitHub folder segment: DD_MM_YYYY (same as arrangeDateForThumbnail / Go upload). */
+function formatDateFolder(day: number, month: number, year: number): string {
+    return `${String(day).padStart(2, '0')}_${String(month).padStart(2, '0')}_${year}`;
+}
+
+function parseDateFolderPrefix(splitUrl: string): { day: number; month: number; year: number; rest: string } | null {
+    const m = splitUrl.match(/^(\d{1,2})_(\d{1,2})_(\d{4})(\/.*)$/);
+    if (!m) return null;
+    const day = parseInt(m[1], 10);
+    const month = parseInt(m[2], 10);
+    const year = parseInt(m[3], 10);
+    if (month < 1 || month > 12 || day < 1 || day > 31) return null;
+    const rest = m[4];
+    const d = new Date(Date.UTC(year, month - 1, day));
+    if (d.getUTCFullYear() !== year || d.getUTCMonth() !== month - 1 || d.getUTCDate() !== day) {
+        return null;
+    }
+    return { day, month, year, rest };
+}
+
+function addUtcCalendarDays(
+    day: number,
+    month: number,
+    year: number,
+    deltaDays: number,
+): { day: number; month: number; year: number } {
+    const d = new Date(Date.UTC(year, month - 1, day + deltaDays));
+    return {
+        day: d.getUTCDate(),
+        month: d.getUTCMonth() + 1,
+        year: d.getUTCFullYear(),
+    };
+}
+
+/**
+ * Retry paths after the original URL fails: fix `.jpg?…` suffix, then try +1/+2/-1/-2 calendar days
+ * on the DD_MM_YYYY folder (month/year roll over correctly; leap years handled in UTC).
+ */
+function buildImagePathRetryCandidates(initialPath: string): string[] {
+    const out: string[] = [];
+    const seen = new Set<string>();
+
+    const push = (u: string) => {
+        if (!seen.has(u)) {
+            seen.add(u);
+            out.push(u);
+        }
+    };
+
+    const jpgFixed = initialPath.replace(/\.jpg.*$/i, '.jpg');
+    if (jpgFixed !== initialPath) {
+        push(jpgFixed);
+    }
+
+    const parsed = parseDateFolderPrefix(initialPath);
+    if (parsed) {
+        const { day, month, year, rest } = parsed;
+        for (const delta of [1, 2, -1, -2] as const) {
+            const n = addUtcCalendarDays(day, month, year, delta);
+            push(`${formatDateFolder(n.day, n.month, n.year)}${rest}`);
+        }
+    }
+
+    return out;
+}
+
 /** Fixes paths like `.../default_thumbnail.jpg/?quality=50` where a trailing slash breaks GitHub raw URLs. */
 function normalizeGithubImagePath(raw: string | undefined): string | undefined {
     if (raw == null) return raw;
@@ -36,13 +110,11 @@ const getSharp = async () => {
 };
 
 
-const retryCountLimit = 3;
 const loadImageWithRetry = async (
     splitUrl: string,
     qualityParam: string | null,
     shouldBlur: boolean = false,
     isMetadata: boolean = false,
-    retryCount: number = 0
 ): Promise<Response> => {
     const tryLoadImage = async (urlPath: string): Promise<Response> => {
         const videoUrl = `https://github.com/${process.env.GITHUB_OWNER}/Memories/raw/main/${urlPath}`;
@@ -215,40 +287,16 @@ const loadImageWithRetry = async (
         });
     };
 
-    try {
-        return await tryLoadImage(splitUrl);
-    } catch (error) {
-        if (retryCount >= retryCountLimit) {
-            throw new Error('All the attempts to load the image have failed!', {
-                cause: { splitUrl, qualityParam, shouldBlur, isMetadata, retryCount },
-            });
+    const attemptUrls = [splitUrl, ...buildImagePathRetryCandidates(splitUrl).filter((u) => u !== splitUrl)];
+    let lastError: unknown;
+    for (const urlPath of attemptUrls) {
+        try {
+            return await tryLoadImage(urlPath);
+        } catch (err) {
+            lastError = err;
         }
-
-        let modifiedUrl: string | null = null;
-        switch (retryCount) {
-            case 0:
-                modifiedUrl = splitUrl.replace(/\.jpg.*$/, '.jpg');
-                break;
-            case 1: {
-                const match = splitUrl.match(/^(\d+)(_[^/]+\/.+)$/);
-                if (match) {
-                    const incremented = parseInt(match[1]) + 1;
-                    if (incremented === 0) break;
-                    const padLen = Math.max(2, match[1].length);
-                    modifiedUrl = `${String(incremented).padStart(padLen, '0')}${match[2]}`;
-                }
-                break;
-            }
-        }
-
-        if (!modifiedUrl) {
-            throw new Error('All the attempts to load the image have failed!', {
-                cause: { splitUrl, qualityParam, shouldBlur, isMetadata, retryCount },
-            });
-        }
-
-        return await loadImageWithRetry(modifiedUrl, qualityParam, shouldBlur, isMetadata, retryCount + 1);
     }
+    throw new ImageLoadExhaustedError(lastError);
 };
 
 const wrapText = (ctx: any, text: string, maxWidth: number): string[] => {
@@ -497,7 +545,9 @@ export const loader = async ({ request }: { request: Request }) => {
         // SECURITY: Now fetch image with shouldBlur flag already determined
         return await loadImageWithRetry(splitUrl, qualityParam, shouldBlur, isMetadata);
     } catch (error) {
-        // console.error('Error loading image:', error)
+        if (error instanceof ImageLoadExhaustedError) {
+            return new Response(null, { status: 404 });
+        }
         return new Response(null, { status: 500 });
     }
 };

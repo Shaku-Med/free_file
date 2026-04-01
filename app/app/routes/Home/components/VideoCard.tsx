@@ -14,7 +14,7 @@ import OwnerProfile from "~/components/OwnerProfile/OwnerProfile";
 import Actions from "./VideoCard/Actions";
 import { Separator } from "~/components/ui/separator";
 import CategoryBadges from "~/components/CategoryBadges";
-import { Info, MoreVertical, Clock, ListVideo, ChevronDown, X, Check, AlertTriangle, Send, Loader2, ImagePlus, MessageSquare, MessageSquareOff } from "lucide-react";
+import { Info, MoreVertical, ChevronDown, X, Check, AlertTriangle, Send, Loader2, ImagePlus, MessageSquare, MessageSquareOff } from "lucide-react";
 import { useFileContext } from "~/lib/Context/Context";
 import { Tooltip, TooltipContent, TooltipTrigger } from "~/components/ui/tooltip";
 import { useIsMobile } from "~/hooks/use-mobile";
@@ -36,10 +36,11 @@ function formatViews(count: number): string {
 }
 
 function formatDuration(seconds: number): string {
-  if (!seconds || seconds <= 0) return "";
-  const h = Math.floor(seconds / 3600);
-  const m = Math.floor((seconds % 3600) / 60);
-  const s = Math.floor(seconds % 60);
+  if (!Number.isFinite(seconds) || seconds <= 0) return "";
+  const sec = Math.floor(seconds);
+  const h = Math.floor(sec / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  const s = sec % 60;
   if (h > 0) return `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
   return `${m}:${String(s).padStart(2, "0")}`;
 }
@@ -133,6 +134,11 @@ const VideoCard = ({ data, index, currentUserId, userActions, onUpdate, showOwne
   const metadataWarning = getMetadataWarning(data.metadata);
   const commentCount = Number(data.comment_count) || 0;
   const viewCount = Number(data.view_count ?? data.views) || 0;
+  /** Feed / DB may return duration as string; coerce so the badge and meta row always show. */
+  const durationSec = useMemo(() => {
+    const d = Number(data.duration);
+    return Number.isFinite(d) && d > 0 ? d : 0;
+  }, [data.duration]);
 
   useEffect(() => {
     if (userActions && data.id) {
@@ -506,9 +512,12 @@ const VideoCard = ({ data, index, currentUserId, userActions, onUpdate, showOwne
           </div>
         )}
         {layout === "default" && <CategoryBadges categories={data.categories} />}
-        {data.duration && data.duration > 0 && (
-          <div className="file_duration flex items-center absolute right-2 shadow-md border backdrop-blur-lg bottom-1 bg-card/50 rounded-lg px-2 py-1 text-xs font-medium">
-            <span>{formatDuration(data.duration)}</span>
+        {durationSec > 0 && (
+          <div
+            className="file_duration pointer-events-none absolute right-2 bottom-2 z-20 flex min-h-[1.375rem] items-center rounded-md border border-white/10 bg-black/75 px-1.5 py-0.5 text-[11px] font-semibold tabular-nums leading-none text-white shadow-sm backdrop-blur-sm"
+            aria-label={`Duration ${formatDuration(durationSec)}`}
+          >
+            {formatDuration(durationSec)}
           </div>
         )}
       </motion.div>
@@ -1074,32 +1083,20 @@ const VideoCard = ({ data, index, currentUserId, userActions, onUpdate, showOwne
 
   if (layout === "horizontal") {
     return (
-      <div className={`flex ${(state === 'expanded') ? `fl_break_layout text-sm` : `flex-col md:flex-row flex-wrap` } gap-3 p-2 rounded-xl hover:bg-muted/50 transition-colors w-full`}>
+      <div
+        className={`group flex w-full gap-3 rounded-xl p-2 transition-colors hover:bg-muted/50 ${
+          state === "expanded" ? "fl_break_layout text-sm" : "flex-col flex-wrap md:flex-row"
+        }`}
+      >
         <Link
           onClick={(e) => {
             e.preventDefault();
             nav(`/${data.unique_id}`);
           }}
           to={`/${data.unique_id}`}
-          className="shrink-0 w-full min-w-40 max-w-40 md:max-w-44 aspect-video bg-card rounded-xl overflow-hidden relative flex-1"
+          className="relative aspect-video w-full min-w-40 max-w-full shrink-0 overflow-hidden rounded-xl bg-card md:max-w-44 md:flex-1"
         >
-          {renderThumbnail("w-full h-full aspect-video")}
-          <div className="absolute top-2 right-2 flex flex-col gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-            <button 
-              type="button"
-              className="p-1.5 bg-black/70 rounded-full hover:bg-black/90 transition-colors"
-              onClick={(e) => e.preventDefault()}
-            >
-              <Clock className="size-4 text-white" />
-            </button>
-            <button 
-              type="button"
-              className="p-1.5 bg-black/70 rounded-full hover:bg-black/90 transition-colors"
-              onClick={(e) => e.preventDefault()}
-            >
-              <ListVideo className="size-4 text-white" />
-            </button>
-          </div>
+          {renderThumbnail("aspect-video h-full w-full")}
         </Link>
 
         <div className="flex-1 min-w-0 flex flex-col justify-center py-0.5 w-full">
@@ -1117,9 +1114,9 @@ const VideoCard = ({ data, index, currentUserId, userActions, onUpdate, showOwne
             </Link>
           )}
           
-          <div className="flex items-center gap-1 text-xs text-muted-foreground mt-0.5">
+          <div className="mt-0.5 flex flex-wrap items-center gap-x-1 gap-y-0.5 text-xs text-muted-foreground">
             {viewCount > 0 && <span>{formatViews(viewCount)} views</span>}
-            {viewCount > 0 && data.created_at && <span>·</span>}
+            {viewCount > 0 && data.created_at && <span className="text-muted-foreground/60">·</span>}
             {data.created_at && <span>{formatTimeAgo(data.created_at)}</span>}
           </div>
 
@@ -1150,49 +1147,47 @@ const VideoCard = ({ data, index, currentUserId, userActions, onUpdate, showOwne
 
   if (layout === "compact") {
     return (
-      <div className="group flex gap-2 p-1.5 rounded-lg hover:bg-muted/50 transition-colors">
+      <div className="group flex gap-2 rounded-lg p-1.5 transition-colors hover:bg-muted/50">
         <Link
           onClick={(e) => {
             e.preventDefault();
             nav(`/${data.unique_id}`);
           }}
           to={`/${data.unique_id}`}
-          className="shrink-0 w-24 max-h-24 aspect-video bg-card rounded-lg overflow-hidden relative"
+          className="relative aspect-video w-24 max-h-24 shrink-0 overflow-hidden rounded-lg bg-card"
         >
-          {renderThumbnail("w-full h-full")}
+          {renderThumbnail("h-full w-full")}
         </Link>
 
-        <div className="flex-1 min-w-0 flex flex-col justify-center">
+        <div className="flex min-w-0 flex-1 flex-col justify-center">
           <Link to={`/${data.unique_id}`} className="hover:text-primary transition-colors">
-            <h3 className="text-xs font-medium leading-tight line-clamp-2">
+            <h3 className="line-clamp-2 text-xs font-medium leading-tight">
               <ParseFilenameInsert filename={data.file_title || data.filename} showLimit={40} />
             </h3>
           </Link>
-          <div className="flex items-center gap-1 text-[10px] text-muted-foreground mt-0.5">
-            {data.owner && (
-              <span className="truncate max-w-[80px]">{data.owner.username}</span>
-            )}
-            {data.owner && viewCount > 0 && <span>·</span>}
-            {viewCount > 0 && <span>{formatViews(viewCount)}</span>}
+          <div className="mt-0.5 flex min-w-0 flex-wrap items-center gap-x-1 gap-y-0.5 text-[10px] text-muted-foreground">
+            {data.owner && <span className="max-w-[min(100%,7rem)] truncate">{data.owner.username}</span>}
+            {data.owner && viewCount > 0 && <span className="text-muted-foreground/60">·</span>}
+            {viewCount > 0 && <span className="tabular-nums">{formatViews(viewCount)}</span>}
           </div>
 
-          <div className="ac_dev w-full">
-          <Separator className="my-2" />
-          <Actions
-            fileId={data.id ?? ""}
-            uniqueId={data.unique_id}
-            likeCount={likeCount}
-            dislikeCount={dislikeCount}
-            commentCount={commentCount}
-            liked={liked}
-            disliked={disliked}
-            isOwner={isOwner}
-            onEdit={isOwner ? () => setIsEditing(true) : undefined}
-            onUpdate={currentUserId ? handleInteractionUpdate : undefined}
-            currentUserId={currentUserId}
-            fileCreatedAt={data.created_at}
-          />
-        </div>
+          <div className="ac_dev mt-1 w-full min-w-0">
+            <Separator className="my-1.5" />
+            <Actions
+              fileId={data.id ?? ""}
+              uniqueId={data.unique_id}
+              likeCount={likeCount}
+              dislikeCount={dislikeCount}
+              commentCount={commentCount}
+              liked={liked}
+              disliked={disliked}
+              isOwner={isOwner}
+              onEdit={isOwner ? () => setIsEditing(true) : undefined}
+              onUpdate={currentUserId ? handleInteractionUpdate : undefined}
+              currentUserId={currentUserId}
+              fileCreatedAt={data.created_at}
+            />
+          </div>
         </div>
 
         {renderEditDialog()}
@@ -1221,17 +1216,17 @@ const VideoCard = ({ data, index, currentUserId, userActions, onUpdate, showOwne
       <div className="py-2 flex flex-col z-[1000000]">
         <div className="pointer-events-auto mb-1 flex items-start gap-3">
           {data.owner && (
-            <OwnerProfile 
-              showUsername={false} 
-              owner={data.owner} 
-              size="sm" 
-              className="text-white/90 hover:text-white shrink-0 mt-0.5" 
+            <OwnerProfile
+              showUsername={false}
+              owner={data.owner}
+              size="sm"
+              className="mt-0.5 shrink-0 text-muted-foreground hover:text-foreground"
             />
           )}
-          <div className="flex-1 min-w-0 h-[2.5rem]">
+          <div className="flex min-h-[2.5rem] min-w-0 flex-1 flex-col justify-center">
             <div className="flex items-start gap-1.5">
-              <Link to={`/${data.unique_id}`} className="hover:text-primary transition-colors flex-1 min-w-0">
-                <h3 className="text-sm md:text-base font-semibold leading-tight line-clamp-2 ">
+              <Link to={`/${data.unique_id}`} className="min-w-0 flex-1 hover:text-primary transition-colors">
+                <h3 className="line-clamp-2 text-sm font-semibold leading-tight md:text-base">
                   <ParseFilenameInsert filename={data.file_title || data.filename} showLimit={50} />
                 </h3>
               </Link>
@@ -1257,13 +1252,16 @@ const VideoCard = ({ data, index, currentUserId, userActions, onUpdate, showOwne
                 </Tooltip>
               )}
             </div>
-            <div className="flex items-center gap-1 text-xs text-muted-foreground h-[1.25rem]">
+            <div className="mt-0.5 flex min-h-[1.25rem] flex-wrap items-center gap-x-1 gap-y-0.5 text-xs text-muted-foreground">
               {data.owner && (
-                <Link to={`/profile/${data.owner.username}`} className="hover:text-foreground transition-colors truncate max-w-[120px]">
+                <Link
+                  to={`/profile/${data.owner.username}`}
+                  className="max-w-[120px] truncate hover:text-foreground transition-colors"
+                >
                   {data.owner.username}
                 </Link>
               )}
-              {data.owner && viewCount > 0 && <span>·</span>}
+              {data.owner && viewCount > 0 && <span className="text-muted-foreground/60">·</span>}
               {viewCount > 0 && <span>{formatViews(viewCount)} views</span>}
             </div>
           </div>
