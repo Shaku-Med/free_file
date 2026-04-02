@@ -9,6 +9,8 @@ import {
 
 export interface PlayerSettings {
   theaterMode: boolean;
+  /** Desktop nav sidebar expanded (mobile sheet is not persisted). */
+  sidebarOpen: boolean;
   volume: number;
   muted: boolean;
   playbackRate: number;
@@ -23,6 +25,7 @@ export interface PlayerSettings {
 
 export interface PlayerSettingsPatch {
   theaterMode?: boolean;
+  sidebarOpen?: boolean;
   volume?: number;
   muted?: boolean;
   playbackRate?: number;
@@ -37,6 +40,7 @@ export interface PlayerSettingsPatch {
 
 const DEFAULTS: PlayerSettings = {
   theaterMode: false,
+  sidebarOpen: true,
   volume: 1,
   muted: false,
   playbackRate: 1,
@@ -55,6 +59,7 @@ export async function getPlayerSettings(): Promise<PlayerSettings> {
   const data = await res.json();
   return {
     theaterMode: data.theaterMode === true,
+    sidebarOpen: data.sidebarOpen !== false,
     volume: Number.isFinite(data.volume) ? Math.max(0, Math.min(1, data.volume)) : DEFAULTS.volume,
     muted: data.muted === true,
     playbackRate: Number.isFinite(data.playbackRate) ? data.playbackRate : DEFAULTS.playbackRate,

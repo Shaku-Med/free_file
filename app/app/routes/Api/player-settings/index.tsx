@@ -6,6 +6,7 @@
 
 const COOKIE_NAMES = {
   theaterMode: 'player-theater-mode',
+  sidebarOpen: 'player-sidebar-open',
   volume: 'player-volume',
   muted: 'player-muted',
   speed: 'player-speed',
@@ -17,6 +18,9 @@ const COOKIE_NAMES = {
   audioVisualizerStyle: 'player-audio-visualizer-style',
   quality: 'hls-quality-preference',
 } as const;
+
+/** Legacy shadcn sidebar cookie; used only if `player-sidebar-open` is absent. */
+const LEGACY_SIDEBAR_STATE_COOKIE = 'sidebar_state';
 
 const MAX_AGE = 365 * 24 * 60 * 60; // 1 year
 
@@ -46,6 +50,8 @@ function buildSetCookie(name: string, value: string, secure: boolean): string {
 
 export interface PlayerSettingsDto {
   theaterMode?: boolean;
+  /** Desktop sidebar expanded (not the mobile sheet). */
+  sidebarOpen?: boolean;
   volume?: number;
   muted?: boolean;
   playbackRate?: number;
@@ -87,8 +93,17 @@ export function getPlayerSettingsFromCookies(cookieHeader: string | null) {
       ? (styleRaw as (typeof validStyles)[number])
       : 'scroll';
   const quality = get(COOKIE_NAMES.quality) ?? 'auto';
+  const sidebarOpenRaw = get(COOKIE_NAMES.sidebarOpen);
+  let sidebarOpen = true;
+  if (sidebarOpenRaw === 'true') sidebarOpen = true;
+  else if (sidebarOpenRaw === 'false') sidebarOpen = false;
+  else {
+    const legacy = cookies[LEGACY_SIDEBAR_STATE_COOKIE];
+    if (legacy === 'false') sidebarOpen = false;
+  }
   return {
     theaterMode,
+    sidebarOpen,
     volume: Number.isFinite(volume) ? Math.max(0, Math.min(1, volume)) : 1,
     muted,
     playbackRate: Number.isFinite(playbackRate) ? playbackRate : 1,
@@ -133,6 +148,11 @@ export const action = async ({ request }: { request: Request }) => {
       const v = body.theaterMode ? 'true' : 'false';
       setCookies.push(buildSetCookie(COOKIE_NAMES.theaterMode, v, secure));
       result.theaterMode = body.theaterMode;
+    }
+    if (typeof body.sidebarOpen === 'boolean') {
+      const v = body.sidebarOpen ? 'true' : 'false';
+      setCookies.push(buildSetCookie(COOKIE_NAMES.sidebarOpen, v, secure));
+      result.sidebarOpen = body.sidebarOpen;
     }
     if (typeof body.volume === 'number') {
       const v = String(Math.max(0, Math.min(1, body.volume)));

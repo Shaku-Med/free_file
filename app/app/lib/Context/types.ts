@@ -3,6 +3,7 @@ import type { FileType, PageCacheEntry } from "../types";
 
 export type PlayerSettings = {
   theaterMode: boolean;
+  sidebarOpen: boolean;
   volume: number;
   muted: boolean;
   playbackRate: number;

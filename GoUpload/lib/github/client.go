@@ -359,11 +359,35 @@ func BatchCommit(ctx context.Context, client *github.Client, owner, repo, branch
 	}
 
 	// Retry ref update — this is the final critical step
+	var mergeFallbackTried bool
 	for attempt := 1; attempt <= maxTreeRetries; attempt++ {
 		ref.Object.SHA = &currentCommitSHA
 		_, _, err = client.Git.UpdateRef(ctx, owner, repo, ref, false)
 		if err == nil {
 			break
+		}
+		// Long uploads often race another push to main: our commit's parent is stale → 422 not a fast-forward.
+		// Merge our upload tip onto the current branch tip (GitHub creates a merge commit).
+		if !mergeFallbackTried && isRefNotFastForward(err) {
+			mergeFallbackTried = true
+			logf("batch: branch %s moved during upload (not fast-forward); merging upload commit %s", branch, short(currentCommitSHA))
+			base := branch
+			head := currentCommitSHA
+			mergeMsg := message
+			if len(mergeMsg) > 500 {
+				mergeMsg = mergeMsg[:500]
+			}
+			mergeMsg = mergeMsg + " [merge: concurrent update to " + branch + "]"
+			_, _, merr := client.Repositories.Merge(ctx, owner, repo, &github.RepositoryMergeRequest{
+				Base:          &base,
+				Head:          &head,
+				CommitMessage: &mergeMsg,
+			})
+			if merr == nil {
+				err = nil
+				break
+			}
+			logf("batch: merge fallback failed: %v (resolve conflicts on GitHub or retry upload)", merr)
 		}
 		wait := rateLimitWait(err, attempt)
 		if wait > 0 {
@@ -383,6 +407,24 @@ func BatchCommit(ctx context.Context, client *github.Client, owner, repo, branch
 	logf("batch: pushed to %s (%s)", branch, short(currentCommitSHA))
 
 	return nil
+}
+
+// isRefNotFastForward reports GitHub's 422 when HEAD advanced and a non-force ref update is rejected.
+func isRefNotFastForward(err error) bool {
+	var ge *github.ErrorResponse
+	if !errors.As(err, &ge) || ge.Response == nil || ge.Response.StatusCode != 422 {
+		return false
+	}
+	msg := strings.ToLower(ge.Message)
+	if strings.Contains(msg, "fast forward") || strings.Contains(msg, "fast-forward") {
+		return true
+	}
+	for _, e := range ge.Errors {
+		if strings.Contains(strings.ToLower(e.Message), "fast forward") {
+			return true
+		}
+	}
+	return false
 }
 
 // rateLimitWait detects GitHub rate-limit and server errors, returning how long to wait.

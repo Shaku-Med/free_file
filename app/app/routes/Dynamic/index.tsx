@@ -1226,11 +1226,24 @@ const index = () => {
     </div>
   );
 
+  /** Below video, above content column on small screens only; lg+ uses sidebar (hidden here). */
+  const seriesAboveContentMobile =
+    data.seriesEpisodes && data.seriesEpisodes.length > 0 ? (
+      <div className="z-[100000] lg:hidden -mt-1 mb-2">
+        <SeriesEpisodesSection
+          episodes={data.seriesEpisodes}
+          currentVideoUniqueId={file_data.unique_id}
+          currentUserId={userId || undefined}
+          userActions={mergedSidebarUserActions}
+        />
+      </div>
+    ) : null;
+
   const relatedColumn = (
     <div className="lg:col-span-1">
       <div className="sticky top-6">
         {data.seriesEpisodes && data.seriesEpisodes.length > 0 && (
-          <div className="hidden lg:block">
+          <div className="mb-6 hidden lg:block">
             <SeriesEpisodesSection
               episodes={data.seriesEpisodes}
               currentVideoUniqueId={file_data.unique_id}
@@ -1288,16 +1301,7 @@ const index = () => {
               )}
             </div>
 
-            {!theaterMode && data.seriesEpisodes && data.seriesEpisodes.length > 0 && (
-              <div className="z-[100000] lg:hidden -mt-1">
-                <SeriesEpisodesSection
-                  episodes={data.seriesEpisodes}
-                  currentVideoUniqueId={file_data.unique_id}
-                  currentUserId={userId || undefined}
-                  userActions={mergedSidebarUserActions}
-                />
-              </div>
-            )}
+            {!theaterMode && seriesAboveContentMobile}
 
             {
               !theaterMode && (
@@ -1313,7 +1317,8 @@ const index = () => {
             (
               <div className="mx-auto py-4 px-2 z-[100000]">
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                <div className="lg:col-span-2">
+                <div className="lg:col-span-2 space-y-4">
+                  {seriesAboveContentMobile}
                   {contentColumn}
                 </div>
                 {relatedColumn}

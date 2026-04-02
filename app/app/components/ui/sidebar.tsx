@@ -26,9 +26,8 @@ import {
   TooltipTrigger,
 } from "~/components/ui/tooltip"
 import { useStandalone } from "~/lib/hooks/useStandalone"
+import { useFileContext } from "~/lib/Context/Context"
 
-const SIDEBAR_COOKIE_NAME = "sidebar_state"
-const SIDEBAR_COOKIE_MAX_AGE = 60 * 60 * 24 * 7
 const SIDEBAR_WIDTH = "19rem"
 const SIDEBAR_WIDTH_MOBILE = "19rem"
 const SIDEBAR_WIDTH_ICON = "4rem"
@@ -56,7 +55,7 @@ function useSidebar() {
 }
 
 function SidebarProvider({
-  defaultOpen = true,
+  defaultOpen: defaultOpenProp,
   open: openProp,
   onOpenChange: setOpenProp,
   className,
@@ -69,11 +68,14 @@ function SidebarProvider({
   onOpenChange?: (open: boolean) => void
 }) {
   const isMobile = useIsMobile()
+  const { playerSettings, setPlayerSettings, savePlayerSettings } = useFileContext()
   const [openMobile, setOpenMobile] = React.useState(false)
+
+  const effectiveDefaultOpen = defaultOpenProp ?? playerSettings?.sidebarOpen ?? true
 
   // This is the internal state of the sidebar.
   // We use openProp and setOpenProp for control from outside the component.
-  const [_open, _setOpen] = React.useState(defaultOpen)
+  const [_open, _setOpen] = React.useState(effectiveDefaultOpen)
   const open = openProp ?? _open
   const setOpen = React.useCallback(
     (value: boolean | ((value: boolean) => boolean)) => {
@@ -84,10 +86,13 @@ function SidebarProvider({
         _setOpen(openState)
       }
 
-      // This sets the cookie to keep the sidebar state.
-      document.cookie = `${SIDEBAR_COOKIE_NAME}=${openState}; path=/; max-age=${SIDEBAR_COOKIE_MAX_AGE}`
+      // Persist desktop rail via same API/cookies as player controls (not mobile sheet).
+      if (!isMobile) {
+        setPlayerSettings((prev) => (prev ? { ...prev, sidebarOpen: openState } : prev))
+        savePlayerSettings({ sidebarOpen: openState }).catch(() => {})
+      }
     },
-    [setOpenProp, open]
+    [setOpenProp, open, isMobile, setPlayerSettings, savePlayerSettings]
   )
 
   // Helper to toggle the sidebar.
