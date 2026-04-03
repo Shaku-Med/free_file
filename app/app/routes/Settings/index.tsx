@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router";
-import { Monitor, Moon, Sun } from "lucide-react";
+import { Fingerprint, Monitor, Moon, Sun } from "lucide-react";
 import { Button } from "~/components/ui/button";
+import { Input } from "~/components/ui/input";
 import { Separator } from "~/components/ui/separator";
 import { useFileContext } from "~/lib/Context/Context";
 import {
@@ -13,6 +14,7 @@ import {
   type UserTheme,
 } from "~/lib/theme/constants";
 import { applyTheme } from "~/lib/theme/apply";
+import { PasskeyUserMessage, friendlyPasskeyClientError } from "~/lib/webauthn/userMessages";
 
 const STYLE_COLORS: Record<ThemeStyle, string> = {
   default: "#00a85c",
@@ -46,6 +48,13 @@ const SettingsPage = () => {
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saveSuccess, setSaveSuccess] = useState(false);
+  const [passkeys, setPasskeys] = useState<
+    { id: string; device_name: string | null; created_at: string }[]
+  >([]);
+  const [passkeysLoading, setPasskeysLoading] = useState(false);
+  const [passkeysError, setPasskeysError] = useState<string | null>(null);
+  const [passkeyLabel, setPasskeyLabel] = useState("");
+  const [passkeyBusy, setPasskeyBusy] = useState(false);
 
   useEffect(() => {
     if (!userId) {
@@ -76,6 +85,103 @@ const SettingsPage = () => {
 
     loadSettings();
   }, [userId, navigate]);
+
+  const loadPasskeys = async () => {
+    setPasskeysLoading(true);
+    setPasskeysError(null);
+    try {
+      const res = await fetch("/api/webauthn/credentials", { credentials: "include" });
+      const payload = await res.json().catch(() => null);
+      if (!res.ok) {
+        throw new Error(payload?.error || "Failed to load passkeys");
+      }
+      setPasskeys(Array.isArray(payload?.passkeys) ? payload.passkeys : []);
+    } catch (err) {
+      setPasskeysError(err instanceof Error ? err.message : "Failed to load passkeys");
+    } finally {
+      setPasskeysLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!userId) return;
+    void loadPasskeys();
+  }, [userId]);
+
+  const handleAddPasskey = async () => {
+    setPasskeyBusy(true);
+    setPasskeysError(null);
+    try {
+      const { startRegistration } = await import("@simplewebauthn/browser");
+      const optRes = await fetch("/api/webauthn/register-options", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      const optPayload = await optRes.json().catch(() => null);
+      if (!optRes.ok) {
+        setPasskeysError(
+          typeof optPayload?.error === "string" ? optPayload.error : PasskeyUserMessage.addPasskeyFailed
+        );
+        return;
+      }
+      const { flowId, options } = optPayload;
+      if (!flowId || !options) {
+        setPasskeysError(PasskeyUserMessage.addPasskeyFailed);
+        return;
+      }
+      const reg = await startRegistration({ optionsJSON: options });
+      const verifyRes = await fetch("/api/webauthn/register-verify", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          flowId,
+          response: reg,
+          deviceName: passkeyLabel.trim() || undefined,
+        }),
+      });
+      const verifyPayload = await verifyRes.json().catch(() => null);
+      if (!verifyRes.ok) {
+        setPasskeysError(
+          typeof verifyPayload?.error === "string" ? verifyPayload.error : PasskeyUserMessage.addPasskeyFailed
+        );
+        return;
+      }
+      setPasskeyLabel("");
+      await loadPasskeys();
+    } catch (err) {
+      setPasskeysError(friendlyPasskeyClientError(err, "register"));
+    } finally {
+      setPasskeyBusy(false);
+    }
+  };
+
+  const handleRemovePasskey = async (id: string) => {
+    setPasskeyBusy(true);
+    setPasskeysError(null);
+    try {
+      const res = await fetch("/api/webauthn/credentials", {
+        method: "DELETE",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id }),
+      });
+      const payload = await res.json().catch(() => null);
+      if (!res.ok) {
+        setPasskeysError(
+          typeof payload?.error === "string" ? payload.error : PasskeyUserMessage.removePasskeyFailed
+        );
+        return;
+      }
+      await loadPasskeys();
+    } catch {
+      setPasskeysError(PasskeyUserMessage.removePasskeyFailed);
+    } finally {
+      setPasskeyBusy(false);
+    }
+  };
 
   const handleSave = async () => {
     setIsSaving(true);
@@ -172,6 +278,78 @@ const SettingsPage = () => {
                 );
               })}
             </div>
+          </section>
+
+          <Separator />
+
+          <section>
+            <h2 className="text-sm font-medium text-foreground mb-2 flex items-center gap-2">
+              <Fingerprint className="h-4 w-4" aria-hidden />
+              Passkeys
+            </h2>
+            <p className="text-xs text-muted-foreground mb-3">
+              Sign in without a password using Face ID, Touch ID, Windows Hello, or a security key.
+            </p>
+            {passkeysError && (
+              <p className="text-sm text-destructive mb-2" role="alert">
+                {passkeysError}
+              </p>
+            )}
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-end mb-3">
+              <div className="flex-1 space-y-1">
+                <label htmlFor="passkey-label" className="text-xs text-muted-foreground">
+                  Label (optional)
+                </label>
+                <Input
+                  id="passkey-label"
+                  value={passkeyLabel}
+                  onChange={(e) => setPasskeyLabel(e.target.value)}
+                  placeholder="e.g. MacBook, YubiKey"
+                  disabled={passkeyBusy || passkeysLoading}
+                  maxLength={120}
+                />
+              </div>
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={() => void handleAddPasskey()}
+                disabled={passkeyBusy || passkeysLoading || isLoading}
+              >
+                {passkeyBusy ? "Follow device prompt…" : "Add passkey"}
+              </Button>
+            </div>
+            {passkeysLoading ? (
+              <p className="text-sm text-muted-foreground">Loading passkeys…</p>
+            ) : passkeys.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No passkeys yet.</p>
+            ) : (
+              <ul className="space-y-2">
+                {passkeys.map((pk) => (
+                  <li
+                    key={pk.id}
+                    className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border px-3 py-2"
+                  >
+                    <div>
+                      <p className="text-sm font-medium text-foreground">
+                        {pk.device_name?.trim() || "Passkey"}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        Added {new Date(pk.created_at).toLocaleString()}
+                      </p>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      disabled={passkeyBusy}
+                      onClick={() => void handleRemovePasskey(pk.id)}
+                    >
+                      Remove
+                    </Button>
+                  </li>
+                ))}
+              </ul>
+            )}
           </section>
 
           <Separator />

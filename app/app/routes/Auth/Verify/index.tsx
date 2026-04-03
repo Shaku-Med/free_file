@@ -1,15 +1,16 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { data, redirect, useActionData, useLoaderData, useNavigation, useSearchParams, Link, type MetaFunction } from 'react-router';
 import { buildPageMeta } from '~/lib/seo';
 import { Button } from '~/components/ui/button';
 import { Input } from '~/components/ui/input';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '~/components/ui/card';
+import { Card, CardContent, CardHeader } from '~/components/ui/card';
 import { getVerificationRecord, verifyCode, isVerificationCodeExpired, deleteVerificationRecord, generateResetToken } from '../fun/verification';
 import { resendVerificationCode } from '../fun/auth';
 import db from '~/lib/Database/supabase';
 import { isAuthenticated } from '~/lib/Security/Password';
 import { checkAuthRateLimit, resetAuthRateLimit } from '../fun/rateLimit';
 import { isValidVerificationCode, constantTimeDelay } from '../fun/validation';
+import { MailCheck, AlertCircle, CheckCircle2, ArrowLeft, RefreshCw } from 'lucide-react';
 
 export const loader = async ({ request }: { request: Request }) => {
   const is_auth = await isAuthenticated(request);
@@ -29,7 +30,6 @@ export const loader = async ({ request }: { request: Request }) => {
     return redirect('/auth/login');
   }
 
-  // Get email from database using userId - never trust email from URL
   const { data: user, error: userError } = await db
     .from('users')
     .select('email, is_memories')
@@ -52,37 +52,32 @@ export const action = async ({ request }: { request: Request }) => {
     const actionType = formData.get('actionType') as string;
 
     if (actionType === 'resend') {
-      // Check rate limit for resend
       const rateLimitCheck = checkAuthRateLimit(request, 'resend', userId);
       if (!rateLimitCheck.allowed) {
-        return data({ error: rateLimitCheck.error || 'Too many resend attempts. Please try again later.' }, { status: 429 });
+        return data({ error: rateLimitCheck.error || 'Too many attempts. Please wait a bit and try again.' }, { status: 429 });
       }
 
-      // resendVerificationCode now gets email from database using userId
       const result = await resendVerificationCode(userId, type as 'signup' | 'reset' | 'verify');
       if (!result.success) {
-        return data({ error: result.error || 'Failed to resend code' }, { status: 400 });
+        return data({ error: result.error || 'Something went wrong. Please try again.' }, { status: 400 });
       }
 
-      // Reset rate limit on successful resend
       resetAuthRateLimit(request, 'resend', userId);
-      return data({ success: true, message: 'Verification code resent successfully' });
+      return data({ success: true, message: 'A new code has been sent to your email.' });
     }
 
-    // Validate verification code format
     if (!code || !isValidVerificationCode(code)) {
       await constantTimeDelay();
-      return data({ error: 'Please enter a valid 6-digit code' }, { status: 400 });
+      return data({ error: 'Please enter the 6-digit code from your email.' }, { status: 400 });
     }
 
-    // Check rate limit for verification attempts
     const rateLimitCheck = checkAuthRateLimit(request, 'verify', userId);
     if (!rateLimitCheck.allowed) {
-      return data({ error: rateLimitCheck.error || 'Too many verification attempts. Please try again later.' }, { status: 429 });
+      return data({ error: rateLimitCheck.error || 'Too many attempts. Please wait a bit and try again.' }, { status: 429 });
     }
 
     if (!db) {
-      return data({ error: 'Database not initialized' }, { status: 500 });
+      return data({ error: 'Something went wrong. Please try again.' }, { status: 500 });
     }
 
     const { data: user, error: userError } = await db
@@ -92,56 +87,53 @@ export const action = async ({ request }: { request: Request }) => {
       .maybeSingle();
 
     if (userError || !user) {
-      return data({ error: 'Invalid username/email or password' }, { status: 400 });
+      return data({ error: 'Something went wrong. Please try again.' }, { status: 400 });
     }
 
     if (user.is_memories) {
-      return data({ error: 'Invalid username/email or password' }, { status: 400 });
+      return data({ error: 'Something went wrong. Please try again.' }, { status: 400 });
     }
 
     const record = await getVerificationRecord(userId);
     if (!record) {
-      return data({ error: 'Verification code not found. Please request a new one.' }, { status: 400 });
+      return data({ error: 'Your code has expired. Please request a new one.' }, { status: 400 });
     }
 
     if (isVerificationCodeExpired(record.expires_at)) {
-      return data({ error: 'Verification code has expired. Please request a new one.' }, { status: 400 });
+      return data({ error: 'Your code has expired. Please request a new one.' }, { status: 400 });
     }
 
     const isValid = await verifyCode(code, record.code_hash);
-    
-    // Add constant delay to prevent timing attacks
+
     await constantTimeDelay(50);
-    
+
     if (!isValid) {
-      return data({ error: 'Invalid verification code' }, { status: 400 });
+      return data({ error: 'That code doesn\'t look right. Please check and try again.' }, { status: 400 });
     }
 
-    // Reset rate limit on successful verification
     resetAuthRateLimit(request, 'verify', userId);
     await deleteVerificationRecord(userId);
 
     if (type === 'signup') {
       if (!db) {
-        return data({ error: 'Database not initialized' }, { status: 500 });
+        return data({ error: 'Something went wrong. Please try again.' }, { status: 500 });
       }
       const { error } = await db
         .from('users')
         .update({ verified: true, unverified_expire: null })
         .eq('id', userId);
-      
+
       if (error) {
-        return data({ error: 'Failed to verify account' }, { status: 500 });
+        return data({ error: 'Something went wrong. Please try again.' }, { status: 500 });
       }
-      
+
       return redirect('/auth/login?verified=true');
     }
 
     if (type === 'reset') {
-      // generateResetToken now gets email from database using userId
       const resetToken = await generateResetToken(userId, request.headers);
       if (!resetToken) {
-        return data({ error: 'An error occurred. Please try again later.' }, { status: 500 });
+        return data({ error: 'Something went wrong. Please try again.' }, { status: 500 });
       }
       return redirect(`/auth/reset/confirm?token=${encodeURIComponent(resetToken)}`);
     }
@@ -149,7 +141,7 @@ export const action = async ({ request }: { request: Request }) => {
     return redirect('/auth/login?verified=true');
   } catch (error) {
     console.error('Error in verify action:', error);
-    return data({ error: 'An unexpected error occurred' }, { status: 500 });
+    return data({ error: 'Something went wrong. Please try again.' }, { status: 500 });
   }
 };
 
@@ -167,6 +159,7 @@ const Verify = () => {
   const navigation = useNavigation();
   const [code, setCode] = useState('');
   const [resendCooldown, setResendCooldown] = useState(0);
+  const resendFormRef = useRef<HTMLFormElement>(null);
   const isSubmitting = navigation.state === 'submitting';
 
   useEffect(() => {
@@ -179,16 +172,7 @@ const Verify = () => {
   const handleResend = () => {
     if (resendCooldown > 0) return;
     setResendCooldown(60);
-    const form = document.createElement('form');
-    form.method = 'post';
-    form.innerHTML = `
-      <input type="hidden" name="actionType" value="resend" />
-      <input type="hidden" name="userId" value="${loaderData.userId}" />
-      <input type="hidden" name="type" value="${loaderData.type}" />
-    `;
-    document.body.appendChild(form);
-    form.submit();
-    document.body.removeChild(form);
+    resendFormRef.current?.submit();
   };
 
   const handleCodeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -196,35 +180,45 @@ const Verify = () => {
     setCode(value);
   };
 
+  const maskedEmail = loaderData.email
+    ? loaderData.email.replace(/^(.{2})(.*)(@.*)$/, (_, start, middle, end) =>
+        start + '*'.repeat(Math.min(middle.length, 5)) + end
+      )
+    : '';
+
   return (
-    <div className="w-full max-w-md">
-      <Card className="border shadow-sm">
-        <CardHeader className="space-y-1 pb-4">
-          <CardTitle className="text-2xl font-semibold text-center text-foreground">
-            Verify your email
-          </CardTitle>
-          <CardDescription className="text-center text-muted-foreground">
-            We sent a 6-digit code to <span className="font-medium text-foreground">{loaderData.email}</span>
-          </CardDescription>
+    <div className="w-full">
+      <Card className="border border-border/60 shadow-sm">
+        <CardHeader className="pb-1 pt-7 sm:pt-8 px-5 sm:px-8">
+          <div className="flex flex-col items-center gap-2">
+            <MailCheck className="h-8 w-8 text-primary" />
+            <div className="text-center">
+              <h1 className="text-xl font-semibold text-foreground">Check your email</h1>
+              <p className="mt-1 text-sm text-muted-foreground">
+                We sent a 6-digit code to <span className="font-medium text-foreground">{maskedEmail}</span>
+              </p>
+            </div>
+          </div>
         </CardHeader>
-        <CardContent className="space-y-4">
-          <form method="post" className="space-y-4">
+        <CardContent className="px-5 sm:px-8 pb-6 sm:pb-8 pt-4">
+          <form method="post" className="space-y-3.5">
             <input type="hidden" name="userId" value={loaderData.userId} />
-            <input type="hidden" name="email" value={loaderData.email} />
             <input type="hidden" name="type" value={loaderData.type} />
 
             {actionData && 'error' in actionData && (
-              <div className="p-3 text-sm text-destructive bg-destructive/10 border border-destructive/20 rounded-md">
-                {actionData.error}
+              <div className="flex items-start gap-2.5 rounded-lg bg-destructive/10 border border-destructive/20 px-3.5 py-3 text-sm text-destructive">
+                <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" />
+                <span>{actionData.error}</span>
               </div>
             )}
             {actionData && 'message' in actionData && (
-              <div className="p-3 text-sm text-green-700 bg-green-50 border border-green-200 rounded-md dark:text-green-300 dark:bg-green-900/20 dark:border-green-800">
-                {actionData.message}
+              <div className="flex items-start gap-2.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20 px-3.5 py-3 text-sm text-emerald-600 dark:text-emerald-400">
+                <CheckCircle2 className="h-4 w-4 mt-0.5 shrink-0" />
+                <span>{actionData.message}</span>
               </div>
             )}
 
-            <div className="space-y-2">
+            <div className="space-y-1.5">
               <label htmlFor="code" className="text-sm font-medium text-foreground block text-center">
                 Verification code
               </label>
@@ -232,6 +226,7 @@ const Verify = () => {
                 id="code"
                 name="code"
                 type="text"
+                inputMode="numeric"
                 required
                 value={code}
                 onChange={handleCodeChange}
@@ -243,8 +238,15 @@ const Verify = () => {
               />
             </div>
 
-            <Button type="submit" className="w-full" disabled={isSubmitting || code.length !== 6}>
-              {isSubmitting ? 'Verifying...' : 'Verify'}
+            <Button type="submit" className="w-full h-11 font-medium" disabled={isSubmitting || code.length !== 6}>
+              {isSubmitting ? (
+                <span className="flex items-center gap-2">
+                  <span className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
+                  Verifying...
+                </span>
+              ) : (
+                'Verify'
+              )}
             </Button>
 
             <div className="text-center text-sm">
@@ -252,15 +254,23 @@ const Verify = () => {
                 type="button"
                 onClick={handleResend}
                 disabled={resendCooldown > 0 || isSubmitting}
-                className="text-muted-foreground hover:text-foreground hover:underline disabled:opacity-50 disabled:cursor-not-allowed disabled:no-underline"
+                className="inline-flex items-center gap-1.5 text-muted-foreground hover:text-primary disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
               >
+                <RefreshCw className="h-3.5 w-3.5" />
                 {resendCooldown > 0 ? `Resend in ${resendCooldown}s` : 'Resend code'}
               </button>
             </div>
           </form>
 
-          <div className="mt-4 pt-4 border-t text-center text-sm">
-            <Link to="/auth/login" className="text-muted-foreground hover:text-foreground hover:underline">
+          <form ref={resendFormRef} method="post" className="hidden">
+            <input type="hidden" name="actionType" value="resend" />
+            <input type="hidden" name="userId" value={loaderData.userId} />
+            <input type="hidden" name="type" value={loaderData.type} />
+          </form>
+
+          <div className="mt-5 pt-5 border-t border-border/60 text-center text-sm">
+            <Link to="/auth/login" className="inline-flex items-center gap-1.5 text-muted-foreground hover:text-primary transition-colors">
+              <ArrowLeft className="h-3.5 w-3.5" />
               Back to sign in
             </Link>
           </div>

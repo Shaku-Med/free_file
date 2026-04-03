@@ -1,12 +1,14 @@
 import { useState } from 'react';
-import { data, redirect, useActionData, useNavigation, Link, type MetaFunction } from 'react-router';
+import { data, redirect, useActionData, useNavigation, Link, useSearchParams, type MetaFunction } from 'react-router';
 import { buildPageMeta } from '~/lib/seo';
 import { Button } from '~/components/ui/button';
 import { Input } from '~/components/ui/input';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '~/components/ui/card';
+import { Card, CardContent, CardHeader } from '~/components/ui/card';
 import { loginUser } from '../fun/auth';
 import { isAuthenticated } from '~/lib/Security/Password';
+import { PasskeyUserMessage, friendlyPasskeyClientError } from '~/lib/webauthn/userMessages';
 import { checkAuthRateLimit, resetAuthRateLimit } from '../fun/rateLimit';
+import { Eye, EyeOff, AlertCircle, Fingerprint, KeyRound, CheckCircle2 } from 'lucide-react';
 
 export const loader = async ({ request }: { request: Request }) => {
   const is_auth = await isAuthenticated(request);
@@ -25,13 +27,11 @@ export const action = async ({ request }: { request: Request }) => {
     const identifier = formData.get('identifier') as string;
     const password = formData.get('password') as string;
 
-    // Validation is handled in loginUser, but check rate limit first
     const normalizedIdentifier = identifier?.toLowerCase() || '';
-    
-    // Check rate limit
+
     const rateLimitCheck = checkAuthRateLimit(request, 'login', normalizedIdentifier);
     if (!rateLimitCheck.allowed) {
-      return data({ error: rateLimitCheck.error || 'Too many login attempts. Please try again later.' }, { status: 429 });
+      return data({ error: rateLimitCheck.error || 'Too many attempts. Please wait a bit and try again.' }, { status: 429 });
     }
 
     const result = await loginUser({ identifier, password }, request);
@@ -40,24 +40,21 @@ export const action = async ({ request }: { request: Request }) => {
       if (result.needsVerification && result.userId && result.email) {
         return redirect(`/auth/verify?userId=${result.userId}&email=${encodeURIComponent(result.email)}&type=signup`);
       }
-      return data({ error: result.error || 'Invalid credentials' }, { status: 401 });
+      return data({ error: result.error || 'Incorrect username or password. Please try again.' }, { status: 401 });
     }
 
     if (!result.token) {
-      return data({ error: 'Failed to create session' }, { status: 500 });
+      return data({ error: 'Something went wrong. Please try again.' }, { status: 500 });
     }
 
-    // Reset rate limit on successful login
     resetAuthRateLimit(request, 'login', identifier.toLowerCase());
 
     const url = new URL(request.url);
     const redirectTo = url.searchParams.get('redirect') || '/';
-    
-    // For cross-site cookie sharing with image server, use SameSite=None in production
-    // SameSite=None requires Secure flag (HTTPS only)
+
     const sameSite = process.env.NODE_ENV === 'production' ? 'SameSite=None' : 'SameSite=Lax';
     const secure = process.env.NODE_ENV === 'production' ? 'Secure' : '';
-    
+
     const headers = new Headers();
     headers.append(
       'Set-Cookie',
@@ -67,7 +64,7 @@ export const action = async ({ request }: { request: Request }) => {
     return redirect(redirectTo, { headers });
   } catch (error) {
     console.error('Error in login action:', error);
-    return data({ error: 'An unexpected error occurred' }, { status: 500 });
+    return data({ error: 'Something went wrong. Please try again.' }, { status: 500 });
   }
 };
 
@@ -79,50 +76,134 @@ export const meta: MetaFunction = () =>
     noindex: true,
   });
 
+function safeClientRedirect(path: string | null): string {
+  if (!path || !path.startsWith('/') || path.startsWith('//')) return '/';
+  return path.length > 500 ? '/' : path;
+}
+
 const Login = () => {
   const actionData = useActionData<typeof action>();
   const navigation = useNavigation();
+  const [searchParams] = useSearchParams();
   const [showPassword, setShowPassword] = useState(false);
+  const [passkeyError, setPasskeyError] = useState<string | null>(null);
+  const [passkeyPending, setPasskeyPending] = useState(false);
   const isSubmitting = navigation.state === 'submitting';
+  const redirectAfterLogin = safeClientRedirect(searchParams.get('redirect'));
+  const justVerified = searchParams.get('verified') === 'true';
+  const justResetPassword = searchParams.get('passwordReset') === 'true';
+
+  const signInWithPasskey = async () => {
+    setPasskeyError(null);
+    setPasskeyPending(true);
+    try {
+      const identifierEl = document.getElementById('identifier') as HTMLInputElement | null;
+      const identifierRaw = identifierEl?.value?.trim();
+      const { startAuthentication } = await import('@simplewebauthn/browser');
+      const optRes = await fetch('/api/webauthn/login-options', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify(identifierRaw ? { identifier: identifierRaw } : {}),
+      });
+      const optPayload = await optRes.json().catch(() => ({}));
+      if (!optRes.ok) {
+        setPasskeyError(
+          typeof optPayload?.error === 'string' ? optPayload.error : PasskeyUserMessage.loginStartFailed
+        );
+        return;
+      }
+      const { flowId, options } = optPayload;
+      if (!flowId || !options) {
+        setPasskeyError(PasskeyUserMessage.loginStartFailed);
+        return;
+      }
+      const assertion = await startAuthentication({ optionsJSON: options });
+      const verifyRes = await fetch('/api/webauthn/login-verify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          flowId,
+          response: assertion,
+          redirect: redirectAfterLogin,
+        }),
+      });
+      const verifyPayload = await verifyRes.json().catch(() => ({}));
+      if (!verifyRes.ok) {
+        setPasskeyError(
+          typeof verifyPayload?.error === 'string' ? verifyPayload.error : PasskeyUserMessage.loginDidNotWork
+        );
+        return;
+      }
+      const next = safeClientRedirect(verifyPayload?.redirect ?? redirectAfterLogin);
+      window.location.assign(next);
+    } catch (e) {
+      setPasskeyError(friendlyPasskeyClientError(e));
+    } finally {
+      setPasskeyPending(false);
+    }
+  };
 
   return (
-    <div className="w-full max-w-md">
-      <Card className="border shadow-sm">
-        <CardHeader className="space-y-1 pb-4">
-          <CardTitle className="text-2xl font-semibold text-center text-foreground">
-            Sign in
-          </CardTitle>
-          <CardDescription className="text-center text-muted-foreground">
-            Sign in to continue to your account
-          </CardDescription>
+    <div className="w-full">
+      {justVerified && (
+        <div className="mb-4 flex items-center gap-2.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20 px-4 py-3 text-sm text-emerald-600 dark:text-emerald-400">
+          <CheckCircle2 className="h-4 w-4 shrink-0" />
+          <span>Email verified! You can now sign in.</span>
+        </div>
+      )}
+
+      {justResetPassword && (
+        <div className="mb-4 flex items-center gap-2.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20 px-4 py-3 text-sm text-emerald-600 dark:text-emerald-400">
+          <CheckCircle2 className="h-4 w-4 shrink-0" />
+          <span>Password updated! Sign in with your new password.</span>
+        </div>
+      )}
+
+      <Card className="border border-border/60 shadow-sm">
+        <CardHeader className="pb-1 pt-7 sm:pt-8 px-5 sm:px-8">
+          <div className="text-center">
+            <h1 className="text-xl font-semibold text-foreground">Welcome back</h1>
+            <p className="mt-1 text-sm text-muted-foreground">Sign in to continue to your account</p>
+          </div>
         </CardHeader>
-        <CardContent className="space-y-4">
-          <form method="post" className="space-y-4">
+        <CardContent className="px-5 sm:px-8 pb-6 sm:pb-8 pt-4">
+          <form method="post" className="space-y-3.5">
             {actionData && 'error' in actionData && (
-              <div className="p-3 text-sm text-destructive bg-destructive/10 border border-destructive/20 rounded-md">
-                {actionData.error}
+              <div className="flex items-start gap-2.5 rounded-lg bg-destructive/10 border border-destructive/20 px-3.5 py-3 text-sm text-destructive">
+                <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" />
+                <span>{actionData.error}</span>
               </div>
             )}
-            
-            <div className="space-y-2">
+
+            <div className="space-y-1.5">
               <label htmlFor="identifier" className="text-sm font-medium text-foreground">
                 Username or email
               </label>
-              <Input
-                id="identifier"
-                name="identifier"
-                type="text"
-                required
-                placeholder="Enter your username or email"
-                autoComplete="username"
-                className="w-full"
-              />
+              <div className="relative">
+                <Input
+                  id="identifier"
+                  name="identifier"
+                  type="text"
+                  required
+                  placeholder="Enter your username or email"
+                  autoComplete="username"
+                  className="w-full h-11 pl-10"
+                />
+                <KeyRound className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground/50" />
+              </div>
             </div>
 
-            <div className="space-y-2">
-              <label htmlFor="password" className="text-sm font-medium text-foreground">
-                Password
-              </label>
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between">
+                <label htmlFor="password" className="text-sm font-medium text-foreground">
+                  Password
+                </label>
+                <Link to="/auth/reset" className="text-xs text-muted-foreground hover:text-primary transition-colors">
+                  Forgot password?
+                </Link>
+              </div>
               <div className="relative">
                 <Input
                   id="password"
@@ -131,31 +212,72 @@ const Login = () => {
                   required
                   placeholder="Enter your password"
                   autoComplete="current-password"
-                  className="w-full pr-12"
+                  className="w-full h-11 pr-10"
                 />
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground text-sm font-medium transition-colors"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground/50 hover:text-foreground transition-colors"
+                  aria-label={showPassword ? 'Hide password' : 'Show password'}
                 >
-                  {showPassword ? 'Hide' : 'Show'}
+                  {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                 </button>
               </div>
             </div>
 
-            <div className="flex items-center justify-end">
-              <Link to="/auth/reset" className="text-sm text-muted-foreground hover:text-foreground hover:underline">
-                Forgot password?
-              </Link>
-            </div>
-
-            <Button type="submit" className="w-full" disabled={isSubmitting}>
-              {isSubmitting ? 'Signing in...' : 'Sign in'}
+            <Button type="submit" className="w-full h-11 font-medium" disabled={isSubmitting}>
+              {isSubmitting ? (
+                <span className="flex items-center gap-2">
+                  <span className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
+                  Signing in...
+                </span>
+              ) : (
+                'Sign in'
+              )}
             </Button>
           </form>
 
-          <div className="mt-4 pt-4 border-t text-center text-sm text-muted-foreground">
-            Don't have an account? <Link to="/auth/signup" className="text-foreground font-medium hover:underline">Create account</Link>
+          {passkeyError && (
+            <div className="mt-3 flex items-start gap-2.5 rounded-lg bg-destructive/10 border border-destructive/20 px-3.5 py-3 text-sm text-destructive">
+              <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" />
+              <span>{passkeyError}</span>
+            </div>
+          )}
+
+          <div className="relative my-5">
+            <div className="absolute inset-0 flex items-center">
+              <div className="w-full border-t border-border/60" />
+            </div>
+            <div className="relative flex justify-center text-xs">
+              <span className="bg-card px-3 text-muted-foreground">or</span>
+            </div>
+          </div>
+
+          <Button
+            type="button"
+            variant="outline"
+            className="w-full h-11"
+            disabled={isSubmitting || passkeyPending}
+            onClick={() => void signInWithPasskey()}
+          >
+            {passkeyPending ? (
+              <span className="flex items-center gap-2">
+                <span className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
+                Waiting for passkey...
+              </span>
+            ) : (
+              <span className="flex items-center gap-2">
+                <Fingerprint className="h-4 w-4" />
+                Sign in with passkey
+              </span>
+            )}
+          </Button>
+
+          <div className="mt-6 pt-5 border-t border-border/60 text-center text-sm text-muted-foreground">
+            Don't have an account?{' '}
+            <Link to="/auth/signup" className="text-primary font-medium hover:underline transition-colors">
+              Create account
+            </Link>
           </div>
         </CardContent>
       </Card>

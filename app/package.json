@@ -34,6 +34,8 @@
     "@radix-ui/react-tooltip": "^1.2.8",
     "@react-router/node": "^7.9.2",
     "@react-router/serve": "^7.9.2",
+    "@simplewebauthn/browser": "^13.3.0",
+    "@simplewebauthn/server": "^13.3.0",
     "@supabase/supabase-js": "^2.76.1",
     "@types/bcrypt": "^6.0.0",
     "@types/js-cookie": "^3.0.6",

@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { data, redirect, useActionData, useLoaderData, useNavigation, Link } from 'react-router';
 import { Button } from '~/components/ui/button';
 import { Input } from '~/components/ui/input';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '~/components/ui/card';
+import { Card, CardContent, CardHeader } from '~/components/ui/card';
 import { CreatePassword } from '~/lib/Security/Password';
 import db from '~/lib/Database/supabase';
 import { isAuthenticated } from '~/lib/Security/Password';
@@ -10,6 +10,7 @@ import { sendPasswordResetNotification } from '../fun/email';
 import { validatePasswordStrength, constantTimeDelay } from '../fun/validation';
 import { validateResetToken, markResetTokenAsUsed } from '../fun/verification';
 import crypto from 'crypto';
+import { ShieldCheck, Eye, EyeOff, AlertCircle, Lock, ArrowLeft } from 'lucide-react';
 
 export const loader = async ({ request }: { request: Request }) => {
   const is_auth = await isAuthenticated(request);
@@ -40,17 +41,17 @@ export const action = async ({ request }: { request: Request }) => {
     const token = formData.get('token') as string;
 
     if (!password || !confirmPassword || !token) {
-      return data({ error: 'All fields are required' }, { status: 400 });
+      return data({ error: 'Please fill in all fields.' }, { status: 400 });
     }
 
     const tokenData = await validateResetToken(token, request.headers);
     if (!tokenData) {
       await constantTimeDelay();
-      return data({ error: 'Invalid or expired reset link. Please request a new password reset.' }, { status: 400 });
+      return data({ error: 'This link has expired. Please request a new password reset.' }, { status: 400 });
     }
 
     if (!db) {
-      return data({ error: 'Database not initialized' }, { status: 500 });
+      return data({ error: 'Something went wrong. Please try again.' }, { status: 500 });
     }
 
     const { data: user, error: userError } = await db
@@ -60,31 +61,30 @@ export const action = async ({ request }: { request: Request }) => {
       .maybeSingle();
 
     if (userError || !user) {
-      return data({ error: 'Invalid username/email or password' }, { status: 400 });
+      return data({ error: 'Something went wrong. Please try again.' }, { status: 400 });
     }
 
     if (user.is_memories) {
-      return data({ error: 'Invalid username/email or password' }, { status: 400 });
+      return data({ error: 'Something went wrong. Please try again.' }, { status: 400 });
     }
 
-    // Validate password strength
     const passwordValidation = validatePasswordStrength(password);
     if (!passwordValidation.valid) {
-      return data({ error: passwordValidation.errors[0] || 'Password does not meet requirements' }, { status: 400 });
+      return data({ error: 'Please choose a stronger password.' }, { status: 400 });
     }
 
     if (password !== confirmPassword) {
       await constantTimeDelay();
-      return data({ error: 'Passwords do not match' }, { status: 400 });
+      return data({ error: 'Passwords don\'t match. Please try again.' }, { status: 400 });
     }
 
     if (!db) {
-      return data({ error: 'Database not initialized' }, { status: 500 });
+      return data({ error: 'Something went wrong. Please try again.' }, { status: 500 });
     }
 
     const passwordHash = await CreatePassword(password);
     if (!passwordHash) {
-      return data({ error: 'Failed to hash password' }, { status: 500 });
+      return data({ error: 'Something went wrong. Please try again.' }, { status: 500 });
     }
 
     const { error } = await db
@@ -99,7 +99,7 @@ export const action = async ({ request }: { request: Request }) => {
 
     if (error) {
       console.error('Error updating password:', error);
-      return data({ error: 'An error occurred. Please try again later.' }, { status: 500 });
+      return data({ error: 'Something went wrong. Please try again.' }, { status: 500 });
     }
 
     const newC_usr = crypto.randomUUID();
@@ -110,7 +110,7 @@ export const action = async ({ request }: { request: Request }) => {
 
     if (cUserError) {
       console.error('Error updating c_usr:', cUserError);
-      return data({ error: 'An error occurred. Please try again later.' }, { status: 500 });
+      return data({ error: 'Something went wrong. Please try again.' }, { status: 500 });
     }
 
     const { data: userData } = await db
@@ -128,7 +128,7 @@ export const action = async ({ request }: { request: Request }) => {
     return redirect('/auth/login?passwordReset=true');
   } catch (error) {
     console.error('Error in reset confirm action:', error);
-    return data({ error: 'An unexpected error occurred' }, { status: 500 });
+    return data({ error: 'Something went wrong. Please try again.' }, { status: 500 });
   }
 };
 
@@ -141,27 +141,31 @@ const ResetConfirm = () => {
   const isSubmitting = navigation.state === 'submitting';
 
   return (
-    <div className="w-full max-w-md">
-      <Card className="border shadow-sm">
-        <CardHeader className="space-y-1 pb-4">
-          <CardTitle className="text-2xl font-semibold text-center text-foreground">Set new password</CardTitle>
-          <CardDescription className="text-center text-muted-foreground">
-            Enter your new password for {loaderData.email}
-          </CardDescription>
+    <div className="w-full">
+      <Card className="border border-border/60 shadow-sm">
+        <CardHeader className="pb-1 pt-7 sm:pt-8 px-5 sm:px-8">
+          <div className="flex flex-col items-center gap-2">
+            <ShieldCheck className="h-8 w-8 text-primary" />
+            <div className="text-center">
+              <h1 className="text-xl font-semibold text-foreground">Set new password</h1>
+              <p className="mt-1 text-sm text-muted-foreground">Choose a strong password for your account</p>
+            </div>
+          </div>
         </CardHeader>
-        <CardContent>
-          <form method="post" className="space-y-4">
+        <CardContent className="px-5 sm:px-8 pb-6 sm:pb-8 pt-4">
+          <form method="post" className="space-y-3.5">
             <input type="hidden" name="token" value={loaderData.token} />
 
             {actionData?.error && (
-              <div className="p-3 text-sm text-destructive bg-destructive/10 border border-destructive/20 rounded-md">
-                {actionData.error}
+              <div className="flex items-start gap-2.5 rounded-lg bg-destructive/10 border border-destructive/20 px-3.5 py-3 text-sm text-destructive">
+                <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" />
+                <span>{actionData.error}</span>
               </div>
             )}
-            
-            <div className="space-y-2">
-              <label htmlFor="password" className="text-sm font-medium">
-                New Password
+
+            <div className="space-y-1.5">
+              <label htmlFor="password" className="text-sm font-medium text-foreground">
+                New password
               </label>
               <div className="relative">
                 <Input
@@ -169,24 +173,26 @@ const ResetConfirm = () => {
                   name="password"
                   type={showPassword ? 'text' : 'password'}
                   required
-                  placeholder="••••••••"
+                  placeholder="Enter new password"
                   autoComplete="new-password"
                   minLength={8}
-                  className="w-full pr-10"
+                  className="w-full h-11 pl-10 pr-10"
                 />
+                <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground/50" />
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground text-sm"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground/50 hover:text-foreground transition-colors"
+                  aria-label={showPassword ? 'Hide password' : 'Show password'}
                 >
-                  {showPassword ? 'Hide' : 'Show'}
+                  {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                 </button>
               </div>
             </div>
 
-            <div className="space-y-2">
-              <label htmlFor="confirmPassword" className="text-sm font-medium">
-                Confirm Password
+            <div className="space-y-1.5">
+              <label htmlFor="confirmPassword" className="text-sm font-medium text-foreground">
+                Confirm password
               </label>
               <div className="relative">
                 <Input
@@ -194,28 +200,38 @@ const ResetConfirm = () => {
                   name="confirmPassword"
                   type={showConfirmPassword ? 'text' : 'password'}
                   required
-                  placeholder="••••••••"
+                  placeholder="Confirm new password"
                   autoComplete="new-password"
                   minLength={8}
-                  className="w-full pr-10"
+                  className="w-full h-11 pl-10 pr-10"
                 />
+                <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground/50" />
                 <button
                   type="button"
                   onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground text-sm"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground/50 hover:text-foreground transition-colors"
+                  aria-label={showConfirmPassword ? 'Hide password' : 'Show password'}
                 >
-                  {showConfirmPassword ? 'Hide' : 'Show'}
+                  {showConfirmPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                 </button>
               </div>
             </div>
 
-            <Button type="submit" className="w-full" disabled={isSubmitting}>
-              {isSubmitting ? 'Updating password...' : 'Update password'}
+            <Button type="submit" className="w-full h-11 font-medium" disabled={isSubmitting}>
+              {isSubmitting ? (
+                <span className="flex items-center gap-2">
+                  <span className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
+                  Updating password...
+                </span>
+              ) : (
+                'Update password'
+              )}
             </Button>
           </form>
 
-          <div className="mt-4 pt-4 border-t text-center text-sm">
-            <Link to="/auth/login" className="text-muted-foreground hover:text-foreground hover:underline">
+          <div className="mt-5 pt-5 border-t border-border/60 text-center text-sm">
+            <Link to="/auth/login" className="inline-flex items-center gap-1.5 text-muted-foreground hover:text-primary transition-colors">
+              <ArrowLeft className="h-3.5 w-3.5" />
               Back to sign in
             </Link>
           </div>
@@ -226,4 +242,3 @@ const ResetConfirm = () => {
 };
 
 export default ResetConfirm;
-

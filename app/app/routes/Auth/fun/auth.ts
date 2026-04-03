@@ -6,6 +6,26 @@ import { EncryptCombine } from '~/lib/Security/unsharedkeyEncryption/Combined/Co
 import { getAllKeys } from '~/lib/Security/unsharedkeyEncryption/Combined/Verification/TokenKeys';
 import { validateSignupInputs, validateLoginInputs, normalizeIdentifier, constantTimeDelay } from './validation';
 
+/** Issue the same JWT used for password login (c_user cookie payload). */
+export async function issueCUserSessionToken(c_usr: string): Promise<string | null> {
+  const keys = await getAllKeys(['token1', 'c_user']);
+  if (!keys) return null;
+  return EncryptCombine({ c_usr }, keys, {
+    expiresIn: '365d',
+    algorithm: 'HS512',
+  });
+}
+
+/** Append HttpOnly session cookie (matches /auth/login). */
+export function appendSessionCookie(headers: Headers, token: string): void {
+  const sameSite = process.env.NODE_ENV === 'production' ? 'SameSite=None' : 'SameSite=Lax';
+  const secure = process.env.NODE_ENV === 'production' ? 'Secure' : '';
+  headers.append(
+    'Set-Cookie',
+    `c_user=${token}; Path=/; Max-Age=${30 * 24 * 60 * 60}; HttpOnly; ${secure}; ${sameSite}`
+  );
+}
+
 export interface SignupData {
   username: string;
   email: string;
@@ -52,7 +72,7 @@ export const createUser = async (data: SignupData): Promise<{ success: boolean; 
         return { success: false, error: 'An error occurred. Please try again later.' };
       }
       await constantTimeDelay();
-      return { success: false, error: 'An account with this email or username already exists' };
+      return { success: false, error: 'Unable to create account. Please try different details or sign in instead.' };
     }
 
     // Check for existing username (prevent account enumeration)
@@ -65,16 +85,16 @@ export const createUser = async (data: SignupData): Promise<{ success: boolean; 
     if (usernameError) {
       console.error('Error checking existing username:', usernameError);
       await constantTimeDelay();
-      return { success: false, error: 'An error occurred. Please try again later.' };
+      return { success: false, error: 'Something went wrong. Please try again.' };
     }
 
     if (usernameUser) {
       if (usernameUser.is_memories) {
         await constantTimeDelay();
-        return { success: false, error: 'An error occurred. Please try again later.' };
+        return { success: false, error: 'Something went wrong. Please try again.' };
       }
       await constantTimeDelay();
-      return { success: false, error: 'An account with this email or username already exists' };
+      return { success: false, error: 'Unable to create account. Please try different details or sign in instead.' };
     }
 
     const unverifiedExpire = new Date();
@@ -100,7 +120,7 @@ export const createUser = async (data: SignupData): Promise<{ success: boolean; 
 
     const passwordHash = await CreatePassword(sanitized.password);
     if (!passwordHash) {
-      return { success: false, error: 'Failed to hash password' };
+      return { success: false, error: 'Something went wrong. Please try again.' };
     }
 
     const { error: passwordError } = await db
@@ -113,19 +133,19 @@ export const createUser = async (data: SignupData): Promise<{ success: boolean; 
     if (passwordError) {
       console.error('Error creating password:', passwordError);
       await db.from('users').delete().eq('id', user.id);
-      return { success: false, error: 'Failed to create password' };
+      return { success: false, error: 'Something went wrong. Please try again.' };
     }
 
     const code = generateVerificationCode();
     const codeHash = await hashVerificationCode(code);
     
     if (!codeHash) {
-      return { success: false, error: 'Failed to generate verification code' };
+      return { success: false, error: 'Something went wrong. Please try again.' };
     }
 
     const saved = await saveVerificationCode(user.id, codeHash, 1);
     if (!saved) {
-      return { success: false, error: 'Failed to save verification code' };
+      return { success: false, error: 'Something went wrong. Please try again.' };
     }
 
     const emailSent = await sendEmail(sanitized.email, code, 'signup');
@@ -240,24 +260,13 @@ export const loginUser = async (data: LoginData, request: Request): Promise<{ su
       return { success: false, needsVerification: true, userId, email: userEmail! };
     }
 
-    const keys = await getAllKeys(['token1', 'c_user']);
-    if (!keys) {
-      return { success: false, error: 'Failed to generate authentication token' };
-    }
-
     if (!userC_usr) {
       return { success: false, error: 'Invalid username/email or password' };
     }
 
-    const tokenData = { c_usr: userC_usr };
-    // const thirtyDaysInSeconds = 30 * 24 * 60 * 60;
-    const token = await EncryptCombine(tokenData, keys, {
-      expiresIn: '365d',
-      algorithm: 'HS512'
-    });
-
+    const token = await issueCUserSessionToken(userC_usr);
     if (!token) {
-      return { success: false, error: 'Failed to generate authentication token' };
+      return { success: false, error: 'Something went wrong. Please try again.' };
     }
 
     return { success: true, token };
@@ -270,7 +279,7 @@ export const loginUser = async (data: LoginData, request: Request): Promise<{ su
 export const resendVerificationCode = async (userId: string, type: 'signup' | 'reset' | 'verify' = 'verify'): Promise<{ success: boolean; error?: string }> => {
   try {
     if (!db) {
-      return { success: false, error: 'Database not initialized' };
+      return { success: false, error: 'Something went wrong. Please try again.' };
     }
 
     // Get email from database using userId - never trust email from client
@@ -281,11 +290,11 @@ export const resendVerificationCode = async (userId: string, type: 'signup' | 'r
       .maybeSingle();
 
     if (userError || !user) {
-      return { success: false, error: 'Invalid username/email or password' };
+      return { success: false, error: 'Something went wrong. Please try again.' };
     }
 
     if (user.is_memories) {
-      return { success: false, error: 'Invalid username/email or password' };
+      return { success: false, error: 'Something went wrong. Please try again.' };
     }
 
     const code = generateVerificationCode();
@@ -303,7 +312,7 @@ export const resendVerificationCode = async (userId: string, type: 'signup' | 'r
     // Send email to the email address from database, not from client
     const emailSent = await sendEmail(user.email, code, type);
     if (!emailSent) {
-      return { success: false, error: 'Failed to send verification email' };
+      return { success: false, error: 'Something went wrong. Please try again.' };
     }
 
     return { success: true };

@@ -230,6 +230,21 @@ type Pages = {
   "/api/views/watch-history": {
     params: {};
   };
+  "/api/webauthn/register-options": {
+    params: {};
+  };
+  "/api/webauthn/register-verify": {
+    params: {};
+  };
+  "/api/webauthn/login-options": {
+    params: {};
+  };
+  "/api/webauthn/login-verify": {
+    params: {};
+  };
+  "/api/webauthn/credentials": {
+    params: {};
+  };
   "/api/server-env": {
     params: {};
   };
@@ -319,7 +334,7 @@ type Pages = {
 type RouteFiles = {
   "root.tsx": {
     id: "root";
-    page: "/" | "/privacy" | "/terms" | "/api" | "/api/upload" | "/api/upload/profilepic" | "/api/upload/comment-image" | "/api/upload/thumbnail" | "/api/upload-server-check" | "/api/upload-job-status" | "/api/webhooks/comment-image-storage" | "/api/load/video/*" | "/api/load/image/*" | "/api/load/profilepic/*" | "/api/public-key" | "/api/handshake" | "/api/email" | "/api/socials" | "/api/socials/info/*" | "/api/socials/*" | "/api/video-processor" | "/api/video-processor/status/:queueID" | "/api/video-processor/queue-status" | "/api/likes" | "/api/dislikes" | "/api/interactions" | "/api/comments" | "/api/comment-likes" | "/api/notifications" | "/api/push-vapid-public" | "/api/push-subscribe" | "/api/gif-search" | "/api/profile" | "/api/settings" | "/api/files" | "/api/files/thumbnails" | "/api/user-profile" | "/api/user-files" | "/api/my-series" | "/api/series-episodes" | "/api/profile-tab" | "/api/owner-videos" | "/api/related-videos" | "/api/download" | "/api/download/status" | "/api/download/cancel" | "/api/download/file/:fileId" | "/api/recommendations" | "/api/trending" | "/api/feed" | "/api/feed/clear-history" | "/api/reel-feed" | "/api/tag/:tagname" | "/api/playlist" | "/api/playlists" | "/api/playlists/contains" | "/api/playlists/:id" | "/api/search" | "/api/mentions" | "/api/tags" | "/api/subscriptions" | "/api/adult-review" | "/api/subscription-feed" | "/api/mark-seen" | "/api/player-settings" | "/api/views/increment" | "/api/views/watch-history" | "/api/server-env" | "/api/sitemap" | "/api/indexnow" | "/playlist" | "/playlist/:playlistId" | "/tag/:tagname" | "/:id" | "/search" | "/search/*" | "/subscriptions" | "/features" | "/features/incoming" | "/auth" | "/auth/login" | "/auth/signup" | "/auth/verify" | "/auth/reset" | "/auth/reset/confirm" | "/logout" | "/settings" | "/notifications" | "/profile/:username" | "/reel" | "/reel/:id";
+    page: "/" | "/privacy" | "/terms" | "/api" | "/api/upload" | "/api/upload/profilepic" | "/api/upload/comment-image" | "/api/upload/thumbnail" | "/api/upload-server-check" | "/api/upload-job-status" | "/api/webhooks/comment-image-storage" | "/api/load/video/*" | "/api/load/image/*" | "/api/load/profilepic/*" | "/api/public-key" | "/api/handshake" | "/api/email" | "/api/socials" | "/api/socials/info/*" | "/api/socials/*" | "/api/video-processor" | "/api/video-processor/status/:queueID" | "/api/video-processor/queue-status" | "/api/likes" | "/api/dislikes" | "/api/interactions" | "/api/comments" | "/api/comment-likes" | "/api/notifications" | "/api/push-vapid-public" | "/api/push-subscribe" | "/api/gif-search" | "/api/profile" | "/api/settings" | "/api/files" | "/api/files/thumbnails" | "/api/user-profile" | "/api/user-files" | "/api/my-series" | "/api/series-episodes" | "/api/profile-tab" | "/api/owner-videos" | "/api/related-videos" | "/api/download" | "/api/download/status" | "/api/download/cancel" | "/api/download/file/:fileId" | "/api/recommendations" | "/api/trending" | "/api/feed" | "/api/feed/clear-history" | "/api/reel-feed" | "/api/tag/:tagname" | "/api/playlist" | "/api/playlists" | "/api/playlists/contains" | "/api/playlists/:id" | "/api/search" | "/api/mentions" | "/api/tags" | "/api/subscriptions" | "/api/adult-review" | "/api/subscription-feed" | "/api/mark-seen" | "/api/player-settings" | "/api/views/increment" | "/api/views/watch-history" | "/api/webauthn/register-options" | "/api/webauthn/register-verify" | "/api/webauthn/login-options" | "/api/webauthn/login-verify" | "/api/webauthn/credentials" | "/api/server-env" | "/api/sitemap" | "/api/indexnow" | "/playlist" | "/playlist/:playlistId" | "/tag/:tagname" | "/:id" | "/search" | "/search/*" | "/subscriptions" | "/features" | "/features/incoming" | "/auth" | "/auth/login" | "/auth/signup" | "/auth/verify" | "/auth/reset" | "/auth/reset/confirm" | "/logout" | "/settings" | "/notifications" | "/profile/:username" | "/reel" | "/reel/:id";
   };
   "routes/Home/index.tsx": {
     id: "routes/Home/index";
@@ -335,7 +350,7 @@ type RouteFiles = {
   };
   "routes/Api/layout.tsx": {
     id: "routes/Api/layout";
-    page: "/api" | "/api/upload" | "/api/upload/profilepic" | "/api/upload/comment-image" | "/api/upload/thumbnail" | "/api/upload-server-check" | "/api/upload-job-status" | "/api/webhooks/comment-image-storage" | "/api/load/video/*" | "/api/load/image/*" | "/api/load/profilepic/*" | "/api/public-key" | "/api/handshake" | "/api/email" | "/api/socials" | "/api/socials/info/*" | "/api/socials/*" | "/api/video-processor" | "/api/video-processor/status/:queueID" | "/api/video-processor/queue-status" | "/api/likes" | "/api/dislikes" | "/api/interactions" | "/api/comments" | "/api/comment-likes" | "/api/notifications" | "/api/push-vapid-public" | "/api/push-subscribe" | "/api/gif-search" | "/api/profile" | "/api/settings" | "/api/files" | "/api/files/thumbnails" | "/api/user-profile" | "/api/user-files" | "/api/my-series" | "/api/series-episodes" | "/api/profile-tab" | "/api/owner-videos" | "/api/related-videos" | "/api/download" | "/api/download/status" | "/api/download/cancel" | "/api/download/file/:fileId" | "/api/recommendations" | "/api/trending" | "/api/feed" | "/api/feed/clear-history" | "/api/reel-feed" | "/api/tag/:tagname" | "/api/playlist" | "/api/playlists" | "/api/playlists/contains" | "/api/playlists/:id" | "/api/search" | "/api/mentions" | "/api/tags" | "/api/subscriptions" | "/api/adult-review" | "/api/subscription-feed" | "/api/mark-seen" | "/api/player-settings" | "/api/views/increment" | "/api/views/watch-history" | "/api/server-env" | "/api/sitemap" | "/api/indexnow";
+    page: "/api" | "/api/upload" | "/api/upload/profilepic" | "/api/upload/comment-image" | "/api/upload/thumbnail" | "/api/upload-server-check" | "/api/upload-job-status" | "/api/webhooks/comment-image-storage" | "/api/load/video/*" | "/api/load/image/*" | "/api/load/profilepic/*" | "/api/public-key" | "/api/handshake" | "/api/email" | "/api/socials" | "/api/socials/info/*" | "/api/socials/*" | "/api/video-processor" | "/api/video-processor/status/:queueID" | "/api/video-processor/queue-status" | "/api/likes" | "/api/dislikes" | "/api/interactions" | "/api/comments" | "/api/comment-likes" | "/api/notifications" | "/api/push-vapid-public" | "/api/push-subscribe" | "/api/gif-search" | "/api/profile" | "/api/settings" | "/api/files" | "/api/files/thumbnails" | "/api/user-profile" | "/api/user-files" | "/api/my-series" | "/api/series-episodes" | "/api/profile-tab" | "/api/owner-videos" | "/api/related-videos" | "/api/download" | "/api/download/status" | "/api/download/cancel" | "/api/download/file/:fileId" | "/api/recommendations" | "/api/trending" | "/api/feed" | "/api/feed/clear-history" | "/api/reel-feed" | "/api/tag/:tagname" | "/api/playlist" | "/api/playlists" | "/api/playlists/contains" | "/api/playlists/:id" | "/api/search" | "/api/mentions" | "/api/tags" | "/api/subscriptions" | "/api/adult-review" | "/api/subscription-feed" | "/api/mark-seen" | "/api/player-settings" | "/api/views/increment" | "/api/views/watch-history" | "/api/webauthn/register-options" | "/api/webauthn/register-verify" | "/api/webauthn/login-options" | "/api/webauthn/login-verify" | "/api/webauthn/credentials" | "/api/server-env" | "/api/sitemap" | "/api/indexnow";
   };
   "routes/Api/upload/index.tsx": {
     id: "routes/Api/upload/index";
@@ -593,6 +608,26 @@ type RouteFiles = {
     id: "routes/Api/views/watch-history";
     page: "/api/views/watch-history";
   };
+  "routes/Api/webauthn/register-options.tsx": {
+    id: "routes/Api/webauthn/register-options";
+    page: "/api/webauthn/register-options";
+  };
+  "routes/Api/webauthn/register-verify.tsx": {
+    id: "routes/Api/webauthn/register-verify";
+    page: "/api/webauthn/register-verify";
+  };
+  "routes/Api/webauthn/login-options.tsx": {
+    id: "routes/Api/webauthn/login-options";
+    page: "/api/webauthn/login-options";
+  };
+  "routes/Api/webauthn/login-verify.tsx": {
+    id: "routes/Api/webauthn/login-verify";
+    page: "/api/webauthn/login-verify";
+  };
+  "routes/Api/webauthn/credentials.tsx": {
+    id: "routes/Api/webauthn/credentials";
+    page: "/api/webauthn/credentials";
+  };
   "routes/Api/server-env/index.tsx": {
     id: "routes/Api/server-env/index";
     page: "/api/server-env";
@@ -773,6 +808,11 @@ type RouteModules = {
   "routes/Api/player-settings/index": typeof import("./app/routes/Api/player-settings/index.tsx");
   "routes/Api/views/increment": typeof import("./app/routes/Api/views/increment.tsx");
   "routes/Api/views/watch-history": typeof import("./app/routes/Api/views/watch-history.tsx");
+  "routes/Api/webauthn/register-options": typeof import("./app/routes/Api/webauthn/register-options.tsx");
+  "routes/Api/webauthn/register-verify": typeof import("./app/routes/Api/webauthn/register-verify.tsx");
+  "routes/Api/webauthn/login-options": typeof import("./app/routes/Api/webauthn/login-options.tsx");
+  "routes/Api/webauthn/login-verify": typeof import("./app/routes/Api/webauthn/login-verify.tsx");
+  "routes/Api/webauthn/credentials": typeof import("./app/routes/Api/webauthn/credentials.tsx");
   "routes/Api/server-env/index": typeof import("./app/routes/Api/server-env/index.tsx");
   "routes/Api/sitemap/index": typeof import("./app/routes/Api/sitemap/index.tsx");
   "routes/Api/indexnow/index": typeof import("./app/routes/Api/indexnow/index.tsx");

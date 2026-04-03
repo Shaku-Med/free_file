@@ -130,6 +130,7 @@ export const rateLimiter = new RateLimiter();
 // Rate limit configurations for different actions
 export const RATE_LIMITS = {
   login: { maxRequests: 5, windowMs: 15 * 60 * 1000, blockDurationMs: 30 * 60 * 1000 }, // 5 attempts per 15 min, 30 min block
+  passkey: { maxRequests: 15, windowMs: 15 * 60 * 1000, blockDurationMs: 30 * 60 * 1000 },
   signup: { maxRequests: 3, windowMs: 60 * 60 * 1000, blockDurationMs: 60 * 60 * 1000 }, // 3 attempts per hour, 1 hour block
   reset: { maxRequests: 3, windowMs: 60 * 60 * 1000, blockDurationMs: 60 * 60 * 1000 }, // 3 attempts per hour, 1 hour block
   verify: { maxRequests: 10, windowMs: 15 * 60 * 1000, blockDurationMs: 30 * 60 * 1000 }, // 10 attempts per 15 min, 30 min block
