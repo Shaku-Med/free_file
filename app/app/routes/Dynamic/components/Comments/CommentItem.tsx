@@ -32,8 +32,6 @@ interface CommentItemProps {
   allowNewComments?: boolean;
   level?: number;
   highlightCommentId?: string | null;
-  imageUploadDateFolder?: string;
-  imageUploadUniqueId?: string;
   isLastInThread?: boolean;
   /** Per nesting depth: vertical rail in column i if ancestor at that depth had a younger sibling. */
   threadPrefix?: boolean[];
@@ -58,8 +56,6 @@ const CommentItem = ({
   allowNewComments = true,
   level = 0,
   highlightCommentId = null,
-  imageUploadDateFolder,
-  imageUploadUniqueId,
   isLastInThread = true,
   threadPrefix = [],
 }: CommentItemProps) => {
@@ -289,8 +285,6 @@ const CommentItem = ({
                   onSubmit={handleEdit}
                   onCancel={() => setIsEditing(false)}
                   placeholder="Edit your comment..."
-                  imageUploadDateFolder={imageUploadDateFolder}
-                  imageUploadUniqueId={imageUploadUniqueId}
                 />
               ) : (
                 <div
@@ -435,8 +429,6 @@ const CommentItem = ({
             onSubmit={(content, gif, image) => handleReply(content, gif, image)}
             onCancel={() => setIsReplying(false)}
             placeholder="Write a reply..."
-            imageUploadDateFolder={imageUploadDateFolder}
-            imageUploadUniqueId={imageUploadUniqueId}
           />
         </div>
       )}
@@ -450,8 +442,6 @@ const CommentItem = ({
               currentUserId={currentUserId}
               fileOwnerId={fileOwnerId}
               fileId={fileId}
-              imageUploadDateFolder={imageUploadDateFolder}
-              imageUploadUniqueId={imageUploadUniqueId}
               allowNewComments={allowNewComments}
               onReply={onReply}
               onEdit={onEdit}

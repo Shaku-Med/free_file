@@ -1,45 +1,36 @@
-package commentimg
+package profilepic
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"image"
 	"io"
+	"math"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"time"
 
-	"goupload/lib/ffmpeg"
-	"goupload/lib/logger"
-	ghlib "goupload/lib/github"
-	"goupload/lib/nsfw"
-	"goupload/lib/nsfwstrikes"
+	_ "image/gif"
+	_ "image/jpeg"
+	_ "image/png"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/go-github/v62/github"
-	"github.com/google/uuid"
+	_ "golang.org/x/image/webp"
+
+	"goupload/internal/middleware"
+	"goupload/lib/ffmpeg"
+	ghlib "goupload/lib/github"
+	"goupload/lib/logger"
+	"goupload/lib/nsfw"
+	"goupload/lib/nsfwstrikes"
+	"goupload/lib/security"
 )
 
 const maxFileSize = 10 << 20
+
 const nsfwGifFrameSamples = 5
-
-var reDateFolder = regexp.MustCompile(`^\d{2}_\d{2}_\d{4}$`)
-
-func isSafeUniqueIDSegment(s string) bool {
-	const max = 128
-	if len(s) == 0 || len(s) > max {
-		return false
-	}
-	if strings.Contains(s, "..") || strings.Contains(s, "/") || strings.Contains(s, "\\") {
-		return false
-	}
-	for _, r := range s {
-		if r < 32 || r == 127 {
-			return false
-		}
-	}
-	return true
-}
 
 var allowedMIME = map[string]bool{
 	"image/jpeg": true,
@@ -47,6 +38,14 @@ var allowedMIME = map[string]bool{
 	"image/png":  true,
 	"image/gif":  true,
 	"image/webp": true,
+}
+
+var extByMIME = map[string]string{
+	"image/jpeg": ".jpg",
+	"image/jpg":  ".jpg",
+	"image/png":  ".png",
+	"image/gif":  ".gif",
+	"image/webp": ".webp",
 }
 
 type Handler struct {
@@ -76,20 +75,20 @@ func RegisterRoutes(app *fiber.App, log *logger.Logger, cfg Config) {
 		ghOwner: cfg.GitHubOwner,
 		ghRepo:  cfg.GitHubRepo,
 	}
-	app.Post("/api/comment-image/upload", h.upload)
+	app.Post("/api/profilepic/upload", h.upload)
 }
 
 func (h *Handler) upload(c *fiber.Ctx) error {
-	userID := c.Locals("userID")
-	uid, ok := userID.(string)
+	uid, ok := c.Locals(middleware.LocalsUserID).(string)
 	if !ok || uid == "" {
 		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "missing_user_id"})
 	}
+	username, uok := c.Locals(middleware.LocalsUsername).(string)
+	if !uok || username == "" || !security.IsValidUsername(username) {
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "invalid_profile_session"})
+	}
 
-	isAdultStr := strings.TrimSpace(c.FormValue("is_adult"))
-	isAdult := isAdultStr == "true" || isAdultStr == "1"
-
-	if !isAdult && h.strikes != nil && h.strikes.RespondIfBlocked(c, uid) {
+	if h.strikes != nil && h.strikes.RespondIfBlocked(c, uid) {
 		return nil
 	}
 
@@ -102,9 +101,9 @@ func (h *Handler) upload(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "file exceeds 10MB limit"})
 	}
 
-	mime := file.Header.Get("Content-Type")
-	if !allowedMIME[strings.ToLower(mime)] {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid file type"})
+	mime := strings.ToLower(strings.TrimSpace(file.Header.Get("Content-Type")))
+	if !allowedMIME[mime] {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid file type, must be an image"})
 	}
 
 	f, err := file.Open()
@@ -118,13 +117,28 @@ func (h *Handler) upload(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "failed to read file"})
 	}
 
+	cfg, _, err := image.DecodeConfig(bytes.NewReader(data))
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "could not read image dimensions"})
+	}
+	if cfg.Width < 1 || cfg.Height < 1 {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid image dimensions"})
+	}
+	ar := float64(cfg.Width) / float64(cfg.Height)
+	if math.Abs(ar-1.0) > 0.001 {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "profile picture must be square (1:1 aspect ratio)"})
+	}
+	if cfg.Width > 8192 || cfg.Height > 8192 {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "image dimensions too large"})
+	}
+
 	var toScan [][]byte
 	if strings.EqualFold(mime, "image/gif") {
 		ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 		frames, serr := ffmpeg.SampleGIFForVision(ctx, data, nsfwGifFrameSamples)
 		cancel()
 		if serr != nil {
-			h.log.Errorf("comment-image gif sample for NSFW: %v", serr)
+			h.log.Errorf("profilepic gif NSFW sample: %v", serr)
 			toScan = [][]byte{data}
 		} else {
 			toScan = frames
@@ -136,30 +150,30 @@ func (h *Handler) upload(c *fiber.Ctx) error {
 	if len(toScan) == 1 {
 		result, err := h.nsfw.Detect(toScan[0])
 		if err != nil {
-			h.log.Errorf("comment-image NSFW check error: %v", err)
-		} else if result.IsNSFW && !isAdult {
+			h.log.Errorf("profilepic NSFW check error: %v", err)
+		} else if result.IsNSFW {
 			if h.strikes != nil {
 				if err := h.strikes.RecordDeniedNSFWBestEffort(context.Background(), uid); err != nil {
-					h.log.Errorf("comment-image nsfw strike record: %v", err)
+					h.log.Errorf("profilepic nsfw strike record: %v", err)
 				}
 			}
 			return c.Status(422).JSON(fiber.Map{
-				"error": "This image was detected as inappropriate and cannot be posted in comments",
+				"error": "This image was detected as inappropriate and cannot be used as a profile picture",
 				"nsfw":  true,
 			})
 		}
 	} else {
 		anyNsfw, _, err := h.nsfw.DetectBatch(toScan)
 		if err != nil {
-			h.log.Errorf("comment-image NSFW batch check error: %v", err)
-		} else if anyNsfw && !isAdult {
+			h.log.Errorf("profilepic NSFW batch check error: %v", err)
+		} else if anyNsfw {
 			if h.strikes != nil {
 				if err := h.strikes.RecordDeniedNSFWBestEffort(context.Background(), uid); err != nil {
-					h.log.Errorf("comment-image nsfw strike record: %v", err)
+					h.log.Errorf("profilepic nsfw strike record: %v", err)
 				}
 			}
 			return c.Status(422).JSON(fiber.Map{
-				"error": "This image was detected as inappropriate and cannot be posted in comments",
+				"error": "This image was detected as inappropriate and cannot be used as a profile picture",
 				"nsfw":  true,
 			})
 		}
@@ -170,37 +184,32 @@ func (h *Handler) upload(c *fiber.Ctx) error {
 	}
 
 	ext := strings.ToLower(filepath.Ext(file.Filename))
+	if ext == "" || ext == "." {
+		ext = extByMIME[mime]
+	}
 	if ext == "" {
 		ext = ".jpg"
 	}
-	imageID := uuid.New().String()
-
-	dateFolder := strings.TrimSpace(c.FormValue("date_folder"))
-	uniqueID := strings.TrimSpace(c.FormValue("unique_id"))
-	var ghPath string
-	if dateFolder != "" && uniqueID != "" &&
-		reDateFolder.MatchString(dateFolder) && isSafeUniqueIDSegment(uniqueID) {
-		ghPath = fmt.Sprintf("%s/%s/comments/%s%s", dateFolder, uniqueID, imageID, ext)
-	} else {
-		ghPath = fmt.Sprintf("comment-images/%s/%s%s", uid, imageID, ext)
+	switch ext {
+	case ".jpeg", ".jpg", ".png", ".gif", ".webp":
+	default:
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "unsupported file extension"})
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ghPath := fmt.Sprintf("%s/%s%s", username, uid, ext)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
-	if err := ghlib.CreateOrUpdateFile(ctx, h.ghCli, h.ghOwner, h.ghRepo, ghPath, data, fmt.Sprintf("Comment image by %s", uid)); err != nil {
-		h.log.Errorf("comment-image GitHub upload failed: %v", err)
+	if err := ghlib.CreateOrUpdateFile(ctx, h.ghCli, h.ghOwner, h.ghRepo, ghPath, data, fmt.Sprintf("Profile picture for %s", username)); err != nil {
+		h.log.Errorf("profilepic GitHub upload failed: %v", err)
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "upload failed"})
 	}
 
-	h.log.Infof("comment-image uploaded user=%s path=%s", uid, ghPath)
+	h.log.Infof("profilepic uploaded user=%s path=%s", uid, ghPath)
 
 	return c.JSON(fiber.Map{
-		"success": true,
-		"image": fiber.Map{
-			"url":  ghPath,
-			"type": mime,
-			"size": file.Size,
-		},
+		"success":     true,
+		"profile_pic": ghPath,
 	})
 }

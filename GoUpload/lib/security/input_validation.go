@@ -92,7 +92,8 @@ func ValidatePagination(page, limit interface{}, maxLimit int) (p, l int, ok boo
 	return p, l, true
 }
 
-var scriptTagRegex = regexp.MustCompile(`(?i)<script\b[^<]*(?:(?!</script>)<[^<]*)*</script>`)
+// RE2 has no lookahead; (?s) makes . match newlines — strip script blocks in one pass.
+var scriptTagRegex = regexp.MustCompile(`(?is)<script\b[^>]*>[\s\S]*?</script>`)
 var onHandlerRegex = regexp.MustCompile(`(?i)on\w+\s*=`)
 var jsProtoRegex = regexp.MustCompile(`(?i)javascript:`)
 

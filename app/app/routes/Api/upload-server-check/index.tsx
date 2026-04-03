@@ -7,7 +7,7 @@ import db from '~/lib/Database/supabase';
  * Called by the Go upload server to verify the user. The Go server sends:
  *   Authorization: Bearer <c_user>
  * where c_user is the same encrypted token as the c_user cookie.
- * Returns 200 { userId } if valid, 401 if not.
+ * Returns 200 { userId, username } if valid, 401 if not.
  */
 export const loader = async ({ request }: { request: Request }) => {
   try {
@@ -51,7 +51,7 @@ export const loader = async ({ request }: { request: Request }) => {
 
     const { data: user, error } = await db
       .from('users')
-      .select('id')
+      .select('id, username')
       .eq('c_usr', decoded.c_usr)
       .maybeSingle();
 
@@ -62,10 +62,16 @@ export const loader = async ({ request }: { request: Request }) => {
       });
     }
 
-    return new Response(JSON.stringify({ userId: user.id }), {
-      status: 200,
-      headers: { 'Content-Type': 'application/json' },
-    });
+    return new Response(
+      JSON.stringify({
+        userId: user.id,
+        username: typeof user.username === 'string' ? user.username : '',
+      }),
+      {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      },
+    );
   } catch {
     return new Response(JSON.stringify({ error: 'unauthorized' }), {
       status: 401,

@@ -14,7 +14,7 @@ import {
 import { BASE_URL } from "~/lib/URLS";
 import { buildPageMeta } from "~/lib/seo";
 import ImageLoad from "../Home/components/ImageLoad/ImageLoad";
-import { arrangeDateForThumbnail, ParseFilename, getVideoSrc, getThumbnailUrl, getThumbnailPreviewApiPaths } from "~/lib/utils";
+import { ParseFilename, getVideoSrc, getThumbnailUrl, getThumbnailPreviewApiPaths } from "~/lib/utils";
 import { motion } from "framer-motion";
 import { ChevronDown, ShieldAlert } from "lucide-react";
 import { useSidebar } from "~/components/ui/sidebar";
@@ -1228,10 +1228,6 @@ const index = () => {
           fileOwnerId={file_data.owner_id || undefined}
           commentsEnabled={file_data.comments_enabled !== false}
           highlightCommentId={highlightCommentId}
-          commentImageDateFolder={
-            file_data.created_at ? arrangeDateForThumbnail(file_data.created_at) : undefined
-          }
-          commentImageFileUniqueId={file_data.unique_id}
         />
       </div>
     </div>

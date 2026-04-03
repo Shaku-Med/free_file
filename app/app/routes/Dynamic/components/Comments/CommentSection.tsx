@@ -13,9 +13,6 @@ interface CommentSectionProps {
   commentsEnabled?: boolean;
   /** From `?comment=` — scroll to this comment and emphasize it (e.g. notification deep link). */
   highlightCommentId?: string | null;
-  /** GitHub folder for comment images (`DD_MM_YYYY`), same as the parent file upload. */
-  commentImageDateFolder?: string;
-  commentImageFileUniqueId?: string;
 }
 
 /** Normalize API comment to full Comment shape (replies, counts, etc.) */
@@ -76,8 +73,6 @@ const CommentSection = ({
   isReel = false,
   commentsEnabled = true,
   highlightCommentId = null,
-  commentImageDateFolder,
-  commentImageFileUniqueId,
 }: CommentSectionProps) => {
   const [comments, setComments] = useState<Comment[]>([]);
   const [totalCount, setTotalCount] = useState(0);
@@ -342,8 +337,6 @@ const CommentSection = ({
         <CommentForm
           fileId={fileId}
           onSubmit={(content, gif, image) => handleSubmit(content, undefined, gif, image)}
-          imageUploadDateFolder={commentImageDateFolder}
-          imageUploadUniqueId={commentImageFileUniqueId}
         />
       ) : null}
 
@@ -375,8 +368,6 @@ const CommentSection = ({
               currentUserId={currentUserId}
               fileOwnerId={fileOwnerId}
               fileId={fileId}
-              imageUploadDateFolder={commentImageDateFolder}
-              imageUploadUniqueId={commentImageFileUniqueId}
               allowNewComments={Boolean(commentsEnabled && currentUserId)}
               onReply={handleReply}
               onEdit={handleEdit}

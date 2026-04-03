@@ -11,7 +11,6 @@ import {
 } from "~/components/ui/dialog";
 import { Avatar, AvatarImage, AvatarFallback } from "~/components/ui/avatar";
 import { getProfilePicUrl } from "~/lib/utils/profilePic";
-import { useFileContext } from "~/lib/Context/Context";
 
 export interface CommentGif {
   id: string;
@@ -44,9 +43,6 @@ interface CommentFormProps {
   onSubmit: (content: string, gif?: CommentGif | null, image?: CommentImage | null) => Promise<void>;
   onCancel?: () => void;
   placeholder?: string;
-  /** GitHub path layout: store under `{dateFolder}/{uniqueId}/comments/` when both set (GoUpload). */
-  imageUploadDateFolder?: string;
-  imageUploadUniqueId?: string;
 }
 
 const SUGGEST_DEBOUNCE_MS = 300;
@@ -75,8 +71,6 @@ const CommentForm = ({
   onSubmit,
   onCancel,
   placeholder = "Add a comment...",
-  imageUploadDateFolder,
-  imageUploadUniqueId,
 }: CommentFormProps) => {
   const [content, setContent] = useState("");
   const [gif, setGif] = useState<CommentGif | null>(null);
@@ -92,7 +86,6 @@ const CommentForm = ({
   const [gifLoading, setGifLoading] = useState(false);
   const [gifError, setGifError] = useState<string | null>(null);
 
-  const { uploadServerUrl, c_user } = useFileContext();
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const cursorRef = useRef(0);
@@ -150,38 +143,21 @@ const CommentForm = ({
     }
 
     setImageError(null);
-    // Store the file for upload at submit time — don't upload yet
     setPendingImageFile(file);
     setImage(null);
     const localPreview = URL.createObjectURL(file);
     setImagePreview(localPreview);
-    // Remove GIF if image is set
     setGif(null);
   }, []);
 
-  /** Upload the pending image file to GoUpload (or app proxy). Called at submit time only. */
   const uploadImage = useCallback(async (file: File): Promise<CommentImage> => {
     const formData = new FormData();
     formData.append("file", file);
-    if (imageUploadDateFolder?.trim()) {
-      formData.append("date_folder", imageUploadDateFolder.trim());
-    }
-    if (imageUploadUniqueId?.trim()) {
-      formData.append("unique_id", imageUploadUniqueId.trim());
-    }
+    formData.append("file_id", fileId);
 
-    let uploadUrl = "/api/upload/comment-image";
-    const headers: Record<string, string> = {};
-    const useGoUpload = !!(uploadServerUrl && c_user);
-    if (useGoUpload) {
-      uploadUrl = `${uploadServerUrl}/api/comment-image/upload`;
-      headers["Authorization"] = `Bearer ${c_user}`;
-    }
-
-    const res = await fetch(uploadUrl, {
+    const res = await fetch("/api/upload/comment-image", {
       method: "POST",
-      ...(useGoUpload ? {} : { credentials: "include" as RequestCredentials }),
-      headers,
+      credentials: "include",
       body: formData,
     });
     const json = await res.json();
@@ -189,7 +165,7 @@ const CommentForm = ({
       throw new Error(json.error || "Upload failed");
     }
     return { url: json.image.url, type: json.image.type };
-  }, [uploadServerUrl, c_user, imageUploadDateFolder, imageUploadUniqueId]);
+  }, [fileId]);
 
   const searchGifs = useCallback(() => {
     const trimmed = gifQuery.trim();

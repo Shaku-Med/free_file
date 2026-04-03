@@ -103,6 +103,11 @@ func (c *Client) Close() error {
 	return c.rdb.Close()
 }
 
+// Redis exposes the underlying client for shared features (e.g. rate limits) using the same connection.
+func (c *Client) Redis() *redis.Client {
+	return c.rdb
+}
+
 const jobStatusKeyPrefix = "upload:job:status:"
 
 func (c *Client) SetJobStatus(ctx context.Context, jobID, status string) error {

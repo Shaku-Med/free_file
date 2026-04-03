@@ -13,8 +13,12 @@ import (
 
 const LocalsUserID = "userID"
 
+// LocalsUsername is the account username from the app (for safe storage paths).
+const LocalsUsername = "username"
+
 type uploadServerCheckResponse struct {
-	UserID string `json:"userId"`
+	UserID   string `json:"userId"`
+	Username string `json:"username"`
 }
 
 // AuthUpload verifies the user via the app's /api/upload-server-check.
@@ -76,6 +80,9 @@ func AuthUpload() fiber.Handler {
 		}
 
 		c.Locals(LocalsUserID, payload.UserID)
+		if strings.TrimSpace(payload.Username) != "" {
+			c.Locals(LocalsUsername, strings.TrimSpace(payload.Username))
+		}
 		return c.Next()
 	}
 }

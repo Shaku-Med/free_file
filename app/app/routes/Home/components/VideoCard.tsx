@@ -15,7 +15,6 @@ import Actions from "./VideoCard/Actions";
 import { Separator } from "~/components/ui/separator";
 import CategoryBadges from "~/components/CategoryBadges";
 import { Info, MoreVertical, ChevronDown, X, Check, AlertTriangle, Send, Loader2, ImagePlus, MessageSquare, MessageSquareOff } from "lucide-react";
-import { useFileContext } from "~/lib/Context/Context";
 import { Tooltip, TooltipContent, TooltipTrigger } from "~/components/ui/tooltip";
 import { useIsMobile } from "~/hooks/use-mobile";
 import { useSidebar } from "~/components/ui/sidebar";
@@ -128,7 +127,6 @@ const VideoCard = ({ data, index, currentUserId, userActions, onUpdate, showOwne
   const [editLoadedDefaultThumb, setEditLoadedDefaultThumb] = useState<string | null | undefined>(undefined);
 
   const catDropdownRef = useRef<HTMLDivElement>(null);
-  const { uploadServerUrl, c_user } = useFileContext();
 
   const nav = useNavigate();
   const metadataWarning = getMetadataWarning(data.metadata);
@@ -258,22 +256,11 @@ const VideoCard = ({ data, index, currentUserId, userActions, onUpdate, showOwne
         try {
           const formData = new FormData();
           formData.append("file", customThumbFile);
-          formData.append("unique_id", data.unique_id);
-          // Build date_folder from created_at
-          const d = new Date(data.created_at);
-          const dd = String(d.getUTCDate()).padStart(2, "0");
-          const mm = String(d.getUTCMonth() + 1).padStart(2, "0");
-          const yyyy = d.getUTCFullYear();
-          formData.append("date_folder", `${dd}_${mm}_${yyyy}`);
-          formData.append("is_adult", String(!!data.is_adult));
+          formData.append("file_id", data.id as string);
 
-          const base = uploadServerUrl?.replace(/\/$/, "") || "";
-          const headers: Record<string, string> = {};
-          if (c_user) headers["Authorization"] = `Bearer ${c_user}`;
-
-          const thumbRes = await fetch(`${base}/api/thumbnail/upload`, {
+          const thumbRes = await fetch("/api/upload/thumbnail", {
             method: "POST",
-            headers,
+            credentials: "include",
             body: formData,
           });
           const thumbJson = await thumbRes.json();

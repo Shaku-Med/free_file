@@ -4,7 +4,7 @@ import { getCookie } from "~/lib/Security/Token";
 import db from "~/lib/Database/supabase";
 import { arrangeDateForThumbnail } from "~/lib/utils";
 
-const MAX_COMMENT_IMAGE_BYTES = 10 * 1024 * 1024;
+const MAX_THUMBNAIL_BYTES = 10 * 1024 * 1024;
 
 const uuidRe =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -42,7 +42,7 @@ export const action = async ({ request }: { request: Request }) => {
     if (!file || !(file instanceof File)) {
       return data({ error: "No file provided" }, { status: 400 });
     }
-    if (file.size > MAX_COMMENT_IMAGE_BYTES) {
+    if (file.size > MAX_THUMBNAIL_BYTES) {
       return data({ error: "File exceeds 10MB limit" }, { status: 400 });
     }
 
@@ -57,19 +57,24 @@ export const action = async ({ request }: { request: Request }) => {
 
     const { data: fileRow, error: fileErr } = await db
       .from("files")
-      .select("id, unique_id, is_adult, created_at, comments_enabled")
+      .select("id, unique_id, is_adult, created_at, file_type, owner_id")
       .eq("id", fileId)
       .maybeSingle();
 
     if (fileErr) {
-      console.error("[comment-image] file lookup:", fileErr);
+      console.error("[upload/thumbnail] file lookup:", fileErr);
       return data({ error: "Failed to verify file" }, { status: 500 });
     }
     if (!fileRow) {
       return data({ error: "File not found" }, { status: 404 });
     }
-    if (fileRow.comments_enabled === false) {
-      return data({ error: "Comments are disabled for this file" }, { status: 403 });
+    if (String(fileRow.owner_id) !== String(user.id)) {
+      return data({ error: "Forbidden" }, { status: 403 });
+    }
+
+    const fileType = fileRow.file_type != null ? String(fileRow.file_type) : "";
+    if (fileType.toLowerCase().startsWith("image/")) {
+      return data({ error: "Thumbnail cannot be changed for image files" }, { status: 400 });
     }
 
     const uniqueId = fileRow.unique_id != null ? String(fileRow.unique_id).trim() : "";
@@ -87,11 +92,12 @@ export const action = async ({ request }: { request: Request }) => {
 
     const proxyForm = new FormData();
     proxyForm.append("file", file);
-    proxyForm.append("date_folder", dateFolder);
     proxyForm.append("unique_id", uniqueId);
+    proxyForm.append("date_folder", dateFolder);
+    proxyForm.append("file_type", fileType || "application/octet-stream");
     proxyForm.append("is_adult", isAdult ? "true" : "false");
 
-    const res = await fetch(`${uploadServerUrl}/api/comment-image/upload`, {
+    const res = await fetch(`${uploadServerUrl}/api/thumbnail/upload`, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${cUser}`,
@@ -102,7 +108,7 @@ export const action = async ({ request }: { request: Request }) => {
     const json = await res.json();
     return data(json, { status: res.status });
   } catch (error: unknown) {
-    console.error("[comment-image] Proxy to GoUpload failed:", error);
+    console.error("[upload/thumbnail] proxy failed:", error);
     return data({ error: "Upload failed" }, { status: 500 });
   }
 };

@@ -4,6 +4,7 @@ import db from "~/lib/Database/supabase";
 import { GitHubClient } from "~/lib/Github/GitHubClient";
 import { config } from "~/lib/config";
 import { loadImage } from "canvas";
+import { deleteOldProfilePicIfNeeded, githubRepoForProfile } from "~/lib/profilePicGithub.server";
 
 const ALLOWED_MIME_TYPES = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp'];
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
@@ -35,14 +36,14 @@ export const action = async ({ request }: { request: Request }) => {
 
   const arrayBuffer = await file.arrayBuffer();
   const buffer = Buffer.from(arrayBuffer);
-  
+
   let imageWidth: number;
   let imageHeight: number;
   try {
     const image = await loadImage(buffer);
     imageWidth = image.width;
     imageHeight = image.height;
-  } catch (error) {
+  } catch {
     return data({ error: 'Invalid image file. Could not read image dimensions' }, { status: 400 });
   }
 
@@ -67,40 +68,25 @@ export const action = async ({ request }: { request: Request }) => {
     .eq('id', user.id)
     .maybeSingle();
 
-  const fileExtension = file.name.split('.').pop() || 'jpg';
-  const githubPath = `${username}/${user.id}.${fileExtension}`;
-
   if (!config.github.token || !config.github.owner) {
     return data({ error: 'GitHub configuration missing' }, { status: 500 });
   }
 
-  const githubClient = new GitHubClient(config.github.token, config.github.owner);
+  const ghRepo = githubRepoForProfile();
+  const githubClient = new GitHubClient(config.github.token, config.github.owner, ghRepo);
+
+  const fileExtension = file.name.split('.').pop() || 'jpg';
+  const githubPath = `${username}/${user.id}.${fileExtension}`;
 
   try {
     const existingSha = await githubClient.getFileSha(githubPath);
-    
-    if (currentUser?.profile_pic) {
-      let oldPath: string | null = null;
-      
-      if (currentUser.profile_pic.includes('raw.githubusercontent.com')) {
-        const urlMatch = currentUser.profile_pic.match(/\/main\/(.+)$/);
-        if (urlMatch && urlMatch[1]) {
-          oldPath = urlMatch[1];
-        }
-      } else {
-        oldPath = currentUser.profile_pic;
-      }
-      
-      if (oldPath && oldPath !== githubPath) {
-        const oldSha = await githubClient.getFileSha(oldPath);
-        if (oldSha) {
-          try {
-            await githubClient.deleteFile(oldPath, `Update profile picture for ${username}`);
-          } catch (error) {
-          }
-        }
-      }
-    }
+
+    await deleteOldProfilePicIfNeeded(
+      githubClient,
+      currentUser?.profile_pic,
+      githubPath,
+      username,
+    );
 
     if (existingSha) {
       await githubClient.deleteFile(githubPath, `Update profile picture for ${username}`);
@@ -109,21 +95,22 @@ export const action = async ({ request }: { request: Request }) => {
     await githubClient.uploadFileBuffer(
       githubPath,
       arrayBuffer,
-      `Update profile picture for ${username}`
+      `Update profile picture for ${username}`,
     );
-
-    const { error: updateError } = await db
-      .from('users')
-      .update({ profile_pic: githubPath })
-      .eq('id', user.id);
-
-    if (updateError) {
-      return data({ error: 'Failed to update profile picture in database' }, { status: 500 });
-    }
-
-    return data({ success: true, profile_pic: githubPath }, { status: 200 });
-  } catch (error: any) {
-    console.error('Error uploading profile picture:', error);
-    return data({ error: error.message || 'Failed to upload profile picture' }, { status: 500 });
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Failed to upload profile picture';
+    console.error('Error uploading profile picture (fallback route, no GoUpload):', error);
+    return data({ error: message }, { status: 500 });
   }
+
+  const { error: updateError } = await db
+    .from('users')
+    .update({ profile_pic: githubPath })
+    .eq('id', user.id);
+
+  if (updateError) {
+    return data({ error: 'Failed to update profile picture in database' }, { status: 500 });
+  }
+
+  return data({ success: true, profile_pic: githubPath }, { status: 200 });
 };

@@ -9,6 +9,7 @@ export default [
         route(`upload`, 'routes/Api/upload/index.tsx'),
         route(`upload/profilepic`, 'routes/Api/upload/profilepic/index.tsx'),
         route(`upload/comment-image`, 'routes/Api/upload/comment-image/index.tsx'),
+        route(`upload/thumbnail`, 'routes/Api/upload/thumbnail/index.tsx'),
         route(`upload-server-check`, 'routes/Api/upload-server-check/index.tsx'),
         route(`upload-job-status`, 'routes/Api/upload-job-status/index.tsx'),
         route(`load/video/*`, 'routes/Api/load/Video/index.tsx'),

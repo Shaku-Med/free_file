@@ -10,6 +10,7 @@ import (
 
 	"goupload/internal/commentimg"
 	"goupload/internal/middleware"
+	"goupload/internal/profilepic"
 	"goupload/internal/testpage"
 	"goupload/internal/thumbnail"
 	"goupload/internal/upload"
@@ -17,6 +18,7 @@ import (
 	"goupload/lib/env"
 	ghlib "goupload/lib/github"
 	"goupload/lib/logger"
+	"goupload/lib/nsfwstrikes"
 	"goupload/lib/queue"
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/cors"
@@ -53,6 +55,14 @@ func main() {
 	if ghToken != "" && ghOwner != "" && ghRepo == "" {
 		log.Fatal("GITHUB_REPO must be set when GITHUB_TOKEN and GITHUB_OWNER are set")
 	}
+
+	strikeMax := int(env.GetInt64("NSFW_STRIKE_MAX", 20))
+	strikeWindow := time.Duration(env.GetInt64("NSFW_STRIKE_WINDOW_SEC", 3600)) * time.Second
+	nsfwStrikes := nsfwstrikes.New(q.Redis(), strikeMax, strikeWindow)
+	if nsfwStrikes.Enabled() {
+		appLog.Infof("nsfw strike limiter max=%d window=%s", strikeMax, strikeWindow)
+	}
+
 	wcfg := worker.Config{
 		ChunksDir:      chunksDir,
 		OutputDir:      outputDir,
@@ -109,6 +119,7 @@ func main() {
 	app.Use("/api/upload", middleware.AuthUpload())
 	app.Use("/api/thumbnail", middleware.AuthUpload())
 	app.Use("/api/comment-image", middleware.AuthUpload())
+	app.Use("/api/profilepic", middleware.AuthUpload())
 	upload.RegisterRoutes(app, manager, q, appLog)
 	thumbnail.RegisterRoutes(app, appLog, thumbnail.Config{
 		GitHubClient:  wcfg.GitHubClient,
@@ -116,6 +127,7 @@ func main() {
 		GitHubRepo:    ghRepo,
 		NSFWApiURL:    nsfwAPI,
 		NSFWApiSecret: webhookSecret,
+		Strikes:       nsfwStrikes,
 	})
 	commentimg.RegisterRoutes(app, appLog, commentimg.Config{
 		GitHubClient:  wcfg.GitHubClient,
@@ -123,6 +135,15 @@ func main() {
 		GitHubRepo:    ghRepo,
 		NSFWApiURL:    nsfwAPI,
 		NSFWApiSecret: webhookSecret,
+		Strikes:       nsfwStrikes,
+	})
+	profilepic.RegisterRoutes(app, appLog, profilepic.Config{
+		GitHubClient:  wcfg.GitHubClient,
+		GitHubOwner:   ghOwner,
+		GitHubRepo:    ghRepo,
+		NSFWApiURL:    nsfwAPI,
+		NSFWApiSecret: webhookSecret,
+		Strikes:       nsfwStrikes,
 	})
 	if env.IsDev() {
 		testpage.RegisterRoutes(app)
