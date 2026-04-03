@@ -3,6 +3,7 @@ import { isAuthenticated } from "~/lib/Security/Password";
 import { getCookie } from "~/lib/Security/Token";
 import db from "~/lib/Database/supabase";
 import { arrangeDateForThumbnail } from "~/lib/utils";
+import { isDbAdultFlag } from "~/lib/isDbAdultFlag.server";
 
 const MAX_COMMENT_IMAGE_BYTES = 10 * 1024 * 1024;
 
@@ -83,7 +84,7 @@ export const action = async ({ request }: { request: Request }) => {
     }
 
     const dateFolder = arrangeDateForThumbnail(createdAt);
-    const isAdult = Boolean(fileRow.is_adult);
+    const isAdult = isDbAdultFlag(fileRow.is_adult);
 
     const proxyForm = new FormData();
     proxyForm.append("file", file);

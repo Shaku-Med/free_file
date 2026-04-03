@@ -35,6 +35,34 @@ export function resolveGithubRepoForFile(
     return defaultGithubRepoForStoredFile();
 }
 
+/** Paths like `02_04_2026/<unique_id>/comments/<file>.png` (Go `commentimg` handler). */
+const VIDEO_FOLDER_COMMENT_PATH_RE = /^\d{2}_\d{2}_\d{4}\/[^/]+\/comments\//;
+
+export function isVideoFolderCommentAttachmentPath(storagePath: string): boolean {
+    return VIDEO_FOLDER_COMMENT_PATH_RE.test(storagePath);
+}
+
+/**
+ * Repos to try for video-folder comment images. Go always uploads to `GITHUB_REPO`, so that must be tried
+ * before `files.github_repo` (often stale after a repo migration). Then comment row, file row, legacy.
+ */
+export function githubReposToTryForVideoCommentAttachment(
+    file: { github_repo?: string | null } | null | undefined,
+    commentImageGithubRepo?: string | null | undefined,
+): string[] {
+    const out: string[] = [];
+    const add = (r: string | undefined) => {
+        const t = r?.trim();
+        if (t && !out.includes(t)) out.push(t);
+    };
+    add(process.env.GITHUB_REPO?.trim());
+    add(commentImageGithubRepo ?? undefined);
+    add(file?.github_repo ?? undefined);
+    add(process.env.GITHUB_DEFAULT_REPO?.trim());
+    if (out.length === 0) throw missingRepoEnvError();
+    return out;
+}
+
 export function githubRawFileUrl(
     owner: string,
     repo: string,

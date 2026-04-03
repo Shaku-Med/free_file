@@ -67,7 +67,13 @@ export const action = async ({ request }: { request: Request }) => {
 
     if (request.method === "POST") {
       const body = await request.json();
-      const { fileId, content, parentId, gif, image }: CreateCommentInput & { fileId: string; content?: string; parentId?: string; gif?: { id: string; url: string; previewUrl?: string }; image?: { url: string; type: string } } = body;
+      const { fileId, content, parentId, gif, image }: CreateCommentInput & {
+        fileId: string;
+        content?: string;
+        parentId?: string;
+        gif?: { id: string; url: string; previewUrl?: string };
+        image?: { url: string; type: string };
+      } = body;
 
       // Validate inputs
       if (!fileId || !isValidFileId(fileId)) {

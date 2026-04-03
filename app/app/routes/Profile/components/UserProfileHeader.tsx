@@ -16,7 +16,6 @@ import {
 import { getProfilePicUrl } from "~/lib/utils/profilePic";
 import { TransformWrapper, TransformComponent } from "react-zoom-pan-pinch";
 import SubscribeButton, { formatSubscriberCount } from "~/components/SubscribeButton";
-import { useFileContext } from "~/lib/Context/Context";
 
 interface ChannelStats {
   subscriber_count: number;
@@ -62,7 +61,6 @@ const UserProfileHeader = ({
   const [showCropper, setShowCropper] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const { uploadServerUrl, c_user } = useFileContext();
 
   useEffect(() => {
     if (!isUploading) {
@@ -122,11 +120,6 @@ const UserProfileHeader = ({
     const formData = new FormData();
     formData.append('file', file);
 
-    const useGoUpload = !!(uploadServerUrl?.trim() && c_user);
-    const uploadUrl = useGoUpload
-      ? `${uploadServerUrl.replace(/\/$/, "")}/api/profilepic/upload`
-      : "/api/upload/profilepic";
-
     return new Promise<void>((resolve, reject) => {
       const xhr = new XMLHttpRequest();
 
@@ -139,73 +132,53 @@ const UserProfileHeader = ({
 
       xhr.onreadystatechange = () => {
         if (xhr.readyState !== XMLHttpRequest.DONE) return;
-        void (async () => {
-          try {
-            if (xhr.status >= 200 && xhr.status < 300) {
-              const result = JSON.parse(xhr.responseText) as {
-                success?: boolean;
-                profile_pic?: string;
-                error?: string;
-                nsfw?: boolean;
-              };
-              if (!result.success || !result.profile_pic) {
-                throw new Error(result.error || "Failed to upload profile picture");
-              }
-              let path = result.profile_pic;
-              if (useGoUpload) {
-                const patchRes = await fetch("/api/profile", {
-                  method: "PATCH",
-                  credentials: "include",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({ profile_pic: path }),
-                });
-                const patchJson = (await patchRes.json().catch(() => ({}))) as {
-                  error?: string;
-                  user?: { profile_pic?: string };
-                };
-                if (!patchRes.ok) {
-                  throw new Error(patchJson.error || "Failed to save profile picture");
-                }
-                path = patchJson.user?.profile_pic ?? path;
-              }
-              if (onProgress) onProgress(100);
-              setProfilePic(path);
-              setUploadError(null);
-              setPreview(null);
-              setShowCropper(false);
-              setIsUploadModalOpen(false);
-              if (onProfileUpdate) {
-                onProfileUpdate({ profile_pic: path });
-              }
-              resolve();
-              return;
+        try {
+          if (xhr.status >= 200 && xhr.status < 300) {
+            const result = JSON.parse(xhr.responseText) as {
+              success?: boolean;
+              profile_pic?: string;
+              error?: string;
+              nsfw?: boolean;
+            };
+            if (!result.success || !result.profile_pic) {
+              throw new Error(result.error || "Failed to upload profile picture");
             }
-            let parsed: { error?: string; nsfw?: boolean } = {};
-            try {
-              parsed = JSON.parse(xhr.responseText) as typeof parsed;
-            } catch {
-              /* ignore */
+            const path = result.profile_pic;
+            if (onProgress) onProgress(100);
+            setProfilePic(path);
+            setUploadError(null);
+            setPreview(null);
+            setShowCropper(false);
+            setIsUploadModalOpen(false);
+            if (onProfileUpdate) {
+              onProfileUpdate({ profile_pic: path });
             }
-            const errorMessage =
-              xhr.status === 422 && parsed.nsfw
-                ? parsed.error ||
-                  "This image was detected as inappropriate and cannot be used as a profile picture"
-                : parsed.error || `Upload failed with status ${xhr.status}`;
-            reject(new Error(errorMessage));
-          } catch (err: unknown) {
-            reject(err instanceof Error ? err : new Error(String(err)));
+            resolve();
+            return;
           }
-        })();
+          let parsed: { error?: string; nsfw?: boolean } = {};
+          try {
+            parsed = JSON.parse(xhr.responseText) as typeof parsed;
+          } catch {
+            /* ignore */
+          }
+          const errorMessage =
+            xhr.status === 422 && parsed.nsfw
+              ? parsed.error ||
+                "This image was detected as inappropriate and cannot be used as a profile picture"
+              : parsed.error || `Upload failed with status ${xhr.status}`;
+          reject(new Error(errorMessage));
+        } catch (err: unknown) {
+          reject(err instanceof Error ? err : new Error(String(err)));
+        }
       };
 
       xhr.onerror = () => {
         reject(new Error('Network error occurred. Please check your connection and try again.'));
       };
 
-      xhr.open('POST', uploadUrl, true);
-      if (useGoUpload) {
-        xhr.setRequestHeader("Authorization", `Bearer ${c_user}`);
-      }
+      xhr.open("POST", "/api/upload/profilepic", true);
+      xhr.withCredentials = true;
       xhr.send(formData);
     }).catch((error: any) => {
       const errorMessage = error.message || 'Failed to upload profile picture';

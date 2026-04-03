@@ -9,7 +9,9 @@ import {
     defaultGithubBranch,
     defaultGithubRepoForSharedAssets,
     defaultGithubRepoForStoredFile,
+    githubReposToTryForVideoCommentAttachment,
     githubRawFileUrl,
+    isVideoFolderCommentAttachmentPath,
     resolveGithubRepoForFile,
 } from '../utils/githubStorage.js';
 
@@ -133,6 +135,20 @@ function normalizeGithubImagePath(raw: string | undefined): string | undefined {
     }
     while (p.length > 1 && p.endsWith('/')) {
         p = p.slice(0, -1);
+    }
+    return p;
+}
+
+function githubImagePathFromRequest(req: Request): string {
+    const noQuery = (req.originalUrl ?? req.url ?? '').split('?')[0] ?? '';
+    const base = req.baseUrl ?? '';
+    if (base && noQuery.startsWith(base)) {
+        return noQuery.slice(base.length).replace(/^\/+/, '');
+    }
+    let p = (req.path ?? '').replace(/^\/+/, '');
+    const mountPrefix = 'api/load/image/';
+    if (p.startsWith(mountPrefix)) {
+        p = p.slice(mountPrefix.length);
     }
     return p;
 }
@@ -490,6 +506,21 @@ const getFileFromPath = async (path: string): Promise<any> => {
 
 };
 
+async function lookupCommentImageGithubRepo(storagePath: string): Promise<string | null> {
+    if (!db) return null;
+    try {
+        const { data, error } = await db
+            .from('comments')
+            .select('image_github_repo')
+            .eq('image_url', storagePath)
+            .maybeSingle();
+        if (error || !data) return null;
+        const r = (data as { image_github_repo?: string | null }).image_github_repo;
+        return typeof r === 'string' && r.trim() ? r.trim() : null;
+    } catch {
+        return null;
+    }
+}
 
 // Handle OPTIONS preflight requests
 router.options('/*', (req: Request, res: Response) => {
@@ -515,10 +546,7 @@ router.get('/*', async (req: Request, res: Response) => {
             return res.send(buffer);
         }
         
-        let rawPath = req.path.startsWith('/') ? req.path.substring(1) : req.path;
-        if (rawPath.includes('?')) {
-            rawPath = rawPath.split('?')[0];
-        }
+        const rawPath = githubImagePathFromRequest(req);
         const splitUrl = normalizeGithubImagePath(rawPath);
 
         if (!splitUrl) {
@@ -552,20 +580,18 @@ router.get('/*', async (req: Request, res: Response) => {
         }
 
         // Determine if we should blur the image BEFORE fetching
-        // SECURITY: Default to blurring if we can't verify the file exists
         let shouldBlur = false;
         if (file) {
-            // console.log('file:', file);
-            // Check access BEFORE fetching image
             const hasAccess = await canAccessFile(req, file);
-            // Show blurred image for unauthenticated/underage users viewing adult content
             if (!hasAccess && file.is_adult) {
                 shouldBlur = true;
             }
-            // Block private content for users without access
-            if (!hasAccess && !file.is_public && !file.is_adult) {
-                return res.status(403).json({ 
-                    error: 'Access denied. You do not have permission to view this file.' 
+            // Video-folder comment PNGs: same as comment-images/ — still proxy; optional blur from parent is_adult.
+            // Do not 403 private parents (avoids broken <img> for comment attachments).
+            const isVideoFolderComment = isVideoFolderCommentAttachmentPath(splitUrl);
+            if (!isVideoFolderComment && !hasAccess && !file.is_public && !file.is_adult) {
+                return res.status(403).json({
+                    error: 'Access denied. You do not have permission to view this file.',
                 });
             }
         } else {
@@ -575,30 +601,55 @@ router.get('/*', async (req: Request, res: Response) => {
             // The main security is handled by the file lookup - if it's in the DB and is_adult, blur is applied
         }
 
-        const repo = resolveGithubRepoForFile(file);
         const branch = defaultGithubBranch();
+        let commentImageRepo: string | null = null;
+        if (isVideoFolderCommentAttachmentPath(splitUrl)) {
+            commentImageRepo = await lookupCommentImageGithubRepo(splitUrl);
+        }
+        const repos = isVideoFolderCommentAttachmentPath(splitUrl)
+            ? githubReposToTryForVideoCommentAttachment(file, commentImageRepo)
+            : [resolveGithubRepoForFile(file)];
 
         if (splitUrl.toLowerCase().endsWith('.json')) {
-            const body = await fetchGithubJsonWithRetry(splitUrl, repo, branch);
-            res.set({
-                'Content-Type': 'application/json',
-                'Cache-Control': 'public, max-age=300',
-                'CDN-Cache-Control': 'no-store',
-                'Vercel-CDN-Cache-Control': 'no-store',
-            });
-            return res.send(body);
+            let lastExhausted: ImageLoadExhaustedError | null = null;
+            for (const repo of repos) {
+                try {
+                    const body = await fetchGithubJsonWithRetry(splitUrl, repo, branch);
+                    res.set({
+                        'Content-Type': 'application/json',
+                        'Cache-Control': 'public, max-age=300',
+                        'CDN-Cache-Control': 'no-store',
+                        'Vercel-CDN-Cache-Control': 'no-store',
+                    });
+                    return res.send(body);
+                } catch (e) {
+                    if (e instanceof ImageLoadExhaustedError) lastExhausted = e;
+                    else throw e;
+                }
+            }
+            if (lastExhausted) throw lastExhausted;
+            throw new Error('No GitHub repo candidates for path');
         }
 
         // SECURITY: Now fetch image with shouldBlur flag already determined
-        // The shouldBlur flag is set BEFORE this call, ensuring access control is enforced
-        const result = await loadImageWithRetry(splitUrl, qualityParam, shouldBlur, repo, branch);
-        res.set({
-            'Content-Type': result.contentType,
-            'Cache-Control': result.cacheControl,  // browser can still cache
-            'CDN-Cache-Control': 'no-store',        // but Vercel edge won't
-            'Vercel-CDN-Cache-Control': 'no-store',
-        });
-        return res.send(result.buffer);
+        let lastExhausted: ImageLoadExhaustedError | null = null;
+        for (const repo of repos) {
+            try {
+                const result = await loadImageWithRetry(splitUrl, qualityParam, shouldBlur, repo, branch);
+                res.set({
+                    'Content-Type': result.contentType,
+                    'Cache-Control': result.cacheControl,
+                    'CDN-Cache-Control': 'no-store',
+                    'Vercel-CDN-Cache-Control': 'no-store',
+                });
+                return res.send(result.buffer);
+            } catch (e) {
+                if (e instanceof ImageLoadExhaustedError) lastExhausted = e;
+                else throw e;
+            }
+        }
+        if (lastExhausted) throw lastExhausted;
+        throw new Error('No GitHub repo candidates for path');
     } catch (error) {
         if (error instanceof ImageLoadExhaustedError) {
             return res.status(404).send(null);

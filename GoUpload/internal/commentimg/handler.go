@@ -14,6 +14,7 @@ import (
 	ghlib "goupload/lib/github"
 	"goupload/lib/nsfw"
 	"goupload/lib/nsfwstrikes"
+	"goupload/lib/webhook"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/go-github/v62/github"
@@ -192,6 +193,8 @@ func (h *Handler) upload(c *fiber.Ctx) error {
 		h.log.Errorf("comment-image GitHub upload failed: %v", err)
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "upload failed"})
 	}
+
+	webhook.NotifyCommentImageStorage(ghPath, h.ghRepo)
 
 	h.log.Infof("comment-image uploaded user=%s path=%s", uid, ghPath)
 

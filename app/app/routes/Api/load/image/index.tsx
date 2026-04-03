@@ -10,7 +10,9 @@ import {
     defaultGithubBranch,
     defaultGithubRepoForSharedAssets,
     defaultGithubRepoForStoredFile,
+    githubReposToTryForVideoCommentAttachment,
     githubRawFileUrl,
+    isVideoFolderCommentAttachmentPath,
     resolveGithubRepoForFile,
 } from '~/lib/githubStorage';
 
@@ -531,6 +533,22 @@ const getFileFromPath = async (path: string): Promise<any> => {
   // return file;
 };
 
+async function lookupCommentImageGithubRepo(storagePath: string): Promise<string | null> {
+  if (!db) return null;
+  try {
+    const { data, error } = await db
+      .from("comments")
+      .select("image_github_repo")
+      .eq("image_url", storagePath)
+      .maybeSingle();
+    if (error || !data) return null;
+    const r = (data as { image_github_repo?: string | null }).image_github_repo;
+    return typeof r === "string" && r.trim() ? r.trim() : null;
+  } catch {
+    return null;
+  }
+}
+
 export const loader = async ({ request }: { request: Request }) => {
     try {
         const url = new URL(request.url);
@@ -570,18 +588,14 @@ export const loader = async ({ request }: { request: Request }) => {
             return new Response(null, { status: 404 });
         }
 
-        // Determine if we should blur the image BEFORE fetching
-        // SECURITY: Check access before fetching to enforce access control
         let shouldBlur = false;
         if (file) {
-            // Check access BEFORE fetching image
             const hasAccess = await canAccessFile(request, file);
-            // Show blurred image for unauthenticated/underage users viewing adult content
             if (!hasAccess && file.is_adult) {
                 shouldBlur = true;
             }
-            // Block private content for users without access
-            if (!hasAccess && !file.is_public && !file.is_adult) {
+            const isVideoFolderComment = isVideoFolderCommentAttachmentPath(splitUrl);
+            if (!isVideoFolderComment && !hasAccess && !file.is_public && !file.is_adult) {
                 return new Response(
                     JSON.stringify({ error: 'Access denied. You do not have permission to view this file.' }),
                     { status: 403, headers: { 'Content-Type': 'application/json' } }
@@ -589,15 +603,40 @@ export const loader = async ({ request }: { request: Request }) => {
             }
         }
 
-        const repo = resolveGithubRepoForFile(file);
         const branch = defaultGithubBranch();
+        let commentImageRepo: string | null = null;
+        if (isVideoFolderCommentAttachmentPath(splitUrl)) {
+            commentImageRepo = await lookupCommentImageGithubRepo(splitUrl);
+        }
+        const repos = isVideoFolderCommentAttachmentPath(splitUrl)
+            ? githubReposToTryForVideoCommentAttachment(file, commentImageRepo)
+            : [resolveGithubRepoForFile(file)];
 
         if (splitUrl.toLowerCase().endsWith('.json')) {
-            return await fetchGithubJsonWithRetry(splitUrl, repo, branch);
+            let lastExhausted: ImageLoadExhaustedError | null = null;
+            for (const repo of repos) {
+                try {
+                    return await fetchGithubJsonWithRetry(splitUrl, repo, branch);
+                } catch (e) {
+                    if (e instanceof ImageLoadExhaustedError) lastExhausted = e;
+                    else throw e;
+                }
+            }
+            if (lastExhausted) throw lastExhausted;
+            throw new Error('No GitHub repo candidates for path');
         }
 
-        // SECURITY: Now fetch image with shouldBlur flag already determined
-        return await loadImageWithRetry(splitUrl, qualityParam, shouldBlur, isMetadata, repo, branch);
+        let lastExhausted: ImageLoadExhaustedError | null = null;
+        for (const repo of repos) {
+            try {
+                return await loadImageWithRetry(splitUrl, qualityParam, shouldBlur, isMetadata, repo, branch);
+            } catch (e) {
+                if (e instanceof ImageLoadExhaustedError) lastExhausted = e;
+                else throw e;
+            }
+        }
+        if (lastExhausted) throw lastExhausted;
+        throw new Error('No GitHub repo candidates for path');
     } catch (error) {
         if (error instanceof ImageLoadExhaustedError) {
             return new Response(null, { status: 404 });

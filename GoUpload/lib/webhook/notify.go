@@ -75,3 +75,48 @@ func NotifyJobStatus(p Payload) {
 		log.Printf("[webhook] NotifyJobStatus %s %s: success", p.JobID, p.Status)
 	}
 }
+
+// CommentImagePayload is sent after a comment image is stored in GitHub (same secret as upload-job-status).
+type CommentImagePayload struct {
+	ImageURL   string `json:"image_url"`
+	GitHubRepo string `json:"github_repo"`
+}
+
+// NotifyCommentImageStorage upserts path→repo so the app can set comments.image_github_repo when the comment row is created.
+func NotifyCommentImageStorage(imageURL, githubRepo string) {
+	imageURL = strings.TrimSpace(imageURL)
+	githubRepo = strings.TrimSpace(githubRepo)
+	if imageURL == "" || githubRepo == "" {
+		return
+	}
+	base := strings.TrimSuffix(env.Get("APP_BASE_URL", ""), "/")
+	secret := env.Get("UPLOAD_WEBHOOK_SECRET", "")
+	if base == "" || secret == "" {
+		log.Printf("[webhook] NotifyCommentImageStorage skipped: APP_BASE_URL=%q secret_set=%v", base, secret != "")
+		return
+	}
+	body, err := json.Marshal(CommentImagePayload{ImageURL: imageURL, GitHubRepo: githubRepo})
+	if err != nil {
+		log.Printf("[webhook] NotifyCommentImageStorage marshal: %v", err)
+		return
+	}
+	req, err := http.NewRequest(http.MethodPost, base+"/api/webhooks/comment-image-storage", bytes.NewReader(body))
+	if err != nil {
+		log.Printf("[webhook] NotifyCommentImageStorage newrequest: %v", err)
+		return
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Webhook-Secret", secret)
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		log.Printf("[webhook] NotifyCommentImageStorage %s: %v", imageURL, err)
+		return
+	}
+	resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		log.Printf("[webhook] NotifyCommentImageStorage %s: http %d", imageURL, resp.StatusCode)
+	} else {
+		log.Printf("[webhook] NotifyCommentImageStorage %s: success", imageURL)
+	}
+}

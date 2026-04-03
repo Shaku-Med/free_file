@@ -1,4 +1,5 @@
 import db from '../Database/supabase';
+import { stripCommentImageGithubRepoForClient } from '../githubStorage';
 
 export interface Comment {
   id: string;
@@ -69,12 +70,62 @@ function effectivelyHiddenCommentIds(
 }
 
 const COMMENT_SELECT_BASE =
-  'id, user_id, file_id, content, parent_id, created_at, updated_at, is_edited, is_deleted, gif_id, gif_url, gif_preview_url, image_url, image_type';
+  'id, user_id, file_id, content, parent_id, created_at, updated_at, is_edited, is_deleted, gif_id, gif_url, gif_preview_url, image_url, image_type, image_github_repo';
+
+function isMissingImageGithubRepoColumnError(err: { message?: string; details?: string; hint?: string } | null): boolean {
+  if (!err) return false;
+  const text = `${err.message || ''} ${err.details || ''} ${err.hint || ''}`.toLowerCase();
+  return text.includes('image_github_repo');
+}
 
 function isMissingIsHiddenColumnError(err: { message?: string; details?: string; hint?: string } | null): boolean {
   if (!err) return false;
   const text = `${err.message || ''} ${err.details || ''} ${err.hint || ''}`.toLowerCase();
   return text.includes('is_hidden');
+}
+
+/** Apply repo from Go webhook staging table (or GITHUB_REPO) after comment insert. */
+async function mergePendingCommentImageRepo(commentId: string, imagePath: string): Promise<void> {
+  if (!db) return;
+  const path = imagePath.trim();
+  if (!path) return;
+
+  const { data: pending, error: pendErr } = await db
+    .from('comment_image_upload_repos')
+    .select('github_repo')
+    .eq('storage_path', path)
+    .maybeSingle();
+
+  if (pendErr) {
+    const msg = `${pendErr.message || ''} ${(pendErr as { code?: string }).code || ''}`.toLowerCase();
+    if (msg.includes('comment_image_upload_repos') || msg.includes('does not exist')) {
+      console.warn('[comments] comment_image_upload_repos missing — run migration add_comment_image_upload_repos.sql');
+    }
+  }
+
+  let repo = typeof pending?.github_repo === 'string' ? pending.github_repo.trim() : '';
+  if (!repo) {
+    repo = process.env.GITHUB_REPO?.trim() || '';
+  }
+  if (repo) {
+    await db.from('comments').update({ image_github_repo: repo }).eq('id', commentId);
+  }
+  if (pending) {
+    await db.from('comment_image_upload_repos').delete().eq('storage_path', path);
+  }
+}
+
+/** DB / merged rows include `image_github_repo`; public `Comment` does not. */
+function commentForApiResponse(row: Record<string, unknown>): Comment {
+  return stripCommentImageGithubRepoForClient(row) as unknown as Comment;
+}
+
+function stripCommentBranchForApi(c: Comment): Comment {
+  const stripped = commentForApiResponse({ ...(c as unknown as Record<string, unknown>) });
+  if (c.replies?.length) {
+    return { ...stripped, replies: c.replies.map(stripCommentBranchForApi) };
+  }
+  return stripped;
 }
 
 export class CommentService {
@@ -108,26 +159,39 @@ export class CommentService {
       let rows: unknown[] | null = null;
       let fetchError = null as { message?: string; details?: string; hint?: string } | null;
 
-      const resFull = await db
+      const COMMENT_WITHOUT_IMAGE_REPO =
+        'id, user_id, file_id, content, parent_id, created_at, updated_at, is_edited, is_deleted, gif_id, gif_url, gif_preview_url, image_url, image_type';
+
+      let selectIncludesImageRepo = true;
+      let resFull = await db
         .from('comments')
         .select(`${COMMENT_SELECT_BASE}, is_hidden`)
         .eq('file_id', fileId)
         .eq('is_deleted', false)
         .limit(maxComments);
 
-      if (resFull.error && isMissingIsHiddenColumnError(resFull.error)) {
-        const resBase = await db
+      if (resFull.error && isMissingImageGithubRepoColumnError(resFull.error)) {
+        selectIncludesImageRepo = false;
+        resFull = await db
           .from('comments')
-          .select(COMMENT_SELECT_BASE)
+          .select(`${COMMENT_WITHOUT_IMAGE_REPO}, is_hidden`)
           .eq('file_id', fileId)
           .eq('is_deleted', false)
           .limit(maxComments);
-        rows = resBase.data;
-        fetchError = resBase.error;
-      } else {
-        rows = resFull.data;
-        fetchError = resFull.error;
       }
+
+      if (resFull.error && isMissingIsHiddenColumnError(resFull.error)) {
+        const cols = selectIncludesImageRepo ? COMMENT_SELECT_BASE : COMMENT_WITHOUT_IMAGE_REPO;
+        resFull = await db
+          .from('comments')
+          .select(cols)
+          .eq('file_id', fileId)
+          .eq('is_deleted', false)
+          .limit(maxComments);
+      }
+
+      rows = resFull.data;
+      fetchError = resFull.error;
 
       if (fetchError) {
         console.error('Error fetching comments:', fetchError);
@@ -150,6 +214,7 @@ export class CommentService {
         gif_preview_url?: string | null;
         image_url?: string | null;
         image_type?: string | null;
+        image_github_repo?: string | null;
       }>;
 
       const { data: ownerFile } = await db.from('files').select('owner_id').eq('id', fileId).maybeSingle();
@@ -275,7 +340,9 @@ export class CommentService {
         }
       }
 
-      const paginatedRoots = orderedRoots.slice(offset, offset + limit);
+      const paginatedRoots = orderedRoots
+        .slice(offset, offset + limit)
+        .map(stripCommentBranchForApi);
 
       return {
         data: { data: paginatedRoots, totalCount },
@@ -316,16 +383,16 @@ export class CommentService {
 
           if (userError || !userData) {
             console.error(`Error fetching user for reply ${reply.id}:`, userError);
-            return {
+            return commentForApiResponse({
               ...reply,
-              user: null
-            };
+              user: null,
+            } as Record<string, unknown>);
           }
 
-          return {
+          return commentForApiResponse({
             ...reply,
-            user: userData
-          };
+            user: userData,
+          } as Record<string, unknown>);
         })
       );
 
@@ -397,12 +464,26 @@ export class CommentService {
         return { data: null, error: 'Failed to fetch user data' };
       }
 
-      const commentData = {
-        ...insertedData,
-        user: userData
-      };
+      if (hasImage && input.image?.url && insertedData?.id) {
+        try {
+          await mergePendingCommentImageRepo(String(insertedData.id), input.image.url);
+        } catch (e) {
+          console.warn('[createComment] mergePendingCommentImageRepo:', e);
+        }
+      }
 
-      return { data: commentData as Comment, error: null };
+      const { data: finalRow } = await db
+        .from('comments')
+        .select('*')
+        .eq('id', insertedData.id)
+        .maybeSingle();
+
+      const commentData = commentForApiResponse({
+        ...(finalRow || insertedData),
+        user: userData,
+      } as Record<string, unknown>);
+
+      return { data: commentData, error: null };
     } catch (error) {
       console.error('Error in createComment:', error);
       return { data: null, error: 'Internal server error' };
@@ -466,12 +547,12 @@ export class CommentService {
         return { data: null, error: 'Failed to fetch user data' };
       }
 
-      const data = {
+      const data = commentForApiResponse({
         ...updatedData,
-        user: userData
-      };
+        user: userData,
+      } as Record<string, unknown>);
 
-      return { data: data as Comment, error: null };
+      return { data, error: null };
     } catch (error) {
       console.error('Error in updateComment:', error);
       return { data: null, error: 'Internal server error' };

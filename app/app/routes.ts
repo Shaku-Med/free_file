@@ -12,6 +12,7 @@ export default [
         route(`upload/thumbnail`, 'routes/Api/upload/thumbnail/index.tsx'),
         route(`upload-server-check`, 'routes/Api/upload-server-check/index.tsx'),
         route(`upload-job-status`, 'routes/Api/upload-job-status/index.tsx'),
+        route(`webhooks/comment-image-storage`, 'routes/Api/webhooks/comment-image-storage/index.tsx'),
         route(`load/video/*`, 'routes/Api/load/Video/index.tsx'),
         route(`load/image/*`, 'routes/Api/load/image/index.tsx'),
         route(`load/profilepic/*`, 'routes/Api/load/profilepic/index.tsx'),
