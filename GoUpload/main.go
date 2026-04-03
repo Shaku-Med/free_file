@@ -50,7 +50,6 @@ func main() {
 	ghToken := env.Get("GITHUB_TOKEN", "")
 	ghOwner := env.Get("GITHUB_OWNER", "")
 	ghRepo := strings.TrimSpace(env.Get("GITHUB_REPO", ""))
-	log.Println("ghRepo", ghRepo)
 	if ghToken != "" && ghOwner != "" && ghRepo == "" {
 		log.Fatal("GITHUB_REPO must be set when GITHUB_TOKEN and GITHUB_OWNER are set")
 	}
