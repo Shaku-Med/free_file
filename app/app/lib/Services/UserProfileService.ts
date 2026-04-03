@@ -1,4 +1,5 @@
 import db from '../Database/supabase';
+import { stripGithubRepoForClient } from '../githubStorage';
 import type { FileType } from '../types';
 
 export interface UserProfile {
@@ -114,7 +115,10 @@ export class UserProfileService {
         return { data: null, error: 'Failed to fetch user files' };
       }
 
-      return { data: data || [], error: null };
+      const rows = (data || []).map((r: Record<string, unknown>) =>
+        stripGithubRepoForClient(r),
+      ) as FileType[];
+      return { data: rows, error: null };
     } catch (error) {
       console.error('Error in getUserFiles:', error);
       return { data: null, error: 'Internal server error' };

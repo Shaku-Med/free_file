@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/gofiber/fiber/v2"
+	"goupload/lib/env"
 	"goupload/lib/logger"
 	"goupload/lib/queue"
 	"goupload/lib/webhook"
@@ -216,6 +217,7 @@ func (h *Handler) completeUpload(c *fiber.Ctx) error {
 		FileSeriesEpisodeID: fileSeriesEpisodeID,
 		IsNewSeries:         isNewSeries,
 		NewEpisodeName:      newEpisodeName,
+		GitHubRepo:          strings.TrimSpace(env.Get("GITHUB_REPO", "")),
 	})
 	if h.log != nil {
 		h.log.Infof("upload_queued user=%s upload=%s job=%s", userID, uploadID, jobID)

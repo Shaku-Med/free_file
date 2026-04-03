@@ -15,6 +15,7 @@ import {
   getThumbnailUrl,
 } from "~/lib/utils";
 import { formatNumber } from "~/lib/utils/formatNumber";
+import { stripGithubRepoForClient } from "~/lib/githubStorage";
 import { ownerService } from "~/lib/Services/OwnerService";
 import { buildPageMeta } from "~/lib/seo";
 
@@ -24,7 +25,7 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
       throw new Error("Database not initialized");
     }
 
-    const { data: file, error } = await db
+    const { data: rawFile, error } = await db
       .from("files")
       .select("*")
       .eq("id", params.id)
@@ -34,6 +35,10 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
       console.error("Error fetching reel file:", error);
       throw new Error("Failed to fetch reel file");
     }
+
+    const file = rawFile
+      ? (stripGithubRepoForClient(rawFile as Record<string, unknown>) as typeof rawFile)
+      : null;
 
     if (!file) {
       return data(

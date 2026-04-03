@@ -1,3 +1,11 @@
+Regenerate favicon + PNGs from /public/logo.svg after changing the logo:
+
+    npm run generate-icons
+
+Adds /public/favicon.ico and the files linked from root.tsx.
+
+---
+
 Add this to your HTML <head>:
 
     <link rel="icon" href="/favicon.ico" sizes="any">

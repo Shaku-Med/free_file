@@ -6,6 +6,13 @@ import {
 } from '~/lib/image/letterboxToSquare';
 import { canAccessFile } from '~/routes/Api/fun/accessControl';
 import { applyHeavyBlur } from '~/lib/blur/index';
+import {
+    defaultGithubBranch,
+    defaultGithubRepoForSharedAssets,
+    defaultGithubRepoForStoredFile,
+    githubRawFileUrl,
+    resolveGithubRepoForFile,
+} from '~/lib/githubStorage';
 
 /** Thrown when every GitHub fetch / decode attempt failed (loader maps to 404). */
 class ImageLoadExhaustedError extends Error {
@@ -91,14 +98,18 @@ function buildGithubRawAttemptUrls(splitUrl: string): string[] {
     return [splitUrl, ...buildImagePathRetryCandidates(splitUrl).filter((u) => u !== splitUrl)];
 }
 
-async function fetchGithubJsonWithRetry(splitUrl: string): Promise<Response> {
+async function fetchGithubJsonWithRetry(
+    splitUrl: string,
+    githubRepo: string,
+    branch: string,
+): Promise<Response> {
     const owner = process.env.GITHUB_OWNER;
     if (!owner) {
         throw new Error('GITHUB_OWNER is not set');
     }
     let lastError: unknown;
     for (const path of buildGithubRawAttemptUrls(splitUrl)) {
-        const rawUrl = `https://github.com/${owner}/Memories/raw/main/${path}`;
+        const rawUrl = githubRawFileUrl(owner, githubRepo, branch, path);
         try {
             const res = await fetch(rawUrl);
             if (res.ok) {
@@ -152,9 +163,15 @@ const loadImageWithRetry = async (
     qualityParam: string | null,
     shouldBlur: boolean = false,
     isMetadata: boolean = false,
+    githubRepo: string = defaultGithubRepoForStoredFile(),
+    branch: string = defaultGithubBranch(),
 ): Promise<Response> => {
+    const owner = process.env.GITHUB_OWNER;
+    if (!owner) {
+        throw new Error('GITHUB_OWNER is not set');
+    }
     const tryLoadImage = async (urlPath: string): Promise<Response> => {
-        const videoUrl = `https://github.com/${process.env.GITHUB_OWNER}/Memories/raw/main/${urlPath}`;
+        const videoUrl = githubRawFileUrl(owner, githubRepo, branch, urlPath);
         const response = await fetch(videoUrl);
     
         if (!response.ok) throw new Error('Fetch failed');
@@ -464,7 +481,7 @@ const getFileFromPath = async (path: string): Promise<any> => {
     const uniqueId = pathParts[1];
     const { data } = await db
       .from('files')
-      .select('*')
+      .select('id, is_adult, is_public, owner_id, upload_status, github_repo')
       .eq('unique_id', uniqueId)
       .maybeSingle();
     return data || null;
@@ -536,7 +553,14 @@ export const loader = async ({ request }: { request: Request }) => {
 
         // Comment images are public — no access control needed, just proxy from GitHub
         if (splitUrl.startsWith('comment-images/')) {
-            return await loadImageWithRetry(splitUrl, qualityParam, false, isMetadata);
+            return await loadImageWithRetry(
+                splitUrl,
+                qualityParam,
+                false,
+                isMetadata,
+                defaultGithubRepoForSharedAssets(),
+                defaultGithubBranch(),
+            );
         }
 
         // SECURITY: CRITICAL - Check access BEFORE fetching image from GitHub
@@ -565,12 +589,15 @@ export const loader = async ({ request }: { request: Request }) => {
             }
         }
 
+        const repo = resolveGithubRepoForFile(file);
+        const branch = defaultGithubBranch();
+
         if (splitUrl.toLowerCase().endsWith('.json')) {
-            return await fetchGithubJsonWithRetry(splitUrl);
+            return await fetchGithubJsonWithRetry(splitUrl, repo, branch);
         }
 
         // SECURITY: Now fetch image with shouldBlur flag already determined
-        return await loadImageWithRetry(splitUrl, qualityParam, shouldBlur, isMetadata);
+        return await loadImageWithRetry(splitUrl, qualityParam, shouldBlur, isMetadata, repo, branch);
     } catch (error) {
         if (error instanceof ImageLoadExhaustedError) {
             return new Response(null, { status: 404 });

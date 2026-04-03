@@ -37,6 +37,7 @@ type Payload struct {
 	FileSeriesEpisodeID string `json:"file_series_episode_id,omitempty"`
 	IsNewSeries         bool   `json:"is_new_series,omitempty"`
 	NewEpisodeName      string `json:"new_episode_name,omitempty"`
+	GitHubRepo          string `json:"github_repo,omitempty"`
 }
 
 // NotifyJobStatus sends the payload to the app's /api/upload-job-status.

@@ -12,6 +12,7 @@
 -- ============================================================
 -- Run in Supabase SQL Editor. Replaces get_feed, get_reel_feed, get_related.
 -- Feed visibility: exclude episode-only files (is_files_series_item without is_series_main).
+-- Storage: files.github_repo is server-only — never add f.github_repo to SELECT / RETURNS here.
 -- ============================================================
 
 

@@ -6,6 +6,12 @@ import {
   rewriteM3U8,
 } from "~/lib/Services/SegmentTokenService";
 import db from "~/lib/Database/supabase";
+import {
+  defaultGithubBranch,
+  defaultGithubRepoForStoredFile,
+  githubRawFileUrl,
+  resolveGithubRepoForFile,
+} from "~/lib/githubStorage";
 import { checkFileAccess } from "~/routes/Dynamic/fun/accessControl";
 
 const getFileFromPath = async (path: string) => {
@@ -14,7 +20,7 @@ const getFileFromPath = async (path: string) => {
   const uniqueId = pathParts.length > 2 ? pathParts[1] : pathParts[0];
   const { data } = await db
     .from("files")
-    .select("id, is_adult, is_public, owner_id")
+    .select("id, is_adult, is_public, owner_id, github_repo")
     .eq("unique_id", uniqueId)
     .maybeSingle();
   return data || null;
@@ -80,7 +86,14 @@ export const loader = async ({ request }: { request: Request }) => {
       }
     }
 
-    const videoUrl = `https://github.com/${process.env.GITHUB_OWNER}/Memories/raw/main/${sanitizedPath}`;
+    const owner = process.env.GITHUB_OWNER;
+    if (!owner) {
+      console.error("GITHUB_OWNER is not set");
+      return new Response(null, { status: 500 });
+    }
+    const repo = file ? resolveGithubRepoForFile(file) : defaultGithubRepoForStoredFile();
+    const branch = defaultGithubBranch();
+    const videoUrl = githubRawFileUrl(owner, repo, branch, sanitizedPath);
     const response = await fetch(videoUrl);
     if (!response.ok) throw new Error("Fetch failed");
 

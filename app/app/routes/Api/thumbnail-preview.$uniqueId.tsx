@@ -1,5 +1,10 @@
 import { data } from 'react-router';
 import db from '~/lib/Database/supabase';
+import {
+  defaultGithubBranch,
+  githubRawFileUrl,
+  resolveGithubRepoForFile,
+} from '~/lib/githubStorage';
 import { canAccessFile } from '~/routes/Api/fun/accessControl';
 
 const CELL_WIDTH = 160;
@@ -26,7 +31,7 @@ export const loader = async ({
 
   const { data: file, error } = await db
     .from('files')
-    .select('unique_id, thumbnails, duration, is_public, is_adult, upload_status')
+    .select('unique_id, thumbnails, duration, is_public, is_adult, upload_status, github_repo')
     .eq('unique_id', uniqueId)
     .maybeSingle();
 
@@ -83,7 +88,13 @@ export const loader = async ({
       return data({ error: 'Image processing unavailable' }, { status: 503 });
     }
 
-    const baseUrl = `https://github.com/${process.env.GITHUB_OWNER}/Memories/raw/main/`;
+    const owner = process.env.GITHUB_OWNER;
+    if (!owner) {
+      return data({ error: 'Storage not configured' }, { status: 503 });
+    }
+    const repo = resolveGithubRepoForFile(file as { github_repo?: string | null });
+    const branch = defaultGithubBranch();
+    const baseUrl = githubRawFileUrl(owner, repo, branch, '');
     const width = cols * CELL_WIDTH;
     const height = rows * CELL_HEIGHT;
     const compositeInput: { input: Buffer; top: number; left: number }[] = [];

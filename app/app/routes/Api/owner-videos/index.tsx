@@ -2,6 +2,7 @@ import { data } from "react-router"
 import { isAuthenticated } from "~/lib/Security/Password"
 import { filterFilesByAccess } from "../fun/accessControl"
 import { ownerService } from "~/lib/Services/OwnerService"
+import { stripGithubRepoForClient } from "~/lib/githubStorage"
 import db from "~/lib/Database/supabase"
 
 export const loader = async ({ request }: { request: Request }) => {
@@ -66,7 +67,7 @@ export const loader = async ({ request }: { request: Request }) => {
     }
 
     const filesWithDefaults = rows.map((file: any) => ({
-      ...file,
+      ...stripGithubRepoForClient(file as Record<string, unknown>),
       is_adult: file.is_adult ?? false,
       is_public: file.is_public ?? true,
       owner_id: file.owner_id ?? ""

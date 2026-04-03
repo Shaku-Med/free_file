@@ -246,6 +246,7 @@ export const action = async ({ request }: { request: Request }) => {
     file_series_id?: string;
     file_series_episode_id?: string;
     new_episode_name?: string;
+    github_repo?: string;
   };
   try {
     body = await request.json();
@@ -298,6 +299,9 @@ export const action = async ({ request }: { request: Request }) => {
     const description = typeof body?.description === 'string' ? body.description.trim().slice(0, 2000) : '';
     const file_type = inferFileType(file_name);
 
+    const uploadTargetRepo =
+      (typeof body?.github_repo === 'string' ? body.github_repo.trim() : '') ||
+      (typeof process.env.GITHUB_REPO === 'string' ? process.env.GITHUB_REPO.trim() : '');
     const fileRow: Record<string, unknown> = {
       unique_id: upload_id,
       filename: file_name,
@@ -313,6 +317,9 @@ export const action = async ({ request }: { request: Request }) => {
       file_type,
       created_at: updated_at,
     };
+    if (uploadTargetRepo) {
+      fileRow.github_repo = uploadTargetRepo;
+    }
 
     const { error: filesErr } = await db
       .from('files')
@@ -372,6 +379,11 @@ export const action = async ({ request }: { request: Request }) => {
     const updateData: Record<string, any> = { upload_status: 'complete' };
     if (endpoint) {
       updateData.endpoint = endpoint;
+    }
+    const ghRepo =
+      typeof body?.github_repo === 'string' ? body.github_repo.trim() : '';
+    if (ghRepo) {
+      updateData.github_repo = ghRepo;
     }
     if (thumbnails.length > 0) {
       updateData.thumbnails = thumbnails;

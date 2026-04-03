@@ -5,6 +5,13 @@ import { createCanvas, loadImage } from 'canvas';
 import db from '../utils/database.js';
 import { canAccessFile } from '../utils/auth.js';
 import { applyHeavyBlur } from '../utils/blur/index.js';
+import {
+    defaultGithubBranch,
+    defaultGithubRepoForSharedAssets,
+    defaultGithubRepoForStoredFile,
+    githubRawFileUrl,
+    resolveGithubRepoForFile,
+} from '../utils/githubStorage.js';
 
 const router = express.Router();
 
@@ -91,13 +98,17 @@ function buildGithubRawAttemptUrls(splitUrl: string): string[] {
     return [splitUrl, ...buildImagePathRetryCandidates(splitUrl).filter((u) => u !== splitUrl)];
 }
 
-async function fetchGithubJsonWithRetry(splitUrl: string): Promise<string> {
+async function fetchGithubJsonWithRetry(
+    splitUrl: string,
+    githubRepo: string,
+    branch: string,
+): Promise<string> {
     const owner = process.env.GITHUB_OWNER;
     if (!owner) {
         throw new Error('GITHUB_OWNER is not set');
     }
     for (const path of buildGithubRawAttemptUrls(splitUrl)) {
-        const rawUrl = `https://github.com/${owner}/Memories/raw/main/${path}`;
+        const rawUrl = githubRawFileUrl(owner, githubRepo, branch, path);
         try {
             const res = await fetch(rawUrl);
             if (res.ok) {
@@ -145,9 +156,19 @@ interface ImageResult {
     cacheControl: string;
 }
 
-const loadImageWithRetry = async (splitUrl: string, qualityParam: string | null, shouldBlur: boolean = false): Promise<ImageResult> => {
+const loadImageWithRetry = async (
+    splitUrl: string,
+    qualityParam: string | null,
+    shouldBlur: boolean = false,
+    githubRepo: string = defaultGithubRepoForStoredFile(),
+    branch: string = defaultGithubBranch(),
+): Promise<ImageResult> => {
+    const owner = process.env.GITHUB_OWNER;
+    if (!owner) {
+        throw new Error('GITHUB_OWNER is not set');
+    }
     const tryLoadImage = async (urlPath: string): Promise<ImageResult> => {
-        const videoUrl = `https://github.com/${process.env.GITHUB_OWNER}/Memories/raw/main/${urlPath}`;
+        const videoUrl = githubRawFileUrl(owner, githubRepo, branch, urlPath);
         const response = await fetch(videoUrl);
     
         if (!response.ok) throw new Error('Fetch failed');
@@ -418,7 +439,7 @@ const getFileFromPath = async (path: string): Promise<any> => {
         const uniqueId = pathParts[1];
         const { data } = await db
             .from('files')
-            .select('*')
+            .select('id, is_adult, is_public, owner_id, upload_status, github_repo')
             .eq('unique_id', uniqueId)
             .maybeSingle();
 
@@ -506,7 +527,13 @@ router.get('/*', async (req: Request, res: Response) => {
 
         // Comment images are public — no access control needed, just proxy from GitHub
         if (splitUrl.startsWith('comment-images/')) {
-            const result = await loadImageWithRetry(splitUrl, qualityParam, false);
+            const result = await loadImageWithRetry(
+                splitUrl,
+                qualityParam,
+                false,
+                defaultGithubRepoForSharedAssets(),
+                defaultGithubBranch(),
+            );
             res.set({
                 'Content-Type': result.contentType,
                 'Cache-Control': result.cacheControl,
@@ -548,8 +575,11 @@ router.get('/*', async (req: Request, res: Response) => {
             // The main security is handled by the file lookup - if it's in the DB and is_adult, blur is applied
         }
 
+        const repo = resolveGithubRepoForFile(file);
+        const branch = defaultGithubBranch();
+
         if (splitUrl.toLowerCase().endsWith('.json')) {
-            const body = await fetchGithubJsonWithRetry(splitUrl);
+            const body = await fetchGithubJsonWithRetry(splitUrl, repo, branch);
             res.set({
                 'Content-Type': 'application/json',
                 'Cache-Control': 'public, max-age=300',
@@ -561,7 +591,7 @@ router.get('/*', async (req: Request, res: Response) => {
 
         // SECURITY: Now fetch image with shouldBlur flag already determined
         // The shouldBlur flag is set BEFORE this call, ensuring access control is enforced
-        const result = await loadImageWithRetry(splitUrl, qualityParam, shouldBlur);
+        const result = await loadImageWithRetry(splitUrl, qualityParam, shouldBlur, repo, branch);
         res.set({
             'Content-Type': result.contentType,
             'Cache-Control': result.cacheControl,  // browser can still cache

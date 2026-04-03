@@ -19,6 +19,7 @@ import { motion } from "framer-motion";
 import { ChevronDown, ShieldAlert } from "lucide-react";
 import { useSidebar } from "~/components/ui/sidebar";
 import { useStandalone } from "~/lib/hooks/useStandalone";
+import { stripGithubRepoForClient } from "~/lib/githubStorage";
 import { checkFileAccess } from "./fun/accessControl";
 import AdultContentBadge from "./components/AdultContentBadge";
 import ImagePreview from "./components/ImagePreview/ImagePreview";
@@ -68,7 +69,7 @@ export const loader = async ({ request, params }: { request: Request, params: { 
       throw new Error('Database not initialized');
     }
 
-    const { data: file, error } = await db
+    const { data: rawFile, error } = await db
       .from('files')
       .select('*')
       .eq('unique_id', params.id).maybeSingle();
@@ -77,6 +78,16 @@ export const loader = async ({ request, params }: { request: Request, params: { 
       console.error('Error fetching file:', error);
       throw new Error('Failed to fetch file');
     }
+
+    const file = rawFile
+      ? (() => {
+          const stripped = stripGithubRepoForClient(
+            rawFile as Record<string, unknown>,
+          ) as Record<string, unknown>;
+          const { thumbnails: _omitThumbnails, ...rest } = stripped;
+          return rest as typeof rawFile;
+        })()
+      : null;
 
     if (!file) {
       return data({

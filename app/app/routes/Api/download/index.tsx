@@ -6,6 +6,11 @@ import db from "~/lib/Database/supabase";
 import { randomUUID } from "crypto";
 import { BASE_URL } from "~/lib/URLS";
 import { isValidUUID } from "~/lib/Security/inputValidation";
+import {
+  defaultGithubBranch,
+  githubRawFileUrl,
+  resolveGithubRepoForFile,
+} from "~/lib/githubStorage";
 
 export const action = async ({ request }: { request: Request }) => {
   try {
@@ -63,7 +68,9 @@ export const action = async ({ request }: { request: Request }) => {
       downloadUrl = `${baseUrl}/api/load/image/${file.endpoint}`;
     } else {
       const owner = process.env.GITHUB_OWNER || "";
-      downloadUrl = `https://github.com/${owner}/Memories/raw/main/${file.endpoint}`;
+      const repo = resolveGithubRepoForFile(file);
+      const branch = defaultGithubBranch();
+      downloadUrl = githubRawFileUrl(owner, repo, branch, file.endpoint);
     }
 
     // Generate filename

@@ -192,6 +192,8 @@ export function Layout({ children }: { children: React.ReactNode }) {
           <meta name="apple-mobile-web-app-title" content={SITE_NAME} />
           <meta name="mobile-web-app-title" content={SITE_NAME} />
           <link rel="stylesheet" href="/themes/default.css" />
+          <link rel="shortcut icon" href="/favicon.ico" sizes="any" type="image/x-icon" />
+          <link rel="icon" href="/favicon.ico" sizes="any" type="image/x-icon" />
           <Meta />
           <Links />
         </head>
@@ -221,14 +223,15 @@ export function Layout({ children }: { children: React.ReactNode }) {
         <meta name="mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-title" content={SITE_NAME} />
         <meta name="mobile-web-app-title" content={SITE_NAME} />
-        <link rel="stylesheet" href={`/themes/${themeStyle}.css`} />
-        <link rel="manifest" href="/manifest.json" />
-        <link rel="shortcut icon" href="/favicon.ico" sizes="any" type="image/x-icon" />
-        <link rel="icon" href="/icons/web/icon-192.png" type="image/png" sizes="192x192" />
-        <link rel="icon" href="/icons/web/icon-512.png" type="image/png" sizes="512x512" />
-        <link rel="icon" href="/icons/web/icon-192-maskable.png" type="image/png" sizes="192x192" />
-        <link rel="icon" href="/icons/web/icon-512-maskable.png" type="image/png" sizes="512x512" />
-        <link rel="apple-touch-icon" href="/icons/web/apple-touch-icon.png" />
+        <link rel="stylesheet" href={`${BASE_URL}/themes/${themeStyle}.css`} />
+        <link rel="manifest" href={`${BASE_URL}/manifest.json`} />
+        <link rel="shortcut icon" href={`${BASE_URL}/favicon.ico`} sizes="any" type="image/x-icon" />
+        <link rel="icon" href={`${BASE_URL}/favicon.ico`} sizes="any" type="image/x-icon" />
+        <link rel="icon" href={`${BASE_URL}/icons/web/icon-192.png`} type="image/png" sizes="192x192" />
+        <link rel="icon" href={`${BASE_URL}/icons/web/icon-512.png`} type="image/png" sizes="512x512" />
+        <link rel="icon" href={`${BASE_URL}/icons/web/icon-192-maskable.png`} type="image/png" sizes="192x192" />
+        <link rel="icon" href={`${BASE_URL}/icons/web/icon-512-maskable.png`} type="image/png" sizes="512x512" />
+        <link rel="apple-touch-icon" href={`${BASE_URL}/icons/web/apple-touch-icon.png`} />
         <script
           type="application/ld+json"
           dangerouslySetInnerHTML={{
@@ -245,6 +248,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
             }),
           }}
         />
+        
         <Meta />
         <Links />
 

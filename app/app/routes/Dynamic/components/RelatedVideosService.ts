@@ -1,3 +1,4 @@
+import { stripGithubRepoForClient } from "~/lib/githubStorage";
 import db from "~/lib/Database/supabase";
 import type { FileType } from "~/lib/types";
 import { filterFilesByAccess } from "~/routes/Api/fun/accessControl";
@@ -35,7 +36,9 @@ export const getRandomVideos = async (
     let suggestions: FileType[] = [];
 
     if (relatedFiles && relatedFiles.length > 0) {
-      suggestions = relatedFiles as FileType[];
+      suggestions = relatedFiles.map((r: Record<string, unknown>) =>
+        stripGithubRepoForClient(r),
+      ) as FileType[];
     }
 
     if (suggestions.length < limit) {
@@ -44,9 +47,9 @@ export const getRandomVideos = async (
         .limit((limit - suggestions.length) * 2);
 
       if (fallbackFiles) {
-        const fallback = fallbackFiles.filter(
-          (file: FileType) => !suggestions.some(s => s.id === file.id)
-        ) as FileType[];
+        const fallback = fallbackFiles
+          .filter((file: FileType) => !suggestions.some(s => s.id === file.id))
+          .map((r: Record<string, unknown>) => stripGithubRepoForClient(r)) as FileType[];
         suggestions = [...suggestions, ...fallback];
       }
     }

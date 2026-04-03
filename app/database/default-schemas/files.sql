@@ -33,6 +33,7 @@ create table public.files (
   file_series_id uuid null,
   file_series_episode_id uuid null,
   is_files_series_item boolean null,
+  github_repo text null default 'Memories'::text,
   constraint playlists_pkey primary key (id),
   constraint files_unique_id_key unique (unique_id),
   constraint files_file_series_episode_id_fkey foreign KEY (file_series_episode_id) references files_series_episodes (id) on update CASCADE on delete CASCADE,
