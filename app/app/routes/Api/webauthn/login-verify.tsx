@@ -81,21 +81,34 @@ export const action = async ({ request }: { request: Request }) => {
     return json({ error: PasskeyUserMessage.loginDidNotWork }, 400);
   }
 
-  const publicKey = new Uint8Array(Buffer.from(row.public_key, "base64"));
-  const { origin, rpID } = getWebAuthnConfig(request);
+  let publicKey: Uint8Array;
+  try {
+    publicKey = new Uint8Array(Buffer.from(row.public_key, "base64"));
+  } catch (e) {
+    console.error("webauthn login-verify public key:", e);
+    return json({ error: PasskeyUserMessage.loginDidNotWork }, 400);
+  }
 
-  const verification = await verifyAuthenticationResponse({
-    response: authResponse,
-    expectedChallenge: stored.challenge,
-    expectedOrigin: origin,
-    expectedRPID: rpID,
-    credential: {
-      id: row.credential_id,
-      publicKey,
-      counter: Number(row.counter),
-      transports: row.transports || undefined,
-    },
-  });
+  const { expectedOrigins, rpID } = getWebAuthnConfig(request);
+
+  let verification: Awaited<ReturnType<typeof verifyAuthenticationResponse>>;
+  try {
+    verification = await verifyAuthenticationResponse({
+      response: authResponse,
+      expectedChallenge: stored.challenge,
+      expectedOrigin: expectedOrigins,
+      expectedRPID: rpID,
+      credential: {
+        id: row.credential_id,
+        publicKey,
+        counter: Number(row.counter),
+        transports: row.transports || undefined,
+      },
+    });
+  } catch (e) {
+    console.error("webauthn login-verify:", e);
+    return json({ error: PasskeyUserMessage.loginDidNotWork }, 400);
+  }
 
   if (!verification.verified) {
     return json({ error: PasskeyUserMessage.loginDidNotWork }, 400);

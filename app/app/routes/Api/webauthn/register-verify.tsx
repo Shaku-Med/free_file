@@ -52,21 +52,33 @@ export const action = async ({ request }: { request: Request }) => {
     return json({ error: PasskeyUserMessage.addPasskeyFailed }, 400);
   }
 
-  const { origin, rpID } = getWebAuthnConfig(request);
+  const { expectedOrigins, rpID } = getWebAuthnConfig(request);
 
-  const verification = await verifyRegistrationResponse({
-    response: regResponse,
-    expectedChallenge: stored.challenge,
-    expectedOrigin: origin,
-    expectedRPID: rpID,
-  });
+  let verification: Awaited<ReturnType<typeof verifyRegistrationResponse>>;
+  try {
+    verification = await verifyRegistrationResponse({
+      response: regResponse,
+      expectedChallenge: stored.challenge,
+      expectedOrigin: expectedOrigins,
+      expectedRPID: rpID,
+    });
+  } catch (e) {
+    console.error("webauthn register-verify:", e);
+    return json({ error: PasskeyUserMessage.addPasskeyFailed }, 400);
+  }
 
   if (!verification.verified || !verification.registrationInfo) {
     return json({ error: PasskeyUserMessage.addPasskeyFailed }, 400);
   }
 
   const { credential } = verification.registrationInfo;
-  const publicKeyB64 = Buffer.from(credential.publicKey).toString("base64");
+  let publicKeyB64: string;
+  try {
+    publicKeyB64 = Buffer.from(credential.publicKey).toString("base64");
+  } catch (e) {
+    console.error("webauthn register-verify credential buffer:", e);
+    return json({ error: PasskeyUserMessage.addPasskeyFailed }, 400);
+  }
 
   if (!db) {
     return json({ error: PasskeyUserMessage.tryAgainLater }, 503);
