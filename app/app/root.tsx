@@ -111,7 +111,9 @@ let makeSessionToken = async (headers: Headers) => {
 
 const getRequestURL = (request: Request) => {
   try {
-    return new URL(request.url)?.origin;
+    const origin = new URL(request.url)?.origin;
+    let newBaseURL = origin.toLowerCase() == BASE_URL.toLowerCase() ? BASE_URL : origin;
+    return newBaseURL;
   }
   catch (error) {
     return null
@@ -223,8 +225,6 @@ export function Layout({ children }: { children: React.ReactNode }) {
   const themeClass = userTheme?.theme ?? "system";
   const themeStyle = userTheme?.style ?? "default";
 
-  let newBaseURL = requestURL.toLowerCase() == BASE_URL.toLowerCase() ? BASE_URL : requestURL;
-
   return (
     <html className={`${themeClass} overflow-hidden h-full w-full fixed top-0 left-0`} lang="en">
       <head>
@@ -235,15 +235,15 @@ export function Layout({ children }: { children: React.ReactNode }) {
         <meta name="mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-title" content={SITE_NAME} />
         <meta name="mobile-web-app-title" content={SITE_NAME} />
-        <link rel="stylesheet" href={`${newBaseURL}/themes/${themeStyle}.css`} />
-        <link rel="manifest" href={`${newBaseURL}/manifest.json`} />
-        <link rel="shortcut icon" href={`${newBaseURL}/favicon.ico`} sizes="any" type="image/x-icon" />
-        <link rel="icon" href={`${newBaseURL}/favicon.ico`} sizes="any" type="image/x-icon" />
-        <link rel="icon" href={`${newBaseURL}/icons/web/icon-192.png`} type="image/png" sizes="192x192" />
-        <link rel="icon" href={`${newBaseURL}/icons/web/icon-512.png`} type="image/png" sizes="512x512" />
-        <link rel="icon" href={`${newBaseURL}/icons/web/icon-192-maskable.png`} type="image/png" sizes="192x192" />
-        <link rel="icon" href={`${newBaseURL}/icons/web/icon-512-maskable.png`} type="image/png" sizes="512x512" />
-        <link rel="apple-touch-icon" href={`${newBaseURL}/icons/web/apple-touch-icon.png`} />
+        <link rel="stylesheet" href={`${isDevelopmentServer ? requestURL : BASE_URL}/themes/${themeStyle}.css`} />
+        <link rel="manifest" href={`${isDevelopmentServer ? requestURL : BASE_URL}/manifest.json`} />
+        <link rel="shortcut icon" href={`${isDevelopmentServer ? requestURL : BASE_URL}/favicon.ico`} sizes="any" type="image/x-icon" />
+        <link rel="icon" href={`${isDevelopmentServer ? requestURL : BASE_URL}/favicon.ico`} sizes="any" type="image/x-icon" />
+        <link rel="icon" href={`${isDevelopmentServer ? requestURL : BASE_URL}/icons/web/icon-192.png`} type="image/png" sizes="192x192" />
+        <link rel="icon" href={`${isDevelopmentServer ? requestURL : BASE_URL}/icons/web/icon-512.png`} type="image/png" sizes="512x512" />
+        <link rel="icon" href={`${isDevelopmentServer ? requestURL : BASE_URL}/icons/web/icon-192-maskable.png`} type="image/png" sizes="192x192" />
+        <link rel="icon" href={`${isDevelopmentServer ? requestURL : BASE_URL}/icons/web/icon-512-maskable.png`} type="image/png" sizes="512x512" />
+        <link rel="apple-touch-icon" href={`${isDevelopmentServer ? requestURL : BASE_URL}/icons/web/apple-touch-icon.png`} />
         <script
           type="application/ld+json"
           dangerouslySetInnerHTML={{
@@ -251,10 +251,10 @@ export function Layout({ children }: { children: React.ReactNode }) {
               "@context": "https://schema.org",
               "@type": "WebSite",
               name: SITE_NAME,
-              url: newBaseURL,
+              url: isDevelopmentServer ? requestURL : BASE_URL,
               potentialAction: {
                 "@type": "SearchAction",
-                target: `${newBaseURL}/search/{search_term_string}`,
+                target: `${isDevelopmentServer ? requestURL : BASE_URL}/search/{search_term_string}`,
                 "query-input": "required name=search_term_string",
               },
             }),
