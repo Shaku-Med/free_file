@@ -125,9 +125,13 @@ export default function SeekBarSpectrum({ analyser, active, variant }: Props) {
     };
 
     let rafId = 0;
-    const tick = () => {
+    let lastFrameTime = 0;
+    const FRAME_BUDGET = 33;
+    const tick = (now: number) => {
       rafId = requestAnimationFrame(tick);
       if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
+      if (now - lastFrameTime < FRAME_BUDGET) return;
+      lastFrameTime = now;
 
       const w = wrap.clientWidth;
       const h = wrap.clientHeight;

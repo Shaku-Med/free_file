@@ -30,8 +30,88 @@ function BufferSegments({ ranges, duration, className }: {
   );
 }
 
+function useVideoProgress(videoRef: React.RefObject<HTMLVideoElement | null>) {
+  const progressRef = useRef(0);
+  const durationRef = useRef(0);
+  const barRef = useRef<HTMLDivElement>(null);
+  const handleRef = useRef<HTMLDivElement>(null);
+  const timeRef = useRef<HTMLSpanElement>(null);
+
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+
+    let rafId = 0;
+    let running = false;
+
+    const update = () => {
+      if (!running) return;
+      const v = videoRef.current;
+      if (v && v.duration > 0) {
+        const pct = (v.currentTime / v.duration) * 100;
+        progressRef.current = pct;
+        durationRef.current = v.duration;
+        if (barRef.current) barRef.current.style.width = `${pct}%`;
+        if (handleRef.current) handleRef.current.style.left = `calc(${pct}% - 6px)`;
+        if (timeRef.current) timeRef.current.textContent = formatTime(v.currentTime);
+      }
+      rafId = requestAnimationFrame(update);
+    };
+
+    const start = () => {
+      if (running) return;
+      running = true;
+      rafId = requestAnimationFrame(update);
+    };
+
+    const stop = () => {
+      running = false;
+      if (rafId) {
+        cancelAnimationFrame(rafId);
+        rafId = 0;
+      }
+      const v = videoRef.current;
+      if (v && v.duration > 0) {
+        const pct = (v.currentTime / v.duration) * 100;
+        progressRef.current = pct;
+        if (barRef.current) barRef.current.style.width = `${pct}%`;
+        if (handleRef.current) handleRef.current.style.left = `calc(${pct}% - 6px)`;
+      }
+    };
+
+    const onSeeked = () => {
+      const v = videoRef.current;
+      if (v && v.duration > 0) {
+        const pct = (v.currentTime / v.duration) * 100;
+        progressRef.current = pct;
+        if (barRef.current) barRef.current.style.width = `${pct}%`;
+        if (handleRef.current) handleRef.current.style.left = `calc(${pct}% - 6px)`;
+      }
+    };
+
+    if (!video.paused && !video.ended) start();
+
+    video.addEventListener('play', start);
+    video.addEventListener('pause', stop);
+    video.addEventListener('ended', stop);
+    video.addEventListener('seeked', onSeeked);
+
+    return () => {
+      running = false;
+      if (rafId) cancelAnimationFrame(rafId);
+      video.removeEventListener('play', start);
+      video.removeEventListener('pause', stop);
+      video.removeEventListener('ended', stop);
+      video.removeEventListener('seeked', onSeeked);
+    };
+  }, [videoRef]);
+
+  return { progressRef, durationRef, barRef, handleRef, timeRef };
+}
+
 export default function SeekBar() {
   const {
+    videoRef,
     state,
     seek,
     spriteMeta,
@@ -47,6 +127,8 @@ export default function SeekBar() {
   const [trackWidth, setTrackWidth] = useState(0);
   const [waveformError, setWaveformError] = useState(false);
 
+  const { barRef, handleRef, timeRef } = useVideoProgress(videoRef);
+
   useEffect(() => {
     if (!waveformUrl) {
       setWaveformError(false);
@@ -61,12 +143,13 @@ export default function SeekBar() {
   const getTimeFromX = useCallback(
     (clientX: number) => {
       const track = trackRef.current;
-      if (!track || !state.duration) return 0;
+      const video = videoRef.current;
+      if (!track || !video?.duration) return 0;
       const rect = track.getBoundingClientRect();
       const ratio = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
-      return ratio * state.duration;
+      return ratio * video.duration;
     },
-    [state.duration]
+    [videoRef]
   );
 
   const handlePointerDown = useCallback(
@@ -166,7 +249,6 @@ export default function SeekBar() {
           onPointerUp={handlePointerUp}
           onMouseLeave={handleMouseLeave}
         >
-          {/* White outline waveform */}
           <div
             className="absolute inset-0 opacity-90"
             style={{
@@ -179,7 +261,6 @@ export default function SeekBar() {
             }}
           />
 
-          {/* Thin progress bar at bottom with buffer segments */}
           <div className="absolute bottom-0 left-0 right-0 h-[3px] bg-secondary">
             <BufferSegments
               ranges={bufferedRanges}
@@ -187,13 +268,14 @@ export default function SeekBar() {
               className="bg-white/20 rounded-full"
             />
             <div
+              ref={barRef}
               className="absolute top-0 left-0 h-full bg-primary"
               style={{ width: `${progress}%` }}
             />
           </div>
 
-          {/* Primary circular seeker handle */}
           <div
+            ref={handleRef}
             className="absolute top-1/2 -translate-y-1/2 w-3 h-3 rounded-full border-2 border-primary bg-background shadow-md pointer-events-none transition-opacity duration-150 z-10"
             style={{
               left: `calc(${progress}% - 6px)`,
@@ -201,7 +283,6 @@ export default function SeekBar() {
             }}
           />
 
-          {/* Time above handle + vertical white guide line */}
           {showHandle && (
             <div
               className="absolute pointer-events-none z-20 flex flex-col items-center"
@@ -211,7 +292,7 @@ export default function SeekBar() {
                 transform: 'translateX(-50%)',
               }}
             >
-              <span className="text-xs font-medium text-white whitespace-nowrap -translate-y-full pt-0.5 drop-shadow-sm">
+              <span ref={timeRef} className="text-xs font-medium text-white whitespace-nowrap -translate-y-full pt-0.5 drop-shadow-sm">
                 {formatTime(displayTime)}
               </span>
               <div
@@ -255,10 +336,12 @@ export default function SeekBar() {
                 className="bg-white/25 rounded-full"
               />
               <div
+                ref={barRef}
                 className="absolute top-0 left-0 h-full bg-primary rounded-full"
                 style={{ width: `${progress}%` }}
               />
               <div
+                ref={handleRef}
                 className="absolute top-1/2 -translate-y-1/2 w-3 h-3 rounded-full border-2 border-primary bg-background opacity-0 group-hover/seek:opacity-100 transition-opacity duration-150 shadow-md"
                 style={{ left: `calc(${progress}% - 6px)` }}
               />
@@ -269,7 +352,6 @@ export default function SeekBar() {
     );
   }
 
-  /* No waveform URL: classic thin seek bar */
   return (
     <div className="relative w-full group/seek px-0">
       {hoverTime !== null && (
@@ -303,10 +385,12 @@ export default function SeekBar() {
           className="bg-white/25 rounded-full"
         />
         <div
+          ref={barRef}
           className="absolute top-0 left-0 h-full bg-primary rounded-full"
           style={{ width: `${progress}%` }}
         />
         <div
+          ref={handleRef}
           className="absolute top-1/2 -translate-y-1/2 w-3 h-3 rounded-full border-2 border-primary bg-background opacity-0 group-hover/seek:opacity-100 transition-opacity duration-150 shadow-md"
           style={{ left: `calc(${progress}% - 6px)` }}
         />

@@ -6,8 +6,32 @@ type AudioGraph = {
   analyser: AnalyserNode;
 };
 
+/** Constructor for `AudioContext` / legacy `webkitAudioContext` (same instance type). */
+type AudioContextConstructor = {
+  new (contextOptions?: AudioContextOptions): AudioContext;
+};
+
 /** One MediaElementSource per video element (browser limitation). */
 const graphByVideo = new WeakMap<HTMLVideoElement, AudioGraph>();
+
+function getAudioContextConstructor(): AudioContextConstructor | null {
+  if (typeof globalThis === 'undefined') return null;
+  const g = globalThis as typeof globalThis & {
+    AudioContext?: AudioContextConstructor;
+    webkitAudioContext?: AudioContextConstructor;
+  };
+  return g.AudioContext ?? g.webkitAudioContext ?? null;
+}
+
+async function resumeIfNeeded(ctx: AudioContext) {
+  if (ctx.state === 'closed') return;
+  if (ctx.state === 'running') return;
+  try {
+    await ctx.resume();
+  } catch {
+    /* iOS may reject until a user gesture */
+  }
+}
 
 /** Wider dB window + lower smoothing so spectrum bars use more of 0–255 (re-applied on cached graphs). */
 function applyAnalyserTuning(node: AnalyserNode) {
@@ -23,13 +47,13 @@ function applyAnalyserTuning(node: AnalyserNode) {
 export function useVideoAnalyser(
   videoRef: RefObject<HTMLVideoElement | null>,
   enabled: boolean,
-  /** Set true once the element has media (e.g. player `isLoaded`) so we attach after the video exists. */
-  mediaReady: boolean
+  /** Kept for callers; graph setup keys off `video.readyState` so mobile isn’t blocked if React `isLoaded` lags. */
+  _mediaReady: boolean
 ): AnalyserNode | null {
   const [analyser, setAnalyser] = useState<AnalyserNode | null>(null);
 
   useEffect(() => {
-    if (!enabled || !mediaReady) {
+    if (!enabled) {
       setAnalyser(null);
       return;
     }
@@ -40,14 +64,20 @@ export function useVideoAnalyser(
       return;
     }
 
+    const AudioCtx = getAudioContextConstructor();
+    if (!AudioCtx) {
+      setAnalyser(null);
+      return;
+    }
+
     const ensureGraph = () => {
       const v = videoRef.current;
-      if (!v) return;
+      if (!v || v.readyState < HTMLMediaElement.HAVE_METADATA) return;
 
       let graph = graphByVideo.get(v);
       if (!graph) {
         try {
-          const ctx = new AudioContext({ latencyHint: 'playback' });
+          const ctx = new AudioCtx({ latencyHint: 'playback' });
           const source = ctx.createMediaElementSource(v);
           const analyserNode = ctx.createAnalyser();
           analyserNode.fftSize = 2048;
@@ -65,19 +95,41 @@ export function useVideoAnalyser(
       }
 
       setAnalyser(graph.analyser);
-      void graph.ctx.resume().catch(() => {});
+      void resumeIfNeeded(graph.ctx);
     };
+
+    /**
+     * iOS Safari: `createMediaElementSource` / `AudioContext.resume` often must run in a user gesture.
+     * The effect’s first `ensureGraph()` is not a gesture; a later tap must retry the full path.
+     */
+    const onUserGesture = () => {
+      ensureGraph();
+    };
+
+    const touchStartOpts: AddEventListenerOptions = { capture: true, passive: true };
+    const touchEndOpts: AddEventListenerOptions = { capture: true, passive: true };
+    const pointerOpts: AddEventListenerOptions = { capture: true };
+    document.addEventListener('touchstart', onUserGesture, touchStartOpts);
+    document.addEventListener('touchend', onUserGesture, touchEndOpts);
+    document.addEventListener('pointerdown', onUserGesture, pointerOpts);
+    document.addEventListener('click', onUserGesture, pointerOpts);
 
     ensureGraph();
     video.addEventListener('play', ensureGraph);
     video.addEventListener('loadeddata', ensureGraph);
+    video.addEventListener('loadedmetadata', ensureGraph);
 
     return () => {
+      document.removeEventListener('touchstart', onUserGesture, touchStartOpts);
+      document.removeEventListener('touchend', onUserGesture, touchEndOpts);
+      document.removeEventListener('pointerdown', onUserGesture, pointerOpts);
+      document.removeEventListener('click', onUserGesture, pointerOpts);
       video.removeEventListener('play', ensureGraph);
       video.removeEventListener('loadeddata', ensureGraph);
+      video.removeEventListener('loadedmetadata', ensureGraph);
       setAnalyser(null);
     };
-  }, [enabled, mediaReady, videoRef]);
+  }, [enabled, videoRef]);
 
   return analyser;
 }

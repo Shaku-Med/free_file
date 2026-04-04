@@ -109,8 +109,20 @@ let makeSessionToken = async (headers: Headers) => {
   }
 }
 
+const getRequestURL = (request: Request) => {
+  try {
+    return new URL(request.url)?.origin;
+  }
+  catch (error) {
+    return null
+  }
+}
+
 export const loader = async ({request}: {request: Request}) => {
   try {
+    let requestURL = getRequestURL(request);
+    if(!requestURL) return data(`Upstream error: ${request.url}`, { status: 400 });
+
     let sessionToken = await makeSessionToken(request.headers);
 
     if (!sessionToken) {
@@ -160,7 +172,7 @@ export const loader = async ({request}: {request: Request}) => {
     const isMobileServer = isMobileUserAgent(request.headers.get('user-agent'));
     const isDevelopmentServer = process.env.NODE_ENV === 'development';
 
-    return data({ st: sessionToken, user_agent: request.headers.get('user-agent'), userId, c_user, uploadServerUrl, userTheme, playerSettingsFromLoader, isMobileServer, isDevelopmentServer }, {
+    return data({ st: sessionToken, user_agent: request.headers.get('user-agent'), userId, c_user, uploadServerUrl, userTheme, playerSettingsFromLoader, isMobileServer, isDevelopmentServer, requestURL }, {
       status: 200,
       headers: (token) ? { // I left this part open for now. Fix will be done later.
         'Set-Cookie': `token=${token}; Path=/; HttpOnly; ${secure}; ${sameSite}`
@@ -178,7 +190,7 @@ export const meta: MetaFunction<ReturnType<typeof loader>> = ({ data }) =>
 
 export function Layout({ children }: { children: React.ReactNode }) {
   const data = useLoaderData<typeof loader>();
-  if (!data) {
+  if (!data || typeof data === 'string') {
     return (
        <html className="system" lang="en">
         <head>
@@ -207,9 +219,11 @@ export function Layout({ children }: { children: React.ReactNode }) {
     )
   }
 
-  const { st, user_agent, userId, c_user, uploadServerUrl, userTheme, playerSettingsFromLoader, isMobileServer, isDevelopmentServer } = data;
+  const { st, user_agent, userId, c_user, uploadServerUrl, userTheme, playerSettingsFromLoader, isMobileServer, isDevelopmentServer, requestURL } = data;
   const themeClass = userTheme?.theme ?? "system";
   const themeStyle = userTheme?.style ?? "default";
+
+  let newBaseURL = requestURL.toLowerCase() == BASE_URL.toLowerCase() ? BASE_URL : requestURL;
 
   return (
     <html className={`${themeClass} overflow-hidden h-full w-full fixed top-0 left-0`} lang="en">
@@ -221,15 +235,15 @@ export function Layout({ children }: { children: React.ReactNode }) {
         <meta name="mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-title" content={SITE_NAME} />
         <meta name="mobile-web-app-title" content={SITE_NAME} />
-        <link rel="stylesheet" href={`${BASE_URL}/themes/${themeStyle}.css`} />
-        <link rel="manifest" href={`${BASE_URL}/manifest.json`} />
-        <link rel="shortcut icon" href={`${BASE_URL}/favicon.ico`} sizes="any" type="image/x-icon" />
-        <link rel="icon" href={`${BASE_URL}/favicon.ico`} sizes="any" type="image/x-icon" />
-        <link rel="icon" href={`${BASE_URL}/icons/web/icon-192.png`} type="image/png" sizes="192x192" />
-        <link rel="icon" href={`${BASE_URL}/icons/web/icon-512.png`} type="image/png" sizes="512x512" />
-        <link rel="icon" href={`${BASE_URL}/icons/web/icon-192-maskable.png`} type="image/png" sizes="192x192" />
-        <link rel="icon" href={`${BASE_URL}/icons/web/icon-512-maskable.png`} type="image/png" sizes="512x512" />
-        <link rel="apple-touch-icon" href={`${BASE_URL}/icons/web/apple-touch-icon.png`} />
+        <link rel="stylesheet" href={`${newBaseURL}/themes/${themeStyle}.css`} />
+        <link rel="manifest" href={`${newBaseURL}/manifest.json`} />
+        <link rel="shortcut icon" href={`${newBaseURL}/favicon.ico`} sizes="any" type="image/x-icon" />
+        <link rel="icon" href={`${newBaseURL}/favicon.ico`} sizes="any" type="image/x-icon" />
+        <link rel="icon" href={`${newBaseURL}/icons/web/icon-192.png`} type="image/png" sizes="192x192" />
+        <link rel="icon" href={`${newBaseURL}/icons/web/icon-512.png`} type="image/png" sizes="512x512" />
+        <link rel="icon" href={`${newBaseURL}/icons/web/icon-192-maskable.png`} type="image/png" sizes="192x192" />
+        <link rel="icon" href={`${newBaseURL}/icons/web/icon-512-maskable.png`} type="image/png" sizes="512x512" />
+        <link rel="apple-touch-icon" href={`${newBaseURL}/icons/web/apple-touch-icon.png`} />
         <script
           type="application/ld+json"
           dangerouslySetInnerHTML={{
@@ -237,10 +251,10 @@ export function Layout({ children }: { children: React.ReactNode }) {
               "@context": "https://schema.org",
               "@type": "WebSite",
               name: SITE_NAME,
-              url: BASE_URL,
+              url: newBaseURL,
               potentialAction: {
                 "@type": "SearchAction",
-                target: `${BASE_URL}/search/{search_term_string}`,
+                target: `${newBaseURL}/search/{search_term_string}`,
                 "query-input": "required name=search_term_string",
               },
             }),

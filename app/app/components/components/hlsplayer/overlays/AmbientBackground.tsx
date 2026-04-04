@@ -42,25 +42,16 @@ export default function AmbientBackground() {
       className="absolute inset-0 pointer-events-none overflow-hidden z-0"
       aria-hidden
     >
-      {/* Layer is 100% size then scaled from center so it spreads past player edges */}
       <div
         className="absolute w-full h-full left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 origin-center"
         style={{
-          width: '100%',
-          height: '100%',
           background: radialBg,
-          filter: 'blur(70px)',
-          transform: 'translate(-50%, -50%) scale(2.5)',
-          animation: 'ambient-pulse 8s ease-in-out infinite',
+          filter: 'blur(30px)',
+          transform: 'translate(-50%, -50%) scale(1.5)',
           opacity: 0.9,
+          willChange: 'transform',
         }}
       />
-      <style>{`
-        @keyframes ambient-pulse {
-          0%, 100% { opacity: 0.85; }
-          50% { opacity: 1; }
-        }
-      `}</style>
     </div>
   );
 }

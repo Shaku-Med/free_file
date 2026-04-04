@@ -1,4 +1,5 @@
 import { useState, type RefObject } from 'react';
+import { isMobile } from 'react-device-detect';
 import {
   Settings,
   BarChart3,
@@ -10,6 +11,7 @@ import {
   Repeat,
   AudioWaveform,
   Waves,
+  Braces,
 } from 'lucide-react';
 import { usePlayerContext } from '../../PlayerContext';
 import { cn } from '~/lib/utils';
@@ -87,6 +89,8 @@ function SettingsMenuBody() {
     setAudioVisualizer,
     audioVisualizerStyle,
     setAudioVisualizerStyle,
+    statsForNerds,
+    setStatsForNerds,
   } = usePlayerContext();
   const [sleepTimer, setSleepTimer] = useState('Off');
 
@@ -146,19 +150,31 @@ function SettingsMenuBody() {
           </span>
           <Switch checked={ambientMode} onChange={setAmbientMode} />
         </DropdownMenuItem>
+        {!isMobile && (
+          <DropdownMenuItem
+            onSelect={(e) => e.preventDefault()}
+            className={toggleRowClass}
+          >
+            <span className="flex items-center gap-2">
+              <AudioWaveform className="text-muted-foreground" />
+              Audio visualizer
+            </span>
+            <Switch checked={audioVisualizer} onChange={setAudioVisualizer} />
+          </DropdownMenuItem>
+        )}
         <DropdownMenuItem
           onSelect={(e) => e.preventDefault()}
           className={toggleRowClass}
         >
           <span className="flex items-center gap-2">
-            <AudioWaveform className="text-muted-foreground" />
-            Audio visualizer
+            <Braces className="text-muted-foreground" />
+            Stats for nerds
           </span>
-          <Switch checked={audioVisualizer} onChange={setAudioVisualizer} />
+          <Switch checked={statsForNerds} onChange={setStatsForNerds} />
         </DropdownMenuItem>
       </DropdownMenuGroup>
 
-      {audioVisualizer && (
+      {!isMobile && audioVisualizer && (
         <>
           <DropdownMenuSeparator />
           <DropdownMenuGroup>

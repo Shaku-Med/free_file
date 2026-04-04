@@ -1,4 +1,4 @@
-import { useEffect, useCallback, useRef } from 'react';
+import { useEffect, useRef } from 'react';
 import { usePlayerContext } from '../PlayerContext';
 
 export function useVideoEvents(videoRef: React.RefObject<HTMLVideoElement | null>, callbacks?: {
@@ -21,7 +21,13 @@ export function useVideoEvents(videoRef: React.RefObject<HTMLVideoElement | null
     };
 
     const onPause = () => {
-      setState(s => ({ ...s, isPlaying: false, isPaused: true }));
+      setState(s => ({
+        ...s,
+        isPlaying: false,
+        isPaused: true,
+        currentTime: video.currentTime,
+        duration: video.duration || 0,
+      }));
       cbRef.current?.onPause?.();
     };
 
@@ -35,12 +41,18 @@ export function useVideoEvents(videoRef: React.RefObject<HTMLVideoElement | null
       cbRef.current?.onError?.(e);
     };
 
+    let timeRafId = 0;
     const onTimeUpdate = () => {
-      setState(s => ({
-        ...s,
-        currentTime: video.currentTime,
-        duration: video.duration || 0,
-      }));
+      if (timeRafId) return;
+      timeRafId = requestAnimationFrame(() => {
+        timeRafId = 0;
+        setState(s => {
+          const ct = video.currentTime;
+          const dur = video.duration || 0;
+          if (Math.abs(s.currentTime - ct) < 0.25 && Math.abs(s.duration - dur) < 0.5) return s;
+          return { ...s, currentTime: ct, duration: dur };
+        });
+      });
     };
 
     const onLoadedMetadata = () => {
@@ -52,29 +64,34 @@ export function useVideoEvents(videoRef: React.RefObject<HTMLVideoElement | null
     };
 
     const onCanPlay = () => {
-      setState(s => ({ ...s, isBuffering: false }));
+      setState(s => s.isBuffering ? { ...s, isBuffering: false } : s);
     };
 
     const onCanPlayThrough = () => {
-      setState(s => ({ ...s, isBuffering: false }));
+      setState(s => s.isBuffering ? { ...s, isBuffering: false } : s);
     };
 
     const onWaiting = () => {
       if (!video.paused || video.readyState < 3) {
-        setState(s => ({ ...s, isBuffering: true }));
+        setState(s => s.isBuffering ? s : { ...s, isBuffering: true });
       }
     };
 
     const onPlaying = () => {
-      setState(s => ({ ...s, isBuffering: false }));
+      setState(s => s.isBuffering ? { ...s, isBuffering: false } : s);
     };
 
+    let progressRafId = 0;
     const onProgress = () => {
-      const ranges: { start: number; end: number }[] = [];
-      for (let i = 0; i < video.buffered.length; i++) {
-        ranges.push({ start: video.buffered.start(i), end: video.buffered.end(i) });
-      }
-      setState(s => ({ ...s, bufferedRanges: ranges }));
+      if (progressRafId) return;
+      progressRafId = requestAnimationFrame(() => {
+        progressRafId = 0;
+        const ranges: { start: number; end: number }[] = [];
+        for (let i = 0; i < video.buffered.length; i++) {
+          ranges.push({ start: video.buffered.start(i), end: video.buffered.end(i) });
+        }
+        setState(s => ({ ...s, bufferedRanges: ranges }));
+      });
     };
 
     const onVolumeChange = () => {
@@ -83,6 +100,14 @@ export function useVideoEvents(videoRef: React.RefObject<HTMLVideoElement | null
 
     const onRateChange = () => {
       setState(s => ({ ...s, playbackRate: video.playbackRate }));
+    };
+
+    const onSeeked = () => {
+      setState(s => ({
+        ...s,
+        currentTime: video.currentTime,
+        duration: video.duration || 0,
+      }));
     };
 
     video.addEventListener('play', onPlay);
@@ -98,8 +123,11 @@ export function useVideoEvents(videoRef: React.RefObject<HTMLVideoElement | null
     video.addEventListener('progress', onProgress);
     video.addEventListener('volumechange', onVolumeChange);
     video.addEventListener('ratechange', onRateChange);
+    video.addEventListener('seeked', onSeeked);
 
     return () => {
+      if (timeRafId) cancelAnimationFrame(timeRafId);
+      if (progressRafId) cancelAnimationFrame(progressRafId);
       video.removeEventListener('play', onPlay);
       video.removeEventListener('pause', onPause);
       video.removeEventListener('ended', onEnded);
@@ -113,6 +141,7 @@ export function useVideoEvents(videoRef: React.RefObject<HTMLVideoElement | null
       video.removeEventListener('progress', onProgress);
       video.removeEventListener('volumechange', onVolumeChange);
       video.removeEventListener('ratechange', onRateChange);
+      video.removeEventListener('seeked', onSeeked);
     };
   }, [videoRef, setState]);
 }

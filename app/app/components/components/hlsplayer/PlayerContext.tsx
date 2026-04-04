@@ -105,6 +105,9 @@ interface PlayerContextValue {
   setAudioVisualizer: (v: boolean) => void;
   audioVisualizerStyle: AudioVisualizerStyle;
   setAudioVisualizerStyle: (v: AudioVisualizerStyle) => void;
+  /** Session-only debug overlay (not persisted). */
+  statsForNerds: boolean;
+  setStatsForNerds: (v: boolean) => void;
   startTime?: number;
   setSubtitleTrack: (id: number) => void;
 }
@@ -198,6 +201,7 @@ export function PlayerProvider({ children, src, file, imageID, isReel, loop: ini
   const [audioVisualizerStyle, setAudioVisualizerStyleState] = useState<AudioVisualizerStyle>(
     DEFAULT_AUDIO_VISUALIZER_STYLE
   );
+  const [statsForNerds, setStatsForNerds] = useState(false);
   const setAudioVisualizerStyle = useCallback(
     (style: AudioVisualizerStyle) => {
       audioVisualizerStyleRef.current = style;
@@ -419,6 +423,8 @@ export function PlayerProvider({ children, src, file, imageID, isReel, loop: ini
     setAudioVisualizer,
     audioVisualizerStyle,
     setAudioVisualizerStyle,
+    statsForNerds,
+    setStatsForNerds,
     startTime,
     setSubtitleTrack,
   };

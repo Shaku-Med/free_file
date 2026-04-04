@@ -25,6 +25,7 @@ import PlayPauseFeedback from './overlays/PlayPauseFeedback';
 import SeekFeedback from './overlays/SeekFeedback';
 import PosterBackground from './overlays/PosterBackground';
 import ShortcutOverlay from './overlays/ShortcutOverlay';
+import StatsForNerdsOverlay from './overlays/StatsForNerdsOverlay';
 import AmbientBackground from '~/components/components/hlsplayer/overlays/AmbientBackground';
 import { usePictureInPictureContext } from '~/lib/Context/PictureInPictureContext';
 import { useFileContext } from '~/lib/Context/Context';
@@ -123,9 +124,12 @@ function PlayerInner({
     setSpriteUrl,
     ambientMode,
     audioVisualizer,
+    statsForNerds,
     autoPlay: autoPlayEnabled,
     loop: loopEnabled,
   } = usePlayerContext();
+
+  const showAudioVisualizer = audioVisualizer && !isMobile;
 
   const [isMobileView, setIsMobileView] = useState(isMobile);
   useEffect(() => {
@@ -447,6 +451,8 @@ function PlayerInner({
         onImageLoaded={handlePosterImageLoaded}
       />
 
+      {statsForNerds && !isReelCtx && <StatsForNerdsOverlay />}
+
       <div className="relative z-10 w-full h-full" onTouchEnd={handleTouchEnd}>
         {state.hasError && <ErrorOverlay />}
 
@@ -477,7 +483,7 @@ function PlayerInner({
                   disableRemotePlayback={false}
                   {...({ 'x-webkit-airplay': 'allow' } as any)}
                 />
-                {audioVisualizer && (
+                {showAudioVisualizer && (
                   <div className="shrink-0 px-3 pb-1 pt-0 pointer-events-none">
                     <AudioVisualizerBars />
                   </div>
@@ -524,12 +530,12 @@ function PlayerInner({
               theaterMode={theaterMode}
               onTheaterModeChange={isMobileView ? undefined : handleTheaterModeChange}
               hideControls={hideControls}
-              liftBottomPx={audioVisualizer ? visualizerLiftPx : 0}
+              liftBottomPx={showAudioVisualizer ? visualizerLiftPx : 0}
             />
           </div>
         )}
 
-        {audioVisualizer && !isReelCtx && !isMiniPlayerPortalActive && (
+        {showAudioVisualizer && !isReelCtx && !isMiniPlayerPortalActive && (
           <PersistentBottomVisualizer onLayoutHeight={setVisualizerLiftPx} />
         )}
 

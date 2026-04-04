@@ -302,7 +302,10 @@ const CommentItem = ({
                     <img
                       src={comment.gif_preview_url || comment.gif_url || ""}
                       alt="GIF"
-                      className="max-h-40 w-auto rounded-lg border border-border object-cover"
+                      loading="lazy"
+                      decoding="async"
+                      fetchPriority="low"
+                      className="max-h-40 w-auto rounded-lg border border-border object-cover [content-visibility:auto] [contain:content]"
                     />
                   ) : null}
                   {comment.image_url ? (

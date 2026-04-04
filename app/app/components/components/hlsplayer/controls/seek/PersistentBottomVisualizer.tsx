@@ -1,4 +1,5 @@
 import { useLayoutEffect, useRef } from 'react';
+import { isMobile } from 'react-device-detect';
 import { usePlayerContext } from '../../PlayerContext';
 import AudioVisualizerBars from './AudioVisualizerBars';
 
@@ -13,9 +14,10 @@ type Props = {
 export default function PersistentBottomVisualizer({ onLayoutHeight }: Props) {
   const { audioVisualizer } = usePlayerContext();
   const wrapRef = useRef<HTMLDivElement>(null);
+  const active = audioVisualizer && !isMobile;
 
   useLayoutEffect(() => {
-    if (!audioVisualizer) {
+    if (!active) {
       onLayoutHeight(0);
       return;
     }
@@ -31,9 +33,9 @@ export default function PersistentBottomVisualizer({ onLayoutHeight }: Props) {
       ro.disconnect();
       onLayoutHeight(0);
     };
-  }, [audioVisualizer, onLayoutHeight]);
+  }, [active, onLayoutHeight]);
 
-  if (!audioVisualizer) return null;
+  if (!active) return null;
 
   return (
     <div

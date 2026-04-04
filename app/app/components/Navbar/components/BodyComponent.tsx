@@ -4,7 +4,7 @@ import Footer from "~/components/components/Footer"
 import ScrollRestoration from "~/lib/Context/ScrollRestoration"
 import { useFileContext } from "~/lib/Context/Context";
 import { useLocation } from "react-router";
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 export interface ScrollState {
   state: boolean;
@@ -56,11 +56,20 @@ const BodyComponent = ({ children }: BodyComponentProps) => {
 
   const applyTheater = theaterMode && !isStaticRoute;
 
+  // Re-sync bar opacity when the route changes (e.g. scroll position restored).
+  const handleScrollRef = useRef(handleScroll);
+  handleScrollRef.current = handleScroll;
+  useEffect(() => {
+    handleScrollRef.current();
+  }, [location.pathname]);
+
   return (
-    <div className={`h-full w-full ${!isMobile && state === 'expanded' && 'pt-2'}`}>
+    <div
+      className={`flex h-full min-h-0 w-full flex-1 flex-col ${!isMobile && state === 'expanded' && 'pt-2'}`}
+    >
       <div
         id="scroll_container"
-        className={`${!isMobile && state === 'expanded' && 'rounded-tl-2xl bg-card shadow-sm'} h-full w-full overflow-y-auto overflow-x-hidden pb-20`}
+        className={`${!isMobile && state === 'expanded' && 'rounded-tl-2xl bg-card shadow-sm'} min-h-0 w-full flex-1 overflow-y-auto overflow-x-hidden pb-20`}
         ref={scrollContainerRef}
         onScroll={handleScroll}
       >
