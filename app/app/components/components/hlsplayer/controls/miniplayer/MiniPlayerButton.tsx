@@ -3,6 +3,7 @@ import { useCallback } from 'react';
 import { usePlayerContext } from '../../PlayerContext';
 import { useMiniPlayerContext } from '~/lib/Context/MiniPlayerContext';
 import { getVideoSrc } from '~/lib/utils';
+import { Tooltip, TooltipContent, TooltipTrigger } from '~/components/ui/tooltip';
 
 export default function MiniPlayerButton() {
   const { videoRef, src, imageID, file, isReel } = usePlayerContext();
@@ -35,13 +36,18 @@ export default function MiniPlayerButton() {
   if (isReel || !file) return null;
 
   return (
-    <button
-      onClick={handleClick}
-      className="p-1.5 rounded-md hover:bg-white/10 transition-colors text-white"
-      aria-label="Mini player"
-      title="Mini player"
-    >
-      <PictureInPicture2 className="w-5 h-5" />
-    </button>
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          onClick={handleClick}
+          className="p-1.5 rounded-md hover:bg-white/10 transition-colors text-white"
+          aria-label="Mini player"
+        >
+          <PictureInPicture2 className="w-5 h-5" />
+        </button>
+      </TooltipTrigger>
+      <TooltipContent side="top">Mini player</TooltipContent>
+    </Tooltip>
   );
 }

@@ -32,6 +32,11 @@ export interface FileType {
   default_thumbnail?: string | null;
   upload_status?: string;
   is_reel?: boolean;
+  /** Series hub video (playlist root). */
+  is_series_main?: boolean;
+  /** Episode row; API/DB may use `is_files_series_item` instead. */
+  is_series_episode?: boolean;
+  is_files_series_item?: boolean;
   duration?: number;
   engagement_score?: number;
   comments_enabled?: boolean;

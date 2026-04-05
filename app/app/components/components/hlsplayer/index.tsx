@@ -438,7 +438,11 @@ function PlayerInner({
   }, [isReelCtx, togglePlay, triggerPlayPauseFeedback, theaterMode, handleTheaterModeChange, isMobileView, setPlaybackRate, showShortcuts, file, src, imageID, triggerMiniPlayer, getNavigateBackTarget, miniPlayerSourceVideoRef]);
 
   const showControls = state.controlsVisible && !isReelCtx;
-  const showBuffer = state.isBuffering && !state.isLoaded || (state.isBuffering && videoRef.current && videoRef.current.readyState < 3);
+  const videoEl = videoRef.current;
+  const showLoadingOverlay =
+    !state.hasError &&
+    (!state.isLoaded ||
+      (state.isBuffering && Boolean(videoEl && videoEl.readyState < 3)));
 
   return (
     <div
@@ -456,7 +460,7 @@ function PlayerInner({
       <div className="relative z-10 w-full h-full" onTouchEnd={handleTouchEnd}>
         {state.hasError && <ErrorOverlay />}
 
-        {showBuffer && <BufferingSpinner />}
+        {showLoadingOverlay && <BufferingSpinner />}
 
         <PipOverlay />
 

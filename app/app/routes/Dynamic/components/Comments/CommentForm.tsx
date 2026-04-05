@@ -11,6 +11,7 @@ import {
 } from "~/components/ui/dialog";
 import { Avatar, AvatarImage, AvatarFallback } from "~/components/ui/avatar";
 import { getProfilePicUrl } from "~/lib/utils/profilePic";
+import { Tooltip, TooltipContent, TooltipTrigger } from "~/components/ui/tooltip";
 
 export interface CommentGif {
   id: string;
@@ -468,17 +469,22 @@ const CommentForm = ({
         </div>
         <div className="flex items-center justify-between pt-1">
           <div className="flex items-center gap-1">
-            <button
-              type="button"
-              className="inline-flex items-center justify-center h-8 px-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
-              onClick={() => setGifOpen(true)}
-              title="Add GIF"
-            >
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" className="shrink-0">
-                <rect x="2" y="4" width="20" height="16" rx="3" stroke="currentColor" strokeWidth="1.8" />
-                <text x="12" y="15.5" textAnchor="middle" fill="currentColor" fontSize="8.5" fontWeight="700" fontFamily="system-ui, sans-serif">GIF</text>
-              </svg>
-            </button>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  className="inline-flex items-center justify-center h-8 px-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
+                  onClick={() => setGifOpen(true)}
+                  aria-label="Add GIF"
+                >
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" className="shrink-0">
+                    <rect x="2" y="4" width="20" height="16" rx="3" stroke="currentColor" strokeWidth="1.8" />
+                    <text x="12" y="15.5" textAnchor="middle" fill="currentColor" fontSize="8.5" fontWeight="700" fontFamily="system-ui, sans-serif">GIF</text>
+                  </svg>
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="top">Add GIF</TooltipContent>
+            </Tooltip>
             <input
               ref={imageInputRef}
               type="file"
@@ -486,15 +492,22 @@ const CommentForm = ({
               onChange={handleImageSelect}
               className="hidden"
             />
-            <button
-              type="button"
-              className="inline-flex items-center justify-center h-8 px-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
-              onClick={() => imageInputRef.current?.click()}
-              disabled={isUploadingImage}
-              title="Add image"
-            >
-              <ImagePlus className="h-5 w-5" />
-            </button>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span className="inline-flex">
+                  <button
+                    type="button"
+                    className="inline-flex items-center justify-center h-8 px-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors disabled:opacity-50"
+                    onClick={() => imageInputRef.current?.click()}
+                    disabled={isUploadingImage}
+                    aria-label="Add image"
+                  >
+                    <ImagePlus className="h-5 w-5" />
+                  </button>
+                </span>
+              </TooltipTrigger>
+              <TooltipContent side="top">Add image</TooltipContent>
+            </Tooltip>
             <span className="text-[11px] text-muted-foreground/50 tabular-nums">
               {content.length}/2000
             </span>

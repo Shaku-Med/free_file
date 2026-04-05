@@ -9,6 +9,7 @@ import HLSPlayer from '~/components/components/hlsplayer';
 import { HIDE_ALL_EXCEPT_SEEK } from '~/components/components/hlsplayer/types';
 import { getVideoSrc } from '~/lib/utils';
 import { useMiniPlayerDrag } from './useMiniPlayerDrag';
+import { Tooltip, TooltipContent, TooltipTrigger } from '~/components/ui/tooltip';
 
 function MiniPlayerContent() {
   const {
@@ -145,31 +146,34 @@ function MiniPlayerContent() {
         aria-label="Drag to move mini player"
       >
         {/* Expand / maximize — shows loader while waiting for main player */}
-        <button
-          type="button"
-          onPointerDown={(e) => e.stopPropagation()}
-          onClick={(e) => { e.stopPropagation(); handleExpand(); }}
-          disabled={isExpanding}
-          className={cn(
-            'group/expand relative shrink-0 w-8 h-8 flex items-center justify-center rounded-full transition-colors touch-manipulation',
-            isExpanding
-              ? 'text-white/50 cursor-wait'
-              : 'text-white/70 hover:text-white hover:bg-white/10 active:bg-white/20'
-          )}
-          aria-label={isExpanding ? 'Loading full player...' : 'Expand to full player'}
-          title={isExpanding ? undefined : 'Expand'}
-        >
-          {isExpanding ? (
-            <>
-              <Loader2 className="w-[15px] h-[15px] animate-spin" />
-              <span className="pointer-events-none absolute left-1/2 -translate-x-1/2 bottom-full mb-2 px-2.5 py-1.5 rounded-lg bg-black/90 text-[11px] text-white/90 whitespace-nowrap opacity-0 group-hover/expand:opacity-100 transition-opacity shadow-lg border border-white/10">
-                Waiting for the full player to load...
-              </span>
-            </>
-          ) : (
-            <Maximize2 className="w-[15px] h-[15px]" />
-          )}
-        </button>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span className="inline-flex shrink-0">
+              <button
+                type="button"
+                onPointerDown={(e) => e.stopPropagation()}
+                onClick={(e) => { e.stopPropagation(); handleExpand(); }}
+                disabled={isExpanding}
+                className={cn(
+                  'relative shrink-0 w-8 h-8 flex items-center justify-center rounded-full transition-colors touch-manipulation',
+                  isExpanding
+                    ? 'text-white/50 cursor-wait'
+                    : 'text-white/70 hover:text-white hover:bg-white/10 active:bg-white/20'
+                )}
+                aria-label={isExpanding ? 'Loading full player...' : 'Expand to full player'}
+              >
+                {isExpanding ? (
+                  <Loader2 className="w-[15px] h-[15px] animate-spin" />
+                ) : (
+                  <Maximize2 className="w-[15px] h-[15px]" />
+                )}
+              </button>
+            </span>
+          </TooltipTrigger>
+          <TooltipContent side="top">
+            {isExpanding ? 'Waiting for the full player to load…' : 'Expand'}
+          </TooltipContent>
+        </Tooltip>
 
         {/* Drag indicator pill */}
         <div className="flex-1 flex justify-center">
@@ -177,16 +181,20 @@ function MiniPlayerContent() {
         </div>
 
         {/* Close */}
-        <button
-          type="button"
-          onPointerDown={(e) => e.stopPropagation()}
-          onClick={(e) => { e.stopPropagation(); handleClose(); }}
-          className="shrink-0 w-8 h-8 flex items-center justify-center rounded-full text-white/70 hover:text-white hover:bg-white/10 active:bg-white/20 transition-colors touch-manipulation"
-          aria-label="Close mini player"
-          title="Close"
-        >
-          <X className="w-4 h-4" />
-        </button>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={(e) => { e.stopPropagation(); handleClose(); }}
+              className="shrink-0 w-8 h-8 flex items-center justify-center rounded-full text-white/70 hover:text-white hover:bg-white/10 active:bg-white/20 transition-colors touch-manipulation"
+              aria-label="Close mini player"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent side="top">Close</TooltipContent>
+        </Tooltip>
       </div>
 
       {/* ─── Video area ─── */}

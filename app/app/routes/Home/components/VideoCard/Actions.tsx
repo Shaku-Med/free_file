@@ -32,6 +32,7 @@ import {
 import { cn, arrangeDateForThumbnail } from "~/lib/utils";
 import CreatePlaylistModal from "~/components/Playlist/CreatePlaylistModal";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "~/components/ui/dialog";
+import { Tooltip, TooltipContent, TooltipTrigger } from "~/components/ui/tooltip";
 import CommentSection from "~/routes/Dynamic/components/Comments/CommentSection";
 import { useLocalPlaylist, normalizeLocalPlaylistFileId } from "~/lib/hooks/useLocalPlaylist";
 import { useFileContext } from "~/lib/Context/Context";
@@ -545,9 +546,16 @@ export default function Actions({
                               ) : (
                                 <ListVideo className="size-4 shrink-0 opacity-70" aria-hidden />
                               )}
-                              <span className="min-w-0 flex-1 truncate" title={pl.title}>
-                                {pl.title}
-                              </span>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <span className="min-w-0 flex-1 truncate cursor-default">
+                                    {pl.title}
+                                  </span>
+                                </TooltipTrigger>
+                                <TooltipContent side="right" className="max-w-xs">
+                                  {pl.title}
+                                </TooltipContent>
+                              </Tooltip>
                               <span className="shrink-0 text-[11px] text-muted-foreground tabular-nums">
                                 {pl.item_count}
                               </span>

@@ -1282,7 +1282,7 @@ const index = () => {
       <div className={`relative z-10 mx-auto max-w-full `}>
         <div className={`${!theaterMode ? `grid grid-cols-1 lg:grid-cols-3 gap-6` : ``}`}>
           <div className={`${!theaterMode ? `lg:col-span-2 space-y-4` : ``}`}>
-            <div className="relative">
+            <div className={`relative`}>
               {videoBlock}
               {ambientEnabled && (
                 <div className="ambience-wrap z-[-1] absolute scale-[1.8] w-full min-w-screen h-full inset-0 pointer-events-none overflow-hidden rounded-lg">

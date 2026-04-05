@@ -1,6 +1,7 @@
 import { Subtitles } from 'lucide-react';
 import { usePlayerContext } from '../../PlayerContext';
 import { cn } from '~/lib/utils';
+import { Tooltip, TooltipContent, TooltipTrigger } from '~/components/ui/tooltip';
 
 export default function SubtitleButton() {
   const { state, setSubtitleTrack } = usePlayerContext();
@@ -18,16 +19,21 @@ export default function SubtitleButton() {
   };
 
   return (
-    <button
-      onClick={handleClick}
-      className={cn(
-        'p-1.5 rounded-md hover:bg-white/10 transition-colors',
-        isActive ? 'text-primary' : 'text-white'
-      )}
-      aria-label={isActive ? 'Turn off subtitles' : 'Turn on subtitles'}
-      title="Subtitles"
-    >
-      <Subtitles className="w-5 h-5" />
-    </button>
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          onClick={handleClick}
+          className={cn(
+            'p-1.5 rounded-md hover:bg-white/10 transition-colors',
+            isActive ? 'text-primary' : 'text-white'
+          )}
+          aria-label={isActive ? 'Turn off subtitles' : 'Turn on subtitles'}
+        >
+          <Subtitles className="w-5 h-5" />
+        </button>
+      </TooltipTrigger>
+      <TooltipContent side="top">Subtitles</TooltipContent>
+    </Tooltip>
   );
 }

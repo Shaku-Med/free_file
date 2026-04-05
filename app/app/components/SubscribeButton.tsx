@@ -2,6 +2,7 @@ import { useState, useCallback } from "react";
 import { useNavigate } from "react-router";
 import { Bell, BellOff, Loader2, ChevronDown } from "lucide-react";
 import { cn } from "~/lib/utils";
+import { Tooltip, TooltipContent, TooltipTrigger } from "~/components/ui/tooltip";
 
 interface SubscribeButtonProps {
   channelId: string;
@@ -139,25 +140,31 @@ export default function SubscribeButton({
       <div className="w-px bg-border self-stretch" />
 
       {/* Bell toggle */}
-      <button
-        type="button"
-        disabled={bellBusy}
-        onClick={handleBellToggle}
-        className={cn(
-          "inline-flex items-center justify-center transition-colors hover:bg-accent disabled:opacity-60",
-          compact ? "px-2 py-1" : "px-3 py-2"
-        )}
-        aria-label={notify ? "Notifications on — click to turn off" : "Notifications off — click to turn on"}
-        title={notify ? "Notifications on" : "Notifications off"}
-      >
-        {bellBusy ? (
-          <Loader2 className={cn(iconSize, "animate-spin")} />
-        ) : notify ? (
-          <Bell className={cn(iconSize, "text-foreground")} />
-        ) : (
-          <BellOff className={cn(iconSize, "text-muted-foreground")} />
-        )}
-      </button>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <span className="inline-flex">
+            <button
+              type="button"
+              disabled={bellBusy}
+              onClick={handleBellToggle}
+              className={cn(
+                "inline-flex items-center justify-center transition-colors hover:bg-accent disabled:opacity-60",
+                compact ? "px-2 py-1" : "px-3 py-2"
+              )}
+              aria-label={notify ? "Notifications on — click to turn off" : "Notifications off — click to turn on"}
+            >
+              {bellBusy ? (
+                <Loader2 className={cn(iconSize, "animate-spin")} />
+              ) : notify ? (
+                <Bell className={cn(iconSize, "text-foreground")} />
+              ) : (
+                <BellOff className={cn(iconSize, "text-muted-foreground")} />
+              )}
+            </button>
+          </span>
+        </TooltipTrigger>
+        <TooltipContent side="top">{notify ? "Notifications on" : "Notifications off"}</TooltipContent>
+      </Tooltip>
     </div>
   );
 }

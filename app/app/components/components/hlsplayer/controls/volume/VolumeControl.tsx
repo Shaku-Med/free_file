@@ -2,6 +2,7 @@ import { useRef, useState, useCallback } from 'react';
 import { Volume2, Volume1, VolumeX } from 'lucide-react';
 import { usePlayerContext } from '../../PlayerContext';
 import { useVideoHasAudio } from '../../hooks/useVideoHasAudio';
+import { Tooltip, TooltipContent, TooltipTrigger } from '~/components/ui/tooltip';
 
 interface VolumeControlProps {
   showSlider?: boolean;
@@ -49,22 +50,32 @@ export default function VolumeControl({ showSlider = true }: VolumeControlProps)
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => { setIsHovered(false); setIsDragging(false); }}
     >
-      <button
-        type="button"
-        onClick={() => hasAudioTrack && toggleMute()}
-        disabled={!hasAudioTrack}
-        title={hasAudioTrack ? undefined : 'No audio on this video'}
-        className="p-1.5 rounded-md transition-colors text-white disabled:opacity-40 disabled:cursor-not-allowed enabled:hover:bg-white/10"
-        aria-label={
-          hasAudioTrack
-            ? state.isMuted
-              ? 'Unmute'
-              : 'Mute'
-            : 'No audio track'
-        }
-      >
-        <VolumeIcon className="w-5 h-5" />
-      </button>
+      {hasAudioTrack ? (
+        <button
+          type="button"
+          onClick={() => toggleMute()}
+          className="p-1.5 rounded-md transition-colors text-white hover:bg-white/10"
+          aria-label={state.isMuted ? 'Unmute' : 'Mute'}
+        >
+          <VolumeIcon className="w-5 h-5" />
+        </button>
+      ) : (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span className="inline-flex">
+              <button
+                type="button"
+                disabled
+                className="p-1.5 rounded-md transition-colors text-white opacity-40 cursor-not-allowed"
+                aria-label="No audio track"
+              >
+                <VolumeIcon className="w-5 h-5" />
+              </button>
+            </span>
+          </TooltipTrigger>
+          <TooltipContent side="top">No audio on this video</TooltipContent>
+        </Tooltip>
+      )}
 
       <div
         className="overflow-hidden transition-[width,opacity] duration-200"

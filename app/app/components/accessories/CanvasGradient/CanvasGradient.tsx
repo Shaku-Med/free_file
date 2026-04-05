@@ -155,6 +155,7 @@ const CanvasGradient = ({ colors, className = "", animate = false }: CanvasGradi
       className={`absolute inset-0 h-full w-full pointer-events-none min-w-full min-h-full ${className}`.trim()}
       aria-hidden
     >
+      <div className="dm absolute bg-background/60 h-full w-full" />
       <canvas
         ref={canvasRef}
         className="block h-full w-full min-w-full min-h-full"

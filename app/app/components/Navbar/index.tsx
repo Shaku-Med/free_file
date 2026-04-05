@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, useLocation } from "react-router";
-import { Search, Plus, Bell } from "lucide-react";
+import { Search, Plus } from "lucide-react";
 import Logo from "./Logo/Logo";
 import { useFileContext } from "~/lib/Context/Context";
 import { SidebarTrigger } from "../ui/sidebar";
@@ -10,6 +10,8 @@ import { useStandalone } from "~/lib/hooks/useStandalone";
 import type { ScrollState } from "./components/BodyComponent";
 import { useIsMobile } from "~/hooks/use-mobile";
 import { cn } from "~/lib/utils";
+import { NotificationsDropdown } from "./NotificationsDropdown";
+import { Tooltip, TooltipContent, TooltipTrigger } from "~/components/ui/tooltip";
 
 interface NavbarProps {
   hasScrolled?: ScrollState;
@@ -33,7 +35,7 @@ export default function Navbar({ hasScrolled = { state: false, opacityLevel: 0 }
       return;
     }
     let cancelled = false;
-    fetch("/api/notifications?count=1")
+    fetch("/api/notifications?count=1", { credentials: "include" })
       .then((r) => r.json())
       .then((d) => {
         if (!cancelled && d.success && typeof d.unreadCount === "number") setUnreadCount(d.unreadCount);
@@ -63,7 +65,7 @@ export default function Navbar({ hasScrolled = { state: false, opacityLevel: 0 }
           style={{ opacity: hasScrolled.opacityLevel }}
           aria-hidden
         />
-        <div className="relative mx-auto max-w-[1600px] min-w-0 px-3 sm:px-5 lg:px-8">
+        <div className="relative mx-auto min-w-0 px-3 sm:px-5 lg:px-8">
         <div
           className={cn(
             "flex min-w-0 items-center gap-3 py-2.5 sm:py-3.5",
@@ -93,39 +95,40 @@ export default function Navbar({ hasScrolled = { state: false, opacityLevel: 0 }
                 "dark:border-white/[0.08] dark:bg-muted/20"
               )}
             >
-              <button
-                type="button"
-                onClick={() => setIsModalOpen(true)}
-                className={iconBtn}
-                title="Upload"
-                aria-label="Upload"
-              >
-                <Plus className="h-[1.05rem] w-[1.05rem] sm:h-[1.15rem] sm:w-[1.15rem]" strokeWidth={2.25} />
-              </button>
-              <button
-                type="button"
-                onClick={() => setSearchModalOpen(true)}
-                className={iconBtn}
-                title="Search"
-                aria-label="Search"
-              >
-                <Search className="h-[1.05rem] w-[1.05rem] sm:h-[1.15rem] sm:w-[1.15rem]" strokeWidth={2.25} />
-              </button>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    onClick={() => setIsModalOpen(true)}
+                    className={iconBtn}
+                    aria-label="Upload"
+                  >
+                    <Plus className="h-[1.05rem] w-[1.05rem] sm:h-[1.15rem] sm:w-[1.15rem]" strokeWidth={2.25} />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">Upload</TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    onClick={() => setSearchModalOpen(true)}
+                    className={iconBtn}
+                    aria-label="Search"
+                  >
+                    <Search className="h-[1.05rem] w-[1.05rem] sm:h-[1.15rem] sm:w-[1.15rem]" strokeWidth={2.25} />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">Search</TooltipContent>
+              </Tooltip>
               <SearchModal open={searchModalOpen} onOpenChange={setSearchModalOpen} />
               {userId ? (
-                <Link
-                  to="/notifications"
-                  className={cn(iconBtn, "relative")}
-                  title="Notifications"
-                  aria-label="Notifications"
-                >
-                  <Bell className="h-[1.05rem] w-[1.05rem] sm:h-[1.15rem] sm:w-[1.15rem]" strokeWidth={2.25} />
-                  {unreadCount > 0 ? (
-                    <span className="absolute right-0.5 top-0.5 flex h-[1.125rem] min-w-[1.125rem] items-center justify-center rounded-full bg-primary px-1 text-[10px] font-semibold leading-none text-primary-foreground ring-2 ring-background dark:ring-card">
-                      {unreadCount > 99 ? "99+" : unreadCount}
-                    </span>
-                  ) : null}
-                </Link>
+                <NotificationsDropdown
+                  userId={userId}
+                  unreadCount={unreadCount}
+                  setUnreadCount={setUnreadCount}
+                  iconBtn={iconBtn}
+                />
               ) : null}
             </div>
 
@@ -133,12 +136,17 @@ export default function Navbar({ hasScrolled = { state: false, opacityLevel: 0 }
 
             <div className="flex items-center gap-1 sm:gap-1.5">
               <UserProfileDropdown variant="topbar" />
-              <SidebarTrigger
-                className={cn(
-                  iconBtn,
-                  "[&_svg]:size-[1.05rem] sm:[&_svg]:size-[1.15rem]"
-                )}
-              />
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <SidebarTrigger
+                    className={cn(
+                      iconBtn,
+                      "[&_svg]:size-[1.05rem] sm:[&_svg]:size-[1.15rem]"
+                    )}
+                  />
+                </TooltipTrigger>
+                <TooltipContent side="bottom">Toggle sidebar</TooltipContent>
+              </Tooltip>
             </div>
           </div>
         </div>

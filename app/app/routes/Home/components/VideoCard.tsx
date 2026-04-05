@@ -7,14 +7,14 @@ import { Textarea } from "~/components/ui/textarea";
 import { Button } from "~/components/ui/button";
 import type { FileType } from "~/lib/types";
 import ImageLoad from "./ImageLoad/ImageLoad";
-import { getThumbnailUrl } from "~/lib/utils";
+import { cn, getThumbnailUrl } from "~/lib/utils";
 import ParseFilenameInsert from "~/lib/utils/ShowFileName";
 import AdultContentBadge from "~/routes/Dynamic/components/AdultContentBadge";
 import OwnerProfile from "~/components/OwnerProfile/OwnerProfile";
 import Actions from "./VideoCard/Actions";
 import { Separator } from "~/components/ui/separator";
 import CategoryBadges from "~/components/CategoryBadges";
-import { Info, MoreVertical, ChevronDown, X, Check, AlertTriangle, Send, Loader2, ImagePlus, MessageSquare, MessageSquareOff } from "lucide-react";
+import { Info, MoreVertical, ChevronDown, X, Check, AlertTriangle, Send, Loader2, ImagePlus, MessageSquare, MessageSquareOff, ListVideo } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "~/components/ui/tooltip";
 import { useIsMobile } from "~/hooks/use-mobile";
 import { useSidebar } from "~/components/ui/sidebar";
@@ -42,6 +42,11 @@ function formatDuration(seconds: number): string {
   const s = sec % 60;
   if (h > 0) return `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
   return `${m}:${String(s).padStart(2, "0")}`;
+}
+
+function isSeriesFile(f: FileType): boolean {
+  const t = (v: unknown) => v === true || v === 1;
+  return t(f.is_series_main) || t(f.is_series_episode) || t(f.is_files_series_item);
 }
 
 type LayoutType = "default" | "horizontal" | "compact";
@@ -478,6 +483,15 @@ const VideoCard = ({ data, index, currentUserId, userActions, onUpdate, showOwne
   const renderThumbnail = (className?: string) => (
     <div className={`relative ${className || ""}`}>
       {data.is_adult && <AdultContentBadge />}
+      {isSeriesFile(data) && (
+        <div
+          className="pointer-events-none absolute right-1 top-1 z-[100] flex min-h-[1.375rem] items-center gap-0.5 rounded-md border border-white/10 bg-black/75 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white shadow-sm backdrop-blur-sm"
+          aria-label="Series"
+        >
+          <ListVideo className="h-3 w-3 shrink-0 opacity-90" strokeWidth={2.5} />
+          Series
+        </div>
+      )}
       <motion.div
         transition={{ duration: 0.1, ease: "easeOut", damping: 10, stiffness: 100 }}
         className="w-full h-full"
@@ -1197,7 +1211,12 @@ const VideoCard = ({ data, index, currentUserId, userActions, onUpdate, showOwne
       </Link>
 
       <div
-        className="hover_overlay pointer-events-none absolute inset-0 z-[10] rounded-2xl bg-muted/50 opacity-0 scale-100 group-hover:z-[100] group-hover:opacity-100 group-hover:scale-105 transition-all duration-300 ease-out"
+        className={
+          cn(
+            'hover_overlay pointer-events-none absolute inset-0 z-[10] rounded-2xl  opacity-0 scale-100 group-hover:z-[100] group-hover:opacity-100 group-hover:scale-105 transition-all duration-300 ease-out',
+            `bg-muted/80`
+          )
+        }
       />
 
       <div className="py-2 flex flex-col z-[1000000]">
