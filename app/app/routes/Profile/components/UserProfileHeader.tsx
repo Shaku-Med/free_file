@@ -32,6 +32,10 @@ interface UserProfileHeaderProps {
   onProfileUpdate?: (updatedProfile: Partial<UserProfile>) => void;
 }
 
+const UPLOAD_MSG_TRY_AGAIN = "Something went wrong. Please try again.";
+const UPLOAD_MSG_NSFW = "That image can't be used as a profile photo.";
+const UPLOAD_MSG_PICK_IMAGE = "Please choose a different image.";
+
 function StatItem({ value, label, icon }: { value: string | number; label: string; icon?: React.ReactNode }) {
   return (
     <div className="flex flex-col items-center gap-0.5 px-3 sm:px-5">
@@ -55,6 +59,7 @@ const UserProfileHeader = ({
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
   const [isPreviewModalOpen, setIsPreviewModalOpen] = useState(false);
   const [profilePic, setProfilePic] = useState(profile.profile_pic);
+  const [avatarCacheKey, setAvatarCacheKey] = useState(0);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [preview, setPreview] = useState<string | null>(null);
@@ -85,13 +90,13 @@ const UserProfileHeader = ({
     const file = event.target.files?.[0];
     if (!file) return;
 
-    if (!file.type.startsWith('image/')) {
-      setUploadError('Please select an image file');
+    if (!file.type.startsWith("image/")) {
+      setUploadError(UPLOAD_MSG_PICK_IMAGE);
       return;
     }
 
     if (file.size > 10 * 1024 * 1024) {
-      setUploadError('File size must be less than 10MB');
+      setUploadError(UPLOAD_MSG_PICK_IMAGE);
       return;
     }
 
@@ -132,58 +137,51 @@ const UserProfileHeader = ({
 
       xhr.onreadystatechange = () => {
         if (xhr.readyState !== XMLHttpRequest.DONE) return;
+        let parsed: { success?: boolean; profile_pic?: string; nsfw?: boolean } = {};
         try {
-          if (xhr.status >= 200 && xhr.status < 300) {
-            const result = JSON.parse(xhr.responseText) as {
-              success?: boolean;
-              profile_pic?: string;
-              error?: string;
-              nsfw?: boolean;
-            };
-            if (!result.success || !result.profile_pic) {
-              throw new Error(result.error || "Failed to upload profile picture");
-            }
-            const path = result.profile_pic;
-            if (onProgress) onProgress(100);
-            setProfilePic(path);
-            setUploadError(null);
-            setPreview(null);
-            setShowCropper(false);
-            setIsUploadModalOpen(false);
-            if (onProfileUpdate) {
-              onProfileUpdate({ profile_pic: path });
-            }
-            resolve();
+          parsed = JSON.parse(xhr.responseText) as typeof parsed;
+        } catch {
+          /* ignore */
+        }
+        if (xhr.status >= 200 && xhr.status < 300) {
+          if (!parsed.success || !parsed.profile_pic) {
+            setUploadError(UPLOAD_MSG_TRY_AGAIN);
+            if (onProgress) onProgress(0);
+            reject(new Error("upload"));
             return;
           }
-          let parsed: { error?: string; nsfw?: boolean } = {};
-          try {
-            parsed = JSON.parse(xhr.responseText) as typeof parsed;
-          } catch {
-            /* ignore */
+          const path = parsed.profile_pic;
+          if (onProgress) onProgress(100);
+          setAvatarCacheKey((k) => k + 1);
+          setProfilePic(path);
+          setUploadError(null);
+          setPreview(null);
+          setShowCropper(false);
+          setIsUploadModalOpen(false);
+          if (onProfileUpdate) {
+            onProfileUpdate({ profile_pic: path });
           }
-          const errorMessage =
-            xhr.status === 422 && parsed.nsfw
-              ? parsed.error ||
-                "This image was detected as inappropriate and cannot be used as a profile picture"
-              : parsed.error || `Upload failed with status ${xhr.status}`;
-          reject(new Error(errorMessage));
-        } catch (err: unknown) {
-          reject(err instanceof Error ? err : new Error(String(err)));
+          resolve();
+          return;
         }
+        if (xhr.status === 422 && parsed.nsfw) {
+          setUploadError(UPLOAD_MSG_NSFW);
+        } else {
+          setUploadError(UPLOAD_MSG_TRY_AGAIN);
+        }
+        if (onProgress) onProgress(0);
+        reject(new Error("upload"));
       };
 
       xhr.onerror = () => {
-        reject(new Error('Network error occurred. Please check your connection and try again.'));
+        setUploadError(UPLOAD_MSG_TRY_AGAIN);
+        if (onProgress) onProgress(0);
+        reject(new Error("network"));
       };
 
       xhr.open("POST", "/api/upload/profilepic", true);
       xhr.withCredentials = true;
       xhr.send(formData);
-    }).catch((error: any) => {
-      const errorMessage = error.message || 'Failed to upload profile picture';
-      setUploadError(errorMessage);
-      if (onProgress) onProgress(0);
     }).finally(() => {
       setIsUploading(false);
     });
@@ -229,7 +227,11 @@ const UserProfileHeader = ({
             }`}
             onClick={handleAvatarClick}
           >
-            <AvatarImage src={getProfilePicUrl(profilePic)} alt={profile.username} className="object-cover" />
+            <AvatarImage
+              src={getProfilePicUrl(profilePic, avatarCacheKey)}
+              alt={profile.username}
+              className="object-cover"
+            />
             <AvatarFallback className="text-3xl sm:text-4xl font-bold bg-primary/10 text-primary">
               {profile.username.charAt(0).toUpperCase()}
             </AvatarFallback>
@@ -342,7 +344,7 @@ const UserProfileHeader = ({
                       <div className="relative">
                         <Avatar className="h-32 w-32 border-2 border-border">
                           <AvatarImage
-                            src={preview || getProfilePicUrl(profilePic)}
+                            src={preview || getProfilePicUrl(profilePic, avatarCacheKey)}
                             alt="Preview"
                             className="object-cover"
                           />
@@ -419,7 +421,7 @@ const UserProfileHeader = ({
                   contentStyle={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
                 >
                   <img
-                    src={getProfilePicUrl(profilePic) || ''}
+                    src={getProfilePicUrl(profilePic, avatarCacheKey) || ""}
                     alt={profile.username}
                     className="w-auto h-auto max-w-[90vw] max-h-[90vh] object-contain"
                     draggable={false}

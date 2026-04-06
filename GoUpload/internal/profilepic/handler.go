@@ -23,6 +23,7 @@ import (
 	"goupload/lib/ffmpeg"
 	ghlib "goupload/lib/github"
 	"goupload/lib/logger"
+	"goupload/lib/supabase"
 	"goupload/lib/nsfw"
 	"goupload/lib/nsfwstrikes"
 	"goupload/lib/security"
@@ -49,12 +50,14 @@ var extByMIME = map[string]string{
 }
 
 type Handler struct {
-	log     *logger.Logger
-	nsfw    *nsfw.Detector
-	strikes *nsfwstrikes.Limiter
-	ghCli   *github.Client
-	ghOwner string
-	ghRepo  string
+	log          *logger.Logger
+	nsfw         *nsfw.Detector
+	strikes      *nsfwstrikes.Limiter
+	ghCli        *github.Client
+	ghOwner      string
+	ghRepo       string
+	supabaseURL  string
+	supabaseKey  string
 }
 
 type Config struct {
@@ -64,16 +67,22 @@ type Config struct {
 	NSFWApiURL    string
 	NSFWApiSecret string
 	Strikes       *nsfwstrikes.Limiter
+	// Optional: when set, profile pics use users.github_repo when non-empty; otherwise
+	// GITHUB_REPO and we PATCH users.github_repo to that default.
+	SupabaseURL string
+	SupabaseKey string
 }
 
 func RegisterRoutes(app *fiber.App, log *logger.Logger, cfg Config) {
 	h := &Handler{
-		log:     log,
-		nsfw:    nsfw.NewDetector(cfg.NSFWApiURL, cfg.NSFWApiSecret),
-		strikes: cfg.Strikes,
-		ghCli:   cfg.GitHubClient,
-		ghOwner: cfg.GitHubOwner,
-		ghRepo:  cfg.GitHubRepo,
+		log:         log,
+		nsfw:        nsfw.NewDetector(cfg.NSFWApiURL, cfg.NSFWApiSecret),
+		strikes:     cfg.Strikes,
+		ghCli:       cfg.GitHubClient,
+		ghOwner:     cfg.GitHubOwner,
+		ghRepo:      cfg.GitHubRepo,
+		supabaseURL: strings.TrimSpace(cfg.SupabaseURL),
+		supabaseKey: strings.TrimSpace(cfg.SupabaseKey),
 	}
 	app.Post("/api/profilepic/upload", h.upload)
 }
@@ -81,11 +90,11 @@ func RegisterRoutes(app *fiber.App, log *logger.Logger, cfg Config) {
 func (h *Handler) upload(c *fiber.Ctx) error {
 	uid, ok := c.Locals(middleware.LocalsUserID).(string)
 	if !ok || uid == "" {
-		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "missing_user_id"})
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"success": false})
 	}
 	username, uok := c.Locals(middleware.LocalsUsername).(string)
 	if !uok || username == "" || !security.IsValidUsername(username) {
-		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "invalid_profile_session"})
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"success": false})
 	}
 
 	if h.strikes != nil && h.strikes.RespondIfBlocked(c, uid) {
@@ -94,42 +103,42 @@ func (h *Handler) upload(c *fiber.Ctx) error {
 
 	file, err := c.FormFile("file")
 	if err != nil || file == nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "no file provided"})
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"success": false})
 	}
 
 	if file.Size > maxFileSize {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "file exceeds 10MB limit"})
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"success": false})
 	}
 
 	mime := strings.ToLower(strings.TrimSpace(file.Header.Get("Content-Type")))
 	if !allowedMIME[mime] {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid file type, must be an image"})
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"success": false})
 	}
 
 	f, err := file.Open()
 	if err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "failed to read file"})
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"success": false})
 	}
 	defer f.Close()
 
 	data, err := io.ReadAll(f)
 	if err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "failed to read file"})
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"success": false})
 	}
 
 	cfg, _, err := image.DecodeConfig(bytes.NewReader(data))
 	if err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "could not read image dimensions"})
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"success": false})
 	}
 	if cfg.Width < 1 || cfg.Height < 1 {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid image dimensions"})
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"success": false})
 	}
 	ar := float64(cfg.Width) / float64(cfg.Height)
 	if math.Abs(ar-1.0) > 0.001 {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "profile picture must be square (1:1 aspect ratio)"})
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"success": false})
 	}
 	if cfg.Width > 8192 || cfg.Height > 8192 {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "image dimensions too large"})
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"success": false})
 	}
 
 	var toScan [][]byte
@@ -151,36 +160,34 @@ func (h *Handler) upload(c *fiber.Ctx) error {
 		result, err := h.nsfw.Detect(toScan[0])
 		if err != nil {
 			h.log.Errorf("profilepic NSFW check error: %v", err)
-		} else if result.IsNSFW {
+			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"success": false})
+		}
+		if result.IsNSFW {
 			if h.strikes != nil {
 				if err := h.strikes.RecordDeniedNSFWBestEffort(context.Background(), uid); err != nil {
 					h.log.Errorf("profilepic nsfw strike record: %v", err)
 				}
 			}
-			return c.Status(422).JSON(fiber.Map{
-				"error": "This image was detected as inappropriate and cannot be used as a profile picture",
-				"nsfw":  true,
-			})
+			return c.Status(422).JSON(fiber.Map{"success": false, "nsfw": true})
 		}
 	} else {
 		anyNsfw, _, err := h.nsfw.DetectBatch(toScan)
 		if err != nil {
 			h.log.Errorf("profilepic NSFW batch check error: %v", err)
-		} else if anyNsfw {
+			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"success": false})
+		}
+		if anyNsfw {
 			if h.strikes != nil {
 				if err := h.strikes.RecordDeniedNSFWBestEffort(context.Background(), uid); err != nil {
 					h.log.Errorf("profilepic nsfw strike record: %v", err)
 				}
 			}
-			return c.Status(422).JSON(fiber.Map{
-				"error": "This image was detected as inappropriate and cannot be used as a profile picture",
-				"nsfw":  true,
-			})
+			return c.Status(422).JSON(fiber.Map{"success": false, "nsfw": true})
 		}
 	}
 
 	if h.ghCli == nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "storage not configured"})
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"success": false})
 	}
 
 	ext := strings.ToLower(filepath.Ext(file.Filename))
@@ -193,7 +200,7 @@ func (h *Handler) upload(c *fiber.Ctx) error {
 	switch ext {
 	case ".jpeg", ".jpg", ".png", ".gif", ".webp":
 	default:
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "unsupported file extension"})
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"success": false})
 	}
 
 	ghPath := fmt.Sprintf("%s/%s%s", username, uid, ext)
@@ -201,15 +208,42 @@ func (h *Handler) upload(c *fiber.Ctx) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
-	if err := ghlib.CreateOrUpdateFile(ctx, h.ghCli, h.ghOwner, h.ghRepo, ghPath, data, fmt.Sprintf("Profile picture for %s", username)); err != nil {
-		h.log.Errorf("profilepic GitHub upload failed: %v", err)
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "upload failed"})
+	targetRepo := strings.TrimSpace(h.ghRepo)
+
+	if h.supabaseURL != "" && h.supabaseKey != "" {
+		stored, ferr := supabase.FetchUserGithubRepo(ctx, h.supabaseURL, h.supabaseKey, uid)
+		if ferr != nil {
+			h.log.Errorf("profilepic fetch github_repo: %v", ferr)
+			targetRepo = strings.TrimSpace(h.ghRepo)
+		} else if stored != "" && supabase.ValidGitHubRepoName(stored) {
+			targetRepo = stored
+		} else {
+			targetRepo = strings.TrimSpace(h.ghRepo)
+		}
 	}
 
-	h.log.Infof("profilepic uploaded user=%s path=%s", uid, ghPath)
+	if targetRepo == "" || !supabase.ValidGitHubRepoName(targetRepo) {
+		h.log.Errorf("profilepic target repo empty or invalid")
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"success": false})
+	}
+
+	if err := ghlib.CreateOrUpdateFile(ctx, h.ghCli, h.ghOwner, targetRepo, ghPath, data, fmt.Sprintf("Profile picture for %s", username)); err != nil {
+		h.log.Errorf("profilepic GitHub upload failed: %v", err)
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"success": false})
+	}
+
+	// Always persist the repo we wrote to so users.github_repo matches GitHub (loader + cleanup use it).
+	if h.supabaseURL != "" && h.supabaseKey != "" {
+		if err := supabase.SetUserGithubRepo(ctx, h.supabaseURL, h.supabaseKey, uid, targetRepo); err != nil {
+			h.log.Errorf("profilepic set users.github_repo: %v", err)
+		}
+	}
+
+	h.log.Infof("profilepic uploaded user=%s repo=%s path=%s", uid, targetRepo, ghPath)
 
 	return c.JSON(fiber.Map{
-		"success":     true,
-		"profile_pic": ghPath,
+		"success":      true,
+		"profile_pic":  ghPath,
+		"github_repo": targetRepo,
 	})
 }

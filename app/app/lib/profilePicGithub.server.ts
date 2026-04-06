@@ -1,7 +1,16 @@
 import { GitHubClient } from "~/lib/Github/GitHubClient";
+import { validGitHubRepoName } from "~/lib/profilePicSecurity.server";
 
 export function githubRepoForProfile(): string {
-  return (typeof process !== "undefined" && process.env.GITHUB_REPO?.trim()) || "Memories";
+  const env = (typeof process !== "undefined" && process.env.GITHUB_REPO?.trim()) || "Memories";
+  return validGitHubRepoName(env) ? env : "Memories";
+}
+
+/** Repo where the user's current profile picture file lives (matches Go upload target). */
+export function githubRepoForProfilePath(userGithubRepo: string | null | undefined): string {
+  const t = typeof userGithubRepo === "string" ? userGithubRepo.trim() : "";
+  if (t && validGitHubRepoName(t)) return t;
+  return githubRepoForProfile();
 }
 
 export async function deleteOldProfilePicIfNeeded(

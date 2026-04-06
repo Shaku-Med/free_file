@@ -137,6 +137,11 @@ func main() {
 		NSFWApiSecret: webhookSecret,
 		Strikes:       nsfwStrikes,
 	})
+	supabaseURL := env.EnvValidator("SUPABASE_URL")
+	supabaseKey := env.EnvValidator("SUPABASE_SERVICE_ROLE_KEY")
+	if supabaseKey == "" {
+		supabaseKey = env.EnvValidator("SUPABASE_ANON_KEY")
+	}
 	profilepic.RegisterRoutes(app, appLog, profilepic.Config{
 		GitHubClient:  wcfg.GitHubClient,
 		GitHubOwner:   ghOwner,
@@ -144,6 +149,8 @@ func main() {
 		NSFWApiURL:    nsfwAPI,
 		NSFWApiSecret: webhookSecret,
 		Strikes:       nsfwStrikes,
+		SupabaseURL:   supabaseURL,
+		SupabaseKey:   supabaseKey,
 	})
 	if env.IsDev() {
 		testpage.RegisterRoutes(app)
