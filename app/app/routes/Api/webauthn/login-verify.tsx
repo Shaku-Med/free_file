@@ -5,6 +5,13 @@ import db from "~/lib/Database/supabase";
 import { getWebAuthnConfig } from "~/lib/webauthn/config";
 import { consumeWebAuthnChallenge } from "~/lib/webauthn/challenges";
 import { PasskeyUserMessage } from "~/lib/webauthn/userMessages";
+import { isAuthenticated } from "~/lib/Security/Password";
+import { getCookie } from "~/lib/Security/Token";
+import {
+  appendAltAccountsCookie,
+  parkCurrentInVault,
+  readAltAccountsFromRequest,
+} from "~/lib/Security/accountVault";
 import { appendSessionCookie, issueCUserSessionToken } from "~/routes/Auth/fun/auth";
 import { checkAuthRateLimit, resetAuthRateLimit } from "~/routes/Auth/fun/rateLimit";
 
@@ -35,12 +42,17 @@ export const action = async ({ request }: { request: Request }) => {
     return json({ error: PasskeyUserMessage.rateLimited }, 429);
   }
 
-  let body: { flowId?: string; response?: AuthenticationResponseJSON; redirect?: string };
+  let body: { flowId?: string; response?: AuthenticationResponseJSON; redirect?: string; addAccount?: boolean };
   try {
     body = await request.json();
   } catch {
     return json({ error: PasskeyUserMessage.loginDidNotWork }, 400);
   }
+
+  const addAccount = body.addAccount === true;
+  const oldToken = addAccount ? getCookie("c_user", request.headers) : null;
+  const oldUser =
+    addAccount && oldToken ? await isAuthenticated(request, ["id", "username", "profile_pic"]) : null;
 
   const flowId = typeof body.flowId === "string" ? body.flowId : "";
   const authResponse = body.response;
@@ -73,7 +85,7 @@ export const action = async ({ request }: { request: Request }) => {
 
   const { data: account, error: userError } = await db
     .from("users")
-    .select("id, c_usr, verified, is_memories")
+    .select("id, c_usr, verified, is_memories, username")
     .eq("id", row.user_id)
     .maybeSingle();
 
@@ -124,8 +136,20 @@ export const action = async ({ request }: { request: Request }) => {
 
   resetAuthRateLimit(request, "passkey");
 
+  let vault = readAltAccountsFromRequest(request.headers);
+  if (addAccount && oldToken && oldUser && account.id !== oldUser.id) {
+    vault = parkCurrentInVault(vault, oldToken, {
+      id: oldUser.id,
+      username: oldUser.username,
+      profile_pic: oldUser.profile_pic,
+    }, account.id);
+  }
+
   const headers = new Headers();
   appendSessionCookie(headers, token);
+  if (addAccount && oldToken && oldUser && account.id !== oldUser.id) {
+    appendAltAccountsCookie(headers, vault);
+  }
 
   const redirectTo = safeRedirectPath(body.redirect, "/");
   return json({ ok: true, redirect: redirectTo }, 200, headers);

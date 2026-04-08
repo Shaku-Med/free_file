@@ -63,8 +63,8 @@ export default function LiquidAmbientGradient({ colors, className }: LiquidAmbie
       <div
         className={cn(
           "absolute inset-[-15%]",
-          "blur-xl",
-          effectiveDark ? "opacity-[0.7]" : "opacity-[0.8]"
+          "blur-lg",
+          effectiveDark ? "opacity-[0.42]" : "opacity-[0.48]"
         )}
         style={{ willChange: "transform" }}
       >
@@ -88,8 +88,8 @@ export default function LiquidAmbientGradient({ colors, className }: LiquidAmbie
         />
         <div
           className={cn(
-            "absolute inset-[10%] rounded-[40%] opacity-70",
-            effectiveDark ? "mix-blend-screen" : "mix-blend-soft-light"
+            "absolute inset-[10%] rounded-[40%] opacity-[0.45]",
+            effectiveDark ? "mix-blend-soft-light" : "mix-blend-soft-light"
           )}
           style={{
             background: `radial-gradient(ellipse 60% 50% at 50% 50%, ${c3}, transparent 75%)`,
@@ -100,9 +100,9 @@ export default function LiquidAmbientGradient({ colors, className }: LiquidAmbie
       <div
         className={cn(
           "absolute inset-0",
-          effectiveDark ? "opacity-25" : "opacity-40",
-          "bg-gradient-to-b from-background/0 via-transparent to-background/60",
-          effectiveDark && "to-background/70"
+          effectiveDark ? "opacity-20" : "opacity-28",
+          "bg-gradient-to-b from-background/0 via-transparent to-background/50",
+          effectiveDark && "to-background/58"
         )}
       />
     </div>

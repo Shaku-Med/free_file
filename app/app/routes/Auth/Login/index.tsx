@@ -1,24 +1,49 @@
 import { useState } from 'react';
-import { data, redirect, useActionData, useNavigation, Link, useSearchParams, type MetaFunction } from 'react-router';
+import {
+  data,
+  redirect,
+  useActionData,
+  useNavigation,
+  Link,
+  useSearchParams,
+  useLoaderData,
+  type MetaFunction,
+} from 'react-router';
 import { buildPageMeta } from '~/lib/seo';
 import { Button } from '~/components/ui/button';
+import { Avatar, AvatarFallback, AvatarImage } from '~/components/ui/avatar';
 import { Input } from '~/components/ui/input';
 import { Card, CardContent, CardHeader } from '~/components/ui/card';
-import { loginUser } from '../fun/auth';
+import { loginUser, appendSessionCookie } from '../fun/auth';
 import { isAuthenticated } from '~/lib/Security/Password';
+import { getCookie } from '~/lib/Security/Token';
+import {
+  appendAltAccountsCookie,
+  parkCurrentInVault,
+  readAltAccountsFromRequest,
+  safeServerRedirect,
+} from '~/lib/Security/accountVault';
 import { PasskeyUserMessage, friendlyPasskeyClientError } from '~/lib/webauthn/userMessages';
 import { checkAuthRateLimit, resetAuthRateLimit } from '../fun/rateLimit';
-import { Eye, EyeOff, AlertCircle, Fingerprint, KeyRound, CheckCircle2 } from 'lucide-react';
+import { getProfilePicUrl } from '~/lib/utils/profilePic';
+import { Eye, EyeOff, AlertCircle, Fingerprint, KeyRound, CheckCircle2, Users } from 'lucide-react';
 
 export const loader = async ({ request }: { request: Request }) => {
+  const url = new URL(request.url);
+  const addAccount = url.searchParams.get('addAccount') === '1';
   const is_auth = await isAuthenticated(request);
-  if (is_auth) {
-    const url = new URL(request.url);
+  if (is_auth && !addAccount) {
     const searchParams = url.searchParams.toString();
     const redirectUrl = searchParams ? `/?${searchParams}` : '/';
     return redirect(redirectUrl);
   }
-  return data(null);
+  const alt = readAltAccountsFromRequest(request.headers);
+  const altAccounts = alt.map(({ id, u, pic }) => ({
+    id,
+    username: u,
+    profile_pic: pic ?? null,
+  }));
+  return data({ addAccount: Boolean(is_auth && addAccount), altAccounts });
 };
 
 export const action = async ({ request }: { request: Request }) => {
@@ -26,6 +51,7 @@ export const action = async ({ request }: { request: Request }) => {
     const formData = await request.formData();
     const identifier = formData.get('identifier') as string;
     const password = formData.get('password') as string;
+    const addAccount = formData.get('addAccount') === '1';
 
     const normalizedIdentifier = identifier?.toLowerCase() || '';
 
@@ -33,6 +59,10 @@ export const action = async ({ request }: { request: Request }) => {
     if (!rateLimitCheck.allowed) {
       return data({ error: rateLimitCheck.error || 'Too many attempts. Please wait a bit and try again.' }, { status: 429 });
     }
+
+    const oldToken = addAccount ? getCookie('c_user', request.headers) : null;
+    const oldUser =
+      addAccount && oldToken ? await isAuthenticated(request, ['id', 'username', 'profile_pic']) : null;
 
     const result = await loginUser({ identifier, password }, request);
 
@@ -43,23 +73,29 @@ export const action = async ({ request }: { request: Request }) => {
       return data({ error: result.error || 'Incorrect username or password. Please try again.' }, { status: 401 });
     }
 
-    if (!result.token) {
+    if (!result.token || !result.userId) {
       return data({ error: 'Something went wrong. Please try again.' }, { status: 500 });
     }
 
     resetAuthRateLimit(request, 'login', identifier.toLowerCase());
 
     const url = new URL(request.url);
-    const redirectTo = url.searchParams.get('redirect') || '/';
+    const redirectTo = safeServerRedirect(request, url.searchParams.get('redirect'));
 
-    const sameSite = process.env.NODE_ENV === 'production' ? 'SameSite=None' : 'SameSite=Lax';
-    const secure = process.env.NODE_ENV === 'production' ? 'Secure' : '';
+    let vault = readAltAccountsFromRequest(request.headers);
+    if (addAccount && oldToken && oldUser) {
+      vault = parkCurrentInVault(vault, oldToken, {
+        id: oldUser.id,
+        username: oldUser.username,
+        profile_pic: oldUser.profile_pic,
+      }, result.userId);
+    }
 
     const headers = new Headers();
-    headers.append(
-      'Set-Cookie',
-      `c_user=${result.token}; Path=/; Max-Age=${30 * 24 * 60 * 60}; HttpOnly; ${secure}; ${sameSite}`
-    );
+    appendSessionCookie(headers, result.token);
+    if (addAccount && oldToken && oldUser) {
+      appendAltAccountsCookie(headers, vault);
+    }
 
     return redirect(redirectTo, { headers });
   } catch (error) {
@@ -85,13 +121,42 @@ const Login = () => {
   const actionData = useActionData<typeof action>();
   const navigation = useNavigation();
   const [searchParams] = useSearchParams();
+  const loaderData = useLoaderData<typeof loader>();
+  const { addAccount, altAccounts } = loaderData;
   const [showPassword, setShowPassword] = useState(false);
   const [passkeyError, setPasskeyError] = useState<string | null>(null);
   const [passkeyPending, setPasskeyPending] = useState(false);
+  const [switchPending, setSwitchPending] = useState<string | null>(null);
   const isSubmitting = navigation.state === 'submitting';
   const redirectAfterLogin = safeClientRedirect(searchParams.get('redirect'));
   const justVerified = searchParams.get('verified') === 'true';
   const justResetPassword = searchParams.get('passwordReset') === 'true';
+  const addAccountParam = searchParams.get('addAccount') === '1';
+
+  const switchToAccount = async (uid: string) => {
+    setSwitchPending(uid);
+    setPasskeyError(null);
+    try {
+      const res = await fetch('/api/auth/switch-account', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ userId: uid }),
+      });
+      if (!res.ok) {
+        const payload = await res.json().catch(() => ({}));
+        setPasskeyError(
+          typeof payload?.error === 'string' ? payload.error : 'Could not switch account.'
+        );
+        return;
+      }
+      window.location.assign(redirectAfterLogin);
+    } catch {
+      setPasskeyError('Could not switch account.');
+    } finally {
+      setSwitchPending(null);
+    }
+  };
 
   const signInWithPasskey = async () => {
     setPasskeyError(null);
@@ -127,6 +192,7 @@ const Login = () => {
           flowId,
           response: assertion,
           redirect: redirectAfterLogin,
+          addAccount: addAccountParam,
         }),
       });
       const verifyPayload = await verifyRes.json().catch(() => ({}));
@@ -164,12 +230,57 @@ const Login = () => {
       <Card className="border border-border/60 shadow-sm">
         <CardHeader className="pb-1 pt-7 sm:pt-8 px-5 sm:px-8">
           <div className="text-center">
-            <h1 className="text-xl font-semibold text-foreground">Welcome back</h1>
-            <p className="mt-1 text-sm text-muted-foreground">Sign in to continue to your account</p>
+            <h1 className="text-xl font-semibold text-foreground">
+              {addAccount ? 'Add another account' : 'Welcome back'}
+            </h1>
+            <p className="mt-1 text-sm text-muted-foreground">
+              {addAccount
+                ? 'Sign in with a different username or email. Your current session will be saved so you can switch back.'
+                : 'Sign in to continue to your account'}
+            </p>
           </div>
         </CardHeader>
         <CardContent className="px-5 sm:px-8 pb-6 sm:pb-8 pt-4">
+          {!addAccount && altAccounts.length > 0 && (
+            <div className="mb-5 space-y-2">
+              <p className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
+                <Users className="h-3.5 w-3.5" />
+                Saved accounts on this device
+              </p>
+              <div className="flex flex-col gap-2">
+                {altAccounts.map((acc) => (
+                  <Button
+                    key={acc.id}
+                    type="button"
+                    variant="outline"
+                    className="w-full justify-start h-auto py-2.5 px-3 gap-2.5"
+                    disabled={!!switchPending}
+                    onClick={() => void switchToAccount(acc.id)}
+                  >
+                    {switchPending === acc.id ? (
+                      <span className="flex items-center gap-2 text-sm">
+                        <span className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
+                        Switching…
+                      </span>
+                    ) : (
+                      <>
+                        <Avatar className="h-8 w-8 shrink-0 ring-1 ring-border">
+                          <AvatarImage src={getProfilePicUrl(acc.profile_pic ?? undefined)} alt="" />
+                          <AvatarFallback className="text-xs bg-primary/10 text-primary font-medium">
+                            {acc.username.charAt(0).toUpperCase()}
+                          </AvatarFallback>
+                        </Avatar>
+                        <span className="text-sm font-medium text-left truncate">{acc.username}</span>
+                      </>
+                    )}
+                  </Button>
+                ))}
+              </div>
+            </div>
+          )}
+
           <form method="post" className="space-y-3.5">
+            {addAccount && <input type="hidden" name="addAccount" value="1" />}
             {actionData && 'error' in actionData && (
               <div className="flex items-start gap-2.5 rounded-lg bg-destructive/10 border border-destructive/20 px-3.5 py-3 text-sm text-destructive">
                 <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" />
@@ -229,8 +340,10 @@ const Login = () => {
               {isSubmitting ? (
                 <span className="flex items-center gap-2">
                   <span className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
-                  Signing in...
+                  {addAccount ? 'Adding account…' : 'Signing in...'}
                 </span>
+              ) : addAccount ? (
+                'Add account'
               ) : (
                 'Sign in'
               )}

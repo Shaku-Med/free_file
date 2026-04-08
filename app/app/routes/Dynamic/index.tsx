@@ -1319,7 +1319,7 @@ const index = () => {
             <div className={`relative`}>
               {videoBlock}
               {ambientEnabled && (
-                <div className="ambience-wrap z-[-1] absolute scale-[1.8] w-full min-w-screen h-full inset-0 pointer-events-none overflow-hidden rounded-lg">
+                <div className="ambience-wrap z-[-1] absolute scale-[1.35] w-full min-w-screen h-full inset-0 pointer-events-none overflow-hidden rounded-lg">
                   {
                     isMobile && (
                       <>
@@ -1328,7 +1328,7 @@ const index = () => {
                     )
                   }
                   {/* Blur/saturation only on sampled canvases (YouTube-style); keep vignette overlay sharp. */}
-                  <div className="absolute inset-0 opacity-50 [filter:saturate(1.45)_blur(56px)] sm:[filter:saturate(1.45)_blur(80px)]">
+                  <div className="absolute inset-0 opacity-[0.38] [filter:saturate(1.12)_blur(48px)] sm:[filter:saturate(1.12)_blur(64px)]">
                     <Ambience colors={imageColors || []} videoRef={videoElementRef} videoReady={videoRefReady} />
                   </div>
                   <div

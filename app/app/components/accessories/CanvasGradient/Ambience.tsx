@@ -8,9 +8,9 @@ import { useEffect, useRef } from "react";
  */
 const CANVAS_W = 10;
 const CANVAS_H = 6;
-/** Sparse updates only (~3 Hz) — production YouTube uses pre-baked mosaics; we mimic that cadence on the client. */
-const SAMPLE_INTERVAL_MS = 320;
-const CROSSFADE_MS = 520;
+/** Sparse updates — slower cadence reads calmer behind heavy CSS blur (avoids “disco” color flicker). */
+const SAMPLE_INTERVAL_MS = 720;
+const CROSSFADE_MS = 1100;
 
 type AmbienceProps = {
   colors: string[];

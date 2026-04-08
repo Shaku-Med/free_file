@@ -78,6 +78,8 @@ export default [
         route(`webauthn/login-options`, 'routes/Api/webauthn/login-options.tsx'),
         route(`webauthn/login-verify`, 'routes/Api/webauthn/login-verify.tsx'),
         route(`webauthn/credentials`, 'routes/Api/webauthn/credentials.tsx'),
+        route(`auth/switch-account`, 'routes/Api/auth/switch-account.tsx'),
+        route(`auth/remove-account`, 'routes/Api/auth/remove-account.tsx'),
         route(`server-env`, 'routes/Api/server-env/index.tsx'),
         route(`sitemap`, 'routes/Api/sitemap/index.tsx'),
         route(`indexnow`, 'routes/Api/indexnow/index.tsx'),

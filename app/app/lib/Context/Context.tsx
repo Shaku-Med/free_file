@@ -68,6 +68,7 @@ export const Context = createContext<ContextProps>({
     isDevelopment: false,
     hasFetchedImages: false,
     setHasFetchedImages: () => {},
+    altAccounts: [],
 })
 
 interface ContextProviderProps {
@@ -80,6 +81,7 @@ interface ContextProviderProps {
     playerSettingsFromLoader?: ContextProps['playerSettings'] | null;
     isMobileServer?: boolean;
     isDevelopment?: boolean;
+    altAccounts?: { id: string; username: string; profile_pic?: string | null }[];
 }
 
 export const FloatingButton = () => {
@@ -114,7 +116,7 @@ export const FloatingButton = () => {
     )
 }
 
-export const ContextProvider = ({ children, st, user_agent, userId, c_user, uploadServerUrl = '', playerSettingsFromLoader = null, isMobileServer = false, isDevelopment = false }: ContextProviderProps) => {
+export const ContextProvider = ({ children, st, user_agent, userId, c_user, uploadServerUrl = '', playerSettingsFromLoader = null, isMobileServer = false, isDevelopment = false, altAccounts: altAccountsProp = [] }: ContextProviderProps) => {
     const [files, setFiles] = useState<FileType[]>([]);
     const [pageCache, setPageCache] = useState<PageCacheEntry>([]);
     const [isModalOpen, setIsModalOpen] = useState(false);
@@ -434,8 +436,9 @@ export const ContextProvider = ({ children, st, user_agent, userId, c_user, uplo
             isDevelopment,
             hasFetchedImages,
             setHasFetchedImages,
+            altAccounts: altAccountsProp,
         }),
-        [files, isModalOpen, isLoading, initialLoading, loadMoreVideos, clearFeedHistory, user_agent, safeUserId, userActions, c_user, uploadServerUrl, userProfile, userProfileLoading, pageCache, scrollDataReady, theaterMode, playerSettings, savePlayerSettings]
+        [files, isModalOpen, isLoading, initialLoading, loadMoreVideos, clearFeedHistory, user_agent, safeUserId, userActions, c_user, uploadServerUrl, userProfile, userProfileLoading, pageCache, scrollDataReady, theaterMode, playerSettings, savePlayerSettings, altAccountsProp]
     );
     
     return (

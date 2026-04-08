@@ -1,8 +1,29 @@
 import { redirect, type LoaderFunctionArgs } from "react-router";
+import { clearAltAccountsCookie } from "~/lib/Security/accountVault";
 
-// Server-side logout: clear auth/session cookies and redirect to login
+/** Same-origin path only; avoids open redirects. Blocks `/logout` to prevent redirect loops. */
+function safePostLogoutRedirect(request: Request, redirectParam: string | null): string {
+  if (!redirectParam) return "/";
+  let decoded: string;
+  try {
+    decoded = decodeURIComponent(redirectParam);
+  } catch {
+    return "/";
+  }
+  const base = new URL(request.url);
+  let parsed: URL;
+  try {
+    parsed = new URL(decoded, base);
+  } catch {
+    return "/";
+  }
+  if (parsed.origin !== base.origin) return "/";
+  if (parsed.pathname === "/logout") return "/";
+  return parsed.pathname + parsed.search + parsed.hash;
+}
+
+// Server-side logout: clear ALL auth/session cookies including the multi-account vault
 export const loader = async ({ request }: LoaderFunctionArgs) => {
-  // Build headers with multiple Set-Cookie directives to expire cookies
   const headers = new Headers();
 
   // Core auth cookies
@@ -31,7 +52,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     "validator=; Path=/; Max-Age=0; HttpOnly; SameSite=Strict"
   );
 
-  // Optionally, clear any non-HttpOnly copies if they ever existed
+  // Clear any non-HttpOnly copies if they ever existed
   headers.append(
     "Set-Cookie",
     "token=; Path=/; Max-Age=0; SameSite=Strict"
@@ -41,8 +62,11 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     "c_user=; Path=/; Max-Age=0; SameSite=Strict"
   );
 
+  // Wipe the multi-account vault so parked sessions can't be resumed after logout
+  clearAltAccountsCookie(headers);
+
   const url = new URL(request.url);
-  const redirectTo = url.searchParams.get("redirect") || "/auth/login";
+  const redirectTo = safePostLogoutRedirect(request, url.searchParams.get("redirect"));
 
   return redirect(redirectTo, { headers });
 };

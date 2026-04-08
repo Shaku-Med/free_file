@@ -482,7 +482,7 @@ input[type="search"] {
 }
 
 .ambience-canvas {
-  filter: blur(40px);
+  filter: blur(26px);
 }
 
 @media (prefers-reduced-motion: reduce) {

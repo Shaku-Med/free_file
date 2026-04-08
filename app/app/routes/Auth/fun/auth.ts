@@ -18,11 +18,10 @@ export async function issueCUserSessionToken(c_usr: string): Promise<string | nu
 
 /** Append HttpOnly session cookie (matches /auth/login). */
 export function appendSessionCookie(headers: Headers, token: string): void {
-  const sameSite = process.env.NODE_ENV === 'production' ? 'SameSite=None' : 'SameSite=Lax';
   const secure = process.env.NODE_ENV === 'production' ? 'Secure' : '';
   headers.append(
     'Set-Cookie',
-    `c_user=${token}; Path=/; Max-Age=${30 * 24 * 60 * 60}; HttpOnly; ${secure}; ${sameSite}`
+    `c_user=${token}; Path=/; Max-Age=${30 * 24 * 60 * 60}; HttpOnly; ${secure}; SameSite=Lax`
   );
 }
 
@@ -269,7 +268,7 @@ export const loginUser = async (data: LoginData, request: Request): Promise<{ su
       return { success: false, error: 'Something went wrong. Please try again.' };
     }
 
-    return { success: true, token };
+    return { success: true, token, userId };
   } catch (error) {
     console.error('Error in loginUser:', error);
     return { success: false, error: 'An unexpected error occurred' };

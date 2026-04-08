@@ -46,9 +46,9 @@ export default function AmbientBackground() {
         className="absolute w-full h-full left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 origin-center"
         style={{
           background: radialBg,
-          filter: 'blur(30px)',
-          transform: 'translate(-50%, -50%) scale(1.5)',
-          opacity: 0.9,
+          filter: 'blur(24px)',
+          transform: 'translate(-50%, -50%) scale(1.25)',
+          opacity: 0.55,
           willChange: 'transform',
         }}
       />

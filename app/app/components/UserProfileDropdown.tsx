@@ -1,16 +1,18 @@
-import { Link } from "react-router";
+import { useState } from "react";
+import { Link, useLocation } from "react-router";
 import { Avatar, AvatarFallback, AvatarImage } from "~/components/ui/avatar";
 import { Button } from "~/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "~/components/ui/dropdown-menu";
 import { useFileContext } from "~/lib/Context/Context";
 import { getProfilePicUrl } from "~/lib/utils/profilePic";
-import { LogIn, User, Settings, LogOut, ChevronDown, Heart } from "lucide-react";
+import { LogIn, User, Settings, LogOut, ChevronDown, Heart, UserPlus } from "lucide-react";
 
 type Variant = "sidebar" | "topbar";
 
@@ -19,6 +21,30 @@ interface UserProfileDropdownProps {
 }
 
 function ProfileMenuContent({ username }: { username: string | undefined }) {
+  const location = useLocation();
+  const { altAccounts } = useFileContext();
+  const [switching, setSwitching] = useState<string | null>(null);
+  const returnTo = `${location.pathname}${location.search}${location.hash}`;
+  const logoutTo = `/logout?redirect=${encodeURIComponent(returnTo)}`;
+  const addAccountHref = `/auth/login?addAccount=1&redirect=${encodeURIComponent(returnTo)}`;
+
+  const switchAccount = async (uid: string) => {
+    setSwitching(uid);
+    try {
+      const res = await fetch("/api/auth/switch-account", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ userId: uid }),
+      });
+      if (res.ok) {
+        window.location.assign(returnTo);
+      }
+    } finally {
+      setSwitching(null);
+    }
+  };
+
   return (
     <DropdownMenuContent align="end" className="w-56">
       <DropdownMenuItem asChild>
@@ -39,9 +65,45 @@ function ProfileMenuContent({ username }: { username: string | undefined }) {
           <span>Settings</span>
         </Link>
       </DropdownMenuItem>
+      {altAccounts.length > 0 && (
+        <>
+          <DropdownMenuSeparator />
+          <DropdownMenuLabel className="text-xs font-normal text-muted-foreground px-2 py-1.5">
+            Other accounts
+          </DropdownMenuLabel>
+          {altAccounts.map((a) => (
+            <DropdownMenuItem
+              key={a.id}
+              className="cursor-pointer flex items-center gap-2.5"
+              disabled={switching !== null}
+              onSelect={(e) => {
+                e.preventDefault();
+                void switchAccount(a.id);
+              }}
+            >
+              <Avatar className="h-7 w-7 shrink-0 ring-1 ring-border">
+                <AvatarImage src={getProfilePicUrl(a.profile_pic ?? undefined)} alt="" />
+                <AvatarFallback className="text-[10px] bg-primary/10 text-primary font-medium">
+                  {a.username.charAt(0).toUpperCase()}
+                </AvatarFallback>
+              </Avatar>
+              <span className="truncate min-w-0">
+                {switching === a.id ? "Switching…" : a.username}
+              </span>
+            </DropdownMenuItem>
+          ))}
+        </>
+      )}
       <DropdownMenuSeparator />
       <DropdownMenuItem asChild>
-        <Link to="/logout" className="flex items-center gap-2 text-destructive focus:text-destructive">
+        <Link to={addAccountHref} className="flex items-center gap-2">
+          <UserPlus className="h-4 w-4" />
+          <span>Add account</span>
+        </Link>
+      </DropdownMenuItem>
+      <DropdownMenuSeparator />
+      <DropdownMenuItem asChild>
+        <Link to={logoutTo} className="flex items-center gap-2 text-destructive focus:text-destructive">
           <LogOut className="h-4 w-4" />
           <span>Log out</span>
         </Link>

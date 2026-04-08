@@ -9,8 +9,15 @@ import { ShieldAlert, ShieldCheck, Image, Video, Music, Upload } from 'lucide-re
 
 export const loader = async ({ request }: { request: Request }) => {
   const is_auth = await isAuthenticated(request);
-  if(is_auth) {
-    const url = new URL(request.url);
+  const url = new URL(request.url);
+  const addAccount = url.searchParams.get('addAccount') === '1';
+  const isLoginRoute = url.pathname.endsWith('/login');
+  if (is_auth && !addAccount) {
+    const searchParams = url.searchParams.toString();
+    const redirectUrl = searchParams ? `/?${searchParams}` : '/';
+    return redirect(redirectUrl);
+  }
+  if (is_auth && addAccount && !isLoginRoute) {
     const searchParams = url.searchParams.toString();
     const redirectUrl = searchParams ? `/?${searchParams}` : '/';
     return redirect(redirectUrl);

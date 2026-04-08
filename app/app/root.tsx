@@ -36,6 +36,7 @@ import { parseUserTheme } from "./lib/theme/constants";
 import { getPlayerSettingsFromCookies } from "./routes/Api/player-settings";
 import { BASE_URL } from "./lib/URLS";
 import { isMobileUserAgent } from "./lib/device.server";
+import { readAltAccountsFromRequest } from "./lib/Security/accountVault";
 
 export const links: Route.LinksFunction = () => [
   { rel: "preconnect", href: "https://fonts.googleapis.com" },
@@ -175,7 +176,14 @@ export const loader = async ({request}: {request: Request}) => {
     const isMobileServer = isMobileUserAgent(request.headers.get('user-agent'));
     const isDevelopmentServer = process.env.NODE_ENV === 'development';
 
-    return data({ st: sessionToken, user_agent: request.headers.get('user-agent'), userId, c_user, uploadServerUrl, userTheme, playerSettingsFromLoader, isMobileServer, isDevelopmentServer, requestURL }, {
+    const altVault = readAltAccountsFromRequest(request.headers);
+    const altAccounts = altVault.map(({ id, u, pic }) => ({
+      id,
+      username: u,
+      profile_pic: pic ?? null,
+    }));
+
+    return data({ st: sessionToken, user_agent: request.headers.get('user-agent'), userId, c_user, uploadServerUrl, userTheme, playerSettingsFromLoader, isMobileServer, isDevelopmentServer, requestURL, altAccounts }, {
       status: 200,
       headers: (token) ? { // I left this part open for now. Fix will be done later.
         'Set-Cookie': `token=${token}; Path=/; HttpOnly; ${secure}; ${sameSite}`
@@ -222,7 +230,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
     )
   }
 
-  const { st, user_agent, userId, c_user, uploadServerUrl, userTheme, playerSettingsFromLoader, isMobileServer, isDevelopmentServer, requestURL } = data;
+  const { st, user_agent, userId, c_user, uploadServerUrl, userTheme, playerSettingsFromLoader, isMobileServer, isDevelopmentServer, requestURL, altAccounts } = data;
   const themeClass = userTheme?.theme ?? "system";
   const themeStyle = userTheme?.style ?? "default";
 
@@ -271,7 +279,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
         <ThemeApply userTheme={userTheme ?? null} />
         <RegisterServiceWorker />
         <ErrorBoundary>
-          <ContextProvider st={st} user_agent={user_agent || ''} userId={userId || null} c_user={c_user || null} uploadServerUrl={uploadServerUrl || ''} playerSettingsFromLoader={playerSettingsFromLoader ?? null} isMobileServer={isMobileServer ?? false} isDevelopment={isDevelopmentServer ?? false}>
+          <ContextProvider st={st} user_agent={user_agent || ''} userId={userId || null} c_user={c_user || null} uploadServerUrl={uploadServerUrl || ''} playerSettingsFromLoader={playerSettingsFromLoader ?? null} isMobileServer={isMobileServer ?? false} isDevelopment={isDevelopmentServer ?? false} altAccounts={altAccounts ?? []}>
             <LikeProvider>
               <PictureInPictureProvider>
                 <MiniPlayerProvider>
