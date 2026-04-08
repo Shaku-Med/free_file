@@ -7,6 +7,7 @@ import { Input } from "~/components/ui/input";
 import { Button } from "~/components/ui/button";
 import { getProfilePicUrl } from "~/lib/utils/profilePic";
 import VideoCard from "~/routes/Home/components/VideoCard";
+import { SignInToSeeMore } from "~/components/SignInWall";
 import {
   Dialog,
   DialogContent,
@@ -282,9 +283,13 @@ export function SearchModal({ open, onOpenChange }: SearchModalProps) {
                         </div>
                       )}
                       {hasMore && !isLoadingMore && (
-                        <Button variant="outline" size="sm" className="rounded-full w-full sm:w-auto" onClick={loadMore}>
-                          Load more
-                        </Button>
+                        userId ? (
+                          <Button variant="outline" size="sm" className="rounded-full w-full sm:w-auto" onClick={loadMore}>
+                            Load more
+                          </Button>
+                        ) : (
+                          <SignInToSeeMore />
+                        )
                       )}
                     </div>
                   )}

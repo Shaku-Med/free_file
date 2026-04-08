@@ -4,6 +4,7 @@ import VideoCard from "~/routes/Home/components/VideoCard";
 import type { FileType } from "~/lib/types";
 import { useFileContext } from "~/lib/Context/Context";
 import { buildPageMeta } from "~/lib/seo";
+import { SignInToSeeMore } from "~/components/SignInWall";
 
 export const meta: MetaFunction<{ tagname?: string }> = ({ params }) => {
   const tag = params?.tagname ? decodeURIComponent(params.tagname) : "";
@@ -158,7 +159,11 @@ export default function TagPage() {
               ))}
             </div>
           )}
-          <div ref={observerRef} className="h-10" />
+          {userId ? (
+            <div ref={observerRef} className="h-10" />
+          ) : (
+            <SignInToSeeMore />
+          )}
         </>
       ) : (
         <div className="flex flex-col items-center justify-center py-16 text-center">

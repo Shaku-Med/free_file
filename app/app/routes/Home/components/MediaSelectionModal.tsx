@@ -27,6 +27,7 @@ import { GenerateUniqueID } from "~/lib/GenerateUniqueID"
 import { useFileContext } from "~/lib/Context/Context"
 import { useNavigate } from "react-router"
 import { MAX_UPLOAD_FILE_BYTES } from "~/lib/uploadLimits"
+import { SignInDialog } from "~/components/SignInWall"
 
 const CATEGORY_OPTIONS = [
   "Gaming",
@@ -107,6 +108,7 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
   const [seriesSearch, setSeriesSearch] = useState("")
   const [seriesBrowseResults, setSeriesBrowseResults] = useState<{ file_title: string; file_series_id: string }[]>([])
   const [seriesBrowseLoading, setSeriesBrowseLoading] = useState(false)
+  const [signInOpen, setSignInOpen] = useState(false)
   const categoryRef = useRef<HTMLDivElement>(null)
   const itemsRef = useRef<MediaItem[]>([])
   const dropRef = useRef<HTMLDivElement>(null)
@@ -115,9 +117,9 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
   useEffect(() => {
     if (isOpen && !userId) {
       onClose()
-      navigate('/auth/login')
+      setSignInOpen(true)
     }
-  }, [isOpen, userId, onClose, navigate])
+  }, [isOpen, userId, onClose])
 
   useEffect(() => {
     if (!isOpen && items.length > 0) {
@@ -1522,6 +1524,12 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
         </div>
       </DialogContent>
     </Dialog>
+    <SignInDialog
+      open={signInOpen}
+      onOpenChange={setSignInOpen}
+      title="Sign in to upload"
+      description="Create a free account or sign in to upload your photos, videos, and more."
+    />
     </>
   )
 }

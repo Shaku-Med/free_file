@@ -1,6 +1,7 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import type { FileType } from "~/lib/types";
 import VideoCard from "~/routes/Home/components/VideoCard";
+import { SignInToSeeMore } from "~/components/SignInWall";
 
 function SkeletonCard() {
   return (
@@ -198,7 +199,13 @@ const ProfileTabVideosGrid = ({
             <SkeletonCard key={`skel-${i}`} />
           ))}
       </div>
-      {hasMore && <div ref={observerRef} className="h-1" />}
+      {hasMore && (
+        currentUserId ? (
+          <div ref={observerRef} className="h-1" />
+        ) : (
+          <SignInToSeeMore />
+        )
+      )}
     </div>
   );
 };

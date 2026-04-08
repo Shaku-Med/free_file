@@ -107,8 +107,17 @@ export function UserProfileDropdown({ variant }: UserProfileDropdownProps) {
     );
   }
 
-  // topbar
-  if (!userId) return null;
+  // topbar — show Sign In button when not logged in
+  if (!userId) {
+    return (
+      <Button asChild size="sm" className="h-8 gap-1.5 text-xs sm:text-sm">
+        <Link to="/auth/login">
+          <LogIn className="h-3.5 w-3.5" />
+          <span>Sign In</span>
+        </Link>
+      </Button>
+    );
+  }
 
   return (
     <DropdownMenu>

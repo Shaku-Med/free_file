@@ -1,9 +1,11 @@
 import {
   data,
+  Link,
   useLoaderData,
   type LoaderFunctionArgs,
   type MetaFunction,
 } from "react-router";
+import { Button } from "~/components/ui/button";
 import db from "~/lib/Database/supabase";
 import Reel from "../components/Reel";
 import type { FileType } from "~/lib/types";
@@ -176,15 +178,45 @@ export const meta: MetaFunction<typeof loader> = ({ data: loaderData }) => {
 
 const index = () => {
   const { file } = useLoaderData<typeof loader>();
-  return (
-    <>
-      {file ? (
-        <Reel initialItems={[file as FileType]} />
-      ) : (
-        <div>Reel Not Found</div>
-      )}
-    </>
-  );
+
+  if (!file) {
+    return (
+      <div className="flex items-center justify-center min-h-[70vh] py-20 px-4">
+        <div className="text-center max-w-xs space-y-6">
+          <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-muted">
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="text-muted-foreground" aria-hidden>
+              <rect x="2" y="2" width="20" height="20" rx="2.18" ry="2.18" />
+              <line x1="7" y1="2" x2="7" y2="22" />
+              <line x1="17" y1="2" x2="17" y2="22" />
+              <line x1="2" y1="12" x2="22" y2="12" />
+              <line x1="2" y1="7" x2="7" y2="7" />
+              <line x1="2" y1="17" x2="7" y2="17" />
+              <line x1="17" y1="17" x2="22" y2="17" />
+              <line x1="17" y1="7" x2="22" y2="7" />
+            </svg>
+          </div>
+
+          <div className="err-enter space-y-1.5">
+            <h1 className="text-lg font-semibold text-foreground">Reel not found</h1>
+            <p className="text-[13px] text-muted-foreground leading-relaxed">
+              This clip may have been taken down or the link is broken.
+            </p>
+          </div>
+
+          <div className="err-enter-d1 flex items-center justify-center gap-3">
+            <Button asChild size="default" className="rounded-full px-6">
+              <Link to="/">Go home</Link>
+            </Button>
+            <Button asChild variant="outline" size="default" className="rounded-full px-6">
+              <Link to="/reel">Browse reels</Link>
+            </Button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return <Reel initialItems={[file as FileType]} />;
 };
 
 export default index;

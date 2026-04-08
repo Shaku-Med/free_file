@@ -58,17 +58,33 @@ export class UploadWorker {
     return true;
   }
 
+  /** Keep `files.processing_progress` in sync (same field Go webhooks update via /api/upload-job-status). */
+  private async reportProgress(job: UploadJobHandle, uniqueID: string, pct: number): Promise<void> {
+    await job.updateProgress(pct);
+    await this.setFileProcessingProgress(uniqueID, pct);
+  }
+
+  private async setFileProcessingProgress(uniqueID: string, progress: number): Promise<void> {
+    if (!db) return;
+    const p = Math.min(100, Math.max(0, Math.round(Number(progress))));
+    try {
+      const { error } = await db.from('files').update({ processing_progress: p }).eq('unique_id', uniqueID);
+      if (error) console.warn(`[Upload Worker] processing_progress update for ${uniqueID}:`, error.message);
+    } catch (e) {
+      console.warn(`[Upload Worker] processing_progress update for ${uniqueID}:`, e);
+    }
+  }
+
   async processUpload(job: UploadJobHandle): Promise<ProcessResult> {
     const tempDir = join(process.cwd(), 'upload', 'temp');
     let tempFilesToCleanup: string[] = [];
 
     try {
       console.log(`[Upload Worker] Starting job ${job.id} for uniqueID: ${job.data.uniqueID}`);
-      await job.updateProgress(10);
-      await this.fileService.initialize();
-
       const { file, uniqueID, title, description, ownerId, chunks, isPublic } = job.data;
-      await this.updateUploadStatus(uniqueID, 'processing', isPublic);
+      await this.fileService.initialize();
+      await this.reportProgress(job, uniqueID, 10);
+      await this.updateUploadStatus(uniqueID, 'running', isPublic);
       
       let fileBuffer: Buffer;
       let actualFilePath: string;
@@ -102,7 +118,7 @@ export class UploadWorker {
       let durationSeconds: number | undefined = undefined;
 
       if (isVideo) {
-        await job.updateProgress(30);
+        await this.reportProgress(job, uniqueID, 30);
         const thumbnailResult = await this.thumbnailService.extractThumbnails(fileBuffer, 10);
         
         if (thumbnailResult.success && thumbnailResult.thumbnails) {
@@ -110,11 +126,11 @@ export class UploadWorker {
           if (typeof thumbnailResult.duration === 'number' && Number.isFinite(thumbnailResult.duration) && thumbnailResult.duration > 0) {
             durationSeconds = Math.round(thumbnailResult.duration);
           }
-          await job.updateProgress(45);
+          await this.reportProgress(job, uniqueID, 45);
         }
       }
 
-      await job.updateProgress(60);
+      await this.reportProgress(job, uniqueID, 60);
 
       if (!existsSync(tempDir)) {
         await mkdir(tempDir, { recursive: true });
@@ -139,7 +155,7 @@ export class UploadWorker {
           uploadStatus: 'completed'
         });
 
-        await job.updateProgress(90);
+        await this.reportProgress(job, uniqueID, 90);
 
         if (!uploadResult.success) {
           console.error(`[Upload Worker] Image upload failed for ${uniqueID}:`, uploadResult.error);
@@ -147,12 +163,13 @@ export class UploadWorker {
         }
 
         console.log(`[Upload Worker] Image uploaded successfully for ${uniqueID}. GitHub: ${uploadResult.githubPath}, Supabase ID: ${uploadResult.supabaseId}`);
-        
+
+        await this.updateUploadStatus(uniqueID, 'completed', isPublic);
         await this.cleanupTempFiles(tempFilesToCleanup);
       }
 
       if (isVideo) {
-        await job.updateProgress(65);
+        await this.reportProgress(job, uniqueID, 65);
 
         const inputExtension = this.getInputExtension(file.originalName, file.mimeType);
         const inputPath = join(tempDir, `input_${uniqueID}_${randomUUID()}${inputExtension}`);
@@ -172,7 +189,7 @@ export class UploadWorker {
           tempFilesToCleanup.push(...hlsResult.segmentFiles);
         }
 
-        await job.updateProgress(75);
+        await this.reportProgress(job, uniqueID, 75);
 
         const m3u8Content = await readFile(outputPath, 'utf-8');
         const m3u8Blob = new Blob([m3u8Content], { type: 'application/vnd.apple.mpegurl' });
@@ -204,7 +221,7 @@ export class UploadWorker {
 
         console.log(`[Upload Worker] M3U8 uploaded successfully for ${uniqueID}. GitHub: ${m3u8UploadResult.githubPath}, Supabase ID: ${m3u8UploadResult.supabaseId}`);
 
-        await job.updateProgress(80);
+        await this.reportProgress(job, uniqueID, 80);
 
         if (hlsResult.segmentFiles && hlsResult.segmentFiles.length > 0) {
           for (let i = 0; i < hlsResult.segmentFiles.length; i++) {
@@ -226,7 +243,7 @@ export class UploadWorker {
           }
         }
 
-        await job.updateProgress(90);
+        await this.reportProgress(job, uniqueID, 90);
 
         const thumbnailEndpoints: string[] = [];
 
@@ -276,6 +293,7 @@ export class UploadWorker {
         await this.cleanupTempFiles(tempFilesToCleanup);
       }
 
+      // In-memory queue only: do not set processing_progress=100 after status is completed (would undo null).
       await job.updateProgress(100);
 
       console.log(`[Upload Worker] Job ${job.id} completed successfully for ${job.data.uniqueID}`);
@@ -292,7 +310,7 @@ export class UploadWorker {
         await this.cleanupTempFiles(tempFilesToCleanup);
         await this.deleteUploadRecord(job.data.uniqueID);
       } else {
-        await this.updateUploadStatus(job.data.uniqueID, 'processing', job.data.isPublic);
+        await this.updateUploadStatus(job.data.uniqueID, 'running', job.data.isPublic);
       }
       throw new Error(errorMessage);
     }
@@ -325,6 +343,9 @@ export class UploadWorker {
       const updateData: Record<string, any> = { upload_status: status };
       if (typeof isPublic === 'boolean') {
         updateData.is_public = isPublic;
+      }
+      if (status === 'completed' || status === 'failed') {
+        updateData.processing_progress = null;
       }
       await db
         .from('files')

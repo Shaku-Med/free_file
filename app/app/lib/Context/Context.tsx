@@ -277,6 +277,7 @@ export const ContextProvider = ({ children, st, user_agent, userId, c_user, uplo
     }, [fetchFeed])
 
     useEffect(() => {
+      if (!userId) return;
       const observer = new IntersectionObserver(
         (entries) => {
           if (entries[0].isIntersecting && !isLoading) {
@@ -287,7 +288,7 @@ export const ContextProvider = ({ children, st, user_agent, userId, c_user, uplo
       )
       if (observerRef.current) observer.observe(observerRef.current)
       return () => observer.disconnect()
-    }, [loadMoreVideos, isLoading, nav.location])
+    }, [loadMoreVideos, isLoading, nav.location, userId])
 
     useEffect(() => {
       if (!userId || hasFetchedProfileRef.current) return;

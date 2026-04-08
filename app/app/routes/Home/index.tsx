@@ -6,6 +6,7 @@ import { Button } from "~/components/ui/button";
 import { Plus } from "lucide-react";
 import type { MetaFunction } from "react-router";
 import { buildPageMeta } from "~/lib/seo";
+import { SignInToSeeMore } from "~/components/SignInWall";
 
 export const meta: MetaFunction = () =>
   buildPageMeta({
@@ -85,7 +86,11 @@ export default function PhotoDashboard() {
               ))}
             </div>
           )}
-          <div ref={observerRef} className="h-10" />
+          {userId ? (
+            <div ref={observerRef} className="h-10" />
+          ) : (
+            <SignInToSeeMore />
+          )}
         </>
       ) : (
         <div className="flex items-center flex-col justify-center min-h-full bg-background">

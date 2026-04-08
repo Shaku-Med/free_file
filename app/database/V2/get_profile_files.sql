@@ -46,6 +46,7 @@ RETURNS TABLE (
   user_has_liked    boolean,
   user_has_disliked boolean,
   upload_status     text,
+  processing_progress smallint,
   total_count       bigint
 )
 LANGUAGE plpgsql
@@ -80,6 +81,7 @@ BEGIN
       f.colors,
       f.metadata,
       f.upload_status,
+      f.processing_progress,
       -- Live counts via subqueries
       (SELECT COUNT(*) FROM likes l WHERE l.file_id = f.id)::bigint        AS _like_count,
       (SELECT COUNT(*) FROM dislike d WHERE d.file_id = f.id)::bigint      AS _dislike_count,
@@ -147,6 +149,7 @@ BEGIN
     r._viewer_liked,
     r._viewer_disliked,
     r.upload_status,
+    r.processing_progress,
     c.cnt
   FROM ranked r
   JOIN users u ON u.id = r.owner_id

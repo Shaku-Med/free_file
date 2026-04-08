@@ -202,6 +202,7 @@ func (h *Handler) completeUpload(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "queue_failed"})
 	}
 	_ = h.queue.SetJobStatus(c.Context(), jobID, "queued")
+	queuedPct := 0
 	webhook.NotifyJobStatus(webhook.Payload{
 		JobID:               jobID,
 		Status:              "queued",
@@ -209,6 +210,7 @@ func (h *Handler) completeUpload(c *fiber.Ctx) error {
 		UserID:              meta.UserID,
 		FileName:            meta.FileName,
 		FileSize:            meta.FileSize,
+		Progress:            &queuedPct,
 		IsPublic:            &isPublic,
 		CommentsEnabled:     &commentsEnabled,
 		Title:               title,

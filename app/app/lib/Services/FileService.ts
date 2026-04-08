@@ -26,6 +26,7 @@ export interface FileRecord {
   is_adult?: boolean;
   is_public?: boolean;
   upload_status?: string;
+  processing_progress?: number | null;
 }
 
 export interface PaginationParams {
@@ -104,6 +105,7 @@ export class FileService {
 
         const fileType = isM3U8 ? 'application/vnd.apple.mpegurl' : fileData.file.type;
         
+        const uploadStatus = fileData.uploadStatus || 'completed';
         const insertData: any = {
           created_at: new Date().toISOString(),
           endpoint: githubResult.filePath!,
@@ -111,8 +113,11 @@ export class FileService {
           unique_id: fileData.uniqueID,
           file_type: fileType,
           file_size: fileData.file.size.toString(),
-          upload_status: fileData.uploadStatus || 'completed'
+          upload_status: uploadStatus,
         };
+        if (uploadStatus === 'completed' || uploadStatus === 'complete') {
+          insertData.processing_progress = null;
+        }
 
         if (fileData.isAdult !== undefined) {
           insertData.is_adult = fileData.isAdult;

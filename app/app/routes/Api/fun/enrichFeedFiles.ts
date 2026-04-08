@@ -73,6 +73,8 @@ export async function enrichFeedFilesWithInteractions(
       share_count: f.share_count,
       is_reel: f.is_reel,
       duration: f.duration,
+      upload_status: f.upload_status,
+      processing_progress: f.processing_progress,
       categories: f.categories,
       tags: f.tags,
       colors: f.colors,

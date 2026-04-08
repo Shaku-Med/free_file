@@ -13,6 +13,13 @@ function inferFileType(filename: string): string {
   return map[ext] ?? 'application/octet-stream';
 }
 
+function parseProcessingProgress(v: unknown): number | null {
+  if (v === null || v === undefined) return null;
+  const n = typeof v === 'number' ? v : Number(v);
+  if (!Number.isFinite(n)) return null;
+  return Math.min(100, Math.max(0, Math.round(n)));
+}
+
 function isVideoFilename(name: string): boolean {
   if (!name) return false;
   const ext = name.replace(/^.*\./, '').toLowerCase();
@@ -247,6 +254,8 @@ export const action = async ({ request }: { request: Request }) => {
     file_series_episode_id?: string;
     new_episode_name?: string;
     github_repo?: string;
+    /** 0–100 from Go worker while processing */
+    progress?: number;
   };
   try {
     body = await request.json();
@@ -307,6 +316,7 @@ export const action = async ({ request }: { request: Request }) => {
       filename: file_name,
       endpoint: '', // Empty initially, filled when completed
       upload_status: 'queued',
+      processing_progress: parseProcessingProgress(body.progress) ?? 0,
       owner_id: user_id,
       is_public: is_public,
       comments_enabled,
@@ -342,10 +352,13 @@ export const action = async ({ request }: { request: Request }) => {
       console.warn('[upload-job-status] files delete (failed):', deleteErr);
     }
   } else if (status === 'running' && upload_id) {
-    const { error: updateErr } = await db
-      .from('files')
-      .update({ upload_status: 'running' })
-      .eq('unique_id', upload_id);
+    const p = parseProcessingProgress(body.progress);
+    const patch: Record<string, unknown> = {
+      upload_status: 'running',
+      // Always persist a number so the UI never sees NULL while running (webhook may omit progress on some builds).
+      processing_progress: p !== null ? p : 0,
+    };
+    const { error: updateErr } = await db.from('files').update(patch).eq('unique_id', upload_id);
     if (updateErr) {
       console.warn('[upload-job-status] files update (running):', updateErr);
     }
@@ -376,7 +389,7 @@ export const action = async ({ request }: { request: Request }) => {
       metadata.warning = DEFAULT_METADATA_WARNING;
     }
 
-    const updateData: Record<string, any> = { upload_status: 'complete' };
+    const updateData: Record<string, any> = { upload_status: 'complete', processing_progress: null };
     if (endpoint) {
       updateData.endpoint = endpoint;
     }

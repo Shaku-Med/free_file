@@ -510,3 +510,13 @@ input[type="search"] {
     flex-direction: column !important;
   }
 }
+
+/* ── Error / empty-state page animations ── */
+
+@keyframes err-enter {
+  from { opacity: 0; transform: translateY(16px) scale(.97); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+.err-enter      { animation: err-enter .5s ease-out both; }
+.err-enter-d1   { animation: err-enter .5s .12s ease-out both; }
+.err-enter-d2   { animation: err-enter .5s .24s ease-out both; }

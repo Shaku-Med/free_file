@@ -3,10 +3,10 @@ package ffmpeg
 import (
 	"context"
 	"fmt"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"time"
 
@@ -60,7 +60,12 @@ func ConvertToHLS(inputPath, outputDir string, opts HLSOptions) (*HLSResult, err
 		opts.Quality = "medium"
 	}
 	tier := allTiers[2]
-	return convertTier(inputPath, outputDir, opts, tier, checkGPU())
+	probe, err := ProbeVideo(inputPath)
+	if err != nil {
+		return nil, fmt.Errorf("probe source: %w", err)
+	}
+	hasAudio := strings.TrimSpace(probe.AudioCodec) != ""
+	return convertTier(inputPath, outputDir, opts, tier, checkGPU(), hasAudio)
 }
 
 func selectTiers(srcWidth, srcHeight int) []QualityTier {
@@ -151,7 +156,6 @@ func ConvertToHLSAllQualities(inputPath, outputDir string, opts HLSOptions) (*HL
 		return nil, fmt.Errorf("probe source: %w", err)
 	}
 
-	// HLS writes many segments per tier; running out of disk mid-encode surfaces as ffmpeg “short write”.
 	minFreeWhole := uint64(5 << 30)
 	if est := inputSz * 3; est > minFreeWhole {
 		minFreeWhole = est
@@ -165,10 +169,13 @@ func ConvertToHLSAllQualities(inputPath, outputDir string, opts HLSOptions) (*HL
 		return nil, fmt.Errorf("no quality tiers for %dx%d", probe.Width, probe.Height)
 	}
 
+	hasAudio := strings.TrimSpace(probe.AudioCodec) != ""
 	hasGPU := checkGPU()
 	var results []*HLSResult
 
-	for _, tier := range tiers {
+	for i, tier := range tiers {
+		log.Printf("[hls] starting tier %d/%d: %s (%dx%d)", i+1, len(tiers), tier.Name, tier.Width, tier.Height)
+		tierStart := time.Now()
 		dir := filepath.Join(outputDir, tier.Name)
 		if err := os.MkdirAll(dir, 0700); err != nil {
 			return nil, err
@@ -180,12 +187,13 @@ func ConvertToHLSAllQualities(inputPath, outputDir string, opts HLSOptions) (*HL
 		if err := RequireMinFreeSpace(dir, minFreeTier); err != nil {
 			return nil, fmt.Errorf("hls %s: %w", tier.Name, err)
 		}
-		r, err := convertTier(inputPath, dir, opts, tier, hasGPU)
+		r, err := convertTier(inputPath, dir, opts, tier, hasGPU, hasAudio)
 		if err != nil {
 			return nil, fmt.Errorf("hls %s: %w", tier.Name, err)
 		}
 		r.TierName = tier.Name
 		results = append(results, r)
+		log.Printf("[hls] finished tier %d/%d: %s (%d segments, took %s)", i+1, len(tiers), tier.Name, len(r.SegmentFiles), time.Since(tierStart).Round(time.Second))
 	}
 
 	var masterLines []string
@@ -206,7 +214,7 @@ func ConvertToHLSAllQualities(inputPath, outputDir string, opts HLSOptions) (*HL
 	return &HLSAllResult{MasterPath: masterPath, Tiers: results}, nil
 }
 
-func convertTier(inputPath, outputDir string, opts HLSOptions, tier QualityTier, tryGPU bool) (*HLSResult, error) {
+func convertTier(inputPath, outputDir string, opts HLSOptions, tier QualityTier, tryGPU bool, hasAudio bool) (*HLSResult, error) {
 	if err := os.MkdirAll(outputDir, 0700); err != nil {
 		return nil, err
 	}
@@ -218,13 +226,14 @@ func convertTier(inputPath, outputDir string, opts HLSOptions, tier QualityTier,
 	segmentPattern := filepath.Join(outputDir, "segment_%03d.ts")
 
 	if tryGPU {
-		r, err := runTierConversionWithRetries(inputPath, m3u8Path, segmentPattern, opts, tier, true)
+		r, err := runTierConversionWithRetries(inputPath, m3u8Path, segmentPattern, opts, tier, true, hasAudio)
 		if err == nil {
 			return r, nil
 		}
+		log.Printf("[hls] GPU encode failed for %s, falling back to CPU: %v", tier.Name, err)
 	}
 
-	return runTierConversionWithRetries(inputPath, m3u8Path, segmentPattern, opts, tier, false)
+	return runTierConversionWithRetries(inputPath, m3u8Path, segmentPattern, opts, tier, false, hasAudio)
 }
 
 func isRetriableTranscodeError(err error) bool {
@@ -238,14 +247,14 @@ func isRetriableTranscodeError(err error) bool {
 		strings.Contains(s, "i/o error")
 }
 
-func runTierConversionWithRetries(inputPath, m3u8Path, segmentPattern string, opts HLSOptions, tier QualityTier, useGPU bool) (*HLSResult, error) {
+func runTierConversionWithRetries(inputPath, m3u8Path, segmentPattern string, opts HLSOptions, tier QualityTier, useGPU bool, hasAudio bool) (*HLSResult, error) {
 	const maxAttempts = 3
 	var lastErr error
 	for attempt := 0; attempt < maxAttempts; attempt++ {
 		if attempt > 0 {
 			time.Sleep(45 * time.Second)
 		}
-		r, err := runTierConversion(inputPath, m3u8Path, segmentPattern, opts, tier, useGPU)
+		r, err := runTierConversion(inputPath, m3u8Path, segmentPattern, opts, tier, useGPU, hasAudio)
 		if err == nil {
 			return r, nil
 		}
@@ -257,79 +266,29 @@ func runTierConversionWithRetries(inputPath, m3u8Path, segmentPattern string, op
 	return nil, lastErr
 }
 
-func runTierConversion(inputPath, m3u8Path, segmentPattern string, opts HLSOptions, tier QualityTier, useGPU bool) (*HLSResult, error) {
-	// Low thread count limits libx264 frame-thread memory; high values often trigger OOM killer on 2–4GB workers.
-	cpuThreads := 2
-	if n := runtime.NumCPU(); n == 1 {
-		cpuThreads = 1
+func ffmpegPathArg(p string) string {
+	return filepath.ToSlash(filepath.Clean(p))
+}
+
+func ffmpegStderrTail(s string, max int) string {
+	s = strings.TrimSpace(s)
+	if max <= 0 || len(s) <= max {
+		return s
 	}
+	return "…" + s[len(s)-max:]
+}
 
-	var args []string
+// minSalvageableSegments: if FFmpeg dies but already wrote at least this many
+// segments, accept the partial output instead of failing the whole tier.
+const minSalvageableSegments = 10
 
-	if useGPU {
-		args = append(args, "-hwaccel", "cuda", "-hwaccel_output_format", "cuda")
-	}
+func runTierConversion(inputPath, m3u8Path, segmentPattern string, opts HLSOptions, tier QualityTier, useGPU bool, hasAudio bool) (*HLSResult, error) {
+	inputPath = ffmpegPathArg(inputPath)
+	m3u8Path = ffmpegPathArg(m3u8Path)
+	segmentPattern = ffmpegPathArg(segmentPattern)
 
-	scale := fmt.Sprintf("scale='min(%d,iw)':-2", tier.Width)
+	args := buildTierArgs(inputPath, m3u8Path, segmentPattern, opts, tier, useGPU, hasAudio)
 
-	seg := opts.SegmentTime
-	if seg <= 0 {
-		seg = 10
-	}
-
-	args = append(args,
-		"-fflags", "+genpts+igndts",
-		// Local file already probed by ConvertToHLSAllQualities — smaller probe caps demuxer RAM.
-		"-analyzeduration", "50M",
-		"-probesize", "50M",
-		"-i", inputPath,
-		"-map", "0:v:0?",
-		"-map", "0:a:0?",
-		"-vf", scale,
-		"-threads", fmt.Sprintf("%d", cpuThreads),
-		// Align IDR frames to segment boundaries so players don’t skip or glitch between .ts files.
-		"-force_key_frames", fmt.Sprintf("expr:gte(t,n_forced*%d)", seg),
-	)
-
-	if useGPU {
-		args = append(args,
-			"-c:v", "h264_nvenc",
-			"-preset", "p1",
-			"-tune", "zerolatency",
-		)
-	} else {
-		args = append(args,
-			"-c:v", "libx264",
-			"-preset", "veryfast",
-			"-tune", "fastdecode",
-			// Tighter lookahead/thread pool vs defaults — less peak RAM on long 1080p encodes.
-			"-x264-params", fmt.Sprintf("threads=%d:rc-lookahead=20", cpuThreads),
-		)
-	}
-
-	args = append(args,
-		"-crf", tier.CRF,
-		"-maxrate", tier.MaxRate,
-		"-bufsize", tier.BufSize,
-		"-c:a", "aac",
-		"-b:a", tier.AudioBR,
-		"-ac", "2",
-		"-ar", "48000",
-		// Huge queue + HLS muxer can blow RAM or hit “short write” under pressure.
-		"-max_muxing_queue_size", "512",
-		"-hls_time", fmt.Sprintf("%d", seg),
-		"-hls_list_size", "0",
-		"-hls_segment_filename", segmentPattern,
-		"-hls_playlist_type", "vod",
-		"-hls_flags", "independent_segments",
-		"-hls_allow_cache", "0",
-		"-hls_start_number_source", "0",
-		"-f", "hls",
-		"-y",
-		m3u8Path,
-	)
-
-	// Per quality tier; long 4K/source renditions on slow CPUs can exceed 6h.
 	h := env.GetInt64("GOUpload_HLS_FFMPEG_TIMEOUT_HOURS", 6)
 	if h < 1 {
 		h = 1
@@ -345,17 +304,30 @@ func runTierConversion(inputPath, m3u8Path, segmentPattern string, opts HLSOptio
 	stderr.max = 2 << 20
 	cmd.Stderr = &stderr
 
-	if err := runFFmpegWithOptionalMemGovernor(cmd); err != nil {
-		return nil, fmt.Errorf("ffmpeg: %w, stderr: %s", err, stderr.String())
+	ffmpegErr := runFFmpegWithOptionalMemGovernor(cmd)
+
+	// Check what FFmpeg actually produced before deciding to fail.
+	m3u8Exists := false
+	if _, statErr := os.Stat(m3u8Path); statErr == nil {
+		m3u8Exists = true
+	}
+	segments, segErr := findSegments(filepath.Dir(m3u8Path))
+	segCount := 0
+	if segErr == nil {
+		segCount = len(segments)
 	}
 
-	if _, err := os.Stat(m3u8Path); os.IsNotExist(err) {
+	if ffmpegErr != nil {
+		if m3u8Exists && segCount >= minSalvageableSegments {
+			// FFmpeg died (often corrupt input near end-of-file) but wrote enough
+			// usable output. Salvage what we have — the m3u8 references written segments
+			// and HLS players handle a truncated stream gracefully.
+			log.Printf("[ffmpeg] salvaging partial output: %d segments written despite error: %v", segCount, ffmpegErr)
+		} else {
+			return nil, fmt.Errorf("ffmpeg: %w, stderr: %s", ffmpegErr, ffmpegStderrTail(stderr.String(), 6000))
+		}
+	} else if !m3u8Exists {
 		return nil, fmt.Errorf("m3u8 not created")
-	}
-
-	segments, err := findSegments(filepath.Dir(m3u8Path))
-	if err != nil {
-		return nil, fmt.Errorf("find segments: %w", err)
 	}
 
 	return &HLSResult{

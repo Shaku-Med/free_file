@@ -30,6 +30,7 @@ import { AppSidebar } from "./components/Navbar/components/Sidebar";
 import BodyComponent from "./components/Navbar/components/BodyComponent";
 import RegisterServiceWorker from "./components/RegisterServiceWorker";
 import { ThemeApply } from "./components/ThemeApply";
+import SignInPrompt from "./components/SignInPrompt";
 import type { UserTheme } from "./lib/theme/constants";
 import { parseUserTheme } from "./lib/theme/constants";
 import { getPlayerSettingsFromCookies } from "./routes/Api/player-settings";
@@ -285,6 +286,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
                     </SidebarInset>
                   </SidebarProvider>
                   <MiniPlayer />
+                  <SignInPrompt />
                 </MiniPlayerProvider>
               </PictureInPictureProvider>
             </LikeProvider>

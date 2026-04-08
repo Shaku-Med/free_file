@@ -22,6 +22,7 @@ create table public.files (
   is_reel boolean null default false,
   duration numeric null default '0'::numeric,
   upload_status text null default 'complete'::text,
+  processing_progress smallint null,
   categories jsonb not null default '[]'::jsonb,
   tags jsonb null default '[]'::jsonb,
   colors jsonb null default '[]'::jsonb,

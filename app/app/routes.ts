@@ -111,4 +111,5 @@ export default [
         index('routes/reel/index.tsx'),
         route(`:id`, 'routes/reel/dynamic/index.tsx')
     ]),
+    route(`*`, 'routes/NotFound.tsx'),
 ] satisfies RouteConfig;

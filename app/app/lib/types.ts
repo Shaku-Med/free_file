@@ -31,6 +31,8 @@ export interface FileType {
   thumbnails?: string[];
   default_thumbnail?: string | null;
   upload_status?: string;
+  /** 0–100 while processing; null/undefined when complete */
+  processing_progress?: number | null;
   is_reel?: boolean;
   /** Series hub video (playlist root). */
   is_series_main?: boolean;

@@ -6,6 +6,7 @@ import { useFileContext } from "~/lib/Context/Context";
 import { useLocalPlaylist } from "~/lib/hooks/useLocalPlaylist";
 import { Button } from "~/components/ui/button";
 import { buildPageMeta } from "~/lib/seo";
+import { SignInToSeeMore } from "~/components/SignInWall";
 import {
   Plus,
   ListVideo,
@@ -282,7 +283,13 @@ export default function PlaylistPage() {
                 ))
               }
             </div>
-            {hasMore && <div ref={observerRef} className="h-1" />}
+            {hasMore && (
+              userId ? (
+                <div ref={observerRef} className="h-1" />
+              ) : (
+                <SignInToSeeMore />
+              )
+            )}
           </>
         ) : (
           <div className="flex items-center flex-col justify-center py-16 rounded-xl border border-dashed">

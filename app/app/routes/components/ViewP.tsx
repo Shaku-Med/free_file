@@ -3,6 +3,8 @@ import type { FileType } from '~/lib/types'
 import { motion } from 'framer-motion'
 import { Badge } from '~/components/ui/badge'
 import { EyeOff, ShieldAlert } from 'lucide-react'
+import { Button } from '~/components/ui/button'
+import { Link } from 'react-router'
 import { useSidebar } from '~/components/ui/sidebar'
 import HLSPlayer from '~/components/components/hlsplayer'
 import ImageLoad from '~/routes/Home/components/ImageLoad/ImageLoad'
@@ -21,11 +23,30 @@ const ViewP = ({ file }: ViewPProps) => {
     
     if(!file) {
       return (
-        <>
-          <div className={`flex items-center justify-center text-2xl py-6 px-4 min-h-[200px]`}>
-            <h1>File not found</h1>
+        <div className="flex items-center justify-center min-h-[70vh] py-20 px-4">
+          <div className="text-center max-w-xs space-y-6">
+            <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-muted">
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="text-muted-foreground" aria-hidden>
+                <path d="M14.5 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V7.5L14.5 2z" />
+                <polyline points="14 2 14 8 20 8" />
+                <line x1="9" y1="15" x2="15" y2="15" />
+              </svg>
+            </div>
+
+            <div className="err-enter space-y-1.5">
+              <h1 className="text-lg font-semibold text-foreground">File not found</h1>
+              <p className="text-[13px] text-muted-foreground leading-relaxed">
+                It may have been removed or made private by its owner.
+              </p>
+            </div>
+
+            <div className="err-enter-d1">
+              <Button asChild size="default" className="rounded-full px-6">
+                <Link to="/">Go home</Link>
+              </Button>
+            </div>
           </div>
-        </>
+        </div>
       )
     }
   

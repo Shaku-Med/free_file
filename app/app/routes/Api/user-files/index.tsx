@@ -2,7 +2,6 @@ import { data } from "react-router";
 import { isAuthenticated } from "~/lib/Security/Password";
 import db from "~/lib/Database/supabase";
 import type { FileType } from "~/lib/types";
-
 export const loader = async ({ request }: { request: Request }) => {
   try {
     const url = new URL(request.url);

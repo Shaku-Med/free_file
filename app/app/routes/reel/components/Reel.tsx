@@ -1,18 +1,22 @@
 import { useEffect, useState, useCallback, useLayoutEffect, useRef } from "react";
 import { ReelSwiper } from "~/routes/reel/components/ReelSwiper";
 import type { FileType } from "~/lib/types";
+import { useFileContext } from "~/lib/Context/Context";
+import { SignInDialog } from "~/components/SignInWall";
 
 interface ReelProps {
   initialItems?: FileType[];
 }
 
 const Reel = ({ initialItems }: ReelProps) => {
+  const { userId } = useFileContext();
   const [items, setItems] = useState<FileType[]>(initialItems || []);
   const [nextCursor, setNextCursor] = useState<{ cursor_pos: number } | null>(null);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(true);
   const [initialLoadDone, setInitialLoadDone] = useState(false);
   const [userActions, setUserActions] = useState<{ likedFileIds: string[]; dislikedFileIds: string[] }>({ likedFileIds: [], dislikedFileIds: [] });
+  const [signInOpen, setSignInOpen] = useState(false);
   const shownIdsRef = useRef<Set<string>>(new Set());
   const feedSeedRef = useRef<string>(Date.now().toString());
 
@@ -96,11 +100,21 @@ const Reel = ({ initialItems }: ReelProps) => {
 
   const handleEndReached = useCallback(() => {
     if (!hasMore) return;
+    if (!userId) {
+      setSignInOpen(true);
+      return;
+    }
     void loadFeed(true);
-  }, [hasMore, loadFeed]);
+  }, [hasMore, loadFeed, userId]);
 
   return (
     <div className="fixed inset-0 z-0 bg-black">
+      <SignInDialog
+        open={signInOpen}
+        onOpenChange={setSignInOpen}
+        title="Sign in to keep watching"
+        description="Create a free account to enjoy unlimited reels, uploads, and more."
+      />
       {items.length > 0 ? (
         <ReelSwiper items={items} onEndReached={handleEndReached} userActions={userActions} />
       ) : initialLoadDone ? (

@@ -3,6 +3,7 @@ package webhook
 import (
 	"bytes"
 	"encoding/json"
+	"io"
 	"log"
 	"net/http"
 	"strings"
@@ -38,6 +39,8 @@ type Payload struct {
 	IsNewSeries         bool   `json:"is_new_series,omitempty"`
 	NewEpisodeName      string `json:"new_episode_name,omitempty"`
 	GitHubRepo          string `json:"github_repo,omitempty"`
+	// 0–100 while status is running; omitted for queued/completed/failed unless set.
+	Progress *int `json:"progress,omitempty"`
 }
 
 // NotifyJobStatus sends the payload to the app's /api/upload-job-status.
@@ -68,11 +71,15 @@ func NotifyJobStatus(p Payload) {
 		log.Printf("[webhook] NotifyJobStatus %s %s: %v", p.JobID, p.Status, err)
 		return
 	}
-	resp.Body.Close()
+	defer resp.Body.Close()
+	bodySnippet, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		log.Printf("[webhook] NotifyJobStatus %s %s: http %d", p.JobID, p.Status, resp.StatusCode)
+		log.Printf("[webhook] NotifyJobStatus http_error job=%s upload=%s payload_status=%s http=%d body=%q (check APP_BASE_URL, UPLOAD_WEBHOOK_SECRET, and Remix /api/upload-job-status)",
+			p.JobID, p.UploadID, p.Status, resp.StatusCode, strings.TrimSpace(string(bodySnippet)))
 	} else {
-		log.Printf("[webhook] NotifyJobStatus %s %s: success", p.JobID, p.Status)
+		// payload_status may be "failed" (job failed) while delivery still succeeded — do not log "failed: success".
+		log.Printf("[webhook] NotifyJobStatus delivered_ok job=%s upload=%s payload_status=%s http=%d",
+			p.JobID, p.UploadID, p.Status, resp.StatusCode)
 	}
 }
 

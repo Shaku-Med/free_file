@@ -210,7 +210,8 @@ export const action = async ({ request }: { request: Request }) => {
           file_title: title,
           file_description: description || null,
           is_public: isPublic,
-          upload_status: 'queued'
+          upload_status: 'queued',
+          processing_progress: 0,
         };
 
         await db

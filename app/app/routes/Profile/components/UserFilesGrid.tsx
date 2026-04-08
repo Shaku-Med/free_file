@@ -1,6 +1,7 @@
-import { useState, useCallback, useRef, useEffect } from "react";
+import { useState, useCallback, useRef, useEffect, useMemo } from "react";
 import type { FileType } from "~/lib/types";
 import VideoCard from "~/routes/Home/components/VideoCard";
+import { SignInToSeeMore } from "~/components/SignInWall";
 
 function SkeletonCard() {
   return (
@@ -85,6 +86,47 @@ const UserFilesGrid = ({
         : undefined
     );
   }, [userId, initialFiles, initialHasMore, initialPage, initialUserActions]);
+
+  const anyUploadProcessing = useMemo(
+    () =>
+      files.some((f) => {
+        if (f.endpoint) return false;
+        const st = (f.upload_status || "").toLowerCase();
+        // Go worker: queued | running. Node in-process worker (legacy): processing.
+        return st === "queued" || st === "running" || st === "processing";
+      }),
+    [files],
+  );
+
+  useEffect(() => {
+    if (currentUserId !== userId || !anyUploadProcessing) return;
+    const tick = async () => {
+      try {
+        const res = await fetch(
+          `/api/user-files?userId=${encodeURIComponent(userId)}&page=1&limit=40`,
+          { credentials: "include" },
+        );
+        if (!res.ok) return;
+        const json = (await res.json()) as {
+          data?: FileType[];
+        };
+        const fresh = json.data;
+        if (!fresh?.length) return;
+        setFiles((prev) =>
+          prev.map((f) => {
+            const id = f.id || f.unique_id;
+            const upd = fresh.find((x) => (x.id || x.unique_id) === id);
+            return upd ? { ...f, ...upd } : f;
+          }),
+        );
+      } catch {
+        /* ignore */
+      }
+    };
+    const iv = setInterval(tick, 3500);
+    void tick();
+    return () => clearInterval(iv);
+  }, [currentUserId, userId, anyUploadProcessing]);
 
   const loadMore = useCallback(async () => {
     if (loadingRef.current || !hasMore) return;
@@ -213,8 +255,13 @@ const UserFilesGrid = ({
           ))
         }
       </div>
-      {/* Sentinel — always rendered when there's more data, even during loading */}
-      {hasMore && <div ref={observerRef} className="h-1" />}
+      {hasMore && (
+        currentUserId ? (
+          <div ref={observerRef} className="h-1" />
+        ) : (
+          <SignInToSeeMore />
+        )
+      )}
     </div>
   );
 };

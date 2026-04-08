@@ -147,6 +147,24 @@ func decodeThumbnailBase64(s string) ([]byte, error) {
 	return base64.StdEncoding.DecodeString(s)
 }
 
+func (w *Worker) notifyRunningProgress(job *queue.Job, pct int) {
+	if pct < 0 {
+		pct = 0
+	}
+	if pct > 100 {
+		pct = 100
+	}
+	webhook.NotifyJobStatus(webhook.Payload{
+		JobID:    job.ID,
+		Status:   "running",
+		UploadID: job.UploadID,
+		UserID:   job.UserID,
+		FileName: job.FileName,
+		FileSize: job.FileSize,
+		Progress: &pct,
+	})
+}
+
 func (w *Worker) failJob(job *queue.Job, reason string, cleanupPaths ...string) {
 	w.log.Errorf("job FAILED job=%s reason=%s", job.ID, reason)
 	for _, p := range cleanupPaths {
@@ -162,7 +180,7 @@ func (w *Worker) failJob(job *queue.Job, reason string, cleanupPaths ...string) 
 func (w *Worker) processJob(job *queue.Job) {
 	start := time.Now()
 	_ = w.queue.SetJobStatus(context.Background(), job.ID, "running")
-	webhook.NotifyJobStatus(webhook.Payload{JobID: job.ID, Status: "running", UploadID: job.UploadID, UserID: job.UserID, FileName: job.FileName, FileSize: job.FileSize})
+	w.notifyRunningProgress(job, 10)
 	w.log.Infof("processing job=%s user=%s upload=%s file=%s", job.ID, job.UserID, job.UploadID, job.FileName)
 
 	result, err := assembler.Assemble(assembler.Config{
@@ -182,6 +200,7 @@ func (w *Worker) processJob(job *queue.Job) {
 		return
 	}
 	w.log.Infof("assembled job=%s output=%s size=%d", job.ID, result.OutputPath, result.FileSize)
+	w.notifyRunningProgress(job, 20)
 
 	if result.FileSize == 0 {
 		assembledDir := filepath.Dir(result.OutputPath)
@@ -211,6 +230,7 @@ func (w *Worker) processJob(job *queue.Job) {
 			return
 		}
 		w.log.Infof("image validated job=%s", job.ID)
+		w.notifyRunningProgress(job, 40)
 
 		dateFolder := ghlib.DateFolder(time.Now())
 		ghPath := dateFolder + "/" + job.UploadID + "/" + job.FileName
@@ -221,6 +241,7 @@ func (w *Worker) processJob(job *queue.Job) {
 			return
 		}
 		w.log.Infof("github uploaded job=%s path=%s", job.ID, ghPath)
+		w.notifyRunningProgress(job, 65)
 
 		isAdult := false
 		var imgColors []string
@@ -263,6 +284,7 @@ func (w *Worker) processJob(job *queue.Job) {
 		_ = os.RemoveAll(assembledDir)
 		_ = os.Remove(filepath.Dir(assembledDir))
 
+		w.notifyRunningProgress(job, 92)
 		_ = w.queue.SetJobStatus(context.Background(), job.ID, "completed")
 		webhook.NotifyJobStatus(webhook.Payload{
 			JobID:               job.ID,
@@ -295,6 +317,7 @@ func (w *Worker) processJob(job *queue.Job) {
 		return
 	} else {
 		w.log.Infof("extracted %d thumbnails job=%s duration=%.2fs", len(thumbResult.Thumbnails), job.ID, thumbResult.Duration)
+		w.notifyRunningProgress(job, 35)
 
 		previewPath, metaPath, perr := ffmpeg.BuildThumbnailPreview(thumbDir, thumbResult)
 		if perr != nil {
@@ -322,6 +345,7 @@ func (w *Worker) processJob(job *queue.Job) {
 		return
 	}
 	w.log.Infof("video validated job=%s", job.ID)
+	w.notifyRunningProgress(job, 42)
 
 	videoInfo, probeErr := ffmpeg.ProbeVideo(result.OutputPath)
 	if probeErr != nil {
@@ -381,6 +405,7 @@ func (w *Worker) processJob(job *queue.Job) {
 		vidColors = colors.ExtractFromMultiple(colorSample, 6)
 		w.log.Infof("colors extracted job=%s count=%d", job.ID, len(vidColors))
 	}
+	w.notifyRunningProgress(job, 55)
 
 	if metadata == nil {
 		metadata = make(map[string]interface{})
@@ -410,6 +435,7 @@ func (w *Worker) processJob(job *queue.Job) {
 	}
 
 	hlsDir := filepath.Join(w.cfg.HLSDir, job.UserID, job.UploadID)
+	w.notifyRunningProgress(job, 58)
 	hlsAll, err := ffmpeg.ConvertToHLSAllQualities(result.OutputPath, hlsDir, ffmpeg.HLSOptions{
 		SegmentTime: 10,
 	})
@@ -424,6 +450,7 @@ func (w *Worker) processJob(job *queue.Job) {
 		}
 		w.log.Infof("hls job=%s tiers=[%s]", job.ID, strings.Join(tierNames, ", "))
 	}
+	w.notifyRunningProgress(job, 78)
 
 	// If user provided a default thumbnail, decode and save it to the thumbDir
 	// so it gets included in the batch upload with a consistent name
@@ -486,6 +513,7 @@ func (w *Worker) processJob(job *queue.Job) {
 	}
 
 	if len(batchFiles) > 0 {
+		w.notifyRunningProgress(job, 85)
 		ghBranch := os.Getenv("GITHUB_BRANCH")
 		if ghBranch == "" {
 			ghBranch = "main"
@@ -530,6 +558,7 @@ func (w *Worker) processJob(job *queue.Job) {
 		defaultThumbGH = ghPrefix + defaultThumbPath
 	}
 
+	w.notifyRunningProgress(job, 95)
 	_ = w.queue.SetJobStatus(context.Background(), job.ID, "completed")
 	webhook.NotifyJobStatus(webhook.Payload{
 		JobID:               job.ID,

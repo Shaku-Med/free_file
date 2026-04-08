@@ -29,6 +29,13 @@ export function mapSeriesRpcRowToFileType(row: Record<string, unknown>): FileTyp
     dislike_count: Number(row.dislike_count) || 0,
     comment_count: Number(row.comment_count) || 0,
     upload_status: typeof row.upload_status === "string" ? row.upload_status : undefined,
+    processing_progress: (() => {
+      const v = row.processing_progress;
+      if (v == null || v === "") return undefined;
+      const n = typeof v === "number" ? v : Number(v);
+      if (!Number.isFinite(n)) return undefined;
+      return Math.min(100, Math.max(0, Math.round(n)));
+    })(),
     owner: row.owner_username
       ? {
           id: String(row.owner_id ?? ""),

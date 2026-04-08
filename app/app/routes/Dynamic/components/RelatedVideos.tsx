@@ -2,6 +2,7 @@ import { RelatedVideosProvider, useRelatedVideosContext } from "./RelatedVideosC
 import VideoCard from "~/routes/Home/components/VideoCard"
 import { Button } from "~/components/ui/button"
 import type { FileType } from "~/lib/types"
+import { SignInToSeeMore } from "~/components/SignInWall"
 
 interface RelatedVideosProps {
   videos: FileType[]
@@ -72,14 +73,18 @@ const RelatedVideosContent = ({ currentUserId }: { currentUserId?: string }) => 
                 ))}
               </div>
               {hasMore && (
-                <div ref={observerRef} className="h-10 flex items-center justify-center">
-                  {isLoading && (
-                    <div className="flex items-center space-x-2">
-                      <div className="w-4 h-4 border-2 border-primary border-t-transparent rounded-full animate-spin"></div>
-                      <span className="text-sm text-muted-foreground">Loading more...</span>
-                    </div>
-                  )}
-                </div>
+                currentUserId ? (
+                  <div ref={observerRef} className="h-10 flex items-center justify-center">
+                    {isLoading && (
+                      <div className="flex items-center space-x-2">
+                        <div className="w-4 h-4 border-2 border-primary border-t-transparent rounded-full animate-spin"></div>
+                        <span className="text-sm text-muted-foreground">Loading more...</span>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <SignInToSeeMore />
+                )
               )}
             </>
           )}
@@ -109,23 +114,27 @@ const RelatedVideosContent = ({ currentUserId }: { currentUserId?: string }) => 
                 ))}
               </div>
               {hasMoreOwner && (
-                <div className="flex items-center justify-center pt-4">
-                  <Button
-                    onClick={loadOwnerVideos}
-                    disabled={isLoadingOwner}
-                    variant="outline"
-                    className="w-full sm:w-auto"
-                  >
-                    {isLoadingOwner ? (
-                      <>
-                        <div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin mr-2"></div>
-                        Loading...
-                      </>
-                    ) : (
-                      "Load More"
-                    )}
-                  </Button>
-                </div>
+                currentUserId ? (
+                  <div className="flex items-center justify-center pt-4">
+                    <Button
+                      onClick={loadOwnerVideos}
+                      disabled={isLoadingOwner}
+                      variant="outline"
+                      className="w-full sm:w-auto"
+                    >
+                      {isLoadingOwner ? (
+                        <>
+                          <div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin mr-2"></div>
+                          Loading...
+                        </>
+                      ) : (
+                        "Load More"
+                      )}
+                    </Button>
+                  </div>
+                ) : (
+                  <SignInToSeeMore />
+                )
               )}
             </>
           )}

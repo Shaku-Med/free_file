@@ -8,6 +8,7 @@ import { Input } from "~/components/ui/input";
 import { Button } from "~/components/ui/button";
 import { getProfilePicUrl } from "~/lib/utils/profilePic";
 import VideoCard from "~/routes/Home/components/VideoCard";
+import { SignInToSeeMore } from "~/components/SignInWall";
 import db from "~/lib/Database/supabase";
 import { isAuthenticated } from "~/lib/Security/Password";
 import { sanitizeSearchQuery } from "~/lib/Security/inputValidation";
@@ -444,11 +445,15 @@ const Search = () => {
                   )}
 
                   {hasMore && !isLoadingMore && (
-                    <div className="flex justify-center pt-2">
-                      <Button variant="outline" className="rounded-full px-8" onClick={loadMore}>
-                        Load more results
-                      </Button>
-                    </div>
+                    userId ? (
+                      <div className="flex justify-center pt-2">
+                        <Button variant="outline" className="rounded-full px-8" onClick={loadMore}>
+                          Load more results
+                        </Button>
+                      </div>
+                    ) : (
+                      <SignInToSeeMore />
+                    )
                   )}
                 </div>
               )}

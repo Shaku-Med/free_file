@@ -13,6 +13,7 @@ import AdultContentBadge from "~/routes/Dynamic/components/AdultContentBadge";
 import OwnerProfile from "~/components/OwnerProfile/OwnerProfile";
 import Actions from "./VideoCard/Actions";
 import { Separator } from "~/components/ui/separator";
+import { Progress } from "~/components/ui/progress";
 import CategoryBadges from "~/components/CategoryBadges";
 import { Info, MoreVertical, ChevronDown, X, Check, AlertTriangle, Send, Loader2, ImagePlus, MessageSquare, MessageSquareOff, ListVideo } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "~/components/ui/tooltip";
@@ -79,6 +80,13 @@ const VideoCard = ({ data, index, currentUserId, userActions, onUpdate, showOwne
   const hasEndpoint = Boolean(data.endpoint);
   const isOwner = Boolean(currentUserId && data.owner_id && currentUserId === data.owner_id);
   const isPending = uploadStatus !== "completed" && !hasEndpoint;
+  const processingProgressPct = useMemo(() => {
+    const r = data.processing_progress;
+    if (r == null) return null;
+    const n = typeof r === "number" ? r : Number(r);
+    if (!Number.isFinite(n)) return null;
+    return Math.min(100, Math.max(0, Math.round(n)));
+  }, [data.processing_progress]);
   const [isEditing, setIsEditing] = useState(false);
   const [editTitle, setEditTitle] = useState(data.file_title || "");
   const [editDescription, setEditDescription] = useState(data.file_description || "");
@@ -508,8 +516,33 @@ const VideoCard = ({ data, index, currentUserId, userActions, onUpdate, showOwne
             hasAdultTag={Boolean(data.is_adult)}
           />
         ) : (
-          <div className="w-full h-full flex items-center justify-center bg-muted text-xs text-center">
-            <span>{isPending ? "Processing upload..." : "Failed to load image"}</span>
+          <div className="w-full h-full flex flex-col items-center justify-center gap-2 bg-muted px-3 py-4 text-xs text-center text-muted-foreground">
+            {isPending ? (
+              <>
+                <span className="font-medium text-foreground">
+                  {processingProgressPct != null
+                    ? `Processing ${processingProgressPct}%`
+                    : "Processing upload…"}
+                </span>
+                {processingProgressPct != null ? (
+                  <Progress
+                    value={processingProgressPct}
+                    className="h-1.5 w-[min(100%,12rem)] max-w-full bg-muted-foreground/15"
+                  />
+                ) : (
+                  <div
+                    className="h-1.5 w-[min(100%,12rem)] max-w-full overflow-hidden rounded-full bg-muted-foreground/15"
+                    role="progressbar"
+                    aria-busy="true"
+                    aria-label="Processing, progress unknown"
+                  >
+                    <div className="h-full w-full origin-center animate-pulse rounded-full bg-primary/45" />
+                  </div>
+                )}
+              </>
+            ) : (
+              <span>Failed to load image</span>
+            )}
           </div>
         )}
         {layout === "default" && <CategoryBadges categories={data.categories} />}

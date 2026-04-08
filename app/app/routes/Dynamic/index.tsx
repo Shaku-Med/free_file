@@ -16,7 +16,8 @@ import { buildPageMeta } from "~/lib/seo";
 import ImageLoad from "../Home/components/ImageLoad/ImageLoad";
 import { ParseFilename, getVideoSrc, getThumbnailUrl, getThumbnailPreviewApiPaths } from "~/lib/utils";
 import { motion } from "framer-motion";
-import { ChevronDown, ShieldAlert } from "lucide-react";
+import { ChevronDown } from "lucide-react";
+import { Button } from "~/components/ui/button";
 import { useSidebar } from "~/components/ui/sidebar";
 import { useStandalone } from "~/lib/hooks/useStandalone";
 import { stripGithubRepoForClient } from "~/lib/githubStorage";
@@ -700,19 +701,31 @@ const index = () => {
     const { title, message, action, actionText } = getAccessDeniedMessage();
 
     return (
-      <div className="flex items-center justify-center min-h-screen py-6 px-4">
-        <div className="text-center space-y-4 max-w-md">
-          <ShieldAlert className="w-16 h-16 mx-auto text-muted-foreground" />
-          <h1 className="text-2xl font-bold">{title}</h1>
-          <p className="text-muted-foreground">{message}</p>
-          {action && (
-            <Link
-              className="px-4 py-2 text-sm font-medium text-white border cursor-pointer border-white/40 rounded-full hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-white transition"
-              to={action}
-            >
-              {actionText}
-            </Link>
-          )}
+      <div className="flex items-center justify-center min-h-[70vh] py-20 px-4">
+        <div className="text-center max-w-xs space-y-6">
+          <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-muted">
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="text-muted-foreground" aria-hidden>
+              <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+              <path d="M7 11V7a5 5 0 0110 0v4" />
+              <circle cx="12" cy="16" r="1" />
+            </svg>
+          </div>
+
+          <div className="err-enter space-y-1.5">
+            <h1 className="text-lg font-semibold text-foreground">{title}</h1>
+            <p className="text-[13px] text-muted-foreground leading-relaxed">{message}</p>
+          </div>
+
+          <div className="err-enter-d1 flex items-center justify-center gap-3">
+            {action && (
+              <Button asChild size="default" className="rounded-full px-6">
+                <Link to={action}>{actionText}</Link>
+              </Button>
+            )}
+            <Button asChild variant="outline" size="default" className="rounded-full px-6">
+              <Link to="/">Home</Link>
+            </Button>
+          </div>
         </div>
       </div>
     );
@@ -720,8 +733,29 @@ const index = () => {
   
   if(!file_data || !data) {
     return (
-      <div className="flex items-center justify-center text-2xl py-6 px-4 min-h-[200px]">
-        <h1>File not found</h1>
+      <div className="flex items-center justify-center min-h-[70vh] py-20 px-4">
+        <div className="text-center max-w-xs space-y-6">
+          <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-muted">
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="text-muted-foreground" aria-hidden>
+              <path d="M14.5 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V7.5L14.5 2z" />
+              <polyline points="14 2 14 8 20 8" />
+              <line x1="9" y1="15" x2="15" y2="15" />
+            </svg>
+          </div>
+
+          <div className="err-enter space-y-1.5">
+            <h1 className="text-lg font-semibold text-foreground">File not found</h1>
+            <p className="text-[13px] text-muted-foreground leading-relaxed">
+              It may have been removed or made private by its owner.
+            </p>
+          </div>
+
+          <div className="err-enter-d1">
+            <Button asChild size="default" className="rounded-full px-6">
+              <Link to="/">Go home</Link>
+            </Button>
+          </div>
+        </div>
       </div>
     );
   }

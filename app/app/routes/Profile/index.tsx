@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef } from "react";
-import { data, useLoaderData, useLocation, useSearchParams, type MetaFunction } from "react-router";
+import { data, Link, useLoaderData, useLocation, useSearchParams, type MetaFunction } from "react-router";
+import { Button } from "~/components/ui/button";
 import { userProfileService, type UserProfile } from "~/lib/Services/UserProfileService";
 import { isAuthenticated } from "~/lib/Security/Password";
 import db from "~/lib/Database/supabase";
@@ -14,6 +15,7 @@ import { BASE_URL } from "~/lib/URLS";
 import { buildPageMeta, buildErrorMeta, SITE_NAME, THEME_COLOR } from "~/lib/seo";
 import { usePageCache } from "~/lib/hooks/usePageCache";
 import { useFileContext } from "~/lib/Context/Context";
+
 
 interface ChannelStats {
   subscriber_count: number;
@@ -390,17 +392,34 @@ const Profile = () => {
     if (loaderData && (loaderData.error || !loaderData.profile)) {
       const errorMessage = loaderData.error ?? "The user you're looking for doesn't exist.";
       return (
-        <div className="flex items-center justify-center min-h-screen py-6 px-4">
-          <div className="text-center space-y-4 max-w-md">
-            <h1 className="text-2xl font-bold">User Not Found</h1>
-            <p className="text-muted-foreground">{errorMessage}</p>
+        <div className="flex items-center justify-center min-h-[70vh] py-20 px-4">
+          <div className="text-center max-w-xs space-y-6">
+            <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-muted">
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="text-muted-foreground" aria-hidden>
+                <path d="M16 21v-2a4 4 0 00-4-4H6a4 4 0 00-4 4v2" />
+                <circle cx="9" cy="7" r="4" />
+                <line x1="17" y1="11" x2="22" y2="6" />
+                <line x1="17" y1="6" x2="22" y2="11" />
+              </svg>
+            </div>
+
+            <div className="err-enter space-y-1.5">
+              <h1 className="text-lg font-semibold text-foreground">User not found</h1>
+              <p className="text-[13px] text-muted-foreground leading-relaxed">{errorMessage}</p>
+            </div>
+
+            <div className="err-enter-d1">
+              <Button asChild size="default" className="rounded-full px-6">
+                <Link to="/">Go home</Link>
+              </Button>
+            </div>
           </div>
         </div>
       );
     }
 
     return (
-      <div className="flex min-h-screen items-center justify-center">
+      <div className="flex min-h-[70vh] items-center justify-center">
         <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
       </div>
     );
