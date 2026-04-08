@@ -334,6 +334,78 @@ func (w *Worker) processJob(job *queue.Job) {
 		}
 	}
 
+	// ── Early upload: push thumbnails + waveform to GitHub right away ──
+	dateFolder := ghlib.DateFolder(time.Now())
+	ghPrefix := dateFolder + "/" + job.UploadID + "/"
+	var thumbnailPaths []string
+	var videoDuration float64
+	defaultThumbPath := ""
+
+	if thumbResult != nil {
+		videoDuration = thumbResult.Duration
+
+		// Decode user-chosen default thumbnail before early upload so it's included
+		if job.DefaultThumbnail != "" {
+			thumbData, derr := decodeThumbnailBase64(job.DefaultThumbnail)
+			if derr != nil {
+				w.log.Errorf("failed to decode default thumbnail job=%s err=%s", job.ID, derr.Error())
+			} else if len(thumbData) == 0 {
+				w.log.Errorf("default thumbnail decoded to empty job=%s", job.ID)
+			} else {
+				dtPath := filepath.Join(thumbDir, "default_thumbnail.jpg")
+				if werr := os.WriteFile(dtPath, thumbData, 0644); werr != nil {
+					w.log.Errorf("failed to write default thumbnail job=%s err=%s", job.ID, werr.Error())
+				} else {
+					w.log.Infof("default thumbnail saved job=%s path=%s bytes=%d", job.ID, dtPath, len(thumbData))
+					defaultThumbPath = "default_thumbnail.jpg"
+				}
+			}
+		}
+
+		thumbFiles, cerr := ghlib.CollectDirFlat(thumbDir, ghPrefix)
+		if cerr != nil {
+			w.log.Errorf("collect thumbnail files (early) failed job=%s err=%s", job.ID, cerr.Error())
+		} else if len(thumbFiles) > 0 {
+			ghBranch := os.Getenv("GITHUB_BRANCH")
+			if ghBranch == "" {
+				ghBranch = "main"
+			}
+			if err := ghlib.BatchCommit(context.Background(), w.cfg.GitHubClient, w.cfg.GitHubOwner, w.cfg.GitHubRepo, ghBranch, "Thumbnails "+job.UploadID, thumbFiles, 4, w.log.Infof); err != nil {
+				w.log.Errorf("github thumbnail upload failed job=%s err=%s", job.ID, err.Error())
+			} else {
+				w.log.Infof("github thumbnails uploaded early job=%s files=%d", job.ID, len(thumbFiles))
+			}
+		}
+
+		if defaultThumbPath != "" {
+			thumbnailPaths = append(thumbnailPaths, ghPrefix+defaultThumbPath)
+		}
+		for i := range thumbResult.Thumbnails {
+			thumbnailPaths = append(thumbnailPaths, ghPrefix+filepath.Base(thumbResult.Thumbnails[i].Path))
+		}
+		thumbnailPaths = append(thumbnailPaths, ghPrefix+"thumbnail_preview.jpg")
+		thumbnailPaths = append(thumbnailPaths, ghPrefix+"thumbnail_preview.json")
+
+		defaultThumbGH := ""
+		if defaultThumbPath != "" {
+			defaultThumbGH = ghPrefix + defaultThumbPath
+		}
+		pct := 40
+		webhook.NotifyJobStatus(webhook.Payload{
+			JobID:            job.ID,
+			Status:           "running",
+			UploadID:         job.UploadID,
+			UserID:           job.UserID,
+			FileName:         job.FileName,
+			FileSize:         job.FileSize,
+			Progress:         &pct,
+			Thumbnails:       thumbnailPaths,
+			DefaultThumbnail: defaultThumbGH,
+			Duration:         videoDuration,
+		})
+		w.log.Infof("thumbnails available early job=%s paths=%d", job.ID, len(thumbnailPaths))
+	}
+
 	isAdult := false
 	var vidColors []string
 	var categories, tags []string
@@ -452,33 +524,7 @@ func (w *Worker) processJob(job *queue.Job) {
 	}
 	w.notifyRunningProgress(job, 78)
 
-	// If user provided a default thumbnail, decode and save it to the thumbDir
-	// so it gets included in the batch upload with a consistent name
-	defaultThumbPath := ""
-	if job.DefaultThumbnail != "" {
-		thumbData, derr := decodeThumbnailBase64(job.DefaultThumbnail)
-		if derr != nil {
-			w.log.Errorf("failed to decode default thumbnail job=%s err=%s len=%d", job.ID, derr.Error(), len(job.DefaultThumbnail))
-		} else if len(thumbData) == 0 {
-			w.log.Errorf("default thumbnail decoded to empty job=%s", job.ID)
-		} else {
-			dtPath := filepath.Join(thumbDir, "default_thumbnail.jpg")
-			if werr := os.WriteFile(dtPath, thumbData, 0644); werr != nil {
-				w.log.Errorf("failed to write default thumbnail job=%s err=%s", job.ID, werr.Error())
-			} else {
-				w.log.Infof("default thumbnail saved job=%s path=%s bytes=%d", job.ID, dtPath, len(thumbData))
-				defaultThumbPath = "default_thumbnail.jpg"
-			}
-		}
-	}
-
-	dateFolder := ghlib.DateFolder(time.Now())
-	ghPrefix := dateFolder + "/" + job.UploadID + "/"
 	videoEndpoint := ""
-	var thumbnailPaths []string
-	var videoDuration float64
-
-	// Collect all files for a single batch commit (Git Data API: blobs→tree→commit)
 	var batchFiles []ghlib.BatchFile
 
 	if hlsAll != nil {
@@ -490,26 +536,6 @@ func (w *Worker) processJob(job *queue.Job) {
 		batchFiles = append(batchFiles, hlsFiles...)
 		videoEndpoint = dateFolder + "/" + job.UploadID + "/master.m3u8"
 		w.log.Infof("collected %d hls files job=%s", len(hlsFiles), job.ID)
-	}
-
-	if thumbResult != nil {
-		videoDuration = thumbResult.Duration
-		thumbFiles, cerr := ghlib.CollectDirFlat(thumbDir, ghPrefix)
-		if cerr != nil {
-			w.failJob(job, "collect thumbnail files: "+cerr.Error(), result.OutputPath, filepath.Dir(result.OutputPath), filepath.Dir(filepath.Dir(result.OutputPath)), hlsDir, filepath.Dir(hlsDir), thumbDir, filepath.Dir(thumbDir))
-			return
-		}
-		batchFiles = append(batchFiles, thumbFiles...)
-		// User-chosen default first so feeds that use thumbnails[0] match DB default_thumbnail
-		if defaultThumbPath != "" {
-			thumbnailPaths = append(thumbnailPaths, ghPrefix+defaultThumbPath)
-		}
-		for i := range thumbResult.Thumbnails {
-			thumbnailPaths = append(thumbnailPaths, ghPrefix+filepath.Base(thumbResult.Thumbnails[i].Path))
-		}
-		thumbnailPaths = append(thumbnailPaths, ghPrefix+"thumbnail_preview.jpg")
-		thumbnailPaths = append(thumbnailPaths, ghPrefix+"thumbnail_preview.json")
-		w.log.Infof("collected %d thumbnail files job=%s", len(thumbFiles), job.ID)
 	}
 
 	if len(batchFiles) > 0 {

@@ -2,7 +2,6 @@ package ffmpeg
 
 import (
 	"fmt"
-	"log"
 	"runtime"
 )
 
@@ -14,7 +13,6 @@ func buildTierArgs(inputPath, m3u8Path, segmentPattern string, opts HLSOptions, 
 
 	var args []string
 
-	log.Println("useGPU", useGPU)
 	if useGPU {
 		args = append(args, "-hwaccel", "cuda")
 	}

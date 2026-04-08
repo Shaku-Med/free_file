@@ -355,12 +355,32 @@ export const action = async ({ request }: { request: Request }) => {
     const p = parseProcessingProgress(body.progress);
     const patch: Record<string, unknown> = {
       upload_status: 'running',
-      // Always persist a number so the UI never sees NULL while running (webhook may omit progress on some builds).
       processing_progress: p !== null ? p : 0,
     };
+
+    const thumbnails = Array.isArray(body?.thumbnails) ? body.thumbnails.filter((t): t is string => typeof t === 'string' && t.trim() !== '') : [];
+    if (thumbnails.length > 0) {
+      patch.thumbnails = thumbnails;
+    }
+    const duration = typeof body?.duration === 'number' && body.duration >= 0 ? Math.round(body.duration) : null;
+    if (duration !== null) {
+      patch.duration = duration;
+    }
+    const defaultThumb = typeof body?.default_thumbnail === 'string' ? body.default_thumbnail.trim() : '';
+    if (defaultThumb) {
+      patch.default_thumbnail = defaultThumb;
+    } else if (thumbnails.length > 0) {
+      const inferred = firstFrameThumbnailFromList(thumbnails);
+      if (inferred) {
+        patch.default_thumbnail = inferred;
+      }
+    }
+
     const { error: updateErr } = await db.from('files').update(patch).eq('unique_id', upload_id);
     if (updateErr) {
       console.warn('[upload-job-status] files update (running):', updateErr);
+    } else if (thumbnails.length > 0) {
+      console.log('[upload-job-status] thumbnails set early for', upload_id, '(' + thumbnails.length + ' paths)');
     }
   } else if (status === 'completed' && upload_id) {
     const endpoint = typeof body?.endpoint === 'string' ? body.endpoint.trim() : '';
