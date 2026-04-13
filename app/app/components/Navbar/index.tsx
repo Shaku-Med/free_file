@@ -80,9 +80,9 @@ export default function Navbar({ hasScrolled = { state: false, opacityLevel: 0 }
                 className="group flex min-w-0 items-center gap-1.5 sm:gap-2"
               >
                 <Logo className="h-8 w-8 shrink-0 text-primary sm:h-10 sm:w-10" />
-                <span className="hidden truncate text-base font-bold text-primary sm:block sm:text-xl">
+                <h1 className="hidden truncate text-base font-bold text-primary sm:block sm:text-xl">
                   Memories
-                </span>
+                </h1>
               </Link>
             </div>
           )}
