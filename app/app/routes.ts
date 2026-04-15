@@ -46,6 +46,7 @@ export default [
         route(`user-files`, 'routes/Api/user-files/index.tsx'),
         route(`my-series`, 'routes/Api/my-series/index.tsx'),
         route(`series-episodes`, 'routes/Api/series-episodes/index.tsx'),
+        route(`file-series`, 'routes/Api/file-series/index.tsx'),
         route(`profile-tab`, 'routes/Api/profile-tab/index.tsx'),
         route(`owner-videos`, 'routes/Api/owner-videos/index.tsx'),
         route(`related-videos`, 'routes/Api/related-videos/index.tsx'),

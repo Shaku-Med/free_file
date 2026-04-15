@@ -15,7 +15,7 @@ import Actions from "./VideoCard/Actions";
 import { Separator } from "~/components/ui/separator";
 import { Progress } from "~/components/ui/progress";
 import CategoryBadges from "~/components/CategoryBadges";
-import { Info, MoreVertical, ChevronDown, X, Check, AlertTriangle, Send, Loader2, ImagePlus, MessageSquare, MessageSquareOff, ListVideo } from "lucide-react";
+import { Info, MoreVertical, ChevronDown, X, Check, AlertTriangle, Send, Loader2, ImagePlus, MessageSquare, MessageSquareOff, ListVideo, Layers } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "~/components/ui/tooltip";
 import { useIsMobile } from "~/hooks/use-mobile";
 import { useSidebar } from "~/components/ui/sidebar";
@@ -139,6 +139,37 @@ const VideoCard = ({ data, index, currentUserId, userActions, onUpdate, showOwne
   /** Latest `default_thumbnail` from GET /api/files prefill; `undefined` = use `data` until loaded. */
   const [editLoadedDefaultThumb, setEditLoadedDefaultThumb] = useState<string | null | undefined>(undefined);
 
+  // --- Series editing state ---
+  /** Snapshot of the file's current series state, loaded from /api/file-series. */
+  const [seriesState, setSeriesState] = useState<{
+    is_series_main: boolean;
+    is_files_series_item: boolean;
+    file_series_id: string | null;
+    file_series_episode_id: string | null;
+    series_title: string | null;
+    episode_name: string | null;
+  } | null>(null);
+  const [seriesStateLoading, setSeriesStateLoading] = useState(false);
+  /** Draft selection while the dialog is open (only applied on Save). */
+  const [seriesMode, setSeriesMode] = useState<"none" | "create" | "existing">("none");
+  const [seriesEpisodeName, setSeriesEpisodeName] = useState("");
+  const [seriesSelected, setSeriesSelected] = useState<{
+    file_series_id: string;
+    file_title: string;
+  } | null>(null);
+  const [seriesEpisodeSubmode, setSeriesEpisodeSubmode] = useState<"existing" | "new" | null>(null);
+  const [seriesEpisodeId, setSeriesEpisodeId] = useState<string | null>(null);
+  const [seriesEpisodesList, setSeriesEpisodesList] = useState<{ id: string; episode_name: string }[]>([]);
+  // Browse dialog
+  const [seriesBrowseOpen, setSeriesBrowseOpen] = useState(false);
+  const [seriesSearch, setSeriesSearch] = useState("");
+  const [seriesBrowseResults, setSeriesBrowseResults] = useState<{ file_title: string; file_series_id: string }[]>([]);
+  const [seriesBrowseLoading, setSeriesBrowseLoading] = useState(false);
+  const [isSeriesBusy, setIsSeriesBusy] = useState(false);
+
+  /** Series is available on any file the viewer owns. */
+  const canManageSeries = isOwner;
+
   const catDropdownRef = useRef<HTMLDivElement>(null);
 
   const nav = useNavigate();
@@ -230,6 +261,245 @@ const VideoCard = ({ data, index, currentUserId, userActions, onUpdate, showOwne
     };
   }, [isEditing, isOwner, data.id, data.unique_id]);
 
+  // Load series state whenever the edit dialog opens for a file owned by the user.
+  useEffect(() => {
+    if (!isEditing || !canManageSeries) {
+      setSeriesState(null);
+      return;
+    }
+    const fid = data.id || data.unique_id;
+    if (!fid) return;
+    let cancelled = false;
+    setSeriesStateLoading(true);
+    (async () => {
+      try {
+        const res = await fetch(`/api/file-series?fileId=${encodeURIComponent(String(fid))}`, {
+          credentials: "include",
+        });
+        const j = (await res.json().catch(() => null)) as {
+          success?: boolean;
+          state?: {
+            is_series_main: boolean;
+            is_files_series_item: boolean;
+            file_series_id: string | null;
+            file_series_episode_id: string | null;
+            series_title: string | null;
+            episode_name: string | null;
+          };
+        } | null;
+        if (cancelled) return;
+        if (res.ok && j?.success && j.state) {
+          setSeriesState(j.state);
+        } else {
+          setSeriesState(null);
+        }
+      } catch {
+        if (!cancelled) setSeriesState(null);
+      } finally {
+        if (!cancelled) setSeriesStateLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isEditing, canManageSeries, data.id, data.unique_id]);
+
+  // Reset the draft series selection whenever the dialog opens/closes.
+  useEffect(() => {
+    if (!isEditing) {
+      setSeriesMode("none");
+      setSeriesEpisodeName("");
+      setSeriesSelected(null);
+      setSeriesEpisodeSubmode(null);
+      setSeriesEpisodeId(null);
+      setSeriesEpisodesList([]);
+      setSeriesBrowseOpen(false);
+      setSeriesSearch("");
+    }
+  }, [isEditing]);
+
+  // Search user's series from the browse dialog.
+  useEffect(() => {
+    if (!seriesBrowseOpen) return;
+    setSeriesBrowseLoading(true);
+    const t = setTimeout(() => {
+      void (async () => {
+        try {
+          const q = encodeURIComponent(seriesSearch.trim());
+          const res = await fetch(`/api/my-series?q=${q}`, { credentials: "include" });
+          const j = await res.json().catch(() => ({}));
+          if (res.ok && Array.isArray(j.series)) {
+            setSeriesBrowseResults(j.series);
+          } else {
+            setSeriesBrowseResults([]);
+          }
+        } catch {
+          setSeriesBrowseResults([]);
+        } finally {
+          setSeriesBrowseLoading(false);
+        }
+      })();
+    }, 280);
+    return () => clearTimeout(t);
+  }, [seriesSearch, seriesBrowseOpen]);
+
+  const loadEpisodesForSelectedSeries = useCallback((fileSeriesId: string) => {
+    void (async () => {
+      try {
+        const res = await fetch(
+          `/api/series-episodes?file_series_id=${encodeURIComponent(fileSeriesId)}`,
+          { credentials: "include" }
+        );
+        const j = await res.json().catch(() => ({}));
+        if (!res.ok) return;
+        const list = Array.isArray(j.episodes)
+          ? (j.episodes as { id: string; episode_name: string }[])
+          : [];
+        setSeriesEpisodesList(list);
+        setSeriesEpisodeSubmode(list.length > 0 ? "existing" : "new");
+        setSeriesEpisodeId(null);
+        setSeriesEpisodeName("");
+      } catch {
+        /* ignore */
+      }
+    })();
+  }, []);
+
+  const openSeriesBrowse = () => {
+    setSeriesSearch("");
+    setSeriesBrowseOpen(true);
+  };
+
+  /** Any pending change in the series draft vs. the loaded state? */
+  const seriesHasDraftChange = seriesMode !== "none";
+
+  /** Submit the series draft. Returns true on success or no-op. */
+  const applySeriesChangeIfAny = useCallback(async (): Promise<boolean> => {
+    if (!canManageSeries) return true;
+    if (!seriesHasDraftChange) return true;
+    if (!data.id && !data.unique_id) return true;
+
+    const fileId = data.id || data.unique_id;
+    setIsSeriesBusy(true);
+    try {
+      let body: Record<string, unknown> | null = null;
+      if (seriesMode === "create") {
+        const name = seriesEpisodeName.trim();
+        if (!name) {
+          setEditError("Please enter an episode name for the new series.");
+          return false;
+        }
+        body = {
+          action: "assign",
+          fileId,
+          isNewSeries: true,
+          newEpisodeName: name,
+        };
+      } else if (seriesMode === "existing") {
+        if (!seriesSelected?.file_series_id) {
+          setEditError("Please choose a series.");
+          return false;
+        }
+        const base: Record<string, unknown> = {
+          action: "assign",
+          fileId,
+          fileSeriesId: seriesSelected.file_series_id,
+        };
+        if (seriesEpisodeSubmode === "existing") {
+          if (!seriesEpisodeId) {
+            setEditError("Please choose an episode.");
+            return false;
+          }
+          base.fileSeriesEpisodeId = seriesEpisodeId;
+        } else if (seriesEpisodeSubmode === "new") {
+          const name = seriesEpisodeName.trim();
+          if (!name) {
+            setEditError("Please enter a name for the new episode.");
+            return false;
+          }
+          base.newEpisodeName = name;
+        } else {
+          setEditError("Please choose an existing episode or create a new one.");
+          return false;
+        }
+        body = base;
+      }
+
+      if (!body) return true;
+
+      const res = await fetch("/api/file-series", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const j = await res.json().catch(() => null);
+      if (!res.ok || !j?.success) {
+        setEditError(j?.error || "Failed to update series membership.");
+        return false;
+      }
+      if (j.state) setSeriesState(j.state);
+      if (onUpdate && data.id) {
+        onUpdate(data.id, {
+          is_series_main: j.state?.is_series_main,
+          is_files_series_item: j.state?.is_files_series_item,
+          file_series_id: j.state?.file_series_id,
+          file_series_episode_id: j.state?.file_series_episode_id,
+        });
+      }
+      return true;
+    } catch {
+      setEditError("Failed to update series membership.");
+      return false;
+    } finally {
+      setIsSeriesBusy(false);
+    }
+  }, [
+    canManageSeries,
+    seriesHasDraftChange,
+    seriesMode,
+    seriesEpisodeName,
+    seriesSelected,
+    seriesEpisodeSubmode,
+    seriesEpisodeId,
+    data.id,
+    data.unique_id,
+    onUpdate,
+  ]);
+
+  const removeFileFromSeries = useCallback(async () => {
+    if (!data.id && !data.unique_id) return;
+    const fileId = data.id || data.unique_id;
+    setIsSeriesBusy(true);
+    setEditError(null);
+    try {
+      const res = await fetch("/api/file-series", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "unassign", fileId }),
+      });
+      const j = await res.json().catch(() => null);
+      if (!res.ok || !j?.success) {
+        setEditError(j?.error || "Failed to remove file from series.");
+        return;
+      }
+      if (j.state) setSeriesState(j.state);
+      if (onUpdate && data.id) {
+        onUpdate(data.id, {
+          is_series_main: false,
+          is_files_series_item: false,
+          file_series_id: null,
+          file_series_episode_id: null,
+        });
+      }
+    } catch {
+      setEditError("Failed to remove file from series.");
+    } finally {
+      setIsSeriesBusy(false);
+    }
+  }, [data.id, data.unique_id, onUpdate]);
+
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (catDropdownRef.current && !catDropdownRef.current.contains(event.target as Node)) {
@@ -261,6 +531,16 @@ const VideoCard = ({ data, index, currentUserId, userActions, onUpdate, showOwne
     setIsSaving(true);
     setEditError(null);
     try {
+      // Apply series change first — if this fails we surface the error and stop
+      // before touching any other file fields.
+      if (seriesHasDraftChange) {
+        const seriesOk = await applySeriesChangeIfAny();
+        if (!seriesOk) {
+          setIsSaving(false);
+          return;
+        }
+      }
+
       let newDefaultThumbnail: string | undefined;
 
       // Images use their own endpoint as thumbnail — no thumbnail editing allowed
@@ -559,6 +839,7 @@ const VideoCard = ({ data, index, currentUserId, userActions, onUpdate, showOwne
   );
 
   const renderEditDialog = () => (
+    <>
     <Dialog open={isEditing} onOpenChange={(open) => {
       if (!isSaving) {
         setIsEditing(open);
@@ -593,6 +874,227 @@ const VideoCard = ({ data, index, currentUserId, userActions, onUpdate, showOwne
               className="bg-muted/50 text-foreground placeholder:text-muted-foreground"
             />
           </div>
+          {/* Add to series — available on every file the viewer owns */}
+          {canManageSeries && (
+            <div className="space-y-2.5 rounded-xl border border-border/50 bg-muted/20 p-3">
+              <div className="flex items-center gap-2">
+                <Layers className="w-3.5 h-3.5 text-muted-foreground" />
+                <span className="text-xs font-medium text-muted-foreground">Series</span>
+              </div>
+
+              {seriesStateLoading ? (
+                <p className="text-[11px] text-muted-foreground flex items-center gap-2">
+                  <Loader2 className="w-3 h-3 animate-spin" />
+                  Loading series info…
+                </p>
+              ) : seriesState?.is_series_main ? (
+                <div className="space-y-1.5 rounded-lg border border-border/50 bg-background px-3 py-2 text-xs">
+                  <p className="font-medium">This file is a series cover.</p>
+                  <p className="text-muted-foreground">
+                    {seriesState.series_title ? `Series: ${seriesState.series_title}` : "Series owned by you."}
+                  </p>
+                  <p className="text-[10px] text-muted-foreground/70">
+                    Managing or deleting a series cover is not available from this dialog.
+                  </p>
+                </div>
+              ) : seriesState?.is_files_series_item ? (
+                <div className="space-y-2">
+                  <div className="rounded-lg border border-border/50 bg-background px-3 py-2 text-xs space-y-0.5">
+                    <p className="font-medium truncate">
+                      {seriesState.series_title || "Series"}
+                    </p>
+                    {seriesState.episode_name && (
+                      <p className="text-muted-foreground truncate">
+                        Episode: {seriesState.episode_name}
+                      </p>
+                    )}
+                  </div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-9 w-full"
+                    disabled={isSaving || isSeriesBusy}
+                    onClick={removeFileFromSeries}
+                  >
+                    {isSeriesBusy ? (
+                      <span className="flex items-center gap-2">
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        Removing…
+                      </span>
+                    ) : (
+                      "Remove from series"
+                    )}
+                  </Button>
+                </div>
+              ) : (
+                <>
+                  <div className="flex flex-col gap-1.5">
+                    {(["none", "create", "existing"] as const).map((mode) => (
+                      <button
+                        key={mode}
+                        type="button"
+                        disabled={isSaving || isSeriesBusy}
+                        onClick={() => {
+                          if (mode === "none") {
+                            setSeriesMode("none");
+                            setSeriesEpisodeName("");
+                            setSeriesSelected(null);
+                            setSeriesEpisodeSubmode(null);
+                            setSeriesEpisodeId(null);
+                            setSeriesEpisodesList([]);
+                          } else if (mode === "create") {
+                            setSeriesMode("create");
+                            setSeriesSelected(null);
+                            setSeriesEpisodeSubmode(null);
+                            setSeriesEpisodeId(null);
+                            setSeriesEpisodesList([]);
+                          } else {
+                            setSeriesMode("existing");
+                            setSeriesEpisodeName("");
+                            setSeriesEpisodeId(null);
+                            setSeriesEpisodesList([]);
+                            setSeriesEpisodeSubmode(null);
+                          }
+                        }}
+                        className={`text-left rounded-lg px-3 py-2 text-sm transition-colors disabled:opacity-50 ${
+                          seriesMode === mode
+                            ? "bg-primary text-primary-foreground"
+                            : "bg-muted/50 hover:bg-muted/80 text-foreground"
+                        }`}
+                      >
+                        {mode === "none" && "Not in a series"}
+                        {mode === "create" && "Create new series (this file is the cover)"}
+                        {mode === "existing" && "Add to existing series"}
+                      </button>
+                    ))}
+                  </div>
+
+                  {seriesMode === "create" && (
+                    <div className="space-y-1.5 pt-1">
+                      <label className="text-xs font-medium text-muted-foreground">Episode name</label>
+                      <Input
+                        value={seriesEpisodeName}
+                        onChange={(e) => setSeriesEpisodeName(e.target.value)}
+                        placeholder="e.g. Episode 1"
+                        maxLength={500}
+                        disabled={isSaving || isSeriesBusy}
+                        className="text-sm h-9 bg-muted/30 border-border/50"
+                      />
+                      <p className="text-[10px] text-muted-foreground/70">
+                        The first episode for this series (this file is the cover and the first episode).
+                      </p>
+                    </div>
+                  )}
+
+                  {seriesMode === "existing" && (
+                    <div className="space-y-2 pt-1">
+                      <div className="flex flex-col gap-1.5">
+                        <span className="text-[11px] text-muted-foreground">Series</span>
+                        {seriesSelected ? (
+                          <div className="flex items-center justify-between gap-2 rounded-lg border border-border/50 bg-background px-3 py-2 text-sm">
+                            <span className="truncate">{seriesSelected.file_title || "Series"}</span>
+                            <button
+                              type="button"
+                              disabled={isSaving || isSeriesBusy}
+                              onClick={openSeriesBrowse}
+                              className="text-xs text-primary shrink-0 hover:underline"
+                            >
+                              Change
+                            </button>
+                          </div>
+                        ) : (
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="h-9"
+                            disabled={isSaving || isSeriesBusy}
+                            onClick={openSeriesBrowse}
+                          >
+                            Choose series…
+                          </Button>
+                        )}
+                      </div>
+
+                      {seriesSelected && (
+                        <>
+                          <div className="flex rounded-lg border border-border/50 overflow-hidden bg-muted/30">
+                            <button
+                              type="button"
+                              disabled={isSaving || isSeriesBusy || seriesEpisodesList.length === 0}
+                              onClick={() => {
+                                setSeriesEpisodeSubmode("existing");
+                                setSeriesEpisodeName("");
+                              }}
+                              className={`flex-1 py-2 text-xs font-medium transition-colors disabled:opacity-40 ${
+                                seriesEpisodeSubmode === "existing"
+                                  ? "bg-primary text-primary-foreground"
+                                  : "text-muted-foreground"
+                              }`}
+                            >
+                              Existing episode
+                            </button>
+                            <button
+                              type="button"
+                              disabled={isSaving || isSeriesBusy}
+                              onClick={() => {
+                                setSeriesEpisodeSubmode("new");
+                                setSeriesEpisodeId(null);
+                              }}
+                              className={`flex-1 py-2 text-xs font-medium transition-colors ${
+                                seriesEpisodeSubmode === "new"
+                                  ? "bg-primary text-primary-foreground"
+                                  : "text-muted-foreground"
+                              }`}
+                            >
+                              New episode
+                            </button>
+                          </div>
+
+                          {seriesEpisodeSubmode === "existing" && seriesEpisodesList.length > 0 && (
+                            <div className="space-y-1.5">
+                              <label className="text-xs font-medium text-muted-foreground">Episode</label>
+                              <select
+                                value={seriesEpisodeId ?? ""}
+                                onChange={(e) => setSeriesEpisodeId(e.target.value || null)}
+                                disabled={isSaving || isSeriesBusy}
+                                className="w-full h-9 rounded-md border border-border/50 bg-background px-2 text-sm"
+                              >
+                                <option value="">Select episode…</option>
+                                {seriesEpisodesList.map((ep) => (
+                                  <option key={ep.id} value={ep.id}>
+                                    {ep.episode_name || ep.id.slice(0, 8)}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                          )}
+
+                          {seriesEpisodeSubmode === "new" && (
+                            <div className="space-y-1.5">
+                              <label className="text-xs font-medium text-muted-foreground">
+                                New episode name
+                              </label>
+                              <Input
+                                value={seriesEpisodeName}
+                                onChange={(e) => setSeriesEpisodeName(e.target.value)}
+                                placeholder="Episode name"
+                                maxLength={500}
+                                disabled={isSaving || isSeriesBusy}
+                                className="text-sm h-9 bg-muted/30 border-border/50"
+                              />
+                            </div>
+                          )}
+                        </>
+                      )}
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          )}
+
           <div className="space-y-2">
             <label className="text-xs font-medium text-muted-foreground">Visibility</label>
             <div className="flex items-center gap-2">
@@ -1092,6 +1594,51 @@ const VideoCard = ({ data, index, currentUserId, userActions, onUpdate, showOwne
         </DialogFooter>
       </DialogContent>
     </Dialog>
+
+    {/* Series browse dialog — owner can pick one of their existing series */}
+    <Dialog open={seriesBrowseOpen} onOpenChange={setSeriesBrowseOpen}>
+      <DialogContent className="max-w-md rounded-2xl">
+        <DialogHeader>
+          <DialogTitle className="text-base">Your series</DialogTitle>
+        </DialogHeader>
+        <Input
+          value={seriesSearch}
+          onChange={(e) => setSeriesSearch(e.target.value)}
+          placeholder="Search by title…"
+          className="h-9 text-sm"
+        />
+        <div className="max-h-[240px] overflow-y-auto rounded-lg border border-border/50 divide-y divide-border/50">
+          {seriesBrowseLoading ? (
+            <p className="p-4 text-sm text-muted-foreground flex items-center gap-2">
+              <Loader2 className="w-4 h-4 animate-spin" />
+              Loading…
+            </p>
+          ) : seriesBrowseResults.length === 0 ? (
+            <p className="p-4 text-sm text-muted-foreground">No series match your search.</p>
+          ) : (
+            seriesBrowseResults.map((row) => (
+              <button
+                key={row.file_series_id}
+                type="button"
+                className="w-full text-left px-3 py-2.5 text-sm hover:bg-muted/80 transition-colors"
+                onClick={() => {
+                  setSeriesMode("existing");
+                  setSeriesSelected({
+                    file_series_id: row.file_series_id,
+                    file_title: row.file_title,
+                  });
+                  loadEpisodesForSelectedSeries(row.file_series_id);
+                  setSeriesBrowseOpen(false);
+                }}
+              >
+                <span className="font-medium line-clamp-2">{row.file_title || "Untitled"}</span>
+              </button>
+            ))
+          )}
+        </div>
+      </DialogContent>
+    </Dialog>
+    </>
   );
 
   const renderInfoDialog = () => (

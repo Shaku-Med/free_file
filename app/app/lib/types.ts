@@ -39,6 +39,10 @@ export interface FileType {
   /** Episode row; API/DB may use `is_files_series_item` instead. */
   is_series_episode?: boolean;
   is_files_series_item?: boolean;
+  /** UUID of the series this file belongs to (cover or episode item). */
+  file_series_id?: string | null;
+  /** UUID of the specific episode row this file is linked to. */
+  file_series_episode_id?: string | null;
   duration?: number;
   engagement_score?: number;
   comments_enabled?: boolean;

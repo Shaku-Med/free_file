@@ -1,0 +1,35 @@
+import Svg, { G, Path, type SvgProps } from 'react-native-svg';
+
+/** Brand green from the web app's logo.svg. */
+export const LOGO_DEFAULT_COLOR = '#00a85c';
+
+export type LogoProps = Omit<SvgProps, 'children'> & {
+  /** Fill color for the mark. Defaults to brand green. */
+  color?: string;
+  /** Rendered size (square). Width/height props on SvgProps still work if you prefer. */
+  size?: number;
+};
+
+/**
+ * Memories app logo.
+ *
+ * Ported from app/public/logo.svg. The source SVG uses a flipped-Y transform
+ * (translate(0, 1024) scale(0.1, -0.1)) operating on a 10240×10240 path space;
+ * we keep that transform and set the SVG's viewBox to 0 0 1024 1024 so the
+ * component can be used at any size.
+ */
+export function Logo({ color = LOGO_DEFAULT_COLOR, size, ...rest }: LogoProps) {
+  return (
+    <Svg
+      width={size}
+      height={size}
+      viewBox="0 0 1024 1024"
+      {...rest}>
+      <G transform="translate(0,1024) scale(0.1,-0.1)" fill={color}>
+        <Path d="M2909 7806 c-199 -44 -397 -184 -498 -350 -18 -31 -47 -95 -65 -143 l-31 -88 0 -2155 0 -2155 23 -79 c67 -230 219 -415 427 -516 193 -94 -40 -85 2335 -85 l2095 0 90 28 c295 90 505 298 587 582 l23 80 0 2130 c0 2393 7 2170 -75 2340 -74 153 -194 270 -356 346 -169 80 49 73 -2354 75 -1669 2 -2157 -1 -2201 -10z m4336 -362 c117 -30 216 -113 269 -224 l31 -65 0 -1900 0 -1900 -23 -58 c-33 -82 -125 -177 -210 -219 l-66 -33 -256 -5 c-140 -3 -919 -3 -1731 0 l-1476 5 -49 30 c-31 20 -58 47 -74 75 l-25 45 -3 2043 -2 2043 21 49 c24 56 71 96 133 116 33 10 377 13 1721 13 1488 1 1688 -1 1740 -15z m-4207 -813 c138 -71 165 -259 52 -371 -72 -73 -164 -89 -256 -46 -122 57 -168 195 -106 317 58 115 195 159 310 100z m4467 -3828 c-105 -165 -224 -245 -392 -264 -55 -6 -836 -8 -2081 -7 l-1994 3 -24 28 c-43 50 -22 117 42 136 19 5 912 9 2109 10 1398 1 2092 5 2123 12 51 11 186 75 204 96 20 24 30 13 13 -14z" />
+        <Path d="M4189 7100 c-59 -10 -85 -24 -131 -68 -78 -74 -73 24 -73 -1457 l0 -1320 23 -42 c27 -51 54 -78 107 -106 l40 -22 1440 0 c1365 0 1442 1 1487 18 57 22 113 82 128 136 7 27 10 446 8 1368 l-3 1328 -22 40 c-26 49 -54 76 -113 106 l-45 24 -1400 2 c-770 0 -1421 -3 -1446 -7z m2682 -339 l29 -29 0 -882 0 -881 -352 408 c-404 467 -443 509 -483 519 -53 13 -90 -19 -253 -221 -84 -104 -221 -275 -304 -378 -84 -103 -157 -186 -164 -185 -6 2 -71 67 -143 145 -141 152 -180 183 -231 183 -66 0 -86 -20 -449 -450 -96 -113 -182 -214 -192 -225 -19 -19 -19 3 -19 974 l0 993 29 29 29 29 1237 0 1237 0 29 -29z" />
+        <Path d="M5047 6430 c-97 -25 -182 -95 -226 -189 -36 -76 -37 -202 -2 -273 33 -67 90 -129 152 -163 74 -40 188 -47 270 -16 181 69 267 289 179 461 -69 135 -234 214 -373 180z" />
+      </G>
+    </Svg>
+  );
+}
