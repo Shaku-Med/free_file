@@ -152,6 +152,13 @@ export const loader = async ({ request }: { request: Request }) => {
 
     const origin = url.origin;
 
+    /** Same URL must not be cached across guest vs signed-in (truncated vs full HLS). */
+    const videoResponseCacheHeaders: Record<string, string> = {
+      "Cache-Control": "private, no-store, max-age=0, must-revalidate",
+      Pragma: "no-cache",
+      "Vary": "Origin, Cookie",
+    };
+
     if (isM3U8) {
       const raw = await response.text();
       const basePath = sanitizedPath.substring(
@@ -174,8 +181,7 @@ export const loader = async ({ request }: { request: Request }) => {
           "Content-Type": "application/vnd.apple.mpegurl",
           "Access-Control-Allow-Origin": origin,
           "Access-Control-Allow-Credentials": "true",
-          "Vary": "Origin",
-          "Cache-Control": "private, max-age=300",
+          ...videoResponseCacheHeaders,
           "X-Content-Type-Options": "nosniff",
         },
       });
@@ -190,10 +196,7 @@ export const loader = async ({ request }: { request: Request }) => {
         "Content-Type": contentType,
         "Access-Control-Allow-Origin": origin,
         "Access-Control-Allow-Credentials": "true",
-        "Vary": "Origin",
-        "Cache-Control": isSegment
-          ? "private, max-age=300"
-          : "public, max-age=31536000, immutable",
+        ...videoResponseCacheHeaders,
         "X-Content-Type-Options": "nosniff",
       },
     });

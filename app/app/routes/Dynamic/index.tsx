@@ -1050,7 +1050,7 @@ const index = () => {
             playsInline
             imageID={file_data.unique_id}
             file={{ ...file_data, owner: data?.owner }}
-            key={`hls-${file_data.unique_id}-${currentId}`}
+            key={`hls-${file_data.unique_id}-${currentId}-${userId ?? "guest"}`}
             onVideoRef={handleVideoRef}
             callBack={hlsCallBack}
             endScreenUserActions={mergedSidebarUserActions}
