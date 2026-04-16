@@ -5,6 +5,7 @@ import CommentItem from "./CommentItem";
 import CommentForm from "./CommentForm";
 import type { CommentGif, CommentImage } from "./CommentForm";
 import type { Comment } from "~/lib/Services/CommentService";
+import { cn } from "~/lib/utils";
 interface CommentSectionProps {
   fileId: string;
   currentUserId?: string;
@@ -13,6 +14,8 @@ interface CommentSectionProps {
   commentsEnabled?: boolean;
   /** From `?comment=` — scroll to this comment and emphasize it (e.g. notification deep link). */
   highlightCommentId?: string | null;
+  /** e.g. `min-h-0` when inside a flex / scroll parent */
+  className?: string;
 }
 
 /** Normalize API comment to full Comment shape (replies, counts, etc.) */
@@ -73,6 +76,7 @@ const CommentSection = ({
   isReel = false,
   commentsEnabled = true,
   highlightCommentId = null,
+  className,
 }: CommentSectionProps) => {
   const [comments, setComments] = useState<Comment[]>([]);
   const [totalCount, setTotalCount] = useState(0);
@@ -308,7 +312,7 @@ const CommentSection = ({
   );
 
   return (
-    <div className="space-y-4">
+    <div className={cn("space-y-4", className)}>
       <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between sm:gap-2">
         <div className="flex items-center gap-2">
           <MessageSquare className="h-5 w-5 text-foreground" />

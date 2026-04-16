@@ -15,7 +15,7 @@ import Actions from "./VideoCard/Actions";
 import { Separator } from "~/components/ui/separator";
 import { Progress } from "~/components/ui/progress";
 import CategoryBadges from "~/components/CategoryBadges";
-import { Info, MoreVertical, ChevronDown, X, Check, AlertTriangle, Send, Loader2, ImagePlus, MessageSquare, MessageSquareOff, ListVideo, Layers } from "lucide-react";
+import { Info, MoreVertical, ChevronDown, X, Check, AlertTriangle, Send, Loader2, ImagePlus, MessageSquare, MessageSquareOff, ListVideo, Layers, ListPlus, ListChecks } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "~/components/ui/tooltip";
 import { useIsMobile } from "~/hooks/use-mobile";
 import { useSidebar } from "~/components/ui/sidebar";
@@ -61,11 +61,14 @@ interface VideoCardProps {
   showOwnerControls?: boolean;
   related?: boolean;
   layout?: LayoutType;
+  /** When set (e.g. watch page sidebar), show add-to-play-queue on horizontal cards. */
+  onAddToPlayQueue?: (video: FileType) => void;
+  inPlayQueue?: boolean;
 }
 
 const CATEGORIES = ["Gaming", "Music", "Entertainment", "Education", "Technology", "Sports", "News", "Lifestyle", "Anime", "Film", "Automotive", "Art", "Nature", "Other"];
 
-const VideoCard = ({ data, index, currentUserId, userActions, onUpdate, showOwnerControls, related, layout = "default" }: VideoCardProps) => {
+const VideoCard = ({ data, index, currentUserId, userActions, onUpdate, showOwnerControls, related, layout = "default", onAddToPlayQueue, inPlayQueue }: VideoCardProps) => {
   const isMobile = useIsMobile();
   const {state} = useSidebar()
   // 
@@ -159,7 +162,10 @@ const VideoCard = ({ data, index, currentUserId, userActions, onUpdate, showOwne
   } | null>(null);
   const [seriesEpisodeSubmode, setSeriesEpisodeSubmode] = useState<"existing" | "new" | null>(null);
   const [seriesEpisodeId, setSeriesEpisodeId] = useState<string | null>(null);
-  const [seriesEpisodesList, setSeriesEpisodesList] = useState<{ id: string; episode_name: string }[]>([]);
+  const [seriesParentEpisodeId, setSeriesParentEpisodeId] = useState<string | null>(null);
+  const [seriesEpisodesList, setSeriesEpisodesList] = useState<
+    { id: string; episode_name: string; parent_episode_id: string | null }[]
+  >([]);
   // Browse dialog
   const [seriesBrowseOpen, setSeriesBrowseOpen] = useState(false);
   const [seriesSearch, setSeriesSearch] = useState("");
@@ -312,6 +318,7 @@ const VideoCard = ({ data, index, currentUserId, userActions, onUpdate, showOwne
       setSeriesSelected(null);
       setSeriesEpisodeSubmode(null);
       setSeriesEpisodeId(null);
+      setSeriesParentEpisodeId(null);
       setSeriesEpisodesList([]);
       setSeriesBrowseOpen(false);
       setSeriesSearch("");
@@ -353,12 +360,26 @@ const VideoCard = ({ data, index, currentUserId, userActions, onUpdate, showOwne
         const j = await res.json().catch(() => ({}));
         if (!res.ok) return;
         const list = Array.isArray(j.episodes)
-          ? (j.episodes as { id: string; episode_name: string }[])
+          ? (j.episodes as {
+              id: string;
+              episode_name: string;
+              parent_episode_id?: string | null;
+            }[])
           : [];
-        setSeriesEpisodesList(list);
+        setSeriesEpisodesList(
+          list.map((e) => ({
+            id: e.id,
+            episode_name: e.episode_name,
+            parent_episode_id:
+              e.parent_episode_id != null && String(e.parent_episode_id).trim() !== ""
+                ? String(e.parent_episode_id)
+                : null,
+          }))
+        );
         setSeriesEpisodeSubmode(list.length > 0 ? "existing" : "new");
         setSeriesEpisodeId(null);
         setSeriesEpisodeName("");
+        setSeriesParentEpisodeId(null);
       } catch {
         /* ignore */
       }
@@ -418,6 +439,9 @@ const VideoCard = ({ data, index, currentUserId, userActions, onUpdate, showOwne
             return false;
           }
           base.newEpisodeName = name;
+          if (seriesParentEpisodeId) {
+            base.parentEpisodeId = seriesParentEpisodeId;
+          }
         } else {
           setEditError("Please choose an existing episode or create a new one.");
           return false;
@@ -462,6 +486,7 @@ const VideoCard = ({ data, index, currentUserId, userActions, onUpdate, showOwne
     seriesSelected,
     seriesEpisodeSubmode,
     seriesEpisodeId,
+    seriesParentEpisodeId,
     data.id,
     data.unique_id,
     onUpdate,
@@ -1026,6 +1051,7 @@ const VideoCard = ({ data, index, currentUserId, userActions, onUpdate, showOwne
                               onClick={() => {
                                 setSeriesEpisodeSubmode("existing");
                                 setSeriesEpisodeName("");
+                                setSeriesParentEpisodeId(null);
                               }}
                               className={`flex-1 py-2 text-xs font-medium transition-colors disabled:opacity-40 ${
                                 seriesEpisodeSubmode === "existing"
@@ -1041,6 +1067,7 @@ const VideoCard = ({ data, index, currentUserId, userActions, onUpdate, showOwne
                               onClick={() => {
                                 setSeriesEpisodeSubmode("new");
                                 setSeriesEpisodeId(null);
+                                setSeriesParentEpisodeId(null);
                               }}
                               className={`flex-1 py-2 text-xs font-medium transition-colors ${
                                 seriesEpisodeSubmode === "new"
@@ -1084,6 +1111,37 @@ const VideoCard = ({ data, index, currentUserId, userActions, onUpdate, showOwne
                                 disabled={isSaving || isSeriesBusy}
                                 className="text-sm h-9 bg-muted/30 border-border/50"
                               />
+                              {seriesEpisodesList.length > 0 && (
+                                <div className="space-y-1.5 pt-0.5">
+                                  <label className="text-xs font-medium text-muted-foreground">
+                                    Nest under (optional)
+                                  </label>
+                                  <select
+                                    value={seriesParentEpisodeId ?? ""}
+                                    onChange={(e) =>
+                                      setSeriesParentEpisodeId(e.target.value || null)
+                                    }
+                                    disabled={isSaving || isSeriesBusy}
+                                    className="w-full h-9 rounded-md border border-border/50 bg-background px-2 text-sm"
+                                  >
+                                    <option value="">Top-level episode</option>
+                                    {seriesEpisodesList.map((ep) => {
+                                      const parent = ep.parent_episode_id
+                                        ? seriesEpisodesList.find((x) => x.id === ep.parent_episode_id)
+                                        : null;
+                                      const label =
+                                        parent != null
+                                          ? `${ep.episode_name || ep.id.slice(0, 8)} (under ${parent.episode_name || parent.id.slice(0, 8)})`
+                                          : ep.episode_name || ep.id.slice(0, 8);
+                                      return (
+                                        <option key={ep.id} value={ep.id}>
+                                          {label}
+                                        </option>
+                                      );
+                                    })}
+                                  </select>
+                                </div>
+                              )}
                             </div>
                           )}
                         </>
@@ -1687,6 +1745,34 @@ const VideoCard = ({ data, index, currentUserId, userActions, onUpdate, showOwne
                 <ParseFilenameInsert filename={data.file_title || data.filename} showLimit={60} />
               </h3>
             </Link>
+            {onAddToPlayQueue ? (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8 shrink-0 text-muted-foreground hover:text-foreground"
+                    disabled={inPlayQueue}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      onAddToPlayQueue(data);
+                    }}
+                    aria-label={inPlayQueue ? "Already in play queue" : "Add to play queue"}
+                  >
+                    {inPlayQueue ? (
+                      <ListChecks className="h-4 w-4 text-primary" />
+                    ) : (
+                      <ListPlus className="h-4 w-4" />
+                    )}
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="left">
+                  {inPlayQueue ? "In play queue" : "Add to play queue"}
+                </TooltipContent>
+              </Tooltip>
+            ) : null}
           </div>
           
           {data.owner && (

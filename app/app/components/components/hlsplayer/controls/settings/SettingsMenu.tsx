@@ -1,4 +1,5 @@
 import { useState, type RefObject } from 'react';
+import { Link } from 'react-router';
 import { isMobile } from 'react-device-detect';
 import {
   Settings,
@@ -29,6 +30,7 @@ import {
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from '~/components/ui/dropdown-menu';
+import { Tooltip, TooltipContent, TooltipTrigger } from '~/components/ui/tooltip';
 import {
   AUDIO_VISUALIZER_STYLES,
   AUDIO_VISUALIZER_STYLE_LABELS,
@@ -44,22 +46,27 @@ const subMenuWidth = 'min-w-[200px]';
 function Switch({
   checked,
   onChange,
+  disabled,
 }: {
   checked: boolean;
   onChange: (v: boolean) => void;
+  disabled?: boolean;
 }) {
   return (
     <button
       type="button"
       role="switch"
       aria-checked={checked}
+      disabled={disabled}
       onClick={(e) => {
         e.stopPropagation();
+        if (disabled) return;
         onChange(!checked);
       }}
       className={cn(
         'relative inline-flex h-5 w-9 shrink-0 rounded-full transition-colors duration-200',
-        checked ? 'bg-primary' : 'bg-secondary'
+        checked ? 'bg-primary' : 'bg-secondary',
+        disabled && 'cursor-not-allowed opacity-50'
       )}
     >
       <span
@@ -91,8 +98,10 @@ function SettingsMenuBody() {
     setAudioVisualizerStyle,
     statsForNerds,
     setStatsForNerds,
+    authPlaybackFeatures,
   } = usePlayerContext();
   const [sleepTimer, setSleepTimer] = useState('Off');
+  const auth = authPlaybackFeatures;
 
   const speedLabel = state.playbackRate === 1 ? 'Normal' : `${state.playbackRate}x`;
   const qualityLabel =
@@ -102,18 +111,35 @@ function SettingsMenuBody() {
 
   return (
     <>
+      {!auth && (
+        <div className="mx-2 mb-2 rounded-md border border-border/60 bg-muted/40 px-3 py-2 text-xs leading-snug text-muted-foreground">
+          <Link to="/auth/login" className="font-medium text-primary hover:underline">
+            Sign in
+          </Link>{' '}
+          to use autoplay (up next), ambient mode, and the audio visualizer.
+        </div>
+      )}
       <DropdownMenuGroup>
         <DropdownMenuLabel>Playback</DropdownMenuLabel>
-        <DropdownMenuItem
-          onSelect={(e) => e.preventDefault()}
-          className={toggleRowClass}
-        >
-          <span className="flex items-center gap-2">
-            <PlayCircle className="text-muted-foreground" />
-            Autoplay
-          </span>
-          <Switch checked={autoPlay} onChange={setAutoPlay} />
-        </DropdownMenuItem>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <DropdownMenuItem
+              onSelect={(e) => e.preventDefault()}
+              className={cn(toggleRowClass, !auth && 'opacity-60')}
+            >
+              <span className="flex items-center gap-2">
+                <PlayCircle className="text-muted-foreground" />
+                Autoplay
+              </span>
+              <Switch checked={autoPlay} onChange={setAutoPlay} disabled={!auth} />
+            </DropdownMenuItem>
+          </TooltipTrigger>
+          {!auth && (
+            <TooltipContent side="left" className="max-w-[220px]">
+              Sign in to enable automatic playback of the next video.
+            </TooltipContent>
+          )}
+        </Tooltip>
         <DropdownMenuItem
           onSelect={(e) => e.preventDefault()}
           className={toggleRowClass}
@@ -140,27 +166,49 @@ function SettingsMenuBody() {
 
       <DropdownMenuGroup>
         <DropdownMenuLabel>Display</DropdownMenuLabel>
-        <DropdownMenuItem
-          onSelect={(e) => e.preventDefault()}
-          className={toggleRowClass}
-        >
-          <span className="flex items-center gap-2">
-            <Monitor className="text-muted-foreground" />
-            Ambient mode
-          </span>
-          <Switch checked={ambientMode} onChange={setAmbientMode} />
-        </DropdownMenuItem>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <DropdownMenuItem
+              onSelect={(e) => e.preventDefault()}
+              className={cn(toggleRowClass, !auth && 'opacity-60')}
+            >
+              <span className="flex items-center gap-2">
+                <Monitor className="text-muted-foreground" />
+                Ambient mode
+              </span>
+              <Switch checked={ambientMode} onChange={setAmbientMode} disabled={!auth} />
+            </DropdownMenuItem>
+          </TooltipTrigger>
+          {!auth && (
+            <TooltipContent side="left" className="max-w-[220px]">
+              Sign in to enable ambient lighting around the player.
+            </TooltipContent>
+          )}
+        </Tooltip>
         {!isMobile && (
-          <DropdownMenuItem
-            onSelect={(e) => e.preventDefault()}
-            className={toggleRowClass}
-          >
-            <span className="flex items-center gap-2">
-              <AudioWaveform className="text-muted-foreground" />
-              Audio visualizer
-            </span>
-            <Switch checked={audioVisualizer} onChange={setAudioVisualizer} />
-          </DropdownMenuItem>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <DropdownMenuItem
+                onSelect={(e) => e.preventDefault()}
+                className={cn(toggleRowClass, !auth && 'opacity-60')}
+              >
+                <span className="flex items-center gap-2">
+                  <AudioWaveform className="text-muted-foreground" />
+                  Audio visualizer
+                </span>
+                <Switch
+                  checked={audioVisualizer}
+                  onChange={setAudioVisualizer}
+                  disabled={!auth}
+                />
+              </DropdownMenuItem>
+            </TooltipTrigger>
+            {!auth && (
+              <TooltipContent side="left" className="max-w-[220px]">
+                Sign in to use the audio visualizer.
+              </TooltipContent>
+            )}
+          </Tooltip>
         )}
         <DropdownMenuItem
           onSelect={(e) => e.preventDefault()}

@@ -56,6 +56,13 @@ export function groupSeriesRpcRows(rows: Record<string, unknown>[]): SeriesEpiso
   for (const row of rows) {
     const eid = String(row.episode_id ?? "");
     if (!eid) continue;
+    const parentRaw =
+      row.parent_episode_id ??
+      (row as Record<string, unknown>).parentEpisodeId;
+    const parent_episode_id =
+      parentRaw != null && String(parentRaw).trim() !== ""
+        ? String(parentRaw)
+        : null;
     if (!map.has(eid)) {
       order.push(eid);
       map.set(eid, {
@@ -65,23 +72,60 @@ export function groupSeriesRpcRows(rows: Record<string, unknown>[]): SeriesEpiso
           row.episode_number != null && row.episode_number !== ""
             ? Number(row.episode_number)
             : null,
+        parent_episode_id,
         items: [],
       });
     }
     map.get(eid)!.items.push(mapSeriesRpcRowToFileType(row));
   }
 
-  return order.map((id) => map.get(id)!);
+  const roots: SeriesEpisodeGroup[] = [];
+  const childrenByParent = new Map<string, SeriesEpisodeGroup[]>();
+
+  for (const id of order) {
+    const g = map.get(id)!;
+    const pid = g.parent_episode_id;
+    if (!pid || !map.has(pid)) {
+      roots.push(g);
+    } else {
+      let arr = childrenByParent.get(pid);
+      if (!arr) {
+        arr = [];
+        childrenByParent.set(pid, arr);
+      }
+      arr.push(g);
+    }
+  }
+
+  const attachNested = (node: SeriesEpisodeGroup) => {
+    const kids = childrenByParent.get(node.episode_id);
+    if (kids?.length) {
+      node.nested = kids.map((k) => {
+        attachNested(k);
+        return k;
+      });
+    }
+  };
+
+  for (const r of roots) attachNested(r);
+  return roots;
+}
+
+function walkEpisodesDepthFirst(episodes: SeriesEpisodeGroup[], visit: (ep: SeriesEpisodeGroup) => void) {
+  for (const ep of episodes) {
+    visit(ep);
+    if (ep.nested?.length) walkEpisodesDepthFirst(ep.nested, visit);
+  }
 }
 
 /** Flatten episodes in RPC order (episode order, then items per episode). */
 export function flattenSeriesEpisodesInOrder(episodes: SeriesEpisodeGroup[]): FileType[] {
   const out: FileType[] = [];
-  for (const ep of episodes) {
+  walkEpisodesDepthFirst(episodes, (ep) => {
     for (const item of ep.items) {
       out.push(item);
     }
-  }
+  });
   return out;
 }
 
@@ -89,11 +133,11 @@ export function flattenSeriesEpisodesInOrder(episodes: SeriesEpisodeGroup[]): Fi
 export function collectSeriesMemberIds(episodes: SeriesEpisodeGroup[] | null | undefined): Set<string> {
   const s = new Set<string>();
   if (!episodes?.length) return s;
-  for (const ep of episodes) {
+  walkEpisodesDepthFirst(episodes, (ep) => {
     for (const item of ep.items) {
       if (item.unique_id) s.add(item.unique_id);
     }
-  }
+  });
   return s;
 }
 

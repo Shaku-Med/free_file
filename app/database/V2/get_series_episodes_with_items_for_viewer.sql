@@ -2,6 +2,7 @@
 -- Security: p_file_series_id must match file_series row owned by p_series_owner_id,
 -- and a main file must exist for that series. Each item is filtered like public profile
 -- (or full access if viewer is the file owner).
+-- Nested episodes: parent_episode_id + depth-first order via sort_path.
 
 DROP FUNCTION IF EXISTS get_series_episodes_with_items_for_viewer(uuid, uuid, uuid);
 
@@ -14,6 +15,7 @@ RETURNS TABLE (
   episode_id          uuid,
   episode_name        text,
   episode_number      numeric,
+  parent_episode_id   uuid,
   episode_ord         int,
   id                  uuid,
   created_at          timestamptz,
@@ -50,7 +52,7 @@ RETURNS TABLE (
 LANGUAGE sql
 STABLE
 AS $$
-  WITH verified_series AS (
+  WITH RECURSIVE verified_series AS (
     SELECT fs.id AS series_id
     FROM file_series fs
     WHERE fs.id = p_file_series_id
@@ -63,23 +65,47 @@ AS $$
           AND fm.file_series_id = fs.id
       )
   ),
-  episodes AS (
+  ranked AS (
     SELECT
-      e.id AS eid,
-      e.episode_name AS ename,
-      e.episode_number AS enum,
+      e.id,
+      e.episode_name,
+      e.episode_number,
+      e.parent_episode_id,
       ROW_NUMBER() OVER (
+        PARTITION BY e.parent_episode_id
         ORDER BY e.episode_number NULLS LAST, e.episode_name ASC, e.id
-      )::int AS eord
+      ) AS srn
     FROM files_series_episodes e
     JOIN verified_series v ON v.series_id = e.feed_series_id
     WHERE e.owner_id = p_series_owner_id
+  ),
+  episode_order AS (
+    SELECT
+      r.id,
+      r.episode_name,
+      r.episode_number,
+      r.parent_episode_id,
+      LPAD(r.srn::text, 8, '0') AS sort_path
+    FROM ranked r
+    WHERE r.parent_episode_id IS NULL
+
+    UNION ALL
+
+    SELECT
+      r.id,
+      r.episode_name,
+      r.episode_number,
+      r.parent_episode_id,
+      eo.sort_path || '.' || LPAD(r.srn::text, 8, '0') AS sort_path
+    FROM ranked r
+    JOIN episode_order eo ON r.parent_episode_id = eo.id
   )
   SELECT
-    ep.eid AS episode_id,
-    ep.ename AS episode_name,
-    ep.enum AS episode_number,
-    ep.eord AS episode_ord,
+    ep.id AS episode_id,
+    ep.episode_name AS episode_name,
+    ep.episode_number AS episode_number,
+    ep.parent_episode_id AS parent_episode_id,
+    DENSE_RANK() OVER (ORDER BY ep.sort_path)::int AS episode_ord,
     fi.id,
     fi.created_at,
     fi.endpoint,
@@ -119,9 +145,9 @@ AS $$
       SELECT 1 FROM dislike d2 WHERE d2.file_id = fi.id AND d2.user_id = p_viewer_id
     )),
     fi.upload_status
-  FROM episodes ep
+  FROM episode_order ep
   JOIN files_series_episode_items i
-    ON i.file_episode_id = ep.eid
+    ON i.file_episode_id = ep.id
    AND i.file_series_id = (SELECT series_id FROM verified_series)
    AND i.file_id IS NOT NULL
   JOIN files fi ON fi.unique_id = i.file_id
@@ -138,7 +164,7 @@ AS $$
         AND (fi.upload_status = 'complete' OR fi.upload_status = 'completed')
       )
     )
-  ORDER BY ep.eord ASC, fi.created_at ASC;
+  ORDER BY ep.sort_path ASC, fi.created_at ASC;
 $$;
 
 GRANT EXECUTE ON FUNCTION get_series_episodes_with_items_for_viewer(uuid, uuid, uuid) TO anon, authenticated;

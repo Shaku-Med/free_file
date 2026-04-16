@@ -303,6 +303,7 @@ func (w *Worker) processJob(job *queue.Job) {
 			FileSeriesEpisodeID: job.FileSeriesEpisodeID,
 			IsNewSeries:         job.IsNewSeries,
 			NewEpisodeName:      job.NewEpisodeName,
+			ParentEpisodeID:     job.ParentEpisodeID,
 			GitHubRepo:          w.cfg.GitHubRepo,
 		})
 		w.log.Infof("job complete job=%s duration=%s", job.ID, time.Since(start))
@@ -606,6 +607,7 @@ func (w *Worker) processJob(job *queue.Job) {
 		FileSeriesEpisodeID: job.FileSeriesEpisodeID,
 		IsNewSeries:         job.IsNewSeries,
 		NewEpisodeName:      job.NewEpisodeName,
+		ParentEpisodeID:     job.ParentEpisodeID,
 		GitHubRepo:          w.cfg.GitHubRepo,
 	})
 	w.log.Infof("job complete job=%s user=%s upload=%s duration=%s thumbnails=%d colors=%d tags=%d", job.ID, job.UserID, job.UploadID, time.Since(start), len(thumbnailPaths), len(vidColors), len(tags))

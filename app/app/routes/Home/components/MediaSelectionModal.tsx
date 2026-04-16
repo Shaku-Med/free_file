@@ -84,7 +84,8 @@ interface MediaItem {
   seriesSelected: { file_series_id: string; file_title: string } | null
   seriesEpisodeSubmode: "existing" | "new" | null
   seriesEpisodeId: string | null
-  seriesEpisodesList: { id: string; episode_name: string }[]
+  seriesParentEpisodeId: string | null
+  seriesEpisodesList: { id: string; episode_name: string; parent_episode_id: string | null }[]
 }
 
 export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
@@ -210,6 +211,7 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
       seriesSelected: null,
       seriesEpisodeSubmode: null,
       seriesEpisodeId: null,
+      seriesParentEpisodeId: null,
       seriesEpisodesList: [],
     }
   }
@@ -280,15 +282,28 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
         )
         const j = await res.json().catch(() => ({}))
         if (!res.ok) return
-        const list = Array.isArray(j.episodes)
-          ? (j.episodes as { id: string; episode_name: string }[])
+        const raw = Array.isArray(j.episodes)
+          ? (j.episodes as {
+              id: string;
+              episode_name: string;
+              parent_episode_id?: string | null;
+            }[])
           : []
+        const list = raw.map((e) => ({
+          id: e.id,
+          episode_name: e.episode_name,
+          parent_episode_id:
+            e.parent_episode_id != null && String(e.parent_episode_id).trim() !== ""
+              ? String(e.parent_episode_id)
+              : null,
+        }))
         updateItem(itemId, (c) => ({
           ...c,
           seriesEpisodesList: list,
           seriesEpisodeSubmode: list.length > 0 ? "existing" : "new",
           seriesEpisodeId: null,
           seriesEpisodeName: "",
+          seriesParentEpisodeId: null,
         }))
       } catch {
         /* ignore */
@@ -523,6 +538,9 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
           seriesPayload.file_series_episode_id = item.seriesEpisodeId
         } else if (item.seriesEpisodeSubmode === "new") {
           seriesPayload.new_episode_name = item.seriesEpisodeName.trim()
+          if (item.seriesParentEpisodeId) {
+            seriesPayload.parent_episode_id = item.seriesParentEpisodeId
+          }
         }
       }
     }
@@ -996,6 +1014,7 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
                                   seriesSelected: null,
                                   seriesEpisodeSubmode: null,
                                   seriesEpisodeId: null,
+                                  seriesParentEpisodeId: null,
                                   seriesEpisodesList: [],
                                 }
                               }
@@ -1006,6 +1025,7 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
                                   seriesSelected: null,
                                   seriesEpisodeSubmode: null,
                                   seriesEpisodeId: null,
+                                  seriesParentEpisodeId: null,
                                   seriesEpisodesList: [],
                                 }
                               }
@@ -1014,6 +1034,7 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
                                 seriesMode: "existing",
                                 seriesEpisodeName: "",
                                 seriesEpisodeId: null,
+                                seriesParentEpisodeId: null,
                                 seriesEpisodesList: [],
                                 seriesEpisodeSubmode: null,
                                 seriesSelected: c.seriesSelected,
@@ -1093,6 +1114,7 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
                                     ...c,
                                     seriesEpisodeSubmode: "existing",
                                     seriesEpisodeName: "",
+                                    seriesParentEpisodeId: null,
                                   }))
                                 }
                                 className={`flex-1 py-2 text-xs font-medium transition-colors disabled:opacity-40 ${
@@ -1111,6 +1133,7 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
                                     ...c,
                                     seriesEpisodeSubmode: "new",
                                     seriesEpisodeId: null,
+                                    seriesParentEpisodeId: null,
                                   }))
                                 }
                                 className={`flex-1 py-2 text-xs font-medium transition-colors ${
@@ -1164,6 +1187,42 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
                                   disabled={isFieldDisabled}
                                   className="text-sm h-9 bg-muted/30 border-border/50"
                                 />
+                                {activeItem.seriesEpisodesList.length > 0 && (
+                                  <div className="space-y-1.5 pt-0.5">
+                                    <label className="text-xs font-medium text-muted-foreground">
+                                      Nest under (optional)
+                                    </label>
+                                    <select
+                                      value={activeItem.seriesParentEpisodeId ?? ""}
+                                      onChange={(e) =>
+                                        updateItem(activeItem.id, (c) => ({
+                                          ...c,
+                                          seriesParentEpisodeId: e.target.value || null,
+                                        }))
+                                      }
+                                      disabled={isFieldDisabled}
+                                      className="w-full h-9 rounded-md border border-border/50 bg-background px-2 text-sm"
+                                    >
+                                      <option value="">Top-level episode</option>
+                                      {activeItem.seriesEpisodesList.map((ep) => {
+                                        const parent = ep.parent_episode_id
+                                          ? activeItem.seriesEpisodesList.find(
+                                              (x) => x.id === ep.parent_episode_id
+                                            )
+                                          : null;
+                                        const label =
+                                          parent != null
+                                            ? `${ep.episode_name || ep.id.slice(0, 8)} (under ${parent.episode_name || parent.id.slice(0, 8)})`
+                                            : ep.episode_name || ep.id.slice(0, 8);
+                                        return (
+                                          <option key={ep.id} value={ep.id}>
+                                            {label}
+                                          </option>
+                                        );
+                                      })}
+                                    </select>
+                                  </div>
+                                )}
                               </div>
                             )}
                           </>

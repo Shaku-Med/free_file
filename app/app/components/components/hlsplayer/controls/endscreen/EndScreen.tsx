@@ -56,7 +56,7 @@ export default function EndScreen({
   currentUserId,
 }: EndScreenProps) {
   const actions = userActionsProp ?? emptyUserActions;
-  const { state, replay, autoPlay, containerRef } = usePlayerContext();
+  const { state, replay, autoPlay, containerRef, authPlaybackFeatures } = usePlayerContext();
   const { width: playerW, height: playerH } = usePlayerContainerSize(containerRef);
   const [countdown, setCountdown] = useState(COUNTDOWN_SEC);
   const [autoplayActive, setAutoplayActive] = useState(true);
@@ -78,7 +78,7 @@ export default function EndScreen({
   const nextFromSeries = Boolean(
     seriesQueue.length > 0 && nextVideo && nextVideo.unique_id === seriesQueue[0].unique_id
   );
-  const showHero = Boolean(autoPlay && autoplayActive && nextVideo);
+  const showHero = Boolean(autoPlay && autoplayActive && nextVideo && authPlaybackFeatures);
 
   const seriesListForUi = showHero && nextFromSeries ? seriesQueue.slice(1) : seriesQueue;
   const relatedListForUi = showHero && !nextFromSeries ? relatedQueue.slice(1) : relatedQueue;
@@ -127,7 +127,14 @@ export default function EndScreen({
   }, [state.isEnded]);
 
   useEffect(() => {
-    if (!state.isEnded || !autoPlay || !autoplayActive || !nextVideo || navigatingRef.current) {
+    if (
+      !state.isEnded ||
+      !autoPlay ||
+      !autoplayActive ||
+      !nextVideo ||
+      navigatingRef.current ||
+      !authPlaybackFeatures
+    ) {
       return;
     }
 
@@ -141,7 +148,15 @@ export default function EndScreen({
     }, 1000);
 
     return () => clearTimeout(timer);
-  }, [state.isEnded, autoPlay, autoplayActive, nextVideo, countdown, handleVideoSelect]);
+  }, [
+    state.isEnded,
+    autoPlay,
+    autoplayActive,
+    nextVideo,
+    countdown,
+    handleVideoSelect,
+    authPlaybackFeatures,
+  ]);
 
   const listMaxHeightPx = useMemo(() => {
     if (playerH <= 0) return 200;

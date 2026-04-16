@@ -110,6 +110,8 @@ interface PlayerContextValue {
   setStatsForNerds: (v: boolean) => void;
   startTime?: number;
   setSubtitleTrack: (id: number) => void;
+  /** When false (e.g. signed-out watch page), ambient, visualizer, and up-next controls are disabled in UI. */
+  authPlaybackFeatures: boolean;
 }
 
 const PlayerContext = createContext<PlayerContextValue | null>(null);
@@ -152,9 +154,23 @@ interface PlayerProviderProps {
   initialAutoPlay?: boolean;
   videoRef: React.RefObject<HTMLVideoElement | null>;
   startTime?: number;
+  /** Default true. Set false on watch page for signed-out users. */
+  authPlaybackFeatures?: boolean;
 }
 
-export function PlayerProvider({ children, src, file, imageID, isReel, loop: initialLoop, initialMuted, initialAutoPlay = false, videoRef, startTime }: PlayerProviderProps) {
+export function PlayerProvider({
+  children,
+  src,
+  file,
+  imageID,
+  isReel,
+  loop: initialLoop,
+  initialMuted,
+  initialAutoPlay = false,
+  videoRef,
+  startTime,
+  authPlaybackFeatures = true,
+}: PlayerProviderProps) {
   const { playerSettings, setPlayerSettings, savePlayerSettings } = useFileContext();
   const hlsRef = useRef<Hls | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -169,11 +185,15 @@ export function PlayerProvider({ children, src, file, imageID, isReel, loop: ini
     setPlayerSettings(prev => (prev ? { ...prev, loop: v } : prev));
     savePlayerSettings({ loop: v }).catch(() => {});
   }, [setPlayerSettings, savePlayerSettings]);
-  const setAutoPlay = useCallback((v: boolean) => {
-    setAutoPlayState(v);
-    setPlayerSettings(prev => (prev ? { ...prev, autoPlay: v } : prev));
-    savePlayerSettings({ autoPlay: v }).catch(() => {});
-  }, [setPlayerSettings, savePlayerSettings]);
+  const setAutoPlay = useCallback(
+    (v: boolean) => {
+      if (!authPlaybackFeatures) return;
+      setAutoPlayState(v);
+      setPlayerSettings(prev => (prev ? { ...prev, autoPlay: v } : prev));
+      savePlayerSettings({ autoPlay: v }).catch(() => {});
+    },
+    [authPlaybackFeatures, setPlayerSettings, savePlayerSettings]
+  );
 
   const [spriteMeta, setSpriteMeta] = useState<ThumbnailSpriteMeta | null>(null);
   const [spriteUrl, setSpriteUrl] = useState<string | null>(null);
@@ -189,14 +209,18 @@ export function PlayerProvider({ children, src, file, imageID, isReel, loop: ini
 
   const [audioVisualizer, setAudioVisualizerState] = useState(false);
   const audioVisualizerStyleRef = useRef<AudioVisualizerStyle>(DEFAULT_AUDIO_VISUALIZER_STYLE);
-  const setAudioVisualizer = useCallback((v: boolean) => {
-    setAudioVisualizerState(v);
-    setPlayerSettings(prev => (prev ? { ...prev, audioVisualizer: v } : prev));
-    savePlayerSettings({
-      audioVisualizer: v,
-      audioVisualizerStyle: audioVisualizerStyleRef.current,
-    }).catch(() => {});
-  }, [setPlayerSettings, savePlayerSettings]);
+  const setAudioVisualizer = useCallback(
+    (v: boolean) => {
+      if (!authPlaybackFeatures) return;
+      setAudioVisualizerState(v);
+      setPlayerSettings(prev => (prev ? { ...prev, audioVisualizer: v } : prev));
+      savePlayerSettings({
+        audioVisualizer: v,
+        audioVisualizerStyle: audioVisualizerStyleRef.current,
+      }).catch(() => {});
+    },
+    [authPlaybackFeatures, setPlayerSettings, savePlayerSettings]
+  );
 
   const [audioVisualizerStyle, setAudioVisualizerStyleState] = useState<AudioVisualizerStyle>(
     DEFAULT_AUDIO_VISUALIZER_STYLE
@@ -204,12 +228,13 @@ export function PlayerProvider({ children, src, file, imageID, isReel, loop: ini
   const [statsForNerds, setStatsForNerds] = useState(false);
   const setAudioVisualizerStyle = useCallback(
     (style: AudioVisualizerStyle) => {
+      if (!authPlaybackFeatures) return;
       audioVisualizerStyleRef.current = style;
       setAudioVisualizerStyleState(style);
       setPlayerSettings(prev => (prev ? { ...prev, audioVisualizerStyle: style } : prev));
       savePlayerSettings({ audioVisualizerStyle: style }).catch(() => {});
     },
-    [setPlayerSettings, savePlayerSettings]
+    [authPlaybackFeatures, setPlayerSettings, savePlayerSettings]
   );
 
   useEffect(() => {
@@ -224,11 +249,18 @@ export function PlayerProvider({ children, src, file, imageID, isReel, loop: ini
     setLoopState(playerSettings.loop);
     setAutoPlayState(playerSettings.autoPlay);
     setStableVolumeState(playerSettings.stableVolume);
-    setAudioVisualizerState(playerSettings.audioVisualizer ?? false);
-    const style = playerSettings.audioVisualizerStyle ?? DEFAULT_AUDIO_VISUALIZER_STYLE;
-    audioVisualizerStyleRef.current = style;
-    setAudioVisualizerStyleState(style);
-    setAmbientModeState(playerSettings.ambientMode);
+    if (authPlaybackFeatures) {
+      setAudioVisualizerState(playerSettings.audioVisualizer ?? false);
+      const style = playerSettings.audioVisualizerStyle ?? DEFAULT_AUDIO_VISUALIZER_STYLE;
+      audioVisualizerStyleRef.current = style;
+      setAudioVisualizerStyleState(style);
+      setAmbientModeState(playerSettings.ambientMode);
+    } else {
+      setAudioVisualizerState(false);
+      audioVisualizerStyleRef.current = DEFAULT_AUDIO_VISUALIZER_STYLE;
+      setAudioVisualizerStyleState(DEFAULT_AUDIO_VISUALIZER_STYLE);
+      setAmbientModeState(false);
+    }
     const v = videoRef.current;
     if (v) {
       // Don't touch the video element while AirPlay / Chromecast is active —
@@ -242,7 +274,13 @@ export function PlayerProvider({ children, src, file, imageID, isReel, loop: ini
         v.playbackRate = playerSettings.playbackRate;
       }
     }
-  }, [playerSettings, videoRef]);
+  }, [playerSettings, videoRef, authPlaybackFeatures]);
+
+  useEffect(() => {
+    if (authPlaybackFeatures) return;
+    setAmbientModeState(false);
+    setAudioVisualizerState(false);
+  }, [authPlaybackFeatures]);
 
   const waveformUrl = useMemo(() => {
     if (!file) return null;
@@ -375,11 +413,15 @@ export function PlayerProvider({ children, src, file, imageID, isReel, loop: ini
     setState(s => ({ ...s, currentSubtitleTrack: id }));
   }, []);
 
-  const setAmbientMode = useCallback((v: boolean) => {
-    setAmbientModeState(v);
-    setPlayerSettings(prev => (prev ? { ...prev, ambientMode: v } : prev));
-    savePlayerSettings({ ambientMode: v }).catch(() => {});
-  }, [setPlayerSettings, savePlayerSettings]);
+  const setAmbientMode = useCallback(
+    (v: boolean) => {
+      if (!authPlaybackFeatures) return;
+      setAmbientModeState(v);
+      setPlayerSettings(prev => (prev ? { ...prev, ambientMode: v } : prev));
+      savePlayerSettings({ ambientMode: v }).catch(() => {});
+    },
+    [authPlaybackFeatures, setPlayerSettings, savePlayerSettings]
+  );
 
   const value: PlayerContextValue = {
     hlsRef,
@@ -427,6 +469,7 @@ export function PlayerProvider({ children, src, file, imageID, isReel, loop: ini
     setStatsForNerds,
     startTime,
     setSubtitleTrack,
+    authPlaybackFeatures,
   };
 
   return (

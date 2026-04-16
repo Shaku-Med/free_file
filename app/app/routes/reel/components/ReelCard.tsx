@@ -192,9 +192,14 @@ export const ReelCard = ({ data, userActions }: ReelCardProps) => {
                     </span>
                   </button>
                 </DialogTrigger>
-                <DialogContent className="max-h-[90vh] w-full max-w-lg overflow-hidden p-0">
-                  <div className="max-h-[80vh] overflow-y-auto px-4 py-3">
-                    <CommentSection fileId={data.id} currentUserId={c_user ?? undefined} isReel={true} />
+                <DialogContent className="w-full max-w-lg overflow-hidden p-0">
+                  <div className="max-h-[min(90vh,720px)] min-h-0 w-full overflow-y-auto overflow-x-hidden overscroll-contain px-4 py-3 [scrollbar-gutter:stable]">
+                    <CommentSection
+                      fileId={data.id}
+                      currentUserId={c_user ?? undefined}
+                      isReel={true}
+                      className="min-h-0"
+                    />
                   </div>
                 </DialogContent>
               </Dialog>

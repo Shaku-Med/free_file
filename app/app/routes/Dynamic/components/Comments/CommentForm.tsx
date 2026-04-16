@@ -1,9 +1,12 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import type React from "react";
+import { useLocation } from "react-router";
 import { Button } from "~/components/ui/button";
 import { Textarea } from "~/components/ui/textarea";
 import { Input } from "~/components/ui/input";
-import { Send, X, Loader2, Search, ImagePlus } from "lucide-react";
+import { Send, X, Loader2, Search, ImagePlus, Camera, ChevronDown } from "lucide-react";
+import { isMobile } from "react-device-detect";
+import { useFileContext } from "~/lib/Context/Context";
 import {
   Dialog,
   DialogContent,
@@ -12,6 +15,14 @@ import {
 import { Avatar, AvatarImage, AvatarFallback } from "~/components/ui/avatar";
 import { getProfilePicUrl } from "~/lib/utils/profilePic";
 import { Tooltip, TooltipContent, TooltipTrigger } from "~/components/ui/tooltip";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "~/components/ui/dropdown-menu";
 
 export interface CommentGif {
   id: string;
@@ -71,8 +82,34 @@ const CommentForm = ({
   parentId,
   onSubmit,
   onCancel,
-  placeholder = "Add a comment...",
+  placeholder,
 }: CommentFormProps) => {
+  const location = useLocation();
+  const { userProfile, altAccounts } = useFileContext();
+  const [switchingAccountId, setSwitchingAccountId] = useState<string | null>(null);
+  const commentAsName = userProfile?.username?.trim() || "User";
+  const hasOtherAccounts = altAccounts.length > 0;
+
+  const switchToAccount = useCallback(
+    async (userId: string) => {
+      const returnTo = `${location.pathname}${location.search}${location.hash}`;
+      setSwitchingAccountId(userId);
+      try {
+        const res = await fetch("/api/auth/switch-account", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({ userId }),
+        });
+        if (res.ok) window.location.assign(returnTo);
+      } finally {
+        setSwitchingAccountId(null);
+      }
+    },
+    [location.hash, location.pathname, location.search]
+  );
+  const resolvedPlaceholder =
+    placeholder ?? (parentId ? "Write a reply…" : `Comment as ${commentAsName}`);
   const [content, setContent] = useState("");
   const [gif, setGif] = useState<CommentGif | null>(null);
   const [image, setImage] = useState<CommentImage | null>(null);
@@ -89,6 +126,8 @@ const CommentForm = ({
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
+  /** Mobile-only: opens camera via `capture` (see hidden input below). */
+  const cameraInputRef = useRef<HTMLInputElement>(null);
   const cursorRef = useRef(0);
   const [suggestOpen, setSuggestOpen] = useState(false);
   const [suggestType, setSuggestType] = useState<"tag" | "mention">("tag");
@@ -133,6 +172,7 @@ const CommentForm = ({
     const file = e.target.files?.[0];
     if (!file) return;
     if (imageInputRef.current) imageInputRef.current.value = "";
+    if (cameraInputRef.current) cameraInputRef.current.value = "";
 
     if (!file.type.startsWith("image/")) {
       setImageError("Please select an image file");
@@ -364,180 +404,278 @@ const CommentForm = ({
         {imageError && (
           <p className="text-xs text-destructive">{imageError}</p>
         )}
-        <div className="relative">
-          <Textarea
-            ref={textareaRef}
-            value={content}
-            onChange={(e) => {
-              setContent(e.target.value);
-              cursorRef.current = e.target.selectionStart ?? 0;
-            }}
-            onSelect={(e) => {
-              cursorRef.current = (e.target as HTMLTextAreaElement).selectionStart ?? 0;
-            }}
-            onKeyDown={(e) => {
-              if (!suggestOpen) return;
-              const list = suggestType === "tag" ? tagSuggestions : mentionSuggestions;
-              if (e.key === "ArrowDown") {
-                e.preventDefault();
-                setSuggestIndex((i) => (i + 1) % Math.max(1, list.length));
-                return;
-              }
-              if (e.key === "ArrowUp") {
-                e.preventDefault();
-                setSuggestIndex((i) => (list.length ? (i - 1 + list.length) % list.length : 0));
-                return;
-              }
-              if (e.key === "Enter" && list.length > 0) {
-                e.preventDefault();
-                if (suggestType === "tag") {
-                  const item = tagSuggestions[suggestIndex];
-                  if (item) applySuggestion(`#${item.tag}`);
-                } else {
-                  const item = mentionSuggestions[suggestIndex];
-                  if (item) applySuggestion(`@${item.username}`);
-                }
-                return;
-              }
-              if (e.key === "Escape") {
-                setSuggestOpen(false);
-              }
-            }}
-            placeholder={placeholder}
-            className="min-h-[40px] max-h-[160px] resize-none rounded-none border-0 border-b-2 border-muted-foreground/30 bg-transparent px-0 py-2 text-sm placeholder:text-muted-foreground/50 focus-visible:ring-0 focus-visible:border-primary transition-colors"
-            maxLength={2000}
-            disabled={isSubmitting}
-          />
-          {suggestOpen && (
-            <div
-              className="absolute left-0 right-0 top-full z-50 mt-1 max-h-[220px] overflow-y-auto rounded-lg border border-border bg-popover shadow-lg"
-              role="listbox"
-            >
-              {suggestLoading ? (
-                <div className="flex items-center justify-center gap-2 py-4 text-sm text-muted-foreground">
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  <span>Loading...</span>
-                </div>
-              ) : suggestType === "tag" ? (
-                tagSuggestions.length === 0 ? (
-                  <p className="py-3 px-3 text-sm text-muted-foreground">No tags found</p>
-                ) : (
-                  tagSuggestions.map((item, i) => (
-                    <button
-                      key={item.tag}
-                      type="button"
-                      role="option"
-                      aria-selected={i === suggestIndex}
-                      className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-accent ${i === suggestIndex ? "bg-accent" : ""}`}
-                      onMouseDown={(e) => {
+        <div className="flex items-start gap-3">
+          <div className="relative shrink-0">
+            {hasOtherAccounts ? (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button
+                    type="button"
+                    className="relative rounded-full outline-none ring-offset-background transition-[box-shadow] focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
+                    aria-label="Switch account to comment as"
+                    disabled={Boolean(switchingAccountId)}
+                  >
+                    <Avatar className="h-10 w-10 ring-2 ring-background">
+                      <AvatarImage src={getProfilePicUrl(userProfile?.profile_pic)} alt={commentAsName} />
+                      <AvatarFallback className="text-sm font-medium">
+                        {commentAsName.charAt(0).toUpperCase()}
+                      </AvatarFallback>
+                    </Avatar>
+                    <span
+                      className="pointer-events-none absolute -bottom-0.5 -right-0.5 flex h-4 w-4 items-center justify-center rounded-full border border-border bg-muted text-muted-foreground shadow-sm"
+                      aria-hidden
+                    >
+                      <ChevronDown className="h-2.5 w-2.5" strokeWidth={2.5} />
+                    </span>
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start" className="w-56">
+                  <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
+                    Comment as another account
+                  </DropdownMenuLabel>
+                  <DropdownMenuSeparator />
+                  {altAccounts.map((a) => (
+                    <DropdownMenuItem
+                      key={a.id}
+                      className="flex cursor-pointer items-center gap-2.5"
+                      disabled={switchingAccountId !== null}
+                      onSelect={(e) => {
                         e.preventDefault();
-                        applySuggestion(`#${item.tag}`);
+                        void switchToAccount(a.id);
                       }}
                     >
-                      <span className="font-medium text-primary">#{item.tag}</span>
-                      {item.count != null && (
-                        <span className="text-xs text-muted-foreground">{item.count} uses</span>
-                      )}
-                    </button>
-                  ))
-                )
-              ) : mentionSuggestions.length === 0 ? (
-                <p className="py-3 px-3 text-sm text-muted-foreground">No users found</p>
-              ) : (
-                mentionSuggestions.map((item, i) => (
-                  <button
-                    key={item.id}
-                    type="button"
-                    role="option"
-                    aria-selected={i === suggestIndex}
-                    className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-accent ${i === suggestIndex ? "bg-accent" : ""}`}
-                    onMouseDown={(e) => {
-                      e.preventDefault();
-                      applySuggestion(`@${item.username}`);
-                    }}
-                  >
-                    <Avatar className="h-6 w-6">
-                      <AvatarImage src={getProfilePicUrl(item.profile_pic)} alt={item.username} />
-                      <AvatarFallback className="text-xs">{item.username.charAt(0).toUpperCase()}</AvatarFallback>
-                    </Avatar>
-                    <span className="font-medium text-foreground">@{item.username}</span>
-                  </button>
-                ))
+                      <Avatar className="h-7 w-7 shrink-0 ring-1 ring-border">
+                        <AvatarImage src={getProfilePicUrl(a.profile_pic ?? undefined)} alt="" />
+                        <AvatarFallback className="text-[10px] font-medium">
+                          {a.username.charAt(0).toUpperCase()}
+                        </AvatarFallback>
+                      </Avatar>
+                      <span className="min-w-0 truncate">
+                        {switchingAccountId === a.id ? "Switching…" : a.username}
+                      </span>
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            ) : (
+              <Avatar className="h-10 w-10 ring-2 ring-background">
+                <AvatarImage src={getProfilePicUrl(userProfile?.profile_pic)} alt={commentAsName} />
+                <AvatarFallback className="text-sm font-medium">
+                  {commentAsName.charAt(0).toUpperCase()}
+                </AvatarFallback>
+              </Avatar>
+            )}
+          </div>
+          <div className="min-w-0 flex-1 rounded-[22px] border border-border/60 bg-muted/60 shadow-inner dark:bg-muted/50">
+            <div className="relative px-4 pt-3 pb-1">
+              <Textarea
+                ref={textareaRef}
+                value={content}
+                onChange={(e) => {
+                  setContent(e.target.value);
+                  cursorRef.current = e.target.selectionStart ?? 0;
+                }}
+                onSelect={(e) => {
+                  cursorRef.current = (e.target as HTMLTextAreaElement).selectionStart ?? 0;
+                }}
+                onKeyDown={(e) => {
+                  if (!suggestOpen) return;
+                  const list = suggestType === "tag" ? tagSuggestions : mentionSuggestions;
+                  if (e.key === "ArrowDown") {
+                    e.preventDefault();
+                    setSuggestIndex((i) => (i + 1) % Math.max(1, list.length));
+                    return;
+                  }
+                  if (e.key === "ArrowUp") {
+                    e.preventDefault();
+                    setSuggestIndex((i) => (list.length ? (i - 1 + list.length) % list.length : 0));
+                    return;
+                  }
+                  if (e.key === "Enter" && list.length > 0) {
+                    e.preventDefault();
+                    if (suggestType === "tag") {
+                      const item = tagSuggestions[suggestIndex];
+                      if (item) applySuggestion(`#${item.tag}`);
+                    } else {
+                      const item = mentionSuggestions[suggestIndex];
+                      if (item) applySuggestion(`@${item.username}`);
+                    }
+                    return;
+                  }
+                  if (e.key === "Escape") {
+                    setSuggestOpen(false);
+                  }
+                }}
+                placeholder={resolvedPlaceholder}
+                className="min-h-[44px] max-h-[160px] resize-none border-0 bg-transparent px-0 py-0 text-sm leading-snug text-foreground placeholder:text-muted-foreground/70 focus-visible:ring-0 focus-visible:ring-offset-0"
+                maxLength={2000}
+                disabled={isSubmitting}
+              />
+              {suggestOpen && (
+                <div
+                  className="absolute left-4 right-4 top-full z-50 mt-1 max-h-[220px] overflow-y-auto rounded-lg border border-border bg-popover shadow-lg"
+                  role="listbox"
+                >
+                  {suggestLoading ? (
+                    <div className="flex items-center justify-center gap-2 py-4 text-sm text-muted-foreground">
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      <span>Loading...</span>
+                    </div>
+                  ) : suggestType === "tag" ? (
+                    tagSuggestions.length === 0 ? (
+                      <p className="py-3 px-3 text-sm text-muted-foreground">No tags found</p>
+                    ) : (
+                      tagSuggestions.map((item, i) => (
+                        <button
+                          key={item.tag}
+                          type="button"
+                          role="option"
+                          aria-selected={i === suggestIndex}
+                          className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-accent ${i === suggestIndex ? "bg-accent" : ""}`}
+                          onMouseDown={(e) => {
+                            e.preventDefault();
+                            applySuggestion(`#${item.tag}`);
+                          }}
+                        >
+                          <span className="font-medium text-primary">#{item.tag}</span>
+                          {item.count != null && (
+                            <span className="text-xs text-muted-foreground">{item.count} uses</span>
+                          )}
+                        </button>
+                      ))
+                    )
+                  ) : mentionSuggestions.length === 0 ? (
+                    <p className="py-3 px-3 text-sm text-muted-foreground">No users found</p>
+                  ) : (
+                    mentionSuggestions.map((item, i) => (
+                      <button
+                        key={item.id}
+                        type="button"
+                        role="option"
+                        aria-selected={i === suggestIndex}
+                        className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-accent ${i === suggestIndex ? "bg-accent" : ""}`}
+                        onMouseDown={(e) => {
+                          e.preventDefault();
+                          applySuggestion(`@${item.username}`);
+                        }}
+                      >
+                        <Avatar className="h-6 w-6">
+                          <AvatarImage src={getProfilePicUrl(item.profile_pic)} alt={item.username} />
+                          <AvatarFallback className="text-xs">{item.username.charAt(0).toUpperCase()}</AvatarFallback>
+                        </Avatar>
+                        <span className="font-medium text-foreground">@{item.username}</span>
+                      </button>
+                    ))
+                  )}
+                </div>
               )}
             </div>
-          )}
-        </div>
-        <div className="flex items-center justify-between pt-1">
-          <div className="flex items-center gap-1">
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  type="button"
-                  className="inline-flex items-center justify-center h-8 px-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
-                  onClick={() => setGifOpen(true)}
-                  aria-label="Add GIF"
-                >
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" className="shrink-0">
-                    <rect x="2" y="4" width="20" height="16" rx="3" stroke="currentColor" strokeWidth="1.8" />
-                    <text x="12" y="15.5" textAnchor="middle" fill="currentColor" fontSize="8.5" fontWeight="700" fontFamily="system-ui, sans-serif">GIF</text>
-                  </svg>
-                </button>
-              </TooltipTrigger>
-              <TooltipContent side="top">Add GIF</TooltipContent>
-            </Tooltip>
-            <input
-              ref={imageInputRef}
-              type="file"
-              accept="image/jpeg,image/jpg,image/png,image/gif,image/webp"
-              onChange={handleImageSelect}
-              className="hidden"
-            />
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <span className="inline-flex">
-                  <button
-                    type="button"
-                    className="inline-flex items-center justify-center h-8 px-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors disabled:opacity-50"
-                    onClick={() => imageInputRef.current?.click()}
-                    disabled={isUploadingImage}
-                    aria-label="Add image"
-                  >
-                    <ImagePlus className="h-5 w-5" />
-                  </button>
+            <div className="flex items-center justify-between gap-2 border-t border-border/50 px-2.5 pb-2.5 pt-2">
+              <div className="flex min-w-0 flex-1 items-center gap-0.5">
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                      onClick={() => setGifOpen(true)}
+                      aria-label="Add GIF"
+                    >
+                      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" className="shrink-0">
+                        <rect x="2" y="4" width="20" height="16" rx="3" stroke="currentColor" strokeWidth="1.65" />
+                        <text x="12" y="15.5" textAnchor="middle" fill="currentColor" fontSize="8.5" fontWeight="700" fontFamily="system-ui, sans-serif">GIF</text>
+                      </svg>
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent side="top">GIF</TooltipContent>
+                </Tooltip>
+                <input
+                  ref={imageInputRef}
+                  type="file"
+                  accept="image/jpeg,image/jpg,image/png,image/gif,image/webp"
+                  onChange={handleImageSelect}
+                  className="hidden"
+                />
+                {isMobile ? (
+                  <input
+                    ref={cameraInputRef}
+                    type="file"
+                    accept="image/*"
+                    capture="environment"
+                    onChange={handleImageSelect}
+                    className="hidden"
+                  />
+                ) : null}
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span className="inline-flex">
+                      <button
+                        type="button"
+                        className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-50"
+                        onClick={() => imageInputRef.current?.click()}
+                        disabled={isUploadingImage}
+                        aria-label="Add photo from library"
+                      >
+                        <ImagePlus className="h-[22px] w-[22px]" strokeWidth={1.75} />
+                      </button>
+                    </span>
+                  </TooltipTrigger>
+                  <TooltipContent side="top">Photo library</TooltipContent>
+                </Tooltip>
+                {isMobile ? (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <span className="inline-flex">
+                        <button
+                          type="button"
+                          className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-50"
+                          onClick={() => cameraInputRef.current?.click()}
+                          disabled={isUploadingImage}
+                          aria-label="Open camera"
+                        >
+                          <Camera className="h-[22px] w-[22px]" strokeWidth={1.75} />
+                        </button>
+                      </span>
+                    </TooltipTrigger>
+                    <TooltipContent side="top">Camera</TooltipContent>
+                  </Tooltip>
+                ) : null}
+                <span className="ml-1 hidden text-[11px] text-muted-foreground/60 tabular-nums sm:inline">
+                  {content.length}/2000
                 </span>
-              </TooltipTrigger>
-              <TooltipContent side="top">Add image</TooltipContent>
-            </Tooltip>
-            <span className="text-[11px] text-muted-foreground/50 tabular-nums">
-              {content.length}/2000
-            </span>
-          </div>
-          <div className="flex items-center gap-2">
-            {onCancel && (
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                className="h-8 text-xs"
-                onClick={onCancel}
-                disabled={isSubmitting}
-              >
-                Cancel
-              </Button>
-            )}
-            <Button
-              type="submit"
-              size="sm"
-              disabled={!canSubmit}
-              className="h-8 rounded-full px-4 gap-1.5 text-xs"
-            >
-              {isSubmitting ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              ) : (
-                <Send className="h-3.5 w-3.5" />
-              )}
-              {isSubmitting ? "Posting..." : "Comment"}
-            </Button>
+              </div>
+              <div className="flex shrink-0 items-center gap-1.5">
+                {onCancel && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-8 rounded-full px-3 text-xs text-muted-foreground"
+                    onClick={onCancel}
+                    disabled={isSubmitting}
+                  >
+                    Cancel
+                  </Button>
+                )}
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      type="submit"
+                      size="icon"
+                      disabled={!canSubmit}
+                      className="h-9 w-9 shrink-0 rounded-full"
+                      aria-label={isSubmitting ? "Posting" : "Send"}
+                    >
+                      {isSubmitting ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <Send className="h-4 w-4" />
+                      )}
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent side="top">{isSubmitting ? "Posting…" : "Send"}</TooltipContent>
+                </Tooltip>
+              </div>
+            </div>
           </div>
         </div>
       </form>

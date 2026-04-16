@@ -11,8 +11,8 @@ export function commentThreadGutterWidthPx(level: number): number {
 }
 
 const EXTEND_TOP = 56;
-/** Branch Y: vertical center of h-8 avatar row */
-const JOIN_Y = 16;
+/** Branch Y: vertical center of h-10 avatar row */
+const JOIN_Y = 20;
 /** Spine continues below row into gap before next sibling */
 const Y_BELOW = 22;
 

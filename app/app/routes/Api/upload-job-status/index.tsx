@@ -43,6 +43,8 @@ type SeriesWebhookBody = {
   file_series_id?: string;
   file_series_episode_id?: string;
   new_episode_name?: string;
+  /** When creating a new episode, nest it under this episode */
+  parent_episode_id?: string;
 };
 
 /**
@@ -65,6 +67,8 @@ async function applyFileSeriesOnComplete(
     typeof body.file_series_episode_id === 'string' ? body.file_series_episode_id.trim() : '';
   const newEpisodeName =
     typeof body.new_episode_name === 'string' ? body.new_episode_name.trim().slice(0, 500) : '';
+  const parentEpisodeIdRaw =
+    typeof body.parent_episode_id === 'string' ? body.parent_episode_id.trim() : '';
 
   if (!isNewSeries && !fileSeriesId) return;
 
@@ -171,13 +175,34 @@ async function applyFileSeriesOnComplete(
       return;
     }
   } else {
+    let resolvedParent: string | null = null;
+    if (parentEpisodeIdRaw) {
+      if (!isValidUUID(parentEpisodeIdRaw)) {
+        console.warn('[upload-job-status] invalid parent_episode_id');
+        return;
+      }
+      const { data: parentEp, error: pErr } = await db
+        .from('files_series_episodes')
+        .select('id')
+        .eq('id', parentEpisodeIdRaw)
+        .eq('feed_series_id', fileSeriesId)
+        .eq('owner_id', ownerId)
+        .maybeSingle();
+      if (pErr || !parentEp) {
+        console.warn('[upload-job-status] parent episode not in series or not owned');
+        return;
+      }
+      resolvedParent = parentEpisodeIdRaw;
+    }
+    const insertEp: Record<string, unknown> = {
+      feed_series_id: fileSeriesId,
+      owner_id: ownerId,
+      episode_name: newEpisodeName,
+    };
+    if (resolvedParent) insertEp.parent_episode_id = resolvedParent;
     const { data: epNew, error: epInsErr } = await db
       .from('files_series_episodes')
-      .insert({
-        feed_series_id: fileSeriesId,
-        owner_id: ownerId,
-        episode_name: newEpisodeName,
-      })
+      .insert(insertEp)
       .select('id')
       .single();
     if (epInsErr || !epNew?.id) {
@@ -253,6 +278,7 @@ export const action = async ({ request }: { request: Request }) => {
     file_series_id?: string;
     file_series_episode_id?: string;
     new_episode_name?: string;
+    parent_episode_id?: string;
     github_repo?: string;
     /** 0–100 from Go worker while processing */
     progress?: number;

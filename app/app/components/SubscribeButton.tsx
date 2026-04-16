@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { useNavigate } from "react-router";
 import { Bell, BellOff, Loader2, ChevronDown } from "lucide-react";
 import { cn } from "~/lib/utils";
@@ -12,6 +12,8 @@ interface SubscribeButtonProps {
   initialCount: number;
   isOwner?: boolean;
   compact?: boolean;
+  /** Fires when toggle succeeds and the server returns an updated subscriber count. */
+  onSubscriberCountChange?: (subscriberCount: number) => void;
 }
 
 export function formatSubscriberCount(count: number): string {
@@ -28,6 +30,7 @@ export default function SubscribeButton({
   initialCount,
   isOwner = false,
   compact = false,
+  onSubscriberCountChange,
 }: SubscribeButtonProps) {
   const navigate = useNavigate();
   const [subscribed, setSubscribed] = useState(initialSubscribed);
@@ -35,6 +38,12 @@ export default function SubscribeButton({
   const [count, setCount] = useState(initialCount);
   const [busy, setBusy] = useState(false);
   const [bellBusy, setBellBusy] = useState(false);
+
+  useEffect(() => {
+    setSubscribed(initialSubscribed);
+    setNotify(initialNotify);
+    setCount(initialCount);
+  }, [initialSubscribed, initialNotify, initialCount]);
 
   const requireAuth = useCallback(() => {
     const next = typeof window !== "undefined" ? window.location.pathname + window.location.search : "/";
@@ -57,14 +66,19 @@ export default function SubscribeButton({
         setSubscribed(json.subscribed);
         if (typeof json.subscriber_count === "number") {
           setCount(json.subscriber_count);
+          onSubscriberCountChange?.(json.subscriber_count);
         } else {
-          setCount((c) => (json.subscribed ? c + 1 : Math.max(0, c - 1)));
+          setCount((c) => {
+            const next = json.subscribed ? c + 1 : Math.max(0, c - 1);
+            onSubscriberCountChange?.(next);
+            return next;
+          });
         }
         if (json.subscribed) setNotify(true);
       }
     } catch {}
     finally { setBusy(false); }
-  }, [channelId, currentUserId, requireAuth]);
+  }, [channelId, currentUserId, requireAuth, onSubscriberCountChange]);
 
   const handleBellToggle = useCallback(async (e: React.MouseEvent) => {
     e.stopPropagation();

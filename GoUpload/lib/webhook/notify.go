@@ -38,6 +38,7 @@ type Payload struct {
 	FileSeriesEpisodeID string `json:"file_series_episode_id,omitempty"`
 	IsNewSeries         bool   `json:"is_new_series,omitempty"`
 	NewEpisodeName      string `json:"new_episode_name,omitempty"`
+	ParentEpisodeID     string `json:"parent_episode_id,omitempty"`
 	GitHubRepo          string `json:"github_repo,omitempty"`
 	// 0–100 while status is running; omitted for queued/completed/failed unless set.
 	Progress *int `json:"progress,omitempty"`

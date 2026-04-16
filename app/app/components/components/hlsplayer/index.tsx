@@ -27,6 +27,9 @@ import PosterBackground from './overlays/PosterBackground';
 import ShortcutOverlay from './overlays/ShortcutOverlay';
 import StatsForNerdsOverlay from './overlays/StatsForNerdsOverlay';
 import AmbientBackground from '~/components/components/hlsplayer/overlays/AmbientBackground';
+import GuestPreviewWall from '~/components/components/hlsplayer/overlays/GuestPreviewWall';
+import GuestPreviewNudge from '~/components/components/hlsplayer/overlays/GuestPreviewNudge';
+import { useGuestWatchLimit } from './hooks/useGuestWatchLimit';
 import { usePictureInPictureContext } from '~/lib/Context/PictureInPictureContext';
 import { useFileContext } from '~/lib/Context/Context';
 import { useMiniPlayerContext } from '~/lib/Context/MiniPlayerContext';
@@ -39,7 +42,7 @@ interface CallBackProps {
   colors: string[];
 }
 
-interface HLSPlayerProps {
+export interface HLSPlayerProps {
   src: string;
   className?: string;
   onPlay?: () => void;
@@ -68,6 +71,10 @@ interface HLSPlayerProps {
   onAmbientModeChange?: (active: boolean) => void;
   startTime?: number;
   hideControls?: HideControls;
+  /** When false, ambient, visualizer, autoplay next, and next-video control require sign-in (watch page). */
+  authPlaybackFeatures?: boolean;
+  /** Signed-out preview cap (seconds); null when signed in or unlimited. */
+  guestWatchLimitSeconds?: number | null;
 }
 
 const HLSPlayer: React.FC<HLSPlayerProps> = (props) => (
@@ -81,6 +88,7 @@ const HLSPlayer: React.FC<HLSPlayerProps> = (props) => (
     initialAutoPlay={props.autoPlay ?? false}
     videoRef={props.videoRef}
     startTime={props.startTime}
+    authPlaybackFeatures={props.authPlaybackFeatures ?? true}
   >
     <PlayerInner {...props} />
   </PlayerProvider>
@@ -111,6 +119,7 @@ function PlayerInner({
   videoRef,
   onAmbientModeChange,
   hideControls,
+  guestWatchLimitSeconds = null,
 }: HLSPlayerProps) {
   const { theaterMode, setTheaterMode, setPlayerSettings, savePlayerSettings } = useFileContext();
   const {
@@ -127,9 +136,26 @@ function PlayerInner({
     statsForNerds,
     autoPlay: autoPlayEnabled,
     loop: loopEnabled,
+    authPlaybackFeatures: authPlayback,
   } = usePlayerContext();
 
-  const showAudioVisualizer = audioVisualizer && !isMobile;
+  const guestLimitActive =
+    !authPlayback &&
+    guestWatchLimitSeconds != null &&
+    guestWatchLimitSeconds > 0;
+  const {
+    wallOpen,
+    dismissWall,
+    nudgeVisible,
+    secondsRemaining,
+    dismissNudge,
+  } = useGuestWatchLimit(
+    videoRef,
+    guestWatchLimitSeconds,
+    guestLimitActive && !isReelCtx
+  );
+
+  const showAudioVisualizer = audioVisualizer && !isMobile && authPlayback;
 
   const [isMobileView, setIsMobileView] = useState(isMobile);
   useEffect(() => {
@@ -316,6 +342,20 @@ function PlayerInner({
     [isReelCtx, performSeekByTap]
   );
 
+  /** Prefer series order, then related — matches end-screen autoplay when `onNext` is not supplied. */
+  const handleNextVideo = useCallback(() => {
+    if (onNext) {
+      onNext();
+      return;
+    }
+    const next = seriesUpNextVideos?.[0] ?? suggestedVideos?.[0];
+    if (next && onVideoSelect) onVideoSelect(next);
+  }, [onNext, seriesUpNextVideos, suggestedVideos, onVideoSelect]);
+
+  const hasNextControl =
+    typeof onNext === "function" ||
+    (!!onVideoSelect && !!(seriesUpNextVideos?.[0] || suggestedVideos?.[0]));
+
   const handleTouchEnd = useCallback(
     (e: React.TouchEvent) => {
       if (isReelCtx) return;
@@ -450,7 +490,7 @@ function PlayerInner({
       className={`relative bg-black overflow-hidden select-none ${isReelCtx ? 'z-[1]' : ''} ${className}`}
       style={{ cursor: showControls ? 'default' : 'none' }}
     >
-      {ambientMode && <AmbientBackground />}
+      {ambientMode && authPlayback && <AmbientBackground />}
       <PosterBackground
         onImageLoaded={handlePosterImageLoaded}
       />
@@ -529,7 +569,7 @@ function PlayerInner({
           >
             <div className="absolute bottom-0 left-0 right-0 h-32 bg-gradient-to-t from-black/80 to-transparent pointer-events-none" />
             <ControlBar
-              onNext={onNext}
+              onNext={hasNextControl ? handleNextVideo : undefined}
               onPlayPauseClick={triggerPlayPauseFeedback}
               theaterMode={theaterMode}
               onTheaterModeChange={isMobileView ? undefined : handleTheaterModeChange}
@@ -543,12 +583,27 @@ function PlayerInner({
           <PersistentBottomVisualizer onLayoutHeight={setVisualizerLiftPx} />
         )}
 
-        {showPrompt && autoPlayEnabled && !isReelCtx && (
+        {showPrompt && autoPlayEnabled && !isReelCtx && authPlayback && (
           <AutoplayPrompt onEnable={enableAutoplay} onDismiss={dismissPrompt} />
         )}
 
         {showShortcuts && !isReelCtx && (
           <ShortcutOverlay onClose={() => setShowShortcuts(false)} />
+        )}
+
+        {guestLimitActive && !isReelCtx && guestWatchLimitSeconds != null && (
+          <>
+            <GuestPreviewNudge
+              visible={nudgeVisible && !wallOpen}
+              secondsRemaining={secondsRemaining}
+              onDismiss={dismissNudge}
+            />
+            <GuestPreviewWall
+              open={wallOpen}
+              limitSeconds={guestWatchLimitSeconds}
+              onDismiss={dismissWall}
+            />
+          </>
         )}
       </div>
     </div>

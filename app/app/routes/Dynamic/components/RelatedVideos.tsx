@@ -1,8 +1,33 @@
+import { useState, type ComponentProps } from "react"
+import {
+  DndContext,
+  DragOverlay,
+  PointerSensor,
+  KeyboardSensor,
+  useSensor,
+  useSensors,
+  closestCenter,
+  useDraggable,
+  type DragEndEvent,
+  type DragStartEvent,
+} from "@dnd-kit/core"
+import { sortableKeyboardCoordinates } from "@dnd-kit/sortable"
 import { RelatedVideosProvider, useRelatedVideosContext } from "./RelatedVideosContext"
 import VideoCard from "~/routes/Home/components/VideoCard"
 import { Button } from "~/components/ui/button"
 import type { FileType } from "~/lib/types"
 import { SignInToSeeMore } from "~/components/SignInWall"
+import { PlayQueuePanel } from "./PlayQueuePanel"
+import {
+  PLAY_QUEUE_DROP_APPEND,
+  PLAY_QUEUE_DROP_EMPTY,
+  playQueueItemId,
+  relatedVideoDragId,
+  usePlayQueueOptional,
+} from "./PlayQueueContext"
+import { cn, getThumbnailUrl } from "~/lib/utils"
+import { BASE_URL } from "~/lib/URLS"
+import ParseFilenameInsert from "~/lib/utils/ShowFileName"
 
 interface RelatedVideosProps {
   videos: FileType[]
@@ -12,6 +37,24 @@ interface RelatedVideosProps {
   currentUserId?: string
   currentFileType?: string
   userActions?: { likedFileIds: Set<string>; dislikedFileIds: Set<string> }
+}
+
+function DraggableQueueVideoCard(props: ComponentProps<typeof VideoCard>) {
+  const { data } = props
+  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
+    id: relatedVideoDragId(data.id),
+    data: { video: data },
+  })
+  return (
+    <div
+      ref={setNodeRef}
+      className={cn("rounded-xl", isDragging && "opacity-50")}
+      {...listeners}
+      {...attributes}
+    >
+      <VideoCard {...props} />
+    </div>
+  )
 }
 
 const RelatedVideosContent = ({ currentUserId }: { currentUserId?: string }) => {
@@ -30,8 +73,80 @@ const RelatedVideosContent = ({ currentUserId }: { currentUserId?: string }) => 
     loadOwnerVideos
   } = useRelatedVideosContext()
 
-  return (
+  const playQueue = usePlayQueueOptional()
+  const addToPlayQueue = playQueue?.viewerCanCustomizeQueue
+    ? (video: FileType) => playQueue.addToQueue(video)
+    : undefined
+  const isInPlayQueue = (id: string) => playQueue?.isInQueue(id) ?? false
+
+  const [overlayVideo, setOverlayVideo] = useState<FileType | null>(null)
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
+  )
+
+  const onDragStart = (e: DragStartEvent) => {
+    const id = String(e.active.id)
+    if (id.startsWith("related:")) {
+      const v = e.active.data.current?.video as FileType | undefined
+      setOverlayVideo(v ?? null)
+    }
+  }
+
+  const onDragEnd = (e: DragEndEvent) => {
+    setOverlayVideo(null)
+    const { active, over } = e
+    if (!playQueue) return
+    if (!over) return
+
+    const activeId = String(active.id)
+    const overId = String(over.id)
+
+    if (activeId.startsWith("queue:")) {
+      if (overId === PLAY_QUEUE_DROP_APPEND) {
+        const oldIndex = playQueue.queue.findIndex((v) => playQueueItemId(v.id) === activeId)
+        if (oldIndex >= 0 && oldIndex !== playQueue.queue.length - 1) {
+          playQueue.reorderQueue(oldIndex, playQueue.queue.length - 1)
+        }
+        return
+      }
+      if (overId.startsWith("queue:")) {
+        const oldIndex = playQueue.queue.findIndex((v) => playQueueItemId(v.id) === activeId)
+        const newIndex = playQueue.queue.findIndex((v) => playQueueItemId(v.id) === overId)
+        if (oldIndex >= 0 && newIndex >= 0 && oldIndex !== newIndex) {
+          playQueue.reorderQueue(oldIndex, newIndex)
+        }
+      }
+      return
+    }
+
+    if (!activeId.startsWith("related:")) {
+      return
+    }
+
+    const video = active.data.current?.video as FileType | undefined
+    if (!video || video.unique_id === playQueue.currentUniqueId) return
+
+    if (overId === PLAY_QUEUE_DROP_EMPTY) {
+      playQueue.insertOrMoveAt(video, 0)
+      return
+    }
+    if (overId === PLAY_QUEUE_DROP_APPEND) {
+      playQueue.insertOrMoveAt(video, playQueue.queue.length)
+      return
+    }
+    if (overId.startsWith("queue:")) {
+      const overIndex = playQueue.queue.findIndex((v) => playQueueItemId(v.id) === overId)
+      if (overIndex >= 0) playQueue.insertOrMoveAt(video, overIndex)
+    }
+  }
+
+  const onDragCancel = () => setOverlayVideo(null)
+
+  const inner = (
     <div className="space-y-4">
+      <PlayQueuePanel currentUserId={currentUserId} userActions={userActions} />
       <div className="flex gap-2 border-b border-border">
         <button
           onClick={() => setActiveTab("upnext")}
@@ -68,9 +183,33 @@ const RelatedVideosContent = ({ currentUserId }: { currentUserId?: string }) => 
           ) : (
             <>
               <div className="grid grid-cols-1 gap-2">
-                {displayVideos.map((video, index) => (
-                  <VideoCard layout={`horizontal`} related={true} key={video.unique_id} data={video} index={index} currentUserId={currentUserId} userActions={userActions} />
-                ))}
+                {displayVideos.map((video, index) =>
+                  playQueue?.viewerCanCustomizeQueue ? (
+                    <DraggableQueueVideoCard
+                      layout={`horizontal`}
+                      related={true}
+                      key={video.unique_id}
+                      data={video}
+                      index={index}
+                      currentUserId={currentUserId}
+                      userActions={userActions}
+                      onAddToPlayQueue={addToPlayQueue}
+                      inPlayQueue={isInPlayQueue(video.id)}
+                    />
+                  ) : (
+                    <VideoCard
+                      layout={`horizontal`}
+                      related={true}
+                      key={video.unique_id}
+                      data={video}
+                      index={index}
+                      currentUserId={currentUserId}
+                      userActions={userActions}
+                      onAddToPlayQueue={addToPlayQueue}
+                      inPlayQueue={isInPlayQueue(video.id)}
+                    />
+                  )
+                )}
               </div>
               {hasMore && (
                 currentUserId ? (
@@ -109,9 +248,31 @@ const RelatedVideosContent = ({ currentUserId }: { currentUserId?: string }) => 
           ) : (
             <>
               <div className="grid grid-cols-1 gap-2">
-                {ownerVideos.map((video, index) => (
-                  <VideoCard layout={`horizontal`} key={video.unique_id} data={video} index={index} currentUserId={currentUserId} userActions={userActions} />
-                ))}
+                {ownerVideos.map((video, index) =>
+                  playQueue?.viewerCanCustomizeQueue ? (
+                    <DraggableQueueVideoCard
+                      layout={`horizontal`}
+                      key={video.unique_id}
+                      data={video}
+                      index={index}
+                      currentUserId={currentUserId}
+                      userActions={userActions}
+                      onAddToPlayQueue={addToPlayQueue}
+                      inPlayQueue={isInPlayQueue(video.id)}
+                    />
+                  ) : (
+                    <VideoCard
+                      layout={`horizontal`}
+                      key={video.unique_id}
+                      data={video}
+                      index={index}
+                      currentUserId={currentUserId}
+                      userActions={userActions}
+                      onAddToPlayQueue={addToPlayQueue}
+                      inPlayQueue={isInPlayQueue(video.id)}
+                    />
+                  )
+                )}
               </div>
               {hasMoreOwner && (
                 currentUserId ? (
@@ -141,6 +302,40 @@ const RelatedVideosContent = ({ currentUserId }: { currentUserId?: string }) => 
         </div>
       )}
     </div>
+  )
+
+  if (!playQueue?.viewerCanCustomizeQueue) return inner
+
+  return (
+    <DndContext
+      sensors={sensors}
+      collisionDetection={closestCenter}
+      onDragStart={onDragStart}
+      onDragEnd={onDragEnd}
+      onDragCancel={onDragCancel}
+    >
+      {inner}
+      <DragOverlay dropAnimation={null}>
+        {overlayVideo ? (
+          <div className="flex max-w-[min(100%,18rem)] items-center gap-2 rounded-lg border border-border bg-card p-2 shadow-lg">
+            <img
+              src={getThumbnailUrl(overlayVideo, {
+                baseUrl: BASE_URL,
+                queryString: "?quality=60&is_metadata=true",
+              })}
+              alt=""
+              className="h-12 w-20 shrink-0 rounded object-cover"
+            />
+            <span className="line-clamp-2 text-xs font-medium">
+              <ParseFilenameInsert
+                filename={overlayVideo.file_title || overlayVideo.filename}
+                showLimit={42}
+              />
+            </span>
+          </div>
+        ) : null}
+      </DragOverlay>
+    </DndContext>
   )
 }
 

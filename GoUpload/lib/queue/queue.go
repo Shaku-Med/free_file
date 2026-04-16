@@ -31,6 +31,7 @@ type Job struct {
 	FileSeriesEpisodeID string `json:"file_series_episode_id,omitempty"`
 	IsNewSeries         bool   `json:"is_new_series"`
 	NewEpisodeName      string `json:"new_episode_name,omitempty"`
+	ParentEpisodeID     string `json:"parent_episode_id,omitempty"`
 	CreatedAt        time.Time `json:"created_at"`
 }
 
@@ -51,7 +52,7 @@ func NewClient(addr, password string, db int, queueName string) (*Client, error)
 	return &Client{rdb: rdb, queueName: queueName}, nil
 }
 
-func (c *Client) Enqueue(ctx context.Context, userID, uploadID, fileName string, fileSize int64, totalChunks int, title, description string, userCategories, userTags []string, defaultThumbnail string, fileSeriesID, fileSeriesEpisodeID string, isNewSeries bool, newEpisodeName string) (string, error) {
+func (c *Client) Enqueue(ctx context.Context, userID, uploadID, fileName string, fileSize int64, totalChunks int, title, description string, userCategories, userTags []string, defaultThumbnail string, fileSeriesID, fileSeriesEpisodeID string, isNewSeries bool, newEpisodeName, parentEpisodeID string) (string, error) {
 	jobID := newJobID()
 	job := Job{
 		ID:               jobID,
@@ -69,6 +70,7 @@ func (c *Client) Enqueue(ctx context.Context, userID, uploadID, fileName string,
 		FileSeriesEpisodeID: fileSeriesEpisodeID,
 		IsNewSeries:         isNewSeries,
 		NewEpisodeName:      newEpisodeName,
+		ParentEpisodeID:     parentEpisodeID,
 		CreatedAt:        time.Now().UTC(),
 	}
 	data, err := json.Marshal(job)

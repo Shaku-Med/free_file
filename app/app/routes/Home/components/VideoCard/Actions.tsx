@@ -29,7 +29,7 @@ import {
   DropdownMenuTrigger,
   DropdownMenuSeparator,
 } from "~/components/ui/dropdown-menu";
-import { cn, arrangeDateForThumbnail } from "~/lib/utils";
+import { cn } from "~/lib/utils";
 import CreatePlaylistModal from "~/components/Playlist/CreatePlaylistModal";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "~/components/ui/dialog";
 import { Tooltip, TooltipContent, TooltipTrigger } from "~/components/ui/tooltip";
@@ -596,20 +596,14 @@ export default function Actions({
       <Dialog open={commentsDialogOpen} onOpenChange={setCommentsDialogOpen}>
         <DialogContent
           showCloseButton
-          className="flex max-h-[min(90vh,720px)] w-[calc(100vw-1.5rem)] max-w-xl flex-col gap-0 overflow-hidden p-0 sm:max-w-xl"
+          className="flex w-[calc(100vw-1.5rem)] max-w-xl flex-col gap-0 overflow-hidden p-0 sm:max-w-xl"
         >
-          <DialogHeader className="shrink-0 border-b px-6 py-4 text-left">
-            <DialogTitle>Comments</DialogTitle>
-          </DialogHeader>
-          <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-4 py-3">
+          <div className="max-h-[min(90vh,720px)] min-h-0 w-full overflow-y-auto overflow-x-hidden overscroll-contain px-4 py-3 [scrollbar-gutter:stable]">
             <CommentSection
               key={fileId}
               fileId={fileId}
               currentUserId={currentUserId ?? undefined}
-              commentImageDateFolder={
-                fileCreatedAt ? arrangeDateForThumbnail(fileCreatedAt) : undefined
-              }
-              commentImageFileUniqueId={uniqueId}
+              className="min-h-0"
             />
           </div>
         </DialogContent>

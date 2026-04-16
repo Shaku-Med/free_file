@@ -55,7 +55,11 @@ export interface SeriesEpisodeGroup {
   episode_id: string;
   episode_name: string;
   episode_number: number | null;
+  /** When set, this episode is nested under another episode in the same series */
+  parent_episode_id: string | null;
   items: FileType[];
+  /** Child episodes (nested under this one), in tree order */
+  nested?: SeriesEpisodeGroup[];
 }
 
 export interface PageCacheData {

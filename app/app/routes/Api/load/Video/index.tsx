@@ -3,8 +3,12 @@ import { VerifyToken } from "~/lib/Security/unsharedkeyEncryption/Combined/Verif
 import { sanitizeFilePath } from "~/lib/Security/inputValidation";
 import {
   verifySegmentToken,
+  verifyGuestSegmentToken,
   rewriteM3U8,
 } from "~/lib/Services/SegmentTokenService";
+import { truncateHlsMediaPlaylistAtDuration } from "~/lib/Services/hlsPlaylistTruncate";
+import { computeGuestPreviewSeconds } from "~/lib/guestPreviewLimit";
+import { isAuthenticated } from "~/lib/Security/Password";
 import db from "~/lib/Database/supabase";
 import {
   defaultGithubBranch,
@@ -20,7 +24,7 @@ const getFileFromPath = async (path: string) => {
   const uniqueId = pathParts.length > 2 ? pathParts[1] : pathParts[0];
   const { data } = await db
     .from("files")
-    .select("id, is_adult, is_public, owner_id, github_repo")
+    .select("id, is_adult, is_public, owner_id, github_repo, duration")
     .eq("unique_id", uniqueId)
     .maybeSingle();
   return data || null;
@@ -43,9 +47,6 @@ const VKF = async (request: Request) => {
 
 export const loader = async ({ request }: { request: Request }) => {
   try {
-    const verified = await VKF(request);
-    if (!verified) return new Response(null, { status: 401 });
-
     const url = new URL(request.url);
     const pathAfterPrefix = url.pathname.split("/api/load/video/")[1];
     if (!pathAfterPrefix) return new Response(null, { status: 400 });
@@ -60,6 +61,10 @@ export const loader = async ({ request }: { request: Request }) => {
     const sanitizedPath = sanitizeFilePath(filePath);
     if (!sanitizedPath) return new Response(null, { status: 400 });
 
+    const verified = await VKF(request);
+    const user = await isAuthenticated(request, ["id"]);
+    const userId = user?.id ?? null;
+
     const file = await getFileFromPath(sanitizedPath);
     if (file) {
       const accessControl = await checkFileAccess(request, file);
@@ -68,21 +73,69 @@ export const loader = async ({ request }: { request: Request }) => {
       }
     }
 
+    if (!verified && !userId) {
+      // Signed-out: only allow paths we can authorize (file row + access).
+      if (!file) return new Response(null, { status: 401 });
+    } else if (!verified) {
+      return new Response(null, { status: 401 });
+    }
+
+    const guestMode = !userId;
+
+    /** Same value as HLS truncation + playlist tokens; never from query/body (prevents URL tampering). */
+    const guestPreviewLimitSeconds = guestMode
+      ? file &&
+        file.duration != null &&
+        Number.isFinite(Number(file.duration)) &&
+        Number(file.duration) > 0
+        ? computeGuestPreviewSeconds(Number(file.duration))
+        : computeGuestPreviewSeconds(0)
+      : null;
+
     const ext = sanitizedPath.split(".").pop()?.toLowerCase();
     const isM3U8 = ext === "m3u8";
     const isSegment = ext === "ts";
 
     if (isSegment) {
       const st = url.searchParams.get("_st");
-      if (!st || !verifySegmentToken(st, sanitizedPath, request.headers)) {
+      if (!st) {
+        return new Response(null, { status: 403 });
+      }
+      if (guestMode) {
+        if (
+          guestPreviewLimitSeconds == null ||
+          !verifyGuestSegmentToken(
+            st,
+            sanitizedPath,
+            request.headers,
+            guestPreviewLimitSeconds
+          )
+        ) {
+          return new Response(null, { status: 403 });
+        }
+      } else if (!verifySegmentToken(st, sanitizedPath, request.headers)) {
         return new Response(null, { status: 403 });
       }
     }
 
     if (isM3U8) {
       const st = url.searchParams.get("_st");
-      if (st && !verifySegmentToken(st, sanitizedPath, request.headers)) {
-        return new Response(null, { status: 403 });
+      if (st) {
+        if (guestMode) {
+          if (
+            guestPreviewLimitSeconds == null ||
+            !verifyGuestSegmentToken(
+              st,
+              sanitizedPath,
+              request.headers,
+              guestPreviewLimitSeconds
+            )
+          ) {
+            return new Response(null, { status: 403 });
+          }
+        } else if (!verifySegmentToken(st, sanitizedPath, request.headers)) {
+          return new Response(null, { status: 403 });
+        }
       }
     }
 
@@ -105,7 +158,16 @@ export const loader = async ({ request }: { request: Request }) => {
         0,
         sanitizedPath.lastIndexOf("/")
       );
-      const rewritten = rewriteM3U8(raw, basePath, request.headers);
+      let rewritten = rewriteM3U8(raw, basePath, request.headers, {
+        guestMode,
+        guestLimitSeconds: guestPreviewLimitSeconds ?? undefined,
+      });
+      if (guestMode && guestPreviewLimitSeconds != null && guestPreviewLimitSeconds > 0) {
+        rewritten = truncateHlsMediaPlaylistAtDuration(
+          rewritten,
+          guestPreviewLimitSeconds
+        );
+      }
       return new Response(rewritten, {
         status: 200,
         headers: {

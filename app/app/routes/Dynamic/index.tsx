@@ -1,9 +1,11 @@
 import { data, Link, useLoaderData, useNavigate, useParams, useNavigation, useLocation, useSearchParams, type MetaFunction } from "react-router";
 import db from "~/lib/Database/supabase";
-import HLSPlayer from "~/components/components/hlsplayer";
+import { DynamicHLSPlayerWithQueue } from "./components/DynamicHLSPlayerWithQueue";
+import { PlayQueueProvider } from "./components/PlayQueueContext";
 import { useCallback, useEffect, useState, useRef, useMemo } from "react";
 import RelatedVideos from "./components/RelatedVideos";
 import SeriesEpisodesSection from "./components/SeriesEpisodesSection";
+import SeriesSignInGate from "./components/SeriesSignInGate";
 import type { FileType, SeriesEpisodeGroup } from "~/lib/types";
 import {
   collectSeriesMemberIds,
@@ -44,6 +46,7 @@ import { useFileContext } from "~/lib/Context/Context";
 import { useMiniPlayerContext } from "~/lib/Context/MiniPlayerContext";
 import { formatTimeAgo } from "~/lib/formatTimeAgo";
 import LiquidAmbientGradient from "./components/LiquidAmbientGradient";
+import { computeGuestPreviewSeconds } from "~/lib/guestPreviewLimit";
 
 interface DynamicCachePayload {
   file: any;
@@ -62,6 +65,8 @@ interface DynamicCachePayload {
   /** Present only when this page is a series main file and episodes were loaded (server-verified). */
   seriesContext: { fileSeriesId: string } | null;
   seriesVideosUserActions: { likedFileIds: string[]; dislikedFileIds: string[] };
+  /** Max watch seconds for signed-out preview; null when signed in or not applicable. */
+  guestPreviewLimitSeconds: number | null;
 }
 
 export const loader = async ({ request, params }: { request: Request, params: { id: string } }) => {
@@ -308,6 +313,17 @@ export const loader = async ({ request, params }: { request: Request, params: { 
       commentsCount = commentsCountResult.data || 0;
     }
 
+    const durationSec = Number(file.duration);
+    const isVideoFile =
+      typeof file.file_type === "string" &&
+      (file.file_type.includes("video") ||
+        file.file_type === "application/vnd.apple.mpegurl" ||
+        (typeof file.endpoint === "string" && file.endpoint.includes(".m3u8")));
+    const guestPreviewLimitSeconds =
+      !userId && isVideoFile && Number.isFinite(durationSec) && durationSec > 0
+        ? computeGuestPreviewSeconds(durationSec)
+        : null;
+
     return data({
       file,
       id: params.id,
@@ -320,6 +336,7 @@ export const loader = async ({ request, params }: { request: Request, params: { 
       owner,
       channelStats,
       commentsCount,
+      guestPreviewLimitSeconds,
       relatedVideosUserActions: {
         likedFileIds: Array.from(relatedVideosUserActions.likedFileIds),
         dislikedFileIds: Array.from(relatedVideosUserActions.dislikedFileIds),
@@ -501,6 +518,7 @@ function blendDynamicData(cached: DynamicCachePayload, fresh: DynamicCachePayloa
       fresh.seriesVideosUserActions ??
       (cached as Partial<DynamicCachePayload>).seriesVideosUserActions ??
       { likedFileIds: [], dislikedFileIds: [] },
+    guestPreviewLimitSeconds: fresh.guestPreviewLimitSeconds ?? null,
   };
 }
 
@@ -552,6 +570,10 @@ const index = () => {
         seriesVideosUserActions: ('seriesVideosUserActions' in loaderData && loaderData.seriesVideosUserActions
           ? loaderData.seriesVideosUserActions
           : { likedFileIds: [], dislikedFileIds: [] }) as DynamicCachePayload['seriesVideosUserActions'],
+        guestPreviewLimitSeconds:
+          ('guestPreviewLimitSeconds' in loaderData ? loaderData.guestPreviewLimitSeconds : null) as
+            | number
+            | null,
       };
       return blendDynamicData(cachedData, freshPayload);
     }
@@ -566,6 +588,7 @@ const index = () => {
           likedFileIds: [],
           dislikedFileIds: [],
         },
+        guestPreviewLimitSeconds: c.guestPreviewLimitSeconds ?? null,
       } as DynamicCachePayload;
     }
 
@@ -588,6 +611,10 @@ const index = () => {
         seriesVideosUserActions: ('seriesVideosUserActions' in loaderData && loaderData.seriesVideosUserActions
           ? loaderData.seriesVideosUserActions
           : { likedFileIds: [], dislikedFileIds: [] }) as DynamicCachePayload['seriesVideosUserActions'],
+        guestPreviewLimitSeconds:
+          ('guestPreviewLimitSeconds' in loaderData ? loaderData.guestPreviewLimitSeconds : null) as
+            | number
+            | null,
       };
     }
 
@@ -1004,7 +1031,7 @@ const index = () => {
         }
       `}>
         {isHLS ? (
-          <HLSPlayer
+          <DynamicHLSPlayerWithQueue
             videoRef={videoElementRef as React.RefObject<HTMLVideoElement>}
             src={getVideoSrc(file_data?.endpoint ?? '', file_data?.file_type)}
             className={`w-full h-full`}
@@ -1026,13 +1053,13 @@ const index = () => {
             key={`hls-${file_data.unique_id}-${currentId}`}
             onVideoRef={handleVideoRef}
             callBack={hlsCallBack}
-            suggestedVideos={suggestedVideos}
-            seriesUpNextVideos={seriesUpNextVideos}
             endScreenUserActions={mergedSidebarUserActions}
             currentUserId={userId || undefined}
             onVideoSelect={handleVideoSelect}
             onAmbientModeChange={setAmbientEnabled}
             startTime={startTime}
+            authPlaybackFeatures={Boolean(userId)}
+            guestWatchLimitSeconds={data?.guestPreviewLimitSeconds ?? null}
           />
         ) : (
           <motion.div 
@@ -1271,12 +1298,16 @@ const index = () => {
   const seriesAboveContentMobile =
     data.seriesEpisodes && data.seriesEpisodes.length > 0 ? (
       <div className="z-[100000] lg:hidden -mt-1 mb-2">
-        <SeriesEpisodesSection
-          episodes={data.seriesEpisodes}
-          currentVideoUniqueId={file_data.unique_id}
-          currentUserId={userId || undefined}
-          userActions={mergedSidebarUserActions}
-        />
+        {userId ? (
+          <SeriesEpisodesSection
+            episodes={data.seriesEpisodes}
+            currentVideoUniqueId={file_data.unique_id}
+            currentUserId={userId || undefined}
+            userActions={mergedSidebarUserActions}
+          />
+        ) : (
+          <SeriesSignInGate />
+        )}
       </div>
     ) : null;
 
@@ -1285,12 +1316,16 @@ const index = () => {
       <div className="sticky top-6">
         {data.seriesEpisodes && data.seriesEpisodes.length > 0 && (
           <div className="mb-6 hidden lg:block">
-            <SeriesEpisodesSection
-              episodes={data.seriesEpisodes}
-              currentVideoUniqueId={file_data.unique_id}
-              currentUserId={userId || undefined}
-              userActions={mergedSidebarUserActions}
-            />
+            {userId ? (
+              <SeriesEpisodesSection
+                episodes={data.seriesEpisodes}
+                currentVideoUniqueId={file_data.unique_id}
+                currentUserId={userId || undefined}
+                userActions={mergedSidebarUserActions}
+              />
+            ) : (
+              <SeriesSignInGate />
+            )}
           </div>
         )}
         <RelatedVideos
@@ -1308,6 +1343,12 @@ const index = () => {
   );
 
   return (
+    <PlayQueueProvider
+      currentUniqueId={file_data.unique_id}
+      seriesUpNextVideos={seriesUpNextVideos}
+      suggestedVideos={suggestedVideos}
+      viewerCanCustomizeQueue={Boolean(userId)}
+    >
     <div className="relative min-h-screen reel_p" key={`dynamic-${currentId}`}>
       <script
         type="application/ld+json"
@@ -1371,6 +1412,7 @@ const index = () => {
         </div>
       </div>
     </div>
+    </PlayQueueProvider>
   );
 }
 export default index

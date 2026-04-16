@@ -234,13 +234,36 @@ async function handleAssign(
         400
       );
     }
+    const parentEpisodeIdRaw =
+      typeof body.parentEpisodeId === "string" ? body.parentEpisodeId.trim() : "";
+    let resolvedParentEpisodeId: string | null = null;
+    if (parentEpisodeIdRaw) {
+      if (!isValidUUID(parentEpisodeIdRaw)) {
+        return toJson({ error: "Invalid parent_episode_id" }, 400);
+      }
+      const { data: parentEp, error: pErr } = await db
+        .from("files_series_episodes")
+        .select("id")
+        .eq("id", parentEpisodeIdRaw)
+        .eq("feed_series_id", fileSeriesId)
+        .eq("owner_id", userId)
+        .maybeSingle();
+      if (pErr || !parentEp) {
+        return toJson({ error: "Parent episode not found in that series" }, 404);
+      }
+      resolvedParentEpisodeId = parentEpisodeIdRaw;
+    }
+    const insertEp: Record<string, unknown> = {
+      feed_series_id: fileSeriesId,
+      owner_id: userId,
+      episode_name: newEpisodeName,
+    };
+    if (resolvedParentEpisodeId) {
+      insertEp.parent_episode_id = resolvedParentEpisodeId;
+    }
     const { data: epNew, error: epInsErr } = await db
       .from("files_series_episodes")
-      .insert({
-        feed_series_id: fileSeriesId,
-        owner_id: userId,
-        episode_name: newEpisodeName,
-      })
+      .insert(insertEp)
       .select("id")
       .single();
     if (epInsErr || !epNew?.id) {

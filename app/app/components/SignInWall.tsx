@@ -64,7 +64,7 @@ export function SignInDialog({
 }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-sm gap-5">
+      <DialogContent className="flex w-[calc(100vw-1.5rem)] max-w-md flex-col gap-5 overflow-hidden">
         <DialogHeader className="items-center text-center gap-3">
           <div className="inline-flex h-14 w-14 items-center justify-center rounded-2xl bg-muted text-primary">
             <LogIn className="h-7 w-7" strokeWidth={1.75} />

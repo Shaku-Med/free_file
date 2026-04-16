@@ -107,6 +107,7 @@ type completeBody struct {
 	FileSeriesEpisodeID string `json:"file_series_episode_id"`
 	IsNewSeries         *bool  `json:"is_new_series"`
 	NewEpisodeName      string `json:"new_episode_name"`
+	ParentEpisodeID     string `json:"parent_episode_id"`
 }
 
 func validateFileSeriesComplete(b completeBody) error {
@@ -183,18 +184,21 @@ func (h *Handler) completeUpload(c *fiber.Ctx) error {
 	fileSeriesID := strings.TrimSpace(seriesBody.FileSeriesID)
 	fileSeriesEpisodeID := strings.TrimSpace(seriesBody.FileSeriesEpisodeID)
 	newEpisodeName := strings.TrimSpace(seriesBody.NewEpisodeName)
+	parentEpisodeID := strings.TrimSpace(seriesBody.ParentEpisodeID)
 	if isNewSeries {
 		fileSeriesID = ""
 		fileSeriesEpisodeID = ""
+		parentEpisodeID = ""
 	} else if fileSeriesEpisodeID != "" {
 		newEpisodeName = ""
+		parentEpisodeID = ""
 	}
 
 	meta, err := h.manager.CompleteUpload(userID, uploadID)
 	if err != nil {
 		return badRequest(c, err.Error())
 	}
-	jobID, err := h.queue.Enqueue(context.Background(), meta.UserID, meta.UploadID, meta.FileName, meta.FileSize, meta.TotalChunks, title, description, userCategories, userTags, defaultThumbnail, fileSeriesID, fileSeriesEpisodeID, isNewSeries, newEpisodeName)
+	jobID, err := h.queue.Enqueue(context.Background(), meta.UserID, meta.UploadID, meta.FileName, meta.FileSize, meta.TotalChunks, title, description, userCategories, userTags, defaultThumbnail, fileSeriesID, fileSeriesEpisodeID, isNewSeries, newEpisodeName, parentEpisodeID)
 	if err != nil {
 		if h.log != nil {
 			h.log.Errorf("queue_error user=%s upload=%s err=%s", userID, uploadID, err.Error())
@@ -219,6 +223,7 @@ func (h *Handler) completeUpload(c *fiber.Ctx) error {
 		FileSeriesEpisodeID: fileSeriesEpisodeID,
 		IsNewSeries:         isNewSeries,
 		NewEpisodeName:      newEpisodeName,
+		ParentEpisodeID:     parentEpisodeID,
 		GitHubRepo:          strings.TrimSpace(env.Get("GITHUB_REPO", "")),
 	})
 	if h.log != nil {
