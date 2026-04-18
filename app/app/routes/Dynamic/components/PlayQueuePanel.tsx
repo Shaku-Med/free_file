@@ -22,11 +22,12 @@ function QueueDropAppend() {
     <div
       ref={setNodeRef}
       className={cn(
-        "flex h-8 shrink-0 items-center justify-center rounded-md border border-dashed text-[11px] text-muted-foreground transition-colors",
+        "flex min-h-8 shrink-0 items-center justify-center rounded-md border border-dashed px-1 text-[10px] leading-tight text-muted-foreground transition-colors sm:text-[11px]",
         isOver ? "border-primary bg-primary/10 text-primary" : "border-transparent bg-muted/30"
       )}
     >
-      Drop here for end of queue
+      <span className="sm:hidden">Drop at end</span>
+      <span className="hidden sm:inline">Drop here for end of queue</span>
     </div>
   );
 }
@@ -142,7 +143,7 @@ function GuestPlayQueueLocked({
       {defaultQueue.length === 0 ? (
         <div className="px-3 py-4 text-center text-xs text-muted-foreground">Nothing queued yet.</div>
       ) : (
-        <ul className="max-h-[min(40vh,280px)] divide-y divide-border/50 overflow-y-auto overscroll-contain opacity-80">
+        <ul className="max-h-[min(36dvh,240px)] divide-y divide-border/50 overflow-y-auto overscroll-contain opacity-80 sm:max-h-[min(40vh,280px)]">
           {defaultQueue.map((video, index) => (
             <li key={video.id} className="py-1">
               <VideoCard
@@ -252,7 +253,7 @@ export function PlayQueuePanel({ currentUserId: currentUserIdProp, userActions }
           </Button>
         ) : null}
       </div>
-      <div className="flex max-h-[min(40vh,280px)] flex-col overflow-hidden">
+      <div className="flex max-h-[min(36dvh,240px)] flex-col overflow-hidden sm:max-h-[min(40vh,280px)]">
         <SortableContext items={sortableIds} strategy={verticalListSortingStrategy}>
           <ul className="overflow-y-auto overscroll-contain px-1">
             {queue.map((video, index) => (

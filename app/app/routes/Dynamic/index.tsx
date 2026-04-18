@@ -16,9 +16,9 @@ import {
 import { BASE_URL } from "~/lib/URLS";
 import { buildPageMeta } from "~/lib/seo";
 import ImageLoad from "../Home/components/ImageLoad/ImageLoad";
-import { ParseFilename, getVideoSrc, getThumbnailUrl, getThumbnailPreviewApiPaths } from "~/lib/utils";
+import { ParseFilename, getVideoSrc, getThumbnailUrl, getThumbnailPreviewApiPaths, cn } from "~/lib/utils";
 import { motion } from "framer-motion";
-import { ChevronDown } from "lucide-react";
+import { ChevronDown, MessageCircle } from "lucide-react";
 import { Button } from "~/components/ui/button";
 import { useSidebar } from "~/components/ui/sidebar";
 import { useStandalone } from "~/lib/hooks/useStandalone";
@@ -43,6 +43,7 @@ import { usePageCache } from "~/lib/hooks/usePageCache";
 import CanvasGradient from "~/components/accessories/CanvasGradient/CanvasGradient";
 import Ambience from "~/components/accessories/CanvasGradient/Ambience";
 import { useFileContext } from "~/lib/Context/Context";
+import { isMobile as isMobileDevice } from "react-device-detect";
 import { useMiniPlayerContext } from "~/lib/Context/MiniPlayerContext";
 import { formatTimeAgo } from "~/lib/formatTimeAgo";
 import LiquidAmbientGradient from "./components/LiquidAmbientGradient";
@@ -837,7 +838,11 @@ const index = () => {
   const [disliked, setDisliked] = useState(data.userDisliked || false)
   const [likeCount, setLikeCount] = useState(Number(data.likeCount) || 0)
   const [dislikeCount, setDislikeCount] = useState(Number(data.dislikeCount) || 0)
-  const {isMobile, state} = useSidebar();
+  const { isMobile: isSidebarMobile, state } = useSidebar();
+  const [mobileCommentsOpen, setMobileCommentsOpen] = useState(false);
+  useEffect(() => {
+    setMobileCommentsOpen(false);
+  }, [currentId, file_data?.id]);
   const isStandalone = useStandalone();
   
 
@@ -1131,7 +1136,7 @@ const index = () => {
       };
 
   const contentColumn = (
-    <div className="space-y-4 z-[10000] relative rounded-lg overflow-hidden p-4">
+    <div className="relative z-[10000] space-y-4 max-lg:overflow-visible max-lg:rounded-none max-lg:px-2 max-lg:py-0 lg:overflow-hidden lg:rounded-lg lg:p-4">
       {/* <div className="dim_top bg-muted/20 absolute top-0 left-0 w-full h-full z-[1]" /> */}
       <LiquidAmbientGradient colors={file_data.colors} />
       <h1 className="text-xl font-bold text-foreground leading-tight select-text z-[10000]">
@@ -1186,9 +1191,14 @@ const index = () => {
         currentTime={isHLS ? (videoElementRef.current?.currentTime ?? 0) : undefined}
         currentUserId={userId}
         isAdult={file_data.is_adult}
+        fileOwnerId={file_data.owner_id || undefined}
+        commentsEnabled={file_data.comments_enabled !== false}
+        highlightCommentId={highlightCommentId}
+        commentsOpen={isMobileDevice ? mobileCommentsOpen : undefined}
+        onCommentsOpenChange={isMobileDevice ? setMobileCommentsOpen : undefined}
       />
 
-      <div className="rounded-xl overflow-hidden">
+      <div className="overflow-hidden rounded-xl max-lg:rounded-none">
         <div className="flex flex-wrap items-center justify-between gap-2 text-sm text-muted-foreground pt-3 pb-1">
           <span className="font-medium text-foreground">{formatNumber(views)} views</span>
           {file_data.created_at ? (
@@ -1281,23 +1291,44 @@ const index = () => {
         )}
       </div>
 
-      <div id="comments" className="scroll-mt-24">
-        <CommentSection
-          key={`comments-${file_data.id}-${currentId}-${highlightCommentId ?? ""}`}
-          fileId={file_data.id}
-          currentUserId={userId || undefined}
-          fileOwnerId={file_data.owner_id || undefined}
-          commentsEnabled={file_data.comments_enabled !== false}
-          highlightCommentId={highlightCommentId}
-        />
-      </div>
+      {isMobileDevice ? (
+        <div id="comments" className="scroll-mt-20">
+          {file_data.comments_enabled === false ? (
+            <p className="rounded-md border border-border/70 bg-muted/15 px-2.5 py-2 text-xs text-muted-foreground">
+              Comments are turned off for this upload.
+            </p>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setMobileCommentsOpen(true)}
+              className="flex w-full items-center gap-2 rounded-md border border-border/80 bg-muted/25 px-2.5 py-2 text-left text-sm text-foreground transition-colors hover:bg-muted/40 active:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background"
+              aria-expanded={mobileCommentsOpen}
+              aria-controls="watch-comments-drawer"
+            >
+              <MessageCircle className="size-4 shrink-0 opacity-80" aria-hidden />
+              <span className="min-w-0 flex-1 text-muted-foreground">Add a comment</span>
+            </button>
+          )}
+        </div>
+      ) : (
+        <div id="comments" className="scroll-mt-24">
+          <CommentSection
+            key={`comments-${file_data.id}-${currentId}-${highlightCommentId ?? ""}`}
+            fileId={file_data.id}
+            currentUserId={userId || undefined}
+            fileOwnerId={file_data.owner_id || undefined}
+            commentsEnabled={file_data.comments_enabled !== false}
+            highlightCommentId={highlightCommentId}
+          />
+        </div>
+      )}
     </div>
   );
 
   /** Below video, above content column on small screens only; lg+ uses sidebar (hidden here). */
   const seriesAboveContentMobile =
     data.seriesEpisodes && data.seriesEpisodes.length > 0 ? (
-      <div className="z-[100000] lg:hidden -mt-1 mb-2">
+      <div className="z-[100000] -mt-1 mb-2 min-w-0 lg:hidden">
         {userId ? (
           <SeriesEpisodesSection
             episodes={data.seriesEpisodes}
@@ -1312,10 +1343,10 @@ const index = () => {
     ) : null;
 
   const relatedColumn = (
-    <div className="lg:col-span-1">
-      <div className="sticky top-6">
+    <aside className="min-w-0 lg:col-span-1">
+      <div className="space-y-4 lg:sticky lg:top-6">
         {data.seriesEpisodes && data.seriesEpisodes.length > 0 && (
-          <div className="mb-6 hidden lg:block">
+          <div className="hidden lg:block">
             {userId ? (
               <SeriesEpisodesSection
                 episodes={data.seriesEpisodes}
@@ -1328,18 +1359,20 @@ const index = () => {
             )}
           </div>
         )}
-        <RelatedVideos
-          key={`related-${file_data.unique_id}-${currentId}`}
-          videos={relatedVideos} 
-          currentVideoId={file_data.unique_id}
-          currentVideoDbId={file_data.id}
-          ownerId={file_data.owner_id}
-          currentUserId={userId || undefined}
-          currentFileType={file_data.file_type}
-          userActions={mergedSidebarUserActions}
-        />
+        <div className="min-w-0 rounded-lg border border-border/40 bg-card/30 p-2 sm:p-3 lg:border-0 lg:bg-transparent lg:p-0">
+          <RelatedVideos
+            key={`related-${file_data.unique_id}-${currentId}`}
+            videos={relatedVideos}
+            currentVideoId={file_data.unique_id}
+            currentVideoDbId={file_data.id}
+            ownerId={file_data.owner_id}
+            currentUserId={userId || undefined}
+            currentFileType={file_data.file_type}
+            userActions={mergedSidebarUserActions}
+          />
+        </div>
       </div>
-    </div>
+    </aside>
   );
 
   return (
@@ -1354,15 +1387,22 @@ const index = () => {
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
       />
-      <div className={`relative z-10 mx-auto max-w-full `}>
-        <div className={`${!theaterMode ? `grid grid-cols-1 lg:grid-cols-3 gap-6` : ``}`}>
-          <div className={`${!theaterMode ? `lg:col-span-2 space-y-4` : ``}`}>
-            <div className={`relative`}>
+      <div className="relative z-10 mx-auto max-w-full">
+        <div className={!theaterMode ? "grid grid-cols-1 gap-4 sm:gap-5 lg:grid-cols-3 lg:gap-6 xl:gap-8" : ""}>
+          <div className={!theaterMode ? "min-w-0 space-y-3 sm:space-y-4 lg:col-span-2" : ""}>
+            <div
+              className={cn(
+                "relative w-full",
+                isMobileDevice &&
+                  !theaterMode &&
+                  "sticky top-[calc(env(safe-area-inset-top,0px)+4rem)] z-[99999990] self-start bg-background",
+              )}
+            >
               {videoBlock}
               {ambientEnabled && (
                 <div className="ambience-wrap z-[-1] absolute scale-[1.35] w-full min-w-screen h-full inset-0 pointer-events-none overflow-hidden rounded-lg">
                   {
-                    isMobile && (
+                    isSidebarMobile && (
                       <>
                         <div className="mobile_blur_overlay absolute inset-x-0 bottom-0 h-full z-[10] bg-gradient-to-t from-background/95 via-background/60 to-transparent" />
                       </>
@@ -1375,7 +1415,7 @@ const index = () => {
                   <div
                     className="gradient-overlay absolute inset-0  pointer-events-none"
                     style={{
-                      background: state !== 'expanded' || isMobile
+                      background: state !== 'expanded' || isSidebarMobile
                         ? `linear-gradient(to bottom, var(--background) 0%, transparent 12%, transparent 88%, var(--background) 100%)`
                         : `radial-gradient(ellipse 100% 100% at 50% 50%, transparent 10%, var(--card) 50%, var(--card) 100%)`
                     }}
@@ -1388,7 +1428,7 @@ const index = () => {
 
             {
               !theaterMode && (
-                <div className="z-[100000]">
+                <div className="z-[100000] max-lg:rounded-none max-lg:p-0">
                   {contentColumn}
                 </div>
               )
@@ -1398,15 +1438,17 @@ const index = () => {
             !theaterMode ? 
             relatedColumn :
             (
-              <div className="mx-auto py-4 px-2 z-[100000]">
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                <div className="lg:col-span-2 space-y-4">
-                  {seriesAboveContentMobile}
-                  {contentColumn}
+              <div className="z-[100000] mx-auto max-lg:px-0 px-2 py-4">
+                <div className="grid grid-cols-1 gap-4 sm:gap-5 lg:grid-cols-3 lg:gap-6 xl:gap-8">
+                  <div className="min-w-0 max-lg:rounded-none max-lg:p-0 space-y-3 sm:space-y-4 lg:col-span-2">
+                    {seriesAboveContentMobile}
+                    <div className="max-lg:rounded-none max-lg:p-0">
+                      {contentColumn}
+                    </div>
+                  </div>
+                  {relatedColumn}
                 </div>
-                {relatedColumn}
               </div>
-            </div>
             )
           }
         </div>

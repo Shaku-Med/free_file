@@ -40,9 +40,6 @@ import {
 const SPEEDS = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2];
 const SLEEP_OPTIONS = ['Off', '5 min', '10 min', '15 min', '30 min', '45 min', '1 hour', 'End of video'];
 
-const menuWidthClass = 'min-w-[260px]';
-const subMenuWidth = 'min-w-[200px]';
-
 function Switch({
   checked,
   onChange,
@@ -80,6 +77,10 @@ function Switch({
 }
 
 function SettingsMenuBody() {
+  const subMenuWidth = cn(
+    'max-h-[min(50dvh,var(--radix-dropdown-menu-content-available-height))] overflow-y-auto overscroll-contain',
+    isMobile ? 'min-w-0 w-[min(18rem,calc(100vw-2rem))]' : 'min-w-[200px]',
+  );
   const {
     state,
     setPlaybackRate,
@@ -107,12 +108,13 @@ function SettingsMenuBody() {
   const qualityLabel =
     state.currentLevel === -1 ? 'Auto' : `${state.levels[state.currentLevel]?.height ?? '?'}p`;
 
-  const toggleRowClass = 'flex cursor-default items-center justify-between gap-4 rounded-lg';
+  const toggleRowClass =
+    'flex w-full min-w-0 cursor-default items-center justify-between gap-3 rounded-lg py-0.5';
 
   return (
     <>
       {!auth && (
-        <div className="mx-2 mb-2 rounded-md border border-border/60 bg-muted/40 px-3 py-2 text-xs leading-snug text-muted-foreground">
+        <div className="mx-1 mb-2 rounded-md border border-border/60 bg-muted/40 px-2.5 py-2 text-xs leading-snug text-muted-foreground sm:mx-2 sm:px-3">
           <Link to="/auth/login" className="font-medium text-primary hover:underline">
             Sign in
           </Link>{' '}
@@ -127,15 +129,15 @@ function SettingsMenuBody() {
               onSelect={(e) => e.preventDefault()}
               className={cn(toggleRowClass, !auth && 'opacity-60')}
             >
-              <span className="flex items-center gap-2">
-                <PlayCircle className="text-muted-foreground" />
-                Autoplay
+              <span className="flex min-w-0 flex-1 items-center gap-2">
+                <PlayCircle className="size-4 shrink-0 text-muted-foreground" />
+                <span className="min-w-0 truncate">Autoplay</span>
               </span>
               <Switch checked={autoPlay} onChange={setAutoPlay} disabled={!auth} />
             </DropdownMenuItem>
           </TooltipTrigger>
           {!auth && (
-            <TooltipContent side="left" className="max-w-[220px]">
+            <TooltipContent side={isMobile ? 'top' : 'left'} className="max-w-[220px]">
               Sign in to enable automatic playback of the next video.
             </TooltipContent>
           )}
@@ -144,9 +146,9 @@ function SettingsMenuBody() {
           onSelect={(e) => e.preventDefault()}
           className={toggleRowClass}
         >
-          <span className="flex items-center gap-2">
-            <Repeat className="text-muted-foreground" />
-            Loop
+          <span className="flex min-w-0 flex-1 items-center gap-2">
+            <Repeat className="size-4 shrink-0 text-muted-foreground" />
+            <span className="min-w-0 truncate">Loop</span>
           </span>
           <Switch checked={loop} onChange={setLoop} />
         </DropdownMenuItem>
@@ -154,9 +156,9 @@ function SettingsMenuBody() {
           onSelect={(e) => e.preventDefault()}
           className={toggleRowClass}
         >
-          <span className="flex items-center gap-2">
-            <BarChart3 className="text-muted-foreground" />
-            Stable volume
+          <span className="flex min-w-0 flex-1 items-center gap-2">
+            <BarChart3 className="size-4 shrink-0 text-muted-foreground" />
+            <span className="min-w-0 truncate">Stable volume</span>
           </span>
           <Switch checked={stableVolume} onChange={setStableVolume} />
         </DropdownMenuItem>
@@ -172,15 +174,15 @@ function SettingsMenuBody() {
               onSelect={(e) => e.preventDefault()}
               className={cn(toggleRowClass, !auth && 'opacity-60')}
             >
-              <span className="flex items-center gap-2">
-                <Monitor className="text-muted-foreground" />
-                Ambient mode
+              <span className="flex min-w-0 flex-1 items-center gap-2">
+                <Monitor className="size-4 shrink-0 text-muted-foreground" />
+                <span className="min-w-0 truncate">Ambient mode</span>
               </span>
               <Switch checked={ambientMode} onChange={setAmbientMode} disabled={!auth} />
             </DropdownMenuItem>
           </TooltipTrigger>
           {!auth && (
-            <TooltipContent side="left" className="max-w-[220px]">
+            <TooltipContent side={isMobile ? 'top' : 'left'} className="max-w-[220px]">
               Sign in to enable ambient lighting around the player.
             </TooltipContent>
           )}
@@ -192,9 +194,9 @@ function SettingsMenuBody() {
                 onSelect={(e) => e.preventDefault()}
                 className={cn(toggleRowClass, !auth && 'opacity-60')}
               >
-                <span className="flex items-center gap-2">
-                  <AudioWaveform className="text-muted-foreground" />
-                  Audio visualizer
+                <span className="flex min-w-0 flex-1 items-center gap-2">
+                  <AudioWaveform className="size-4 shrink-0 text-muted-foreground" />
+                  <span className="min-w-0 truncate">Audio visualizer</span>
                 </span>
                 <Switch
                   checked={audioVisualizer}
@@ -204,7 +206,7 @@ function SettingsMenuBody() {
               </DropdownMenuItem>
             </TooltipTrigger>
             {!auth && (
-              <TooltipContent side="left" className="max-w-[220px]">
+              <TooltipContent side={isMobile ? 'top' : 'left'} className="max-w-[220px]">
                 Sign in to use the audio visualizer.
               </TooltipContent>
             )}
@@ -214,9 +216,9 @@ function SettingsMenuBody() {
           onSelect={(e) => e.preventDefault()}
           className={toggleRowClass}
         >
-          <span className="flex items-center gap-2">
-            <Braces className="text-muted-foreground" />
-            Stats for nerds
+          <span className="flex min-w-0 flex-1 items-center gap-2">
+            <Braces className="size-4 shrink-0 text-muted-foreground" />
+            <span className="min-w-0 truncate">Stats for nerds</span>
           </span>
           <Switch checked={statsForNerds} onChange={setStatsForNerds} />
         </DropdownMenuItem>
@@ -228,14 +230,16 @@ function SettingsMenuBody() {
           <DropdownMenuGroup>
             <DropdownMenuLabel>Visualizer</DropdownMenuLabel>
             <DropdownMenuSub>
-              <DropdownMenuSubTrigger className="gap-2">
-                <Waves className="text-muted-foreground" />
-                Style
-                <span className="ml-auto text-xs font-normal text-muted-foreground">
+              <DropdownMenuSubTrigger className="w-full min-w-0 gap-2 pr-1">
+                <span className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden">
+                  <Waves className="size-4 shrink-0 text-muted-foreground" />
+                  <span className="min-w-0 truncate">Style</span>
+                </span>
+                <span className="shrink-0 pl-1 text-right text-xs font-normal tabular-nums text-muted-foreground">
                   {AUDIO_VISUALIZER_STYLE_LABELS[audioVisualizerStyle]}
                 </span>
               </DropdownMenuSubTrigger>
-              <DropdownMenuSubContent className={subMenuWidth}>
+              <DropdownMenuSubContent className={subMenuWidth} collisionPadding={12}>
                 <DropdownMenuRadioGroup
                   value={audioVisualizerStyle}
                   onValueChange={(v) =>
@@ -259,12 +263,16 @@ function SettingsMenuBody() {
       <DropdownMenuGroup>
         <DropdownMenuLabel>Timers and media</DropdownMenuLabel>
         <DropdownMenuSub>
-          <DropdownMenuSubTrigger className="gap-2">
-            <Moon className="text-muted-foreground" />
-            Sleep timer
-            <span className="ml-auto text-xs font-normal text-muted-foreground">{sleepTimer}</span>
+          <DropdownMenuSubTrigger className="w-full min-w-0 gap-2 pr-1">
+            <span className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden">
+              <Moon className="size-4 shrink-0 text-muted-foreground" />
+              <span className="min-w-0 truncate">Sleep timer</span>
+            </span>
+            <span className="shrink-0 pl-1 text-right text-xs font-normal tabular-nums text-muted-foreground">
+              {sleepTimer}
+            </span>
           </DropdownMenuSubTrigger>
-          <DropdownMenuSubContent className="min-w-[180px]">
+          <DropdownMenuSubContent className={cn(subMenuWidth, 'min-w-[180px]')} collisionPadding={12}>
             {SLEEP_OPTIONS.map((opt) => (
               <DropdownMenuItem
                 key={opt}
@@ -278,12 +286,16 @@ function SettingsMenuBody() {
         </DropdownMenuSub>
 
         <DropdownMenuSub>
-          <DropdownMenuSubTrigger className="gap-2">
-            <Gauge className="text-muted-foreground" />
-            Playback speed
-            <span className="ml-auto text-xs font-normal text-muted-foreground">{speedLabel}</span>
+          <DropdownMenuSubTrigger className="w-full min-w-0 gap-2 pr-1">
+            <span className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden">
+              <Gauge className="size-4 shrink-0 text-muted-foreground" />
+              <span className="min-w-0 truncate">Playback speed</span>
+            </span>
+            <span className="shrink-0 pl-1 text-right text-xs font-normal tabular-nums text-muted-foreground">
+              {speedLabel}
+            </span>
           </DropdownMenuSubTrigger>
-          <DropdownMenuSubContent className="min-w-[160px]">
+          <DropdownMenuSubContent className={cn(subMenuWidth, 'min-w-[160px]')} collisionPadding={12}>
             {SPEEDS.map((s) => (
               <DropdownMenuItem
                 key={s}
@@ -298,12 +310,16 @@ function SettingsMenuBody() {
 
         {state.levels.length > 1 && (
           <DropdownMenuSub>
-            <DropdownMenuSubTrigger className="gap-2">
-              <Signal className="text-muted-foreground" />
-              Quality
-              <span className="ml-auto text-xs font-normal text-muted-foreground">{qualityLabel}</span>
+            <DropdownMenuSubTrigger className="w-full min-w-0 gap-2 pr-1">
+              <span className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden">
+                <Signal className="size-4 shrink-0 text-muted-foreground" />
+                <span className="min-w-0 truncate">Quality</span>
+              </span>
+              <span className="shrink-0 pl-1 text-right text-xs font-normal tabular-nums text-muted-foreground">
+                {qualityLabel}
+              </span>
             </DropdownMenuSubTrigger>
-            <DropdownMenuSubContent className="min-w-[160px]">
+            <DropdownMenuSubContent className={cn(subMenuWidth, 'min-w-[160px]')} collisionPadding={12}>
               <DropdownMenuItem
                 onClick={() => setQualityLevel(-1)}
                 className={cn(state.currentLevel === -1 ? 'font-medium text-primary' : undefined)}
@@ -331,13 +347,19 @@ function SettingsMenuBody() {
 }
 
 interface SettingsMenuProps {
-  /** Inside overflow “More” panel: non-modal so nested menus work. */
   nested?: boolean;
   panelRef?: RefObject<HTMLDivElement | null>;
   onOpenChange?: (open: boolean) => void;
+  overlayTrigger?: boolean;
+  pillBarTrigger?: boolean;
 }
 
-export default function SettingsMenu({ nested, panelRef, onOpenChange }: SettingsMenuProps) {
+export default function SettingsMenu({ nested, panelRef, onOpenChange, overlayTrigger, pillBarTrigger }: SettingsMenuProps) {
+  const menuWidthClass = cn(
+    'max-h-[min(72dvh,var(--radix-dropdown-menu-content-available-height))]',
+    isMobile ? 'min-w-0 w-[calc(100vw-1.25rem)]' : 'min-w-[260px] max-w-[min(320px,calc(100vw-2rem))]',
+  );
+
   if (nested) {
     return (
       <DropdownMenu modal={false}>
@@ -355,9 +377,10 @@ export default function SettingsMenu({ nested, panelRef, onOpenChange }: Setting
         </DropdownMenuTrigger>
         <DropdownMenuContent
           ref={panelRef}
-          side="right"
+          side={isMobile ? 'bottom' : 'right'}
           align="start"
-          sideOffset={10}
+          sideOffset={isMobile ? 8 : 10}
+          collisionPadding={12}
           className={menuWidthClass}
         >
           <SettingsMenuBody />
@@ -371,10 +394,25 @@ export default function SettingsMenu({ nested, panelRef, onOpenChange }: Setting
       <DropdownMenuTrigger asChild>
         <button
           type="button"
-          className="rounded-md p-1.5 text-foreground transition-colors hover:bg-accent data-[state=open]:[&_svg]:rotate-45"
+          onClick={(e) => {
+            if (overlayTrigger || pillBarTrigger) e.stopPropagation();
+          }}
+          className={
+            overlayTrigger
+              ? 'flex h-9 w-9 items-center justify-center rounded-lg border border-white/20 bg-black/50 text-white shadow-sm backdrop-blur-sm outline-none hover:bg-black/60 data-[state=open]:bg-black/60 data-[state=open]:[&_svg]:rotate-45'
+              : pillBarTrigger
+                ? 'rounded-lg p-2 text-white outline-none transition-colors hover:bg-white/10 data-[state=open]:bg-white/15 data-[state=open]:[&_svg]:rotate-45'
+                : 'rounded-md p-1.5 text-foreground transition-colors hover:bg-accent data-[state=open]:[&_svg]:rotate-45'
+          }
           aria-label="Settings"
         >
-          <Settings className="h-5 w-5 transition-transform duration-300" />
+          <Settings
+            className={
+              overlayTrigger || pillBarTrigger
+                ? 'h-5 w-5 text-white transition-transform duration-300'
+                : 'h-5 w-5 transition-transform duration-300'
+            }
+          />
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent
@@ -382,6 +420,7 @@ export default function SettingsMenu({ nested, panelRef, onOpenChange }: Setting
         side="top"
         align="end"
         sideOffset={8}
+        collisionPadding={12}
         className={menuWidthClass}
       >
         <SettingsMenuBody />

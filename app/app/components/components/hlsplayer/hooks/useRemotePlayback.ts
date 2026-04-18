@@ -82,7 +82,7 @@ export function useRemotePlayback(videoRef: React.RefObject<HTMLVideoElement | n
       const handleAvailability = (event: any) => {
         const available = event.availability === 'available';
         isAirPlayRef.current = available;
-        setIsAvailable(available);
+        if (available) setIsAvailable(true);
       };
 
       const handleWirelessChanged = () => {

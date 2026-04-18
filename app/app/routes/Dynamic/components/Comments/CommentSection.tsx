@@ -313,7 +313,7 @@ const CommentSection = ({
 
   return (
     <div className={cn("space-y-4", className)}>
-      <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between sm:gap-2">
+      {/* <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between sm:gap-2">
         <div className="flex items-center gap-2">
           <MessageSquare className="h-5 w-5 text-foreground" />
           <h2 className="text-lg font-semibold text-foreground">
@@ -325,9 +325,9 @@ const CommentSection = ({
             Highlighting the comment from your notification.
           </p>
         )}
-      </div>
+      </div> */}
 
-      <Separator />
+      {/* <Separator /> */}
 
       {!commentsEnabled && currentUserId && (
         <div className="bg-muted/40 rounded-lg border border-border/50 px-3 py-2.5 text-center">

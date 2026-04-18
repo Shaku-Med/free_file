@@ -15,15 +15,17 @@ export type ControlName =
 /** When true, the control is hidden */
 export type HideControls = Partial<Record<ControlName, boolean>>;
 
-/** Hide all controls except the seek bar (for mini player) */
-export const HIDE_ALL_EXCEPT_SEEK: HideControls = {
-  playPause: true,
+/**
+ * Mini player overlay: only play/pause and AirPlay (cast).
+ * Seek bar and skip buttons are hidden.
+ */
+export const MINI_PLAYER_HIDE_CONTROLS: HideControls = {
+  seek: true,
   next: true,
   volume: true,
   time: true,
   subtitles: true,
   miniPlayer: true,
-  cast: true,
   fullscreen: true,
   settings: true,
   theater: true,

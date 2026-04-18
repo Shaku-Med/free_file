@@ -3,7 +3,6 @@ import { createPortal } from 'react-dom';
 import type { FileType } from '~/lib/types';
 import { PlayerProvider, usePlayerContext, type ThumbnailSpriteMeta } from './PlayerContext';
 import type { HideControls } from './types';
-import { HIDE_ALL_EXCEPT_SEEK } from './types';
 import SeekBar from './controls/seek/SeekBar';
 import PersistentBottomVisualizer from './controls/seek/PersistentBottomVisualizer';
 import AudioVisualizerBars from './controls/seek/AudioVisualizerBars';
@@ -20,7 +19,7 @@ import EndScreen from './controls/endscreen/EndScreen';
 import BufferingSpinner from './overlays/BufferingSpinner';
 import ErrorOverlay from './overlays/ErrorOverlay';
 import AutoplayPrompt from './overlays/AutoplayPrompt';
-import PipOverlay from './overlays/PipOverlay';
+// import PipOverlay from './overlays/PipOverlay';
 import PlayPauseFeedback from './overlays/PlayPauseFeedback';
 import SeekFeedback from './overlays/SeekFeedback';
 import PosterBackground from './overlays/PosterBackground';
@@ -198,6 +197,7 @@ function PlayerInner({
 
   const triggerPlayPauseFeedback = useCallback(() => {
     if (isReelCtx) return;
+    if (isMobile) return;
     setFeedbackIconPlaying(!state.isPlaying);
     setShowPlayPauseFeedback(true);
     setFeedbackFading(false);
@@ -327,6 +327,7 @@ function PlayerInner({
 
   const handleVideoClick = useCallback(() => {
     if (isReelCtx) return;
+    if (isMobile) return;
     if (Date.now() - lastDoubleTapTimeRef.current < 300) return;
     togglePlay();
     triggerPlayPauseFeedback();
@@ -502,9 +503,9 @@ function PlayerInner({
 
         {showLoadingOverlay && <BufferingSpinner />}
 
-        <PipOverlay />
+        {/* <PipOverlay /> */}
 
-        {showPlayPauseFeedback && !showSeekFeedback && !isReelCtx && (
+        {showPlayPauseFeedback && !showSeekFeedback && !isReelCtx && !isMobile && (
           <PlayPauseFeedback isPlaying={feedbackIconPlaying} fading={feedbackFading} />
         )}
 
@@ -575,6 +576,7 @@ function PlayerInner({
               onTheaterModeChange={isMobileView ? undefined : handleTheaterModeChange}
               hideControls={hideControls}
               liftBottomPx={showAudioVisualizer ? visualizerLiftPx : 0}
+              isMobileLayout={isMobileView}
             />
           </div>
         )}

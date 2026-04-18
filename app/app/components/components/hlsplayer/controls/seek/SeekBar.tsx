@@ -4,8 +4,10 @@ import { usePlayerContext } from '../../PlayerContext';
 import type { BufferedRange } from '../../PlayerContext';
 import ThumbnailPreview from './ThumbnailPreview';
 import { formatTime } from './functions/formatTime';
+import { cn } from '~/lib/utils';
 
 const WAVEFORM_STRIP_HEIGHT = 40;
+const PULL_REVEAL_PX = 96;
 
 function BufferSegments({ ranges, duration, className }: {
   ranges: BufferedRange[];
@@ -30,7 +32,10 @@ function BufferSegments({ ranges, duration, className }: {
   );
 }
 
-function useVideoProgress(videoRef: React.RefObject<HTMLVideoElement | null>) {
+function useVideoProgress(
+  videoRef: React.RefObject<HTMLVideoElement | null>,
+  handleInsetPx: number
+) {
   const progressRef = useRef(0);
   const durationRef = useRef(0);
   const barRef = useRef<HTMLDivElement>(null);
@@ -43,6 +48,7 @@ function useVideoProgress(videoRef: React.RefObject<HTMLVideoElement | null>) {
 
     let rafId = 0;
     let running = false;
+    const inset = handleInsetPx;
 
     const update = () => {
       if (!running) return;
@@ -52,7 +58,7 @@ function useVideoProgress(videoRef: React.RefObject<HTMLVideoElement | null>) {
         progressRef.current = pct;
         durationRef.current = v.duration;
         if (barRef.current) barRef.current.style.width = `${pct}%`;
-        if (handleRef.current) handleRef.current.style.left = `calc(${pct}% - 6px)`;
+        if (handleRef.current) handleRef.current.style.left = `calc(${pct}% - ${inset}px)`;
         if (timeRef.current) timeRef.current.textContent = formatTime(v.currentTime);
       }
       rafId = requestAnimationFrame(update);
@@ -75,7 +81,7 @@ function useVideoProgress(videoRef: React.RefObject<HTMLVideoElement | null>) {
         const pct = (v.currentTime / v.duration) * 100;
         progressRef.current = pct;
         if (barRef.current) barRef.current.style.width = `${pct}%`;
-        if (handleRef.current) handleRef.current.style.left = `calc(${pct}% - 6px)`;
+        if (handleRef.current) handleRef.current.style.left = `calc(${pct}% - ${inset}px)`;
       }
     };
 
@@ -85,7 +91,7 @@ function useVideoProgress(videoRef: React.RefObject<HTMLVideoElement | null>) {
         const pct = (v.currentTime / v.duration) * 100;
         progressRef.current = pct;
         if (barRef.current) barRef.current.style.width = `${pct}%`;
-        if (handleRef.current) handleRef.current.style.left = `calc(${pct}% - 6px)`;
+        if (handleRef.current) handleRef.current.style.left = `calc(${pct}% - ${inset}px)`;
       }
     };
 
@@ -104,12 +110,112 @@ function useVideoProgress(videoRef: React.RefObject<HTMLVideoElement | null>) {
       video.removeEventListener('ended', stop);
       video.removeEventListener('seeked', onSeeked);
     };
-  }, [videoRef]);
+  }, [videoRef, handleInsetPx]);
 
   return { progressRef, durationRef, barRef, handleRef, timeRef };
 }
 
-export default function SeekBar() {
+function ThinSeekTrack({
+  trackRef,
+  progress,
+  bufferedRanges,
+  duration,
+  barRef,
+  handleRef,
+  showHandle,
+  mobileStyle,
+  handleInsetPx,
+  onPointerDown,
+  onPointerMove,
+  onPointerUp,
+  onMouseLeave,
+  onPointerLeave,
+  onLostPointerCapture,
+  onPointerCancel,
+}: {
+  trackRef: React.RefObject<HTMLDivElement | null>;
+  progress: number;
+  bufferedRanges: BufferedRange[];
+  duration: number;
+  barRef: React.RefObject<HTMLDivElement | null>;
+  handleRef: React.RefObject<HTMLDivElement | null>;
+  showHandle: boolean;
+  mobileStyle: boolean;
+  handleInsetPx: number;
+  onPointerDown: (e: React.PointerEvent) => void;
+  onPointerMove: (e: React.PointerEvent) => void;
+  onPointerUp: (e: React.PointerEvent) => void;
+  onMouseLeave: () => void;
+  onPointerLeave: () => void;
+  onLostPointerCapture: () => void;
+  onPointerCancel: () => void;
+}) {
+  const rail = (
+    <>
+      <BufferSegments
+        ranges={bufferedRanges}
+        duration={duration}
+        className="bg-white/25 rounded-full"
+      />
+      <div
+        ref={barRef}
+        className="absolute top-0 left-0 h-full rounded-full bg-primary"
+        style={{ width: `${progress}%` }}
+      />
+      <div
+        ref={handleRef}
+        className={cn(
+          'absolute top-1/2 h-3 w-3 -translate-y-1/2 rounded-full border-2 border-primary bg-background shadow-md',
+          mobileStyle ? 'opacity-100' : 'opacity-0 transition-opacity duration-150 group-hover/seek:opacity-100',
+          showHandle && 'opacity-100'
+        )}
+        style={{ left: `calc(${progress}% - ${handleInsetPx}px)` }}
+      />
+    </>
+  );
+
+  if (mobileStyle) {
+    return (
+      <div
+        ref={trackRef}
+        tabIndex={-1}
+        className="group/seek relative flex min-h-9 w-full cursor-pointer select-none items-center justify-center overflow-visible rounded-full bg-transparent outline-none"
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={onPointerUp}
+        onMouseLeave={onMouseLeave}
+        onPointerLeave={onPointerLeave}
+        onLostPointerCapture={onLostPointerCapture}
+        onPointerCancel={onPointerCancel}
+        onBlur={onMouseLeave}
+      >
+        <div className="relative h-[3px] w-full shrink-0 overflow-visible rounded-full bg-secondary">
+          {rail}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div
+      ref={trackRef}
+      tabIndex={-1}
+      className="group/seek relative h-[3px] min-h-[3px] w-full cursor-pointer select-none overflow-visible rounded-full bg-secondary outline-none transition-[height] duration-150 group-hover/seek:h-[6px]"
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={onPointerUp}
+      onMouseLeave={onMouseLeave}
+      onPointerLeave={onPointerLeave}
+      onLostPointerCapture={onLostPointerCapture}
+      onPointerCancel={onPointerCancel}
+      onBlur={onMouseLeave}
+    >
+      {rail}
+    </div>
+  );
+}
+
+export default function SeekBar({ mobileStyle = false }: { mobileStyle?: boolean }) {
   const {
     videoRef,
     state,
@@ -126,8 +232,53 @@ export default function SeekBar() {
   const [hoverX, setHoverX] = useState(0);
   const [trackWidth, setTrackWidth] = useState(0);
   const [waveformError, setWaveformError] = useState(false);
+  const [pullReveal, setPullReveal] = useState(0);
+  const pointerDownYRef = useRef(0);
+  const isDraggingRef = useRef(false);
 
-  const { barRef, handleRef, timeRef } = useVideoProgress(videoRef);
+  useEffect(() => {
+    isDraggingRef.current = isDragging;
+  }, [isDragging]);
+
+  useEffect(() => {
+    if (!state.controlsVisible) {
+      setPullReveal(0);
+      setHoverTime(null);
+      if (isDraggingRef.current) {
+        isDraggingRef.current = false;
+        setIsDragging(false);
+        endInteraction();
+      }
+    }
+  }, [state.controlsVisible, endInteraction]);
+
+  useEffect(() => {
+    const v = videoRef.current;
+    if (!v) return;
+    const onSeeked = () => {
+      if (isDraggingRef.current) return;
+      setPullReveal(0);
+    };
+    v.addEventListener('seeked', onSeeked);
+    return () => v.removeEventListener('seeked', onSeeked);
+  }, [videoRef]);
+
+  useEffect(() => {
+    const onWinBlur = () => {
+      setPullReveal(0);
+      setHoverTime(null);
+      if (isDraggingRef.current) {
+        isDraggingRef.current = false;
+        setIsDragging(false);
+        endInteraction();
+      }
+    };
+    window.addEventListener('blur', onWinBlur);
+    return () => window.removeEventListener('blur', onWinBlur);
+  }, [endInteraction]);
+
+  const handleInsetPx = mobileStyle ? 7 : 6;
+  const { barRef, handleRef } = useVideoProgress(videoRef, handleInsetPx);
 
   useEffect(() => {
     if (!waveformUrl) {
@@ -155,6 +306,17 @@ export default function SeekBar() {
   const handlePointerDown = useCallback(
     (e: React.PointerEvent) => {
       e.preventDefault();
+      pointerDownYRef.current = e.clientY;
+      setPullReveal(0);
+      const track = trackRef.current;
+      if (track) {
+        const rect = track.getBoundingClientRect();
+        const x = e.clientX - rect.left;
+        setHoverX(Math.max(0, Math.min(x, rect.width)));
+        setTrackWidth(rect.width);
+      }
+      setHoverTime(getTimeFromX(e.clientX));
+      isDraggingRef.current = true;
       setIsDragging(true);
       startInteraction();
       const time = getTimeFromX(e.clientX);
@@ -175,6 +337,8 @@ export default function SeekBar() {
       setHoverTime(getTimeFromX(e.clientX));
 
       if (isDragging) {
+        const dy = pointerDownYRef.current - e.clientY;
+        setPullReveal(Math.min(1, Math.max(0, dy / PULL_REVEAL_PX)));
         seek(getTimeFromX(e.clientX));
       }
     },
@@ -184,8 +348,11 @@ export default function SeekBar() {
   const handlePointerUp = useCallback(
     (e: React.PointerEvent) => {
       if (isDragging) {
-        seek(getTimeFromX(e.clientX));
+        isDraggingRef.current = false;
         setIsDragging(false);
+        setPullReveal(0);
+        setHoverTime(null);
+        seek(getTimeFromX(e.clientX));
         endInteraction();
       }
     },
@@ -193,23 +360,50 @@ export default function SeekBar() {
   );
 
   const handleMouseLeave = useCallback(() => {
-    if (!isDragging) setHoverTime(null);
+    if (!isDragging) {
+      setHoverTime(null);
+      setPullReveal(0);
+    }
   }, [isDragging]);
+
+  const handleLostPointerCapture = useCallback(() => {
+    setPullReveal(0);
+    setHoverTime(null);
+    if (!isDraggingRef.current) return;
+    isDraggingRef.current = false;
+    setIsDragging(false);
+    endInteraction();
+  }, [endInteraction]);
+
+  const handlePointerCancel = useCallback(() => {
+    handleLostPointerCapture();
+  }, [handleLostPointerCapture]);
 
   useEffect(() => {
     if (!isDragging) return;
     const handleGlobalUp = () => {
+      if (!isDraggingRef.current) return;
+      isDraggingRef.current = false;
       setIsDragging(false);
+      setPullReveal(0);
+      setHoverTime(null);
       endInteraction();
     };
     window.addEventListener('pointerup', handleGlobalUp);
     return () => window.removeEventListener('pointerup', handleGlobalUp);
   }, [isDragging, endInteraction]);
 
-  const showHandle = hoverTime !== null || isDragging;
+  const showWaveformStrip = Boolean(waveformUrl && !waveformError);
+  const waveAreaPx = pullReveal * WAVEFORM_STRIP_HEIGHT;
+  const trackHeightPx = 3 + waveAreaPx;
+  const thumbShow =
+    mobileStyle ||
+    hoverTime !== null ||
+    isDragging ||
+    pullReveal > 0.04;
   const displayTime = hoverTime !== null ? hoverTime : state.currentTime;
-
-  const showWaveformStrip = waveformUrl && !waveformError;
+  const showPullHint =
+    showWaveformStrip && (hoverTime !== null || isDragging) && pullReveal < 0.2;
 
   if (waveformUrl) {
     return (
@@ -220,132 +414,162 @@ export default function SeekBar() {
           className="hidden"
           onError={() => setWaveformError(true)}
         />
-        {showWaveformStrip ? (
-      <div className="relative w-full group/seek px-0">
-        {hoverTime !== null && (
-          <>
-            <div className="absolute bottom-full left-0 right-0 flex items-center justify-center gap-1.5 mb-1 pointer-events-none">
-              <span className="text-[11px] text-white/90 font-medium">Pull up for precise seeking</span>
-              <ChevronsUp className="w-3.5 h-3.5 text-white/80" />
-            </div>
-            {spriteMeta && spriteUrl && (
-              <ThumbnailPreview
-                meta={spriteMeta}
-                spriteUrl={spriteUrl}
-                time={hoverTime}
-                parentWidth={trackWidth}
-                cursorX={hoverX}
-              />
+        {!waveformError ? (
+          <div className={cn('relative w-full group/seek px-0', mobileStyle && 'touch-none')}>
+            {showPullHint && (
+              <div className="pointer-events-none absolute bottom-full left-0 right-0 z-30 mb-1 flex items-center justify-center gap-1.5">
+                <span className="text-[11px] font-medium text-white/90">Pull up for precise seeking</span>
+                <ChevronsUp className="h-3.5 w-3.5 text-white/80" />
+              </div>
             )}
-          </>
-        )}
-
-        <div
-          ref={trackRef}
-          className="relative w-full cursor-pointer select-none overflow-hidden rounded-md bg-black/50"
-          style={{ height: WAVEFORM_STRIP_HEIGHT }}
-          onPointerDown={handlePointerDown}
-          onPointerMove={handlePointerMove}
-          onPointerUp={handlePointerUp}
-          onMouseLeave={handleMouseLeave}
-        >
-          <div
-            className="absolute inset-0 opacity-90"
-            style={{
-              backgroundImage: `url(${waveformUrl})`,
-              backgroundSize: '100% 100%',
-              backgroundRepeat: 'no-repeat',
-              backgroundPosition: 'center',
-              filter: 'brightness(0) invert(1)',
-              mixBlendMode: 'lighten',
-            }}
-          />
-
-          <div className="absolute bottom-0 left-0 right-0 h-[3px] bg-secondary">
-            <BufferSegments
-              ranges={bufferedRanges}
-              duration={state.duration}
-              className="bg-white/20 rounded-full"
-            />
-            <div
-              ref={barRef}
-              className="absolute top-0 left-0 h-full bg-primary"
-              style={{ width: `${progress}%` }}
-            />
-          </div>
-
-          <div
-            ref={handleRef}
-            className="absolute top-1/2 -translate-y-1/2 w-3 h-3 rounded-full border-2 border-primary bg-background shadow-md pointer-events-none transition-opacity duration-150 z-10"
-            style={{
-              left: `calc(${progress}% - 6px)`,
-              opacity: showHandle ? 1 : 0,
-            }}
-          />
-
-          {showHandle && (
-            <div
-              className="absolute pointer-events-none z-20 flex flex-col items-center"
-              style={{
-                left: `calc(${progress}%)`,
-                top: 0,
-                transform: 'translateX(-50%)',
-              }}
-            >
-              <span ref={timeRef} className="text-xs font-medium text-white whitespace-nowrap -translate-y-full pt-0.5 drop-shadow-sm">
-                {formatTime(displayTime)}
-              </span>
-              <div
-                className="w-px bg-white/90 shrink-0 mt-0.5"
-                style={{ height: WAVEFORM_STRIP_HEIGHT - 4 }}
-              />
-            </div>
-          )}
-        </div>
-      </div>
-        ) : (
-          <div className="relative w-full group/seek px-0">
-            {hoverTime !== null && (
-              <>
-                <div className="absolute bottom-full left-0 right-0 flex items-center justify-center gap-1.5 mb-1 pointer-events-none">
-                  <span className="text-[11px] text-white/90 font-medium">Pull up for precise seeking</span>
-                  <ChevronsUp className="w-3.5 h-3.5 text-white/80" />
-                </div>
-                {spriteMeta && spriteUrl && (
-                  <ThumbnailPreview
-                    meta={spriteMeta}
-                    spriteUrl={spriteUrl}
-                    time={hoverTime}
-                    parentWidth={trackWidth}
-                    cursorX={hoverX}
-                  />
-                )}
-              </>
+            {hoverTime !== null && spriteMeta && spriteUrl && (
+              <div className="pointer-events-none absolute bottom-full left-0 right-0 z-20 mb-2 flex justify-center">
+                <ThumbnailPreview
+                  meta={spriteMeta}
+                  spriteUrl={spriteUrl}
+                  time={hoverTime}
+                  parentWidth={trackWidth}
+                  cursorX={hoverX}
+                />
+              </div>
             )}
             <div
               ref={trackRef}
-              className="relative h-[3px] group-hover/seek:h-[5px] transition-[height] duration-150 cursor-pointer select-none overflow-hidden rounded-full bg-secondary"
+              tabIndex={-1}
+              className={cn(
+                'relative w-full cursor-pointer select-none overflow-hidden rounded-md transition-[height] duration-150 ease-out outline-none',
+                mobileStyle && waveAreaPx < 0.5 ? 'bg-transparent' : 'bg-black/50',
+              )}
+              style={{ height: Math.max(mobileStyle ? 14 : 3, trackHeightPx) }}
               onPointerDown={handlePointerDown}
               onPointerMove={handlePointerMove}
               onPointerUp={handlePointerUp}
               onMouseLeave={handleMouseLeave}
+              onPointerLeave={handleMouseLeave}
+              onLostPointerCapture={handleLostPointerCapture}
+              onPointerCancel={handlePointerCancel}
+              onBlur={handleMouseLeave}
             >
-              <BufferSegments
-                ranges={bufferedRanges}
-                duration={state.duration}
-                className="bg-white/25 rounded-full"
-              />
               <div
-                ref={barRef}
-                className="absolute top-0 left-0 h-full bg-primary rounded-full"
-                style={{ width: `${progress}%` }}
-              />
+                className="absolute left-0 right-0 overflow-hidden transition-[height] duration-150 ease-out"
+                style={{
+                  bottom: 3,
+                  height: waveAreaPx,
+                }}
+              >
+                <div
+                  className="absolute bottom-0 left-0 right-0 opacity-90"
+                  style={{
+                    height: WAVEFORM_STRIP_HEIGHT,
+                    backgroundImage: `url(${waveformUrl})`,
+                    backgroundSize: '100% 100%',
+                    backgroundRepeat: 'no-repeat',
+                    backgroundPosition: 'center',
+                    filter: 'brightness(0) invert(1)',
+                    mixBlendMode: 'lighten',
+                  }}
+                />
+              </div>
+
+              <div
+                className={cn(
+                  'absolute left-0 right-0 z-[1] h-[3px] bg-secondary',
+                  mobileStyle && waveAreaPx < 0.5 ? 'top-1/2 bottom-auto -translate-y-1/2' : 'bottom-0',
+                )}
+              >
+                <BufferSegments
+                  ranges={bufferedRanges}
+                  duration={state.duration}
+                  className="bg-white/20 rounded-full"
+                />
+                <div
+                  ref={barRef}
+                  className="absolute top-0 left-0 h-full bg-primary"
+                  style={{ width: `${progress}%` }}
+                />
+              </div>
+
               <div
                 ref={handleRef}
-                className="absolute top-1/2 -translate-y-1/2 w-3 h-3 rounded-full border-2 border-primary bg-background opacity-0 group-hover/seek:opacity-100 transition-opacity duration-150 shadow-md"
-                style={{ left: `calc(${progress}% - 6px)` }}
+                className={cn(
+                  'pointer-events-none absolute z-10 h-3 w-3 rounded-full border-2 border-primary bg-background shadow-md transition-opacity duration-150',
+                  mobileStyle ? 'opacity-100' : 'opacity-0 group-hover/seek:opacity-100',
+                  thumbShow && 'opacity-100'
+                )}
+                style={
+                  mobileStyle && waveAreaPx < 0.5
+                    ? {
+                        left: `calc(${progress}% - ${handleInsetPx}px)`,
+                        top: '50%',
+                        transform: 'translateY(-50%)',
+                      }
+                    : {
+                        left: `calc(${progress}% - ${handleInsetPx}px)`,
+                        bottom: 0,
+                        transform: 'translateY(50%)',
+                      }
+                }
               />
+
+              {thumbShow && (
+                <div
+                  className="pointer-events-none absolute z-20 flex flex-col items-center"
+                  style={
+                    mobileStyle && waveAreaPx < 0.5
+                      ? {
+                          left: `calc(${progress}%)`,
+                          top: '50%',
+                          transform: 'translateX(-50%) translateY(-50%)',
+                        }
+                      : {
+                          left: `calc(${progress}%)`,
+                          bottom: 0,
+                          transform: 'translateX(-50%) translateY(50%)',
+                        }
+                  }
+                >
+                  <span className="-translate-y-full pt-0.5 text-xs font-medium whitespace-nowrap text-white drop-shadow-sm">
+                    {formatTime(displayTime)}
+                  </span>
+                  <div
+                    className="mt-0.5 w-px shrink-0 bg-white/90"
+                    style={{ height: Math.max(8, waveAreaPx + 6) }}
+                  />
+                </div>
+              )}
             </div>
+          </div>
+        ) : (
+          <div className={cn('relative w-full group/seek px-0', mobileStyle && 'touch-none')}>
+            {hoverTime !== null && spriteMeta && spriteUrl && (
+              <div className="pointer-events-none absolute bottom-full left-0 right-0 z-20 mb-2 flex justify-center">
+                <ThumbnailPreview
+                  meta={spriteMeta}
+                  spriteUrl={spriteUrl}
+                  time={hoverTime}
+                  parentWidth={trackWidth}
+                  cursorX={hoverX}
+                />
+              </div>
+            )}
+            <ThinSeekTrack
+              trackRef={trackRef}
+              progress={progress}
+              bufferedRanges={bufferedRanges}
+              duration={state.duration}
+              barRef={barRef}
+              handleRef={handleRef}
+              showHandle={Boolean(hoverTime !== null || isDragging || mobileStyle)}
+              mobileStyle={mobileStyle}
+              handleInsetPx={handleInsetPx}
+              onPointerDown={handlePointerDown}
+              onPointerMove={handlePointerMove}
+              onPointerUp={handlePointerUp}
+              onMouseLeave={handleMouseLeave}
+              onPointerLeave={handleMouseLeave}
+              onLostPointerCapture={handleLostPointerCapture}
+              onPointerCancel={handlePointerCancel}
+            />
           </div>
         )}
       </>
@@ -353,48 +577,36 @@ export default function SeekBar() {
   }
 
   return (
-    <div className="relative w-full group/seek px-0">
-      {hoverTime !== null && (
-        <>
-          <div className="absolute bottom-full left-0 right-0 flex items-center justify-center gap-1.5 mb-1 pointer-events-none">
-            <span className="text-[11px] text-white/90 font-medium">Pull up for precise seeking</span>
-            <ChevronsUp className="w-3.5 h-3.5 text-white/80" />
-          </div>
-          {spriteMeta && spriteUrl && (
-            <ThumbnailPreview
-              meta={spriteMeta}
-              spriteUrl={spriteUrl}
-              time={hoverTime}
-              parentWidth={trackWidth}
-              cursorX={hoverX}
-            />
-          )}
-        </>
+    <div className={cn('relative w-full group/seek px-0', mobileStyle && 'touch-none')}>
+      {hoverTime !== null && spriteMeta && spriteUrl && (
+        <div className="pointer-events-none absolute bottom-full left-0 right-0 z-20 mb-2 flex justify-center">
+          <ThumbnailPreview
+            meta={spriteMeta}
+            spriteUrl={spriteUrl}
+            time={hoverTime}
+            parentWidth={trackWidth}
+            cursorX={hoverX}
+          />
+        </div>
       )}
-      <div
-        ref={trackRef}
-        className="relative h-[3px] group-hover/seek:h-[5px] transition-[height] duration-150 cursor-pointer select-none overflow-hidden rounded-full bg-secondary"
+      <ThinSeekTrack
+        trackRef={trackRef}
+        progress={progress}
+        bufferedRanges={bufferedRanges}
+        duration={state.duration}
+        barRef={barRef}
+        handleRef={handleRef}
+        showHandle={Boolean(hoverTime !== null || isDragging || mobileStyle)}
+        mobileStyle={mobileStyle}
+        handleInsetPx={handleInsetPx}
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
         onMouseLeave={handleMouseLeave}
-      >
-        <BufferSegments
-          ranges={bufferedRanges}
-          duration={state.duration}
-          className="bg-white/25 rounded-full"
-        />
-        <div
-          ref={barRef}
-          className="absolute top-0 left-0 h-full bg-primary rounded-full"
-          style={{ width: `${progress}%` }}
-        />
-        <div
-          ref={handleRef}
-          className="absolute top-1/2 -translate-y-1/2 w-3 h-3 rounded-full border-2 border-primary bg-background opacity-0 group-hover/seek:opacity-100 transition-opacity duration-150 shadow-md"
-          style={{ left: `calc(${progress}% - 6px)` }}
-        />
-      </div>
+        onPointerLeave={handleMouseLeave}
+        onLostPointerCapture={handleLostPointerCapture}
+        onPointerCancel={handlePointerCancel}
+      />
     </div>
   );
 }

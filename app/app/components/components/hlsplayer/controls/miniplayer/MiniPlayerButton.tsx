@@ -1,11 +1,18 @@
 import { PictureInPicture2 } from 'lucide-react';
 import { useCallback } from 'react';
+import { cn } from '~/lib/utils';
 import { usePlayerContext } from '../../PlayerContext';
 import { useMiniPlayerContext } from '~/lib/Context/MiniPlayerContext';
 import { getVideoSrc } from '~/lib/utils';
 import { Tooltip, TooltipContent, TooltipTrigger } from '~/components/ui/tooltip';
 
-export default function MiniPlayerButton() {
+export default function MiniPlayerButton({
+  controlPill = false,
+  mobileOverlay = false,
+}: {
+  controlPill?: boolean;
+  mobileOverlay?: boolean;
+}) {
   const { videoRef, src, imageID, file, isReel } = usePlayerContext();
   const { activateMiniPlayer, getNavigateBackTarget, sourceVideoRef } = useMiniPlayerContext();
 
@@ -40,8 +47,19 @@ export default function MiniPlayerButton() {
       <TooltipTrigger asChild>
         <button
           type="button"
-          onClick={handleClick}
-          className="p-1.5 rounded-md hover:bg-white/10 transition-colors text-white"
+          onClick={(e) => {
+            if (mobileOverlay) e.stopPropagation();
+            handleClick();
+          }}
+          className={cn(
+            'text-white transition-colors',
+            mobileOverlay &&
+              'flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-white/20 bg-black/50 shadow-sm backdrop-blur-sm active:bg-black/60',
+            !mobileOverlay &&
+              cn(
+                controlPill ? 'rounded-lg p-2 hover:bg-white/10' : 'rounded-md p-1.5 hover:bg-white/10'
+              )
+          )}
           aria-label="Mini player"
         >
           <PictureInPicture2 className="w-5 h-5" />

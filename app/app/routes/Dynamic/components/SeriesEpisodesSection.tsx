@@ -303,8 +303,8 @@ export default function SeriesEpisodesSection({
   return (
     <section
       className={cn(
-        "mb-5 overflow-hidden rounded-2xl border border-border/50 bg-card/50 backdrop-blur-sm",
-        "shadow-[0_1px_0_rgba(255,255,255,0.05)_inset,0_10px_28px_-14px_rgba(0,0,0,0.2)]"
+        "mb-4 min-w-0 overflow-hidden rounded-xl border border-border/60 bg-card/40 sm:mb-5",
+        "shadow-sm"
       )}
       aria-label="Series"
     >
@@ -313,7 +313,7 @@ export default function SeriesEpisodesSection({
           <button
             type="button"
             className={cn(
-              "flex w-full items-center gap-3 px-4 py-3.5 text-left transition-colors",
+              "flex w-full min-w-0 items-center gap-2.5 px-3 py-3 text-left transition-colors sm:gap-3 sm:px-4 sm:py-3.5",
               "hover:bg-muted/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/35 focus-visible:ring-offset-2 focus-visible:ring-offset-background",
               "data-[state=open]:border-b data-[state=open]:border-border/40"
             )}

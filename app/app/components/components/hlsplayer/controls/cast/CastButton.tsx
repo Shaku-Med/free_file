@@ -1,25 +1,49 @@
+import { cn } from '~/lib/utils';
 import { usePlayerContext } from '../../PlayerContext';
 import { useRemotePlayback } from '../../hooks/useRemotePlayback';
 import AirPlayIcon from './CastIcon';
 import { Tooltip, TooltipContent, TooltipTrigger } from '~/components/ui/tooltip';
 
-export default function CastButton() {
+export default function CastButton({
+  controlPill = false,
+  mobileOverlay = false,
+}: {
+  controlPill?: boolean;
+  mobileOverlay?: boolean;
+}) {
   const { videoRef } = usePlayerContext();
   const { isAvailable, isCasting, prompt } = useRemotePlayback(videoRef);
 
   if (!isAvailable) return null;
+
+  const runPrompt = () => {
+    void prompt();
+  };
 
   return (
     <Tooltip>
       <TooltipTrigger asChild>
         <button
           type="button"
-          onClick={prompt}
-          className={`relative p-1.5 rounded-md transition-colors ${
-            isCasting
-              ? 'text-blue-400 bg-blue-400/10 hover:bg-blue-400/20'
-              : 'text-white hover:bg-white/10'
-          }`}
+          onClick={(e) => {
+            if (mobileOverlay) e.stopPropagation();
+            runPrompt();
+          }}
+          className={cn(
+            'relative transition-colors',
+            mobileOverlay &&
+              'flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-white/20 bg-black/50 text-white shadow-sm backdrop-blur-sm active:bg-black/60',
+            !mobileOverlay &&
+              cn(
+                controlPill ? 'rounded-lg p-2' : 'rounded-md p-1.5',
+                isCasting
+                  ? 'bg-blue-400/10 text-blue-400 hover:bg-blue-400/20'
+                  : 'text-white hover:bg-white/10'
+              ),
+            mobileOverlay &&
+              isCasting &&
+              'border-blue-400/40 bg-black/60 text-blue-400'
+          )}
           aria-label={isCasting ? 'Connected to device' : 'Cast to device'}
         >
           <AirPlayIcon className="w-5 h-5" />

@@ -6,7 +6,7 @@ import { useMiniPlayerContext } from '~/lib/Context/MiniPlayerContext';
 import { ParseFilename } from '~/lib/utils';
 import { cn } from '~/lib/utils';
 import HLSPlayer from '~/components/components/hlsplayer';
-import { HIDE_ALL_EXCEPT_SEEK } from '~/components/components/hlsplayer/types';
+import { MINI_PLAYER_HIDE_CONTROLS } from '~/components/components/hlsplayer/types';
 import { getVideoSrc } from '~/lib/utils';
 import { useMiniPlayerDrag } from './useMiniPlayerDrag';
 import { Tooltip, TooltipContent, TooltipTrigger } from '~/components/ui/tooltip';
@@ -211,7 +211,7 @@ function MiniPlayerContent() {
           muted={miniPlayer.muted}
           playsInline
           startTime={miniPlayer.currentTime}
-          hideControls={HIDE_ALL_EXCEPT_SEEK}
+          hideControls={MINI_PLAYER_HIDE_CONTROLS}
         />
       </div>
 

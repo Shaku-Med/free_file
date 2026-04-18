@@ -115,7 +115,7 @@ export default function SignInPrompt() {
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogContent className="max-w-sm gap-5">
+      <DialogContent className="max-w-lg w-full min-w-[200px] gap-5">
         <DialogHeader className="items-center text-center gap-3">
           <div className={`inline-flex h-14 w-14 items-center justify-center rounded-2xl bg-muted ${prompt.accent}`}>
             <Icon className="h-7 w-7" strokeWidth={1.75} />

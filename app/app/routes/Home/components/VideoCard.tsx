@@ -1723,9 +1723,12 @@ const VideoCard = ({ data, index, currentUserId, userActions, onUpdate, showOwne
   if (layout === "horizontal") {
     return (
       <div
-        className={`group flex w-full gap-3 rounded-xl p-2 transition-colors hover:bg-muted/50 ${
-          state === "expanded" ? "fl_break_layout text-sm" : "flex-col flex-wrap md:flex-row"
-        }`}
+        className={cn(
+          "group flex w-full transition-colors hover:bg-muted/50",
+          state === "expanded" && "fl_break_layout text-sm gap-3 rounded-xl p-2",
+          state !== "expanded" && related && "flex-row items-start gap-3 rounded-xl p-2",
+          state !== "expanded" && !related && "flex-col flex-wrap gap-3 rounded-xl p-2 md:flex-row",
+        )}
       >
         <Link
           onClick={(e) => {
@@ -1733,7 +1736,11 @@ const VideoCard = ({ data, index, currentUserId, userActions, onUpdate, showOwne
             nav(`/${data.unique_id}`);
           }}
           to={`/${data.unique_id}`}
-          className="relative aspect-video w-full min-w-40 max-w-full shrink-0 overflow-hidden rounded-xl bg-card md:max-w-44 md:flex-1"
+          className={
+            related
+              ? "relative aspect-video w-28 max-w-[42%] shrink-0 overflow-hidden rounded-md bg-card sm:w-32 sm:max-w-[40%] sm:rounded-lg"
+              : "relative aspect-video w-full min-w-40 max-w-full shrink-0 overflow-hidden rounded-xl bg-card md:max-w-44 md:flex-1"
+          }
         >
           {renderThumbnail("aspect-video h-full w-full")}
         </Link>

@@ -1,9 +1,10 @@
 import { PictureInPicture2 } from 'lucide-react';
+import { cn } from '~/lib/utils';
 import { usePlayerContext } from '../../PlayerContext';
 import { usePictureInPictureContext } from '~/lib/Context/PictureInPictureContext';
 import { Tooltip, TooltipContent, TooltipTrigger } from '~/components/ui/tooltip';
 
-export default function PipButton() {
+export default function PipButton({ controlPill = false }: { controlPill?: boolean }) {
   const { videoRef, src, imageID, file, loop, isReel } = usePlayerContext();
   const { supportsPip, isContentInPip, toggleDocumentPip } = usePictureInPictureContext();
 
@@ -16,7 +17,10 @@ export default function PipButton() {
         <button
           type="button"
           onClick={() => toggleDocumentPip(src, videoRef, imageID, file, loop)}
-          className="p-1.5 rounded-md hover:bg-white/10 transition-colors text-white"
+          className={cn(
+            'text-white transition-colors',
+            controlPill ? 'rounded-lg p-2 hover:bg-white/10' : 'rounded-md p-1.5 hover:bg-white/10'
+          )}
           aria-label="Picture-in-Picture"
         >
           <PictureInPicture2 className="w-5 h-5" />

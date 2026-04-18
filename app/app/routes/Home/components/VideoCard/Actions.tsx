@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { isMobile } from "react-device-detect";
 import { Link, useNavigate, useParams } from "react-router";
 import {
   ThumbsUp,
@@ -31,7 +32,13 @@ import {
 } from "~/components/ui/dropdown-menu";
 import { cn } from "~/lib/utils";
 import CreatePlaylistModal from "~/components/Playlist/CreatePlaylistModal";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "~/components/ui/dialog";
+import { Dialog, DialogContent } from "~/components/ui/dialog";
+import {
+  Drawer,
+  DrawerContent,
+  DrawerHeader,
+  DrawerTitle,
+} from "~/components/ui/drawer";
 import { Tooltip, TooltipContent, TooltipTrigger } from "~/components/ui/tooltip";
 import CommentSection from "~/routes/Dynamic/components/Comments/CommentSection";
 import { useLocalPlaylist, normalizeLocalPlaylistFileId } from "~/lib/hooks/useLocalPlaylist";
@@ -67,6 +74,15 @@ export interface ActionsProps {
   fileCreatedAt?: string | null;
   /** Current playback time for share modal timestamp feature */
   currentTime?: number;
+  fileOwnerId?: string;
+  commentsEnabled?: boolean;
+  highlightCommentId?: string | null;
+  /**
+   * When `onCommentsOpenChange` is set, the comments drawer/dialog open state is controlled by the parent
+   * (e.g. a large mobile “Comments” card on the watch page).
+   */
+  commentsOpen?: boolean;
+  onCommentsOpenChange?: (open: boolean) => void;
 }
 
 type InteractionResponse = {
@@ -145,6 +161,11 @@ export default function Actions({
   currentUserId,
   currentTime,
   fileCreatedAt,
+  fileOwnerId,
+  commentsEnabled = true,
+  highlightCommentId = null,
+  commentsOpen: commentsOpenProp,
+  onCommentsOpenChange,
 }: ActionsProps) {
   const navigate = useNavigate();
   const [likeBusy, setLikeBusy] = useState(false);
@@ -159,7 +180,21 @@ export default function Actions({
   const [playlistError, setPlaylistError] = useState("");
   const [addingPlaylistId, setAddingPlaylistId] = useState<string | null>(null);
   const [createPlaylistOpen, setCreatePlaylistOpen] = useState(false);
-  const [commentsDialogOpen, setCommentsDialogOpen] = useState(false);
+  const [internalCommentsOpen, setInternalCommentsOpen] = useState(false);
+  const isCommentsControlled = typeof onCommentsOpenChange === "function";
+  const commentsPanelOpen = isCommentsControlled ? Boolean(commentsOpenProp) : internalCommentsOpen;
+  const setCommentsPanelOpen = useCallback(
+    (open: boolean) => {
+      if (isCommentsControlled) onCommentsOpenChange!(open);
+      else setInternalCommentsOpen(open);
+    },
+    [isCommentsControlled, onCommentsOpenChange],
+  );
+
+  useEffect(() => {
+    if (!isMobile || !highlightCommentId) return;
+    setCommentsPanelOpen(true);
+  }, [highlightCommentId, isMobile, setCommentsPanelOpen]);
 
   const routeParams = useParams();
   const routeDynamicId = routeParams.id;
@@ -373,15 +408,15 @@ export default function Actions({
   }, [uniqueId, resolveShareSeconds, recordShare]);
 
   const openComments = useCallback(() => {
-    if (isOnThisFilePage) {
+    if (isOnThisFilePage && !isMobile) {
       const el = document.getElementById("comments");
       if (el) {
         el.scrollIntoView({ behavior: "smooth", block: "start" });
         return;
       }
     }
-    setCommentsDialogOpen(true);
-  }, [isOnThisFilePage]);
+    setCommentsPanelOpen(true);
+  }, [isOnThisFilePage, setCommentsPanelOpen]);
 
   const onPlaylistSubOpenChange = useCallback(
     (open: boolean) => {
@@ -480,6 +515,11 @@ export default function Actions({
             <DropdownMenuItem disabled={shareBusy} onSelect={() => void onCopyLink()}>
               <Link2 className="size-4" aria-hidden />
               Copy link
+            </DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => openComments()}>
+              <MessageCircle className="size-4" aria-hidden />
+              <span className="flex-1">Comments</span>
+              <span className={cn(countClass, "text-xs")}>{formatNumber(commentCount)}</span>
             </DropdownMenuItem>
           </DropdownMenuGroup>
 
@@ -593,21 +633,52 @@ export default function Actions({
         />
       ) : null}
 
-      <Dialog open={commentsDialogOpen} onOpenChange={setCommentsDialogOpen}>
-        <DialogContent
-          showCloseButton
-          className="flex w-[calc(100vw-1.5rem)] max-w-xl flex-col gap-0 overflow-hidden p-0 sm:max-w-xl"
-        >
-          <div className="max-h-[min(90vh,720px)] min-h-0 w-full overflow-y-auto overflow-x-hidden overscroll-contain px-4 py-3 [scrollbar-gutter:stable]">
-            <CommentSection
-              key={fileId}
-              fileId={fileId}
-              currentUserId={currentUserId ?? undefined}
-              className="min-h-0"
-            />
-          </div>
-        </DialogContent>
-      </Dialog>
+      {isMobile ? (
+        <Drawer open={commentsPanelOpen} onOpenChange={setCommentsPanelOpen} direction="bottom">
+          <DrawerContent
+            id="watch-comments-drawer"
+            className="flex flex-col gap-0 overflow-hidden p-0 data-[vaul-drawer-direction=bottom]:inset-x-auto data-[vaul-drawer-direction=bottom]:left-1/2 data-[vaul-drawer-direction=bottom]:right-auto data-[vaul-drawer-direction=bottom]:max-h-[min(85dvh,640px)] data-[vaul-drawer-direction=bottom]:w-[calc(100%-12px)] data-[vaul-drawer-direction=bottom]:max-w-xl data-[vaul-drawer-direction=bottom]:-translate-x-1/2 data-[vaul-drawer-direction=bottom]:rounded-t-2xl data-[vaul-drawer-direction=bottom]:border-x data-[vaul-drawer-direction=bottom]:border-t data-[vaul-drawer-direction=bottom]:border-border data-[vaul-drawer-direction=bottom]:shadow-[0_-12px_40px_-8px_rgba(0,0,0,0.25)] sm:data-[vaul-drawer-direction=bottom]:max-w-2xl"
+          >
+            <DrawerHeader className="shrink-0 border-b px-3 py-2 text-left">
+              <DrawerTitle className="text-base">Comments</DrawerTitle>
+            </DrawerHeader>
+            <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-contain px-3 py-2 [scrollbar-gutter:stable]">
+              {commentsPanelOpen ? (
+                <CommentSection
+                  key={`${fileId}-${highlightCommentId ?? ""}`}
+                  fileId={fileId}
+                  currentUserId={currentUserId ?? undefined}
+                  fileOwnerId={fileOwnerId}
+                  commentsEnabled={commentsEnabled}
+                  highlightCommentId={highlightCommentId}
+                  className="min-h-0"
+                />
+              ) : null}
+            </div>
+          </DrawerContent>
+        </Drawer>
+      ) : (
+        <Dialog open={commentsPanelOpen} onOpenChange={setCommentsPanelOpen}>
+          <DialogContent
+            showCloseButton
+            className="flex w-[calc(100vw-1.5rem)] max-w-xl flex-col gap-0 overflow-hidden p-0 sm:max-w-xl"
+          >
+            <div className="max-h-[min(90vh,720px)] min-h-0 w-full overflow-y-auto overflow-x-hidden overscroll-contain px-3 py-2 [scrollbar-gutter:stable]">
+              {commentsPanelOpen ? (
+                <CommentSection
+                  key={`${fileId}-${highlightCommentId ?? ""}`}
+                  fileId={fileId}
+                  currentUserId={currentUserId ?? undefined}
+                  fileOwnerId={fileOwnerId}
+                  commentsEnabled={commentsEnabled}
+                  highlightCommentId={highlightCommentId}
+                  className="min-h-0"
+                />
+              ) : null}
+            </div>
+          </DialogContent>
+        </Dialog>
+      )}
 
       <ShareModal
         open={shareModalOpen}

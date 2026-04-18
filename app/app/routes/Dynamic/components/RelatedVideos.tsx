@@ -145,29 +145,40 @@ const RelatedVideosContent = ({ currentUserId }: { currentUserId?: string }) => 
   const onDragCancel = () => setOverlayVideo(null)
 
   const inner = (
-    <div className="space-y-4">
+    <div className="min-w-0 space-y-3 sm:space-y-4">
       <PlayQueuePanel currentUserId={currentUserId} userActions={userActions} />
-      <div className="flex gap-2 border-b border-border">
+      <div
+        className="-mx-0.5 flex min-w-0 gap-1 overflow-x-auto overscroll-x-contain border-b border-border pb-px sm:mx-0 sm:gap-2 sm:overflow-visible"
+        role="tablist"
+        aria-label="Related videos"
+      >
         <button
+          type="button"
           onClick={() => setActiveTab("upnext")}
-          className={`px-4 py-2 text-sm font-medium transition-colors border-b-2 ${
+          className={cn(
+            "shrink-0 rounded-t-md px-2.5 py-2 text-xs font-medium transition-colors sm:px-3 sm:text-sm",
+            "border-b-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
             activeTab === "upnext"
               ? "border-primary text-primary"
-              : "border-transparent text-muted-foreground hover:text-foreground"
-          }`}
+              : "border-transparent text-muted-foreground hover:text-foreground",
+          )}
         >
           Up next
         </button>
         {ownerVideos.length > 0 && (
           <button
+            type="button"
             onClick={() => setActiveTab("creator")}
-            className={`px-4 py-2 text-sm font-medium transition-colors border-b-2 ${
+            className={cn(
+              "shrink-0 rounded-t-md px-2.5 py-2 text-xs font-medium transition-colors sm:px-3 sm:text-sm",
+              "border-b-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
               activeTab === "creator"
                 ? "border-primary text-primary"
-                : "border-transparent text-muted-foreground hover:text-foreground"
-            }`}
+                : "border-transparent text-muted-foreground hover:text-foreground",
+            )}
           >
-            More from creator
+            <span className="sm:hidden">Creator</span>
+            <span className="hidden sm:inline">More from creator</span>
           </button>
         )}
       </div>
@@ -182,7 +193,7 @@ const RelatedVideosContent = ({ currentUserId }: { currentUserId?: string }) => 
             </div>
           ) : (
             <>
-              <div className="grid grid-cols-1 gap-2">
+              <div className="grid min-w-0 grid-cols-1 gap-1.5 sm:gap-2">
                 {displayVideos.map((video, index) =>
                   playQueue?.viewerCanCustomizeQueue ? (
                     <DraggableQueueVideoCard
@@ -247,7 +258,7 @@ const RelatedVideosContent = ({ currentUserId }: { currentUserId?: string }) => 
             </div>
           ) : (
             <>
-              <div className="grid grid-cols-1 gap-2">
+              <div className="grid min-w-0 grid-cols-1 gap-1.5 sm:gap-2">
                 {ownerVideos.map((video, index) =>
                   playQueue?.viewerCanCustomizeQueue ? (
                     <DraggableQueueVideoCard

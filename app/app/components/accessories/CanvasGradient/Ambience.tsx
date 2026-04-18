@@ -1,16 +1,12 @@
 import { useEffect, useRef } from "react";
 
-/**
- * YouTube-style ambient glow (approximation):
- * - Production YouTube uses pre-rendered mosaic WebPs + crossfade (see e.g. adamrashid.dev / Smashing Magazine).
- * - Here: two tiny canvases, sparse `drawImage` samples (dominant colors), CSS blur on the page wrapper,
- *   and opacity crossfade between layers — no getImageData / per-pixel JS (keeps GIF decode smooth).
- */
 const CANVAS_W = 10;
 const CANVAS_H = 6;
-/** Sparse updates — slower cadence reads calmer behind heavy CSS blur (avoids “disco” color flicker). */
-const SAMPLE_INTERVAL_MS = 720;
-const CROSSFADE_MS = 1100;
+/** Throttled offscreen captures while playing (hidden canvas only — no visible transition). */
+const SILENT_CAPTURE_MS = 400;
+/** How often we promote the back buffer to the visible layer with one short crossfade. */
+const DISPLAY_SWAP_MS = 2800;
+const CROSSFADE_MS = 480;
 
 type AmbienceProps = {
   colors: string[];
@@ -21,8 +17,9 @@ type AmbienceProps = {
 const Ambience = ({ videoRef, videoReady }: AmbienceProps) => {
   const c0 = useRef<HTMLCanvasElement>(null);
   const c1 = useRef<HTMLCanvasElement>(null);
-  const frontRef = useRef<0 | 1>(0);
-  const intervalRef = useRef<number | null>(null);
+  const visibleRef = useRef<0 | 1>(0);
+  const captureIntervalRef = useRef<number | null>(null);
+  const swapIntervalRef = useRef<number | null>(null);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -37,55 +34,75 @@ const Ambience = ({ videoRef, videoReady }: AmbienceProps) => {
     const ctx1 = el1.getContext("2d", { alpha: false });
     if (!ctx0 || !ctx1) return;
 
-    const stopInterval = () => {
-      if (intervalRef.current != null) {
-        window.clearInterval(intervalRef.current);
-        intervalRef.current = null;
+    const clearCaptureInterval = () => {
+      if (captureIntervalRef.current != null) {
+        window.clearInterval(captureIntervalRef.current);
+        captureIntervalRef.current = null;
       }
     };
 
-    const stopPlaybackLoop = () => {
-      stopInterval();
+    const clearSwapInterval = () => {
+      if (swapIntervalRef.current != null) {
+        window.clearInterval(swapIntervalRef.current);
+        swapIntervalRef.current = null;
+      }
     };
 
-    const sample = () => {
+    const stopLoops = () => {
+      clearCaptureInterval();
+      clearSwapInterval();
+    };
+
+    /** Draw current video frame into whichever canvas is *not* visible (no opacity / z-index change). */
+    const captureToHidden = () => {
+      const v = videoRef.current;
+      if (!v || v.readyState < 2 || document.hidden) return;
+      const vis = visibleRef.current;
+      const hidden: 0 | 1 = vis === 0 ? 1 : 0;
+      const ctx = hidden === 0 ? ctx0 : ctx1;
+      try {
+        ctx.drawImage(v, 0, 0, CANVAS_W, CANVAS_H);
+      } catch {
+        /* CORS / not ready */
+      }
+    };
+
+    /** One crossfade: show the buffer that has been receiving silent captures. */
+    const swapVisibleLayer = () => {
       const v = videoRef.current;
       if (!v || v.readyState < 2 || document.hidden) return;
 
-      const prevFront = frontRef.current;
-      const nextFront: 0 | 1 = prevFront === 0 ? 1 : 0;
-      const nextCtx = nextFront === 0 ? ctx0 : ctx1;
-      const nextEl = nextFront === 0 ? el0 : el1;
-      const prevEl = prevFront === 0 ? el0 : el1;
+      captureToHidden();
 
-      try {
-        nextCtx.drawImage(v, 0, 0, CANVAS_W, CANVAS_H);
-      } catch {
-        return;
-      }
+      const prev = visibleRef.current;
+      const next: 0 | 1 = prev === 0 ? 1 : 0;
+      const nextEl = next === 0 ? el0 : el1;
+      const prevEl = prev === 0 ? el0 : el1;
 
       nextEl.style.zIndex = "2";
       prevEl.style.zIndex = "1";
       nextEl.style.opacity = "1";
       prevEl.style.opacity = "0";
-      frontRef.current = nextFront;
+      visibleRef.current = next;
     };
 
-    const startPlaybackLoop = () => {
-      sample();
-      stopInterval();
-      intervalRef.current = window.setInterval(sample, SAMPLE_INTERVAL_MS);
+    const startPlaybackLoops = () => {
+      stopLoops();
+      captureToHidden();
+      captureIntervalRef.current = window.setInterval(captureToHidden, SILENT_CAPTURE_MS);
+      swapIntervalRef.current = window.setInterval(swapVisibleLayer, DISPLAY_SWAP_MS);
     };
 
     const onLoadedOrSeek = () => {
-      sample();
+      captureToHidden();
+      swapVisibleLayer();
     };
 
     const syncVisibility = () => {
       if (document.hidden) {
-        stopPlaybackLoop();
+        stopLoops();
       } else if (!video.paused && !video.ended) {
-        startPlaybackLoop();
+        startPlaybackLoops();
       }
     };
 
@@ -93,19 +110,21 @@ const Ambience = ({ videoRef, videoReady }: AmbienceProps) => {
 
     video.addEventListener("loadeddata", onLoadedOrSeek);
     video.addEventListener("seeked", onLoadedOrSeek);
-    video.addEventListener("play", startPlaybackLoop);
-    video.addEventListener("pause", stopPlaybackLoop);
-    video.addEventListener("ended", stopPlaybackLoop);
+    video.addEventListener("play", startPlaybackLoops);
+    video.addEventListener("pause", stopLoops);
+    video.addEventListener("ended", stopLoops);
 
-    el0.style.transition = `opacity ${CROSSFADE_MS}ms ease-in-out`;
-    el1.style.transition = `opacity ${CROSSFADE_MS}ms ease-in-out`;
+    const fade = `${CROSSFADE_MS}ms ease-in-out`;
+    el0.style.transition = `opacity ${fade}`;
+    el1.style.transition = `opacity ${fade}`;
     el0.style.willChange = "opacity";
     el1.style.willChange = "opacity";
+
+    visibleRef.current = 0;
     el0.style.opacity = "1";
     el1.style.opacity = "0";
     el0.style.zIndex = "2";
     el1.style.zIndex = "1";
-    frontRef.current = 0;
 
     try {
       if (video.readyState >= 2) {
@@ -115,18 +134,20 @@ const Ambience = ({ videoRef, videoReady }: AmbienceProps) => {
       /* CORS / not ready */
     }
 
+    captureToHidden();
+
     if (!video.paused && !video.ended) {
-      startPlaybackLoop();
+      startPlaybackLoops();
     }
 
     return () => {
       document.removeEventListener("visibilitychange", syncVisibility);
-      stopPlaybackLoop();
+      stopLoops();
       video.removeEventListener("loadeddata", onLoadedOrSeek);
       video.removeEventListener("seeked", onLoadedOrSeek);
-      video.removeEventListener("play", startPlaybackLoop);
-      video.removeEventListener("pause", stopPlaybackLoop);
-      video.removeEventListener("ended", stopPlaybackLoop);
+      video.removeEventListener("play", startPlaybackLoops);
+      video.removeEventListener("pause", stopLoops);
+      video.removeEventListener("ended", stopLoops);
     };
   }, [videoRef, videoReady]);
 

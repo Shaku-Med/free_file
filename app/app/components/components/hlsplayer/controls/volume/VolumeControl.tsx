@@ -1,4 +1,4 @@
-import { useRef, useState, useCallback } from 'react';
+import { useRef, useState, useCallback, useEffect } from 'react';
 import { Volume2, Volume1, VolumeX } from 'lucide-react';
 import { usePlayerContext } from '../../PlayerContext';
 import { useVideoHasAudio } from '../../hooks/useVideoHasAudio';
@@ -6,15 +6,31 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '~/components/ui/tooltip
 
 interface VolumeControlProps {
   showSlider?: boolean;
+  barPill?: boolean;
+  expandWithTap?: boolean;
 }
 
-export default function VolumeControl({ showSlider = true }: VolumeControlProps) {
+export default function VolumeControl({ showSlider = true, barPill = false, expandWithTap = false }: VolumeControlProps) {
   const { state, setVolume, toggleMute, videoRef, hlsRef, src } = usePlayerContext();
   const hasAudioTrack = useVideoHasAudio(videoRef, hlsRef, src);
   const sliderRef = useRef<HTMLDivElement>(null);
+  const rootRef = useRef<HTMLDivElement>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [isHovered, setIsHovered] = useState(false);
-  const canExpand = hasAudioTrack && showSlider && (isHovered || isDragging);
+  const [tapOpen, setTapOpen] = useState(false);
+  const canExpand =
+    hasAudioTrack &&
+    showSlider &&
+    (isHovered || isDragging || (expandWithTap && tapOpen));
+
+  useEffect(() => {
+    if (!expandWithTap || !tapOpen) return;
+    const close = (e: PointerEvent) => {
+      if (!rootRef.current?.contains(e.target as Node)) setTapOpen(false);
+    };
+    document.addEventListener('pointerdown', close, true);
+    return () => document.removeEventListener('pointerdown', close, true);
+  }, [expandWithTap, tapOpen]);
 
   const VolumeIcon = state.isMuted || state.volume === 0
     ? VolumeX
@@ -46,15 +62,29 @@ export default function VolumeControl({ showSlider = true }: VolumeControlProps)
 
   return (
     <div
+      ref={rootRef}
       className="flex items-center gap-1 group/vol"
       onMouseEnter={() => setIsHovered(true)}
-      onMouseLeave={() => { setIsHovered(false); setIsDragging(false); }}
+      onMouseLeave={() => {
+        setIsHovered(false);
+        setIsDragging(false);
+        setTapOpen(false);
+      }}
+      onTouchStart={(e) => {
+        if (!expandWithTap || !showSlider || !hasAudioTrack) return;
+        e.stopPropagation();
+        setTapOpen(true);
+      }}
     >
       {hasAudioTrack ? (
         <button
           type="button"
           onClick={() => toggleMute()}
-          className="p-1.5 rounded-md transition-colors text-white hover:bg-white/10"
+          className={
+            barPill
+              ? 'rounded-full p-2 text-white transition-colors hover:bg-white/10'
+              : 'p-1.5 rounded-md transition-colors text-white hover:bg-white/10'
+          }
           aria-label={state.isMuted ? 'Unmute' : 'Mute'}
         >
           <VolumeIcon className="w-5 h-5" />
@@ -66,7 +96,11 @@ export default function VolumeControl({ showSlider = true }: VolumeControlProps)
               <button
                 type="button"
                 disabled
-                className="p-1.5 rounded-md transition-colors text-white opacity-40 cursor-not-allowed"
+                className={
+                  barPill
+                    ? 'cursor-not-allowed rounded-full p-2 text-white opacity-40 transition-colors'
+                    : 'p-1.5 rounded-md transition-colors text-white opacity-40 cursor-not-allowed'
+                }
                 aria-label="No audio track"
               >
                 <VolumeIcon className="w-5 h-5" />
