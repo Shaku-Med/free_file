@@ -1,24 +1,22 @@
-import { useEffect, useMemo } from 'react';
-import { useNavigate, useSearchParams } from 'react-router';
+import { Navigate, useSearchParams } from 'react-router';
 
-export default function PipLegacyRedirect() {
-  const navigate = useNavigate();
+/**
+ * No standalone `/pip` page — only `/pip/:uniqueId` (iframe loads that URL).
+ * Legacy `?id=` redirects into the param route; otherwise send users home.
+ */
+export default function PipRootRedirect() {
   const [searchParams] = useSearchParams();
-  const searchKey = useMemo(() => searchParams.toString(), [searchParams]);
-
-  useEffect(() => {
-    const params = new URLSearchParams(searchKey);
-    const id = params.get('id');
-    if (!id) {
-      navigate('/', { replace: true });
-      return;
-    }
-    params.delete('id');
-    const q = params.toString();
-    navigate(`/pip/${encodeURIComponent(id)}${q ? `?${q}` : ''}`, {
-      replace: true,
-    });
-  }, [navigate, searchKey]);
-
-  return null;
+  const id = searchParams.get('id');
+  if (id) {
+    const next = new URLSearchParams(searchParams);
+    next.delete('id');
+    const q = next.toString();
+    return (
+      <Navigate
+        to={`/pip/${encodeURIComponent(id)}${q ? `?${q}` : ''}`}
+        replace
+      />
+    );
+  }
+  return <Navigate to="/" replace />;
 }

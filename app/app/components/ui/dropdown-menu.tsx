@@ -30,11 +30,12 @@ function DropdownMenuTrigger({
 }
 
 const contentBase =
-  "z-[1000000000000001] max-h-[var(--radix-dropdown-menu-content-available-height)] min-w-[8rem] origin-[var(--radix-dropdown-menu-content-transform-origin)] overflow-visible rounded-xl border border-border bg-background/95  text-popover-foreground p-1.5 shadow-xl shadow-black/20 backdrop-blur-sm data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[state=closed]:duration-150 data-[state=open]:duration-200 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2"
+  "z-[1000000000000001] max-h-[var(--radix-dropdown-menu-content-available-height)] min-w-[8rem] max-w-[min(28rem,calc(100vw-2rem))] origin-[var(--radix-dropdown-menu-content-transform-origin)] overflow-visible rounded-xl border border-border bg-background/95  text-popover-foreground p-1.5 shadow-xl shadow-black/20 backdrop-blur-sm data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[state=closed]:duration-150 data-[state=open]:duration-200 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2"
 
 function DropdownMenuContent({
   className,
   sideOffset = 6,
+  collisionPadding = 16,
   children,
   ...props
 }: React.ComponentProps<typeof DropdownMenuPrimitive.Content>) {
@@ -43,6 +44,9 @@ function DropdownMenuContent({
       <DropdownMenuPrimitive.Content
         data-slot="dropdown-menu-content"
         sideOffset={sideOffset}
+        collisionPadding={collisionPadding}
+        sticky="always"
+        updatePositionStrategy="always"
         className={cn(contentBase, className)}
         {...props}
       >
@@ -227,18 +231,29 @@ function DropdownMenuSubTrigger({
 
 function DropdownMenuSubContent({
   className,
+  collisionPadding = 16,
+  children,
   ...props
 }: React.ComponentProps<typeof DropdownMenuPrimitive.SubContent>) {
   return (
     <DropdownMenuPrimitive.SubContent
       data-slot="dropdown-menu-sub-content"
+      collisionPadding={collisionPadding}
+      avoidCollisions
+      sticky="always"
+      updatePositionStrategy="always"
       className={cn(
         contentBase,
+        "min-h-0 min-w-0 w-max max-w-[min(22rem,calc(100vw-2rem))]",
         "data-[state=closed]:duration-150 data-[state=open]:duration-200",
         className,
       )}
       {...props}
-    />
+    >
+      <div className="max-h-[min(70dvh,var(--radix-popper-available-height,80vh))] max-w-full overflow-x-hidden overflow-y-auto overscroll-contain [scrollbar-gutter:stable]">
+        {children}
+      </div>
+    </DropdownMenuPrimitive.SubContent>
   )
 }
 

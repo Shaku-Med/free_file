@@ -12,7 +12,12 @@ function isRemotePlaybackActive(video: HTMLVideoElement): boolean {
   return false;
 }
 
-export function useAutoplay(autoPlay: boolean, videoRef: React.RefObject<HTMLVideoElement | null>) {
+export function useAutoplay(
+  autoPlay: boolean,
+  videoRef: React.RefObject<HTMLVideoElement | null>,
+  options?: { muteVideoWhenAutoplayDisabled?: boolean },
+) {
+  const muteVideoWhenAutoplayDisabled = options?.muteVideoWhenAutoplayDisabled !== false;
   const { imageID } = usePlayerContext();
   const { isPipActive, isContentInPip } = usePictureInPictureContext();
   const [autoplayBlocked, setAutoplayBlocked] = useState(false);
@@ -31,7 +36,9 @@ export function useAutoplay(autoPlay: boolean, videoRef: React.RefObject<HTMLVid
       // mutating in case remote connected between renders.
       if (isRemotePlaybackActive(video)) return;
       if (!video.paused) video.pause();
-      video.muted = true;
+      if (muteVideoWhenAutoplayDisabled) {
+        video.muted = true;
+      }
       setAutoplayBlocked(false);
       setShowPrompt(false);
       return;
@@ -69,7 +76,7 @@ export function useAutoplay(autoPlay: boolean, videoRef: React.RefObject<HTMLVid
       video.addEventListener('canplay', attemptPlay, { once: true });
       return () => video.removeEventListener('canplay', attemptPlay);
     }
-  }, [autoPlay, isPipActive, imageID]);
+  }, [autoPlay, muteVideoWhenAutoplayDisabled, isPipActive, imageID]);
 
   useEffect(() => {
     const video = videoRef.current;
@@ -97,7 +104,9 @@ export function useAutoplay(autoPlay: boolean, videoRef: React.RefObject<HTMLVid
   const dismissPrompt = () => {
     setShowPrompt(false);
     const video = videoRef.current;
-    if (video && !video.paused) video.muted = true;
+    if (video && !video.paused && muteVideoWhenAutoplayDisabled) {
+      video.muted = true;
+    }
   };
 
   return { autoplayBlocked, showPrompt, enableAutoplay, dismissPrompt };

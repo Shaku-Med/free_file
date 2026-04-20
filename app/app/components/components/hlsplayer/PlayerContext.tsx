@@ -55,6 +55,8 @@ export interface PlayerState {
   levels: QualityLevel[];
   currentLevel: number;
   controlsVisible: boolean;
+  /** When false, reel feed embed hides play/volume/settings but keeps seek visible. */
+  reelAuxiliaryChromeVisible: boolean;
   subtitleTracks: SubtitleTrack[];
   currentSubtitleTrack: number;
 }
@@ -86,6 +88,9 @@ interface PlayerContextValue {
   toggleFullscreen: () => void;
   replay: () => void;
   setControlsVisible: (visible: boolean) => void;
+  setReelAuxiliaryChromeVisible: (visible: boolean) => void;
+  /** True when `showFeedPlayerControls && isReel` — idle timer hides all but seek. */
+  reelEmbedAutoHide: boolean;
   startInteraction: () => void;
   endInteraction: () => void;
 
@@ -112,6 +117,11 @@ interface PlayerContextValue {
   setSubtitleTrack: (id: number) => void;
   /** When false (e.g. signed-out watch page), ambient, visualizer, and up-next controls are disabled in UI. */
   authPlaybackFeatures: boolean;
+  /**
+   * Document PiP vertical reel: keep audio unmuted — don't apply global saved mute, and don't
+   * force-mute inactive swiper slides via useAutoplay.
+   */
+  unlockPipReelAudio: boolean;
 }
 
 const PlayerContext = createContext<PlayerContextValue | null>(null);
@@ -139,6 +149,7 @@ const INITIAL_STATE: PlayerState = {
   levels: [],
   currentLevel: -1,
   controlsVisible: true,
+  reelAuxiliaryChromeVisible: true,
   subtitleTracks: [],
   currentSubtitleTrack: -1,
 };
@@ -156,6 +167,10 @@ interface PlayerProviderProps {
   startTime?: number;
   /** Default true. Set false on watch page for signed-out users. */
   authPlaybackFeatures?: boolean;
+  /** Reel + feed embed: auto-hide play/volume/etc.; seek bar stays. */
+  reelEmbedAutoHide?: boolean;
+  /** PiP iframe reel — avoid global mute + inactive-slide forced mute (see useAutoplay). */
+  unlockPipReelAudio?: boolean;
 }
 
 export function PlayerProvider({
@@ -170,11 +185,16 @@ export function PlayerProvider({
   videoRef,
   startTime,
   authPlaybackFeatures = true,
+  reelEmbedAutoHide = false,
+  unlockPipReelAudio = false,
 }: PlayerProviderProps) {
   const { playerSettings, setPlayerSettings, savePlayerSettings } = useFileContext();
   const hlsRef = useRef<Hls | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
-  const [state, setState] = useState<PlayerState>({ ...INITIAL_STATE, isMuted: initialMuted });
+  const [state, setState] = useState<PlayerState>({
+    ...INITIAL_STATE,
+    isMuted: unlockPipReelAudio ? false : initialMuted,
+  });
   const appliedInitialRef = useRef(false);
 
   const [loop, setLoopState] = useState(initialLoop);
@@ -243,7 +263,7 @@ export function PlayerProvider({
     setState(s => ({
       ...s,
       volume: playerSettings.volume,
-      isMuted: playerSettings.muted,
+      isMuted: unlockPipReelAudio ? false : playerSettings.muted,
       playbackRate: playerSettings.playbackRate,
     }));
     setLoopState(playerSettings.loop);
@@ -270,11 +290,11 @@ export function PlayerProvider({
         (v as any).remote?.state === 'connected';
       if (!isRemote) {
         v.volume = playerSettings.volume;
-        v.muted = playerSettings.muted;
+        v.muted = unlockPipReelAudio ? false : playerSettings.muted;
         v.playbackRate = playerSettings.playbackRate;
       }
     }
-  }, [playerSettings, videoRef, authPlaybackFeatures]);
+  }, [playerSettings, videoRef, authPlaybackFeatures, unlockPipReelAudio]);
 
   useEffect(() => {
     if (authPlaybackFeatures) return;
@@ -394,11 +414,19 @@ export function PlayerProvider({
     setState(s => ({ ...s, controlsVisible: visible }));
   }, []);
 
+  const setReelAuxiliaryChromeVisible = useCallback((visible: boolean) => {
+    setState(s => ({ ...s, reelAuxiliaryChromeVisible: visible }));
+  }, []);
+
   const startInteraction = useCallback(() => {
     interactingRef.current = true;
-    setState(s => ({ ...s, controlsVisible: true }));
+    setState(s => ({
+      ...s,
+      controlsVisible: true,
+      ...(reelEmbedAutoHide ? { reelAuxiliaryChromeVisible: true } : {}),
+    }));
     if (controlTimerRef.current) clearTimeout(controlTimerRef.current);
-  }, []);
+  }, [reelEmbedAutoHide]);
 
   const endInteraction = useCallback(() => {
     interactingRef.current = false;
@@ -448,6 +476,8 @@ export function PlayerProvider({
     toggleFullscreen,
     replay,
     setControlsVisible,
+    setReelAuxiliaryChromeVisible,
+    reelEmbedAutoHide,
     startInteraction,
     endInteraction,
     spriteMeta,
@@ -470,6 +500,7 @@ export function PlayerProvider({
     startTime,
     setSubtitleTrack,
     authPlaybackFeatures,
+    unlockPipReelAudio,
   };
 
   return (

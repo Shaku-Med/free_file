@@ -467,7 +467,7 @@ export default function Actions({
   const isReel = layout === "reel" || layout === "tiktok";
 
   const moreDropdown = (
-    <DropdownMenu>
+    <DropdownMenu modal={!isReel}>
       <DropdownMenuTrigger asChild>
         {isReel ? (
           <button
@@ -486,7 +486,12 @@ export default function Actions({
           </button>
         )}
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="min-w-[12rem]">
+      <DropdownMenuContent
+        align="end"
+        side={isReel ? "top" : "bottom"}
+        sideOffset={isReel ? 8 : 4}
+        className="min-w-[12rem]"
+      >
           {isOwner && typeof onEdit === "function" ? (
             <>
               <DropdownMenuGroup>
@@ -521,7 +526,14 @@ export default function Actions({
                 <ListPlus className="size-4" aria-hidden />
                 Add to playlist
               </DropdownMenuSubTrigger>
-              <DropdownMenuSubContent className="min-w-[13.5rem] p-0">
+              <DropdownMenuSubContent
+                // In the reel rail the parent menu is pinned to the right edge of a narrow PiP
+                // viewport; force the sub to open toward the center so Radix doesn't have to
+                // flip through an overflow frame first.
+                alignOffset={-4}
+                sideOffset={isReel ? 2 : 4}
+                className={cn("min-w-[13.5rem] p-0", isReel && "max-w-[calc(100vw-1.5rem)]")}
+              >
                 <div className="max-h-[min(280px,var(--radix-dropdown-menu-content-available-height))] overflow-y-auto overscroll-contain p-1.5">
                   <DropdownMenuCheckboxItem
                     checked={inLocalList}
@@ -615,50 +627,66 @@ export default function Actions({
       </DropdownMenu>
   );
 
+  /** Same segmented like/dislike pill as the watch row; reel/tiktok stacks the two halves vertically. */
+  const likeDislikeSegment = (
+    <div
+      className={cn(
+        "inline-flex items-stretch overflow-hidden rounded-full border border-border bg-card/80 shadow-sm",
+        isReel
+          ? "flex-col divide-y divide-border"
+          : "flex-row divide-x divide-border",
+      )}
+      role="group"
+      aria-label="Like and dislike"
+    >
+      <button
+        type="button"
+        className={cn(
+          segmentBtn,
+          isReel && "flex-col gap-1 py-2.5",
+          liked && "bg-primary/15 text-primary hover:bg-primary/20",
+        )}
+        onClick={() => applyLikeDislike("like")}
+        disabled={likeBusy}
+        aria-pressed={liked}
+        aria-label={liked ? "Unlike" : "Like"}
+      >
+        {likeBusy ? (
+          <Loader2 className="h-[1.125rem] w-[1.125rem] shrink-0 animate-spin" aria-hidden />
+        ) : (
+          <ThumbsUp className={cn("h-[1.125rem] w-[1.125rem] shrink-0", liked && "fill-current")} aria-hidden />
+        )}
+        <span className={cn(countClass, isReel && "text-[11px] leading-none")}>
+          {formatNumber(likeCount)}
+        </span>
+      </button>
+      <button
+        type="button"
+        className={cn(
+          segmentBtn,
+          isReel && "flex-col gap-1 py-2.5",
+          disliked && "bg-destructive/10 text-destructive hover:bg-destructive/15",
+        )}
+        onClick={() => applyLikeDislike("dislike")}
+        disabled={dislikeBusy}
+        aria-pressed={disliked}
+        aria-label={disliked ? "Remove dislike" : "Dislike"}
+      >
+        {dislikeBusy ? (
+          <Loader2 className="h-[1.125rem] w-[1.125rem] shrink-0 animate-spin" aria-hidden />
+        ) : (
+          <ThumbsDown className={cn("h-[1.125rem] w-[1.125rem] shrink-0", disliked && "fill-current")} aria-hidden />
+        )}
+        <span className={cn(countClass, isReel && "text-[11px] leading-none")}>
+          {formatNumber(dislikeCount)}
+        </span>
+      </button>
+    </div>
+  );
+
   const defaultRow = (
     <div className="flex flex-wrap items-center gap-2">
-      <div
-        className="inline-flex items-stretch divide-x divide-border overflow-hidden rounded-full border border-border bg-card/80 shadow-sm"
-        role="group"
-        aria-label="Like and dislike"
-      >
-        <button
-          type="button"
-          className={cn(
-            segmentBtn,
-            liked && "bg-primary/15 text-primary hover:bg-primary/20",
-          )}
-          onClick={() => applyLikeDislike("like")}
-          disabled={likeBusy}
-          aria-pressed={liked}
-          aria-label={liked ? "Unlike" : "Like"}
-        >
-          {likeBusy ? (
-            <Loader2 className="h-[1.125rem] w-[1.125rem] shrink-0 animate-spin" aria-hidden />
-          ) : (
-            <ThumbsUp className={cn("h-[1.125rem] w-[1.125rem] shrink-0", liked && "fill-current")} aria-hidden />
-          )}
-          <span className={countClass}>{formatNumber(likeCount)}</span>
-        </button>
-        <button
-          type="button"
-          className={cn(
-            segmentBtn,
-            disliked && "bg-destructive/10 text-destructive hover:bg-destructive/15",
-          )}
-          onClick={() => applyLikeDislike("dislike")}
-          disabled={dislikeBusy}
-          aria-pressed={disliked}
-          aria-label={disliked ? "Remove dislike" : "Dislike"}
-        >
-          {dislikeBusy ? (
-            <Loader2 className="h-[1.125rem] w-[1.125rem] shrink-0 animate-spin" aria-hidden />
-          ) : (
-            <ThumbsDown className={cn("h-[1.125rem] w-[1.125rem] shrink-0", disliked && "fill-current")} aria-hidden />
-          )}
-          <span className={countClass}>{formatNumber(dislikeCount)}</span>
-        </button>
-      </div>
+      {likeDislikeSegment}
 
       <button type="button" className={pillOuter} onClick={openComments} aria-label="View comments">
         <MessageCircle className="h-[1.125rem] w-[1.125rem] shrink-0" aria-hidden />
@@ -671,52 +699,16 @@ export default function Actions({
 
   const reelRow = (
     <div className="flex flex-col items-center gap-4">
-      <button
-        type="button"
-        onClick={() => applyLikeDislike("like")}
-        disabled={likeBusy}
-        aria-pressed={liked}
-        aria-label={liked ? "Unlike" : "Like"}
-        className="flex flex-col items-center gap-1"
-      >
-        <span className={cn(reelIconBtn, liked && reelIconBtnLiked)}>
-          {likeBusy ? (
-            <Loader2 className="h-5 w-5 animate-spin" aria-hidden />
-          ) : (
-            <ThumbsUp className={cn("h-5 w-5", liked && "fill-current")} aria-hidden />
-          )}
-        </span>
-        <span className={reelLabel}>{formatNumber(likeCount)}</span>
-      </button>
+      {likeDislikeSegment}
 
       <button
         type="button"
-        onClick={() => applyLikeDislike("dislike")}
-        disabled={dislikeBusy}
-        aria-pressed={disliked}
-        aria-label={disliked ? "Remove dislike" : "Dislike"}
-        className="flex flex-col items-center gap-1"
-      >
-        <span className={cn(reelIconBtn, disliked && reelIconBtnDisliked)}>
-          {dislikeBusy ? (
-            <Loader2 className="h-5 w-5 animate-spin" aria-hidden />
-          ) : (
-            <ThumbsDown className={cn("h-5 w-5", disliked && "fill-current")} aria-hidden />
-          )}
-        </span>
-        <span className={reelLabel}>{formatNumber(dislikeCount)}</span>
-      </button>
-
-      <button
-        type="button"
+        className={cn(pillOuter, "flex-col gap-1 py-2.5")}
         onClick={openComments}
         aria-label="View comments"
-        className="flex flex-col items-center gap-1"
       >
-        <span className={reelIconBtn}>
-          <MessageCircle className="h-5 w-5" aria-hidden />
-        </span>
-        <span className={reelLabel}>{formatNumber(commentCount)}</span>
+        <MessageCircle className="h-[1.125rem] w-[1.125rem] shrink-0" aria-hidden />
+        <span className={cn(countClass, "text-[11px] leading-none")}>{formatNumber(commentCount)}</span>
       </button>
 
       {moreDropdown}

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { Music2 } from 'lucide-react';
 import { cn, getVideoSrc } from '~/lib/utils';
 // Same `~/components/components/hlsplayer` as Dynamic (queue wrapper adds suggested/next props only).
@@ -66,36 +66,9 @@ export function VerticalFeedItem({
     []
   );
 
-  /**
-   * Swiper `isActive` drives playback (not `playPauseWhenInView`): virtual slides + overflow
-   * make IntersectionObserver unreliable; PiP iframe viewport matches Swiper anyway.
-   * Retry until `<video>` exists — ref can attach a frame after mount.
-   */
-  useEffect(() => {
-    let cancelled = false;
-    let attempts = 0;
-    const maxAttempts = 90;
-    const apply = () => {
-      if (cancelled) return;
-      const v = videoRef.current;
-      if (!v && attempts < maxAttempts) {
-        attempts += 1;
-        requestAnimationFrame(apply);
-        return;
-      }
-      if (!v) return;
-      if (isActive) {
-        v.muted = muted;
-        void v.play().catch(() => {});
-      } else {
-        v.pause();
-      }
-    };
-    apply();
-    return () => {
-      cancelled = true;
-    };
-  }, [isActive, muted, item.id]);
+  // NOTE: no manual play/pause here. `HLSPlayer` (via `isReel` + its internal IntersectionObserver)
+  // is the single source of truth for which reel is playing — duplicating the gate here raced with
+  // it during Swiper virtual transitions and caused multiple slides to play simultaneously.
 
   return (
     <div
@@ -118,7 +91,7 @@ export function VerticalFeedItem({
               playsInline
               imageID={file.unique_id}
               file={file}
-              // isReel
+              isReel
               showFeedPlayerControls={false}
               onVideoRef={(el) => {
                 videoRef.current = el;

@@ -57,6 +57,7 @@ export interface PipFeedResponse {
   data: FileType[];
   userActions: { likedFileIds: string[]; dislikedFileIds: string[] };
   centerUniqueId: string;
+  nextCursor?: { cursor_pos: number } | null;
   notFound?: boolean;
   accessDenied?: boolean;
   error?: string;

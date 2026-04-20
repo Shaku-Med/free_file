@@ -5,16 +5,30 @@ const HIDE_DELAY = 3000;
 
 /**
  * Hides chrome after idle while playing. Pointer move/touch resets the timer.
- * Also schedules hide when playback is active even with no pointer movement (fixes “must move mouse first”).
+ * Reel + feed embed (`reelEmbedAutoHide`): only hides auxiliary chrome (play, volume, …);
+ * seek bar stays; `controlsVisible` stays true so scrubbing still works.
  */
 export function useControlsVisibility() {
-  const { containerRef, state, setControlsVisible, isReel } = usePlayerContext();
+  const {
+    containerRef,
+    state,
+    setControlsVisible,
+    setReelAuxiliaryChromeVisible,
+    isReel,
+    reelEmbedAutoHide,
+  } = usePlayerContext();
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const scheduleHide = useCallback(() => {
     if (timerRef.current) clearTimeout(timerRef.current);
-    timerRef.current = setTimeout(() => setControlsVisible(false), HIDE_DELAY);
-  }, [setControlsVisible]);
+    timerRef.current = setTimeout(() => {
+      if (reelEmbedAutoHide) {
+        setReelAuxiliaryChromeVisible(false);
+      } else {
+        setControlsVisible(false);
+      }
+    }, HIDE_DELAY);
+  }, [reelEmbedAutoHide, setControlsVisible, setReelAuxiliaryChromeVisible]);
 
   const clearHideTimer = useCallback(() => {
     if (timerRef.current) {
@@ -23,9 +37,19 @@ export function useControlsVisibility() {
     }
   }, []);
 
-  // Pause / end: keep controls visible. Playing: start hide timer without requiring pointer events.
   useEffect(() => {
-    if (isReel) return;
+    if (isReel && !reelEmbedAutoHide) return;
+
+    if (reelEmbedAutoHide) {
+      if (state.isPaused || state.isEnded) {
+        setReelAuxiliaryChromeVisible(true);
+        clearHideTimer();
+        return;
+      }
+      scheduleHide();
+      return () => clearHideTimer();
+    }
+
     if (state.isPaused || state.isEnded) {
       setControlsVisible(true);
       clearHideTimer();
@@ -35,21 +59,27 @@ export function useControlsVisibility() {
     return () => clearHideTimer();
   }, [
     isReel,
+    reelEmbedAutoHide,
     state.isPaused,
     state.isEnded,
     state.isPlaying,
     setControlsVisible,
+    setReelAuxiliaryChromeVisible,
     scheduleHide,
     clearHideTimer,
   ]);
 
   useEffect(() => {
-    if (isReel) return;
+    if (isReel && !reelEmbedAutoHide) return;
     const el = containerRef.current;
     if (!el) return;
 
     const handleMove = () => {
-      setControlsVisible(true);
+      if (reelEmbedAutoHide) {
+        setReelAuxiliaryChromeVisible(true);
+      } else {
+        setControlsVisible(true);
+      }
       if (!state.isPaused && !state.isEnded) {
         scheduleHide();
       }
@@ -58,7 +88,13 @@ export function useControlsVisibility() {
     const handleLeave = () => {
       if (!state.isPaused && !state.isEnded) {
         clearHideTimer();
-        timerRef.current = setTimeout(() => setControlsVisible(false), 800);
+        timerRef.current = setTimeout(() => {
+          if (reelEmbedAutoHide) {
+            setReelAuxiliaryChromeVisible(false);
+          } else {
+            setControlsVisible(false);
+          }
+        }, 800);
       }
     };
 
@@ -72,5 +108,15 @@ export function useControlsVisibility() {
       el.removeEventListener('touchstart', handleMove);
       clearHideTimer();
     };
-  }, [isReel, state.isPaused, state.isEnded, setControlsVisible, scheduleHide, clearHideTimer]);
+  }, [
+    isReel,
+    reelEmbedAutoHide,
+    state.isPaused,
+    state.isEnded,
+    containerRef,
+    setControlsVisible,
+    setReelAuxiliaryChromeVisible,
+    scheduleHide,
+    clearHideTimer,
+  ]);
 }

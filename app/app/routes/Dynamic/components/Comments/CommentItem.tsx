@@ -17,7 +17,11 @@ import { formatDistanceToNow, differenceInMinutes, differenceInHours, difference
 import { getProfilePicUrl } from "~/lib/utils/profilePic";
 import { cn } from "~/lib/utils";
 import ImageLoad from "~/routes/Home/components/ImageLoad/ImageLoad";
-import { CommentThreadConnector, commentThreadGutterWidthPx } from "./CommentThreadConnector";
+import {
+  CommentThreadConnector,
+  COMMENT_AVATAR_SIZE_PX,
+  commentThreadGutterWidthPx,
+} from "./CommentThreadConnector";
 import { CommentLikesModal } from "./CommentLikesModal";
 
 interface CommentItemProps {
@@ -225,15 +229,17 @@ const CommentItem = ({
   };
 
   const gutterPx = level > 0 ? commentThreadGutterWidthPx(level) : 0;
+  /** Avatar (`h-9`) + `gap-2` (8px) — aligns reply composer with the main row. */
+  const replyComposerInset = COMMENT_AVATAR_SIZE_PX + 8;
 
   return (
     <div
       id={`comment-${comment.id}`}
       className={cn(
-        "relative space-y-3 scroll-mt-28 rounded-xl transition-[box-shadow,background-color] duration-500",
+        "relative space-y-2 scroll-mt-24 rounded-xl transition-[box-shadow,background-color] duration-500 sm:scroll-mt-28 sm:space-y-3",
         level > 0 && "overflow-visible min-w-0",
         showEmphasis &&
-          "ring-2 ring-primary/80 ring-offset-2 ring-offset-background bg-primary/10 shadow-sm p-2 -m-2 sm:p-3 sm:-m-3"
+          "ring-2 ring-primary/80 ring-offset-2 ring-offset-background bg-primary/10 shadow-sm p-1.5 -m-1.5 sm:p-3 sm:-m-3"
       )}
       style={level > 0 ? { paddingLeft: gutterPx } : undefined}
     >
@@ -248,23 +254,23 @@ const CommentItem = ({
         )}
         <div className="relative z-[1] flex items-start gap-2">
           {comment.user?.username ? (
-            <Link to={`/profile/${comment.user.username}`}>
-              <Avatar className="h-10 w-10 shrink-0 hover:ring-2 hover:ring-primary/80 ring-primary/0 transition-all cursor-pointer">
+            <Link to={`/profile/${comment.user.username}`} className="shrink-0">
+              <Avatar className="h-9 w-9 shrink-0 ring-offset-background ring-primary/0 transition-all hover:ring-2 hover:ring-primary/80 cursor-pointer">
                 <AvatarImage src={getProfilePicUrl(comment.user.profile_pic)} alt={comment.user.username} />
-                <AvatarFallback className="text-sm font-medium">
+                <AvatarFallback className="text-xs font-medium">
                   {comment.user.username.charAt(0).toUpperCase()}
                 </AvatarFallback>
               </Avatar>
             </Link>
           ) : (
-            <Avatar className="h-10 w-10 shrink-0">
-              <AvatarFallback className="text-sm font-medium">U</AvatarFallback>
+            <Avatar className="h-9 w-9 shrink-0">
+              <AvatarFallback className="text-xs font-medium">U</AvatarFallback>
             </Avatar>
           )}
           <div
             className={cn(
               "flex min-w-0 flex-1 items-start gap-1",
-              level > 0 ? "min-w-[min(100%,15rem)]" : ""
+              level > 0 ? "min-w-0 sm:min-w-[min(100%,15rem)]" : ""
             )}
           >
             <div className="flex min-w-0 flex-1 flex-col items-start">
@@ -279,17 +285,17 @@ const CommentItem = ({
                 </div>
               ) : (
                 <>
-                  <div className="inline-block max-w-full text-sm">
+                  <div className="inline-block max-w-full text-xs sm:text-sm">
                     <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
                       {comment.user?.username ? (
                         <Link
                           to={`/profile/${comment.user.username}`}
-                          className="font-semibold leading-tight text-foreground hover:text-primary"
+                          className="font-semibold leading-snug text-foreground hover:text-primary"
                         >
                           {comment.user.username}
                         </Link>
                       ) : (
-                        <span className="font-semibold leading-tight text-foreground">Unknown User</span>
+                        <span className="font-semibold leading-snug text-foreground">Unknown User</span>
                       )}
                       {comment.is_edited && (
                         <span className="text-xs font-normal text-muted-foreground">(edited)</span>
@@ -302,7 +308,7 @@ const CommentItem = ({
                     </div>
                     <div
                       ref={contentRef}
-                      className="relative mt-1 space-y-2 text-sm text-foreground select-none"
+                      className="relative mt-0.5 space-y-1.5 text-xs text-foreground select-none sm:mt-1 sm:space-y-2 sm:text-sm"
                       onClick={handleContentClick}
                       onTouchEnd={handleContentTouchEnd}
                     >
@@ -318,17 +324,17 @@ const CommentItem = ({
                           loading="lazy"
                           decoding="async"
                           fetchPriority="low"
-                          className="max-h-40 w-auto rounded-lg border border-border/50 object-cover [content-visibility:auto] [contain:content]"
+                          className="max-h-32 w-auto rounded-md border border-border/50 object-cover [content-visibility:auto] [contain:content] sm:max-h-40 sm:rounded-lg"
                         />
                       ) : null}
                       {comment.image_url ? (
-                        <div className="inline-block max-h-60 max-w-full align-top">
+                        <div className="inline-block max-h-48 max-w-full align-top sm:max-h-60">
                           <ImageLoad
                             key={`comment-img-${comment.id}-${commentImageRetry}`}
                             link={`/api/load/image/${comment.image_url}`}
                             imageID={`comment-img-${comment.id}`}
                             retry={retryCommentImage}
-                            className="max-h-60 max-w-full rounded-lg border border-border/50 object-contain"
+                            className="max-h-48 max-w-full rounded-md border border-border/50 object-contain sm:max-h-60 sm:rounded-lg"
                             hasAdultTag={false}
                             shouldShowPreview={true}
                           />
@@ -356,7 +362,7 @@ const CommentItem = ({
                       )}
                     </div>
                   </div>
-                  <div className="mt-1.5 w-full flex flex-wrap items-center gap-x-2 gap-y-1 pl-0.5 text-[13px]">
+                  <div className="mt-1 w-full flex flex-wrap items-center gap-x-1.5 gap-y-0.5 pl-0.5 text-[11px] sm:mt-1.5 sm:gap-x-2 sm:gap-y-1 sm:text-[13px]">
                     <span className="text-muted-foreground">
                       {shortRelativeTime(new Date(comment.created_at))}
                     </span>
@@ -435,9 +441,9 @@ const CommentItem = ({
                   <Button
                     variant="ghost"
                     size="icon"
-                    className="h-8 w-8 shrink-0 rounded-full text-muted-foreground hover:bg-muted/60"
+                    className="h-7 w-7 shrink-0 rounded-full text-muted-foreground hover:bg-muted/60 sm:h-8 sm:w-8"
                   >
-                    <MoreVertical className="h-4 w-4" />
+                    <MoreVertical className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
@@ -468,10 +474,10 @@ const CommentItem = ({
 
       {allowNewComments && isReplying && (
         <div
-          className={cn(level > 0 ? "" : "ml-[52px]")}
+          className={cn(level > 0 ? "" : "ml-11")}
           style={
             level > 0
-              ? { paddingLeft: gutterPx + 40 + 12 }
+              ? { paddingLeft: gutterPx + replyComposerInset }
               : undefined
           }
         >
@@ -486,7 +492,7 @@ const CommentItem = ({
       )}
 
       {showReplies && hasReplies && (
-        <div className="relative z-[1] mt-2 space-y-3 overflow-visible">
+        <div className="relative z-[1] mt-1.5 space-y-2 overflow-visible sm:mt-2 sm:space-y-3">
           {comment.replies?.map((reply, idx, arr) => (
             <CommentItem
               key={reply.id}

@@ -11,7 +11,8 @@ export type ControlName =
   | 'fullscreen'
   | 'settings'
   | 'theater'
-  | 'seek';
+  | 'seek'
+  | 'back';
 
 /** When true, the control is hidden */
 export type HideControls = Partial<Record<ControlName, boolean>>;
@@ -31,6 +32,7 @@ export const MINI_PLAYER_HIDE_CONTROLS: HideControls = {
   fullscreen: true,
   settings: true,
   theater: true,
+  back: true,
 };
 
 /** Vertical PiP / feed embed: keep seek + playback chrome, drop theater / next / cast clutter. */
@@ -39,4 +41,5 @@ export const FEED_EMBED_HIDE_CONTROLS: HideControls = {
   next: true,
   cast: true,
   miniPlayer: true,
+  back: true,
 };

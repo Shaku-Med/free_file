@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { createPortal } from 'react-dom';
+import { useInView } from 'react-intersection-observer';
 import type { FileType } from '~/lib/types';
 import { PlayerProvider, usePlayerContext, type ThumbnailSpriteMeta } from './PlayerContext';
 import { FEED_EMBED_HIDE_CONTROLS, type HideControls } from './types';
@@ -11,7 +12,6 @@ import { useVideoEvents } from './hooks/useVideoEvents';
 import { useMediaSession } from './hooks/useMediaSession';
 import { usePlaybackPosition } from './hooks/usePlaybackPosition';
 import { useAutoplay } from './hooks/useAutoplay';
-import { useInViewPlayback } from './hooks/useInViewPlayback';
 import { useControlsVisibility } from './hooks/useControlsVisibility';
 import { useFullscreen } from './hooks/useFullscreen';
 import { useWakeLock } from './hooks/useWakeLock';
@@ -76,19 +76,16 @@ export interface HLSPlayerProps {
   /** Signed-out preview cap (seconds); null when signed in or unlimited. */
   guestWatchLimitSeconds?: number | null;
   /**
-   * When true, play while the player container is visible in the viewport and pause when it is not
-   * (vertical feeds, carousels). Disables the normal autoplay hook so visibility drives playback.
-   */
-  playPauseWhenInView?: boolean;
-  /** Minimum intersection ratio (0–1) to count as “in view” for `playPauseWhenInView`. Default 0.55. */
-  inViewPlaybackAmount?: number;
-  /** Optional root margin passed to IntersectionObserver (e.g. `"0px 0px -10% 0px"`). */
-  inViewRootMargin?: string;
-  /**
    * With `isReel`, show the bottom control bar (seek, play/pause, volume, etc.) for embedded feeds
    * (e.g. PiP vertical feed). Merged with `hideControls` and defaults from `FEED_EMBED_HIDE_CONTROLS`.
    */
   showFeedPlayerControls?: boolean;
+  /** When set, shows a back control unless `hideControls.back` is true. */
+  onBack?: () => void;
+  /**
+   * Document PiP vertical reel: keep sound on (no global saved mute, no forced mute on inactive slides).
+   */
+  unlockPipReelAudio?: boolean;
 }
 
 const HLSPlayer: React.FC<HLSPlayerProps> = (props) => (
@@ -98,11 +95,13 @@ const HLSPlayer: React.FC<HLSPlayerProps> = (props) => (
     imageID={props.imageID ?? ''}
     isReel={props.isReel ?? false}
     loop={props.loop ?? false}
-    initialMuted={props.muted ?? false}
-    initialAutoPlay={props.playPauseWhenInView ? false : (props.autoPlay ?? false)}
+    initialMuted={props.unlockPipReelAudio ? false : (props.muted ?? false)}
+    initialAutoPlay={props.autoPlay ?? false}
     videoRef={props.videoRef}
     startTime={props.startTime}
     authPlaybackFeatures={props.authPlaybackFeatures ?? true}
+    reelEmbedAutoHide={Boolean((props.showFeedPlayerControls ?? false) && (props.isReel ?? false))}
+    unlockPipReelAudio={props.unlockPipReelAudio ?? false}
   >
     <PlayerInner {...props} />
   </PlayerProvider>
@@ -134,10 +133,8 @@ function PlayerInner({
   onAmbientModeChange,
   hideControls,
   guestWatchLimitSeconds = null,
-  playPauseWhenInView = false,
-  inViewPlaybackAmount,
-  inViewRootMargin,
   showFeedPlayerControls = false,
+  onBack,
 }: HLSPlayerProps) {
   const { theaterMode, setTheaterMode, setPlayerSettings, savePlayerSettings } = useFileContext();
   const {
@@ -147,6 +144,8 @@ function PlayerInner({
     togglePlay,
     setPlaybackRate,
     setControlsVisible,
+    setReelAuxiliaryChromeVisible,
+    reelEmbedAutoHide,
     isReel: isReelCtx,
     setSpriteMeta,
     setSpriteUrl,
@@ -156,7 +155,33 @@ function PlayerInner({
     autoPlay: autoPlayEnabled,
     loop: loopEnabled,
     authPlaybackFeatures: authPlayback,
+    unlockPipReelAudio,
   } = usePlayerContext();
+
+  /**
+   * Reel / PiP vertical feed: observe the `<video>` like `ImageLoad` — virtual slides keep neighbors mounted.
+   *
+   * Strict threshold (0.6) is critical: during Swiper virtual transitions the outgoing, incoming and
+   * pre-rendered neighbor slides can all partially intersect the viewport. With a permissive threshold
+   * (0 + positive rootMargin) every one of them flips `inView=true`, `autoplayAllowed` becomes true on
+   * all mounted slides, and every reel in the feed starts playing at once. Requiring 60% visibility
+   * means exactly one slide wins at a time and all others pause + mute.
+   */
+  const { ref: setReelVideoInViewRef, inView: reelVideoInView } = useInView({
+    threshold: 0.6,
+    triggerOnce: false,
+    skip: !isReelCtx,
+    initialInView: !isReelCtx,
+  });
+
+  const assignVideoRef = useCallback(
+    (node: HTMLVideoElement | null) => {
+      (videoRef as React.MutableRefObject<HTMLVideoElement | null>).current = node;
+      setReelVideoInViewRef(node);
+      onVideoRef?.(node);
+    },
+    [videoRef, setReelVideoInViewRef, onVideoRef],
+  );
 
   const embedReelControls = Boolean(showFeedPlayerControls && isReelCtx);
 
@@ -192,8 +217,21 @@ function PlayerInner({
     return () => mql.removeEventListener("change", update);
   }, []);
 
-  const { isPipActive, isContentInPip } = usePictureInPictureContext();
+  const {
+    isPipActive,
+    isContentInPip,
+    activePipKind,
+    pipContentId,
+    notifyBrowserDrivenNativePipEntered,
+    notifyBrowserDrivenWebKitPipEntered,
+  } = usePictureInPictureContext();
   const inPipForThisVideo = isPipActive && isContentInPip(imageID);
+  /** Native / WebKit PiP uses this `<video>` — must not pause or block `play`. Document PiP uses a separate iframe. */
+  const documentPipPausesMain = inPipForThisVideo && activePipKind === 'document';
+  /** A different file is in PiP — pause this player so only one plays. */
+  const otherVideoInPipBlocksThisPlayer =
+    Boolean(isPipActive && pipContentId !== null && pipContentId !== imageID);
+  const pipPauseMainPlayer = documentPipPausesMain || otherVideoInPipBlocksThisPlayer;
   const { miniPlayer, activateMiniPlayer: triggerMiniPlayer, containerRef: miniPlayerContainerRef, isPortalMode, containerReady, getNavigateBackTarget, sourceVideoRef: miniPlayerSourceVideoRef } = useMiniPlayerContext();
 
   const isMiniPlayerPortalActive = Boolean(
@@ -251,18 +289,39 @@ function PlayerInner({
   usePlaybackPosition(videoRef);
   useFullscreen();
   useWakeLock(videoRef);
+  const autoplayAllowed =
+    autoPlayEnabled && (!isReelCtx || reelVideoInView);
   const { showPrompt, enableAutoplay, dismissPrompt } = useAutoplay(
-    playPauseWhenInView ? false : autoPlayEnabled,
+    autoplayAllowed,
     videoRef,
+    { muteVideoWhenAutoplayDisabled: !unlockPipReelAudio },
   );
-  useInViewPlayback(playPauseWhenInView, containerRef, videoRef, {
-    amount: inViewPlaybackAmount,
-    rootMargin: inViewRootMargin,
-  });
   useControlsVisibility();
 
+  /**
+   * Reel audio gate: guarantees only the in-view reel slide is audible.
+   * - Off-screen: force pause + mute. Without this, `unlockPipReelAudio` tells `useAutoplay` not to
+   *   mute on pause, so neighbors would leak audio the instant anything kicks them into `play()`.
+   * - Back in view (only when the context asked for sound via `unlockPipReelAudio`, e.g. PiP reel):
+   *   unmute. `useAutoplay`'s `attemptAutoplayWithSound` doesn't always flip `muted=false` (the
+   *   non-autoplay-service branch just calls `video.play()`), so without this the slide re-enters
+   *   stuck on the mute we set when it went off-screen.
+   *   Feeds that opted into silent preview (`muted=true`, no unlock flag) are left alone.
+   */
   useEffect(() => {
-    if (!inPipForThisVideo) return;
+    if (!isReelCtx) return;
+    const v = videoRef.current;
+    if (!v) return;
+    if (!reelVideoInView) {
+      if (!v.paused) v.pause();
+      if (!v.muted) v.muted = true;
+    } else if (unlockPipReelAudio) {
+      if (v.muted) v.muted = false;
+    }
+  }, [isReelCtx, reelVideoInView, unlockPipReelAudio, videoRef]);
+
+  useEffect(() => {
+    if (!pipPauseMainPlayer) return;
     setControlsVisible(false);
     const v = videoRef.current;
     if (!v) return;
@@ -272,7 +331,78 @@ function PlayerInner({
     };
     v.addEventListener('play', keepPaused);
     return () => v.removeEventListener('play', keepPaused);
-  }, [inPipForThisVideo, setControlsVisible, videoRef]);
+  }, [pipPauseMainPlayer, setControlsVisible, videoRef]);
+
+  /** Sync context when the browser opens default/native PiP or WebKit presentation PiP (not via our PiP button). */
+  useEffect(() => {
+    if (isReelCtx) return;
+    let cancelled = false;
+    let attachedEl: HTMLVideoElement | null = null;
+    let attempts = 0;
+    const maxAttempts = 120;
+
+    const tryInitialSync = (v: HTMLVideoElement) => {
+      const wv = v as HTMLVideoElement & { webkitPresentationMode?: string };
+      if (wv.webkitPresentationMode === 'picture-in-picture') {
+        notifyBrowserDrivenWebKitPipEntered(v, imageID);
+        return;
+      }
+      if (document.pictureInPictureElement === v) {
+        notifyBrowserDrivenNativePipEntered(v, imageID);
+      }
+    };
+
+    const onEnterNative = () => {
+      const v = videoRef.current;
+      if (!v) return;
+      notifyBrowserDrivenNativePipEntered(v, imageID);
+    };
+
+    const onWebKitPresentation = () => {
+      const v = videoRef.current;
+      if (!v) return;
+      const wv = v as HTMLVideoElement & { webkitPresentationMode?: string };
+      if (wv.webkitPresentationMode === 'picture-in-picture') {
+        notifyBrowserDrivenWebKitPipEntered(v, imageID);
+      }
+    };
+
+    const attach = (v: HTMLVideoElement) => {
+      attachedEl = v;
+      tryInitialSync(v);
+      v.addEventListener('enterpictureinpicture', onEnterNative);
+      v.addEventListener('webkitpresentationmodechanged', onWebKitPresentation);
+    };
+
+    const tick = () => {
+      if (cancelled) return;
+      const v = videoRef.current;
+      if (v) {
+        attach(v);
+        return;
+      }
+      attempts += 1;
+      if (attempts < maxAttempts) {
+        requestAnimationFrame(tick);
+      }
+    };
+
+    tick();
+
+    return () => {
+      cancelled = true;
+      if (attachedEl) {
+        attachedEl.removeEventListener('enterpictureinpicture', onEnterNative);
+        attachedEl.removeEventListener('webkitpresentationmodechanged', onWebKitPresentation);
+      }
+    };
+  }, [
+    isReelCtx,
+    imageID,
+    notifyBrowserDrivenNativePipEntered,
+    notifyBrowserDrivenWebKitPipEntered,
+    videoRef,
+  ]);
 
   const handleTheaterModeChange = useCallback(
     (active: boolean) => {
@@ -378,9 +508,21 @@ function PlayerInner({
     if (inPipForThisVideo) return;
     if (isMobile && !embedReelControls) return;
     if (Date.now() - lastDoubleTapTimeRef.current < 300) return;
+    if (reelEmbedAutoHide && !state.reelAuxiliaryChromeVisible) {
+      setReelAuxiliaryChromeVisible(true);
+    }
     togglePlay();
     triggerPlayPauseFeedback();
-  }, [isReelCtx, embedReelControls, inPipForThisVideo, togglePlay, triggerPlayPauseFeedback]);
+  }, [
+    isReelCtx,
+    embedReelControls,
+    inPipForThisVideo,
+    reelEmbedAutoHide,
+    state.reelAuxiliaryChromeVisible,
+    setReelAuxiliaryChromeVisible,
+    togglePlay,
+    triggerPlayPauseFeedback,
+  ]);
 
   const handleDoubleClick = useCallback(
     (e: React.MouseEvent) => {
@@ -530,9 +672,13 @@ function PlayerInner({
     return () => window.removeEventListener('keydown', handleKey);
   }, [isReelCtx, embedReelControls, inPipForThisVideo, togglePlay, triggerPlayPauseFeedback, theaterMode, handleTheaterModeChange, isMobileView, setPlaybackRate, showShortcuts, file, src, imageID, triggerMiniPlayer, getNavigateBackTarget, miniPlayerSourceVideoRef]);
 
+  /** Feed embed reel: outer chrome stays visible; ControlBar shows seek-only vs full via `reelAuxiliaryChromeVisible`. */
   const showControls =
     embedReelControls ||
-    (state.controlsVisible && !isReelCtx && !inPipForThisVideo);
+    (state.controlsVisible &&
+      !isReelCtx &&
+      !inPipForThisVideo &&
+      !otherVideoInPipBlocksThisPlayer);
   const videoEl = videoRef.current;
   const showLoadingOverlay =
     !state.hasError &&
@@ -569,7 +715,7 @@ function PlayerInner({
           ? createPortal(
               <div className="w-full h-full flex flex-col bg-black">
                 <video
-                  ref={videoRef}
+                  ref={assignVideoRef}
                   className="w-full flex-1 object-contain"
                   muted={muted}
                   loop={loopEnabled}
@@ -593,8 +739,8 @@ function PlayerInner({
             )
           : (
             <video
-              ref={videoRef}
-              className={`w-full h-full object-contain ${isReelCtx && !embedReelControls ? 'pointer-events-none' : ''} ${inPipForThisVideo ? 'opacity-0' : ''}`}
+              ref={assignVideoRef}
+              className={`w-full h-full object-contain ${isReelCtx && !embedReelControls ? 'pointer-events-none' : ''}`}
               muted={muted}
               loop={loopEnabled}
               playsInline={playsInline}
@@ -629,6 +775,7 @@ function PlayerInner({
               hideControls={effectiveHideControls}
               liftBottomPx={showAudioVisualizer ? visualizerLiftPx : 0}
               isMobileLayout={isMobileView}
+              onBack={onBack}
             />
           </div>
         )}

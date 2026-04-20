@@ -1,20 +1,24 @@
 import { cn } from "~/lib/utils";
 
-const STROKE = 1.75;
-/** Horizontal width of one thread column (nested “folder” rail). */
-export const COMMENT_THREAD_STEP_PX = 20;
+/** Stroke width — slightly bolder so threads read on mobile OLED + light mode. */
+const STROKE = 2;
+/** Horizontal width of one thread column (indent per nesting level). */
+export const COMMENT_THREAD_STEP_PX = 22;
 /** @deprecated Use commentThreadGutterWidthPx(level) — kept for imports expecting a single step. */
 export const COMMENT_THREAD_GUTTER_PX = COMMENT_THREAD_STEP_PX;
+
+/** Matches `Avatar` in CommentItem (`h-9 w-9`) so the elbow meets the avatar center. */
+export const COMMENT_AVATAR_SIZE_PX = 36;
+const JOIN_Y = COMMENT_AVATAR_SIZE_PX / 2;
 
 export function commentThreadGutterWidthPx(level: number): number {
   return Math.max(0, level) * COMMENT_THREAD_STEP_PX;
 }
 
-const EXTEND_TOP = 56;
-/** Branch Y: vertical center of h-10 avatar row */
-const JOIN_Y = 20;
-/** Spine continues below row into gap before next sibling */
-const Y_BELOW = 22;
+/** How far above the row we draw so the spine meets the parent’s connector. */
+const EXTEND_TOP = 64;
+/** Spine continues below the avatar row into the gap before the next sibling. */
+const Y_BELOW = 28;
 
 type CommentThreadConnectorProps = {
   level: number;
@@ -54,6 +58,7 @@ function buildTreePaths(
   }
 
   const xLast = xAt(level - 1);
+  // Vertical from above into this row; horizontal branch to the avatar column; optional tail for more replies below.
   parts.push(`M ${xLast} ${-extendTop} L ${xLast} ${joinY}`);
   parts.push(`M ${xLast} ${joinY} L ${endX} ${joinY}`);
   if (!isLast) {
@@ -87,15 +92,15 @@ export function CommentThreadConnector({
         width={W}
         height={vbH}
         viewBox={`0 ${-EXTEND_TOP} ${W} ${vbH}`}
-        className="absolute left-0 top-0 block shrink-0 overflow-visible text-muted-foreground/50 dark:text-muted-foreground/55"
+        className="absolute left-0 top-0 block shrink-0 overflow-visible text-muted-foreground/65 dark:text-muted-foreground/70"
       >
         <path
           d={d}
           fill="none"
           stroke="currentColor"
           strokeWidth={STROKE}
-          strokeLinecap="square"
-          strokeLinejoin="miter"
+          strokeLinecap="round"
+          strokeLinejoin="round"
         />
       </svg>
     </div>

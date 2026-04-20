@@ -1,6 +1,6 @@
 import { useRef, useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { Play, Pause, SkipForward, MoreVertical, SkipBack } from 'lucide-react';
+import { Play, Pause, SkipForward, MoreVertical, SkipBack, ChevronLeft } from 'lucide-react';
 import { usePlayerContext } from '../PlayerContext';
 import { useControlBarWidth } from '../hooks/useControlBarWidth';
 import SeekBar from './seek/SeekBar';
@@ -34,6 +34,8 @@ interface ControlBarProps {
   hideControls?: HideControls;
   liftBottomPx?: number;
   isMobileLayout?: boolean;
+  /** Shown as a chevron back control when set, unless `hideControls.back`. */
+  onBack?: () => void;
 }
 
 export default function ControlBar({
@@ -44,6 +46,7 @@ export default function ControlBar({
   hideControls,
   liftBottomPx = 0,
   isMobileLayout = false,
+  onBack,
 }: ControlBarProps) {
   const {
     state,
@@ -53,7 +56,10 @@ export default function ControlBar({
     autoPlay,
     setAutoPlay,
     authPlaybackFeatures,
+    reelEmbedAutoHide,
   } = usePlayerContext();
+
+  const idleSeekOnly = reelEmbedAutoHide && !state.reelAuxiliaryChromeVisible;
   const containerRef = useRef<HTMLDivElement>(null);
   const { showTime, showRightInline, showVolumeSlider } = useControlBarWidth(containerRef);
   const [overflowOpen, setOverflowOpen] = useState(false);
@@ -127,6 +133,38 @@ export default function ControlBar({
   const desktopRightPill =
     'flex max-w-[min(100%,28rem)] items-center gap-0.5 overflow-x-auto rounded-full bg-black/50 px-1.5 py-1 shadow-sm backdrop-blur-sm [scrollbar-width:none] [&::-webkit-scrollbar]:hidden';
 
+  if (idleSeekOnly) {
+    if (isMobileLayout) {
+      return (
+        <div
+          ref={containerRef}
+          className="pointer-events-none absolute inset-0 z-30 flex flex-col"
+          style={{ bottom: liftBottomPx }}
+        >
+          <div
+            className="pointer-events-auto absolute bottom-0 left-0 right-0 z-40 flex flex-col px-3 pb-3 pt-2"
+            style={{ paddingBottom: 'max(0.75rem, env(safe-area-inset-bottom))' }}
+          >
+            {!isHidden(hideControls, 'seek') && <SeekBar mobileStyle />}
+          </div>
+        </div>
+      );
+    }
+    return (
+      <div
+        ref={containerRef}
+        className="absolute left-0 right-0 z-30 flex flex-col"
+        style={{ bottom: liftBottomPx }}
+      >
+        {!isHidden(hideControls, 'seek') && (
+          <div className="px-3 pb-2 pt-1">
+            <SeekBar />
+          </div>
+        )}
+      </div>
+    );
+  }
+
   if (isMobileLayout) {
     return (
       <div
@@ -134,6 +172,21 @@ export default function ControlBar({
         className="pointer-events-none absolute inset-0 z-30 flex flex-col"
         style={{ bottom: liftBottomPx }}
       >
+        {onBack && !isHidden(hideControls, 'back') && (
+          <div className="pointer-events-auto absolute left-3 top-3 z-40">
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onBack();
+              }}
+              className={desktopIconCircle}
+              aria-label="Back"
+            >
+              <ChevronLeft className="h-5 w-5 text-white" />
+            </button>
+          </div>
+        )}
         <div className="pointer-events-auto absolute right-3 top-3 z-40 flex items-center gap-2">
           {!isHidden(hideControls, 'settings') && (
             <button
@@ -171,7 +224,7 @@ export default function ControlBar({
           {!isHidden(hideControls, 'subtitles') && <SubtitleButton variant="mobileOverlay" />}
           {!isHidden(hideControls, 'cast') && <CastButton mobileOverlay />}
           {!isHidden(hideControls, 'miniPlayer') && <MiniPlayerButton mobileOverlay />}
-          {/* {!isHidden(hideControls, 'pip') && <PipButton mobileOverlay />} */}
+          {!isHidden(hideControls, 'pip') && <PipButton mobileOverlay />}
           {!isHidden(hideControls, 'settings') && <SettingsMenu overlayTrigger />}
         </div>
 
@@ -313,6 +366,19 @@ export default function ControlBar({
 
       <div className="flex min-w-0 items-center justify-between gap-3 px-3 pb-2 pt-0">
         <div className="flex min-w-0 shrink-0 items-center gap-2">
+          {onBack && !isHidden(hideControls, 'back') && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onBack();
+              }}
+              className={desktopIconCircle}
+              aria-label="Back"
+            >
+              <ChevronLeft className="h-5 w-5 text-white" />
+            </button>
+          )}
           {!isHidden(hideControls, 'playPause') && (
             <button
               type="button"
@@ -364,7 +430,7 @@ export default function ControlBar({
             {showRightInline && !isHidden(hideControls, 'settings') && <SettingsMenu pillBarTrigger />}
             {showRightInline && !isHidden(hideControls, 'cast') && <CastButton controlPill />}
             {showRightInline && !isHidden(hideControls, 'miniPlayer') && <MiniPlayerButton controlPill />}
-            {/* {showRightInline && !isHidden(hideControls, 'pip') && <PipButton controlPill />} */}
+            {showRightInline && !isHidden(hideControls, 'pip') && <PipButton controlPill />}
             {!isHidden(hideControls, 'fullscreen') && <FullscreenButton variant="controlPill" />}
             {showRightInline && !isHidden(hideControls, 'theater') && onTheaterModeChange && (
               <TheaterButton theaterMode={theaterMode} onTheaterModeChange={onTheaterModeChange} controlPill />
@@ -418,11 +484,11 @@ export default function ControlBar({
                           <MiniPlayerButton />
                         </div>
                       )}
-                      {/* {!isHidden(hideControls, 'pip') && (
+                      {!isHidden(hideControls, 'pip') && (
                         <div className="px-2 py-1" onClick={() => setOverflowOpen(false)}>
                           <PipButton />
                         </div>
-                      )} */}
+                      )}
                     </div>,
                     document.body
                   )}

@@ -1,10 +1,20 @@
 import React, { createContext, useContext, useState, useRef, useCallback, useEffect } from 'react';
+import {
+  getPipImplementationForDevice,
+  probeAnyPipSupported,
+  type PipImplementationKind,
+} from '~/lib/pip/pipCapabilities';
+
+/** Which PiP path is active — native/WebKit use the same `<video>` element (must keep playing). */
+export type ActivePipKind = Exclude<PipImplementationKind, 'none'>;
 
 interface PictureInPictureContextType {
   isPipActive: boolean;
   setIsPipActive: (active: boolean) => void;
   pipWindow: Window | null;
   setPipWindow: (window: Window | null) => void;
+  /** Current PiP implementation, or null when inactive. Mirrors internal ref for UI logic. */
+  activePipKind: ActivePipKind | null;
   supportsPip: boolean;
   setSupportsPip: (supported: boolean) => void;
   pipVideoRef: React.MutableRefObject<HTMLVideoElement | null>;
@@ -14,6 +24,10 @@ interface PictureInPictureContextType {
   toggleDocumentPip: (src: string, videoRef: React.RefObject<HTMLVideoElement | null>, contentId: string, file?: any, loop?: boolean, updateMediaSession?: (isPlaying: boolean, currentTime: number, duration: number) => void) => Promise<void>;
   closePip: () => void;
   isContentInPip: (contentId: string) => boolean;
+  /** Browser UI opened native PiP (not our button) — sync session so custom overlay / state match. */
+  notifyBrowserDrivenNativePipEntered: (video: HTMLVideoElement, contentId: string) => void;
+  /** Browser / WebKit entered presentation-mode PiP — sync session (e.g. iOS Safari). */
+  notifyBrowserDrivenWebKitPipEntered: (video: HTMLVideoElement, contentId: string) => void;
 }
 
 const PictureInPictureContext = createContext<PictureInPictureContextType | undefined>(undefined);
@@ -56,12 +70,60 @@ export const PictureInPictureProvider: React.FC<PictureInPictureProviderProps> =
   const [pipWindow, setPipWindow] = useState<Window | null>(null);
   const [supportsPip, setSupportsPip] = useState(false);
   const [pipContentId, setPipContentId] = useState<string | null>(null);
+  const [activePipKind, setActivePipKind] = useState<ActivePipKind | null>(null);
   const pipVideoRef = useRef<HTMLVideoElement | null>(null);
   const pipHlsRef = useRef<null>(null);
   const pipMainVideoRef = useRef<HTMLVideoElement | null>(null);
   const pipUpdateMediaSessionRef = useRef<((playing: boolean, time: number, duration: number) => void) | null>(null);
+  const activePipKindRef = useRef<ActivePipKind | null>(null);
+
+  const assignPipKind = useCallback((k: ActivePipKind | null) => {
+    activePipKindRef.current = k;
+    setActivePipKind(k);
+  }, []);
+  const nativePipCleanupRef = useRef<(() => void) | null>(null);
+  const webkitPipCleanupRef = useRef<(() => void) | null>(null);
+
+  const detachNativePipListeners = useCallback(() => {
+    nativePipCleanupRef.current?.();
+    nativePipCleanupRef.current = null;
+  }, []);
+
+  const detachWebkitPipListeners = useCallback(() => {
+    webkitPipCleanupRef.current?.();
+    webkitPipCleanupRef.current = null;
+  }, []);
 
   const closePip = useCallback(() => {
+    detachNativePipListeners();
+    detachWebkitPipListeners();
+
+    const kind = activePipKindRef.current;
+    assignPipKind(null);
+
+    const mainVideo = pipMainVideoRef.current;
+
+    if (kind === 'native-video' && mainVideo && document.pictureInPictureElement === mainVideo) {
+      document.exitPictureInPicture().catch(() => {});
+    }
+
+    if (kind === 'webkit-presentation' && mainVideo) {
+      const wv = mainVideo as HTMLVideoElement & {
+        webkitPresentationMode?: string;
+        webkitSetPresentationMode?: (mode: string) => void;
+      };
+      try {
+        if (
+          typeof wv.webkitSetPresentationMode === 'function' &&
+          wv.webkitPresentationMode === 'picture-in-picture'
+        ) {
+          wv.webkitSetPresentationMode('inline');
+        }
+      } catch {
+        /* ignore */
+      }
+    }
+
     setPipWindow((pw) => {
       if (pw && !pw.closed) pw.close();
       return null;
@@ -71,25 +133,106 @@ export const PictureInPictureProvider: React.FC<PictureInPictureProviderProps> =
     pipUpdateMediaSessionRef.current = null;
     setIsPipActive(false);
     setPipContentId(null);
+  }, [assignPipKind, detachNativePipListeners, detachWebkitPipListeners]);
+
+  const documentPipShellOpen = useCallback((): boolean => {
+    try {
+      const w = (window as any).documentPictureInPicture?.window;
+      return Boolean(w && !w.closed);
+    } catch {
+      return false;
+    }
   }, []);
 
+  const notifyBrowserDrivenNativePipEntered = useCallback(
+    (video: HTMLVideoElement, contentId: string) => {
+      if (documentPipShellOpen() && activePipKindRef.current === 'document') return;
+      if (document.pictureInPictureElement !== video) return;
+      if (activePipKindRef.current === 'native-video' && pipMainVideoRef.current === video) return;
+
+      pipMainVideoRef.current = video;
+      pipUpdateMediaSessionRef.current = null;
+      assignPipKind('native-video');
+      setPipContentId(contentId);
+      setIsPipActive(true);
+
+      detachNativePipListeners();
+      const onLeave = () => {
+        if (activePipKindRef.current !== 'native-video') return;
+        if (pipMainVideoRef.current !== video) return;
+        closePip();
+      };
+      video.addEventListener('leavepictureinpicture', onLeave);
+      nativePipCleanupRef.current = () => {
+        video.removeEventListener('leavepictureinpicture', onLeave);
+      };
+    },
+    [assignPipKind, closePip, detachNativePipListeners, documentPipShellOpen],
+  );
+
+  const notifyBrowserDrivenWebKitPipEntered = useCallback(
+    (video: HTMLVideoElement, contentId: string) => {
+      if (documentPipShellOpen() && activePipKindRef.current === 'document') return;
+      const wv = video as HTMLVideoElement & { webkitPresentationMode?: string };
+      if (wv.webkitPresentationMode !== 'picture-in-picture') return;
+      if (activePipKindRef.current === 'webkit-presentation' && pipMainVideoRef.current === video) return;
+
+      pipMainVideoRef.current = video;
+      pipUpdateMediaSessionRef.current = null;
+      assignPipKind('webkit-presentation');
+      setPipContentId(contentId);
+      setIsPipActive(true);
+
+      detachWebkitPipListeners();
+      const onPresentation = () => {
+        if (activePipKindRef.current !== 'webkit-presentation') return;
+        const mode = (video as HTMLVideoElement & { webkitPresentationMode?: string }).webkitPresentationMode;
+        if (mode !== 'picture-in-picture') {
+          closePip();
+        }
+      };
+      video.addEventListener('webkitpresentationmodechanged', onPresentation);
+      webkitPipCleanupRef.current = () => {
+        video.removeEventListener('webkitpresentationmodechanged', onPresentation);
+      };
+    },
+    [assignPipKind, closePip, detachWebkitPipListeners, documentPipShellOpen],
+  );
+
   useEffect(() => {
-    setSupportsPip('documentPictureInPicture' in window);
+    setSupportsPip(probeAnyPipSupported());
 
     const checkPipState = () => {
       if ((window as any).documentPictureInPicture?.window && !(window as any).documentPictureInPicture.window.closed) {
         setIsPipActive(true);
         setPipWindow((window as any).documentPictureInPicture.window);
+        assignPipKind('document');
       }
     };
 
     checkPipState();
-  }, []);
+  }, [assignPipKind]);
 
   useEffect(() => {
     const handleMessage = (e: MessageEvent) => {
-      if (e.origin !== window.location.origin || e.data?.type !== 'pip-closing') return;
-      const shell = (window as any).documentPictureInPicture?.window;
+      if (e.origin !== window.location.origin) return;
+
+      const shell = (window as any).documentPictureInPicture?.window as Window | undefined;
+
+      /** In-app link from PiP iframe → shell relay → here: close PiP and navigate this window. */
+      if (e.data?.type === 'pip-navigate' && typeof e.data.href === 'string') {
+        if (!shell || e.source !== shell) return;
+        closePip();
+        try {
+          const next = new URL(e.data.href, window.location.origin);
+          window.location.assign(next.href);
+        } catch {
+          window.location.assign(e.data.href);
+        }
+        return;
+      }
+
+      if (e.data?.type !== 'pip-closing') return;
       if (!shell) return;
       const fromShell = e.source === shell;
       let fromPipIframe = false;
@@ -143,21 +286,96 @@ export const PictureInPictureProvider: React.FC<PictureInPictureProviderProps> =
   }, [pipWindow, closePip]);
 
   const toggleDocumentPip = useCallback(async (src: string, videoRef: React.RefObject<HTMLVideoElement | null>, contentId: string, file?: any, loop?: boolean, updateMediaSession?: (isPlaying: boolean, currentTime: number, duration: number) => void) => {
-    if (!(window as any).documentPictureInPicture) {
-      alert('Document Picture-in-Picture is not supported in your browser.');
+    const video = videoRef.current;
+    const impl = getPipImplementationForDevice(video);
+
+    if (impl === 'none') {
       return;
     }
 
-    if (pipWindow && !pipWindow.closed) {
-      if (pipContentId === contentId) {
-        closePip();
-        if (videoRef.current) {
-          videoRef.current.muted = false;
-        }
-        return;
-      } else {
-        closePip();
+    if (isPipActive && pipContentId === contentId) {
+      closePip();
+      return;
+    }
+
+    if (isPipActive) {
+      closePip();
+    }
+
+    if (impl === 'native-video') {
+      if (!video) return;
+      try {
+        pipMainVideoRef.current = video;
+        pipUpdateMediaSessionRef.current = updateMediaSession ?? null;
+        assignPipKind('native-video');
+        setPipContentId(contentId);
+
+        detachNativePipListeners();
+        const onLeave = () => {
+          if (activePipKindRef.current !== 'native-video') return;
+          closePip();
+        };
+        video.addEventListener('leavepictureinpicture', onLeave);
+        nativePipCleanupRef.current = () => {
+          video.removeEventListener('leavepictureinpicture', onLeave);
+        };
+
+        await video.requestPictureInPicture();
+        setIsPipActive(true);
+      } catch (error) {
+        console.error('Error entering native Picture-in-Picture:', error);
+        detachNativePipListeners();
+        assignPipKind(null);
+        pipMainVideoRef.current = null;
+        pipUpdateMediaSessionRef.current = null;
+        setPipContentId(null);
+        setIsPipActive(false);
       }
+      return;
+    }
+
+    if (impl === 'webkit-presentation') {
+      if (!video) return;
+      const wv = video as HTMLVideoElement & {
+        webkitSetPresentationMode?: (mode: string) => void;
+        webkitPresentationMode?: string;
+      };
+      try {
+        pipMainVideoRef.current = video;
+        pipUpdateMediaSessionRef.current = updateMediaSession ?? null;
+        assignPipKind('webkit-presentation');
+        setPipContentId(contentId);
+
+        detachWebkitPipListeners();
+        const onPresentation = () => {
+          if (activePipKindRef.current !== 'webkit-presentation') return;
+          if (wv.webkitPresentationMode !== 'picture-in-picture') {
+            closePip();
+          }
+        };
+        video.addEventListener('webkitpresentationmodechanged', onPresentation);
+        webkitPipCleanupRef.current = () => {
+          video.removeEventListener('webkitpresentationmodechanged', onPresentation);
+        };
+
+        if (typeof wv.webkitSetPresentationMode === 'function') {
+          wv.webkitSetPresentationMode('picture-in-picture');
+        }
+        setIsPipActive(true);
+      } catch (error) {
+        console.error('Error entering WebKit Picture-in-Picture:', error);
+        detachWebkitPipListeners();
+        assignPipKind(null);
+        pipMainVideoRef.current = null;
+        pipUpdateMediaSessionRef.current = null;
+        setPipContentId(null);
+        setIsPipActive(false);
+      }
+      return;
+    }
+
+    if (!(window as any).documentPictureInPicture) {
+      return;
     }
 
     try {
@@ -184,6 +402,61 @@ export const PictureInPictureProvider: React.FC<PictureInPictureProviderProps> =
       doc.documentElement.style.height = '100%';
       doc.body.style.margin = '0';
       doc.body.style.height = '100%';
+      doc.body.style.position = 'relative';
+      doc.body.style.overflow = 'hidden';
+
+      const pipStyles = doc.createElement('style');
+      pipStyles.textContent = `
+        @keyframes pip-iframe-spin { to { transform: rotate(360deg); } }
+        #pip-iframe-loader {
+          position: absolute; inset: 0; z-index: 10; display: flex;
+          align-items: center; justify-content: center; flex-direction: column; gap: 12px;
+          background: #000; color: rgba(255,255,255,0.85); font: 13px/1.4 system-ui, sans-serif;
+        }
+        #pip-iframe-loader .pip-spinner {
+          width: 40px; height: 40px; border: 3px solid rgba(255,255,255,0.22);
+          border-top-color: #fff; border-radius: 50%;
+          animation: pip-iframe-spin 0.75s linear infinite;
+        }
+      `;
+      doc.head.appendChild(pipStyles);
+
+      const pipRelayScript = doc.createElement('script');
+      pipRelayScript.textContent = `(function(O){
+  window.addEventListener("message",function(ev){
+    if(ev.origin!==O)return;
+    var d=ev.data;
+    if(!d||d.type!=="pip-command")return;
+    try{
+      if(!window.opener||window.opener.closed)return;
+      if(d.command==="navigate"&&typeof d.href==="string"){
+        window.opener.postMessage({type:"pip-navigate",href:d.href},O);
+      }else if(d.command==="closing"){
+        window.opener.postMessage({type:"pip-closing",time:d.time,id:d.id},O);
+      }
+    }catch(_){}
+  });
+})(${JSON.stringify(origin)});`;
+      doc.head.appendChild(pipRelayScript);
+
+      const loader = doc.createElement('div');
+      loader.id = 'pip-iframe-loader';
+      loader.setAttribute('role', 'status');
+      loader.setAttribute('aria-live', 'polite');
+      loader.setAttribute('aria-label', 'Loading');
+      const spinner = doc.createElement('div');
+      spinner.className = 'pip-spinner';
+      const label = doc.createElement('span');
+      label.textContent = 'Loading…';
+      loader.appendChild(spinner);
+      loader.appendChild(label);
+      doc.body.appendChild(loader);
+
+      const hideLoader = () => {
+        loader.style.display = 'none';
+      };
+      const loadTimeout = window.setTimeout(hideLoader, 45_000);
+
       const iframe = doc.createElement('iframe');
       iframe.src = pipUrl;
       iframe.title = 'Picture-in-Picture';
@@ -191,10 +464,20 @@ export const PictureInPictureProvider: React.FC<PictureInPictureProviderProps> =
       iframe.style.width = '100%';
       iframe.style.height = '100%';
       iframe.style.display = 'block';
+      iframe.style.position = 'relative';
+      iframe.style.zIndex = '1';
       iframe.setAttribute(
         'allow',
         'autoplay; fullscreen; encrypted-media; picture-in-picture'
       );
+      iframe.addEventListener('load', () => {
+        window.clearTimeout(loadTimeout);
+        hideLoader();
+      });
+      iframe.addEventListener('error', () => {
+        window.clearTimeout(loadTimeout);
+        hideLoader();
+      });
       doc.body.appendChild(iframe);
 
       const lockSrc = `(function(){
@@ -216,18 +499,26 @@ export const PictureInPictureProvider: React.FC<PictureInPictureProviderProps> =
       lockScript.textContent = lockSrc;
       doc.body.appendChild(lockScript);
 
+      assignPipKind('document');
       setPipWindow(pw);
       setIsPipActive(true);
       setPipContentId(contentId);
 
       if (videoRef.current) {
-        videoRef.current.muted = true;
         videoRef.current.pause();
       }
     } catch (error) {
       console.error('Error opening Document PiP:', error);
+      assignPipKind(null);
     }
-  }, [pipWindow, pipContentId, closePip]);
+  }, [
+    assignPipKind,
+    isPipActive,
+    pipContentId,
+    closePip,
+    detachNativePipListeners,
+    detachWebkitPipListeners,
+  ]);
 
   const isContentInPip = useCallback((contentId: string) => {
     if (!isPipActive) return false;
@@ -240,6 +531,7 @@ export const PictureInPictureProvider: React.FC<PictureInPictureProviderProps> =
     setIsPipActive,
     pipWindow,
     setPipWindow,
+    activePipKind,
     supportsPip,
     setSupportsPip,
     pipVideoRef,
@@ -248,7 +540,9 @@ export const PictureInPictureProvider: React.FC<PictureInPictureProviderProps> =
     setPipContentId,
     toggleDocumentPip,
     closePip,
-    isContentInPip
+    isContentInPip,
+    notifyBrowserDrivenNativePipEntered,
+    notifyBrowserDrivenWebKitPipEntered,
   };
 
   return (

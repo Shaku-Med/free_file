@@ -22,8 +22,15 @@ export default function PipOverlay() {
   }
 
   return (
-    <div className="absolute top-3 left-3 z-[60] bg-amber-500/80 text-white px-3 py-1 rounded-lg text-xs font-medium backdrop-blur-sm">
-      Another video is in PiP
+    <div
+      className="absolute inset-0 z-[60] flex flex-col items-center justify-center gap-2 bg-black/75 backdrop-blur-sm pointer-events-none"
+      aria-live="polite"
+    >
+      <PictureInPicture2 className="w-12 h-12 text-amber-200/90" />
+      <p className="text-white text-base font-medium text-center px-4">Another video is in Picture-in-Picture</p>
+      <p className="text-white/60 text-sm text-center px-6 max-w-sm">
+        This player stays paused until that video exits PiP.
+      </p>
     </div>
   );
 }

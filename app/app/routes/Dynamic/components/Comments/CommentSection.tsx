@@ -312,7 +312,7 @@ const CommentSection = ({
   );
 
   return (
-    <div className={cn("space-y-4", className)}>
+    <div className={cn("space-y-3 sm:space-y-4", className)}>
       {/* <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between sm:gap-2">
         <div className="flex items-center gap-2">
           <MessageSquare className="h-5 w-5 text-foreground" />
@@ -364,7 +364,7 @@ const CommentSection = ({
           </p>
         </div>
       ) : (
-        <div className="space-y-4 min-w-0 max-w-full overflow-x-auto overscroll-x-contain [scrollbar-gutter:stable]">
+        <div className="min-w-0 max-w-full space-y-3 overflow-x-hidden overscroll-x-contain [scrollbar-gutter:stable] sm:space-y-4">
           {comments.map((comment) => (
             <CommentItem
               key={comment.id}

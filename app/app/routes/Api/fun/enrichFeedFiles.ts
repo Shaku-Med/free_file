@@ -47,9 +47,19 @@ export async function enrichFeedFilesWithInteractions(
     const f = file as Record<string, unknown>;
     const id = f.id as string | undefined;
     const interactions = id ? interactionsByFile.get(id) : undefined;
-    const likeCount = interactions ? interactions.like_count : Number(f.like_count) || 0;
-    const dislikeCount = interactions ? interactions.dislike_count : Number(f.dislike_count) || 0;
-    const commentCount = interactions ? interactions.comment_count : Number(f.comment_count) || 0;
+    const rpcLike = Number(f.like_count) || 0;
+    const rpcDislike = Number(f.dislike_count) || 0;
+    const rpcComment = Number(f.comment_count) || 0;
+    // Batch RPC can lag or return 0; keep feed/RPC counts as floor so PiP and feeds don't show 0 incorrectly.
+    const likeCount = interactions
+      ? Math.max(interactions.like_count, rpcLike)
+      : rpcLike;
+    const dislikeCount = interactions
+      ? Math.max(interactions.dislike_count, rpcDislike)
+      : rpcDislike;
+    const commentCount = interactions
+      ? Math.max(interactions.comment_count, rpcComment)
+      : rpcComment;
     const userHasLiked = interactions ? interactions.user_has_liked : !!f.user_has_liked;
     const userHasDisliked = interactions ? interactions.user_has_disliked : !!f.user_has_disliked;
     if (userHasLiked && id) likedFileIds.push(id);
