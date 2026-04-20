@@ -6,6 +6,7 @@ export type ControlName =
   | 'time'
   | 'subtitles'
   | 'miniPlayer'
+  | 'pip'
   | 'cast'
   | 'fullscreen'
   | 'settings'
@@ -26,7 +27,16 @@ export const MINI_PLAYER_HIDE_CONTROLS: HideControls = {
   time: true,
   subtitles: true,
   miniPlayer: true,
+  pip: true,
   fullscreen: true,
   settings: true,
   theater: true,
+};
+
+/** Vertical PiP / feed embed: keep seek + playback chrome, drop theater / next / cast clutter. */
+export const FEED_EMBED_HIDE_CONTROLS: HideControls = {
+  theater: true,
+  next: true,
+  cast: true,
+  miniPlayer: true,
 };

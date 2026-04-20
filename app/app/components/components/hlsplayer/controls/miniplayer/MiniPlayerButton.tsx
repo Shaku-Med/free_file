@@ -1,4 +1,4 @@
-import { PictureInPicture2 } from 'lucide-react';
+import { PanelBottom } from 'lucide-react';
 import { useCallback } from 'react';
 import { cn } from '~/lib/utils';
 import { usePlayerContext } from '../../PlayerContext';
@@ -22,7 +22,6 @@ export default function MiniPlayerButton({
 
     const backTarget = getNavigateBackTarget();
 
-    // Store ref to the large video so the mini player can mute it once it starts playing
     sourceVideoRef.current = video;
 
     activateMiniPlayer(
@@ -62,7 +61,7 @@ export default function MiniPlayerButton({
           )}
           aria-label="Mini player"
         >
-          <PictureInPicture2 className="w-5 h-5" />
+          <PanelBottom className="w-5 h-5" />
         </button>
       </TooltipTrigger>
       <TooltipContent side="top">Mini player</TooltipContent>

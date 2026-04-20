@@ -55,4 +55,6 @@ export interface ContextProps {
   setHasFetchedImages: React.Dispatch<React.SetStateAction<boolean>>;
   /** Other signed-in accounts stored on this device (HttpOnly vault); excludes current session. */
   altAccounts: { id: string; username: string; profile_pic?: string | null }[];
+  hideAppChrome: boolean;
+  setHideAppChrome: React.Dispatch<React.SetStateAction<boolean>>;
 }

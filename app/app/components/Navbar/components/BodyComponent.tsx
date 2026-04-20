@@ -4,6 +4,7 @@ import Footer from "~/components/components/Footer"
 import ScrollRestoration from "~/lib/Context/ScrollRestoration"
 import { useFileContext } from "~/lib/Context/Context";
 import { useLocation } from "react-router";
+import { isPipChromeRoute } from "~/routes/pip/pipEnv";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 export interface ScrollState {
@@ -26,8 +27,9 @@ function easeOutCubic(t: number): number {
 
 const BodyComponent = ({ children }: BodyComponentProps) => {
   const { isMobile, state } = useSidebar()
-  const { theaterMode } = useFileContext();
+  const { theaterMode, hideAppChrome } = useFileContext();
   const location = useLocation();
+  const suppressChrome = hideAppChrome || isPipChromeRoute(location.pathname);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const [hasScrolled, setHasScrolled] = useState<ScrollState>({
     state: false,
@@ -62,6 +64,22 @@ const BodyComponent = ({ children }: BodyComponentProps) => {
   useEffect(() => {
     handleScrollRef.current();
   }, [location.pathname]);
+
+  if (suppressChrome) {
+    return (
+      <div className="flex h-full min-h-0 w-full flex-1 flex-col overflow-hidden">
+        <div
+          id="scroll_container"
+          className="min-h-0 w-full flex-1 overflow-y-auto overflow-x-hidden"
+          ref={scrollContainerRef}
+          onScroll={handleScroll}
+        >
+          <ScrollRestoration />
+          <div className="sidebar_body h-full min-h-0 w-full flex-1">{children}</div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div

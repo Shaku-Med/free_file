@@ -1,8 +1,8 @@
-import React, { useEffect, useState, useCallback, useRef } from 'react';
+import React, { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import type { FileType } from '~/lib/types';
 import { PlayerProvider, usePlayerContext, type ThumbnailSpriteMeta } from './PlayerContext';
-import type { HideControls } from './types';
+import { FEED_EMBED_HIDE_CONTROLS, type HideControls } from './types';
 import SeekBar from './controls/seek/SeekBar';
 import PersistentBottomVisualizer from './controls/seek/PersistentBottomVisualizer';
 import AudioVisualizerBars from './controls/seek/AudioVisualizerBars';
@@ -11,6 +11,7 @@ import { useVideoEvents } from './hooks/useVideoEvents';
 import { useMediaSession } from './hooks/useMediaSession';
 import { usePlaybackPosition } from './hooks/usePlaybackPosition';
 import { useAutoplay } from './hooks/useAutoplay';
+import { useInViewPlayback } from './hooks/useInViewPlayback';
 import { useControlsVisibility } from './hooks/useControlsVisibility';
 import { useFullscreen } from './hooks/useFullscreen';
 import { useWakeLock } from './hooks/useWakeLock';
@@ -19,7 +20,7 @@ import EndScreen from './controls/endscreen/EndScreen';
 import BufferingSpinner from './overlays/BufferingSpinner';
 import ErrorOverlay from './overlays/ErrorOverlay';
 import AutoplayPrompt from './overlays/AutoplayPrompt';
-// import PipOverlay from './overlays/PipOverlay';
+import PipOverlay from './overlays/PipOverlay';
 import PlayPauseFeedback from './overlays/PlayPauseFeedback';
 import SeekFeedback from './overlays/SeekFeedback';
 import PosterBackground from './overlays/PosterBackground';
@@ -74,6 +75,20 @@ export interface HLSPlayerProps {
   authPlaybackFeatures?: boolean;
   /** Signed-out preview cap (seconds); null when signed in or unlimited. */
   guestWatchLimitSeconds?: number | null;
+  /**
+   * When true, play while the player container is visible in the viewport and pause when it is not
+   * (vertical feeds, carousels). Disables the normal autoplay hook so visibility drives playback.
+   */
+  playPauseWhenInView?: boolean;
+  /** Minimum intersection ratio (0–1) to count as “in view” for `playPauseWhenInView`. Default 0.55. */
+  inViewPlaybackAmount?: number;
+  /** Optional root margin passed to IntersectionObserver (e.g. `"0px 0px -10% 0px"`). */
+  inViewRootMargin?: string;
+  /**
+   * With `isReel`, show the bottom control bar (seek, play/pause, volume, etc.) for embedded feeds
+   * (e.g. PiP vertical feed). Merged with `hideControls` and defaults from `FEED_EMBED_HIDE_CONTROLS`.
+   */
+  showFeedPlayerControls?: boolean;
 }
 
 const HLSPlayer: React.FC<HLSPlayerProps> = (props) => (
@@ -84,7 +99,7 @@ const HLSPlayer: React.FC<HLSPlayerProps> = (props) => (
     isReel={props.isReel ?? false}
     loop={props.loop ?? false}
     initialMuted={props.muted ?? false}
-    initialAutoPlay={props.autoPlay ?? false}
+    initialAutoPlay={props.playPauseWhenInView ? false : (props.autoPlay ?? false)}
     videoRef={props.videoRef}
     startTime={props.startTime}
     authPlaybackFeatures={props.authPlaybackFeatures ?? true}
@@ -119,6 +134,10 @@ function PlayerInner({
   onAmbientModeChange,
   hideControls,
   guestWatchLimitSeconds = null,
+  playPauseWhenInView = false,
+  inViewPlaybackAmount,
+  inViewRootMargin,
+  showFeedPlayerControls = false,
 }: HLSPlayerProps) {
   const { theaterMode, setTheaterMode, setPlayerSettings, savePlayerSettings } = useFileContext();
   const {
@@ -127,6 +146,7 @@ function PlayerInner({
     setState,
     togglePlay,
     setPlaybackRate,
+    setControlsVisible,
     isReel: isReelCtx,
     setSpriteMeta,
     setSpriteUrl,
@@ -137,6 +157,13 @@ function PlayerInner({
     loop: loopEnabled,
     authPlaybackFeatures: authPlayback,
   } = usePlayerContext();
+
+  const embedReelControls = Boolean(showFeedPlayerControls && isReelCtx);
+
+  const effectiveHideControls = useMemo(() => {
+    if (!embedReelControls) return hideControls;
+    return { ...FEED_EMBED_HIDE_CONTROLS, ...hideControls };
+  }, [embedReelControls, hideControls]);
 
   const guestLimitActive =
     !authPlayback &&
@@ -166,6 +193,7 @@ function PlayerInner({
   }, []);
 
   const { isPipActive, isContentInPip } = usePictureInPictureContext();
+  const inPipForThisVideo = isPipActive && isContentInPip(imageID);
   const { miniPlayer, activateMiniPlayer: triggerMiniPlayer, containerRef: miniPlayerContainerRef, isPortalMode, containerReady, getNavigateBackTarget, sourceVideoRef: miniPlayerSourceVideoRef } = useMiniPlayerContext();
 
   const isMiniPlayerPortalActive = Boolean(
@@ -223,8 +251,28 @@ function PlayerInner({
   usePlaybackPosition(videoRef);
   useFullscreen();
   useWakeLock(videoRef);
-  const { showPrompt, enableAutoplay, dismissPrompt } = useAutoplay(autoPlayEnabled, videoRef);
+  const { showPrompt, enableAutoplay, dismissPrompt } = useAutoplay(
+    playPauseWhenInView ? false : autoPlayEnabled,
+    videoRef,
+  );
+  useInViewPlayback(playPauseWhenInView, containerRef, videoRef, {
+    amount: inViewPlaybackAmount,
+    rootMargin: inViewRootMargin,
+  });
   useControlsVisibility();
+
+  useEffect(() => {
+    if (!inPipForThisVideo) return;
+    setControlsVisible(false);
+    const v = videoRef.current;
+    if (!v) return;
+    v.pause();
+    const keepPaused = () => {
+      v.pause();
+    };
+    v.addEventListener('play', keepPaused);
+    return () => v.removeEventListener('play', keepPaused);
+  }, [inPipForThisVideo, setControlsVisible, videoRef]);
 
   const handleTheaterModeChange = useCallback(
     (active: boolean) => {
@@ -293,7 +341,7 @@ function PlayerInner({
     (clientX: number) => {
       const container = containerRef.current;
       const video = videoRef.current;
-      if (!container || !video || isReelCtx) return;
+      if (!container || !video || (isReelCtx && !embedReelControls) || inPipForThisVideo) return;
       const rect = container.getBoundingClientRect();
       const x = clientX - rect.left;
       const width = rect.width;
@@ -322,25 +370,27 @@ function PlayerInner({
         }, 300);
       }, 600);
     },
-    [isReelCtx]
+    [isReelCtx, embedReelControls, inPipForThisVideo]
   );
 
   const handleVideoClick = useCallback(() => {
-    if (isReelCtx) return;
-    if (isMobile) return;
+    if (isReelCtx && !embedReelControls) return;
+    if (inPipForThisVideo) return;
+    if (isMobile && !embedReelControls) return;
     if (Date.now() - lastDoubleTapTimeRef.current < 300) return;
     togglePlay();
     triggerPlayPauseFeedback();
-  }, [isReelCtx, togglePlay, triggerPlayPauseFeedback]);
+  }, [isReelCtx, embedReelControls, inPipForThisVideo, togglePlay, triggerPlayPauseFeedback]);
 
   const handleDoubleClick = useCallback(
     (e: React.MouseEvent) => {
-      if (isReelCtx) return;
+      if (isReelCtx && !embedReelControls) return;
+      if (inPipForThisVideo) return;
       e.preventDefault();
       lastDoubleTapTimeRef.current = Date.now();
       performSeekByTap(e.clientX);
     },
-    [isReelCtx, performSeekByTap]
+    [isReelCtx, embedReelControls, inPipForThisVideo, performSeekByTap]
   );
 
   /** Prefer series order, then related — matches end-screen autoplay when `onNext` is not supplied. */
@@ -359,7 +409,8 @@ function PlayerInner({
 
   const handleTouchEnd = useCallback(
     (e: React.TouchEvent) => {
-      if (isReelCtx) return;
+      if (isReelCtx && !embedReelControls) return;
+      if (inPipForThisVideo) return;
       const touch = e.changedTouches[0];
       if (!touch) return;
       const now = Date.now();
@@ -372,17 +423,18 @@ function PlayerInner({
         performSeekByTap(x);
       }
     },
-    [isReelCtx, performSeekByTap]
+    [isReelCtx, embedReelControls, inPipForThisVideo, performSeekByTap]
   );
 
   useEffect(() => {
-    if (isReelCtx) return;
+    if (isReelCtx && !embedReelControls) return;
     const handleKey = (e: KeyboardEvent) => {
       const tag = (e.target as HTMLElement)?.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
 
       const video = videoRef.current;
       if (!video) return;
+      if (inPipForThisVideo) return;
 
       switch (e.key) {
         case ' ':
@@ -476,9 +528,11 @@ function PlayerInner({
 
     window.addEventListener('keydown', handleKey);
     return () => window.removeEventListener('keydown', handleKey);
-  }, [isReelCtx, togglePlay, triggerPlayPauseFeedback, theaterMode, handleTheaterModeChange, isMobileView, setPlaybackRate, showShortcuts, file, src, imageID, triggerMiniPlayer, getNavigateBackTarget, miniPlayerSourceVideoRef]);
+  }, [isReelCtx, embedReelControls, inPipForThisVideo, togglePlay, triggerPlayPauseFeedback, theaterMode, handleTheaterModeChange, isMobileView, setPlaybackRate, showShortcuts, file, src, imageID, triggerMiniPlayer, getNavigateBackTarget, miniPlayerSourceVideoRef]);
 
-  const showControls = state.controlsVisible && !isReelCtx;
+  const showControls =
+    embedReelControls ||
+    (state.controlsVisible && !isReelCtx && !inPipForThisVideo);
   const videoEl = videoRef.current;
   const showLoadingOverlay =
     !state.hasError &&
@@ -489,27 +543,25 @@ function PlayerInner({
     <div
       ref={containerRef}
       className={`relative bg-black overflow-hidden select-none ${isReelCtx ? 'z-[1]' : ''} ${className}`}
-      style={{ cursor: showControls ? 'default' : 'none' }}
+      style={{ cursor: 'default' }}
     >
       {ambientMode && authPlayback && <AmbientBackground />}
       <PosterBackground
         onImageLoaded={handlePosterImageLoaded}
       />
 
-      {statsForNerds && !isReelCtx && <StatsForNerdsOverlay />}
+      {statsForNerds && !isReelCtx && !inPipForThisVideo && <StatsForNerdsOverlay />}
 
       <div className="relative z-10 w-full h-full" onTouchEnd={handleTouchEnd}>
         {state.hasError && <ErrorOverlay />}
 
         {showLoadingOverlay && <BufferingSpinner />}
 
-        {/* <PipOverlay /> */}
-
-        {showPlayPauseFeedback && !showSeekFeedback && !isReelCtx && !isMobile && (
+        {showPlayPauseFeedback && !showSeekFeedback && !isReelCtx && !isMobile && !inPipForThisVideo && (
           <PlayPauseFeedback isPlaying={feedbackIconPlaying} fading={feedbackFading} />
         )}
 
-        {showSeekFeedback && !isReelCtx && (
+        {showSeekFeedback && (!isReelCtx || embedReelControls) && !inPipForThisVideo && (
           <SeekFeedback direction={seekFeedbackDirection} seconds={SEEK_SECONDS} fading={seekFeedbackFading} />
         )}
 
@@ -542,7 +594,7 @@ function PlayerInner({
           : (
             <video
               ref={videoRef}
-              className={`w-full h-full object-contain ${isReelCtx ? 'pointer-events-none' : ''} ${isPipActive && isContentInPip(imageID) ? 'opacity-0' : ''}`}
+              className={`w-full h-full object-contain ${isReelCtx && !embedReelControls ? 'pointer-events-none' : ''} ${inPipForThisVideo ? 'opacity-0' : ''}`}
               muted={muted}
               loop={loopEnabled}
               playsInline={playsInline}
@@ -564,7 +616,7 @@ function PlayerInner({
           />
         )}
 
-        {!isReelCtx && !isMiniPlayerPortalActive && (
+        {(!isReelCtx || embedReelControls) && !isMiniPlayerPortalActive && (
           <div
             className={`transition-opacity duration-300 ${showControls ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
           >
@@ -574,22 +626,24 @@ function PlayerInner({
               onPlayPauseClick={triggerPlayPauseFeedback}
               theaterMode={theaterMode}
               onTheaterModeChange={isMobileView ? undefined : handleTheaterModeChange}
-              hideControls={hideControls}
+              hideControls={effectiveHideControls}
               liftBottomPx={showAudioVisualizer ? visualizerLiftPx : 0}
               isMobileLayout={isMobileView}
             />
           </div>
         )}
 
-        {showAudioVisualizer && !isReelCtx && !isMiniPlayerPortalActive && (
+        {!isReelCtx && <PipOverlay />}
+
+        {showAudioVisualizer && !isReelCtx && !isMiniPlayerPortalActive && !inPipForThisVideo && (
           <PersistentBottomVisualizer onLayoutHeight={setVisualizerLiftPx} />
         )}
 
-        {showPrompt && autoPlayEnabled && !isReelCtx && authPlayback && (
+        {showPrompt && autoPlayEnabled && !isReelCtx && authPlayback && !inPipForThisVideo && (
           <AutoplayPrompt onEnable={enableAutoplay} onDismiss={dismissPrompt} />
         )}
 
-        {showShortcuts && !isReelCtx && (
+        {showShortcuts && !isReelCtx && !inPipForThisVideo && (
           <ShortcutOverlay onClose={() => setShowShortcuts(false)} />
         )}
 

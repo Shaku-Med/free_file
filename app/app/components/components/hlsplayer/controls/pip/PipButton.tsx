@@ -4,22 +4,36 @@ import { usePlayerContext } from '../../PlayerContext';
 import { usePictureInPictureContext } from '~/lib/Context/PictureInPictureContext';
 import { Tooltip, TooltipContent, TooltipTrigger } from '~/components/ui/tooltip';
 
-export default function PipButton({ controlPill = false }: { controlPill?: boolean }) {
+export default function PipButton({
+  controlPill = false,
+  mobileOverlay = false,
+}: {
+  controlPill?: boolean;
+  mobileOverlay?: boolean;
+}) {
   const { videoRef, src, imageID, file, loop, isReel } = usePlayerContext();
   const { supportsPip, isContentInPip, toggleDocumentPip } = usePictureInPictureContext();
 
   if (!supportsPip || isReel) return null;
-  if (isContentInPip(imageID)) return null; // Already in PiP - overlay handles exit
+  if (isContentInPip(imageID)) return null;
 
   return (
     <Tooltip>
       <TooltipTrigger asChild>
         <button
           type="button"
-          onClick={() => toggleDocumentPip(src, videoRef, imageID, file, loop)}
+          onClick={(e) => {
+            if (mobileOverlay) e.stopPropagation();
+            void toggleDocumentPip(src, videoRef, imageID, file, loop);
+          }}
           className={cn(
             'text-white transition-colors',
-            controlPill ? 'rounded-lg p-2 hover:bg-white/10' : 'rounded-md p-1.5 hover:bg-white/10'
+            mobileOverlay &&
+              'flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-white/20 bg-black/50 shadow-sm backdrop-blur-sm active:bg-black/60',
+            !mobileOverlay &&
+              cn(
+                controlPill ? 'rounded-lg p-2 hover:bg-white/10' : 'rounded-md p-1.5 hover:bg-white/10'
+              )
           )}
           aria-label="Picture-in-Picture"
         >

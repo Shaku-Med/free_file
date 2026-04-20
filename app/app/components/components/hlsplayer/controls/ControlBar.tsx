@@ -11,7 +11,7 @@ import FullscreenButton from './fullscreen/FullscreenButton';
 import CastButton from './cast/CastButton';
 import SubtitleButton from './subtitles/SubtitleButton';
 import MiniPlayerButton from './miniplayer/MiniPlayerButton';
-// import PipButton from './pip/PipButton';
+import PipButton from './pip/PipButton';
 import { formatTime } from './seek/functions/formatTime';
 import type { HideControls } from '../types';
 import { isMobile } from 'react-device-detect';
@@ -171,6 +171,7 @@ export default function ControlBar({
           {!isHidden(hideControls, 'subtitles') && <SubtitleButton variant="mobileOverlay" />}
           {!isHidden(hideControls, 'cast') && <CastButton mobileOverlay />}
           {!isHidden(hideControls, 'miniPlayer') && <MiniPlayerButton mobileOverlay />}
+          {/* {!isHidden(hideControls, 'pip') && <PipButton mobileOverlay />} */}
           {!isHidden(hideControls, 'settings') && <SettingsMenu overlayTrigger />}
         </div>
 
@@ -363,7 +364,7 @@ export default function ControlBar({
             {showRightInline && !isHidden(hideControls, 'settings') && <SettingsMenu pillBarTrigger />}
             {showRightInline && !isHidden(hideControls, 'cast') && <CastButton controlPill />}
             {showRightInline && !isHidden(hideControls, 'miniPlayer') && <MiniPlayerButton controlPill />}
-            {/* <PipButton controlPill /> */}
+            {/* {showRightInline && !isHidden(hideControls, 'pip') && <PipButton controlPill />} */}
             {!isHidden(hideControls, 'fullscreen') && <FullscreenButton variant="controlPill" />}
             {showRightInline && !isHidden(hideControls, 'theater') && onTheaterModeChange && (
               <TheaterButton theaterMode={theaterMode} onTheaterModeChange={onTheaterModeChange} controlPill />
@@ -374,7 +375,8 @@ export default function ControlBar({
             (!isHidden(hideControls, 'settings') ||
               !isHidden(hideControls, 'theater') ||
               !isHidden(hideControls, 'cast') ||
-              !isHidden(hideControls, 'miniPlayer')) && (
+              !isHidden(hideControls, 'miniPlayer') ||
+              !isHidden(hideControls, 'pip')) && (
               <>
                 <button
                   ref={moreButtonRef}
@@ -416,6 +418,11 @@ export default function ControlBar({
                           <MiniPlayerButton />
                         </div>
                       )}
+                      {/* {!isHidden(hideControls, 'pip') && (
+                        <div className="px-2 py-1" onClick={() => setOverflowOpen(false)}>
+                          <PipButton />
+                        </div>
+                      )} */}
                     </div>,
                     document.body
                   )}

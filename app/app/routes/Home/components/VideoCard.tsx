@@ -61,6 +61,8 @@ interface VideoCardProps {
   showOwnerControls?: boolean;
   related?: boolean;
   layout?: LayoutType;
+  /** Passed to `VideoCard/Actions`: default row vs reel/tiktok vertical icon stack. */
+  actionsLayout?: 'default' | 'reel' | 'tiktok';
   /** When set (e.g. watch page sidebar), show add-to-play-queue on horizontal cards. */
   onAddToPlayQueue?: (video: FileType) => void;
   inPlayQueue?: boolean;
@@ -68,7 +70,7 @@ interface VideoCardProps {
 
 const CATEGORIES = ["Gaming", "Music", "Entertainment", "Education", "Technology", "Sports", "News", "Lifestyle", "Anime", "Film", "Automotive", "Art", "Nature", "Other"];
 
-const VideoCard = ({ data, index, currentUserId, userActions, onUpdate, showOwnerControls, related, layout = "default", onAddToPlayQueue, inPlayQueue }: VideoCardProps) => {
+const VideoCard = ({ data, index, currentUserId, userActions, onUpdate, showOwnerControls, related, layout = "default", actionsLayout, onAddToPlayQueue, inPlayQueue }: VideoCardProps) => {
   const isMobile = useIsMobile();
   const {state} = useSidebar()
   // 
@@ -1797,6 +1799,7 @@ const VideoCard = ({ data, index, currentUserId, userActions, onUpdate, showOwne
           <div className="w-full">
             <Separator className="my-1" />
             <Actions
+              layout={actionsLayout}
               fileId={data.id ?? ""}
               uniqueId={data.unique_id}
               likeCount={likeCount}
@@ -1848,6 +1851,7 @@ const VideoCard = ({ data, index, currentUserId, userActions, onUpdate, showOwne
           <div className="ac_dev mt-1 w-full min-w-0">
             <Separator className="my-1.5" />
             <Actions
+              layout={actionsLayout}
               fileId={data.id ?? ""}
               uniqueId={data.unique_id}
               likeCount={likeCount}
@@ -1949,6 +1953,7 @@ const VideoCard = ({ data, index, currentUserId, userActions, onUpdate, showOwne
         <div className="ac_dev w-full">
           <Separator className="my-2" />
           <Actions
+            layout={actionsLayout}
             fileId={data.id ?? ""}
             uniqueId={data.unique_id}
             likeCount={likeCount}

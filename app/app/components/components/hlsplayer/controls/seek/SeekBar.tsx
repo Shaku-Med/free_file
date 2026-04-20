@@ -220,6 +220,8 @@ export default function SeekBar({ mobileStyle = false }: { mobileStyle?: boolean
     videoRef,
     state,
     seek,
+    play,
+    pause,
     spriteMeta,
     spriteUrl,
     waveformUrl,
@@ -235,6 +237,17 @@ export default function SeekBar({ mobileStyle = false }: { mobileStyle?: boolean
   const [pullReveal, setPullReveal] = useState(0);
   const pointerDownYRef = useRef(0);
   const isDraggingRef = useRef(false);
+  /** True while pointer is down scrubbing — used to resume playback only after scrub ends */
+  const scrubActiveRef = useRef(false);
+  const wasPlayingBeforeScrubRef = useRef(false);
+
+  const finishScrubbing = useCallback(() => {
+    if (!scrubActiveRef.current) return;
+    scrubActiveRef.current = false;
+    const shouldResume = wasPlayingBeforeScrubRef.current;
+    wasPlayingBeforeScrubRef.current = false;
+    if (shouldResume) play();
+  }, [play]);
 
   useEffect(() => {
     isDraggingRef.current = isDragging;
@@ -247,10 +260,11 @@ export default function SeekBar({ mobileStyle = false }: { mobileStyle?: boolean
       if (isDraggingRef.current) {
         isDraggingRef.current = false;
         setIsDragging(false);
+        finishScrubbing();
         endInteraction();
       }
     }
-  }, [state.controlsVisible, endInteraction]);
+  }, [state.controlsVisible, endInteraction, finishScrubbing]);
 
   useEffect(() => {
     const v = videoRef.current;
@@ -270,12 +284,13 @@ export default function SeekBar({ mobileStyle = false }: { mobileStyle?: boolean
       if (isDraggingRef.current) {
         isDraggingRef.current = false;
         setIsDragging(false);
+        finishScrubbing();
         endInteraction();
       }
     };
     window.addEventListener('blur', onWinBlur);
     return () => window.removeEventListener('blur', onWinBlur);
-  }, [endInteraction]);
+  }, [endInteraction, finishScrubbing]);
 
   const handleInsetPx = mobileStyle ? 7 : 6;
   const { barRef, handleRef } = useVideoProgress(videoRef, handleInsetPx);
@@ -308,6 +323,13 @@ export default function SeekBar({ mobileStyle = false }: { mobileStyle?: boolean
       e.preventDefault();
       pointerDownYRef.current = e.clientY;
       setPullReveal(0);
+      const v = videoRef.current;
+      if (v) {
+        if (scrubActiveRef.current) finishScrubbing();
+        wasPlayingBeforeScrubRef.current = !v.paused && !v.ended;
+        scrubActiveRef.current = true;
+        pause();
+      }
       const track = trackRef.current;
       if (track) {
         const rect = track.getBoundingClientRect();
@@ -323,7 +345,7 @@ export default function SeekBar({ mobileStyle = false }: { mobileStyle?: boolean
       seek(time);
       (e.target as HTMLElement).setPointerCapture(e.pointerId);
     },
-    [getTimeFromX, seek, startInteraction]
+    [getTimeFromX, seek, startInteraction, videoRef, pause, finishScrubbing]
   );
 
   const handlePointerMove = useCallback(
@@ -353,10 +375,11 @@ export default function SeekBar({ mobileStyle = false }: { mobileStyle?: boolean
         setPullReveal(0);
         setHoverTime(null);
         seek(getTimeFromX(e.clientX));
+        finishScrubbing();
         endInteraction();
       }
     },
-    [isDragging, getTimeFromX, seek, endInteraction]
+    [isDragging, getTimeFromX, seek, endInteraction, finishScrubbing]
   );
 
   const handleMouseLeave = useCallback(() => {
@@ -372,8 +395,9 @@ export default function SeekBar({ mobileStyle = false }: { mobileStyle?: boolean
     if (!isDraggingRef.current) return;
     isDraggingRef.current = false;
     setIsDragging(false);
+    finishScrubbing();
     endInteraction();
-  }, [endInteraction]);
+  }, [endInteraction, finishScrubbing]);
 
   const handlePointerCancel = useCallback(() => {
     handleLostPointerCapture();
@@ -387,11 +411,12 @@ export default function SeekBar({ mobileStyle = false }: { mobileStyle?: boolean
       setIsDragging(false);
       setPullReveal(0);
       setHoverTime(null);
+      finishScrubbing();
       endInteraction();
     };
     window.addEventListener('pointerup', handleGlobalUp);
     return () => window.removeEventListener('pointerup', handleGlobalUp);
-  }, [isDragging, endInteraction]);
+  }, [isDragging, endInteraction, finishScrubbing]);
 
   const showWaveformStrip = Boolean(waveformUrl && !waveformError);
   const waveAreaPx = pullReveal * WAVEFORM_STRIP_HEIGHT;

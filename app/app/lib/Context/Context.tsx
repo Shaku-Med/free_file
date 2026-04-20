@@ -9,7 +9,8 @@ import "driver.js/dist/driver.css";
 import Cookies from "js-cookie";
 import ClientEncryption from "../Security/Client/Encryption";
 import { setPlayerSettings as setPlayerSettingsApi } from "~/lib/Services/playerSettingsApi";
-import { useNavigation } from "react-router";
+import { useLocation, useNavigation } from "react-router";
+import { isPipChromeRoute } from "~/routes/pip/pipEnv";
 import type { PageCacheEntry } from "../types";
 import { isMobile } from "react-device-detect";
 import { MAX_UPLOAD_FILE_BYTES } from "~/lib/uploadLimits";
@@ -69,6 +70,8 @@ export const Context = createContext<ContextProps>({
     hasFetchedImages: false,
     setHasFetchedImages: () => {},
     altAccounts: [],
+    hideAppChrome: false,
+    setHideAppChrome: () => {},
 })
 
 interface ContextProviderProps {
@@ -85,7 +88,9 @@ interface ContextProviderProps {
 }
 
 export const FloatingButton = () => {
-    const { setIsModalOpen, userId } = useFileContext();
+    const { setIsModalOpen, userId, hideAppChrome } = useFileContext();
+    const { pathname } = useLocation();
+    const suppressChrome = hideAppChrome || isPipChromeRoute(pathname);
     useLayoutEffect(() => {
         const isDriverCompleted = Cookies.get('isDriverCompleted');
         if (!isDriverCompleted) {
@@ -101,6 +106,10 @@ export const FloatingButton = () => {
     }, [])
 
     if (!userId) {
+        return null;
+    }
+
+    if (suppressChrome) {
         return null;
     }
 
@@ -148,6 +157,7 @@ export const ContextProvider = ({ children, st, user_agent, userId, c_user, uplo
     const [theaterMode, setTheaterMode] = useState<boolean>(isMobileDevice ? true : (playerSettings?.theaterMode ?? false));
 
     const [hasFetchedImages, setHasFetchedImages] = useState<boolean>(false);
+    const [hideAppChrome, setHideAppChrome] = useState(false);
     useEffect(() => {
         if (typeof window === "undefined") return;
         if (isSearchBotUserAgent(user_agent)) return;
@@ -437,8 +447,10 @@ export const ContextProvider = ({ children, st, user_agent, userId, c_user, uplo
             hasFetchedImages,
             setHasFetchedImages,
             altAccounts: altAccountsProp,
+            hideAppChrome,
+            setHideAppChrome,
         }),
-        [files, isModalOpen, isLoading, initialLoading, loadMoreVideos, clearFeedHistory, user_agent, safeUserId, userActions, c_user, uploadServerUrl, userProfile, userProfileLoading, pageCache, scrollDataReady, theaterMode, playerSettings, savePlayerSettings, altAccountsProp]
+        [files, isModalOpen, isLoading, initialLoading, loadMoreVideos, clearFeedHistory, user_agent, safeUserId, userActions, c_user, uploadServerUrl, userProfile, userProfileLoading, pageCache, scrollDataReady, theaterMode, playerSettings, savePlayerSettings, altAccountsProp, hideAppChrome]
     );
     
     return (

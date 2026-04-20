@@ -24,10 +24,7 @@ import { getCookie } from "./lib/Security/Token";
 import { VerifyToken } from "./lib/Security/unsharedkeyEncryption/Combined/Verification/VerifyToken";
 import SetToken from "./lib/Security/unsharedkeyEncryption/Combined/Verification/SetToken";
 import { isAuthenticated } from "./lib/Security/Password";
-import NavProgress from "./routes/Home/NavProgress/NavProgress";
-import { SidebarProvider, SidebarInset } from "./components/ui/sidebar";
-import { AppSidebar } from "./components/Navbar/components/Sidebar";
-import BodyComponent from "./components/Navbar/components/BodyComponent";
+import AppShell from "./components/AppShell";
 import RegisterServiceWorker from "./components/RegisterServiceWorker";
 import { ThemeApply } from "./components/ThemeApply";
 import SignInPrompt from "./components/SignInPrompt";
@@ -67,7 +64,8 @@ const userMiddleware: Route.MiddlewareFunction = async ({ context }, next) => {
   // COEP/COOP removed: they block extension-injected resources and cause
   // ERR_BLOCKED_BY_RESPONSE.NotSameOriginAfterDefaultedToSameOriginByCoep.
   // Re-enable only if you need SharedArrayBuffer (e.g. require-corp + same-origin).
-  response.headers.set("Content-Security-Policy", "frame-ancestors 'none'"); // disable iframeing
+  // Same-origin pages may embed each other (e.g. /pip iframes the watch page). Block third-party embeds.
+  response.headers.set("Content-Security-Policy", "frame-ancestors 'self'");
   // response.headers.set("X-Frame-Options", "DENY");
   return response;
 };
@@ -284,15 +282,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
               <PictureInPictureProvider>
                 <MiniPlayerProvider>
                   <CloseMiniPlayerOnNavigateToVideo />
-                  <SidebarProvider className={`w-full h-full flex-1 min-h-0`}>
-                    <AppSidebar />
-                    <SidebarInset className={`w-full h-full`}>
-                        <BodyComponent>
-                            {children}
-                        </BodyComponent>
-                      <NavProgress/>
-                    </SidebarInset>
-                  </SidebarProvider>
+                  <AppShell>{children}</AppShell>
                   <MiniPlayer />
                   <SignInPrompt />
                 </MiniPlayerProvider>

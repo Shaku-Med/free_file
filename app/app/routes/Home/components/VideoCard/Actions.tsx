@@ -83,6 +83,13 @@ export interface ActionsProps {
    */
   commentsOpen?: boolean;
   onCommentsOpenChange?: (open: boolean) => void;
+  /**
+   * Visual layout.
+   * - `default`: horizontal pill row (watch page, cards).
+   * - `reel`: vertical stack of circular icon buttons (reels shell).
+   * - `tiktok`: same as `reel` (alias for PiP / vertical-feed).
+   */
+  layout?: "default" | "reel" | "tiktok";
 }
 
 type InteractionResponse = {
@@ -166,6 +173,7 @@ export default function Actions({
   highlightCommentId = null,
   commentsOpen: commentsOpenProp,
   onCommentsOpenChange,
+  layout = "default",
 }: ActionsProps) {
   const navigate = useNavigate();
   const [likeBusy, setLikeBusy] = useState(false);
@@ -439,63 +447,46 @@ export default function Actions({
   const segmentBtn =
     "inline-flex flex-1 min-w-0 items-center justify-center gap-1.5 px-3 py-2 text-sm font-medium transition hover:bg-accent/50 focus-visible:outline-none focus-visible:relative focus-visible:z-10 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset disabled:opacity-50";
 
-  return (
-    <div className="flex flex-wrap items-center gap-2">
-      <div
-        className="inline-flex items-stretch divide-x divide-border overflow-hidden rounded-full border border-border bg-card/80 shadow-sm"
-        role="group"
-        aria-label="Like and dislike"
-      >
-        <button
-          type="button"
-          className={cn(
-            segmentBtn,
-            liked && "bg-primary/15 text-primary hover:bg-primary/20",
-          )}
-          onClick={() => applyLikeDislike("like")}
-          disabled={likeBusy}
-          aria-pressed={liked}
-          aria-label={liked ? "Unlike" : "Like"}
-        >
-          {likeBusy ? (
-            <Loader2 className="h-[1.125rem] w-[1.125rem] shrink-0 animate-spin" aria-hidden />
-          ) : (
-            <ThumbsUp className={cn("h-[1.125rem] w-[1.125rem] shrink-0", liked && "fill-current")} aria-hidden />
-          )}
-          <span className={countClass}>{formatNumber(likeCount)}</span>
-        </button>
-        <button
-          type="button"
-          className={cn(
-            segmentBtn,
-            disliked && "bg-destructive/10 text-destructive hover:bg-destructive/15",
-          )}
-          onClick={() => applyLikeDislike("dislike")}
-          disabled={dislikeBusy}
-          aria-pressed={disliked}
-          aria-label={disliked ? "Remove dislike" : "Dislike"}
-        >
-          {dislikeBusy ? (
-            <Loader2 className="h-[1.125rem] w-[1.125rem] shrink-0 animate-spin" aria-hidden />
-          ) : (
-            <ThumbsDown className={cn("h-[1.125rem] w-[1.125rem] shrink-0", disliked && "fill-current")} aria-hidden />
-          )}
-          <span className={countClass}>{formatNumber(dislikeCount)}</span>
-        </button>
-      </div>
+  /** Dark-overlay glass buttons on top of video (matches reel / PiP). */
+  const reelIconBtn =
+    "flex h-11 w-11 items-center justify-center rounded-full border border-white/18 bg-black/45 text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] backdrop-blur-md transition hover:border-white/28 hover:bg-black/55 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/45 disabled:opacity-50";
 
-      <button type="button" className={pillOuter} onClick={openComments} aria-label="View comments">
-        <MessageCircle className="h-[1.125rem] w-[1.125rem] shrink-0" aria-hidden />
-        <span className={countClass}>{formatNumber(commentCount)}</span>
-      </button>
+  const reelIconBtnLiked =
+    "border-primary/45 bg-primary/35 text-white hover:border-primary/55 hover:bg-primary/45";
 
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
+  const reelIconBtnDisliked =
+    "border-rose-400/40 bg-rose-500/25 text-white hover:border-rose-300/50 hover:bg-rose-500/35";
+
+  /** Same ellipse / pill language as `moreTriggerClass`, tuned for video backdrop. */
+  const reelMoreTriggerClass =
+    "inline-flex size-10 shrink-0 items-center justify-center rounded-full border border-white/18 bg-black/45 text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] backdrop-blur-md transition hover:border-white/28 hover:bg-black/55 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/45 disabled:opacity-50 data-[state=open]:border-white/30 data-[state=open]:bg-black/60";
+
+  const reelLabel =
+    "text-[11px] font-semibold tabular-nums tracking-tight text-white/95 [text-shadow:0_1px_2px_rgba(0,0,0,0.85)]";
+
+  const isReel = layout === "reel" || layout === "tiktok";
+
+  const moreDropdown = (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        {isReel ? (
+          <button
+            type="button"
+            className="flex flex-col items-center gap-1"
+            aria-label="More options"
+          >
+            <span className={reelMoreTriggerClass}>
+              <MoreHorizontal className="size-[1.125rem] shrink-0" aria-hidden />
+            </span>
+            <span className={reelLabel}>More</span>
+          </button>
+        ) : (
           <button type="button" className={moreTriggerClass} aria-label="More options">
             <MoreHorizontal className="size-[1.125rem] shrink-0" aria-hidden />
           </button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="min-w-[12rem]">
+        )}
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="min-w-[12rem]">
           {isOwner && typeof onEdit === "function" ? (
             <>
               <DropdownMenuGroup>
@@ -622,6 +613,119 @@ export default function Actions({
           </DropdownMenuGroup>
         </DropdownMenuContent>
       </DropdownMenu>
+  );
+
+  const defaultRow = (
+    <div className="flex flex-wrap items-center gap-2">
+      <div
+        className="inline-flex items-stretch divide-x divide-border overflow-hidden rounded-full border border-border bg-card/80 shadow-sm"
+        role="group"
+        aria-label="Like and dislike"
+      >
+        <button
+          type="button"
+          className={cn(
+            segmentBtn,
+            liked && "bg-primary/15 text-primary hover:bg-primary/20",
+          )}
+          onClick={() => applyLikeDislike("like")}
+          disabled={likeBusy}
+          aria-pressed={liked}
+          aria-label={liked ? "Unlike" : "Like"}
+        >
+          {likeBusy ? (
+            <Loader2 className="h-[1.125rem] w-[1.125rem] shrink-0 animate-spin" aria-hidden />
+          ) : (
+            <ThumbsUp className={cn("h-[1.125rem] w-[1.125rem] shrink-0", liked && "fill-current")} aria-hidden />
+          )}
+          <span className={countClass}>{formatNumber(likeCount)}</span>
+        </button>
+        <button
+          type="button"
+          className={cn(
+            segmentBtn,
+            disliked && "bg-destructive/10 text-destructive hover:bg-destructive/15",
+          )}
+          onClick={() => applyLikeDislike("dislike")}
+          disabled={dislikeBusy}
+          aria-pressed={disliked}
+          aria-label={disliked ? "Remove dislike" : "Dislike"}
+        >
+          {dislikeBusy ? (
+            <Loader2 className="h-[1.125rem] w-[1.125rem] shrink-0 animate-spin" aria-hidden />
+          ) : (
+            <ThumbsDown className={cn("h-[1.125rem] w-[1.125rem] shrink-0", disliked && "fill-current")} aria-hidden />
+          )}
+          <span className={countClass}>{formatNumber(dislikeCount)}</span>
+        </button>
+      </div>
+
+      <button type="button" className={pillOuter} onClick={openComments} aria-label="View comments">
+        <MessageCircle className="h-[1.125rem] w-[1.125rem] shrink-0" aria-hidden />
+        <span className={countClass}>{formatNumber(commentCount)}</span>
+      </button>
+
+      {moreDropdown}
+    </div>
+  );
+
+  const reelRow = (
+    <div className="flex flex-col items-center gap-4">
+      <button
+        type="button"
+        onClick={() => applyLikeDislike("like")}
+        disabled={likeBusy}
+        aria-pressed={liked}
+        aria-label={liked ? "Unlike" : "Like"}
+        className="flex flex-col items-center gap-1"
+      >
+        <span className={cn(reelIconBtn, liked && reelIconBtnLiked)}>
+          {likeBusy ? (
+            <Loader2 className="h-5 w-5 animate-spin" aria-hidden />
+          ) : (
+            <ThumbsUp className={cn("h-5 w-5", liked && "fill-current")} aria-hidden />
+          )}
+        </span>
+        <span className={reelLabel}>{formatNumber(likeCount)}</span>
+      </button>
+
+      <button
+        type="button"
+        onClick={() => applyLikeDislike("dislike")}
+        disabled={dislikeBusy}
+        aria-pressed={disliked}
+        aria-label={disliked ? "Remove dislike" : "Dislike"}
+        className="flex flex-col items-center gap-1"
+      >
+        <span className={cn(reelIconBtn, disliked && reelIconBtnDisliked)}>
+          {dislikeBusy ? (
+            <Loader2 className="h-5 w-5 animate-spin" aria-hidden />
+          ) : (
+            <ThumbsDown className={cn("h-5 w-5", disliked && "fill-current")} aria-hidden />
+          )}
+        </span>
+        <span className={reelLabel}>{formatNumber(dislikeCount)}</span>
+      </button>
+
+      <button
+        type="button"
+        onClick={openComments}
+        aria-label="View comments"
+        className="flex flex-col items-center gap-1"
+      >
+        <span className={reelIconBtn}>
+          <MessageCircle className="h-5 w-5" aria-hidden />
+        </span>
+        <span className={reelLabel}>{formatNumber(commentCount)}</span>
+      </button>
+
+      {moreDropdown}
+    </div>
+  );
+
+  return (
+    <>
+      {isReel ? reelRow : defaultRow}
 
       {currentUserId ? (
         <CreatePlaylistModal
@@ -686,6 +790,6 @@ export default function Actions({
         shareUrl={buildPageShareUrl(uniqueId, resolveShareSeconds())}
         currentTime={currentTime}
       />
-    </div>
+    </>
   );
 }

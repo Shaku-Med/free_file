@@ -30,6 +30,27 @@ interface PictureInPictureProviderProps {
   children: React.ReactNode;
 }
 
+const PIP_PHONE_WIDTH = 390;
+const PIP_PHONE_HEIGHT = 844;
+
+const MAX_SEEK_SECONDS = 24 * 60 * 60;
+
+function sanitizeSeekSeconds(value: unknown): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return 0;
+  if (value < 0) return 0;
+  return Math.min(value, MAX_SEEK_SECONDS);
+}
+
+function isTrustedPipIframeSrc(src: string | null | undefined): boolean {
+  if (!src) return false;
+  try {
+    const u = new URL(src, window.location.origin);
+    return u.origin === window.location.origin && u.pathname.startsWith('/pip');
+  } catch {
+    return false;
+  }
+}
+
 export const PictureInPictureProvider: React.FC<PictureInPictureProviderProps> = ({ children }) => {
   const [isPipActive, setIsPipActive] = useState(false);
   const [pipWindow, setPipWindow] = useState<Window | null>(null);
@@ -56,9 +77,9 @@ export const PictureInPictureProvider: React.FC<PictureInPictureProviderProps> =
     setSupportsPip('documentPictureInPicture' in window);
 
     const checkPipState = () => {
-      if (window.documentPictureInPicture?.window && !window.documentPictureInPicture.window.closed) {
+      if ((window as any).documentPictureInPicture?.window && !(window as any).documentPictureInPicture.window.closed) {
         setIsPipActive(true);
-        setPipWindow(window.documentPictureInPicture.window);
+        setPipWindow((window as any).documentPictureInPicture.window);
       }
     };
 
@@ -68,8 +89,36 @@ export const PictureInPictureProvider: React.FC<PictureInPictureProviderProps> =
   useEffect(() => {
     const handleMessage = (e: MessageEvent) => {
       if (e.origin !== window.location.origin || e.data?.type !== 'pip-closing') return;
+      const shell = (window as any).documentPictureInPicture?.window;
+      if (!shell) return;
+      const fromShell = e.source === shell;
+      let fromPipIframe = false;
+      try {
+        const iframe = shell.document?.querySelector('iframe');
+        const iframeSrc =
+          (iframe as HTMLIFrameElement | undefined)?.src ||
+          iframe?.getAttribute('src');
+        if (
+          iframe?.contentWindow === e.source &&
+          isTrustedPipIframeSrc(iframeSrc)
+        ) {
+          fromPipIframe = true;
+        }
+      } catch {}
+      if (!fromShell && !fromPipIframe) return;
+
+      const payload = e.data as { time?: unknown; id?: unknown };
+      const time = sanitizeSeekSeconds(payload.time);
+      const payloadId = typeof payload.id === 'string' ? payload.id : null;
+      if (
+        pipContentId !== null &&
+        payloadId !== null &&
+        payloadId !== pipContentId
+      ) {
+        return;
+      }
+
       const mainVideo = pipMainVideoRef.current;
-      const time = typeof e.data?.time === 'number' ? e.data.time : 0;
       if (mainVideo) {
         mainVideo.currentTime = time;
         mainVideo.muted = false;
@@ -82,20 +131,19 @@ export const PictureInPictureProvider: React.FC<PictureInPictureProviderProps> =
     };
     window.addEventListener('message', handleMessage);
     return () => window.removeEventListener('message', handleMessage);
-  }, [closePip]);
+  }, [closePip, pipContentId]);
 
   useEffect(() => {
     if (!pipWindow) return;
     const id = setInterval(() => {
-      if (pipWindow.closed) {
-        closePip();
-      }
+      const live = (window as any).documentPictureInPicture?.window;
+      if (!live || live.closed) closePip();
     }, 500);
     return () => clearInterval(id);
   }, [pipWindow, closePip]);
 
   const toggleDocumentPip = useCallback(async (src: string, videoRef: React.RefObject<HTMLVideoElement | null>, contentId: string, file?: any, loop?: boolean, updateMediaSession?: (isPlaying: boolean, currentTime: number, duration: number) => void) => {
-    if (!window.documentPictureInPicture) {
+    if (!(window as any).documentPictureInPicture) {
       alert('Document Picture-in-Picture is not supported in your browser.');
       return;
     }
@@ -113,9 +161,10 @@ export const PictureInPictureProvider: React.FC<PictureInPictureProviderProps> =
     }
 
     try {
-      const pw = await window.documentPictureInPicture.requestWindow({
-        width: 420,
-        height: 320,
+      const pw = await (window as any).documentPictureInPicture.requestWindow({
+        width: PIP_PHONE_WIDTH,
+        height: PIP_PHONE_HEIGHT,
+        preferInitialWindowPlacement: true,
       });
 
       pipMainVideoRef.current = videoRef.current ?? null;
@@ -125,11 +174,47 @@ export const PictureInPictureProvider: React.FC<PictureInPictureProviderProps> =
       const origin = window.location.origin;
       const params = new URLSearchParams({
         src,
-        id: contentId,
         loop: String(Boolean(loop)),
         t: String(currentTime),
+        embed: '1',
       });
-      pw.location.href = `${origin}/pip?${params.toString()}`;
+      const pipUrl = `${origin}/pip/${encodeURIComponent(contentId)}?${params.toString()}`;
+
+      const doc = pw.document;
+      doc.documentElement.style.height = '100%';
+      doc.body.style.margin = '0';
+      doc.body.style.height = '100%';
+      const iframe = doc.createElement('iframe');
+      iframe.src = pipUrl;
+      iframe.title = 'Picture-in-Picture';
+      iframe.style.border = '0';
+      iframe.style.width = '100%';
+      iframe.style.height = '100%';
+      iframe.style.display = 'block';
+      iframe.setAttribute(
+        'allow',
+        'autoplay; fullscreen; encrypted-media; picture-in-picture'
+      );
+      doc.body.appendChild(iframe);
+
+      const lockSrc = `(function(){
+        var W=${PIP_PHONE_WIDTH},H=${PIP_PHONE_HEIGHT};
+        function lock(){
+          try{
+            if (typeof window.outerWidth==="number" && typeof window.outerHeight==="number" &&
+                (window.outerWidth!==W || window.outerHeight!==H)) {
+              window.resizeTo(W,H);
+            }
+          }catch(_){}
+        }
+        function rafLock(){ requestAnimationFrame(lock); }
+        window.addEventListener("resize",rafLock);
+        rafLock();
+        setTimeout(rafLock,0);
+      })();`;
+      const lockScript = doc.createElement('script');
+      lockScript.textContent = lockSrc;
+      doc.body.appendChild(lockScript);
 
       setPipWindow(pw);
       setIsPipActive(true);
