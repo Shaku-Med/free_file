@@ -1,4 +1,15 @@
 import React, { useEffect, useMemo, useRef, useState, useCallback } from "react"
+import {
+  DndContext,
+  KeyboardSensor,
+  PointerSensor,
+  closestCenter,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core"
+import { arrayMove, SortableContext, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable"
+import { CSS } from "@dnd-kit/utilities"
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "~/components/ui/dialog"
 import { Button } from "~/components/ui/button"
 import { Progress } from "~/components/ui/progress"
@@ -22,12 +33,91 @@ import {
   MessageSquare,
   MessageSquareOff,
   Layers,
+  Play,
+  GripVertical,
+  Plus,
 } from "lucide-react"
 import { GenerateUniqueID } from "~/lib/GenerateUniqueID"
 import { useFileContext } from "~/lib/Context/Context"
 import { useNavigate } from "react-router"
 import { MAX_UPLOAD_FILE_BYTES } from "~/lib/uploadLimits"
 import { SignInDialog } from "~/components/SignInWall"
+import { cn } from "~/lib/utils"
+import { Tooltip, TooltipContent, TooltipTrigger } from "~/components/ui/tooltip"
+
+function extractVideoPosterUrl(file: File): Promise<string | null> {
+  return new Promise((resolve) => {
+    const blobUrl = URL.createObjectURL(file)
+    const video = document.createElement("video")
+    video.muted = true
+    video.playsInline = true
+    video.preload = "auto"
+    let settled = false
+    const finish = (posterUrl: string | null) => {
+      if (settled) return
+      settled = true
+      URL.revokeObjectURL(blobUrl)
+      video.removeAttribute("src")
+      video.load()
+      video.remove()
+      resolve(posterUrl)
+    }
+    const captureFrame = () => {
+      try {
+        const w = video.videoWidth
+        const h = video.videoHeight
+        if (!w || !h) {
+          finish(null)
+          return
+        }
+        const canvas = document.createElement("canvas")
+        const maxW = 1280
+        const scale = w > maxW ? maxW / w : 1
+        canvas.width = Math.round(w * scale)
+        canvas.height = Math.round(h * scale)
+        const ctx = canvas.getContext("2d")
+        if (!ctx) {
+          finish(null)
+          return
+        }
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
+        canvas.toBlob(
+          (blob) => {
+            if (!blob) {
+              finish(null)
+              return
+            }
+            finish(URL.createObjectURL(blob))
+          },
+          "image/jpeg",
+          0.82
+        )
+      } catch {
+        finish(null)
+      }
+    }
+    video.addEventListener(
+      "loadedmetadata",
+      () => {
+        try {
+          const d = video.duration
+          let t = 0.1
+          if (Number.isFinite(d) && d > 0) {
+            t = Math.min(Math.max(0.05, d * 0.05), Math.max(0.05, d - 0.01))
+          }
+          video.currentTime = t
+        } catch {
+          finish(null)
+        }
+      },
+      { once: true }
+    )
+    video.addEventListener("seeked", captureFrame, { once: true })
+    video.addEventListener("error", () => finish(null), { once: true })
+    video.src = blobUrl
+    video.load()
+  })
+}
 
 const CATEGORY_OPTIONS = [
   "Gaming",
@@ -46,6 +136,30 @@ const CATEGORY_OPTIONS = [
   "Other",
 ]
 
+interface SeriesLane {
+  id: string
+  seriesMode: "create" | "existing"
+  seriesEpisodeName: string
+  seriesSelected: { file_series_id: string; file_title: string } | null
+  seriesEpisodeSubmode: "existing" | "new" | null
+  seriesEpisodeId: string | null
+  seriesParentEpisodeId: string | null
+  seriesEpisodesList: { id: string; episode_name: string; parent_episode_id: string | null }[]
+}
+
+function emptySeriesLane(): SeriesLane {
+  return {
+    id: `lane-${GenerateUniqueID()}`,
+    seriesMode: "create",
+    seriesEpisodeName: "",
+    seriesSelected: null,
+    seriesEpisodeSubmode: null,
+    seriesEpisodeId: null,
+    seriesParentEpisodeId: null,
+    seriesEpisodesList: [],
+  }
+}
+
 interface MediaSelectionModalProps {
   isOpen: boolean
   onClose: () => void
@@ -61,13 +175,14 @@ interface MediaItem {
   id: string
   file: File
   previewUrl: string
+  videoPosterUrl: string | null
+  isExtractingVideoPoster: boolean
   title: string
   description: string
   isPublic: boolean
   categories: string[]
   tags: string[]
   commentsEnabled: boolean
-  /** null = unlimited when comments are on */
   commentLimit: number | null
   customThumbnail: File | null
   customThumbnailPreview: string | null
@@ -77,15 +192,225 @@ interface MediaItem {
   error: string | null
   jobId: string | null
   isLocked: boolean
-  /** Video-only: None | create main series | add to existing series */
   seriesMode: "none" | "create" | "existing"
-  /** First episode name (new series) or new episode in existing series */
   seriesEpisodeName: string
   seriesSelected: { file_series_id: string; file_title: string } | null
   seriesEpisodeSubmode: "existing" | "new" | null
   seriesEpisodeId: string | null
   seriesParentEpisodeId: string | null
   seriesEpisodesList: { id: string; episode_name: string; parent_episode_id: string | null }[]
+  assignedSeriesLaneId: string | null
+}
+
+function applyLaneToVideoItem(item: MediaItem, lane: SeriesLane): MediaItem {
+  return {
+    ...item,
+    seriesMode: lane.seriesMode,
+    seriesEpisodeName: lane.seriesEpisodeName,
+    seriesSelected: lane.seriesSelected,
+    seriesEpisodeSubmode: lane.seriesEpisodeSubmode,
+    seriesEpisodeId: lane.seriesEpisodeId,
+    seriesParentEpisodeId: lane.seriesParentEpisodeId,
+    seriesEpisodesList: lane.seriesEpisodesList,
+  }
+}
+
+function clearSeriesFields(): Pick<
+  MediaItem,
+  | "seriesMode"
+  | "seriesEpisodeName"
+  | "seriesSelected"
+  | "seriesEpisodeSubmode"
+  | "seriesEpisodeId"
+  | "seriesParentEpisodeId"
+  | "seriesEpisodesList"
+> {
+  return {
+    seriesMode: "none",
+    seriesEpisodeName: "",
+    seriesSelected: null,
+    seriesEpisodeSubmode: null,
+    seriesEpisodeId: null,
+    seriesParentEpisodeId: null,
+    seriesEpisodesList: [],
+  }
+}
+
+function renumberCreateLaneEpisodes(items: MediaItem[], lanes: SeriesLane[]): MediaItem[] {
+  const autoLaneIds = new Set(
+    lanes
+      .filter(
+        (l) =>
+          l.seriesMode === "create" ||
+          (l.seriesMode === "existing" && l.seriesEpisodeSubmode === "new")
+      )
+      .map((l) => l.id)
+  )
+  const counters: Record<string, number> = {}
+  return items.map((it) => {
+    if (!it.file.type.startsWith("video/") || !it.assignedSeriesLaneId) return it
+    if (!autoLaneIds.has(it.assignedSeriesLaneId)) return it
+    const n = (counters[it.assignedSeriesLaneId] = (counters[it.assignedSeriesLaneId] ?? 0) + 1)
+    return { ...it, seriesEpisodeName: `Episode ${n}` }
+  })
+}
+
+function laneTitle(lane: SeriesLane): string {
+  if (lane.seriesMode === "create") return "New series"
+  return lane.seriesSelected?.file_title?.trim() || "Existing series"
+}
+
+type SortableFileRowProps = {
+  item: MediaItem
+  isActive: boolean
+  laneBadge?: string | null
+  isUploadingBatch: boolean
+  onSelect: () => void
+  onRemove: () => void
+  statusIcon: (status: UploadStatus) => React.ReactNode
+  formatBytes: (bytes: number) => string
+}
+
+function SortableFileRow({
+  item,
+  isActive,
+  laneBadge,
+  isUploadingBatch,
+  onSelect,
+  onRemove,
+  statusIcon,
+  formatBytes,
+}: SortableFileRowProps) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: item.id,
+  })
+  const isVideo = item.file.type.startsWith("video/")
+  const videoStill = isVideo ? item.customThumbnailPreview ?? item.videoPosterUrl : null
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+  }
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      className={cn(
+        "w-full rounded-2xl p-2 sm:p-1.5 min-h-[52px] sm:min-h-0 transition-all duration-200 flex items-stretch gap-1 sm:gap-1.5 group/item",
+        "bg-card/80 backdrop-blur-sm border border-border/60",
+        isActive && "ring-1 ring-primary/40 border-primary/30 bg-accent shadow-[0_1px_2px_rgba(0,0,0,0.04)]",
+        !isActive && "hover:bg-accent/60 hover:border-border",
+        isDragging && "z-20 scale-[1.02] shadow-lg ring-1 ring-primary/30 bg-card"
+      )}
+    >
+      <button
+        type="button"
+        className="shrink-0 w-9 sm:w-8 flex items-center justify-center rounded-lg text-muted-foreground hover:bg-muted cursor-grab active:cursor-grabbing touch-none"
+        aria-label="Drag to reorder or drop onto a series"
+        {...attributes}
+        {...listeners}
+      >
+        <GripVertical className="w-4 h-4" />
+      </button>
+      <button
+        type="button"
+        onClick={onSelect}
+        className="flex-1 min-w-0 text-left flex items-center gap-2.5 py-0.5 rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
+      >
+        <div className="relative w-11 h-11 sm:w-10 sm:h-10 rounded-xl overflow-hidden bg-muted shrink-0 ring-1 ring-border/70">
+          {isVideo ? (
+            item.isExtractingVideoPoster && !videoStill ? (
+              <div className="w-full h-full flex items-center justify-center">
+                <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
+              </div>
+            ) : videoStill ? (
+              <img src={videoStill} alt="" className="w-full h-full object-cover" />
+            ) : (
+              <div className="w-full h-full flex items-center justify-center">
+                <FileVideo className="w-5 h-5 text-muted-foreground" />
+              </div>
+            )
+          ) : (
+            <img src={item.previewUrl} alt="" className="w-full h-full object-cover" />
+          )}
+          {item.status !== "idle" && (
+            <div
+              className={`absolute inset-0 flex items-center justify-center ${
+                item.status === "success"
+                  ? "bg-green-500/20"
+                  : item.status === "error"
+                    ? "bg-destructive/20"
+                    : "bg-foreground/25"
+              }`}
+            >
+              {statusIcon(item.status)}
+            </div>
+          )}
+        </div>
+        <div className="flex-1 min-w-0">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span className="block min-w-0 truncate text-[13px] font-medium text-foreground leading-tight cursor-default text-left">
+                {item.file.name}
+              </span>
+            </TooltipTrigger>
+            <TooltipContent side="top" sideOffset={6} className="max-w-[min(90vw,22rem)] break-words">
+              {item.file.name}
+            </TooltipContent>
+          </Tooltip>
+          <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 mt-0.5">
+            <p className="text-[11px] text-muted-foreground tabular-nums">
+              {formatBytes(item.file.size)}
+              {item.status === "uploading" && ` · ${item.progress}%`}
+            </p>
+            {laneBadge && isVideo && (
+              <span className="text-[10px] font-medium text-primary/90 bg-primary/10 px-1.5 py-px rounded-md truncate max-w-[120px]">
+                {laneBadge}
+              </span>
+            )}
+          </div>
+          {item.status === "uploading" && <Progress value={item.progress} className="h-0.5 mt-1" />}
+          {item.error && <p className="text-[10px] text-destructive truncate mt-0.5">{item.error}</p>}
+        </div>
+      </button>
+      {!isUploadingBatch && (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation()
+            onRemove()
+          }}
+          className="shrink-0 w-9 h-9 sm:w-8 sm:h-8 rounded-lg flex items-center justify-center opacity-100 md:opacity-0 md:group-hover/item:opacity-100 focus-visible:opacity-100 hover:bg-destructive/10 hover:text-destructive transition-opacity touch-manipulation self-center"
+          aria-label={`Remove ${item.file.name}`}
+        >
+          <X className="w-4 h-4 sm:w-3.5 sm:h-3.5" />
+        </button>
+      )}
+    </div>
+  )
+}
+
+function LaneCard({
+  disabled,
+  children,
+  className,
+}: {
+  disabled: boolean
+  children: React.ReactNode
+  className?: string
+}) {
+  return (
+    <div
+      className={cn(
+        "rounded-2xl border border-border/70 bg-card text-card-foreground shadow-[0_1px_2px_rgba(0,0,0,0.03)] transition-opacity",
+        disabled && "opacity-40 pointer-events-none",
+        className
+      )}
+    >
+      {children}
+    </div>
+  )
 }
 
 export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
@@ -110,10 +435,24 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
   const [seriesBrowseResults, setSeriesBrowseResults] = useState<{ file_title: string; file_series_id: string }[]>([])
   const [seriesBrowseLoading, setSeriesBrowseLoading] = useState(false)
   const [signInOpen, setSignInOpen] = useState(false)
+  const [videoPlaybackUrl, setVideoPlaybackUrl] = useState<string | null>(null)
   const categoryRef = useRef<HTMLDivElement>(null)
   const itemsRef = useRef<MediaItem[]>([])
   const dropRef = useRef<HTMLDivElement>(null)
   const thumbInputRef = useRef<HTMLInputElement>(null)
+  const [seriesLanes, setSeriesLanes] = useState<SeriesLane[]>([])
+  const [seriesOrganizerOpen, setSeriesOrganizerOpen] = useState(false)
+  const [seriesBrowseForLaneId, setSeriesBrowseForLaneId] = useState<string | null>(null)
+  const [filePickerLaneId, setFilePickerLaneId] = useState<string | null>(null)
+  const seriesLanesRef = useRef(seriesLanes)
+  useEffect(() => {
+    seriesLanesRef.current = seriesLanes
+  }, [seriesLanes])
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
+  )
 
   useEffect(() => {
     if (isOpen && !userId) {
@@ -153,8 +492,16 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
   const effectiveMaxSize = maxFileSizeBytes ?? MAX_UPLOAD_FILE_BYTES
 
   const resetState = () => {
+    setVideoPlaybackUrl((prev) => {
+      if (prev) URL.revokeObjectURL(prev)
+      return null
+    })
     items.forEach((item) => {
-      URL.revokeObjectURL(item.previewUrl)
+      if (item.file.type.startsWith("image/")) {
+        if (item.previewUrl) URL.revokeObjectURL(item.previewUrl)
+      } else if (item.videoPosterUrl) {
+        URL.revokeObjectURL(item.videoPosterUrl)
+      }
       if (item.customThumbnailPreview) URL.revokeObjectURL(item.customThumbnailPreview)
     })
     setItems([])
@@ -164,6 +511,9 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
     setTagInput("")
     setShowCategoryDropdown(false)
     setIsDragging(false)
+    setSeriesLanes([])
+    setSeriesOrganizerOpen(false)
+    setSeriesBrowseForLaneId(null)
   }
 
   const formatBytes = (bytes: number) => {
@@ -187,10 +537,13 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
 
   const createMediaItem = (file: File): MediaItem => {
     const baseName = file.name.replace(/\.[^./\\]+$/, "")
+    const isVideo = file.type.startsWith("video/")
     return {
       id: `${file.name}-${file.size}-${file.lastModified}-${GenerateUniqueID()}`,
       file,
-      previewUrl: URL.createObjectURL(file),
+      previewUrl: isVideo ? "" : URL.createObjectURL(file),
+      videoPosterUrl: null,
+      isExtractingVideoPoster: isVideo,
       title: baseName.slice(0, 200),
       description: "",
       isPublic: true,
@@ -213,6 +566,7 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
       seriesEpisodeId: null,
       seriesParentEpisodeId: null,
       seriesEpisodesList: [],
+      assignedSeriesLaneId: null,
     }
   }
 
@@ -245,6 +599,25 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
       }
       return updated
     })
+
+    nextItems.forEach((item) => {
+      if (!item.file.type.startsWith("video/")) return
+      const itemId = item.id
+      void extractVideoPosterUrl(item.file).then((posterUrl) => {
+        setItems((prev) => {
+          const cur = prev.find((i) => i.id === itemId)
+          if (!cur || !cur.file.type.startsWith("video/")) return prev
+          if (posterUrl) {
+            const old = cur.videoPosterUrl
+            if (old) URL.revokeObjectURL(old)
+            return prev.map((i) =>
+              i.id === itemId ? { ...i, videoPosterUrl: posterUrl, isExtractingVideoPoster: false } : i
+            )
+          }
+          return prev.map((i) => (i.id === itemId ? { ...i, isExtractingVideoPoster: false } : i))
+        })
+      })
+    })
   }
 
   const handleFileChange = (fileList: FileList | null) => {
@@ -273,7 +646,7 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
     setItems((prev) => prev.map((item) => (item.id === id ? updater(item) : item)))
   }
 
-  const loadEpisodesForItem = (itemId: string, fileSeriesId: string) => {
+  const loadEpisodesForLane = (laneId: string, fileSeriesId: string) => {
     void (async () => {
       try {
         const res = await fetch(
@@ -284,9 +657,9 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
         if (!res.ok) return
         const raw = Array.isArray(j.episodes)
           ? (j.episodes as {
-              id: string;
-              episode_name: string;
-              parent_episode_id?: string | null;
+              id: string
+              episode_name: string
+              parent_episode_id?: string | null
             }[])
           : []
         const list = raw.map((e) => ({
@@ -297,7 +670,109 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
               ? String(e.parent_episode_id)
               : null,
         }))
-        updateItem(itemId, (c) => ({
+        setSeriesLanes((prev) => {
+          const next = prev.map((l) =>
+            l.id === laneId
+              ? {
+                  ...l,
+                  seriesEpisodesList: list,
+                  seriesEpisodeSubmode: (list.length > 0 ? "existing" : "new") as "existing" | "new",
+                  seriesEpisodeId: null,
+                  seriesEpisodeName: "",
+                  seriesParentEpisodeId: null,
+                }
+              : l
+          )
+          const lane = next.find((x) => x.id === laneId)
+          if (lane) {
+            setItems((items) => {
+              const mapped = items.map((it) =>
+                it.assignedSeriesLaneId === laneId && it.file.type.startsWith("video/")
+                  ? applyLaneToVideoItem(it, lane)
+                  : it
+              )
+              return renumberCreateLaneEpisodes(mapped, next)
+            })
+          }
+          return next
+        })
+      } catch {
+      }
+    })()
+  }
+
+  const patchLaneAndSync = (laneId: string, patch: Partial<SeriesLane>) => {
+    setSeriesLanes((prev) => {
+      const next = prev.map((l) => (l.id === laneId ? { ...l, ...patch } : l))
+      const lane = next.find((l) => l.id === laneId)
+      if (lane) {
+        setItems((items) => {
+          const mapped = items.map((it) =>
+            it.assignedSeriesLaneId === laneId && it.file.type.startsWith("video/")
+              ? applyLaneToVideoItem(it, lane)
+              : it
+          )
+          return renumberCreateLaneEpisodes(mapped, next)
+        })
+      }
+      return next
+    })
+  }
+
+  const addSeriesLane = () => {
+    setSeriesLanes((prev) => [...prev, emptySeriesLane()])
+  }
+
+  const removeSeriesLane = (laneId: string) => {
+    setSeriesLanes((prev) => prev.filter((l) => l.id !== laneId))
+    setItems((prev) =>
+      prev.map((it) =>
+        it.assignedSeriesLaneId === laneId
+          ? { ...it, assignedSeriesLaneId: null, ...clearSeriesFields() }
+          : it
+      )
+    )
+  }
+
+  const removeFileFromSeriesOrganizer = (itemId: string) => {
+    setItems((prev) =>
+      prev.map((it) =>
+        it.id === itemId ? { ...it, assignedSeriesLaneId: null, ...clearSeriesFields() } : it
+      )
+    )
+  }
+
+  const updateItemSeries = (id: string, updater: (item: MediaItem) => MediaItem) => {
+    setItems((prev) =>
+      prev.map((item) => {
+        if (item.id !== id) return item
+        const next = updater(item)
+        return { ...next, assignedSeriesLaneId: null }
+      })
+    )
+  }
+
+  const loadEpisodesForItem = (itemId: string, fileSeriesId: string) => {
+    void (async () => {
+      try {
+        const res = await fetch(
+          `/api/series-episodes?file_series_id=${encodeURIComponent(fileSeriesId)}`,
+          { credentials: "include" }
+        )
+        const j = await res.json().catch(() => ({}))
+        if (!res.ok) return
+        const raw = Array.isArray(j.episodes)
+          ? (j.episodes as { id: string; episode_name: string; parent_episode_id?: string | null }[])
+          : []
+        const list = raw.map((e) => ({
+          id: e.id,
+          episode_name: e.episode_name,
+          parent_episode_id:
+            e.parent_episode_id != null && String(e.parent_episode_id).trim() !== ""
+              ? String(e.parent_episode_id)
+              : null,
+        }))
+        updateItemSeries(itemId, (c) => ({
           ...c,
           seriesEpisodesList: list,
           seriesEpisodeSubmode: list.length > 0 ? "existing" : "new",
@@ -305,17 +780,44 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
           seriesEpisodeName: "",
           seriesParentEpisodeId: null,
         }))
-      } catch {
-        /* ignore */
-      }
+      } catch {}
     })()
+  }
+
+  const openSeriesBrowse = () => {
+    setSeriesSearch("")
+    setSeriesBrowseForLaneId(null)
+    setSeriesBrowseOpen(true)
+  }
+
+  const assignFileToLane = (itemId: string, laneId: string) => {
+    const lane = seriesLanesRef.current.find((l) => l.id === laneId)
+    if (!lane) return
+    setItems((prev) => {
+      const next = prev.map((it) => {
+        if (it.id !== itemId) return it
+        if (!it.file.type.startsWith("video/")) return it
+        return {
+          ...applyLaneToVideoItem({ ...it, assignedSeriesLaneId: laneId }, lane),
+          assignedSeriesLaneId: laneId,
+        }
+      })
+      return renumberCreateLaneEpisodes(next, seriesLanesRef.current)
+    })
   }
 
   const removeItem = (id: string) => {
     if (isUploadingBatch) return
     setItems((prev) => {
       const target = prev.find((item) => item.id === id)
-      if (target) URL.revokeObjectURL(target.previewUrl)
+      if (target) {
+        if (target.file.type.startsWith("image/")) {
+          if (target.previewUrl) URL.revokeObjectURL(target.previewUrl)
+        } else if (target.videoPosterUrl) {
+          URL.revokeObjectURL(target.videoPosterUrl)
+        }
+        if (target.customThumbnailPreview) URL.revokeObjectURL(target.customThumbnailPreview)
+      }
       const next = prev.filter((item) => item.id !== id)
       if (activeId === id) setActiveId(next[0]?.id || null)
       return next
@@ -370,7 +872,6 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
     if (!file || !activeItem) return
     if (!file.type.startsWith("image/")) return
     if (file.size > 10 * 1024 * 1024) return
-    // Revoke old preview
     if (activeItem.customThumbnailPreview) URL.revokeObjectURL(activeItem.customThumbnailPreview)
     const preview = URL.createObjectURL(file)
     updateItem(activeItem.id, (c) => ({ ...c, customThumbnail: file, customThumbnailPreview: preview }))
@@ -387,7 +888,6 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
       const reader = new FileReader()
       reader.onload = () => {
         const result = reader.result as string
-        // Strip data URL prefix; normalize whitespace so Go base64 decode always succeeds
         const comma = result.indexOf(",")
         const raw = comma >= 0 ? result.slice(comma + 1) : result
         resolve(raw.replace(/\s/g, ""))
@@ -397,7 +897,6 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
     })
   }
 
-  // --- Drag and drop ---
   const handleDrag = useCallback((e: React.DragEvent) => {
     e.preventDefault()
     e.stopPropagation()
@@ -426,7 +925,6 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
     }
   }, [isUploadingBatch])
 
-  // --- Upload logic (unchanged) ---
   const GO_CHUNK_SIZE = 25 * 1024 * 1024
 
   const authHeaders = (): Record<string, string> =>
@@ -517,14 +1015,11 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
       }))
     }
 
-    // Convert custom thumbnail to base64 if provided
     let defaultThumbnailB64 = ""
     if (item.customThumbnail) {
       try {
         defaultThumbnailB64 = await fileToBase64(item.customThumbnail)
-      } catch {
-        // Ignore thumbnail errors — upload continues without it
-      }
+      } catch {}
     }
 
     const seriesPayload: Record<string, unknown> = {}
@@ -701,6 +1196,46 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
 
   const activeItem = useMemo(() => items.find((item) => item.id === activeId) || items[0], [items, activeId])
 
+  const videoCount = useMemo(
+    () => items.filter((i) => i.file.type.startsWith("video/")).length,
+    [items]
+  )
+
+  useEffect(() => {
+    setVideoPlaybackUrl((prev) => {
+      if (prev) URL.revokeObjectURL(prev)
+      return null
+    })
+  }, [activeId])
+
+  const startVideoPlayback = () => {
+    if (!activeItem?.file.type.startsWith("video/")) return
+    setVideoPlaybackUrl((prev) => {
+      if (prev) URL.revokeObjectURL(prev)
+      return URL.createObjectURL(activeItem.file)
+    })
+  }
+
+  const stopVideoPlayback = () => {
+    setVideoPlaybackUrl((prev) => {
+      if (prev) URL.revokeObjectURL(prev)
+      return null
+    })
+  }
+
+  const activeVideoStill = useMemo(() => {
+    if (!activeItem?.file.type.startsWith("video/")) return null
+    return activeItem.customThumbnailPreview ?? activeItem.videoPosterUrl
+  }, [activeItem?.id, activeItem?.file.type, activeItem?.customThumbnailPreview, activeItem?.videoPosterUrl])
+
+  const activeVideoPosterBusy = useMemo(
+    () =>
+      !!activeItem?.file.type.startsWith("video/") &&
+      activeItem.isExtractingVideoPoster &&
+      !activeVideoStill,
+    [activeItem?.id, activeItem?.file.type, activeItem?.isExtractingVideoPoster, activeVideoStill]
+  )
+
   const allSeriesFieldsReady = useMemo(() => {
     return items.every((item) => {
       if (!item.file.type.startsWith("video/")) return true
@@ -737,9 +1272,28 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
     return () => clearTimeout(t)
   }, [seriesSearch, seriesBrowseOpen])
 
-  const openSeriesBrowse = () => {
+  const openSeriesBrowseForLane = (laneId: string) => {
     setSeriesSearch("")
+    setSeriesBrowseForLaneId(laneId)
     setSeriesBrowseOpen(true)
+  }
+
+  const handleMediaDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event
+    if (!over) return
+    const activeItemId = String(active.id)
+    const overId = String(over.id)
+    if (activeItemId === overId) return
+
+    if (items.some((i) => i.id === overId)) {
+      setItems((prev) => {
+        const oldIndex = prev.findIndex((i) => i.id === activeItemId)
+        const newIndex = prev.findIndex((i) => i.id === overId)
+        if (oldIndex < 0 || newIndex < 0) return prev
+        const moved = arrayMove(prev, oldIndex, newIndex)
+        return renumberCreateLaneEpisodes(moved, seriesLanesRef.current)
+      })
+    }
   }
 
   const isFieldDisabled = !activeItem || isUploadingBatch || !!activeItem?.isLocked
@@ -753,12 +1307,11 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
     }
   }
 
-  // --- No files: show drop zone ---
   if (items.length === 0) {
     return (
       <Dialog open={isOpen} onOpenChange={handleClose}>
         <DialogContent
-          className="w-[94vw] max-w-lg rounded-2xl p-0 overflow-hidden"
+          className="w-[min(100%,calc(100vw-1.5rem))] max-w-lg rounded-3xl p-0 overflow-hidden max-h-[min(92dvh,640px)] flex flex-col shadow-2xl border-border/60"
           showCloseButton={true}
         >
           <div
@@ -768,35 +1321,39 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
             onDragOver={handleDrag}
             onDrop={handleDrop}
             onClick={openFilePicker}
-            className={`cursor-pointer group flex flex-col items-center justify-center p-10 sm:p-14 transition-all duration-200 ${
+            className={`cursor-pointer group flex flex-col items-center justify-center px-6 py-12 sm:p-16 transition-all duration-300 min-h-[min(52vh,320px)] sm:min-h-0 ${
               isDragging
-                ? "bg-primary/5 ring-2 ring-primary/30 ring-inset"
-                : "hover:bg-muted/40"
+                ? "bg-primary/[0.04] ring-2 ring-primary/30 ring-inset"
+                : "hover:bg-muted/30"
             }`}
           >
-            <div className={`w-16 h-16 rounded-2xl flex items-center justify-center mb-5 transition-all duration-200 ${
+            <div className={`w-16 h-16 sm:w-[72px] sm:h-[72px] rounded-3xl flex items-center justify-center mb-5 transition-all duration-300 shadow-sm ${
               isDragging
-                ? "bg-primary/15 scale-110"
-                : "bg-primary/10 group-hover:bg-primary/15 group-hover:scale-105"
+                ? "bg-primary/15 scale-110 shadow-md"
+                : "bg-gradient-to-b from-primary/15 to-primary/5 group-hover:scale-105"
             }`}>
-              <CloudUpload className={`w-7 h-7 transition-colors ${isDragging ? "text-primary" : "text-primary/70 group-hover:text-primary"}`} />
+              <CloudUpload className={`w-7 h-7 sm:w-8 sm:h-8 transition-colors ${isDragging ? "text-primary" : "text-primary/80 group-hover:text-primary"}`} />
             </div>
-            <p className="text-base font-semibold text-foreground mb-1">
+            <p className="text-[17px] font-semibold tracking-tight text-foreground mb-1.5 text-center px-2">
               {isDragging ? "Drop files here" : "Upload files"}
             </p>
-            <p className="text-sm text-muted-foreground mb-5 text-center">
+            <p className="text-[13px] text-muted-foreground mb-5 text-center max-w-sm px-2">
               Drag and drop or click to browse
             </p>
-            <div className="flex items-center gap-3 text-[11px] text-muted-foreground/70">
-              <span className="flex items-center gap-1">
-                <FileImage className="w-3 h-3" /> Images
+            <div className="flex flex-wrap items-center justify-center gap-x-2 gap-y-1 text-[11px] text-muted-foreground/70 px-2 text-center">
+              <span className="flex items-center gap-1 whitespace-nowrap">
+                <FileImage className="w-3 h-3 shrink-0" /> Images
               </span>
-              <span className="w-px h-3 bg-border" />
-              <span className="flex items-center gap-1">
-                <FileVideo className="w-3 h-3" /> Videos
+              <span className="text-border/70 select-none" aria-hidden>
+                ·
               </span>
-              <span className="w-px h-3 bg-border" />
-              <span>Max {formatBytes(effectiveMaxSize)}</span>
+              <span className="flex items-center gap-1 whitespace-nowrap">
+                <FileVideo className="w-3 h-3 shrink-0" /> Videos
+              </span>
+              <span className="text-border/70 select-none" aria-hidden>
+                ·
+              </span>
+              <span className="whitespace-nowrap">Max {formatBytes(effectiveMaxSize)}</span>
             </div>
             {error && (
               <div className="mt-4 flex items-center gap-2 text-xs text-destructive bg-destructive/10 px-3 py-2 rounded-lg">
@@ -810,154 +1367,520 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
     )
   }
 
-  // --- Has files: show editor ---
   return (
     <>
     <Dialog open={isOpen} onOpenChange={handleClose}>
-      <DialogContent className="w-[96vw] max-w-[520px] sm:max-w-xl md:max-w-3xl lg:max-w-4xl rounded-2xl p-0 overflow-hidden max-h-[90vh] flex flex-col gap-0">
+      <DialogContent className="w-[min(100%,calc(100vw-1rem))] max-w-[520px] sm:max-w-xl md:max-w-3xl lg:max-w-4xl rounded-3xl p-0 overflow-hidden max-h-[min(92dvh,900px)] flex flex-col gap-0 shadow-2xl border-border/60">
 
-        {/* Main content */}
         <div
-          className="flex-1 overflow-y-auto min-h-0"
+          className="relative flex-1 overflow-y-auto overflow-x-hidden min-h-0"
           ref={dropRef}
           onDragEnter={handleDragIn}
           onDragLeave={handleDragOut}
           onDragOver={handleDrag}
           onDrop={handleDrop}
         >
-          {/* Drag overlay */}
-          {isDragging && (
-            <div className="absolute inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm">
-              <div className="flex flex-col items-center gap-2">
+            {isDragging && (
+            <div className="absolute inset-0 z-50 flex items-center justify-center bg-background/85 backdrop-blur-sm">
+              <div className="flex flex-col items-center gap-2 px-4 text-center">
                 <CloudUpload className="w-10 h-10 text-primary animate-bounce" />
                 <p className="text-sm font-medium text-foreground">Drop to add files</p>
               </div>
             </div>
           )}
 
-          <div className="grid md:grid-cols-[220px_1fr] h-full">
-            {/* Left panel — File list */}
-            <div className="border-b md:border-b-0 md:border-r border-border bg-muted/30 p-3 flex flex-col">
-              <div className="flex items-center justify-between mb-2 px-1">
-                <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Files</span>
-                <span className="text-[10px] text-muted-foreground/60 bg-muted rounded-full px-2 py-0.5 tabular-nums">{items.length}</span>
+          <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleMediaDragEnd}>
+          <div className="flex min-h-0 h-full flex-col">
+            <div className="flex shrink-0 flex-col gap-2 border-b border-border/60 bg-background/80 backdrop-blur-xl px-4 py-3 sm:flex-row sm:items-center sm:justify-between supports-[backdrop-filter]:bg-background/70">
+              <div className="flex items-center gap-2">
+                <p className="text-[15px] font-semibold tracking-tight text-foreground">Upload</p>
+                <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground tabular-nums">
+                  {items.length}
+                </span>
+              </div>
+              {videoCount > 0 ? (
+                <Button
+                  type="button"
+                  variant={seriesOrganizerOpen ? "default" : "outline"}
+                  size="sm"
+                  className="h-9 gap-1.5 rounded-full px-4"
+                  disabled={isUploadingBatch}
+                  onClick={() => setSeriesOrganizerOpen((o) => !o)}
+                >
+                  <Layers className="h-3.5 w-3.5" />
+                  {seriesOrganizerOpen ? "Done" : "Series organizer"}
+                </Button>
+              ) : null}
+            </div>
+            <div className="grid min-h-0 flex-1 grid-cols-1 md:grid-cols-[minmax(0,220px)_minmax(0,1fr)] lg:grid-cols-[minmax(0,240px)_minmax(0,1fr)]">
+            <div className="border-b md:border-b-0 md:border-r border-border/60 bg-muted/20 p-3 sm:p-3.5 flex min-h-0 flex-col max-md:min-h-[min(42vh,320px)] md:h-full">
+              <div className="mb-2.5 shrink-0 px-0.5">
+                <span className="text-[11px] font-semibold text-muted-foreground/80 uppercase tracking-[0.08em]">Library</span>
               </div>
 
-              {/* File items */}
-              <div className="space-y-1.5 flex-1 overflow-y-auto max-h-[25vh] md:max-h-[340px] pr-0.5">
-                {items.map((item) => {
-                  const isActive = activeId === item.id
-                  const isVideo = item.file.type.startsWith("video/")
-                  return (
-                    <button
-                      key={item.id}
-                      type="button"
-                      onClick={() => setActiveId(item.id)}
-                      className={`w-full text-left rounded-xl p-2 transition-all duration-150 flex items-center gap-2.5 group/item ${
-                        isActive
-                          ? "bg-primary/10 ring-1 ring-primary/20"
-                          : "hover:bg-muted/80"
-                      }`}
-                    >
-                      {/* Mini thumbnail */}
-                      <div className="relative w-10 h-10 rounded-lg overflow-hidden bg-muted shrink-0">
-                        {isVideo ? (
-                          <video
-                            src={item.previewUrl}
-                            className="w-full h-full object-cover"
-                            muted
-                            preload="metadata"
-                          />
-                        ) : (
-                          <img
-                            src={item.previewUrl}
-                            alt=""
-                            className="w-full h-full object-cover"
-                          />
-                        )}
-                        {item.status !== "idle" && (
-                          <div className={`absolute inset-0 flex items-center justify-center ${
-                            item.status === "success" ? "bg-green-500/20" : item.status === "error" ? "bg-destructive/20" : "bg-black/30"
-                          }`}>
-                            {statusIcon(item.status)}
-                          </div>
-                        )}
-                      </div>
+              <SortableContext items={items.map((i) => i.id)} strategy={verticalListSortingStrategy}>
+                <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain pr-0.5 -mr-0.5 [scrollbar-gutter:stable]">
+                  <div className="space-y-2">
+                    {items.map((item) => {
+                      const isActive = activeId === item.id
+                      const lane = item.assignedSeriesLaneId
+                        ? seriesLanes.find((l) => l.id === item.assignedSeriesLaneId)
+                        : null
+                      const laneBadge = lane && item.file.type.startsWith("video/") ? laneTitle(lane) : null
+                      return (
+                        <SortableFileRow
+                          key={item.id}
+                          item={item}
+                          isActive={isActive}
+                          laneBadge={laneBadge}
+                          isUploadingBatch={isUploadingBatch}
+                          onSelect={() => setActiveId(item.id)}
+                          onRemove={() => removeItem(item.id)}
+                          statusIcon={statusIcon}
+                          formatBytes={formatBytes}
+                        />
+                      )
+                    })}
+                  </div>
+                </div>
+              </SortableContext>
 
-                      {/* Info */}
-                      <div className="flex-1 min-w-0">
-                        <p className="text-xs font-medium text-foreground line-clamp-1">{item.file.name}</p>
-                        <p className="text-[10px] text-muted-foreground truncate leading-tight mt-0.5">
-                          {formatBytes(item.file.size)}
-                          {item.status === "uploading" && ` · ${item.progress}%`}
-                        </p>
-                        {item.status === "uploading" && (
-                          <Progress value={item.progress} className="h-0.5 mt-1" />
-                        )}
-                        {item.error && (
-                          <p className="text-[10px] text-destructive truncate mt-0.5">{item.error}</p>
-                        )}
-                      </div>
-
-                      {/* Remove */}
-                      {!isUploadingBatch && (
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            removeItem(item.id)
-                          }}
-                          className="shrink-0 w-6 h-6 rounded-md flex items-center justify-center opacity-0 group-hover/item:opacity-100 hover:bg-destructive/10 hover:text-destructive transition-all"
-                        >
-                          <X className="w-3 h-3" />
-                        </button>
-                      )}
-                    </button>
-                  )
-                })}
+              <div className="sticky bottom-0 z-10 mt-auto shrink-0 -mx-3 border-t border-border/60 bg-muted/20 px-3 pt-3 sm:-mx-3.5 sm:px-3.5 supports-[backdrop-filter]:bg-muted/15 backdrop-blur-md">
+                <button
+                  type="button"
+                  onClick={openFilePicker}
+                  disabled={isUploadingBatch}
+                  className="w-full flex items-center justify-center gap-1.5 px-3 py-2.5 sm:py-2 rounded-2xl border border-dashed border-border/70 text-xs font-medium text-muted-foreground hover:text-primary hover:border-primary/50 hover:bg-primary/5 transition-all disabled:opacity-50 disabled:cursor-not-allowed min-h-[44px] sm:min-h-0 touch-manipulation"
+                >
+                  <ImagePlus className="w-3.5 h-3.5 shrink-0" />
+                  Add more
+                </button>
               </div>
-
-              {/* Add more button */}
-              <button
-                type="button"
-                onClick={openFilePicker}
-                disabled={isUploadingBatch}
-                className="mt-2 w-full flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl border border-dashed border-border text-xs text-muted-foreground hover:text-foreground hover:border-primary/30 hover:bg-primary/5 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                <ImagePlus className="w-3.5 h-3.5" />
-                Add more
-              </button>
             </div>
 
-            {/* Right panel — Preview + Details */}
-            <div className="p-4 md:p-5 space-y-4 overflow-y-auto">
-              {/* Preview */}
+            <div className="min-w-0 space-y-4 overflow-y-auto overflow-x-hidden p-4 sm:p-5 pb-6 sm:pb-5">
+              {seriesOrganizerOpen ? (
+                videoCount > 0 ? (
+                  <div className="space-y-3 text-card-foreground">
+                    <div className="rounded-2xl border border-border/60 bg-gradient-to-b from-card to-muted/30 p-4 shadow-[0_1px_2px_rgba(0,0,0,0.03)]">
+                      <div className="flex items-start gap-3">
+                        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+                          <Layers className="h-4 w-4" />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <p className="text-[14px] font-semibold tracking-tight text-foreground">Series organizer</p>
+                          <p className="mt-0.5 text-[12px] leading-relaxed text-muted-foreground">
+                            Pick videos from your library to add to a group. Files stay in your library — order follows the library.
+                          </p>
+                        </div>
+                      </div>
+                      <Button
+                        type="button"
+                        variant="default"
+                        size="sm"
+                        className="mt-3 h-9 w-full gap-1.5 rounded-full"
+                        disabled={isUploadingBatch}
+                        onClick={addSeriesLane}
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                        New series group
+                      </Button>
+                    </div>
+                    <div className="space-y-3 max-h-[min(56vh,420px)] overflow-y-auto overscroll-contain pr-0.5 -mr-0.5">
+                      {seriesLanes.map((lane) => {
+                        const assignedVideos = items.filter(
+                          (i) => i.assignedSeriesLaneId === lane.id && i.file.type.startsWith("video/")
+                        )
+                        const assignedN = assignedVideos.length
+                        return (
+                          <LaneCard key={lane.id} disabled={isUploadingBatch}>
+                            <div className="space-y-3 p-3.5">
+                              <div className="flex items-start justify-between gap-2">
+                                <div className="min-w-0">
+                                  <p className="text-[14px] font-semibold tracking-tight leading-tight text-foreground truncate">{laneTitle(lane)}</p>
+                                  <p className="mt-0.5 text-[11px] text-muted-foreground">
+                                    {assignedN} video{assignedN === 1 ? "" : "s"} in this group
+                                  </p>
+                                </div>
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-8 w-8 shrink-0 rounded-full text-muted-foreground hover:text-destructive"
+                                  disabled={isUploadingBatch}
+                                  onClick={() => removeSeriesLane(lane.id)}
+                                  aria-label="Remove series group"
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                </Button>
+                              </div>
+                              {(() => {
+                                const videoLibrary = items.filter((i) => i.file.type.startsWith("video/"))
+                                const isOpen = filePickerLaneId === lane.id
+                                return (
+                                  <div className="relative">
+                                    <button
+                                      type="button"
+                                      disabled={isUploadingBatch || videoLibrary.length === 0}
+                                      onClick={() => setFilePickerLaneId((prev) => (prev === lane.id ? null : lane.id))}
+                                      className={cn(
+                                        "flex w-full items-center justify-between gap-2 rounded-xl border border-border/70 bg-background px-3 py-2 text-[13px] transition-colors",
+                                        "hover:bg-accent/60 disabled:opacity-50 disabled:cursor-not-allowed",
+                                        isOpen && "ring-1 ring-primary/40 border-primary/40"
+                                      )}
+                                    >
+                                      <span className="flex items-center gap-2 text-muted-foreground">
+                                        <Plus className="h-3.5 w-3.5" />
+                                        <span className="font-medium text-foreground">
+                                          {assignedN === 0 ? "Add videos to this series" : `Edit videos (${assignedN})`}
+                                        </span>
+                                      </span>
+                                      <ChevronDown className={cn("h-3.5 w-3.5 text-muted-foreground transition-transform", isOpen && "rotate-180")} />
+                                    </button>
+                                    {isOpen && (
+                                      <div className="absolute z-30 mt-1.5 w-full overflow-hidden rounded-2xl border border-border/70 bg-popover text-popover-foreground shadow-xl">
+                                        <div className="max-h-[260px] overflow-y-auto overscroll-contain p-1.5">
+                                          {videoLibrary.length === 0 ? (
+                                            <p className="px-3 py-4 text-center text-xs text-muted-foreground">
+                                              No videos in your library yet.
+                                            </p>
+                                          ) : (
+                                            videoLibrary.map((it) => {
+                                              const inThisLane = it.assignedSeriesLaneId === lane.id
+                                              const inOtherLane = !!it.assignedSeriesLaneId && !inThisLane
+                                              const otherLaneTitle = inOtherLane
+                                                ? laneTitle(seriesLanes.find((l) => l.id === it.assignedSeriesLaneId)!)
+                                                : null
+                                              const still = it.customThumbnailPreview ?? it.videoPosterUrl
+                                              return (
+                                                <button
+                                                  key={it.id}
+                                                  type="button"
+                                                  disabled={isUploadingBatch}
+                                                  onClick={() => {
+                                                    if (inThisLane) {
+                                                      removeFileFromSeriesOrganizer(it.id)
+                                                    } else {
+                                                      assignFileToLane(it.id, lane.id)
+                                                    }
+                                                  }}
+                                                  className={cn(
+                                                    "flex w-full items-center gap-2.5 rounded-xl px-2 py-1.5 text-left transition-colors",
+                                                    inThisLane ? "bg-primary/10" : "hover:bg-accent/60"
+                                                  )}
+                                                >
+                                                  <span
+                                                    className={cn(
+                                                      "flex h-5 w-5 shrink-0 items-center justify-center rounded-md border transition-colors",
+                                                      inThisLane
+                                                        ? "border-primary bg-primary text-primary-foreground"
+                                                        : "border-border bg-background"
+                                                    )}
+                                                  >
+                                                    {inThisLane && <Check className="h-3 w-3" />}
+                                                  </span>
+                                                  <div className="h-9 w-9 shrink-0 overflow-hidden rounded-lg bg-muted ring-1 ring-border/60">
+                                                    {still ? (
+                                                      <img src={still} alt="" className="h-full w-full object-cover" />
+                                                    ) : (
+                                                      <div className="flex h-full w-full items-center justify-center">
+                                                        <FileVideo className="h-4 w-4 text-muted-foreground" />
+                                                      </div>
+                                                    )}
+                                                  </div>
+                                                  <div className="min-w-0 flex-1">
+                                                    <p className="truncate text-[12px] font-medium text-foreground">{it.file.name}</p>
+                                                    {inOtherLane && (
+                                                      <p className="truncate text-[10px] text-muted-foreground">
+                                                        Currently in: {otherLaneTitle}
+                                                      </p>
+                                                    )}
+                                                  </div>
+                                                </button>
+                                              )
+                                            })
+                                          )}
+                                        </div>
+                                        <div className="flex items-center justify-end gap-2 border-t border-border/60 bg-muted/30 px-2 py-1.5">
+                                          <Button
+                                            type="button"
+                                            size="sm"
+                                            variant="ghost"
+                                            className="h-7 rounded-full px-3 text-xs"
+                                            onClick={() => setFilePickerLaneId(null)}
+                                          >
+                                            Done
+                                          </Button>
+                                        </div>
+                                      </div>
+                                    )}
+                                  </div>
+                                )
+                              })()}
+                              {assignedVideos.length > 0 && (
+                                <div className="flex flex-wrap gap-1.5">
+                                  {assignedVideos.map((it) => (
+                                    <span
+                                      key={it.id}
+                                      className="inline-flex max-w-full items-center gap-1 rounded-full border border-border/70 bg-muted/60 py-1 pl-2.5 pr-1 text-[11px]"
+                                    >
+                                      <span className="truncate max-w-[200px] font-medium">{it.file.name}</span>
+                                      <button
+                                        type="button"
+                                        className="shrink-0 rounded-full p-0.5 text-muted-foreground hover:bg-destructive/15 hover:text-destructive"
+                                        disabled={isUploadingBatch}
+                                        onClick={() => removeFileFromSeriesOrganizer(it.id)}
+                                        aria-label={`Remove ${it.file.name} from this series`}
+                                      >
+                                        <X className="h-3 w-3" />
+                                      </button>
+                                    </span>
+                                  ))}
+                                </div>
+                              )}
+                              <div className="flex gap-0.5 overflow-hidden rounded-xl border border-border bg-muted/40 p-0.5">
+                                <button
+                                  type="button"
+                                  disabled={isUploadingBatch}
+                                  onClick={() =>
+                                    patchLaneAndSync(lane.id, {
+                                      seriesMode: "create",
+                                      seriesSelected: null,
+                                      seriesEpisodeSubmode: null,
+                                      seriesEpisodeId: null,
+                                      seriesParentEpisodeId: null,
+                                      seriesEpisodesList: [],
+                                    })
+                                  }
+                                  className={cn(
+                                    "flex-1 rounded-lg py-2 text-xs font-medium transition-colors",
+                                    lane.seriesMode === "create"
+                                      ? "bg-background text-foreground shadow-sm"
+                                      : "text-muted-foreground hover:text-foreground"
+                                  )}
+                                >
+                                  New series
+                                </button>
+                                <button
+                                  type="button"
+                                  disabled={isUploadingBatch}
+                                  onClick={() =>
+                                    patchLaneAndSync(lane.id, {
+                                      seriesMode: "existing",
+                                      seriesEpisodeName: "",
+                                      seriesEpisodeId: null,
+                                      seriesParentEpisodeId: null,
+                                    })
+                                  }
+                                  className={cn(
+                                    "flex-1 rounded-lg py-2 text-xs font-medium transition-colors",
+                                    lane.seriesMode === "existing"
+                                      ? "bg-background text-foreground shadow-sm"
+                                      : "text-muted-foreground hover:text-foreground"
+                                  )}
+                                >
+                                  Existing
+                                </button>
+                              </div>
+                              {lane.seriesMode === "create" && (
+                                <p className="text-[11px] leading-relaxed text-muted-foreground">
+                                  Episode titles: Episode 1, 2… by order in the library list.
+                                </p>
+                              )}
+                              {lane.seriesMode === "existing" && (
+                                <div className="space-y-2">
+                                  {lane.seriesSelected ? (
+                                    <div className="flex items-center justify-between gap-2 rounded-xl border border-border bg-background px-3 py-2 text-sm">
+                                      <span className="truncate font-medium">{lane.seriesSelected.file_title}</span>
+                                      <button
+                                        type="button"
+                                        className="shrink-0 text-xs text-primary hover:underline"
+                                        disabled={isUploadingBatch}
+                                        onClick={() => openSeriesBrowseForLane(lane.id)}
+                                      >
+                                        Change
+                                      </button>
+                                    </div>
+                                  ) : (
+                                    <Button
+                                      type="button"
+                                      variant="outline"
+                                      size="sm"
+                                      className="h-9 w-full rounded-xl"
+                                      disabled={isUploadingBatch}
+                                      onClick={() => openSeriesBrowseForLane(lane.id)}
+                                    >
+                                      Choose series…
+                                    </Button>
+                                  )}
+                                  {lane.seriesSelected && (
+                                    <>
+                                      <div className="flex gap-0.5 overflow-hidden rounded-xl border border-border bg-muted/40 p-0.5">
+                                        <button
+                                          type="button"
+                                          disabled={isUploadingBatch || lane.seriesEpisodesList.length === 0}
+                                          onClick={() =>
+                                            patchLaneAndSync(lane.id, {
+                                              seriesEpisodeSubmode: "existing",
+                                              seriesEpisodeName: "",
+                                              seriesParentEpisodeId: null,
+                                            })
+                                          }
+                                          className={cn(
+                                            "flex-1 py-2 text-xs font-medium transition-colors",
+                                            lane.seriesEpisodeSubmode === "existing"
+                                              ? "bg-background shadow-sm"
+                                              : "text-muted-foreground"
+                                          )}
+                                        >
+                                          Pick episode
+                                        </button>
+                                        <button
+                                          type="button"
+                                          disabled={isUploadingBatch}
+                                          onClick={() =>
+                                            patchLaneAndSync(lane.id, {
+                                              seriesEpisodeSubmode: "new",
+                                              seriesEpisodeId: null,
+                                              seriesParentEpisodeId: null,
+                                            })
+                                          }
+                                          className={cn(
+                                            "flex-1 py-2 text-xs font-medium transition-colors",
+                                            lane.seriesEpisodeSubmode === "new"
+                                              ? "bg-background shadow-sm"
+                                              : "text-muted-foreground"
+                                          )}
+                                        >
+                                          New episodes
+                                        </button>
+                                      </div>
+                                      {lane.seriesEpisodeSubmode === "existing" && lane.seriesEpisodesList.length > 0 && (
+                                        <select
+                                          value={lane.seriesEpisodeId ?? ""}
+                                          onChange={(e) =>
+                                            patchLaneAndSync(lane.id, {
+                                              seriesEpisodeId: e.target.value || null,
+                                            })
+                                          }
+                                          disabled={isUploadingBatch}
+                                          className="h-10 w-full rounded-xl border border-border bg-background px-3 text-sm"
+                                        >
+                                          <option value="">Select episode…</option>
+                                          {lane.seriesEpisodesList.map((ep) => (
+                                            <option key={ep.id} value={ep.id}>
+                                              {ep.episode_name || ep.id.slice(0, 8)}
+                                            </option>
+                                          ))}
+                                        </select>
+                                      )}
+                                      {lane.seriesEpisodeSubmode === "new" && (
+                                        <p className="text-[11px] text-muted-foreground">
+                                          New episode names: Episode 1, 2… by library order. Optional nest:
+                                        </p>
+                                      )}
+                                      {lane.seriesEpisodeSubmode === "new" && lane.seriesEpisodesList.length > 0 && (
+                                        <select
+                                          value={lane.seriesParentEpisodeId ?? ""}
+                                          onChange={(e) =>
+                                            patchLaneAndSync(lane.id, {
+                                              seriesParentEpisodeId: e.target.value || null,
+                                            })
+                                          }
+                                          disabled={isUploadingBatch}
+                                          className="h-10 w-full rounded-xl border border-border bg-background px-3 text-sm"
+                                        >
+                                          <option value="">Top-level only</option>
+                                          {lane.seriesEpisodesList.map((ep) => (
+                                            <option key={ep.id} value={ep.id}>
+                                              {ep.episode_name || ep.id.slice(0, 8)}
+                                            </option>
+                                          ))}
+                                        </select>
+                                      )}
+                                    </>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                          </LaneCard>
+                        )
+                      })}
+                    </div>
+                  </div>
+                ) : (
+                  <p className="text-sm text-muted-foreground">Add at least one video file to use the series organizer.</p>
+                )
+              ) : (
+                <>
               {activeItem && (
-                <div className="rounded-xl overflow-hidden bg-muted/50 border border-border/50">
+                <div className="rounded-xl overflow-hidden bg-muted/50 border border-border shadow-sm">
                   {activeItem.file.type.startsWith("image/") ? (
-                    <div className="relative w-full aspect-video bg-muted/80 flex items-center justify-center">
+                    <div className="relative w-full aspect-video max-h-[min(52vh,420px)] bg-muted/80 flex items-center justify-center">
                       <img
                         src={activeItem.previewUrl}
                         alt="Preview"
-                        className="w-full h-full object-contain"
+                        className="w-full h-full max-h-[min(52vh,420px)] object-contain"
                       />
                     </div>
                   ) : activeItem.file.type.startsWith("video/") ? (
-                    <div className="relative w-full aspect-video bg-black rounded-t-xl">
-                      <video
-                        src={activeItem.previewUrl}
-                        controls
-                        className="w-full h-full object-contain"
-                        preload="metadata"
-                      />
-                    </div>
+                    videoPlaybackUrl ? (
+                      <div className="relative w-full aspect-video max-h-[min(56vh,480px)] bg-muted">
+                        <video
+                          src={videoPlaybackUrl}
+                          controls
+                          className="w-full h-full max-h-[min(56vh,480px)] object-contain"
+                          playsInline
+                        />
+                        <button
+                          type="button"
+                          onClick={stopVideoPlayback}
+                          className="absolute top-2 right-2 sm:top-3 sm:right-3 z-10 h-10 w-10 sm:h-9 sm:w-9 rounded-full bg-secondary text-secondary-foreground hover:bg-secondary/90 flex items-center justify-center transition-colors touch-manipulation shadow-md border border-border"
+                          aria-label="Back to thumbnail"
+                        >
+                          <X className="w-5 h-5 sm:w-4 sm:h-4" />
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={startVideoPlayback}
+                        className="relative w-full aspect-video max-h-[min(52vh,420px)] bg-muted/80 overflow-hidden group flex flex-col items-center justify-center outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background touch-manipulation min-h-[180px]"
+                        aria-label="Play video preview"
+                      >
+                        {activeVideoPosterBusy ? (
+                          <Loader2 className="w-10 h-10 animate-spin text-muted-foreground" />
+                        ) : activeVideoStill ? (
+                          <>
+                            <img
+                              src={activeVideoStill}
+                              alt=""
+                              className="absolute inset-0 w-full h-full object-contain bg-muted"
+                            />
+                            <span className="absolute inset-0 bg-foreground/20 group-hover:bg-foreground/30 group-active:bg-foreground/35 transition-colors" />
+                            <span className="relative z-10 flex h-14 w-14 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lg ring-2 ring-background/80 group-hover:bg-primary/90 transition-colors">
+                              <Play className="h-7 w-7 ml-0.5" fill="currentColor" />
+                            </span>
+                            <span className="sr-only">Play preview</span>
+                          </>
+                        ) : (
+                          <div className="relative z-10 flex flex-col items-center gap-3 px-4 py-6">
+                            <FileVideo className="w-11 h-11 sm:w-12 sm:h-12 text-muted-foreground" />
+                            <p className="text-xs text-center text-muted-foreground max-w-[240px] leading-relaxed">
+                              No thumbnail — tap play to preview the file
+                            </p>
+                            <span className="flex h-14 w-14 items-center justify-center rounded-full bg-primary text-primary-foreground ring-2 ring-ring">
+                              <Play className="h-7 w-7 ml-0.5" fill="currentColor" />
+                            </span>
+                          </div>
+                        )}
+                      </button>
+                    )
                   ) : null}
                 </div>
               )}
 
-              {/* Form fields */}
               <div className="space-y-3.5">
-                {/* Title */}
                 <div className="space-y-1.5">
                   <label className="text-xs font-medium text-muted-foreground">Title</label>
                   <Input
@@ -969,11 +1892,10 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
                     placeholder="Give your file a title"
                     maxLength={200}
                     disabled={isFieldDisabled}
-                    className="text-sm h-9 bg-muted/30 border-border/50 focus:bg-background transition-colors"
+                    className="text-sm h-11 sm:h-9 bg-muted/30 border-border/50 focus:bg-background transition-colors"
                   />
                 </div>
 
-                {/* Description */}
                 <div className="space-y-1.5">
                   <label className="text-xs font-medium text-muted-foreground">Description</label>
                   <Textarea
@@ -990,14 +1912,24 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
                   />
                 </div>
 
-                {/* File series (video only) */}
                 {activeItem?.file.type.startsWith("video/") && (
-                  <div className="space-y-2.5 rounded-xl border border-border/50 bg-muted/20 p-3">
-                    <div className="flex items-center gap-2">
-                      <Layers className="w-3.5 h-3.5 text-muted-foreground" />
-                      <span className="text-xs font-medium text-muted-foreground">Add to a series?</span>
+                  <div className="space-y-2.5 rounded-2xl border border-border/60 bg-muted/20 p-3.5">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2">
+                        <Layers className="h-3.5 w-3.5 text-muted-foreground" />
+                        <span className="text-xs font-semibold tracking-tight text-foreground">Series</span>
+                      </div>
+                      {activeItem.assignedSeriesLaneId && (() => {
+                        const lane = seriesLanes.find((l) => l.id === activeItem.assignedSeriesLaneId)
+                        if (!lane) return null
+                        return (
+                          <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary">
+                            From organizer · {laneTitle(lane)}
+                          </span>
+                        )
+                      })()}
                     </div>
-                    <div className="flex flex-col gap-1.5">
+                    <div className="flex flex-col gap-1">
                       {(["none", "create", "existing"] as const).map((mode) => (
                         <button
                           key={mode}
@@ -1005,19 +1937,8 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
                           disabled={isFieldDisabled}
                           onClick={() => {
                             if (!activeItem) return
-                            updateItem(activeItem.id, (c) => {
-                              if (mode === "none") {
-                                return {
-                                  ...c,
-                                  seriesMode: "none",
-                                  seriesEpisodeName: "",
-                                  seriesSelected: null,
-                                  seriesEpisodeSubmode: null,
-                                  seriesEpisodeId: null,
-                                  seriesParentEpisodeId: null,
-                                  seriesEpisodesList: [],
-                                }
-                              }
+                            updateItemSeries(activeItem.id, (c) => {
+                              if (mode === "none") return { ...c, ...clearSeriesFields() }
                               if (mode === "create") {
                                 return {
                                   ...c,
@@ -1041,11 +1962,12 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
                               }
                             })
                           }}
-                          className={`text-left rounded-lg px-3 py-2 text-sm transition-colors disabled:opacity-50 ${
+                          className={cn(
+                            "rounded-xl px-3 py-2 text-left text-sm transition-colors disabled:opacity-50 min-h-[40px] touch-manipulation",
                             activeItem.seriesMode === mode
-                              ? "bg-primary text-primary-foreground"
-                              : "bg-muted/50 hover:bg-muted/80 text-foreground"
-                          }`}
+                              ? "bg-primary text-primary-foreground shadow-sm"
+                              : "bg-muted/40 hover:bg-muted/70 text-foreground"
+                          )}
                         >
                           {mode === "none" && "None"}
                           {mode === "create" && "Create new series"}
@@ -1056,20 +1978,17 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
 
                     {activeItem.seriesMode === "create" && (
                       <div className="space-y-1.5 pt-1">
-                        <label className="text-xs font-medium text-muted-foreground">Episode name</label>
+                        <label className="text-[11px] font-medium text-muted-foreground">Episode name</label>
                         <Input
                           value={activeItem.seriesEpisodeName}
                           onChange={(e) =>
-                            updateItem(activeItem.id, (c) => ({ ...c, seriesEpisodeName: e.target.value }))
+                            updateItemSeries(activeItem.id, (c) => ({ ...c, seriesEpisodeName: e.target.value }))
                           }
                           placeholder="e.g. Episode 1 — Pilot"
                           maxLength={500}
                           disabled={isFieldDisabled}
-                          className="text-sm h-9 bg-muted/30 border-border/50"
+                          className="text-sm h-9 bg-background border-border/60"
                         />
-                        <p className="text-[10px] text-muted-foreground/70">
-                          The first episode for this series (your upload is the series cover and this episode).
-                        </p>
                       </div>
                     )}
 
@@ -1078,8 +1997,8 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
                         <div className="flex flex-col gap-1.5">
                           <span className="text-[11px] text-muted-foreground">Series</span>
                           {activeItem.seriesSelected ? (
-                            <div className="flex items-center justify-between gap-2 rounded-lg border border-border/50 bg-background px-3 py-2 text-sm">
-                              <span className="truncate">{activeItem.seriesSelected.file_title || "Series"}</span>
+                            <div className="flex items-center justify-between gap-2 rounded-xl border border-border/60 bg-background px-3 py-2 text-sm">
+                              <span className="truncate font-medium">{activeItem.seriesSelected.file_title || "Series"}</span>
                               <button
                                 type="button"
                                 disabled={isFieldDisabled}
@@ -1094,7 +2013,7 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
                               type="button"
                               variant="outline"
                               size="sm"
-                              className="h-9"
+                              className="h-9 rounded-xl"
                               disabled={isFieldDisabled}
                               onClick={openSeriesBrowse}
                             >
@@ -1105,42 +2024,44 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
 
                         {activeItem.seriesSelected && (
                           <>
-                            <div className="flex rounded-lg border border-border/50 overflow-hidden bg-muted/30">
+                            <div className="flex gap-0.5 overflow-hidden rounded-xl border border-border/60 bg-muted/40 p-0.5">
                               <button
                                 type="button"
                                 disabled={isFieldDisabled || activeItem.seriesEpisodesList.length === 0}
                                 onClick={() =>
-                                  updateItem(activeItem.id, (c) => ({
+                                  updateItemSeries(activeItem.id, (c) => ({
                                     ...c,
                                     seriesEpisodeSubmode: "existing",
                                     seriesEpisodeName: "",
                                     seriesParentEpisodeId: null,
                                   }))
                                 }
-                                className={`flex-1 py-2 text-xs font-medium transition-colors disabled:opacity-40 ${
+                                className={cn(
+                                  "flex-1 rounded-lg py-2 text-xs font-medium transition-colors disabled:opacity-40",
                                   activeItem.seriesEpisodeSubmode === "existing"
-                                    ? "bg-primary text-primary-foreground"
-                                    : "text-muted-foreground"
-                                }`}
+                                    ? "bg-background text-foreground shadow-sm"
+                                    : "text-muted-foreground hover:text-foreground"
+                                )}
                               >
-                                Existing episode
+                                Pick episode
                               </button>
                               <button
                                 type="button"
                                 disabled={isFieldDisabled}
                                 onClick={() =>
-                                  updateItem(activeItem.id, (c) => ({
+                                  updateItemSeries(activeItem.id, (c) => ({
                                     ...c,
                                     seriesEpisodeSubmode: "new",
                                     seriesEpisodeId: null,
                                     seriesParentEpisodeId: null,
                                   }))
                                 }
-                                className={`flex-1 py-2 text-xs font-medium transition-colors ${
+                                className={cn(
+                                  "flex-1 rounded-lg py-2 text-xs font-medium transition-colors",
                                   activeItem.seriesEpisodeSubmode === "new"
-                                    ? "bg-primary text-primary-foreground"
-                                    : "text-muted-foreground"
-                                }`}
+                                    ? "bg-background text-foreground shadow-sm"
+                                    : "text-muted-foreground hover:text-foreground"
+                                )}
                               >
                                 New episode
                               </button>
@@ -1149,17 +2070,17 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
                             {activeItem.seriesEpisodeSubmode === "existing" &&
                               activeItem.seriesEpisodesList.length > 0 && (
                                 <div className="space-y-1.5">
-                                  <label className="text-xs font-medium text-muted-foreground">Episode</label>
+                                  <label className="text-[11px] font-medium text-muted-foreground">Episode</label>
                                   <select
                                     value={activeItem.seriesEpisodeId ?? ""}
                                     onChange={(e) =>
-                                      updateItem(activeItem.id, (c) => ({
+                                      updateItemSeries(activeItem.id, (c) => ({
                                         ...c,
                                         seriesEpisodeId: e.target.value || null,
                                       }))
                                     }
                                     disabled={isFieldDisabled}
-                                    className="w-full h-9 rounded-md border border-border/50 bg-background px-2 text-sm"
+                                    className="w-full h-9 rounded-xl border border-border/60 bg-background px-3 text-sm"
                                   >
                                     <option value="">Select episode…</option>
                                     {activeItem.seriesEpisodesList.map((ep) => (
@@ -1173,11 +2094,11 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
 
                             {activeItem.seriesEpisodeSubmode === "new" && (
                               <div className="space-y-1.5">
-                                <label className="text-xs font-medium text-muted-foreground">New episode name</label>
+                                <label className="text-[11px] font-medium text-muted-foreground">New episode name</label>
                                 <Input
                                   value={activeItem.seriesEpisodeName}
                                   onChange={(e) =>
-                                    updateItem(activeItem.id, (c) => ({
+                                    updateItemSeries(activeItem.id, (c) => ({
                                       ...c,
                                       seriesEpisodeName: e.target.value,
                                     }))
@@ -1185,40 +2106,38 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
                                   placeholder="Episode name"
                                   maxLength={500}
                                   disabled={isFieldDisabled}
-                                  className="text-sm h-9 bg-muted/30 border-border/50"
+                                  className="text-sm h-9 bg-background border-border/60"
                                 />
                                 {activeItem.seriesEpisodesList.length > 0 && (
                                   <div className="space-y-1.5 pt-0.5">
-                                    <label className="text-xs font-medium text-muted-foreground">
+                                    <label className="text-[11px] font-medium text-muted-foreground">
                                       Nest under (optional)
                                     </label>
                                     <select
                                       value={activeItem.seriesParentEpisodeId ?? ""}
                                       onChange={(e) =>
-                                        updateItem(activeItem.id, (c) => ({
+                                        updateItemSeries(activeItem.id, (c) => ({
                                           ...c,
                                           seriesParentEpisodeId: e.target.value || null,
                                         }))
                                       }
                                       disabled={isFieldDisabled}
-                                      className="w-full h-9 rounded-md border border-border/50 bg-background px-2 text-sm"
+                                      className="w-full h-9 rounded-xl border border-border/60 bg-background px-3 text-sm"
                                     >
                                       <option value="">Top-level episode</option>
                                       {activeItem.seriesEpisodesList.map((ep) => {
                                         const parent = ep.parent_episode_id
-                                          ? activeItem.seriesEpisodesList.find(
-                                              (x) => x.id === ep.parent_episode_id
-                                            )
-                                          : null;
+                                          ? activeItem.seriesEpisodesList.find((x) => x.id === ep.parent_episode_id)
+                                          : null
                                         const label =
                                           parent != null
                                             ? `${ep.episode_name || ep.id.slice(0, 8)} (under ${parent.episode_name || parent.id.slice(0, 8)})`
-                                            : ep.episode_name || ep.id.slice(0, 8);
+                                            : ep.episode_name || ep.id.slice(0, 8)
                                         return (
                                           <option key={ep.id} value={ep.id}>
                                             {label}
                                           </option>
-                                        );
+                                        )
                                       })}
                                     </select>
                                   </div>
@@ -1231,8 +2150,6 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
                     )}
                   </div>
                 )}
-
-                {/* Category */}
                 <div className="space-y-1.5" ref={categoryRef}>
                   <label className="text-xs font-medium text-muted-foreground">Category</label>
                   <div className="relative">
@@ -1269,7 +2186,7 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
                       <ChevronDown className={`w-3.5 h-3.5 shrink-0 text-muted-foreground ml-2 transition-transform duration-200 ${showCategoryDropdown ? "rotate-180" : ""}`} />
                     </button>
                     {showCategoryDropdown && (
-                      <div className="absolute z-50 mt-1 w-full bg-popover border border-border rounded-xl shadow-lg max-h-[180px] overflow-y-auto p-1">
+                      <div className="absolute z-50 mt-1 w-full min-w-0 left-0 right-0 bg-popover border border-border rounded-xl shadow-lg max-h-[min(45vh,240px)] overflow-y-auto overscroll-contain p-1">
                         {CATEGORY_OPTIONS.map((cat) => {
                           const selected = activeItem?.categories.includes(cat)
                           return (
@@ -1297,7 +2214,6 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
                   </div>
                 </div>
 
-                {/* Tags */}
                 <div className="space-y-1.5">
                   <div className="flex items-center justify-between">
                     <label className="text-xs font-medium text-muted-foreground">Tags</label>
@@ -1342,7 +2258,6 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
                   </div>
                 </div>
 
-                {/* Visibility */}
                 <div className="space-y-1.5">
                   <label className="text-xs font-medium text-muted-foreground">Visibility</label>
                   <div className="flex rounded-lg border border-border/50 overflow-hidden bg-muted/30">
@@ -1353,7 +2268,7 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
                         updateItem(activeItem.id, (current) => ({ ...current, isPublic: true }))
                       }}
                       disabled={isFieldDisabled}
-                      className={`flex-1 flex items-center justify-center gap-1.5 py-2 text-sm font-medium transition-all disabled:cursor-not-allowed ${
+                      className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 sm:py-2 min-h-[44px] sm:min-h-0 text-sm font-medium transition-all disabled:cursor-not-allowed touch-manipulation ${
                         activeItem?.isPublic
                           ? "bg-primary text-primary-foreground shadow-sm"
                           : "text-muted-foreground hover:text-foreground"
@@ -1369,7 +2284,7 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
                         updateItem(activeItem.id, (current) => ({ ...current, isPublic: false }))
                       }}
                       disabled={isFieldDisabled}
-                      className={`flex-1 flex items-center justify-center gap-1.5 py-2 text-sm font-medium transition-all disabled:cursor-not-allowed ${
+                      className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 sm:py-2 min-h-[44px] sm:min-h-0 text-sm font-medium transition-all disabled:cursor-not-allowed touch-manipulation ${
                         !activeItem?.isPublic
                           ? "bg-primary text-primary-foreground shadow-sm"
                           : "text-muted-foreground hover:text-foreground"
@@ -1381,7 +2296,6 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
                   </div>
                 </div>
 
-                {/* Custom Thumbnail — only for video/audio, not images */}
                 {activeItem && !activeItem.file.type.startsWith("image/") && <div className="space-y-1.5">
                   <label className="text-xs font-medium text-muted-foreground">Thumbnail</label>
                   <input
@@ -1402,7 +2316,7 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
                         type="button"
                         onClick={removeThumbnail}
                         disabled={isFieldDisabled}
-                        className="absolute right-1 top-1 h-5 w-5 rounded-full bg-black/60 hover:bg-black/80 text-white flex items-center justify-center"
+                        className="absolute right-1 top-1 h-5 w-5 rounded-full bg-secondary text-secondary-foreground hover:bg-secondary/80 flex items-center justify-center border border-border shadow-sm"
                       >
                         <X className="h-3 w-3" />
                       </button>
@@ -1421,7 +2335,6 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
                   <p className="text-[10px] text-muted-foreground/60">Optional. If not set, a frame from the video will be used.</p>
                 </div>}
 
-                {/* Comments toggle */}
                 <div className="space-y-1.5">
                   <label className="text-xs font-medium text-muted-foreground">Comments</label>
                   <div className="flex rounded-lg border border-border/50 overflow-hidden bg-muted/30">
@@ -1432,7 +2345,7 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
                         updateItem(activeItem.id, (current) => ({ ...current, commentsEnabled: true }))
                       }}
                       disabled={isFieldDisabled}
-                      className={`flex-1 flex items-center justify-center gap-1.5 py-2 text-sm font-medium transition-all disabled:cursor-not-allowed ${
+                      className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 sm:py-2 min-h-[44px] sm:min-h-0 text-sm font-medium transition-all disabled:cursor-not-allowed touch-manipulation ${
                         activeItem?.commentsEnabled
                           ? "bg-primary text-primary-foreground shadow-sm"
                           : "text-muted-foreground hover:text-foreground"
@@ -1448,7 +2361,7 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
                         updateItem(activeItem.id, (current) => ({ ...current, commentsEnabled: false }))
                       }}
                       disabled={isFieldDisabled}
-                      className={`flex-1 flex items-center justify-center gap-1.5 py-2 text-sm font-medium transition-all disabled:cursor-not-allowed ${
+                      className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 sm:py-2 min-h-[44px] sm:min-h-0 text-sm font-medium transition-all disabled:cursor-not-allowed touch-manipulation ${
                         !activeItem?.commentsEnabled
                           ? "bg-primary text-primary-foreground shadow-sm"
                           : "text-muted-foreground hover:text-foreground"
@@ -1487,27 +2400,29 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
                 </div>
 
               </div>
+                </>
+              )}
             </div>
           </div>
+          </div>
+          </DndContext>
         </div>
 
-        {/* Error bar */}
         {error && (
-          <div className="px-5 py-2 bg-destructive/5 border-t border-destructive/10">
-            <p className="text-xs text-destructive flex items-center gap-1.5">
-              <AlertCircle className="w-3.5 h-3.5 shrink-0" />
-              {error}
+          <div className="px-4 sm:px-5 py-2.5 bg-destructive/5 border-t border-destructive/10 shrink-0">
+            <p className="text-xs text-destructive flex items-start gap-2 leading-snug">
+              <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+              <span className="min-w-0 break-words">{error}</span>
             </p>
           </div>
         )}
 
-        {/* Footer */}
-        <div className="flex items-center justify-between gap-3 px-5 py-3.5 border-t border-border bg-muted/20 shrink-0">
+        <div className="grid grid-cols-2 sm:flex sm:flex-row sm:items-center sm:justify-between gap-2 sm:gap-3 px-4 sm:px-5 pt-3 border-t border-border/60 bg-background/80 backdrop-blur-xl supports-[backdrop-filter]:bg-background/70 shrink-0 pb-[max(0.875rem,env(safe-area-inset-bottom))]">
           <Button
             type="button"
             variant="ghost"
             size="sm"
-            className="text-muted-foreground hover:text-foreground h-9 px-4"
+            className="text-muted-foreground hover:text-foreground h-11 sm:h-9 px-3 sm:px-4 w-full sm:w-auto touch-manipulation"
             onClick={handleClose}
             disabled={isUploadingBatch}
           >
@@ -1516,7 +2431,7 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
           <Button
             type="button"
             size="sm"
-            className="h-9 px-6 gap-2 font-medium"
+            className="h-11 sm:h-9 px-5 sm:px-6 gap-2 font-medium w-full sm:w-auto touch-manipulation rounded-full shadow-sm"
             onClick={handleUpload}
             disabled={items.length === 0 || isUploadingBatch || !allSeriesFieldsReady}
           >
@@ -1536,8 +2451,14 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
       </DialogContent>
     </Dialog>
 
-    <Dialog open={seriesBrowseOpen} onOpenChange={setSeriesBrowseOpen}>
-      <DialogContent className="max-w-md rounded-2xl">
+    <Dialog
+      open={seriesBrowseOpen}
+      onOpenChange={(open) => {
+        setSeriesBrowseOpen(open)
+        if (!open) setSeriesBrowseForLaneId(null)
+      }}
+    >
+      <DialogContent className="w-[min(100%,calc(100vw-1.5rem))] max-w-md max-h-[min(88dvh,520px)] overflow-y-auto rounded-2xl flex flex-col gap-3">
         <DialogHeader>
           <DialogTitle className="text-base">Your series</DialogTitle>
         </DialogHeader>
@@ -1547,7 +2468,7 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
           placeholder="Search by title…"
           className="h-9 text-sm"
         />
-        <div className="max-h-[240px] overflow-y-auto rounded-lg border border-border/50 divide-y divide-border/50">
+        <div className="min-h-0 max-h-[min(50vh,280px)] overflow-y-auto overscroll-contain rounded-lg border border-border/50 divide-y divide-border/50">
           {seriesBrowseLoading ? (
             <p className="p-4 text-sm text-muted-foreground flex items-center gap-2">
               <Loader2 className="w-4 h-4 animate-spin" />
@@ -1562,18 +2483,29 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
                 type="button"
                 className="w-full text-left px-3 py-2.5 text-sm hover:bg-muted/80 transition-colors"
                 onClick={() => {
-                  const target = activeItem
-                  if (!target) return
-                  updateItem(target.id, (c) => ({
-                    ...c,
-                    seriesMode: "existing",
-                    seriesSelected: {
-                      file_series_id: row.file_series_id,
-                      file_title: row.file_title,
-                    },
-                  }))
-                  loadEpisodesForItem(target.id, row.file_series_id)
+                  const lid = seriesBrowseForLaneId
+                  if (lid) {
+                    patchLaneAndSync(lid, {
+                      seriesMode: "existing",
+                      seriesSelected: {
+                        file_series_id: row.file_series_id,
+                        file_title: row.file_title,
+                      },
+                    })
+                    loadEpisodesForLane(lid, row.file_series_id)
+                  } else if (activeItem) {
+                    updateItemSeries(activeItem.id, (c) => ({
+                      ...c,
+                      seriesMode: "existing",
+                      seriesSelected: {
+                        file_series_id: row.file_series_id,
+                        file_title: row.file_title,
+                      },
+                    }))
+                    loadEpisodesForItem(activeItem.id, row.file_series_id)
+                  }
                   setSeriesBrowseOpen(false)
+                  setSeriesBrowseForLaneId(null)
                 }}
               >
                 <span className="font-medium line-clamp-2">{row.file_title || "Untitled"}</span>
