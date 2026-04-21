@@ -95,7 +95,7 @@ const BodyComponent = ({ children }: BodyComponentProps) => {
         <Navbar hasScrolled={hasScrolled} />
         <div
           className={`mx-auto w-full min-w-0 ${
-            applyTheater ? 'max-w-none px-0' : 'max-w-[1600px] px-3 sm:px-5 lg:px-8 xl:px-10'
+            applyTheater ? 'max-w-none px-0' : ' px-3 sm:px-5 lg:px-8 xl:px-10'
           } sidebar_body`}
         >
           {children}
