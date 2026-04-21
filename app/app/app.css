@@ -210,6 +210,131 @@ input[type="file"] {
   height: 8px;
 }
 
+/* Home — continue watching horizontal carousel */
+.continue-watching-swiper {
+  --swiper-navigation-size: 1.25rem;
+  --swiper-pagination-bottom: 0;
+  --swiper-pagination-bullet-size: 6px;
+  --swiper-pagination-bullet-horizontal-gap: 6px;
+  position: relative;
+  width: 100%;
+  padding-bottom: 1.75rem;
+}
+
+.continue-watching-swiper .swiper-slide {
+  height: auto;
+}
+
+.continue-watching-swiper .swiper-button-prev,
+.continue-watching-swiper .swiper-button-next {
+  width: 2.25rem;
+  height: 2.25rem;
+  margin-top: 0;
+  top: calc(50% - 0.5rem);
+  transform: translateY(-50%);
+  border-radius: 9999px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  color: var(--foreground);
+  box-shadow: 0 1px 2px color-mix(in oklch, var(--foreground) 8%, transparent);
+}
+
+.continue-watching-swiper .swiper-button-prev::after,
+.continue-watching-swiper .swiper-button-next::after {
+  font-size: 0.65rem;
+  font-weight: 700;
+}
+
+.continue-watching-swiper .swiper-button-disabled {
+  opacity: 0.3;
+  pointer-events: none;
+}
+
+.continue-watching-swiper .swiper-pagination-bullet {
+  background: color-mix(in oklch, var(--muted-foreground) 45%, transparent);
+  opacity: 1;
+}
+
+.continue-watching-swiper .swiper-pagination-bullet-active {
+  background: var(--primary);
+}
+
+/* Home / Subscriptions — reel cluster horizontal carousel */
+.feed-reel-swiper {
+  --swiper-navigation-size: 1.25rem;
+  --swiper-pagination-bottom: 0;
+  --swiper-pagination-bullet-size: 6px;
+  --swiper-pagination-bullet-horizontal-gap: 6px;
+  position: relative;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  /* Contain intrinsic slide widths so a fractional slidesPerView never pushes
+     the row past the grid cell it lives in. */
+  overflow: hidden;
+  padding-bottom: 1.5rem;
+}
+
+.feed-reel-swiper .swiper-wrapper {
+  box-sizing: border-box;
+}
+
+.feed-reel-swiper .swiper-slide {
+  height: auto;
+  min-width: 0;
+}
+
+.feed-reel-swiper .swiper-button-prev,
+.feed-reel-swiper .swiper-button-next {
+  width: 2.25rem;
+  height: 2.25rem;
+  margin-top: 0;
+  top: calc(42% - 0.5rem);
+  transform: translateY(-50%);
+  border-radius: 9999px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  color: var(--foreground);
+  box-shadow: 0 1px 2px color-mix(in oklch, var(--foreground) 8%, transparent);
+}
+
+.feed-reel-swiper .swiper-button-prev::after,
+.feed-reel-swiper .swiper-button-next::after {
+  font-size: 0.65rem;
+  font-weight: 700;
+}
+
+.feed-reel-swiper .swiper-button-disabled {
+  opacity: 0.3;
+  pointer-events: none;
+}
+
+.feed-reel-swiper .swiper-pagination-bullet {
+  background: color-mix(in oklch, var(--muted-foreground) 45%, transparent);
+  opacity: 1;
+}
+
+.feed-reel-swiper .swiper-pagination-bullet-active {
+  background: var(--primary);
+}
+
+/* /reel — first-visit swipe-up hint. Arrow bounces, whole overlay fades out. */
+@keyframes reelHintFade {
+  0% { opacity: 0; transform: translateY(12px); }
+  15% { opacity: 1; transform: translateY(0); }
+  85% { opacity: 1; transform: translateY(0); }
+  100% { opacity: 0; transform: translateY(-8px); }
+}
+
+.reel-hint-chevron {
+  animation: reelHintBounce 1.1s ease-in-out infinite;
+}
+
+@keyframes reelHintBounce {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-6px); }
+}
+
 .feed-container {
   max-width: 100%;
   padding: 0;

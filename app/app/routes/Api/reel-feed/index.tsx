@@ -4,6 +4,11 @@ import { isAuthenticated } from '~/lib/Security/Password';
 
 const REEL_LIMIT = 15;
 
+/** UUID string compare-safe key (Supabase/JSON may vary in casing). */
+function fileIdKey(id: unknown): string {
+  return String(id ?? "").toLowerCase();
+}
+
 function parseIdsParam(param: string | null): string[] {
   if (!param) return [];
 
@@ -36,12 +41,10 @@ export const loader = async ({ request }: { request: Request }) => {
   try {
     const url = new URL(request.url);
     const excludeIds = parseExcludeIds(url);
-    const cursorPosParam = url.searchParams.get('cursor_pos');
     const seedParam = url.searchParams.get('seed') ?? 'default';
     const categoryParam = url.searchParams.get('category');
     const maxDurationParam = url.searchParams.get('max_duration');
 
-    const cursorPos = cursorPosParam ? Math.max(0, parseInt(cursorPosParam, 10)) : 0;
     const pExcludeIds =
       excludeIds.length > 0
         ? excludeIds.filter((id) => /^[0-9a-f-]{36}$/i.test(id))
@@ -59,7 +62,7 @@ export const loader = async ({ request }: { request: Request }) => {
       p_limit: REEL_LIMIT,
       p_category: categoryParam || null,
       p_seed: seedParam,
-      p_cursor_pos: Number.isFinite(cursorPos) ? cursorPos : 0,
+      p_cursor_pos: 0,
       ...(pExcludeIds.length > 0 ? { p_exclude_ids: pExcludeIds } : {}),
       ...(maxDuration != null && Number.isFinite(maxDuration) && maxDuration > 0 ? { p_max_duration: maxDuration } : {}),
     };
@@ -81,14 +84,14 @@ export const loader = async ({ request }: { request: Request }) => {
       { like_count: number; dislike_count: number; comment_count: number; user_has_liked: boolean; user_has_disliked: boolean }
     >();
     if (fileIds.length > 0) {
-      const { data: batch } = await db.rpc('get_batch_interactions', {
+      const { data: batch } = await db.rpc("get_batch_interactions", {
         p_file_ids: fileIds,
         p_user_id: userId || null,
       });
       if (Array.isArray(batch)) {
         for (const row of batch) {
           if (row?.file_id) {
-            const fid = String(row.file_id);
+            const fid = fileIdKey(row.file_id);
             interactionsByFile.set(fid, {
               like_count: Number(row.like_count) ?? 0,
               dislike_count: Number(row.dislike_count) ?? 0,
@@ -105,15 +108,24 @@ export const loader = async ({ request }: { request: Request }) => {
     const dislikedFileIds: string[] = [];
 
     const data = filtered.map((file: Record<string, unknown>) => {
-      const fid = file.id ? String(file.id) : '';
+      const fid = file.id ? fileIdKey(file.id) : "";
       const interactions = fid ? interactionsByFile.get(fid) : undefined;
-      const likeCount = interactions ? interactions.like_count : Number(file.like_count) || 0;
-      const dislikeCount = interactions ? interactions.dislike_count : Number(file.dislike_count) || 0;
-      const commentCount = interactions ? interactions.comment_count : Number(file.comment_count) || 0;
+      const rpcLike = Number(file.like_count) || 0;
+      const rpcDislike = Number(file.dislike_count) || 0;
+      const rpcComment = Number(file.comment_count) || 0;
+      const likeCount = interactions
+        ? Math.max(interactions.like_count, rpcLike)
+        : rpcLike;
+      const dislikeCount = interactions
+        ? Math.max(interactions.dislike_count, rpcDislike)
+        : rpcDislike;
+      const commentCount = interactions
+        ? Math.max(interactions.comment_count, rpcComment)
+        : rpcComment;
       const userHasLiked = interactions ? interactions.user_has_liked : !!file.user_has_liked;
       const userHasDisliked = interactions ? interactions.user_has_disliked : !!file.user_has_disliked;
-      if (userHasLiked) likedFileIds.push(file.id as string);
-      if (userHasDisliked) dislikedFileIds.push(file.id as string);
+      if (userHasLiked && file.id) likedFileIds.push(fileIdKey(file.id));
+      if (userHasDisliked && file.id) dislikedFileIds.push(fileIdKey(file.id));
 
       return {
         id: file.id,
@@ -154,10 +166,8 @@ export const loader = async ({ request }: { request: Request }) => {
     });
 
     const rawCount = (reelFeed || []).length;
-    const nextCursor =
-      rawCount > 0
-        ? { cursor_pos: cursorPos + rawCount }
-        : null;
+    /** Full page ⇒ more reels may exist; client uses exclude_ids + new seed (not cursor slice). */
+    const nextCursor = rawCount >= REEL_LIMIT ? { cursor_pos: 0 } : null;
 
     const result = {
       data,

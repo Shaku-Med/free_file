@@ -39,7 +39,7 @@ import {
 } from "lucide-react"
 import { GenerateUniqueID } from "~/lib/GenerateUniqueID"
 import { useFileContext } from "~/lib/Context/Context"
-import { useNavigate } from "react-router"
+import { Link, useNavigate } from "react-router"
 import { MAX_UPLOAD_FILE_BYTES } from "~/lib/uploadLimits"
 import { SignInDialog } from "~/components/SignInWall"
 import { cn } from "~/lib/utils"
@@ -421,11 +421,12 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
   initialFiles,
   onFilesConsumed,
 }) => {
-  const { userId, c_user, uploadServerUrl } = useFileContext()
+  const { userId, c_user, uploadServerUrl, userProfile } = useFileContext()
   const navigate = useNavigate()
   const [items, setItems] = useState<MediaItem[]>([])
   const [activeId, setActiveId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [uploadResultBanner, setUploadResultBanner] = useState<{ ok: number; fail: number } | null>(null)
   const [isUploadingBatch, setIsUploadingBatch] = useState(false)
   const [tagInput, setTagInput] = useState("")
   const [showCategoryDropdown, setShowCategoryDropdown] = useState(false)
@@ -514,6 +515,7 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
     setSeriesLanes([])
     setSeriesOrganizerOpen(false)
     setSeriesBrowseForLaneId(null)
+    setUploadResultBanner(null)
   }
 
   const formatBytes = (bytes: number) => {
@@ -1180,16 +1182,34 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
     }
 
     setIsUploadingBatch(false)
-    const allSucceeded = successfulUploads > 0 && successfulUploads === snapshot.length
-    if (allSucceeded) {
-      resetState()
-      onClose()
+    const failed = snapshot.length - successfulUploads
+    if (successfulUploads > 0) {
+      setUploadResultBanner({ ok: successfulUploads, fail: failed })
     }
+  }
+
+  const clearFailedForRetry = () => {
+    setUploadResultBanner(null)
+    setItems((prev) =>
+      prev.map((i) =>
+        i.status === "error"
+          ? {
+              ...i,
+              status: "idle" as const,
+              error: null,
+              statusText: null,
+              isLocked: false,
+              progress: 0,
+            }
+          : i
+      )
+    )
   }
 
   const handleClose = () => {
     if (isUploadingBatch) return
     setError(null)
+    setUploadResultBanner(null)
     resetState()
     onClose()
   }
@@ -2417,6 +2437,55 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
           </div>
         )}
 
+        {uploadResultBanner && (
+          <div className="shrink-0 space-y-3 border-t border-border/60 bg-muted/20 px-4 py-3 sm:px-5">
+            <p className="text-sm font-medium text-foreground">
+              {uploadResultBanner.fail === 0
+                ? `All ${uploadResultBanner.ok} upload(s) finished.`
+                : `${uploadResultBanner.ok} succeeded · ${uploadResultBanner.fail} failed`}
+            </p>
+            <p className="text-xs leading-relaxed text-muted-foreground">
+              Processing may continue in the background. New uploads appear on your profile when ready.
+            </p>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-9"
+                onClick={() => {
+                  const origin = typeof window !== "undefined" ? window.location.origin : ""
+                  void navigator.clipboard?.writeText(origin).catch(() => {})
+                }}
+              >
+                Copy site link
+              </Button>
+              {userProfile?.username ? (
+                <Button type="button" variant="outline" size="sm" className="h-9" asChild>
+                  <Link to={`/profile/${userProfile.username}`}>Your profile</Link>
+                </Button>
+              ) : null}
+              {uploadResultBanner.fail > 0 ? (
+                <Button type="button" variant="secondary" size="sm" className="h-9" onClick={clearFailedForRetry}>
+                  Fix &amp; retry failed
+                </Button>
+              ) : null}
+              <Button
+                type="button"
+                size="sm"
+                className="h-9 rounded-full"
+                onClick={() => {
+                  setUploadResultBanner(null)
+                  resetState()
+                  onClose()
+                }}
+              >
+                Done
+              </Button>
+            </div>
+          </div>
+        )}
+
         <div className="grid grid-cols-2 sm:flex sm:flex-row sm:items-center sm:justify-between gap-2 sm:gap-3 px-4 sm:px-5 pt-3 border-t border-border/60 bg-background/80 backdrop-blur-xl supports-[backdrop-filter]:bg-background/70 shrink-0 pb-[max(0.875rem,env(safe-area-inset-bottom))]">
           <Button
             type="button"
@@ -2433,7 +2502,7 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
             size="sm"
             className="h-11 sm:h-9 px-5 sm:px-6 gap-2 font-medium w-full sm:w-auto touch-manipulation rounded-full shadow-sm"
             onClick={handleUpload}
-            disabled={items.length === 0 || isUploadingBatch || !allSeriesFieldsReady}
+            disabled={items.length === 0 || isUploadingBatch || !allSeriesFieldsReady || uploadResultBanner != null}
           >
             {isUploadingBatch ? (
               <>

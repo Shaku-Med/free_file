@@ -20,8 +20,14 @@ import { formatNumber } from "~/lib/utils/formatNumber";
 import { stripGithubRepoForClient } from "~/lib/githubStorage";
 import { ownerService } from "~/lib/Services/OwnerService";
 import { buildPageMeta } from "~/lib/seo";
+import { isAuthenticated } from "~/lib/Security/Password";
+
+function fileIdKey(id: unknown): string {
+  return String(id ?? "").toLowerCase();
+}
 
 export const loader = async ({ request, params }: LoaderFunctionArgs) => {
+  const routeUniqueId = params.uniqueId ?? "";
   try {
     if (!db) {
       throw new Error("Database not initialized");
@@ -30,7 +36,7 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
     const { data: rawFile, error } = await db
       .from("files")
       .select("*")
-      .eq("id", params.id)
+      .eq("unique_id", routeUniqueId)
       .maybeSingle();
 
     if (error) {
@@ -46,9 +52,10 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
       return data(
         {
           file: null,
-          id: params.id,
+          uniqueId: routeUniqueId,
           accessDenied: false as const,
           reason: undefined,
+          initialUserActions: { likedFileIds: [] as string[], dislikedFileIds: [] as string[] },
         },
         { status: 404 },
       );
@@ -60,9 +67,10 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
       return data(
         {
           file: null,
-          id: params.id,
+          uniqueId: routeUniqueId,
           accessDenied: true as const,
           reason: accessControl.reason,
+          initialUserActions: { likedFileIds: [] as string[], dislikedFileIds: [] as string[] },
         },
         { status: 403 },
       );
@@ -70,14 +78,50 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
 
     // Enrich file with owner information (matching feed items shape)
     const enrichedFiles = await ownerService.enrichFilesWithOwners([file]);
-    const fileWithOwner = (enrichedFiles && enrichedFiles[0]) || file;
+    let fileWithOwner = (enrichedFiles && enrichedFiles[0]) || file;
+
+    const user = await isAuthenticated(request, ["id"]);
+    const userId = user?.id || undefined;
+    let initialUserActions: { likedFileIds: string[]; dislikedFileIds: string[] } = {
+      likedFileIds: [],
+      dislikedFileIds: [],
+    };
+
+    if (db && userId && fileWithOwner?.id) {
+      const { data: batch } = await db.rpc("get_batch_interactions", {
+        p_file_ids: [fileWithOwner.id],
+        p_user_id: userId,
+      });
+      const row = Array.isArray(batch) ? batch[0] : null;
+      if (row && typeof row === "object" && "file_id" in row) {
+        const rpcLike = Number(fileWithOwner.like_count ?? (fileWithOwner as { up_count?: unknown }).up_count) || 0;
+        const rpcDislike =
+          Number(fileWithOwner.dislike_count ?? (fileWithOwner as { down_count?: unknown }).down_count) || 0;
+        const rpcComment = Number(fileWithOwner.comment_count) || 0;
+        const likeCount = Math.max(Number(row.like_count) || 0, rpcLike);
+        const dislikeCount = Math.max(Number(row.dislike_count) || 0, rpcDislike);
+        const commentCount = Math.max(Number(row.comment_count) || 0, rpcComment);
+        const liked = !!row.user_has_liked;
+        const disliked = !!row.user_has_disliked;
+        const idKey = fileIdKey(fileWithOwner.id);
+        if (liked) initialUserActions.likedFileIds.push(idKey);
+        if (disliked) initialUserActions.dislikedFileIds.push(idKey);
+        fileWithOwner = {
+          ...fileWithOwner,
+          like_count: likeCount,
+          dislike_count: dislikeCount,
+          comment_count: commentCount,
+        };
+      }
+    }
 
     return data(
       {
         file: fileWithOwner,
-        id: params.id,
+        uniqueId: routeUniqueId,
         accessDenied: false as const,
         reason: undefined,
+        initialUserActions,
       },
       { status: 200 },
     );
@@ -86,9 +130,10 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
     return data(
       {
         file: null,
-        id: params.id,
+        uniqueId: routeUniqueId,
         accessDenied: false as const,
         reason: undefined,
+        initialUserActions: { likedFileIds: [] as string[], dislikedFileIds: [] as string[] },
       },
       { status: 500 },
     );
@@ -107,7 +152,7 @@ export const meta: MetaFunction<typeof loader> = ({ data: loaderData }) => {
       return buildPageMeta({
         title,
         description,
-        canonicalPath: loaderData?.id ? `/reel/${loaderData.id}` : "/reel",
+        canonicalPath: loaderData?.uniqueId ? `/reel/${encodeURIComponent(loaderData.uniqueId)}` : "/reel",
         noindex: true,
       });
     }
@@ -159,7 +204,7 @@ export const meta: MetaFunction<typeof loader> = ({ data: loaderData }) => {
     return buildPageMeta({
       title: `${displayTitle} | Memories`,
       description: `${displayDescription} | Memories`,
-      canonicalPath: `/reel/${loaderData.id}`,
+      canonicalPath: `/reel/${encodeURIComponent(String(file.unique_id ?? loaderData.uniqueId ?? ""))}`,
       ogImage: thumbnail,
       ogImageAlt: displayTitle,
       keywords: [file.file_type, isVideo ? "video" : isImage ? "image" : "media", "memories", "reel"].filter(Boolean).join(", "),
@@ -177,7 +222,8 @@ export const meta: MetaFunction<typeof loader> = ({ data: loaderData }) => {
 };
 
 const index = () => {
-  const { file } = useLoaderData<typeof loader>();
+  const loaderData = useLoaderData<typeof loader>();
+  const { file } = loaderData;
 
   if (!file) {
     return (
@@ -216,7 +262,14 @@ const index = () => {
     );
   }
 
-  return <Reel initialItems={[file as FileType]} />;
+  const initialUserActions = loaderData.initialUserActions ?? {
+    likedFileIds: [] as string[],
+    dislikedFileIds: [] as string[],
+  };
+
+  return (
+    <Reel initialItems={[file as FileType]} initialUserActions={initialUserActions} />
+  );
 };
 
 export default index;

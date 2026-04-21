@@ -6,7 +6,7 @@ import { useCallback, useEffect, useState, useRef, useMemo } from "react";
 import RelatedVideos from "./components/RelatedVideos";
 import SeriesEpisodesSection from "./components/SeriesEpisodesSection";
 import SeriesSignInGate from "./components/SeriesSignInGate";
-import type { FileType, SeriesEpisodeGroup } from "~/lib/types";
+import { type FileType, type SeriesEpisodeGroup, fileWatchPath } from "~/lib/types";
 import { collectSeriesMemberIds, getSeriesUpNextVideos } from "./fun/mapSeriesRpcRows";
 import { BASE_URL } from "~/lib/URLS";
 import { buildPageMeta } from "~/lib/seo";
@@ -42,7 +42,6 @@ import { useMiniPlayerContext } from "~/lib/Context/MiniPlayerContext";
 import { formatTimeAgo } from "~/lib/formatTimeAgo";
 import LiquidAmbientGradient from "./components/LiquidAmbientGradient";
 import { computeGuestPreviewSeconds } from "~/lib/guestPreviewLimit";
-import { filterFilesByAccess } from "~/routes/Api/fun/accessControl";
 
 interface DynamicCachePayload {
   file: any;
@@ -134,52 +133,8 @@ export const loader = async ({ request, params }: { request: Request, params: { 
     const user = await isAuthenticated(request, ['id']);
     const userId = user?.id ?? null;
 
-    const { data: relatedRows, error: relatedError } = await db.rpc('get_related', {
-      p_file_id: file.id,
-      p_user_id: userId,
-      p_limit: 20,
-      p_cursor_pos: 0,
-    });
-
-    let relatedVideos: FileType[] = [];
-    if (!relatedError && relatedRows && relatedRows.length > 0) {
-      const filtered = await filterFilesByAccess(request, relatedRows);
-      relatedVideos = filtered.map((row: Record<string, unknown>) => ({
-        id: row.id,
-        created_at: row.created_at,
-        endpoint: row.endpoint || '',
-        filename: row.filename,
-        unique_id: row.unique_id,
-        file_size: row.file_size,
-        file_type: row.file_type,
-        is_adult: row.is_adult,
-        owner_id: row.owner_id,
-        is_public: row.is_public,
-        file_description: row.file_description,
-        file_title: row.file_title || '',
-        default_thumbnail: row.default_thumbnail || null,
-        view_count: row.view_count,
-        share_count: row.share_count,
-        is_reel: row.is_reel,
-        duration: row.duration,
-        categories: row.categories,
-        tags: row.tags,
-        colors: row.colors,
-        metadata: row.metadata,
-        like_count: Number(row.like_count) || 0,
-        dislike_count: Number(row.dislike_count) || 0,
-        comment_count: Number(row.comment_count) || 0,
-        owner: row.owner_username
-          ? {
-              id: row.owner_id,
-              username: row.owner_username,
-              profile_pic: row.owner_profile_pic || '',
-              verified: row.owner_verified ?? false,
-              about: row.owner_about ?? null,
-            }
-          : null,
-      })) as FileType[];
-    }
+    /** Related videos load client-side via /api/related-videos (smaller HTML, same security). */
+    const relatedVideos: FileType[] = [];
 
     /** Series episodes load via GET /api/dynamic-series after paint (keeps document HTML small). */
     const seriesEpisodes: SeriesEpisodeGroup[] | null = null;
@@ -203,40 +158,6 @@ export const loader = async ({ request, params }: { request: Request, params: { 
         dislikeCount = Number(interactions.dislike_count) || 0;
         userLiked = !!interactions.user_has_liked;
         userDisliked = !!interactions.user_has_disliked;
-      }
-    }
-
-    if (relatedVideos.length > 0) {
-      const relatedFileIds = relatedVideos.map(v => v.id).filter(Boolean);
-      if (relatedFileIds.length > 0) {
-        const { data: batch } = await db.rpc('get_batch_interactions', {
-          p_file_ids: relatedFileIds,
-          p_user_id: user?.id ?? null,
-        });
-        if (Array.isArray(batch)) {
-          const interactionsByFile = new Map<
-            string,
-            { like_count: number; dislike_count: number; comment_count: number; user_has_liked: boolean; user_has_disliked: boolean }
-          >();
-          for (const row of batch) {
-            if (row?.file_id) {
-              interactionsByFile.set(row.file_id as string, {
-                like_count: Number(row.like_count) ?? 0,
-                dislike_count: Number(row.dislike_count) ?? 0,
-                comment_count: Number(row.comment_count) ?? 0,
-                user_has_liked: !!row.user_has_liked,
-                user_has_disliked: !!row.user_has_disliked,
-              });
-              if (row.user_has_liked) relatedVideosUserActions.likedFileIds.add(row.file_id as string);
-              if (row.user_has_disliked) relatedVideosUserActions.dislikedFileIds.add(row.file_id as string);
-            }
-          }
-          relatedVideos = relatedVideos.map((v) => {
-            const ix = v.id ? interactionsByFile.get(v.id) : undefined;
-            if (!ix) return v;
-            return { ...v, like_count: ix.like_count, dislike_count: ix.dislike_count, comment_count: ix.comment_count };
-          });
-        }
       }
     }
 
@@ -608,6 +529,11 @@ const index = () => {
     userActions: { likedFileIds: [], dislikedFileIds: [] },
   });
 
+  const [relatedBootstrap, setRelatedBootstrap] = useState<{
+    videos: FileType[];
+    userActions: { likedFileIds: string[]; dislikedFileIds: string[] };
+  } | null>(null);
+
   const seriesEpisodesResolved = useMemo(
     () => seriesFetch.episodes ?? data?.seriesEpisodes ?? null,
     [seriesFetch.episodes, data?.seriesEpisodes]
@@ -617,16 +543,18 @@ const index = () => {
     () => ({
       likedFileIds: new Set([
         ...(data?.relatedVideosUserActions?.likedFileIds ?? []),
+        ...(relatedBootstrap?.userActions?.likedFileIds ?? []),
         ...(seriesFetch.loadState === "done" ? seriesFetch.userActions.likedFileIds : []),
         ...(data?.seriesVideosUserActions?.likedFileIds ?? []),
       ]),
       dislikedFileIds: new Set([
         ...(data?.relatedVideosUserActions?.dislikedFileIds ?? []),
+        ...(relatedBootstrap?.userActions?.dislikedFileIds ?? []),
         ...(seriesFetch.loadState === "done" ? seriesFetch.userActions.dislikedFileIds : []),
         ...(data?.seriesVideosUserActions?.dislikedFileIds ?? []),
       ]),
     }),
-    [data?.relatedVideosUserActions, data?.seriesVideosUserActions, seriesFetch]
+    [data?.relatedVideosUserActions, data?.seriesVideosUserActions, seriesFetch, relatedBootstrap]
   );
 
   useEffect(() => {
@@ -689,6 +617,58 @@ const index = () => {
     data?.file?.owner_id,
     data?.userId,
   ]);
+
+  useEffect(() => {
+    if (!data?.file?.id) return;
+    const ac = new AbortController();
+    setRelatedBootstrap(null);
+    fetch(`/api/related-videos?fileId=${encodeURIComponent(data.file.id)}`, {
+      credentials: "include",
+      signal: ac.signal,
+    })
+      .then(async (r) => {
+        const result = await r.json().catch(() => ({}));
+        if (ac.signal.aborted) return;
+        const vids = Array.isArray(result?.data) ? (result.data as FileType[]) : [];
+        setRelatedBootstrap({
+          videos: vids,
+          userActions: {
+            likedFileIds: result?.userActions?.likedFileIds ?? [],
+            dislikedFileIds: result?.userActions?.dislikedFileIds ?? [],
+          },
+        });
+      })
+      .catch(() => {
+        if (!ac.signal.aborted) {
+          setRelatedBootstrap({ videos: [], userActions: { likedFileIds: [], dislikedFileIds: [] } });
+        }
+      });
+    return () => ac.abort();
+  }, [currentId, data?.file?.id]);
+
+  /** Remember last episode in this series when the viewer leaves the tab (not on every paint). */
+  useEffect(() => {
+    if (!data?.file?.file_series_id || !data?.file?.unique_id) return;
+    const key = `seriesLastWatch:${data.file.file_series_id}`;
+    const uid = data.file.unique_id;
+    const persist = () => {
+      try {
+        localStorage.setItem(key, uid);
+      } catch {
+        /* ignore */
+      }
+    };
+    const onVis = () => {
+      if (document.visibilityState === "hidden") persist();
+    };
+    window.addEventListener("pagehide", persist);
+    document.addEventListener("visibilitychange", onVis);
+    return () => {
+      window.removeEventListener("pagehide", persist);
+      document.removeEventListener("visibilitychange", onVis);
+      persist();
+    };
+  }, [data?.file?.file_series_id, data?.file?.unique_id]);
 
   const [views, setViews] = useState<number>(Number(file_data?.views || file_data?.view_count || 0));
   const [shares, setShares] = useState<number>(Number(file_data?.shares || file_data?.share_count || 0));
@@ -950,7 +930,10 @@ const index = () => {
     navigate(`/${video.unique_id}`);
   }, [navigate])
 
-  const relatedVideos = data.relatedVideos ?? [];
+  const relatedVideos =
+    relatedBootstrap && relatedBootstrap.videos.length > 0
+      ? relatedBootstrap.videos
+      : (data.relatedVideos ?? []);
   const seriesMemberIds = useMemo(
     () => collectSeriesMemberIds(seriesEpisodesResolved),
     [seriesEpisodesResolved]
@@ -1212,6 +1195,7 @@ const index = () => {
         key={`actions-${file_data.id}-${currentId}`}
         fileId={String(file_data.id)}
         uniqueId={file_data.unique_id}
+        sharePagePath={fileWatchPath(file_data)}
         likeCount={likeCount}
         dislikeCount={dislikeCount}
         commentCount={commentsCount}
@@ -1383,6 +1367,7 @@ const index = () => {
         <SeriesEpisodesSection
           episodes={seriesEpisodesResolved}
           currentVideoUniqueId={file_data.unique_id}
+          fileSeriesId={file_data.file_series_id ?? null}
           currentUserId={userId || undefined}
           userActions={mergedSidebarUserActions}
         />
@@ -1407,6 +1392,7 @@ const index = () => {
               <SeriesEpisodesSection
                 episodes={seriesEpisodesResolved}
                 currentVideoUniqueId={file_data.unique_id}
+                fileSeriesId={file_data.file_series_id ?? null}
                 currentUserId={userId || undefined}
                 userActions={mergedSidebarUserActions}
               />
@@ -1415,7 +1401,7 @@ const index = () => {
         )}
         <div className="min-w-0 rounded-lg border border-border/40 bg-card/30 p-2 sm:p-3 lg:border-0 lg:bg-transparent lg:p-0">
           <RelatedVideos
-            key={`related-${file_data.unique_id}-${currentId}`}
+            key={`related-${file_data.unique_id}-${relatedVideos.length}-${relatedBootstrap?.videos?.[0]?.id ?? ""}`}
             videos={relatedVideos}
             currentVideoId={file_data.unique_id}
             currentVideoDbId={file_data.id}

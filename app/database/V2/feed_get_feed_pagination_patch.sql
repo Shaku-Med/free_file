@@ -124,9 +124,11 @@ BEGIN
       AND f.is_adult = false              -- HARD BLOCK: never show adult content
       AND f.upload_status = 'complete'
       AND NOT EXISTS (
-        SELECT 1 FROM public.series s
-        WHERE s.file_id = f.id AND s.is_episode = true
-      )  -- hide series episodes (v2)
+        -- hide series episodes: any file linked via files_series_episode_items is an episode.
+        -- Note: files_series_episode_items.file_id is TEXT → files.unique_id (not files.id).
+        SELECT 1 FROM public.files_series_episode_items esi
+        WHERE esi.file_id = f.unique_id
+      )
       AND (p_category IS NULL OR f.categories @> to_jsonb(p_category)::jsonb)
       AND (p_reels_only = false OR f.is_reel = true)
       AND (p_user_id IS NULL OR ud.file_id IS NULL)

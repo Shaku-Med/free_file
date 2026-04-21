@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { Maximize2 } from 'lucide-react';
-import { cn, getVideoSrc } from '~/lib/utils';
+import { cn, getThumbnailUrl, getVideoSrc, ParseFilename } from '~/lib/utils';
 import { formatNumber } from '~/lib/utils/formatNumber';
 import { formatTimeAgo } from '~/lib/formatTimeAgo';
 import { useWatchTracking } from '~/lib/hooks/useWatchTracking';
@@ -10,7 +10,7 @@ import { DynamicHLSPlayerWithQueue } from '~/routes/Dynamic/components/DynamicHL
 import { PlayQueueProvider } from '~/routes/Dynamic/components/PlayQueueContext';
 import Actions from '~/routes/Home/components/VideoCard/Actions';
 import { useFileContext } from '~/lib/Context/Context';
-import type { FileType } from '~/lib/types';
+import { type FileType, fileWatchPath } from '~/lib/types';
 import { fileToFeedItem, type VerticalFeedItemData } from '~/components/vertical-feed';
 import OwnerProfile from '~/components/OwnerProfile/OwnerProfile';
 import {
@@ -25,11 +25,21 @@ export type PipReelUserActions = {
   dislikedFileIds: string[];
 };
 
+export type PipReelItemVariant = 'pip' | 'page';
+
 export interface PipReelItemProps {
   file: FileType;
   isActive: boolean;
   showChrome?: boolean;
   userActions?: PipReelUserActions;
+  /** `pip`: PiP iframe (Open in main). `page`: full `/reel/:uniqueId` route. */
+  variant?: PipReelItemVariant;
+  className?: string;
+  /**
+   * Reel page perf: when false, show a static poster instead of mounting HLS (avoids N decoders).
+   * Pass `isActive || isVisible` from Swiper. Defaults to true (PiP / vertical-feed keep full player).
+   */
+  loadHlsPlayer?: boolean;
 }
 
 function isVideoLikeFile(f: FileType): boolean {
@@ -42,11 +52,14 @@ function isVideoLikeFile(f: FileType): boolean {
   );
 }
 
-export function PipReelItem({
+function PipReelItemInner({
   file,
   isActive,
   showChrome = true,
   userActions,
+  variant = 'pip',
+  className,
+  loadHlsPlayer = true,
 }: PipReelItemProps) {
   const { userId } = useFileContext();
   const navigate = useNavigate();
@@ -72,12 +85,19 @@ export function PipReelItem({
     file,
   };
 
-  const fileIdStr = String(file.id);
+  const fileIdNorm = useMemo(() => String(file.id).toLowerCase(), [file.id]);
+  const likedSig = userActions
+    ? [...userActions.likedFileIds].map((id) => String(id).toLowerCase()).sort().join(',')
+    : '';
+  const dislikedSig = userActions
+    ? [...userActions.dislikedFileIds].map((id) => String(id).toLowerCase()).sort().join(',')
+    : '';
+
   const likedFromActions = userActions
-    ? new Set(userActions.likedFileIds).has(fileIdStr)
+    ? new Set(userActions.likedFileIds.map((id) => String(id).toLowerCase())).has(fileIdNorm)
     : false;
   const dislikedFromActions = userActions
-    ? new Set(userActions.dislikedFileIds).has(fileIdStr)
+    ? new Set(userActions.dislikedFileIds.map((id) => String(id).toLowerCase())).has(fileIdNorm)
     : false;
 
   const [likeCount, setLikeCount] = useState(item.likeCount ?? 0);
@@ -103,10 +123,10 @@ export function PipReelItem({
 
   /** Reset when Swiper reuses a slide for a different `file` (virtual). */
   useEffect(() => {
-    const id = String(file.id);
+    const id = fileIdNorm;
     if (userActions) {
-      setLiked(new Set(userActions.likedFileIds).has(id));
-      setDisliked(new Set(userActions.dislikedFileIds).has(id));
+      setLiked(new Set(userActions.likedFileIds.map((x) => String(x).toLowerCase())).has(id));
+      setDisliked(new Set(userActions.dislikedFileIds.map((x) => String(x).toLowerCase())).has(id));
     } else {
       setLiked(item.liked ?? false);
       setDisliked(item.disliked ?? false);
@@ -121,25 +141,59 @@ export function PipReelItem({
       clearTimeout(viewIncrementTimerRef.current);
       viewIncrementTimerRef.current = null;
     }
-  }, [file.id, userActions, item.liked, item.disliked]);
+  }, [
+    fileIdNorm,
+    file.like_count,
+    file.dislike_count,
+    file.views,
+    file.view_count,
+    likedSig,
+    dislikedSig,
+    item.liked,
+    item.disliked,
+  ]);
 
   useWatchTracking({
     fileId: String(file.id),
     userId,
     isVideo,
     videoElement: trackedVideoEl,
-    source: 'pip_reel',
+    source: variant === 'page' ? 'reel_page' : 'pip_reel',
   });
 
   useEffect(() => {
-    if (!file.id || !file.unique_id) return;
+    const v = videoRef.current;
+    if (!v || !isVideo) return;
+    if (isActive) {
+      void v.play().catch(() => {});
+    } else {
+      v.pause();
+    }
+  }, [isActive, isVideo, trackedVideoEl]);
+
+  useEffect(() => {
+    if (variant !== 'page' || !isActive || !file.unique_id) return;
+    const display =
+      file.file_title?.trim() ||
+      ParseFilename(file.filename || '') ||
+      'Reel';
+    window.history.replaceState(
+      null,
+      '',
+      `/reel/${encodeURIComponent(file.unique_id)}`,
+    );
+    document.title = `${display} | Memories`;
+  }, [variant, isActive, file.unique_id, file.file_title, file.filename]);
+
+  useEffect(() => {
+    if (!isActive || variant !== 'page' || !file.id || !file.unique_id) return;
     fetch('/api/views/watch-history', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ fileId: file.id, uniqueId: file.unique_id }),
       credentials: 'include',
     }).catch(() => {});
-  }, [file.id, file.unique_id]);
+  }, [isActive, variant, file.id, file.unique_id]);
 
   const requiredViewSeconds = useMemo(() => {
     if (isHLS && file.duration != null && Number(file.duration) > 0) {
@@ -226,6 +280,17 @@ export function PipReelItem({
     ? getVideoSrc(file.endpoint ?? '', file.file_type)
     : undefined;
 
+  const showHls = Boolean(videoSrc) && (variant === 'pip' || loadHlsPlayer);
+
+  const posterUrl = useMemo(() => {
+    if (!file.created_at || !file.unique_id) return '';
+    try {
+      return getThumbnailUrl(file, { queryString: '?quality=50' });
+    } catch {
+      return '';
+    }
+  }, [file]);
+
   const getShareTimestamp = useCallback(
     () => videoRef.current?.currentTime ?? 0,
     []
@@ -259,8 +324,10 @@ export function PipReelItem({
   return (
     <div
       className={cn(
-        'relative flex h-full min-h-0 w-full shrink-0 flex-col bg-background reel_p',
-        isActive && 'ring-1 ring-border'
+        'relative flex h-full min-h-0 w-full shrink-0 flex-col',
+        variant === 'page' ? 'bg-black' : 'bg-background reel_p',
+        isActive && (variant === 'page' ? 'ring-1 ring-white/15' : 'ring-1 ring-border'),
+        className,
       )}
       data-pip-reel-item-id={item.id}
     >
@@ -270,7 +337,7 @@ export function PipReelItem({
         and sits in its own z-layer so Radix dropdowns inside `Actions` still work.
       */}
       <div className="relative min-h-0 min-w-0 flex-1 overflow-hidden bg-black">
-        {videoSrc ? (
+        {videoSrc && showHls ? (
           <PlayQueueProvider
             currentUniqueId={file.unique_id}
             seriesUpNextVideos={[]}
@@ -281,10 +348,10 @@ export function PipReelItem({
               src={videoSrc}
               videoRef={videoRef}
               className="h-full w-full"
-              autoPlay
+              autoPlay={isActive}
+              reelSwiperActive={isActive}
               muted={false}
               unlockPipReelAudio
-              loop
               playsInline
               imageID={file.unique_id}
               file={file}
@@ -295,6 +362,20 @@ export function PipReelItem({
               onVideoRef={handlePlayerVideoRef}
             />
           </PlayQueueProvider>
+        ) : videoSrc && !showHls ? (
+          <div className="flex h-full w-full items-center justify-center bg-black">
+            {posterUrl ? (
+              <img
+                src={posterUrl}
+                alt=""
+                className="h-full w-full object-contain"
+                decoding="async"
+                fetchPriority="low"
+              />
+            ) : (
+              <div className="h-12 w-12 animate-pulse rounded-full bg-white/10" aria-hidden />
+            )}
+          </div>
         ) : (
           <div className="flex h-full w-full items-center justify-center bg-muted text-muted-foreground">
             <span className="text-sm font-medium">Preview unavailable</span>
@@ -328,6 +409,7 @@ export function PipReelItem({
             layout="tiktok"
             fileId={fileId}
             uniqueId={uniqueId}
+            sharePagePath={fileWatchPath(file)}
             likeCount={likeCount}
             dislikeCount={dislikeCount}
             commentCount={
@@ -347,8 +429,14 @@ export function PipReelItem({
 
       {/* Bottom: title / caption — below the player so nothing covers the picture. */}
       {showChrome && (
-        <div className="shrink-0 border-t border-border bg-card px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
-          {/* Profile row + "open in main" — aligned so the button sits next to the owner avatar. */}
+        <div
+          className={cn(
+            'shrink-0 border-t px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]',
+            variant === 'page'
+              ? 'border-white/10 bg-black/90 text-white [&_.text-muted-foreground]:text-white/65'
+              : 'border-border bg-card',
+          )}
+        >
           <div className="flex items-center gap-2">
             <div className="min-w-0 flex-1">
               {file.owner?.username ? (
@@ -356,37 +444,58 @@ export function PipReelItem({
                   owner={file.owner}
                   size="sm"
                   showUsername
-                  className="text-foreground [&_span]:text-foreground hover:text-foreground [&_span]:hover:text-foreground"
+                  className={
+                    variant === 'page'
+                      ? 'text-white [&_span]:text-white hover:text-white [&_span]:hover:text-white'
+                      : 'text-foreground [&_span]:text-foreground hover:text-foreground [&_span]:hover:text-foreground'
+                  }
                 />
               ) : (
-                <p className="truncate text-sm font-semibold text-foreground">
+                <p
+                  className={cn(
+                    'truncate text-sm font-semibold',
+                    variant === 'page' ? 'text-white' : 'text-foreground',
+                  )}
+                >
                   @{item.username || '…'}
                 </p>
               )}
             </div>
 
-            <Button
-              type="button"
-              size="sm"
-              variant="secondary"
-              onClick={handleOpenInMain}
-              disabled={!file.unique_id}
-              className="h-8 shrink-0 gap-1.5 px-3 text-xs"
-              aria-label="Open this video in the main player"
-              title="Open in main player"
-            >
-              <Maximize2 className="size-3.5" aria-hidden />
-              <span className="hidden sm:inline">Open</span>
-            </Button>
+            {variant === 'pip' ? (
+              <Button
+                type="button"
+                size="sm"
+                variant="secondary"
+                onClick={handleOpenInMain}
+                disabled={!file.unique_id}
+                className="h-8 shrink-0 gap-1.5 px-3 text-xs"
+                aria-label="Open this video in the main player"
+                title="Open in main player"
+              >
+                <Maximize2 className="size-3.5" aria-hidden />
+                <span className="hidden sm:inline">Open</span>
+              </Button>
+            ) : null}
           </div>
 
-          <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-muted-foreground sm:text-xs">
-            <span className="font-medium tabular-nums text-foreground">
+          <div
+            className={cn(
+              'mt-2 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] sm:text-xs',
+              variant === 'page' ? 'text-white/70' : 'text-muted-foreground',
+            )}
+          >
+            <span
+              className={cn(
+                'font-medium tabular-nums',
+                variant === 'page' ? 'text-white' : 'text-foreground',
+              )}
+            >
               {formatNumber(views)} views
             </span>
             {file.created_at ? (
               <>
-                <span className="text-muted-foreground/50" aria-hidden>
+                <span className="opacity-50" aria-hidden>
                   ·
                 </span>
                 <span>{formatTimeAgo(file.created_at)}</span>
@@ -395,13 +504,23 @@ export function PipReelItem({
           </div>
 
           {item.title ? (
-            <p className="mt-1.5 truncate text-sm font-semibold leading-tight text-foreground">
+            <p
+              className={cn(
+                'mt-1.5 truncate text-sm font-semibold leading-tight',
+                variant === 'page' ? 'text-white' : 'text-foreground',
+              )}
+            >
               {item.title}
             </p>
           ) : null}
 
           {item.caption ? (
-            <p className="mt-1 line-clamp-2 text-sm leading-snug text-muted-foreground">
+            <p
+              className={cn(
+                'mt-1 line-clamp-2 text-sm leading-snug',
+                variant === 'page' ? 'text-white/80' : 'text-muted-foreground',
+              )}
+            >
               {item.caption}
             </p>
           ) : null}
@@ -410,3 +529,5 @@ export function PipReelItem({
     </div>
   );
 }
+
+export const PipReelItem = memo(PipReelItemInner);

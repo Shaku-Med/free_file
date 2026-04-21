@@ -86,6 +86,12 @@ export interface HLSPlayerProps {
    * Document PiP vertical reel: keep sound on (no global saved mute, no forced mute on inactive slides).
    */
   unlockPipReelAudio?: boolean;
+  /**
+   * Swiper / deck active slide. iOS + CSS transforms can leave IntersectionObserver stuck false on the
+   * `<video>` while the slide is still the active index — combine with `reelVideoInView` so the primary
+   * reel keeps autoplay without un-gating neighbors (they pass false here).
+   */
+  reelSwiperActive?: boolean;
 }
 
 const HLSPlayer: React.FC<HLSPlayerProps> = (props) => (
@@ -135,6 +141,7 @@ function PlayerInner({
   guestWatchLimitSeconds = null,
   showFeedPlayerControls = false,
   onBack,
+  reelSwiperActive = false,
 }: HLSPlayerProps) {
   const { theaterMode, setTheaterMode, setPlayerSettings, savePlayerSettings } = useFileContext();
   const {
@@ -290,7 +297,8 @@ function PlayerInner({
   useFullscreen();
   useWakeLock(videoRef);
   const autoplayAllowed =
-    autoPlayEnabled && (!isReelCtx || reelVideoInView);
+    autoPlayEnabled &&
+    (!isReelCtx || reelVideoInView || reelSwiperActive);
   const { showPrompt, enableAutoplay, dismissPrompt } = useAutoplay(
     autoplayAllowed,
     videoRef,
@@ -312,13 +320,13 @@ function PlayerInner({
     if (!isReelCtx) return;
     const v = videoRef.current;
     if (!v) return;
-    if (!reelVideoInView) {
+    if (!reelVideoInView && !reelSwiperActive) {
       if (!v.paused) v.pause();
       if (!v.muted) v.muted = true;
     } else if (unlockPipReelAudio) {
       if (v.muted) v.muted = false;
     }
-  }, [isReelCtx, reelVideoInView, unlockPipReelAudio, videoRef]);
+  }, [isReelCtx, reelVideoInView, reelSwiperActive, unlockPipReelAudio, videoRef]);
 
   useEffect(() => {
     if (!pipPauseMainPlayer) return;

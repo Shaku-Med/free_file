@@ -67,15 +67,15 @@ const BodyComponent = ({ children }: BodyComponentProps) => {
 
   if (suppressChrome) {
     return (
-      <div className="flex h-full min-h-0 w-full flex-1 flex-col overflow-hidden">
+      <div className="flex h-full min-h-0 w-full min-w-0 flex-1 flex-col overflow-hidden">
         <div
           id="scroll_container"
-          className="min-h-0 w-full flex-1 overflow-y-auto overflow-x-hidden"
+          className="min-h-0 w-full min-w-0 flex-1 overflow-y-auto overflow-x-hidden"
           ref={scrollContainerRef}
           onScroll={handleScroll}
         >
           <ScrollRestoration />
-          <div className="sidebar_body h-full min-h-0 w-full flex-1">{children}</div>
+          <div className="sidebar_body h-full min-h-0 w-full min-w-0 flex-1">{children}</div>
         </div>
       </div>
     );
@@ -83,17 +83,21 @@ const BodyComponent = ({ children }: BodyComponentProps) => {
 
   return (
     <div
-      className={`flex h-full min-h-0 w-full flex-1 flex-col ${!isMobile && state === 'expanded' && 'pt-2'}`}
+      className={`flex h-full min-h-0 w-full min-w-0 flex-1 flex-col ${!isMobile && state === 'expanded' && 'pt-2'}`}
     >
       <div
         id="scroll_container"
-        className={`${!isMobile && state === 'expanded' && 'rounded-tl-2xl bg-card shadow-sm'} min-h-0 w-full flex-1 overflow-y-auto overflow-x-hidden pb-20`}
+        className={`${!isMobile && state === 'expanded' && 'rounded-tl-2xl bg-card shadow-sm'} min-h-0 w-full min-w-0 flex-1 overflow-y-auto overflow-x-hidden pb-20`}
         ref={scrollContainerRef}
         onScroll={handleScroll}
       >
         <ScrollRestoration />
         <Navbar hasScrolled={hasScrolled} />
-        <div className={`mx-auto ${applyTheater ? 'px-0' : 'px-6 xl:px-8'} sidebar_body w-full`}>
+        <div
+          className={`mx-auto w-full min-w-0 ${
+            applyTheater ? 'max-w-none px-0' : 'max-w-[1600px] px-3 sm:px-5 lg:px-8 xl:px-10'
+          } sidebar_body`}
+        >
           {children}
         </div>
         <Footer />

@@ -1,7 +1,19 @@
 import { useCallback } from "react";
+import { Swiper, SwiperSlide } from "swiper/react";
+import { A11y, Keyboard, Navigation, Pagination } from "swiper/modules";
+import type { Swiper as SwiperType } from "swiper";
+import "swiper/css";
+import "swiper/css/navigation";
+import "swiper/css/pagination";
+
 import { useFileContext } from "~/lib/Context/Context";
 import VideoCard from "./components/VideoCard";
+import {
+  ContinueWatchingSection,
+  getContinueWatchingSplitIndex,
+} from "./components/ContinueWatchingSection";
 import type { FileType } from "~/lib/types";
+import { groupConsecutiveReelClusters } from "~/lib/feed/groupConsecutiveReelClusters";
 import { Button } from "~/components/ui/button";
 import { Plus } from "lucide-react";
 import type { MetaFunction } from "react-router";
@@ -34,7 +46,7 @@ function SkeletonCard() {
 
 function FeedSkeleton() {
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-3 gap-4">
+    <div className="grid w-full min-w-0 grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
       {Array.from({ length: 12 }).map((_, i) => (
         <SkeletonCard key={i} />
       ))}
@@ -43,8 +55,18 @@ function FeedSkeleton() {
 }
 
 export default function PhotoDashboard() {
-  const { files, setFiles, setIsModalOpen, observerRef, isLoading, initialLoading, userId, userActions, clearFeedHistory } =
-    useFileContext();
+  const {
+    files,
+    setFiles,
+    setIsModalOpen,
+    observerRef,
+    isLoading,
+    initialLoading,
+    userId,
+    userActions,
+    clearFeedHistory,
+    userProfile,
+  } = useFileContext();
 
   const handleFileUpdate = useCallback((fileId: string, updates: Partial<FileType>) => {
     setFiles((prev) =>
@@ -54,33 +76,115 @@ export default function PhotoDashboard() {
 
   if (initialLoading) {
     return (
-      <div className="">
-        <div className="mx-auto">
-          <FeedSkeleton />
-        </div>
+      <div className="w-full min-w-0">
+        <FeedSkeleton />
       </div>
     );
   }
 
-  return (
-    <div className="">
-      <div className="mx-auto">
-      {files.length > 0 ? (
-        <>
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-3 gap-4">
-            {files.map((file, index) => (
+  const gridClass =
+    "grid w-full min-w-0 grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3";
+
+  const splitForHistory =
+    userId && files.length > 0 ? getContinueWatchingSplitIndex(files.length) : 0;
+  const feedBeforeHistory = (userId ? files.slice(0, splitForHistory) : files) as FileType[];
+  const feedAfterHistory = (userId ? files.slice(splitForHistory) : []) as FileType[];
+
+  const renderFeedGroups = (slice: FileType[], keyPrefix: string) => {
+    const groups = groupConsecutiveReelClusters(slice);
+    let indexCounter = 0;
+    return (
+      <div className={gridClass}>
+        {groups.map((g) => {
+          if (g.kind === "single") {
+            const file = g.file;
+            const index = indexCounter++;
+            return (
               <VideoCard
-                key={file.id || index}
-                data={file as FileType}
+                key={`${keyPrefix}-${file.id || index}`}
+                data={file}
                 index={index}
                 currentUserId={userId || undefined}
                 userActions={userActions}
                 onUpdate={handleFileUpdate}
               />
-            ))}
-          </div>
+            );
+          }
+          const clusterKey = g.files[0]?.feed_reel_cluster_id ?? g.files[0]?.id ?? keyPrefix;
+          return (
+            <div
+              key={`${keyPrefix}-reel-${clusterKey}`}
+              className="col-span-full w-full min-w-0 max-w-full overflow-hidden"
+            >
+              <Swiper
+                modules={[Navigation, Pagination, A11y, Keyboard]}
+                slidesPerView={1.15}
+                spaceBetween={10}
+                speed={380}
+                watchOverflow
+                observer
+                observeParents
+                resizeObserver
+                navigation
+                keyboard={{ enabled: true, onlyInViewport: true }}
+                pagination={{
+                  clickable: true,
+                  dynamicBullets: g.files.length > 5,
+                }}
+                breakpoints={{
+                  640: { slidesPerView: 2.5, spaceBetween: 12 },
+                  768: { slidesPerView: 3, spaceBetween: 12 },
+                  1024: { slidesPerView: 3.5, spaceBetween: 14 },
+                  1280: { slidesPerView: 4, spaceBetween: 14 },
+                  1536: { slidesPerView: 5, spaceBetween: 16 },
+                }}
+                className="feed-reel-swiper"
+                onInit={(swiper: SwiperType) => {
+                  swiper.update();
+                }}
+              >
+                {g.files.map((file) => {
+                  const index = indexCounter++;
+                  return (
+                    <SwiperSlide key={file.id || file.unique_id} className="!h-auto">
+                      <VideoCard
+                        data={file}
+                        layout="reelStrip"
+                        index={index}
+                        currentUserId={userId || undefined}
+                        userActions={userActions}
+                        onUpdate={handleFileUpdate}
+                      />
+                    </SwiperSlide>
+                  );
+                })}
+              </Swiper>
+            </div>
+          );
+        })}
+      </div>
+    );
+  };
+
+  return (
+    <div className="w-full min-w-0">
+      {files.length > 0 ? (
+        <>
+          {userId ? (
+            <>
+              {renderFeedGroups(feedBeforeHistory, "feed-a")}
+              <ContinueWatchingSection
+                userId={userId}
+                userActions={userActions}
+                username={userProfile?.username ?? null}
+              />
+              {feedAfterHistory.length > 0 ? renderFeedGroups(feedAfterHistory, "feed-b") : null}
+            </>
+          ) : (
+            renderFeedGroups(files as FileType[], "feed")
+          )}
           {isLoading && (
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-3 gap-4 mt-2">
+            <div className="mt-2 grid w-full min-w-0 grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
               {Array.from({ length: 4 }).map((_, i) => (
                 <SkeletonCard key={`skeleton-${i}`} />
               ))}
@@ -129,7 +233,6 @@ export default function PhotoDashboard() {
           )}
         </div>
       )}
-      </div>
     </div>
   );
 }

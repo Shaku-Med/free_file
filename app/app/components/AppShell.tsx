@@ -21,7 +21,10 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
         <AppSidebar />
       </div>
       <SidebarInset
-        className={cn('h-full min-h-0', suppressChrome && 'w-full max-w-none flex-1')}
+        className={cn(
+          'h-full min-h-0 min-w-0',
+          suppressChrome && 'w-full max-w-none flex-1',
+        )}
       >
         <BodyComponent>{children}</BodyComponent>
         <NavProgress />

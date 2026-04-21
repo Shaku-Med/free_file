@@ -34,6 +34,8 @@ export interface FileType {
   /** 0–100 while processing; null/undefined when complete */
   processing_progress?: number | null;
   is_reel?: boolean;
+  /** From feed RPCs: consecutive reels in one response share the same id (see feed_smart_v5). */
+  feed_reel_cluster_id?: number | null;
   /** Series hub video (playlist root). */
   is_series_main?: boolean;
   /** Episode row; API/DB may use `is_files_series_item` instead. */
@@ -48,6 +50,15 @@ export interface FileType {
   comments_enabled?: boolean;
   /** null/undefined = unlimited; 0 = no comments allowed; positive = max visible comments */
   comment_limit?: number | null;
+}
+
+/** In-app watch URL: reels use `/reel/:unique_id` (same slug as dynamic `/:unique_id`); other files use `/:unique_id`. */
+export function fileWatchPath(data: Pick<FileType, "is_reel" | "id" | "unique_id">): string {
+  if (data.is_reel) {
+    const slug = data.unique_id ?? data.id;
+    if (slug) return `/reel/${encodeURIComponent(String(slug))}`;
+  }
+  return `/${data.unique_id}`;
 }
 
 /** Episodes returned for a series main file on the dynamic page */

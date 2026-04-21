@@ -1,6 +1,10 @@
 -- ============================================================
 -- FEED v5.0 — Phase 1 Smart Recommendation Engine
 -- ============================================================
+-- Reel strips: `feed_reel_cluster_id` is assigned per response page so that
+-- consecutive `is_reel` rows share one id; non-reels each get a unique id.
+-- Use in the app with `groupConsecutiveReelClusters` (horizontal VideoCard row).
+-- ============================================================
 -- Upgrades:
 --   1. Subscription boost — content from followed channels ranks higher
 --   2. Category affinity — boost categories user has liked before
@@ -83,7 +87,8 @@ RETURNS TABLE (
   owner_verified    boolean,
   owner_about       text,
   user_has_liked    boolean,
-  user_has_disliked boolean
+  user_has_disliked boolean,
+  feed_reel_cluster_id bigint
 )
 LANGUAGE plpgsql
 STABLE
@@ -360,54 +365,111 @@ BEGIN
           DESC
       ) AS _final_pos
     FROM combined c
+  ),
+
+  _feed_page AS (
+    SELECT
+      s.id,
+      s.created_at,
+      s.endpoint,
+      s.filename,
+      s.unique_id,
+      s.file_size,
+      s.file_type,
+      s.is_adult,
+      s.owner_id,
+      s.is_public,
+      s.file_description,
+      s.file_title,
+      s.default_thumbnail,
+      s.view_count,
+      s.share_count,
+      s.is_reel,
+      s.duration,
+      s.categories,
+      s.tags,
+      s.colors,
+      s.metadata,
+      s._like_count,
+      s._dislike_count,
+      s._comment_count,
+      (
+        LEAST(s._eng_velocity / 5.0, 1.0) * 25.0
+        + s._like_ratio * 20.0
+        + EXP(-s._hours_old / 168.0)::float * 20.0
+        + LN(GREATEST(s._total_eng, 1))::float * 15.0
+        + LEAST(s._cat_affinity / 5.0, 10.0)
+        + (CASE WHEN s._is_subscribed THEN 10.0 ELSE 0.0 END)
+      )::float AS engagement_score,
+      s._pool,
+      u.username,
+      u.profile_pic,
+      u.verified,
+      u.about,
+      s._user_liked,
+      s._user_disliked,
+      s._final_pos
+    FROM shuffled s
+    JOIN users u ON u.id = s.owner_id
+    WHERE s._final_pos > p_cursor_pos
+    ORDER BY s._final_pos ASC
+    LIMIT p_limit
+  ),
+  _feed_marked AS (
+    SELECT
+      fp.*,
+      CASE
+        WHEN COALESCE(fp.is_reel, false) IS NOT TRUE THEN fp._final_pos
+        WHEN NOT COALESCE(LAG(fp.is_reel) OVER (ORDER BY fp._final_pos), false) THEN fp._final_pos
+        ELSE NULL
+      END AS _cluster_start
+    FROM _feed_page fp
+  ),
+  _feed_clustered AS (
+    SELECT
+      fm.*,
+      MAX(fm._cluster_start) OVER (
+        ORDER BY fm._final_pos ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+      ) AS feed_reel_cluster_id
+    FROM _feed_marked fm
   )
 
   SELECT
-    s.id,
-    s.created_at,
-    s.endpoint,
-    s.filename,
-    s.unique_id,
-    s.file_size,
-    s.file_type,
-    s.is_adult,
-    s.owner_id,
-    s.is_public,
-    s.file_description,
-    s.file_title,
-    s.default_thumbnail,
-    s.view_count,
-    s.share_count,
-    s.is_reel,
-    s.duration,
-    s.categories,
-    s.tags,
-    s.colors,
-    s.metadata,
-    s._like_count,
-    s._dislike_count,
-    s._comment_count,
-    -- Smart engagement score: velocity + like ratio + recency + category + sub boost
-    (
-      LEAST(s._eng_velocity / 5.0, 1.0) * 25.0            -- velocity (max 25)
-      + s._like_ratio * 20.0                                -- like ratio (max 20)
-      + EXP(-s._hours_old / 168.0)::float * 20.0           -- exponential decay over 1 week (max 20)
-      + LN(GREATEST(s._total_eng, 1))::float * 15.0        -- total engagement (log scale)
-      + LEAST(s._cat_affinity / 5.0, 10.0)                 -- category match (max 10)
-      + (CASE WHEN s._is_subscribed THEN 10.0 ELSE 0.0 END) -- subscription bonus
-    )::float AS engagement_score,
-    s._pool,
-    u.username,
-    u.profile_pic,
-    u.verified,
-    u.about,
-    s._user_liked,
-    s._user_disliked
-  FROM shuffled s
-  JOIN users u ON u.id = s.owner_id
-  WHERE s._final_pos > p_cursor_pos
-  ORDER BY s._final_pos ASC
-  LIMIT p_limit;
+    fc.id,
+    fc.created_at,
+    fc.endpoint,
+    fc.filename,
+    fc.unique_id,
+    fc.file_size,
+    fc.file_type,
+    fc.is_adult,
+    fc.owner_id,
+    fc.is_public,
+    fc.file_description,
+    fc.file_title,
+    fc.default_thumbnail,
+    fc.view_count,
+    fc.share_count,
+    fc.is_reel,
+    fc.duration,
+    fc.categories,
+    fc.tags,
+    fc.colors,
+    fc.metadata,
+    fc._like_count,
+    fc._dislike_count,
+    fc._comment_count,
+    fc.engagement_score,
+    fc._pool,
+    fc.username,
+    fc.profile_pic,
+    fc.verified,
+    fc.about,
+    fc._user_liked,
+    fc._user_disliked,
+    fc.feed_reel_cluster_id
+  FROM _feed_clustered fc
+  ORDER BY fc._final_pos ASC;
 END;
 $$;
 
@@ -417,7 +479,28 @@ GRANT EXECUTE ON FUNCTION get_feed TO anon, authenticated;
 -- ============================================================
 -- REEL FEED v5 — Smart reel feed with same improvements
 -- ============================================================
-DROP FUNCTION IF EXISTS get_reel_feed(uuid, int, text, text, int, uuid[], numeric);
+-- PG cannot CREATE OR REPLACE when RETURNS TABLE columns change; drop every overload first
+-- (e.g. legacy 6-arg without p_max_duration, or older OUT set without feed_reel_cluster_id).
+DO $reel_feed_drop$
+DECLARE
+  r RECORD;
+BEGIN
+  FOR r IN
+    SELECT n.nspname AS sch, p.proname AS nm, p.oid AS oid
+    FROM pg_proc p
+    JOIN pg_namespace n ON n.oid = p.pronamespace
+    WHERE p.proname = 'get_reel_feed'
+      AND n.nspname = 'public'
+  LOOP
+    EXECUTE format(
+      'DROP FUNCTION IF EXISTS %I.%I(%s) CASCADE',
+      r.sch,
+      r.nm,
+      pg_get_function_identity_arguments(r.oid)
+    );
+  END LOOP;
+END;
+$reel_feed_drop$;
 
 CREATE OR REPLACE FUNCTION get_reel_feed(
   p_user_id       uuid    DEFAULT NULL,
@@ -460,11 +543,13 @@ RETURNS TABLE (
   owner_verified   boolean,
   owner_about      text,
   user_has_liked   boolean,
-  user_has_disliked boolean
+  user_has_disliked boolean,
+  feed_reel_cluster_id bigint
 )
 LANGUAGE plpgsql
 STABLE
 AS $$
+  -- Pagination: pass p_exclude_ids plus a new p_seed each fetch (p_cursor_pos ignored).
 DECLARE
   v_fresh_lim  int;
   v_trend_lim  int;
@@ -573,7 +658,11 @@ BEGIN
     WHERE f.is_public = true
       AND f.is_adult = false
       AND f.upload_status = 'complete'
-      AND (f.is_series_main OR COALESCE(f.is_files_series_item, false) IS NOT TRUE)
+      -- Hide series episodes via real schema (never use legacy public.series — table does not exist).
+      AND NOT EXISTS (
+        SELECT 1 FROM public.files_series_episode_items esi
+        WHERE esi.file_id = f.unique_id
+      )
       AND f.is_reel = true
       AND (p_max_duration IS NULL OR f.duration IS NULL OR f.duration <= p_max_duration)
       AND (p_category IS NULL OR f.categories @> to_jsonb(p_category)::jsonb)
@@ -608,7 +697,7 @@ BEGIN
           DESC
       ) AS _rn
     FROM base b
-    WHERE b._total_eng >= 2
+    WHERE b._total_eng >= 3
       AND b.id NOT IN (SELECT pf.id FROM pool_fresh pf WHERE pf._rn <= v_fresh_lim * v_page_mult)
     LIMIT (v_trend_lim * v_page_mult) * 2
   ),
@@ -674,36 +763,71 @@ BEGIN
       ROW_NUMBER() OVER (
         ORDER BY
           (CASE WHEN c._is_seen THEN 1 ELSE 0 END) ASC,
-          (CASE WHEN c._is_subscribed AND NOT c._is_seen THEN 0.15 ELSE 0.0 END)
-          + LEAST(c._cat_affinity / 20.0, 0.10)
-          + (((hashtext(c.id::text || p_seed || c._pool) % 1000000)::float + 500000.0) / 1000000.0) * 0.75
+          -- Strong per-seed variance (new seed each client fetch) like get_pip_feed; light quality signals.
+          (CASE WHEN c._is_subscribed AND NOT c._is_seen THEN 0.06 ELSE 0.0 END)
+          + LEAST(c._cat_affinity / 25.0, 0.06)
+          + (((hashtext(c.id::text || p_seed || c._pool) % 1000000)::float + 500000.0) / 1000000.0) * 0.88
           DESC
       ) AS _final_pos
     FROM combined c
+  ),
+  _reel_feed_page AS (
+    SELECT
+      s.id, s.created_at, s.endpoint, s.filename, s.unique_id,
+      s.file_size, s.file_type, s.is_adult, s.owner_id, s.is_public,
+      s.file_description, s.file_title, s.default_thumbnail, s.view_count,
+      s.share_count, s.is_reel, s.duration, s.categories, s.tags,
+      s.colors, s.metadata,
+      s._like_count, s._dislike_count, s._comment_count,
+      (
+        LEAST(s._eng_velocity / 5.0, 1.0) * 25.0
+        + s._like_ratio * 20.0
+        + EXP(-s._hours_old / 168.0)::float * 20.0
+        + LN(GREATEST(s._total_eng, 1))::float * 15.0
+        + LEAST(s._cat_affinity / 5.0, 10.0)
+        + (CASE WHEN s._is_subscribed THEN 10.0 ELSE 0.0 END)
+      )::float AS engagement_score,
+      s._pool,
+      u.username, u.profile_pic, u.verified, u.about,
+      s._user_liked, s._user_disliked,
+      s._final_pos
+    FROM shuffled s
+    JOIN users u ON u.id = s.owner_id
+    ORDER BY s._final_pos ASC
+    LIMIT p_limit
+  ),
+  _reel_feed_marked AS (
+    SELECT
+      fp.*,
+      CASE
+        WHEN COALESCE(fp.is_reel, false) IS NOT TRUE THEN fp._final_pos
+        WHEN NOT COALESCE(LAG(fp.is_reel) OVER (ORDER BY fp._final_pos), false) THEN fp._final_pos
+        ELSE NULL
+      END AS _cluster_start
+    FROM _reel_feed_page fp
+  ),
+  _reel_feed_clustered AS (
+    SELECT
+      fm.*,
+      MAX(fm._cluster_start) OVER (
+        ORDER BY fm._final_pos ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+      ) AS feed_reel_cluster_id
+    FROM _reel_feed_marked fm
   )
   SELECT
-    s.id, s.created_at, s.endpoint, s.filename, s.unique_id,
-    s.file_size, s.file_type, s.is_adult, s.owner_id, s.is_public,
-    s.file_description, s.file_title, s.default_thumbnail, s.view_count,
-    s.share_count, s.is_reel, s.duration, s.categories, s.tags,
-    s.colors, s.metadata,
-    s._like_count, s._dislike_count, s._comment_count,
-    (
-      LEAST(s._eng_velocity / 5.0, 1.0) * 25.0
-      + s._like_ratio * 20.0
-      + EXP(-s._hours_old / 168.0)::float * 20.0
-      + LN(GREATEST(s._total_eng, 1))::float * 15.0
-      + LEAST(s._cat_affinity / 5.0, 10.0)
-      + (CASE WHEN s._is_subscribed THEN 10.0 ELSE 0.0 END)
-    )::float AS engagement_score,
-    s._pool,
-    u.username, u.profile_pic, u.verified, u.about,
-    s._user_liked, s._user_disliked
-  FROM shuffled s
-  JOIN users u ON u.id = s.owner_id
-  WHERE s._final_pos > p_cursor_pos
-  ORDER BY s._final_pos ASC
-  LIMIT p_limit;
+    fc.id, fc.created_at, fc.endpoint, fc.filename, fc.unique_id,
+    fc.file_size, fc.file_type, fc.is_adult, fc.owner_id, fc.is_public,
+    fc.file_description, fc.file_title, fc.default_thumbnail, fc.view_count,
+    fc.share_count, fc.is_reel, fc.duration, fc.categories, fc.tags,
+    fc.colors, fc.metadata,
+    fc._like_count, fc._dislike_count, fc._comment_count,
+    fc.engagement_score,
+    fc._pool,
+    fc.username, fc.profile_pic, fc.verified, fc.about,
+    fc._user_liked, fc._user_disliked,
+    fc.feed_reel_cluster_id
+  FROM _reel_feed_clustered fc
+  ORDER BY fc._final_pos ASC;
 END;
 $$;
 
@@ -754,7 +878,8 @@ RETURNS TABLE (
   owner_verified    boolean,
   owner_about       text,
   user_has_liked    boolean,
-  user_has_disliked boolean
+  user_has_disliked boolean,
+  feed_reel_cluster_id bigint
 )
 LANGUAGE plpgsql
 STABLE
@@ -885,27 +1010,62 @@ BEGIN
           c.id
       ) AS _rn
     FROM candidates c
+  ),
+  _related_page AS (
+    SELECT
+      r.id, r.created_at, r.endpoint, r.filename, r.unique_id,
+      r.file_size, r.file_type, r.is_adult, r.owner_id, r.is_public,
+      r.file_description, r.file_title, r.default_thumbnail, r.view_count,
+      r.share_count, r.is_reel, r.duration, r.categories, r.tags,
+      r.colors, r.metadata,
+      r._like_count, r._dislike_count, r._comment_count,
+      (r._rel_score
+       + r._like_ratio * 10.0
+       + LN(GREATEST(r._total_eng, 1))::float * 5.0
+       + LEAST(r._cat_affinity, 10.0)
+      )::float AS engagement_score,
+      'related'::text AS feed_pool,
+      u.username, u.profile_pic, u.verified, u.about,
+      r._user_liked, r._user_disliked,
+      r._rn
+    FROM ranked r
+    JOIN users u ON u.id = r.owner_id
+    WHERE r._rn > p_cursor_pos
+    ORDER BY r._rn ASC
+    LIMIT p_limit
+  ),
+  _related_marked AS (
+    SELECT
+      rp.*,
+      CASE
+        WHEN COALESCE(rp.is_reel, false) IS NOT TRUE THEN rp._rn
+        WHEN NOT COALESCE(LAG(rp.is_reel) OVER (ORDER BY rp._rn), false) THEN rp._rn
+        ELSE NULL
+      END AS _cluster_start
+    FROM _related_page rp
+  ),
+  _related_clustered AS (
+    SELECT
+      rm.*,
+      MAX(rm._cluster_start) OVER (
+        ORDER BY rm._rn ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+      ) AS feed_reel_cluster_id
+    FROM _related_marked rm
   )
   SELECT
-    r.id, r.created_at, r.endpoint, r.filename, r.unique_id,
-    r.file_size, r.file_type, r.is_adult, r.owner_id, r.is_public,
-    r.file_description, r.file_title, r.default_thumbnail, r.view_count,
-    r.share_count, r.is_reel, r.duration, r.categories, r.tags,
-    r.colors, r.metadata,
-    r._like_count, r._dislike_count, r._comment_count,
-    (r._rel_score
-     + r._like_ratio * 10.0
-     + LN(GREATEST(r._total_eng, 1))::float * 5.0
-     + LEAST(r._cat_affinity, 10.0)
-    )::float AS engagement_score,
-    'related'::text AS feed_pool,
-    u.username, u.profile_pic, u.verified, u.about,
-    r._user_liked, r._user_disliked
-  FROM ranked r
-  JOIN users u ON u.id = r.owner_id
-  WHERE r._rn > p_cursor_pos
-  ORDER BY r._rn ASC
-  LIMIT p_limit;
+    rc.id, rc.created_at, rc.endpoint, rc.filename, rc.unique_id,
+    rc.file_size, rc.file_type, rc.is_adult, rc.owner_id, rc.is_public,
+    rc.file_description, rc.file_title, rc.default_thumbnail, rc.view_count,
+    rc.share_count, rc.is_reel, rc.duration, rc.categories, rc.tags,
+    rc.colors, rc.metadata,
+    rc._like_count, rc._dislike_count, rc._comment_count,
+    rc.engagement_score,
+    rc.feed_pool,
+    rc.username, rc.profile_pic, rc.verified, rc.about,
+    rc._user_liked, rc._user_disliked,
+    rc.feed_reel_cluster_id
+  FROM _related_clustered rc
+  ORDER BY rc._rn ASC;
 END;
 $$;
 
@@ -954,7 +1114,8 @@ RETURNS TABLE (
   owner_verified    boolean,
   owner_about       text,
   user_has_liked    boolean,
-  user_has_disliked boolean
+  user_has_disliked boolean,
+  feed_reel_cluster_id bigint
 )
 LANGUAGE plpgsql
 STABLE
@@ -1008,23 +1169,58 @@ BEGIN
       AND f.is_adult = false
       AND (f.upload_status = 'complete' OR f.upload_status = 'completed')
       AND (f.is_series_main OR COALESCE(f.is_files_series_item, false) IS NOT TRUE)
+  ),
+  _sub_feed_page AS (
+    SELECT
+      r.id, r.created_at, r.endpoint, r.filename, r.unique_id,
+      r.file_size, r.file_type, r.is_adult, r.owner_id, r.is_public,
+      r.file_description, r.file_title, r.default_thumbnail, r.view_count,
+      r.share_count, r.is_reel, r.duration, r.categories, r.tags,
+      r.colors, r.metadata,
+      r._like_count, r._dislike_count, r._comment_count,
+      r._eng_score AS engagement_score,
+      'subscription'::text AS feed_pool,
+      u.username, u.profile_pic, u.verified, u.about,
+      r._user_liked, r._user_disliked,
+      r._rn
+    FROM ranked r
+    JOIN users u ON u.id = r.owner_id
+    WHERE r._rn > p_cursor_pos
+    ORDER BY r._rn ASC
+    LIMIT p_limit
+  ),
+  _sub_feed_marked AS (
+    SELECT
+      sp.*,
+      CASE
+        WHEN COALESCE(sp.is_reel, false) IS NOT TRUE THEN sp._rn
+        WHEN NOT COALESCE(LAG(sp.is_reel) OVER (ORDER BY sp._rn), false) THEN sp._rn
+        ELSE NULL
+      END AS _cluster_start
+    FROM _sub_feed_page sp
+  ),
+  _sub_feed_clustered AS (
+    SELECT
+      sm.*,
+      MAX(sm._cluster_start) OVER (
+        ORDER BY sm._rn ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+      ) AS feed_reel_cluster_id
+    FROM _sub_feed_marked sm
   )
   SELECT
-    r.id, r.created_at, r.endpoint, r.filename, r.unique_id,
-    r.file_size, r.file_type, r.is_adult, r.owner_id, r.is_public,
-    r.file_description, r.file_title, r.default_thumbnail, r.view_count,
-    r.share_count, r.is_reel, r.duration, r.categories, r.tags,
-    r.colors, r.metadata,
-    r._like_count, r._dislike_count, r._comment_count,
-    r._eng_score,
-    'subscription'::text AS feed_pool,
-    u.username, u.profile_pic, u.verified, u.about,
-    r._user_liked, r._user_disliked
-  FROM ranked r
-  JOIN users u ON u.id = r.owner_id
-  WHERE r._rn > p_cursor_pos
-  ORDER BY r._rn ASC
-  LIMIT p_limit;
+    sc.id, sc.created_at, sc.endpoint, sc.filename, sc.unique_id,
+    sc.file_size, sc.file_type, sc.is_adult, sc.owner_id, sc.is_public,
+    sc.file_description, sc.file_title, sc.default_thumbnail, sc.view_count,
+    sc.share_count, sc.is_reel, sc.duration, sc.categories, sc.tags,
+    sc.colors, sc.metadata,
+    sc._like_count, sc._dislike_count, sc._comment_count,
+    sc.engagement_score,
+    sc.feed_pool,
+    sc.username, sc.profile_pic, sc.verified, sc.about,
+    sc._user_liked, sc._user_disliked,
+    sc.feed_reel_cluster_id
+  FROM _sub_feed_clustered sc
+  ORDER BY sc._rn ASC;
 END;
 $$;
 

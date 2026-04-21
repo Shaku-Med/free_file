@@ -7,6 +7,7 @@ import 'swiper/css';
 import 'swiper/css/virtual';
 
 import { cn } from '~/lib/utils';
+import { useFileContext } from '~/lib/Context/Context';
 import type { FileType } from '~/lib/types';
 import { PipReelItem, type PipReelUserActions } from './PipReelItem';
 
@@ -95,6 +96,7 @@ export function PipReelContainer({
   initialNextCursor = null,
   centerUniqueId: centerUniqueIdProp,
 }: PipReelContainerProps) {
+  const { userId } = useFileContext();
   const swiperRef = useRef<SwiperType | null>(null);
   const centerUniqueId =
     centerUniqueIdProp?.trim() ||
@@ -154,6 +156,7 @@ export function PipReelContainer({
    * near the end only trigger one in-flight fetch.
    */
   const loadMore = useCallback(async () => {
+    if (!userId) return;
     if (loadingRef.current || exhausted || !seed || !nextCursor) return;
     if (!centerUniqueId) return;
 
@@ -203,7 +206,7 @@ export function PipReelContainer({
       loadingRef.current = false;
       setIsFetchingMore(false);
     }
-  }, [centerUniqueId, exhausted, items, nextCursor, seed]);
+  }, [centerUniqueId, exhausted, items, nextCursor, seed, userId]);
 
   const loadMoreRef = useRef(loadMore);
   loadMoreRef.current = loadMore;
@@ -231,11 +234,11 @@ export function PipReelContainer({
    * Short first pages: if we're already within the prefetch window, load without waiting for a swipe.
    */
   useEffect(() => {
-    if (!seed || !nextCursor || exhausted || items.length === 0) return;
+    if (!userId || !seed || !nextCursor || exhausted || items.length === 0) return;
     const s = swiperRef.current;
     const idx = s?.activeIndex ?? 0;
     if (shouldPrefetchNextPage(idx, items.length)) void loadMoreRef.current();
-  }, [items.length, seed, nextCursor, exhausted]);
+  }, [userId, items.length, seed, nextCursor, exhausted]);
 
   /** After appending slides, let Swiper / Virtual recalc dimensions so scrolling stays smooth. */
   useEffect(() => {

@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect } from "react";
 import { Link } from "react-router";
-import type { FileType } from "~/lib/types";
+import { type FileType, fileWatchPath } from "~/lib/types";
 import { getThumbnailUrl, ParseFilename } from "~/lib/utils";
 import ImageLoad from "~/routes/Home/components/ImageLoad/ImageLoad";
 import AdultContentBadge from "./AdultContentBadge";
@@ -75,10 +75,11 @@ const RelatedVideoCard = ({ data, currentUserId, userActions }: RelatedVideoCard
   };
 
   const imageLink = getThumbnailUrl(data, { retryAttempt });
+  const watchPath = fileWatchPath(data);
 
   return (
     <div className="block group">
-      <Link to={`/${data.unique_id}`}>
+      <Link to={watchPath}>
         <div className="relative rounded-xl overflow-hidden bg-card aspect-video">
           {data.is_adult && <AdultContentBadge />}
           <ImageLoad
@@ -112,7 +113,7 @@ const RelatedVideoCard = ({ data, currentUserId, userActions }: RelatedVideoCard
           )}
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-1.5">
-              <Link to={`/${data.unique_id}`} className="hover:text-primary transition-colors flex-1 min-w-0">
+              <Link to={watchPath} className="hover:text-primary transition-colors flex-1 min-w-0">
                 <p className="text-sm font-medium leading-tight line-clamp-2">
                   {data.file_title || ParseFilename(data.filename)}
                 </p>
@@ -156,6 +157,7 @@ const RelatedVideoCard = ({ data, currentUserId, userActions }: RelatedVideoCard
           <Actions
             fileId={data.id}
             uniqueId={data.unique_id}
+            sharePagePath={watchPath}
             likeCount={likeCount}
             dislikeCount={dislikeCount}
             commentCount={commentCount}

@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { useFileContext } from '~/lib/Context/Context';
 import type { FileType } from '~/lib/types';
+import { newReelFeedSeed } from '~/lib/feed/reelFeedSeed';
 import { VerticalFeedContainer } from './VerticalFeedContainer';
 import { fileToFeedItem, type ReelFeedResponse, type VerticalFeedItemData } from './types';
 
@@ -23,6 +25,7 @@ export function VerticalFeed({
   className,
   onActiveChange,
 }: VerticalFeedProps) {
+  const { userId } = useFileContext();
   const [files, setFiles] = useState<FileType[]>([]);
   const [items, setItems] = useState<VerticalFeedItemData[]>([]);
   const [nextCursor, setNextCursor] = useState<{ cursor_pos: number } | null>(null);
@@ -33,7 +36,7 @@ export function VerticalFeed({
   const filesRef = useRef<FileType[]>([]);
   filesRef.current = files;
   const seenIdsRef = useRef<Set<string>>(new Set());
-  const seedRef = useRef<string>(Date.now().toString());
+  const seedRef = useRef<string>(newReelFeedSeed());
 
   const loadFeed = useCallback(
     async (append: boolean) => {
@@ -42,13 +45,11 @@ export function VerticalFeed({
 
       setLoading(true);
       try {
+        seedRef.current = newReelFeedSeed();
         const params = new URLSearchParams();
         params.set('seed', seedRef.current);
         if (category) params.set('category', category);
         if (maxDuration != null) params.set('max_duration', String(maxDuration));
-        if (append && nextCursor) {
-          params.set('cursor_pos', String(nextCursor.cursor_pos));
-        }
         if (seenIdsRef.current.size > 0) {
           params.set(
             'exclude_ids',
@@ -99,7 +100,7 @@ export function VerticalFeed({
         });
 
         setNextCursor(payload.nextCursor ?? null);
-        setHasMore(Boolean(payload.nextCursor));
+        setHasMore(Boolean(payload.nextCursor) && Boolean(userId));
       } catch {
         setHasMore(false);
       } finally {
@@ -107,12 +108,12 @@ export function VerticalFeed({
         setInitialLoadDone(true);
       }
     },
-    [category, hasMore, loading, maxDuration, nextCursor],
+    [category, hasMore, loading, maxDuration, userId],
   );
 
   useEffect(() => {
     seenIdsRef.current = new Set();
-    seedRef.current = Date.now().toString();
+    seedRef.current = newReelFeedSeed();
     setFiles([]);
     setItems([]);
     setNextCursor(null);
@@ -129,11 +130,11 @@ export function VerticalFeed({
       if (file && onActiveChange) onActiveChange(file, index);
 
       const remaining = filesRef.current.length - 1 - index;
-      if (hasMore && !loading && remaining <= prefetchAhead) {
+      if (userId && hasMore && !loading && remaining <= prefetchAhead) {
         void loadFeed(true);
       }
     },
-    [hasMore, loading, loadFeed, onActiveChange, prefetchAhead],
+    [userId, hasMore, loading, loadFeed, onActiveChange, prefetchAhead],
   );
 
   if (!initialLoadDone && items.length === 0) {

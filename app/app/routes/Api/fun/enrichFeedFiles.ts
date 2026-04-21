@@ -82,6 +82,10 @@ export async function enrichFeedFilesWithInteractions(
       view_count: f.view_count,
       share_count: f.share_count,
       is_reel: f.is_reel,
+      feed_reel_cluster_id:
+        f.feed_reel_cluster_id != null && f.feed_reel_cluster_id !== ''
+          ? Number(f.feed_reel_cluster_id)
+          : null,
       duration: f.duration,
       upload_status: f.upload_status,
       processing_progress: f.processing_progress,

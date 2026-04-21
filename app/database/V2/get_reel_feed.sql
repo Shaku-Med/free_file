@@ -1,13 +1,37 @@
 -- ============================================================
 -- REEL FEED — Advanced reel-only feed (like feed but reels + tuning)
 -- ============================================================
--- Reels-only, cursor_pos pagination, exclude_ids, seed.
+-- Deploy: run this whole file in Supabase if reel-feed fails with:
+--   42P01 relation "public.series" does not exist
+-- (old RPCs referenced a non-existent `series` table; we use files_series_episode_items.)
+--
+-- Prefer `feed_smart_v5.sql` `get_reel_feed` (exclude_ids + new seed per fetch; stronger shuffle).
+-- This file is legacy; Reels-only, seed + exclude_ids; older cursor_pos paging.
 -- Pool mix tuned for short-form: more trending, fresh, then popular/discovery.
 -- Optional: max duration (e.g. 300s) to favor short reels.
 -- Run in Supabase SQL Editor after feed_get_feed_pagination_patch.sql.
 -- ============================================================
 
-DROP FUNCTION IF EXISTS get_reel_feed(uuid, int, text, text, int, uuid[]);
+DO $reel_feed_drop$
+DECLARE
+  r RECORD;
+BEGIN
+  FOR r IN
+    SELECT n.nspname AS sch, p.proname AS nm, p.oid AS oid
+    FROM pg_proc p
+    JOIN pg_namespace n ON n.oid = p.pronamespace
+    WHERE p.proname = 'get_reel_feed'
+      AND n.nspname = 'public'
+  LOOP
+    EXECUTE format(
+      'DROP FUNCTION IF EXISTS %I.%I(%s) CASCADE',
+      r.sch,
+      r.nm,
+      pg_get_function_identity_arguments(r.oid)
+    );
+  END LOOP;
+END;
+$reel_feed_drop$;
 
 CREATE OR REPLACE FUNCTION get_reel_feed(
   p_user_id       uuid    DEFAULT NULL,
@@ -135,9 +159,11 @@ BEGIN
       AND f.is_adult = false  -- HARD BLOCK: never show adult content in feeds
       AND f.upload_status = 'complete'
       AND NOT EXISTS (
-        SELECT 1 FROM public.series s
-        WHERE s.file_id = f.id AND s.is_episode = true
-      )  -- hide series episodes (v2)
+        -- hide series episodes: any file linked via files_series_episode_items is an episode.
+        -- Note: files_series_episode_items.file_id is TEXT → files.unique_id (not files.id).
+        SELECT 1 FROM public.files_series_episode_items esi
+        WHERE esi.file_id = f.unique_id
+      )
       AND f.is_reel = true
       AND (p_max_duration IS NULL OR f.duration IS NULL OR (f.duration IS NOT NULL AND f.duration <= p_max_duration))
       AND (p_category IS NULL OR f.categories @> to_jsonb(p_category)::jsonb)

@@ -1,58 +1,413 @@
-import { useEffect, useRef, useState } from "react";
-import { ReelCard } from "./ReelCard";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Swiper, SwiperSlide } from "swiper/react";
+import { Keyboard, Mousewheel } from "swiper/modules";
+import type { Swiper as SwiperType } from "swiper";
+import { ChevronDown, ChevronUp, Loader2 } from "lucide-react";
+import "swiper/css";
+
+import { cn } from "~/lib/utils";
+import { PipReelItem } from "~/routes/pip/components/PipReelItem";
 import type { FileType } from "~/lib/types";
 
 interface ReelSwiperProps {
   items: FileType[];
   onEndReached?: () => void;
+  /** When false, do not request another page. */
+  hasMore?: boolean;
+  /** Parent sets true while `/api/reel-feed` append is in flight (clears in-flight guard when false). */
+  isLoadingMore?: boolean;
   userActions?: { likedFileIds: string[]; dislikedFileIds: string[] };
 }
 
-export const ReelSwiper = ({ items, onEndReached, userActions }: ReelSwiperProps) => {
-  const containerRef = useRef<HTMLDivElement | null>(null);
-  const [hasRequestedMore, setHasRequestedMore] = useState(false);
+/** Prefetch the next API page when this many swipes from the last slide. */
+const PREFETCH_WHEN_SWIPES_REMAINING = 2;
 
+/** Swipe-hint localStorage flag — shown once per browser. */
+const SWIPE_HINT_KEY = "memories.reelSwipeHintSeen";
+const SWIPE_HINT_AUTO_DISMISS_MS = 3000;
+/** Position pill ("3 / 24") auto-hide window. */
+const POSITION_PILL_VISIBLE_MS = 1500;
+
+function shouldPrefetchNextPage(activeIndex: number, slideCount: number): boolean {
+  if (slideCount <= 0) return false;
+  const lastIndex = slideCount - 1;
+  return lastIndex - activeIndex <= PREFETCH_WHEN_SWIPES_REMAINING;
+}
+
+function slideRealIndex(swiper: SwiperType): number {
+  const r = (swiper as SwiperType & { realIndex?: number }).realIndex;
+  return typeof r === "number" ? r : swiper.activeIndex;
+}
+
+/**
+ * Detect pointer-fine environments so we only render desktop arrows where they make sense.
+ * SSR-safe: defaults to `false` until the first client render.
+ */
+function useHasFinePointer(): boolean {
+  const [hasFine, setHasFine] = useState(false);
   useEffect(() => {
-    setHasRequestedMore(false);
+    if (typeof window === "undefined" || !window.matchMedia) return;
+    const mq = window.matchMedia("(hover: hover) and (pointer: fine)");
+    const update = () => setHasFine(mq.matches);
+    update();
+    mq.addEventListener?.("change", update);
+    return () => mq.removeEventListener?.("change", update);
+  }, []);
+  return hasFine;
+}
+
+export const ReelSwiper = ({
+  items,
+  onEndReached,
+  hasMore = true,
+  isLoadingMore = false,
+  userActions,
+}: ReelSwiperProps) => {
+  const likedKey = (userActions?.likedFileIds ?? [])
+    .map((id) => String(id).toLowerCase())
+    .sort()
+    .join("|");
+  const dislikedKey = (userActions?.dislikedFileIds ?? [])
+    .map((id) => String(id).toLowerCase())
+    .sort()
+    .join("|");
+  const userActionsStable = useMemo(
+    () => userActions,
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed by sorted id strings
+    [likedKey, dislikedKey],
+  );
+
+  const swiperRef = useRef<SwiperType | null>(null);
+  /** Blocks double `onEndReached` until parent finishes the request (`isLoadingMore` goes false). */
+  const loadRequestedRef = useRef(false);
+
+  const hasFinePointer = useHasFinePointer();
+
+  /** Nav state for desktop arrows + position pill. */
+  const [activeIdx, setActiveIdx] = useState(0);
+  const [canGoPrev, setCanGoPrev] = useState(false);
+  const [canGoNext, setCanGoNext] = useState(items.length > 1 || hasMore);
+
+  const rewindDeck = items.length > 1;
+
+  /** One-time swipe hint. */
+  const [showHint, setShowHint] = useState(false);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const seen = window.localStorage.getItem(SWIPE_HINT_KEY);
+      if (!seen && items.length > 1) setShowHint(true);
+    } catch {
+      // storage blocked — skip the hint rather than risk throwing
+    }
   }, [items.length]);
 
-  useEffect(() => {
-    const el = containerRef.current;
-    if (!el || !onEndReached) return;
+  const dismissHint = useCallback(() => {
+    setShowHint(false);
+    try {
+      window.localStorage.setItem(SWIPE_HINT_KEY, "1");
+    } catch {
+      /* ignore */
+    }
+  }, []);
 
-    const handleScroll = () => {
-      const { scrollTop, scrollHeight, clientHeight } = el;
-      const distanceFromBottom = scrollHeight - (scrollTop + clientHeight);
-      if (!hasRequestedMore && distanceFromBottom <= clientHeight * 2) {
-        setHasRequestedMore(true);
-        onEndReached();
+  useEffect(() => {
+    if (!showHint) return;
+    const t = window.setTimeout(() => dismissHint(), SWIPE_HINT_AUTO_DISMISS_MS);
+    return () => window.clearTimeout(t);
+  }, [showHint, dismissHint]);
+
+  /** Position pill visibility — show briefly after each navigation, then fade out. */
+  const [pillVisible, setPillVisible] = useState(false);
+  const pillTimerRef = useRef<number | null>(null);
+  const flashPill = useCallback(() => {
+    setPillVisible(true);
+    if (pillTimerRef.current) window.clearTimeout(pillTimerRef.current);
+    pillTimerRef.current = window.setTimeout(
+      () => setPillVisible(false),
+      POSITION_PILL_VISIBLE_MS,
+    );
+  }, []);
+  useEffect(
+    () => () => {
+      if (pillTimerRef.current) window.clearTimeout(pillTimerRef.current);
+    },
+    [],
+  );
+
+  useEffect(() => {
+    if (!isLoadingMore) loadRequestedRef.current = false;
+  }, [isLoadingMore]);
+
+  const requestMore = useCallback(() => {
+    if (!onEndReached || !hasMore || isLoadingMore || loadRequestedRef.current) return;
+    loadRequestedRef.current = true;
+    onEndReached();
+  }, [onEndReached, hasMore, isLoadingMore]);
+
+  const maybePrefetch = useCallback(
+    (swiper: SwiperType) => {
+      if (!hasMore || isLoadingMore) return;
+      if (shouldPrefetchNextPage(slideRealIndex(swiper), items.length)) requestMore();
+    },
+    [hasMore, isLoadingMore, items.length, requestMore],
+  );
+
+  const syncNavState = useCallback(
+    (swiper: SwiperType) => {
+      const idx = slideRealIndex(swiper);
+      setActiveIdx(idx);
+      if (rewindDeck) {
+        // `rewind` wraps first ↔ last; keep arrows available for the whole deck.
+        setCanGoPrev(true);
+        setCanGoNext(true);
+      } else {
+        setCanGoPrev(!swiper.isBeginning);
+        setCanGoNext(!swiper.isEnd || hasMore);
+      }
+    },
+    [hasMore, rewindDeck],
+  );
+
+  const handleSlideChangeTransitionStart = useCallback(
+    (swiper: SwiperType) => {
+      maybePrefetch(swiper);
+      flashPill();
+      if (showHint) dismissHint();
+    },
+    [dismissHint, flashPill, maybePrefetch, showHint],
+  );
+
+  const handleSlideChange = useCallback(
+    (swiper: SwiperType) => {
+      maybePrefetch(swiper);
+      syncNavState(swiper);
+    },
+    [maybePrefetch, syncNavState],
+  );
+
+  /** Short feeds: prefetch if we already start near the end. */
+  useEffect(() => {
+    if (items.length === 0 || !hasMore) return;
+    const s = swiperRef.current;
+    const idx = s ? slideRealIndex(s) : 0;
+    if (shouldPrefetchNextPage(idx, items.length)) requestMore();
+  }, [items.length, hasMore, requestMore]);
+
+  /** After appends, recalc slide sizes (layout + fixed chrome) and re-sync nav state. */
+  useEffect(() => {
+    const s = swiperRef.current;
+    if (!s) return;
+    const id = requestAnimationFrame(() => {
+      s.update();
+      syncNavState(s);
+    });
+    return () => cancelAnimationFrame(id);
+  }, [items.length, syncNavState]);
+
+  const goPrev = useCallback(() => {
+    swiperRef.current?.slidePrev();
+  }, []);
+  const goNext = useCallback(() => {
+    swiperRef.current?.slideNext();
+  }, []);
+
+  /**
+   * Extra keyboard shortcuts on top of Swiper's built-in ↑/↓:
+   *   J = next, K = previous (YouTube / TikTok muscle memory).
+   * Skip when user is typing in an input / textarea / contentEditable.
+   */
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const onKey = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (target) {
+        const tag = target.tagName;
+        if (
+          tag === "INPUT" ||
+          tag === "TEXTAREA" ||
+          tag === "SELECT" ||
+          target.isContentEditable
+        ) {
+          return;
+        }
+      }
+      if (e.key === "j" || e.key === "J") {
+        e.preventDefault();
+        goNext();
+      } else if (e.key === "k" || e.key === "K") {
+        e.preventDefault();
+        goPrev();
       }
     };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [goNext, goPrev]);
 
-    el.addEventListener("scroll", handleScroll);
-    return () => el.removeEventListener("scroll", handleScroll);
-  }, [onEndReached, hasRequestedMore, items.length]);
+  if (items.length === 0) {
+    return null;
+  }
+
+  const totalLabel = hasMore ? `${items.length}+` : String(items.length);
 
   return (
     <div
-      ref={containerRef}
-      className="h-full w-full bg-black overflow-y-auto overflow-x-hidden snap-y snap-mandatory scroll-smooth"
+      className={cn(
+        "relative isolate h-[100dvh] max-h-[100dvh] min-h-0 w-full overflow-hidden bg-black",
+        // `touch-pan-y` keeps vertical pan natural without forwarding horizontal
+        // (lets HLS scrub still work).
+        "touch-pan-y",
+      )}
     >
-      {items.map((item) => (
+      {/*
+        Transform-mode Swiper (NOT cssMode) — the user reported scroll being stuck in cssMode,
+        which is expected because cssMode relies on native scroll-snap and conflicts with the
+        nested <video> + overlay chrome. Overlays that must not swipe (Actions rail) use
+        `swiper-no-swiping`; everything else forwards touches to Swiper.
+      */}
+      <Swiper
+        onSwiper={(s) => {
+          swiperRef.current = s;
+          syncNavState(s);
+        }}
+        onSlideChangeTransitionStart={handleSlideChangeTransitionStart}
+        onSlideChange={handleSlideChange}
+        onReachEnd={() => requestMore()}
+        onTouchStart={() => {
+          if (showHint) dismissHint();
+        }}
+        modules={[Keyboard, Mousewheel]}
+        direction="vertical"
+        slidesPerView={1}
+        spaceBetween={0}
+        rewind={rewindDeck}
+        watchSlidesProgress
+        speed={240}
+        // Gesture tuning — feels like TikTok, not like a desktop carousel.
+        threshold={8}
+        longSwipes
+        longSwipesMs={180}
+        longSwipesRatio={0.2}
+        shortSwipes
+        followFinger
+        resistanceRatio={0.35}
+        preventInteractionOnTransition={false}
+        // Don't preventDefault on touchstart so native video controls (seek, etc.) keep working.
+        touchStartPreventDefault={false}
+        touchReleaseOnEdges
+        // Wheel + keyboard for desktop.
+        mousewheel={{ forceToAxis: true, thresholdDelta: 20, sensitivity: 1, releaseOnEdges: true }}
+        keyboard={{ enabled: true, onlyInViewport: true }}
+        className="h-full w-full max-h-[100dvh] touch-pan-y"
+        role="listbox"
+        aria-label="Reels"
+      >
+        {items.map((file) => (
+          <SwiperSlide key={String(file.id)} className="!h-full !max-h-[100dvh] !w-full shrink-0">
+            {({ isActive, isVisible }) => (
+              <div
+                className="h-full max-h-[100dvh] w-full min-h-0 touch-pan-y"
+                role="option"
+                aria-selected={isActive}
+              >
+                <PipReelItem
+                  file={file}
+                  isActive={isActive}
+                  showChrome={isActive}
+                  userActions={userActionsStable}
+                  variant="page"
+                  loadHlsPlayer={isActive || isVisible}
+                  className="min-h-0 flex-1"
+                />
+              </div>
+            )}
+          </SwiperSlide>
+        ))}
+      </Swiper>
+
+      {/* Position pill — flashes after each swipe, fades out. */}
+      <div
+        aria-live="polite"
+        className={cn(
+          "pointer-events-none absolute right-3 top-[max(0.75rem,env(safe-area-inset-top))] z-30",
+          "rounded-full border border-white/20 bg-black/55 px-2.5 py-1 text-[11px] font-medium tabular-nums text-white/90 backdrop-blur-sm",
+          "transition-opacity duration-300",
+          pillVisible ? "opacity-100" : "opacity-0",
+        )}
+      >
+        {activeIdx + 1} / {totalLabel}
+      </div>
+
+      {/* Desktop prev / next arrows — only on hover-capable, fine-pointer devices. */}
+      {hasFinePointer && (
+        <>
+          <button
+            type="button"
+            onClick={goPrev}
+            disabled={!canGoPrev}
+            aria-label="Previous reel"
+            className={cn(
+              "group absolute left-1/2 top-4 z-30 -translate-x-1/2",
+              "inline-flex h-9 w-9 items-center justify-center rounded-full",
+              "border border-white/15 bg-black/45 text-white/85 backdrop-blur-sm",
+              "transition-all duration-200 hover:bg-black/70 hover:text-white",
+              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70",
+              canGoPrev ? "opacity-60 hover:opacity-100" : "pointer-events-none opacity-0",
+            )}
+          >
+            <ChevronUp className="h-5 w-5" aria-hidden />
+          </button>
+          <button
+            type="button"
+            onClick={goNext}
+            disabled={!canGoNext}
+            aria-label="Next reel"
+            className={cn(
+              "group absolute left-1/2 z-30 -translate-x-1/2",
+              "bottom-[calc(5.5rem+env(safe-area-inset-bottom,0px))]",
+              "inline-flex h-9 w-9 items-center justify-center rounded-full",
+              "border border-white/15 bg-black/45 text-white/85 backdrop-blur-sm",
+              "transition-all duration-200 hover:bg-black/70 hover:text-white",
+              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70",
+              canGoNext ? "opacity-60 hover:opacity-100" : "pointer-events-none opacity-0",
+            )}
+          >
+            <ChevronDown className="h-5 w-5" aria-hidden />
+          </button>
+        </>
+      )}
+
+      {/* First-visit swipe hint — arrow + text, auto-dismisses on first swipe or after 3s. */}
+      {showHint && (
         <div
-          key={item.id}
-          data-slug-id={item.id}
-          data-file-id={item.id}
-          className="min-h-screen h-screen w-full flex items-center justify-center snap-start shrink-0"
+          className={cn(
+            "pointer-events-none absolute inset-x-0 bottom-[calc(6rem+env(safe-area-inset-bottom,0px))] z-30",
+            "flex flex-col items-center gap-1.5 text-white/90",
+            "animate-[reelHintFade_3s_ease-in-out_forwards]",
+          )}
+          aria-hidden
         >
-          <ReelCard
-            data={item}
-            userActions={userActions}
-          />
+          <div className="reel-hint-chevron">
+            <ChevronUp className="h-6 w-6" aria-hidden />
+          </div>
+          <span className="rounded-full border border-white/20 bg-black/60 px-3 py-1 text-xs font-medium backdrop-blur-sm">
+            Swipe up for more
+          </span>
         </div>
-      ))}
+      )}
+
+      {isLoadingMore ? (
+        <div
+          className={cn(
+            "pointer-events-none absolute bottom-24 left-1/2 z-30 flex -translate-x-1/2 items-center gap-2",
+            "rounded-full border border-white/20 bg-black/80 px-3 py-1.5 text-xs text-white/90 shadow-md backdrop-blur-sm sm:bottom-28",
+          )}
+          aria-live="polite"
+        >
+          <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
+          <span>Loading more…</span>
+        </div>
+      ) : null}
     </div>
   );
 };
-
-

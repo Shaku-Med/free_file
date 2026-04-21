@@ -5,7 +5,7 @@ import { cn, getVideoSrc } from '~/lib/utils';
 import HLSPlayer from '~/components/components/hlsplayer';
 import Actions from '~/routes/Home/components/VideoCard/Actions';
 import { useFileContext } from '~/lib/Context/Context';
-import type { FileType } from '~/lib/types';
+import { type FileType, fileWatchPath } from '~/lib/types';
 import type { VerticalFeedItemData } from './types';
 
 interface VerticalFeedItemProps {
@@ -54,6 +54,7 @@ export function VerticalFeedItem({
 
   const fileId = item.fileId ?? item.id;
   const uniqueId = item.unique_id ?? item.id;
+  const sharePagePath = file ? fileWatchPath(file) : `/${uniqueId}`;
   const isOwner = Boolean(userId && item.ownerId && userId === item.ownerId);
 
   const videoSrc =
@@ -86,8 +87,9 @@ export function VerticalFeedItem({
               videoRef={videoRef}
               className="h-full w-full"
               autoPlay={true}
+              reelSwiperActive={isActive}
               muted={muted}
-              loop
+              loop={true}
               playsInline
               imageID={file.unique_id}
               file={file}
@@ -132,6 +134,7 @@ export function VerticalFeedItem({
                 layout="tiktok"
                 fileId={fileId}
                 uniqueId={uniqueId}
+                sharePagePath={sharePagePath}
                 likeCount={likeCount}
                 dislikeCount={dislikeCount}
                 commentCount={item.commentCount ?? 0}

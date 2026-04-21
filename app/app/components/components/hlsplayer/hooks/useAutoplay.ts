@@ -18,7 +18,7 @@ export function useAutoplay(
   options?: { muteVideoWhenAutoplayDisabled?: boolean },
 ) {
   const muteVideoWhenAutoplayDisabled = options?.muteVideoWhenAutoplayDisabled !== false;
-  const { imageID } = usePlayerContext();
+  const { imageID, src } = usePlayerContext();
   const { isPipActive, isContentInPip } = usePictureInPictureContext();
   const [autoplayBlocked, setAutoplayBlocked] = useState(false);
   const [showPrompt, setShowPrompt] = useState(false);
@@ -76,7 +76,7 @@ export function useAutoplay(
       video.addEventListener('canplay', attemptPlay, { once: true });
       return () => video.removeEventListener('canplay', attemptPlay);
     }
-  }, [autoPlay, muteVideoWhenAutoplayDisabled, isPipActive, imageID]);
+  }, [autoPlay, muteVideoWhenAutoplayDisabled, isPipActive, imageID, src]);
 
   useEffect(() => {
     const video = videoRef.current;

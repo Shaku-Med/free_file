@@ -29,4 +29,5 @@ AS $$
   WHERE fid IS NOT NULL;
 $$;
 
-GRANT EXECUTE ON FUNCTION get_batch_interactions(uuid[], uuid) TO authenticated;
+-- Server routes use the Supabase service role; `anon` allows the same RPC from edge setups that mirror feed APIs.
+GRANT EXECUTE ON FUNCTION get_batch_interactions(uuid[], uuid) TO authenticated, anon;

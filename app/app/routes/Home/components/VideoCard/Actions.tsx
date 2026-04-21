@@ -9,6 +9,7 @@ import {
   Link2,
   Loader2,
   MoreHorizontal,
+  MoreVertical,
   ListPlus,
   Check,
   ListVideo,
@@ -68,6 +69,11 @@ export interface ActionsProps {
    * If `serverCount` is provided, use that value; otherwise increment locally (e.g. optimistic +1).
    */
   onShareSuccess?: (serverCount?: number) => void;
+  /**
+   * Canonical page path for share/copy link (leading slash), e.g. `/reel/my-slug` or `/abc-uuid`.
+   * Defaults to `/${uniqueId}` when omitted.
+   */
+  sharePagePath?: string;
   /** Logged-in user id from the page loader; playlist submenu loads lists when this is set. */
   currentUserId?: string | null;
   /** File `created_at` for comment image uploads (GitHub path under the post folder). */
@@ -88,8 +94,9 @@ export interface ActionsProps {
    * - `default`: horizontal pill row (watch page, cards).
    * - `reel`: vertical stack of circular icon buttons (reels shell).
    * - `tiktok`: same as `reel` (alias for PiP / vertical-feed).
+   * - `shortsShelf`: only the ⋮ menu (YouTube Shorts–style shelf tile).
    */
-  layout?: "default" | "reel" | "tiktok";
+  layout?: "default" | "reel" | "tiktok" | "shortsShelf";
 }
 
 type InteractionResponse = {
@@ -142,9 +149,13 @@ async function postInteraction(
   return { ok: res.ok, json, status: res.status };
 }
 
-function buildPageShareUrl(uniqueId: string, seconds?: number) {
+/** Path from site root, e.g. `/uuid` or `/reel/slug` (each segment encoded). */
+function buildPageShareUrl(pathFromRoot: string, seconds?: number) {
   if (typeof window === "undefined") return "";
-  const base = `${window.location.origin}/${encodeURIComponent(uniqueId)}`;
+  const trimmed = pathFromRoot.replace(/^\//, "");
+  const segments = trimmed.split("/").filter(Boolean);
+  const path = segments.length ? `/${segments.map(encodeURIComponent).join("/")}` : "";
+  const base = `${window.location.origin}${path}`;
   if (seconds != null && Number.isFinite(seconds) && seconds > 1) {
     return `${base}?t=${Math.floor(seconds)}`;
   }
@@ -165,6 +176,7 @@ export default function Actions({
   onUpdate,
   getShareTimestamp,
   onShareSuccess,
+  sharePagePath,
   currentUserId,
   currentTime,
   fileCreatedAt,
@@ -206,7 +218,13 @@ export default function Actions({
 
   const routeParams = useParams();
   const routeDynamicId = routeParams.id;
-  const isOnThisFilePage = Boolean(routeDynamicId && routeDynamicId === uniqueId);
+  const routeReelUniqueId = routeParams.uniqueId;
+  const pagePathForShare = sharePagePath ?? `/${uniqueId}`;
+  const isOnThisFilePage = Boolean(
+    (routeDynamicId &&
+      (routeDynamicId === uniqueId || routeDynamicId === fileId)) ||
+      (routeReelUniqueId && routeReelUniqueId === uniqueId),
+  );
   const { has: hasLocalSave, add: addLocalSave, remove: removeLocalSave } = useLocalPlaylist();
   const effectiveLocalFileId = normalizeLocalPlaylistFileId(fileId);
   const inLocalList = Boolean(effectiveLocalFileId && hasLocalSave(effectiveLocalFileId));
@@ -369,7 +387,7 @@ export default function Actions({
   }, [getShareTimestamp]);
 
   const onShareNative = useCallback(async () => {
-    const url = buildPageShareUrl(uniqueId, resolveShareSeconds());
+    const url = buildPageShareUrl(pagePathForShare, resolveShareSeconds());
     if (!url) return;
     setShareBusy(true);
     try {
@@ -387,10 +405,10 @@ export default function Actions({
     } finally {
       setShareBusy(false);
     }
-  }, [uniqueId, resolveShareSeconds, recordShare]);
+  }, [pagePathForShare, resolveShareSeconds, recordShare]);
 
   const onCopyLink = useCallback(async () => {
-    const url = buildPageShareUrl(uniqueId, resolveShareSeconds());
+    const url = buildPageShareUrl(pagePathForShare, resolveShareSeconds());
     if (!url) return;
     setShareBusy(true);
     try {
@@ -413,7 +431,7 @@ export default function Actions({
     } finally {
       setShareBusy(false);
     }
-  }, [uniqueId, resolveShareSeconds, recordShare]);
+  }, [pagePathForShare, resolveShareSeconds, recordShare]);
 
   const openComments = useCallback(() => {
     if (isOnThisFilePage && !isMobile) {
@@ -464,12 +482,21 @@ export default function Actions({
   const reelLabel =
     "text-[11px] font-semibold tabular-nums tracking-tight text-white/95 [text-shadow:0_1px_2px_rgba(0,0,0,0.85)]";
 
+  const isShortsShelf = layout === "shortsShelf";
   const isReel = layout === "reel" || layout === "tiktok";
 
   const moreDropdown = (
-    <DropdownMenu modal={!isReel}>
+    <DropdownMenu modal={!isReel || isShortsShelf}>
       <DropdownMenuTrigger asChild>
-        {isReel ? (
+        {isShortsShelf ? (
+          <button
+            type="button"
+            className="inline-flex size-8 shrink-0 items-center justify-center rounded-full text-muted-foreground transition hover:bg-muted hover:text-foreground"
+            aria-label="More options"
+          >
+            <MoreVertical className="size-5" aria-hidden />
+          </button>
+        ) : isReel ? (
           <button
             type="button"
             className="flex flex-col items-center gap-1"
@@ -488,8 +515,8 @@ export default function Actions({
       </DropdownMenuTrigger>
       <DropdownMenuContent
         align="end"
-        side={isReel ? "top" : "bottom"}
-        sideOffset={isReel ? 8 : 4}
+        side={isReel && !isShortsShelf ? "top" : "bottom"}
+        sideOffset={isReel && !isShortsShelf ? 8 : 4}
         className="min-w-[12rem]"
       >
           {isOwner && typeof onEdit === "function" ? (
@@ -531,8 +558,11 @@ export default function Actions({
                 // viewport; force the sub to open toward the center so Radix doesn't have to
                 // flip through an overflow frame first.
                 alignOffset={-4}
-                sideOffset={isReel ? 2 : 4}
-                className={cn("min-w-[13.5rem] p-0", isReel && "max-w-[calc(100vw-1.5rem)]")}
+                sideOffset={isReel && !isShortsShelf ? 2 : 4}
+                className={cn(
+                  "min-w-[13.5rem] p-0",
+                  isReel && !isShortsShelf && "max-w-[calc(100vw-1.5rem)]",
+                )}
               >
                 <div className="max-h-[min(280px,var(--radix-dropdown-menu-content-available-height))] overflow-y-auto overscroll-contain p-1.5">
                   <DropdownMenuCheckboxItem
@@ -717,7 +747,7 @@ export default function Actions({
 
   return (
     <>
-      {isReel ? reelRow : defaultRow}
+      {isShortsShelf ? moreDropdown : isReel ? reelRow : defaultRow}
 
       {currentUserId ? (
         <CreatePlaylistModal
@@ -779,7 +809,7 @@ export default function Actions({
       <ShareModal
         open={shareModalOpen}
         onOpenChange={setShareModalOpen}
-        shareUrl={buildPageShareUrl(uniqueId, resolveShareSeconds())}
+        shareUrl={buildPageShareUrl(pagePathForShare, resolveShareSeconds())}
         currentTime={currentTime}
       />
     </>

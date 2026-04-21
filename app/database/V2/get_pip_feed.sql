@@ -46,7 +46,8 @@ RETURNS TABLE (
   owner_verified    boolean,
   owner_about       text,
   user_has_liked    boolean,
-  user_has_disliked boolean
+  user_has_disliked boolean,
+  feed_reel_cluster_id bigint
 )
 LANGUAGE plpgsql
 STABLE
@@ -324,54 +325,111 @@ BEGIN
           DESC
       ) AS _final_pos
     FROM combined c
+  ),
+
+  _pip_feed_page AS (
+    SELECT
+      s.id,
+      s.created_at,
+      s.endpoint,
+      s.filename,
+      s.unique_id,
+      s.file_size,
+      s.file_type,
+      s.is_adult,
+      s.owner_id,
+      s.is_public,
+      s.file_description,
+      s.file_title,
+      s.default_thumbnail,
+      s.view_count,
+      s.share_count,
+      s.is_reel,
+      s.duration,
+      s.categories,
+      s.tags,
+      s.colors,
+      s.metadata,
+      s._like_count,
+      s._dislike_count,
+      s._comment_count,
+      (
+        LEAST(s._eng_velocity / 5.0, 1.0) * 25.0
+        + s._like_ratio * 20.0
+        + EXP(-s._hours_old / 168.0)::float * 20.0
+        + LN(GREATEST(s._total_eng, 1))::float * 15.0
+        + LEAST(s._cat_affinity / 5.0, 10.0)
+        + (CASE WHEN s._is_subscribed THEN 10.0 ELSE 0.0 END)
+      )::float AS engagement_score,
+      s._pool,
+      u.username,
+      u.profile_pic,
+      u.verified,
+      u.about,
+      s._user_liked,
+      s._user_disliked,
+      s._final_pos
+    FROM shuffled s
+    JOIN users u ON u.id = s.owner_id
+    WHERE s._final_pos > p_cursor_pos
+    ORDER BY s._final_pos ASC
+    LIMIT p_limit
+  ),
+  _pip_feed_marked AS (
+    SELECT
+      fp.*,
+      CASE
+        WHEN COALESCE(fp.is_reel, false) IS NOT TRUE THEN fp._final_pos
+        WHEN NOT COALESCE(LAG(fp.is_reel) OVER (ORDER BY fp._final_pos), false) THEN fp._final_pos
+        ELSE NULL
+      END AS _cluster_start
+    FROM _pip_feed_page fp
+  ),
+  _pip_feed_clustered AS (
+    SELECT
+      fm.*,
+      MAX(fm._cluster_start) OVER (
+        ORDER BY fm._final_pos ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+      ) AS feed_reel_cluster_id
+    FROM _pip_feed_marked fm
   )
 
   SELECT
-    s.id,
-    s.created_at,
-    s.endpoint,
-    s.filename,
-    s.unique_id,
-    s.file_size,
-    s.file_type,
-    s.is_adult,
-    s.owner_id,
-    s.is_public,
-    s.file_description,
-    s.file_title,
-    s.default_thumbnail,
-    s.view_count,
-    s.share_count,
-    s.is_reel,
-    s.duration,
-    s.categories,
-    s.tags,
-    s.colors,
-    s.metadata,
-    s._like_count,
-    s._dislike_count,
-    s._comment_count,
-    -- Smart engagement score: velocity + like ratio + recency + category + sub boost
-    (
-      LEAST(s._eng_velocity / 5.0, 1.0) * 25.0            -- velocity (max 25)
-      + s._like_ratio * 20.0                                -- like ratio (max 20)
-      + EXP(-s._hours_old / 168.0)::float * 20.0           -- exponential decay over 1 week (max 20)
-      + LN(GREATEST(s._total_eng, 1))::float * 15.0        -- total engagement (log scale)
-      + LEAST(s._cat_affinity / 5.0, 10.0)                 -- category match (max 10)
-      + (CASE WHEN s._is_subscribed THEN 10.0 ELSE 0.0 END) -- subscription bonus
-    )::float AS engagement_score,
-    s._pool,
-    u.username,
-    u.profile_pic,
-    u.verified,
-    u.about,
-    s._user_liked,
-    s._user_disliked
-  FROM shuffled s
-  JOIN users u ON u.id = s.owner_id
-  WHERE s._final_pos > p_cursor_pos
-  ORDER BY s._final_pos ASC
-  LIMIT p_limit;
+    fc.id,
+    fc.created_at,
+    fc.endpoint,
+    fc.filename,
+    fc.unique_id,
+    fc.file_size,
+    fc.file_type,
+    fc.is_adult,
+    fc.owner_id,
+    fc.is_public,
+    fc.file_description,
+    fc.file_title,
+    fc.default_thumbnail,
+    fc.view_count,
+    fc.share_count,
+    fc.is_reel,
+    fc.duration,
+    fc.categories,
+    fc.tags,
+    fc.colors,
+    fc.metadata,
+    fc._like_count,
+    fc._dislike_count,
+    fc._comment_count,
+    fc.engagement_score,
+    fc._pool,
+    fc.username,
+    fc.profile_pic,
+    fc.verified,
+    fc.about,
+    fc._user_liked,
+    fc._user_disliked,
+    fc.feed_reel_cluster_id
+  FROM _pip_feed_clustered fc
+  ORDER BY fc._final_pos ASC;
 END;
 $$;
 

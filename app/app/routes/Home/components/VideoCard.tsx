@@ -5,7 +5,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Input } from "~/components/ui/input";
 import { Textarea } from "~/components/ui/textarea";
 import { Button } from "~/components/ui/button";
-import type { FileType } from "~/lib/types";
+import { type FileType, fileWatchPath } from "~/lib/types";
 import ImageLoad from "./ImageLoad/ImageLoad";
 import { cn, getThumbnailUrl } from "~/lib/utils";
 import ParseFilenameInsert from "~/lib/utils/ShowFileName";
@@ -50,7 +50,7 @@ function isSeriesFile(f: FileType): boolean {
   return t(f.is_series_main) || t(f.is_series_episode) || t(f.is_files_series_item);
 }
 
-type LayoutType = "default" | "horizontal" | "compact";
+type LayoutType = "default" | "horizontal" | "compact" | "reelStrip";
 
 interface VideoCardProps {
   data: FileType;
@@ -109,6 +109,10 @@ const VideoCard = ({ data, index, currentUserId, userActions, onUpdate, showOwne
   const [isSaving, setIsSaving] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
   const [infoModalOpen, setInfoModalOpen] = useState(false);
+  const watchPath = useMemo(
+    () => fileWatchPath(data),
+    [data.is_reel, data.id, data.unique_id],
+  );
   // Thumbnail edit state
   const [selectedThumbPath, setSelectedThumbPath] = useState<string | null>(null);
   const [customThumbFile, setCustomThumbFile] = useState<File | null>(null);
@@ -1735,9 +1739,9 @@ const VideoCard = ({ data, index, currentUserId, userActions, onUpdate, showOwne
         <Link
           onClick={(e) => {
             e.preventDefault();
-            nav(`/${data.unique_id}`);
+            nav(watchPath);
           }}
-          to={`/${data.unique_id}`}
+          to={watchPath}
           className={
             related
               ? "relative aspect-video w-28 max-w-[42%] shrink-0 overflow-hidden rounded-md bg-card sm:w-32 sm:max-w-[40%] sm:rounded-lg"
@@ -1749,7 +1753,7 @@ const VideoCard = ({ data, index, currentUserId, userActions, onUpdate, showOwne
 
         <div className="flex-1 min-w-0 flex flex-col justify-center py-0.5 w-full">
           <div className="flex items-start justify-between gap-2">
-            <Link to={`/${data.unique_id}`} className="hover:text-primary transition-colors flex-1 min-w-0">
+            <Link to={watchPath} className="hover:text-primary transition-colors flex-1 min-w-0">
               <h3 className="text-sm font-semibold leading-tight line-clamp-2">
                 <ParseFilenameInsert filename={data.file_title || data.filename} showLimit={60} />
               </h3>
@@ -1802,6 +1806,7 @@ const VideoCard = ({ data, index, currentUserId, userActions, onUpdate, showOwne
               layout={actionsLayout}
               fileId={data.id ?? ""}
               uniqueId={data.unique_id}
+              sharePagePath={watchPath}
               likeCount={likeCount}
               dislikeCount={dislikeCount}
               commentCount={commentCount}
@@ -1822,22 +1827,82 @@ const VideoCard = ({ data, index, currentUserId, userActions, onUpdate, showOwne
     );
   }
 
+  if (layout === "reelStrip") {
+    return (
+      <div className="group relative flex w-full flex-col">
+        <Link
+          onClick={(e) => {
+            e.preventDefault();
+            nav(watchPath);
+          }}
+          to={watchPath}
+          className="relative block aspect-[9/16] w-full shrink-0 overflow-hidden rounded-xl bg-muted outline-none ring-0 transition-opacity hover:opacity-95"
+        >
+          {renderThumbnail("h-full w-full")}
+        </Link>
+
+        <div className="mt-2 min-w-0">
+          <div className="flex items-start gap-1">
+            <Link
+              onClick={(e) => {
+                e.preventDefault();
+                nav(watchPath);
+              }}
+              to={watchPath}
+              className="min-w-0 flex-1 hover:opacity-90"
+            >
+              <h3 className="line-clamp-2 text-left text-sm font-semibold leading-tight tracking-tight text-foreground">
+                <ParseFilenameInsert filename={data.file_title || data.filename} showLimit={56} />
+              </h3>
+            </Link>
+            <div className="shrink-0 -mr-1 -mt-1">
+              <Actions
+                layout="shortsShelf"
+                fileId={data.id ?? ""}
+                uniqueId={data.unique_id}
+                sharePagePath={watchPath}
+                likeCount={likeCount}
+                dislikeCount={dislikeCount}
+                commentCount={commentCount}
+                liked={liked}
+                disliked={disliked}
+                isOwner={isOwner}
+                onEdit={isOwner ? () => setIsEditing(true) : undefined}
+                onUpdate={currentUserId ? handleInteractionUpdate : undefined}
+                currentUserId={currentUserId}
+                fileCreatedAt={data.created_at}
+              />
+            </div>
+          </div>
+          {viewCount > 0 ? (
+            <p className="mt-1 text-xs leading-snug text-muted-foreground">
+              {formatViews(viewCount)} views
+            </p>
+          ) : null}
+        </div>
+
+        {renderEditDialog()}
+        {renderInfoDialog()}
+      </div>
+    );
+  }
+
   if (layout === "compact") {
     return (
       <div className="group flex gap-2 rounded-lg p-1.5 transition-colors hover:bg-muted/50">
         <Link
           onClick={(e) => {
             e.preventDefault();
-            nav(`/${data.unique_id}`);
+            nav(watchPath);
           }}
-          to={`/${data.unique_id}`}
+          to={watchPath}
           className="relative aspect-video w-24 max-h-24 shrink-0 overflow-hidden rounded-lg bg-card"
         >
           {renderThumbnail("h-full w-full")}
         </Link>
 
         <div className="flex min-w-0 flex-1 flex-col justify-center">
-          <Link to={`/${data.unique_id}`} className="hover:text-primary transition-colors">
+          <Link to={watchPath} className="hover:text-primary transition-colors">
             <h3 className="line-clamp-2 text-xs font-medium leading-tight">
               <ParseFilenameInsert filename={data.file_title || data.filename} showLimit={40} />
             </h3>
@@ -1854,6 +1919,7 @@ const VideoCard = ({ data, index, currentUserId, userActions, onUpdate, showOwne
               layout={actionsLayout}
               fileId={data.id ?? ""}
               uniqueId={data.unique_id}
+              sharePagePath={watchPath}
               likeCount={likeCount}
               dislikeCount={dislikeCount}
               commentCount={commentCount}
@@ -1879,9 +1945,9 @@ const VideoCard = ({ data, index, currentUserId, userActions, onUpdate, showOwne
       <Link
         onClick={(e) => {
           e.preventDefault();
-          nav(`/${data.unique_id}`);
+          nav(watchPath);
         }}
-        to={`/${data.unique_id}`}
+        to={watchPath}
         className="w-full bg-card rounded-2xl overflow-hidden relative aspect-video group-hover:z-[1000000] z-[10]"
       >
         {renderThumbnail("w-full h-full")}
@@ -1908,7 +1974,7 @@ const VideoCard = ({ data, index, currentUserId, userActions, onUpdate, showOwne
           )}
           <div className="flex min-h-[2.5rem] min-w-0 flex-1 flex-col justify-center">
             <div className="flex items-start gap-1.5">
-              <Link to={`/${data.unique_id}`} className="min-w-0 flex-1 hover:text-primary transition-colors">
+              <Link to={watchPath} className="min-w-0 flex-1 hover:text-primary transition-colors">
                 <h3 className="line-clamp-2 text-sm font-semibold leading-tight md:text-base">
                   <ParseFilenameInsert filename={data.file_title || data.filename} showLimit={50} />
                 </h3>
@@ -1956,6 +2022,7 @@ const VideoCard = ({ data, index, currentUserId, userActions, onUpdate, showOwne
             layout={actionsLayout}
             fileId={data.id ?? ""}
             uniqueId={data.unique_id}
+            sharePagePath={watchPath}
             likeCount={likeCount}
             dislikeCount={dislikeCount}
             commentCount={commentCount}

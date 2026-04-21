@@ -49,6 +49,8 @@ type PlayQueueContextValue = {
   insertOrMoveAt: (video: FileType, beforeIndex: number) => void;
   reorderQueue: (fromIndex: number, toIndex: number) => void;
   resetQueue: () => void;
+  /** Replace the working queue with these videos (deduped, excludes current). Viewer-only. */
+  replaceQueueWith: (videos: FileType[]) => void;
   isInQueue: (fileId: string) => boolean;
   /** Signed-in users only: customize queue, drag-and-drop, and add from sidebar. */
   viewerCanCustomizeQueue: boolean;
@@ -184,6 +186,16 @@ export function PlayQueueProvider({
     setIsCustomized(false);
   }, [defaultQueue, viewerCanCustomizeQueue]);
 
+  const replaceQueueWith = useCallback(
+    (videos: FileType[]) => {
+      if (!viewerCanCustomizeQueue) return;
+      const next = dedupeById(videos).filter((v) => v.unique_id !== currentUniqueId);
+      setQueue(next);
+      setIsCustomized(true);
+    },
+    [viewerCanCustomizeQueue, currentUniqueId]
+  );
+
   const effectiveSeriesUpNext =
     viewerCanCustomizeQueue && isCustomized ? [] : seriesUpNextVideos;
   const effectiveSuggested =
@@ -210,6 +222,7 @@ export function PlayQueueProvider({
       insertOrMoveAt,
       reorderQueue,
       resetQueue,
+      replaceQueueWith,
       isInQueue,
       viewerCanCustomizeQueue,
     }),
@@ -227,6 +240,7 @@ export function PlayQueueProvider({
       insertOrMoveAt,
       reorderQueue,
       resetQueue,
+      replaceQueueWith,
       isInQueue,
       viewerCanCustomizeQueue,
     ]

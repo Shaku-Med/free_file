@@ -1,4 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { Swiper, SwiperSlide } from "swiper/react";
+import { A11y, Keyboard, Navigation, Pagination } from "swiper/modules";
+import type { Swiper as SwiperType } from "swiper";
+import "swiper/css";
+import "swiper/css/navigation";
+import "swiper/css/pagination";
 import {
   data,
   redirect,
@@ -14,6 +20,7 @@ import { filterFilesByAccess } from "~/routes/Api/fun/accessControl";
 import { enrichFeedFilesWithInteractions } from "~/routes/Api/fun/enrichFeedFiles";
 import VideoCard from "~/routes/Home/components/VideoCard";
 import type { FileType } from "~/lib/types";
+import { groupConsecutiveReelClusters } from "~/lib/feed/groupConsecutiveReelClusters";
 import { useFileContext } from "~/lib/Context/Context";
 import OwnerProfile from "~/components/OwnerProfile/OwnerProfile";
 import { getProfilePicUrl } from "~/lib/utils/profilePic";
@@ -564,16 +571,76 @@ export default function SubscriptionsPage() {
               Latest
             </h2>
             <div className="grid grid-cols-1 gap-x-4 gap-y-6 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
-              {files.map((file, index) => (
-                <div key={file.id || index} className="min-w-0">
-                  <VideoCard
-                    data={file}
-                    index={index}
-                    currentUserId={userId || undefined}
-                    userActions={userActions}
-                  />
-                </div>
-              ))}
+              {(() => {
+                const groups = groupConsecutiveReelClusters(files);
+                let indexCounter = 0;
+                return groups.map((g) => {
+                  if (g.kind === "single") {
+                    const file = g.file;
+                    const index = indexCounter++;
+                    return (
+                      <div key={file.id || index} className="min-w-0">
+                        <VideoCard
+                          data={file}
+                          index={index}
+                          currentUserId={userId || undefined}
+                          userActions={userActions}
+                        />
+                      </div>
+                    );
+                  }
+                  const clusterKey = g.files[0]?.feed_reel_cluster_id ?? g.files[0]?.id;
+                  return (
+                    <div
+                      key={`reel-${clusterKey}`}
+                      className="col-span-full w-full min-w-0 max-w-full overflow-hidden"
+                    >
+                      <Swiper
+                        modules={[Navigation, Pagination, A11y, Keyboard]}
+                        slidesPerView={1.15}
+                        spaceBetween={10}
+                        speed={380}
+                        watchOverflow
+                        observer
+                        observeParents
+                        resizeObserver
+                        navigation
+                        keyboard={{ enabled: true, onlyInViewport: true }}
+                        pagination={{
+                          clickable: true,
+                          dynamicBullets: g.files.length > 5,
+                        }}
+                        breakpoints={{
+                          640: { slidesPerView: 2.5, spaceBetween: 12 },
+                          768: { slidesPerView: 3, spaceBetween: 12 },
+                          1024: { slidesPerView: 3.5, spaceBetween: 14 },
+                          1280: { slidesPerView: 4, spaceBetween: 14 },
+                          1536: { slidesPerView: 5, spaceBetween: 16 },
+                        }}
+                        className="feed-reel-swiper"
+                        onInit={(swiper: SwiperType) => {
+                          swiper.update();
+                        }}
+                      >
+                        {g.files.map((file) => {
+                          const index = indexCounter++;
+                          return (
+                            <SwiperSlide key={file.id || file.unique_id} className="!h-auto">
+                              <VideoCard
+                                data={file}
+                                layout="reelStrip"
+                                index={index}
+                                currentUserId={userId || undefined}
+                                userActions={userActions}
+                              />
+                            </SwiperSlide>
+                          );
+                        })}
+                      </Swiper>
+                    </div>
+                  );
+                });
+              })()}
             </div>
 
             {isLoading && (

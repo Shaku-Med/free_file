@@ -121,6 +121,10 @@ export const loader = async ({ request }: { request: Request }) => {
         view_count: file.view_count,
         share_count: file.share_count,
         is_reel: file.is_reel,
+        feed_reel_cluster_id:
+          file.feed_reel_cluster_id != null && file.feed_reel_cluster_id !== ''
+            ? Number(file.feed_reel_cluster_id)
+            : null,
         duration: file.duration,
         categories: file.categories,
         tags: file.tags,

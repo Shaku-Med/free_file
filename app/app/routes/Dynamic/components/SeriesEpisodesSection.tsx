@@ -7,10 +7,16 @@ import {
   type SetStateAction,
 } from "react";
 import type { FileType, SeriesEpisodeGroup } from "~/lib/types";
+import { Link } from "react-router";
 import VideoCard from "~/routes/Home/components/VideoCard";
-import { ChevronRight, Layers } from "lucide-react";
+import { Button } from "~/components/ui/button";
+import { ChevronRight, Layers, Link2, ListVideo } from "lucide-react";
 import { cn } from "~/lib/utils";
 import { usePlayQueueOptional } from "./PlayQueueContext";
+import {
+  flattenSeriesEpisodesInOrder,
+  getSeriesUpNextVideos,
+} from "../fun/mapSeriesRpcRows";
 import {
   Collapsible,
   CollapsibleContent,
@@ -72,6 +78,8 @@ function buildEpisodeOpenInitial(
 interface SeriesEpisodesSectionProps {
   episodes: SeriesEpisodeGroup[];
   currentVideoUniqueId: string;
+  /** For “continue watching” / last episode in this series (device localStorage). */
+  fileSeriesId?: string | null;
   currentUserId?: string;
   userActions?: { likedFileIds: Set<string>; dislikedFileIds: Set<string> };
 }
@@ -274,6 +282,7 @@ function EpisodeBlock({
 export default function SeriesEpisodesSection({
   episodes,
   currentVideoUniqueId,
+  fileSeriesId,
   currentUserId,
   userActions,
 }: SeriesEpisodesSectionProps) {
@@ -283,10 +292,28 @@ export default function SeriesEpisodesSection({
     : undefined;
   const inPlayQueue = (fileId: string) => playQueue?.isInQueue(fileId) ?? false;
 
+  const seriesNext = useMemo(
+    () => getSeriesUpNextVideos(episodes, currentVideoUniqueId),
+    [episodes, currentVideoUniqueId]
+  );
+
+  const resumeTarget = useMemo(() => {
+    if (!fileSeriesId || typeof localStorage === "undefined") return null;
+    try {
+      const raw = localStorage.getItem(`seriesLastWatch:${fileSeriesId}`);
+      if (!raw || raw === currentVideoUniqueId) return null;
+      const flat = flattenSeriesEpisodesInOrder(episodes);
+      return flat.find((v) => v.unique_id === raw) ?? null;
+    } catch {
+      return null;
+    }
+  }, [fileSeriesId, currentVideoUniqueId, episodes]);
+
   const [seriesOpen, setSeriesOpen] = useState(true);
   const [episodeOpen, setEpisodeOpen] = useState<Record<string, boolean>>(() =>
     buildEpisodeOpenInitial(episodes, currentVideoUniqueId)
   );
+  const [episodeLinkCopied, setEpisodeLinkCopied] = useState(false);
 
   const episodeKey = useMemo(
     () => collectEpisodeIds(episodes).join("|"),
@@ -308,35 +335,93 @@ export default function SeriesEpisodesSection({
 
   if (!episodes.length) return null;
 
+  const episodeUrl =
+    typeof window !== "undefined"
+      ? `${window.location.origin}/${currentVideoUniqueId}`
+      : `/${currentVideoUniqueId}`;
+
+  const copyEpisodeLink = async () => {
+    try {
+      await navigator.clipboard.writeText(episodeUrl);
+      setEpisodeLinkCopied(true);
+      window.setTimeout(() => setEpisodeLinkCopied(false), 2000);
+    } catch {
+      /* ignore */
+    }
+  };
+
   return (
     <section className="mb-4 min-w-0 rounded-lg border border-border/60 bg-card/40 sm:mb-5" aria-label="Series">
       <Collapsible open={seriesOpen} onOpenChange={setSeriesOpen}>
-        <CollapsibleTrigger asChild>
-          <button
-            type="button"
-            className={cn(
-              "flex w-full min-w-0 items-center justify-between gap-2 border-b border-border/50 px-3 py-2 text-left transition-colors",
-              "hover:bg-muted/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/35 focus-visible:ring-inset",
-              "data-[state=open]:bg-muted/15"
-            )}
-          >
-            <div className="flex min-w-0 items-center gap-2">
-              <Layers className="h-4 w-4 shrink-0 text-muted-foreground" strokeWidth={2} aria-hidden />
-              <span className="truncate text-sm font-semibold text-foreground">Series</span>
-              <span className="text-xs text-muted-foreground tabular-nums">({totalVideos})</span>
-            </div>
-            <ChevronRight
+        <div className="flex min-w-0 items-stretch border-b border-border/50">
+          <CollapsibleTrigger asChild>
+            <button
+              type="button"
               className={cn(
-                "h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-200 ease-out",
-                seriesOpen && "rotate-90"
+                "flex min-w-0 flex-1 items-center justify-between gap-2 px-3 py-2 text-left transition-colors",
+                "hover:bg-muted/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/35 focus-visible:ring-inset",
+                "data-[state=open]:bg-muted/15"
               )}
-              strokeWidth={2}
-              aria-hidden
-            />
-          </button>
-        </CollapsibleTrigger>
+            >
+              <div className="flex min-w-0 items-center gap-2">
+                <Layers className="h-4 w-4 shrink-0 text-muted-foreground" strokeWidth={2} aria-hidden />
+                <span className="truncate text-sm font-semibold text-foreground">Series</span>
+                <span className="text-xs text-muted-foreground tabular-nums">({totalVideos})</span>
+              </div>
+              <ChevronRight
+                className={cn(
+                  "h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-200 ease-out",
+                  seriesOpen && "rotate-90"
+                )}
+                strokeWidth={2}
+                aria-hidden
+              />
+            </button>
+          </CollapsibleTrigger>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="h-auto shrink-0 rounded-none border-l border-border/50 px-3 text-muted-foreground hover:text-foreground"
+            onClick={(e) => {
+              e.preventDefault();
+              void copyEpisodeLink();
+            }}
+            aria-label="Copy link to this episode"
+            title={episodeLinkCopied ? "Copied" : "Copy episode link"}
+          >
+            <Link2 className="h-4 w-4" strokeWidth={2} aria-hidden />
+          </Button>
+        </div>
 
         <CollapsibleContent>
+          {(resumeTarget || (playQueue?.viewerCanCustomizeQueue && seriesNext.length > 0)) && (
+            <div className="space-y-2 border-b border-border/50 bg-muted/15 px-2 py-2">
+              {resumeTarget ? (
+                <Link
+                  to={`/${resumeTarget.unique_id}`}
+                  className="flex min-w-0 flex-col gap-0.5 rounded-lg border border-border/60 bg-background px-2.5 py-2 text-left text-xs transition-colors hover:bg-accent/50 sm:flex-row sm:items-center sm:justify-between sm:gap-2"
+                >
+                  <span className="font-semibold text-primary">Continue watching</span>
+                  <span className="truncate text-muted-foreground">
+                    {resumeTarget.file_title?.trim() || resumeTarget.filename || "Open episode"}
+                  </span>
+                </Link>
+              ) : null}
+              {playQueue?.viewerCanCustomizeQueue && seriesNext.length > 0 ? (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="secondary"
+                  className="h-9 w-full gap-1.5 text-xs"
+                  onClick={() => playQueue.replaceQueueWith(seriesNext)}
+                >
+                  <ListVideo className="h-3.5 w-3.5 shrink-0" />
+                  Queue {seriesNext.length} more in series order
+                </Button>
+              ) : null}
+            </div>
+          )}
           <div className="flex max-h-[min(36dvh,240px)] flex-col overflow-hidden sm:max-h-[min(40vh,280px)]">
             <ul className="m-0 list-none space-y-2 overflow-y-auto overscroll-contain px-1 py-2 [scrollbar-gutter:stable]">
               {episodes.map((ep) => (
