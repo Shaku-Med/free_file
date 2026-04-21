@@ -6,10 +6,11 @@ import {
   type ReactNode,
   type SetStateAction,
 } from "react";
-import type { SeriesEpisodeGroup } from "~/lib/types";
+import type { FileType, SeriesEpisodeGroup } from "~/lib/types";
 import VideoCard from "~/routes/Home/components/VideoCard";
 import { ChevronRight, Layers } from "lucide-react";
 import { cn } from "~/lib/utils";
+import { usePlayQueueOptional } from "./PlayQueueContext";
 import {
   Collapsible,
   CollapsibleContent,
@@ -136,6 +137,8 @@ function EpisodeBlock({
   userActions,
   episodeOpen,
   setEpisodeOpen,
+  onAddToPlayQueue,
+  inPlayQueue,
 }: {
   ep: SeriesEpisodeGroup;
   depth: number;
@@ -144,6 +147,8 @@ function EpisodeBlock({
   userActions?: { likedFileIds: Set<string>; dislikedFileIds: Set<string> };
   episodeOpen: Record<string, boolean>;
   setEpisodeOpen: Dispatch<SetStateAction<Record<string, boolean>>>;
+  onAddToPlayQueue?: (video: FileType) => void;
+  inPlayQueue: (fileId: string) => boolean;
 }) {
   const label = ep.episode_name?.trim() || "Episode";
   const part =
@@ -166,11 +171,10 @@ function EpisodeBlock({
         <button
           type="button"
           className={cn(
-            "flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-left transition-colors",
-            "hover:bg-muted/45 active:scale-[0.998]",
-            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30 focus-visible:ring-inset",
-            "data-[state=open]:bg-muted/30",
-            !isRoot && "py-2"
+            "flex w-full items-center gap-2 border-b border-border/50 px-3 py-2 text-left transition-colors",
+            "hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30 focus-visible:ring-inset",
+            "data-[state=open]:bg-muted/25",
+            !isRoot && "px-2"
           )}
         >
           <ChevronRight
@@ -181,11 +185,11 @@ function EpisodeBlock({
             strokeWidth={2}
             aria-hidden
           />
-          <div className="flex min-w-0 flex-1 items-center justify-between gap-3">
-            <span className="truncate text-[14px] font-medium leading-snug text-foreground">
+          <div className="flex min-w-0 flex-1 items-center justify-between gap-2">
+            <span className="truncate text-sm font-semibold leading-snug text-foreground">
               {label}
             </span>
-            <span className="shrink-0 text-[12px] tabular-nums text-muted-foreground">
+            <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
               {[part, `${totalVideos} video${totalVideos === 1 ? "" : "s"}`]
                 .filter(Boolean)
                 .join(" · ")}
@@ -194,44 +198,47 @@ function EpisodeBlock({
         </button>
       </CollapsibleTrigger>
       <CollapsibleContent>
-        <div className="space-y-3 px-3 pb-3 pt-1">
-          <div
-            className={cn(
-              "overflow-hidden rounded-lg border border-border/35 bg-background/50",
-              "py-1.5 pl-2 pr-1.5"
-            )}
-          >
+        <div className="space-y-2 pb-2 pt-0">
+          <ul className="m-0 list-none px-1">
             {ep.items.map((video, index) => {
               const isCurrent = video.unique_id === currentVideoUniqueId;
               return (
-                <div
+                <li
                   key={video.unique_id}
                   className={cn(
-                    "rounded-md transition-colors",
-                    isCurrent && "bg-primary/[0.07] ring-1 ring-primary/18"
+                    "flex items-stretch gap-2 border-b border-border/50 py-1 pl-1 pr-0 last:border-b-0",
+                    isCurrent && "rounded-md bg-primary/[0.07] ring-1 ring-primary/18"
                   )}
                 >
-                  <VideoCard
-                    layout="horizontal"
-                    data={video}
-                    index={index}
-                    currentUserId={currentUserId}
-                    userActions={userActions}
-                  />
-                </div>
+                  {/* Align with play queue rows: spacer column matches grip width */}
+                  <div className="flex w-7 shrink-0 items-start justify-center pt-2" aria-hidden>
+                    {isCurrent ? (
+                      <span className="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-primary shadow-sm ring-2 ring-primary/25" />
+                    ) : null}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <VideoCard
+                      layout="horizontal"
+                      related
+                      data={video}
+                      index={index}
+                      currentUserId={currentUserId}
+                      userActions={userActions}
+                      onAddToPlayQueue={onAddToPlayQueue}
+                      inPlayQueue={inPlayQueue(video.id)}
+                    />
+                  </div>
+                  {/* Balance queue remove-button column */}
+                  <div className="w-8 shrink-0" aria-hidden />
+                </li>
               );
             })}
-          </div>
+          </ul>
           {nestedCount > 0 && ep.nested && (
             <NestedEpisodeThread>
               {ep.nested.map((child) => (
                 <NestedEpisodeRow key={child.episode_id}>
-                  <div
-                    className={cn(
-                      "overflow-hidden rounded-xl border border-border/45 bg-muted/15",
-                      "shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]"
-                    )}
-                  >
+                  <div className="overflow-hidden rounded-lg border border-border/50 bg-muted/15">
                     <EpisodeBlock
                       ep={child}
                       depth={depth + 1}
@@ -240,6 +247,8 @@ function EpisodeBlock({
                       userActions={userActions}
                       episodeOpen={episodeOpen}
                       setEpisodeOpen={setEpisodeOpen}
+                      onAddToPlayQueue={onAddToPlayQueue}
+                      inPlayQueue={inPlayQueue}
                     />
                   </div>
                 </NestedEpisodeRow>
@@ -253,15 +262,8 @@ function EpisodeBlock({
 
   if (isRoot) {
     return (
-      <li className="min-w-0 list-none">
-        <div
-          className={cn(
-            "overflow-hidden rounded-xl border border-border/50 bg-muted/15",
-            "shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]"
-          )}
-        >
-          {block}
-        </div>
+      <li className="min-w-0 list-none overflow-hidden rounded-lg border border-border/50 bg-card/30">
+        {block}
       </li>
     );
   }
@@ -275,6 +277,12 @@ export default function SeriesEpisodesSection({
   currentUserId,
   userActions,
 }: SeriesEpisodesSectionProps) {
+  const playQueue = usePlayQueueOptional();
+  const onAddToPlayQueue = playQueue?.viewerCanCustomizeQueue
+    ? (video: FileType) => playQueue.addToQueue(video)
+    : undefined;
+  const inPlayQueue = (fileId: string) => playQueue?.isInQueue(fileId) ?? false;
+
   const [seriesOpen, setSeriesOpen] = useState(true);
   const [episodeOpen, setEpisodeOpen] = useState<Record<string, boolean>>(() =>
     buildEpisodeOpenInitial(episodes, currentVideoUniqueId)
@@ -301,48 +309,36 @@ export default function SeriesEpisodesSection({
   if (!episodes.length) return null;
 
   return (
-    <section
-      className={cn(
-        "mb-4 min-w-0 overflow-hidden rounded-xl border border-border/60 bg-card/40 sm:mb-5",
-        "shadow-sm"
-      )}
-      aria-label="Series"
-    >
+    <section className="mb-4 min-w-0 rounded-lg border border-border/60 bg-card/40 sm:mb-5" aria-label="Series">
       <Collapsible open={seriesOpen} onOpenChange={setSeriesOpen}>
         <CollapsibleTrigger asChild>
           <button
             type="button"
             className={cn(
-              "flex w-full min-w-0 items-center gap-2.5 px-3 py-3 text-left transition-colors sm:gap-3 sm:px-4 sm:py-3.5",
-              "hover:bg-muted/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/35 focus-visible:ring-offset-2 focus-visible:ring-offset-background",
-              "data-[state=open]:border-b data-[state=open]:border-border/40"
+              "flex w-full min-w-0 items-center justify-between gap-2 border-b border-border/50 px-3 py-2 text-left transition-colors",
+              "hover:bg-muted/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/35 focus-visible:ring-inset",
+              "data-[state=open]:bg-muted/15"
             )}
           >
-            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary ring-1 ring-primary/15">
-              <Layers className="h-4 w-4" strokeWidth={2} aria-hidden />
-            </span>
-            <div className="min-w-0 flex-1">
-              <p className="text-[15px] font-semibold leading-snug text-foreground">
-                Series
-              </p>
-              <p className="text-[12px] text-muted-foreground">
-                {totalVideos} video{totalVideos === 1 ? "" : "s"}
-              </p>
+            <div className="flex min-w-0 items-center gap-2">
+              <Layers className="h-4 w-4 shrink-0 text-muted-foreground" strokeWidth={2} aria-hidden />
+              <span className="truncate text-sm font-semibold text-foreground">Series</span>
+              <span className="text-xs text-muted-foreground tabular-nums">({totalVideos})</span>
             </div>
             <ChevronRight
               className={cn(
-                "h-5 w-5 shrink-0 text-muted-foreground transition-transform duration-300 ease-out",
+                "h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-200 ease-out",
                 seriesOpen && "rotate-90"
               )}
-              strokeWidth={1.75}
+              strokeWidth={2}
               aria-hidden
             />
           </button>
         </CollapsibleTrigger>
 
         <CollapsibleContent>
-          <div className="max-h-[min(72vh,560px)] overflow-y-auto overscroll-contain px-3 pb-3 pt-0.5 [scrollbar-gutter:stable]">
-            <ul className="m-0 list-none space-y-3 p-0">
+          <div className="flex max-h-[min(36dvh,240px)] flex-col overflow-hidden sm:max-h-[min(40vh,280px)]">
+            <ul className="m-0 list-none space-y-2 overflow-y-auto overscroll-contain px-1 py-2 [scrollbar-gutter:stable]">
               {episodes.map((ep) => (
                 <EpisodeBlock
                   key={ep.episode_id}
@@ -353,6 +349,8 @@ export default function SeriesEpisodesSection({
                   userActions={userActions}
                   episodeOpen={episodeOpen}
                   setEpisodeOpen={setEpisodeOpen}
+                  onAddToPlayQueue={onAddToPlayQueue}
+                  inPlayQueue={inPlayQueue}
                 />
               ))}
             </ul>

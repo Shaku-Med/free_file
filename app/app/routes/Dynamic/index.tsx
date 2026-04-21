@@ -7,12 +7,7 @@ import RelatedVideos from "./components/RelatedVideos";
 import SeriesEpisodesSection from "./components/SeriesEpisodesSection";
 import SeriesSignInGate from "./components/SeriesSignInGate";
 import type { FileType, SeriesEpisodeGroup } from "~/lib/types";
-import {
-  collectSeriesMemberIds,
-  getSeriesUpNextVideos,
-  groupSeriesRpcRows,
-  mapSeriesRpcRowToFileType,
-} from "./fun/mapSeriesRpcRows";
+import { collectSeriesMemberIds, getSeriesUpNextVideos } from "./fun/mapSeriesRpcRows";
 import { BASE_URL } from "~/lib/URLS";
 import { buildPageMeta } from "~/lib/seo";
 import ImageLoad from "../Home/components/ImageLoad/ImageLoad";
@@ -28,7 +23,6 @@ import AdultContentBadge from "./components/AdultContentBadge";
 import ImagePreview from "./components/ImagePreview/ImagePreview";
 import Actions from "../Home/components/VideoCard/Actions";
 import { isAuthenticated } from "~/lib/Security/Password";
-import { filterFilesByAccess } from "~/routes/Api/fun/accessControl";
 import CommentSection from "./components/Comments/CommentSection";
 import { FormattedText } from "~/components/FormattedText";
 import OwnerProfile from "~/components/OwnerProfile/OwnerProfile";
@@ -48,6 +42,7 @@ import { useMiniPlayerContext } from "~/lib/Context/MiniPlayerContext";
 import { formatTimeAgo } from "~/lib/formatTimeAgo";
 import LiquidAmbientGradient from "./components/LiquidAmbientGradient";
 import { computeGuestPreviewSeconds } from "~/lib/guestPreviewLimit";
+import { filterFilesByAccess } from "~/routes/Api/fun/accessControl";
 
 interface DynamicCachePayload {
   file: any;
@@ -186,46 +181,10 @@ export const loader = async ({ request, params }: { request: Request, params: { 
       })) as FileType[];
     }
 
-    let seriesEpisodes: SeriesEpisodeGroup[] | null = null;
-    let seriesContext: { fileSeriesId: string } | null = null;
+    /** Series episodes load via GET /api/dynamic-series after paint (keeps document HTML small). */
+    const seriesEpisodes: SeriesEpisodeGroup[] | null = null;
+    const seriesContext: { fileSeriesId: string } | null = null;
     const seriesVideosUserActions = { likedFileIds: [] as string[], dislikedFileIds: [] as string[] };
-
-    if (file.file_series_id && file.owner_id) {
-      const { data: seriesRows, error: seriesErr } = await db.rpc(
-        "get_series_episodes_with_items_for_viewer",
-        {
-          p_file_series_id: file.file_series_id,
-          p_series_owner_id: file.owner_id,
-          p_viewer_id: userId,
-        }
-      );
-      if (!seriesErr && Array.isArray(seriesRows) && seriesRows.length > 0) {
-        const forAccess = (seriesRows as Record<string, unknown>[]).map((r) => {
-          const base = mapSeriesRpcRowToFileType(r);
-          return {
-            ...base,
-            is_adult: Boolean(r.is_adult),
-            is_public: r.is_public !== false,
-            owner_id: String(r.owner_id ?? base.owner_id ?? ""),
-            upload_status: typeof r.upload_status === "string" ? r.upload_status : undefined,
-          };
-        });
-        const allowed = await filterFilesByAccess(request, forAccess);
-        const allowedIds = new Set(allowed.map((f) => f.id).filter(Boolean));
-        const filtered = (seriesRows as Record<string, unknown>[]).filter((r) =>
-          allowedIds.has(String(r.id))
-        );
-        const seriesRowsNoAdult = filtered.filter((r) => !Boolean(r.is_adult));
-        if (seriesRowsNoAdult.length > 0) {
-          seriesEpisodes = groupSeriesRpcRows(seriesRowsNoAdult);
-          seriesContext = { fileSeriesId: String(file.file_series_id) };
-          for (const r of seriesRowsNoAdult) {
-            if (r.user_has_liked) seriesVideosUserActions.likedFileIds.push(String(r.id));
-            if (r.user_has_disliked) seriesVideosUserActions.dislikedFileIds.push(String(r.id));
-          }
-        }
-      }
-    }
 
     let userLiked = false;
     let userDisliked = false;
@@ -639,19 +598,97 @@ const index = () => {
   const file_data = effectiveData?.file;
   const data = effectiveData;
 
+  const [seriesFetch, setSeriesFetch] = useState<{
+    episodes: SeriesEpisodeGroup[] | null;
+    loadState: "idle" | "loading" | "done" | "error";
+    userActions: { likedFileIds: string[]; dislikedFileIds: string[] };
+  }>({
+    episodes: null,
+    loadState: "idle",
+    userActions: { likedFileIds: [], dislikedFileIds: [] },
+  });
+
+  const seriesEpisodesResolved = useMemo(
+    () => seriesFetch.episodes ?? data?.seriesEpisodes ?? null,
+    [seriesFetch.episodes, data?.seriesEpisodes]
+  );
+
   const mergedSidebarUserActions = useMemo(
     () => ({
       likedFileIds: new Set([
         ...(data?.relatedVideosUserActions?.likedFileIds ?? []),
+        ...(seriesFetch.loadState === "done" ? seriesFetch.userActions.likedFileIds : []),
         ...(data?.seriesVideosUserActions?.likedFileIds ?? []),
       ]),
       dislikedFileIds: new Set([
         ...(data?.relatedVideosUserActions?.dislikedFileIds ?? []),
+        ...(seriesFetch.loadState === "done" ? seriesFetch.userActions.dislikedFileIds : []),
         ...(data?.seriesVideosUserActions?.dislikedFileIds ?? []),
       ]),
     }),
-    [data?.relatedVideosUserActions, data?.seriesVideosUserActions]
+    [data?.relatedVideosUserActions, data?.seriesVideosUserActions, seriesFetch]
   );
+
+  useEffect(() => {
+    if (!data?.file?.unique_id) return;
+    const uid = data.file.unique_id;
+    const viewerId = data.userId ?? null;
+    if (!viewerId || !data.file.file_series_id || !data.file.owner_id) {
+      setSeriesFetch({
+        episodes: null,
+        loadState: "idle",
+        userActions: { likedFileIds: [], dislikedFileIds: [] },
+      });
+      return;
+    }
+    const ac = new AbortController();
+    setSeriesFetch({
+      episodes: null,
+      loadState: "loading",
+      userActions: { likedFileIds: [], dislikedFileIds: [] },
+    });
+    fetch(`/api/dynamic-series?unique_id=${encodeURIComponent(uid)}`, {
+      credentials: "include",
+      signal: ac.signal,
+    })
+      .then(async (r) => {
+        const j = (await r.json().catch(() => ({}))) as {
+          seriesEpisodes?: SeriesEpisodeGroup[] | null;
+          seriesVideosUserActions?: { likedFileIds: string[]; dislikedFileIds: string[] };
+          error?: string;
+        };
+        if (ac.signal.aborted) return;
+        if (r.status === 403) {
+          setSeriesFetch({
+            episodes: null,
+            loadState: "error",
+            userActions: { likedFileIds: [], dislikedFileIds: [] },
+          });
+          return;
+        }
+        setSeriesFetch({
+          episodes: Array.isArray(j.seriesEpisodes) ? j.seriesEpisodes : null,
+          loadState: "done",
+          userActions: j.seriesVideosUserActions ?? { likedFileIds: [], dislikedFileIds: [] },
+        });
+      })
+      .catch(() => {
+        if (!ac.signal.aborted) {
+          setSeriesFetch({
+            episodes: null,
+            loadState: "error",
+            userActions: { likedFileIds: [], dislikedFileIds: [] },
+          });
+        }
+      });
+    return () => ac.abort();
+  }, [
+    currentId,
+    data?.file?.unique_id,
+    data?.file?.file_series_id,
+    data?.file?.owner_id,
+    data?.userId,
+  ]);
 
   const [views, setViews] = useState<number>(Number(file_data?.views || file_data?.view_count || 0));
   const [shares, setShares] = useState<number>(Number(file_data?.shares || file_data?.share_count || 0));
@@ -915,12 +952,12 @@ const index = () => {
 
   const relatedVideos = data.relatedVideos ?? [];
   const seriesMemberIds = useMemo(
-    () => collectSeriesMemberIds(data?.seriesEpisodes ?? null),
-    [data?.seriesEpisodes]
+    () => collectSeriesMemberIds(seriesEpisodesResolved),
+    [seriesEpisodesResolved]
   );
   const seriesUpNextVideos = useMemo(
-    () => getSeriesUpNextVideos(data?.seriesEpisodes ?? null, currentId ?? ""),
-    [data?.seriesEpisodes, currentId]
+    () => getSeriesUpNextVideos(seriesEpisodesResolved, currentId ?? ""),
+    [seriesEpisodesResolved, currentId]
   );
   const suggestedVideos = useMemo(
     () =>
@@ -1326,37 +1363,54 @@ const index = () => {
   );
 
   /** Below video, above content column on small screens only; lg+ uses sidebar (hidden here). */
-  const seriesAboveContentMobile =
-    data.seriesEpisodes && data.seriesEpisodes.length > 0 ? (
-      <div className="z-[100000] -mt-1 mb-2 min-w-0 lg:hidden">
-        {userId ? (
-          <SeriesEpisodesSection
-            episodes={data.seriesEpisodes}
-            currentVideoUniqueId={file_data.unique_id}
-            currentUserId={userId || undefined}
-            userActions={mergedSidebarUserActions}
-          />
-        ) : (
-          <SeriesSignInGate />
-        )}
-      </div>
-    ) : null;
+  const showSeriesChrome =
+    !!file_data.file_series_id &&
+    (!userId ||
+      seriesFetch.loadState === "loading" ||
+      (seriesEpisodesResolved != null && seriesEpisodesResolved.length > 0));
+
+  const seriesAboveContentMobile = showSeriesChrome ? (
+    <div className="z-[100000] -mt-1 mb-2 min-w-0 lg:hidden">
+      {!userId ? (
+        <SeriesSignInGate />
+      ) : seriesFetch.loadState === "loading" ? (
+        <div
+          className="h-28 animate-pulse rounded-lg border border-border/60 bg-muted/25"
+          aria-busy
+          aria-label="Loading series"
+        />
+      ) : seriesEpisodesResolved && seriesEpisodesResolved.length > 0 ? (
+        <SeriesEpisodesSection
+          episodes={seriesEpisodesResolved}
+          currentVideoUniqueId={file_data.unique_id}
+          currentUserId={userId || undefined}
+          userActions={mergedSidebarUserActions}
+        />
+      ) : null}
+    </div>
+  ) : null;
 
   const relatedColumn = (
     <aside className="min-w-0 lg:col-span-1">
       <div className="space-y-4 lg:sticky lg:top-6">
-        {data.seriesEpisodes && data.seriesEpisodes.length > 0 && (
+        {showSeriesChrome && (
           <div className="hidden lg:block">
-            {userId ? (
+            {!userId ? (
+              <SeriesSignInGate />
+            ) : seriesFetch.loadState === "loading" ? (
+              <div
+                className="h-28 animate-pulse rounded-lg border border-border/60 bg-muted/25"
+                aria-busy
+                aria-label="Loading series"
+              />
+            ) : seriesEpisodesResolved && seriesEpisodesResolved.length > 0 ? (
               <SeriesEpisodesSection
-                episodes={data.seriesEpisodes}
+                episodes={seriesEpisodesResolved}
                 currentVideoUniqueId={file_data.unique_id}
                 currentUserId={userId || undefined}
                 userActions={mergedSidebarUserActions}
               />
-            ) : (
-              <SeriesSignInGate />
-            )}
+            ) : null}
           </div>
         )}
         <div className="min-w-0 rounded-lg border border-border/40 bg-card/30 p-2 sm:p-3 lg:border-0 lg:bg-transparent lg:p-0">

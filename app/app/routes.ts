@@ -50,6 +50,7 @@ export default [
         route(`profile-tab`, 'routes/Api/profile-tab/index.tsx'),
         route(`owner-videos`, 'routes/Api/owner-videos/index.tsx'),
         route(`related-videos`, 'routes/Api/related-videos/index.tsx'),
+        route(`dynamic-series`, 'routes/Api/dynamic-series/index.tsx'),
         route(`download`, 'routes/Api/download/index.tsx'),
         route(`download/status`, 'routes/Api/download/status.tsx'),
         route(`download/cancel`, 'routes/Api/download/cancel.tsx'),
