@@ -158,7 +158,7 @@ func ExtractThumbnails(videoPath, outputDir string) (*ThumbnailResult, error) {
 func GetDuration(videoPath string) (float64, error) {
 	// ffprobe reads container metadata only — ffmpeg -i on multi‑GB files can use huge RAM and get SIGKILL (OOM).
 	args := []string{
-		"-nostdin",
+		// ffprobe does not support -nostdin (ffmpeg-only); including it makes ffprobe exit 1.
 		"-v", "error",
 		"-show_entries", "format=duration",
 		"-of", "default=noprint_wrappers=1:nokey=1",
