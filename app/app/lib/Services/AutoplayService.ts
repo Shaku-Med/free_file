@@ -140,8 +140,26 @@ class AutoplayService {
   }
 
   /**
-   * Attempt to play video with sound
-   * Returns a promise that resolves to true if successful, false if blocked
+   * iOS Safari (including iPadOS "desktop" mode) refuses to start an unmuted video
+   * unless play() is called inside the exact task of a user gesture. We listen for
+   * canplay asynchronously, which always misses that window — so on iOS we never try
+   * to unmute during autoplay. Facebook/YouTube/IG behave the same way: autoplay is
+   * always muted, and sound requires an explicit tap on the unmute button.
+   */
+  private isIOS(): boolean {
+    if (typeof navigator === 'undefined') return false;
+    const ua = navigator.userAgent || '';
+    if (/iPad|iPhone|iPod/.test(ua)) return true;
+    // iPadOS 13+ reports as Mac; distinguish by touch support.
+    return /Mac/.test(ua) && typeof document !== 'undefined' && 'ontouchend' in document;
+  }
+
+  /**
+   * Attempt to play video. On desktop with autoplay-with-sound enabled we try
+   * unmuted first and fall back to muted. On iOS we always stay muted to avoid
+   * tripping the strict gesture policy, which otherwise leaves the video paused
+   * when a stray touch occurred during loading.
+   * Returns true only when the video actually ends up playing with sound.
    */
   async attemptAutoplayWithSound(video: HTMLVideoElement): Promise<boolean> {
     this.ensureInitialized();
@@ -149,26 +167,27 @@ class AutoplayService {
       return false;
     }
 
-    try {
-      // Set muted to false
-      video.muted = false;
-      
-      // Attempt to play
-      await video.play();
-      
-      // If successful, the browser allowed autoplay with sound
-      return true;
-    } catch (error: any) {
-      // Autoplay was blocked
-      console.log('Autoplay with sound blocked:', error.name);
-      
-      // Try muted autoplay as fallback
+    if (this.isIOS()) {
       try {
         video.muted = true;
         await video.play();
-        return false; // Success but muted
-      } catch (mutedError) {
-        console.log('Muted autoplay also blocked');
+      } catch {
+        // Muted autoplay blocked — nothing safe to do here.
+      }
+      return false;
+    }
+
+    try {
+      video.muted = false;
+      await video.play();
+      return true;
+    } catch (error: any) {
+      console.log('Autoplay with sound blocked:', error.name);
+      try {
+        video.muted = true;
+        await video.play();
+        return false;
+      } catch {
         return false;
       }
     }

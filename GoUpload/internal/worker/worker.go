@@ -316,24 +316,43 @@ func (w *Worker) processJob(job *queue.Job) {
 		assembledDir := filepath.Dir(result.OutputPath)
 		w.failJob(job, "thumbnail extraction failed (broken video): "+err.Error(), result.OutputPath, assembledDir, filepath.Dir(assembledDir), thumbDir, filepath.Dir(thumbDir))
 		return
-	} else {
-		w.log.Infof("extracted %d thumbnails job=%s duration=%.2fs", len(thumbResult.Thumbnails), job.ID, thumbResult.Duration)
-		w.notifyRunningProgress(job, 35)
-
-		previewPath, metaPath, perr := ffmpeg.BuildThumbnailPreview(thumbDir, thumbResult)
-		if perr != nil {
-			w.log.Errorf("thumbnail preview failed job=%s err=%s", job.ID, perr.Error())
-		} else {
-			w.log.Infof("thumbnail_preview job=%s preview=%s meta=%s", job.ID, previewPath, metaPath)
-		}
-
-		waveformPath, werr := ffmpeg.ExtractWaveform(result.OutputPath, thumbDir)
-		if werr != nil {
-			w.log.Infof("waveform extraction skipped job=%s err=%s", job.ID, werr.Error())
-		} else {
-			w.log.Infof("waveforms job=%s path=%s", job.ID, waveformPath)
-		}
 	}
+	w.log.Infof("extracted %d thumbnails job=%s duration=%.2fs", len(thumbResult.Thumbnails), job.ID, thumbResult.Duration)
+	w.notifyRunningProgress(job, 35)
+
+	previewPath, metaPath, perr := ffmpeg.BuildThumbnailPreview(thumbDir, thumbResult)
+	if perr != nil {
+		w.log.Errorf("thumbnail preview failed job=%s err=%s", job.ID, perr.Error())
+	} else {
+		w.log.Infof("thumbnail_preview job=%s preview=%s meta=%s", job.ID, previewPath, metaPath)
+	}
+
+	waveformPath, werr := ffmpeg.ExtractWaveform(result.OutputPath, thumbDir)
+	if werr != nil {
+		w.log.Infof("waveform extraction skipped job=%s err=%s", job.ID, werr.Error())
+	} else {
+		w.log.Infof("waveforms job=%s path=%s", job.ID, waveformPath)
+	}
+
+	if verr := ffmpeg.ValidateVideo(result.OutputPath); verr != nil {
+		assembledDir := filepath.Dir(result.OutputPath)
+		w.failJob(job, "broken video file: "+verr.Error(), result.OutputPath, assembledDir, filepath.Dir(assembledDir), thumbDir, filepath.Dir(thumbDir))
+		return
+	}
+	w.log.Infof("video validated job=%s", job.ID)
+
+	videoInfo, probeErr := ffmpeg.ProbeVideo(result.OutputPath)
+	if probeErr != nil {
+		assembledDir := filepath.Dir(result.OutputPath)
+		w.failJob(job, "cannot read video metadata: "+probeErr.Error(), result.OutputPath, assembledDir, filepath.Dir(assembledDir), thumbDir, filepath.Dir(thumbDir))
+		return
+	}
+	w.log.Infof("probe job=%s %dx%d aspect=%s codec=%s fps=%.2f audio=%s/%dHz/%dch",
+		job.ID, videoInfo.Width, videoInfo.Height, videoInfo.AspectRatio,
+		videoInfo.Codec, videoInfo.Fps, videoInfo.AudioCodec,
+		videoInfo.AudioSampleRate, videoInfo.AudioChannels)
+
+	w.notifyRunningProgress(job, 42)
 
 	// ── Early upload: push thumbnails + waveform to GitHub right away ──
 	dateFolder := ghlib.DateFolder(time.Now())
@@ -403,6 +422,7 @@ func (w *Worker) processJob(job *queue.Job) {
 			Thumbnails:       thumbnailPaths,
 			DefaultThumbnail: defaultThumbGH,
 			Duration:         videoDuration,
+			IsReel:           reelAutoFromVideo(videoDuration, videoInfo.Width, videoInfo.Height),
 		})
 		w.log.Infof("thumbnails available early job=%s paths=%d", job.ID, len(thumbnailPaths))
 	}
@@ -411,26 +431,6 @@ func (w *Worker) processJob(job *queue.Job) {
 	var vidColors []string
 	var categories, tags []string
 	var metadata map[string]interface{}
-
-	if verr := ffmpeg.ValidateVideo(result.OutputPath); verr != nil {
-		assembledDir := filepath.Dir(result.OutputPath)
-		w.failJob(job, "broken video file: "+verr.Error(), result.OutputPath, assembledDir, filepath.Dir(assembledDir), thumbDir, filepath.Dir(thumbDir))
-		return
-	}
-	w.log.Infof("video validated job=%s", job.ID)
-	w.notifyRunningProgress(job, 42)
-
-	videoInfo, probeErr := ffmpeg.ProbeVideo(result.OutputPath)
-	if probeErr != nil {
-		assembledDir := filepath.Dir(result.OutputPath)
-		w.failJob(job, "cannot read video metadata: "+probeErr.Error(), result.OutputPath, assembledDir, filepath.Dir(assembledDir), thumbDir, filepath.Dir(thumbDir))
-		return
-	} else {
-		w.log.Infof("probe job=%s %dx%d aspect=%s codec=%s fps=%.2f audio=%s/%dHz/%dch",
-			job.ID, videoInfo.Width, videoInfo.Height, videoInfo.AspectRatio,
-			videoInfo.Codec, videoInfo.Fps, videoInfo.AudioCodec,
-			videoInfo.AudioSampleRate, videoInfo.AudioChannels)
-	}
 
 	var loudnessInfo *ffmpeg.LoudnessInfo
 	loudnessInfo, err = ffmpeg.ProbeLoudness(result.OutputPath)
@@ -597,6 +597,7 @@ func (w *Worker) processJob(job *queue.Job) {
 		Endpoint:            videoEndpoint,
 		Thumbnails:          thumbnailPaths,
 		Duration:            videoDuration,
+		IsReel:              reelAutoFromVideo(videoDuration, videoInfo.Width, videoInfo.Height),
 		IsAdult:             &isAdult,
 		Colors:              vidColors,
 		Categories:          categories,
@@ -611,6 +612,34 @@ func (w *Worker) processJob(job *queue.Job) {
 		GitHubRepo:          w.cfg.GitHubRepo,
 	})
 	w.log.Infof("job complete job=%s user=%s upload=%s duration=%s thumbnails=%d colors=%d tags=%d", job.ID, job.UserID, job.UploadID, time.Since(start), len(thumbnailPaths), len(vidColors), len(tags))
+}
+
+// reelAspectMatch is true for portrait ~9:16 (typical Reels / Shorts / TikTok).
+func reelAspectMatch(width, height int) bool {
+	if width <= 0 || height <= 0 {
+		return false
+	}
+	if height <= width {
+		return false
+	}
+	r := float64(width) / float64(height)
+	const lo, hi = 0.45, 0.68
+	return r >= lo && r <= hi
+}
+
+// reelAutoFromVideo sets is_reel when duration is under 2 minutes or aspect ratio is reel-shaped.
+func reelAutoFromVideo(seconds float64, width, height int) *bool {
+	hasDur := seconds > 0
+	hasWH := width > 0 && height > 0
+	if !hasDur && !hasWH {
+		return nil
+	}
+	if (hasDur && seconds < 120) || reelAspectMatch(width, height) {
+		t := true
+		return &t
+	}
+	f := false
+	return &f
 }
 
 func isVideo(filename string) bool {

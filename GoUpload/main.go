@@ -21,7 +21,7 @@ import (
 	"goupload/lib/nsfwstrikes"
 	"goupload/lib/queue"
 	"github.com/gofiber/fiber/v2"
-	"github.com/gofiber/fiber/v2/middleware/cors"
+	"github.com/gofiber/fiber/v2/middleware/limiter"
 )
 
 func main() {
@@ -88,38 +88,84 @@ func main() {
 		IdleTimeout:    60 * time.Second,
 	})
 
-	// CORS: allow app origin for browser uploads
+	// CORS: allow app origin for browser uploads.
+	//
+	// SECURITY: Access-Control-Allow-Credentials: true MUST NEVER be combined with a
+	// reflective / wildcard origin policy — doing so lets any website the user visits
+	// make authenticated requests against this server and read the responses. We only
+	// send credentials when the request's Origin is in an explicit allowlist; any other
+	// accepted origin (dev-mode reflection, "*") is served WITHOUT credentials.
 	corsOrigins := env.Get("CORS_ORIGINS", env.Get("APP_BASE_URL", "http://localhost:3000"))
 	if corsOrigins == "" {
 		corsOrigins = "*"
 	}
 	origins := corsOrigins
 
-	app.Use(cors.New(cors.Config{
-		AllowOriginsFunc: func(origin string) bool {
-			if env.IsDev() {
-				return true
-			}
-			if origins == "*" {
-				return true
-			}
-			for _, o := range strings.Split(origins, ",") {
-				if strings.TrimSpace(o) == origin {
-					return true
-				}
-			}
+	isInExplicitAllowlist := func(origin string) bool {
+		if origins == "" || origins == "*" || origin == "" {
 			return false
-		},
-		AllowMethods:     "GET, POST, PUT, PATCH, DELETE, OPTIONS, HEAD",
-		AllowHeaders:     "Accept, Authorization, Content-Type, X-Upload-ID, X-Chunk-Index, X-User-ID",
-		AllowCredentials: true,
-		MaxAge:           600,
-	}))
+		}
+		for _, o := range strings.Split(origins, ",") {
+			if strings.TrimSpace(o) == origin {
+				return true
+			}
+		}
+		return false
+	}
+
+	app.Use(func(c *fiber.Ctx) error {
+		origin := c.Get("Origin")
+		allow := false
+		if isInExplicitAllowlist(origin) {
+			allow = true
+			c.Set("Access-Control-Allow-Credentials", "true")
+		} else if origin != "" && (env.IsDev() || origins == "*") {
+			// Reflective allow: no credentials — browsers will refuse authenticated
+			// cross-origin reads, which is the desired safe default.
+			allow = true
+		}
+		if allow {
+			c.Set("Access-Control-Allow-Origin", origin)
+			c.Set("Vary", "Origin")
+			if c.Method() == fiber.MethodOptions {
+				c.Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS, HEAD")
+				c.Set("Access-Control-Allow-Headers", "Accept, Authorization, Content-Type, X-Upload-ID, X-Chunk-Index, X-User-ID")
+				c.Set("Access-Control-Max-Age", "600")
+				return c.SendStatus(fiber.StatusNoContent)
+			}
+		} else if c.Method() == fiber.MethodOptions {
+			return c.SendStatus(fiber.StatusForbidden)
+		}
+		return c.Next()
+	})
 
 	app.Use("/api/upload", middleware.AuthUpload())
 	app.Use("/api/thumbnail", middleware.AuthUpload())
 	app.Use("/api/comment-image", middleware.AuthUpload())
 	app.Use("/api/profilepic", middleware.AuthUpload())
+
+	// Per-user rate limit for upload endpoints. Keyed by authenticated userID (set by
+	// AuthUpload above), falling back to IP for anything that slips through. The chunk
+	// endpoint dominates traffic, so the budget (300/min) is sized for resumable uploads
+	// of multi-chunk files while still cutting off abuse.
+	uploadLimiter := limiter.New(limiter.Config{
+		Max:        300,
+		Expiration: 1 * time.Minute,
+		KeyGenerator: func(c *fiber.Ctx) string {
+			if v, ok := c.Locals(middleware.LocalsUserID).(string); ok && v != "" {
+				return "u:" + v
+			}
+			return "ip:" + c.IP()
+		},
+		LimitReached: func(c *fiber.Ctx) error {
+			c.Set("Retry-After", "60")
+			return c.Status(fiber.StatusTooManyRequests).JSON(fiber.Map{"error": "rate_limited"})
+		},
+	})
+	app.Use("/api/upload", uploadLimiter)
+	app.Use("/api/thumbnail", uploadLimiter)
+	app.Use("/api/comment-image", uploadLimiter)
+	app.Use("/api/profilepic", uploadLimiter)
 	upload.RegisterRoutes(app, manager, q, appLog)
 	thumbnail.RegisterRoutes(app, appLog, thumbnail.Config{
 		GitHubClient:  wcfg.GitHubClient,

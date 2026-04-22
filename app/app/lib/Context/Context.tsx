@@ -187,6 +187,38 @@ export const ContextProvider = ({ children, st, user_agent, userId, c_user, uplo
       }
     }, []);
 
+    // Each seed produces a bounded shuffle of the feed pool on the backend. When that
+    // pool is drained we have to rotate to a fresh seed to keep scrolling "infinite",
+    // the way Facebook/YouTube re-rank instead of cutting users off. Cap the rotations
+    // per call so a genuinely empty feed still terminates.
+    const MAX_SEED_ROTATIONS = 2
+    const SEEN_IDS_WIRE_CAP = 500 // matches API's 500-id ceiling in parseIdsParam
+
+    const recentShownIds = () => {
+      const all = Array.from(shownIdsRef.current)
+      return all.length > SEEN_IDS_WIRE_CAP ? all.slice(-SEEN_IDS_WIRE_CAP) : all
+    }
+
+    const fetchFeedOnce = async (append: boolean) => {
+      const params = new URLSearchParams()
+      params.set("seed", feedSeedRef.current)
+      const cursor = nextCursorRef.current
+      if (append && cursor) {
+        params.set("cursor_pos", String(cursor.cursor_pos))
+      }
+      // Send recently-shown IDs so the backend can dedupe even within a seed; without
+      // this the DB's sampler can hand back items already rendered in this session.
+      const seen = recentShownIds()
+      if (seen.length > 0) {
+        params.set("exclude_ids", JSON.stringify(seen))
+      }
+
+      const response = await fetch(`/api/feed?${params}`)
+      if (!response.ok) return { ok: false as const }
+      const data = await response.json()
+      return { ok: true as const, data }
+    }
+
     const fetchFeed = useCallback(async (append: boolean) => {
       if (isLoading) return
 
@@ -196,25 +228,19 @@ export const ContextProvider = ({ children, st, user_agent, userId, c_user, uplo
 
       setIsLoading(true)
       try {
-        const params = new URLSearchParams()
-        params.set("seed", feedSeedRef.current)
-        const cursor = nextCursorRef.current
-        if (append && cursor) {
-          params.set("cursor_pos", String(cursor.cursor_pos))
-        }
+        let appendedAny = false
+        for (let rotation = 0; rotation <= MAX_SEED_ROTATIONS; rotation++) {
+          const result = await fetchFeedOnce(append || rotation > 0)
+          if (!result.ok) return
+          const data = result.data
 
-        const response = await fetch(`/api/feed?${params}`)
-        if (!response.ok) return
-
-        const data = await response.json()
-
-        if (Array.isArray(data?.data)) {
-          if (data.data.length > 0) {
+          if (Array.isArray(data?.data) && data.data.length > 0) {
             data.data.forEach((f: FileType) => {
               if (f.id) shownIdsRef.current.add(f.id)
             })
             setFiles(prev => {
-              if (!append) return data.data
+              const effectiveAppend = append || rotation > 0
+              if (!effectiveAppend) return data.data
               const existingIds = new Set(prev.map((f: FileType) => f.id))
               const newItems = data.data.filter((f: FileType) => !existingIds.has(f.id))
               return [...prev, ...newItems]
@@ -228,11 +254,25 @@ export const ContextProvider = ({ children, st, user_agent, userId, c_user, uplo
                 return { likedFileIds: newLikedIds, dislikedFileIds: newDislikedIds }
               })
             }
+            appendedAny = true
           }
-          nextCursorRef.current = data.nextCursor ?? null
-          setHasMore(Boolean(data.nextCursor))
-        } else {
-          setHasMore(false)
+
+          nextCursorRef.current = data?.nextCursor ?? null
+          const hasNext = Boolean(data?.nextCursor)
+          if (hasNext) {
+            setHasMore(true)
+            return
+          }
+
+          // Seed exhausted. Rotate to a fresh one and try again. Only give up once we've
+          // rotated a few times without seeing any new items — that's a true empty feed.
+          if (rotation < MAX_SEED_ROTATIONS) {
+            feedSeedRef.current = `${Date.now()}_${rotation + 1}`
+            nextCursorRef.current = null
+            continue
+          }
+          setHasMore(appendedAny) // only keep trying if this call managed to append something
+          return
         }
       } catch (error) {
         console.log(`Error Found In fetchFeed: `, error)

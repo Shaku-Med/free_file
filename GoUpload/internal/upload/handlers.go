@@ -44,7 +44,7 @@ func (h *Handler) startUpload(c *fiber.Ctx) error {
 		return serverBusy(c, busy)
 	}
 	if err != nil {
-		return badRequest(c, err.Error())
+		return h.safeErrorResponse(c, userID, "", "start", err)
 	}
 	return c.Status(fiber.StatusCreated).JSON(resp)
 }
@@ -57,6 +57,9 @@ func (h *Handler) getChunkStatus(c *fiber.Ctx) error {
 	uploadID := c.Params("upload_id")
 	if uploadID == "" {
 		return badRequest(c, "missing_upload_id")
+	}
+	if !ValidUploadID(uploadID) {
+		return badRequest(c, "invalid_upload_id")
 	}
 	status, err := h.manager.GetStatus(userID, uploadID)
 	if err != nil {
@@ -74,6 +77,9 @@ func (h *Handler) uploadChunk(c *fiber.Ctx) error {
 	if uploadID == "" {
 		return badRequest(c, "missing_upload_id")
 	}
+	if !ValidUploadID(uploadID) {
+		return badRequest(c, "invalid_upload_id")
+	}
 	index, err := parseChunkIndex(c.Get("X-Chunk-Index"))
 	if err != nil {
 		return badRequest(c, "invalid_chunk_index")
@@ -87,7 +93,7 @@ func (h *Handler) uploadChunk(c *fiber.Ctx) error {
 		if os.IsNotExist(err) {
 			return notFound(c, "upload_not_found")
 		}
-		return badRequest(c, err.Error())
+		return h.safeErrorResponse(c, userID, uploadID, "chunk", err)
 	}
 	if h.log != nil {
 		h.log.Infof("chunk_received user=%s upload=%s chunk=%d", userID, uploadID, index)
@@ -142,6 +148,9 @@ func (h *Handler) completeUpload(c *fiber.Ctx) error {
 	if uploadID == "" {
 		return badRequest(c, "missing_upload_id")
 	}
+	if !ValidUploadID(uploadID) {
+		return badRequest(c, "invalid_upload_id")
+	}
 
 	isPublic := true
 	commentsEnabled := true
@@ -156,24 +165,24 @@ func (h *Handler) completeUpload(c *fiber.Ctx) error {
 			if h.log != nil {
 				h.log.Errorf("complete_upload json_unmarshal user=%s upload=%s err=%s body_prefix=%q", userID, uploadID, err.Error(), trimForLog(raw, 200))
 			}
-		} else {
-			seriesBody = b
-			if b.IsPublic != nil {
-				isPublic = *b.IsPublic
-			}
-			if b.CommentsEnabled != nil {
-				commentsEnabled = *b.CommentsEnabled
-			}
-			if b.Title != "" {
-				title = b.Title
-			}
-			if b.Description != "" {
-				description = b.Description
-			}
-			userCategories = b.Categories
-			userTags = b.Tags
-			defaultThumbnail = b.DefaultThumbnail
+			return badRequest(c, "invalid_body")
 		}
+		seriesBody = b
+		if b.IsPublic != nil {
+			isPublic = *b.IsPublic
+		}
+		if b.CommentsEnabled != nil {
+			commentsEnabled = *b.CommentsEnabled
+		}
+		if b.Title != "" {
+			title = b.Title
+		}
+		if b.Description != "" {
+			description = b.Description
+		}
+		userCategories = b.Categories
+		userTags = b.Tags
+		defaultThumbnail = b.DefaultThumbnail
 	}
 
 	if err := validateFileSeriesComplete(seriesBody); err != nil {
@@ -196,7 +205,7 @@ func (h *Handler) completeUpload(c *fiber.Ctx) error {
 
 	meta, err := h.manager.CompleteUpload(userID, uploadID)
 	if err != nil {
-		return badRequest(c, err.Error())
+		return h.safeErrorResponse(c, userID, uploadID, "complete", err)
 	}
 	jobID, err := h.queue.Enqueue(context.Background(), meta.UserID, meta.UploadID, meta.FileName, meta.FileSize, meta.TotalChunks, title, description, userCategories, userTags, defaultThumbnail, fileSeriesID, fileSeriesEpisodeID, isNewSeries, newEpisodeName, parentEpisodeID)
 	if err != nil {
@@ -250,6 +259,36 @@ func parseChunkIndex(value string) (int, error) {
 		return 0, errors.New("invalid_chunk_index")
 	}
 	return index, nil
+}
+
+// safeErrorCodes enumerates stable error strings returned by the manager that are safe
+// to pass to clients. Anything else (e.g. raw os.PathError) is replaced with
+// "internal_error" to avoid leaking filesystem paths or user identifiers.
+var safeErrorCodes = map[string]bool{
+	"invalid_request":       true,
+	"invalid_file_name":     true,
+	"invalid_upload_id":     true,
+	"invalid_chunk_index":   true,
+	"invalid_chunks":        true,
+	"unsupported_file_type": true,
+	"missing_chunks":        true,
+}
+
+func (h *Handler) safeErrorResponse(c *fiber.Ctx, userID, uploadID, op string, err error) error {
+	if err == nil {
+		return nil
+	}
+	if os.IsNotExist(err) {
+		return notFound(c, "upload_not_found")
+	}
+	code := err.Error()
+	if safeErrorCodes[code] {
+		return badRequest(c, code)
+	}
+	if h.log != nil {
+		h.log.Errorf("upload_%s_error user=%s upload=%s err=%s", op, userID, uploadID, err.Error())
+	}
+	return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "internal_error"})
 }
 
 func badRequest(c *fiber.Ctx, code string) error {

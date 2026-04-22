@@ -5,12 +5,18 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
 
 	"goupload/lib/env"
 	"github.com/gofiber/fiber/v2"
 )
+
+// userIDPattern matches the app's user identifiers (UUIDv4-shaped). Rejecting other
+// shapes prevents path-traversal or injection when userID is joined into filesystem
+// paths or external command arguments downstream.
+var userIDPattern = regexp.MustCompile(`^[a-zA-Z0-9_-]{1,64}$`)
 
 const authCheckTimeout = 12 * time.Second
 
@@ -78,7 +84,7 @@ func AuthUpload() fiber.Handler {
 		if err := json.Unmarshal(body, &payload); err != nil {
 			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "unauthorized"})
 		}
-		if payload.UserID == "" {
+		if payload.UserID == "" || !userIDPattern.MatchString(payload.UserID) {
 			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "unauthorized"})
 		}
 

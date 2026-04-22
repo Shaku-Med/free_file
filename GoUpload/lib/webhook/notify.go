@@ -27,6 +27,7 @@ type Payload struct {
 	Endpoint         string                 `json:"endpoint,omitempty"`
 	Thumbnails       []string               `json:"thumbnails,omitempty"`
 	Duration         float64                `json:"duration,omitempty"`
+	IsReel           *bool                  `json:"is_reel,omitempty"`
 	IsAdult          *bool                  `json:"is_adult,omitempty"`
 	Colors           []string               `json:"colors,omitempty"`
 	Categories       []string               `json:"categories,omitempty"`

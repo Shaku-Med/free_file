@@ -265,6 +265,8 @@ export const action = async ({ request }: { request: Request }) => {
     endpoint?: string;
     thumbnails?: string[];
     duration?: number;
+    /** Set by Go worker: true when video duration is under 2 minutes */
+    is_reel?: boolean;
     is_adult?: boolean;
     colors?: string[];
     categories?: string[];
@@ -392,6 +394,9 @@ export const action = async ({ request }: { request: Request }) => {
     if (duration !== null) {
       patch.duration = duration;
     }
+    if (typeof body?.is_reel === 'boolean') {
+      patch.is_reel = body.is_reel;
+    }
     const defaultThumb = typeof body?.default_thumbnail === 'string' ? body.default_thumbnail.trim() : '';
     if (defaultThumb) {
       patch.default_thumbnail = defaultThumb;
@@ -449,6 +454,9 @@ export const action = async ({ request }: { request: Request }) => {
     }
     if (duration !== null) {
       updateData.duration = duration;
+    }
+    if (typeof body?.is_reel === 'boolean') {
+      updateData.is_reel = body.is_reel;
     }
     if (is_adult !== null) {
       updateData.is_adult = is_adult;

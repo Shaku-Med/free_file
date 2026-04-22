@@ -1,18 +1,68 @@
 package upload
 
 import (
+	"bytes"
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
 
 	"goupload/lib/security"
 )
+
+// uploadIDPattern matches IDs produced by newID() (32 lowercase hex chars).
+var uploadIDPattern = regexp.MustCompile(`^[a-f0-9]{32}$`)
+
+// ErrInvalidUploadID is returned when a client-supplied upload_id does not match the
+// expected format. Must be checked before any filesystem path is built from it.
+var ErrInvalidUploadID = errors.New("invalid_upload_id")
+
+// ErrDangerousContent is returned when the first chunk's magic bytes identify an
+// executable, script, or otherwise non-media payload regardless of declared extension.
+var ErrDangerousContent = errors.New("unsupported_file_type")
+
+// dangerousMagic lists file-header signatures that must never be accepted as an image
+// or video upload. These cover executables, scripts, and archive/office formats that
+// could be used to smuggle code past a permissive extension allowlist.
+var dangerousMagic = [][]byte{
+	{0x4D, 0x5A},                         // PE / DOS executable ("MZ")
+	{0x7F, 0x45, 0x4C, 0x46},             // ELF
+	{0xCA, 0xFE, 0xBA, 0xBE},             // Java class / Mach-O fat
+	{0xFE, 0xED, 0xFA, 0xCE},             // Mach-O 32
+	{0xFE, 0xED, 0xFA, 0xCF},             // Mach-O 64
+	{0xCF, 0xFA, 0xED, 0xFE},             // Mach-O 64 LE
+	{0x23, 0x21},                         // "#!" shebang
+	{0x50, 0x4B, 0x03, 0x04},             // ZIP / JAR / APK / docx
+	{0x50, 0x4B, 0x05, 0x06},             // ZIP (empty)
+	{0x50, 0x4B, 0x07, 0x08},             // ZIP (spanned)
+	{0x3C, 0x21, 0x44, 0x4F, 0x43, 0x54}, // "<!DOCT" (HTML)
+	{0x3C, 0x68, 0x74, 0x6D, 0x6C},       // "<html"
+	{0x3C, 0x73, 0x63, 0x72, 0x69, 0x70}, // "<scrip"
+	{0x3C, 0x3F, 0x70, 0x68, 0x70},       // "<?php"
+}
+
+// hasDangerousMagic reports whether the start of data matches a known
+// non-media file header. Caller should ensure len(data) is at least a few bytes.
+func hasDangerousMagic(data []byte) bool {
+	for _, sig := range dangerousMagic {
+		if len(data) >= len(sig) && bytes.Equal(data[:len(sig)], sig) {
+			return true
+		}
+	}
+	return false
+}
+
+// ValidUploadID reports whether id is a well-formed upload identifier. Rejecting anything
+// else prevents path traversal (e.g. "../victim/abcd") when the id is joined into a path.
+func ValidUploadID(id string) bool {
+	return uploadIDPattern.MatchString(id)
+}
 
 type Manager struct {
 	baseDir       string
@@ -95,6 +145,9 @@ func (m *Manager) StartUpload(userID string, req StartRequest) (StartResponse, *
 }
 
 func (m *Manager) GetStatus(userID, uploadID string) (StatusResponse, error) {
+	if !ValidUploadID(uploadID) {
+		return StatusResponse{}, ErrInvalidUploadID
+	}
 	meta, err := readMeta(metaPath(m.baseDir, userID, uploadID))
 	if err != nil {
 		return StatusResponse{}, err
@@ -108,6 +161,9 @@ func (m *Manager) GetStatus(userID, uploadID string) (StatusResponse, error) {
 }
 
 func (m *Manager) SaveChunk(userID, uploadID string, chunkIndex int, body io.Reader) (ChunkResponse, error) {
+	if !ValidUploadID(uploadID) {
+		return ChunkResponse{}, ErrInvalidUploadID
+	}
 	meta, err := readMeta(metaPath(m.baseDir, userID, uploadID))
 	if err != nil {
 		return ChunkResponse{}, err
@@ -119,6 +175,21 @@ func (m *Manager) SaveChunk(userID, uploadID string, chunkIndex int, body io.Rea
 		if idx == chunkIndex {
 			return chunkStats(meta, chunkIndex), nil
 		}
+	}
+
+	// Peek the first chunk for executable/script headers. The filename extension
+	// allowlist alone is trivial to bypass (rename shell.php → shell.png); sniffing
+	// the magic bytes catches the actual payload before it reaches assembly/NSFW.
+	if chunkIndex == 0 {
+		head := make([]byte, 16)
+		n, err := io.ReadFull(body, head)
+		if err != nil && err != io.EOF && err != io.ErrUnexpectedEOF {
+			return ChunkResponse{}, err
+		}
+		if hasDangerousMagic(head[:n]) {
+			return ChunkResponse{}, ErrDangerousContent
+		}
+		body = io.MultiReader(bytes.NewReader(head[:n]), body)
 	}
 
 	path := chunkPath(m.baseDir, userID, uploadID, chunkIndex)
@@ -146,6 +217,9 @@ func (m *Manager) SaveChunk(userID, uploadID string, chunkIndex int, body io.Rea
 }
 
 func (m *Manager) CompleteUpload(userID, uploadID string) (CompleteMeta, error) {
+	if !ValidUploadID(uploadID) {
+		return CompleteMeta{}, ErrInvalidUploadID
+	}
 	meta, err := readMeta(metaPath(m.baseDir, userID, uploadID))
 	if err != nil {
 		return CompleteMeta{}, err
