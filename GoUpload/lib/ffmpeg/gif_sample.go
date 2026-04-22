@@ -7,7 +7,6 @@ import (
 	"image/gif"
 	"image/png"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -72,6 +71,7 @@ func SampleGIFForVision(ctx context.Context, gifData []byte, maxSamples int) ([]
 
 	outPat := filepath.Join(tmpDir, "f-%03d.png")
 	args := []string{
+		"-nostdin",
 		"-hide_banner", "-loglevel", "error", "-y",
 		"-i", inPath,
 		"-vf", vf,
@@ -82,7 +82,7 @@ func SampleGIFForVision(ctx context.Context, gifData []byte, maxSamples int) ([]
 	c, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
 
-	cmd := exec.CommandContext(c, "ffmpeg", args...)
+	cmd := FFmpegCommand(c, args...)
 	var stderr strings.Builder
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {

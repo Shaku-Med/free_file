@@ -6,10 +6,13 @@ import (
 	"log"
 	"net/http"
 	"strings"
+	"time"
 
 	"goupload/lib/env"
 	"github.com/gofiber/fiber/v2"
 )
+
+const authCheckTimeout = 12 * time.Second
 
 const LocalsUserID = "userID"
 
@@ -54,7 +57,7 @@ func AuthUpload() fiber.Handler {
 		}
 		req.Header.Set("Authorization", "Bearer "+cUser)
 
-		client := &http.Client{}
+		client := &http.Client{Timeout: authCheckTimeout}
 		resp, err := client.Do(req)
 		if err != nil {
 			log.Printf("[AuthUpload] auth_check_failed: %v", err)

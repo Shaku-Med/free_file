@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -299,7 +298,7 @@ func runTierConversion(inputPath, m3u8Path, segmentPattern string, opts HLSOptio
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(h)*time.Hour)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, "ffmpeg", args...)
+	cmd := FFmpegCommand(ctx, args...)
 	var stderr limitedWriter
 	stderr.max = 2 << 20
 	cmd.Stderr = &stderr
@@ -360,7 +359,7 @@ func findSegments(dir string) ([]string, error) {
 func checkGPU() bool {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "ffmpeg", "-hide_banner", "-encoders")
+	cmd := FFmpegCommand(ctx, "-nostdin", "-hide_banner", "-encoders")
 	var out limitedWriter
 	out.max = 512 << 10
 	cmd.Stdout = &out

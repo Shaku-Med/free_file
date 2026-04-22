@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"math"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -102,7 +101,7 @@ func ExtractThumbnails(videoPath, outputDir string) (*ThumbnailResult, error) {
 		}
 
 		frameCtx, frameCancel := context.WithTimeout(ctx, 8*time.Minute)
-		cmd := exec.CommandContext(frameCtx, "ffmpeg", args...)
+		cmd := FFmpegCommand(frameCtx, args...)
 		var stderr limitedWriter
 		stderr.max = 256 << 10
 		cmd.Stderr = &stderr
@@ -159,6 +158,7 @@ func ExtractThumbnails(videoPath, outputDir string) (*ThumbnailResult, error) {
 func GetDuration(videoPath string) (float64, error) {
 	// ffprobe reads container metadata only — ffmpeg -i on multi‑GB files can use huge RAM and get SIGKILL (OOM).
 	args := []string{
+		"-nostdin",
 		"-v", "error",
 		"-show_entries", "format=duration",
 		"-of", "default=noprint_wrappers=1:nokey=1",
@@ -168,7 +168,7 @@ func GetDuration(videoPath string) (float64, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, "ffprobe", args...)
+	cmd := FFprobeCommand(ctx, args...)
 	var stdout bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &limitedWriter{max: 64 << 10}

@@ -10,6 +10,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"goupload/lib/security"
 )
 
 type Manager struct {
@@ -51,6 +53,11 @@ func (m *Manager) StartUpload(userID string, req StartRequest) (StartResponse, *
 	if userID == "" || req.FileName == "" || req.FileSize <= 0 || req.TotalChunks <= 0 {
 		return StartResponse{}, nil, errors.New("invalid_request")
 	}
+	safeName, err := security.SafeUploadFilename(req.FileName)
+	if err != nil {
+		return StartResponse{}, nil, errors.New("invalid_file_name")
+	}
+	req.FileName = safeName
 	if !isAllowedExtension(req.FileName) {
 		return StartResponse{}, nil, errors.New("unsupported_file_type")
 	}

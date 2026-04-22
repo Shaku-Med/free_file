@@ -3,13 +3,14 @@ package thumbnail
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"image"
 	"image/jpeg"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -21,19 +22,39 @@ import (
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/go-github/v62/github"
+	"goupload/lib/ffmpeg"
 	ghlib "goupload/lib/github"
 	"goupload/lib/logger"
 	"goupload/lib/nsfw"
 	"goupload/lib/nsfwstrikes"
 )
 
+var reDateFolder = regexp.MustCompile(`^\d{2}_\d{2}_\d{4}$`)
+
+func isSafeUniqueIDSegment(s string) bool {
+	const max = 128
+	if len(s) == 0 || len(s) > max {
+		return false
+	}
+	if strings.Contains(s, "..") || strings.Contains(s, "/") || strings.Contains(s, "\\") {
+		return false
+	}
+	for _, r := range s {
+		if r < 32 || r == 127 {
+			return false
+		}
+	}
+	return true
+}
+
 type Handler struct {
-	log     *logger.Logger
-	nsfw    *nsfw.Detector
-	strikes *nsfwstrikes.Limiter
-	ghCli   *github.Client
-	ghOwner string
-	ghRepo  string
+	log           *logger.Logger
+	nsfw          *nsfw.Detector
+	strikes       *nsfwstrikes.Limiter
+	ghCli         *github.Client
+	ghOwner       string
+	ghRepo        string
+	assembledRoot string // local-only video files for /extract (user subdir enforced)
 }
 
 type Config struct {
@@ -43,16 +64,20 @@ type Config struct {
 	NSFWApiURL    string
 	NSFWApiSecret string
 	Strikes       *nsfwstrikes.Limiter
+	// AssembledRoot is the directory where completed uploads are written (e.g. upload/assembled).
+	// /api/thumbnail/extract only reads videos under AssembledRoot/<userID>/...
+	AssembledRoot string
 }
 
 func RegisterRoutes(app *fiber.App, log *logger.Logger, cfg Config) {
 	h := &Handler{
-		log:     log,
-		nsfw:    nsfw.NewDetector(cfg.NSFWApiURL, cfg.NSFWApiSecret),
-		strikes: cfg.Strikes,
-		ghCli:   cfg.GitHubClient,
-		ghOwner: cfg.GitHubOwner,
-		ghRepo:  cfg.GitHubRepo,
+		log:           log,
+		nsfw:          nsfw.NewDetector(cfg.NSFWApiURL, cfg.NSFWApiSecret),
+		strikes:       cfg.Strikes,
+		ghCli:         cfg.GitHubClient,
+		ghOwner:       cfg.GitHubOwner,
+		ghRepo:        cfg.GitHubRepo,
+		assembledRoot: strings.TrimSpace(cfg.AssembledRoot),
 	}
 	app.Post("/api/thumbnail/extract", h.extractAtTimestamp)
 	app.Post("/api/thumbnail/upload", h.uploadDefaultThumbnail)
@@ -63,9 +88,44 @@ type extractRequest struct {
 	Timestamp float64 `json:"timestamp"`
 }
 
+func (h *Handler) safeAssembledVideoPath(uid, videoPath string) (string, error) {
+	if h.assembledRoot == "" {
+		return "", errors.New("assembled root not configured")
+	}
+	if uid == "" || videoPath == "" {
+		return "", errors.New("empty path")
+	}
+	userBase, err := filepath.Abs(filepath.Join(h.assembledRoot, uid))
+	if err != nil {
+		return "", err
+	}
+	var candidate string
+	if filepath.IsAbs(videoPath) {
+		candidate = filepath.Clean(videoPath)
+	} else {
+		candidate = filepath.Clean(filepath.Join(userBase, videoPath))
+	}
+	absCand, err := filepath.Abs(candidate)
+	if err != nil {
+		return "", err
+	}
+	rel, err := filepath.Rel(userBase, absCand)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", errors.New("path outside user assembled directory")
+	}
+	st, err := os.Stat(absCand)
+	if err != nil {
+		return "", err
+	}
+	if st.IsDir() {
+		return "", errors.New("not a regular file")
+	}
+	return absCand, nil
+}
+
 func (h *Handler) extractAtTimestamp(c *fiber.Ctx) error {
-	userID := c.Locals("userID")
-	if userID == nil || userID == "" {
+	uid, ok := c.Locals("userID").(string)
+	if !ok || uid == "" {
 		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "missing_user_id"})
 	}
 
@@ -81,17 +141,25 @@ func (h *Handler) extractAtTimestamp(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid timestamp"})
 	}
 
+	videoFile, err := h.safeAssembledVideoPath(uid, req.VideoPath)
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid video_path"})
+	}
+
 	outDir := filepath.Join("upload", "thumbnails", "custom")
 	if err := os.MkdirAll(outDir, 0700); err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "failed to create output dir"})
 	}
 
-	outFile := filepath.Join(outDir, fmt.Sprintf("thumb_%s_%d.jpg", userID, time.Now().UnixMilli()))
+	outFile := filepath.Join(outDir, fmt.Sprintf("thumb_%s_%d.jpg", uid, time.Now().UnixMilli()))
 
 	ts := strconv.FormatFloat(req.Timestamp, 'f', 2, 64)
 	args := []string{
+		"-nostdin",
+		"-hide_banner",
+		"-loglevel", "error",
 		"-ss", ts,
-		"-i", req.VideoPath,
+		"-i", videoFile,
 		"-vframes", "1",
 		"-q:v", "2",
 		"-y",
@@ -101,7 +169,7 @@ func (h *Handler) extractAtTimestamp(c *fiber.Ctx) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, "ffmpeg", args...)
+	cmd := ffmpeg.FFmpegCommand(ctx, args...)
 	if err := cmd.Run(); err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "thumbnail extraction failed"})
 	}
@@ -133,14 +201,20 @@ func (h *Handler) uploadDefaultThumbnail(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "missing_user_id"})
 	}
 
-	uniqueId := c.FormValue("unique_id")
+	uniqueId := strings.TrimSpace(c.FormValue("unique_id"))
 	if uniqueId == "" {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "unique_id is required"})
 	}
+	if !isSafeUniqueIDSegment(uniqueId) {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid unique_id"})
+	}
 
-	dateFolder := c.FormValue("date_folder")
+	dateFolder := strings.TrimSpace(c.FormValue("date_folder"))
 	if dateFolder == "" {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "date_folder is required"})
+	}
+	if !reDateFolder.MatchString(dateFolder) {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid date_folder"})
 	}
 
 	fileType := c.FormValue("file_type")

@@ -1,6 +1,8 @@
 package security
 
 import (
+	"errors"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -121,4 +123,48 @@ var usernameRegex = regexp.MustCompile(`^[a-zA-Z0-9_-]{3,30}$`)
 // IsValidUsername checks 3–30 chars, alphanumeric, underscores, hyphens.
 func IsValidUsername(username string) bool {
 	return usernameRegex.MatchString(username)
+}
+
+// SafeUploadFilename validates a client-supplied filename for disk storage and for passing to
+// external tools via exec.Command argv.
+//
+// Go's exec.Command does not invoke /bin/sh — arguments are passed as an array, so characters
+// like ;|&$ are not interpreted as shell syntax. This still rejects path separators and
+// traversal-like names so filepath.Join(outputDir, userID, uploadID+"_"+name) cannot escape
+// the intended directory, and strips risky patterns for safer logs and future refactors.
+func SafeUploadFilename(name string) (string, error) {
+	s := strings.TrimSpace(name)
+	if s == "" {
+		return "", errors.New("empty filename")
+	}
+	if filepath.Base(s) != s {
+		return "", errors.New("path not allowed in filename")
+	}
+	switch s {
+	case ".", "..":
+		return "", errors.New("invalid filename")
+	}
+	if strings.HasPrefix(s, "-") {
+		return "", errors.New("filename cannot start with hyphen")
+	}
+	for _, r := range s {
+		if r < 32 || r == 127 {
+			return "", errors.New("invalid character in filename")
+		}
+	}
+	// Shell metacharacters (harmless with argv-only exec; reject for defense in depth).
+	if strings.ContainsAny(s, ";|&$\n\r`") {
+		return "", errors.New("invalid character in filename")
+	}
+	if len(s) > 220 {
+		return "", errors.New("filename too long")
+	}
+	ext := filepath.Ext(s)
+	if ext == "" || len(ext) < 2 {
+		return "", errors.New("missing extension")
+	}
+	if strings.TrimSuffix(s, ext) == "" {
+		return "", errors.New("invalid filename")
+	}
+	return s, nil
 }

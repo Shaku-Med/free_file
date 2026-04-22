@@ -128,6 +128,7 @@ func main() {
 		NSFWApiURL:    nsfwAPI,
 		NSFWApiSecret: webhookSecret,
 		Strikes:       nsfwStrikes,
+		AssembledRoot: outputDir,
 	})
 	commentimg.RegisterRoutes(app, appLog, commentimg.Config{
 		GitHubClient:  wcfg.GitHubClient,
@@ -155,6 +156,13 @@ func main() {
 	if env.IsDev() {
 		testpage.RegisterRoutes(app)
 	}
+
+	// Unmatched routes only (must be registered after all real routes).
+	app.Use(func(c *fiber.Ctx) error {
+		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
+			"message": "This endpoint is not available",
+		})
+	})
 
 	port := env.Get("PORT", "3003")
 

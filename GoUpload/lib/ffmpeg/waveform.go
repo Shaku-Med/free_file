@@ -9,7 +9,6 @@ import (
 	"image/png"
 	"math"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"time"
 )
@@ -70,7 +69,7 @@ func extractAudioPeaks(videoPath, tmpDir string) ([]float64, error) {
 		ffmpegPathArg(pcmPath),
 	}
 
-	cmd := exec.CommandContext(ctx, "ffmpeg", args...)
+	cmd := FFmpegCommand(ctx, args...)
 	var stderr limitedWriter
 	stderr.max = 1 << 20
 	cmd.Stderr = &stderr

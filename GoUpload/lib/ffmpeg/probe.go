@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
-	"os/exec"
 	"regexp"
 	"strconv"
 	"strings"
@@ -35,6 +34,7 @@ type LoudnessInfo struct {
 
 func ProbeVideo(path string) (*VideoInfo, error) {
 	args := []string{
+		"-nostdin",
 		"-v", "quiet",
 		"-analyzeduration", "200M",
 		"-probesize", "200M",
@@ -47,7 +47,7 @@ func ProbeVideo(path string) (*VideoInfo, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, "ffprobe", args...)
+	cmd := FFprobeCommand(ctx, args...)
 	var stdout bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &limitedWriter{max: 1 << 20}
@@ -124,6 +124,7 @@ func ProbeVideo(path string) (*VideoInfo, error) {
 
 func ProbeLoudness(path string) (*LoudnessInfo, error) {
 	args := []string{
+		"-nostdin",
 		"-fflags", "+genpts+igndts",
 		"-analyzeduration", "200M",
 		"-probesize", "200M",
@@ -138,7 +139,7 @@ func ProbeLoudness(path string) (*LoudnessInfo, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Hour)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, "ffmpeg", args...)
+	cmd := FFmpegCommand(ctx, args...)
 	var stderr limitedWriter
 	stderr.max = 2 << 20
 	cmd.Stderr = &stderr
@@ -227,6 +228,7 @@ func ValidateVideo(path string) error {
 	defer cancel()
 
 	args := []string{
+		"-nostdin",
 		"-v", "error",
 		"-fflags", "+genpts+igndts",
 		"-analyzeduration", "200M",
@@ -236,7 +238,7 @@ func ValidateVideo(path string) error {
 		"-f", "null",
 		"-",
 	}
-	cmd := exec.CommandContext(ctx, "ffmpeg", args...)
+	cmd := FFmpegCommand(ctx, args...)
 	var stderr limitedWriter
 	stderr.max = 512 << 10
 	cmd.Stderr = &stderr
