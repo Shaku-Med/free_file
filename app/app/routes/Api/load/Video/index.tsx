@@ -32,11 +32,12 @@ import {
   tryConsumeManifestKey,
   verifyManifestContinuationCookie,
 } from "~/lib/Services/hlsManifestGate.server";
+import { uniqueIdFromVideoStoragePath } from "~/lib/Services/videoStoragePath.server";
 
 const getFileFromPath = async (path: string) => {
   if (!db) return null;
-  const pathParts = path.split("/");
-  const uniqueId = pathParts.length > 2 ? pathParts[1] : pathParts[0];
+  const uniqueId = uniqueIdFromVideoStoragePath(path);
+  if (!uniqueId) return null;
   const { data } = await db
     .from("files")
     .select("id, is_adult, is_public, owner_id, github_repo, duration")
