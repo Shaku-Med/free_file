@@ -241,6 +241,23 @@ export function useHLS(videoRef: React.RefObject<HTMLVideoElement | null>) {
             return;
           }
 
+          if (status === 429) {
+            if (fragUrl && (details === 'fragLoadError' || details === 'fragLoadTimeOut')) {
+              fragErrorCounts.delete(fragUrl);
+            }
+            if (data.fatal) {
+              window.setTimeout(() => {
+                if (cancelled || !mountedRef.current) return;
+                try {
+                  hls.startLoad();
+                } catch {
+                  /* ignore */
+                }
+              }, 2000);
+            }
+            return;
+          }
+
           if (data.type === 'mediaError' && details === 'fragParsingError') {
             if (data.frag?.loader) data.frag.loader.abort();
             hls.startLoad();

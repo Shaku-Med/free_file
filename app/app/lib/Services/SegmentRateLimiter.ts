@@ -7,17 +7,15 @@
  * the API is intentionally tiny so the call sites don't change.
  */
 
-const SEGMENT_WINDOW_MS = 30_000;
-/** A 1080p HLS stream at 4–6s segments needs ~5–8 fetches to fill the initial
- *  buffer, then ~1 every segment-duration. 25 in 30s leaves plenty of room
- *  for quality switches and seeks while still capping ffmpeg-style ripping. */
-const SEGMENT_MAX_PER_WINDOW = 25;
+const SEGMENT_WINDOW_MS = 45_000;
+/** VoD seeks and ABR can burst many `.ts` requests in a few seconds; a low cap
+ *  caused 429 → hls.js manifest reloads → playback death. Rippers still exceed
+ *  this by orders of magnitude (full-speed parallel downloads). */
+const SEGMENT_MAX_PER_WINDOW = 70;
 
 const MANIFEST_WINDOW_MS = 60_000;
-/** Manifest reloads happen on quality switch, error recovery, and the
- *  client's token-refresh path. 10/min is generous for legit users; the
- *  extension's auth-refresh loop hits this fast. */
-const MANIFEST_MAX_PER_WINDOW = 10;
+/** Master + variant playlists on recovery; keep headroom above error-retry storms. */
+const MANIFEST_MAX_PER_WINDOW = 22;
 
 const SWEEP_INTERVAL_MS = 60_000;
 

@@ -45,7 +45,7 @@ export function usePlaybackPosition(videoRef: React.RefObject<HTMLVideoElement |
     };
 
     restore();
-  }, [imageID, src, startTime]);
+  }, [imageID, startTime]);
 
   useEffect(() => {
     const video = videoRef.current;
