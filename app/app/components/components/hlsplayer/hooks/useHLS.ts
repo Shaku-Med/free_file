@@ -10,6 +10,8 @@ import {
 export function useHLS(videoRef: React.RefObject<HTMLVideoElement | null>) {
   const { hlsRef, setState, src } = usePlayerContext();
   const { playerSettings, hlsBootstrap, hlsBootstrapRetry } = useFileContext();
+  const hlsAuthRef = useRef({ hlsBootstrap, hlsBootstrapRetry });
+  hlsAuthRef.current = { hlsBootstrap, hlsBootstrapRetry };
   const mountedRef = useRef(true);
   const postGateSrcRef = useRef<string | null>(null);
   const qualityPrefRef = useRef(playerSettings?.quality ?? 'auto');
@@ -54,11 +56,8 @@ export function useHLS(videoRef: React.RefObject<HTMLVideoElement | null>) {
       let playbackSrc = src;
 
       if (needsManifestExchange) {
-        const exchanged = await exchangeHlsManifestKey(
-          src,
-          hlsBootstrap,
-          hlsBootstrapRetry
-        );
+        const { hlsBootstrap: boot, hlsBootstrapRetry: retry } = hlsAuthRef.current;
+        const exchanged = await exchangeHlsManifestKey(src, boot, retry);
         if (cancelled) return;
         if (!exchanged) {
           setState((s) => ({
@@ -382,7 +381,6 @@ export function useHLS(videoRef: React.RefObject<HTMLVideoElement | null>) {
         hlsRef.current = null;
       }
     };
-    // videoRef is a stable ref object; hlsRef/setState are stable enough for playback setup.
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- only re-resolve when src or bootstrap blobs change
-  }, [src, hlsBootstrap, hlsBootstrapRetry]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- bootstrap via hlsAuthRef only; new tokens on root revalidate must not restart HLS
+  }, [src]);
 }
