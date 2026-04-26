@@ -45,9 +45,29 @@ export function getAllowedOrigin(requestUrl: URL): string {
   return process.env.PUBLIC_APP_ORIGIN?.trim() || requestUrl.origin;
 }
 
-export function videoRequestGuard(request: Request): boolean {
+/** For production debugging: why `videoRequestGuard` failed (do not log secrets). */
+export function evaluateVideoRequestGuard(
+  request: Request
+): { ok: true } | { ok: false; reason: string } {
   const url = new URL(request.url);
-  if (!isInAppFetch(request.headers)) return false;
-  if (!isOriginAllowed(request.headers, url)) return false;
-  return true;
+  const h = request.headers;
+  if (!isInAppFetch(h)) {
+    return {
+      ok: false,
+      reason: `sec-fetch/in-app: site=${h.get("sec-fetch-site") ?? "(missing)"} mode=${h.get("sec-fetch-mode") ?? "(missing)"} dest=${h.get("sec-fetch-dest") ?? "(missing)"} user=${h.get("sec-fetch-user") ?? "(missing)"}`,
+    };
+  }
+  if (!isOriginAllowed(h, url)) {
+    const origin = h.get("origin");
+    const allowed = process.env.PUBLIC_APP_ORIGIN?.trim();
+    return {
+      ok: false,
+      reason: `origin: Origin=${origin ?? "(missing)"} PUBLIC_APP_ORIGIN=${allowed ?? "(unset)"} requestUrl.origin=${url.origin}`,
+    };
+  }
+  return { ok: true };
+}
+
+export function videoRequestGuard(request: Request): boolean {
+  return evaluateVideoRequestGuard(request).ok;
 }

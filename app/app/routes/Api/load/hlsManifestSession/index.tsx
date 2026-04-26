@@ -4,13 +4,16 @@ import { sanitizeFilePath } from "~/lib/Security/inputValidation";
 import { verifyHlsBootstrap, type HlsPlaybackKind } from "~/lib/Security/Server/hlsBootstrap.server";
 import { createPendingManifestKey } from "~/lib/Services/hlsManifestGate.server";
 import {
-  videoRequestGuard,
+  evaluateVideoRequestGuard,
   getAllowedOrigin,
 } from "~/lib/Security/Server/videoRequestGuard";
 import { isAuthenticated } from "~/lib/Security/Password";
 import db from "~/lib/Database/supabase";
 import { checkFileAccess } from "~/routes/Dynamic/fun/accessControl";
 import { uniqueIdFromVideoStoragePath } from "~/lib/Services/videoStoragePath.server";
+
+/** TEMP: remove after HTTPS / 403 production debug — logs which branch failed (no secrets). */
+const DBG = "[hls-manifest-session]";
 
 const VKF = async (request: Request) => {
   try {
@@ -44,7 +47,9 @@ export const action = async ({ request }: { request: Request }) => {
     return new Response(null, { status: 405 });
   }
 
-  if (!videoRequestGuard(request)) {
+  const guard = evaluateVideoRequestGuard(request);
+  if (!guard.ok) {
+    console.warn(`${DBG} 403 videoRequestGuard`, guard.reason);
     return new Response(null, { status: 403 });
   }
 
@@ -80,23 +85,47 @@ export const action = async ({ request }: { request: Request }) => {
   const file = await getFileFromPath(sanitizedPath);
 
   if (!verified && !userId) {
-    if (!file) return new Response(null, { status: 401 });
+    if (!file) {
+      console.warn(`${DBG} 401 guest no VKF and no file row`, {
+        sanitizedPath,
+        uniqueId: uniqueIdFromVideoStoragePath(sanitizedPath),
+        dbConfigured: Boolean(db),
+      });
+      return new Response(null, { status: 401 });
+    }
   } else if (!verified) {
+    console.warn(`${DBG} 401 signed-in but VKF failed`, { userId: userId ?? null, sanitizedPath });
     return new Response(null, { status: 401 });
   }
 
   const kind: HlsPlaybackKind = userId ? "user" : "guest";
   const ok = await verifyHlsBootstrap(bootstrap, request.headers, kind, userId);
   if (!ok) {
+    console.warn(`${DBG} 403 verifyHlsBootstrap failed`, {
+      kind,
+      userId: userId ?? null,
+      bootstrapLen: bootstrap.length,
+      sanitizedPath,
+    });
     return new Response(null, { status: 403 });
   }
 
   if (file) {
     const accessControl = await checkFileAccess(request, file);
     if (!accessControl.allowed) {
+      console.warn(`${DBG} 403 checkFileAccess denied`, {
+        reason: accessControl.reason,
+        fileId: file.id,
+        sanitizedPath,
+      });
       return new Response(null, { status: 403 });
     }
   } else {
+    console.warn(`${DBG} 403 no file row for path`, {
+      sanitizedPath,
+      uniqueId: uniqueIdFromVideoStoragePath(sanitizedPath),
+      dbConfigured: Boolean(db),
+    });
     return new Response(null, { status: 403 });
   }
 
