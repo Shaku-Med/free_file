@@ -748,7 +748,7 @@ function PlayerInner({
           : (
             <video
               ref={assignVideoRef}
-              className={`w-full h-full object-contain ${isReelCtx && !embedReelControls ? 'pointer-events-none' : ''}`}
+              className={`w-full h-full object-contain  ${isReelCtx && !embedReelControls ? 'pointer-events-none' : ''}`}
               muted={muted}
               loop={loopEnabled}
               playsInline={playsInline}

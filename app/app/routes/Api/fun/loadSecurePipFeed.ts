@@ -2,7 +2,7 @@ import db from '~/lib/Database/supabase';
 import { isAuthenticated } from '~/lib/Security/Password';
 import { stripGithubRepoForClient } from '~/lib/githubStorage';
 import { checkFileAccess } from '~/routes/Dynamic/fun/accessControl';
-import { filterFilesByAccess } from '~/routes/Api/fun/accessControl';
+import { filterFilesByAccess, type FileData } from '~/routes/Api/fun/accessControl';
 import { enrichFeedFilesWithInteractions } from '~/routes/Api/fun/enrichFeedFiles';
 
 const PIP_FEED_LIMIT = 20;
@@ -45,6 +45,12 @@ export type SecurePipFeedOk = {
   rawCount: number;
   /** Seed the RPC used for this page — client MUST echo it back for paginated calls. */
   seed: string;
+};
+
+export type SecurePipFeedErr = {
+  ok: false;
+  status: number;
+  body: Record<string, unknown>;
 };
 
 /**
@@ -186,7 +192,10 @@ export async function loadSecurePipFeed(
     ? feedRows.map((r) => ({ ...(r as Record<string, unknown>) }))
     : [];
 
-  rows = await filterFilesByAccess(request, rows);
+  rows = (await filterFilesByAccess(
+    request,
+    rows as FileData[],
+  )) as Record<string, unknown>[];
 
   const centerId = String(file.id);
   const at = rows.findIndex((r) => String(r.id) === centerId);

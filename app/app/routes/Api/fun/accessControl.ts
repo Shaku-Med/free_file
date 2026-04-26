@@ -1,7 +1,7 @@
 import { isAuthenticated } from "~/lib/Security/Password";
 import db from "~/lib/Database/supabase";
 
-interface FileData {
+export interface FileData {
   is_adult: boolean;
   is_public: boolean;
   owner_id: string;

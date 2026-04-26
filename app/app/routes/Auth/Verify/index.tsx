@@ -181,10 +181,12 @@ const Verify = () => {
   };
 
   const maskedEmail = loaderData.email
-    ? loaderData.email.replace(/^(.{2})(.*)(@.*)$/, (_, start, middle, end) =>
-        start + '*'.repeat(Math.min(middle.length, 5)) + end
+    ? loaderData.email.replace(
+        /^(.{2})(.*)(@.*)$/,
+        (_: string, start: string, middle: string, end: string) =>
+          start + "*".repeat(Math.min(middle.length, 5)) + end
       )
-    : '';
+    : "";
 
   return (
     <div className="w-full">

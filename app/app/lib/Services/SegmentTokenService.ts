@@ -1,6 +1,13 @@
 import { createHmac, timingSafeEqual } from "crypto";
+import { getCookie } from "~/lib/Security/Token";
+import { sanitizeFilePath } from "~/lib/Security/inputValidation";
 
-const TOKEN_TTL = 14400;
+/**
+ * 5 minutes is plenty for any single segment fetch and short enough that a
+ * stolen URL expires before it's useful. The client reloads the manifest
+ * to mint fresh tokens when ones in flight expire mid-session.
+ */
+const TOKEN_TTL = 300;
 
 function getSecret(): string {
   return process.env.SEGMENT_TOKEN_SECRET || process.env.VAPID_PRIVATE_KEY || "";
@@ -19,15 +26,44 @@ function extractIp(headers: Headers): string {
   );
 }
 
+/**
+ * Stable per-browser identifier derived from the auth cookie. We HMAC the
+ * cookie so the segment URL never echoes it back. A stolen segment URL is
+ * useless in any other session because the binding here won't match.
+ * `c_user` for signed-in, `token` for guests; "anon" only when neither
+ * cookie is present (rare — the route already requires one path or another).
+ */
+/** Exported for HLS manifest gate + session rate limits (same binding as segment tokens). */
+export function sessionScope(headers: Headers): string {
+  const cu = getCookie("c_user", headers);
+  if (cu) {
+    return "u:" + createHmac("sha256", getSecret()).update(cu).digest("base64url").slice(0, 16);
+  }
+  const tok = getCookie("token", headers);
+  if (tok) {
+    return "g:" + createHmac("sha256", getSecret()).update(tok).digest("base64url").slice(0, 16);
+  }
+  return "anon";
+}
+
 function sign(message: string): string {
   return createHmac("sha256", getSecret()).update(message).digest("base64url");
 }
 
+/**
+ * Bucket key for rate-limiting: combines the session-cookie scope with
+ * client IP so household NATs don't penalize each other and a single
+ * compromised session can't be parallelized across hosts.
+ */
+export function sessionRateKey(headers: Headers): string {
+  return `${sessionScope(headers)}|${extractIp(headers)}`;
+}
+
 export function createSegmentToken(segmentPath: string, headers: Headers): string {
   const ip = extractIp(headers);
-  const ua = headers.get("user-agent") || "";
+  const ss = sessionScope(headers);
   const exp = Math.floor(Date.now() / 1000) + TOKEN_TTL;
-  return `${sign(`${segmentPath}|${ip}|${ua}|${exp}`)}.${exp}`;
+  return `${sign(`${segmentPath}|${ip}|${ss}|${exp}`)}.${exp}`;
 }
 
 /**
@@ -41,10 +77,10 @@ export function createGuestSegmentToken(
   guestLimitSeconds: number
 ): string {
   const ip = extractIp(headers);
-  const ua = headers.get("user-agent") || "";
+  const ss = sessionScope(headers);
   const exp = Math.floor(Date.now() / 1000) + TOKEN_TTL;
   const lim = Math.max(1, Math.min(10 * 60, Math.floor(Number(guestLimitSeconds))));
-  return `${sign(`${segmentPath}|${ip}|${ua}|${exp}|guest|${lim}`)}.${exp}`;
+  return `${sign(`${segmentPath}|${ip}|${ss}|${exp}|guest|${lim}`)}.${exp}`;
 }
 
 export function verifySegmentToken(token: string, segmentPath: string, headers: Headers): boolean {
@@ -57,8 +93,8 @@ export function verifySegmentToken(token: string, segmentPath: string, headers: 
     if (isNaN(exp) || exp < Math.floor(Date.now() / 1000)) return false;
 
     const ip = extractIp(headers);
-    const ua = headers.get("user-agent") || "";
-    const expected = sign(`${segmentPath}|${ip}|${ua}|${exp}`);
+    const ss = sessionScope(headers);
+    const expected = sign(`${segmentPath}|${ip}|${ss}|${exp}`);
 
     if (sig.length !== expected.length) return false;
     return timingSafeEqual(Buffer.from(sig), Buffer.from(expected));
@@ -82,9 +118,9 @@ export function verifyGuestSegmentToken(
     if (isNaN(exp) || exp < Math.floor(Date.now() / 1000)) return false;
 
     const ip = extractIp(headers);
-    const ua = headers.get("user-agent") || "";
+    const ss = sessionScope(headers);
     const lim = Math.max(1, Math.min(10 * 60, Math.floor(Number(guestLimitSeconds))));
-    const expected = sign(`${segmentPath}|${ip}|${ua}|${exp}|guest|${lim}`);
+    const expected = sign(`${segmentPath}|${ip}|${ss}|${exp}|guest|${lim}`);
 
     if (sig.length !== expected.length) return false;
     return timingSafeEqual(Buffer.from(sig), Buffer.from(expected));
@@ -97,7 +133,83 @@ export type RewriteM3U8Options = {
   guestMode?: boolean;
   /** Server-computed preview window (seconds); ignored unless guestMode */
   guestLimitSeconds?: number;
+  /**
+   * When set, each nested `.m3u8` reference also gets a one-shot `_mk` (server should use
+   * `createPendingManifestKey`). Master playlists with `playlist.m3u8` / `URI="…m3u8"` then work
+   * even if continuation-cookie scope would otherwise narrow per subfolder.
+   */
+  mintChildManifestKey?: (sanitizedFullPath: string) => string | undefined;
 };
+
+function isM3u8ResourceRef(ref: string): boolean {
+  const clean = ref.split("?")[0].split("#")[0].toLowerCase();
+  return clean.endsWith(".m3u8") || clean.endsWith(".m2u8");
+}
+
+/** Resolve HLS relative reference against the manifest directory (POSIX-style, no `..` left). */
+function resolveUnderBasePath(basePath: string, ref: string): string {
+  const q = ref.split("?")[0].split("#")[0];
+  if (!q || /^https?:\/\//i.test(q)) return q;
+  const baseParts = basePath.split("/").filter((p) => p.length > 0);
+  const relParts = q.split("/").filter((p) => p !== "." && p.length > 0);
+  const stack = ref.startsWith("/") ? [] : [...baseParts];
+  for (const p of relParts) {
+    if (p === "..") stack.pop();
+    else stack.push(p);
+  }
+  return stack.join("/");
+}
+
+function appendStAndOptionalMk(
+  rawRef: string,
+  fullPathForSt: string,
+  headers: Headers,
+  useGuestToken: boolean,
+  gl: number | null,
+  mintChildManifestKey: ((p: string) => string | undefined) | undefined
+): string {
+  const token = useGuestToken && gl != null && gl > 0
+    ? createGuestSegmentToken(fullPathForSt, headers, gl)
+    : createSegmentToken(fullPathForSt, headers);
+  let out = `${rawRef}${rawRef.includes("?") ? "&" : "?"}_st=${token}`;
+  if (mintChildManifestKey && isM3u8ResourceRef(rawRef)) {
+    const sanitized = sanitizeFilePath(fullPathForSt);
+    if (sanitized && isM3u8ResourceRef(sanitized)) {
+      const mk = mintChildManifestKey(sanitized);
+      if (mk) out += `&_mk=${encodeURIComponent(mk)}`;
+    }
+  }
+  return out;
+}
+
+/** Rewrite `URI="…"` / `URI='…'` on #EXT-X-* lines (alternate renditions, audio, etc.). */
+function rewriteUriAttributesInExtLine(
+  line: string,
+  basePath: string,
+  headers: Headers,
+  useGuestToken: boolean,
+  gl: number | null,
+  mintChildManifestKey?: (p: string) => string | undefined
+): string {
+  return line.replace(/\bURI\s*=\s*("[^"]*"|'[^']*')/gi, (full, quoted: string) => {
+    const q = quoted[0];
+    const inner = quoted.slice(1, -1);
+    if (!inner || /^https?:\/\//i.test(inner)) return full;
+    if (!isM3u8ResourceRef(inner)) return full;
+    const resolved = resolveUnderBasePath(basePath, inner);
+    const sanitized = sanitizeFilePath(resolved);
+    if (!sanitized) return full;
+    const newInner = appendStAndOptionalMk(
+      inner,
+      sanitized,
+      headers,
+      useGuestToken,
+      gl,
+      mintChildManifestKey
+    );
+    return `URI=${q}${newInner}${q}`;
+  });
+}
 
 export function rewriteM3U8(
   content: string,
@@ -111,19 +223,38 @@ export function rewriteM3U8(
       ? Math.floor(options.guestLimitSeconds)
       : null;
   const useGuestToken = guestMode && gl != null && gl > 0;
+  const mintChildManifestKey = options?.mintChildManifestKey;
 
   return content
     .split("\n")
     .map((line) => {
       const t = line.trim();
-      if (!t || t.startsWith("#")) return line;
+      if (!t) return line;
+      if (t.startsWith("#")) {
+        if (t.includes("URI=")) {
+          return rewriteUriAttributesInExtLine(
+            line,
+            basePath,
+            headers,
+            useGuestToken,
+            gl,
+            mintChildManifestKey
+          );
+        }
+        return line;
+      }
       const cleanName = t.split("?")[0];
-      const fullPath = basePath ? `${basePath}/${cleanName}` : cleanName;
-      const token = useGuestToken
-        ? createGuestSegmentToken(fullPath, headers, gl!)
-        : createSegmentToken(fullPath, headers);
-      const sep = t.includes("?") ? "&" : "?";
-      return `${t}${sep}_st=${token}`;
+      const resolved = resolveUnderBasePath(basePath, cleanName);
+      const sanitized = sanitizeFilePath(resolved);
+      const fullPath = sanitized ?? (basePath ? `${basePath}/${cleanName}` : cleanName);
+      return appendStAndOptionalMk(
+        t,
+        fullPath,
+        headers,
+        useGuestToken,
+        gl,
+        mintChildManifestKey
+      );
     })
     .join("\n");
 }

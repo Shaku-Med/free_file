@@ -34,6 +34,7 @@ import { getPlayerSettingsFromCookies } from "./routes/Api/player-settings";
 import { BASE_URL } from "./lib/URLS";
 import { isMobileUserAgent } from "./lib/device.server";
 import { readAltAccountsFromRequest } from "./lib/Security/accountVault";
+import { issueHlsBootstrap } from "./lib/Security/Server/hlsBootstrap.server";
 
 export const links: Route.LinksFunction = () => [
   { rel: "preconnect", href: "https://fonts.googleapis.com" },
@@ -181,7 +182,13 @@ export const loader = async ({request}: {request: Request}) => {
       profile_pic: pic ?? null,
     }));
 
-    return data({ st: sessionToken, user_agent: request.headers.get('user-agent'), userId, c_user, uploadServerUrl, userTheme, playerSettingsFromLoader, isMobileServer, isDevelopmentServer, requestURL, altAccounts }, {
+    const hlsPlaybackKind = userId ? "user" : "guest";
+    const [hlsBootstrap, hlsBootstrapRetry] = await Promise.all([
+      issueHlsBootstrap(request.headers, hlsPlaybackKind, userId),
+      issueHlsBootstrap(request.headers, hlsPlaybackKind, userId),
+    ]);
+
+    return data({ st: sessionToken, user_agent: request.headers.get('user-agent'), userId, c_user, uploadServerUrl, userTheme, playerSettingsFromLoader, isMobileServer, isDevelopmentServer, requestURL, altAccounts, hlsBootstrap, hlsBootstrapRetry }, {
       status: 200,
       headers: (token) ? { // I left this part open for now. Fix will be done later.
         'Set-Cookie': `token=${token}; Path=/; HttpOnly; ${secure}; ${sameSite}`
@@ -228,7 +235,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
     )
   }
 
-  const { st, user_agent, userId, c_user, uploadServerUrl, userTheme, playerSettingsFromLoader, isMobileServer, isDevelopmentServer, requestURL, altAccounts } = data;
+  const { st, user_agent, userId, c_user, uploadServerUrl, userTheme, playerSettingsFromLoader, isMobileServer, isDevelopmentServer, requestURL, altAccounts, hlsBootstrap, hlsBootstrapRetry } = data;
   const themeClass = userTheme?.theme ?? "system";
   const themeStyle = userTheme?.style ?? "default";
 
@@ -277,7 +284,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
         <ThemeApply userTheme={userTheme ?? null} />
         <RegisterServiceWorker />
         <ErrorBoundary>
-          <ContextProvider st={st} user_agent={user_agent || ''} userId={userId || null} c_user={c_user || null} uploadServerUrl={uploadServerUrl || ''} playerSettingsFromLoader={playerSettingsFromLoader ?? null} isMobileServer={isMobileServer ?? false} isDevelopment={isDevelopmentServer ?? false} altAccounts={altAccounts ?? []}>
+          <ContextProvider st={st} user_agent={user_agent || ''} userId={userId || null} c_user={c_user || null} uploadServerUrl={uploadServerUrl || ''} playerSettingsFromLoader={playerSettingsFromLoader ?? null} isMobileServer={isMobileServer ?? false} isDevelopment={isDevelopmentServer ?? false} altAccounts={altAccounts ?? []} hlsBootstrap={hlsBootstrap ?? null} hlsBootstrapRetry={hlsBootstrapRetry ?? null}>
             <LikeProvider>
               <PictureInPictureProvider>
                 <MiniPlayerProvider>

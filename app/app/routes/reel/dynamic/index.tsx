@@ -15,6 +15,7 @@ import {
   ParseFilename,
   getVideoSrc,
   getThumbnailUrl,
+  getThumbnailPreviewApiPaths,
 } from "~/lib/utils";
 import { formatNumber } from "~/lib/utils/formatNumber";
 import { stripGithubRepoForClient } from "~/lib/githubStorage";
@@ -177,8 +178,6 @@ export const meta: MetaFunction<typeof loader> = ({ data: loaderData }) => {
         ? `${file.file_description} | ${statsText}`
         : `${ParseFilename(file.filename || "")} | ${statsText} | ${file.file_type} | ${file.file_size}`;
 
-    const thumbnail = getThumbnailUrl(file, { queryString: '?quality=50' });
-
     const isVideo =
       file.file_type?.includes("video") ||
       file.file_type === "application/vnd.apple.mpegurl" ||
@@ -187,8 +186,35 @@ export const meta: MetaFunction<typeof loader> = ({ data: loaderData }) => {
     const ogType = isVideo ? "video.other" : isImage ? "image" : "website";
     const ownerUsername = (loaderData?.file as any)?.owner?.username;
 
+    const thumbnail = getThumbnailUrl(file, { queryString: "?quality=70&is_metadata=true" });
+    const thumbnailUrl = `${BASE_URL}${thumbnail}`;
+
+    const thumbPreviewPaths = isVideo ? getThumbnailPreviewApiPaths(file) : null;
+    const thumbPreviewPrefetch: import("react-router").MetaDescriptor[] = thumbPreviewPaths
+      ? [
+          {
+            rel: "prefetch",
+            href: `${BASE_URL}/api/load/image/${thumbPreviewPaths.json}`,
+            crossOrigin: "anonymous",
+          },
+          {
+            rel: "prefetch",
+            href: `${BASE_URL}/api/load/image/${thumbPreviewPaths.jpg}`,
+            as: "image",
+            crossOrigin: "anonymous",
+          },
+        ]
+      : [];
+
     const extra: import("react-router").MetaDescriptor[] = [
-      { property: "og:image:type", content: "image/jpeg" },
+      { property: "og:image:type", content: "image/png" },
+      { property: "og:image:secure_url", content: thumbnailUrl },
+      { property: "og:image:width", content: "400" },
+      { property: "og:image:height", content: "400" },
+      ...(ownerUsername ? [{ property: "article:author", content: ownerUsername }] : []),
+      ...(file?.created_at
+        ? [{ property: "article:published_time", content: new Date(file.created_at).toISOString() }]
+        : []),
       ...(isVideo
         ? [
             { property: "og:video:type", content: file.file_type || "video/mp4" },
@@ -199,13 +225,17 @@ export const meta: MetaFunction<typeof loader> = ({ data: loaderData }) => {
           ]
         : []),
       { name: "twitter:card", content: isVideo ? "player" : "summary_large_image" },
+      ...(ownerUsername ? [{ name: "twitter:creator", content: `@${ownerUsername}` }] : []),
+      { rel: "preconnect", href: thumbnailUrl, as: "image" },
+      { rel: "dns-prefetch", href: BASE_URL },
+      ...thumbPreviewPrefetch,
     ];
 
     return buildPageMeta({
       title: `${displayTitle} | Memories`,
       description: `${displayDescription} | Memories`,
       canonicalPath: `/reel/${encodeURIComponent(String(file.unique_id ?? loaderData.uniqueId ?? ""))}`,
-      ogImage: thumbnail,
+      ogImage: thumbnailUrl,
       ogImageAlt: displayTitle,
       keywords: [file.file_type, isVideo ? "video" : isImage ? "image" : "media", "memories", "reel"].filter(Boolean).join(", "),
       author: ownerUsername,

@@ -45,24 +45,27 @@ export const loader = async ({ request }: { request: Request }) => {
       return toJson({ error: "Failed to load likes" }, 500);
     }
 
-    const rows = likeRows ?? [];
+    type LikeRow = { user_id: string; created_at?: string };
+    type UserRow = { id: string; username?: string | null; profile_pic?: string | null };
+    const rows = (likeRows ?? []) as LikeRow[];
     if (rows.length === 0) {
       return toJson({ success: true, users: [], total: 0 });
     }
 
-    const userIds = [...new Set(rows.map((r) => r.user_id as string))];
+    const userIds = [...new Set(rows.map((r) => r.user_id))];
     const { data: userRows } = await db
       .from("users")
       .select("id, username, profile_pic")
       .in("id", userIds);
 
-    const byId = new Map(
-      (userRows ?? []).map((u) => [
-        u.id as string,
+    type EnrichedUser = { id: string; username: string; profile_pic: string };
+    const byId = new Map<string, EnrichedUser>(
+      ((userRows ?? []) as UserRow[]).map((u) => [
+        u.id,
         {
-          id: u.id as string,
-          username: String((u as { username?: string }).username ?? ""),
-          profile_pic: String((u as { profile_pic?: string }).profile_pic ?? ""),
+          id: u.id,
+          username: String(u.username ?? ""),
+          profile_pic: String(u.profile_pic ?? ""),
         },
       ])
     );
@@ -83,8 +86,8 @@ export const loader = async ({ request }: { request: Request }) => {
     for (let i = 0; i < rows.length; i += CHUNK) {
       const chunk = rows.slice(i, i + CHUNK);
       const part = await Promise.all(
-        chunk.map(async (row) => {
-          const u = byId.get(row.user_id as string);
+        chunk.map(async (row: LikeRow) => {
+          const u = byId.get(row.user_id);
           if (!u) return null;
           const { data: statsResult, error: rpcErr } = await db.rpc("get_channel_stats", {
             p_user_id: u.id,

@@ -3,6 +3,10 @@ import type Hls from 'hls.js';
 import type { FileType } from '~/lib/types';
 import { isMobile } from 'react-device-detect';
 import { useFileContext } from '~/lib/Context/Context';
+import {
+  usePictureInPictureContext,
+  restoreVideoAudioAfterSystemPip,
+} from '~/lib/Context/PictureInPictureContext';
 import { getWaveformImagePathPrefix } from '~/lib/utils';
 import {
   type AudioVisualizerStyle,
@@ -189,6 +193,7 @@ export function PlayerProvider({
   unlockPipReelAudio = false,
 }: PlayerProviderProps) {
   const { playerSettings, setPlayerSettings, savePlayerSettings } = useFileContext();
+  const { isContentInPip } = usePictureInPictureContext();
   const hlsRef = useRef<Hls | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [state, setState] = useState<PlayerState>({
@@ -301,6 +306,35 @@ export function PlayerProvider({
     setAmbientModeState(false);
     setAudioVisualizerState(false);
   }, [authPlaybackFeatures]);
+
+  /** System PiP (especially iOS) can set `video.muted` after enter; keep element in sync with player UI. */
+  useEffect(() => {
+    if (!isContentInPip(imageID)) return;
+    const v = videoRef.current;
+    if (!v) return;
+    const isRemote =
+      (v as any).webkitCurrentPlaybackTargetIsWireless ||
+      (v as any).remote?.state === 'connected';
+    if (isRemote) return;
+
+    const wantSound = !state.isMuted && state.volume > 0;
+    if (!wantSound) return;
+
+    restoreVideoAudioAfterSystemPip(v, true);
+
+    const onVolumeChange = () => {
+      if (!wantSound) return;
+      const el = videoRef.current;
+      if (!el || !isContentInPip(imageID)) return;
+      if (el.muted) {
+        el.muted = false;
+        if (el.volume === 0) el.volume = Math.max(state.volume, 0.01);
+      }
+    };
+
+    v.addEventListener('volumechange', onVolumeChange);
+    return () => v.removeEventListener('volumechange', onVolumeChange);
+  }, [isContentInPip, imageID, state.isMuted, state.volume, videoRef]);
 
   const waveformUrl = useMemo(() => {
     if (!file) return null;

@@ -72,6 +72,8 @@ export const Context = createContext<ContextProps>({
     altAccounts: [],
     hideAppChrome: false,
     setHideAppChrome: () => {},
+    hlsBootstrap: null,
+    hlsBootstrapRetry: null,
 })
 
 interface ContextProviderProps {
@@ -85,6 +87,8 @@ interface ContextProviderProps {
     isMobileServer?: boolean;
     isDevelopment?: boolean;
     altAccounts?: { id: string; username: string; profile_pic?: string | null }[];
+  hlsBootstrap?: string | null;
+  hlsBootstrapRetry?: string | null;
 }
 
 export const FloatingButton = () => {
@@ -125,7 +129,7 @@ export const FloatingButton = () => {
     )
 }
 
-export const ContextProvider = ({ children, st, user_agent, userId, c_user, uploadServerUrl = '', playerSettingsFromLoader = null, isMobileServer = false, isDevelopment = false, altAccounts: altAccountsProp = [] }: ContextProviderProps) => {
+export const ContextProvider = ({ children, st, user_agent, userId, c_user, uploadServerUrl = '', playerSettingsFromLoader = null, isMobileServer = false, isDevelopment = false, altAccounts: altAccountsProp = [], hlsBootstrap = null, hlsBootstrapRetry = null }: ContextProviderProps) => {
     const [files, setFiles] = useState<FileType[]>([]);
     const [pageCache, setPageCache] = useState<PageCacheEntry>([]);
     const [isModalOpen, setIsModalOpen] = useState(false);
@@ -489,8 +493,10 @@ export const ContextProvider = ({ children, st, user_agent, userId, c_user, uplo
             altAccounts: altAccountsProp,
             hideAppChrome,
             setHideAppChrome,
+            hlsBootstrap,
+            hlsBootstrapRetry,
         }),
-        [files, isModalOpen, isLoading, initialLoading, loadMoreVideos, clearFeedHistory, user_agent, safeUserId, userActions, c_user, uploadServerUrl, userProfile, userProfileLoading, pageCache, scrollDataReady, theaterMode, playerSettings, savePlayerSettings, altAccountsProp, hideAppChrome]
+        [files, isModalOpen, isLoading, initialLoading, loadMoreVideos, clearFeedHistory, user_agent, safeUserId, userActions, c_user, uploadServerUrl, userProfile, userProfileLoading, pageCache, scrollDataReady, theaterMode, playerSettings, savePlayerSettings, altAccountsProp, hideAppChrome, hlsBootstrap, hlsBootstrapRetry]
     );
     
     return (

@@ -14,6 +14,9 @@ interface VideoJob {
     timestamp?: number
     headers?: Headers
     baseUrl?: string
+    ownerId?: string
+    fileTitle?: string
+    fileDescription?: string
     options: {
         outputFormat: 'mp4' | 'hls'
         quality: 'low' | 'medium' | 'high'

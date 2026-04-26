@@ -1,6 +1,8 @@
 import { useCallback, useRef, useState } from 'react';
 import { Music2 } from 'lucide-react';
 import { cn, getVideoSrc } from '~/lib/utils';
+import ParseFilenameInsert from '~/lib/utils/ShowFileName';
+import { FormattedText } from '~/components/FormattedText';
 // Same `~/components/components/hlsplayer` as Dynamic (queue wrapper adds suggested/next props only).
 import HLSPlayer from '~/components/components/hlsplayer';
 import Actions from '~/routes/Home/components/VideoCard/Actions';
@@ -117,14 +119,32 @@ export function VerticalFeedItem({
                 <p className="text-sm font-semibold text-white drop-shadow-[0_1px_2px_rgba(0,0,0,0.8)]">
                   @{item.username}
                 </p>
-                {item.caption || item.title ? (
+                {item.caption?.trim() ? (
                   <p className="mt-1 line-clamp-3 text-sm leading-snug text-white/95 drop-shadow-[0_1px_2px_rgba(0,0,0,0.75)]">
-                    {item.caption ?? item.title}
+                    <FormattedText
+                      text={item.caption.trim()}
+                      className="text-white/95 [&_a]:text-sky-300 [&_a]:hover:text-sky-200"
+                    />
+                  </p>
+                ) : file?.file_title?.trim() || file?.filename ? (
+                  <p className="mt-1 line-clamp-3 text-sm font-semibold leading-snug text-white/95 drop-shadow-[0_1px_2px_rgba(0,0,0,0.75)]">
+                    <ParseFilenameInsert
+                      filename={file.file_title?.trim() || file.filename || ''}
+                      className="text-white/95 [&_a]:text-sky-300 [&_a]:hover:text-sky-200"
+                    />
                   </p>
                 ) : null}
                 <div className="mt-3 flex items-center gap-2 text-xs text-white/75">
                   <Music2 className="h-4 w-4 shrink-0 opacity-90" aria-hidden />
-                  <span className="truncate">Original sound — {item.title}</span>
+                  <span className="truncate">
+                    Original sound —{' '}
+                    <ParseFilenameInsert
+                      filename={
+                        file?.file_title?.trim() || file?.filename || item.title || ''
+                      }
+                      className="text-white/75 [&_a]:text-sky-300 [&_a]:hover:text-sky-200"
+                    />
+                  </span>
                 </div>
               </div>
             </div>

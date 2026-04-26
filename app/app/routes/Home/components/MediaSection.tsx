@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useRef, useState } from 'react'
 import { useFileContext } from '../../../lib/Context/Context';
 import HLSPlayer from '../../../components/components/hlsplayer';
 import { getVideoSrc } from '../../../lib/utils';
@@ -6,6 +6,13 @@ import { LikeButton } from '../../../components/ui/like-button';
 import MediaSelectionModal from './MediaSelectionModal';
 import { Plus } from 'lucide-react';
 import { Button } from '../../../components/ui/button';
+import type { HLSPlayerProps } from '../../../components/components/hlsplayer';
+
+/** `HLSPlayer` requires a stable `videoRef`; this wrapper owns one ref per tile. */
+function MediaTilePlayer(props: Omit<HLSPlayerProps, 'videoRef'>) {
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  return <HLSPlayer {...props} videoRef={videoRef} />;
+}
 
 const MediaSection = () => {
   const { files, userId } = useFileContext();
@@ -86,7 +93,7 @@ const MediaSection = () => {
             <div key={index} className="group relative bg-card border border-border rounded-2xl overflow-hidden shadow-sm hover:shadow-md transition-all duration-300">
               <div className="aspect-video relative bg-muted">
                 {isHLS ? (
-                  <HLSPlayer
+                  <MediaTilePlayer
                     src={getVideoSrc(file?.endpoint ?? '', file?.file_type)}
                     className="w-full h-full"
                     onPlay={() => setPlayingVideos(prev => new Set(prev).add(index))}
@@ -101,7 +108,7 @@ const MediaSection = () => {
                     playsInline
                   />
                 ) : isVideo ? (
-                  <HLSPlayer
+                  <MediaTilePlayer
                     src={getVideoSrc(file?.endpoint ?? '', file?.file_type)}
                     className="w-full h-full"
                     onPlay={() => setPlayingVideos(prev => new Set(prev).add(index))}

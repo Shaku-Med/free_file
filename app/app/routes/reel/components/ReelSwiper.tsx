@@ -6,6 +6,7 @@ import { ChevronDown, ChevronUp, Loader2 } from "lucide-react";
 import "swiper/css";
 
 import { cn } from "~/lib/utils";
+import { reelShouldPreloadHls, swiperRealIndex } from "~/lib/feed/reelSlidePreload";
 import { PipReelItem } from "~/routes/pip/components/PipReelItem";
 import type { FileType } from "~/lib/types";
 
@@ -32,11 +33,6 @@ function shouldPrefetchNextPage(activeIndex: number, slideCount: number): boolea
   if (slideCount <= 0) return false;
   const lastIndex = slideCount - 1;
   return lastIndex - activeIndex <= PREFETCH_WHEN_SWIPES_REMAINING;
-}
-
-function slideRealIndex(swiper: SwiperType): number {
-  const r = (swiper as SwiperType & { realIndex?: number }).realIndex;
-  return typeof r === "number" ? r : swiper.activeIndex;
 }
 
 /**
@@ -148,14 +144,14 @@ export const ReelSwiper = ({
   const maybePrefetch = useCallback(
     (swiper: SwiperType) => {
       if (!hasMore || isLoadingMore) return;
-      if (shouldPrefetchNextPage(slideRealIndex(swiper), items.length)) requestMore();
+      if (shouldPrefetchNextPage(swiperRealIndex(swiper), items.length)) requestMore();
     },
     [hasMore, isLoadingMore, items.length, requestMore],
   );
 
   const syncNavState = useCallback(
     (swiper: SwiperType) => {
-      const idx = slideRealIndex(swiper);
+      const idx = swiperRealIndex(swiper);
       setActiveIdx(idx);
       if (rewindDeck) {
         // `rewind` wraps first ↔ last; keep arrows available for the whole deck.
@@ -190,7 +186,7 @@ export const ReelSwiper = ({
   useEffect(() => {
     if (items.length === 0 || !hasMore) return;
     const s = swiperRef.current;
-    const idx = s ? slideRealIndex(s) : 0;
+    const idx = s ? swiperRealIndex(s) : 0;
     if (shouldPrefetchNextPage(idx, items.length)) requestMore();
   }, [items.length, hasMore, requestMore]);
 
@@ -302,9 +298,9 @@ export const ReelSwiper = ({
         role="listbox"
         aria-label="Reels"
       >
-        {items.map((file) => (
+        {items.map((file, slideIndex) => (
           <SwiperSlide key={String(file.id)} className="!h-full !max-h-[100dvh] !w-full shrink-0">
-            {({ isActive, isVisible }) => (
+            {({ isActive }) => (
               <div
                 className="h-full max-h-[100dvh] w-full min-h-0 touch-pan-y"
                 role="option"
@@ -316,7 +312,12 @@ export const ReelSwiper = ({
                   showChrome={isActive}
                   userActions={userActionsStable}
                   variant="page"
-                  loadHlsPlayer={isActive || isVisible}
+                  loadHlsPlayer={reelShouldPreloadHls(
+                    slideIndex,
+                    activeIdx,
+                    items.length,
+                    rewindDeck,
+                  )}
                   className="min-h-0 flex-1"
                 />
               </div>

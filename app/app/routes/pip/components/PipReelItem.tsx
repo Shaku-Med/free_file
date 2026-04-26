@@ -2,6 +2,8 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { Maximize2 } from 'lucide-react';
 import { cn, getThumbnailUrl, getVideoSrc, ParseFilename } from '~/lib/utils';
+import ParseFilenameInsert from '~/lib/utils/ShowFileName';
+import { FormattedText } from '~/components/FormattedText';
 import { formatNumber } from '~/lib/utils/formatNumber';
 import { formatTimeAgo } from '~/lib/formatTimeAgo';
 import { useWatchTracking } from '~/lib/hooks/useWatchTracking';
@@ -174,9 +176,7 @@ function PipReelItemInner({
   useEffect(() => {
     if (variant !== 'page' || !isActive || !file.unique_id) return;
     const display =
-      file.file_title?.trim() ||
-      ParseFilename(file.filename || '') ||
-      'Reel';
+      (file.file_title?.trim() || ParseFilename(file.filename || '')) || 'Reel';
     window.history.replaceState(
       null,
       '',
@@ -503,26 +503,32 @@ function PipReelItemInner({
             ) : null}
           </div>
 
-          {item.title ? (
+          {file.file_title?.trim() || file.filename ? (
             <p
               className={cn(
                 'mt-1.5 truncate text-sm font-semibold leading-tight',
                 variant === 'page' ? 'text-white' : 'text-foreground',
               )}
             >
-              {item.title}
+              <ParseFilenameInsert
+                filename={file.file_title?.trim() || file.filename || ''}
+                className={variant === 'page' ? '[&_a]:text-white [&_a]:underline' : undefined}
+              />
             </p>
           ) : null}
 
-          {item.caption ? (
-            <p
+          {item.caption?.trim() ? (
+            <div
               className={cn(
                 'mt-1 line-clamp-2 text-sm leading-snug',
                 variant === 'page' ? 'text-white/80' : 'text-muted-foreground',
               )}
             >
-              {item.caption}
-            </p>
+              <FormattedText
+                text={item.caption.trim()}
+                className={variant === 'page' ? 'text-white/80 [&_a]:text-white' : undefined}
+              />
+            </div>
           ) : null}
         </div>
       )}

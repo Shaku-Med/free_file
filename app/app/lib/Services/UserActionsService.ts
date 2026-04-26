@@ -32,11 +32,16 @@ export class UserActionsService {
           .in('file_id', fileIds)
       ]);
 
-      const likedFileIds = new Set(
-        (likesResult.data || []).map((like: any) => like.file_id)
+      type FileIdRow = { file_id?: string };
+      const likedFileIds = new Set<string>(
+        (likesResult.data || [])
+          .map((row: FileIdRow) => row.file_id)
+          .filter((id: string | undefined): id is string => typeof id === "string" && id.length > 0)
       );
-      const dislikedFileIds = new Set(
-        (dislikesResult.data || []).map((dislike: any) => dislike.file_id)
+      const dislikedFileIds = new Set<string>(
+        (dislikesResult.data || [])
+          .map((row: FileIdRow) => row.file_id)
+          .filter((id: string | undefined): id is string => typeof id === "string" && id.length > 0)
       );
 
       return {

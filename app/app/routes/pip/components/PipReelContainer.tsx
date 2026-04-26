@@ -7,6 +7,10 @@ import 'swiper/css';
 import 'swiper/css/virtual';
 
 import { cn } from '~/lib/utils';
+import {
+  reelShouldPreloadHls,
+  swiperRealIndex,
+} from '~/lib/feed/reelSlidePreload';
 import { useFileContext } from '~/lib/Context/Context';
 import type { FileType } from '~/lib/types';
 import { PipReelItem, type PipReelUserActions } from './PipReelItem';
@@ -142,6 +146,12 @@ export function PipReelContainer({
     return i >= 0 ? i : 0;
   }, [initialActiveId, items]);
 
+  const [activeIdx, setActiveIdx] = useState(initialSlide);
+
+  useEffect(() => {
+    setActiveIdx(initialSlide);
+  }, [initialSlide]);
+
   useEffect(() => {
     const s = swiperRef.current;
     if (!s || !initialActiveId) return;
@@ -271,9 +281,16 @@ export function PipReelContainer({
       <Swiper
         onSwiper={(s) => {
           swiperRef.current = s;
+          setActiveIdx(swiperRealIndex(s));
         }}
-        onSlideChangeTransitionStart={handleSlideChangeTransitionStart}
-        onSlideChange={handleSlideChange}
+        onSlideChangeTransitionStart={(s) => {
+          setActiveIdx(swiperRealIndex(s));
+          handleSlideChangeTransitionStart(s);
+        }}
+        onSlideChange={(s) => {
+          setActiveIdx(swiperRealIndex(s));
+          handleSlideChange(s);
+        }}
         onReachEnd={() => void loadMore()}
         modules={[Virtual, Mousewheel, Keyboard]}
         direction="vertical"
@@ -307,6 +324,12 @@ export function PipReelContainer({
                   isActive={isActive}
                   showChrome={isActive}
                   userActions={userActions}
+                  loadHlsPlayer={reelShouldPreloadHls(
+                    index,
+                    activeIdx,
+                    items.length,
+                    false,
+                  )}
                 />
               </div>
             )}

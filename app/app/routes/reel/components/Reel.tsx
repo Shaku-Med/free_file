@@ -183,7 +183,7 @@ const Reel = ({ initialItems, initialUserActions }: ReelProps) => {
   }, [userId, hasMore, isLoadingMore, loadFeed]);
 
   return (
-    <div className="fixed inset-0 z-40 bg-black">
+    <div className="fixed inset-0 z-40 bg-black reel_p">
       {items.length > 0 ? (
         <ReelSwiper
           items={items}

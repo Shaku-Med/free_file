@@ -64,6 +64,126 @@ interface DynamicCachePayload {
   guestPreviewLimitSeconds: number | null;
 }
 
+type FreshForBlend = DynamicCachePayload & { _deferredPending?: boolean };
+
+/** Resolved after shell — interactions, channel row, comment count (loads in parallel). */
+export type DynamicDeferredDetails = {
+  userLiked: boolean;
+  userDisliked: boolean;
+  likeCount: number;
+  dislikeCount: number;
+  owner: { id: string; username: string; profile_pic: string; verified?: boolean } | null;
+  channelStats: { subscriber_count: number; is_subscribed: boolean; notify: boolean } | null;
+  commentsCount: number;
+  relatedVideosUserActions: { likedFileIds: string[]; dislikedFileIds: string[] };
+};
+
+async function loadDynamicPageDetails(
+  file: Record<string, unknown> & { id?: string; owner_id?: string | null },
+  userId: string | null
+): Promise<DynamicDeferredDetails> {
+  if (!db) {
+    return {
+      userLiked: false,
+      userDisliked: false,
+      likeCount: 0,
+      dislikeCount: 0,
+      owner: null,
+      channelStats: null,
+      commentsCount: 0,
+      relatedVideosUserActions: { likedFileIds: [], dislikedFileIds: [] },
+    };
+  }
+
+  const interactionsP =
+    file.id != null
+      ? db
+          .rpc("get_file_interactions", {
+            p_file_id: file.id,
+            p_user_id: userId,
+          })
+          .then((r: { data: unknown }) => r.data)
+      : Promise.resolve(undefined);
+
+  const ownerChannelP =
+    file.owner_id != null
+      ? Promise.all([
+          db
+            .from("users")
+            .select("id, username, profile_pic, verified")
+            .eq("id", file.owner_id)
+            .maybeSingle(),
+          db.rpc("get_channel_stats", {
+            p_user_id: file.owner_id,
+            p_viewer_id: userId,
+          }),
+        ])
+      : Promise.resolve(null);
+
+  const commentsP =
+    file.id != null
+      ? commentService.getCommentsCount(file.id, userId)
+      : Promise.resolve({ data: 0 });
+
+  const [interactionsData, ownerChannel, commentsCountResult] = await Promise.all([
+    interactionsP,
+    ownerChannelP,
+    commentsP,
+  ]);
+
+  let userLiked = false;
+  let userDisliked = false;
+  let likeCount = 0;
+  let dislikeCount = 0;
+  const interactions = Array.isArray(interactionsData)
+    ? interactionsData[0]
+    : interactionsData;
+  if (interactions) {
+    likeCount = Number((interactions as { like_count?: unknown }).like_count) || 0;
+    dislikeCount = Number((interactions as { dislike_count?: unknown }).dislike_count) || 0;
+    userLiked = !!(interactions as { user_has_liked?: unknown }).user_has_liked;
+    userDisliked = !!(interactions as { user_has_disliked?: unknown }).user_has_disliked;
+  }
+
+  let owner: DynamicDeferredDetails["owner"] = null;
+  let channelStats: DynamicDeferredDetails["channelStats"] = null;
+  if (ownerChannel) {
+    const [ownerResult, statsResult] = ownerChannel;
+    if (ownerResult.data) {
+      owner = {
+        id: ownerResult.data.id,
+        username: ownerResult.data.username,
+        profile_pic: ownerResult.data.profile_pic,
+        verified: ownerResult.data.verified ?? false,
+      };
+    }
+    if (statsResult.data) {
+      const stats =
+        typeof statsResult.data === "string"
+          ? JSON.parse(statsResult.data)
+          : statsResult.data;
+      channelStats = {
+        subscriber_count: Number(stats.subscriber_count) || 0,
+        is_subscribed: !!stats.is_subscribed,
+        notify: stats.notify !== false,
+      };
+    }
+  }
+
+  const commentsCount = commentsCountResult.data || 0;
+
+  return {
+    userLiked,
+    userDisliked,
+    likeCount,
+    dislikeCount,
+    owner,
+    channelStats,
+    commentsCount,
+    relatedVideosUserActions: { likedFileIds: [], dislikedFileIds: [] },
+  };
+}
+
 export const loader = async ({ request, params }: { request: Request, params: { id: string } }) => {
   try {
     if(!db){
@@ -141,59 +261,6 @@ export const loader = async ({ request, params }: { request: Request, params: { 
     const seriesContext: { fileSeriesId: string } | null = null;
     const seriesVideosUserActions = { likedFileIds: [] as string[], dislikedFileIds: [] as string[] };
 
-    let userLiked = false;
-    let userDisliked = false;
-    let likeCount = 0;
-    let dislikeCount = 0;
-    let relatedVideosUserActions = { likedFileIds: new Set<string>(), dislikedFileIds: new Set<string>() };
-
-    if (file.id) {
-      const { data: interactionsData } = await db.rpc('get_file_interactions', {
-        p_file_id: file.id,
-        p_user_id: user?.id ?? null,
-      });
-      const interactions = Array.isArray(interactionsData) ? interactionsData[0] : interactionsData;
-      if (interactions) {
-        likeCount = Number(interactions.like_count) || 0;
-        dislikeCount = Number(interactions.dislike_count) || 0;
-        userLiked = !!interactions.user_has_liked;
-        userDisliked = !!interactions.user_has_disliked;
-      }
-    }
-
-    let owner = null;
-    let channelStats: { subscriber_count: number; is_subscribed: boolean; notify: boolean } | null = null;
-    if (file.owner_id) {
-      const [ownerResult, statsResult] = await Promise.all([
-        db.from('users').select('id, username, profile_pic, verified').eq('id', file.owner_id).maybeSingle(),
-        db.rpc('get_channel_stats', { p_user_id: file.owner_id, p_viewer_id: userId }),
-      ]);
-
-      if (ownerResult.data) {
-        owner = {
-          id: ownerResult.data.id,
-          username: ownerResult.data.username,
-          profile_pic: ownerResult.data.profile_pic,
-          verified: ownerResult.data.verified ?? false,
-        };
-      }
-
-      if (statsResult.data) {
-        const stats = typeof statsResult.data === 'string' ? JSON.parse(statsResult.data) : statsResult.data;
-        channelStats = {
-          subscriber_count: Number(stats.subscriber_count) || 0,
-          is_subscribed: !!stats.is_subscribed,
-          notify: stats.notify !== false,
-        };
-      }
-    }
-
-    let commentsCount = 0;
-    if (file.id) {
-      const commentsCountResult = await commentService.getCommentsCount(file.id, userId);
-      commentsCount = commentsCountResult.data || 0;
-    }
-
     const durationSec = Number(file.duration);
     const isVideoFile =
       typeof file.file_type === "string" &&
@@ -205,35 +272,37 @@ export const loader = async ({ request, params }: { request: Request, params: { 
         ? computeGuestPreviewSeconds(durationSec)
         : null;
 
-    return data({
-      file,
-      id: params.id,
-      relatedVideos,
-      userLiked,
-      userDisliked,
-      likeCount,
-      dislikeCount,
-      userId,
-      owner,
-      channelStats,
-      commentsCount,
-      guestPreviewLimitSeconds,
-      relatedVideosUserActions: {
-        likedFileIds: Array.from(relatedVideosUserActions.likedFileIds),
-        dislikedFileIds: Array.from(relatedVideosUserActions.dislikedFileIds),
+    /**
+     * Shell returns immediately so the watch page can paint the player and start HLS
+     * while interactions / owner / comment count stream in via `pageDetails`.
+     */
+    const pageDetails = loadDynamicPageDetails(
+      file as Record<string, unknown> & { id?: string; owner_id?: string | null },
+      userId
+    );
+
+    return data(
+      {
+        file,
+        id: params.id,
+        relatedVideos,
+        userId,
+        guestPreviewLimitSeconds,
+        seriesEpisodes,
+        seriesContext,
+        seriesVideosUserActions: {
+          likedFileIds: seriesVideosUserActions.likedFileIds,
+          dislikedFileIds: seriesVideosUserActions.dislikedFileIds,
+        },
+        accessDenied: false as const,
+        reason: undefined,
+        pageDetails,
       },
-      seriesEpisodes,
-      seriesContext,
-      seriesVideosUserActions: {
-        likedFileIds: seriesVideosUserActions.likedFileIds,
-        dislikedFileIds: seriesVideosUserActions.dislikedFileIds,
-      },
-      accessDenied: false as const,
-      reason: undefined
-    }, { 
-      status: 200,
-      headers: headers as unknown as HeadersInit
-     });
+      {
+        status: 200,
+        headers: headers as unknown as HeadersInit,
+      }
+    );
   }
   catch (error) {
     console.error('Error in loader:', error);
@@ -352,7 +421,7 @@ export const meta: MetaFunction<ReturnType<typeof loader>> = ({ data }: { data: 
   }
 };
 
-function blendDynamicData(cached: DynamicCachePayload, fresh: DynamicCachePayload): DynamicCachePayload {
+function blendDynamicData(cached: DynamicCachePayload, fresh: FreshForBlend): DynamicCachePayload {
   const freshRelatedById = new Map<string, FileType>();
   for (const v of fresh.relatedVideos) {
     if (v.id) freshRelatedById.set(String(v.id), v);
@@ -380,18 +449,20 @@ function blendDynamicData(cached: DynamicCachePayload, fresh: DynamicCachePayloa
     ...(fresh.relatedVideosUserActions?.dislikedFileIds ?? []),
   ])];
 
+  const engagementPending = fresh._deferredPending === true;
+
   return {
     file: fresh.file,
     id: fresh.id,
     relatedVideos: blendedRelated,
-    userLiked: fresh.userLiked,
-    userDisliked: fresh.userDisliked,
-    likeCount: fresh.likeCount,
-    dislikeCount: fresh.dislikeCount,
+    userLiked: engagementPending ? cached.userLiked : fresh.userLiked,
+    userDisliked: engagementPending ? cached.userDisliked : fresh.userDisliked,
+    likeCount: engagementPending ? cached.likeCount : fresh.likeCount,
+    dislikeCount: engagementPending ? cached.dislikeCount : fresh.dislikeCount,
     userId: fresh.userId,
     owner: fresh.owner ?? cached.owner,
     channelStats: fresh.channelStats ?? cached.channelStats ?? null,
-    commentsCount: fresh.commentsCount,
+    commentsCount: engagementPending ? cached.commentsCount : fresh.commentsCount,
     relatedVideosUserActions: { likedFileIds: mergedLiked, dislikedFileIds: mergedDisliked },
     seriesEpisodes: fresh.seriesEpisodes,
     seriesContext: fresh.seriesContext,
@@ -425,6 +496,60 @@ const index = () => {
   const [playingVideos, setPlayingVideos] = useState<Set<number>>(new Set());
   const loaderData = useLoaderData<typeof loader>();
 
+  const [resolvedPageDetails, setResolvedPageDetails] = useState<DynamicDeferredDetails | null>(null);
+
+  useEffect(() => {
+    setResolvedPageDetails(null);
+    if (!loaderData || loaderData.accessDenied || !("file" in loaderData) || !loaderData.file) {
+      return;
+    }
+    if (!("pageDetails" in loaderData) || !loaderData.pageDetails) {
+      return;
+    }
+    const p = loaderData.pageDetails as Promise<DynamicDeferredDetails>;
+    if (typeof p?.then !== "function") return;
+    let cancelled = false;
+    p.then((v) => {
+      if (!cancelled) setResolvedPageDetails(v);
+    }).catch(() => {
+      if (!cancelled) setResolvedPageDetails(null);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [currentId, loaderData]);
+
+  const normalizedLoaderData = useMemo(() => {
+    if (!loaderData || loaderData.accessDenied || !("file" in loaderData) || !loaderData.file) {
+      return loaderData;
+    }
+    if (!("pageDetails" in loaderData)) {
+      return loaderData;
+    }
+    const { pageDetails: _pd, ...rest } = loaderData as typeof loaderData & {
+      pageDetails: Promise<DynamicDeferredDetails>;
+    };
+    if (!resolvedPageDetails) {
+      return {
+        ...rest,
+        _deferredPending: true as const,
+        userLiked: false,
+        userDisliked: false,
+        likeCount: 0,
+        dislikeCount: 0,
+        owner: null,
+        channelStats: null,
+        commentsCount: 0,
+        relatedVideosUserActions: { likedFileIds: [] as string[], dislikedFileIds: [] as string[] },
+      } as FreshForBlend;
+    }
+    return {
+      ...rest,
+      ...resolvedPageDetails,
+      _deferredPending: false as const,
+    } as FreshForBlend;
+  }, [loaderData, resolvedPageDetails]);
+
   const cached = getFromCache(pathname);
   const cachedData = cached?.data as DynamicCachePayload | undefined;
 
@@ -432,29 +557,27 @@ const index = () => {
   const cacheValid = !!(cachedData?.file && cachedData?.id === currentId);
 
   const effectiveData = useMemo((): DynamicCachePayload | null => {
-    if (cacheValid && loaderValid && cachedData && loaderData) {
-      const freshPayload: DynamicCachePayload = {
-        file: loaderData.file,
-        id: loaderData.id ?? currentId ?? '',
-        relatedVideos: ('relatedVideos' in loaderData ? loaderData.relatedVideos : []) as FileType[],
-        userLiked: ('userLiked' in loaderData && loaderData.userLiked) || false,
-        userDisliked: ('userDisliked' in loaderData && loaderData.userDisliked) || false,
-        likeCount: Number(loaderData.likeCount) || 0,
-        dislikeCount: Number(loaderData.dislikeCount) || 0,
-        userId: ('userId' in loaderData ? loaderData.userId : null) as string | null,
-        owner: ('owner' in loaderData ? loaderData.owner : null) as any,
-        channelStats: ('channelStats' in loaderData ? loaderData.channelStats : null) as any,
-        commentsCount: ('commentsCount' in loaderData ? loaderData.commentsCount : 0) as number,
-        relatedVideosUserActions: ('relatedVideosUserActions' in loaderData ? loaderData.relatedVideosUserActions : { likedFileIds: [], dislikedFileIds: [] }) as any,
-        seriesEpisodes: ('seriesEpisodes' in loaderData ? loaderData.seriesEpisodes : null) as SeriesEpisodeGroup[] | null,
-        seriesContext: ('seriesContext' in loaderData ? loaderData.seriesContext : null) as { fileSeriesId: string } | null,
-        seriesVideosUserActions: ('seriesVideosUserActions' in loaderData && loaderData.seriesVideosUserActions
-          ? loaderData.seriesVideosUserActions
-          : { likedFileIds: [], dislikedFileIds: [] }) as DynamicCachePayload['seriesVideosUserActions'],
-        guestPreviewLimitSeconds:
-          ('guestPreviewLimitSeconds' in loaderData ? loaderData.guestPreviewLimitSeconds : null) as
-            | number
-            | null,
+    if (cacheValid && loaderValid && cachedData && normalizedLoaderData) {
+      const nl = normalizedLoaderData as FreshForBlend;
+      const freshPayload: FreshForBlend = {
+        file: nl.file,
+        id: nl.id ?? currentId ?? '',
+        relatedVideos: (nl.relatedVideos ?? []) as FileType[],
+        userLiked: nl.userLiked || false,
+        userDisliked: nl.userDisliked || false,
+        likeCount: Number(nl.likeCount) || 0,
+        dislikeCount: Number(nl.dislikeCount) || 0,
+        userId: nl.userId as string | null,
+        owner: nl.owner as any,
+        channelStats: nl.channelStats as any,
+        commentsCount: nl.commentsCount as number,
+        relatedVideosUserActions: nl.relatedVideosUserActions as any,
+        seriesEpisodes: nl.seriesEpisodes as SeriesEpisodeGroup[] | null,
+        seriesContext: nl.seriesContext as { fileSeriesId: string } | null,
+        seriesVideosUserActions:
+          nl.seriesVideosUserActions ?? { likedFileIds: [], dislikedFileIds: [] },
+        guestPreviewLimitSeconds: nl.guestPreviewLimitSeconds ?? null,
+        _deferredPending: nl._deferredPending,
       };
       return blendDynamicData(cachedData, freshPayload);
     }
@@ -473,34 +596,31 @@ const index = () => {
       } as DynamicCachePayload;
     }
 
-    if (loaderValid && loaderData) {
+    if (loaderValid && normalizedLoaderData) {
+      const nl = normalizedLoaderData as FreshForBlend;
       return {
-        file: loaderData.file,
-        id: loaderData.id ?? currentId ?? '',
-        relatedVideos: ('relatedVideos' in loaderData ? loaderData.relatedVideos : []) as FileType[],
-        userLiked: ('userLiked' in loaderData && loaderData.userLiked) || false,
-        userDisliked: ('userDisliked' in loaderData && loaderData.userDisliked) || false,
-        likeCount: Number(loaderData.likeCount) || 0,
-        dislikeCount: Number(loaderData.dislikeCount) || 0,
-        userId: ('userId' in loaderData ? loaderData.userId : null) as string | null,
-        owner: ('owner' in loaderData ? loaderData.owner : null) as any,
-        channelStats: ('channelStats' in loaderData ? loaderData.channelStats : null) as any,
-        commentsCount: ('commentsCount' in loaderData ? loaderData.commentsCount : 0) as number,
-        relatedVideosUserActions: ('relatedVideosUserActions' in loaderData ? loaderData.relatedVideosUserActions : { likedFileIds: [], dislikedFileIds: [] }) as any,
-        seriesEpisodes: ('seriesEpisodes' in loaderData ? loaderData.seriesEpisodes : null) as SeriesEpisodeGroup[] | null,
-        seriesContext: ('seriesContext' in loaderData ? loaderData.seriesContext : null) as { fileSeriesId: string } | null,
-        seriesVideosUserActions: ('seriesVideosUserActions' in loaderData && loaderData.seriesVideosUserActions
-          ? loaderData.seriesVideosUserActions
-          : { likedFileIds: [], dislikedFileIds: [] }) as DynamicCachePayload['seriesVideosUserActions'],
-        guestPreviewLimitSeconds:
-          ('guestPreviewLimitSeconds' in loaderData ? loaderData.guestPreviewLimitSeconds : null) as
-            | number
-            | null,
+        file: nl.file,
+        id: nl.id ?? currentId ?? '',
+        relatedVideos: (nl.relatedVideos ?? []) as FileType[],
+        userLiked: nl.userLiked || false,
+        userDisliked: nl.userDisliked || false,
+        likeCount: Number(nl.likeCount) || 0,
+        dislikeCount: Number(nl.dislikeCount) || 0,
+        userId: nl.userId as string | null,
+        owner: nl.owner as any,
+        channelStats: nl.channelStats as any,
+        commentsCount: nl.commentsCount as number,
+        relatedVideosUserActions: nl.relatedVideosUserActions as any,
+        seriesEpisodes: nl.seriesEpisodes as SeriesEpisodeGroup[] | null,
+        seriesContext: nl.seriesContext as { fileSeriesId: string } | null,
+        seriesVideosUserActions:
+          nl.seriesVideosUserActions ?? { likedFileIds: [], dislikedFileIds: [] },
+        guestPreviewLimitSeconds: nl.guestPreviewLimitSeconds ?? null,
       };
     }
 
     return null;
-  }, [loaderValid, cacheValid, loaderData, cachedData, currentId]);
+  }, [loaderValid, cacheValid, normalizedLoaderData, cachedData, currentId]);
 
   useEffect(() => {
     if (!effectiveData?.file) return;

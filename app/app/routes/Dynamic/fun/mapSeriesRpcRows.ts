@@ -17,8 +17,18 @@ export function mapSeriesRpcRowToFileType(row: Record<string, unknown>): FileTyp
     file_title: typeof row.file_title === "string" ? row.file_title : "",
     default_thumbnail:
       typeof row.default_thumbnail === "string" ? row.default_thumbnail : null,
-    view_count: row.view_count,
-    share_count: row.share_count,
+    view_count: (() => {
+      const v = row.view_count;
+      if (v == null) return undefined;
+      const n = typeof v === "number" ? v : Number(v);
+      return Number.isFinite(n) ? n : undefined;
+    })(),
+    share_count: (() => {
+      const v = row.share_count;
+      if (v == null) return undefined;
+      const n = typeof v === "number" ? v : Number(v);
+      return Number.isFinite(n) ? n : undefined;
+    })(),
     is_reel: Boolean(row.is_reel),
     duration: row.duration != null ? Number(row.duration) : undefined,
     categories: row.categories as FileType["categories"],

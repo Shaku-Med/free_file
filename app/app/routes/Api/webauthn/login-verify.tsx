@@ -93,9 +93,12 @@ export const action = async ({ request }: { request: Request }) => {
     return json({ error: PasskeyUserMessage.loginDidNotWork }, 400);
   }
 
-  let publicKey: Uint8Array;
+  let publicKey: Uint8Array<ArrayBuffer>;
   try {
-    publicKey = new Uint8Array(Buffer.from(row.public_key, "base64"));
+    const raw = Buffer.from(row.public_key, "base64");
+    const ab = new ArrayBuffer(raw.length);
+    publicKey = new Uint8Array(ab);
+    publicKey.set(raw);
   } catch (e) {
     console.error("webauthn login-verify public key:", e);
     return json({ error: PasskeyUserMessage.loginDidNotWork }, 400);

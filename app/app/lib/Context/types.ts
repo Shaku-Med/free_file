@@ -57,4 +57,7 @@ export interface ContextProps {
   altAccounts: { id: string; username: string; profile_pic?: string | null }[];
   hideAppChrome: boolean;
   setHideAppChrome: React.Dispatch<React.SetStateAction<boolean>>;
+  /** Encrypted HLS bootstrap from root (guest: token1 chain; user: token2 chain). */
+  hlsBootstrap: string | null;
+  hlsBootstrapRetry: string | null;
 }

@@ -19,7 +19,7 @@ export function useAutoplay(
 ) {
   const muteVideoWhenAutoplayDisabled = options?.muteVideoWhenAutoplayDisabled !== false;
   const { imageID, src } = usePlayerContext();
-  const { isPipActive, isContentInPip } = usePictureInPictureContext();
+  const { isPipActive, isContentInPip, pipContentId } = usePictureInPictureContext();
   const [autoplayBlocked, setAutoplayBlocked] = useState(false);
   const [showPrompt, setShowPrompt] = useState(false);
 
@@ -35,6 +35,8 @@ export function useAutoplay(
       // Only pause/mute if we're NOT casting.  Re-check right before
       // mutating in case remote connected between renders.
       if (isRemotePlaybackActive(video)) return;
+      /** Native / WebKit PiP keeps using this `<video>` — don't pause or mute it when autoplay prefs are off. */
+      if (pipContentId === imageID) return;
       if (!video.paused) video.pause();
       if (muteVideoWhenAutoplayDisabled) {
         video.muted = true;
@@ -76,7 +78,7 @@ export function useAutoplay(
       video.addEventListener('canplay', attemptPlay, { once: true });
       return () => video.removeEventListener('canplay', attemptPlay);
     }
-  }, [autoPlay, muteVideoWhenAutoplayDisabled, isPipActive, imageID, src]);
+  }, [autoPlay, muteVideoWhenAutoplayDisabled, isPipActive, imageID, src, pipContentId]);
 
   useEffect(() => {
     const video = videoRef.current;

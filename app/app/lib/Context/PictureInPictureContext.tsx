@@ -49,6 +49,20 @@ const PIP_PHONE_HEIGHT = 844;
 
 const MAX_SEEK_SECONDS = 24 * 60 * 60;
 
+/** iOS/WebKit often flips `muted` right after PiP — re-apply if the user was playing with sound. */
+export function restoreVideoAudioAfterSystemPip(video: HTMLVideoElement, wantSound: boolean) {
+  if (!wantSound) return;
+  const apply = () => {
+    if (!wantSound) return;
+    video.muted = false;
+    if (video.volume === 0) video.volume = 1;
+  };
+  apply();
+  requestAnimationFrame(apply);
+  window.setTimeout(apply, 0);
+  window.setTimeout(apply, 100);
+}
+
 function sanitizeSeekSeconds(value: unknown): number {
   if (typeof value !== 'number' || !Number.isFinite(value)) return 0;
   if (value < 0) return 0;
@@ -150,6 +164,7 @@ export const PictureInPictureProvider: React.FC<PictureInPictureProviderProps> =
       if (document.pictureInPictureElement !== video) return;
       if (activePipKindRef.current === 'native-video' && pipMainVideoRef.current === video) return;
 
+      const wantSound = !video.muted && video.volume > 0;
       pipMainVideoRef.current = video;
       pipUpdateMediaSessionRef.current = null;
       assignPipKind('native-video');
@@ -166,6 +181,8 @@ export const PictureInPictureProvider: React.FC<PictureInPictureProviderProps> =
       nativePipCleanupRef.current = () => {
         video.removeEventListener('leavepictureinpicture', onLeave);
       };
+
+      restoreVideoAudioAfterSystemPip(video, wantSound);
     },
     [assignPipKind, closePip, detachNativePipListeners, documentPipShellOpen],
   );
@@ -177,6 +194,7 @@ export const PictureInPictureProvider: React.FC<PictureInPictureProviderProps> =
       if (wv.webkitPresentationMode !== 'picture-in-picture') return;
       if (activePipKindRef.current === 'webkit-presentation' && pipMainVideoRef.current === video) return;
 
+      const wantSound = !video.muted && video.volume > 0;
       pipMainVideoRef.current = video;
       pipUpdateMediaSessionRef.current = null;
       assignPipKind('webkit-presentation');
@@ -189,12 +207,16 @@ export const PictureInPictureProvider: React.FC<PictureInPictureProviderProps> =
         const mode = (video as HTMLVideoElement & { webkitPresentationMode?: string }).webkitPresentationMode;
         if (mode !== 'picture-in-picture') {
           closePip();
+        } else {
+          restoreVideoAudioAfterSystemPip(video, wantSound);
         }
       };
       video.addEventListener('webkitpresentationmodechanged', onPresentation);
       webkitPipCleanupRef.current = () => {
         video.removeEventListener('webkitpresentationmodechanged', onPresentation);
       };
+
+      restoreVideoAudioAfterSystemPip(video, wantSound);
     },
     [assignPipKind, closePip, detachWebkitPipListeners, documentPipShellOpen],
   );
@@ -305,6 +327,7 @@ export const PictureInPictureProvider: React.FC<PictureInPictureProviderProps> =
     if (impl === 'native-video') {
       if (!video) return;
       try {
+        const wantSound = !video.muted && video.volume > 0;
         pipMainVideoRef.current = video;
         pipUpdateMediaSessionRef.current = updateMediaSession ?? null;
         assignPipKind('native-video');
@@ -322,6 +345,7 @@ export const PictureInPictureProvider: React.FC<PictureInPictureProviderProps> =
 
         await video.requestPictureInPicture();
         setIsPipActive(true);
+        restoreVideoAudioAfterSystemPip(video, wantSound);
       } catch (error) {
         console.error('Error entering native Picture-in-Picture:', error);
         detachNativePipListeners();
@@ -341,6 +365,7 @@ export const PictureInPictureProvider: React.FC<PictureInPictureProviderProps> =
         webkitPresentationMode?: string;
       };
       try {
+        const wantSound = !video.muted && video.volume > 0;
         pipMainVideoRef.current = video;
         pipUpdateMediaSessionRef.current = updateMediaSession ?? null;
         assignPipKind('webkit-presentation');
@@ -351,6 +376,8 @@ export const PictureInPictureProvider: React.FC<PictureInPictureProviderProps> =
           if (activePipKindRef.current !== 'webkit-presentation') return;
           if (wv.webkitPresentationMode !== 'picture-in-picture') {
             closePip();
+          } else {
+            restoreVideoAudioAfterSystemPip(video, wantSound);
           }
         };
         video.addEventListener('webkitpresentationmodechanged', onPresentation);
@@ -362,6 +389,7 @@ export const PictureInPictureProvider: React.FC<PictureInPictureProviderProps> =
           wv.webkitSetPresentationMode('picture-in-picture');
         }
         setIsPipActive(true);
+        restoreVideoAudioAfterSystemPip(video, wantSound);
       } catch (error) {
         console.error('Error entering WebKit Picture-in-Picture:', error);
         detachWebkitPipListeners();

@@ -1,7 +1,7 @@
 import { stripGithubRepoForClient } from "~/lib/githubStorage";
 import db from "~/lib/Database/supabase";
 import type { FileType } from "~/lib/types";
-import { filterFilesByAccess } from "~/routes/Api/fun/accessControl";
+import { filterFilesByAccess, type FileData } from "~/routes/Api/fun/accessControl";
 import { ownerService } from "~/lib/Services/OwnerService";
 
 export const getRandomVideos = async (
@@ -54,7 +54,13 @@ export const getRandomVideos = async (
       }
     }
 
-    const filteredFiles = await filterFilesByAccess(request, suggestions);
+    const forAccess: FileData[] = suggestions.map((f) => ({
+      ...f,
+      is_adult: f.is_adult ?? false,
+      is_public: f.is_public ?? true,
+      owner_id: f.owner_id ?? "",
+    }));
+    const filteredFiles = (await filterFilesByAccess(request, forAccess)) as FileType[];
     
     // Enrich files with owner data
     const filesWithOwners = await ownerService.enrichFilesWithOwners(filteredFiles);

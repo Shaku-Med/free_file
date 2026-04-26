@@ -5,7 +5,17 @@ import {
   verifySegmentToken,
   verifyGuestSegmentToken,
   rewriteM3U8,
+  sessionRateKey,
 } from "~/lib/Services/SegmentTokenService";
+import {
+  recordSegmentFetch,
+  recordManifestFetch,
+  segmentRetryAfterSeconds,
+} from "~/lib/Services/SegmentRateLimiter";
+import {
+  videoRequestGuard,
+  getAllowedOrigin,
+} from "~/lib/Security/Server/videoRequestGuard";
 import { truncateHlsMediaPlaylistAtDuration } from "~/lib/Services/hlsPlaylistTruncate";
 import { computeGuestPreviewSeconds } from "~/lib/guestPreviewLimit";
 import { isAuthenticated } from "~/lib/Security/Password";
@@ -17,6 +27,11 @@ import {
   resolveGithubRepoForFile,
 } from "~/lib/githubStorage";
 import { checkFileAccess } from "~/routes/Dynamic/fun/accessControl";
+import {
+  createPendingManifestKey,
+  tryConsumeManifestKey,
+  verifyManifestContinuationCookie,
+} from "~/lib/Services/hlsManifestGate.server";
 
 const getFileFromPath = async (path: string) => {
   if (!db) return null;
@@ -46,8 +61,15 @@ const VKF = async (request: Request) => {
 };
 
 export const loader = async ({ request }: { request: Request }) => {
+  let manifestGateSetCookie: string | null = null;
   try {
     const url = new URL(request.url);
+
+    /** Browser-set Sec-Fetch headers reject pasted-in-tab and most curl/ffmpeg rips. */
+    if (!videoRequestGuard(request)) {
+      return new Response(null, { status: 403 });
+    }
+
     const pathAfterPrefix = url.pathname.split("/api/load/video/")[1];
     if (!pathAfterPrefix) return new Response(null, { status: 400 });
 
@@ -60,6 +82,30 @@ export const loader = async ({ request }: { request: Request }) => {
 
     const sanitizedPath = sanitizeFilePath(filePath);
     if (!sanitizedPath) return new Response(null, { status: 400 });
+
+    const ext = sanitizedPath.split(".").pop()?.toLowerCase();
+    const isM3U8 = ext === "m3u8";
+    const isSegment = ext === "ts";
+
+    /**
+     * Velocity throttle. A real player pulls segments at ~real-time pace; an
+     * extension piping URLs to ffmpeg pulls them as fast as the network can
+     * handle. We cap segment + manifest fetches per session+IP, which is the
+     * one defense extensions can't beat by forwarding browser-set headers
+     * (the request is real, the *rate* of requests is the tell).
+     */
+    const rk = sessionRateKey(request.headers);
+    if (isSegment || isM3U8) {
+      const ok = isSegment ? recordSegmentFetch(rk) : recordManifestFetch(rk);
+      if (!ok) {
+        return new Response(null, {
+          status: 429,
+          headers: {
+            "Retry-After": String(isSegment ? segmentRetryAfterSeconds(rk) : 30),
+          },
+        });
+      }
+    }
 
     const verified = await VKF(request);
     const user = await isAuthenticated(request, ["id"]);
@@ -81,6 +127,7 @@ export const loader = async ({ request }: { request: Request }) => {
     }
 
     const guestMode = !userId;
+    const playbackKind = guestMode ? "guest" : "user";
 
     /** Same value as HLS truncation + playlist tokens; never from query/body (prevents URL tampering). */
     const guestPreviewLimitSeconds = guestMode
@@ -91,10 +138,6 @@ export const loader = async ({ request }: { request: Request }) => {
         ? computeGuestPreviewSeconds(Number(file.duration))
         : computeGuestPreviewSeconds(0)
       : null;
-
-    const ext = sanitizedPath.split(".").pop()?.toLowerCase();
-    const isM3U8 = ext === "m3u8";
-    const isSegment = ext === "ts";
 
     if (isSegment) {
       const st = url.searchParams.get("_st");
@@ -137,6 +180,30 @@ export const loader = async ({ request }: { request: Request }) => {
           return new Response(null, { status: 403 });
         }
       }
+
+      const mk = url.searchParams.get("_mk");
+      if (mk) {
+        const consumed = tryConsumeManifestKey(
+          mk,
+          sanitizedPath,
+          request.headers,
+          playbackKind
+        );
+        if (!consumed) {
+          return new Response(null, { status: 403 });
+        }
+        manifestGateSetCookie = consumed.setCookieHeader;
+      } else {
+        const cookieOk = verifyManifestContinuationCookie(
+          request.headers.get("Cookie"),
+          sanitizedPath,
+          request.headers,
+          playbackKind
+        );
+        if (!cookieOk) {
+          return new Response(null, { status: 403 });
+        }
+      }
     }
 
     const owner = process.env.GITHUB_OWNER;
@@ -150,13 +217,15 @@ export const loader = async ({ request }: { request: Request }) => {
     const response = await fetch(videoUrl);
     if (!response.ok) throw new Error("Fetch failed");
 
-    const origin = url.origin;
+    const origin = getAllowedOrigin(url);
 
     /** Same URL must not be cached across guest vs signed-in (truncated vs full HLS). */
     const videoResponseCacheHeaders: Record<string, string> = {
       "Cache-Control": "private, no-store, max-age=0, must-revalidate",
       Pragma: "no-cache",
       "Vary": "Origin, Cookie",
+      /** Cross-origin documents cannot embed these URLs as subresources (defense in depth). */
+      "Cross-Origin-Resource-Policy": "same-origin",
     };
 
     if (isM3U8) {
@@ -165,9 +234,17 @@ export const loader = async ({ request }: { request: Request }) => {
         0,
         sanitizedPath.lastIndexOf("/")
       );
+      const isMasterPlaylist =
+        raw.includes("#EXT-X-STREAM-INF") ||
+        raw.includes("#EXT-X-I-FRAME-STREAM-INF");
       let rewritten = rewriteM3U8(raw, basePath, request.headers, {
         guestMode,
         guestLimitSeconds: guestPreviewLimitSeconds ?? undefined,
+        mintChildManifestKey:
+          isMasterPlaylist
+            ? (childPath) =>
+                createPendingManifestKey(childPath, request.headers, playbackKind)
+            : undefined,
       });
       if (guestMode && guestPreviewLimitSeconds != null && guestPreviewLimitSeconds > 0) {
         rewritten = truncateHlsMediaPlaylistAtDuration(
@@ -175,15 +252,20 @@ export const loader = async ({ request }: { request: Request }) => {
           guestPreviewLimitSeconds
         );
       }
+
+      const h: Record<string, string> = {
+        "Content-Type": "application/vnd.apple.mpegurl",
+        "Access-Control-Allow-Origin": origin,
+        "Access-Control-Allow-Credentials": "true",
+        ...videoResponseCacheHeaders,
+        "X-Content-Type-Options": "nosniff",
+      };
+      if (manifestGateSetCookie) {
+        h["Set-Cookie"] = manifestGateSetCookie;
+      }
       return new Response(rewritten, {
         status: 200,
-        headers: {
-          "Content-Type": "application/vnd.apple.mpegurl",
-          "Access-Control-Allow-Origin": origin,
-          "Access-Control-Allow-Credentials": "true",
-          ...videoResponseCacheHeaders,
-          "X-Content-Type-Options": "nosniff",
-        },
+        headers: h,
       });
     }
 

@@ -51,6 +51,10 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     "Set-Cookie",
     "validator=; Path=/; Max-Age=0; HttpOnly; SameSite=Strict"
   );
+  headers.append(
+    "Set-Cookie",
+    "hls_mgate=; Path=/; Max-Age=0; HttpOnly; SameSite=Strict"
+  );
 
   // Clear any non-HttpOnly copies if they ever existed
   headers.append(
