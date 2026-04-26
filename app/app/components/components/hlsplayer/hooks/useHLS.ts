@@ -136,6 +136,23 @@ export function useHLS(videoRef: React.RefObject<HTMLVideoElement | null>) {
 
         hlsRef.current = hls;
 
+        /** hls.startLoad() defaults to position -1 = start of VoD; must pass current time or playback restarts from 0. */
+        const startLoadResumingVoD = (resumeSeconds: number) => {
+          const v = video;
+          const d = v.duration;
+          let pos = -1;
+          if (
+            Number.isFinite(d) &&
+            d > 0 &&
+            Number.isFinite(resumeSeconds) &&
+            resumeSeconds >= 0 &&
+            resumeSeconds < d - 0.25
+          ) {
+            pos = Math.min(Math.max(0, resumeSeconds), d - 0.05);
+          }
+          hls.startLoad(pos);
+        };
+
         const reloadManifestWithFreshTokens = (reason: string) => {
           if (cancelled) return;
           const now = Date.now();
@@ -159,11 +176,12 @@ export function useHLS(videoRef: React.RefObject<HTMLVideoElement | null>) {
 
           try {
             fragErrorCounts.clear();
+            const resumeAt = video.currentTime;
             // eslint-disable-next-line no-console
             console.warn('[hls] reloading manifest:', reason);
             hls.stopLoad();
             hls.loadSource(reloadSourceUrl());
-            hls.startLoad();
+            startLoadResumingVoD(resumeAt);
           } catch {
             /* ignore — retries will catch up */
           }
@@ -245,10 +263,11 @@ export function useHLS(videoRef: React.RefObject<HTMLVideoElement | null>) {
               fragErrorCounts.delete(fragUrl);
             }
             if (data.fatal) {
+              const resumeAt = video.currentTime;
               window.setTimeout(() => {
                 if (cancelled || !mountedRef.current) return;
                 try {
-                  hls.startLoad();
+                  startLoadResumingVoD(resumeAt);
                 } catch {
                   /* ignore */
                 }
@@ -259,7 +278,7 @@ export function useHLS(videoRef: React.RefObject<HTMLVideoElement | null>) {
 
           if (data.type === 'mediaError' && details === 'fragParsingError') {
             if (data.frag?.loader) data.frag.loader.abort();
-            hls.startLoad();
+            startLoadResumingVoD(video.currentTime);
             return;
           }
 
@@ -283,7 +302,7 @@ export function useHLS(videoRef: React.RefObject<HTMLVideoElement | null>) {
                 ) {
                   reloadManifestWithFreshTokens(`fatal ${details}`);
                 } else {
-                  hls.startLoad();
+                  startLoadResumingVoD(video.currentTime);
                 }
                 break;
               case Hls.ErrorTypes.MEDIA_ERROR:
