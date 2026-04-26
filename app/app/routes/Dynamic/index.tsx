@@ -989,7 +989,14 @@ const index = () => {
     setDisliked(data.userDisliked || false);
     setLikeCount(Number(data.likeCount) || 0);
     setDislikeCount(Number(data.dislikeCount) || 0);
-  }, [currentId, file_data?.id]);
+  }, [
+    currentId,
+    file_data?.id,
+    data.userLiked,
+    data.userDisliked,
+    data.likeCount,
+    data.dislikeCount,
+  ]);
 
   const handleInteractionUpdate = (updates: { liked: boolean; disliked: boolean; like_count: number; dislike_count: number }) => {
     setLiked(updates.liked);
