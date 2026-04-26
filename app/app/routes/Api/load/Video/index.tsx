@@ -218,7 +218,7 @@ export const loader = async ({ request }: { request: Request }) => {
     const response = await fetch(videoUrl);
     if (!response.ok) throw new Error("Fetch failed");
 
-    const origin = getAllowedOrigin(url);
+    const origin = getAllowedOrigin(url, request.headers);
 
     /** Same URL must not be cached across guest vs signed-in (truncated vs full HLS). */
     const videoResponseCacheHeaders: Record<string, string> = {

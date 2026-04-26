@@ -141,7 +141,7 @@ export const action = async ({ request }: { request: Request }) => {
     {
       status: 200,
       headers: {
-        "Access-Control-Allow-Origin": getAllowedOrigin(url),
+        "Access-Control-Allow-Origin": getAllowedOrigin(url, request.headers),
         "Access-Control-Allow-Credentials": "true",
         "Cache-Control": "no-store",
         Vary: "Origin, Cookie",
