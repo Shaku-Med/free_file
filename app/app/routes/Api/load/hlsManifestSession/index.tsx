@@ -10,7 +10,7 @@ import {
 import { isAuthenticated } from "~/lib/Security/Password";
 import db from "~/lib/Database/supabase";
 import { checkFileAccess } from "~/routes/Dynamic/fun/accessControl";
-import { uniqueIdFromVideoStoragePath } from "~/lib/Services/videoStoragePath.server";
+import { uniqueIdCandidatesFromVideoStoragePath } from "~/lib/Services/videoStoragePath.server";
 
 /** TEMP: remove after HTTPS / 403 production debug — logs which branch failed (no secrets). */
 const DBG = "[hls-manifest-session]";
@@ -32,14 +32,15 @@ const VKF = async (request: Request) => {
 
 const getFileFromPath = async (path: string) => {
   if (!db) return null;
-  const uniqueId = uniqueIdFromVideoStoragePath(path);
-  if (!uniqueId) return null;
-  const { data } = await db
-    .from("files")
-    .select("id, is_adult, is_public, owner_id, github_repo, duration")
-    .eq("unique_id", uniqueId)
-    .maybeSingle();
-  return data || null;
+  for (const uniqueId of uniqueIdCandidatesFromVideoStoragePath(path)) {
+    const { data } = await db
+      .from("files")
+      .select("id, is_adult, is_public, owner_id, github_repo, duration")
+      .eq("unique_id", uniqueId)
+      .maybeSingle();
+    if (data) return data;
+  }
+  return null;
 };
 
 export const action = async ({ request }: { request: Request }) => {
@@ -88,7 +89,7 @@ export const action = async ({ request }: { request: Request }) => {
     if (!file) {
       console.warn(`${DBG} 401 guest no VKF and no file row`, {
         sanitizedPath,
-        uniqueId: uniqueIdFromVideoStoragePath(sanitizedPath),
+        uniqueIdCandidates: uniqueIdCandidatesFromVideoStoragePath(sanitizedPath),
         dbConfigured: Boolean(db),
       });
       return new Response(null, { status: 401 });
@@ -123,7 +124,7 @@ export const action = async ({ request }: { request: Request }) => {
   } else {
     console.warn(`${DBG} 403 no file row for path`, {
       sanitizedPath,
-      uniqueId: uniqueIdFromVideoStoragePath(sanitizedPath),
+      uniqueIdCandidates: uniqueIdCandidatesFromVideoStoragePath(sanitizedPath),
       dbConfigured: Boolean(db),
     });
     return new Response(null, { status: 403 });

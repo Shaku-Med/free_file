@@ -32,18 +32,19 @@ import {
   tryConsumeManifestKey,
   verifyManifestContinuationCookie,
 } from "~/lib/Services/hlsManifestGate.server";
-import { uniqueIdFromVideoStoragePath } from "~/lib/Services/videoStoragePath.server";
+import { uniqueIdCandidatesFromVideoStoragePath } from "~/lib/Services/videoStoragePath.server";
 
 const getFileFromPath = async (path: string) => {
   if (!db) return null;
-  const uniqueId = uniqueIdFromVideoStoragePath(path);
-  if (!uniqueId) return null;
-  const { data } = await db
-    .from("files")
-    .select("id, is_adult, is_public, owner_id, github_repo, duration")
-    .eq("unique_id", uniqueId)
-    .maybeSingle();
-  return data || null;
+  for (const uniqueId of uniqueIdCandidatesFromVideoStoragePath(path)) {
+    const { data } = await db
+      .from("files")
+      .select("id, is_adult, is_public, owner_id, github_repo, duration")
+      .eq("unique_id", uniqueId)
+      .maybeSingle();
+    if (data) return data;
+  }
+  return null;
 };
 
 const VKF = async (request: Request) => {
