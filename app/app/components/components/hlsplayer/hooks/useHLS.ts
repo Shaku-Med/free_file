@@ -13,7 +13,6 @@ export function useHLS(videoRef: React.RefObject<HTMLVideoElement | null>) {
   const hlsAuthRef = useRef({ hlsBootstrap, hlsBootstrapRetry });
   hlsAuthRef.current = { hlsBootstrap, hlsBootstrapRetry };
   const mountedRef = useRef(true);
-  const postGateSrcRef = useRef<string | null>(null);
   const qualityPrefRef = useRef(playerSettings?.quality ?? 'auto');
   qualityPrefRef.current = playerSettings?.quality ?? 'auto';
 
@@ -28,7 +27,6 @@ export function useHLS(videoRef: React.RefObject<HTMLVideoElement | null>) {
     const video = videoRef.current;
     if (!video || !src) return;
 
-    postGateSrcRef.current = null;
     let nativeLoadedCleanup: (() => void) | null = null;
 
     setState((s) => ({
@@ -52,6 +50,10 @@ export function useHLS(videoRef: React.RefObject<HTMLVideoElement | null>) {
       src.includes('/api/load/video/') &&
       !src.includes('_mk=');
 
+    /** Same stream via our API: can mint a new master URL so playlists get fresh `_st` without resetting the player instance. */
+    const canRemintPlaylist =
+      isHLSStream && src.includes('/api/load/video/');
+
     const run = async () => {
       let playbackSrc = src;
 
@@ -73,17 +75,6 @@ export function useHLS(videoRef: React.RefObject<HTMLVideoElement | null>) {
 
       if (cancelled) return;
 
-      const fragErrorCounts = new Map<string, number>();
-      let manifestReloadCount = 0;
-      let lastManifestReloadAt = 0;
-      let lastReloadTriggerAt = 0;
-      const MAX_FRAG_RETRIES_BEFORE_RELOAD = 3;
-      const MAX_MANIFEST_RELOADS_PER_MINUTE = 5;
-      const RELOAD_THROTTLE_MS = 1500;
-
-      const reloadSourceUrl = () =>
-        postGateSrcRef.current ?? stripMkSearchParam(playbackSrc);
-
       if (isHLSStream && Hls.isSupported()) {
         if (hlsRef.current) {
           hlsRef.current.destroy();
@@ -92,77 +83,50 @@ export function useHLS(videoRef: React.RefObject<HTMLVideoElement | null>) {
 
         const hls = new Hls({
           enableWorker: true,
-          lowLatencyMode: false,
-          backBufferLength: 30,
-          maxBufferLength: 60,
-          maxMaxBufferLength: 120,
-          highBufferWatchdogPeriod: 2,
-          nudgeOffset: 0.1,
-          nudgeMaxRetry: 3,
-          maxFragLookUpTolerance: 0.25,
-          maxBufferHole: 0.5,
-          forceKeyFrameOnDiscontinuity: true,
-          abrEwmaFastVoD: 3.0,
-          abrEwmaSlowVoD: 9.0,
-          abrEwmaDefaultEstimate: 500000,
-          abrBandWidthFactor: 0.95,
-          abrBandWidthUpFactor: 0.7,
-          maxStarvationDelay: 4,
-          maxLoadingDelay: 4,
-          fragLoadingTimeOut: 20000,
-          manifestLoadingTimeOut: 10000,
-          levelLoadingTimeOut: 10000,
-          fragLoadingMaxRetry: 12,
-          manifestLoadingMaxRetry: 8,
-          levelLoadingMaxRetry: 8,
-          fragLoadingRetryDelay: 500,
-          manifestLoadingRetryDelay: 500,
-          levelLoadingRetryDelay: 500,
-          fragLoadingMaxRetryTimeout: 4000,
-          manifestLoadingMaxRetryTimeout: 4000,
-          levelLoadingMaxRetryTimeout: 4000,
-          startLevel: -1,
-          capLevelToPlayerSize: true,
-          testBandwidth: false,
+          xhrSetup(xhr) {
+            try {
+              xhr.withCredentials = true;
+            } catch {
+              /* ignore */
+            }
+          },
         });
-
-        (hls as any).config.xhrSetup = (xhr: XMLHttpRequest) => {
-          try {
-            xhr.withCredentials = true;
-          } catch {
-            /* ignore */
-          }
-        };
 
         hlsRef.current = hls;
 
-        /** hls.startLoad() defaults to position -1 = start of VoD; must pass current time or playback restarts from 0. */
         const startLoadResumingVoD = (resumeSeconds: number) => {
-          const v = video;
-          const d = v.duration;
-          let pos = -1;
-          if (
-            Number.isFinite(d) &&
-            d > 0 &&
-            Number.isFinite(resumeSeconds) &&
-            resumeSeconds >= 0 &&
-            resumeSeconds < d - 0.25
-          ) {
-            pos = Math.min(Math.max(0, resumeSeconds), d - 0.05);
+          if (!Number.isFinite(resumeSeconds) || resumeSeconds < 0) {
+            hls.startLoad(-1);
+            return;
           }
-          hls.startLoad(pos);
+          const d = video.duration;
+          if (Number.isFinite(d) && d > 0) {
+            if (resumeSeconds >= d - 0.25) {
+              hls.startLoad(-1);
+              return;
+            }
+            hls.startLoad(Math.min(Math.max(0, resumeSeconds), d - 0.05));
+            return;
+          }
+          hls.startLoad(resumeSeconds);
         };
 
-        const reloadManifestWithFreshTokens = (reason: string) => {
-          if (cancelled) return;
-          const now = Date.now();
-          if (now - lastReloadTriggerAt < RELOAD_THROTTLE_MS) return;
-          lastReloadTriggerAt = now;
+        let playlistRemintInFlight = false;
+        let remintCountWindowStart = 0;
+        let remintCountInWindow = 0;
+        let lastRemintAt = 0;
+        const REMINT_THROTTLE_MS = 2000;
+        const REMINT_MAX_PER_WINDOW = 10;
+        const REMINT_WINDOW_MS = 300_000;
 
-          if (now - lastManifestReloadAt > 60_000) {
-            manifestReloadCount = 0;
+        const remintPlaylistAndResume = async (_reason: string) => {
+          if (cancelled || !mountedRef.current || !canRemintPlaylist) return;
+          const now = Date.now();
+          if (now - remintCountWindowStart > REMINT_WINDOW_MS) {
+            remintCountWindowStart = now;
+            remintCountInWindow = 0;
           }
-          if (manifestReloadCount >= MAX_MANIFEST_RELOADS_PER_MINUTE) {
+          if (remintCountInWindow >= REMINT_MAX_PER_WINDOW) {
             setState((s) => ({
               ...s,
               hasError: true,
@@ -171,19 +135,31 @@ export function useHLS(videoRef: React.RefObject<HTMLVideoElement | null>) {
             }));
             return;
           }
-          manifestReloadCount++;
-          lastManifestReloadAt = now;
+          if (playlistRemintInFlight || now - lastRemintAt < REMINT_THROTTLE_MS) return;
+
+          playlistRemintInFlight = true;
+          lastRemintAt = now;
+          remintCountInWindow += 1;
+
+          const resumeAt = video.currentTime;
+          const baseSrc = stripMkSearchParam(src);
+          const { hlsBootstrap: boot, hlsBootstrapRetry: retry } = hlsAuthRef.current;
+          const newUrl = await exchangeHlsManifestKey(baseSrc, boot, retry);
+
+          playlistRemintInFlight = false;
+          if (cancelled || !mountedRef.current) return;
+
+          if (!newUrl) {
+            startLoadResumingVoD(resumeAt);
+            return;
+          }
 
           try {
-            fragErrorCounts.clear();
-            const resumeAt = video.currentTime;
-            // eslint-disable-next-line no-console
-            console.warn('[hls] reloading manifest:', reason);
             hls.stopLoad();
-            hls.loadSource(reloadSourceUrl());
+            hls.loadSource(newUrl);
             startLoadResumingVoD(resumeAt);
           } catch {
-            /* ignore — retries will catch up */
+            startLoadResumingVoD(resumeAt);
           }
         };
 
@@ -192,7 +168,6 @@ export function useHLS(videoRef: React.RefObject<HTMLVideoElement | null>) {
 
         hls.on(Hls.Events.MANIFEST_PARSED, () => {
           if (!mountedRef.current) return;
-          postGateSrcRef.current = stripMkSearchParam(playbackSrc);
           const lvls = (hls.levels || []).map((l: any) => ({
             height: l.height,
             width: l.width,
@@ -241,96 +216,48 @@ export function useHLS(videoRef: React.RefObject<HTMLVideoElement | null>) {
           }
         });
 
-        hls.on(Hls.Events.FRAG_LOADED, (_: any, data: any) => {
-          const u = data?.frag?.url;
-          if (u) fragErrorCounts.delete(u);
-        });
-
         hls.on(Hls.Events.ERROR, (_: any, data: any) => {
           if (!mountedRef.current) return;
 
           const status: number | undefined = data?.response?.code;
           const details: string = data?.details || '';
-          const fragUrl: string | undefined = data?.frag?.url;
 
-          if (status === 401 || status === 403) {
-            reloadManifestWithFreshTokens(`auth ${status} on ${details}`);
+          if (status === 403 && canRemintPlaylist) {
+            void remintPlaylistAndResume(details);
             return;
           }
 
-          if (status === 429) {
-            if (fragUrl && (details === 'fragLoadError' || details === 'fragLoadTimeOut')) {
-              fragErrorCounts.delete(fragUrl);
-            }
-            if (data.fatal) {
-              const resumeAt = video.currentTime;
-              window.setTimeout(() => {
-                if (cancelled || !mountedRef.current) return;
+          if (!data.fatal) return;
+
+          switch (data.type) {
+            case Hls.ErrorTypes.NETWORK_ERROR:
+              startLoadResumingVoD(video.currentTime);
+              break;
+            case Hls.ErrorTypes.MEDIA_ERROR:
+              try {
+                hls.recoverMediaError();
+              } catch {
                 try {
-                  startLoadResumingVoD(resumeAt);
-                } catch {
-                  /* ignore */
-                }
-              }, 2000);
-            }
-            return;
-          }
-
-          if (data.type === 'mediaError' && details === 'fragParsingError') {
-            if (data.frag?.loader) data.frag.loader.abort();
-            startLoadResumingVoD(video.currentTime);
-            return;
-          }
-
-          if (fragUrl && (details === 'fragLoadError' || details === 'fragLoadTimeOut')) {
-            const n = (fragErrorCounts.get(fragUrl) ?? 0) + 1;
-            fragErrorCounts.set(fragUrl, n);
-            if (n >= MAX_FRAG_RETRIES_BEFORE_RELOAD) {
-              reloadManifestWithFreshTokens(`frag failed ${n}x: ${fragUrl}`);
-              return;
-            }
-          }
-
-          if (data.fatal) {
-            switch (data.type) {
-              case Hls.ErrorTypes.NETWORK_ERROR:
-                if (
-                  details === 'manifestLoadError' ||
-                  details === 'manifestLoadTimeOut' ||
-                  details === 'levelLoadError' ||
-                  details === 'levelLoadTimeOut'
-                ) {
-                  reloadManifestWithFreshTokens(`fatal ${details}`);
-                } else {
-                  startLoadResumingVoD(video.currentTime);
-                }
-                break;
-              case Hls.ErrorTypes.MEDIA_ERROR:
-                try {
+                  hls.swapAudioCodec();
                   hls.recoverMediaError();
                 } catch {
-                  try {
-                    hls.swapAudioCodec();
-                    hls.recoverMediaError();
-                  } catch {
-                    setState((s) => ({
-                      ...s,
-                      hasError: true,
-                      isLoaded: false,
-                      isBuffering: false,
-                    }));
-                  }
+                  setState((s) => ({
+                    ...s,
+                    hasError: true,
+                    isLoaded: false,
+                    isBuffering: false,
+                  }));
                 }
-                break;
-              default:
-                setState((s) => ({
-                  ...s,
-                  hasError: true,
-                  isLoaded: false,
-                  isBuffering: false,
-                }));
-                break;
-            }
+              }
+              break;
+            default:
+              setState((s) => ({
+                ...s,
+                hasError: true,
+                isLoaded: false,
+                isBuffering: false,
+              }));
+              break;
           }
         });
       } else if (isHLSStream && canNativeHLS) {
@@ -350,7 +277,6 @@ export function useHLS(videoRef: React.RefObject<HTMLVideoElement | null>) {
         }
         video.src = playbackSrc;
         video.load();
-        postGateSrcRef.current = stripMkSearchParam(playbackSrc);
 
         const handleLoaded = () => {
           if (!mountedRef.current) return;

@@ -3,11 +3,13 @@ import { getCookie } from "~/lib/Security/Token";
 import { sanitizeFilePath } from "~/lib/Security/inputValidation";
 
 /**
- * 5 minutes is plenty for any single segment fetch and short enough that a
- * stolen URL expires before it's useful. The client reloads the manifest
- * to mint fresh tokens when ones in flight expire mid-session.
+ * Guest preview: keep short so leaked segment URLs die quickly.
+ * Signed-in: `_st` is minted for every segment URL when the manifest is rewritten; static VoD
+ * playlists often never reload, so TTL must cover your longest typical watch. Bound to IP + sessionScope.
  */
-const TOKEN_TTL = 300;
+const GUEST_SEGMENT_TOKEN_TTL_SEC = 300;
+/** Default 1h (was 5m). For 5h+ files without manifest refresh, raise (e.g. `8 * 3600`). */
+const SIGNED_IN_SEGMENT_TOKEN_TTL_SEC = 3600;
 
 function getSecret(): string {
   return process.env.SEGMENT_TOKEN_SECRET || process.env.VAPID_PRIVATE_KEY || "";
@@ -62,7 +64,7 @@ export function sessionRateKey(headers: Headers): string {
 export function createSegmentToken(segmentPath: string, headers: Headers): string {
   const ip = extractIp(headers);
   const ss = sessionScope(headers);
-  const exp = Math.floor(Date.now() / 1000) + TOKEN_TTL;
+  const exp = Math.floor(Date.now() / 1000) + SIGNED_IN_SEGMENT_TOKEN_TTL_SEC;
   return `${sign(`${segmentPath}|${ip}|${ss}|${exp}`)}.${exp}`;
 }
 
@@ -78,7 +80,7 @@ export function createGuestSegmentToken(
 ): string {
   const ip = extractIp(headers);
   const ss = sessionScope(headers);
-  const exp = Math.floor(Date.now() / 1000) + TOKEN_TTL;
+  const exp = Math.floor(Date.now() / 1000) + GUEST_SEGMENT_TOKEN_TTL_SEC;
   const lim = Math.max(1, Math.min(10 * 60, Math.floor(Number(guestLimitSeconds))));
   return `${sign(`${segmentPath}|${ip}|${ss}|${exp}|guest|${lim}`)}.${exp}`;
 }

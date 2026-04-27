@@ -94,9 +94,6 @@ export const action = async ({ request }: { request: Request }) => {
       });
       return new Response(null, { status: 401 });
     }
-  } else if (!verified) {
-    console.warn(`${DBG} 401 signed-in but VKF failed`, { userId: userId ?? null, sanitizedPath });
-    return new Response(null, { status: 401 });
   }
 
   const kind: HlsPlaybackKind = userId ? "user" : "guest";

@@ -124,9 +124,8 @@ export const loader = async ({ request }: { request: Request }) => {
     if (!verified && !userId) {
       // Signed-out: only allow paths we can authorize (file row + access).
       if (!file) return new Response(null, { status: 401 });
-    } else if (!verified) {
-      return new Response(null, { status: 401 });
     }
+    // Signed-in without VKF (`token` cookie): session is from `c_user`; segment/manifest gates still apply.
 
     const guestMode = !userId;
     const playbackKind = guestMode ? "guest" : "user";

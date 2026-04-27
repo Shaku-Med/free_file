@@ -32,15 +32,13 @@ export function useAutoplay(
     if (isRemotePlaybackActive(video)) return;
 
     if (!autoPlay) {
-      // Only pause/mute if we're NOT casting.  Re-check right before
-      // mutating in case remote connected between renders.
+      // Only pause if we're NOT casting. Re-check right before mutating.
       if (isRemotePlaybackActive(video)) return;
       /** Native / WebKit PiP keeps using this `<video>` — don't pause or mute it when autoplay prefs are off. */
       if (pipContentId === imageID) return;
       if (!video.paused) video.pause();
-      if (muteVideoWhenAutoplayDisabled) {
-        video.muted = true;
-      }
+      /** Never force-mute here: "autoplay off" is about not calling play(), not overriding saved volume/mute.
+       *  Forcing mute caused a loop when this effect re-ran after the user unmuted (e.g. isMuted in deps). */
       setAutoplayBlocked(false);
       setShowPrompt(false);
       return;
