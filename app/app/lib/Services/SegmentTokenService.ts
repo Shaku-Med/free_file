@@ -143,6 +143,72 @@ export type RewriteM3U8Options = {
   mintChildManifestKey?: (sanitizedFullPath: string) => string | undefined;
 };
 
+function variantQualityScore(streamInfLine: string): number {
+  const bw = streamInfLine.match(/BANDWIDTH=(\d+)/i);
+  if (bw) return parseInt(bw[1], 10);
+  const res = streamInfLine.match(/RESOLUTION=(\d+)x(\d+)/i);
+  if (res) return parseInt(res[1], 10) * parseInt(res[2], 10);
+  return Number.MAX_SAFE_INTEGER;
+}
+
+/**
+ * Multivariant (master) playlist: keep only the lowest BANDWIDTH (or smallest RESOLUTION) row.
+ * Signed-in users get the full raw playlist; guests should not see HD ladder URLs.
+ */
+export function restrictHlsMasterPlaylistToLowestRendition(content: string): string {
+  const lines = content.split(/\r?\n/);
+  let firstStreamIdx = -1;
+  for (let i = 0; i < lines.length; i++) {
+    if (lines[i].trim().startsWith("#EXT-X-STREAM-INF")) {
+      firstStreamIdx = i;
+      break;
+    }
+  }
+  if (firstStreamIdx === -1) return content;
+
+  type Var = { infIdx: number; uriIdx: number; score: number };
+  const vars: Var[] = [];
+  let i = firstStreamIdx;
+  while (i < lines.length) {
+    const t = lines[i].trim();
+    if (t.startsWith("#EXT-X-STREAM-INF")) {
+      const score = variantQualityScore(lines[i]);
+      let j = i + 1;
+      while (j < lines.length && !lines[j].trim()) j++;
+      if (j >= lines.length) break;
+      if (lines[j].trim().startsWith("#")) {
+        i++;
+        continue;
+      }
+      vars.push({ infIdx: i, uriIdx: j, score });
+      i = j + 1;
+      continue;
+    }
+    if (t.startsWith("#EXT-X-I-FRAME-STREAM-INF")) {
+      let j = i + 1;
+      while (j < lines.length && !lines[j].trim()) j++;
+      if (j < lines.length && !lines[j].trim().startsWith("#")) i = j + 1;
+      else i++;
+      continue;
+    }
+    i++;
+  }
+
+  if (vars.length <= 1) return content;
+
+  let best = vars[0];
+  for (const v of vars) {
+    if (v.score < best.score) best = v;
+  }
+
+  const header = lines.slice(0, firstStreamIdx);
+  const out = [...header, lines[best.infIdx], lines[best.uriIdx]];
+  const endsWithNl = /\n$/.test(content);
+  let body = out.join("\n");
+  if (endsWithNl && !body.endsWith("\n")) body += "\n";
+  return body;
+}
+
 function isM3u8ResourceRef(ref: string): boolean {
   const clean = ref.split("?")[0].split("#")[0].toLowerCase();
   return clean.endsWith(".m3u8") || clean.endsWith(".m2u8");

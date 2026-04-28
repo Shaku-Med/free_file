@@ -76,7 +76,11 @@ export const action = async ({ request }: { request: Request }) => {
   }
 
   const sanitizedPath = sanitizeFilePath(manifestPath);
-  if (!sanitizedPath || !sanitizedPath.endsWith(".m3u8")) {
+  if (!sanitizedPath) {
+    return new Response(null, { status: 400 });
+  }
+  const pathLower = sanitizedPath.toLowerCase();
+  if (!pathLower.endsWith(".m3u8") && !pathLower.endsWith(".m2u8")) {
     return new Response(null, { status: 400 });
   }
 

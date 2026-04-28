@@ -5,6 +5,7 @@ import {
   verifySegmentToken,
   verifyGuestSegmentToken,
   rewriteM3U8,
+  restrictHlsMasterPlaylistToLowestRendition,
   sessionRateKey,
 } from "~/lib/Services/SegmentTokenService";
 import {
@@ -86,7 +87,7 @@ export const loader = async ({ request }: { request: Request }) => {
     if (!sanitizedPath) return new Response(null, { status: 400 });
 
     const ext = sanitizedPath.split(".").pop()?.toLowerCase();
-    const isM3U8 = ext === "m3u8";
+    const isPlaylistManifest = ext === "m3u8" || ext === "m2u8";
     const isSegment = ext === "ts";
 
     /**
@@ -97,7 +98,7 @@ export const loader = async ({ request }: { request: Request }) => {
      * (the request is real, the *rate* of requests is the tell).
      */
     const rk = sessionRateKey(request.headers);
-    if (isSegment || isM3U8) {
+    if (isSegment || isPlaylistManifest) {
       const ok = isSegment ? recordSegmentFetch(rk) : recordManifestFetch(rk);
       if (!ok) {
         return new Response(null, {
@@ -162,7 +163,7 @@ export const loader = async ({ request }: { request: Request }) => {
       }
     }
 
-    if (isM3U8) {
+    if (isPlaylistManifest) {
       const st = url.searchParams.get("_st");
       if (st) {
         if (guestMode) {
@@ -229,8 +230,8 @@ export const loader = async ({ request }: { request: Request }) => {
       "Cross-Origin-Resource-Policy": "same-origin",
     };
 
-    if (isM3U8) {
-      const raw = await response.text();
+    if (isPlaylistManifest) {
+      let raw = await response.text();
       const basePath = sanitizedPath.substring(
         0,
         sanitizedPath.lastIndexOf("/")
@@ -238,6 +239,9 @@ export const loader = async ({ request }: { request: Request }) => {
       const isMasterPlaylist =
         raw.includes("#EXT-X-STREAM-INF") ||
         raw.includes("#EXT-X-I-FRAME-STREAM-INF");
+      if (guestMode && isMasterPlaylist) {
+        raw = restrictHlsMasterPlaylistToLowestRendition(raw);
+      }
       let rewritten = rewriteM3U8(raw, basePath, request.headers, {
         guestMode,
         guestLimitSeconds: guestPreviewLimitSeconds ?? undefined,

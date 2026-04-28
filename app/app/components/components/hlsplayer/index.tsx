@@ -629,7 +629,7 @@ function PlayerInner({
           break;
         }
         case 't':
-          if (isMobileView) break;
+          if (isMobileView || !authPlayback) break;
           e.preventDefault();
           handleTheaterModeChange(!theaterMode);
           break;
@@ -644,6 +644,7 @@ function PlayerInner({
           setPlaybackRate(Math.min(2, (video.playbackRate || 1) + 0.25));
           break;
         case 'i':
+          if (!authPlayback) break;
           e.preventDefault();
           if (file && video) {
             const backTarget = getNavigateBackTarget();
@@ -678,7 +679,7 @@ function PlayerInner({
 
     window.addEventListener('keydown', handleKey);
     return () => window.removeEventListener('keydown', handleKey);
-  }, [isReelCtx, embedReelControls, inPipForThisVideo, togglePlay, triggerPlayPauseFeedback, theaterMode, handleTheaterModeChange, isMobileView, setPlaybackRate, showShortcuts, file, src, imageID, triggerMiniPlayer, getNavigateBackTarget, miniPlayerSourceVideoRef]);
+  }, [isReelCtx, embedReelControls, inPipForThisVideo, togglePlay, triggerPlayPauseFeedback, theaterMode, handleTheaterModeChange, isMobileView, setPlaybackRate, showShortcuts, file, src, imageID, triggerMiniPlayer, getNavigateBackTarget, miniPlayerSourceVideoRef, authPlayback]);
 
   /** Feed embed reel: outer chrome stays visible; ControlBar shows seek-only vs full via `reelAuxiliaryChromeVisible`. */
   const showControls =
@@ -799,7 +800,10 @@ function PlayerInner({
         )}
 
         {showShortcuts && !isReelCtx && !inPipForThisVideo && (
-          <ShortcutOverlay onClose={() => setShowShortcuts(false)} />
+          <ShortcutOverlay
+            authPlaybackFeatures={authPlayback}
+            onClose={() => setShowShortcuts(false)}
+          />
         )}
 
         {guestLimitActive && !isReelCtx && guestWatchLimitSeconds != null && (

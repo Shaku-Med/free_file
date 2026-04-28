@@ -158,8 +158,11 @@ export function getThumbnailPreviewApiPaths(file: {
 
 export function getVideoSrc(endpoint: string, fileType?: string): string {
   if (!endpoint) return `/api/load/video/`
-  const isHLS = fileType === 'application/vnd.apple.mpegurl' || endpoint.includes('.m3u8')
-  if (isHLS && !endpoint.includes('.m3u8')) {
+  const isHLS =
+    fileType === 'application/vnd.apple.mpegurl' ||
+    endpoint.includes('.m3u8') ||
+    endpoint.includes('.m2u8')
+  if (isHLS && !endpoint.includes('.m3u8') && !endpoint.includes('.m2u8')) {
     return `/api/load/video/${endpoint.replace(/\/?$/, '')}/master.m3u8`
   }
   return `/api/load/video/${endpoint}`

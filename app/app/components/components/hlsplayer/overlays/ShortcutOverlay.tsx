@@ -1,8 +1,10 @@
 interface ShortcutOverlayProps {
   onClose: () => void;
+  /** When false (guest watch), omit theater / mini-player bindings. */
+  authPlaybackFeatures?: boolean;
 }
 
-const SHORTCUTS = [
+const SHORTCUTS_ALWAYS = [
   { keys: ['Space', 'K'], desc: 'Play / Pause' },
   { keys: ['J', '←'], desc: 'Rewind 5s' },
   { keys: ['L', '→'], desc: 'Forward 5s' },
@@ -10,14 +12,24 @@ const SHORTCUTS = [
   { keys: ['↓'], desc: 'Volume down' },
   { keys: ['M'], desc: 'Mute / Unmute' },
   { keys: ['F'], desc: 'Fullscreen' },
-  { keys: ['T'], desc: 'Theater mode' },
-  { keys: ['I'], desc: 'Mini player' },
   { keys: ['<'], desc: 'Decrease speed' },
   { keys: ['>'], desc: 'Increase speed' },
   { keys: ['?'], desc: 'Show shortcuts' },
 ];
 
-export default function ShortcutOverlay({ onClose }: ShortcutOverlayProps) {
+const SHORTCUTS_AUTH_ONLY = [
+  { keys: ['T'], desc: 'Theater mode' },
+  { keys: ['I'], desc: 'Mini player' },
+];
+
+export default function ShortcutOverlay({
+  onClose,
+  authPlaybackFeatures = true,
+}: ShortcutOverlayProps) {
+  const shortcuts = authPlaybackFeatures
+    ? [...SHORTCUTS_ALWAYS.slice(0, 7), ...SHORTCUTS_AUTH_ONLY, ...SHORTCUTS_ALWAYS.slice(7)]
+    : SHORTCUTS_ALWAYS;
+
   return (
     <div
       className="absolute inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm"
@@ -29,7 +41,7 @@ export default function ShortcutOverlay({ onClose }: ShortcutOverlayProps) {
       >
         <h3 className="text-white text-sm font-semibold mb-3">Keyboard shortcuts</h3>
         <div className="space-y-1.5">
-          {SHORTCUTS.map(({ keys, desc }) => (
+          {shortcuts.map(({ keys, desc }) => (
             <div key={desc} className="flex items-center justify-between gap-3">
               <span className="text-white/70 text-xs">{desc}</span>
               <span className="flex items-center gap-1">

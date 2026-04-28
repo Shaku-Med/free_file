@@ -11,6 +11,7 @@ import FullscreenButton from './fullscreen/FullscreenButton';
 import CastButton from './cast/CastButton';
 import SubtitleButton from './subtitles/SubtitleButton';
 import MiniPlayerButton from './miniplayer/MiniPlayerButton';
+import GuestPlaybackBenefitsDialog from './GuestPlaybackBenefitsDialog';
 import PipButton from './pip/PipButton';
 import { formatTime } from './seek/functions/formatTime';
 import type { HideControls } from '../types';
@@ -223,9 +224,12 @@ export default function ControlBar({
           )}
           {!isHidden(hideControls, 'subtitles') && <SubtitleButton variant="mobileOverlay" />}
           {!isHidden(hideControls, 'cast') && <CastButton mobileOverlay />}
-          {!isHidden(hideControls, 'miniPlayer') && <MiniPlayerButton mobileOverlay />}
+          {!isHidden(hideControls, 'miniPlayer') && authPlaybackFeatures && (
+            <MiniPlayerButton mobileOverlay />
+          )}
           {!isHidden(hideControls, 'pip') && <PipButton mobileOverlay />}
-          {!isHidden(hideControls, 'settings') && <SettingsMenu overlayTrigger />}
+          {!isHidden(hideControls, 'settings') && authPlaybackFeatures && <SettingsMenu overlayTrigger />}
+          {!authPlaybackFeatures && <GuestPlaybackBenefitsDialog variant="mobileOverlay" />}
         </div>
 
         <div className="pointer-events-auto absolute left-1/2 top-1/2 z-40 flex -translate-x-1/2 -translate-y-1/2 items-center gap-4">
@@ -427,21 +431,29 @@ export default function ControlBar({
           <div className={desktopRightPill}>
             {autoplayToggle}
             {!isHidden(hideControls, 'subtitles') && <SubtitleButton variant="desktopPill" />}
-            {showRightInline && !isHidden(hideControls, 'settings') && <SettingsMenu pillBarTrigger />}
+            {!authPlaybackFeatures && <GuestPlaybackBenefitsDialog variant="controlPill" />}
+            {showRightInline &&
+              authPlaybackFeatures &&
+              !isHidden(hideControls, 'settings') && <SettingsMenu pillBarTrigger />}
             {showRightInline && !isHidden(hideControls, 'cast') && <CastButton controlPill />}
-            {showRightInline && !isHidden(hideControls, 'miniPlayer') && <MiniPlayerButton controlPill />}
+            {showRightInline && authPlaybackFeatures && !isHidden(hideControls, 'miniPlayer') && (
+              <MiniPlayerButton controlPill />
+            )}
             {showRightInline && !isHidden(hideControls, 'pip') && <PipButton controlPill />}
             {!isHidden(hideControls, 'fullscreen') && <FullscreenButton variant="controlPill" />}
-            {showRightInline && !isHidden(hideControls, 'theater') && onTheaterModeChange && (
-              <TheaterButton theaterMode={theaterMode} onTheaterModeChange={onTheaterModeChange} controlPill />
-            )}
+            {showRightInline &&
+              authPlaybackFeatures &&
+              !isHidden(hideControls, 'theater') &&
+              onTheaterModeChange && (
+                <TheaterButton theaterMode={theaterMode} onTheaterModeChange={onTheaterModeChange} controlPill />
+              )}
           </div>
 
           {!showRightInline &&
-            (!isHidden(hideControls, 'settings') ||
-              !isHidden(hideControls, 'theater') ||
+            ((!isHidden(hideControls, 'settings') && authPlaybackFeatures) ||
+              (!isHidden(hideControls, 'theater') && onTheaterModeChange && authPlaybackFeatures) ||
               !isHidden(hideControls, 'cast') ||
-              !isHidden(hideControls, 'miniPlayer') ||
+              (!isHidden(hideControls, 'miniPlayer') && authPlaybackFeatures) ||
               !isHidden(hideControls, 'pip')) && (
               <>
                 <button
@@ -466,10 +478,8 @@ export default function ControlBar({
                         maxHeight: dropdownStyle.maxHeight,
                       }}
                     >
-                      {!isHidden(hideControls, 'settings') && (
-                        <SettingsMenu nested />
-                      )}
-                      {!isHidden(hideControls, 'theater') && onTheaterModeChange && (
+                      {authPlaybackFeatures && !isHidden(hideControls, 'settings') && <SettingsMenu nested />}
+                      {authPlaybackFeatures && !isHidden(hideControls, 'theater') && onTheaterModeChange && (
                         <div className="px-2 py-1" onClick={() => setOverflowOpen(false)}>
                           <TheaterButton theaterMode={theaterMode} onTheaterModeChange={onTheaterModeChange} />
                         </div>
@@ -479,7 +489,7 @@ export default function ControlBar({
                           <CastButton />
                         </div>
                       )}
-                      {!isHidden(hideControls, 'miniPlayer') && (
+                      {authPlaybackFeatures && !isHidden(hideControls, 'miniPlayer') && (
                         <div className="px-2 py-1" onClick={() => setOverflowOpen(false)}>
                           <MiniPlayerButton />
                         </div>
