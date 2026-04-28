@@ -186,7 +186,7 @@ export default function EndScreen({
     >
       <div
         className={cn(
-          "min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain",
+          "min-h-0 flex-1 overflow-x-hidden overflow-y-auto",
           "pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-[max(0.5rem,env(safe-area-inset-top))]"
         )}
       >

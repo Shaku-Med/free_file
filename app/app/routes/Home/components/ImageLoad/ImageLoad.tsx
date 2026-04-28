@@ -1,7 +1,6 @@
 import React, { useEffect, useLayoutEffect, useMemo, useState, useRef, useCallback } from 'react'
 import { useInView } from 'react-intersection-observer'
 import { cn, isSearchBotUserAgent } from '~/lib/utils'
-import { Loader2 } from 'lucide-react'
 import { getImageBlob, hasImageBlob, storeImageBlob } from './IndexDb'
 import { getImageColorsHEX } from './Canvas/Functions'
 import { IMAGE_BASE_URL } from '~/lib/URLS'
@@ -36,6 +35,28 @@ interface ImageLoadProps {
 }
 
 const MAX_FETCH_RECOVERY_ATTEMPTS = 3
+
+function ImageLoadShimmer({
+    overlay,
+    className,
+}: {
+    overlay?: boolean
+    className?: string
+}) {
+    return (
+        <div
+            className={cn(
+                'pointer-events-none overflow-hidden rounded-[inherit] border border-border/35 bg-muted/20',
+                overlay && 'absolute inset-0 z-[1]',
+                !overlay && 'h-full min-h-[3rem] w-full flex-1',
+                className,
+            )}
+            aria-hidden
+        >
+            <div className="image-load-shimmer-bg size-full min-h-0" />
+        </div>
+    )
+}
 
 const ImageLoad = ({
     link,
@@ -484,11 +505,7 @@ const ImageLoad = ({
     const canShowFromUrl = !needsBlobFetch && !!resolvedLink && !error
     const canShowImage = needsBlobFetch ? hasBlobSrc : hasBlobSrc || canShowFromUrl || preferFetchedBlob
 
-    const loaderSize = Math.round(
-        Math.min(40, Math.max(18, containerBox.w > 0 ? containerBox.w * 0.11 : 22)),
-    )
-
-    /** Cached images often finish before `onLoad` is attached — clear spinner / opacity. */
+    /** Cached images often finish before `onLoad` is attached — clear loading layer / opacity. */
     useLayoutEffect(() => {
         if (!canShowImage || !imgDisplaySrc) return
         const el = imgRef.current
@@ -515,26 +532,7 @@ const ImageLoad = ({
             >
                 {canShowImage ? (
                     <>
-                        {!loaded && (
-                            <div
-                                className="pointer-events-none absolute inset-0 z-[1] flex flex-col items-center justify-center gap-2 rounded-[inherit] bg-muted/40"
-                                aria-hidden
-                            >
-                                <div
-                                    className="rounded-md bg-muted-foreground/10"
-                                    style={{
-                                        width: 'min(92%, calc(var(--il-w, 100%) * 0.85))',
-                                        height: 'min(70%, calc(var(--il-h, 4rem) * 0.55))',
-                                        minHeight: '2.5rem',
-                                    }}
-                                />
-                                <Loader2
-                                    className="shrink-0 animate-spin text-muted-foreground/70"
-                                    style={{ width: loaderSize, height: loaderSize }}
-                                    strokeWidth={1.75}
-                                />
-                            </div>
-                        )}
+                        {!loaded && <ImageLoadShimmer overlay />}
                         <img
                             ref={imgRef}
                             key={imgDisplaySrc}
@@ -557,25 +555,12 @@ const ImageLoad = ({
                     </>
                 ) : src === null && !error ? (
                     <div
-                        className={cn(
-                            "flex h-full w-full flex-col items-center justify-center gap-2 rounded-[inherit] bg-muted/30 text-muted-foreground",
-                            className,
-                        )}
+                        className={cn('flex h-full w-full flex-col rounded-[inherit]', className)}
+                        role="status"
+                        aria-live="polite"
+                        aria-label="Loading thumbnail"
                     >
-                        <div
-                            className="rounded-md bg-muted-foreground/10"
-                            style={{
-                                width: 'min(88%, calc(var(--il-w, 100%) * 0.8))',
-                                height: 'min(55%, calc(var(--il-h, 5rem) * 0.5))',
-                                minHeight: '2.75rem',
-                            }}
-                        />
-                        <Loader2
-                            className="animate-spin opacity-80"
-                            style={{ width: loaderSize, height: loaderSize }}
-                            strokeWidth={1.75}
-                        />
-                        <span className="text-[11px] font-medium">Loading…</span>
+                        <ImageLoadShimmer />
                     </div>
                 ) : (
                     <div

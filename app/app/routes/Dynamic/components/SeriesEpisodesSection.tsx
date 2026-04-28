@@ -91,7 +91,7 @@ function NestedEpisodeThread({
   children: ReactNode;
 }) {
   return (
-    <div className={cn("relative mt-3", THREAD_PL)}>
+    <div className={cn("relative mt-2", THREAD_PL)}>
       {/* Continuous vertical line */}
       <div
         className={cn(
@@ -101,7 +101,7 @@ function NestedEpisodeThread({
         )}
         aria-hidden
       />
-      <ul className="m-0 list-none space-y-3 p-0">{children}</ul>
+      <ul className="m-0 list-none space-y-2 p-0">{children}</ul>
     </div>
   );
 }
@@ -179,10 +179,10 @@ function EpisodeBlock({
         <button
           type="button"
           className={cn(
-            "flex w-full items-center gap-2 border-b border-border/50 px-3 py-2 text-left transition-colors",
+            "flex w-full items-center gap-2 border-b border-border/50 px-2 py-2 text-left transition-colors",
             "hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30 focus-visible:ring-inset",
-            "data-[state=open]:bg-muted/25",
-            !isRoot && "px-2"
+            "data-[state=open]:bg-muted/15",
+            !isRoot && "px-1.5"
           )}
         >
           <ChevronRight
@@ -206,8 +206,8 @@ function EpisodeBlock({
         </button>
       </CollapsibleTrigger>
       <CollapsibleContent>
-        <div className="space-y-2 pb-2 pt-0">
-          <ul className="m-0 list-none px-1">
+        <div className="space-y-1 pb-1 pt-0">
+          <ul className="m-0 list-none px-0">
             {ep.items.map((video, index) => {
               const isCurrent = video.unique_id === currentVideoUniqueId;
               return (
@@ -215,7 +215,7 @@ function EpisodeBlock({
                   key={video.unique_id}
                   className={cn(
                     "flex items-stretch gap-2 border-b border-border/50 py-1 pl-1 pr-0 last:border-b-0",
-                    isCurrent && "rounded-md bg-primary/[0.07] ring-1 ring-primary/18"
+                    isCurrent && "rounded-md bg-primary/[0.07] ring-1 ring-primary/20"
                   )}
                 >
                   {/* Align with play queue rows: spacer column matches grip width */}
@@ -246,7 +246,7 @@ function EpisodeBlock({
             <NestedEpisodeThread>
               {ep.nested.map((child) => (
                 <NestedEpisodeRow key={child.episode_id}>
-                  <div className="overflow-hidden rounded-lg border border-border/50 bg-muted/15">
+                  <div className="overflow-hidden rounded-lg border border-border/50 bg-muted/10">
                     <EpisodeBlock
                       ep={child}
                       depth={depth + 1}
@@ -270,7 +270,7 @@ function EpisodeBlock({
 
   if (isRoot) {
     return (
-      <li className="min-w-0 list-none overflow-hidden rounded-lg border border-border/50 bg-card/30">
+      <li className="min-w-0 list-none overflow-hidden rounded-lg border border-border/60 bg-muted/10">
         {block}
       </li>
     );
@@ -351,7 +351,10 @@ export default function SeriesEpisodesSection({
   };
 
   return (
-    <section className="mb-4 min-w-0 rounded-lg border border-border/60 bg-card/40 sm:mb-5" aria-label="Series">
+    <section
+      className="mb-4 min-w-0 overflow-hidden rounded-lg border border-border/60 bg-card/40 sm:mb-5"
+      aria-label="Series"
+    >
       <Collapsible open={seriesOpen} onOpenChange={setSeriesOpen}>
         <div className="flex min-w-0 items-stretch border-b border-border/50">
           <CollapsibleTrigger asChild>
@@ -382,7 +385,7 @@ export default function SeriesEpisodesSection({
             type="button"
             variant="ghost"
             size="icon"
-            className="h-auto shrink-0 rounded-none border-l border-border/50 px-3 text-muted-foreground hover:text-foreground"
+            className="h-auto shrink-0 rounded-none border-l border-border/50 px-2 text-muted-foreground hover:bg-muted/30 hover:text-foreground"
             onClick={(e) => {
               e.preventDefault();
               void copyEpisodeLink();
@@ -400,10 +403,10 @@ export default function SeriesEpisodesSection({
               {resumeTarget ? (
                 <Link
                   to={`/${resumeTarget.unique_id}`}
-                  className="flex min-w-0 flex-col gap-0.5 rounded-lg border border-border/60 bg-background px-2.5 py-2 text-left text-xs transition-colors hover:bg-accent/50 sm:flex-row sm:items-center sm:justify-between sm:gap-2"
+                  className="flex min-w-0 flex-col gap-0.5 rounded-lg border border-border/60 bg-background px-2 py-2 text-left text-xs transition-colors hover:bg-accent/50 sm:flex-row sm:items-center sm:justify-between sm:gap-2"
                 >
                   <span className="font-semibold text-primary">Continue watching</span>
-                  <span className="truncate text-muted-foreground">
+                  <span className="line-clamp-2 text-muted-foreground sm:text-right">
                     {resumeTarget.file_title?.trim() || resumeTarget.filename || "Open episode"}
                   </span>
                 </Link>
@@ -413,7 +416,7 @@ export default function SeriesEpisodesSection({
                   type="button"
                   size="sm"
                   variant="secondary"
-                  className="h-9 w-full gap-1.5 text-xs"
+                  className="h-8 w-full gap-1.5 text-xs"
                   onClick={() => playQueue.replaceQueueWith(seriesNext)}
                 >
                   <ListVideo className="h-3.5 w-3.5 shrink-0" />
@@ -422,8 +425,8 @@ export default function SeriesEpisodesSection({
               ) : null}
             </div>
           )}
-          <div className="flex max-h-[min(36dvh,240px)] flex-col overflow-hidden sm:max-h-[min(40vh,280px)]">
-            <ul className="m-0 list-none space-y-2 overflow-y-auto overscroll-contain px-1 py-2 [scrollbar-gutter:stable]">
+          <div className="max-h-[calc(100svh-9rem-env(safe-area-inset-bottom,0px))] min-h-0 overflow-y-auto overscroll-auto px-1 [scrollbar-gutter:stable] sm:max-h-[calc(100svh-8rem-env(safe-area-inset-bottom,0px))]">
+            <ul className="m-0 list-none space-y-1">
               {episodes.map((ep) => (
                 <EpisodeBlock
                   key={ep.episode_id}

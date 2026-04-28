@@ -148,7 +148,7 @@ const RelatedVideosContent = ({ currentUserId }: { currentUserId?: string }) => 
     <div className="min-w-0 space-y-3 sm:space-y-4">
       <PlayQueuePanel currentUserId={currentUserId} userActions={userActions} />
       <div
-        className="-mx-0.5 flex min-w-0 gap-1 overflow-x-auto overscroll-x-contain border-b border-border pb-px sm:mx-0 sm:gap-2 sm:overflow-visible"
+        className="-mx-0.5 flex min-w-0 gap-1 overflow-x-auto border-b border-border pb-px sm:mx-0 sm:gap-2 sm:overflow-visible"
         role="tablist"
         aria-label="Related videos"
       >

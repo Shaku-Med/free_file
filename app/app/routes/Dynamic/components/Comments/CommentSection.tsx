@@ -1,6 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { MessageSquare, Loader2 } from "lucide-react";
-import { Separator } from "~/components/ui/separator";
 import CommentItem from "./CommentItem";
 import CommentForm from "./CommentForm";
 import type { CommentGif, CommentImage } from "./CommentForm";
@@ -16,6 +15,11 @@ interface CommentSectionProps {
   highlightCommentId?: string | null;
   /** e.g. `min-h-0` when inside a flex / scroll parent */
   className?: string;
+  /**
+   * Use in drawer/dialog: thread list grows in the remaining height and scrolls internally;
+   * composer stays fixed at the bottom of the panel.
+   */
+  fillHeight?: boolean;
 }
 
 /** Normalize API comment to full Comment shape (replies, counts, etc.) */
@@ -77,6 +81,7 @@ const CommentSection = ({
   commentsEnabled = true,
   highlightCommentId = null,
   className,
+  fillHeight = false,
 }: CommentSectionProps) => {
   const [comments, setComments] = useState<Comment[]>([]);
   const [totalCount, setTotalCount] = useState(0);
@@ -311,76 +316,119 @@ const CommentSection = ({
     [currentUserId]
   );
 
+  const showComposer = Boolean(commentsEnabled && currentUserId);
+  const hasThread = !isLoading && comments.length > 0;
+  const isEmpty = !isLoading && (comments.length === 0 || totalCount === 0);
+  /** One scroll container for thread + composer so sticky bottom-0 can pin to the panel. */
+  const useScrollShell = fillHeight || isLoading || hasThread || (isEmpty && showComposer);
+
+  const composerShellClass =
+    "sticky bottom-0 z-10 shrink-0 border-t border-border/60 bg-background/95 pt-3 shadow-[0_-8px_24px_-8px_rgba(0,0,0,0.1)] backdrop-blur-md supports-[backdrop-filter]:bg-background/85 pb-[max(0.25rem,env(safe-area-inset-bottom))] dark:shadow-[0_-8px_24px_-8px_rgba(0,0,0,0.35)]";
+
+  const scrollShellClass = cn(
+    "flex min-h-0 flex-col overflow-y-auto overflow-x-hidden [scrollbar-gutter:stable]",
+    fillHeight && "min-h-0 flex-1",
+    !fillHeight && useScrollShell &&
+      "max-h-[min(70vh,calc(100dvh-14rem))] lg:max-h-[min(72vh,calc(100dvh-12rem))]"
+  );
+
+  const composerNode = showComposer ? (
+    <div className={composerShellClass}>
+      <CommentForm
+        fileId={fileId}
+        onSubmit={(content, gif, image) => handleSubmit(content, undefined, gif, image)}
+      />
+    </div>
+  ) : null;
+
   return (
-    <div className={cn("space-y-3 sm:space-y-4", className)}>
-      {/* <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between sm:gap-2">
-        <div className="flex items-center gap-2">
-          <MessageSquare className="h-5 w-5 text-foreground" />
-          <h2 className="text-lg font-semibold text-foreground">
-            Comments ({totalCount})
-          </h2>
-        </div>
-        {highlightCommentId && !isLoading && (
-          <p className="text-xs text-muted-foreground sm:text-right">
-            Highlighting the comment from your notification.
-          </p>
-        )}
-      </div> */}
-
-      {/* <Separator /> */}
-
+    <div className={cn("flex min-h-0 flex-col gap-3 sm:gap-4", className)}>
       {!commentsEnabled && currentUserId && (
-        <div className="bg-muted/40 rounded-lg border border-border/50 px-3 py-2.5 text-center">
+        <div className="bg-muted/40 shrink-0 rounded-lg border border-border/50 px-3 py-2.5 text-center">
           <p className="text-sm text-muted-foreground">
             New comments and replies are disabled. Existing comments stay visible below.
           </p>
         </div>
       )}
 
-      {commentsEnabled && currentUserId ? (
-        <CommentForm
-          fileId={fileId}
-          onSubmit={(content, gif, image) => handleSubmit(content, undefined, gif, image)}
-        />
-      ) : null}
-
       {error && (
-        <div className="bg-destructive/10 text-destructive text-sm p-3 rounded-lg">
+        <div className="bg-destructive/10 text-destructive shrink-0 rounded-lg p-3 text-sm">
           {error}
         </div>
       )}
 
-      {isLoading ? (
-        <div className="flex items-center justify-center py-8">
-          <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-        </div>
-      ) : (comments.length === 0 || totalCount === 0) ? (
+      {!useScrollShell ? (
         <div className="text-center py-8 text-muted-foreground">
-          <MessageSquare className="h-12 w-12 mx-auto mb-2 opacity-50" />
-          <p>
-            {!currentUserId || !commentsEnabled
-              ? "No comments on this upload yet."
-              : "No comments yet. Be the first to comment!"}
-          </p>
+          <MessageSquare className="mx-auto mb-2 h-12 w-12 opacity-50" />
+          <p>No comments on this upload yet.</p>
         </div>
       ) : (
-        <div className="min-w-0 max-w-full space-y-3 overflow-x-hidden overscroll-x-contain [scrollbar-gutter:stable] sm:space-y-4">
-          {comments.map((comment) => (
-            <CommentItem
-              key={comment.id}
-              comment={comment}
-              currentUserId={currentUserId}
-              fileOwnerId={fileOwnerId}
-              fileId={fileId}
-              allowNewComments={Boolean(commentsEnabled && currentUserId)}
-              onReply={handleReply}
-              onEdit={handleEdit}
-              onDelete={handleDelete}
-              onHide={handleHide}
-              onLike={handleLike}
-              highlightCommentId={highlightCommentId}
-            />
-          ))}
+        <div className={scrollShellClass}>
+          {isLoading ? (
+            <div
+              className={cn(
+                "flex min-h-[200px] items-center justify-center py-8",
+                fillHeight && "min-h-0 flex-1"
+              )}
+            >
+              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+            </div>
+          ) : hasThread ? (
+            showComposer ? (
+              <div className="flex min-h-full min-w-0 flex-col">
+                <div className="min-w-0 flex-1 space-y-3 sm:space-y-4 px-0.5 pb-1">
+                  {comments.map((comment) => (
+                    <CommentItem
+                      key={comment.id}
+                      comment={comment}
+                      currentUserId={currentUserId}
+                      fileOwnerId={fileOwnerId}
+                      fileId={fileId}
+                      allowNewComments={Boolean(commentsEnabled && currentUserId)}
+                      onReply={handleReply}
+                      onEdit={handleEdit}
+                      onDelete={handleDelete}
+                      onHide={handleHide}
+                      onLike={handleLike}
+                      highlightCommentId={highlightCommentId}
+                    />
+                  ))}
+                </div>
+                {composerNode}
+              </div>
+            ) : (
+              <div className="min-w-0 space-y-3 px-0.5 pb-1 sm:space-y-4">
+                {comments.map((comment) => (
+                  <CommentItem
+                    key={comment.id}
+                    comment={comment}
+                    currentUserId={currentUserId}
+                    fileOwnerId={fileOwnerId}
+                    fileId={fileId}
+                    allowNewComments={Boolean(commentsEnabled && currentUserId)}
+                    onReply={handleReply}
+                    onEdit={handleEdit}
+                    onDelete={handleDelete}
+                    onHide={handleHide}
+                    onLike={handleLike}
+                    highlightCommentId={highlightCommentId}
+                  />
+                ))}
+              </div>
+            )
+          ) : (
+            <div className="flex min-h-full min-w-0 flex-col">
+              <div className="flex flex-1 flex-col items-center justify-center px-2 py-8 text-center text-muted-foreground">
+                <MessageSquare className="mx-auto mb-2 h-12 w-12 opacity-50" />
+                <p>
+                  {!currentUserId || !commentsEnabled
+                    ? "No comments on this upload yet."
+                    : "No comments yet. Be the first to comment!"}
+                </p>
+              </div>
+              {composerNode}
+            </div>
+          )}
         </div>
       )}
     </div>

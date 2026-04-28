@@ -2,12 +2,26 @@ import { useEffect, useRef, useCallback } from 'react';
 import { usePlayerContext } from '../PlayerContext';
 import { ParseFilename } from '~/lib/utils';
 
-export function useMediaSession(mediaSessionImage: string | null, videoRef: React.RefObject<HTMLVideoElement | null>) {
+export type MediaSessionPlaylistHandlers = {
+  canNext: boolean;
+  canPrevious: boolean;
+  onNext: () => void;
+  onPrevious: () => void;
+};
+
+export function useMediaSession(
+  mediaSessionImage: string | null,
+  videoRef: React.RefObject<HTMLVideoElement | null>,
+  /** When set and not a reel, registers Media Session next / previous track actions. */
+  playlist: MediaSessionPlaylistHandlers | null = null
+) {
   const { file, isReel } = usePlayerContext();
   const imageRef = useRef(mediaSessionImage);
   imageRef.current = mediaSessionImage;
   const fileRef = useRef(file);
   fileRef.current = file;
+  const playlistRef = useRef<MediaSessionPlaylistHandlers | null>(playlist);
+  playlistRef.current = playlist;
   const mountedRef = useRef(true);
 
   useEffect(() => {
@@ -74,6 +88,41 @@ export function useMediaSession(mediaSessionImage: string | null, videoRef: Reac
       navigator.mediaSession.setActionHandler('seekto', (d) => {
         if (d.seekTime != null) video.currentTime = d.seekTime;
       });
+
+      registerMediaSessionTrackHandlers();
+    } else {
+      try {
+        navigator.mediaSession.setActionHandler('nexttrack', null);
+        navigator.mediaSession.setActionHandler('previoustrack', null);
+      } catch {
+        /* unsupported or read-only */
+      }
+    }
+
+    function registerMediaSessionTrackHandlers() {
+      const pl = playlistRef.current;
+      try {
+        if (pl?.canNext) {
+          navigator.mediaSession.setActionHandler('nexttrack', () => {
+            playlistRef.current?.onNext();
+          });
+        } else {
+          navigator.mediaSession.setActionHandler('nexttrack', null);
+        }
+      } catch {
+        /* noop */
+      }
+      try {
+        if (pl?.canPrevious) {
+          navigator.mediaSession.setActionHandler('previoustrack', () => {
+            playlistRef.current?.onPrevious();
+          });
+        } else {
+          navigator.mediaSession.setActionHandler('previoustrack', null);
+        }
+      } catch {
+        /* noop */
+      }
     }
 
     const handlePlayPause = () => updateMetadata();
@@ -87,6 +136,19 @@ export function useMediaSession(mediaSessionImage: string | null, videoRef: Reac
       video.removeEventListener('play', handlePlayPause);
       video.removeEventListener('pause', handlePlayPause);
       video.removeEventListener('loadedmetadata', handleLoadedMetadata);
+      try {
+        navigator.mediaSession.setActionHandler('nexttrack', null);
+        navigator.mediaSession.setActionHandler('previoustrack', null);
+      } catch {
+        /* noop */
+      }
     };
-  }, [file, isReel, videoRef, updateMetadata]);
+  }, [
+    file,
+    isReel,
+    videoRef,
+    updateMetadata,
+    playlist?.canNext,
+    playlist?.canPrevious,
+  ]);
 }

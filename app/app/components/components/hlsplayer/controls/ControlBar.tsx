@@ -17,6 +17,9 @@ import { formatTime } from './seek/functions/formatTime';
 import type { HideControls } from '../types';
 import { isMobile } from 'react-device-detect';
 import { cn } from '~/lib/utils';
+import { Tooltip, TooltipContent, TooltipTrigger } from '~/components/ui/tooltip';
+import type { FileType } from '~/lib/types';
+import VideoCard from '~/routes/Home/components/VideoCard';
 
 const isHidden = (hide?: HideControls, key?: keyof NonNullable<HideControls>) =>
   !!(hide && key && hide[key]);
@@ -27,8 +30,78 @@ const MIN_SPACE_BELOW_TO_OPEN_DOWN = 320;
 const DROPDOWN_MAX_HEIGHT_RATIO = 0.55;
 const MOBILE_SKIP_SEC = 10;
 
+function NextVideoTooltipButton({
+  onClick,
+  className,
+  children,
+  nextVideo,
+  nextVideoBadge,
+  nextVideoCardCurrentUserId,
+  nextVideoCardUserActions,
+  ariaLabel,
+}: {
+  onClick: (e: React.MouseEvent) => void;
+  className: string;
+  children: React.ReactNode;
+  nextVideo?: FileType;
+  nextVideoBadge?: string;
+  nextVideoCardCurrentUserId?: string;
+  nextVideoCardUserActions?: { likedFileIds: Set<string>; dislikedFileIds: Set<string> };
+  ariaLabel: string;
+}) {
+  const title = nextVideo?.file_title?.trim() || nextVideo?.filename;
+  const button = (
+    <button
+      type="button"
+      onClick={(e) => {
+        e.stopPropagation();
+        onClick(e);
+      }}
+      className={className}
+      aria-label={title ? `${ariaLabel}: ${title}` : ariaLabel}
+    >
+      {children}
+    </button>
+  );
+
+  if (!nextVideo) return button;
+
+  return (
+    <Tooltip delayDuration={220}>
+      <TooltipTrigger asChild>{button}</TooltipTrigger>
+      <TooltipContent
+        side="top"
+        sideOffset={10}
+        className="max-h-[min(72vh,440px)] w-[min(94vw,26rem)] max-w-[min(94vw,26rem)] overflow-x-hidden overflow-y-auto p-0"
+      >
+        {nextVideoBadge ? (
+          <div className="border-b border-border/50 bg-muted/25 px-3 py-1.5">
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+              {nextVideoBadge}
+            </p>
+          </div>
+        ) : null}
+        <div className="min-w-0" onClick={(e) => e.stopPropagation()}>
+          <VideoCard
+            data={nextVideo}
+            layout="horizontal"
+            related
+            currentUserId={nextVideoCardCurrentUserId}
+            userActions={nextVideoCardUserActions}
+          />
+        </div>
+      </TooltipContent>
+    </Tooltip>
+  );
+}
+
 interface ControlBarProps {
   onNext?: () => void;
+  /** Real `VideoCard` (horizontal) in the next control tooltip when the target is known. */
+  nextVideo?: FileType;
+  nextVideoBadge?: string;
+  nextVideoCardCurrentUserId?: string;
+  nextVideoCardUserActions?: { likedFileIds: Set<string>; dislikedFileIds: Set<string> };
   theaterMode?: boolean;
   onTheaterModeChange?: (active: boolean) => void;
   onPlayPauseClick?: () => void;
@@ -41,6 +114,10 @@ interface ControlBarProps {
 
 export default function ControlBar({
   onNext,
+  nextVideo,
+  nextVideoBadge,
+  nextVideoCardCurrentUserId,
+  nextVideoCardUserActions,
   theaterMode = false,
   onTheaterModeChange,
   onPlayPauseClick,
@@ -265,14 +342,17 @@ export default function ControlBar({
             </button>
           )}
           {!isHidden(hideControls, 'next') && onNext && (
-            <button
-              type="button"
+            <NextVideoTooltipButton
               onClick={handleNextTap}
               className={circleBtn}
-              aria-label="Next video"
+              nextVideo={nextVideo}
+              nextVideoBadge={nextVideoBadge}
+              nextVideoCardCurrentUserId={nextVideoCardCurrentUserId}
+              nextVideoCardUserActions={nextVideoCardUserActions}
+              ariaLabel="Next video"
             >
               <SkipForward className="h-5 w-5 fill-white" />
-            </button>
+            </NextVideoTooltipButton>
           )}
           {!isHidden(hideControls, 'next') && !onNext && !isHidden(hideControls, 'seek') && (
             <button
@@ -402,14 +482,17 @@ export default function ControlBar({
           )}
 
           {!isHidden(hideControls, 'next') && onNext && (
-            <button
-              type="button"
-              onClick={onNext}
+            <NextVideoTooltipButton
+              onClick={() => onNext()}
               className={desktopIconCircle}
-              aria-label="Next"
+              nextVideo={nextVideo}
+              nextVideoBadge={nextVideoBadge}
+              nextVideoCardCurrentUserId={nextVideoCardCurrentUserId}
+              nextVideoCardUserActions={nextVideoCardUserActions}
+              ariaLabel="Next"
             >
               <SkipForward className="h-5 w-5 fill-white" />
-            </button>
+            </NextVideoTooltipButton>
           )}
 
           {!isHidden(hideControls, 'volume') && (

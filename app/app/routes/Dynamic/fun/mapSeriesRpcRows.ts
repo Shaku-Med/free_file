@@ -162,3 +162,15 @@ export function getSeriesUpNextVideos(
   if (idx < 0) return [];
   return flat.slice(idx + 1);
 }
+
+/** Video that plays before `currentUniqueId` in series order (undefined if not in series or first item). */
+export function getSeriesPreviousVideo(
+  episodes: SeriesEpisodeGroup[] | null | undefined,
+  currentUniqueId: string
+): FileType | undefined {
+  if (!episodes?.length || !currentUniqueId) return undefined;
+  const flat = flattenSeriesEpisodesInOrder(episodes);
+  const idx = flat.findIndex((v) => v.unique_id === currentUniqueId);
+  if (idx <= 0) return undefined;
+  return flat[idx - 1];
+}

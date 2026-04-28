@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { useInView } from 'react-intersection-observer';
-import type { FileType } from '~/lib/types';
+import type { FileType, SeriesEpisodeGroup } from '~/lib/types';
 import { PlayerProvider, usePlayerContext, type ThumbnailSpriteMeta } from './PlayerContext';
 import { FEED_EMBED_HIDE_CONTROLS, type HideControls } from './types';
 import SeekBar from './controls/seek/SeekBar';
@@ -35,6 +35,7 @@ import { useFileContext } from '~/lib/Context/Context';
 import { useMiniPlayerContext } from '~/lib/Context/MiniPlayerContext';
 import { isMobile } from 'react-device-detect';
 import { getVideoSrc } from '~/lib/utils';
+import { getSeriesPreviousVideo } from '~/routes/Dynamic/fun/mapSeriesRpcRows';
 import { getSquareMediaSessionArtwork } from '~/lib/utils/mediaSessionSquareArtwork';
 
 interface CallBackProps {
@@ -63,6 +64,10 @@ export interface HLSPlayerProps {
   suggestedVideos?: FileType[];
   /** In-series order after the current video; autoplay prefers these over related. */
   seriesUpNextVideos?: FileType[];
+  /**
+   * Full series episode tree when on the watch page. Enables “previous” in Media Session / series order.
+   */
+  seriesEpisodeGroups?: SeriesEpisodeGroup[] | null;
   endScreenUserActions?: { likedFileIds: Set<string>; dislikedFileIds: Set<string> };
   currentUserId?: string;
   onVideoSelect?: (video: FileType) => void;
@@ -131,6 +136,7 @@ function PlayerInner({
   isReel = false,
   suggestedVideos,
   seriesUpNextVideos,
+  seriesEpisodeGroups = null,
   endScreenUserActions,
   currentUserId,
   onVideoSelect,
@@ -292,7 +298,6 @@ function PlayerInner({
 
   useHLS(videoRef);
   useVideoEvents(videoRef, { onPlay, onPause, onEnded, onError });
-  useMediaSession(mediaSessionImage, videoRef);
   usePlaybackPosition(videoRef);
   useFullscreen();
   useWakeLock(videoRef);
@@ -557,6 +562,44 @@ function PlayerInner({
     typeof onNext === "function" ||
     (!!onVideoSelect && !!(seriesUpNextVideos?.[0] || suggestedVideos?.[0]));
 
+  const nextVideoForTooltip = useMemo(() => {
+    const fromSeries = seriesUpNextVideos?.[0];
+    const fromRelated = suggestedVideos?.[0];
+    return fromSeries ?? fromRelated;
+  }, [seriesUpNextVideos, suggestedVideos]);
+
+  const nextVideoTooltipBadge = useMemo(() => {
+    const next = nextVideoForTooltip;
+    if (!next) return undefined;
+    const fromSeries = seriesUpNextVideos?.[0];
+    if (fromSeries && fromSeries.unique_id === next.unique_id) return "Next in series";
+    return "Up next";
+  }, [nextVideoForTooltip, seriesUpNextVideos]);
+
+  const handlePreviousVideo = useCallback(() => {
+    if (!onVideoSelect || !file?.unique_id || !seriesEpisodeGroups?.length) return;
+    const prev = getSeriesPreviousVideo(seriesEpisodeGroups, file.unique_id);
+    if (prev) onVideoSelect(prev);
+  }, [onVideoSelect, file?.unique_id, seriesEpisodeGroups]);
+
+  const hasMediaSessionPrevious = useMemo(() => {
+    if (!onVideoSelect || !file?.unique_id || !seriesEpisodeGroups?.length) return false;
+    return Boolean(getSeriesPreviousVideo(seriesEpisodeGroups, file.unique_id));
+  }, [onVideoSelect, file?.unique_id, seriesEpisodeGroups]);
+
+  useMediaSession(
+    mediaSessionImage,
+    videoRef,
+    !isReelCtx
+      ? {
+          canNext: hasNextControl,
+          canPrevious: hasMediaSessionPrevious,
+          onNext: handleNextVideo,
+          onPrevious: handlePreviousVideo,
+        }
+      : null
+  );
+
   const handleTouchEnd = useCallback(
     (e: React.TouchEvent) => {
       if (isReelCtx && !embedReelControls) return;
@@ -778,6 +821,10 @@ function PlayerInner({
             <div className="absolute bottom-0 left-0 right-0 h-32 bg-gradient-to-t from-black/80 to-transparent pointer-events-none" />
             <ControlBar
               onNext={hasNextControl ? handleNextVideo : undefined}
+              nextVideo={hasNextControl ? nextVideoForTooltip : undefined}
+              nextVideoBadge={hasNextControl ? nextVideoTooltipBadge : undefined}
+              nextVideoCardCurrentUserId={currentUserId}
+              nextVideoCardUserActions={endScreenUserActions}
               onPlayPauseClick={triggerPlayPauseFeedback}
               theaterMode={theaterMode}
               onTheaterModeChange={isMobileView ? undefined : handleTheaterModeChange}

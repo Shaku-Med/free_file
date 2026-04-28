@@ -97,6 +97,27 @@
   .ios-scale:active {
     transform: scale(0.95);
   }
+
+  /** Thumbnail / ImageLoad placeholder — sweeps a highlight across muted base */
+  .image-load-shimmer-bg {
+    background: linear-gradient(
+      105deg,
+      var(--muted) 0%,
+      color-mix(in oklch, var(--muted-foreground) 28%, var(--muted)) 48%,
+      var(--muted) 100%
+    );
+    background-size: 220% 100%;
+    animation: image-load-shimmer 1.75s ease-in-out infinite;
+  }
+}
+
+@keyframes image-load-shimmer {
+  0% {
+    background-position: 200% 50%;
+  }
+  100% {
+    background-position: -200% 50%;
+  }
 }
 
 @keyframes ios-bounce {

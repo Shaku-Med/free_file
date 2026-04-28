@@ -1212,6 +1212,7 @@ const index = () => {
             startTime={startTime}
             authPlaybackFeatures={Boolean(userId)}
             guestWatchLimitSeconds={data?.guestPreviewLimitSeconds ?? null}
+            seriesEpisodeGroups={seriesEpisodesResolved}
           />
         ) : (
           <motion.div 
@@ -1481,7 +1482,7 @@ const index = () => {
       (seriesEpisodesResolved != null && seriesEpisodesResolved.length > 0));
 
   const seriesAboveContentMobile = showSeriesChrome ? (
-    <div className="z-[100000] -mt-1 mb-2 min-w-0 lg:hidden">
+    <div className="z-[100000] mb-3 min-w-0 lg:hidden">
       {!userId ? (
         <SeriesSignInGate />
       ) : seriesFetch.loadState === "loading" ? (
@@ -1506,7 +1507,7 @@ const index = () => {
     <aside className="min-w-0 lg:col-span-1">
       <div className="space-y-4 lg:sticky lg:top-6">
         {showSeriesChrome && (
-          <div className="hidden lg:block">
+          <div className="mb-3 hidden lg:block">
             {!userId ? (
               <SeriesSignInGate />
             ) : seriesFetch.loadState === "loading" ? (

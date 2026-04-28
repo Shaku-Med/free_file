@@ -143,7 +143,7 @@ function GuestPlayQueueLocked({
       {defaultQueue.length === 0 ? (
         <div className="px-3 py-4 text-center text-xs text-muted-foreground">Nothing queued yet.</div>
       ) : (
-        <ul className="max-h-[min(36dvh,240px)] divide-y divide-border/50 overflow-y-auto overscroll-contain opacity-80 sm:max-h-[min(40vh,280px)]">
+        <ul className="max-h-[min(36dvh,240px)] divide-y divide-border/50 overflow-y-auto opacity-80 sm:max-h-[min(40vh,280px)]">
           {defaultQueue.map((video, index) => (
             <li key={video.id} className="py-1">
               <VideoCard
@@ -255,7 +255,7 @@ export function PlayQueuePanel({ currentUserId: currentUserIdProp, userActions }
       </div>
       <div className="flex max-h-[min(36dvh,240px)] flex-col overflow-hidden sm:max-h-[min(40vh,280px)]">
         <SortableContext items={sortableIds} strategy={verticalListSortingStrategy}>
-          <ul className="overflow-y-auto overscroll-contain px-1">
+          <ul className="overflow-y-auto px-1">
             {queue.map((video, index) => (
               <SortableQueueRow
                 key={video.id}
