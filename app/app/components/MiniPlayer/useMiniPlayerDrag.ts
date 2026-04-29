@@ -73,6 +73,8 @@ export function useMiniPlayerDrag(sessionKey: string) {
   const [isSnapping, setIsSnapping] = useState(false);
   const [mounted, setMounted] = useState(true);
   const [tuck, setTuck] = useState<TuckEdge>("none");
+  /** State (not ref) so consumers can disable CSS transition during drag. */
+  const [isDraggingState, setIsDraggingState] = useState(false);
 
   const isDragging = useRef(false);
   const isResizing = useRef(false);
@@ -87,6 +89,8 @@ export function useMiniPlayerDrag(sessionKey: string) {
   const elementRef = useRef<HTMLDivElement | null>(null);
   const frameWidthRef = useRef(frameWidth);
   frameWidthRef.current = frameWidth;
+  /** Live drag delta, written direct to DOM via transform — bypasses React for smoothness. */
+  const dragDeltaRef = useRef({ dx: 0, dy: 0 });
 
   const measureAndCacheSize = useCallback(() => {
     const el = elementRef.current;
@@ -159,6 +163,7 @@ export function useMiniPlayerDrag(sessionKey: string) {
     (captureEl: HTMLElement | null, pointerId: number) => {
       if (!isDragging.current) return;
       isDragging.current = false;
+      setIsDraggingState(false);
       removeDragWindowListenersRef.current?.();
       removeDragWindowListenersRef.current = null;
       if (captureEl) {
@@ -170,7 +175,17 @@ export function useMiniPlayerDrag(sessionKey: string) {
       }
       measureAndCacheSize();
       const { width, height } = elSizeRef.current;
-      const { x, y } = positionRef.current;
+      // Final drag position = start position + accumulated delta written to transform.
+      const { dx, dy } = dragDeltaRef.current;
+      const x = startRef.current.elX + dx;
+      const y = startRef.current.elY + dy;
+      // Clear inline transform; commit final left/top to React state in the same render.
+      const el = elementRef.current;
+      if (el) {
+        el.style.transform = "";
+      }
+      dragDeltaRef.current = { dx: 0, dy: 0 };
+      positionRef.current = { x, y };
       const rightEdge = x + width;
       const distRight = window.innerWidth - rightEdge;
       const distLeft = x;
@@ -212,7 +227,9 @@ export function useMiniPlayerDrag(sessionKey: string) {
 
       setIsSnapping(false);
       isDragging.current = true;
+      setIsDraggingState(true);
       didDragRef.current = false;
+      dragDeltaRef.current = { dx: 0, dy: 0 };
       measureAndCacheSize();
       const { width, height } = elSizeRef.current;
       let elX = positionRef.current.x;
@@ -263,18 +280,20 @@ export function useMiniPlayerDrag(sessionKey: string) {
           onWindowUp(ev);
           return;
         }
-        const { pointerX, pointerY, elX: sx, elY: sy } = startRef.current;
+        const { pointerX, pointerY } = startRef.current;
         const dx = ev.clientX - pointerX;
         const dy = ev.clientY - pointerY;
         if (!didDragRef.current && Math.abs(dx) < DRAG_THRESHOLD_PX && Math.abs(dy) < DRAG_THRESHOLD_PX) {
           return;
         }
         didDragRef.current = true;
-        measureAndCacheSize();
-        const { width: w, height: h } = elSizeRef.current;
-        const nx = sx + dx;
-        const ny = sy + dy;
-        setPosition(visPosition(nx, ny, w, h, "none"));
+        // Write transform direct to DOM — no React state, no re-render, no transition fight.
+        // GPU-composited; tracks the cursor 1:1.
+        const el = elementRef.current;
+        if (el) {
+          el.style.transform = `translate3d(${dx}px, ${dy}px, 0)`;
+        }
+        dragDeltaRef.current = { dx, dy };
       };
 
       window.addEventListener("pointermove", onWindowMove);
@@ -348,6 +367,7 @@ export function useMiniPlayerDrag(sessionKey: string) {
     frameWidth,
     tuck,
     isSnapping,
+    isDragging: isDraggingState,
     mounted,
     handlePointerDown,
     handleResizePointerDown,

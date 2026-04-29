@@ -1,5 +1,5 @@
 import { createPortal } from "react-dom";
-import { useMemo, useLayoutEffect, useRef, type RefObject } from "react";
+import { useEffect, useMemo, useLayoutEffect, useRef, useState, type RefObject } from "react";
 import { useNavigate } from "react-router";
 import { DynamicHLSPlayerWithQueue } from "~/routes/Dynamic/components/DynamicHLSPlayerWithQueue";
 import type { DynamicHLSPlayerWithQueueProps } from "~/routes/Dynamic/components/DynamicHLSPlayerWithQueue";
@@ -129,13 +129,45 @@ export function GlobalAnchoredHLSPlayer() {
     setLayout("mini");
   }, [resolved, setLayout]);
 
+  /**
+   * Defer commit of `resolved → null` by one rAF. If a new resolved arrives in the same
+   * frame (route swap, mini handoff, expand transition), we never commit null → the React
+   * subtree (and its `<video>` + Hls.js) stays mounted continuously. True "no player"
+   * states (closeMiniPlayer, paused-leave-watch) still commit null on the next frame.
+   */
+  const [committedResolved, setCommittedResolved] = useState(resolved);
+  const pendingNullRef = useRef<number | null>(null);
+  useLayoutEffect(() => {
+    if (resolved) {
+      if (pendingNullRef.current != null) {
+        cancelAnimationFrame(pendingNullRef.current);
+        pendingNullRef.current = null;
+      }
+      setCommittedResolved(resolved);
+      return;
+    }
+    if (pendingNullRef.current != null) return;
+    pendingNullRef.current = requestAnimationFrame(() => {
+      pendingNullRef.current = null;
+      setCommittedResolved(null);
+    });
+  }, [resolved]);
+  useEffect(() => {
+    return () => {
+      if (pendingNullRef.current != null) {
+        cancelAnimationFrame(pendingNullRef.current);
+        pendingNullRef.current = null;
+      }
+    };
+  }, []);
+
   if (typeof document === "undefined") return null;
 
-  if (!resolved || !rect || rect.width <= 0 || rect.height <= 0) {
+  if (!committedResolved || !rect || rect.width <= 0 || rect.height <= 0) {
     return null;
   }
 
-  const { props, theaterMode, z } = resolved;
+  const { props, theaterMode, z } = committedResolved;
 
   return createPortal(
     <div

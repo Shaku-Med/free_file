@@ -844,10 +844,24 @@ const index = () => {
   const { setSlot, state: mainSlotState } = useMainPlayerSlot();
   const { setSurface } = useWatchHlsSurface();
   const mainPlayerSlotTargetRef = useRef<{ isHLS: boolean; uniqueId: string } | null>(null);
+  /**
+   * Param-swap remounts the anchor div: the ref fires `null` (old el unmounts), then `newEl`
+   * (new el mounts) in the same commit. We defer null-clears one rAF so the same-frame
+   * remount cancels it — slot transitions directly old→new with no gap, so the global
+   * player keeps the same React tree and `<video>` mounted.
+   */
+  const pendingSlotClearRef = useRef<number | null>(null);
   const mainPlayerAnchorRef = useCallback(
     (el: HTMLDivElement | null) => {
+      if (pendingSlotClearRef.current != null) {
+        cancelAnimationFrame(pendingSlotClearRef.current);
+        pendingSlotClearRef.current = null;
+      }
       if (!el) {
-        setSlot(null, null);
+        pendingSlotClearRef.current = requestAnimationFrame(() => {
+          pendingSlotClearRef.current = null;
+          setSlot(null, null);
+        });
         return;
       }
       const t = mainPlayerSlotTargetRef.current;
@@ -858,12 +872,19 @@ const index = () => {
   );
 
   useEffect(() => {
-    return () => setSlot(null, null);
-  }, [currentId, setSlot]);
-
-  useEffect(() => {
     if (!file_data) setSlot(null, null);
   }, [file_data, setSlot]);
+
+  useEffect(() => {
+    return () => {
+      if (pendingSlotClearRef.current != null) {
+        cancelAnimationFrame(pendingSlotClearRef.current);
+        pendingSlotClearRef.current = null;
+      }
+      setSlot(null, null);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- run cleanup only on full route unmount
+  }, []);
 
   const activeMiniPlayerRef = useRef(activeMiniPlayer);
   activeMiniPlayerRef.current = activeMiniPlayer;
@@ -1248,14 +1269,19 @@ const index = () => {
     seriesEpisodesResolved,
   ]);
 
+  /**
+   * Don't clear surface on payload swap — that causes a transient `null` between cleanup
+   * and the new effect run, which unmounts the global player and forces a fresh HLS init
+   * on every watch→watch param swap. The dedicated unmount effect below handles real exit.
+   */
   useLayoutEffect(() => {
-    if (!watchHlsPayload) {
-      setSurface(null);
-      return;
-    }
-    setSurface(watchHlsPayload);
-    return () => setSurface(null);
+    setSurface(watchHlsPayload ?? null);
   }, [watchHlsPayload, setSurface]);
+
+  useEffect(() => {
+    return () => setSurface(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- run cleanup only on full route unmount
+  }, []);
 
   useEffect(() => {
     if (navigation.state !== "idle") return;
@@ -1426,42 +1452,41 @@ const index = () => {
       };
 
   const contentColumn = (
-    <div className="relative z-[10000] space-y-4 max-lg:overflow-visible max-lg:rounded-none max-lg:px-2 max-lg:py-0 lg:overflow-hidden lg:rounded-lg lg:p-4">
-      {/* <div className="dim_top bg-muted/20 absolute top-0 left-0 w-full h-full z-[1]" /> */}
-      <LiquidAmbientGradient colors={file_data.colors} />
-      <h1 className="text-xl font-bold text-foreground leading-tight select-text z-[10000]">
-        <ParseFilenameInsert filename={file_data.file_title || file_data.filename}/>  
+    <div className="relative space-y-4 max-lg:overflow-visible max-lg:rounded-none max-lg:px-2 max-lg:py-0 lg:overflow-hidden lg:rounded-lg lg:p-4">
+      <h1 className="text-xl font-bold text-foreground leading-tight select-text">
+        <ParseFilenameInsert filename={file_data.file_title || file_data.filename}/>
       </h1>
 
-      {data.owner && (
-        <div className="flex items-center justify-between gap-3">
-          <div className="flex items-center gap-3 min-w-0">
-            <OwnerProfile owner={data.owner} size="md" showUsername={false} />
-            <div className="min-w-0">
-              <Link to={`/profile/${data.owner.username}`} className="font-semibold text-foreground hover:text-primary transition-colors truncate block">
-                {data.owner.username}
-              </Link>
-              {data.channelStats && (
-                <p className="text-xs text-muted-foreground tabular-nums">
-                  {formatSubscriberCount(data.channelStats.subscriber_count)} subscribers
-                </p>
-              )}
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between lg:gap-4">
+        {data.owner && (
+          <div className="flex items-center justify-between gap-3 lg:flex-1 lg:min-w-0">
+            <div className="flex items-center gap-3 min-w-0">
+              <OwnerProfile owner={data.owner} size="md" showUsername={false} />
+              <div className="min-w-0">
+                <Link to={`/profile/${data.owner.username}`} className="font-semibold text-foreground hover:text-primary transition-colors truncate block">
+                  {data.owner.username}
+                </Link>
+                {data.channelStats && (
+                  <p className="text-xs text-muted-foreground tabular-nums">
+                    {formatSubscriberCount(data.channelStats.subscriber_count)} subscribers
+                  </p>
+                )}
+              </div>
             </div>
+            {data.channelStats && !isOwner && (
+              <SubscribeButton
+                channelId={data.owner.id}
+                currentUserId={userId}
+                initialSubscribed={data.channelStats.is_subscribed}
+                initialNotify={data.channelStats.notify}
+                initialCount={data.channelStats.subscriber_count}
+                isOwner={isOwner}
+              />
+            )}
           </div>
-          {data.channelStats && !isOwner && (
-            <SubscribeButton
-              channelId={data.owner.id}
-              currentUserId={userId}
-              initialSubscribed={data.channelStats.is_subscribed}
-              initialNotify={data.channelStats.notify}
-              initialCount={data.channelStats.subscriber_count}
-              isOwner={isOwner}
-            />
-          )}
-        </div>
-      )}
+        )}
 
-      <Actions
+        <Actions
         key={`actions-${file_data.id}-${currentId}`}
         fileId={String(file_data.id)}
         uniqueId={file_data.unique_id}
@@ -1488,29 +1513,18 @@ const index = () => {
         commentsOpen={isMobileDevice ? mobileCommentsOpen : undefined}
         onCommentsOpenChange={isMobileDevice ? setMobileCommentsOpen : undefined}
       />
+      </div>
 
-      <div className="overflow-hidden rounded-xl max-lg:rounded-none">
-        <div className="flex flex-wrap items-center justify-between gap-2 text-sm text-muted-foreground pt-3 pb-1">
-          <span className="font-medium text-foreground">{formatNumber(views)} views</span>
-          {file_data.created_at ? (
-            <span>
-              {new Date(file_data.created_at).toLocaleDateString("en-US", {
-                month: "short",
-                day: "numeric",
-                year: "numeric",
-              })}{" "}
-              · {formatTimeAgo(file_data.created_at)}
-            </span>
-          ) : null}
-          {/* {shares > 0 && (
-            <>
-              <span aria-hidden>•</span>
-              <span>{formatNumber(shares)} shares</span>
-            </>
-          )} */}
+      {/* YouTube-style description card: stats inline at top, body below, "...more" toggle. */}
+      <div className="rounded-xl bg-muted/40 px-3 py-2.5 max-lg:rounded-lg">
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-foreground">
+          <span className="font-semibold tabular-nums">{formatNumber(views)} views</span>
+          {file_data.created_at && (
+            <span className="font-semibold">{formatTimeAgo(file_data.created_at)}</span>
+          )}
         </div>
         {(description || hasLongDescription) && (
-          <div className=" p-2 border rounded-lg bg-muted/10 overflow-auto">
+          <div className="mt-1.5">
             <div className="text-sm text-foreground break-words">
               <FormattedText text={descriptionToShow} />
               {hasLongDescription && !descriptionExpanded && (
@@ -1519,7 +1533,7 @@ const index = () => {
                   <button
                     type="button"
                     onClick={() => setDescriptionExpanded(true)}
-                    className="font-medium text-foreground hover:underline inline-flex items-center gap-0.5"
+                    className="font-semibold text-foreground hover:underline"
                   >
                     ...more
                   </button>
@@ -1711,26 +1725,32 @@ const index = () => {
             >
               {videoBlock}
               {ambientEnabled && (
-                <div className="ambience-wrap z-[-1] absolute scale-[1.35] w-full min-w-screen h-full inset-0 pointer-events-none overflow-hidden rounded-lg">
-                  {
-                    isSidebarMobile && (
-                      <>
-                        <div className="mobile_blur_overlay absolute inset-x-0 bottom-0 h-full z-[10] bg-gradient-to-t from-background/95 via-background/60 to-transparent" />
-                      </>
-                    )
-                  }
-                  {/* Blur/saturation only on sampled canvases (YouTube-style); keep vignette overlay sharp. */}
-                  <div className="absolute inset-0 opacity-[0.38] [filter:saturate(1.12)_blur(48px)] sm:[filter:saturate(1.12)_blur(64px)]">
+                <div
+                  className="ambience-wrap pointer-events-none absolute inset-0 -z-10"
+                  aria-hidden
+                >
+                  {isSidebarMobile && (
+                    <div className="mobile_blur_overlay absolute inset-x-0 bottom-0 h-full z-[10] bg-gradient-to-t from-background/95 via-background/60 to-transparent" />
+                  )}
+                  {/*
+                    YouTube-style ambient:
+                    - `scale-[1.15]` — sits just behind the player, slightly larger. No fullscreen blur layer.
+                    - `mask-image` radial fade — canvas edges never show, no need to extend further.
+                    - `blur(24px)` not `blur(64px)` — same softness on a much smaller layer ⇒ ~6× cheaper
+                      to composite each frame. This is what fixes the whole-page lag.
+                    - The two canvases (c0/c1) inside `<Ambience />` are the crossfade buffers.
+                  */}
+                  <div
+                    className="absolute inset-0 scale-[1.15] opacity-60 [filter:saturate(1.18)_blur(24px)]"
+                    style={{
+                      WebkitMaskImage:
+                        "radial-gradient(ellipse 75% 80% at 50% 50%, black 30%, transparent 80%)",
+                      maskImage:
+                        "radial-gradient(ellipse 75% 80% at 50% 50%, black 30%, transparent 80%)",
+                    }}
+                  >
                     <Ambience colors={imageColors || []} videoRef={watchVideoRef} videoReady={videoRefReady} />
                   </div>
-                  <div
-                    className="gradient-overlay absolute inset-0  pointer-events-none"
-                    style={{
-                      background: state !== 'expanded' || isSidebarMobile
-                        ? `linear-gradient(to bottom, var(--background) 0%, transparent 12%, transparent 88%, var(--background) 100%)`
-                        : `radial-gradient(ellipse 100% 100% at 50% 50%, transparent 10%, var(--card) 50%, var(--card) 100%)`
-                    }}
-                  />
                 </div>
               )}
             </div>

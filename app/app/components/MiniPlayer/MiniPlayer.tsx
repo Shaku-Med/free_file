@@ -31,6 +31,7 @@ function MiniPlayerContent() {
     frameWidth,
     tuck,
     isSnapping,
+    isDragging,
     mounted,
     handlePointerDown,
     handleResizePointerDown,
@@ -105,11 +106,13 @@ function MiniPlayerContent() {
         top: position.y,
         width: frameWidth,
         isolation: "isolate",
-        transition: isSnapping
-          ? "left 420ms cubic-bezier(0.34,1.56,0.64,1), top 420ms cubic-bezier(0.34,1.56,0.64,1), opacity 200ms ease, transform 200ms ease"
-          : mounted
-            ? "left 220ms ease-out, top 220ms ease-out, opacity 200ms ease, transform 200ms ease"
-            : "none",
+        transition: isDragging
+          ? "none"
+          : isSnapping
+            ? "left 420ms cubic-bezier(0.34,1.56,0.64,1), top 420ms cubic-bezier(0.34,1.56,0.64,1), opacity 200ms ease, transform 200ms ease"
+            : mounted
+              ? "left 220ms ease-out, top 220ms ease-out, opacity 200ms ease, transform 200ms ease"
+              : "none",
         willChange: "left, top, opacity, transform, width",
       }}
     >
