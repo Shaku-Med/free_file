@@ -45,7 +45,13 @@ import { SignInDialog } from "~/components/SignInWall"
 import { cn } from "~/lib/utils"
 import { Tooltip, TooltipContent, TooltipTrigger } from "~/components/ui/tooltip"
 
-function extractVideoPosterUrl(file: File): Promise<string | null> {
+/**
+ * Captures a still from a video file. Returns both the blob URL (for inline preview)
+ * and the underlying `File` (for using as the default thumbnail at upload time).
+ */
+function extractVideoPoster(
+  file: File,
+): Promise<{ url: string; file: File } | null> {
   return new Promise((resolve) => {
     const blobUrl = URL.createObjectURL(file)
     const video = document.createElement("video")
@@ -53,14 +59,14 @@ function extractVideoPosterUrl(file: File): Promise<string | null> {
     video.playsInline = true
     video.preload = "auto"
     let settled = false
-    const finish = (posterUrl: string | null) => {
+    const finish = (result: { url: string; file: File } | null) => {
       if (settled) return
       settled = true
       URL.revokeObjectURL(blobUrl)
       video.removeAttribute("src")
       video.load()
       video.remove()
-      resolve(posterUrl)
+      resolve(result)
     }
     const captureFrame = () => {
       try {
@@ -87,10 +93,15 @@ function extractVideoPosterUrl(file: File): Promise<string | null> {
               finish(null)
               return
             }
-            finish(URL.createObjectURL(blob))
+            const baseName = file.name.replace(/\.[^./\\]+$/, "") || "thumbnail"
+            const posterFile = new File([blob], `${baseName}_thumb.jpg`, {
+              type: "image/jpeg",
+              lastModified: Date.now(),
+            })
+            finish({ url: URL.createObjectURL(blob), file: posterFile })
           },
           "image/jpeg",
-          0.82
+          0.82,
         )
       } catch {
         finish(null)
@@ -110,7 +121,7 @@ function extractVideoPosterUrl(file: File): Promise<string | null> {
           finish(null)
         }
       },
-      { once: true }
+      { once: true },
     )
     video.addEventListener("seeked", captureFrame, { once: true })
     video.addEventListener("error", () => finish(null), { once: true })
@@ -186,6 +197,8 @@ interface MediaItem {
   commentLimit: number | null
   customThumbnail: File | null
   customThumbnailPreview: string | null
+  /** Auto-extracted from the first frame of the video; used as default thumbnail when the user hasn't picked one. */
+  autoThumbnail: File | null
   status: UploadStatus
   progress: number
   statusText: string | null
@@ -555,6 +568,7 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
       commentLimit: null,
       customThumbnail: null,
       customThumbnailPreview: null,
+      autoThumbnail: null,
       status: "idle",
       progress: 0,
       statusText: null,
@@ -605,15 +619,22 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
     nextItems.forEach((item) => {
       if (!item.file.type.startsWith("video/")) return
       const itemId = item.id
-      void extractVideoPosterUrl(item.file).then((posterUrl) => {
+      void extractVideoPoster(item.file).then((poster) => {
         setItems((prev) => {
           const cur = prev.find((i) => i.id === itemId)
           if (!cur || !cur.file.type.startsWith("video/")) return prev
-          if (posterUrl) {
-            const old = cur.videoPosterUrl
-            if (old) URL.revokeObjectURL(old)
+          if (poster) {
+            const oldUrl = cur.videoPosterUrl
+            if (oldUrl) URL.revokeObjectURL(oldUrl)
             return prev.map((i) =>
-              i.id === itemId ? { ...i, videoPosterUrl: posterUrl, isExtractingVideoPoster: false } : i
+              i.id === itemId
+                ? {
+                    ...i,
+                    videoPosterUrl: poster.url,
+                    autoThumbnail: poster.file,
+                    isExtractingVideoPoster: false,
+                  }
+                : i,
             )
           }
           return prev.map((i) => (i.id === itemId ? { ...i, isExtractingVideoPoster: false } : i))
@@ -1018,9 +1039,11 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
     }
 
     let defaultThumbnailB64 = ""
-    if (item.customThumbnail) {
+    /** User pick wins; otherwise fall back to the auto-extracted first-frame poster. */
+    const thumbnailFile = item.customThumbnail ?? item.autoThumbnail
+    if (thumbnailFile) {
       try {
-        defaultThumbnailB64 = await fileToBase64(item.customThumbnail)
+        defaultThumbnailB64 = await fileToBase64(thumbnailFile)
       } catch {}
     }
 
@@ -1099,7 +1122,8 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
       if (item.description.trim().length > 0) formData.append("description", item.description.trim())
       formData.append("isPublic", String(item.isPublic))
       formData.append("commentsEnabled", String(item.commentsEnabled))
-      if (item.customThumbnail) formData.append("customThumbnail", item.customThumbnail)
+      const fallbackThumb = item.customThumbnail ?? item.autoThumbnail
+      if (fallbackThumb) formData.append("customThumbnail", fallbackThumb)
       if (item.categories.length > 0) formData.append("categories", JSON.stringify(item.categories))
       if (item.tags.length > 0) formData.append("tags", JSON.stringify(item.tags))
 

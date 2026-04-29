@@ -1,34 +1,22 @@
 import { cn } from "~/lib/utils";
 
 /** Stroke width — YouTube-like thin rails; still visible on OLED. */
-const STROKE = 1.35;
+const STROKE = 1.5;
 /** Horizontal width of one thread column (indent per nesting level). */
 export const COMMENT_THREAD_STEP_PX = 28;
 /** @deprecated Use commentThreadGutterWidthPx(level) — kept for imports expecting a single step. */
 export const COMMENT_THREAD_GUTTER_PX = COMMENT_THREAD_STEP_PX;
-
 /** Matches `Avatar` in CommentItem (`h-9 w-9`) so the elbow meets the avatar center. */
 export const COMMENT_AVATAR_SIZE_PX = 36;
 const JOIN_Y = COMMENT_AVATAR_SIZE_PX / 2;
+/** Rounded "└" elbow radius (YouTube-style bend toward the avatar). */
+const ELBOW_R = 8;
+
+const RAIL_CLASS = "absolute bg-zinc-400/55 dark:bg-zinc-500/65";
 
 export function commentThreadGutterWidthPx(level: number): number {
   return Math.max(0, level) * COMMENT_THREAD_STEP_PX;
 }
-
-/** How far above the row we draw so the spine meets the parent’s connector. */
-const EXTEND_TOP = 72;
-/** Spine continues below the avatar row into the gap before the next sibling. */
-const Y_BELOW = 32;
-/** Rounded “└” elbow radius (YouTube-style bend toward the avatar). */
-const ELBOW_R = 6;
-
-type CommentThreadConnectorProps = {
-  level: number;
-  /** Length must be `level - 1`: column `i` draws a full vertical rail if true (ancestor had a younger sibling). */
-  threadPrefix: boolean[];
-  isLastInThread: boolean;
-  className?: string;
-};
 
 function normalizePrefix(threadPrefix: boolean[], level: number): boolean[] {
   const need = Math.max(0, level - 1);
@@ -37,85 +25,123 @@ function normalizePrefix(threadPrefix: boolean[], level: number): boolean[] {
   return out;
 }
 
-/** Sharp file-tree paths: prefix rails + last-column rounded └ + horizontal to avatar. */
-function buildTreePaths(
-  level: number,
-  step: number,
-  prefix: boolean[],
-  isLast: boolean,
-  extendTop: number,
-  joinY: number,
-  yBottom: number,
-  elbowR: number,
-): string {
-  const W = level * step;
-  const xAt = (col: number) => col * step + step / 2;
-  const endX = W - 1.5;
-  const r = Math.min(elbowR, step / 2 - 0.5);
-  const parts: string[] = [];
-
-  for (let i = 0; i < level - 1; i++) {
-    if (prefix[i]) {
-      const x = xAt(i);
-      parts.push(`M ${x} ${-extendTop} L ${x} ${yBottom}`);
-    }
-  }
-
-  const xLast = xAt(level - 1);
-  parts.push(`M ${xLast} ${-extendTop} L ${xLast} ${joinY - r}`);
-  parts.push(`Q ${xLast} ${joinY} ${xLast + r} ${joinY}`);
-  parts.push(`L ${endX} ${joinY}`);
-  if (!isLast) {
-    parts.push(`M ${xLast} ${joinY} L ${xLast} ${yBottom}`);
-  }
-
-  return parts.join(" ");
+function xAtCol(col: number): number {
+  return col * COMMENT_THREAD_STEP_PX + COMMENT_THREAD_STEP_PX / 2;
 }
 
-export function CommentThreadConnector({
+type RailsProps = {
+  level: number;
+  /** Length must be `level - 1`: column `i` draws a full vertical rail if true (ancestor had a younger sibling). */
+  threadPrefix: boolean[];
+  /** When true, the rail at column `level-1` stops at the avatar (no rail below for next sibling). */
+  isLastInThread: boolean;
+  className?: string;
+};
+
+/**
+ * Vertical thread rails — rendered at the comment's *outer* container level so they extend
+ * the full height of the comment plus its reply subtree. This is what fixes the gap that
+ * the previous fixed-height SVG had on tall comments. Each rail is one absolute span.
+ */
+export function CommentThreadRails({
   level,
   threadPrefix,
   isLastInThread,
   className,
-}: CommentThreadConnectorProps) {
+}: RailsProps) {
   if (level < 1) return null;
-
   const prefix = normalizePrefix(threadPrefix, level);
-  const W = commentThreadGutterWidthPx(level);
-  const yBottom = JOIN_Y + Y_BELOW;
-  const vbH = EXTEND_TOP + yBottom;
-  const d = buildTreePaths(
-    level,
-    COMMENT_THREAD_STEP_PX,
-    prefix,
-    isLastInThread,
-    EXTEND_TOP,
-    JOIN_Y,
-    yBottom,
-    ELBOW_R,
-  );
+  const ownX = xAtCol(level - 1);
 
   return (
     <div
-      className={cn("pointer-events-none absolute top-0 overflow-visible", className)}
-      style={{ left: -W, width: W }}
+      className={cn("pointer-events-none absolute inset-0 overflow-visible", className)}
       aria-hidden
     >
-      <svg
-        width={W}
-        height={vbH}
-        viewBox={`0 ${-EXTEND_TOP} ${W} ${vbH}`}
-        className="absolute left-0 top-0 block shrink-0 overflow-visible text-zinc-400/55 dark:text-zinc-500/65"
-      >
-        <path
-          d={d}
-          fill="none"
-          stroke="currentColor"
-          strokeWidth={STROKE}
-          strokeLinecap="round"
-          strokeLinejoin="round"
+      {/* Ancestor rails — always full height of this subtree. */}
+      {prefix.map((draw, i) =>
+        draw ? (
+          <span
+            key={i}
+            className={cn(RAIL_CLASS, "top-0 bottom-0")}
+            style={{ left: xAtCol(i) - STROKE / 2, width: STROKE }}
+          />
+        ) : null,
+      )}
+      {/* Own column rail — full height when has next sibling, otherwise stops above the elbow. */}
+      {isLastInThread ? (
+        <span
+          className={cn(RAIL_CLASS, "top-0")}
+          style={{
+            left: ownX - STROKE / 2,
+            width: STROKE,
+            height: JOIN_Y - ELBOW_R + STROKE / 2,
+          }}
         />
-      </svg>
+      ) : (
+        <span
+          className={cn(RAIL_CLASS, "top-0 bottom-0")}
+          style={{ left: ownX - STROKE / 2, width: STROKE }}
+        />
+      )}
     </div>
+  );
+}
+
+type ElbowProps = {
+  /** Used only as a guard — elbow geometry is identical at every level. */
+  level: number;
+  className?: string;
+};
+
+/**
+ * The "└" curve from rail → avatar, sized just to the elbow. Lives inside the row wrapper
+ * (negative `left` puts it back into the gutter the parent has padded for us), so it
+ * stays vertically aligned with the avatar even if the row resizes.
+ */
+export function CommentThreadElbow({ level, className }: ElbowProps) {
+  if (level < 1) return null;
+  const w = COMMENT_THREAD_STEP_PX / 2 + STROKE;
+  const h = ELBOW_R + STROKE;
+  // The elbow rises from the rail (column center) and curves to meet the row's left edge.
+  const startX = STROKE / 2;
+  const d = `M ${startX} 0 Q ${startX} ${ELBOW_R} ${ELBOW_R + startX} ${ELBOW_R} L ${w - STROKE / 2} ${ELBOW_R}`;
+  return (
+    <svg
+      className={cn(
+        "pointer-events-none absolute text-zinc-400/55 dark:text-zinc-500/65",
+        className,
+      )}
+      width={w}
+      height={h}
+      style={{
+        left: -COMMENT_THREAD_STEP_PX / 2 - STROKE / 2,
+        top: JOIN_Y - ELBOW_R,
+      }}
+      aria-hidden
+    >
+      <path
+        d={d}
+        fill="none"
+        stroke="currentColor"
+        strokeWidth={STROKE}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+/**
+ * @deprecated Kept as a thin wrapper for any external imports. Renders rails + elbow together,
+ * but in the new layout you should call {@link CommentThreadRails} at the outer container
+ * (so they span the full subtree height) and {@link CommentThreadElbow} inside the row.
+ */
+export function CommentThreadConnector(props: RailsProps) {
+  return (
+    <>
+      <CommentThreadRails {...props} />
+      <CommentThreadElbow level={props.level} />
+    </>
   );
 }

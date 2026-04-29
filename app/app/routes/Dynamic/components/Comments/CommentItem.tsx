@@ -18,7 +18,8 @@ import { getProfilePicUrl } from "~/lib/utils/profilePic";
 import { cn } from "~/lib/utils";
 import ImageLoad from "~/routes/Home/components/ImageLoad/ImageLoad";
 import {
-  CommentThreadConnector,
+  CommentThreadRails,
+  CommentThreadElbow,
   COMMENT_AVATAR_SIZE_PX,
   commentThreadGutterWidthPx,
 } from "./CommentThreadConnector";
@@ -95,6 +96,9 @@ const CommentItem = ({
   const lastTapPosRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
   const heartIdRef = useRef(0);
   const contentRef = useRef<HTMLDivElement>(null);
+  const textRef = useRef<HTMLDivElement>(null);
+  const [isOverflowing, setIsOverflowing] = useState(false);
+  const [textExpanded, setTextExpanded] = useState(false);
   const [commentImageRetry, setCommentImageRetry] = useState(0);
   const retryCommentImage = useCallback(() => {
     setCommentImageRetry((n) => n + 1);
@@ -112,6 +116,25 @@ const CommentItem = ({
   useEffect(() => {
     if (!allowNewComments) setIsReplying(false);
   }, [allowNewComments]);
+
+  /**
+   * Detect whether the text exceeds the clamp (4 lines). Re-measures on content / resize so
+   * the "...more" toggle only appears when there's actually hidden text. YouTube does this too.
+   */
+  useEffect(() => {
+    setTextExpanded(false);
+    const el = textRef.current;
+    if (!el) return;
+    const measure = () => {
+      // `scrollHeight > clientHeight` is the canonical "is clamped" check.
+      setIsOverflowing(el.scrollHeight - el.clientHeight > 1);
+    };
+    measure();
+    if (typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [comment.content, comment.id]);
 
   const isCommentOwner = currentUserId === comment.user_id;
   const isFileOwner = Boolean(fileOwnerId && currentUserId === fileOwnerId);
@@ -246,15 +269,17 @@ const CommentItem = ({
       )}
       style={level > 0 ? { paddingLeft: gutterPx } : undefined}
     >
-      {/* One wrapper so space-y-3 does not add margin between absolute connector and flex row */}
+      {/* Rails span the full outer height (this comment + its reply subtree) — no gaps on tall comments. */}
+      {level > 0 && (
+        <CommentThreadRails
+          level={level}
+          threadPrefix={threadPrefix}
+          isLastInThread={isLastInThread}
+        />
+      )}
+      {/* Row wrapper hosts the small L-elbow at the avatar's vertical center. */}
       <div className="relative">
-        {level > 0 && (
-          <CommentThreadConnector
-            level={level}
-            threadPrefix={threadPrefix}
-            isLastInThread={isLastInThread}
-          />
-        )}
+        {level > 0 && <CommentThreadElbow level={level} />}
         <div className="relative z-[1] flex items-start gap-3">
           {comment.user?.username ? (
             <Link to={`/profile/${comment.user.username}`} className="shrink-0 pt-0.5">
@@ -354,10 +379,30 @@ const CommentItem = ({
                 >
                   {comment.content ? (
                     <div className="[&_a]:break-words">
-                      <FormattedText
-                        text={comment.content}
-                        mentionLinkClassName="!text-sky-600 hover:!text-sky-500 dark:!text-[#3ea6ff] dark:hover:!text-sky-300"
-                      />
+                      <div
+                        ref={textRef}
+                        className={cn(
+                          "whitespace-pre-wrap break-words",
+                          !textExpanded && "line-clamp-4",
+                        )}
+                      >
+                        <FormattedText
+                          text={comment.content}
+                          mentionLinkClassName="!text-sky-600 hover:!text-sky-500 dark:!text-[#3ea6ff] dark:hover:!text-sky-300"
+                        />
+                      </div>
+                      {isOverflowing && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setTextExpanded((v) => !v);
+                          }}
+                          className="mt-1 text-xs font-semibold text-muted-foreground hover:text-foreground"
+                        >
+                          {textExpanded ? "Show less" : "…more"}
+                        </button>
+                      )}
                     </div>
                   ) : null}
                   {comment.gif_url || comment.gif_preview_url ? (
@@ -472,9 +517,10 @@ const CommentItem = ({
           <CommentForm
             fileId={fileId}
             parentId={comment.id}
+            replyToUsername={comment.user?.username ?? null}
             onSubmit={(content, gif, image) => handleReply(content, gif, image)}
             onCancel={() => setIsReplying(false)}
-            placeholder="Write a reply..."
+            placeholder={`Reply to @${comment.user?.username ?? "user"}…`}
           />
         </div>
       )}

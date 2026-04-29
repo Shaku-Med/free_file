@@ -55,6 +55,8 @@ interface CommentFormProps {
   onSubmit: (content: string, gif?: CommentGif | null, image?: CommentImage | null) => Promise<void>;
   onCancel?: () => void;
   placeholder?: string;
+  /** When set on a reply form, the textarea is pre-filled with `@username `. */
+  replyToUsername?: string | null;
 }
 
 const SUGGEST_DEBOUNCE_MS = 300;
@@ -83,6 +85,7 @@ const CommentForm = ({
   onSubmit,
   onCancel,
   placeholder,
+  replyToUsername,
 }: CommentFormProps) => {
   const location = useLocation();
   const { userProfile, altAccounts } = useFileContext();
@@ -110,7 +113,16 @@ const CommentForm = ({
   );
   const resolvedPlaceholder =
     placeholder ?? (parentId ? "Write a reply…" : `Comment as ${commentAsName}`);
-  const [content, setContent] = useState("");
+  /** Reply forms open with `@username ` already typed; user just keeps typing. */
+  const initialContent = parentId && replyToUsername ? `@${replyToUsername} ` : "";
+  const [content, setContent] = useState(initialContent);
+  /** Keep the @-mention seeded if the form is reused for a different parent. */
+  useEffect(() => {
+    if (parentId && replyToUsername) {
+      setContent((prev) => (prev.length === 0 ? `@${replyToUsername} ` : prev));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only seed on parentId change
+  }, [parentId, replyToUsername]);
   const [gif, setGif] = useState<CommentGif | null>(null);
   const [image, setImage] = useState<CommentImage | null>(null);
   const [pendingImageFile, setPendingImageFile] = useState<File | null>(null);

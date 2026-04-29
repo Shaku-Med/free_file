@@ -325,11 +325,13 @@ const CommentSection = ({
   const composerShellClass =
     "sticky bottom-0 z-10 shrink-0 border-t border-border/60 bg-background/95 pt-3 shadow-[0_-8px_24px_-8px_rgba(0,0,0,0.1)] backdrop-blur-md supports-[backdrop-filter]:bg-background/85 pb-[max(0.25rem,env(safe-area-inset-bottom))] dark:shadow-[0_-8px_24px_-8px_rgba(0,0,0,0.35)]";
 
+  /**
+   * Auto-stretch — no internal scroll, no `max-h`. The thread flows with the page.
+   * `fillHeight` (mobile drawer) keeps its own scroll; everything else just renders.
+   */
   const scrollShellClass = cn(
-    "flex min-h-0 flex-col overflow-y-auto overflow-x-hidden [scrollbar-gutter:stable]",
-    fillHeight && "min-h-0 flex-1",
-    !fillHeight && useScrollShell &&
-      "max-h-[min(70vh,calc(100dvh-14rem))] lg:max-h-[min(72vh,calc(100dvh-12rem))]"
+    "flex flex-col overflow-x-hidden",
+    fillHeight && "min-h-0 flex-1 overflow-y-auto [scrollbar-gutter:stable]",
   );
 
   const composerNode = showComposer ? (
