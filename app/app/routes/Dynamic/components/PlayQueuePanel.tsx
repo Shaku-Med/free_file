@@ -16,6 +16,13 @@ import {
   usePlayQueueOptional,
 } from "./PlayQueueContext";
 
+/** Match `SeriesEpisodesSection` scroll shell so sidebar queue + series cap the same way. */
+const PLAY_QUEUE_MAX_HEIGHT =
+  "max-h-[calc(100svh-9rem-env(safe-area-inset-bottom,0px))] sm:max-h-[calc(100svh-8rem-env(safe-area-inset-bottom,0px))]";
+
+const PLAY_QUEUE_SCROLL_BODY =
+  "min-h-0 overflow-y-auto overscroll-auto [scrollbar-gutter:stable]";
+
 function QueueDropAppend() {
   const { setNodeRef, isOver } = useDroppable({ id: PLAY_QUEUE_DROP_APPEND });
   return (
@@ -59,11 +66,11 @@ function SortableQueueRow({
       ref={setNodeRef}
       style={style}
       className={cn(
-        "flex items-stretch gap-2 border-b border-border/50 py-1 pl-1 pr-0 last:border-b-0",
+        "flex min-w-0 list-none items-stretch gap-1.5 border-b border-border/40 py-1 pl-0.5 pr-0 last:border-b-0",
         isDragging && "z-10 rounded-lg bg-card shadow-md ring-1 ring-border"
       )}
     >
-      <div className="flex shrink-0 items-start pt-2">
+      <div className="flex shrink-0 items-start pt-1.5">
         <button
           type="button"
           className="flex h-9 w-7 cursor-grab touch-none items-center justify-center rounded-md text-muted-foreground hover:bg-muted active:cursor-grabbing"
@@ -78,13 +85,14 @@ function SortableQueueRow({
         <VideoCard
           layout="horizontal"
           related
+          hideActions
           data={video}
           index={index}
           currentUserId={currentUserId}
           userActions={userActions}
         />
       </div>
-      <div className="flex shrink-0 items-start pt-2">
+      <div className="flex shrink-0 items-start pt-1.5">
         <Button
           type="button"
           variant="ghost"
@@ -143,20 +151,32 @@ function GuestPlayQueueLocked({
       {defaultQueue.length === 0 ? (
         <div className="px-3 py-4 text-center text-xs text-muted-foreground">Nothing queued yet.</div>
       ) : (
-        <ul className="max-h-[min(36dvh,240px)] divide-y divide-border/50 overflow-y-auto opacity-80 sm:max-h-[min(40vh,280px)]">
-          {defaultQueue.map((video, index) => (
-            <li key={video.id} className="py-1">
-              <VideoCard
-                layout="horizontal"
-                related
-                data={video}
-                index={index}
-                currentUserId={currentUserId}
-                userActions={userActions}
-              />
-            </li>
-          ))}
-        </ul>
+        <div
+          className={cn(
+            "opacity-80",
+            PLAY_QUEUE_MAX_HEIGHT,
+            PLAY_QUEUE_SCROLL_BODY,
+          )}
+        >
+          <ul className="m-0 list-none space-y-0 p-2">
+            {defaultQueue.map((video, index) => (
+              <li
+                key={video.id}
+                className="min-w-0 border-b border-border/35 py-1.5 last:border-b-0"
+              >
+                <VideoCard
+                  layout="horizontal"
+                  related
+                  hideActions
+                  data={video}
+                  index={index}
+                  currentUserId={currentUserId}
+                  userActions={userActions}
+                />
+              </li>
+            ))}
+          </ul>
+        </div>
       )}
     </div>
   );
@@ -253,9 +273,19 @@ export function PlayQueuePanel({ currentUserId: currentUserIdProp, userActions }
           </Button>
         ) : null}
       </div>
-      <div className="flex max-h-[min(36dvh,240px)] flex-col overflow-hidden sm:max-h-[min(40vh,280px)]">
+      <div
+        className={cn(
+          "flex min-h-0 flex-col overflow-hidden",
+          PLAY_QUEUE_MAX_HEIGHT,
+        )}
+      >
         <SortableContext items={sortableIds} strategy={verticalListSortingStrategy}>
-          <ul className="overflow-y-auto px-1">
+          <ul
+            className={cn(
+              "m-0 min-h-0 flex-1 list-none space-y-0 px-1 pb-1",
+              PLAY_QUEUE_SCROLL_BODY,
+            )}
+          >
             {queue.map((video, index) => (
               <SortableQueueRow
                 key={video.id}
@@ -268,7 +298,7 @@ export function PlayQueuePanel({ currentUserId: currentUserIdProp, userActions }
             ))}
           </ul>
         </SortableContext>
-        <div className="border-t border-border/50 p-1">
+        <div className="shrink-0 border-t border-border/50 p-1">
           <QueueDropAppend />
         </div>
       </div>

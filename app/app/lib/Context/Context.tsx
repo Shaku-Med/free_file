@@ -1,6 +1,9 @@
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { ContextProps } from "~/lib/Context/types";
-import type { FileType } from "../types";
+import type { FileType, PageCacheEntry, DynamicSeriesPayloadCache, RelatedVideosPayloadCache } from "../types";
+import { isMobile } from "react-device-detect";
+import { MAX_UPLOAD_FILE_BYTES } from "~/lib/uploadLimits";
+import { isSearchBotUserAgent } from "~/lib/utils";
 import MediaSelectionModal from "~/routes/Home/components/MediaSelectionModal";
 import { Button } from "~/components/ui/button";
 import { Plus } from "lucide-react";
@@ -11,10 +14,6 @@ import ClientEncryption from "../Security/Client/Encryption";
 import { setPlayerSettings as setPlayerSettingsApi } from "~/lib/Services/playerSettingsApi";
 import { useLocation, useNavigation } from "react-router";
 import { isPipChromeRoute } from "~/routes/pip/pipEnv";
-import type { PageCacheEntry } from "../types";
-import { isMobile } from "react-device-detect";
-import { MAX_UPLOAD_FILE_BYTES } from "~/lib/uploadLimits";
-import { isSearchBotUserAgent } from "~/lib/utils";
 
 export const driverObj = driver({
     showProgress: true,
@@ -74,6 +73,10 @@ export const Context = createContext<ContextProps>({
     setHideAppChrome: () => {},
     hlsBootstrap: null,
     hlsBootstrapRetry: null,
+    getDynamicSeriesPayloadCache: () => null,
+    setDynamicSeriesPayloadCache: () => {},
+    getRelatedVideosPayloadCache: () => null,
+    setRelatedVideosPayloadCache: () => {},
 })
 
 interface ContextProviderProps {
@@ -460,6 +463,40 @@ export const ContextProvider = ({ children, st, user_agent, userId, c_user, uplo
 
     const safeUserId: string | null = userId ?? null;
 
+    const dynamicSeriesPayloadCacheRef = useRef(
+        new Map<string, DynamicSeriesPayloadCache>()
+    );
+    const relatedVideosPayloadCacheRef = useRef(
+        new Map<string, RelatedVideosPayloadCache>()
+    );
+
+    const getDynamicSeriesPayloadCache = useCallback((fileSeriesId: string) => {
+        return dynamicSeriesPayloadCacheRef.current.get(fileSeriesId) ?? null;
+    }, []);
+
+    const setDynamicSeriesPayloadCache = useCallback(
+        (fileSeriesId: string, entry: DynamicSeriesPayloadCache) => {
+            dynamicSeriesPayloadCacheRef.current.set(fileSeriesId, entry);
+        },
+        []
+    );
+
+    const getRelatedVideosPayloadCache = useCallback((fileId: string) => {
+        return relatedVideosPayloadCacheRef.current.get(fileId) ?? null;
+    }, []);
+
+    const setRelatedVideosPayloadCache = useCallback(
+        (fileId: string, entry: RelatedVideosPayloadCache) => {
+            relatedVideosPayloadCacheRef.current.set(fileId, entry);
+        },
+        []
+    );
+
+    useEffect(() => {
+        dynamicSeriesPayloadCacheRef.current.clear();
+        relatedVideosPayloadCacheRef.current.clear();
+    }, [safeUserId]);
+
     const value = useMemo(
         () => ({
             files,
@@ -495,8 +532,12 @@ export const ContextProvider = ({ children, st, user_agent, userId, c_user, uplo
             setHideAppChrome,
             hlsBootstrap,
             hlsBootstrapRetry,
+            getDynamicSeriesPayloadCache,
+            setDynamicSeriesPayloadCache,
+            getRelatedVideosPayloadCache,
+            setRelatedVideosPayloadCache,
         }),
-        [files, isModalOpen, isLoading, initialLoading, loadMoreVideos, clearFeedHistory, user_agent, safeUserId, userActions, c_user, uploadServerUrl, userProfile, userProfileLoading, pageCache, scrollDataReady, theaterMode, playerSettings, savePlayerSettings, altAccountsProp, hideAppChrome, hlsBootstrap, hlsBootstrapRetry]
+        [files, isModalOpen, isLoading, initialLoading, loadMoreVideos, clearFeedHistory, user_agent, safeUserId, userActions, c_user, uploadServerUrl, userProfile, userProfileLoading, pageCache, scrollDataReady, theaterMode, playerSettings, savePlayerSettings, altAccountsProp, hideAppChrome, hlsBootstrap, hlsBootstrapRetry, getDynamicSeriesPayloadCache, setDynamicSeriesPayloadCache, getRelatedVideosPayloadCache, setRelatedVideosPayloadCache]
     );
     
     return (

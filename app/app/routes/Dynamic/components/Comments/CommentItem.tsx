@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { Link } from "react-router";
 import { Avatar, AvatarFallback, AvatarImage } from "~/components/ui/avatar";
 import { Button } from "~/components/ui/button";
-import { MoreVertical, Edit2, Trash2, Heart, EyeOff, Eye } from "lucide-react";
+import { MoreVertical, Edit2, Trash2, ThumbsUp, Heart, EyeOff, Eye } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -13,7 +13,7 @@ import type { Comment as CommentType } from "~/lib/Services/CommentService";
 import CommentForm from "./CommentForm";
 import type { CommentGif, CommentImage } from "./CommentForm";
 import { FormattedText } from "~/components/FormattedText";
-import { formatDistanceToNow, differenceInMinutes, differenceInHours, differenceInDays } from "date-fns";
+import { formatDistanceToNow } from "date-fns";
 import { getProfilePicUrl } from "~/lib/utils/profilePic";
 import { cn } from "~/lib/utils";
 import ImageLoad from "~/routes/Home/components/ImageLoad/ImageLoad";
@@ -48,17 +48,19 @@ function subtreeContainsHighlight(c: CommentType, targetId: string | null | unde
   return (c.replies ?? []).some((r) => subtreeContainsHighlight(r, targetId));
 }
 
-/** Short relative labels (e.g. 2m, 5h, 3d) for a Facebook-like action row. */
-function shortRelativeTime(date: Date): string {
-  const now = new Date();
-  const min = differenceInMinutes(now, date);
-  if (min < 1) return "now";
-  if (min < 60) return `${min}m`;
-  const h = differenceInHours(now, date);
-  if (h < 24) return `${h}h`;
-  const d = differenceInDays(now, date);
-  if (d < 14) return `${d}d`;
-  return formatDistanceToNow(date, { addSuffix: false });
+/** YouTube-style full phrase: “5 months ago” */
+function youtubeRelativeTime(iso: string): string {
+  try {
+    return formatDistanceToNow(new Date(iso), { addSuffix: true });
+  } catch {
+    return "";
+  }
+}
+
+function formatCompactCount(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1).replace(/\.0$/, "")}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1).replace(/\.0$/, "")}K`;
+  return String(n);
 }
 
 const CommentItem = ({
@@ -236,10 +238,11 @@ const CommentItem = ({
     <div
       id={`comment-${comment.id}`}
       className={cn(
-        "relative space-y-2 scroll-mt-24 rounded-xl transition-[box-shadow,background-color] duration-500 sm:scroll-mt-28 sm:space-y-3",
+        "relative scroll-mt-24 transition-[box-shadow,background-color] duration-500 sm:scroll-mt-28",
+        "border-b border-border/25 pb-4 pt-1 last:border-b-0 dark:border-white/[0.06]",
         level > 0 && "overflow-visible min-w-0",
         showEmphasis &&
-          "ring-2 ring-primary/80 ring-offset-2 ring-offset-background bg-primary/10 shadow-sm p-1.5 -m-1.5 sm:p-3 sm:-m-3"
+          "rounded-xl ring-2 ring-primary/80 ring-offset-2 ring-offset-background bg-primary/10 shadow-sm p-2 -mx-1 sm:p-3 sm:-mx-2"
       )}
       style={level > 0 ? { paddingLeft: gutterPx } : undefined}
     >
@@ -252,10 +255,10 @@ const CommentItem = ({
             isLastInThread={isLastInThread}
           />
         )}
-        <div className="relative z-[1] flex items-start gap-2">
+        <div className="relative z-[1] flex items-start gap-3">
           {comment.user?.username ? (
-            <Link to={`/profile/${comment.user.username}`} className="shrink-0">
-              <Avatar className="h-9 w-9 shrink-0 ring-offset-background ring-primary/0 transition-all hover:ring-2 hover:ring-primary/80 cursor-pointer">
+            <Link to={`/profile/${comment.user.username}`} className="shrink-0 pt-0.5">
+              <Avatar className="h-9 w-9 shrink-0 ring-offset-background transition-all hover:ring-2 hover:ring-zinc-400/50 cursor-pointer">
                 <AvatarImage src={getProfilePicUrl(comment.user.profile_pic)} alt={comment.user.username} />
                 <AvatarFallback className="text-xs font-medium">
                   {comment.user.username.charAt(0).toUpperCase()}
@@ -269,204 +272,189 @@ const CommentItem = ({
           )}
           <div
             className={cn(
-              "flex min-w-0 flex-1 items-start gap-1",
+              "flex min-w-0 flex-1 flex-col gap-0",
               level > 0 ? "min-w-0 sm:min-w-[min(100%,15rem)]" : ""
             )}
           >
-            <div className="flex min-w-0 flex-1 flex-col items-start">
-              {isEditing ? (
-                <div className="w-full min-w-0">
-                  <CommentForm
-                    fileId={fileId}
-                    onSubmit={handleEdit}
-                    onCancel={() => setIsEditing(false)}
-                    placeholder="Edit your comment..."
-                  />
-                </div>
-              ) : (
-                <>
-                  <div className="inline-block max-w-full text-xs sm:text-sm">
-                    <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
-                      {comment.user?.username ? (
-                        <Link
-                          to={`/profile/${comment.user.username}`}
-                          className="font-semibold leading-snug text-foreground hover:text-primary"
-                        >
-                          {comment.user.username}
-                        </Link>
-                      ) : (
-                        <span className="font-semibold leading-snug text-foreground">Unknown User</span>
-                      )}
-                      {comment.is_edited && (
-                        <span className="text-xs font-normal text-muted-foreground">(edited)</span>
-                      )}
-                      {isFileOwner && isHidden && (
-                        <span className="text-[10px] font-semibold uppercase tracking-wide text-amber-600 dark:text-amber-400">
-                          Hidden
-                        </span>
-                      )}
-                    </div>
-                    <div
-                      ref={contentRef}
-                      className="relative mt-0.5 space-y-1.5 text-xs text-foreground select-none sm:mt-1 sm:space-y-2 sm:text-sm"
-                      onClick={handleContentClick}
-                      onTouchEnd={handleContentTouchEnd}
-                    >
-                      {comment.content ? (
-                        <div>
-                          <FormattedText text={comment.content} />
-                        </div>
-                      ) : null}
-                      {comment.gif_url || comment.gif_preview_url ? (
-                        <img
-                          src={comment.gif_preview_url || comment.gif_url || ""}
-                          alt="GIF"
-                          loading="lazy"
-                          decoding="async"
-                          fetchPriority="low"
-                          className="max-h-32 w-auto rounded-md border border-border/50 object-cover [content-visibility:auto] [contain:content] sm:max-h-40 sm:rounded-lg"
-                        />
-                      ) : null}
-                      {comment.image_url ? (
-                        <div className="inline-block max-h-48 max-w-full align-top sm:max-h-60">
-                          <ImageLoad
-                            key={`comment-img-${comment.id}-${commentImageRetry}`}
-                            link={`/api/load/image/${comment.image_url}`}
-                            imageID={`comment-img-${comment.id}`}
-                            retry={retryCommentImage}
-                            className="max-h-48 max-w-full rounded-md border border-border/50 object-contain sm:max-h-60 sm:rounded-lg"
-                            hasAdultTag={false}
-                            shouldShowPreview={true}
-                          />
-                        </div>
-                      ) : null}
-                      {floatingHearts.length > 0 && (
-                        <div className="pointer-events-none absolute inset-0 z-10 overflow-visible">
-                          {floatingHearts.map((h) => (
-                            <Heart
-                              key={h.id}
-                              className="absolute text-primary fill-primary drop-shadow-md"
-                              style={{
-                                left: h.x,
-                                top: h.y,
-                                width: h.size,
-                                height: h.size,
-                                transform: `rotate(${h.rotation}deg)`,
-                                animation: `heart-float 1s ease-out ${h.delay}ms forwards`,
-                                ['--drift' as string]: `${h.drift}px`,
-                                opacity: 0,
-                              }}
-                            />
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                  <div className="mt-1 w-full flex flex-wrap items-center gap-x-1.5 gap-y-0.5 pl-0.5 text-[11px] sm:mt-1.5 sm:gap-x-2 sm:gap-y-1 sm:text-[13px]">
-                    <span className="text-muted-foreground">
-                      {shortRelativeTime(new Date(comment.created_at))}
-                    </span>
-                    {onLike && (
-                      <>
-                        <span className="text-muted-foreground/40" aria-hidden>
-                          ·
-                        </span>
-                        <button
-                          type="button"
-                          onClick={handleLike}
-                          disabled={liking || !currentUserId}
-                          className={cn(
-                            "inline-flex items-center gap-1 font-semibold text-muted-foreground transition-colors hover:underline disabled:opacity-50",
-                            userLiked && "text-primary"
-                          )}
-                        >
-                          <Heart
-                            className={cn("h-3.5 w-3.5 shrink-0", userLiked && "fill-current")}
-                            strokeWidth={2}
-                          />
-                          Like
-                        </button>
-                      </>
+            {isEditing ? (
+              <div className="w-full min-w-0">
+                <CommentForm
+                  fileId={fileId}
+                  onSubmit={handleEdit}
+                  onCancel={() => setIsEditing(false)}
+                  placeholder="Edit your comment..."
+                />
+              </div>
+            ) : (
+              <>
+                <div className="flex w-full min-w-0 items-start justify-between gap-2">
+                  <div className="flex min-w-0 flex-wrap items-baseline gap-x-1.5 gap-y-0">
+                    {comment.user?.username ? (
+                      <Link
+                        to={`/profile/${comment.user.username}`}
+                        className="text-sm font-semibold leading-snug text-foreground hover:text-primary"
+                      >
+                        @{comment.user.username}
+                      </Link>
+                    ) : (
+                      <span className="text-sm font-semibold leading-snug text-foreground">@unknown</span>
                     )}
-                    {likeCount > 0 && (
-                      <>
-                        <span className="text-muted-foreground/40" aria-hidden>
-                          ·
-                        </span>
+                    <span className="text-xs font-normal text-muted-foreground">
+                      {youtubeRelativeTime(comment.created_at)}
+                    </span>
+                    {comment.is_edited && (
+                      <span className="text-[11px] font-normal text-muted-foreground">(edited)</span>
+                    )}
+                    {isFileOwner && isHidden && (
+                      <span className="text-[10px] font-semibold uppercase tracking-wide text-amber-600 dark:text-amber-400">
+                        Hidden
+                      </span>
+                    )}
+                  </div>
+                  {canModerate && (
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7 shrink-0 rounded-full text-muted-foreground hover:bg-muted/60 sm:h-8 sm:w-8"
+                        >
+                          <MoreVertical className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        {isCommentOwner && (
+                          <DropdownMenuItem onClick={() => setIsEditing(true)}>
+                            <Edit2 className="mr-2 h-4 w-4" />
+                            Edit
+                          </DropdownMenuItem>
+                        )}
+                        {isFileOwner && onHide && (
+                          <DropdownMenuItem onClick={() => onHide(comment.id, !isHidden)}>
+                            {isHidden ? <Eye className="mr-2 h-4 w-4" /> : <EyeOff className="mr-2 h-4 w-4" />}
+                            {isHidden ? "Unhide" : "Hide from others"}
+                          </DropdownMenuItem>
+                        )}
+                        {(isCommentOwner || isFileOwner) && (
+                          <DropdownMenuItem onClick={handleDelete} className="text-destructive">
+                            <Trash2 className="mr-2 h-4 w-4" />
+                            Delete
+                          </DropdownMenuItem>
+                        )}
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  )}
+                </div>
+
+                <div
+                  ref={contentRef}
+                  className="relative mt-1 w-full max-w-full space-y-2 text-sm leading-relaxed text-foreground select-none"
+                  onClick={handleContentClick}
+                  onTouchEnd={handleContentTouchEnd}
+                >
+                  {comment.content ? (
+                    <div className="[&_a]:break-words">
+                      <FormattedText
+                        text={comment.content}
+                        mentionLinkClassName="!text-sky-600 hover:!text-sky-500 dark:!text-[#3ea6ff] dark:hover:!text-sky-300"
+                      />
+                    </div>
+                  ) : null}
+                  {comment.gif_url || comment.gif_preview_url ? (
+                    <img
+                      src={comment.gif_preview_url || comment.gif_url || ""}
+                      alt="GIF"
+                      loading="lazy"
+                      decoding="async"
+                      fetchPriority="low"
+                      className="max-h-32 w-auto rounded-md border border-border/50 object-cover [content-visibility:auto] [contain:content] sm:max-h-40 sm:rounded-lg"
+                    />
+                  ) : null}
+                  {comment.image_url ? (
+                    <div className="inline-block max-h-48 max-w-full align-top sm:max-h-60">
+                      <ImageLoad
+                        key={`comment-img-${comment.id}-${commentImageRetry}`}
+                        link={`/api/load/image/${comment.image_url}`}
+                        imageID={`comment-img-${comment.id}`}
+                        retry={retryCommentImage}
+                        className="max-h-48 max-w-full rounded-md border border-border/50 object-contain sm:max-h-60 sm:rounded-lg"
+                        hasAdultTag={false}
+                        shouldShowPreview={true}
+                      />
+                    </div>
+                  ) : null}
+                  {floatingHearts.length > 0 && (
+                    <div className="pointer-events-none absolute inset-0 z-10 overflow-visible">
+                      {floatingHearts.map((h) => (
+                        <Heart
+                          key={h.id}
+                          className="absolute fill-primary text-primary drop-shadow-md"
+                          style={{
+                            left: h.x,
+                            top: h.y,
+                            width: h.size,
+                            height: h.size,
+                            transform: `rotate(${h.rotation}deg)`,
+                            animation: `heart-float 1s ease-out ${h.delay}ms forwards`,
+                            ["--drift" as string]: `${h.drift}px`,
+                            opacity: 0,
+                          }}
+                        />
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                <div className="mt-2 flex min-h-[1.25rem] flex-wrap items-center gap-x-1 gap-y-1 text-xs text-muted-foreground">
+                  {onLike ? (
+                    <span className="inline-flex items-center gap-0.5">
+                      <button
+                        type="button"
+                        onClick={handleLike}
+                        disabled={liking || !currentUserId}
+                        className={cn(
+                          "inline-flex items-center justify-center rounded-md p-1 font-medium text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground disabled:opacity-40",
+                          userLiked && "text-foreground",
+                        )}
+                        aria-label={userLiked ? "Unlike" : "Like"}
+                      >
+                        <ThumbsUp
+                          className={cn("h-4 w-4 shrink-0", userLiked && "fill-current text-foreground")}
+                          strokeWidth={1.75}
+                        />
+                      </button>
+                      {likeCount > 0 ? (
                         <button
                           type="button"
                           onClick={() => setLikesModalOpen(true)}
-                          className="font-semibold text-muted-foreground transition-colors hover:underline"
+                          className="rounded-md px-1.5 py-0.5 font-medium tabular-nums text-muted-foreground hover:bg-muted/50 hover:text-foreground"
                         >
-                          {likeCount} {likeCount === 1 ? "like" : "likes"}
+                          {formatCompactCount(likeCount)}
                         </button>
-                      </>
-                    )}
-                    {allowNewComments && (
-                      <>
-                        <span className="text-muted-foreground/40" aria-hidden>
-                          ·
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() => setIsReplying(!isReplying)}
-                          className="font-semibold text-muted-foreground transition-colors hover:underline"
-                        >
-                          Reply
-                        </button>
-                      </>
-                    )}
-                    {hasReplies && (
-                      <>
-                        <span className="text-muted-foreground/40" aria-hidden>
-                          ·
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() => setShowReplies(!showReplies)}
-                          className="font-semibold text-muted-foreground transition-colors hover:underline"
-                        >
-                          {showReplies ? "Hide" : "View"} {comment.reply_count}{" "}
-                          {comment.reply_count === 1 ? "reply" : "replies"}
-                        </button>
-                      </>
-                    )}
-                  </div>
-                </>
-              )}
-            </div>
-            {canModerate && !isEditing && (
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-7 w-7 shrink-0 rounded-full text-muted-foreground hover:bg-muted/60 sm:h-8 sm:w-8"
-                  >
-                    <MoreVertical className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">
-                  {isCommentOwner && (
-                    <DropdownMenuItem onClick={() => setIsEditing(true)}>
-                      <Edit2 className="mr-2 h-4 w-4" />
-                      Edit
-                    </DropdownMenuItem>
-                  )}
-                  {isFileOwner && onHide && (
-                    <DropdownMenuItem onClick={() => onHide(comment.id, !isHidden)}>
-                      {isHidden ? <Eye className="mr-2 h-4 w-4" /> : <EyeOff className="mr-2 h-4 w-4" />}
-                      {isHidden ? "Unhide" : "Hide from others"}
-                    </DropdownMenuItem>
-                  )}
-                  {(isCommentOwner || isFileOwner) && (
-                    <DropdownMenuItem onClick={handleDelete} className="text-destructive">
-                      <Trash2 className="mr-2 h-4 w-4" />
-                      Delete
-                    </DropdownMenuItem>
-                  )}
-                </DropdownMenuContent>
-              </DropdownMenu>
+                      ) : null}
+                    </span>
+                  ) : null}
+                  {allowNewComments ? (
+                    <button
+                      type="button"
+                      onClick={() => setIsReplying(!isReplying)}
+                      className="rounded-md px-2 py-0.5 font-semibold uppercase tracking-wide text-[11px] text-muted-foreground hover:bg-muted/50 hover:text-foreground sm:text-xs"
+                    >
+                      Reply
+                    </button>
+                  ) : null}
+                  {hasReplies ? (
+                    <button
+                      type="button"
+                      onClick={() => setShowReplies(!showReplies)}
+                      className="rounded-md px-2 py-0.5 font-semibold text-[11px] text-muted-foreground hover:bg-muted/50 hover:text-foreground sm:text-xs"
+                    >
+                      {showReplies ? "Hide" : "View"} {comment.reply_count}{" "}
+                      {comment.reply_count === 1 ? "reply" : "replies"}
+                    </button>
+                  ) : null}
+                </div>
+              </>
             )}
           </div>
         </div>
@@ -492,7 +480,7 @@ const CommentItem = ({
       )}
 
       {showReplies && hasReplies && (
-        <div className="relative z-[1] mt-1.5 space-y-2 overflow-visible sm:mt-2 sm:space-y-3">
+        <div className="relative z-[1] mt-0.5 space-y-0 overflow-visible sm:mt-1">
           {comment.replies?.map((reply, idx, arr) => (
             <CommentItem
               key={reply.id}

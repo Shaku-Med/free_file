@@ -73,6 +73,18 @@ export interface SeriesEpisodeGroup {
   nested?: SeriesEpisodeGroup[];
 }
 
+/** Session-scoped cache for GET /api/dynamic-series (key: `file_series_id`). */
+export type DynamicSeriesPayloadCache = {
+  episodes: SeriesEpisodeGroup[] | null;
+  userActions: { likedFileIds: string[]; dislikedFileIds: string[] };
+};
+
+/** Session-scoped cache for related-videos bootstrap (key: server file `id`). */
+export type RelatedVideosPayloadCache = {
+  videos: FileType[];
+  userActions: { likedFileIds: string[]; dislikedFileIds: string[] };
+};
+
 export interface PageCacheData {
   data: unknown;
   currentPageNumber: number;

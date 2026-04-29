@@ -80,9 +80,9 @@ export function PlayQueueProvider({
   const [isCustomized, setIsCustomized] = useState(false);
 
   useEffect(() => {
-    setQueue(defaultQueue);
-    setIsCustomized(false);
-  }, [currentUniqueId]);
+    if (!isCustomized) return;
+    setQueue((prev) => prev.filter((v) => v.unique_id !== currentUniqueId));
+  }, [currentUniqueId, isCustomized]);
 
   useEffect(() => {
     if (!isCustomized) {

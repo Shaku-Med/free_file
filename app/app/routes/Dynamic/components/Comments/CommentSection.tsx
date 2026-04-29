@@ -376,7 +376,7 @@ const CommentSection = ({
           ) : hasThread ? (
             showComposer ? (
               <div className="flex min-h-full min-w-0 flex-col">
-                <div className="min-w-0 flex-1 space-y-3 sm:space-y-4 px-0.5 pb-1">
+                <div className="min-w-0 flex-1 space-y-0 px-0.5 pb-1">
                   {comments.map((comment) => (
                     <CommentItem
                       key={comment.id}
@@ -397,7 +397,7 @@ const CommentSection = ({
                 {composerNode}
               </div>
             ) : (
-              <div className="min-w-0 space-y-3 px-0.5 pb-1 sm:space-y-4">
+              <div className="min-w-0 space-y-0 px-0.5 pb-1">
                 {comments.map((comment) => (
                   <CommentItem
                     key={comment.id}

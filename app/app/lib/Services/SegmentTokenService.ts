@@ -5,7 +5,9 @@ import { sanitizeFilePath } from "~/lib/Security/inputValidation";
 /**
  * Guest preview: keep short so leaked segment URLs die quickly.
  * Signed-in: `_st` is minted for every segment URL when the manifest is rewritten; static VoD
- * playlists often never reload, so TTL must cover your longest typical watch. Bound to IP + sessionScope.
+ * playlists often never reload, so TTL must cover your longest typical watch. Bound to
+ * `sessionScope` only (cookie HMAC) — not client IP, so cellular ↔ WiFi handoff does not 403 segments.
+ * Rate limiting still uses IP via `sessionRateKey`.
  */
 const GUEST_SEGMENT_TOKEN_TTL_SEC = 300;
 /** Default 1h (was 5m). For 5h+ files without manifest refresh, raise (e.g. `8 * 3600`). */
@@ -61,11 +63,17 @@ export function sessionRateKey(headers: Headers): string {
   return `${sessionScope(headers)}|${extractIp(headers)}`;
 }
 
+/**
+ * Tokens bind to `sessionScope` (cookie-HMAC) only. IP is no longer part of the binding —
+ * mobile users handing off cellular ↔ wifi mid-watch were getting 403s on every segment
+ * until the manifest re-loaded. Cross-session reuse is still blocked: a stolen URL has the
+ * thief's `sessionScope` cookie, not the original's. IP-based abuse is gated separately by
+ * `sessionRateKey` (rate limiter).
+ */
 export function createSegmentToken(segmentPath: string, headers: Headers): string {
-  const ip = extractIp(headers);
   const ss = sessionScope(headers);
   const exp = Math.floor(Date.now() / 1000) + SIGNED_IN_SEGMENT_TOKEN_TTL_SEC;
-  return `${sign(`${segmentPath}|${ip}|${ss}|${exp}`)}.${exp}`;
+  return `${sign(`${segmentPath}|${ss}|${exp}`)}.${exp}`;
 }
 
 /**
@@ -78,11 +86,10 @@ export function createGuestSegmentToken(
   headers: Headers,
   guestLimitSeconds: number
 ): string {
-  const ip = extractIp(headers);
   const ss = sessionScope(headers);
   const exp = Math.floor(Date.now() / 1000) + GUEST_SEGMENT_TOKEN_TTL_SEC;
   const lim = Math.max(1, Math.min(10 * 60, Math.floor(Number(guestLimitSeconds))));
-  return `${sign(`${segmentPath}|${ip}|${ss}|${exp}|guest|${lim}`)}.${exp}`;
+  return `${sign(`${segmentPath}|${ss}|${exp}|guest|${lim}`)}.${exp}`;
 }
 
 export function verifySegmentToken(token: string, segmentPath: string, headers: Headers): boolean {
@@ -94,9 +101,8 @@ export function verifySegmentToken(token: string, segmentPath: string, headers: 
     const exp = parseInt(token.substring(dot + 1), 10);
     if (isNaN(exp) || exp < Math.floor(Date.now() / 1000)) return false;
 
-    const ip = extractIp(headers);
     const ss = sessionScope(headers);
-    const expected = sign(`${segmentPath}|${ip}|${ss}|${exp}`);
+    const expected = sign(`${segmentPath}|${ss}|${exp}`);
 
     if (sig.length !== expected.length) return false;
     return timingSafeEqual(Buffer.from(sig), Buffer.from(expected));
@@ -119,10 +125,9 @@ export function verifyGuestSegmentToken(
     const exp = parseInt(token.substring(dot + 1), 10);
     if (isNaN(exp) || exp < Math.floor(Date.now() / 1000)) return false;
 
-    const ip = extractIp(headers);
     const ss = sessionScope(headers);
     const lim = Math.max(1, Math.min(10 * 60, Math.floor(Number(guestLimitSeconds))));
-    const expected = sign(`${segmentPath}|${ip}|${ss}|${exp}|guest|${lim}`);
+    const expected = sign(`${segmentPath}|${ss}|${exp}|guest|${lim}`);
 
     if (sig.length !== expected.length) return false;
     return timingSafeEqual(Buffer.from(sig), Buffer.from(expected));

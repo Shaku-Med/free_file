@@ -357,6 +357,7 @@ export default function EndScreen({
                         userActions={actions}
                         currentUserId={currentUserId}
                         layout="horizontal"
+                        hideActions
                       />
                     </div>
                   </button>
@@ -422,6 +423,7 @@ export default function EndScreen({
                                 userActions={actions}
                                 currentUserId={currentUserId}
                                 layout="compact"
+                                hideActions
                               />
                             </div>
                           </button>
@@ -469,6 +471,7 @@ export default function EndScreen({
                                 userActions={actions}
                                 currentUserId={currentUserId}
                                 layout="compact"
+                                hideActions
                               />
                             </div>
                           </button>

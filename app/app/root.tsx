@@ -16,6 +16,13 @@ import { ContextProvider } from "./lib/Context/Context";
 import { LikeProvider } from "./lib/Context/LikeContext";
 import { PictureInPictureProvider } from "./lib/Context/PictureInPictureContext";
 import { MiniPlayerProvider } from "./lib/Context/MiniPlayerContext";
+import { MainPlayerSlotProvider } from "./lib/Context/MainPlayerSlotContext";
+import { WatchSurfaceVideoRefProvider } from "./lib/Context/WatchSurfaceVideoRefContext";
+import { WatchPlayBootstrapProvider } from "./lib/Context/WatchPlayBootstrapContext";
+import { WatchHlsSurfaceProvider } from "./lib/Context/WatchHlsSurfaceContext";
+import { RootPlayQueueProvider } from "./components/MainPlayer/RootPlayQueueProvider";
+import { GlobalAnchoredHLSPlayer } from "./components/MainPlayer/GlobalAnchoredHLSPlayer";
+import { GlobalPlayerLayoutProvider } from "./lib/Context/GlobalPlayerLayoutContext";
 import MiniPlayer from "./components/MiniPlayer/MiniPlayer";
 import { CloseMiniPlayerOnNavigateToVideo } from "./components/MiniPlayer/CloseMiniPlayerOnNavigateToVideo";
 import db from "./lib/Database/supabase";
@@ -288,10 +295,23 @@ export function Layout({ children }: { children: React.ReactNode }) {
             <LikeProvider>
               <PictureInPictureProvider>
                 <MiniPlayerProvider>
-                  <CloseMiniPlayerOnNavigateToVideo />
-                  <AppShell>{children}</AppShell>
-                  <MiniPlayer />
-                  <SignInPrompt />
+                  <WatchSurfaceVideoRefProvider>
+                    <WatchPlayBootstrapProvider>
+                      <WatchHlsSurfaceProvider>
+                        <MainPlayerSlotProvider>
+                          <RootPlayQueueProvider>
+                            <GlobalPlayerLayoutProvider>
+                              <CloseMiniPlayerOnNavigateToVideo />
+                              <AppShell>{children}</AppShell>
+                              <MiniPlayer />
+                              <GlobalAnchoredHLSPlayer />
+                              <SignInPrompt />
+                            </GlobalPlayerLayoutProvider>
+                          </RootPlayQueueProvider>
+                        </MainPlayerSlotProvider>
+                      </WatchHlsSurfaceProvider>
+                    </WatchPlayBootstrapProvider>
+                  </WatchSurfaceVideoRefProvider>
                 </MiniPlayerProvider>
               </PictureInPictureProvider>
             </LikeProvider>

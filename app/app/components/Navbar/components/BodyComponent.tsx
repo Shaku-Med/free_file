@@ -6,6 +6,7 @@ import { useFileContext } from "~/lib/Context/Context";
 import { useLocation } from "react-router";
 import { isPipChromeRoute } from "~/routes/pip/pipEnv";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { BodyContentWidthBridge } from "~/lib/Context/BodyContentWidthContext";
 
 export interface ScrollState {
   state: boolean;
@@ -93,13 +94,13 @@ const BodyComponent = ({ children }: BodyComponentProps) => {
       >
         <ScrollRestoration />
         <Navbar hasScrolled={hasScrolled} />
-        <div
+        <BodyContentWidthBridge
           className={`mx-auto w-full min-w-0 ${
             applyTheater ? 'max-w-none px-0' : ' px-3 sm:px-5 lg:px-8 xl:px-10'
           } sidebar_body`}
         >
           {children}
-        </div>
+        </BodyContentWidthBridge>
         <Footer />
       </div>
     </div>

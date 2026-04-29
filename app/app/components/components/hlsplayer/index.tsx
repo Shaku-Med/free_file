@@ -1,9 +1,10 @@
 import React, { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { createPortal } from 'react-dom';
+import { useNavigate } from 'react-router';
 import { useInView } from 'react-intersection-observer';
 import type { FileType, SeriesEpisodeGroup } from '~/lib/types';
 import { PlayerProvider, usePlayerContext, type ThumbnailSpriteMeta } from './PlayerContext';
-import { FEED_EMBED_HIDE_CONTROLS, type HideControls } from './types';
+import { FEED_EMBED_HIDE_CONTROLS, MINI_PLAYER_HIDE_CONTROLS, type HideControls } from './types';
 import SeekBar from './controls/seek/SeekBar';
 import PersistentBottomVisualizer from './controls/seek/PersistentBottomVisualizer';
 import AudioVisualizerBars from './controls/seek/AudioVisualizerBars';
@@ -32,7 +33,9 @@ import GuestPreviewNudge from '~/components/components/hlsplayer/overlays/GuestP
 import { useGuestWatchLimit } from './hooks/useGuestWatchLimit';
 import { usePictureInPictureContext } from '~/lib/Context/PictureInPictureContext';
 import { useFileContext } from '~/lib/Context/Context';
+import { useGlobalPlayerLayout } from '~/lib/Context/GlobalPlayerLayoutContext';
 import { useMiniPlayerContext } from '~/lib/Context/MiniPlayerContext';
+import { useWatchHlsSurface } from '~/lib/Context/WatchHlsSurfaceContext';
 import { isMobile } from 'react-device-detect';
 import { getVideoSrc } from '~/lib/utils';
 import { getSeriesPreviousVideo } from '~/routes/Dynamic/fun/mapSeriesRpcRows';
@@ -149,6 +152,9 @@ function PlayerInner({
   onBack,
   reelSwiperActive = false,
 }: HLSPlayerProps) {
+  const navigate = useNavigate();
+  const globalPlayerLayout = useGlobalPlayerLayout();
+  const { surface: watchHlsSurface } = useWatchHlsSurface();
   const { theaterMode, setTheaterMode, setPlayerSettings, savePlayerSettings } = useFileContext();
   const {
     containerRef,
@@ -199,9 +205,18 @@ function PlayerInner({
   const embedReelControls = Boolean(showFeedPlayerControls && isReelCtx);
 
   const effectiveHideControls = useMemo(() => {
-    if (!embedReelControls) return hideControls;
-    return { ...FEED_EMBED_HIDE_CONTROLS, ...hideControls };
-  }, [embedReelControls, hideControls]);
+    let merged: HideControls | undefined = hideControls;
+    if (embedReelControls) {
+      merged = { ...FEED_EMBED_HIDE_CONTROLS, ...hideControls };
+    }
+    if (
+      globalPlayerLayout === 'mini' &&
+      !(watchHlsSurface?.props && file && watchHlsSurface.props.file?.unique_id === file.unique_id)
+    ) {
+      merged = { ...MINI_PLAYER_HIDE_CONTROLS, ...merged };
+    }
+    return merged;
+  }, [embedReelControls, hideControls, globalPlayerLayout, watchHlsSurface, file?.unique_id]);
 
   const guestLimitActive =
     !authPlayback &&
@@ -245,7 +260,7 @@ function PlayerInner({
   const otherVideoInPipBlocksThisPlayer =
     Boolean(isPipActive && pipContentId !== null && pipContentId !== imageID);
   const pipPauseMainPlayer = documentPipPausesMain || otherVideoInPipBlocksThisPlayer;
-  const { miniPlayer, activateMiniPlayer: triggerMiniPlayer, containerRef: miniPlayerContainerRef, isPortalMode, containerReady, getNavigateBackTarget, sourceVideoRef: miniPlayerSourceVideoRef } = useMiniPlayerContext();
+  const { miniPlayer, activateMiniPlayer: triggerMiniPlayer, containerRef: miniPlayerContainerRef, isPortalMode, containerReady, getNavigateBackTarget } = useMiniPlayerContext();
 
   const isMiniPlayerPortalActive = Boolean(
     miniPlayer && isPortalMode && file && miniPlayer.file?.unique_id === file.unique_id && containerReady && miniPlayerContainerRef.current
@@ -691,20 +706,15 @@ function PlayerInner({
           e.preventDefault();
           if (file && video) {
             const backTarget = getNavigateBackTarget();
-            miniPlayerSourceVideoRef.current = video;
             triggerMiniPlayer(
               {
                 src: src || getVideoSrc(file.endpoint ?? '', file.file_type),
                 file,
-                currentTime: video.currentTime,
                 imageID: imageID || file.unique_id,
-                wasPlaying: !video.paused,
-                volume: video.volume,
-                muted: video.muted,
-                playbackRate: video.playbackRate,
               },
               { navigateTo: backTarget }
             );
+            navigate(backTarget);
           }
           break;
         case '?':
@@ -722,7 +732,7 @@ function PlayerInner({
 
     window.addEventListener('keydown', handleKey);
     return () => window.removeEventListener('keydown', handleKey);
-  }, [isReelCtx, embedReelControls, inPipForThisVideo, togglePlay, triggerPlayPauseFeedback, theaterMode, handleTheaterModeChange, isMobileView, setPlaybackRate, showShortcuts, file, src, imageID, triggerMiniPlayer, getNavigateBackTarget, miniPlayerSourceVideoRef, authPlayback]);
+  }, [isReelCtx, embedReelControls, inPipForThisVideo, togglePlay, triggerPlayPauseFeedback, theaterMode, handleTheaterModeChange, isMobileView, setPlaybackRate, showShortcuts, file, src, imageID, triggerMiniPlayer, getNavigateBackTarget, authPlayback, navigate]);
 
   /** Feed embed reel: outer chrome stays visible; ControlBar shows seek-only vs full via `reelAuxiliaryChromeVisible`. */
   const showControls =
@@ -740,7 +750,7 @@ function PlayerInner({
   return (
     <div
       ref={containerRef}
-      className={`relative bg-black overflow-hidden select-none ${isReelCtx ? 'z-[1]' : ''} ${className}`}
+      className={`relative bg-black overflow-hidden select-none ${isReelCtx ? 'z-[1]' : ''} ${className} player_inner`}
       style={{ cursor: 'default' }}
     >
       {ambientMode && authPlayback && <AmbientBackground />}

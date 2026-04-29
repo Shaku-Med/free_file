@@ -1,5 +1,7 @@
 import { PanelBottom } from 'lucide-react';
 import { useCallback } from 'react';
+import { flushSync } from 'react-dom';
+import { useNavigate } from 'react-router';
 import { cn } from '~/lib/utils';
 import { usePlayerContext } from '../../PlayerContext';
 import { useMiniPlayerContext } from '~/lib/Context/MiniPlayerContext';
@@ -14,7 +16,8 @@ export default function MiniPlayerButton({
   mobileOverlay?: boolean;
 }) {
   const { videoRef, src, imageID, file, isReel } = usePlayerContext();
-  const { activateMiniPlayer, getNavigateBackTarget, sourceVideoRef } = useMiniPlayerContext();
+  const { activateMiniPlayer, getNavigateBackTarget } = useMiniPlayerContext();
+  const navigate = useNavigate();
 
   const handleClick = useCallback(() => {
     const video = videoRef.current;
@@ -22,22 +25,18 @@ export default function MiniPlayerButton({
 
     const backTarget = getNavigateBackTarget();
 
-    sourceVideoRef.current = video;
-
-    activateMiniPlayer(
-      {
-        src: src || getVideoSrc(file.endpoint ?? '', file.file_type),
-        file,
-        currentTime: video.currentTime,
-        imageID: imageID || file.unique_id,
-        wasPlaying: !video.paused,
-        volume: video.volume,
-        muted: video.muted,
-        playbackRate: video.playbackRate,
-      },
-      { navigateTo: backTarget }
-    );
-  }, [videoRef, src, file, imageID, activateMiniPlayer, getNavigateBackTarget, sourceVideoRef]);
+    flushSync(() => {
+      activateMiniPlayer(
+        {
+          src: src || getVideoSrc(file.endpoint ?? '', file.file_type),
+          file,
+          imageID: imageID || file.unique_id,
+        },
+        { navigateTo: backTarget }
+      );
+    });
+    navigate(backTarget);
+  }, [videoRef, src, file, imageID, activateMiniPlayer, getNavigateBackTarget, navigate]);
 
   if (isReel || !file) return null;
 

@@ -48,7 +48,7 @@ function DraggableQueueVideoCard(props: ComponentProps<typeof VideoCard>) {
   return (
     <div
       ref={setNodeRef}
-      className={cn("rounded-xl", isDragging && "opacity-50")}
+      className={cn("h-full min-w-0 rounded-xl", isDragging && "opacity-50")}
       {...listeners}
       {...attributes}
     >
@@ -144,8 +144,11 @@ const RelatedVideosContent = ({ currentUserId }: { currentUserId?: string }) => 
 
   const onDragCancel = () => setOverlayVideo(null)
 
+  const relatedGridClass =
+    "grid min-w-0 grid-cols-1 gap-2 @min-[480px]/related-videos:grid-cols-2 @min-[900px]/related-videos:grid-cols-3"
+
   const inner = (
-    <div className="min-w-0 space-y-3 sm:space-y-4">
+    <div className="@container/related-videos min-w-0 space-y-3 sm:space-y-4">
       <PlayQueuePanel currentUserId={currentUserId} userActions={userActions} />
       <div
         className="-mx-0.5 flex min-w-0 gap-1 overflow-x-auto border-b border-border pb-px sm:mx-0 sm:gap-2 sm:overflow-visible"
@@ -193,12 +196,12 @@ const RelatedVideosContent = ({ currentUserId }: { currentUserId?: string }) => 
             </div>
           ) : (
             <>
-              <div className="grid min-w-0 grid-cols-1 gap-1.5 sm:gap-2">
+              <div className={relatedGridClass}>
                 {displayVideos.map((video, index) =>
                   playQueue?.viewerCanCustomizeQueue ? (
                     <DraggableQueueVideoCard
-                      layout={`horizontal`}
-                      related={true}
+                      related
+                      hideActions
                       key={video.unique_id}
                       data={video}
                       index={index}
@@ -209,8 +212,8 @@ const RelatedVideosContent = ({ currentUserId }: { currentUserId?: string }) => 
                     />
                   ) : (
                     <VideoCard
-                      layout={`horizontal`}
-                      related={true}
+                      related
+                      hideActions
                       key={video.unique_id}
                       data={video}
                       index={index}
@@ -219,7 +222,7 @@ const RelatedVideosContent = ({ currentUserId }: { currentUserId?: string }) => 
                       onAddToPlayQueue={addToPlayQueue}
                       inPlayQueue={isInPlayQueue(video.id)}
                     />
-                  )
+                  ),
                 )}
               </div>
               {hasMore && (
@@ -258,11 +261,12 @@ const RelatedVideosContent = ({ currentUserId }: { currentUserId?: string }) => 
             </div>
           ) : (
             <>
-              <div className="grid min-w-0 grid-cols-1 gap-1.5 sm:gap-2">
+              <div className={relatedGridClass}>
                 {ownerVideos.map((video, index) =>
                   playQueue?.viewerCanCustomizeQueue ? (
                     <DraggableQueueVideoCard
-                      layout={`horizontal`}
+                      related
+                      hideActions
                       key={video.unique_id}
                       data={video}
                       index={index}
@@ -273,7 +277,8 @@ const RelatedVideosContent = ({ currentUserId }: { currentUserId?: string }) => 
                     />
                   ) : (
                     <VideoCard
-                      layout={`horizontal`}
+                      related
+                      hideActions
                       key={video.unique_id}
                       data={video}
                       index={index}
@@ -282,7 +287,7 @@ const RelatedVideosContent = ({ currentUserId }: { currentUserId?: string }) => 
                       onAddToPlayQueue={addToPlayQueue}
                       inPlayQueue={isInPlayQueue(video.id)}
                     />
-                  )
+                  ),
                 )}
               </div>
               {hasMoreOwner && (

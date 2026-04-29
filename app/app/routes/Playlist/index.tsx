@@ -18,6 +18,7 @@ import {
   ChevronRight,
 } from "lucide-react";
 import CreatePlaylistModal from "~/components/Playlist/CreatePlaylistModal";
+import { useBodyVideoGridClassName } from "~/lib/Context/BodyContentWidthContext";
 
 export const meta: MetaFunction = () =>
   buildPageMeta({
@@ -66,6 +67,7 @@ interface ServerPlaylist {
 }
 
 export default function PlaylistPage() {
+  const bodyVideoGridClass = useBodyVideoGridClassName();
   const { userId } = useFileContext();
   const { ids, count, clear } = useLocalPlaylist();
   const [files, setFiles] = useState<FileType[]>([]);
@@ -192,13 +194,13 @@ export default function PlaylistPage() {
             My Playlists
           </h2>
           {serverLoading ? (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            <div className={bodyVideoGridClass}>
               {Array.from({ length: 3 }).map((_, i) => (
                 <SkeletonPlaylistCard key={i} />
               ))}
             </div>
           ) : serverPlaylists.length > 0 ? (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            <div className={bodyVideoGridClass}>
               {serverPlaylists.map((pl) => (
                 <Link
                   key={pl.id}
@@ -260,14 +262,14 @@ export default function PlaylistPage() {
         </div>
 
         {loading ? (
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-3 gap-4">
+          <div className={bodyVideoGridClass}>
             {Array.from({ length: 6 }).map((_, i) => (
               <SkeletonCard key={i} />
             ))}
           </div>
         ) : files.length > 0 ? (
           <>
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-3 gap-4">
+            <div className={bodyVideoGridClass}>
               {files.map((file, index) => (
                 <VideoCard
                   key={file.id || index}
@@ -275,6 +277,7 @@ export default function PlaylistPage() {
                   index={index}
                   currentUserId={userId || undefined}
                   userActions={userActions}
+                  hideActions
                 />
               ))}
               {loadingMore &&

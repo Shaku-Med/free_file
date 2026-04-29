@@ -1,15 +1,16 @@
-import { useEffect, useRef, useState, useCallback } from 'react';
-import { useNavigate } from 'react-router';
-import { createPortal } from 'react-dom';
-import { X, Maximize2, Loader2 } from 'lucide-react';
-import { useMiniPlayerContext } from '~/lib/Context/MiniPlayerContext';
-import { ParseFilename } from '~/lib/utils';
-import { cn } from '~/lib/utils';
-import HLSPlayer from '~/components/components/hlsplayer';
-import { MINI_PLAYER_HIDE_CONTROLS } from '~/components/components/hlsplayer/types';
-import { getVideoSrc } from '~/lib/utils';
-import { useMiniPlayerDrag } from './useMiniPlayerDrag';
-import { Tooltip, TooltipContent, TooltipTrigger } from '~/components/ui/tooltip';
+import { useEffect, useState, useCallback } from "react";
+import { flushSync } from "react-dom";
+import { useLocation, useNavigate } from "react-router";
+import { createPortal } from "react-dom";
+import { motion } from "framer-motion";
+import { X, Maximize2, Loader2 } from "lucide-react";
+import { useMiniPlayerContext } from "~/lib/Context/MiniPlayerContext";
+import { useMainPlayerSlot } from "~/lib/Context/MainPlayerSlotContext";
+import { useWatchSurfaceVideoRef } from "~/lib/Context/WatchSurfaceVideoRefContext";
+import { ParseFilename } from "~/lib/utils";
+import { cn } from "~/lib/utils";
+import { useMiniPlayerDrag } from "./useMiniPlayerDrag";
+import { Tooltip, TooltipContent, TooltipTrigger } from "~/components/ui/tooltip";
 
 function MiniPlayerContent() {
   const {
@@ -17,73 +18,41 @@ function MiniPlayerContent() {
     closeMiniPlayer,
     containerRef,
     setContainerReady,
-    pendingNavigateTo,
-    clearPendingNavigate,
     isExpanding,
     startExpand,
-    sourceVideoRef,
   } = useMiniPlayerContext();
+  const { setMiniSlot } = useMainPlayerSlot();
+  const watchVideoRef = useWatchSurfaceVideoRef();
   const navigate = useNavigate();
-  const videoRef = useRef<HTMLVideoElement>(null);
+  const sessionKey = miniPlayer?.file.unique_id ?? "";
   const {
     elementRef,
     position,
+    frameWidth,
+    tuck,
     isSnapping,
     mounted,
     handlePointerDown,
-    handlePointerMove,
-    handlePointerUp,
-    didDragRef,
-  } = useMiniPlayerDrag();
+    handleResizePointerDown,
+    handleResizePointerMove,
+    handleResizePointerUp,
+  } = useMiniPlayerDrag(sessionKey);
   const [closing, setClosing] = useState(false);
+
+  const bindVideoShellRef = useCallback(
+    (el: HTMLDivElement | null) => {
+      containerRef.current = el;
+      setMiniSlot(el);
+    },
+    [containerRef, setMiniSlot],
+  );
 
   useEffect(() => {
     if (miniPlayer) setContainerReady(true);
     return () => setContainerReady(false);
   }, [miniPlayer, setContainerReady]);
 
-  // Apply the carried playback state (volume, muted, playbackRate, play/pause)
-  // directly to the video element once it's ready, overriding saved player settings.
-  // Once the mini player is playing, mute the source (large) video, then navigate.
-  const appliedStateRef = useRef(false);
-  useEffect(() => {
-    if (!miniPlayer || appliedStateRef.current) return;
-    const video = videoRef.current;
-    if (!video) return;
-
-    const apply = async () => {
-      if (appliedStateRef.current) return;
-      appliedStateRef.current = true;
-      video.volume = miniPlayer.volume;
-      video.muted = miniPlayer.muted;
-      video.playbackRate = miniPlayer.playbackRate;
-
-      if (miniPlayer.wasPlaying) {
-        try { await video.play(); } catch {}
-      } else {
-        video.pause();
-      }
-
-      // Mini player is now playing — mute the large video so there's no overlap
-      if (sourceVideoRef.current) {
-        sourceVideoRef.current.muted = true;
-        sourceVideoRef.current = null;
-      }
-
-      // Safe to navigate away from the original route
-      if (pendingNavigateTo) {
-        navigate(pendingNavigateTo);
-        clearPendingNavigate();
-      }
-    };
-
-    if (video.readyState >= 2) {
-      apply();
-    } else {
-      video.addEventListener('canplay', apply, { once: true });
-      return () => video.removeEventListener('canplay', apply);
-    }
-  }, [miniPlayer, videoRef, pendingNavigateTo, navigate, clearPendingNavigate, sourceVideoRef]);
+  useEffect(() => () => setMiniSlot(null), [setMiniSlot]);
 
   const handleClose = useCallback(() => {
     setClosing(true);
@@ -95,144 +64,200 @@ function MiniPlayerContent() {
 
   const handleExpand = useCallback(() => {
     if (!miniPlayer || isExpanding) return;
-    const video = videoRef.current;
-    // Capture current mini player state to hand off to the main player
-    startExpand({
-      fileId: miniPlayer.file.unique_id,
-      currentTime: video?.currentTime ?? miniPlayer.currentTime,
-      volume: video?.volume ?? miniPlayer.volume,
-      muted: video?.muted ?? miniPlayer.muted,
-      playbackRate: video?.playbackRate ?? miniPlayer.playbackRate,
-      wasPlaying: video ? !video.paused : miniPlayer.wasPlaying,
+    const video = watchVideoRef.current;
+    flushSync(() => {
+      startExpand({
+        fileId: miniPlayer.file.unique_id,
+        currentTime: video?.currentTime ?? miniPlayer.currentTime ?? 0,
+        volume: video?.volume ?? miniPlayer.volume ?? 1,
+        muted: video?.muted ?? miniPlayer.muted ?? false,
+        playbackRate: video?.playbackRate ?? miniPlayer.playbackRate ?? 1,
+        wasPlaying: video ? !video.paused : (miniPlayer.wasPlaying ?? false),
+      });
     });
     navigate(`/${miniPlayer.file.unique_id}`);
-  }, [miniPlayer, isExpanding, startExpand, navigate, videoRef]);
+  }, [miniPlayer, isExpanding, startExpand, navigate, watchVideoRef]);
 
   if (!miniPlayer) return null;
 
   const title = miniPlayer.file.file_title || ParseFilename(miniPlayer.file.filename);
-  const titleStr = typeof title === 'string' ? title : (title as string[]).join('');
+  const titleStr = typeof title === "string" ? title : (title as string[]).join("");
 
   return (
-    <div
+    <motion.div
       ref={elementRef}
       data-mini-player
+      initial={false}
+      animate={{ width: frameWidth }}
+      transition={
+        isSnapping
+          ? { type: "spring", stiffness: 520, damping: 34 }
+          : { type: "spring", stiffness: 380, damping: 30 }
+      }
       className={cn(
-        'fixed z-[2147483647] rounded-xl overflow-hidden bg-muted border border-border',
-        'w-[min(340px,calc(100vw-1.5rem))]',
-        closing && 'opacity-0 scale-95 translate-y-3',
-        !closing && mounted && 'opacity-100 scale-100 translate-y-0',
-        !mounted && 'opacity-0',
-        'shadow-[0_8px_32px_rgba(0,0,0,0.55),0_2px_8px_rgba(0,0,0,0.35)]',
+        "fixed z-[2147483646] max-w-[calc(100vw-1.5rem)] overflow-visible",
+        closing && "opacity-0 scale-95 translate-y-3",
+        !closing && mounted && "opacity-100 scale-100 translate-y-0",
+        !mounted && "opacity-0",
       )}
       style={{
         left: position.x,
         top: position.y,
-        isolation: 'isolate',
+        width: frameWidth,
+        isolation: "isolate",
         transition: isSnapping
-          ? 'left 380ms cubic-bezier(0.34,1.56,0.64,1), top 380ms cubic-bezier(0.34,1.56,0.64,1), opacity 200ms ease, transform 200ms ease'
+          ? "left 420ms cubic-bezier(0.34,1.56,0.64,1), top 420ms cubic-bezier(0.34,1.56,0.64,1), opacity 200ms ease, transform 200ms ease"
           : mounted
-            ? 'opacity 200ms ease, transform 200ms ease'
-            : 'none',
-        willChange: 'left, top, opacity, transform',
+            ? "left 220ms ease-out, top 220ms ease-out, opacity 200ms ease, transform 200ms ease"
+            : "none",
+        willChange: "left, top, opacity, transform, width",
       }}
     >
-      {/* ─── Top bar: drag handle + expand + close ─── */}
+      {tuck === "right" && (
+        <div
+          role="button"
+          tabIndex={0}
+          aria-label="Drag to pull mini player back"
+          className={cn(
+            "absolute left-0 top-1/2 z-[50] -translate-x-[72%] -translate-y-1/2",
+            "pointer-events-auto",
+            "h-16 w-[15px] cursor-grab touch-none select-none rounded-full active:cursor-grabbing",
+            "border border-white/30 bg-white/20 shadow-[0_2px_12px_rgba(0,0,0,0.45),inset_0_1px_0_rgba(255,255,255,0.35)] backdrop-blur-[8px]",
+          )}
+          style={{ isolation: "isolate" }}
+          onPointerDown={handlePointerDown}
+        />
+      )}
+      {tuck === "left" && (
+        <div
+          role="button"
+          tabIndex={0}
+          aria-label="Drag to pull mini player back"
+          className={cn(
+            "absolute right-0 top-1/2 z-[50] translate-x-[72%] -translate-y-1/2",
+            "pointer-events-auto",
+            "h-16 w-[15px] cursor-grab touch-none select-none rounded-full active:cursor-grabbing",
+            "border border-white/30 bg-white/20 shadow-[0_2px_12px_rgba(0,0,0,0.45),inset_0_1px_0_rgba(255,255,255,0.35)] backdrop-blur-[8px]",
+          )}
+          style={{ isolation: "isolate" }}
+          onPointerDown={handlePointerDown}
+        />
+      )}
+
       <div
-        className="flex items-center h-9 px-1.5 cursor-grab active:cursor-grabbing bg-muted touch-none select-none"
-        onPointerDown={handlePointerDown}
-        onPointerMove={handlePointerMove}
-        onPointerUp={handlePointerUp}
-        aria-label="Drag to move mini player"
+        className={cn(
+          "overflow-hidden rounded-xl border border-border bg-muted",
+          "shadow-[0_8px_32px_rgba(0,0,0,0.55),0_2px_8px_rgba(0,0,0,0.35)]",
+        )}
       >
-        {/* Expand / maximize — shows loader while waiting for main player */}
+        <div
+          className="flex h-9 cursor-grab touch-none select-none items-center bg-muted px-1.5 active:cursor-grabbing"
+          onPointerDown={handlePointerDown}
+          aria-label="Drag to move mini player"
+        >
         <Tooltip>
           <TooltipTrigger asChild>
             <span className="inline-flex shrink-0">
               <button
                 type="button"
                 onPointerDown={(e) => e.stopPropagation()}
-                onClick={(e) => { e.stopPropagation(); handleExpand(); }}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleExpand();
+                }}
                 disabled={isExpanding}
                 className={cn(
-                  'relative shrink-0 w-8 h-8 flex items-center justify-center rounded-full transition-colors touch-manipulation',
+                  "relative flex h-8 w-8 shrink-0 items-center justify-center rounded-full transition-colors touch-manipulation",
                   isExpanding
-                    ? 'text-white/50 cursor-wait'
-                    : 'text-white/70 hover:text-white hover:bg-white/10 active:bg-white/20'
+                    ? "cursor-wait text-white/50"
+                    : "text-white/70 hover:bg-white/10 hover:text-white active:bg-white/20",
                 )}
-                aria-label={isExpanding ? 'Loading full player...' : 'Expand to full player'}
+                aria-label={isExpanding ? "Loading full player..." : "Expand to full player"}
               >
                 {isExpanding ? (
-                  <Loader2 className="w-[15px] h-[15px] animate-spin" />
+                  <Loader2 className="h-[15px] w-[15px] animate-spin" />
                 ) : (
-                  <Maximize2 className="w-[15px] h-[15px]" />
+                  <Maximize2 className="h-[15px] w-[15px]" />
                 )}
               </button>
             </span>
           </TooltipTrigger>
           <TooltipContent side="top">
-            {isExpanding ? 'Waiting for the full player to load…' : 'Expand'}
+            {isExpanding ? "Waiting for the full player to load…" : "Expand"}
           </TooltipContent>
         </Tooltip>
 
-        {/* Drag indicator pill */}
-        <div className="flex-1 flex justify-center">
-          <div className="w-8 h-[3px] rounded-full bg-white/20" />
+        <div className="flex flex-1 justify-center">
+          <div className="h-[3px] w-8 rounded-full bg-white/20" />
         </div>
 
-        {/* Close */}
         <Tooltip>
           <TooltipTrigger asChild>
             <button
               type="button"
               onPointerDown={(e) => e.stopPropagation()}
-              onClick={(e) => { e.stopPropagation(); handleClose(); }}
-              className="shrink-0 w-8 h-8 flex items-center justify-center rounded-full text-white/70 hover:text-white hover:bg-white/10 active:bg-white/20 transition-colors touch-manipulation"
+              onClick={(e) => {
+                e.stopPropagation();
+                handleClose();
+              }}
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-white/70 transition-colors hover:bg-white/10 hover:text-white active:bg-white/20 touch-manipulation"
               aria-label="Close mini player"
             >
-              <X className="w-4 h-4" />
+              <X className="h-4 w-4" />
             </button>
           </TooltipTrigger>
           <TooltipContent side="top">Close</TooltipContent>
         </Tooltip>
       </div>
 
-      {/* ─── Video area ─── */}
       <div
-        ref={containerRef}
-        className="relative aspect-video w-full bg-black overflow-hidden"
-      >
-        <HLSPlayer
-          videoRef={videoRef}
-          src={getVideoSrc(miniPlayer.file.endpoint ?? '', miniPlayer.file.file_type)}
-          imageID={miniPlayer.imageID}
-          file={miniPlayer.file}
-          className="w-full h-full"
-          muted={miniPlayer.muted}
-          playsInline
-          startTime={miniPlayer.currentTime}
-          hideControls={MINI_PLAYER_HIDE_CONTROLS}
-        />
-      </div>
+        ref={bindVideoShellRef}
+        className={cn(
+          "relative aspect-video w-full overflow-hidden bg-black",
+          `mini_player_inner_${miniPlayer.imageID}`,
+        )}
+      />
 
-      {/* ─── Info footer ─── */}
-      <div className="px-3 py-2.5 bg-muted">
-        <p className="text-white/90 text-xs font-medium truncate leading-snug">{titleStr}</p>
+      <div className="bg-muted px-3 py-2.5">
+        <p className="truncate text-xs font-medium leading-snug text-white/90">{titleStr}</p>
         {miniPlayer.file.owner?.username && (
-          <p className="text-white/40 text-[11px] truncate mt-0.5">{miniPlayer.file.owner.username}</p>
+          <p className="mt-0.5 truncate text-[11px] text-white/40">{miniPlayer.file.owner.username}</p>
         )}
       </div>
-    </div>
+
+      <div
+        className="absolute bottom-10 right-2 z-20 h-5 w-5 cursor-nwse-resize touch-none rounded-md border border-white/30 bg-black/50 shadow-sm backdrop-blur-sm hover:bg-black/65"
+        onPointerDown={handleResizePointerDown}
+        onPointerMove={handleResizePointerMove}
+        onPointerUp={handleResizePointerUp}
+        onPointerCancel={handleResizePointerUp}
+        aria-label="Resize mini player"
+        role="slider"
+        aria-valuemin={260}
+        aria-valuemax={520}
+      />
+      </div>
+    </motion.div>
   );
 }
 
+/** Reel surface owns the global player while user is on `/reel*` — mini is closed, not just hidden. */
+function isReelPath(pathname: string): boolean {
+  const s = pathname.replace(/^\/+/, "");
+  return s === "reel" || s.startsWith("reel/");
+}
+
 export default function MiniPlayer() {
-  const { miniPlayer } = useMiniPlayerContext();
+  const { miniPlayer, closeMiniPlayer } = useMiniPlayerContext();
+  const location = useLocation();
+  const onReel = isReelPath(location.pathname);
+
+  useEffect(() => {
+    if (onReel && miniPlayer) closeMiniPlayer();
+  }, [onReel, miniPlayer, closeMiniPlayer]);
 
   if (!miniPlayer) return null;
+  if (onReel) return null;
 
-  return createPortal(
-    <MiniPlayerContent />,
-    document.body
-  );
+  return createPortal(<MiniPlayerContent />, document.body);
 }

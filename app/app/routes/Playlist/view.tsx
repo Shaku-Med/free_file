@@ -22,6 +22,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "~/components/ui/dropdown-menu";
+import { useBodyVideoGridClassName } from "~/lib/Context/BodyContentWidthContext";
 
 export const meta: MetaFunction = () =>
   buildPageMeta({
@@ -55,6 +56,7 @@ interface PlaylistData {
 }
 
 export default function PlaylistViewPage() {
+  const bodyVideoGridClass = useBodyVideoGridClassName();
   const { playlistId } = useParams();
   const navigate = useNavigate();
   const { userId } = useFileContext();
@@ -307,7 +309,7 @@ export default function PlaylistViewPage() {
 
       {/* Video grid */}
       {items.length > 0 ? (
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-3 gap-4">
+        <div className={bodyVideoGridClass}>
           {items.map((file, index) => (
             <VideoCard
               key={file.id || index}
@@ -315,6 +317,7 @@ export default function PlaylistViewPage() {
               index={index}
               currentUserId={userId || undefined}
               userActions={{ likedFileIds: new Set(), dislikedFileIds: new Set() }}
+              hideActions
             />
           ))}
         </div>

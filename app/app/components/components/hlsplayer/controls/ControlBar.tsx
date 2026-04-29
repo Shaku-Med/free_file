@@ -86,6 +86,7 @@ function NextVideoTooltipButton({
             data={nextVideo}
             layout="horizontal"
             related
+            hideActions
             currentUserId={nextVideoCardCurrentUserId}
             userActions={nextVideoCardUserActions}
           />
@@ -532,12 +533,20 @@ export default function ControlBar({
               )}
           </div>
 
-          {!showRightInline &&
-            ((!isHidden(hideControls, 'settings') && authPlaybackFeatures) ||
-              (!isHidden(hideControls, 'theater') && onTheaterModeChange && authPlaybackFeatures) ||
-              !isHidden(hideControls, 'cast') ||
-              (!isHidden(hideControls, 'miniPlayer') && authPlaybackFeatures) ||
-              !isHidden(hideControls, 'pip')) && (
+          {(() => {
+            if (showRightInline) return null;
+            const overflowSettings = !isHidden(hideControls, 'settings') && authPlaybackFeatures;
+            const overflowTheater = !isHidden(hideControls, 'theater') && onTheaterModeChange && authPlaybackFeatures;
+            const overflowCast = !isHidden(hideControls, 'cast');
+            const overflowMini = !isHidden(hideControls, 'miniPlayer') && authPlaybackFeatures;
+            const overflowPip = !isHidden(hideControls, 'pip');
+            const otherOverflow = overflowTheater || overflowCast || overflowMini || overflowPip;
+            // Settings-only overflow → render gear directly instead of a single-item kebab.
+            if (overflowSettings && !otherOverflow) {
+              return <SettingsMenu pillBarTrigger />;
+            }
+            if (!overflowSettings && !otherOverflow) return null;
+            return (
               <>
                 <button
                   ref={moreButtonRef}
@@ -586,7 +595,8 @@ export default function ControlBar({
                     document.body
                   )}
               </>
-            )}
+            );
+          })()}
         </div>
       </div>
     </div>

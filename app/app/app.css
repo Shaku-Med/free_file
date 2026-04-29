@@ -488,19 +488,19 @@ input[type="file"] {
   }
 }
 
-.reel_p * video::-webkit-media-controls {
+* video::-webkit-media-controls {
   display: none !important;
 }
 
-.reel_p * video::-webkit-media-controls-panel {
+* video::-webkit-media-controls-panel {
   display: none !important;
 }
 
-.reel_p * video::-webkit-media-controls-enclosure {
+* video::-webkit-media-controls-enclosure {
   display: none !important;
 }
 
-.reel_p * video::-webkit-media-controls-timeline {
+* video::-webkit-media-controls-timeline {
   display: none !important;
 }
 

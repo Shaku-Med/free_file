@@ -18,7 +18,6 @@ export function DynamicHLSPlayerWithQueue(props: DynamicHLSPlayerWithQueueProps)
       {...props}
       suggestedVideos={effectiveSuggested}
       seriesUpNextVideos={effectiveSeriesUpNext}
-      loop={true}
     />
   );
 }

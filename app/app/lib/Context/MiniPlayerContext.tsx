@@ -5,13 +5,16 @@ import type { FileType } from '~/lib/types';
 export interface MiniPlayerState {
   src: string;
   file: FileType;
-  currentTime: number;
   imageID: string;
-  /** Was the video playing when mini player was activated? */
-  wasPlaying: boolean;
-  volume: number;
-  muted: boolean;
-  playbackRate: number;
+  /**
+   * Optional metadata when activating a *second* player instance.
+   * With the global player, playback continues on the same `<video>` — these are unused for props.
+   */
+  currentTime?: number;
+  wasPlaying?: boolean;
+  volume?: number;
+  muted?: boolean;
+  playbackRate?: number;
 }
 
 export interface ActivateMiniPlayerOptions {
@@ -31,13 +34,27 @@ export interface ExpandPlaybackState {
 
 const STATIC_TOP_SEGMENTS = new Set([
   'privacy', 'terms', 'api', 'playlist', 'tag', 'search', 'features', 'auth',
-  'logout', 'settings', 'notifications', 'profile', 'reel',
+  'logout', 'settings', 'notifications', 'profile', 'reel', 'pip', 'subscriptions',
 ]);
 
-function isDynamicVideoPath(pathname: string): boolean {
+export function isDynamicVideoPath(pathname: string): boolean {
   const segment = pathname.replace(/^\//, '').split('/')[0] ?? '';
   if (!segment) return false; // "/" is not dynamic
   return !STATIC_TOP_SEGMENTS.has(segment);
+}
+
+/** First path segment when the URL is a dynamic watch-style route (UUID, etc.). */
+export function getDynamicVideoIdFromPath(pathname: string): string | null {
+  const segment = pathname.replace(/^\//, '').split('/')[0] ?? '';
+  if (!segment || STATIC_TOP_SEGMENTS.has(segment)) return null;
+  return segment;
+}
+
+/** True when pathname is a single-segment in-app watch URL (`/:id`), excluding static routes. */
+export function isSingleSegmentWatchPath(pathname: string): boolean {
+  const s = pathname.replace(/^\/+|\/+$/g, "");
+  if (!s || s.includes("/")) return false;
+  return !STATIC_TOP_SEGMENTS.has(s);
 }
 
 interface MiniPlayerContextType {
@@ -54,7 +71,10 @@ interface MiniPlayerContextType {
   clearPendingNavigate: () => void;
   isExpanding: boolean;
   startExpand: (playbackState: ExpandPlaybackState) => void;
-  signalMainPlayerReady: () => void;
+  /** Hide the mini player shell after the watch page slot has taken over (keeps expand handoff state until applied). */
+  dismissMiniPlayerChrome: () => void;
+  /** Clears expand/loader state after volume/playback prefs from mini are applied to the main `<video>`. */
+  clearExpandHandoff: () => void;
   /** Playback state to hand off to the main player when expanding. Null if not expanding or IDs don't match. */
   expandPlaybackState: ExpandPlaybackState | null;
   /** Ref to the source (large) video element — set before activating so mini player can mute it once ready */
@@ -110,6 +130,8 @@ export function MiniPlayerProvider({ children }: { children: React.ReactNode }) 
     setMiniPlayer(state);
     setIsPortalMode(false);
     setPendingNavigateTo(options?.navigateTo ?? null);
+    setIsExpanding(false);
+    setExpandPlaybackState(null);
   }, []);
 
   const [isExpanding, setIsExpanding] = useState(false);
@@ -129,15 +151,17 @@ export function MiniPlayerProvider({ children }: { children: React.ReactNode }) 
     setExpandPlaybackState(playbackState);
   }, []);
 
-  const signalMainPlayerReady = useCallback(() => {
-    if (!isExpanding) return;
+  const dismissMiniPlayerChrome = useCallback(() => {
     setMiniPlayer(null);
     setIsPortalMode(false);
     setContainerReady(false);
+    sourceVideoRef.current = null;
+  }, []);
+
+  const clearExpandHandoff = useCallback(() => {
     setIsExpanding(false);
     setExpandPlaybackState(null);
-    sourceVideoRef.current = null;
-  }, [isExpanding]);
+  }, []);
 
   const updateMiniPlayerTime = useCallback((time: number) => {
     setMiniPlayer(prev => prev ? { ...prev, currentTime: time } : null);
@@ -159,7 +183,8 @@ export function MiniPlayerProvider({ children }: { children: React.ReactNode }) 
         clearPendingNavigate,
         isExpanding,
         startExpand,
-        signalMainPlayerReady,
+        dismissMiniPlayerChrome,
+        clearExpandHandoff,
         expandPlaybackState,
         sourceVideoRef,
       }}

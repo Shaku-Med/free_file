@@ -1,149 +1,362 @@
-import { useCallback, useRef, useState, useLayoutEffect, useEffect } from 'react';
+import { useCallback, useRef, useState, useLayoutEffect, useEffect } from "react";
 
 const PADDING = 12;
 const DRAG_THRESHOLD_PX = 4;
-const SPRING_DURATION = 380;
+const SPRING_MS = 420;
+const STORAGE_KEY = "mini-player-width-v1";
+const MIN_W = 260;
+const MAX_W = 520;
+const DEFAULT_W = 340;
+/** Chrome + title block + 16:9 video (approx) — used until DOM measures. */
+function estimateShellHeight(width: number) {
+  return 36 + 52 + (width * 9) / 16;
+}
 
-type Corner = 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right';
+/** Visible strip when tucked to screen edge (Apple PiP–style). */
+const PEEK_PX = 30;
+const EDGE_TUCK_PX = 28;
 
-function getCornerPositions(elWidth: number, elHeight: number): Record<Corner, { x: number; y: number }> {
-  const w = window.innerWidth;
-  const h = window.innerHeight;
+type TuckEdge = "none" | "left" | "right";
+
+function loadStoredWidth(): number {
+  if (typeof window === "undefined") return DEFAULT_W;
+  const raw = sessionStorage.getItem(STORAGE_KEY);
+  const n = raw ? parseInt(raw, 10) : NaN;
+  if (!Number.isFinite(n)) return DEFAULT_W;
+  return Math.min(MAX_W, Math.max(MIN_W, n));
+}
+
+function initialBottomRightPosition(width: number): { x: number; y: number } {
+  if (typeof window === "undefined") return { x: 0, y: 0 };
+  const h = estimateShellHeight(width);
   return {
-    'top-left':     { x: PADDING, y: PADDING },
-    'top-right':    { x: w - elWidth - PADDING, y: PADDING },
-    'bottom-left':  { x: PADDING, y: h - elHeight - PADDING },
-    'bottom-right': { x: w - elWidth - PADDING, y: h - elHeight - PADDING },
+    x: window.innerWidth - width - PADDING,
+    y: window.innerHeight - h - PADDING,
   };
 }
 
-function getNearestCorner(cx: number, cy: number, elWidth: number, elHeight: number) {
-  const corners = getCornerPositions(elWidth, elHeight);
-  const midX = cx + elWidth / 2;
-  const midY = cy + elHeight / 2;
-
-  let best: Corner = 'bottom-right';
-  let bestDist = Infinity;
-
-  for (const [corner, pos] of Object.entries(corners) as [Corner, { x: number; y: number }][]) {
-    const dx = (pos.x + elWidth / 2) - midX;
-    const dy = (pos.y + elHeight / 2) - midY;
-    const dist = dx * dx + dy * dy;
-    if (dist < bestDist) {
-      bestDist = dist;
-      best = corner;
-    }
-  }
-
-  return { ...corners[best], corner: best };
+function getCornerPositions(elWidth: number, elHeight: number) {
+  const w = window.innerWidth;
+  const h = window.innerHeight;
+  return {
+    br: { x: w - elWidth - PADDING, y: h - elHeight - PADDING },
+    bl: { x: PADDING, y: h - elHeight - PADDING },
+    tr: { x: w - elWidth - PADDING, y: PADDING },
+    tl: { x: PADDING, y: PADDING },
+  };
 }
 
-export function useMiniPlayerDrag() {
-  // Start off-screen right edge so it's invisible before the first measure
-  const [position, setPosition] = useState({ x: 99999, y: 99999 });
+function nearestCorner(cx: number, cy: number, elWidth: number, elHeight: number) {
+  const c = getCornerPositions(elWidth, elHeight);
+  const midX = cx + elWidth / 2;
+  const midY = cy + elHeight / 2;
+  let best = c.br;
+  let bestD = Infinity;
+  for (const pos of Object.values(c)) {
+    const dx = pos.x + elWidth / 2 - midX;
+    const dy = pos.y + elHeight / 2 - midY;
+    const d = dx * dx + dy * dy;
+    if (d < bestD) {
+      bestD = d;
+      best = pos;
+    }
+  }
+  return best;
+}
+
+/**
+ * @param sessionKey e.g. mini `unique_id` — resets corner + tuck whenever mini session changes.
+ */
+export function useMiniPlayerDrag(sessionKey: string) {
+  const [frameWidth, setFrameWidth] = useState(loadStoredWidth);
+  const [position, setPosition] = useState(() => initialBottomRightPosition(loadStoredWidth()));
   const [isSnapping, setIsSnapping] = useState(false);
-  const [mounted, setMounted] = useState(false);
+  const [mounted, setMounted] = useState(true);
+  const [tuck, setTuck] = useState<TuckEdge>("none");
+
   const isDragging = useRef(false);
+  const isResizing = useRef(false);
   const didDragRef = useRef(false);
-  const startRef = useRef({ pointerX: 0, pointerY: 0, elX: 0, elY: 0 });
+  const removeDragWindowListenersRef = useRef<(() => void) | null>(null);
+  const startRef = useRef({ pointerX: 0, pointerY: 0, elX: 0, elY: 0, w: DEFAULT_W });
   const positionRef = useRef(position);
   positionRef.current = position;
-  const elSizeRef = useRef({ width: 340, height: 280 });
+  const tuckRef = useRef<TuckEdge>("none");
+  tuckRef.current = tuck;
+  const elSizeRef = useRef({ width: loadStoredWidth(), height: estimateShellHeight(loadStoredWidth()) });
   const elementRef = useRef<HTMLDivElement | null>(null);
+  const frameWidthRef = useRef(frameWidth);
+  frameWidthRef.current = frameWidth;
 
-  // On mount: measure real size, place at bottom-right corner instantly (no animation)
-  useLayoutEffect(() => {
+  const measureAndCacheSize = useCallback(() => {
     const el = elementRef.current;
     if (!el) return;
     const rect = el.getBoundingClientRect();
-    elSizeRef.current = { width: rect.width, height: rect.height };
-    const corners = getCornerPositions(rect.width, rect.height);
-    const target = corners['bottom-right'];
-    setPosition({ x: target.x, y: target.y });
-    // Allow spring transitions after first frame
-    requestAnimationFrame(() => setMounted(true));
-  }, []);
-
-  // Re-snap on window resize
-  useEffect(() => {
-    const onResize = () => {
-      if (isDragging.current) return;
-      const el = elementRef.current;
-      if (el) {
-        const rect = el.getBoundingClientRect();
-        elSizeRef.current = { width: rect.width, height: rect.height };
-      }
-      const { width, height } = elSizeRef.current;
-      const snap = getNearestCorner(positionRef.current.x, positionRef.current.y, width, height);
-      setIsSnapping(true);
-      setPosition({ x: snap.x, y: snap.y });
-      setTimeout(() => setIsSnapping(false), SPRING_DURATION);
-    };
-    window.addEventListener('resize', onResize);
-    return () => window.removeEventListener('resize', onResize);
-  }, []);
-
-  const handlePointerDown = useCallback((e: React.PointerEvent) => {
-    if (e.button !== 0) return;
-    e.preventDefault();
-    setIsSnapping(false);
-    isDragging.current = true;
-    didDragRef.current = false;
-    startRef.current = {
-      pointerX: e.clientX,
-      pointerY: e.clientY,
-      elX: positionRef.current.x,
-      elY: positionRef.current.y,
-    };
-    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-  }, []);
-
-  const handlePointerMove = useCallback((e: React.PointerEvent) => {
-    if (!isDragging.current) return;
-
-    const { pointerX, pointerY, elX, elY } = startRef.current;
-    const dx = e.clientX - pointerX;
-    const dy = e.clientY - pointerY;
-
-    if (!didDragRef.current && Math.abs(dx) < DRAG_THRESHOLD_PX && Math.abs(dy) < DRAG_THRESHOLD_PX) {
-      return;
+    if (rect.width > 0 && rect.height > 0) {
+      elSizeRef.current = { width: rect.width, height: rect.height };
     }
-    didDragRef.current = true;
-    setPosition({ x: elX + dx, y: elY + dy });
   }, []);
 
-  const handlePointerUp = useCallback((e: React.PointerEvent) => {
-    if (!isDragging.current) return;
-    isDragging.current = false;
+  const visPosition = useCallback(
+    (freeX: number, freeY: number, width: number, height: number, t: TuckEdge) => {
+      if (t === "right") {
+        return { x: window.innerWidth - PEEK_PX, y: clampY(freeY, height) };
+      }
+      if (t === "left") {
+        return { x: PEEK_PX - width, y: clampY(freeY, height) };
+      }
+      return { x: freeX, y: clampY(freeY, height) };
+    },
+    [],
+  );
 
-    try {
-      (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
-    } catch { /* already released */ }
+  useLayoutEffect(() => {
+    setTuck("none");
+    const w = frameWidthRef.current;
+    const est = initialBottomRightPosition(w);
+    setPosition(est);
+    elSizeRef.current = { width: w, height: estimateShellHeight(w) };
 
+    measureAndCacheSize();
     const el = elementRef.current;
     if (el) {
       const rect = el.getBoundingClientRect();
-      elSizeRef.current = { width: rect.width, height: rect.height };
+      if (rect.width > 0 && rect.height > 0) {
+        const br = getCornerPositions(rect.width, rect.height).br;
+        setPosition({ x: br.x, y: clampY(br.y, rect.height) });
+        elSizeRef.current = { width: rect.width, height: rect.height };
+      }
     }
+  }, [sessionKey, measureAndCacheSize]);
 
+  useEffect(() => {
+    if (!mounted) return;
+    measureAndCacheSize();
     const { width, height } = elSizeRef.current;
-    const snap = getNearestCorner(positionRef.current.x, positionRef.current.y, width, height);
-    setIsSnapping(true);
-    setPosition({ x: snap.x, y: snap.y });
-    setTimeout(() => setIsSnapping(false), SPRING_DURATION);
+    setPosition((p) => visPosition(p.x, p.y, width, height, tuck));
+  }, [frameWidth, mounted, measureAndCacheSize, tuck, visPosition]);
 
-    setTimeout(() => { didDragRef.current = false; }, 0);
+  useEffect(() => {
+    const onResize = () => {
+      if (isDragging.current || isResizing.current) return;
+      measureAndCacheSize();
+      const { width, height } = elSizeRef.current;
+      setIsSnapping(true);
+      if (tuckRef.current !== "none") {
+        setPosition(visPosition(0, positionRef.current.y, width, height, tuckRef.current));
+      } else {
+        const snap = nearestCorner(positionRef.current.x, positionRef.current.y, width, height);
+        setTuck("none");
+        setPosition({ x: snap.x, y: clampY(snap.y, height) });
+      }
+      window.setTimeout(() => setIsSnapping(false), SPRING_MS);
+    };
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, [measureAndCacheSize, visPosition]);
+
+  const endDragGesture = useCallback(
+    (captureEl: HTMLElement | null, pointerId: number) => {
+      if (!isDragging.current) return;
+      isDragging.current = false;
+      removeDragWindowListenersRef.current?.();
+      removeDragWindowListenersRef.current = null;
+      if (captureEl) {
+        try {
+          captureEl.releasePointerCapture(pointerId);
+        } catch {
+          /* ignore */
+        }
+      }
+      measureAndCacheSize();
+      const { width, height } = elSizeRef.current;
+      const { x, y } = positionRef.current;
+      const rightEdge = x + width;
+      const distRight = window.innerWidth - rightEdge;
+      const distLeft = x;
+
+      let nextTuck: TuckEdge = "none";
+      let snap = { x, y: clampY(y, height) };
+
+      if (didDragRef.current && distRight <= EDGE_TUCK_PX) {
+        nextTuck = "right";
+        snap = visPosition(x, y, width, height, "right");
+      } else if (didDragRef.current && distLeft <= EDGE_TUCK_PX) {
+        nextTuck = "left";
+        snap = visPosition(x, y, width, height, "left");
+      } else {
+        const corner = nearestCorner(x, y, width, height);
+        snap = { x: corner.x, y: clampY(corner.y, height) };
+      }
+
+      setTuck(nextTuck);
+      setIsSnapping(true);
+      setPosition(snap);
+      window.setTimeout(() => setIsSnapping(false), SPRING_MS);
+      window.setTimeout(() => {
+        didDragRef.current = false;
+      }, 0);
+    },
+    [measureAndCacheSize, visPosition],
+  );
+
+  const handlePointerDown = useCallback(
+    (e: React.PointerEvent) => {
+      if (e.button !== 0) return;
+      e.preventDefault();
+      e.stopPropagation();
+      if (isDragging.current) return;
+
+      removeDragWindowListenersRef.current?.();
+      removeDragWindowListenersRef.current = null;
+
+      setIsSnapping(false);
+      isDragging.current = true;
+      didDragRef.current = false;
+      measureAndCacheSize();
+      const { width, height } = elSizeRef.current;
+      let elX = positionRef.current.x;
+      let elY = positionRef.current.y;
+      if (tuckRef.current !== "none") {
+        const tw = tuckRef.current;
+        setTuck("none");
+        let freeX = elX;
+        let freeY = clampY(elY, height);
+        if (tw === "right") {
+          freeX = Math.max(PADDING, window.innerWidth - width - PADDING);
+        } else if (tw === "left") {
+          freeX = PADDING;
+        }
+        elX = freeX;
+        elY = freeY;
+        setPosition({ x: elX, y: elY });
+      }
+      startRef.current = {
+        pointerX: e.clientX,
+        pointerY: e.clientY,
+        elX,
+        elY,
+        w: width,
+      };
+
+      const captureEl = e.currentTarget as HTMLElement;
+      const pointerId = e.pointerId;
+      try {
+        captureEl.setPointerCapture(pointerId);
+      } catch {
+        /* ignore */
+      }
+
+      let onWindowMove: (ev: PointerEvent) => void;
+      const onWindowUp = (ev: PointerEvent) => {
+        if (ev.pointerId !== pointerId) return;
+        window.removeEventListener("pointermove", onWindowMove);
+        window.removeEventListener("pointerup", onWindowUp);
+        window.removeEventListener("pointercancel", onWindowUp);
+        removeDragWindowListenersRef.current = null;
+        endDragGesture(captureEl, pointerId);
+      };
+      onWindowMove = (ev: PointerEvent) => {
+        if (ev.pointerId !== pointerId) return;
+        if (!isDragging.current) return;
+        if ((ev.buttons & 1) === 0) {
+          onWindowUp(ev);
+          return;
+        }
+        const { pointerX, pointerY, elX: sx, elY: sy } = startRef.current;
+        const dx = ev.clientX - pointerX;
+        const dy = ev.clientY - pointerY;
+        if (!didDragRef.current && Math.abs(dx) < DRAG_THRESHOLD_PX && Math.abs(dy) < DRAG_THRESHOLD_PX) {
+          return;
+        }
+        didDragRef.current = true;
+        measureAndCacheSize();
+        const { width: w, height: h } = elSizeRef.current;
+        const nx = sx + dx;
+        const ny = sy + dy;
+        setPosition(visPosition(nx, ny, w, h, "none"));
+      };
+
+      window.addEventListener("pointermove", onWindowMove);
+      window.addEventListener("pointerup", onWindowUp);
+      window.addEventListener("pointercancel", onWindowUp);
+      removeDragWindowListenersRef.current = () => {
+        window.removeEventListener("pointermove", onWindowMove);
+        window.removeEventListener("pointerup", onWindowUp);
+        window.removeEventListener("pointercancel", onWindowUp);
+      };
+    },
+    [measureAndCacheSize, visPosition, endDragGesture],
+  );
+
+  const handleResizePointerDown = useCallback(
+    (e: React.PointerEvent) => {
+      e.stopPropagation();
+      e.preventDefault();
+      measureAndCacheSize();
+      isResizing.current = true;
+      startRef.current = {
+        pointerX: e.clientX,
+        pointerY: e.clientY,
+        elX: positionRef.current.x,
+        elY: positionRef.current.y,
+        w: frameWidth,
+      };
+      (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    },
+    [frameWidth, measureAndCacheSize],
+  );
+
+  const handleResizePointerMove = useCallback((e: React.PointerEvent) => {
+    if (!isResizing.current) return;
+    const dx = e.clientX - startRef.current.pointerX;
+    const next = Math.min(MAX_W, Math.max(MIN_W, startRef.current.w + dx));
+    setFrameWidth(next);
   }, []);
+
+  const handleResizePointerUp = useCallback(
+    (e: React.PointerEvent) => {
+      if (!isResizing.current) return;
+      isResizing.current = false;
+      try {
+        (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
+      } catch {
+        /* ignore */
+      }
+      measureAndCacheSize();
+      const { width, height } = elSizeRef.current;
+      try {
+        sessionStorage.setItem(STORAGE_KEY, String(Math.round(width)));
+      } catch {
+        /* ignore */
+      }
+      setIsSnapping(true);
+      if (tuckRef.current !== "none") {
+        setPosition(visPosition(0, positionRef.current.y, width, height, tuckRef.current));
+      } else {
+        const corner = nearestCorner(positionRef.current.x, positionRef.current.y, width, height);
+        setPosition({ x: corner.x, y: clampY(corner.y, height) });
+      }
+      window.setTimeout(() => setIsSnapping(false), SPRING_MS);
+    },
+    [measureAndCacheSize, visPosition],
+  );
 
   return {
     elementRef,
     position,
-    setPosition,
+    frameWidth,
+    tuck,
     isSnapping,
     mounted,
     handlePointerDown,
-    handlePointerMove,
-    handlePointerUp,
-    didDragRef,
+    handleResizePointerDown,
+    handleResizePointerMove,
+    handleResizePointerUp,
   };
+}
+
+function clampY(y: number, elHeight: number) {
+  const maxY = window.innerHeight - elHeight - PADDING;
+  return Math.max(PADDING, Math.min(maxY, y));
 }

@@ -116,7 +116,11 @@ function pushMarkdownSegments(text: string, segments: Segment[]) {
   }
 }
 
-function renderSegments(segments: Segment[], keyPrefix: string): React.ReactNode[] {
+function renderSegments(
+  segments: Segment[],
+  keyPrefix: string,
+  mentionLinkClassName?: string,
+): React.ReactNode[] {
   const out: React.ReactNode[] = [];
   let i = 0;
   for (const seg of segments) {
@@ -201,7 +205,10 @@ function renderSegments(segments: Segment[], keyPrefix: string): React.ReactNode
         <Link
           key={k}
           to={`/profile/${encodeURIComponent(username)}`}
-          className="text-primary hover:underline font-medium"
+          className={cn(
+            "font-medium text-primary hover:underline",
+            mentionLinkClassName,
+          )}
         >
           {seg.value}
         </Link>
@@ -215,9 +222,11 @@ function renderSegments(segments: Segment[], keyPrefix: string): React.ReactNode
 export interface FormattedTextProps {
   text: string;
   className?: string;
+  /** Applied to @mention profile links only (e.g. YouTube-style blue in comments). */
+  mentionLinkClassName?: string;
 }
 
-export function FormattedText({ text, className }: FormattedTextProps) {
+export function FormattedText({ text, className, mentionLinkClassName }: FormattedTextProps) {
   if (!text) return null;
 
   const lines = text.split("\n");
@@ -226,7 +235,7 @@ export function FormattedText({ text, className }: FormattedTextProps) {
   for (let i = 0; i < lines.length; i++) {
     const segments = linkifyLine(lines[i]);
     const lineKey = `line-${i}`;
-    const rendered = renderSegments(segments, lineKey);
+    const rendered = renderSegments(segments, lineKey, mentionLinkClassName);
     nodes.push(
       <Fragment key={lineKey}>
         {rendered.length > 0 ? rendered : "\u00A0"}

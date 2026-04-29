@@ -1,36 +1,32 @@
-import { useEffect, useRef } from 'react';
+import { useLayoutEffect, useRef } from 'react';
 import { useLocation } from 'react-router';
-import { useMiniPlayerContext } from '~/lib/Context/MiniPlayerContext';
-
-const STATIC_TOP_SEGMENTS = new Set([
-  'privacy', 'terms', 'api', 'playlist', 'tag', 'search', 'features', 'auth',
-  'logout', 'settings', 'notifications', 'profile', 'reel',
-]);
-
-function isDynamicVideoPath(pathname: string): boolean {
-  const segment = pathname.replace(/^\//, '').split('/')[0] ?? '';
-  if (!segment) return false;
-  return !STATIC_TOP_SEGMENTS.has(segment);
-}
+import {
+  getDynamicVideoIdFromPath,
+  isDynamicVideoPath,
+  useMiniPlayerContext,
+} from '~/lib/Context/MiniPlayerContext';
 
 /**
- * When the user navigates to a dynamic (video) page, close the mini player
- * so the full-page player can show. Does not close when already on that page
- * (e.g. when mini player was opened in portal mode from the same page).
+ * When the user navigates to a different dynamic (video) page while the mini player
+ * is open, close the mini shell so the in-page player can take over.
+ *
+ * If the navigation target is the same video as the mini player, the watch page
+ * dismisses the mini chrome after the main slot is mounted (seamless handoff).
  */
 export function CloseMiniPlayerOnNavigateToVideo() {
   const { miniPlayer, closeMiniPlayer, isExpanding } = useMiniPlayerContext();
   const location = useLocation();
   const prevPathnameRef = useRef(location.pathname);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const prev = prevPathnameRef.current;
     const next = location.pathname;
     prevPathnameRef.current = next;
 
     if (prev === next) return;
     if (!miniPlayer) return;
-    // Don't auto-close if we're expanding — the main player will signal when ready
+    const nextVideoId = getDynamicVideoIdFromPath(next);
+    if (nextVideoId && miniPlayer.file.unique_id === nextVideoId) return;
     if (isExpanding) return;
     if (isDynamicVideoPath(next)) {
       closeMiniPlayer();

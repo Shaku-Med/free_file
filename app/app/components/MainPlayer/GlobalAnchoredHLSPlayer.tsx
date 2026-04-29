@@ -1,0 +1,163 @@
+import { createPortal } from "react-dom";
+import { useMemo, useLayoutEffect, useRef, type RefObject } from "react";
+import { useNavigate } from "react-router";
+import { DynamicHLSPlayerWithQueue } from "~/routes/Dynamic/components/DynamicHLSPlayerWithQueue";
+import type { DynamicHLSPlayerWithQueueProps } from "~/routes/Dynamic/components/DynamicHLSPlayerWithQueue";
+import { useMainPlayerSlot } from "~/lib/Context/MainPlayerSlotContext";
+import { useMiniPlayerContext, type MiniPlayerState } from "~/lib/Context/MiniPlayerContext";
+import { useWatchHlsSurface } from "~/lib/Context/WatchHlsSurfaceContext";
+import { useWatchSurfaceVideoRef } from "~/lib/Context/WatchSurfaceVideoRefContext";
+import { useGlobalPlayerLayoutContext } from "~/lib/Context/GlobalPlayerLayoutContext";
+import { useFileContext } from "~/lib/Context/Context";
+import { useAnchorBoundingRect } from "~/lib/hooks/useAnchorBoundingRect";
+import { getVideoSrc, cn } from "~/lib/utils";
+import type { FileType } from "~/lib/types";
+
+const MAIN_ANCHOR_Z = 99_999_995;
+/** One step above mini chrome (`z-[2147483646]`) so video paints on top of the slot, not behind it. */
+const MINI_DOCK_Z = 2147483647;
+
+function miniFallbackProps(
+  mini: Pick<MiniPlayerState, "file" | "imageID">,
+  videoRef: RefObject<HTMLVideoElement | null>,
+  userId: string | null,
+): DynamicHLSPlayerWithQueueProps {
+  return {
+    videoRef,
+    /** Same URL computation as the watch page so `useHLS` never sees a spurious `src` change. */
+    src: getVideoSrc(mini.file.endpoint ?? "", mini.file.file_type),
+    className: "h-full w-full",
+    playsInline: true,
+    imageID: mini.imageID,
+    file: mini.file,
+    authPlaybackFeatures: Boolean(userId),
+    guestWatchLimitSeconds: null,
+    seriesEpisodeGroups: null,
+    endScreenUserActions: undefined,
+    currentUserId: userId || undefined,
+    callBack: undefined,
+    onAmbientModeChange: undefined,
+    onVideoRef: undefined,
+  };
+}
+
+/**
+ * Single `DynamicHLSPlayerWithQueue` instance for watch + floating mini: portaled to
+ * `player_inner_*` or `mini_player_inner_*`.
+ */
+export function GlobalAnchoredHLSPlayer() {
+  const { setLayout } = useGlobalPlayerLayoutContext();
+  const { state } = useMainPlayerSlot();
+  const { miniPlayer } = useMiniPlayerContext();
+  const { surface } = useWatchHlsSurface();
+  const videoRef = useWatchSurfaceVideoRef();
+  const { userId } = useFileContext();
+  const navigate = useNavigate();
+
+  /** Mini takes over only after the watch surface is cleared — same global player, new anchor. */
+  const inMiniLayout = Boolean(miniPlayer && !surface?.props);
+  const anchorEl = inMiniLayout ? state.miniAnchorEl : state.anchorEl;
+  /** Theater + layoutId use transform animation; RO/scroll won't update — match parent every frame. */
+  const syncPositionEachFrame =
+    Boolean(inMiniLayout && state.miniAnchorEl) ||
+    Boolean(surface?.props && state.anchorEl);
+  const rawRect = useAnchorBoundingRect(anchorEl, {
+    syncPositionEachFrame,
+  });
+  const lastGoodRectRef = useRef<{
+    top: number;
+    left: number;
+    width: number;
+    height: number;
+  } | null>(null);
+  if (rawRect && rawRect.width > 0 && rawRect.height > 0) {
+    lastGoodRectRef.current = rawRect;
+  }
+  useLayoutEffect(() => {
+    if (!miniPlayer && !surface?.props) {
+      lastGoodRectRef.current = null;
+    }
+  }, [miniPlayer, surface?.props]);
+
+  const rect =
+    rawRect && rawRect.width > 0 && rawRect.height > 0
+      ? rawRect
+      : (miniPlayer || surface?.props) && lastGoodRectRef.current
+        ? lastGoodRectRef.current
+        : null;
+
+  const miniNavigateSelect = useMemo(
+    () => (video: FileType) => {
+      navigate(`/${video.unique_id}`);
+    },
+    [navigate],
+  );
+
+  const resolved = useMemo(() => {
+    if (surface?.props) {
+      return {
+        kind: "watch" as const,
+        props: surface.props,
+        theaterMode: surface.theaterMode,
+        z: MAIN_ANCHOR_Z,
+      };
+    }
+    if (miniPlayer && !surface?.props) {
+      const p = miniFallbackProps(miniPlayer, videoRef, userId);
+      return {
+        kind: "mini" as const,
+        props: {
+          ...p,
+          onVideoSelect: miniNavigateSelect,
+        },
+        theaterMode: false,
+        z: MINI_DOCK_Z,
+      };
+    }
+    return null;
+  }, [surface, miniPlayer, videoRef, userId, miniNavigateSelect]);
+
+  useLayoutEffect(() => {
+    if (!resolved) {
+      setLayout("idle");
+      return;
+    }
+    if (resolved.kind === "watch") {
+      setLayout("watch");
+      return;
+    }
+    setLayout("mini");
+  }, [resolved, setLayout]);
+
+  if (typeof document === "undefined") return null;
+
+  if (!resolved || !rect || rect.width <= 0 || rect.height <= 0) {
+    return null;
+  }
+
+  const { props, theaterMode, z } = resolved;
+
+  return createPortal(
+    <div
+      className={cn(
+        "pointer-events-auto overflow-hidden",
+        theaterMode ? "bg-black" : "rounded-lg",
+      )}
+      style={{
+        position: "fixed",
+        top: rect.top,
+        left: rect.left,
+        width: rect.width,
+        height: rect.height,
+        zIndex: z,
+      }}
+    >
+      <DynamicHLSPlayerWithQueue
+        key="global-hls-docked-singleton"
+        {...props}
+        videoRef={videoRef as RefObject<HTMLVideoElement>}
+      />
+    </div>,
+    document.body,
+  );
+}

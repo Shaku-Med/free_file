@@ -18,11 +18,10 @@ export type ControlName =
 export type HideControls = Partial<Record<ControlName, boolean>>;
 
 /**
- * Mini player overlay: only play/pause and AirPlay (cast).
- * Seek bar and skip buttons are hidden.
+ * Mini player overlay: play/pause + seek + settings (gear renders directly, no kebab).
+ * Theater / cast / fullscreen / pip / mini-toggle don't apply at this size.
  */
 export const MINI_PLAYER_HIDE_CONTROLS: HideControls = {
-  seek: true,
   next: true,
   volume: true,
   time: true,
@@ -30,8 +29,8 @@ export const MINI_PLAYER_HIDE_CONTROLS: HideControls = {
   miniPlayer: true,
   pip: true,
   fullscreen: true,
-  settings: true,
   theater: true,
+  cast: true,
   back: true,
 };
 

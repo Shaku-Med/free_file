@@ -10,7 +10,7 @@ import type { FileType, SeriesEpisodeGroup } from "~/lib/types";
 import { Link } from "react-router";
 import VideoCard from "~/routes/Home/components/VideoCard";
 import { Button } from "~/components/ui/button";
-import { ChevronRight, Layers, Link2, ListVideo } from "lucide-react";
+import { ChevronRight, Layers, Link2, ListVideo, Play } from "lucide-react";
 import { cn } from "~/lib/utils";
 import { usePlayQueueOptional } from "./PlayQueueContext";
 import {
@@ -207,27 +207,28 @@ function EpisodeBlock({
       </CollapsibleTrigger>
       <CollapsibleContent>
         <div className="space-y-1 pb-1 pt-0">
-          <ul className="m-0 list-none px-0">
+          <ul className="m-0 list-none space-y-0 px-0">
             {ep.items.map((video, index) => {
               const isCurrent = video.unique_id === currentVideoUniqueId;
               return (
                 <li
                   key={video.unique_id}
                   className={cn(
-                    "flex items-stretch gap-2 border-b border-border/50 py-1 pl-1 pr-0 last:border-b-0",
-                    isCurrent && "rounded-md bg-primary/[0.07] ring-1 ring-primary/20"
+                    "flex min-w-0 list-none items-stretch gap-2 border-b border-border/40 py-1.5 pl-1 pr-0 last:border-b-0",
+                    isCurrent &&
+                      "rounded-lg bg-[#3d2c20]/35 ring-1 ring-[#6b4c2e]/45 dark:bg-white/[0.07] dark:ring-white/12",
                   )}
                 >
-                  {/* Align with play queue rows: spacer column matches grip width */}
                   <div className="flex w-7 shrink-0 items-start justify-center pt-2" aria-hidden>
                     {isCurrent ? (
-                      <span className="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-primary shadow-sm ring-2 ring-primary/25" />
+                      <Play className="h-4 w-4 shrink-0 fill-primary text-primary" aria-hidden />
                     ) : null}
                   </div>
                   <div className="min-w-0 flex-1">
                     <VideoCard
                       layout="horizontal"
                       related
+                      hideActions
                       data={video}
                       index={index}
                       currentUserId={currentUserId}
@@ -236,7 +237,6 @@ function EpisodeBlock({
                       inPlayQueue={inPlayQueue(video.id)}
                     />
                   </div>
-                  {/* Balance queue remove-button column */}
                   <div className="w-8 shrink-0" aria-hidden />
                 </li>
               );

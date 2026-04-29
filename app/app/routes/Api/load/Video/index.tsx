@@ -221,14 +221,23 @@ export const loader = async ({ request }: { request: Request }) => {
 
     const origin = getAllowedOrigin(url, request.headers);
 
-    /** Same URL must not be cached across guest vs signed-in (truncated vs full HLS). */
-    const videoResponseCacheHeaders: Record<string, string> = {
-      "Cache-Control": "private, no-store, max-age=0, must-revalidate",
-      Pragma: "no-cache",
-      "Vary": "Origin, Cookie",
-      /** Cross-origin documents cannot embed these URLs as subresources (defense in depth). */
-      "Cross-Origin-Resource-Policy": "same-origin",
-    };
+    /**
+     * Manifests embed a one-time `_mk` and may differ guest vs signed-in (truncated vs full HLS),
+     * so they must not be cached. Segments are addressed by `_st` token (session + path bound) and
+     * are safe to cache for the browser session — saves a round-trip on swipe-back in reels.
+     */
+    const videoResponseCacheHeaders: Record<string, string> = isSegment
+      ? {
+          "Cache-Control": "private, max-age=60",
+          "Vary": "Origin, Cookie",
+          "Cross-Origin-Resource-Policy": "same-origin",
+        }
+      : {
+          "Cache-Control": "private, no-store, max-age=0, must-revalidate",
+          Pragma: "no-cache",
+          "Vary": "Origin, Cookie",
+          "Cross-Origin-Resource-Policy": "same-origin",
+        };
 
     if (isPlaylistManifest) {
       let raw = await response.text();

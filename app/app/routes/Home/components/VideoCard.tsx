@@ -18,7 +18,7 @@ import CategoryBadges from "~/components/CategoryBadges";
 import { Info, MoreVertical, ChevronDown, X, Check, AlertTriangle, Send, Loader2, ImagePlus, MessageSquare, MessageSquareOff, ListVideo, Layers, ListPlus, ListChecks } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "~/components/ui/tooltip";
 import { useIsMobile } from "~/hooks/use-mobile";
-import { useSidebar } from "~/components/ui/sidebar";
+import { useSidebarOptional } from "~/components/ui/sidebar";
 import { formatTimeAgo } from "~/lib/formatTimeAgo";
 
 function getMetadataWarning(metadata: unknown): string | null {
@@ -50,7 +50,7 @@ function isSeriesFile(f: FileType): boolean {
   return t(f.is_series_main) || t(f.is_series_episode) || t(f.is_files_series_item);
 }
 
-type LayoutType = "default" | "horizontal" | "compact" | "reelStrip";
+type LayoutType = "default" | "horizontal" | "compact" | "reelStrip" | "shelf";
 
 interface VideoCardProps {
   data: FileType;
@@ -66,13 +66,32 @@ interface VideoCardProps {
   /** When set (e.g. watch page sidebar), show add-to-play-queue on horizontal cards. */
   onAddToPlayQueue?: (video: FileType) => void;
   inPlayQueue?: boolean;
+  /** Hide like/share/⋯ row — use on watch sidebar, queue, playlists, series lists (YouTube-style). */
+  hideActions?: boolean;
+  /** 0–1 = red progress strip along bottom of thumbnail (YouTube queue style). */
+  thumbnailProgress?: number;
 }
 
 const CATEGORIES = ["Gaming", "Music", "Entertainment", "Education", "Technology", "Sports", "News", "Lifestyle", "Anime", "Film", "Automotive", "Art", "Nature", "Other"];
 
-const VideoCard = ({ data, index, currentUserId, userActions, onUpdate, showOwnerControls, related, layout = "default", actionsLayout, onAddToPlayQueue, inPlayQueue }: VideoCardProps) => {
+const VideoCard = ({
+  data,
+  index,
+  currentUserId,
+  userActions,
+  onUpdate,
+  showOwnerControls,
+  related,
+  layout = "default",
+  actionsLayout,
+  onAddToPlayQueue,
+  inPlayQueue,
+  hideActions = false,
+  thumbnailProgress,
+}: VideoCardProps) => {
   const isMobile = useIsMobile();
-  const {state} = useSidebar()
+  const sidebarCtx = useSidebarOptional();
+  const sidebarLayoutState = sidebarCtx?.state ?? "expanded";
   // 
   const [error, setError] = useState<boolean>(false);
   const [retryAttempt, setRetryAttempt] = useState<number>(0);
@@ -865,6 +884,19 @@ const VideoCard = ({ data, index, currentUserId, userActions, onUpdate, showOwne
             {formatDuration(durationSec)}
           </div>
         )}
+        {thumbnailProgress != null &&
+          thumbnailProgress > 0 &&
+          Number.isFinite(thumbnailProgress) && (
+            <div
+              className="pointer-events-none absolute bottom-0 left-0 right-0 z-[21] h-[3px] bg-black/55"
+              aria-hidden
+            >
+              <div
+                className="h-full bg-red-600"
+                style={{ width: `${Math.min(100, Math.max(0, thumbnailProgress * 100))}%` }}
+              />
+            </div>
+          )}
       </motion.div>
     </div>
   );
@@ -1726,14 +1758,67 @@ const VideoCard = ({ data, index, currentUserId, userActions, onUpdate, showOwne
     )
   );
 
+  if (layout === "shelf") {
+    return (
+      <div className="group flex w-full flex-col gap-2">
+        <Link
+          onClick={(e) => {
+            e.preventDefault();
+            nav(watchPath);
+          }}
+          to={watchPath}
+          className="relative aspect-video w-full shrink-0 overflow-hidden rounded-xl bg-card shadow-sm ring-1 ring-border/45 dark:ring-white/10"
+        >
+          {renderThumbnail("aspect-video h-full w-full")}
+        </Link>
+        <div className="min-w-0 px-0.5">
+          <Link
+            onClick={(e) => {
+              e.preventDefault();
+              nav(watchPath);
+            }}
+            to={watchPath}
+            className="block hover:text-primary"
+          >
+            <h3 className="line-clamp-2 text-sm font-semibold leading-snug text-foreground">
+              <ParseFilenameInsert filename={data.file_title || data.filename} showLimit={64} />
+            </h3>
+          </Link>
+          <div className="mt-1 flex min-w-0 flex-wrap items-center gap-x-1 gap-y-0.5 text-xs text-muted-foreground">
+            {data.owner && (
+              <Link
+                to={`/profile/${data.owner.username}`}
+                onClick={(e) => e.stopPropagation()}
+                className="max-w-[100%] truncate hover:text-foreground"
+              >
+                {data.owner.username}
+              </Link>
+            )}
+            {data.owner && (viewCount > 0 || Boolean(data.created_at)) ? (
+              <span className="text-muted-foreground/50">·</span>
+            ) : null}
+            {viewCount > 0 ? <span>{formatViews(viewCount)} views</span> : null}
+            {viewCount > 0 && data.created_at ? <span className="text-muted-foreground/50">·</span> : null}
+            {data.created_at ? <span>{formatTimeAgo(data.created_at)}</span> : null}
+          </div>
+        </div>
+        {renderEditDialog()}
+        {renderInfoDialog()}
+      </div>
+    );
+  }
+
   if (layout === "horizontal") {
     return (
       <div
         className={cn(
-          "group flex w-full transition-colors hover:bg-muted/50",
-          state === "expanded" && "fl_break_layout text-sm gap-3 rounded-xl p-2",
-          state !== "expanded" && related && "flex-row items-start gap-3 rounded-xl p-2",
-          state !== "expanded" && !related && "flex-col flex-wrap gap-3 rounded-xl p-2 md:flex-row",
+          "group flex w-full transition-colors",
+          !hideActions && "hover:bg-muted/50",
+          hideActions ? "gap-3 rounded-xl" : "",
+          sidebarLayoutState === "expanded" && "fl_break_layout text-sm gap-3 rounded-xl p-2",
+          sidebarLayoutState !== "expanded" && related && "flex-row items-start gap-3 rounded-xl p-2",
+          sidebarLayoutState !== "expanded" && !related && "flex-col flex-wrap gap-3 rounded-xl p-2 md:flex-row",
+          hideActions && related && "p-0 hover:bg-transparent",
         )}
       >
         <Link
@@ -1744,17 +1829,17 @@ const VideoCard = ({ data, index, currentUserId, userActions, onUpdate, showOwne
           to={watchPath}
           className={
             related
-              ? "relative aspect-video w-28 max-w-[42%] shrink-0 overflow-hidden rounded-md bg-card sm:w-32 sm:max-w-[40%] sm:rounded-lg"
+              ? "relative aspect-video w-28 max-w-[42%] shrink-0 overflow-hidden rounded-xl bg-card ring-1 ring-border/30 dark:ring-white/10 sm:w-32 sm:max-w-[40%]"
               : "relative aspect-video w-full min-w-40 max-w-full shrink-0 overflow-hidden rounded-xl bg-card md:max-w-44 md:flex-1"
           }
         >
           {renderThumbnail("aspect-video h-full w-full")}
         </Link>
 
-        <div className="flex-1 min-w-0 flex flex-col justify-center py-0.5 w-full">
+        <div className="flex min-w-0 flex-1 flex-col justify-center py-0.5">
           <div className="flex items-start justify-between gap-2">
-            <Link to={watchPath} className="hover:text-primary transition-colors flex-1 min-w-0">
-              <h3 className="text-sm font-semibold leading-tight line-clamp-2">
+            <Link to={watchPath} className="min-w-0 flex-1 transition-colors hover:text-primary">
+              <h3 className="line-clamp-2 text-sm font-semibold leading-snug">
                 <ParseFilenameInsert filename={data.file_title || data.filename} showLimit={60} />
               </h3>
             </Link>
@@ -1787,38 +1872,43 @@ const VideoCard = ({ data, index, currentUserId, userActions, onUpdate, showOwne
               </Tooltip>
             ) : null}
           </div>
-          
+
           {data.owner && (
-            <Link to={`/profile/${data.owner.username}`} className="text-xs text-muted-foreground hover:text-foreground transition-colors mt-1 block w-fit">
+            <Link
+              to={`/profile/${data.owner.username}`}
+              className="mt-1 block w-fit text-xs text-muted-foreground transition-colors hover:text-foreground"
+            >
               {data.owner.username}
             </Link>
           )}
-          
+
           <div className="mt-0.5 flex flex-wrap items-center gap-x-1 gap-y-0.5 text-xs text-muted-foreground">
             {viewCount > 0 && <span>{formatViews(viewCount)} views</span>}
-            {viewCount > 0 && data.created_at && <span className="text-muted-foreground/60">·</span>}
+            {viewCount > 0 && data.created_at && <span className="text-muted-foreground/50">·</span>}
             {data.created_at && <span>{formatTimeAgo(data.created_at)}</span>}
           </div>
 
-          <div className="w-full">
-            <Separator className="my-1" />
-            <Actions
-              layout={actionsLayout}
-              fileId={data.id ?? ""}
-              uniqueId={data.unique_id}
-              sharePagePath={watchPath}
-              likeCount={likeCount}
-              dislikeCount={dislikeCount}
-              commentCount={commentCount}
-              liked={liked}
-              disliked={disliked}
-              isOwner={isOwner}
-              onEdit={isOwner ? () => setIsEditing(true) : undefined}
-              onUpdate={currentUserId ? handleInteractionUpdate : undefined}
-              currentUserId={currentUserId}
-              fileCreatedAt={data.created_at}
-            />
-          </div>
+          {!hideActions ? (
+            <div className="w-full">
+              <Separator className="my-1" />
+              <Actions
+                layout={actionsLayout}
+                fileId={data.id ?? ""}
+                uniqueId={data.unique_id}
+                sharePagePath={watchPath}
+                likeCount={likeCount}
+                dislikeCount={dislikeCount}
+                commentCount={commentCount}
+                liked={liked}
+                disliked={disliked}
+                isOwner={isOwner}
+                onEdit={isOwner ? () => setIsEditing(true) : undefined}
+                onUpdate={currentUserId ? handleInteractionUpdate : undefined}
+                currentUserId={currentUserId}
+                fileCreatedAt={data.created_at}
+              />
+            </div>
+          ) : null}
         </div>
 
         {renderEditDialog()}
@@ -1842,7 +1932,7 @@ const VideoCard = ({ data, index, currentUserId, userActions, onUpdate, showOwne
         </Link>
 
         <div className="mt-2 min-w-0">
-          <div className="flex items-start gap-1">
+            <div className="flex items-start gap-1">
             <Link
               onClick={(e) => {
                 e.preventDefault();
@@ -1855,6 +1945,7 @@ const VideoCard = ({ data, index, currentUserId, userActions, onUpdate, showOwne
                 <ParseFilenameInsert filename={data.file_title || data.filename} showLimit={56} />
               </h3>
             </Link>
+            {!hideActions ? (
             <div className="shrink-0 -mr-1 -mt-1">
               <Actions
                 layout="shortsShelf"
@@ -1873,6 +1964,7 @@ const VideoCard = ({ data, index, currentUserId, userActions, onUpdate, showOwne
                 fileCreatedAt={data.created_at}
               />
             </div>
+            ) : null}
           </div>
           {viewCount > 0 ? (
             <p className="mt-1 text-xs leading-snug text-muted-foreground">
@@ -1913,6 +2005,7 @@ const VideoCard = ({ data, index, currentUserId, userActions, onUpdate, showOwne
             {viewCount > 0 && <span className="tabular-nums">{formatViews(viewCount)}</span>}
           </div>
 
+          {!hideActions ? (
           <div className="ac_dev mt-1 w-full min-w-0">
             <Separator className="my-1.5" />
             <Actions
@@ -1932,6 +2025,7 @@ const VideoCard = ({ data, index, currentUserId, userActions, onUpdate, showOwne
               fileCreatedAt={data.created_at}
             />
           </div>
+          ) : null}
         </div>
 
         {renderEditDialog()}
@@ -2016,6 +2110,7 @@ const VideoCard = ({ data, index, currentUserId, userActions, onUpdate, showOwne
           </div>
         </div>
 
+        {!hideActions ? (
         <div className="ac_dev w-full">
           <Separator className="my-2" />
           <Actions
@@ -2035,6 +2130,7 @@ const VideoCard = ({ data, index, currentUserId, userActions, onUpdate, showOwne
             fileCreatedAt={data.created_at}
           />
         </div>
+        ) : null}
       </div>
 
       {renderEditDialog()}

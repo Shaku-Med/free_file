@@ -1,5 +1,10 @@
 import type React from "react";
-import type { FileType, PageCacheEntry } from "../types";
+import type {
+  DynamicSeriesPayloadCache,
+  FileType,
+  PageCacheEntry,
+  RelatedVideosPayloadCache,
+} from "../types";
 
 export type PlayerSettings = {
   theaterMode: boolean;
@@ -60,4 +65,9 @@ export interface ContextProps {
   /** Encrypted HLS bootstrap from root (guest: token1 chain; user: token2 chain). */
   hlsBootstrap: string | null;
   hlsBootstrapRetry: string | null;
+  /** In-memory reuse when browsing between watch pages (cleared on sign-out). */
+  getDynamicSeriesPayloadCache: (fileSeriesId: string) => DynamicSeriesPayloadCache | null;
+  setDynamicSeriesPayloadCache: (fileSeriesId: string, entry: DynamicSeriesPayloadCache) => void;
+  getRelatedVideosPayloadCache: (fileId: string) => RelatedVideosPayloadCache | null;
+  setRelatedVideosPayloadCache: (fileId: string, entry: RelatedVideosPayloadCache) => void;
 }

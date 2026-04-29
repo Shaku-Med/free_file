@@ -15,7 +15,10 @@ export function usePlaybackPosition(videoRef: React.RefObject<HTMLVideoElement |
         if (typeof startTime === 'number' && startTime > 0) {
           const apply = () => {
             if (video.duration <= 0) return;
-            video.currentTime = Math.min(startTime, video.duration - 1);
+            const target = Math.min(startTime, video.duration - 1);
+            // Global player may already be past this (e.g. stale prop / handoff); never seek backward.
+            if (video.currentTime > target + 0.75) return;
+            video.currentTime = target;
           };
           if (video.readyState >= 1 && video.duration > 0) {
             apply();
@@ -32,7 +35,9 @@ export function usePlaybackPosition(videoRef: React.RefObject<HTMLVideoElement |
           if (video.duration <= 0) return;
           const nearEnd = saved.duration > 0 && saved.currentTime / saved.duration > 0.95;
           if (!nearEnd && saved.currentTime < video.duration) {
-            video.currentTime = Math.min(saved.currentTime, video.duration - 1);
+            const target = Math.min(saved.currentTime, video.duration - 1);
+            if (video.currentTime > target + 0.75) return;
+            video.currentTime = target;
           }
         };
 

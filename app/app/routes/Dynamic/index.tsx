@@ -1,8 +1,7 @@
 import { data, Link, useLoaderData, useNavigate, useParams, useNavigation, useLocation, useSearchParams, type MetaFunction } from "react-router";
 import db from "~/lib/Database/supabase";
-import { DynamicHLSPlayerWithQueue } from "./components/DynamicHLSPlayerWithQueue";
-import { PlayQueueProvider } from "./components/PlayQueueContext";
-import { useCallback, useEffect, useState, useRef, useMemo } from "react";
+import { WatchPlayBootstrapSync } from "./components/WatchPlayBootstrapSync";
+import { useCallback, useEffect, useLayoutEffect, useState, useRef, useMemo } from "react";
 import RelatedVideos from "./components/RelatedVideos";
 import SeriesEpisodesSection from "./components/SeriesEpisodesSection";
 import SeriesSignInGate from "./components/SeriesSignInGate";
@@ -38,7 +37,10 @@ import CanvasGradient from "~/components/accessories/CanvasGradient/CanvasGradie
 import Ambience from "~/components/accessories/CanvasGradient/Ambience";
 import { useFileContext } from "~/lib/Context/Context";
 import { isMobile as isMobileDevice } from "react-device-detect";
-import { useMiniPlayerContext } from "~/lib/Context/MiniPlayerContext";
+import { useMiniPlayerContext, isSingleSegmentWatchPath, getDynamicVideoIdFromPath } from "~/lib/Context/MiniPlayerContext";
+import { useMainPlayerSlot } from "~/lib/Context/MainPlayerSlotContext";
+import { useWatchHlsSurface } from "~/lib/Context/WatchHlsSurfaceContext";
+import { useWatchSurfaceVideoRef } from "~/lib/Context/WatchSurfaceVideoRefContext";
 import { formatTimeAgo } from "~/lib/formatTimeAgo";
 import LiquidAmbientGradient from "./components/LiquidAmbientGradient";
 import { computeGuestPreviewSeconds } from "~/lib/guestPreviewLimit";
@@ -491,6 +493,15 @@ const index = () => {
       ? rawHighlightComment
       : null;
   const { getFromCache, addToCache } = usePageCache();
+  const {
+    theaterMode,
+    setTheaterMode,
+    userId,
+    getDynamicSeriesPayloadCache,
+    setDynamicSeriesPayloadCache,
+    getRelatedVideosPayloadCache,
+    setRelatedVideosPayloadCache,
+  } = useFileContext();
   const hasCachedRef = useRef<string | null>(null);
 
   const [playingVideos, setPlayingVideos] = useState<Set<number>>(new Set());
@@ -689,6 +700,16 @@ const index = () => {
       });
       return;
     }
+    const seriesId = data.file.file_series_id;
+    const cached = getDynamicSeriesPayloadCache(seriesId);
+    if (cached) {
+      setSeriesFetch({
+        episodes: cached.episodes,
+        loadState: "done",
+        userActions: cached.userActions,
+      });
+      return;
+    }
     const ac = new AbortController();
     setSeriesFetch({
       episodes: null,
@@ -714,10 +735,15 @@ const index = () => {
           });
           return;
         }
-        setSeriesFetch({
+        const entry = {
           episodes: Array.isArray(j.seriesEpisodes) ? j.seriesEpisodes : null,
-          loadState: "done",
           userActions: j.seriesVideosUserActions ?? { likedFileIds: [], dislikedFileIds: [] },
+        };
+        setDynamicSeriesPayloadCache(seriesId, entry);
+        setSeriesFetch({
+          episodes: entry.episodes,
+          loadState: "done",
+          userActions: entry.userActions,
         });
       })
       .catch(() => {
@@ -736,13 +762,21 @@ const index = () => {
     data?.file?.file_series_id,
     data?.file?.owner_id,
     data?.userId,
+    getDynamicSeriesPayloadCache,
+    setDynamicSeriesPayloadCache,
   ]);
 
   useEffect(() => {
     if (!data?.file?.id) return;
+    const fileId = data.file.id;
+    const cached = getRelatedVideosPayloadCache(fileId);
+    if (cached) {
+      setRelatedBootstrap(cached);
+      return;
+    }
     const ac = new AbortController();
     setRelatedBootstrap(null);
-    fetch(`/api/related-videos?fileId=${encodeURIComponent(data.file.id)}`, {
+    fetch(`/api/related-videos?fileId=${encodeURIComponent(fileId)}`, {
       credentials: "include",
       signal: ac.signal,
     })
@@ -750,21 +784,25 @@ const index = () => {
         const result = await r.json().catch(() => ({}));
         if (ac.signal.aborted) return;
         const vids = Array.isArray(result?.data) ? (result.data as FileType[]) : [];
-        setRelatedBootstrap({
+        const next = {
           videos: vids,
           userActions: {
             likedFileIds: result?.userActions?.likedFileIds ?? [],
             dislikedFileIds: result?.userActions?.dislikedFileIds ?? [],
           },
-        });
+        };
+        setRelatedVideosPayloadCache(fileId, next);
+        setRelatedBootstrap(next);
       })
       .catch(() => {
         if (!ac.signal.aborted) {
-          setRelatedBootstrap({ videos: [], userActions: { likedFileIds: [], dislikedFileIds: [] } });
+          const fallback = { videos: [], userActions: { likedFileIds: [], dislikedFileIds: [] } };
+          setRelatedVideosPayloadCache(fileId, fallback);
+          setRelatedBootstrap(fallback);
         }
       });
     return () => ac.abort();
-  }, [currentId, data?.file?.id]);
+  }, [currentId, data?.file?.id, getRelatedVideosPayloadCache, setRelatedVideosPayloadCache]);
 
   /** Remember last episode in this series when the viewer leaves the tab (not on every paint). */
   useEffect(() => {
@@ -793,15 +831,47 @@ const index = () => {
   const [views, setViews] = useState<number>(Number(file_data?.views || file_data?.view_count || 0));
   const [shares, setShares] = useState<number>(Number(file_data?.shares || file_data?.share_count || 0));
   const [hasIncrementedView, setHasIncrementedView] = useState(false);
-  const videoElementRef = useRef<HTMLVideoElement | null>(null);
+  const watchVideoRef = useWatchSurfaceVideoRef();
   const [videoRefReady, setVideoRefReady] = useState(false);
-  const { activateMiniPlayer, miniPlayer: activeMiniPlayer, signalMainPlayerReady, isExpanding, expandPlaybackState, sourceVideoRef } = useMiniPlayerContext();
+  const {
+    activateMiniPlayer,
+    miniPlayer: activeMiniPlayer,
+    dismissMiniPlayerChrome,
+    clearExpandHandoff,
+    isExpanding,
+    expandPlaybackState,
+  } = useMiniPlayerContext();
+  const { setSlot, state: mainSlotState } = useMainPlayerSlot();
+  const { setSurface } = useWatchHlsSurface();
+  const mainPlayerSlotTargetRef = useRef<{ isHLS: boolean; uniqueId: string } | null>(null);
+  const mainPlayerAnchorRef = useCallback(
+    (el: HTMLDivElement | null) => {
+      if (!el) {
+        setSlot(null, null);
+        return;
+      }
+      const t = mainPlayerSlotTargetRef.current;
+      if (t?.isHLS) setSlot(t.uniqueId, el);
+      else setSlot(null, null);
+    },
+    [setSlot],
+  );
+
+  useEffect(() => {
+    return () => setSlot(null, null);
+  }, [currentId, setSlot]);
+
+  useEffect(() => {
+    if (!file_data) setSlot(null, null);
+  }, [file_data, setSlot]);
+
   const activeMiniPlayerRef = useRef(activeMiniPlayer);
   activeMiniPlayerRef.current = activeMiniPlayer;
 
-  // If expanding from mini player with matching ID, use mini player's current time + settings
   const expandMatch = expandPlaybackState && expandPlaybackState.fileId === currentId ? expandPlaybackState : null;
-  const startTime = expandMatch?.currentTime ?? startTimeFromParam;
+  // Only ?t= deep-link should seek on load. Mini→watch uses the same global `<video>`;
+  // passing expand snapshot here re-runs `usePlaybackPosition` and seeks backward / stutters.
+  const startTime = startTimeFromParam;
 
   const prevIdRef = useRef<string | undefined>(currentId);
   const viewIncrementSentRef = useRef(false);
@@ -928,14 +998,15 @@ const index = () => {
   const isHLS = file_data?.file_type === 'application/vnd.apple.mpegurl' || file_data?.endpoint?.includes('.m3u8');
   const isVideo = isHLS || file_data?.file_type?.includes('video');
 
-  const { theaterMode, setTheaterMode, userId } = useFileContext();
-
+  mainPlayerSlotTargetRef.current = file_data
+    ? { isHLS, uniqueId: file_data.unique_id }
+    : null;
 
   useWatchTracking({
     fileId: file_data?.id || '',
     userId: userId,
     isVideo: isVideo,
-    videoElement: videoElementRef.current,
+    videoElement: watchVideoRef.current,
     source: 'page_view',
   });
 
@@ -1026,8 +1097,12 @@ const index = () => {
   // When expanding from mini player, apply the mini player's volume/muted/playbackRate to the main video
   const appliedExpandRef = useRef(false);
   useEffect(() => {
+    if (!expandPlaybackState) appliedExpandRef.current = false;
+  }, [expandPlaybackState]);
+
+  useEffect(() => {
     if (!expandMatch || appliedExpandRef.current) return;
-    const video = videoElementRef.current;
+    const video = watchVideoRef.current;
     if (!video) return;
 
     const applyExpandState = () => {
@@ -1036,9 +1111,10 @@ const index = () => {
       video.volume = expandMatch.volume;
       video.muted = expandMatch.muted;
       video.playbackRate = expandMatch.playbackRate;
-      if (expandMatch.wasPlaying) {
+      if (expandMatch.wasPlaying && video.paused) {
         video.play().catch(() => {});
       }
+      clearExpandHandoff();
     };
 
     if (video.readyState >= 2) {
@@ -1047,7 +1123,7 @@ const index = () => {
       video.addEventListener('canplay', applyExpandState, { once: true });
       return () => video.removeEventListener('canplay', applyExpandState);
     }
-  }, [expandMatch]);
+  }, [expandMatch, clearExpandHandoff, activeMiniPlayer]);
 
   const handleVideoRef = useCallback((ref: HTMLVideoElement | null) => {
     setVideoRefReady(!!ref);
@@ -1119,6 +1195,95 @@ const index = () => {
     }, requiredViewSeconds * 1000);
   }, [hasIncrementedView, runViewIncrement, requiredViewSeconds]);
 
+  const watchHlsPayload = useMemo(() => {
+    if (!isHLS || !file_data) return null;
+    return {
+      theaterMode,
+      props: {
+        videoRef: watchVideoRef as React.RefObject<HTMLVideoElement>,
+        src: getVideoSrc(file_data.endpoint ?? "", file_data.file_type),
+        className: "h-full w-full",
+        onPlay: () => {
+          setPlayingVideos((prev) => new Set(prev).add(1));
+          onVideoPlayForView();
+        },
+        onPause: () =>
+          setPlayingVideos((prev) => {
+            const next = new Set(prev);
+            next.delete(1);
+            return next;
+          }),
+        autoPlay: true,
+        muted: false,
+        playsInline: true,
+        imageID: file_data.unique_id,
+        file: { ...file_data, owner: data?.owner },
+        onVideoRef: handleVideoRef,
+        callBack: hlsCallBack,
+        endScreenUserActions: mergedSidebarUserActions,
+        currentUserId: userId || undefined,
+        onVideoSelect: handleVideoSelect,
+        onAmbientModeChange: setAmbientEnabled,
+        startTime,
+        authPlaybackFeatures: Boolean(userId),
+        guestWatchLimitSeconds: data?.guestPreviewLimitSeconds ?? null,
+        seriesEpisodeGroups: seriesEpisodesResolved,
+      },
+    };
+  }, [
+    isHLS,
+    file_data,
+    data?.owner,
+    theaterMode,
+    watchVideoRef,
+    onVideoPlayForView,
+    handleVideoRef,
+    hlsCallBack,
+    mergedSidebarUserActions,
+    userId,
+    handleVideoSelect,
+    setAmbientEnabled,
+    startTime,
+    data?.guestPreviewLimitSeconds,
+    seriesEpisodesResolved,
+  ]);
+
+  useLayoutEffect(() => {
+    if (!watchHlsPayload) {
+      setSurface(null);
+      return;
+    }
+    setSurface(watchHlsPayload);
+    return () => setSurface(null);
+  }, [watchHlsPayload, setSurface]);
+
+  useEffect(() => {
+    if (navigation.state !== "idle") return;
+    if (!watchHlsPayload || !activeMiniPlayer) return;
+    if (activeMiniPlayer.file.unique_id !== currentId) return;
+    if (!mainSlotState.anchorEl || mainSlotState.uniqueId !== currentId) return;
+
+    let cancelled = false;
+    const id = requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        if (cancelled) return;
+        dismissMiniPlayerChrome();
+      });
+    });
+    return () => {
+      cancelled = true;
+      cancelAnimationFrame(id);
+    };
+  }, [
+    navigation.state,
+    watchHlsPayload,
+    activeMiniPlayer,
+    currentId,
+    mainSlotState.anchorEl,
+    mainSlotState.uniqueId,
+    dismissMiniPlayerChrome,
+  ]);
+
   useEffect(() => () => {
     if (viewIncrementTimerRef.current) clearTimeout(viewIncrementTimerRef.current);
   }, []);
@@ -1132,26 +1297,31 @@ const index = () => {
     isHLSRef.current = fd?.file_type === 'application/vnd.apple.mpegurl' || !!fd?.endpoint?.includes('.m3u8');
   });
 
+  /* Full unmount of the watch index only (not param swaps on the same route). */
   useEffect(() => {
     return () => {
-      // Don't override if mini player was already activated (e.g. by the button)
       if (activeMiniPlayerRef.current) return;
-      const video = videoElementRef.current;
+      const path = typeof window !== "undefined" ? window.location.pathname : "";
+      const destId = getDynamicVideoIdFromPath(path);
+      // Race-defense: URL still says we're on this watch page (unmount without nav) — leave the player alone.
+      if (destId && fileDataRef.current && destId === fileDataRef.current.unique_id) return;
+      // Different watch ID is taking over — let it own the handoff.
+      if (isSingleSegmentWatchPath(path)) return;
+      // Reel owns the global player — no mini handoff, just tear down.
+      if (path === "/reel" || path.startsWith("/reel/")) return;
+      const video = watchVideoRef.current;
       const fd = fileDataRef.current;
       if (!video || !fd || !isHLSRef.current) return;
+      // Paused/ended → fall through to natural unmount; HLS is destroyed in useHLS cleanup.
       if (video.paused || video.ended) return;
       activateMiniPlayer({
-        src: getVideoSrc(fd.endpoint ?? '', fd.file_type),
+        src: getVideoSrc(fd.endpoint ?? "", fd.file_type),
         file: fd,
-        currentTime: video.currentTime,
         imageID: fd.unique_id,
-        wasPlaying: !video.paused,
-        volume: video.volume,
-        muted: video.muted,
-        playbackRate: video.playbackRate,
       });
     };
-  }, [activateMiniPlayer, currentId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional: only on true unmount of this screen
+  }, [activateMiniPlayer]);
 
   useEffect(() => {
     if (isHLS || hasIncrementedView || !file_data?.id) return;
@@ -1176,45 +1346,17 @@ const index = () => {
           <CanvasGradient className={`${isStandalone ? "mt-8" : ""}`} colors={imageColors || []} />
         )
       }
-      <div className={` relative w-full
-        ${theaterMode 
-          ? "max-h-[calc(100vh-64px)] aspect-video mx-auto" 
-          : "aspect-video"
-        }
-      `}>
-        {isHLS ? (
-          <DynamicHLSPlayerWithQueue
-            videoRef={videoElementRef as React.RefObject<HTMLVideoElement>}
-            src={getVideoSrc(file_data?.endpoint ?? '', file_data?.file_type)}
-            className={`w-full h-full`}
-            onPlay={() => {
-              setPlayingVideos(prev => new Set(prev).add(1));
-              onVideoPlayForView();
-              signalMainPlayerReady();
-            }}
-            onPause={() => setPlayingVideos(prev => {
-              const newSet = new Set(prev);
-              newSet.delete(1);
-              return newSet;
-            })}
-            autoPlay={true}
-            muted={false}
-            playsInline
-            imageID={file_data.unique_id}
-            file={{ ...file_data, owner: data?.owner }}
-            key={`hls-${file_data.unique_id}-${currentId}`}
-            onVideoRef={handleVideoRef}
-            callBack={hlsCallBack}
-            endScreenUserActions={mergedSidebarUserActions}
-            currentUserId={userId || undefined}
-            onVideoSelect={handleVideoSelect}
-            onAmbientModeChange={setAmbientEnabled}
-            startTime={startTime}
-            authPlaybackFeatures={Boolean(userId)}
-            guestWatchLimitSeconds={data?.guestPreviewLimitSeconds ?? null}
-            seriesEpisodeGroups={seriesEpisodesResolved}
-          />
-        ) : (
+      <div
+        ref={mainPlayerAnchorRef}
+        className={cn(
+          "relative w-full",
+          theaterMode
+            ? "max-h-[calc(100vh-64px)] aspect-video mx-auto"
+            : "aspect-video",
+          isHLS && `player_inner_${file_data.unique_id}`,
+        )}
+      >
+        {isHLS ? null : (
           <motion.div 
             transition={{ duration: 0.1 }} 
             onClick={() => {
@@ -1332,12 +1474,12 @@ const index = () => {
         isOwner={isOwner}
         onEdit={undefined}
         onUpdate={userId ? handleInteractionUpdate : undefined}
-        getShareTimestamp={isHLS ? () => videoElementRef.current?.currentTime ?? 0 : undefined}
+        getShareTimestamp={isHLS ? () => watchVideoRef.current?.currentTime ?? 0 : undefined}
         onShareSuccess={(serverCount) => {
           if (typeof serverCount === "number" && !Number.isNaN(serverCount)) setShares(serverCount);
           else setShares((s) => s + 1);
         }}
-        currentTime={isHLS ? (videoElementRef.current?.currentTime ?? 0) : undefined}
+        currentTime={isHLS ? (watchVideoRef.current?.currentTime ?? 0) : undefined}
         currentUserId={userId}
         isAdult={file_data.is_adult}
         fileOwnerId={file_data.owner_id || undefined}
@@ -1544,12 +1686,13 @@ const index = () => {
   );
 
   return (
-    <PlayQueueProvider
-      currentUniqueId={file_data.unique_id}
-      seriesUpNextVideos={seriesUpNextVideos}
-      suggestedVideos={suggestedVideos}
-      viewerCanCustomizeQueue={Boolean(userId)}
-    >
+    <>
+      <WatchPlayBootstrapSync
+        currentUniqueId={file_data.unique_id}
+        seriesUpNextVideos={seriesUpNextVideos}
+        suggestedVideos={suggestedVideos}
+        viewerCanCustomizeQueue={Boolean(userId)}
+      />
     <div className="relative min-h-screen reel_p" key={`dynamic-${currentId}`}>
       <script
         type="application/ld+json"
@@ -1578,7 +1721,7 @@ const index = () => {
                   }
                   {/* Blur/saturation only on sampled canvases (YouTube-style); keep vignette overlay sharp. */}
                   <div className="absolute inset-0 opacity-[0.38] [filter:saturate(1.12)_blur(48px)] sm:[filter:saturate(1.12)_blur(64px)]">
-                    <Ambience colors={imageColors || []} videoRef={videoElementRef} videoReady={videoRefReady} />
+                    <Ambience colors={imageColors || []} videoRef={watchVideoRef} videoReady={videoRefReady} />
                   </div>
                   <div
                     className="gradient-overlay absolute inset-0  pointer-events-none"
@@ -1622,7 +1765,7 @@ const index = () => {
         </div>
       </div>
     </div>
-    </PlayQueueProvider>
+    </>
   );
 }
 export default index

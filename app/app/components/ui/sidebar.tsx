@@ -54,6 +54,11 @@ function useSidebar() {
   return context
 }
 
+/** Same as `useSidebar` but returns null when outside `SidebarProvider` (e.g. portaled UI under `document.body`). */
+function useSidebarOptional() {
+  return React.useContext(SidebarContext)
+}
+
 function SidebarProvider({
   defaultOpen: defaultOpenProp,
   open: openProp,
@@ -739,4 +744,5 @@ export {
   SidebarSeparator,
   SidebarTrigger,
   useSidebar,
+  useSidebarOptional,
 }
