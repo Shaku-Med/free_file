@@ -68,8 +68,29 @@ export const loader = async ({ request }: { request: Request }) => {
   try {
     const url = new URL(request.url);
 
-    /** Browser-set Sec-Fetch headers reject pasted-in-tab and most curl/ffmpeg rips. */
+    /**
+     * Browser-set Sec-Fetch headers reject pasted-in-tab and most curl/ffmpeg rips.
+     * For top-level navigations (address bar, "open in new tab" from devtools, link click
+     * to a `.ts`/`.m3u8` URL) we bounce to the homepage instead of returning a `403`. That
+     * way the URL doesn't look like a standalone resource that exists — the user lands on
+     * the app instead of seeing a "Forbidden" status. HLS.js fetches don't hit this branch.
+     */
     if (!videoRequestGuard(request)) {
+      const sfMode = request.headers.get("sec-fetch-mode");
+      const sfUser = request.headers.get("sec-fetch-user");
+      const isTopLevelNavigation =
+        sfMode === "navigate" || sfUser === "?1" || sfMode === null;
+      if (isTopLevelNavigation) {
+        const home = new URL("/", url.origin).toString();
+        return new Response(null, {
+          status: 302,
+          headers: {
+            Location: home,
+            /** Don't let intermediaries cache the redirect itself per-URL. */
+            "Cache-Control": "private, no-store",
+          },
+        });
+      }
       return new Response(null, { status: 403 });
     }
 
@@ -100,6 +121,16 @@ export const loader = async ({ request }: { request: Request }) => {
     const rk = sessionRateKey(request.headers);
     if (isSegment || isPlaylistManifest) {
       const ok = isSegment ? recordSegmentFetch(rk) : recordManifestFetch(rk);
+      let headerCheck = () => {
+        try {
+          const referer = request.headers.get("referer");
+          if(!referer || referer.trim().length < 1) return false;
+          return true;
+        } catch {
+          return false;
+        }
+      }
+      if(!headerCheck()) return new Response(null, { status: 403 });
       if (!ok) {
         return new Response(null, {
           status: 429,
@@ -294,6 +325,17 @@ export const loader = async ({ request }: { request: Request }) => {
         "Access-Control-Allow-Credentials": "true",
         ...videoResponseCacheHeaders,
         "X-Content-Type-Options": "nosniff",
+        /**
+         * `inline` (not `attachment`) — HLS.js fetches don't read this header, but if a
+         * response somehow leaks to a non-fetch context, browsers won't auto-show the
+         * Save As dialog. Pair with `noindex` so search bots never archive segment URLs.
+         */
+        ...(isSegment
+          ? {
+              "Content-Disposition": 'inline; filename="seg.ts"',
+              "X-Robots-Tag": "noindex, noarchive, nofollow",
+            }
+          : {}),
       },
     });
   } catch (error) {
