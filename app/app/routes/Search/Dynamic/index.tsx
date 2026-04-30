@@ -432,6 +432,7 @@ const Search = () => {
                         index={index}
                         userActions={localUserActions}
                         currentUserId={userId || undefined}
+                        hideActions={{completely: false}}
                       />
                     ))}
                   </div>
@@ -478,6 +479,7 @@ const Search = () => {
                         index={index}
                         userActions={localUserActions}
                         currentUserId={userId || undefined}
+                        hideActions={{completely: false}}
                       />
                     ))}
                   </div>
@@ -497,6 +499,7 @@ const Search = () => {
                     index={index}
                     userActions={localUserActions}
                     currentUserId={userId || undefined}
+                    hideActions={{completely: false}}
                   />
                 ))}
               </div>

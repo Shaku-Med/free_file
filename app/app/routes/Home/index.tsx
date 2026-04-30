@@ -1,6 +1,6 @@
 import { useCallback } from "react";
 import { Swiper, SwiperSlide } from "swiper/react";
-import { A11y, Keyboard, Navigation, Pagination } from "swiper/modules";
+import { A11y, EffectCoverflow, EffectCube, Keyboard, Navigation, Pagination } from "swiper/modules";
 import type { Swiper as SwiperType } from "swiper";
 import "swiper/css";
 import "swiper/css/navigation";
@@ -107,6 +107,7 @@ export default function PhotoDashboard() {
                 currentUserId={userId || undefined}
                 userActions={userActions}
                 onUpdate={handleFileUpdate}
+                hideActions={{completely: false}}
               />
             );
           }
@@ -117,8 +118,8 @@ export default function PhotoDashboard() {
               className="col-span-full w-full min-w-0 max-w-full overflow-hidden"
             >
               <Swiper
-                modules={[Navigation, Pagination, A11y, Keyboard]}
-                slidesPerView={1.15}
+                modules={[Navigation, A11y, Keyboard]}
+                slidesPerView={3.15}
                 spaceBetween={10}
                 speed={380}
                 watchOverflow
@@ -126,11 +127,8 @@ export default function PhotoDashboard() {
                 observeParents
                 resizeObserver
                 navigation
+                // loop={true}
                 keyboard={{ enabled: true, onlyInViewport: true }}
-                pagination={{
-                  clickable: true,
-                  dynamicBullets: g.files.length > 5,
-                }}
                 breakpoints={{
                   640: { slidesPerView: 2.5, spaceBetween: 12 },
                   768: { slidesPerView: 3, spaceBetween: 12 },
@@ -143,10 +141,10 @@ export default function PhotoDashboard() {
                   swiper.update();
                 }}
               >
-                {g.files.map((file) => {
+                {g.files.map((file, keyIndex) => {
                   const index = indexCounter++;
                   return (
-                    <SwiperSlide key={file.id || file.unique_id} className="!h-auto">
+                    <SwiperSlide key={file.id || file.unique_id || keyIndex} className="!h-auto">
                       <VideoCard
                         data={file}
                         layout="reelStrip"
@@ -154,6 +152,7 @@ export default function PhotoDashboard() {
                         currentUserId={userId || undefined}
                         userActions={userActions}
                         onUpdate={handleFileUpdate}
+                        hideActions={{completely: false, halfway: true}}
                       />
                     </SwiperSlide>
                   );

@@ -20,6 +20,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "~/components/ui/tooltip
 import { useIsMobile } from "~/hooks/use-mobile";
 import { useSidebarOptional } from "~/components/ui/sidebar";
 import { formatTimeAgo } from "~/lib/formatTimeAgo";
+import { EpisodePicker } from "./EpisodePicker";
 
 function getMetadataWarning(metadata: unknown): string | null {
   if (metadata && typeof metadata === "object" && "warning" in metadata) {
@@ -67,7 +68,10 @@ interface VideoCardProps {
   onAddToPlayQueue?: (video: FileType) => void;
   inPlayQueue?: boolean;
   /** Hide like/share/⋯ row — use on watch sidebar, queue, playlists, series lists (YouTube-style). */
-  hideActions?: boolean;
+  hideActions?: {
+    halfway?: boolean;
+    completely?: boolean;
+  };
   /** 0–1 = red progress strip along bottom of thumbnail (YouTube queue style). */
   thumbnailProgress?: number;
 }
@@ -86,7 +90,10 @@ const VideoCard = ({
   actionsLayout,
   onAddToPlayQueue,
   inPlayQueue,
-  hideActions = false,
+  hideActions = {
+    halfway: false,
+    completely: false,
+  },
   thumbnailProgress,
 }: VideoCardProps) => {
   const isMobile = useIsMobile();
@@ -842,7 +849,7 @@ const VideoCard = ({
             retry={handleRetry}
             className="w-full h-full object-cover transition-all duration-300"
             callBack={handleImageLoaded}
-            quality={50}
+            quality={60}
             hasAdultTag={Boolean(data.is_adult)}
           />
         ) : (
@@ -1120,19 +1127,14 @@ const VideoCard = ({
                           {seriesEpisodeSubmode === "existing" && seriesEpisodesList.length > 0 && (
                             <div className="space-y-1.5">
                               <label className="text-xs font-medium text-muted-foreground">Episode</label>
-                              <select
-                                value={seriesEpisodeId ?? ""}
-                                onChange={(e) => setSeriesEpisodeId(e.target.value || null)}
+                              <EpisodePicker
+                                episodes={seriesEpisodesList}
+                                value={seriesEpisodeId}
+                                onChange={(id) => setSeriesEpisodeId(id)}
+                                placeholder="Select episode…"
                                 disabled={isSaving || isSeriesBusy}
-                                className="w-full h-9 rounded-md border border-border/50 bg-background px-2 text-sm"
-                              >
-                                <option value="">Select episode…</option>
-                                {seriesEpisodesList.map((ep) => (
-                                  <option key={ep.id} value={ep.id}>
-                                    {ep.episode_name || ep.id.slice(0, 8)}
-                                  </option>
-                                ))}
-                              </select>
+                                triggerAriaLabel="Select episode"
+                              />
                             </div>
                           )}
 
@@ -1154,30 +1156,15 @@ const VideoCard = ({
                                   <label className="text-xs font-medium text-muted-foreground">
                                     Nest under (optional)
                                   </label>
-                                  <select
-                                    value={seriesParentEpisodeId ?? ""}
-                                    onChange={(e) =>
-                                      setSeriesParentEpisodeId(e.target.value || null)
-                                    }
+                                  <EpisodePicker
+                                    episodes={seriesEpisodesList}
+                                    value={seriesParentEpisodeId}
+                                    onChange={(id) => setSeriesParentEpisodeId(id)}
+                                    placeholder="Choose parent…"
+                                    noneLabel="Top-level episode"
                                     disabled={isSaving || isSeriesBusy}
-                                    className="w-full h-9 rounded-md border border-border/50 bg-background px-2 text-sm"
-                                  >
-                                    <option value="">Top-level episode</option>
-                                    {seriesEpisodesList.map((ep) => {
-                                      const parent = ep.parent_episode_id
-                                        ? seriesEpisodesList.find((x) => x.id === ep.parent_episode_id)
-                                        : null;
-                                      const label =
-                                        parent != null
-                                          ? `${ep.episode_name || ep.id.slice(0, 8)} (under ${parent.episode_name || parent.id.slice(0, 8)})`
-                                          : ep.episode_name || ep.id.slice(0, 8);
-                                      return (
-                                        <option key={ep.id} value={ep.id}>
-                                          {label}
-                                        </option>
-                                      );
-                                    })}
-                                  </select>
+                                    triggerAriaLabel="Nest under episode"
+                                  />
                                 </div>
                               )}
                             </div>
@@ -1758,6 +1745,34 @@ const VideoCard = ({
     )
   );
 
+
+  const renderActions = () => (
+    <>
+      {!hideActions.completely ? (
+        <div className="ac_dev w-full">
+          {hideActions.halfway ? null : <Separator className="my-2" />}
+          <Actions
+            layout={actionsLayout}
+            fileId={data.id ?? ""}
+            uniqueId={data.unique_id}
+            sharePagePath={watchPath}
+            likeCount={likeCount}
+            dislikeCount={dislikeCount}
+            commentCount={commentCount}
+            liked={liked}
+            disliked={disliked}
+            isOwner={isOwner}
+            onEdit={isOwner ? () => setIsEditing(true) : undefined}
+            onUpdate={currentUserId ? handleInteractionUpdate : undefined}
+            currentUserId={currentUserId}
+            fileCreatedAt={data.created_at}
+            howLikesDislikeComments={hideActions.halfway ? false : true}
+          />
+        </div>
+      ) : null}
+    </>
+  )
+
   if (layout === "shelf") {
     return (
       <div className="group flex w-full flex-col gap-2">
@@ -1843,6 +1858,17 @@ const VideoCard = ({
                 <ParseFilenameInsert filename={data.file_title || data.filename} showLimit={60} />
               </h3>
             </Link>
+
+            <div className={`max-h-[1.5rem]`}>
+            {
+              (hideActions.halfway) && (
+                <>
+                  {renderActions()}
+                </>
+              )
+            }
+          </div>
+
             {onAddToPlayQueue ? (
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -1871,14 +1897,15 @@ const VideoCard = ({
                 </TooltipContent>
               </Tooltip>
             ) : null}
+            
           </div>
 
           {data.owner && (
             <Link
               to={`/profile/${data.owner.username}`}
-              className="mt-1 block w-fit text-xs text-muted-foreground transition-colors hover:text-foreground"
+              className=" block w-fit text-xs text-muted-foreground transition-colors hover:text-foreground"
             >
-              {data.owner.username}
+              @{data.owner.username}
             </Link>
           )}
 
@@ -1888,27 +1915,13 @@ const VideoCard = ({
             {data.created_at && <span>{formatTimeAgo(data.created_at)}</span>}
           </div>
 
-          {!hideActions ? (
-            <div className="w-full">
-              <Separator className="my-1" />
-              <Actions
-                layout={actionsLayout}
-                fileId={data.id ?? ""}
-                uniqueId={data.unique_id}
-                sharePagePath={watchPath}
-                likeCount={likeCount}
-                dislikeCount={dislikeCount}
-                commentCount={commentCount}
-                liked={liked}
-                disliked={disliked}
-                isOwner={isOwner}
-                onEdit={isOwner ? () => setIsEditing(true) : undefined}
-                onUpdate={currentUserId ? handleInteractionUpdate : undefined}
-                currentUserId={currentUserId}
-                fileCreatedAt={data.created_at}
-              />
-            </div>
-          ) : null}
+          <div className="z-[1000000]">
+            {
+              (!hideActions?.halfway) && (
+                <>{renderActions()}</>
+              )
+            }
+          </div>
         </div>
 
         {renderEditDialog()}
@@ -1926,13 +1939,14 @@ const VideoCard = ({
             nav(watchPath);
           }}
           to={watchPath}
+          // in mobile let's make the reel size smaller the aspect ratio stays the same but let's minimize the size a bit 
           className="relative block aspect-[9/16] w-full shrink-0 overflow-hidden rounded-xl bg-muted outline-none ring-0 transition-opacity hover:opacity-95"
         >
           {renderThumbnail("h-full w-full")}
         </Link>
 
-        <div className="mt-2 min-w-0">
-            <div className="flex items-start gap-1">
+        <div className="mt-2 min-w-0 flex items-start justify-between gap-2">
+          <div className="flex items-start flex-col gap-1">
             <Link
               onClick={(e) => {
                 e.preventDefault();
@@ -1942,35 +1956,35 @@ const VideoCard = ({
               className="min-w-0 flex-1 hover:opacity-90"
             >
               <h3 className="line-clamp-2 text-left text-sm font-semibold leading-tight tracking-tight text-foreground">
-                <ParseFilenameInsert filename={data.file_title || data.filename} showLimit={56} />
+                <ParseFilenameInsert filename={data.file_title || data.filename} showLimit={30} characterSplit={true} className={`flex flex-wrap`}/>
               </h3>
             </Link>
-            {!hideActions ? (
-            <div className="shrink-0 -mr-1 -mt-1">
-              <Actions
-                layout="shortsShelf"
-                fileId={data.id ?? ""}
-                uniqueId={data.unique_id}
-                sharePagePath={watchPath}
-                likeCount={likeCount}
-                dislikeCount={dislikeCount}
-                commentCount={commentCount}
-                liked={liked}
-                disliked={disliked}
-                isOwner={isOwner}
-                onEdit={isOwner ? () => setIsEditing(true) : undefined}
-                onUpdate={currentUserId ? handleInteractionUpdate : undefined}
-                currentUserId={currentUserId}
-                fileCreatedAt={data.created_at}
-              />
-            </div>
+
+            {data.owner && (
+                  <Link
+                    to={`/profile/${data.owner.username}`}
+                    className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+                  >
+                    @{data.owner.username}
+                  </Link>
+                )}
+
+            {viewCount > 0 ? (
+              <p className="mt-1 text-xs leading-snug text-muted-foreground">
+                {formatViews(viewCount)} views
+              </p>
             ) : null}
           </div>
-          {viewCount > 0 ? (
-            <p className="mt-1 text-xs leading-snug text-muted-foreground">
-              {formatViews(viewCount)} views
-            </p>
-          ) : null}
+
+          <div>
+            {
+              (hideActions.halfway) && (
+                <>
+                  {renderActions()}
+                </>
+              )
+            }
+          </div>
         </div>
 
         {renderEditDialog()}
@@ -1993,39 +2007,36 @@ const VideoCard = ({
           {renderThumbnail("h-full w-full")}
         </Link>
 
-        <div className="flex min-w-0 flex-1 flex-col justify-center">
-          <Link to={watchPath} className="hover:text-primary transition-colors">
-            <h3 className="line-clamp-2 text-xs font-medium leading-tight">
-              <ParseFilenameInsert filename={data.file_title || data.filename} showLimit={40} />
-            </h3>
-          </Link>
-          <div className="mt-0.5 flex min-w-0 flex-wrap items-center gap-x-1 gap-y-0.5 text-[10px] text-muted-foreground">
-            {data.owner && <span className="max-w-[min(100%,7rem)] truncate">{data.owner.username}</span>}
-            {data.owner && viewCount > 0 && <span className="text-muted-foreground/60">·</span>}
-            {viewCount > 0 && <span className="tabular-nums">{formatViews(viewCount)}</span>}
-          </div>
+        <div className="flex items-start justify-between gap-2">
+          <div className="flex min-w-0 flex-1 flex-col justify-center">
+            <Link to={watchPath} className="hover:text-primary transition-colors">
+              <h3 className="line-clamp-2 text-xs font-medium leading-tight">
+                <ParseFilenameInsert filename={data.file_title || data.filename} showLimit={40} />
+              </h3>
+            </Link>
 
-          {!hideActions ? (
-          <div className="ac_dev mt-1 w-full min-w-0">
-            <Separator className="my-1.5" />
-            <Actions
-              layout={actionsLayout}
-              fileId={data.id ?? ""}
-              uniqueId={data.unique_id}
-              sharePagePath={watchPath}
-              likeCount={likeCount}
-              dislikeCount={dislikeCount}
-              commentCount={commentCount}
-              liked={liked}
-              disliked={disliked}
-              isOwner={isOwner}
-              onEdit={isOwner ? () => setIsEditing(true) : undefined}
-              onUpdate={currentUserId ? handleInteractionUpdate : undefined}
-              currentUserId={currentUserId}
-              fileCreatedAt={data.created_at}
-            />
+            <div className="mt-0.5 flex min-w-0 flex-wrap items-center gap-x-1 gap-y-0.5 text-[10px] text-muted-foreground">
+              {data.owner && <span className="max-w-[min(100%,7rem)] truncate">{data.owner.username}</span>}
+              {data.owner && viewCount > 0 && <span className="text-muted-foreground/60">·</span>}
+              {viewCount > 0 && <span className="tabular-nums">{formatViews(viewCount)}</span>}
+            </div>
+
+            {
+              (!hideActions?.halfway) && (
+                <>{renderActions()}</>
+              )
+            }
+
           </div>
-          ) : null}
+          <div>
+            {
+              (hideActions.halfway) && (
+                <>
+                  {renderActions()}
+                </>
+              )
+            }
+          </div>
         </div>
 
         {renderEditDialog()}
@@ -2066,73 +2077,70 @@ const VideoCard = ({
               className="mt-0.5 shrink-0 text-muted-foreground hover:text-foreground"
             />
           )}
-          <div className="flex min-h-[2.5rem] min-w-0 flex-1 flex-col justify-center">
-            <div className="flex items-start gap-1.5">
-              <Link to={watchPath} className="min-w-0 flex-1 hover:text-primary transition-colors">
-                <h3 className="line-clamp-2 text-sm font-semibold leading-tight md:text-base">
-                  <ParseFilenameInsert filename={data.file_title || data.filename} showLimit={50} />
-                </h3>
-              </Link>
-              {metadataWarning && (
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        setInfoModalOpen(true);
-                      }}
-                      className="shrink-0 rounded-full p-1 text-muted-foreground hover:text-foreground hover:bg-muted/80 transition-colors"
-                      aria-label="Content information"
-                    >
-                      <Info className="size-4" />
-                    </button>
-                  </TooltipTrigger>
-                  <TooltipContent side="top" className="max-w-[200px]">
-                    <p>Content information</p>
-                  </TooltipContent>
-                </Tooltip>
-              )}
-            </div>
-            <div className="mt-0.5 flex min-h-[1.25rem] flex-wrap items-center gap-x-1 gap-y-0.5 text-xs text-muted-foreground">
-              {data.owner && (
-                <Link
-                  to={`/profile/${data.owner.username}`}
-                  className="max-w-[120px] truncate hover:text-foreground transition-colors"
-                >
-                  {data.owner.username}
+          <div className={`flex min-h-[2.5rem] min-w-0 flex-1 justify-between relative`}>
+            <div className="flex flex-1 flex-col justify-center">
+              <div className="flex items-start gap-1.5">
+                <Link to={watchPath} className="min-w-0 flex-1 hover:text-primary transition-colors">
+                  <h3 className="line-clamp-2 text-sm font-semibold leading-tight md:text-base">
+                    <ParseFilenameInsert filename={data.file_title || data.filename} showLimit={50} />
+                  </h3>
                 </Link>
-              )}
-              {data.owner && viewCount > 0 && <span className="text-muted-foreground/60">·</span>}
-              {viewCount > 0 && <span>{formatViews(viewCount)} views</span>}
+                {metadataWarning && (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          setInfoModalOpen(true);
+                        }}
+                        className="shrink-0 rounded-full p-1 text-muted-foreground hover:text-foreground hover:bg-muted/80 transition-colors"
+                        aria-label="Content information"
+                      >
+                        <Info className="size-4" />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="top" className="max-w-[200px]">
+                      <p>Content information</p>
+                    </TooltipContent>
+                  </Tooltip>
+                )}
+              </div>
+              <div className="mt-0.5 flex min-h-[1.25rem] flex-wrap items-center gap-x-1 gap-y-0.5 text-xs text-muted-foreground">
+                {data.owner && (
+                  <Link
+                    to={`/profile/${data.owner.username}`}
+                    className="max-w-[120px] truncate hover:text-foreground transition-colors"
+                  >
+                    {data.owner.username}
+                  </Link>
+                )}
+                {data.owner && viewCount > 0 && <span className="text-muted-foreground/60">·</span>}
+                {viewCount > 0 && <span>{formatViews(viewCount)} views</span>}
+              </div>
+            </div>
+            <div>
+              {
+                (hideActions.halfway) && (
+                  <>
+                    {renderActions()}
+                  </>
+                )
+              }
             </div>
           </div>
         </div>
 
-        {!hideActions ? (
-        <div className="ac_dev w-full">
-          <Separator className="my-2" />
-          <Actions
-            layout={actionsLayout}
-            fileId={data.id ?? ""}
-            uniqueId={data.unique_id}
-            sharePagePath={watchPath}
-            likeCount={likeCount}
-            dislikeCount={dislikeCount}
-            commentCount={commentCount}
-            liked={liked}
-            disliked={disliked}
-            isOwner={isOwner}
-            onEdit={isOwner ? () => setIsEditing(true) : undefined}
-            onUpdate={currentUserId ? handleInteractionUpdate : undefined}
-            currentUserId={currentUserId}
-            fileCreatedAt={data.created_at}
-          />
-        </div>
-        ) : null}
       </div>
 
+      <div className="z-[1000000]">
+      {
+        (!hideActions?.halfway) && (
+          <>{renderActions()}</>
+        )
+      }
+      </div>
       {renderEditDialog()}
       {renderInfoDialog()}
     </div>

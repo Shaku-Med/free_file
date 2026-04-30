@@ -110,15 +110,67 @@ export function groupSeriesRpcRows(rows: Record<string, unknown>[]): SeriesEpiso
   const attachNested = (node: SeriesEpisodeGroup) => {
     const kids = childrenByParent.get(node.episode_id);
     if (kids?.length) {
-      node.nested = kids.map((k) => {
+      node.nested = sortEpisodeGroups(kids.map((k) => {
         attachNested(k);
         return k;
-      });
+      }));
     }
   };
 
   for (const r of roots) attachNested(r);
-  return roots;
+  return sortEpisodeGroups(roots);
+}
+
+/**
+ * Earliest `created_at` among the items in this episode (and recursively, its nested episodes).
+ * That date is the only thing that's reliably present and meaningful regardless of how the user
+ * named things — it's when the FIRST piece of content in this branch was uploaded, which is the
+ * natural "first / middle / last" ordering people actually want.
+ */
+function earliestItemTimestamp(group: SeriesEpisodeGroup): number {
+  let earliest = Number.POSITIVE_INFINITY;
+  for (const item of group.items) {
+    const t = item.created_at ? new Date(item.created_at).getTime() : NaN;
+    if (Number.isFinite(t) && t < earliest) earliest = t;
+  }
+  if (group.nested) {
+    for (const child of group.nested) {
+      const t = earliestItemTimestamp(child);
+      if (Number.isFinite(t) && t < earliest) earliest = t;
+    }
+  }
+  return earliest;
+}
+
+/**
+ * Order siblings the way the user expects, regardless of naming:
+ *   1) explicit `episode_number` if both have it (manual override)
+ *   2) earliest upload time in the branch — first uploaded → first, last uploaded → last
+ *   3) name fallback (numeric-collation locale compare) when timestamps are missing/equal
+ *
+ * The RPC returns alphabetical, which is wrong as soon as users name things freely.
+ * Going by upload time means "any name" works — the user doesn't have to follow a
+ * convention to get the right order.
+ */
+function sortEpisodeGroups(groups: SeriesEpisodeGroup[]): SeriesEpisodeGroup[] {
+  return [...groups].sort((a, b) => {
+    if (a.episode_number != null && b.episode_number != null && a.episode_number !== b.episode_number) {
+      return a.episode_number - b.episode_number;
+    }
+    if (a.episode_number != null && b.episode_number == null) return -1;
+    if (a.episode_number == null && b.episode_number != null) return 1;
+
+    const ta = earliestItemTimestamp(a);
+    const tb = earliestItemTimestamp(b);
+    if (Number.isFinite(ta) && Number.isFinite(tb) && ta !== tb) return ta - tb;
+    if (Number.isFinite(ta) && !Number.isFinite(tb)) return -1;
+    if (!Number.isFinite(ta) && Number.isFinite(tb)) return 1;
+
+    return (a.episode_name ?? "").localeCompare(b.episode_name ?? "", undefined, {
+      numeric: true,
+      sensitivity: "base",
+    });
+  });
 }
 
 function walkEpisodesDepthFirst(episodes: SeriesEpisodeGroup[], visit: (ep: SeriesEpisodeGroup) => void) {

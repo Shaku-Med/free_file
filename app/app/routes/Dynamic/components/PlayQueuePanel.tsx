@@ -85,7 +85,7 @@ function SortableQueueRow({
         <VideoCard
           layout="horizontal"
           related
-          hideActions
+          hideActions={{completely: false, halfway: true}}
           data={video}
           index={index}
           currentUserId={currentUserId}
@@ -167,7 +167,7 @@ function GuestPlayQueueLocked({
                 <VideoCard
                   layout="horizontal"
                   related
-                  hideActions
+                  hideActions={{completely: false, halfway: true}}
                   data={video}
                   index={index}
                   currentUserId={currentUserId}

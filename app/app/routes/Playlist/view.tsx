@@ -317,7 +317,7 @@ export default function PlaylistViewPage() {
               index={index}
               currentUserId={userId || undefined}
               userActions={{ likedFileIds: new Set(), dislikedFileIds: new Set() }}
-              hideActions
+              hideActions={{completely: true}}
             />
           ))}
         </div>

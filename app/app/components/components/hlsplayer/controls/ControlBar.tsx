@@ -86,7 +86,7 @@ function NextVideoTooltipButton({
             data={nextVideo}
             layout="horizontal"
             related
-            hideActions
+            hideActions={{completely: true}}
             currentUserId={nextVideoCardCurrentUserId}
             userActions={nextVideoCardUserActions}
           />

@@ -115,17 +115,16 @@ export function ContinueWatchingSection({ userId, userActions, username }: Props
   if (!userId) return null;
 
   return (
-    <div id="home-continue-watching" className="my-8 min-w-0 scroll-mt-24" aria-label="Recently watched">
-      <Separator className="bg-border" />
-
+    <div id="home-continue-watching" className="min-w-0 scroll-mt-24 bg-muted/10" aria-label="Recently watched">
       <div
         className={cn(
-          "mt-6 rounded-xl border border-border/70 bg-muted/25 px-3 py-4 sm:px-4 sm:py-5",
-          "dark:bg-muted/15"
+          "mt-6 px-3 py-4 sm:px-4 sm:py-5",
+          // "dark:bg-muted/15"
         )}
       >
         {username ? (
-          <div className="mb-3 flex justify-end">
+          <div className="mb-3 flex justify-between items-center">
+            <h1 className="text-sm font-medium text-foreground">Continue Watching</h1>
             <Link
               to={`/profile/${encodeURIComponent(username)}`}
               className="text-xs font-medium text-muted-foreground transition-colors hover:text-primary"
@@ -147,7 +146,7 @@ export function ContinueWatchingSection({ userId, userActions, username }: Props
         ) : items.length > 0 ? (
           <Swiper
             modules={[Navigation, Pagination, A11y, Keyboard]}
-            slidesPerView={1}
+            slidesPerView={2}
             spaceBetween={12}
             speed={380}
             watchOverflow
@@ -176,6 +175,7 @@ export function ContinueWatchingSection({ userId, userActions, username }: Props
                     currentUserId={userId}
                     userActions={mergedUserActions}
                     onUpdate={handleFileUpdate}
+                    hideActions={{completely: false}}
                   />
                 </div>
               </SwiperSlide>
@@ -188,7 +188,6 @@ export function ContinueWatchingSection({ userId, userActions, username }: Props
         )}
       </div>
 
-      <Separator className="mt-6 bg-border" />
     </div>
   );
 }

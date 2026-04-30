@@ -357,7 +357,7 @@ export default function EndScreen({
                         userActions={actions}
                         currentUserId={currentUserId}
                         layout="horizontal"
-                        hideActions
+                        hideActions={{completely: true}}
                       />
                     </div>
                   </button>
@@ -423,7 +423,7 @@ export default function EndScreen({
                                 userActions={actions}
                                 currentUserId={currentUserId}
                                 layout="compact"
-                                hideActions
+                                hideActions={{completely: true}}
                               />
                             </div>
                           </button>
@@ -471,7 +471,7 @@ export default function EndScreen({
                                 userActions={actions}
                                 currentUserId={currentUserId}
                                 layout="compact"
-                                hideActions
+                                hideActions={{completely: true}}
                               />
                             </div>
                           </button>

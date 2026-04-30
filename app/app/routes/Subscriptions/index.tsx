@@ -550,6 +550,7 @@ export default function SubscriptionsPage() {
                         index={idx}
                         currentUserId={userId || undefined}
                         userActions={userActions}
+                        hideActions={{completely: false}}
                       />
                     </div>
                   );
@@ -585,6 +586,7 @@ export default function SubscriptionsPage() {
                           index={index}
                           currentUserId={userId || undefined}
                           userActions={userActions}
+                          hideActions={{completely: false}}
                         />
                       </div>
                     );
@@ -632,6 +634,7 @@ export default function SubscriptionsPage() {
                                 index={index}
                                 currentUserId={userId || undefined}
                                 userActions={userActions}
+                                hideActions={{completely: false}}
                               />
                             </SwiperSlide>
                           );

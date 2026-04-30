@@ -149,6 +149,7 @@ export default function TagPage() {
                 index={index}
                 currentUserId={userId ?? undefined}
                 userActions={userActions}
+                hideActions={{completely: false}}
               />
             ))}
           </div>

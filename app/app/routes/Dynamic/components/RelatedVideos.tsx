@@ -201,7 +201,7 @@ const RelatedVideosContent = ({ currentUserId }: { currentUserId?: string }) => 
                   playQueue?.viewerCanCustomizeQueue ? (
                     <DraggableQueueVideoCard
                       related
-                      hideActions
+                      hideActions={{completely: false, halfway: true}}
                       key={video.unique_id}
                       data={video}
                       index={index}
@@ -213,7 +213,7 @@ const RelatedVideosContent = ({ currentUserId }: { currentUserId?: string }) => 
                   ) : (
                     <VideoCard
                       related
-                      hideActions
+                      hideActions={{completely: false, halfway: true}}
                       key={video.unique_id}
                       data={video}
                       index={index}
@@ -266,7 +266,7 @@ const RelatedVideosContent = ({ currentUserId }: { currentUserId?: string }) => 
                   playQueue?.viewerCanCustomizeQueue ? (
                     <DraggableQueueVideoCard
                       related
-                      hideActions
+                      hideActions={{completely: false, halfway: true}}
                       key={video.unique_id}
                       data={video}
                       index={index}
@@ -278,7 +278,7 @@ const RelatedVideosContent = ({ currentUserId }: { currentUserId?: string }) => 
                   ) : (
                     <VideoCard
                       related
-                      hideActions
+                      hideActions={{completely: false, halfway: true}}
                       key={video.unique_id}
                       data={video}
                       index={index}

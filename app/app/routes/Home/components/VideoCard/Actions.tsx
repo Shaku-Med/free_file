@@ -16,6 +16,7 @@ import {
   Plus,
   Pencil,
   Bookmark,
+  MoveVertical,
 } from "lucide-react";
 import { formatNumber } from "~/lib/utils/formatNumber";
 import { ShareModal } from "~/components/ShareModal";
@@ -97,6 +98,7 @@ export interface ActionsProps {
    * - `shortsShelf`: only the ⋮ menu (YouTube Shorts–style shelf tile).
    */
   layout?: "default" | "reel" | "tiktok" | "shortsShelf";
+  howLikesDislikeComments?: boolean;
 }
 
 type InteractionResponse = {
@@ -186,6 +188,7 @@ export default function Actions({
   commentsOpen: commentsOpenProp,
   onCommentsOpenChange,
   layout = "default",
+  howLikesDislikeComments = true,
 }: ActionsProps) {
   const navigate = useNavigate();
   const [likeBusy, setLikeBusy] = useState(false);
@@ -455,10 +458,10 @@ export default function Actions({
   );
 
   const pillOuter =
-    "inline-flex items-center justify-center gap-1.5 rounded-full border border-border bg-card/80 px-3 py-2 text-sm font-medium text-foreground shadow-sm transition hover:bg-accent/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:opacity-50 data-[state=open]:bg-accent/70";
+    `inline-flex items-center justify-center gap-1.5 rounded-full border border-border px-3 py-2 text-sm font-medium text-foreground shadow-sm transition hover:bg-accent/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:opacity-50 data-[state=open]:bg-accent/70`;
 
   const moreTriggerClass =
-    "inline-flex size-9 shrink-0 items-center justify-center rounded-full border border-border bg-card/80 text-foreground shadow-sm transition hover:bg-accent/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:opacity-50 data-[state=open]:bg-accent/70";
+    `inline-flex size-9 shrink-0 items-center justify-center rounded-full ${howLikesDislikeComments ? `bg-card/80 border border-border ` : `bg-transparent`} text-foreground shadow-sm transition hover:bg-accent/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:opacity-50 data-[state=open]:bg-accent/70`;
 
   const countClass = "tabular-nums text-muted-foreground";
 
@@ -491,7 +494,7 @@ export default function Actions({
         {isShortsShelf ? (
           <button
             type="button"
-            className="inline-flex size-8 shrink-0 items-center justify-center rounded-full text-muted-foreground transition hover:bg-muted hover:text-foreground"
+            className={`inline-flex size-8 shrink-0 items-center justify-center rounded-full text-muted-foreground transition hover:bg-muted hover:text-foreground`}
             aria-label="More options"
           >
             <MoreVertical className="size-5" aria-hidden />
@@ -499,17 +502,17 @@ export default function Actions({
         ) : isReel ? (
           <button
             type="button"
-            className="flex flex-col items-center gap-1"
+            className={`flex flex-col items-center gap-1`}
             aria-label="More options"
           >
             <span className={reelMoreTriggerClass}>
-              <MoreHorizontal className="size-[1.125rem] shrink-0" aria-hidden />
+              <MoveVertical className="size-[1.125rem] shrink-0" aria-hidden />
             </span>
             <span className={reelLabel}>More</span>
           </button>
         ) : (
-          <button type="button" className={moreTriggerClass} aria-label="More options">
-            <MoreHorizontal className="size-[1.125rem] shrink-0" aria-hidden />
+          <button type="button" className={`${moreTriggerClass}`} aria-label="More options">
+            <MoreVertical className="size-[1.125rem] shrink-0" aria-hidden />
           </button>
         )}
       </DropdownMenuTrigger>
@@ -716,12 +719,14 @@ export default function Actions({
 
   const defaultRow = (
     <div className="flex flex-wrap items-center gap-2">
-      {likeDislikeSegment}
+      {howLikesDislikeComments ? likeDislikeSegment : null}
 
+      {howLikesDislikeComments && (
       <button type="button" className={pillOuter} onClick={openComments} aria-label="View comments">
         <MessageCircle className="h-[1.125rem] w-[1.125rem] shrink-0" aria-hidden />
         <span className={countClass}>{formatNumber(commentCount)}</span>
       </button>
+      )}
 
       {moreDropdown}
     </div>
@@ -729,8 +734,9 @@ export default function Actions({
 
   const reelRow = (
     <div className="flex flex-col items-center gap-4">
-      {likeDislikeSegment}
+      {howLikesDislikeComments ? likeDislikeSegment : null}
 
+      {howLikesDislikeComments && (
       <button
         type="button"
         className={cn(pillOuter, "flex-col gap-1 py-2.5")}
@@ -738,8 +744,9 @@ export default function Actions({
         aria-label="View comments"
       >
         <MessageCircle className="h-[1.125rem] w-[1.125rem] shrink-0" aria-hidden />
-        <span className={cn(countClass, "text-[11px] leading-none")}>{formatNumber(commentCount)}</span>
-      </button>
+          <span className={cn(countClass, "text-[11px] leading-none")}>{formatNumber(commentCount)}</span>
+        </button>
+      )}
 
       {moreDropdown}
     </div>

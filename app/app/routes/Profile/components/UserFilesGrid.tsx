@@ -247,6 +247,7 @@ const UserFilesGrid = ({
               userActions={userActions}
               onUpdate={handleFileUpdate}
               showOwnerControls={true}
+              hideActions={{completely: false}}
             />
         ))}
         {isLoading &&

@@ -273,6 +273,7 @@ export function SearchModal({ open, onOpenChange }: SearchModalProps) {
                             index={index}
                             userActions={localUserActions}
                             currentUserId={userId ?? undefined}
+                            hideActions={{completely: false, halfway: false}}
                           />
                         ))}
                       </div>
@@ -313,6 +314,7 @@ export function SearchModal({ open, onOpenChange }: SearchModalProps) {
                             index={index}
                             userActions={localUserActions}
                             currentUserId={userId ?? undefined}
+                            hideActions={{completely: false, halfway: false}}
                           />
                         ))}
                       </div>
@@ -332,6 +334,7 @@ export function SearchModal({ open, onOpenChange }: SearchModalProps) {
                         index={index}
                         userActions={localUserActions}
                         currentUserId={userId ?? undefined}
+                        hideActions={{completely: false, halfway: false}}
                       />
                     ))}
                   </div>

@@ -228,7 +228,7 @@ function EpisodeBlock({
                     <VideoCard
                       layout="horizontal"
                       related
-                      hideActions
+                      hideActions={{completely: false, halfway: true}}
                       data={video}
                       index={index}
                       currentUserId={currentUserId}

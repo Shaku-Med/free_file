@@ -39,6 +39,7 @@ import {
 } from "lucide-react"
 import { GenerateUniqueID } from "~/lib/GenerateUniqueID"
 import { useFileContext } from "~/lib/Context/Context"
+import { EpisodePicker } from "./EpisodePicker"
 import { Link, useNavigate } from "react-router"
 import { MAX_UPLOAD_FILE_BYTES } from "~/lib/uploadLimits"
 import { SignInDialog } from "~/components/SignInWall"
@@ -1800,23 +1801,16 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
                                         </button>
                                       </div>
                                       {lane.seriesEpisodeSubmode === "existing" && lane.seriesEpisodesList.length > 0 && (
-                                        <select
-                                          value={lane.seriesEpisodeId ?? ""}
-                                          onChange={(e) =>
-                                            patchLaneAndSync(lane.id, {
-                                              seriesEpisodeId: e.target.value || null,
-                                            })
+                                        <EpisodePicker
+                                          episodes={lane.seriesEpisodesList}
+                                          value={lane.seriesEpisodeId}
+                                          onChange={(id) =>
+                                            patchLaneAndSync(lane.id, { seriesEpisodeId: id })
                                           }
+                                          placeholder="Select episode…"
                                           disabled={isUploadingBatch}
-                                          className="h-10 w-full rounded-xl border border-border bg-background px-3 text-sm"
-                                        >
-                                          <option value="">Select episode…</option>
-                                          {lane.seriesEpisodesList.map((ep) => (
-                                            <option key={ep.id} value={ep.id}>
-                                              {ep.episode_name || ep.id.slice(0, 8)}
-                                            </option>
-                                          ))}
-                                        </select>
+                                          triggerAriaLabel="Select episode"
+                                        />
                                       )}
                                       {lane.seriesEpisodeSubmode === "new" && (
                                         <p className="text-[11px] text-muted-foreground">
@@ -1824,23 +1818,17 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
                                         </p>
                                       )}
                                       {lane.seriesEpisodeSubmode === "new" && lane.seriesEpisodesList.length > 0 && (
-                                        <select
-                                          value={lane.seriesParentEpisodeId ?? ""}
-                                          onChange={(e) =>
-                                            patchLaneAndSync(lane.id, {
-                                              seriesParentEpisodeId: e.target.value || null,
-                                            })
+                                        <EpisodePicker
+                                          episodes={lane.seriesEpisodesList}
+                                          value={lane.seriesParentEpisodeId}
+                                          onChange={(id) =>
+                                            patchLaneAndSync(lane.id, { seriesParentEpisodeId: id })
                                           }
+                                          placeholder="Choose parent…"
+                                          noneLabel="Top-level only"
                                           disabled={isUploadingBatch}
-                                          className="h-10 w-full rounded-xl border border-border bg-background px-3 text-sm"
-                                        >
-                                          <option value="">Top-level only</option>
-                                          {lane.seriesEpisodesList.map((ep) => (
-                                            <option key={ep.id} value={ep.id}>
-                                              {ep.episode_name || ep.id.slice(0, 8)}
-                                            </option>
-                                          ))}
-                                        </select>
+                                          triggerAriaLabel="Nest under episode"
+                                        />
                                       )}
                                     </>
                                   )}
@@ -2115,24 +2103,19 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
                               activeItem.seriesEpisodesList.length > 0 && (
                                 <div className="space-y-1.5">
                                   <label className="text-[11px] font-medium text-muted-foreground">Episode</label>
-                                  <select
-                                    value={activeItem.seriesEpisodeId ?? ""}
-                                    onChange={(e) =>
+                                  <EpisodePicker
+                                    episodes={activeItem.seriesEpisodesList}
+                                    value={activeItem.seriesEpisodeId}
+                                    onChange={(id) =>
                                       updateItemSeries(activeItem.id, (c) => ({
                                         ...c,
-                                        seriesEpisodeId: e.target.value || null,
+                                        seriesEpisodeId: id,
                                       }))
                                     }
+                                    placeholder="Select episode…"
                                     disabled={isFieldDisabled}
-                                    className="w-full h-9 rounded-xl border border-border/60 bg-background px-3 text-sm"
-                                  >
-                                    <option value="">Select episode…</option>
-                                    {activeItem.seriesEpisodesList.map((ep) => (
-                                      <option key={ep.id} value={ep.id}>
-                                        {ep.episode_name || ep.id.slice(0, 8)}
-                                      </option>
-                                    ))}
-                                  </select>
+                                    triggerAriaLabel="Select episode"
+                                  />
                                 </div>
                               )}
 
@@ -2157,33 +2140,20 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
                                     <label className="text-[11px] font-medium text-muted-foreground">
                                       Nest under (optional)
                                     </label>
-                                    <select
-                                      value={activeItem.seriesParentEpisodeId ?? ""}
-                                      onChange={(e) =>
+                                    <EpisodePicker
+                                      episodes={activeItem.seriesEpisodesList}
+                                      value={activeItem.seriesParentEpisodeId}
+                                      onChange={(id) =>
                                         updateItemSeries(activeItem.id, (c) => ({
                                           ...c,
-                                          seriesParentEpisodeId: e.target.value || null,
+                                          seriesParentEpisodeId: id,
                                         }))
                                       }
+                                      placeholder="Choose parent…"
+                                      noneLabel="Top-level episode"
                                       disabled={isFieldDisabled}
-                                      className="w-full h-9 rounded-xl border border-border/60 bg-background px-3 text-sm"
-                                    >
-                                      <option value="">Top-level episode</option>
-                                      {activeItem.seriesEpisodesList.map((ep) => {
-                                        const parent = ep.parent_episode_id
-                                          ? activeItem.seriesEpisodesList.find((x) => x.id === ep.parent_episode_id)
-                                          : null
-                                        const label =
-                                          parent != null
-                                            ? `${ep.episode_name || ep.id.slice(0, 8)} (under ${parent.episode_name || parent.id.slice(0, 8)})`
-                                            : ep.episode_name || ep.id.slice(0, 8)
-                                        return (
-                                          <option key={ep.id} value={ep.id}>
-                                            {label}
-                                          </option>
-                                        )
-                                      })}
-                                    </select>
+                                      triggerAriaLabel="Nest under episode"
+                                    />
                                   </div>
                                 )}
                               </div>

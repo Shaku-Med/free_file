@@ -277,7 +277,7 @@ export default function PlaylistPage() {
                   index={index}
                   currentUserId={userId || undefined}
                   userActions={userActions}
-                  hideActions
+                  hideActions={{completely: true}}
                 />
               ))}
               {loadingMore &&
