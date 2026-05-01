@@ -75,7 +75,7 @@ func SecurityHeaders() Middleware {
 		})
 	}
 }
-
+// Logs the response pefectly to prevent shell scripting attacks - and simplify
 func RequestLogger(log Logger) Middleware {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
