@@ -12,7 +12,7 @@ import (
 )
 
 func New() (http.Handler, error) {
-	// 10 GiB default; override with MAX_UPLOAD_BYTES env
+	// 10 GiB default; override with MAX_UPLOAD_BYTES env. This will kill any other uploads coming in.
 	maxSize := env.GetInt64("MAX_UPLOAD_BYTES", 10<<30)
 	uploader := upload.NewService(maxSize, 15*time.Minute)
 	log := logger.New(2048)
