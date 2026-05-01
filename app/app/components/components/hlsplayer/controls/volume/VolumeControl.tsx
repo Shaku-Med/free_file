@@ -77,18 +77,26 @@ export default function VolumeControl({ showSlider = true, barPill = false, expa
       }}
     >
       {hasAudioTrack ? (
-        <button
-          type="button"
-          onClick={() => toggleMute()}
-          className={
-            barPill
-              ? 'rounded-full p-2 text-white transition-colors hover:bg-white/10'
-              : 'p-1.5 rounded-md transition-colors text-white hover:bg-white/10'
-          }
-          aria-label={state.isMuted ? 'Unmute' : 'Mute'}
-        >
-          <VolumeIcon className="w-5 h-5" />
-        </button>
+        <Tooltip delayDuration={350}>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              onClick={() => toggleMute()}
+              className={
+                barPill
+                  ? 'rounded-full p-2 text-white transition-colors hover:bg-white/10'
+                  : 'p-1.5 rounded-md transition-colors text-white hover:bg-white/10'
+              }
+              aria-label={state.isMuted ? 'Unmute' : 'Mute'}
+            >
+              <VolumeIcon className="w-5 h-5" />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent side="top">
+            {state.isMuted ? 'Unmute' : 'Mute'}
+            {!state.isMuted && state.volume > 0 ? ` (${Math.round(state.volume * 100)}%)` : ''}
+          </TooltipContent>
+        </Tooltip>
       ) : (
         <Tooltip>
           <TooltipTrigger asChild>

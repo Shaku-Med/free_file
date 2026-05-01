@@ -20,7 +20,15 @@ CREATE TABLE IF NOT EXISTS public.notifications (
   CONSTRAINT notifications_actor_id_fkey FOREIGN KEY (actor_id) REFERENCES public.users (id) ON DELETE CASCADE,
   CONSTRAINT notifications_file_id_fkey FOREIGN KEY (file_id) REFERENCES public.files (id) ON DELETE SET NULL,
   CONSTRAINT notifications_comment_id_fkey FOREIGN KEY (comment_id) REFERENCES public.comments (id) ON DELETE SET NULL,
-  CONSTRAINT notifications_type_check CHECK (type IN ('file_like', 'file_comment', 'comment_reply', 'comment_like', 'comment_mention'))
+  CONSTRAINT notifications_type_check CHECK (type IN (
+    'file_like',
+    'file_comment',
+    'comment_reply',
+    'comment_like',
+    'comment_mention',
+    'new_subscriber',
+    'channel_upload'
+  ))
 );
 
 CREATE INDEX IF NOT EXISTS idx_notifications_user_id ON public.notifications (user_id);

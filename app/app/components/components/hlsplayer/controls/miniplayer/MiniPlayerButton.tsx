@@ -41,7 +41,7 @@ export default function MiniPlayerButton({
   if (isReel || !file) return null;
 
   return (
-    <Tooltip>
+    <Tooltip delayDuration={350}>
       <TooltipTrigger asChild>
         <button
           type="button"

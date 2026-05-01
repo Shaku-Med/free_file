@@ -1,6 +1,34 @@
 import { data } from "react-router";
 import { isAuthenticated } from "~/lib/Security/Password";
 import db from "~/lib/Database/supabase";
+import { createNotification } from "~/lib/Services/NotificationService";
+import { sendPushForNotification } from "~/lib/Services/PushService";
+
+function shouldNotifyNewSubscription(
+  actionType: string,
+  parsed: Record<string, unknown>
+): boolean {
+  if (parsed.success !== true) return false;
+  if (actionType === "toggle") return parsed.subscribed === true;
+  if (actionType === "subscribe") {
+    return parsed.already_subscribed !== true && parsed.subscription_id != null;
+  }
+  return false;
+}
+
+function fireNewSubscriberNotifications(channelId: string, subscriberId: string) {
+  void (async () => {
+    const { error } = await createNotification({
+      userId: channelId,
+      type: "new_subscriber",
+      actorId: subscriberId,
+    });
+    if (error) console.error("new_subscriber notification:", error);
+    sendPushForNotification(channelId, "new_subscriber", subscriberId, null, null).catch((e) =>
+      console.error("[Push] new_subscriber failed:", e)
+    );
+  })();
+}
 
 export const action = async ({ request }: { request: Request }) => {
   try {
@@ -36,6 +64,10 @@ export const action = async ({ request }: { request: Request }) => {
       }
 
       const parsed = typeof result === "string" ? JSON.parse(result) : result;
+      const obj = parsed as Record<string, unknown>;
+      if (shouldNotifyNewSubscription("toggle", obj)) {
+        fireNewSubscriberNotifications(channel_id, user.id);
+      }
       return data(parsed, { status: 200 });
     }
 
@@ -65,6 +97,10 @@ export const action = async ({ request }: { request: Request }) => {
       }
 
       const parsed = typeof result === "string" ? JSON.parse(result) : result;
+      const obj = parsed as Record<string, unknown>;
+      if (shouldNotifyNewSubscription("subscribe", obj)) {
+        fireNewSubscriberNotifications(channel_id, user.id);
+      }
       return data(parsed, { status: 200 });
     }
 

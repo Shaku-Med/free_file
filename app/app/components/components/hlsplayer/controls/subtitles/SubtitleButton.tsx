@@ -19,40 +19,52 @@ export default function SubtitleButton({ variant }: { variant?: 'mobileOverlay' 
     }
   };
 
+  const label = isActive ? 'Turn off subtitles' : 'Turn on subtitles';
+
   if (variant === 'mobileOverlay') {
     return (
-      <button
-        type="button"
-        onClick={handleClick}
-        className={cn(
-          'flex h-9 min-w-[2.25rem] items-center justify-center rounded-lg border border-white/35 bg-black/50 px-2 text-xs font-bold tracking-wide text-white backdrop-blur-sm active:bg-black/60',
-          isActive && 'border-primary text-primary'
-        )}
-        aria-label={isActive ? 'Turn off subtitles' : 'Turn on subtitles'}
-      >
-        CC
-      </button>
+      <Tooltip delayDuration={350}>
+        <TooltipTrigger asChild>
+          <button
+            type="button"
+            onClick={handleClick}
+            className={cn(
+              'flex h-9 min-w-[2.25rem] items-center justify-center rounded-lg border border-white/35 bg-black/50 px-2 text-xs font-bold tracking-wide text-white backdrop-blur-sm active:bg-black/60',
+              isActive && 'border-primary text-primary'
+            )}
+            aria-label={label}
+          >
+            CC
+          </button>
+        </TooltipTrigger>
+        <TooltipContent side="bottom">Subtitles (CC)</TooltipContent>
+      </Tooltip>
     );
   }
 
   if (variant === 'desktopPill') {
     return (
-      <button
-        type="button"
-        onClick={handleClick}
-        className={cn(
-          'flex h-8 min-w-[1.75rem] items-center justify-center rounded-md border border-white/25 px-1.5 text-[10px] font-bold tracking-wide text-white transition-colors hover:bg-white/10',
-          isActive && 'border-primary text-primary'
-        )}
-        aria-label={isActive ? 'Turn off subtitles' : 'Turn on subtitles'}
-      >
-        CC
-      </button>
+      <Tooltip delayDuration={350}>
+        <TooltipTrigger asChild>
+          <button
+            type="button"
+            onClick={handleClick}
+            className={cn(
+              'flex h-8 min-w-[1.75rem] items-center justify-center rounded-md border border-white/25 px-1.5 text-[10px] font-bold tracking-wide text-white transition-colors hover:bg-white/10',
+              isActive && 'border-primary text-primary'
+            )}
+            aria-label={label}
+          >
+            CC
+          </button>
+        </TooltipTrigger>
+        <TooltipContent side="top">Subtitles (CC)</TooltipContent>
+      </Tooltip>
     );
   }
 
   return (
-    <Tooltip>
+    <Tooltip delayDuration={350}>
       <TooltipTrigger asChild>
         <button
           type="button"
@@ -66,7 +78,7 @@ export default function SubtitleButton({ variant }: { variant?: 'mobileOverlay' 
           <Subtitles className="w-5 h-5" />
         </button>
       </TooltipTrigger>
-      <TooltipContent side="top">Subtitles</TooltipContent>
+      <TooltipContent side="top">Subtitles (CC)</TooltipContent>
     </Tooltip>
   );
 }

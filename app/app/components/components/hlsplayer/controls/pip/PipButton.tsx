@@ -18,7 +18,7 @@ export default function PipButton({
   if (isContentInPip(imageID)) return null;
 
   return (
-    <Tooltip>
+    <Tooltip delayDuration={350}>
       <TooltipTrigger asChild>
         <button
           type="button"

@@ -21,7 +21,7 @@ export default function CastButton({
   };
 
   return (
-    <Tooltip>
+    <Tooltip delayDuration={350}>
       <TooltipTrigger asChild>
         <button
           type="button"

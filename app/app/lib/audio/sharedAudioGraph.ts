@@ -65,13 +65,17 @@ export function ensureSharedGraph(video: HTMLVideoElement): SharedAudioGraph | n
     const source = ctx.createMediaElementSource(video);
     const panner = ctx.createPanner();
     panner.panningModel = 'HRTF';
-    panner.distanceModel = 'inverse';
+    // Linear with a tiny rolloff over a generous max distance keeps the perceived
+    // loudness close to the native track even at radius 3+, while still giving
+    // a subtle "further = quieter" cue when users push the orbit out wide.
+    panner.distanceModel = 'linear';
     panner.refDistance = 1;
-    panner.maxDistance = 10000;
-    panner.rolloffFactor = 1;
+    panner.maxDistance = 12;
+    panner.rolloffFactor = 0.25;
+    // Omnidirectional source: every direction is "inside" the inner cone.
     panner.coneInnerAngle = 360;
-    panner.coneOuterAngle = 0;
-    panner.coneOuterGain = 0;
+    panner.coneOuterAngle = 360;
+    panner.coneOuterGain = 1;
     // Default position: directly in front of the listener at unit distance — a
     // transparent baseline for when spatial audio is disabled.
     setPannerPositionImmediate(panner, ctx, 0, 0, -1);

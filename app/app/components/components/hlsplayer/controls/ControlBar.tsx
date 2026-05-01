@@ -1,4 +1,4 @@
-import { useRef, useState, useEffect } from 'react';
+import { useRef, useState, useEffect, type ReactElement } from 'react';
 import { createPortal } from 'react-dom';
 import { Play, Pause, SkipForward, MoreVertical, SkipBack, ChevronLeft } from 'lucide-react';
 import { usePlayerContext } from '../PlayerContext';
@@ -29,6 +29,24 @@ const VIEWPORT_PADDING = 16;
 const MIN_SPACE_BELOW_TO_OPEN_DOWN = 320;
 const DROPDOWN_MAX_HEIGHT_RATIO = 0.55;
 const MOBILE_SKIP_SEC = 10;
+const CTRL_TIP_MS = 350;
+
+function PlayerControlTooltip({
+  label,
+  side = 'top',
+  children,
+}: {
+  label: string;
+  side?: 'top' | 'bottom';
+  children: ReactElement;
+}) {
+  return (
+    <Tooltip delayDuration={CTRL_TIP_MS}>
+      <TooltipTrigger asChild>{children}</TooltipTrigger>
+      <TooltipContent side={side}>{label}</TooltipContent>
+    </Tooltip>
+  );
+}
 
 function NextVideoTooltipButton({
   onClick,
@@ -64,7 +82,14 @@ function NextVideoTooltipButton({
     </button>
   );
 
-  if (!nextVideo) return button;
+  if (!nextVideo) {
+    return (
+      <Tooltip delayDuration={CTRL_TIP_MS}>
+        <TooltipTrigger asChild>{button}</TooltipTrigger>
+        <TooltipContent side="top">{ariaLabel}</TooltipContent>
+      </Tooltip>
+    );
+  }
 
   return (
     <Tooltip delayDuration={220}>
@@ -253,52 +278,65 @@ export default function ControlBar({
       >
         {onBack && !isHidden(hideControls, 'back') && (
           <div className="pointer-events-auto absolute left-3 top-3 z-40">
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                onBack();
-              }}
-              className={desktopIconCircle}
-              aria-label="Back"
-            >
-              <ChevronLeft className="h-5 w-5 text-white" />
-            </button>
+            <PlayerControlTooltip label="Back" side="bottom">
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onBack();
+                }}
+                className={desktopIconCircle}
+                aria-label="Back"
+              >
+                <ChevronLeft className="h-5 w-5 text-white" />
+              </button>
+            </PlayerControlTooltip>
           </div>
         )}
         <div className="pointer-events-auto absolute right-3 top-3 z-40 flex items-center gap-2">
           {!isHidden(hideControls, 'settings') && (
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                if (!authPlaybackFeatures) return;
-                setAutoPlay(!autoPlay);
-              }}
-              disabled={!authPlaybackFeatures}
-              className={cn(
-                'flex h-9 items-center gap-2 rounded-full bg-black/50 px-2.5 py-1 backdrop-blur-sm',
-                !authPlaybackFeatures && 'opacity-50'
-              )}
-              aria-label={autoPlay ? 'Autoplay on' : 'Autoplay off'}
-              aria-pressed={autoPlay}
+            <PlayerControlTooltip
+              label={
+                authPlaybackFeatures
+                  ? autoPlay
+                    ? 'Autoplay on: plays next when this video ends'
+                    : 'Autoplay off'
+                  : 'Sign in to use autoplay'
+              }
+              side="bottom"
             >
-              <span
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (!authPlaybackFeatures) return;
+                  setAutoPlay(!autoPlay);
+                }}
+                disabled={!authPlaybackFeatures}
                 className={cn(
-                  'relative inline-flex h-6 w-11 shrink-0 rounded-full transition-colors duration-200',
-                  autoPlay ? 'bg-white/30' : 'bg-white/15'
+                  'flex h-9 items-center gap-2 rounded-full bg-black/50 px-2.5 py-1 backdrop-blur-sm',
+                  !authPlaybackFeatures && 'opacity-50'
                 )}
+                aria-label={autoPlay ? 'Autoplay on' : 'Autoplay off'}
+                aria-pressed={autoPlay}
               >
                 <span
                   className={cn(
-                    'absolute top-0.5 flex h-5 w-5 items-center justify-center rounded-full bg-white shadow transition-all duration-200',
-                    autoPlay ? 'right-0.5' : 'left-0.5'
+                    'relative inline-flex h-6 w-11 shrink-0 rounded-full transition-colors duration-200',
+                    autoPlay ? 'bg-white/30' : 'bg-white/15'
                   )}
                 >
-                  <Play className="h-2.5 w-2.5 fill-neutral-900 text-neutral-900" />
+                  <span
+                    className={cn(
+                      'absolute top-0.5 flex h-5 w-5 items-center justify-center rounded-full bg-white shadow transition-all duration-200',
+                      autoPlay ? 'right-0.5' : 'left-0.5'
+                    )}
+                  >
+                    <Play className="h-2.5 w-2.5 fill-neutral-900 text-neutral-900" />
+                  </span>
                 </span>
-              </span>
-            </button>
+              </button>
+            </PlayerControlTooltip>
           )}
           {!isHidden(hideControls, 'subtitles') && <SubtitleButton variant="mobileOverlay" />}
           {!isHidden(hideControls, 'cast') && <CastButton mobileOverlay />}
@@ -312,35 +350,39 @@ export default function ControlBar({
 
         <div className="pointer-events-auto absolute left-1/2 top-1/2 z-40 flex -translate-x-1/2 -translate-y-1/2 items-center gap-4">
           {!isHidden(hideControls, 'seek') && (
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                skipBack(e);
-              }}
-              className={circleBtn}
-              aria-label={`Back ${MOBILE_SKIP_SEC} seconds`}
-            >
-              <SkipBack className="h-5 w-5 fill-white" />
-            </button>
+            <PlayerControlTooltip label={`Rewind ${MOBILE_SKIP_SEC} seconds`}>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  skipBack(e);
+                }}
+                className={circleBtn}
+                aria-label={`Back ${MOBILE_SKIP_SEC} seconds`}
+              >
+                <SkipBack className="h-5 w-5 fill-white" />
+              </button>
+            </PlayerControlTooltip>
           )}
           {!isHidden(hideControls, 'playPause') && (
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                togglePlay();
-                onPlayPauseClick?.();
-              }}
-              className="flex h-[4.5rem] w-[4.5rem] shrink-0 items-center justify-center rounded-full bg-black/50 text-white shadow-md active:scale-95 transition-transform"
-              aria-label={state.isPlaying ? 'Pause' : 'Play'}
-            >
-              {state.isPlaying ? (
-                <Pause className="h-9 w-9 fill-white" />
-              ) : (
-                <Play className="ml-1 h-9 w-9 fill-white" />
-              )}
-            </button>
+            <PlayerControlTooltip label={state.isPlaying ? 'Pause' : 'Play'}>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  togglePlay();
+                  onPlayPauseClick?.();
+                }}
+                className="flex h-[4.5rem] w-[4.5rem] shrink-0 items-center justify-center rounded-full bg-black/50 text-white shadow-md active:scale-95 transition-transform"
+                aria-label={state.isPlaying ? 'Pause' : 'Play'}
+              >
+                {state.isPlaying ? (
+                  <Pause className="h-9 w-9 fill-white" />
+                ) : (
+                  <Play className="ml-1 h-9 w-9 fill-white" />
+                )}
+              </button>
+            </PlayerControlTooltip>
           )}
           {!isHidden(hideControls, 'next') && onNext && (
             <NextVideoTooltipButton
@@ -356,17 +398,19 @@ export default function ControlBar({
             </NextVideoTooltipButton>
           )}
           {!isHidden(hideControls, 'next') && !onNext && !isHidden(hideControls, 'seek') && (
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                skipForward(e);
-              }}
-              className={circleBtn}
-              aria-label={`Forward ${MOBILE_SKIP_SEC} seconds`}
-            >
-              <SkipForward className="h-5 w-5 fill-white" />
-            </button>
+            <PlayerControlTooltip label={`Forward ${MOBILE_SKIP_SEC} seconds`}>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  skipForward(e);
+                }}
+                className={circleBtn}
+                aria-label={`Forward ${MOBILE_SKIP_SEC} seconds`}
+              >
+                <SkipForward className="h-5 w-5 fill-white" />
+              </button>
+            </PlayerControlTooltip>
           )}
         </div>
 
@@ -388,11 +432,13 @@ export default function ControlBar({
                 </div>
               )}
               {!isHidden(hideControls, 'time') && (
-                <div className="flex h-11 min-w-0 max-w-full shrink items-center justify-center rounded-full bg-black/50 px-2.5 text-[11px] font-medium tabular-nums leading-none text-white shadow-sm backdrop-blur-sm sm:px-3 sm:text-xs">
-                  {formatTime(state.currentTime)}
-                  <span className="mx-0.5 text-white/50 sm:mx-1">/</span>
-                  {formatTime(state.duration)}
-                </div>
+                <PlayerControlTooltip label="Current time and total length" side="top">
+                  <div className="flex h-11 min-w-0 max-w-full shrink cursor-default items-center justify-center rounded-full bg-black/50 px-2.5 text-[11px] font-medium tabular-nums leading-none text-white shadow-sm backdrop-blur-sm sm:px-3 sm:text-xs">
+                    {formatTime(state.currentTime)}
+                    <span className="mx-0.5 text-white/50 sm:mx-1">/</span>
+                    {formatTime(state.duration)}
+                  </div>
+                </PlayerControlTooltip>
               )}
             </div>
             {!isHidden(hideControls, 'fullscreen') && <FullscreenButton variant="mobileOverlay" />}
@@ -404,37 +450,47 @@ export default function ControlBar({
   }
 
   const autoplayToggle = !isHidden(hideControls, 'settings') && (
-    <button
-      type="button"
-      onClick={(e) => {
-        e.stopPropagation();
-        if (!authPlaybackFeatures) return;
-        setAutoPlay(!autoPlay);
-      }}
-      disabled={!authPlaybackFeatures}
-      className={cn(
-        'flex shrink-0 items-center rounded-full px-2 py-1 transition-opacity',
-        !authPlaybackFeatures && 'opacity-50'
-      )}
-      aria-label={autoPlay ? 'Autoplay on' : 'Autoplay off'}
-      aria-pressed={autoPlay}
+    <PlayerControlTooltip
+      label={
+        authPlaybackFeatures
+          ? autoPlay
+            ? 'Autoplay on: plays next when this video ends'
+            : 'Autoplay off'
+          : 'Sign in to use autoplay'
+      }
     >
-      <span
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          if (!authPlaybackFeatures) return;
+          setAutoPlay(!autoPlay);
+        }}
+        disabled={!authPlaybackFeatures}
         className={cn(
-          'relative inline-flex h-5 w-9 shrink-0 rounded-full transition-colors duration-200',
-          autoPlay ? 'bg-white/30' : 'bg-white/15'
+          'flex shrink-0 items-center rounded-full px-2 py-1 transition-opacity',
+          !authPlaybackFeatures && 'opacity-50'
         )}
+        aria-label={autoPlay ? 'Autoplay on' : 'Autoplay off'}
+        aria-pressed={autoPlay}
       >
         <span
           className={cn(
-            'absolute top-px flex h-4 w-4 items-center justify-center rounded-full bg-white shadow transition-all duration-200',
-            autoPlay ? 'right-px' : 'left-px'
+            'relative inline-flex h-5 w-9 shrink-0 rounded-full transition-colors duration-200',
+            autoPlay ? 'bg-white/30' : 'bg-white/15'
           )}
         >
-          <Play className="h-2 w-2 fill-neutral-900 text-neutral-900" />
+          <span
+            className={cn(
+              'absolute top-px flex h-4 w-4 items-center justify-center rounded-full bg-white shadow transition-all duration-200',
+              autoPlay ? 'right-px' : 'left-px'
+            )}
+          >
+            <Play className="h-2 w-2 fill-neutral-900 text-neutral-900" />
+          </span>
         </span>
-      </span>
-    </button>
+      </button>
+    </PlayerControlTooltip>
   );
 
   return (
@@ -452,34 +508,38 @@ export default function ControlBar({
       <div className="flex min-w-0 items-center justify-between gap-3 px-3 pb-2 pt-0">
         <div className="flex min-w-0 shrink-0 items-center gap-2">
           {onBack && !isHidden(hideControls, 'back') && (
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                onBack();
-              }}
-              className={desktopIconCircle}
-              aria-label="Back"
-            >
-              <ChevronLeft className="h-5 w-5 text-white" />
-            </button>
+            <PlayerControlTooltip label="Back">
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onBack();
+                }}
+                className={desktopIconCircle}
+                aria-label="Back"
+              >
+                <ChevronLeft className="h-5 w-5 text-white" />
+              </button>
+            </PlayerControlTooltip>
           )}
           {!isHidden(hideControls, 'playPause') && (
-            <button
-              type="button"
-              onClick={() => {
-                togglePlay();
-                onPlayPauseClick?.();
-              }}
-              className={desktopIconCircle}
-              aria-label={state.isPlaying ? 'Pause' : 'Play'}
-            >
-              {state.isPlaying ? (
-                <Pause className="h-5 w-5 fill-white" />
-              ) : (
-                <Play className="ml-0.5 h-5 w-5 fill-white" />
-              )}
-            </button>
+            <PlayerControlTooltip label={state.isPlaying ? 'Pause' : 'Play'}>
+              <button
+                type="button"
+                onClick={() => {
+                  togglePlay();
+                  onPlayPauseClick?.();
+                }}
+                className={desktopIconCircle}
+                aria-label={state.isPlaying ? 'Pause' : 'Play'}
+              >
+                {state.isPlaying ? (
+                  <Pause className="h-5 w-5 fill-white" />
+                ) : (
+                  <Play className="ml-0.5 h-5 w-5 fill-white" />
+                )}
+              </button>
+            </PlayerControlTooltip>
           )}
 
           {!isHidden(hideControls, 'next') && onNext && (
@@ -503,11 +563,13 @@ export default function ControlBar({
           )}
 
           {!isHidden(hideControls, 'time') && showTime && (
-            <div className="flex h-10 min-h-10 min-w-0 shrink items-center justify-center rounded-full bg-black/50 px-2.5 text-[11px] font-medium tabular-nums leading-none text-white shadow-sm backdrop-blur-sm sm:px-3 sm:text-xs">
-              {formatTime(state.currentTime)}
-              <span className="mx-0.5 text-white/45 sm:mx-1">/</span>
-              {formatTime(state.duration)}
-            </div>
+            <PlayerControlTooltip label="Current time and total length">
+              <div className="flex h-10 min-h-10 min-w-0 shrink cursor-default items-center justify-center rounded-full bg-black/50 px-2.5 text-[11px] font-medium tabular-nums leading-none text-white shadow-sm backdrop-blur-sm sm:px-3 sm:text-xs">
+                {formatTime(state.currentTime)}
+                <span className="mx-0.5 text-white/45 sm:mx-1">/</span>
+                {formatTime(state.duration)}
+              </div>
+            </PlayerControlTooltip>
           )}
         </div>
 
@@ -548,15 +610,17 @@ export default function ControlBar({
             if (!overflowSettings && !otherOverflow) return null;
             return (
               <>
-                <button
-                  ref={moreButtonRef}
-                  type="button"
-                  onClick={() => setOverflowOpen((o) => !o)}
-                  className={`${desktopIconCircle}`}
-                  aria-label="More controls"
-                >
-                  <MoreVertical className="h-5 w-5" />
-                </button>
+                <PlayerControlTooltip label="More controls">
+                  <button
+                    ref={moreButtonRef}
+                    type="button"
+                    onClick={() => setOverflowOpen((o) => !o)}
+                    className={`${desktopIconCircle}`}
+                    aria-label="More controls"
+                  >
+                    <MoreVertical className="h-5 w-5" />
+                  </button>
+                </PlayerControlTooltip>
                 {overflowOpen &&
                   typeof document !== 'undefined' &&
                   createPortal(

@@ -104,20 +104,45 @@ const UserFilesGrid = ({
     [files],
   );
 
+  /**
+   * Upload-progress polling — only runs while at least one of the user's own files is in a
+   * non-terminal upload state. Designed to be gentle on the server:
+   *
+   *  - Starts at a 12s interval (was 3.5s — way too aggressive for a 1-server setup).
+   *  - Backs off to 25s after the first minute and 45s after five minutes; processing jobs
+   *    typically take much longer than the original cadence assumed, so the early pings were
+   *    mostly wasted bandwidth.
+   *  - Pauses entirely when the tab is hidden — `visibilitychange` resumes immediately and
+   *    schedules the next tick at the appropriate backoff step.
+   *  - Skips the next tick if a previous one is still in flight (no overlap on slow servers).
+   */
   useEffect(() => {
     if (currentUserId !== userId || !anyUploadProcessing) return;
+
+    let cancelled = false;
+    let inFlight = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const startedAt = Date.now();
+
+    const intervalForElapsed = (elapsedMs: number) => {
+      if (elapsedMs < 60_000) return 12_000;
+      if (elapsedMs < 5 * 60_000) return 25_000;
+      return 45_000;
+    };
+
     const tick = async () => {
+      if (cancelled || inFlight) return;
+      if (typeof document !== 'undefined' && document.hidden) return; // visibilitychange will resume
+      inFlight = true;
       try {
         const res = await fetch(
           `/api/user-files?userId=${encodeURIComponent(userId)}&page=1&limit=40`,
-          { credentials: "include" },
+          { credentials: 'include' },
         );
         if (!res.ok) return;
-        const json = (await res.json()) as {
-          data?: FileType[];
-        };
+        const json = (await res.json()) as { data?: FileType[] };
         const fresh = json.data;
-        if (!fresh?.length) return;
+        if (cancelled || !fresh?.length) return;
         setFiles((prev) =>
           prev.map((f) => {
             const id = f.id || f.unique_id;
@@ -127,11 +152,48 @@ const UserFilesGrid = ({
         );
       } catch {
         /* ignore */
+      } finally {
+        inFlight = false;
       }
     };
-    const iv = setInterval(tick, 3500);
+
+    const schedule = () => {
+      if (cancelled) return;
+      if (timer) clearTimeout(timer);
+      const delay = intervalForElapsed(Date.now() - startedAt);
+      timer = setTimeout(async () => {
+        await tick();
+        schedule();
+      }, delay);
+    };
+
+    const onVisibility = () => {
+      if (cancelled) return;
+      if (document.hidden) {
+        if (timer) {
+          clearTimeout(timer);
+          timer = null;
+        }
+        return;
+      }
+      // Tab came back: do one immediate refresh, then resume the backoff schedule.
+      void tick();
+      schedule();
+    };
+
     void tick();
-    return () => clearInterval(iv);
+    schedule();
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', onVisibility);
+    }
+
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+      if (typeof document !== 'undefined') {
+        document.removeEventListener('visibilitychange', onVisibility);
+      }
+    };
   }, [currentUserId, userId, anyUploadProcessing]);
 
   const loadMore = useCallback(async () => {

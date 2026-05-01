@@ -16,7 +16,7 @@ import { useAutoplay } from './hooks/useAutoplay';
 import { useControlsVisibility } from './hooks/useControlsVisibility';
 import { useFullscreen } from './hooks/useFullscreen';
 import { useWakeLock } from './hooks/useWakeLock';
-import { useSpatialAudio } from './hooks/useSpatialAudio';
+import { useSpatialAudio, isSpatialAudioUiSupported } from './hooks/useSpatialAudio';
 import ControlBar from './controls/ControlBar';
 import EndScreen from './controls/endscreen/EndScreen';
 import BufferingSpinner from './overlays/BufferingSpinner';
@@ -29,6 +29,7 @@ import PosterBackground from './overlays/PosterBackground';
 import ShortcutOverlay from './overlays/ShortcutOverlay';
 import StatsForNerdsOverlay from './overlays/StatsForNerdsOverlay';
 import SkipMarkerOverlay from './overlays/SkipMarkerOverlay';
+import SpatialAudioDialog from './controls/settings/SpatialAudioDialog';
 import AmbientBackground from '~/components/components/hlsplayer/overlays/AmbientBackground';
 import GuestPreviewWall from '~/components/components/hlsplayer/overlays/GuestPreviewWall';
 import GuestPreviewNudge from '~/components/components/hlsplayer/overlays/GuestPreviewNudge';
@@ -174,6 +175,9 @@ function PlayerInner({
     audioVisualizer,
     statsForNerds,
     spatialAudio,
+    setSpatialAudio,
+    spatialAudioDialogOpen,
+    setSpatialAudioDialogOpen,
     autoPlay: autoPlayEnabled,
     loop: loopEnabled,
     authPlaybackFeatures: authPlayback,
@@ -308,7 +312,29 @@ function PlayerInner({
   const seekFeedbackTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastTapRef = useRef<{ time: number; x: number } | null>(null);
   const lastDoubleTapTimeRef = useRef(0);
-  const SEEK_SECONDS = 10;
+  /** Rapid seeks in the same direction grow the jump (+step per repeat, capped). */
+  const KEYBOARD_SEEK_BASE = 5;
+  const DOUBLE_TAP_SEEK_BASE = 10;
+  const SEEK_BURST_STEP = 5;
+  const SEEK_BURST_MAX = 60;
+  const SEEK_BURST_WINDOW_MS = 850;
+  const seekBurstRef = useRef<{
+    direction: 'back' | 'forward' | null;
+    count: number;
+    lastTs: number;
+    burstBase: number;
+  }>({ direction: null, count: 0, lastTs: 0, burstBase: KEYBOARD_SEEK_BASE });
+
+  const [seekFeedbackSeconds, setSeekFeedbackSeconds] = useState(DOUBLE_TAP_SEEK_BASE);
+
+  useEffect(() => {
+    seekBurstRef.current = {
+      direction: null,
+      count: 0,
+      lastTs: 0,
+      burstBase: KEYBOARD_SEEK_BASE,
+    };
+  }, [file?.unique_id]);
   const [showShortcuts, setShowShortcuts] = useState(false);
   const [visualizerLiftPx, setVisualizerLiftPx] = useState(0);
 
@@ -519,28 +545,16 @@ function PlayerInner({
     loadSpriteMeta();
   }, [file?.default_thumbnail, setSpriteMeta, setSpriteUrl]);
 
-  const performSeekByTap = useCallback(
-    (clientX: number) => {
-      const container = containerRef.current;
-      const video = videoRef.current;
-      if (!container || !video || (isReelCtx && !embedReelControls) || inPipForThisVideo) return;
-      const rect = container.getBoundingClientRect();
-      const x = clientX - rect.left;
-      const width = rect.width;
-      if (x < width / 3) {
-        video.currentTime = Math.max(0, video.currentTime - SEEK_SECONDS);
-        setSeekFeedbackDirection('back');
-      } else if (x > (width * 2) / 3) {
-        video.currentTime = Math.min(video.duration || 0, video.currentTime + SEEK_SECONDS);
-        setSeekFeedbackDirection('forward');
-      } else {
-        return;
-      }
+  const triggerSeekFeedbackOverlay = useCallback(
+    (direction: 'back' | 'forward', seconds: number) => {
+      if ((isReelCtx && !embedReelControls) || inPipForThisVideo) return;
       if (feedbackTimeoutRef.current) {
         clearTimeout(feedbackTimeoutRef.current);
         feedbackTimeoutRef.current = null;
       }
       setShowPlayPauseFeedback(false);
+      setSeekFeedbackDirection(direction);
+      setSeekFeedbackSeconds(seconds);
       setSeekFeedbackFading(false);
       setShowSeekFeedback(true);
       if (seekFeedbackTimeoutRef.current) clearTimeout(seekFeedbackTimeoutRef.current);
@@ -552,7 +566,43 @@ function PlayerInner({
         }, 300);
       }, 600);
     },
-    [isReelCtx, embedReelControls, inPipForThisVideo]
+    [isReelCtx, embedReelControls, inPipForThisVideo],
+  );
+
+  const consumeSeekBurstDelta = useCallback((direction: 'back' | 'forward', kind: 'keyboard' | 'doubleTap') => {
+    const now = performance.now();
+    const b = seekBurstRef.current;
+    const thisBase = kind === 'doubleTap' ? DOUBLE_TAP_SEEK_BASE : KEYBOARD_SEEK_BASE;
+    if (b.direction !== direction || now - b.lastTs > SEEK_BURST_WINDOW_MS) {
+      b.direction = direction;
+      b.count = 1;
+      b.burstBase = thisBase;
+    } else {
+      b.count += 1;
+    }
+    b.lastTs = now;
+    return Math.min(SEEK_BURST_MAX, b.burstBase + (b.count - 1) * SEEK_BURST_STEP);
+  }, []);
+
+  const performSeekByTap = useCallback(
+    (clientX: number) => {
+      const container = containerRef.current;
+      const video = videoRef.current;
+      if (!container || !video || (isReelCtx && !embedReelControls) || inPipForThisVideo) return;
+      const rect = container.getBoundingClientRect();
+      const x = clientX - rect.left;
+      const width = rect.width;
+      if (x < width / 3) {
+        const delta = consumeSeekBurstDelta('back', 'doubleTap');
+        video.currentTime = Math.max(0, video.currentTime - delta);
+        triggerSeekFeedbackOverlay('back', delta);
+      } else if (x > (width * 2) / 3) {
+        const delta = consumeSeekBurstDelta('forward', 'doubleTap');
+        video.currentTime = Math.min(video.duration || 0, video.currentTime + delta);
+        triggerSeekFeedbackOverlay('forward', delta);
+      }
+    },
+    [isReelCtx, embedReelControls, inPipForThisVideo, triggerSeekFeedbackOverlay, consumeSeekBurstDelta],
   );
 
   const handleVideoClick = useCallback(() => {
@@ -676,15 +726,21 @@ function PlayerInner({
           triggerPlayPauseFeedback();
           break;
         case 'ArrowLeft':
-        case 'j':
+        case 'j': {
           e.preventDefault();
-          video.currentTime = Math.max(0, video.currentTime - 5);
+          const delta = consumeSeekBurstDelta('back', 'keyboard');
+          video.currentTime = Math.max(0, video.currentTime - delta);
+          triggerSeekFeedbackOverlay('back', delta);
           break;
+        }
         case 'ArrowRight':
-        case 'l':
+        case 'l': {
           e.preventDefault();
-          video.currentTime = Math.min(video.duration, video.currentTime + 5);
+          const delta = consumeSeekBurstDelta('forward', 'keyboard');
+          video.currentTime = Math.min(video.duration, video.currentTime + delta);
+          triggerSeekFeedbackOverlay('forward', delta);
           break;
+        }
         case 'ArrowUp':
           e.preventDefault();
           video.volume = Math.min(1, video.volume + 0.05);
@@ -756,7 +812,27 @@ function PlayerInner({
 
     window.addEventListener('keydown', handleKey);
     return () => window.removeEventListener('keydown', handleKey);
-  }, [isReelCtx, embedReelControls, inPipForThisVideo, togglePlay, triggerPlayPauseFeedback, theaterMode, handleTheaterModeChange, isMobileView, setPlaybackRate, showShortcuts, file, src, imageID, triggerMiniPlayer, getNavigateBackTarget, authPlayback, navigate]);
+  }, [
+    isReelCtx,
+    embedReelControls,
+    inPipForThisVideo,
+    togglePlay,
+    triggerPlayPauseFeedback,
+    triggerSeekFeedbackOverlay,
+    consumeSeekBurstDelta,
+    theaterMode,
+    handleTheaterModeChange,
+    isMobileView,
+    setPlaybackRate,
+    showShortcuts,
+    file,
+    src,
+    imageID,
+    triggerMiniPlayer,
+    getNavigateBackTarget,
+    authPlayback,
+    navigate,
+  ]);
 
   /** Feed embed reel: outer chrome stays visible; ControlBar shows seek-only vs full via `reelAuxiliaryChromeVisible`. */
   const showControls =
@@ -795,7 +871,7 @@ function PlayerInner({
         )}
 
         {showSeekFeedback && (!isReelCtx || embedReelControls) && !inPipForThisVideo && (
-          <SeekFeedback direction={seekFeedbackDirection} seconds={SEEK_SECONDS} fading={seekFeedbackFading} />
+          <SeekFeedback direction={seekFeedbackDirection} seconds={seekFeedbackSeconds} fading={seekFeedbackFading} />
         )}
 
         {isMiniPlayerPortalActive && miniPlayerContainerRef.current
@@ -881,6 +957,15 @@ function PlayerInner({
             onNextEpisode={hasNextControl ? handleNextVideo : undefined}
             nextEpisode={hasNextControl ? nextVideoForTooltip ?? null : null}
             onActiveChange={setSkipMarkerActive}
+          />
+        )}
+
+        {!isReelCtx && isSpatialAudioUiSupported() && (
+          <SpatialAudioDialog
+            open={spatialAudioDialogOpen}
+            onOpenChange={setSpatialAudioDialogOpen}
+            value={spatialAudio}
+            onChange={setSpatialAudio}
           />
         )}
 

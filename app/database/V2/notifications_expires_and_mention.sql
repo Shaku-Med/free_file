@@ -13,7 +13,15 @@ ALTER TABLE public.notifications
 
 ALTER TABLE public.notifications
   ADD CONSTRAINT notifications_type_check
-  CHECK (type IN ('file_like', 'file_comment', 'comment_reply', 'comment_like', 'comment_mention'));
+  CHECK (type IN (
+    'file_like',
+    'file_comment',
+    'comment_reply',
+    'comment_like',
+    'comment_mention',
+    'new_subscriber',
+    'channel_upload'
+  ));
 
 -- Index for cron: delete expired notifications
 CREATE INDEX IF NOT EXISTS idx_notifications_expires_at

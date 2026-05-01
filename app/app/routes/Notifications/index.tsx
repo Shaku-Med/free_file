@@ -4,10 +4,16 @@ import { useFileContext } from "~/lib/Context/Context";
 import { Button } from "~/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "~/components/ui/avatar";
 import { getProfilePicUrl } from "~/lib/utils/profilePic";
-import { Heart, MessageCircle, Reply, ThumbsUp, AtSign, BellRing } from "lucide-react";
+import { Heart, MessageCircle, Reply, ThumbsUp, AtSign, BellRing, UserPlus } from "lucide-react";
 import { usePushNotifications } from "~/lib/hooks/usePushNotifications";
 
-type NotificationType = "file_like" | "file_comment" | "comment_reply" | "comment_like" | "comment_mention";
+type NotificationType =
+  | "file_like"
+  | "file_comment"
+  | "comment_reply"
+  | "comment_like"
+  | "comment_mention"
+  | "new_subscriber";
 
 interface NotificationRow {
   id: string;
@@ -34,6 +40,8 @@ function getNotificationLabel(type: NotificationType): string {
       return "liked your comment";
     case "comment_mention":
       return "mentioned you in a comment";
+    case "new_subscriber":
+      return "subscribed to your channel";
     default:
       return "interacted";
   }
@@ -51,6 +59,8 @@ function getNotificationIcon(type: NotificationType) {
       return <ThumbsUp className="h-4 w-4 text-primary" />;
     case "comment_mention":
       return <AtSign className="h-4 w-4 text-primary" />;
+    case "new_subscriber":
+      return <UserPlus className="h-4 w-4 text-primary" />;
     default:
       return null;
   }
@@ -116,6 +126,10 @@ export default function NotificationsPage() {
   };
 
   const linkTo = (n: NotificationRow) => {
+    if (n.type === "new_subscriber") {
+      const u = n.users?.username;
+      return u ? `/profile/${encodeURIComponent(u)}` : "/";
+    }
     const slug = n.files?.unique_id;
     if (!slug) return "/";
     if (n.comment_id) {

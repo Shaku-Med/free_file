@@ -10,6 +10,7 @@ import {
   DialogTrigger,
 } from '~/components/ui/dialog';
 import { Button } from '~/components/ui/button';
+import { Tooltip, TooltipContent, TooltipTrigger } from '~/components/ui/tooltip';
 
 const benefits = [
   'Full quality playback when your connection can handle it',
@@ -31,18 +32,23 @@ export default function GuestPlaybackBenefitsDialog({
 
   return (
     <Dialog>
-      <DialogTrigger asChild>
-        <button
-          type="button"
-          onClick={(e) => {
-            e.stopPropagation();
-          }}
-          className={btnClass}
-          aria-label="What you get when you sign in"
-        >
-          <CircleHelp className="h-5 w-5" />
-        </button>
-      </DialogTrigger>
+      <Tooltip delayDuration={350}>
+        <TooltipTrigger asChild>
+          <DialogTrigger asChild>
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+              }}
+              className={btnClass}
+              aria-label="What you get when you sign in"
+            >
+              <CircleHelp className="h-5 w-5" />
+            </button>
+          </DialogTrigger>
+        </TooltipTrigger>
+        <TooltipContent side="top">Sign in for the full player</TooltipContent>
+      </Tooltip>
       <DialogContent className="max-w-xl sm:max-w-xl  w-full">
         <DialogHeader>
           <DialogTitle>Sign in for the full player</DialogTitle>

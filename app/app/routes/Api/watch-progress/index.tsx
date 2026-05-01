@@ -1,6 +1,14 @@
 import db from '~/lib/Database/supabase';
 import { isValidFileId, isValidUUID } from '~/lib/Security/inputValidation';
 import { isAuthenticated } from '~/lib/Security/Password';
+import { rateLimiter, RateLimiter } from '~/routes/Auth/fun/rateLimit';
+
+/** Hard upper bound on stored timestamps (24h). Matches the SQL function's CHECK ceiling. */
+const MAX_TIMESTAMP_SECONDS = 86_400;
+/** Server-side guardrail: client throttles to one save per 10s, so this is generous headroom. */
+const MAX_SAVES_PER_WINDOW = 60;
+const RATE_WINDOW_MS = 60 * 1000;
+const RATE_BLOCK_MS = 5 * 60 * 1000;
 
 const toJson = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), {
@@ -146,8 +154,30 @@ export const action = async ({ request }: { request: Request }) => {
 
     const ct = Number(currentTime);
     const dur = Number(duration);
-    if (!Number.isFinite(ct) || ct < 0) return toJson({ error: 'Invalid currentTime' }, 400);
-    if (!Number.isFinite(dur) || dur < 0) return toJson({ error: 'Invalid duration' }, 400);
+    if (!Number.isFinite(ct) || ct < 0 || ct > MAX_TIMESTAMP_SECONDS) {
+      return toJson({ error: 'Invalid currentTime' }, 400);
+    }
+    if (!Number.isFinite(dur) || dur < 0 || dur > MAX_TIMESTAMP_SECONDS) {
+      return toJson({ error: 'Invalid duration' }, 400);
+    }
+
+    /**
+     * Server-side rate limit. The hook already throttles to one save per 10s of timeupdate,
+     * so a legitimate viewer comes nowhere near 60 saves/min. A misbehaving client gets a
+     * 429 + 5-minute block. Keyed per user (or IP for guests, though guests get rejected
+     * earlier — defense in depth).
+     */
+    const rateKey = user.id || `ip:${RateLimiter.getClientIP(request)}`;
+    const limit = rateLimiter.checkLimit(
+      rateKey,
+      'watch-progress',
+      MAX_SAVES_PER_WINDOW,
+      RATE_WINDOW_MS,
+      RATE_BLOCK_MS,
+    );
+    if (!limit.allowed) {
+      return toJson({ saved: false, error: limit.error ?? 'Rate limited' }, 429);
+    }
 
     let q = db.from('files').select('id');
     if (fileId) q = q.eq('id', fileId);

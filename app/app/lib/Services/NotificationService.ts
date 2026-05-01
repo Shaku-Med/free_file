@@ -3,7 +3,13 @@ import db from "~/lib/Database/supabase";
 /** Default: notifications expire after this many days (for cron cleanup). */
 export const NOTIFICATION_EXPIRY_DAYS = 90;
 
-export type NotificationType = "file_like" | "file_comment" | "comment_reply" | "comment_like" | "comment_mention";
+export type NotificationType =
+  | "file_like"
+  | "file_comment"
+  | "comment_reply"
+  | "comment_like"
+  | "comment_mention"
+  | "new_subscriber";
 
 export interface CreateNotificationInput {
   userId: string;

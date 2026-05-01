@@ -15,6 +15,7 @@ import {
 import {
   DEFAULT_SPATIAL_CONFIG,
   type SpatialAudioConfig,
+  type SpatialAudioMode,
 } from './hooks/useSpatialAudio';
 
 export interface QualityLevel {
@@ -317,24 +318,43 @@ export function PlayerProvider({
     let parsed: SpatialAudioConfig = DEFAULT_SPATIAL_CONFIG;
     if (playerSettings.spatialAudioConfig) {
       try {
-        const raw = JSON.parse(playerSettings.spatialAudioConfig) as Partial<SpatialAudioConfig>;
+        const raw = JSON.parse(playerSettings.spatialAudioConfig) as Partial<SpatialAudioConfig> & {
+          mode?: string;
+        };
+        // Migrate legacy mode names from the original implementation so saved
+        // cookies don't get silently reset back to defaults after we renamed modes.
+        const migrate = (m: string | undefined): SpatialAudioMode | null => {
+          switch (m) {
+            case 'stereo':
+            case 'orbit':
+            case 'tumble':
+            case 'figure8':
+            case 'manual':
+            case 'room-front':
+              return m;
+            case 'orbit-horizontal':
+              return 'orbit';
+            case 'orbit-vertical':
+              return 'tumble';
+            default:
+              return null;
+          }
+        };
+        const migratedMode = migrate(raw.mode);
         parsed = {
           enabled: typeof raw.enabled === 'boolean' ? raw.enabled : DEFAULT_SPATIAL_CONFIG.enabled,
-          mode:
-            raw.mode === 'manual' ||
-            raw.mode === 'room-front' ||
-            raw.mode === 'orbit-horizontal' ||
-            raw.mode === 'orbit-vertical' ||
-            raw.mode === 'figure8'
-              ? raw.mode
-              : DEFAULT_SPATIAL_CONFIG.mode,
+          mode: migratedMode ?? DEFAULT_SPATIAL_CONFIG.mode,
           position: {
             x: Number.isFinite(raw.position?.x) ? Number(raw.position!.x) : 0,
             y: Number.isFinite(raw.position?.y) ? Number(raw.position!.y) : 0,
             z: Number.isFinite(raw.position?.z) ? Number(raw.position!.z) : -1,
           },
-          radius: Number.isFinite(raw.radius) ? Math.max(0.1, Math.min(5, Number(raw.radius))) : DEFAULT_SPATIAL_CONFIG.radius,
-          speedHz: Number.isFinite(raw.speedHz) ? Math.max(0.02, Math.min(2, Number(raw.speedHz))) : DEFAULT_SPATIAL_CONFIG.speedHz,
+          radius: Number.isFinite(raw.radius)
+            ? Math.max(0.1, Math.min(5, Number(raw.radius)))
+            : DEFAULT_SPATIAL_CONFIG.radius,
+          speedHz: Number.isFinite(raw.speedHz)
+            ? Math.max(0.02, Math.min(2, Number(raw.speedHz)))
+            : DEFAULT_SPATIAL_CONFIG.speedHz,
         };
       } catch {
         /* keep defaults */

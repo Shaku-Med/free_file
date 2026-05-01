@@ -10,11 +10,17 @@ import {
 import { Button } from "~/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "~/components/ui/avatar";
 import { getProfilePicUrl } from "~/lib/utils/profilePic";
-import { Bell, Heart, MessageCircle, Reply, ThumbsUp, AtSign, RefreshCw } from "lucide-react";
+import { Bell, Heart, MessageCircle, Reply, ThumbsUp, AtSign, RefreshCw, UserPlus } from "lucide-react";
 import { cn } from "~/lib/utils";
 import { Tooltip, TooltipContent, TooltipTrigger } from "~/components/ui/tooltip";
 
-type NotificationType = "file_like" | "file_comment" | "comment_reply" | "comment_like" | "comment_mention";
+type NotificationType =
+  | "file_like"
+  | "file_comment"
+  | "comment_reply"
+  | "comment_like"
+  | "comment_mention"
+  | "new_subscriber";
 
 interface NotificationRow {
   id: string;
@@ -57,6 +63,8 @@ function getNotificationIcon(type: NotificationType) {
       return <ThumbsUp className="h-3.5 w-3.5 text-primary" />;
     case "comment_mention":
       return <AtSign className="h-3.5 w-3.5 text-primary" />;
+    case "new_subscriber":
+      return <UserPlus className="h-3.5 w-3.5 text-primary" />;
     default:
       return null;
   }
@@ -65,6 +73,10 @@ function getNotificationIcon(type: NotificationType) {
 const AUTO_REFRESH_MS = 6 * 60 * 1000;
 
 function linkTo(n: NotificationRow): string {
+  if (n.type === "new_subscriber") {
+    const u = n.users?.username;
+    return u ? `/profile/${encodeURIComponent(u)}` : "/";
+  }
   const slug = n.files?.unique_id;
   if (!slug) return "/";
   if (n.comment_id) {
