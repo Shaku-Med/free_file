@@ -82,6 +82,12 @@ export async function enrichFeedFilesWithInteractions(
       view_count: f.view_count,
       share_count: f.share_count,
       is_reel: f.is_reel,
+      // Series fields — required for VideoCard badges + resume click logic.
+      is_series_main: f.is_series_main,
+      is_series_episode: f.is_series_episode,
+      is_files_series_item: f.is_files_series_item,
+      file_series_id: f.file_series_id,
+      file_series_episode_id: f.file_series_episode_id,
       feed_reel_cluster_id:
         f.feed_reel_cluster_id != null && f.feed_reel_cluster_id !== ''
           ? Number(f.feed_reel_cluster_id)

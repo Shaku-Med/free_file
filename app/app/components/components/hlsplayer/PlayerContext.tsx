@@ -12,6 +12,10 @@ import {
   type AudioVisualizerStyle,
   DEFAULT_AUDIO_VISUALIZER_STYLE,
 } from './audioVisualizerStyles';
+import {
+  DEFAULT_SPATIAL_CONFIG,
+  type SpatialAudioConfig,
+} from './hooks/useSpatialAudio';
 
 export interface QualityLevel {
   height: number;
@@ -117,6 +121,11 @@ interface PlayerContextValue {
   /** Session-only debug overlay (not persisted). */
   statsForNerds: boolean;
   setStatsForNerds: (v: boolean) => void;
+  /** 8D / spatial audio config (live — drives the panner). */
+  spatialAudio: SpatialAudioConfig;
+  setSpatialAudio: (next: SpatialAudioConfig) => void;
+  spatialAudioDialogOpen: boolean;
+  setSpatialAudioDialogOpen: (v: boolean) => void;
   startTime?: number;
   setSubtitleTrack: (id: number) => void;
   /** When false (e.g. signed-out watch page), ambient, visualizer, and up-next controls are disabled in UI. */
@@ -251,6 +260,23 @@ export function PlayerProvider({
     DEFAULT_AUDIO_VISUALIZER_STYLE
   );
   const [statsForNerds, setStatsForNerds] = useState(false);
+  const [spatialAudio, setSpatialAudioState] = useState<SpatialAudioConfig>(DEFAULT_SPATIAL_CONFIG);
+  const [spatialAudioDialogOpen, setSpatialAudioDialogOpen] = useState(false);
+  const setSpatialAudio = useCallback(
+    (next: SpatialAudioConfig) => {
+      setSpatialAudioState(next);
+      setPlayerSettings((prev) =>
+        prev
+          ? { ...prev, spatialAudio: next.enabled, spatialAudioConfig: JSON.stringify(next) }
+          : prev,
+      );
+      savePlayerSettings({
+        spatialAudio: next.enabled,
+        spatialAudioConfig: JSON.stringify(next),
+      }).catch(() => {});
+    },
+    [setPlayerSettings, savePlayerSettings],
+  );
   const setAudioVisualizerStyle = useCallback(
     (style: AudioVisualizerStyle) => {
       if (!authPlaybackFeatures) return;
@@ -286,6 +312,37 @@ export function PlayerProvider({
       setAudioVisualizerStyleState(DEFAULT_AUDIO_VISUALIZER_STYLE);
       setAmbientModeState(false);
     }
+
+    /** Spatial audio: parse stored config; fall back to defaults if cookie is empty/corrupt. */
+    let parsed: SpatialAudioConfig = DEFAULT_SPATIAL_CONFIG;
+    if (playerSettings.spatialAudioConfig) {
+      try {
+        const raw = JSON.parse(playerSettings.spatialAudioConfig) as Partial<SpatialAudioConfig>;
+        parsed = {
+          enabled: typeof raw.enabled === 'boolean' ? raw.enabled : DEFAULT_SPATIAL_CONFIG.enabled,
+          mode:
+            raw.mode === 'manual' ||
+            raw.mode === 'room-front' ||
+            raw.mode === 'orbit-horizontal' ||
+            raw.mode === 'orbit-vertical' ||
+            raw.mode === 'figure8'
+              ? raw.mode
+              : DEFAULT_SPATIAL_CONFIG.mode,
+          position: {
+            x: Number.isFinite(raw.position?.x) ? Number(raw.position!.x) : 0,
+            y: Number.isFinite(raw.position?.y) ? Number(raw.position!.y) : 0,
+            z: Number.isFinite(raw.position?.z) ? Number(raw.position!.z) : -1,
+          },
+          radius: Number.isFinite(raw.radius) ? Math.max(0.1, Math.min(5, Number(raw.radius))) : DEFAULT_SPATIAL_CONFIG.radius,
+          speedHz: Number.isFinite(raw.speedHz) ? Math.max(0.02, Math.min(2, Number(raw.speedHz))) : DEFAULT_SPATIAL_CONFIG.speedHz,
+        };
+      } catch {
+        /* keep defaults */
+      }
+    }
+    // Master toggle wins over the JSON field if they ever disagree (cookie tampering).
+    parsed.enabled = parsed.enabled && playerSettings.spatialAudio === true;
+    setSpatialAudioState(parsed);
     const v = videoRef.current;
     if (v) {
       // Don't touch the video element while AirPlay / Chromecast is active —
@@ -475,6 +532,74 @@ export function PlayerProvider({
     setState(s => ({ ...s, currentSubtitleTrack: id }));
   }, []);
 
+  /**
+   * Sync native `<video>` state changes back into our UI state.
+   * Some browser UI / context-menu actions (like “Loop”) mutate element properties directly
+   * without going through our controls.
+   */
+  useEffect(() => {
+    const v = videoRef.current;
+    if (!v) return;
+
+    let cancelled = false;
+    let iv: ReturnType<typeof setInterval> | null = null;
+
+    const isRemote =
+      (v as any).webkitCurrentPlaybackTargetIsWireless ||
+      (v as any).remote?.state === 'connected';
+    if (isRemote) return;
+
+    const syncOnce = () => {
+      if (cancelled) return;
+      const el = videoRef.current;
+      if (!el) return;
+
+      // Loop: must be polled (no dedicated event when toggled via context menu).
+      if (el.loop !== loop) {
+        setLoopState(el.loop);
+        setPlayerSettings(prev => (prev ? { ...prev, loop: el.loop } : prev));
+        savePlayerSettings({ loop: el.loop }).catch(() => {});
+      }
+
+      // Muted/volume: keep UI in sync (do not persist volume here).
+      setState(s => {
+        const nextMuted = Boolean(el.muted);
+        const nextVol = Number.isFinite(el.volume) ? Math.max(0, Math.min(1, el.volume)) : s.volume;
+        if (s.isMuted === nextMuted && s.volume === nextVol) return s;
+        return { ...s, isMuted: nextMuted, volume: nextVol };
+      });
+
+      // Playback rate: some browsers allow changing this via native UI.
+      if (Number.isFinite(el.playbackRate) && el.playbackRate !== state.playbackRate) {
+        const rate = el.playbackRate;
+        setState(s => (s.playbackRate === rate ? s : { ...s, playbackRate: rate }));
+        setPlayerSettings(prev => (prev ? { ...prev, playbackRate: rate } : prev));
+        savePlayerSettings({ playbackRate: rate }).catch(() => {});
+      }
+    };
+
+    const onVolume = () => syncOnce();
+    const onRate = () => syncOnce();
+    const onLoaded = () => syncOnce();
+
+    v.addEventListener('volumechange', onVolume);
+    v.addEventListener('ratechange', onRate);
+    v.addEventListener('loadedmetadata', onLoaded);
+
+    // Poll loop + any direct property edits.
+    iv = setInterval(syncOnce, 750);
+    syncOnce();
+
+    return () => {
+      cancelled = true;
+      v.removeEventListener('volumechange', onVolume);
+      v.removeEventListener('ratechange', onRate);
+      v.removeEventListener('loadedmetadata', onLoaded);
+      if (iv) clearInterval(iv);
+    };
+    // Intentionally include `loop`/`state.playbackRate` so we compare against the latest UI.
+  }, [videoRef, loop, state.playbackRate, setPlayerSettings, savePlayerSettings]);
+
   const setAmbientMode = useCallback(
     (v: boolean) => {
       if (!authPlaybackFeatures) return;
@@ -531,6 +656,10 @@ export function PlayerProvider({
     setAudioVisualizerStyle,
     statsForNerds,
     setStatsForNerds,
+    spatialAudio,
+    setSpatialAudio,
+    spatialAudioDialogOpen,
+    setSpatialAudioDialogOpen,
     startTime,
     setSubtitleTrack,
     authPlaybackFeatures,

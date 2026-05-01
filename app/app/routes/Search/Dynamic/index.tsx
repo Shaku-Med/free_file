@@ -12,6 +12,12 @@ import { SignInToSeeMore } from "~/components/SignInWall";
 import db from "~/lib/Database/supabase";
 import { isAuthenticated } from "~/lib/Security/Password";
 import { sanitizeSearchQuery } from "~/lib/Security/inputValidation";
+import { groupConsecutiveReelClusters } from "~/lib/feed/groupConsecutiveReelClusters";
+import { Swiper, SwiperSlide } from "swiper/react";
+import { Navigation, A11y, Keyboard } from "swiper/modules";
+import type { Swiper as SwiperType } from "swiper";
+import "swiper/css";
+import "swiper/css/navigation";
 
 const SEARCH_LIMIT = 20;
 
@@ -33,6 +39,16 @@ function mapSearchFile(file: any) {
     view_count: file.view_count,
     share_count: file.share_count,
     is_reel: file.is_reel,
+    // Series fields — required for VideoCard badges + resume click logic.
+    is_series_main: file.is_series_main,
+    is_series_episode: file.is_series_episode,
+    is_files_series_item: file.is_files_series_item,
+    file_series_id: file.file_series_id,
+    file_series_episode_id: file.file_series_episode_id,
+    feed_reel_cluster_id:
+      file.feed_reel_cluster_id != null && file.feed_reel_cluster_id !== ""
+        ? Number(file.feed_reel_cluster_id)
+        : undefined,
     duration: file.duration,
     categories: file.categories,
     tags: file.tags,
@@ -345,6 +361,76 @@ const Search = () => {
 
   const showSuggestions = activeTerm && files.length === 0 && searchUsers.length === 0;
 
+  const renderFileGroups = (items: FileType[], keyPrefix: string) => {
+    const groups = groupConsecutiveReelClusters(items);
+    let indexCounter = 0;
+    return (
+      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-2">
+        {groups.map((g) => {
+          if (g.kind === "single") {
+            const file = g.file;
+            const index = indexCounter++;
+            return (
+              <VideoCard
+                key={`${keyPrefix}-${file.id || file.unique_id || index}`}
+                data={file}
+                index={index}
+                userActions={localUserActions}
+                currentUserId={userId || undefined}
+                hideActions={{ completely: false }}
+              />
+            );
+          }
+          const clusterKey = g.files[0]?.feed_reel_cluster_id ?? g.files[0]?.id ?? keyPrefix;
+          return (
+            <div
+              key={`${keyPrefix}-reel-${clusterKey}`}
+              className="col-span-full w-full min-w-0 max-w-full overflow-hidden"
+            >
+              <Swiper
+                modules={[Navigation, A11y, Keyboard]}
+                slidesPerView={3.15}
+                spaceBetween={10}
+                speed={380}
+                watchOverflow
+                observer
+                observeParents
+                resizeObserver
+                navigation
+                keyboard={{ enabled: true, onlyInViewport: true }}
+                breakpoints={{
+                  640: { slidesPerView: 2.5, spaceBetween: 12 },
+                  768: { slidesPerView: 3, spaceBetween: 12 },
+                  1024: { slidesPerView: 3.5, spaceBetween: 14 },
+                  1280: { slidesPerView: 4, spaceBetween: 14 },
+                  1536: { slidesPerView: 5, spaceBetween: 16 },
+                }}
+                className="feed-reel-swiper"
+                onInit={(swiper: SwiperType) => swiper.update()}
+              >
+                {g.files.map((file, keyIndex) => {
+                  const index = indexCounter++;
+                  return (
+                    <SwiperSlide key={file.id || file.unique_id || keyIndex} className="!h-auto">
+                      <VideoCard
+                        data={file}
+                        layout="reelStrip"
+                        index={index}
+                        userActions={localUserActions}
+                        currentUserId={userId || undefined}
+                        hideActions={{ completely: false, halfway: true }}
+                      />
+                    </SwiperSlide>
+                  );
+                })}
+              </Swiper>
+            </div>
+          );
+        })}
+      </div>
+    );
+  };
+
   return (
     <div className="mx-auto w-full py-10">
       <div className="space-y-8">
@@ -424,18 +510,7 @@ const Search = () => {
                   {searchUsers.length > 0 && (
                     <h3 className="text-lg font-semibold text-foreground">Files</h3>
                   )}
-                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-2">
-                    {files.map((file: FileType, index: number) => (
-                      <VideoCard
-                        key={file.id || index}
-                        data={file}
-                        index={index}
-                        userActions={localUserActions}
-                        currentUserId={userId || undefined}
-                        hideActions={{completely: false}}
-                      />
-                    ))}
-                  </div>
+                  {renderFileGroups(files, "search")}
 
                   {isLoadingMore && (
                     <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-2">
@@ -471,18 +546,7 @@ const Search = () => {
               {showSuggestions && suggestions.length > 0 && (
                 <div className="space-y-4">
                   <h3 className="text-lg font-semibold text-foreground">Suggested for you</h3>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-3 gap-4">
-                    {suggestions.map((file: FileType, index: number) => (
-                      <VideoCard
-                        key={file.id || index}
-                        data={file}
-                        index={index}
-                        userActions={localUserActions}
-                        currentUserId={userId || undefined}
-                        hideActions={{completely: false}}
-                      />
-                    ))}
-                  </div>
+                  {renderFileGroups(suggestions, "suggested")}
                 </div>
               )}
             </div>
@@ -491,18 +555,7 @@ const Search = () => {
           suggestions.length > 0 && (
             <div className="space-y-4">
               <h3 className="text-lg font-semibold text-foreground">Quick suggestions</h3>
-              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-3 gap-4">
-                {suggestions.map((file: FileType, index: number) => (
-                  <VideoCard
-                    key={file.id || index}
-                    data={file}
-                    index={index}
-                    userActions={localUserActions}
-                    currentUserId={userId || undefined}
-                    hideActions={{completely: false}}
-                  />
-                ))}
-              </div>
+              {renderFileGroups(suggestions, "quick")}
             </div>
           )
         )}

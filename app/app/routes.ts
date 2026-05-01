@@ -78,6 +78,8 @@ export default [
         route(`player-settings`, 'routes/Api/player-settings/index.tsx'),
         route(`views/increment`, 'routes/Api/views/increment.tsx'),
         route(`views/watch-history`, 'routes/Api/views/watch-history.tsx'),
+        route(`watch-progress`, 'routes/Api/watch-progress/index.tsx'),
+        route(`series/resume`, 'routes/Api/series/resume.tsx'),
         route(`webauthn/register-options`, 'routes/Api/webauthn/register-options.tsx'),
         route(`webauthn/register-verify`, 'routes/Api/webauthn/register-verify.tsx'),
         route(`webauthn/login-options`, 'routes/Api/webauthn/login-options.tsx'),

@@ -17,6 +17,8 @@ const COOKIE_NAMES = {
   audioVisualizer: 'player-audio-visualizer',
   audioVisualizerStyle: 'player-audio-visualizer-style',
   quality: 'hls-quality-preference',
+  spatialAudio: 'player-spatial-audio',
+  spatialAudioConfig: 'player-spatial-audio-config',
 } as const;
 
 /** Legacy shadcn sidebar cookie; used only if `player-sidebar-open` is absent. */
@@ -62,6 +64,9 @@ export interface PlayerSettingsDto {
   audioVisualizer?: boolean;
   audioVisualizerStyle?: string;
   quality?: string;
+  spatialAudio?: boolean;
+  /** JSON-encoded SpatialAudioConfig from `useSpatialAudio`. Server validates length only — shape is checked on read. */
+  spatialAudioConfig?: string;
 }
 
 function toResponse(body: unknown, status: number, setCookies: string[] = []): Response {
@@ -93,6 +98,9 @@ export function getPlayerSettingsFromCookies(cookieHeader: string | null) {
       ? (styleRaw as (typeof validStyles)[number])
       : 'scroll';
   const quality = get(COOKIE_NAMES.quality) ?? 'auto';
+  const spatialAudio =
+    get(COOKIE_NAMES.spatialAudio) === '1' || get(COOKIE_NAMES.spatialAudio) === 'true';
+  const spatialAudioConfig = get(COOKIE_NAMES.spatialAudioConfig) ?? '';
   const sidebarOpenRaw = get(COOKIE_NAMES.sidebarOpen);
   let sidebarOpen = true;
   if (sidebarOpenRaw === 'true') sidebarOpen = true;
@@ -114,6 +122,8 @@ export function getPlayerSettingsFromCookies(cookieHeader: string | null) {
     audioVisualizer,
     audioVisualizerStyle,
     quality,
+    spatialAudio,
+    spatialAudioConfig,
   };
 }
 
@@ -208,6 +218,17 @@ export const action = async ({ request }: { request: Request }) => {
       const v = body.quality.trim() || 'auto';
       setCookies.push(buildSetCookie(COOKIE_NAMES.quality, v, secure));
       result.quality = v;
+    }
+    if (typeof body.spatialAudio === 'boolean') {
+      const v = body.spatialAudio ? '1' : '0';
+      setCookies.push(buildSetCookie(COOKIE_NAMES.spatialAudio, v, secure));
+      result.spatialAudio = body.spatialAudio;
+    }
+    if (typeof body.spatialAudioConfig === 'string') {
+      // Cap to a sane size — shape validation lives on the client where the type exists.
+      const trimmed = body.spatialAudioConfig.slice(0, 1024);
+      setCookies.push(buildSetCookie(COOKIE_NAMES.spatialAudioConfig, trimmed, secure));
+      result.spatialAudioConfig = trimmed;
     }
 
     return toResponse({ success: true, settings: result }, 200, setCookies);

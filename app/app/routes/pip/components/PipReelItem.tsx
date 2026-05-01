@@ -204,7 +204,7 @@ function PipReelItemInner({
     return 30;
   }, [isHLS, file.duration]);
 
-  const runViewIncrement = useCallback(() => {
+  const runViewIncrement = useCallback((currentTimeSeconds?: number, durationSeconds?: number) => {
     if (
       !file.id ||
       !file.unique_id ||
@@ -216,8 +216,13 @@ function PipReelItemInner({
     const payload = {
       fileId: file.id,
       uniqueId: file.unique_id,
-      minimumWatchSeconds: requiredViewSeconds,
-      ...(file.duration != null && { durationSeconds: Number(file.duration) }),
+      currentTimeSeconds: typeof currentTimeSeconds === 'number' ? currentTimeSeconds : requiredViewSeconds,
+      durationSeconds:
+        typeof durationSeconds === 'number'
+          ? durationSeconds
+          : file.duration != null
+            ? Number(file.duration)
+            : undefined,
     };
     fetch('/api/views/increment', {
       method: 'POST',
@@ -241,18 +246,14 @@ function PipReelItemInner({
     requiredViewSeconds,
   ]);
 
-  const onVideoPlayForView = useCallback(() => {
-    if (
-      hasIncrementedView ||
-      viewIncrementSentRef.current ||
-      viewIncrementTimerRef.current
-    )
-      return;
-    viewIncrementTimerRef.current = setTimeout(() => {
-      viewIncrementTimerRef.current = null;
-      runViewIncrement();
-    }, requiredViewSeconds * 1000);
-  }, [hasIncrementedView, runViewIncrement, requiredViewSeconds]);
+  const onVideoTimeForView = useCallback(() => {
+    if (hasIncrementedView || viewIncrementSentRef.current) return;
+    const v = trackedVideoEl ?? videoRef.current;
+    if (!v || !Number.isFinite(v.currentTime)) return;
+    if (v.currentTime >= requiredViewSeconds) {
+      runViewIncrement(v.currentTime, Number.isFinite(v.duration) ? v.duration : undefined);
+    }
+  }, [hasIncrementedView, requiredViewSeconds, runViewIncrement, trackedVideoEl]);
 
   useEffect(
     () => () => {
@@ -269,8 +270,15 @@ function PipReelItemInner({
   }, []);
 
   const handleVideoPlay = useCallback(() => {
-    onVideoPlayForView();
-  }, [onVideoPlayForView]);
+    onVideoTimeForView();
+  }, [onVideoTimeForView]);
+
+  useEffect(() => {
+    const v = trackedVideoEl ?? videoRef.current;
+    if (!v) return;
+    v.addEventListener('timeupdate', onVideoTimeForView);
+    return () => v.removeEventListener('timeupdate', onVideoTimeForView);
+  }, [trackedVideoEl, onVideoTimeForView]);
 
   const fileId = item.fileId ?? item.id;
   const uniqueId = item.unique_id ?? item.id;

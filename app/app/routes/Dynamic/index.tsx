@@ -1187,14 +1187,19 @@ const index = () => {
     return 30;
   })();
 
-  const runViewIncrement = useCallback(() => {
+  const runViewIncrement = useCallback((currentTimeSeconds?: number, durationSeconds?: number) => {
     if (!file_data?.id || !file_data?.unique_id || hasIncrementedView || viewIncrementSentRef.current) return;
     viewIncrementSentRef.current = true;
     const payload = {
       fileId: file_data.id,
       uniqueId: file_data.unique_id,
-      minimumWatchSeconds: requiredViewSeconds,
-      ...(file_data.duration != null && { durationSeconds: Number(file_data.duration) }),
+      currentTimeSeconds: typeof currentTimeSeconds === 'number' ? currentTimeSeconds : requiredViewSeconds,
+      durationSeconds:
+        typeof durationSeconds === 'number'
+          ? durationSeconds
+          : file_data.duration != null
+            ? Number(file_data.duration)
+            : undefined,
     };
     fetch('/api/views/increment', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
       .then((r) => (r.ok ? r.json() : null))
@@ -1207,14 +1212,14 @@ const index = () => {
       .catch(() => {});
   }, [file_data?.id, file_data?.unique_id, file_data?.duration, hasIncrementedView, requiredViewSeconds]);
 
-  const viewIncrementTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const onVideoPlayForView = useCallback(() => {
-    if (hasIncrementedView || viewIncrementSentRef.current || viewIncrementTimerRef.current) return;
-    viewIncrementTimerRef.current = setTimeout(() => {
-      viewIncrementTimerRef.current = null;
-      runViewIncrement();
-    }, requiredViewSeconds * 1000);
-  }, [hasIncrementedView, runViewIncrement, requiredViewSeconds]);
+  const onVideoTimeForView = useCallback(() => {
+    if (hasIncrementedView || viewIncrementSentRef.current) return;
+    const v = watchVideoRef.current;
+    if (!v || !Number.isFinite(v.currentTime)) return;
+    if (v.currentTime >= requiredViewSeconds) {
+      runViewIncrement(v.currentTime, Number.isFinite(v.duration) ? v.duration : undefined);
+    }
+  }, [hasIncrementedView, requiredViewSeconds, runViewIncrement, watchVideoRef]);
 
   const watchHlsPayload = useMemo(() => {
     if (!isHLS || !file_data) return null;
@@ -1226,7 +1231,7 @@ const index = () => {
         className: "h-full w-full",
         onPlay: () => {
           setPlayingVideos((prev) => new Set(prev).add(1));
-          onVideoPlayForView();
+          onVideoTimeForView();
         },
         onPause: () =>
           setPlayingVideos((prev) => {
@@ -1234,6 +1239,7 @@ const index = () => {
             next.delete(1);
             return next;
           }),
+        onEnded: () => onVideoTimeForView(),
         autoPlay: true,
         muted: false,
         playsInline: true,
@@ -1257,7 +1263,7 @@ const index = () => {
     data?.owner,
     theaterMode,
     watchVideoRef,
-    onVideoPlayForView,
+    onVideoTimeForView,
     handleVideoRef,
     hlsCallBack,
     mergedSidebarUserActions,
@@ -1269,6 +1275,13 @@ const index = () => {
     seriesEpisodesResolved,
   ]);
 
+  useEffect(() => {
+    const v = watchVideoRef.current;
+    if (!v) return;
+    v.addEventListener('timeupdate', onVideoTimeForView);
+    return () => v.removeEventListener('timeupdate', onVideoTimeForView);
+  }, [watchVideoRef, onVideoTimeForView]);
+
   /**
    * Don't clear surface on payload swap — that causes a transient `null` between cleanup
    * and the new effect run, which unmounts the global player and forces a fresh HLS init
@@ -1279,7 +1292,12 @@ const index = () => {
   }, [watchHlsPayload, setSurface]);
 
   useEffect(() => {
-    return () => setSurface(null);
+    return () => {
+      const path = typeof window !== "undefined" ? window.location.pathname : "";
+      // Keep current surface alive during watch->watch handoff so playback doesn't drop to null.
+      if (isSingleSegmentWatchPath(path)) return;
+      setSurface(null);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- run cleanup only on full route unmount
   }, []);
 
@@ -1310,9 +1328,7 @@ const index = () => {
     dismissMiniPlayerChrome,
   ]);
 
-  useEffect(() => () => {
-    if (viewIncrementTimerRef.current) clearTimeout(viewIncrementTimerRef.current);
-  }, []);
+  // View increment is now time-based (timeupdate), no timeout cleanup needed.
 
   const fileDataRef = useRef(file_data);
   fileDataRef.current = file_data;

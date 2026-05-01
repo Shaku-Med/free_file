@@ -15,11 +15,20 @@ export function useHLS(videoRef: React.RefObject<HTMLVideoElement | null>) {
   const mountedRef = useRef(true);
   const qualityPrefRef = useRef(playerSettings?.quality ?? 'auto');
   qualityPrefRef.current = playerSettings?.quality ?? 'auto';
+  /** Tracks which engine path serviced the previous src so we can decide whether to hot-swap. */
+  const lastEnginePathRef = useRef<'hlsjs' | 'native' | 'direct' | null>(null);
+  const lastAttachedVideoRef = useRef<HTMLVideoElement | null>(null);
 
   useEffect(() => {
     mountedRef.current = true;
     return () => {
       mountedRef.current = false;
+      if (hlsRef.current) {
+        hlsRef.current.destroy();
+        hlsRef.current = null;
+      }
+      lastEnginePathRef.current = null;
+      lastAttachedVideoRef.current = null;
     };
   }, []);
 
@@ -28,14 +37,6 @@ export function useHLS(videoRef: React.RefObject<HTMLVideoElement | null>) {
     if (!video || !src) return;
 
     let nativeLoadedCleanup: (() => void) | null = null;
-
-    setState((s) => ({
-      ...s,
-      isLoaded: false,
-      hasError: false,
-      isBuffering: false,
-      isEnded: false,
-    }));
 
     const isHLSStream =
       src.includes('.m3u8') || src.includes('application/vnd.apple.mpegurl');
@@ -53,6 +54,86 @@ export function useHLS(videoRef: React.RefObject<HTMLVideoElement | null>) {
     /** Same stream via our API: can mint a new master URL so playlists get fresh `_st` without resetting the player instance. */
     const canRemintPlaylist =
       isHLSStream && src.includes('/api/load/video/');
+
+    /**
+     * Hot-swap path: same Hls.js engine + same video element + new HLS source. Calling
+     * `loadSource` on the existing instance keeps `<video>` attached, preserves event
+     * listeners (MANIFEST_PARSED, LEVEL_SWITCHED, SUBTITLE_TRACKS_UPDATED, ERROR — all
+     * re-fire for the new manifest), and avoids the brief detach that breaks autoplay.
+     */
+    const canHotSwapHlsjs =
+      isHLSStream &&
+      Hls.isSupported() &&
+      hlsRef.current !== null &&
+      lastEnginePathRef.current === 'hlsjs' &&
+      lastAttachedVideoRef.current === video;
+
+    if (canHotSwapHlsjs) {
+      const hls = hlsRef.current!;
+      const wasPlaying = !video.paused && !video.ended;
+
+      setState((s) => ({
+        ...s,
+        isLoaded: false,
+        hasError: false,
+        isBuffering: false,
+        isEnded: false,
+        levels: [],
+        subtitleTracks: [],
+      }));
+
+      const resumeAfterSwap = () => {
+        if (cancelled || !mountedRef.current) return;
+        if (wasPlaying) {
+          void video.play().catch(() => {});
+        }
+      };
+      hls.once(Hls.Events.MANIFEST_PARSED, resumeAfterSwap);
+
+      void (async () => {
+        let playbackSrc = src;
+        if (needsManifestExchange) {
+          const { hlsBootstrap: boot, hlsBootstrapRetry: retry } = hlsAuthRef.current;
+          const exchanged = await exchangeHlsManifestKey(src, boot, retry);
+          if (cancelled || !mountedRef.current) return;
+          if (!exchanged) {
+            hls.off(Hls.Events.MANIFEST_PARSED, resumeAfterSwap);
+            setState((s) => ({
+              ...s,
+              hasError: true,
+              isLoaded: false,
+              isBuffering: false,
+            }));
+            return;
+          }
+          playbackSrc = exchanged;
+        }
+        if (cancelled || !mountedRef.current) {
+          hls.off(Hls.Events.MANIFEST_PARSED, resumeAfterSwap);
+          return;
+        }
+        try {
+          hls.stopLoad();
+          hls.loadSource(playbackSrc);
+          hls.startLoad(-1);
+        } catch {
+          hls.off(Hls.Events.MANIFEST_PARSED, resumeAfterSwap);
+        }
+      })();
+
+      return () => {
+        cancelled = true;
+        hls.off(Hls.Events.MANIFEST_PARSED, resumeAfterSwap);
+      };
+    }
+
+    setState((s) => ({
+      ...s,
+      isLoaded: false,
+      hasError: false,
+      isBuffering: false,
+      isEnded: false,
+    }));
 
     const run = async () => {
       let playbackSrc = src;
@@ -165,6 +246,8 @@ export function useHLS(videoRef: React.RefObject<HTMLVideoElement | null>) {
 
         hls.loadSource(playbackSrc);
         hls.attachMedia(video);
+        lastEnginePathRef.current = 'hlsjs';
+        lastAttachedVideoRef.current = video;
 
         hls.on(Hls.Events.MANIFEST_PARSED, () => {
           if (!mountedRef.current) return;
@@ -261,6 +344,10 @@ export function useHLS(videoRef: React.RefObject<HTMLVideoElement | null>) {
           }
         });
       } else if (isHLSStream && canNativeHLS) {
+        if (hlsRef.current) {
+          hlsRef.current.destroy();
+          hlsRef.current = null;
+        }
         const isWireless = (video as any).webkitCurrentPlaybackTargetIsWireless;
         let sameSrc = false;
         try {
@@ -277,6 +364,8 @@ export function useHLS(videoRef: React.RefObject<HTMLVideoElement | null>) {
         }
         video.src = playbackSrc;
         video.load();
+        lastEnginePathRef.current = 'native';
+        lastAttachedVideoRef.current = video;
 
         const handleLoaded = () => {
           if (!mountedRef.current) return;
@@ -310,8 +399,14 @@ export function useHLS(videoRef: React.RefObject<HTMLVideoElement | null>) {
       } else if (isHLSStream) {
         setState((s) => ({ ...s, hasError: true, levels: [] }));
       } else {
+        if (hlsRef.current) {
+          hlsRef.current.destroy();
+          hlsRef.current = null;
+        }
         video.src = src;
         video.load();
+        lastEnginePathRef.current = 'direct';
+        lastAttachedVideoRef.current = video;
         setState((s) => ({ ...s, levels: [] }));
       }
     };
@@ -321,10 +416,6 @@ export function useHLS(videoRef: React.RefObject<HTMLVideoElement | null>) {
     return () => {
       cancelled = true;
       nativeLoadedCleanup?.();
-      if (hlsRef.current) {
-        hlsRef.current.destroy();
-        hlsRef.current = null;
-      }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- bootstrap via hlsAuthRef only; new tokens on root revalidate must not restart HLS
   }, [src]);

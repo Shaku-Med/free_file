@@ -2,6 +2,12 @@ import { useState, useCallback, useRef, useEffect } from "react";
 import type { FileType } from "~/lib/types";
 import VideoCard from "~/routes/Home/components/VideoCard";
 import { SignInToSeeMore } from "~/components/SignInWall";
+import { groupConsecutiveReelClusters } from "~/lib/feed/groupConsecutiveReelClusters";
+import { Swiper, SwiperSlide } from "swiper/react";
+import { Navigation, A11y, Keyboard } from "swiper/modules";
+import type { Swiper as SwiperType } from "swiper";
+import "swiper/css";
+import "swiper/css/navigation";
 
 function SkeletonCard() {
   return (
@@ -179,26 +185,88 @@ const ProfileTabVideosGrid = ({
 
   return (
     <div className="space-y-6" data-data-ready={dataReady}>
-      <div
-        className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-3 gap-4"
-        data-data-ready={dataReady}
-      >
-        {files.map((file, index) => (
-          <VideoCard
-            key={file.id || file.unique_id || index}
-            data={file}
-            index={index}
-            currentUserId={currentUserId}
-            userActions={userActions}
-            onUpdate={handleFileUpdate}
-            showOwnerControls={true}
-            hideActions={{completely: false}}
-          />
-        ))}
-        {isLoading &&
-          Array.from({ length: files.length === 0 ? 6 : 4 }).map((_, i) => (
-            <SkeletonCard key={`skel-${i}`} />
-          ))}
+      <div data-data-ready={dataReady}>
+        {(() => {
+          const groups = groupConsecutiveReelClusters(files);
+          let indexCounter = 0;
+          return (
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-3 gap-4">
+              {groups.map((g) => {
+                if (g.kind === "single") {
+                  const file = g.file;
+                  const index = indexCounter++;
+                  return (
+                    <VideoCard
+                      key={file.id || file.unique_id || index}
+                      data={file}
+                      index={index}
+                      currentUserId={currentUserId}
+                      userActions={userActions}
+                      onUpdate={handleFileUpdate}
+                      showOwnerControls={true}
+                      hideActions={{ completely: false }}
+                    />
+                  );
+                }
+                const clusterKey =
+                  g.files[0]?.feed_reel_cluster_id ?? g.files[0]?.id ?? `profile-${tab}`;
+                return (
+                  <div
+                    key={`profile-${tab}-reel-${clusterKey}`}
+                    className="col-span-full w-full min-w-0 max-w-full overflow-hidden"
+                  >
+                    <Swiper
+                      modules={[Navigation, A11y, Keyboard]}
+                      slidesPerView={3.15}
+                      spaceBetween={10}
+                      speed={380}
+                      watchOverflow
+                      observer
+                      observeParents
+                      resizeObserver
+                      navigation
+                      keyboard={{ enabled: true, onlyInViewport: true }}
+                      breakpoints={{
+                        640: { slidesPerView: 2.5, spaceBetween: 12 },
+                        768: { slidesPerView: 3, spaceBetween: 12 },
+                        1024: { slidesPerView: 3.5, spaceBetween: 14 },
+                        1280: { slidesPerView: 4, spaceBetween: 14 },
+                        1536: { slidesPerView: 5, spaceBetween: 16 },
+                      }}
+                      className="feed-reel-swiper"
+                      onInit={(swiper: SwiperType) => swiper.update()}
+                    >
+                      {g.files.map((file, keyIndex) => {
+                        const index = indexCounter++;
+                        return (
+                          <SwiperSlide
+                            key={file.id || file.unique_id || keyIndex}
+                            className="!h-auto"
+                          >
+                            <VideoCard
+                              data={file}
+                              layout="reelStrip"
+                              index={index}
+                              currentUserId={currentUserId}
+                              userActions={userActions}
+                              onUpdate={handleFileUpdate}
+                              showOwnerControls={true}
+                              hideActions={{ completely: false, halfway: true }}
+                            />
+                          </SwiperSlide>
+                        );
+                      })}
+                    </Swiper>
+                  </div>
+                );
+              })}
+              {isLoading &&
+                Array.from({ length: files.length === 0 ? 6 : 4 }).map((_, i) => (
+                  <SkeletonCard key={`skel-${i}`} />
+                ))}
+            </div>
+          );
+        })()}
       </div>
       {hasMore && (
         currentUserId ? (

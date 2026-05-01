@@ -21,6 +21,7 @@ function fileEditResponsePayload(row: Record<string, unknown>) {
     default_thumbnail: row.default_thumbnail ?? null,
     file_type: row.file_type ?? null,
     is_adult: row.is_adult ?? false,
+    metadata: row.metadata ?? null,
   };
 }
 
@@ -62,7 +63,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
       const { data: qrow, error: qErr } = await db
         .from("files")
         .select(
-          "id, unique_id, file_title, file_description, is_public, categories, tags, comments_enabled, comment_limit, default_thumbnail, file_type, is_adult"
+          "id, unique_id, file_title, file_description, is_public, categories, tags, comments_enabled, comment_limit, default_thumbnail, file_type, is_adult, metadata"
         )
         .eq(lookupField, fileId)
         .eq("owner_id", user.id)
@@ -102,7 +103,49 @@ export const action = async ({ request }: { request: Request }) => {
     }
 
     const body = await request.json();
-    const { fileId, title, description, isPublic, categories, tags, defaultThumbnail, commentsEnabled, commentLimit } = body || {};
+    const { fileId, title, description, isPublic, categories, tags, defaultThumbnail, commentsEnabled, commentLimit, markers } = body || {};
+
+    /**
+     * Skip-intro / next-episode markers — owner-edited, baked into `metadata.markers` so
+     * every viewer's player picks them up automatically. Each field accepts a non-negative
+     * number (seconds) or null to clear it. We sanity-check the relationship between the
+     * intro start/end so the player can't get into a state where the skip button never hides.
+     */
+    let parsedMarkers: { introStart: number | null; introEnd: number | null; creditsStart: number | null } | undefined;
+    if (markers !== undefined) {
+      if (markers === null) {
+        parsedMarkers = { introStart: null, introEnd: null, creditsStart: null };
+      } else if (typeof markers !== "object") {
+        return toJson({ error: "markers must be an object or null" }, 400);
+      } else {
+        const m = markers as Record<string, unknown>;
+        const coerce = (k: string): number | null | undefined => {
+          if (!(k in m)) return undefined;
+          const v = m[k];
+          if (v === null) return null;
+          if (typeof v === "number" && Number.isFinite(v) && v >= 0 && v <= 86_400) return v;
+          return Symbol() as unknown as number; // sentinel for "invalid"
+        };
+        const isStart = coerce("introStart");
+        const isEnd = coerce("introEnd");
+        const cStart = coerce("creditsStart");
+        if (typeof isStart === "symbol" || typeof isEnd === "symbol" || typeof cStart === "symbol") {
+          return toJson({ error: "markers values must be non-negative numbers (seconds) or null" }, 400);
+        }
+        if (
+          typeof isStart === "number" &&
+          typeof isEnd === "number" &&
+          isEnd <= isStart
+        ) {
+          return toJson({ error: "markers.introEnd must be greater than markers.introStart" }, 400);
+        }
+        parsedMarkers = {
+          introStart: isStart === undefined ? null : (isStart as number | null),
+          introEnd: isEnd === undefined ? null : (isEnd as number | null),
+          creditsStart: cStart === undefined ? null : (cStart as number | null),
+        };
+      }
+    }
 
     if (!fileId || !isValidFileId(fileId)) {
       return toJson({ error: "Invalid fileId" }, 400);
@@ -142,7 +185,7 @@ export const action = async ({ request }: { request: Request }) => {
     const lookupField = isValidUUID(fileId) ? "id" : "unique_id";
     const { data: fileRow, error: fetchError } = await db
       .from("files")
-      .select("id, owner_id, file_type")
+      .select("id, owner_id, file_type, metadata")
       .eq(lookupField, fileId)
       .single();
 
@@ -204,6 +247,25 @@ export const action = async ({ request }: { request: Request }) => {
       updateData.default_thumbnail = defaultThumbnail.length > 0 ? defaultThumbnail : null;
     }
 
+    /** Merge markers into the existing metadata jsonb so we don't clobber other keys. */
+    if (parsedMarkers !== undefined) {
+      const existingMeta =
+        fileRow.metadata && typeof fileRow.metadata === "object" && !Array.isArray(fileRow.metadata)
+          ? (fileRow.metadata as Record<string, unknown>)
+          : {};
+      const allNull =
+        parsedMarkers.introStart === null &&
+        parsedMarkers.introEnd === null &&
+        parsedMarkers.creditsStart === null;
+      const nextMeta: Record<string, unknown> = { ...existingMeta };
+      if (allNull) {
+        delete nextMeta.markers;
+      } else {
+        nextMeta.markers = parsedMarkers;
+      }
+      updateData.metadata = nextMeta;
+    }
+
     if (Object.keys(updateData).length === 0) {
       return toJson({ error: "No changes provided" }, 400);
     }
@@ -212,7 +274,7 @@ export const action = async ({ request }: { request: Request }) => {
       .from("files")
       .update(updateData)
       .eq(lookupField, fileId)
-      .select("id, file_title, file_description, is_public, categories, tags, comments_enabled, comment_limit, default_thumbnail")
+      .select("id, file_title, file_description, is_public, categories, tags, comments_enabled, comment_limit, default_thumbnail, metadata")
       .single();
 
     if (updateError) {

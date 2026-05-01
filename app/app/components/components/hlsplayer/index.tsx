@@ -16,6 +16,7 @@ import { useAutoplay } from './hooks/useAutoplay';
 import { useControlsVisibility } from './hooks/useControlsVisibility';
 import { useFullscreen } from './hooks/useFullscreen';
 import { useWakeLock } from './hooks/useWakeLock';
+import { useSpatialAudio } from './hooks/useSpatialAudio';
 import ControlBar from './controls/ControlBar';
 import EndScreen from './controls/endscreen/EndScreen';
 import BufferingSpinner from './overlays/BufferingSpinner';
@@ -27,6 +28,7 @@ import SeekFeedback from './overlays/SeekFeedback';
 import PosterBackground from './overlays/PosterBackground';
 import ShortcutOverlay from './overlays/ShortcutOverlay';
 import StatsForNerdsOverlay from './overlays/StatsForNerdsOverlay';
+import SkipMarkerOverlay from './overlays/SkipMarkerOverlay';
 import AmbientBackground from '~/components/components/hlsplayer/overlays/AmbientBackground';
 import GuestPreviewWall from '~/components/components/hlsplayer/overlays/GuestPreviewWall';
 import GuestPreviewNudge from '~/components/components/hlsplayer/overlays/GuestPreviewNudge';
@@ -171,11 +173,32 @@ function PlayerInner({
     ambientMode,
     audioVisualizer,
     statsForNerds,
+    spatialAudio,
     autoPlay: autoPlayEnabled,
     loop: loopEnabled,
     authPlaybackFeatures: authPlayback,
     unlockPipReelAudio,
   } = usePlayerContext();
+  /**
+   * Skip-intro / next-episode markers come from the owner-edited `metadata.markers` jsonb on
+   * the file row — same data for every viewer, just like Netflix. The VideoCard edit dialog
+   * writes this; the player only consumes it.
+   */
+  const skipMarkers = useMemo(() => {
+    const meta = file?.metadata;
+    if (!meta || typeof meta !== 'object') return null;
+    const m = (meta as Record<string, unknown>).markers;
+    if (!m || typeof m !== 'object') return null;
+    const r = m as Record<string, unknown>;
+    const num = (v: unknown): number | null =>
+      typeof v === 'number' && Number.isFinite(v) && v >= 0 ? v : null;
+    const introStart = num(r.introStart);
+    const introEnd = num(r.introEnd);
+    const creditsStart = num(r.creditsStart);
+    if (introStart == null && introEnd == null && creditsStart == null) return null;
+    return { introStart, introEnd, creditsStart };
+  }, [file?.metadata]);
+  const [skipMarkerActive, setSkipMarkerActive] = useState(false);
 
   /**
    * Reel / PiP vertical feed: observe the `<video>` like `ImageLoad` — virtual slides keep neighbors mounted.
@@ -325,6 +348,7 @@ function PlayerInner({
     { muteVideoWhenAutoplayDisabled: !unlockPipReelAudio },
   );
   useControlsVisibility();
+  useSpatialAudio(videoRef, spatialAudio);
 
   /**
    * Reel audio gate: guarantees only the in-view reel slide is audible.
@@ -740,7 +764,8 @@ function PlayerInner({
     (state.controlsVisible &&
       !isReelCtx &&
       !inPipForThisVideo &&
-      !otherVideoInPipBlocksThisPlayer);
+      !otherVideoInPipBlocksThisPlayer &&
+      !skipMarkerActive);
   const videoEl = videoRef.current;
   const showLoadingOverlay =
     !state.hasError &&
@@ -844,6 +869,19 @@ function PlayerInner({
               onBack={onBack}
             />
           </div>
+        )}
+
+        {!isReelCtx && !inPipForThisVideo && !isMiniPlayerPortalActive && skipMarkers && (
+          <SkipMarkerOverlay
+            markers={skipMarkers}
+            onSkipIntro={(t) => {
+              const v = videoRef.current;
+              if (v) v.currentTime = t;
+            }}
+            onNextEpisode={hasNextControl ? handleNextVideo : undefined}
+            nextEpisode={hasNextControl ? nextVideoForTooltip ?? null : null}
+            onActiveChange={setSkipMarkerActive}
+          />
         )}
 
         {!isReelCtx && <PipOverlay />}

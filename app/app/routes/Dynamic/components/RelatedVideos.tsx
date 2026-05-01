@@ -28,6 +28,12 @@ import {
 import { cn, getThumbnailUrl } from "~/lib/utils"
 import { BASE_URL } from "~/lib/URLS"
 import ParseFilenameInsert from "~/lib/utils/ShowFileName"
+import { groupConsecutiveReelClusters } from "~/lib/feed/groupConsecutiveReelClusters"
+import { Swiper, SwiperSlide } from "swiper/react"
+import { Navigation, A11y, Keyboard } from "swiper/modules"
+import type { Swiper as SwiperType } from "swiper"
+import "swiper/css"
+import "swiper/css/navigation"
 
 interface RelatedVideosProps {
   videos: FileType[]
@@ -147,6 +153,101 @@ const RelatedVideosContent = ({ currentUserId }: { currentUserId?: string }) => 
   const relatedGridClass =
     "grid min-w-0 grid-cols-1 gap-2 @min-[480px]/related-videos:grid-cols-2 @min-[900px]/related-videos:grid-cols-3"
 
+  const renderVideoCard = (video: FileType, index: number) =>
+    playQueue?.viewerCanCustomizeQueue ? (
+      <DraggableQueueVideoCard
+        related
+        hideActions={{completely: false, halfway: true}}
+        key={video.unique_id}
+        data={video}
+        index={index}
+        currentUserId={currentUserId}
+        userActions={userActions}
+        onAddToPlayQueue={addToPlayQueue}
+        inPlayQueue={isInPlayQueue(video.id)}
+      />
+    ) : (
+      <VideoCard
+        related
+        hideActions={{completely: false, halfway: true}}
+        key={video.unique_id}
+        data={video}
+        index={index}
+        currentUserId={currentUserId}
+        userActions={userActions}
+        onAddToPlayQueue={addToPlayQueue}
+        inPlayQueue={isInPlayQueue(video.id)}
+      />
+    )
+
+  const renderGroupedVideos = (videos: FileType[], keyPrefix: string) => {
+    const groups = groupConsecutiveReelClusters(videos)
+    let indexCounter = 0
+    return (
+      <div className={relatedGridClass}>
+        {groups.map((group) => {
+          if (group.kind === "single") {
+            const file = group.file
+            const index = indexCounter++
+            return renderVideoCard(file, index)
+          }
+
+          const clusterKey =
+            group.files[0]?.feed_reel_cluster_id ?? group.files[0]?.id ?? keyPrefix
+
+          return (
+            <div
+              key={`${keyPrefix}-reel-${clusterKey}`}
+              className="col-span-full w-full min-w-0 max-w-full overflow-hidden"
+            >
+              <Swiper
+                modules={[Navigation, A11y, Keyboard]}
+                slidesPerView={2.15}
+                spaceBetween={10}
+                speed={380}
+                watchOverflow
+                observer
+                observeParents
+                resizeObserver
+                navigation
+                keyboard={{ enabled: true, onlyInViewport: true }}
+                breakpoints={{
+                  480: { slidesPerView: 2.2, spaceBetween: 10 },
+                  768: { slidesPerView: 2.5, spaceBetween: 12 },
+                  1024: { slidesPerView: 3, spaceBetween: 12 },
+                  1280: { slidesPerView: 3.5, spaceBetween: 14 },
+                }}
+                className="feed-reel-swiper"
+                onInit={(swiper: SwiperType) => {
+                  swiper.update()
+                }}
+              >
+                {group.files.map((file, keyIndex) => {
+                  const index = indexCounter++
+                  return (
+                    <SwiperSlide key={file.id || file.unique_id || keyIndex} className="!h-auto">
+                      <VideoCard
+                        data={file}
+                        layout="reelStrip"
+                        related
+                        index={index}
+                        currentUserId={currentUserId}
+                        userActions={userActions}
+                        onAddToPlayQueue={addToPlayQueue}
+                        inPlayQueue={isInPlayQueue(file.id)}
+                        hideActions={{ completely: false, halfway: true }}
+                      />
+                    </SwiperSlide>
+                  )
+                })}
+              </Swiper>
+            </div>
+          )
+        })}
+      </div>
+    )
+  }
+
   const inner = (
     <div className="@container/related-videos min-w-0 space-y-3 sm:space-y-4">
       <PlayQueuePanel currentUserId={currentUserId} userActions={userActions} />
@@ -196,35 +297,7 @@ const RelatedVideosContent = ({ currentUserId }: { currentUserId?: string }) => 
             </div>
           ) : (
             <>
-              <div className={relatedGridClass}>
-                {displayVideos.map((video, index) =>
-                  playQueue?.viewerCanCustomizeQueue ? (
-                    <DraggableQueueVideoCard
-                      related
-                      hideActions={{completely: false, halfway: true}}
-                      key={video.unique_id}
-                      data={video}
-                      index={index}
-                      currentUserId={currentUserId}
-                      userActions={userActions}
-                      onAddToPlayQueue={addToPlayQueue}
-                      inPlayQueue={isInPlayQueue(video.id)}
-                    />
-                  ) : (
-                    <VideoCard
-                      related
-                      hideActions={{completely: false, halfway: true}}
-                      key={video.unique_id}
-                      data={video}
-                      index={index}
-                      currentUserId={currentUserId}
-                      userActions={userActions}
-                      onAddToPlayQueue={addToPlayQueue}
-                      inPlayQueue={isInPlayQueue(video.id)}
-                    />
-                  ),
-                )}
-              </div>
+              {renderGroupedVideos(displayVideos, "upnext")}
               {hasMore && (
                 currentUserId ? (
                   <div ref={observerRef} className="h-10 flex items-center justify-center">
@@ -261,35 +334,7 @@ const RelatedVideosContent = ({ currentUserId }: { currentUserId?: string }) => 
             </div>
           ) : (
             <>
-              <div className={relatedGridClass}>
-                {ownerVideos.map((video, index) =>
-                  playQueue?.viewerCanCustomizeQueue ? (
-                    <DraggableQueueVideoCard
-                      related
-                      hideActions={{completely: false, halfway: true}}
-                      key={video.unique_id}
-                      data={video}
-                      index={index}
-                      currentUserId={currentUserId}
-                      userActions={userActions}
-                      onAddToPlayQueue={addToPlayQueue}
-                      inPlayQueue={isInPlayQueue(video.id)}
-                    />
-                  ) : (
-                    <VideoCard
-                      related
-                      hideActions={{completely: false, halfway: true}}
-                      key={video.unique_id}
-                      data={video}
-                      index={index}
-                      currentUserId={currentUserId}
-                      userActions={userActions}
-                      onAddToPlayQueue={addToPlayQueue}
-                      inPlayQueue={isInPlayQueue(video.id)}
-                    />
-                  ),
-                )}
-              </div>
+              {renderGroupedVideos(ownerVideos, "creator")}
               {hasMoreOwner && (
                 currentUserId ? (
                   <div className="flex items-center justify-center pt-4">

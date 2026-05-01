@@ -20,6 +20,10 @@ export type PlayerSettings = {
   audioVisualizer: boolean;
   audioVisualizerStyle: 'scroll' | 'bars' | 'mirror' | 'ribbon' | 'pulse';
   quality: string;
+  /** 8D / spatial audio master toggle. */
+  spatialAudio: boolean;
+  /** JSON-encoded `SpatialAudioConfig` (see `useSpatialAudio`). */
+  spatialAudioConfig: string;
 };
 
 export type PlayerSettingsPatch = Partial<PlayerSettings>;

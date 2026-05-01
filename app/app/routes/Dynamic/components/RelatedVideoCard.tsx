@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect } from "react";
 import { Link } from "react-router";
 import { type FileType, fileWatchPath } from "~/lib/types";
+import WatchProgressBar from "~/routes/Home/components/WatchProgressBar";
 import { getThumbnailUrl, ParseFilename } from "~/lib/utils";
 import ImageLoad from "~/routes/Home/components/ImageLoad/ImageLoad";
 import AdultContentBadge from "./AdultContentBadge";
@@ -103,6 +104,7 @@ const RelatedVideoCard = ({ data, currentUserId, userActions }: RelatedVideoCard
               {formatDuration(data.duration)}
             </div>
           )}
+          <WatchProgressBar fileId={data.id} fallbackDuration={data.duration ?? null} />
         </div>
       </Link>
 

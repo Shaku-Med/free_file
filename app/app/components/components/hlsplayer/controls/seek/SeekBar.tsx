@@ -8,6 +8,10 @@ import { cn } from '~/lib/utils';
 
 const WAVEFORM_STRIP_HEIGHT = 40;
 const PULL_REVEAL_PX = 96;
+/** Visual rail height (matches the slim rail in the desktop ThinSeekTrack). */
+const RAIL_HEIGHT_PX = 4;
+/** Pointer-target height around the rail so the seek bar is easy to grab. */
+const HIT_AREA_HEIGHT_PX = 20;
 
 function BufferSegments({ ranges, duration, className }: {
   ranges: BufferedRange[];
@@ -165,7 +169,7 @@ function ThinSeekTrack({
       <div
         ref={handleRef}
         className={cn(
-          'absolute top-1/2 h-3 w-3 -translate-y-1/2 rounded-full border-2 border-primary bg-background shadow-md',
+          'absolute top-1/2 h-4 w-4 -translate-y-1/2 rounded-full border-2 border-primary bg-background shadow-md',
           mobileStyle ? 'opacity-100' : 'opacity-0 transition-opacity duration-150 group-hover/seek:opacity-100',
           showHandle && 'opacity-100'
         )}
@@ -196,11 +200,16 @@ function ThinSeekTrack({
     );
   }
 
+  /**
+   * Desktop: visual rail stays slim (4px → 8px on hover) but the pointer-target wrapper
+   * is 20px tall so users don't need pixel-perfect aim. Events live on the outer wrapper;
+   * the inner div renders the actual rail centered inside the hit area.
+   */
   return (
     <div
       ref={trackRef}
       tabIndex={-1}
-      className="group/seek relative h-[3px] min-h-[3px] w-full cursor-pointer select-none overflow-visible rounded-full bg-secondary outline-none transition-[height] duration-150 group-hover/seek:h-[6px]"
+      className="group/seek relative flex h-5 w-full cursor-pointer select-none items-center overflow-visible bg-transparent outline-none"
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
@@ -210,7 +219,9 @@ function ThinSeekTrack({
       onPointerCancel={onPointerCancel}
       onBlur={onMouseLeave}
     >
-      {rail}
+      <div className="relative h-1 w-full overflow-visible rounded-full bg-secondary transition-[height] duration-150 group-hover/seek:h-2">
+        {rail}
+      </div>
     </div>
   );
 }
@@ -292,7 +303,7 @@ export default function SeekBar({ mobileStyle = false }: { mobileStyle?: boolean
     return () => window.removeEventListener('blur', onWinBlur);
   }, [endInteraction, finishScrubbing]);
 
-  const handleInsetPx = mobileStyle ? 7 : 6;
+  const handleInsetPx = mobileStyle ? 8 : 8;
   const { barRef, handleRef } = useVideoProgress(videoRef, handleInsetPx);
 
   useEffect(() => {
@@ -420,7 +431,8 @@ export default function SeekBar({ mobileStyle = false }: { mobileStyle?: boolean
 
   const showWaveformStrip = Boolean(waveformUrl && !waveformError);
   const waveAreaPx = pullReveal * WAVEFORM_STRIP_HEIGHT;
-  const trackHeightPx = 3 + waveAreaPx;
+  /** Idle: full hit area; pulled up: rail + waveform strip. */
+  const trackHeightPx = waveAreaPx > 0.5 ? RAIL_HEIGHT_PX + waveAreaPx : HIT_AREA_HEIGHT_PX;
   const thumbShow =
     mobileStyle ||
     hoverTime !== null ||
@@ -463,9 +475,10 @@ export default function SeekBar({ mobileStyle = false }: { mobileStyle?: boolean
               tabIndex={-1}
               className={cn(
                 'relative w-full cursor-pointer select-none overflow-hidden rounded-md transition-[height] duration-150 ease-out outline-none',
-                mobileStyle && waveAreaPx < 0.5 ? 'bg-transparent' : 'bg-black/50',
+                /** Idle: invisible hit area on both desktop & mobile. The dark backdrop only shows up when the user pulls the waveform open. */
+                waveAreaPx < 0.5 ? 'bg-transparent' : 'bg-black/50',
               )}
-              style={{ height: Math.max(mobileStyle ? 14 : 3, trackHeightPx) }}
+              style={{ height: Math.max(mobileStyle ? 16 : HIT_AREA_HEIGHT_PX, trackHeightPx) }}
               onPointerDown={handlePointerDown}
               onPointerMove={handlePointerMove}
               onPointerUp={handlePointerUp}
@@ -478,7 +491,7 @@ export default function SeekBar({ mobileStyle = false }: { mobileStyle?: boolean
               <div
                 className="absolute left-0 right-0 overflow-hidden transition-[height] duration-150 ease-out"
                 style={{
-                  bottom: 3,
+                  bottom: RAIL_HEIGHT_PX,
                   height: waveAreaPx,
                 }}
               >
@@ -498,8 +511,13 @@ export default function SeekBar({ mobileStyle = false }: { mobileStyle?: boolean
 
               <div
                 className={cn(
-                  'absolute left-0 right-0 z-[1] h-[3px] bg-secondary',
-                  mobileStyle && waveAreaPx < 0.5 ? 'top-1/2 bottom-auto -translate-y-1/2' : 'bottom-0',
+                  'absolute left-0 right-0 z-[1] h-1 bg-secondary',
+                  /**
+                   * Idle (no pull-reveal): center the rail in the 20px hit area for both
+                   * desktop & mobile. Once the user pulls up to expose the waveform strip,
+                   * pin the rail to the bottom so the strip can grow above it.
+                   */
+                  waveAreaPx < 0.5 ? 'top-1/2 bottom-auto -translate-y-1/2' : 'bottom-0',
                 )}
               >
                 <BufferSegments
@@ -517,12 +535,13 @@ export default function SeekBar({ mobileStyle = false }: { mobileStyle?: boolean
               <div
                 ref={handleRef}
                 className={cn(
-                  'pointer-events-none absolute z-10 h-3 w-3 rounded-full border-2 border-primary bg-background shadow-md transition-opacity duration-150',
+                  'pointer-events-none absolute z-10 h-4 w-4 rounded-full border-2 border-primary bg-background shadow-md transition-opacity duration-150',
                   mobileStyle ? 'opacity-100' : 'opacity-0 group-hover/seek:opacity-100',
                   thumbShow && 'opacity-100'
                 )}
                 style={
-                  mobileStyle && waveAreaPx < 0.5
+                  /** Idle (rail centered in hit area): center the handle on the rail too. */
+                  waveAreaPx < 0.5
                     ? {
                         left: `calc(${progress}% - ${handleInsetPx}px)`,
                         top: '50%',
@@ -540,7 +559,7 @@ export default function SeekBar({ mobileStyle = false }: { mobileStyle?: boolean
                 <div
                   className="pointer-events-none absolute z-20 flex flex-col items-center"
                   style={
-                    mobileStyle && waveAreaPx < 0.5
+                    waveAreaPx < 0.5
                       ? {
                           left: `calc(${progress}%)`,
                           top: '50%',

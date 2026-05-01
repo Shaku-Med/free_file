@@ -121,6 +121,12 @@ export const loader = async ({ request }: { request: Request }) => {
         view_count: file.view_count,
         share_count: file.share_count,
         is_reel: file.is_reel,
+        // Series fields — required for VideoCard badges + resume click logic.
+        is_series_main: file.is_series_main,
+        is_series_episode: file.is_series_episode,
+        is_files_series_item: file.is_files_series_item,
+        file_series_id: file.file_series_id,
+        file_series_episode_id: file.file_series_episode_id,
         feed_reel_cluster_id:
           file.feed_reel_cluster_id != null && file.feed_reel_cluster_id !== ''
             ? Number(file.feed_reel_cluster_id)

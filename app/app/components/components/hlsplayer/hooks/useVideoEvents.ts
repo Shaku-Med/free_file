@@ -15,6 +15,21 @@ export function useVideoEvents(videoRef: React.RefObject<HTMLVideoElement | null
     const video = videoRef.current;
     if (!video) return;
 
+    // Initial sync for global player handoffs: if the shared video is already playing when
+    // this route mounts, UI state should reflect that immediately (without waiting for events).
+    setState((s) => ({
+      ...s,
+      isPlaying: !video.paused && !video.ended,
+      isPaused: video.paused || video.ended,
+      isEnded: video.ended,
+      currentTime: Number.isFinite(video.currentTime) ? video.currentTime : s.currentTime,
+      duration: Number.isFinite(video.duration) ? video.duration : s.duration,
+      volume: Number.isFinite(video.volume) ? video.volume : s.volume,
+      isMuted: video.muted,
+      playbackRate: Number.isFinite(video.playbackRate) ? video.playbackRate : s.playbackRate,
+      isLoaded: video.readyState >= 1 || s.isLoaded,
+    }));
+
     const onPlay = () => {
       setState(s => ({ ...s, isPlaying: true, isPaused: false, isBuffering: false, isEnded: false }));
       cbRef.current?.onPlay?.();

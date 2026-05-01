@@ -20,6 +20,7 @@ import { MainPlayerSlotProvider } from "./lib/Context/MainPlayerSlotContext";
 import { WatchSurfaceVideoRefProvider } from "./lib/Context/WatchSurfaceVideoRefContext";
 import { WatchPlayBootstrapProvider } from "./lib/Context/WatchPlayBootstrapContext";
 import { WatchHlsSurfaceProvider } from "./lib/Context/WatchHlsSurfaceContext";
+import { WatchProgressProvider } from "./lib/Context/WatchProgressContext";
 import { RootPlayQueueProvider } from "./components/MainPlayer/RootPlayQueueProvider";
 import { GlobalAnchoredHLSPlayer } from "./components/MainPlayer/GlobalAnchoredHLSPlayer";
 import { GlobalPlayerLayoutProvider } from "./lib/Context/GlobalPlayerLayoutContext";
@@ -293,6 +294,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
         <ErrorBoundary>
           <ContextProvider st={st} user_agent={user_agent || ''} userId={userId || null} c_user={c_user || null} uploadServerUrl={uploadServerUrl || ''} playerSettingsFromLoader={playerSettingsFromLoader ?? null} isMobileServer={isMobileServer ?? false} isDevelopment={isDevelopmentServer ?? false} altAccounts={altAccounts ?? []} hlsBootstrap={hlsBootstrap ?? null} hlsBootstrapRetry={hlsBootstrapRetry ?? null}>
             <LikeProvider>
+              <WatchProgressProvider>
               <PictureInPictureProvider>
                 <MiniPlayerProvider>
                   <WatchSurfaceVideoRefProvider>
@@ -314,6 +316,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
                   </WatchSurfaceVideoRefProvider>
                 </MiniPlayerProvider>
               </PictureInPictureProvider>
+              </WatchProgressProvider>
             </LikeProvider>
           </ContextProvider>
         </ErrorBoundary>

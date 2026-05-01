@@ -21,6 +21,7 @@ import { useIsMobile } from "~/hooks/use-mobile";
 import { useSidebarOptional } from "~/components/ui/sidebar";
 import { formatTimeAgo } from "~/lib/formatTimeAgo";
 import { EpisodePicker } from "./EpisodePicker";
+import WatchProgressBar from "./WatchProgressBar";
 
 function getMetadataWarning(metadata: unknown): string | null {
   if (metadata && typeof metadata === "object" && "warning" in metadata) {
@@ -135,10 +136,88 @@ const VideoCard = ({
   const [isSaving, setIsSaving] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
   const [infoModalOpen, setInfoModalOpen] = useState(false);
+
+  /**
+   * Skip-intro / next-episode markers — owner sets these on their own video and every viewer's
+   * player picks them up from `metadata.markers`. Stored as `m:ss` strings while editing for
+   * human readability; converted to seconds on save.
+   */
+  const initialMarkers = useMemo(() => {
+    const meta = data.metadata;
+    if (!meta || typeof meta !== "object") return null;
+    const m = (meta as Record<string, unknown>).markers;
+    if (!m || typeof m !== "object") return null;
+    return m as { introStart?: number | null; introEnd?: number | null; creditsStart?: number | null };
+  }, [data.metadata]);
+  const formatMarker = (s: number | null | undefined): string => {
+    if (s == null || !Number.isFinite(s) || s < 0) return "";
+    const total = Math.floor(s);
+    const mm = Math.floor(total / 60);
+    const ss = total % 60;
+    return `${mm}:${ss.toString().padStart(2, "0")}`;
+  };
+  const parseMarker = (input: string): number | null | undefined => {
+    const trimmed = input.trim();
+    if (!trimmed) return null;
+    if (/^\d+(\.\d+)?$/.test(trimmed)) {
+      const n = Number(trimmed);
+      return Number.isFinite(n) && n >= 0 ? n : undefined;
+    }
+    const m = trimmed.match(/^(\d{1,3}):([0-5]?\d)(?:\.(\d+))?$/);
+    if (!m) return undefined;
+    const mins = Number(m[1]);
+    const secs = Number(m[2]);
+    const frac = m[3] ? Number(`0.${m[3]}`) : 0;
+    return mins * 60 + secs + frac;
+  };
+  const [editIntroStart, setEditIntroStart] = useState(formatMarker(initialMarkers?.introStart));
+  const [editIntroEnd, setEditIntroEnd] = useState(formatMarker(initialMarkers?.introEnd));
+  const [editCreditsStart, setEditCreditsStart] = useState(formatMarker(initialMarkers?.creditsStart));
+  const nav = useNavigate();
   const watchPath = useMemo(
     () => fileWatchPath(data),
     [data.is_reel, data.id, data.unique_id],
   );
+
+  /**
+   * Series-main click: ask the server for the user's most recently watched episode in this
+   * series and jump straight there. Falls back to the series main page when there's no
+   * resume target (guest, never watched, network failure). Other files navigate normally.
+   */
+  const seriesResumeNav = useCallback(async () => {
+    const sid = data.file_series_id;
+    const suid = data.unique_id;
+    const sfid = data.id;
+    const isSeriesMain = data.is_series_main === true || (data.is_series_main as unknown) === 1;
+    if (!isSeriesMain) return null;
+    try {
+      const params = new URLSearchParams();
+      if (sid) params.set('seriesId', sid);
+      if (suid) params.set('seriesUniqueId', suid);
+      if (sfid) params.set('seriesFileId', sfid);
+      const res = await fetch(`/api/series/resume?${params.toString()}`, { credentials: 'include' });
+      if (!res.ok) return null;
+      const json = (await res.json()) as {
+        resume?: { uniqueId?: string; currentTime?: number } | null;
+      };
+      const uid = json?.resume?.uniqueId;
+      if (uid && typeof uid === 'string') {
+        const t = Number(json?.resume?.currentTime);
+        if (Number.isFinite(t) && t > 0) {
+          return `/${encodeURIComponent(uid)}?t=${encodeURIComponent(String(Math.floor(t)))}`;
+        }
+        return `/${encodeURIComponent(uid)}`;
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  }, [data.file_series_id, data.is_series_main]);
+
+  const handleWatchNav = useCallback(async () => {
+    const resume = await seriesResumeNav();
+    nav(resume ?? watchPath);
+  }, [seriesResumeNav, nav, watchPath]);
   // Thumbnail edit state
   const [selectedThumbPath, setSelectedThumbPath] = useState<string | null>(null);
   const [customThumbFile, setCustomThumbFile] = useState<File | null>(null);
@@ -210,7 +289,6 @@ const VideoCard = ({
 
   const catDropdownRef = useRef<HTMLDivElement>(null);
 
-  const nav = useNavigate();
   const metadataWarning = getMetadataWarning(data.metadata);
   const commentCount = Number(data.comment_count) || 0;
   const viewCount = Number(data.view_count ?? data.views) || 0;
@@ -237,6 +315,9 @@ const VideoCard = ({
     setEditCommentsEnabled(data.comments_enabled !== false);
     const lim = data.comment_limit;
     setEditCommentMax(typeof lim === "number" && lim > 0 ? String(lim) : "");
+    setEditIntroStart(formatMarker(initialMarkers?.introStart));
+    setEditIntroEnd(formatMarker(initialMarkers?.introEnd));
+    setEditCreditsStart(formatMarker(initialMarkers?.creditsStart));
   }, [
     isEditing,
     data.file_title,
@@ -246,6 +327,7 @@ const VideoCard = ({
     data.tags,
     data.comments_enabled,
     data.comment_limit,
+    initialMarkers,
   ]);
 
   useEffect(() => {
@@ -289,6 +371,17 @@ const VideoCard = ({
         if (Object.prototype.hasOwnProperty.call(f, "default_thumbnail")) {
           const dt = f.default_thumbnail;
           setEditLoadedDefaultThumb(typeof dt === "string" ? dt : dt == null ? null : undefined);
+        }
+        const meta = f.metadata;
+        if (meta && typeof meta === "object") {
+          const mk = (meta as Record<string, unknown>).markers as
+            | { introStart?: number | null; introEnd?: number | null; creditsStart?: number | null }
+            | undefined;
+          if (mk) {
+            setEditIntroStart(formatMarker(mk.introStart));
+            setEditIntroEnd(formatMarker(mk.introEnd));
+            setEditCreditsStart(formatMarker(mk.creditsStart));
+          }
         }
       } catch {
         if (!cancelled) setEditError("Could not load the latest file settings.");
@@ -649,6 +742,40 @@ const VideoCard = ({
         }
       }
 
+      /** Markers: validate format + relationship before submitting. `undefined` parse = bad format. */
+      const introStartParsed = parseMarker(editIntroStart);
+      const introEndParsed = parseMarker(editIntroEnd);
+      const creditsStartParsed = parseMarker(editCreditsStart);
+      if (introStartParsed === undefined) {
+        setEditError("Intro start must be empty, a number of seconds, or m:ss.");
+        setIsSaving(false);
+        return;
+      }
+      if (introEndParsed === undefined) {
+        setEditError("Intro end must be empty, a number of seconds, or m:ss.");
+        setIsSaving(false);
+        return;
+      }
+      if (creditsStartParsed === undefined) {
+        setEditError("Credits start must be empty, a number of seconds, or m:ss.");
+        setIsSaving(false);
+        return;
+      }
+      if (
+        typeof introStartParsed === "number" &&
+        typeof introEndParsed === "number" &&
+        introEndParsed <= introStartParsed
+      ) {
+        setEditError("Intro end must be after intro start.");
+        setIsSaving(false);
+        return;
+      }
+      const markersPayload = {
+        introStart: introStartParsed,
+        introEnd: introEndParsed,
+        creditsStart: creditsStartParsed,
+      };
+
       const response = await fetch("/api/files", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
@@ -662,6 +789,7 @@ const VideoCard = ({
           commentsEnabled: editCommentsEnabled,
           ...(editCommentsEnabled ? { commentLimit } : {}),
           ...(newDefaultThumbnail !== undefined ? { defaultThumbnail: newDefaultThumbnail } : {}),
+          markers: markersPayload,
         }),
       });
 
@@ -689,6 +817,8 @@ const VideoCard = ({
           comments_enabled: payload.file.comments_enabled,
           comment_limit: payload.file.comment_limit,
           ...(nextDefaultThumb !== undefined ? { default_thumbnail: nextDefaultThumb } : {}),
+          /** Push the merged metadata back so the player picks up the new markers without a refresh. */
+          ...(payload.file.metadata !== undefined ? { metadata: payload.file.metadata } : {}),
         });
         if (nextDefaultThumb !== undefined) {
           setEditLoadedDefaultThumb(nextDefaultThumb || null);
@@ -825,16 +955,51 @@ const VideoCard = ({
     if (e) setLoaded(true);
   }, []);
 
-  const renderThumbnail = (className?: string) => (
+  const renderThumbnail = (className?: string) => {
+    const isSeriesMain = data.is_series_main === true || (data.is_series_main as unknown) === 1;
+    return (
     <div className={`relative ${className || ""}`}>
+      {isSeriesMain && (
+        <>
+          {/**
+           * Stacked-card depth so the series cover reads as "a collection of episodes," not just
+           * one video. Two offset rectangles peek out behind the main thumbnail; pointer-events
+           * are off so they never steal a click from the wrapping Link.
+           */}
+          <div
+            aria-hidden
+            className="pointer-events-none absolute -right-1 -top-1 z-0 h-[calc(100%-0.5rem)] w-[calc(100%-0.5rem)] translate-x-1.5 -translate-y-1 rounded-xl bg-card/90 ring-1 ring-border/40 shadow-sm dark:bg-zinc-800/80 dark:ring-white/10"
+          />
+          <div
+            aria-hidden
+            className="pointer-events-none absolute -right-0.5 -top-0.5 z-0 h-[calc(100%-0.25rem)] w-[calc(100%-0.25rem)] translate-x-0.5 -translate-y-0.5 rounded-xl bg-card ring-1 ring-border/50 shadow dark:bg-zinc-900 dark:ring-white/10"
+          />
+        </>
+      )}
       {data.is_adult && <AdultContentBadge />}
-      {isSeriesFile(data) && (
+      {isSeriesMain ? (
         <div
-          className="pointer-events-none absolute right-1 top-1 z-[100] flex min-h-[1.375rem] items-center gap-0.5 rounded-md border border-white/10 bg-black/75 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white shadow-sm backdrop-blur-sm"
+          className="pointer-events-none absolute left-2 top-2 z-[100] inline-flex items-center gap-1 rounded-full border border-white/20 bg-gradient-to-r from-violet-600/95 via-fuchsia-600/95 to-purple-600/95 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-white shadow-lg backdrop-blur-sm"
           aria-label="Series"
         >
-          <ListVideo className="h-3 w-3 shrink-0 opacity-90" strokeWidth={2.5} />
+          <ListVideo className="h-3.5 w-3.5 shrink-0" strokeWidth={2.5} />
           Series
+        </div>
+      ) : isSeriesFile(data) && (
+        <div
+          className="pointer-events-none absolute left-2 top-2 z-[100] inline-flex items-center gap-1 rounded-full border border-white/20 bg-black/80 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-white shadow-md backdrop-blur-sm"
+          aria-label="In series"
+        >
+          <ListVideo className="h-3.5 w-3.5 shrink-0 opacity-95" strokeWidth={2.5} />
+          In series
+        </div>
+      )}
+      {data.is_reel && (
+        <div
+          className="pointer-events-none absolute right-2 top-2 z-[100] inline-flex items-center rounded-full border border-destructive/50 bg-destructive px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.08em] text-destructive-foreground shadow-sm"
+          aria-label="Reel"
+        >
+          Reel
         </div>
       )}
       <motion.div
@@ -892,21 +1057,29 @@ const VideoCard = ({
           </div>
         )}
         {thumbnailProgress != null &&
-          thumbnailProgress > 0 &&
-          Number.isFinite(thumbnailProgress) && (
+          Number.isFinite(thumbnailProgress) &&
+          thumbnailProgress > 0 && (
             <div
               className="pointer-events-none absolute bottom-0 left-0 right-0 z-[21] h-[3px] bg-black/55"
               aria-hidden
             >
               <div
-                className="h-full bg-red-600"
+                className="h-full bg-destructive"
                 style={{ width: `${Math.min(100, Math.max(0, thumbnailProgress * 100))}%` }}
               />
             </div>
           )}
+        {!isPending && (
+          thumbnailProgress != null &&
+          Number.isFinite(thumbnailProgress) &&
+          thumbnailProgress > 0 ? null : (
+            <WatchProgressBar fileId={data.id ?? data.unique_id} fallbackDuration={durationSec} />
+          )
+        )}
       </motion.div>
     </div>
-  );
+    );
+  };
 
   const renderEditDialog = () => (
     <>
@@ -944,6 +1117,59 @@ const VideoCard = ({
               className="bg-muted/50 text-foreground placeholder:text-muted-foreground"
             />
           </div>
+
+          {/**
+           * Skip-intro / next-episode markers. Only meaningful for media with a timeline,
+           * so we hide it for image files. Stored in `metadata.markers` and read by every
+           * viewer's player from the same file row — Netflix-style.
+           */}
+          {typeof data.file_type === "string" && !data.file_type.startsWith("image/") && (
+            <div className="space-y-2.5 rounded-xl border border-border/50 bg-muted/20 p-3">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-xs font-medium text-muted-foreground">Skip markers</span>
+                <span className="text-[11px] text-muted-foreground/70">
+                  Format: <code>seconds</code> or <code>m:ss</code>
+                </span>
+              </div>
+              <div className="grid grid-cols-3 gap-2">
+                <div className="space-y-1">
+                  <label className="text-[11px] font-medium text-muted-foreground">Intro start</label>
+                  <Input
+                    value={editIntroStart}
+                    onChange={(e) => setEditIntroStart(e.target.value)}
+                    placeholder="0:15"
+                    disabled={isSaving}
+                    className="bg-muted/50 font-mono"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[11px] font-medium text-muted-foreground">Intro end</label>
+                  <Input
+                    value={editIntroEnd}
+                    onChange={(e) => setEditIntroEnd(e.target.value)}
+                    placeholder="1:30"
+                    disabled={isSaving}
+                    className="bg-muted/50 font-mono"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[11px] font-medium text-muted-foreground">Credits start</label>
+                  <Input
+                    value={editCreditsStart}
+                    onChange={(e) => setEditCreditsStart(e.target.value)}
+                    placeholder="42:10"
+                    disabled={isSaving}
+                    className="bg-muted/50 font-mono"
+                  />
+                </div>
+              </div>
+              <p className="text-[11px] leading-snug text-muted-foreground/80">
+                Viewers see a "Skip Intro" button between Intro start and end, and "Next Episode"
+                from Credits start onward. Leave blank to disable.
+              </p>
+            </div>
+          )}
+
           {/* Add to series — available on every file the viewer owns */}
           {canManageSeries && (
             <div className="space-y-2.5 rounded-xl border border-border/50 bg-muted/20 p-3">
@@ -1779,7 +2005,7 @@ const VideoCard = ({
         <Link
           onClick={(e) => {
             e.preventDefault();
-            nav(watchPath);
+            void handleWatchNav();
           }}
           to={watchPath}
           className="relative aspect-video w-full shrink-0 overflow-hidden rounded-xl bg-card shadow-sm ring-1 ring-border/45 dark:ring-white/10"
@@ -1790,7 +2016,7 @@ const VideoCard = ({
           <Link
             onClick={(e) => {
               e.preventDefault();
-              nav(watchPath);
+              void handleWatchNav();
             }}
             to={watchPath}
             className="block hover:text-primary"
@@ -1839,7 +2065,7 @@ const VideoCard = ({
         <Link
           onClick={(e) => {
             e.preventDefault();
-            nav(watchPath);
+            void handleWatchNav();
           }}
           to={watchPath}
           className={
@@ -1853,7 +2079,14 @@ const VideoCard = ({
 
         <div className="flex min-w-0 flex-1 flex-col justify-center py-0.5">
           <div className="flex items-start justify-between gap-2">
-            <Link to={watchPath} className="min-w-0 flex-1 transition-colors hover:text-primary">
+            <Link
+              to={watchPath}
+              onClick={(e) => {
+                e.preventDefault();
+                void handleWatchNav();
+              }}
+              className="min-w-0 flex-1 transition-colors hover:text-primary"
+            >
               <h3 className="line-clamp-2 text-sm font-semibold leading-snug">
                 <ParseFilenameInsert filename={data.file_title || data.filename} showLimit={60} />
               </h3>
@@ -1936,7 +2169,7 @@ const VideoCard = ({
         <Link
           onClick={(e) => {
             e.preventDefault();
-            nav(watchPath);
+            void handleWatchNav();
           }}
           to={watchPath}
           // in mobile let's make the reel size smaller the aspect ratio stays the same but let's minimize the size a bit 
@@ -1950,7 +2183,7 @@ const VideoCard = ({
             <Link
               onClick={(e) => {
                 e.preventDefault();
-                nav(watchPath);
+                void handleWatchNav();
               }}
               to={watchPath}
               className="min-w-0 flex-1 hover:opacity-90"
@@ -1999,7 +2232,7 @@ const VideoCard = ({
         <Link
           onClick={(e) => {
             e.preventDefault();
-            nav(watchPath);
+            void handleWatchNav();
           }}
           to={watchPath}
           className="relative aspect-video w-24 max-h-24 shrink-0 overflow-hidden rounded-lg bg-card"
@@ -2009,7 +2242,14 @@ const VideoCard = ({
 
         <div className="flex items-start justify-between gap-2">
           <div className="flex min-w-0 flex-1 flex-col justify-center">
-            <Link to={watchPath} className="hover:text-primary transition-colors">
+            <Link
+              to={watchPath}
+              onClick={(e) => {
+                e.preventDefault();
+                void handleWatchNav();
+              }}
+              className="hover:text-primary transition-colors"
+            >
               <h3 className="line-clamp-2 text-xs font-medium leading-tight">
                 <ParseFilenameInsert filename={data.file_title || data.filename} showLimit={40} />
               </h3>
@@ -2050,7 +2290,7 @@ const VideoCard = ({
       <Link
         onClick={(e) => {
           e.preventDefault();
-          nav(watchPath);
+          void handleWatchNav();
         }}
         to={watchPath}
         className="w-full bg-card rounded-2xl overflow-hidden relative aspect-video group-hover:z-[1000000] z-[10]"
@@ -2080,9 +2320,16 @@ const VideoCard = ({
           <div className={`flex min-h-[2.5rem] min-w-0 flex-1 justify-between relative`}>
             <div className="flex flex-1 flex-col justify-center">
               <div className="flex items-start gap-1.5">
-                <Link to={watchPath} className="min-w-0 flex-1 hover:text-primary transition-colors">
+                <Link
+                  to={watchPath}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    void handleWatchNav();
+                  }}
+                  className="min-w-0 flex-1 hover:text-primary transition-colors"
+                >
                   <h3 className="line-clamp-2 text-sm font-semibold leading-tight md:text-base">
-                    <ParseFilenameInsert filename={data.file_title || data.filename} showLimit={50} />
+                    <ParseFilenameInsert filename={data.file_title || data.filename} showLimit={50} characterSplit={true} className={`flex flex-wrap`}/>
                   </h3>
                 </Link>
                 {metadataWarning && (
