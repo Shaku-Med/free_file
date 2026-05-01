@@ -164,11 +164,11 @@ function PipReelItemInner({
   });
 
   useEffect(() => {
-    const v = videoRef.current;
+    const v = trackedVideoEl ?? videoRef.current;
     if (!v || !isVideo) return;
     if (isActive) {
       void v.play().catch(() => {});
-    } else {
+    } else if (!v.paused) {
       v.pause();
     }
   }, [isActive, isVideo, trackedVideoEl]);
@@ -297,7 +297,15 @@ function PipReelItemInner({
     } catch {
       return '';
     }
-  }, [file]);
+  }, [
+    file.created_at,
+    file.unique_id,
+    file.default_thumbnail,
+    file.thumbnails,
+    file.file_type,
+    file.endpoint,
+    file.filename,
+  ]);
 
   const getShareTimestamp = useCallback(
     () => videoRef.current?.currentTime ?? 0,
@@ -353,6 +361,7 @@ function PipReelItemInner({
             viewerCanCustomizeQueue={Boolean(userId)}
           >
             <DynamicHLSPlayerWithQueue
+              key={file.unique_id ?? file.id}
               src={videoSrc}
               videoRef={videoRef}
               className="h-full w-full"

@@ -91,12 +91,13 @@ BEGIN
   INSERT INTO file_view_events (file_id, user_id, viewer_key, created_at)
   VALUES (p_file_id, p_user_id, p_viewer_key, v_now);
 
-  UPDATE files
+  -- NOTE: Qualify columns via alias to avoid clashing with RETURNS TABLE column names (e.g. `views`).
+  UPDATE files f
   SET
-    views = COALESCE(files.views, 0) + 1,
-    view_count = COALESCE(files.view_count, 0) + 1
-  WHERE id = p_file_id
-  RETURNING COALESCE(files.views, 0), COALESCE(files.view_count, 0)
+    views = COALESCE(f.views, 0) + 1,
+    view_count = COALESCE(f.view_count, 0) + 1
+  WHERE f.id = p_file_id
+  RETURNING COALESCE(f.views, 0), COALESCE(f.view_count, 0)
   INTO v_views, v_view_count;
 
   RETURN QUERY SELECT true, COALESCE(v_views, 0), COALESCE(v_view_count, 0);
