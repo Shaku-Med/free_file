@@ -8,7 +8,7 @@ import {
 } from '~/lib/Services/hlsManifestSession.client';
 
 export function useHLS(videoRef: React.RefObject<HTMLVideoElement | null>) {
-  const { hlsRef, setState, src } = usePlayerContext();
+  const { hlsRef, setState, src, autoPlay } = usePlayerContext();
   const { playerSettings, hlsBootstrap, hlsBootstrapRetry } = useFileContext();
   const hlsAuthRef = useRef({ hlsBootstrap, hlsBootstrapRetry });
   hlsAuthRef.current = { hlsBootstrap, hlsBootstrapRetry };
@@ -84,7 +84,9 @@ export function useHLS(videoRef: React.RefObject<HTMLVideoElement | null>) {
 
       const resumeAfterSwap = () => {
         if (cancelled || !mountedRef.current) return;
-        if (wasPlaying) {
+        // Auto-next / navigation swaps often occur after `ended` → `wasPlaying` is false,
+        // but the caller still expects the new src to start immediately when autoPlay is on.
+        if (wasPlaying || autoPlay) {
           void video.play().catch(() => {});
         }
       };
