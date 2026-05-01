@@ -1,10 +1,9 @@
 import { useMemo, useState } from "react";
 import { ChevronDown, Check } from "lucide-react";
-import { Popover, PopoverContent, PopoverTrigger } from "~/components/ui/popover";
 import { Button } from "~/components/ui/button";
-import { ScrollArea } from "~/components/ui/scroll-area";
 import { cn } from "~/lib/utils";
 import { buildEpisodeTree, type EpisodeRow } from "~/lib/series/episodeTree";
+import { Dialog, DialogContent, DialogTrigger } from "~/components/ui/dialog";
 
 type EpisodePickerProps = {
   /** Flat list of episodes (with optional `parent_episode_id`). */
@@ -26,7 +25,7 @@ const INDENT_PX = 16;
 
 /**
  * Themed replacement for the native `<select>` we used for series-episode pickers.
- * Built on the existing shadcn Popover + ScrollArea so it matches the rest of the app
+ * Built on the existing shadcn Popover + div so it matches the rest of the app
  * (border, radius, hover, focus ring) and supports nested hierarchies via depth-based
  * indentation. Selecting a non-top-level episode shows the breadcrumb path under the
  * trigger so users always see exactly where in the tree they're saving to.
@@ -53,8 +52,8 @@ export function EpisodePicker({
 
   return (
     <div className={cn("space-y-1", className)}>
-      <Popover open={open} onOpenChange={setOpen}>
-        <PopoverTrigger asChild>
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogTrigger asChild>
           <Button
             type="button"
             variant="outline"
@@ -70,13 +69,11 @@ export function EpisodePicker({
             <span className="min-w-0 truncate">{triggerLabel}</span>
             <ChevronDown className="h-4 w-4 shrink-0 opacity-60" aria-hidden />
           </Button>
-        </PopoverTrigger>
-        <PopoverContent
-          align="start"
-          sideOffset={4}
-          className="w-[--radix-popover-trigger-width] p-0"
+        </DialogTrigger>
+        <DialogContent
+          className="w-full max-h-full max-w-2xl p-0 overflow-y-auto"
         >
-          <ScrollArea className="max-h-72">
+          <div className="h-full max-h-full ">
             <div className="p-1">
               {noneLabel != null && (
                 <button
@@ -129,9 +126,9 @@ export function EpisodePicker({
                 })
               )}
             </div>
-          </ScrollArea>
-        </PopoverContent>
-      </Popover>
+          </div>
+        </DialogContent>
+      </Dialog>
       {selected && selected.depth > 0 && (
         <p className="text-[11px] text-muted-foreground">
           Path: <span className="text-foreground">{selected.pathLabel}</span>
