@@ -4,7 +4,7 @@ import { usePlayerContext } from "../../PlayerContext";
 import { usePlayerContainerSize } from "../../hooks/usePlayerContainerSize";
 import type { FileType } from "~/lib/types";
 import VideoCard from "~/routes/Home/components/VideoCard";
-import { useNavigate, useParams } from "react-router";
+import { useLocation, useNavigate, useParams } from "react-router";
 import { cn } from "~/lib/utils";
 
 interface EndScreenProps {
@@ -56,13 +56,14 @@ export default function EndScreen({
   currentUserId,
 }: EndScreenProps) {
   const actions = userActionsProp ?? emptyUserActions;
-  const { state, replay, autoPlay, containerRef, authPlaybackFeatures } = usePlayerContext();
+  const { state, replay, autoPlay, containerRef, authPlaybackFeatures, file } = usePlayerContext();
   const { width: playerW, height: playerH } = usePlayerContainerSize(containerRef);
   const [countdown, setCountdown] = useState(COUNTDOWN_SEC);
   const [autoplayActive, setAutoplayActive] = useState(true);
   const navigate = useNavigate();
+  const location = useLocation();
   const params = useParams();
-  const currentVideoId = params.id;
+  const currentVideoId = file?.unique_id ?? params.uniqueId ?? params.id;
   const navigatingRef = useRef(false);
 
   const seriesQueue = useMemo(
@@ -107,9 +108,12 @@ export default function EndScreen({
       navigatingRef.current = true;
       setAutoplayActive(false);
       addVisitedVideo(video.unique_id);
-      navigate(`/${video.unique_id}`);
+      const path = location.pathname.startsWith("/reel/")
+        ? `/reel/${video.unique_id}`
+        : `/${video.unique_id}`;
+      navigate(path);
     },
-    [navigate]
+    [navigate, location.pathname]
   );
 
   useEffect(() => {
