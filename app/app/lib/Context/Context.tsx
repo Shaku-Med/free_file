@@ -14,6 +14,7 @@ import ClientEncryption from "../Security/Client/Encryption";
 import { setPlayerSettings as setPlayerSettingsApi } from "~/lib/Services/playerSettingsApi";
 import { useLocation, useNavigation } from "react-router";
 import { isPipChromeRoute } from "~/routes/pip/pipEnv";
+import { personalizationService } from "~/lib/Services/PersonalizationService";
 
 export const driverObj = driver({
     showProgress: true,
@@ -51,7 +52,7 @@ export const Context = createContext<ContextProps>({
     clearFeedHistory: async () => {},
     user_agent: '',
     userId: null,
-    userActions: { likedFileIds: new Set(), dislikedFileIds: new Set() },
+    userActions: { likedFileIds: new Set(), dislikedFileIds: new Set(), savedFileIds: new Set() },
     c_user: null,
     uploadServerUrl: '',
     userProfile: null,
@@ -136,7 +137,7 @@ export const ContextProvider = ({ children, st, user_agent, userId, c_user, uplo
     const [files, setFiles] = useState<FileType[]>([]);
     const [pageCache, setPageCache] = useState<PageCacheEntry>([]);
     const [isModalOpen, setIsModalOpen] = useState(false);
-    const [userActions, setUserActions] = useState<{ likedFileIds: Set<string>; dislikedFileIds: Set<string> }>({ likedFileIds: new Set(), dislikedFileIds: new Set() });
+    const [userActions, setUserActions] = useState<{ likedFileIds: Set<string>; dislikedFileIds: Set<string>; savedFileIds: Set<string> }>({ likedFileIds: new Set(), dislikedFileIds: new Set(), savedFileIds: new Set() });
     const [isDragActive, setIsDragActive] = useState(false);
     const [droppedFiles, setDroppedFiles] = useState<File[]>([]);
     const dragDepthRef = useRef(0);
@@ -219,6 +220,11 @@ export const ContextProvider = ({ children, st, user_agent, userId, c_user, uplo
       if (seen.length > 0) {
         params.set("exclude_ids", JSON.stringify(seen))
       }
+      // Session-level personalization: pass categories from in-session likes
+      const sessionCats = personalizationService.getSessionCategories()
+      if (sessionCats.length > 0) {
+        params.set("session_cats", JSON.stringify(sessionCats))
+      }
 
       const response = await fetch(`/api/feed?${params}`)
       if (!response.ok) return { ok: false as const }
@@ -256,9 +262,11 @@ export const ContextProvider = ({ children, st, user_agent, userId, c_user, uplo
               setUserActions(prev => {
                 const newLikedIds = new Set(prev.likedFileIds)
                 const newDislikedIds = new Set(prev.dislikedFileIds)
+                const newSavedIds = new Set(prev.savedFileIds)
                 data.userActions.likedFileIds?.forEach((id: string) => newLikedIds.add(id))
                 data.userActions.dislikedFileIds?.forEach((id: string) => newDislikedIds.add(id))
-                return { likedFileIds: newLikedIds, dislikedFileIds: newDislikedIds }
+                data.userActions.savedFileIds?.forEach((id: string) => newSavedIds.add(id))
+                return { likedFileIds: newLikedIds, dislikedFileIds: newDislikedIds, savedFileIds: newSavedIds }
               })
             }
             appendedAny = true
@@ -348,6 +356,12 @@ export const ContextProvider = ({ children, st, user_agent, userId, c_user, uplo
       if (observerRef.current) observer.observe(observerRef.current)
       return () => observer.disconnect()
     }, [loadMoreVideos, isLoading, nav.location, userId])
+
+    // Refresh personalization data on login (interest profiles + creator affinity)
+    useEffect(() => {
+      if (!userId) return;
+      personalizationService.refreshIfNeeded();
+    }, [userId]);
 
     useEffect(() => {
       if (!userId || hasFetchedProfileRef.current) return;

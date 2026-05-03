@@ -50,6 +50,17 @@ export const loader = async ({ request }: { request: Request }) => {
     const user = await isAuthenticated(request, ['id']);
     const userId: string | undefined = user?.id || undefined;
 
+    // Session categories: categories from in-session likes for real-time personalization
+    const sessionCatsParam = url.searchParams.get('session_cats');
+    const sessionCats: string[] = sessionCatsParam
+      ? (() => {
+          try {
+            const parsed = JSON.parse(sessionCatsParam);
+            return Array.isArray(parsed) ? parsed.filter((c: any) => typeof c === 'string').slice(0, 20) : [];
+          } catch { return []; }
+        })()
+      : [];
+
     // Only pass p_exclude_ids when we have IDs; some DB implementations treat
     // empty array differently (e.g. bad WHERE id NOT IN ()), so omit when empty.
     const feedParams: Record<string, unknown> = {
@@ -59,7 +70,8 @@ export const loader = async ({ request }: { request: Request }) => {
       p_reels_only: false,
       p_seed: seedParam,
       p_cursor_pos: Number.isFinite(cursorPos) ? cursorPos : 0,
-      ...(pExcludeIds.length > 0 ? { p_exclude_ids: pExcludeIds } : {})
+      ...(pExcludeIds.length > 0 ? { p_exclude_ids: pExcludeIds } : {}),
+      ...(sessionCats.length > 0 ? { p_session_cats: sessionCats } : {})
     };
 
     const { data: feed, error } = await db.rpc('get_feed', feedParams);
@@ -91,7 +103,7 @@ export const loader = async ({ request }: { request: Request }) => {
       });
     }
 
-    const { data, likedFileIds, dislikedFileIds } = await enrichFeedFilesWithInteractions(
+    const { data, likedFileIds, dislikedFileIds, savedFileIds } = await enrichFeedFilesWithInteractions(
       db,
       filteredFeed as Record<string, unknown>[],
       userId
@@ -112,7 +124,7 @@ export const loader = async ({ request }: { request: Request }) => {
 
     const result = {
       data,
-      userActions: { likedFileIds, dislikedFileIds },
+      userActions: { likedFileIds, dislikedFileIds, savedFileIds },
       nextCursor
     };
 

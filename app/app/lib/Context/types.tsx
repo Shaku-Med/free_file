@@ -4,6 +4,7 @@ import type { FileType } from "../types";
 export interface UserActions {
   likedFileIds: Set<string>;
   dislikedFileIds: Set<string>;
+  savedFileIds: Set<string>;
 }
 
 export type ContextProps = {

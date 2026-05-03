@@ -1,0 +1,75 @@
+import { rateLimiter, RateLimiter } from '~/routes/Auth/fun/rateLimit';
+
+/** Aligns with watch-progress: one viewer stays well under this per minute. */
+const WATCH_TIME_MAX = 90;
+const WATCH_TIME_WINDOW_MS = 60 * 1000;
+const WATCH_TIME_BLOCK_MS = 5 * 60 * 1000;
+
+const SAVES_POST_MAX = 60;
+const SAVES_POST_WINDOW_MS = 60 * 1000;
+const SAVES_POST_BLOCK_MS = 5 * 60 * 1000;
+
+const SAVES_GET_MAX = 120;
+const SAVES_GET_WINDOW_MS = 60 * 1000;
+const SAVES_GET_BLOCK_MS = 5 * 60 * 1000;
+
+const FEED_SIGNALS_POST_MAX = 40;
+const FEED_SIGNALS_POST_WINDOW_MS = 60 * 1000;
+const FEED_SIGNALS_POST_BLOCK_MS = 15 * 60 * 1000;
+
+const FEED_SIGNALS_GET_MAX = 60;
+const FEED_SIGNALS_GET_WINDOW_MS = 60 * 1000;
+const FEED_SIGNALS_GET_BLOCK_MS = 5 * 60 * 1000;
+
+/** Heavy RPC: recompute interests + creator affinity. */
+const PERSONALIZATION_MAX = 8;
+const PERSONALIZATION_WINDOW_MS = 15 * 60 * 1000;
+const PERSONALIZATION_BLOCK_MS = 30 * 60 * 1000;
+
+export function checkWatchTimeRateLimit(request: Request, userId: string) {
+  const key = userId || `ip:${RateLimiter.getClientIP(request)}`;
+  return rateLimiter.checkLimit(key, 'api-watch-time', WATCH_TIME_MAX, WATCH_TIME_WINDOW_MS, WATCH_TIME_BLOCK_MS);
+}
+
+export function checkSavesPostRateLimit(request: Request, userId: string) {
+  const key = userId || `ip:${RateLimiter.getClientIP(request)}`;
+  return rateLimiter.checkLimit(key, 'api-saves-post', SAVES_POST_MAX, SAVES_POST_WINDOW_MS, SAVES_POST_BLOCK_MS);
+}
+
+export function checkSavesGetRateLimit(request: Request, userId: string) {
+  const key = userId || `ip:${RateLimiter.getClientIP(request)}`;
+  return rateLimiter.checkLimit(key, 'api-saves-get', SAVES_GET_MAX, SAVES_GET_WINDOW_MS, SAVES_GET_BLOCK_MS);
+}
+
+export function checkFeedSignalsPostRateLimit(request: Request, userId: string) {
+  const key = userId || `ip:${RateLimiter.getClientIP(request)}`;
+  return rateLimiter.checkLimit(
+    key,
+    'api-feed-signals-post',
+    FEED_SIGNALS_POST_MAX,
+    FEED_SIGNALS_POST_WINDOW_MS,
+    FEED_SIGNALS_POST_BLOCK_MS,
+  );
+}
+
+export function checkFeedSignalsGetRateLimit(request: Request, userId: string) {
+  const key = userId || `ip:${RateLimiter.getClientIP(request)}`;
+  return rateLimiter.checkLimit(
+    key,
+    'api-feed-signals-get',
+    FEED_SIGNALS_GET_MAX,
+    FEED_SIGNALS_GET_WINDOW_MS,
+    FEED_SIGNALS_GET_BLOCK_MS,
+  );
+}
+
+export function checkPersonalizationRateLimit(request: Request, userId: string) {
+  const key = userId || `ip:${RateLimiter.getClientIP(request)}`;
+  return rateLimiter.checkLimit(
+    key,
+    'api-personalization-refresh',
+    PERSONALIZATION_MAX,
+    PERSONALIZATION_WINDOW_MS,
+    PERSONALIZATION_BLOCK_MS,
+  );
+}

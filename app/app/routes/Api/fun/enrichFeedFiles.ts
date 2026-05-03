@@ -42,6 +42,7 @@ export async function enrichFeedFilesWithInteractions(
 
   const likedFileIds: string[] = [];
   const dislikedFileIds: string[] = [];
+  const savedFileIds: string[] = [];
 
   const data = filteredFeed.map((file) => {
     const f = file as Record<string, unknown>;
@@ -62,8 +63,10 @@ export async function enrichFeedFilesWithInteractions(
       : rpcComment;
     const userHasLiked = interactions ? interactions.user_has_liked : !!f.user_has_liked;
     const userHasDisliked = interactions ? interactions.user_has_disliked : !!f.user_has_disliked;
+    const userHasSaved = !!f.user_has_saved;
     if (userHasLiked && id) likedFileIds.push(id);
     if (userHasDisliked && id) dislikedFileIds.push(id);
+    if (userHasSaved && id) savedFileIds.push(id);
 
     return {
       id: f.id,
@@ -115,5 +118,5 @@ export async function enrichFeedFilesWithInteractions(
     };
   });
 
-  return { data, likedFileIds, dislikedFileIds };
+  return { data, likedFileIds, dislikedFileIds, savedFileIds };
 }

@@ -40,7 +40,7 @@ export interface ContextProps {
   clearFeedHistory: () => Promise<void>;
   user_agent: string;
   userId: string | null;
-  userActions: { likedFileIds: Set<string>; dislikedFileIds: Set<string> };
+  userActions: { likedFileIds: Set<string>; dislikedFileIds: Set<string>; savedFileIds: Set<string> };
   c_user: string | null;
   uploadServerUrl: string;
   userProfile: {
