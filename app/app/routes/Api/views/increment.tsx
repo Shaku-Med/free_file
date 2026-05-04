@@ -1,6 +1,8 @@
 import db from '~/lib/Database/supabase';
 import { isValidFileId, isValidUUID } from '~/lib/Security/inputValidation';
 import { isAuthenticated } from '~/lib/Security/Password';
+import { rateLimiter, RateLimiter } from '~/routes/Auth/fun/rateLimit';
+import crypto from 'node:crypto';
 
 const toJson = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), {
@@ -8,12 +10,45 @@ const toJson = (body: unknown, status = 200) =>
     headers: { 'Content-Type': 'application/json' },
   });
 
+// ── Rate limit config ──────────────────────────────────────────
+// Per-IP: max 60 view increments per minute (covers all files combined).
+// A real user watching reels might hit ~2-4/min; 60 is generous but stops bots.
+const VIEW_RATE_MAX = 60;
+const VIEW_RATE_WINDOW_MS = 60 * 1000;
+const VIEW_RATE_BLOCK_MS = 10 * 60 * 1000; // 10 min block
+
+// Per-user global: max 200 views per hour across all files
+const VIEW_USER_RATE_MAX = 200;
+const VIEW_USER_RATE_WINDOW_MS = 60 * 60 * 1000;
+const VIEW_USER_RATE_BLOCK_MS = 30 * 60 * 1000;
+
+// ── Max values to reject obviously spoofed payloads ──────────
+const MAX_CURRENT_TIME_S = 86_400; // 24 hours — no video is longer
+const MAX_DURATION_S = 86_400;
+
 function getClientIP(request: Request): string {
-  const forwarded = request.headers.get('x-forwarded-for');
-  if (forwarded) return forwarded.split(',')[0].trim();
-  const realIP = request.headers.get('x-real-ip');
-  if (realIP) return realIP;
-  return 'unknown';
+  // Use RateLimiter's shared implementation for consistency
+  return RateLimiter.getClientIP(request);
+}
+
+/**
+ * Build a viewer_key that is hard to spoof.
+ *
+ * For authenticated users: deterministic hash of user_id (user can't forge a different key).
+ * For anonymous: hash of IP + truncated UA prefix (first 120 chars only, so minor
+ * UA tweaks like version bumps don't create new keys, but big rotations still do).
+ *
+ * We hash to keep keys a fixed length and avoid leaking raw IPs into the DB.
+ */
+function buildViewerKey(userId: string | null | undefined, ip: string, ua: string): string {
+  if (userId) {
+    return `user:${userId}`;
+  }
+  // Use only the first 120 chars of UA to reduce trivial rotation
+  const uaPrefix = (ua || 'unknown').slice(0, 120);
+  const raw = `${ip}::${uaPrefix}`;
+  const hash = crypto.createHash('sha256').update(raw).digest('hex').slice(0, 32);
+  return `anon:${hash}`;
 }
 
 export const action = async ({ request }: { request: Request }) => {
@@ -21,7 +56,19 @@ export const action = async ({ request }: { request: Request }) => {
     if (request.method !== 'POST') return toJson({ error: 'Method not allowed' }, 405);
     if (!db) return toJson({ error: 'Something went wrong.' }, 500);
 
-    const body = await request.json();
+    // ── Rate limit: per-IP ──────────────────────────────────────
+    const ip = getClientIP(request);
+    const ipLimit = rateLimiter.checkLimit(ip, 'api-views-ip', VIEW_RATE_MAX, VIEW_RATE_WINDOW_MS, VIEW_RATE_BLOCK_MS);
+    if (!ipLimit.allowed) {
+      return toJson({ error: ipLimit.error ?? 'Too many requests' }, 429);
+    }
+
+    let body: { fileId?: string; uniqueId?: string; currentTimeSeconds?: number; durationSeconds?: number };
+    try {
+      body = await request.json();
+    } catch {
+      return toJson({ error: 'Invalid JSON' }, 400);
+    }
     const { fileId, uniqueId, currentTimeSeconds, durationSeconds } = body;
 
     if (!fileId && !uniqueId) return toJson({ error: 'fileId or uniqueId is required' }, 400);
@@ -34,13 +81,20 @@ export const action = async ({ request }: { request: Request }) => {
     const { data: file, error: fileError } = await fileQuery.single();
     if (fileError || !file) return toJson({ error: 'File not found' }, 404);
 
-    const ip = getClientIP(request);
     const user = await isAuthenticated(request, ['id']);
-    const ua = request.headers.get('user-agent') ?? 'unknown';
-    const viewerKey = user?.id
-      ? `user:${user.id}`
-      : `ipua:${ip}:${ua}`.slice(0, 240);
 
+    // ── Rate limit: per-user (if authenticated) ─────────────────
+    if (user?.id) {
+      const userLimit = rateLimiter.checkLimit(user.id, 'api-views-user', VIEW_USER_RATE_MAX, VIEW_USER_RATE_WINDOW_MS, VIEW_USER_RATE_BLOCK_MS);
+      if (!userLimit.allowed) {
+        return toJson({ error: userLimit.error ?? 'Too many requests' }, 429);
+      }
+    }
+
+    const ua = request.headers.get('user-agent') ?? 'unknown';
+    const viewerKey = buildViewerKey(user?.id, ip, ua);
+
+    // ── Clamp and validate numeric inputs ───────────────────────
     const ct = Number(currentTimeSeconds);
     const dur =
       durationSeconds != null
@@ -49,12 +103,23 @@ export const action = async ({ request }: { request: Request }) => {
           ? Number(file.duration)
           : 0;
 
+    // Reject obviously spoofed values
+    let safeCt = Number.isFinite(ct) && ct >= 0 && ct <= MAX_CURRENT_TIME_S ? ct : 0;
+    const safeDur = Number.isFinite(dur) && dur >= 0 && dur <= MAX_DURATION_S ? dur : 0;
+
+    // Server-side sanity: currentTime shouldn't exceed duration by a large margin.
+    // Legitimate players can overshoot slightly (buffering), but not by 2x.
+    // Silently clamp rather than reject — could be a quirky player, not necessarily a bot.
+    if (safeDur > 0 && safeCt > safeDur * 1.5) {
+      safeCt = safeDur;
+    }
+
     const { data: rpcData, error: rpcErr } = await db.rpc('increment_file_view_if_eligible', {
       p_file_id: file.id,
       p_user_id: user?.id ?? null,
       p_viewer_key: viewerKey,
-      p_current_time_s: Number.isFinite(ct) ? ct : 0,
-      p_duration_s: Number.isFinite(dur) ? dur : 0,
+      p_current_time_s: safeCt,
+      p_duration_s: safeDur,
       p_file_type: String(file.file_type ?? ''),
     });
 
