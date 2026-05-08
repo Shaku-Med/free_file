@@ -1,17 +1,9 @@
 import { useRef, useState, useCallback, useEffect } from 'react';
-import { ChevronsUp } from 'lucide-react';
 import { usePlayerContext } from '../../PlayerContext';
 import type { BufferedRange } from '../../PlayerContext';
 import ThumbnailPreview from './ThumbnailPreview';
 import { formatTime } from './functions/formatTime';
 import { cn } from '~/lib/utils';
-
-const WAVEFORM_STRIP_HEIGHT = 40;
-const PULL_REVEAL_PX = 96;
-/** Visual rail height (matches the slim rail in the desktop ThinSeekTrack). */
-const RAIL_HEIGHT_PX = 4;
-/** Pointer-target height around the rail so the seek bar is easy to grab. */
-const HIT_AREA_HEIGHT_PX = 20;
 
 function BufferSegments({ ranges, duration, className }: {
   ranges: BufferedRange[];
@@ -119,6 +111,8 @@ function useVideoProgress(
   return { progressRef, durationRef, barRef, handleRef, timeRef };
 }
 
+const WAVEFORM_HEIGHT = 40;
+
 function ThinSeekTrack({
   trackRef,
   progress,
@@ -129,6 +123,7 @@ function ThinSeekTrack({
   showHandle,
   mobileStyle,
   handleInsetPx,
+  waveformUrl,
   onPointerDown,
   onPointerMove,
   onPointerUp,
@@ -146,6 +141,7 @@ function ThinSeekTrack({
   showHandle: boolean;
   mobileStyle: boolean;
   handleInsetPx: number;
+  waveformUrl?: string;
   onPointerDown: (e: React.PointerEvent) => void;
   onPointerMove: (e: React.PointerEvent) => void;
   onPointerUp: (e: React.PointerEvent) => void;
@@ -200,11 +196,40 @@ function ThinSeekTrack({
     );
   }
 
-  /**
-   * Desktop: visual rail stays slim (4px → 8px on hover) but the pointer-target wrapper
-   * is 20px tall so users don't need pixel-perfect aim. Events live on the outer wrapper;
-   * the inner div renders the actual rail centered inside the hit area.
-   */
+  if (waveformUrl) {
+    return (
+      <div
+        ref={trackRef}
+        tabIndex={-1}
+        className="group/seek relative flex w-full cursor-pointer select-none items-end overflow-visible bg-transparent outline-none"
+        style={{ height: WAVEFORM_HEIGHT }}
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={onPointerUp}
+        onMouseLeave={onMouseLeave}
+        onPointerLeave={onPointerLeave}
+        onLostPointerCapture={onLostPointerCapture}
+        onPointerCancel={onPointerCancel}
+        onBlur={onMouseLeave}
+      >
+        <div
+          className="pointer-events-none absolute inset-0 opacity-50 group-hover/seek:opacity-80 transition-opacity duration-200"
+          style={{
+            backgroundImage: `url(${waveformUrl})`,
+            backgroundSize: '100% 100%',
+            backgroundRepeat: 'no-repeat',
+            backgroundPosition: 'center',
+            filter: 'brightness(0) invert(1)',
+            mixBlendMode: 'lighten',
+          }}
+        />
+        <div className="relative h-1 w-full overflow-visible rounded-full bg-white/10 transition-[height] duration-150 group-hover/seek:h-1.5">
+          {rail}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div
       ref={trackRef}
@@ -245,8 +270,6 @@ export default function SeekBar({ mobileStyle = false }: { mobileStyle?: boolean
   const [hoverX, setHoverX] = useState(0);
   const [trackWidth, setTrackWidth] = useState(0);
   const [waveformError, setWaveformError] = useState(false);
-  const [pullReveal, setPullReveal] = useState(0);
-  const pointerDownYRef = useRef(0);
   const isDraggingRef = useRef(false);
   /** True while pointer is down scrubbing — used to resume playback only after scrub ends */
   const scrubActiveRef = useRef(false);
@@ -266,7 +289,6 @@ export default function SeekBar({ mobileStyle = false }: { mobileStyle?: boolean
 
   useEffect(() => {
     if (!state.controlsVisible) {
-      setPullReveal(0);
       setHoverTime(null);
       if (isDraggingRef.current) {
         isDraggingRef.current = false;
@@ -278,19 +300,7 @@ export default function SeekBar({ mobileStyle = false }: { mobileStyle?: boolean
   }, [state.controlsVisible, endInteraction, finishScrubbing]);
 
   useEffect(() => {
-    const v = videoRef.current;
-    if (!v) return;
-    const onSeeked = () => {
-      if (isDraggingRef.current) return;
-      setPullReveal(0);
-    };
-    v.addEventListener('seeked', onSeeked);
-    return () => v.removeEventListener('seeked', onSeeked);
-  }, [videoRef]);
-
-  useEffect(() => {
     const onWinBlur = () => {
-      setPullReveal(0);
       setHoverTime(null);
       if (isDraggingRef.current) {
         isDraggingRef.current = false;
@@ -303,16 +313,15 @@ export default function SeekBar({ mobileStyle = false }: { mobileStyle?: boolean
     return () => window.removeEventListener('blur', onWinBlur);
   }, [endInteraction, finishScrubbing]);
 
+  useEffect(() => {
+    if (!waveformUrl) setWaveformError(false);
+    else setWaveformError(false);
+  }, [waveformUrl]);
+
+  const showWaveform = Boolean(waveformUrl && !waveformError);
+
   const handleInsetPx = mobileStyle ? 8 : 8;
   const { barRef, handleRef } = useVideoProgress(videoRef, handleInsetPx);
-
-  useEffect(() => {
-    if (!waveformUrl) {
-      setWaveformError(false);
-      return;
-    }
-    setWaveformError(false);
-  }, [waveformUrl]);
 
   const progress = state.duration > 0 ? (state.currentTime / state.duration) * 100 : 0;
   const { bufferedRanges } = state;
@@ -332,8 +341,6 @@ export default function SeekBar({ mobileStyle = false }: { mobileStyle?: boolean
   const handlePointerDown = useCallback(
     (e: React.PointerEvent) => {
       e.preventDefault();
-      pointerDownYRef.current = e.clientY;
-      setPullReveal(0);
       const v = videoRef.current;
       if (v) {
         if (scrubActiveRef.current) finishScrubbing();
@@ -370,8 +377,6 @@ export default function SeekBar({ mobileStyle = false }: { mobileStyle?: boolean
       setHoverTime(getTimeFromX(e.clientX));
 
       if (isDragging) {
-        const dy = pointerDownYRef.current - e.clientY;
-        setPullReveal(Math.min(1, Math.max(0, dy / PULL_REVEAL_PX)));
         seek(getTimeFromX(e.clientX));
       }
     },
@@ -383,7 +388,6 @@ export default function SeekBar({ mobileStyle = false }: { mobileStyle?: boolean
       if (isDragging) {
         isDraggingRef.current = false;
         setIsDragging(false);
-        setPullReveal(0);
         setHoverTime(null);
         seek(getTimeFromX(e.clientX));
         finishScrubbing();
@@ -396,12 +400,10 @@ export default function SeekBar({ mobileStyle = false }: { mobileStyle?: boolean
   const handleMouseLeave = useCallback(() => {
     if (!isDragging) {
       setHoverTime(null);
-      setPullReveal(0);
     }
   }, [isDragging]);
 
   const handleLostPointerCapture = useCallback(() => {
-    setPullReveal(0);
     setHoverTime(null);
     if (!isDraggingRef.current) return;
     isDraggingRef.current = false;
@@ -420,7 +422,6 @@ export default function SeekBar({ mobileStyle = false }: { mobileStyle?: boolean
       if (!isDraggingRef.current) return;
       isDraggingRef.current = false;
       setIsDragging(false);
-      setPullReveal(0);
       setHoverTime(null);
       finishScrubbing();
       endInteraction();
@@ -429,199 +430,11 @@ export default function SeekBar({ mobileStyle = false }: { mobileStyle?: boolean
     return () => window.removeEventListener('pointerup', handleGlobalUp);
   }, [isDragging, endInteraction, finishScrubbing]);
 
-  const showWaveformStrip = Boolean(waveformUrl && !waveformError);
-  const waveAreaPx = pullReveal * WAVEFORM_STRIP_HEIGHT;
-  /** Idle: full hit area; pulled up: rail + waveform strip. */
-  const trackHeightPx = waveAreaPx > 0.5 ? RAIL_HEIGHT_PX + waveAreaPx : HIT_AREA_HEIGHT_PX;
-  const thumbShow =
-    mobileStyle ||
-    hoverTime !== null ||
-    isDragging ||
-    pullReveal > 0.04;
-  const displayTime = hoverTime !== null ? hoverTime : state.currentTime;
-  const showPullHint =
-    showWaveformStrip && (hoverTime !== null || isDragging) && pullReveal < 0.2;
-
-  if (waveformUrl) {
-    return (
-      <>
-        <img
-          src={waveformUrl}
-          alt=""
-          className="hidden"
-          onError={() => setWaveformError(true)}
-        />
-        {!waveformError ? (
-          <div className={cn('relative w-full group/seek px-0', mobileStyle && 'touch-none')}>
-            {showPullHint && (
-              <div className="pointer-events-none absolute bottom-full left-0 right-0 z-30 mb-1 flex items-center justify-center gap-1.5">
-                <span className="text-[11px] font-medium text-white/90">Pull up for precise seeking</span>
-                <ChevronsUp className="h-3.5 w-3.5 text-white/80" />
-              </div>
-            )}
-            {hoverTime !== null && spriteMeta && spriteUrl && (
-              <div className="pointer-events-none absolute bottom-full left-0 right-0 z-20 mb-2 flex justify-center">
-                <ThumbnailPreview
-                  meta={spriteMeta}
-                  spriteUrl={spriteUrl}
-                  time={hoverTime}
-                  parentWidth={trackWidth}
-                  cursorX={hoverX}
-                />
-              </div>
-            )}
-            <div
-              ref={trackRef}
-              tabIndex={-1}
-              className={cn(
-                'relative w-full cursor-pointer select-none overflow-hidden rounded-md transition-[height] duration-150 ease-out outline-none',
-                /** Idle: invisible hit area on both desktop & mobile. The dark backdrop only shows up when the user pulls the waveform open. */
-                waveAreaPx < 0.5 ? 'bg-transparent' : 'bg-black/50',
-              )}
-              style={{ height: Math.max(mobileStyle ? 16 : HIT_AREA_HEIGHT_PX, trackHeightPx) }}
-              onPointerDown={handlePointerDown}
-              onPointerMove={handlePointerMove}
-              onPointerUp={handlePointerUp}
-              onMouseLeave={handleMouseLeave}
-              onPointerLeave={handleMouseLeave}
-              onLostPointerCapture={handleLostPointerCapture}
-              onPointerCancel={handlePointerCancel}
-              onBlur={handleMouseLeave}
-            >
-              <div
-                className="absolute left-0 right-0 overflow-hidden transition-[height] duration-150 ease-out"
-                style={{
-                  bottom: RAIL_HEIGHT_PX,
-                  height: waveAreaPx,
-                }}
-              >
-                <div
-                  className="absolute bottom-0 left-0 right-0 opacity-90"
-                  style={{
-                    height: WAVEFORM_STRIP_HEIGHT,
-                    backgroundImage: `url(${waveformUrl})`,
-                    backgroundSize: '100% 100%',
-                    backgroundRepeat: 'no-repeat',
-                    backgroundPosition: 'center',
-                    filter: 'brightness(0) invert(1)',
-                    mixBlendMode: 'lighten',
-                  }}
-                />
-              </div>
-
-              <div
-                className={cn(
-                  'absolute left-0 right-0 z-[1] h-1 bg-secondary',
-                  /**
-                   * Idle (no pull-reveal): center the rail in the 20px hit area for both
-                   * desktop & mobile. Once the user pulls up to expose the waveform strip,
-                   * pin the rail to the bottom so the strip can grow above it.
-                   */
-                  waveAreaPx < 0.5 ? 'top-1/2 bottom-auto -translate-y-1/2' : 'bottom-0',
-                )}
-              >
-                <BufferSegments
-                  ranges={bufferedRanges}
-                  duration={state.duration}
-                  className="bg-white/20 rounded-full"
-                />
-                <div
-                  ref={barRef}
-                  className="absolute top-0 left-0 h-full bg-primary"
-                  style={{ width: `${progress}%` }}
-                />
-              </div>
-
-              <div
-                ref={handleRef}
-                className={cn(
-                  'pointer-events-none absolute z-10 h-4 w-4 rounded-full border-2 border-primary bg-background shadow-md transition-opacity duration-150',
-                  mobileStyle ? 'opacity-100' : 'opacity-0 group-hover/seek:opacity-100',
-                  thumbShow && 'opacity-100'
-                )}
-                style={
-                  /** Idle (rail centered in hit area): center the handle on the rail too. */
-                  waveAreaPx < 0.5
-                    ? {
-                        left: `calc(${progress}% - ${handleInsetPx}px)`,
-                        top: '50%',
-                        transform: 'translateY(-50%)',
-                      }
-                    : {
-                        left: `calc(${progress}% - ${handleInsetPx}px)`,
-                        bottom: 0,
-                        transform: 'translateY(50%)',
-                      }
-                }
-              />
-
-              {thumbShow && (
-                <div
-                  className="pointer-events-none absolute z-20 flex flex-col items-center"
-                  style={
-                    waveAreaPx < 0.5
-                      ? {
-                          left: `calc(${progress}%)`,
-                          top: '50%',
-                          transform: 'translateX(-50%) translateY(-50%)',
-                        }
-                      : {
-                          left: `calc(${progress}%)`,
-                          bottom: 0,
-                          transform: 'translateX(-50%) translateY(50%)',
-                        }
-                  }
-                >
-                  <span className="-translate-y-full pt-0.5 text-xs font-medium whitespace-nowrap text-white drop-shadow-sm">
-                    {formatTime(displayTime)}
-                  </span>
-                  <div
-                    className="mt-0.5 w-px shrink-0 bg-white/90"
-                    style={{ height: Math.max(8, waveAreaPx + 6) }}
-                  />
-                </div>
-              )}
-            </div>
-          </div>
-        ) : (
-          <div className={cn('relative w-full group/seek px-0', mobileStyle && 'touch-none')}>
-            {hoverTime !== null && spriteMeta && spriteUrl && (
-              <div className="pointer-events-none absolute bottom-full left-0 right-0 z-20 mb-2 flex justify-center">
-                <ThumbnailPreview
-                  meta={spriteMeta}
-                  spriteUrl={spriteUrl}
-                  time={hoverTime}
-                  parentWidth={trackWidth}
-                  cursorX={hoverX}
-                />
-              </div>
-            )}
-            <ThinSeekTrack
-              trackRef={trackRef}
-              progress={progress}
-              bufferedRanges={bufferedRanges}
-              duration={state.duration}
-              barRef={barRef}
-              handleRef={handleRef}
-              showHandle={Boolean(hoverTime !== null || isDragging || mobileStyle)}
-              mobileStyle={mobileStyle}
-              handleInsetPx={handleInsetPx}
-              onPointerDown={handlePointerDown}
-              onPointerMove={handlePointerMove}
-              onPointerUp={handlePointerUp}
-              onMouseLeave={handleMouseLeave}
-              onPointerLeave={handleMouseLeave}
-              onLostPointerCapture={handleLostPointerCapture}
-              onPointerCancel={handlePointerCancel}
-            />
-          </div>
-        )}
-      </>
-    );
-  }
-
   return (
     <div className={cn('relative w-full group/seek px-0', mobileStyle && 'touch-none')}>
+      {waveformUrl && (
+        <img src={waveformUrl} alt="" className="hidden" onError={() => setWaveformError(true)} />
+      )}
       {hoverTime !== null && spriteMeta && spriteUrl && (
         <div className="pointer-events-none absolute bottom-full left-0 right-0 z-20 mb-2 flex justify-center">
           <ThumbnailPreview
@@ -643,6 +456,7 @@ export default function SeekBar({ mobileStyle = false }: { mobileStyle?: boolean
         showHandle={Boolean(hoverTime !== null || isDragging || mobileStyle)}
         mobileStyle={mobileStyle}
         handleInsetPx={handleInsetPx}
+        waveformUrl={showWaveform ? waveformUrl : undefined}
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}

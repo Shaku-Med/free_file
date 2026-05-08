@@ -1,0 +1,278 @@
+-- ============================================================
+-- get_related v2 — Personalized related/suggestions
+-- ============================================================
+-- Upgrades over v1:
+--   1. Session categories boost (p_session_cats)
+--   2. Interest profile scoring from user_interest_scores
+--   3. Creator affinity boost from user_creator_affinity
+--   4. Negative signal filtering
+--   5. Better ranking: relevance + personalization + engagement
+-- Requires: personalization_tables.sql tables.
+-- ============================================================
+
+DROP FUNCTION IF EXISTS get_related;
+
+CREATE OR REPLACE FUNCTION get_related(
+  p_file_id      uuid,
+  p_user_id      uuid    DEFAULT NULL,
+  p_limit        int     DEFAULT 20,
+  p_cursor_pos   int     DEFAULT 0,
+  p_exclude_ids  uuid[]  DEFAULT '{}'::uuid[],
+  p_session_cats text[]  DEFAULT '{}'::text[]
+)
+RETURNS TABLE (
+  id               uuid,
+  created_at       timestamptz,
+  endpoint         text,
+  filename         text,
+  unique_id        text,
+  file_size        text,
+  file_type        text,
+  is_adult         boolean,
+  owner_id         uuid,
+  is_public        boolean,
+  file_description text,
+  file_title       text,
+  default_thumbnail text,
+  view_count       numeric,
+  share_count      numeric,
+  is_reel          boolean,
+  is_series_main   boolean,
+  is_files_series_item boolean,
+  file_series_id   uuid,
+  file_series_episode_id uuid,
+  duration         numeric,
+  categories       jsonb,
+  tags             jsonb,
+  colors           jsonb,
+  metadata         jsonb,
+  like_count       bigint,
+  dislike_count    bigint,
+  comment_count    bigint,
+  engagement_score float,
+  feed_pool        text,
+  feed_reel_cluster_id bigint,
+  owner_username    text,
+  owner_profile_pic text,
+  owner_verified    boolean,
+  owner_about       text,
+  user_has_liked    boolean,
+  user_has_disliked boolean
+)
+LANGUAGE plpgsql
+STABLE
+AS $$
+DECLARE
+  v_owner_id   uuid;
+  v_tags       jsonb;
+  v_categories jsonb;
+  v_file_type  text;
+BEGIN
+  SELECT f.owner_id, f.tags, f.categories, f.file_type
+  INTO v_owner_id, v_tags, v_categories, v_file_type
+  FROM files f
+  WHERE f.id = p_file_id AND f.is_public = true;
+
+  IF v_owner_id IS NULL THEN
+    RETURN;
+  END IF;
+
+  RETURN QUERY
+  WITH
+  user_likes AS (
+    SELECT l.file_id FROM likes l
+    WHERE l.user_id = p_user_id AND p_user_id IS NOT NULL
+  ),
+  user_dislikes AS (
+    SELECT d.file_id FROM dislike d
+    WHERE d.user_id = p_user_id AND p_user_id IS NOT NULL
+  ),
+  user_interests AS (
+    SELECT uis.category, uis.score AS interest_score
+    FROM user_interest_scores uis
+    WHERE uis.user_id = p_user_id AND p_user_id IS NOT NULL
+    ORDER BY uis.score DESC
+    LIMIT 20
+  ),
+  creator_aff AS (
+    SELECT uca.creator_id, uca.affinity_score
+    FROM user_creator_affinity uca
+    WHERE uca.user_id = p_user_id AND p_user_id IS NOT NULL
+    ORDER BY uca.affinity_score DESC
+    LIMIT 50
+  ),
+  neg_files AS (
+    SELECT ns.file_id FROM feed_negative_signals ns
+    WHERE ns.user_id = p_user_id AND p_user_id IS NOT NULL
+      AND ns.signal_type = 'not_interested' AND ns.file_id IS NOT NULL
+  ),
+  neg_creators AS (
+    SELECT ns.creator_id FROM feed_negative_signals ns
+    WHERE ns.user_id = p_user_id AND p_user_id IS NOT NULL
+      AND ns.signal_type = 'hide_creator' AND ns.creator_id IS NOT NULL
+  ),
+
+  candidates AS (
+    SELECT
+      f.id,
+      f.created_at,
+      f.endpoint,
+      f.filename,
+      f.unique_id,
+      f.file_size,
+      f.file_type,
+      f.is_adult,
+      f.owner_id,
+      f.is_public,
+      f.file_description,
+      f.file_title,
+      COALESCE(f.default_thumbnail, (SELECT t #>> '{}' FROM unnest(f.thumbnails) AS t WHERE (t #>> '{}') LIKE '%thumbnail_preview.jpg' LIMIT 1)) AS default_thumbnail,
+      f.view_count,
+      f.share_count,
+      f.is_reel,
+      f.is_series_main,
+      f.is_files_series_item,
+      f.file_series_id,
+      f.file_series_episode_id,
+      f.duration,
+      f.categories,
+      f.tags,
+      f.colors,
+      f.metadata,
+      COALESCE(es.like_count, 0)    AS _like_count,
+      COALESCE(es.dislike_count, 0) AS _dislike_count,
+      COALESCE(es.comment_count, 0) AS _comment_count,
+      (ul.file_id IS NOT NULL)      AS _user_liked,
+      (ud.file_id IS NOT NULL)      AS _user_disliked,
+      (COALESCE(es.like_count, 0) + COALESCE(es.comment_count, 0) + f.share_count + f.view_count)::float AS _total_eng,
+
+      -- Content relevance (same as v1)
+      (
+        CASE WHEN f.owner_id = v_owner_id THEN 100.0 ELSE 0.0 END
+        + CASE
+            WHEN v_tags IS NOT NULL AND f.tags IS NOT NULL
+                 AND EXISTS (
+                   SELECT 1 FROM jsonb_array_elements_text(COALESCE(v_tags, '[]'::jsonb)) AS vt(tag)
+                   JOIN jsonb_array_elements_text(COALESCE(f.tags, '[]'::jsonb)) AS ft(tag) ON vt.tag = ft.tag
+                 )
+            THEN 50.0 ELSE 0.0 END
+        + CASE
+            WHEN v_categories IS NOT NULL AND f.categories IS NOT NULL
+                 AND EXISTS (
+                   SELECT 1 FROM jsonb_array_elements_text(COALESCE(v_categories, '[]'::jsonb)) AS vc(cat)
+                   JOIN jsonb_array_elements_text(COALESCE(f.categories, '[]'::jsonb)) AS fc(cat) ON vc.cat = fc.cat
+                 )
+            THEN 25.0 ELSE 0.0 END
+        + CASE
+            WHEN v_file_type IS NOT NULL AND f.file_type IS NOT NULL
+                 AND split_part(f.file_type, '/', 1) = split_part(v_file_type, '/', 1)
+            THEN 20.0 ELSE 0.0 END
+      )::float AS _rel_score,
+
+      -- User interest profile match
+      COALESCE(
+        (
+          SELECT SUM(ui.interest_score)::float
+          FROM user_interests ui
+          WHERE f.categories IS NOT NULL
+            AND jsonb_typeof(f.categories) = 'array'
+            AND EXISTS (
+              SELECT 1 FROM jsonb_array_elements_text(COALESCE(f.categories, '[]'::jsonb)) AS fc(cat)
+              WHERE fc.cat = ui.category
+            )
+        ),
+        0.0
+      ) AS _interest_score,
+
+      -- Creator affinity
+      COALESCE(ca.affinity_score, 0.0)::float AS _creator_affinity,
+
+      -- Session categories boost
+      CASE WHEN p_session_cats IS NOT NULL AND array_length(p_session_cats, 1) > 0
+           AND f.categories IS NOT NULL AND jsonb_typeof(f.categories) = 'array'
+           AND EXISTS (
+             SELECT 1
+             FROM jsonb_array_elements_text(COALESCE(f.categories, '[]'::jsonb)) AS fc(cat)
+             WHERE fc.cat = ANY(p_session_cats)
+           )
+      THEN 15.0 ELSE 0.0 END AS _session_boost
+
+    FROM files f
+    LEFT JOIN file_engagement_stats es ON es.file_id = f.id
+    LEFT JOIN user_likes ul ON ul.file_id = f.id
+    LEFT JOIN user_dislikes ud ON ud.file_id = f.id
+    LEFT JOIN creator_aff ca ON ca.creator_id = f.owner_id
+    WHERE f.id != p_file_id
+      AND f.is_public = true
+      AND f.is_adult = false
+      AND f.upload_status = 'complete'
+      AND (f.is_series_main OR COALESCE(f.is_files_series_item, false) IS NOT TRUE)
+      AND (p_user_id IS NULL OR ud.file_id IS NULL)
+      AND (p_exclude_ids = '{}'::uuid[] OR f.id != ALL(p_exclude_ids))
+      AND f.id NOT IN (SELECT nf.file_id FROM neg_files nf)
+      AND f.owner_id NOT IN (SELECT nc.creator_id FROM neg_creators nc)
+  ),
+
+  ranked AS (
+    SELECT c.*,
+      ROW_NUMBER() OVER (
+        ORDER BY
+          -- Combined score: content relevance (50%) + personalization (30%) + engagement (20%)
+          c._rel_score * 0.50
+          + (LEAST(c._interest_score / 10.0, 15.0) + LEAST(c._creator_affinity / 10.0, 10.0) + c._session_boost) * 0.30
+          + LN(GREATEST(c._total_eng, 1)) * 0.20
+          DESC,
+          c.created_at DESC,
+          c.id
+      ) AS _rn
+    FROM candidates c
+  )
+
+  SELECT
+    r.id,
+    r.created_at,
+    r.endpoint,
+    r.filename,
+    r.unique_id,
+    r.file_size,
+    r.file_type,
+    r.is_adult,
+    r.owner_id,
+    r.is_public,
+    r.file_description,
+    r.file_title,
+    r.default_thumbnail,
+    r.view_count,
+    r.share_count,
+    r.is_reel,
+    r.is_series_main,
+    r.is_files_series_item,
+    r.file_series_id,
+    r.file_series_episode_id,
+    r.duration,
+    r.categories,
+    r.tags,
+    r.colors,
+    r.metadata,
+    r._like_count,
+    r._dislike_count,
+    r._comment_count,
+    (r._rel_score + LEAST(r._interest_score, 20.0) + LEAST(r._creator_affinity, 10.0)
+     + r._session_boost + LN(GREATEST(r._total_eng, 1))::float * 0.5)::float AS engagement_score,
+    'related'::text AS feed_pool,
+    NULL::bigint AS feed_reel_cluster_id,
+    u.username,
+    u.profile_pic,
+    u.verified,
+    u.about,
+    r._user_liked,
+    r._user_disliked
+  FROM ranked r
+  JOIN users u ON u.id = r.owner_id
+  WHERE r._rn > p_cursor_pos
+  ORDER BY r._rn ASC
+  LIMIT p_limit;
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION get_related TO anon, authenticated;

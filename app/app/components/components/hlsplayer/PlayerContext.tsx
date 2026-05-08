@@ -212,14 +212,15 @@ export function PlayerProvider({
   });
   const appliedInitialRef = useRef(false);
 
-  const [loop, setLoopState] = useState(initialLoop);
+  const [loop, setLoopState] = useState(isReel ? true : initialLoop);
   const [autoPlay, setAutoPlayState] = useState(initialAutoPlay);
 
   const setLoop = useCallback((v: boolean) => {
+    if (isReel) return;
     setLoopState(v);
     setPlayerSettings(prev => (prev ? { ...prev, loop: v } : prev));
     savePlayerSettings({ loop: v }).catch(() => {});
-  }, [setPlayerSettings, savePlayerSettings]);
+  }, [isReel, setPlayerSettings, savePlayerSettings]);
   const setAutoPlay = useCallback(
     (v: boolean) => {
       if (!authPlaybackFeatures) return;
@@ -298,7 +299,7 @@ export function PlayerProvider({
       isMuted: unlockPipReelAudio ? false : playerSettings.muted,
       playbackRate: playerSettings.playbackRate,
     }));
-    setLoopState(playerSettings.loop);
+    if (!isReel) setLoopState(playerSettings.loop);
     setAutoPlayState(playerSettings.autoPlay);
     setStableVolumeState(playerSettings.stableVolume);
     if (authPlaybackFeatures) {
@@ -575,7 +576,7 @@ export function PlayerProvider({
       if (!el) return;
 
       // Loop: must be polled (no dedicated event when toggled via context menu).
-      if (el.loop !== loop) {
+      if (!isReel && el.loop !== loop) {
         setLoopState(el.loop);
         setPlayerSettings(prev => (prev ? { ...prev, loop: el.loop } : prev));
         savePlayerSettings({ loop: el.loop }).catch(() => {});

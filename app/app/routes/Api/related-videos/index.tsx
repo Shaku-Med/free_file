@@ -47,12 +47,23 @@ export const loader = async ({ request }: { request: Request }) => {
     const user = await isAuthenticated(request, ['id']);
     const userId: string | undefined = user?.id || undefined;
 
+    const sessionCatsParam = url.searchParams.get('session_cats');
+    const sessionCats: string[] = sessionCatsParam
+      ? (() => {
+          try {
+            const parsed = JSON.parse(sessionCatsParam);
+            return Array.isArray(parsed) ? parsed.filter((c: unknown) => typeof c === 'string').slice(0, 20) : [];
+          } catch { return []; }
+        })()
+      : [];
+
     const rpcParams: Record<string, unknown> = {
       p_file_id: fileIdParam,
       p_user_id: userId || null,
       p_limit: RELATED_LIMIT,
       p_cursor_pos: Number.isFinite(cursorPos) ? cursorPos : 0,
-      ...(pExcludeIds.length > 0 ? { p_exclude_ids: pExcludeIds } : {})
+      ...(pExcludeIds.length > 0 ? { p_exclude_ids: pExcludeIds } : {}),
+      ...(sessionCats.length > 0 ? { p_session_cats: sessionCats } : {}),
     };
 
     const { data: related, error } = await db.rpc('get_related', rpcParams);

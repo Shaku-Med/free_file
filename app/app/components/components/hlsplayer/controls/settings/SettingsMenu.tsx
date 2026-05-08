@@ -78,7 +78,7 @@ function Switch({
   );
 }
 
-function SettingsMenuBody() {
+export function SettingsMenuBody() {
   const subMenuWidth = cn(
     'max-h-[min(50dvh,var(--radix-dropdown-menu-content-available-height))] overflow-y-auto overscroll-contain',
     isMobile ? 'min-w-0 w-[min(18rem,calc(100vw-2rem))]' : 'min-w-[200px]',
@@ -373,15 +373,41 @@ interface SettingsMenuProps {
   pillBarTrigger?: boolean;
 }
 
+function useResolutionBadge(): string | null {
+  const { state } = usePlayerContext();
+  const h =
+    state.currentLevel >= 0 && state.levels[state.currentLevel]
+      ? state.levels[state.currentLevel].height
+      : null;
+  if (h == null) return null;
+  if (h >= 2160) return '4K';
+  if (h >= 720) return 'HD';
+  return null;
+}
+
+function QualityBadge({ label, className }: { label: string; className?: string }) {
+  return (
+    <span
+      className={cn(
+        'absolute -right-1 -top-1 z-10 flex h-3.5 min-w-[1.1rem] items-center justify-center rounded px-0.5 text-[8px] font-bold uppercase leading-none tracking-wide shadow-sm',
+        label === '4K'
+          ? 'bg-amber-400 text-black'
+          : 'bg-blue-500 text-white',
+        className,
+      )}
+    >
+      {label}
+    </span>
+  );
+}
+
 export default function SettingsMenu({ nested, panelRef, onOpenChange, overlayTrigger, pillBarTrigger }: SettingsMenuProps) {
   const menuWidthClass = cn(
     'max-h-[min(72dvh,var(--radix-dropdown-menu-content-available-height))]',
     isMobile ? 'min-w-0 w-[calc(100vw-1.25rem)]' : 'min-w-[260px] max-w-[min(320px,calc(100vw-2rem))]',
   );
+  const badge = useResolutionBadge();
 
-  // The spatial-audio dialog itself is rendered once at the player root (HLSPlayer);
-  // here we only need the trigger button + menu body. Mounting it again at every
-  // SettingsMenu instance would cause duplicate dialogs and animation jank.
   if (nested) {
     return (
       <DropdownMenu modal={false}>
@@ -394,7 +420,10 @@ export default function SettingsMenu({ nested, panelRef, onOpenChange, overlayTr
                 aria-label="Settings"
               >
                 <span className="flex items-center gap-2">
-                  <Settings className="h-4 w-4 shrink-0 text-muted-foreground" />
+                  <span className="relative shrink-0">
+                    <Settings className="h-4 w-4 text-muted-foreground" />
+                    {badge && <QualityBadge label={badge} className="-right-2 -top-2 h-3 text-[7px]" />}
+                  </span>
                   Settings
                 </span>
               </button>
@@ -426,13 +455,14 @@ export default function SettingsMenu({ nested, panelRef, onOpenChange, overlayTr
               onClick={(e) => {
                 if (overlayTrigger || pillBarTrigger) e.stopPropagation();
               }}
-              className={
+              className={cn(
+                'relative',
                 overlayTrigger
                   ? 'flex h-9 w-9 items-center justify-center rounded-lg border border-white/20 bg-black/50 text-white shadow-sm backdrop-blur-sm outline-none hover:bg-black/60 data-[state=open]:bg-black/60 data-[state=open]:[&_svg]:rotate-45'
                   : pillBarTrigger
                     ? 'rounded-lg p-2 text-white outline-none transition-colors hover:bg-white/10 data-[state=open]:bg-white/15 data-[state=open]:[&_svg]:rotate-45'
-                    : 'rounded-md p-1.5 text-foreground transition-colors hover:bg-accent data-[state=open]:[&_svg]:rotate-45'
-              }
+                    : 'rounded-md p-1.5 text-foreground transition-colors hover:bg-accent data-[state=open]:[&_svg]:rotate-45',
+              )}
               aria-label="Settings"
             >
               <Settings
@@ -442,6 +472,7 @@ export default function SettingsMenu({ nested, panelRef, onOpenChange, overlayTr
                     : 'h-5 w-5 transition-transform duration-300'
                 }
               />
+              {badge && <QualityBadge label={badge} />}
             </button>
           </DropdownMenuTrigger>
         </TooltipTrigger>

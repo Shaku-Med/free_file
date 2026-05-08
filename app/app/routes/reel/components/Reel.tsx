@@ -3,6 +3,7 @@ import { useFileContext } from "~/lib/Context/Context";
 import { ReelSwiper } from "~/routes/reel/components/ReelSwiper";
 import type { FileType } from "~/lib/types";
 import { newReelFeedSeed } from "~/lib/feed/reelFeedSeed";
+import { personalizationService } from "~/lib/Services/PersonalizationService";
 
 interface ReelProps {
   initialItems?: FileType[];
@@ -86,6 +87,10 @@ const Reel = ({ initialItems, initialUserActions }: ReelProps) => {
         params.set("seed", feedSeedRef.current);
         if (shownIdsRef.current.size > 0) {
           params.set("exclude_ids", JSON.stringify(Array.from(shownIdsRef.current).slice(0, 500)));
+        }
+        const sessionCats = personalizationService.getSessionCategories();
+        if (sessionCats.length > 0) {
+          params.set("session_cats", JSON.stringify(sessionCats));
         }
 
         const response = await fetch(`/api/reel-feed?${params}`, {

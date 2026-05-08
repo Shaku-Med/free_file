@@ -249,9 +249,8 @@ export const ReelSwiper = ({
   return (
     <div
       className={cn(
-        "relative isolate h-[100dvh] max-h-[100dvh] min-h-0 w-full overflow-hidden bg-black",
-        // `touch-pan-y` keeps vertical pan natural without forwarding horizontal
-        // (lets HLS scrub still work).
+        "relative isolate h-[100dvh] max-h-[100dvh] min-h-0 overflow-hidden bg-black",
+        "mx-auto w-full reel-column",
         "touch-pan-y",
       )}
     >

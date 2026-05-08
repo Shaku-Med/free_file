@@ -30,6 +30,12 @@ import ShortcutOverlay from './overlays/ShortcutOverlay';
 import StatsForNerdsOverlay from './overlays/StatsForNerdsOverlay';
 import SkipMarkerOverlay from './overlays/SkipMarkerOverlay';
 import SpatialAudioDialog from './controls/settings/SpatialAudioDialog';
+import { SettingsMenuBody } from './controls/settings/SettingsMenu';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuTrigger,
+} from '~/components/ui/dropdown-menu';
 import AmbientBackground from '~/components/components/hlsplayer/overlays/AmbientBackground';
 import GuestPreviewWall from '~/components/components/hlsplayer/overlays/GuestPreviewWall';
 import GuestPreviewNudge from '~/components/components/hlsplayer/overlays/GuestPreviewNudge';
@@ -336,7 +342,6 @@ function PlayerInner({
     };
   }, [file?.unique_id]);
   const [showShortcuts, setShowShortcuts] = useState(false);
-  const [visualizerLiftPx, setVisualizerLiftPx] = useState(0);
 
   const triggerPlayPauseFeedback = useCallback(() => {
     if (isReelCtx) return;
@@ -848,11 +853,22 @@ function PlayerInner({
     (!state.isLoaded ||
       (state.isBuffering && Boolean(videoEl && videoEl.readyState < 3)));
 
+  const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null);
+  const handleContextMenu = useCallback(
+    (e: React.MouseEvent) => {
+      if (isReelCtx) return;
+      e.preventDefault();
+      setCtxMenu({ x: e.clientX, y: e.clientY });
+    },
+    [isReelCtx],
+  );
+
   return (
     <div
       ref={containerRef}
       className={`relative bg-black overflow-hidden select-none ${isReelCtx ? 'z-[1]' : ''} ${className} player_inner`}
       style={{ cursor: 'default' }}
+      onContextMenu={handleContextMenu}
     >
       {ambientMode && authPlayback && <AmbientBackground />}
       <PosterBackground
@@ -927,7 +943,7 @@ function PlayerInner({
 
         {(!isReelCtx || embedReelControls) && !isMiniPlayerPortalActive && (
           <div
-            className={`transition-opacity duration-300 ${showControls ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
+            className={`absolute inset-0 z-[31] transition-opacity duration-300 ${showControls ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
           >
             <div className="absolute bottom-0 left-0 right-0 h-32 bg-gradient-to-t from-black/80 to-transparent pointer-events-none" />
             <ControlBar
@@ -940,9 +956,10 @@ function PlayerInner({
               theaterMode={theaterMode}
               onTheaterModeChange={isMobileView ? undefined : handleTheaterModeChange}
               hideControls={effectiveHideControls}
-              liftBottomPx={showAudioVisualizer ? visualizerLiftPx : 0}
+              liftBottomPx={0}
               isMobileLayout={isMobileView}
               onBack={onBack}
+              bottomSlot={showAudioVisualizer && !inPipForThisVideo ? <PersistentBottomVisualizer /> : undefined}
             />
           </div>
         )}
@@ -971,9 +988,6 @@ function PlayerInner({
 
         {!isReelCtx && <PipOverlay />}
 
-        {showAudioVisualizer && !isReelCtx && !isMiniPlayerPortalActive && !inPipForThisVideo && (
-          <PersistentBottomVisualizer onLayoutHeight={setVisualizerLiftPx} />
-        )}
 
         {showPrompt && autoPlayEnabled && !isReelCtx && authPlayback && !inPipForThisVideo && (
           <AutoplayPrompt onEnable={enableAutoplay} onDismiss={dismissPrompt} />
@@ -1001,6 +1015,34 @@ function PlayerInner({
           </>
         )}
       </div>
+
+      {!isReelCtx && (
+        <DropdownMenu open={Boolean(ctxMenu)} onOpenChange={(open) => { if (!open) setCtxMenu(null); }} modal={false}>
+          <DropdownMenuTrigger asChild>
+            <div
+              aria-hidden
+              style={{
+                position: 'fixed',
+                left: ctxMenu?.x ?? -9999,
+                top: ctxMenu?.y ?? -9999,
+                width: 1,
+                height: 1,
+                pointerEvents: 'none',
+                opacity: 0,
+              }}
+            />
+          </DropdownMenuTrigger>
+          <DropdownMenuContent
+            side="bottom"
+            align="start"
+            sideOffset={4}
+            collisionPadding={12}
+            className="max-h-[min(72dvh,var(--radix-dropdown-menu-content-available-height))] min-w-[260px] max-w-[min(320px,calc(100vw-2rem))] z-[2147483647]"
+          >
+            <SettingsMenuBody />
+          </DropdownMenuContent>
+        </DropdownMenu>
+      )}
     </div>
   );
 }

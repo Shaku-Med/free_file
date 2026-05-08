@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useCallback, useRef, useEffect, useMemo } from "react"
 import type { FileType } from "~/lib/types"
+import { personalizationService } from "~/lib/Services/PersonalizationService"
 
 type TabType = "upnext" | "creator"
 
@@ -142,6 +143,10 @@ export const RelatedVideosProvider = ({
       const cursor = nextCursorRef.current
       if (cursor) {
         params.set("cursor_pos", String(cursor.cursor_pos))
+      }
+      const sCats = personalizationService.getSessionCategories()
+      if (sCats.length > 0) {
+        params.set("session_cats", JSON.stringify(sCats))
       }
 
       const response = await fetch(`/api/related-videos?${params}`)

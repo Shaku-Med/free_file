@@ -92,8 +92,8 @@ function MiniPlayerContent() {
       animate={{ width: frameWidth }}
       transition={
         isSnapping
-          ? { type: "spring", stiffness: 520, damping: 34 }
-          : { type: "spring", stiffness: 380, damping: 30 }
+          ? { type: "spring", stiffness: 400, damping: 28, mass: 0.9 }
+          : { type: "spring", stiffness: 320, damping: 26, mass: 0.85 }
       }
       className={cn(
         "fixed z-[2147483646] max-w-[calc(100vw-1.5rem)] overflow-visible",
@@ -109,9 +109,9 @@ function MiniPlayerContent() {
         transition: isDragging
           ? "none"
           : isSnapping
-            ? "left 420ms cubic-bezier(0.34,1.56,0.64,1), top 420ms cubic-bezier(0.34,1.56,0.64,1), opacity 200ms ease, transform 200ms ease"
+            ? "left 380ms cubic-bezier(0.25,1.25,0.5,1), top 380ms cubic-bezier(0.25,1.25,0.5,1), opacity 200ms ease, transform 200ms ease"
             : mounted
-              ? "left 220ms ease-out, top 220ms ease-out, opacity 200ms ease, transform 200ms ease"
+              ? "left 240ms cubic-bezier(0.22,1,0.36,1), top 240ms cubic-bezier(0.22,1,0.36,1), opacity 200ms ease, transform 200ms ease"
               : "none",
         willChange: "left, top, opacity, transform, width",
       }}

@@ -44,6 +44,7 @@ import { useWatchSurfaceVideoRef } from "~/lib/Context/WatchSurfaceVideoRefConte
 import { formatTimeAgo } from "~/lib/formatTimeAgo";
 import LiquidAmbientGradient from "./components/LiquidAmbientGradient";
 import { computeGuestPreviewSeconds } from "~/lib/guestPreviewLimit";
+import { personalizationService } from "~/lib/Services/PersonalizationService";
 
 interface DynamicCachePayload {
   file: any;
@@ -776,7 +777,10 @@ const index = () => {
     }
     const ac = new AbortController();
     setRelatedBootstrap(null);
-    fetch(`/api/related-videos?fileId=${encodeURIComponent(fileId)}`, {
+    const relParams = new URLSearchParams({ fileId });
+    const sCats = personalizationService.getSessionCategories();
+    if (sCats.length > 0) relParams.set("session_cats", JSON.stringify(sCats));
+    fetch(`/api/related-videos?${relParams}`, {
       credentials: "include",
       signal: ac.signal,
     })
@@ -1733,7 +1737,7 @@ const index = () => {
           <div className={!theaterMode ? "min-w-0 space-y-3 sm:space-y-4 lg:col-span-2" : ""}>
             <div
               className={cn(
-                "relative w-full",
+                "relative w-full overflow-visible",
                 isMobileDevice &&
                   !theaterMode &&
                   "sticky top-[calc(env(safe-area-inset-top,0px)+4rem)] z-[99999990] self-start bg-background",
@@ -1742,27 +1746,23 @@ const index = () => {
               {videoBlock}
               {ambientEnabled && (
                 <div
-                  className="ambience-wrap pointer-events-none absolute inset-0 -z-10"
+                  className="ambience-wrap pointer-events-none absolute -z-10"
                   aria-hidden
+                  style={{
+                    inset: "-60% -40%",
+                    overflow: "visible",
+                  }}
                 >
                   {isSidebarMobile && (
                     <div className="mobile_blur_overlay absolute inset-x-0 bottom-0 h-full z-[10] bg-gradient-to-t from-background/95 via-background/60 to-transparent" />
                   )}
-                  {/*
-                    YouTube-style ambient:
-                    - `scale-[1.15]` — sits just behind the player, slightly larger. No fullscreen blur layer.
-                    - `mask-image` radial fade — canvas edges never show, no need to extend further.
-                    - `blur(24px)` not `blur(64px)` — same softness on a much smaller layer ⇒ ~6× cheaper
-                      to composite each frame. This is what fixes the whole-page lag.
-                    - The two canvases (c0/c1) inside `<Ambience />` are the crossfade buffers.
-                  */}
                   <div
-                    className="absolute inset-0 scale-[1.15] opacity-60 [filter:saturate(1.18)_blur(24px)]"
+                    className="absolute inset-0 opacity-80 [filter:saturate(1.5)_blur(40px)]"
                     style={{
                       WebkitMaskImage:
-                        "radial-gradient(ellipse 75% 80% at 50% 50%, black 30%, transparent 80%)",
+                        "radial-gradient(ellipse 60% 55% at 50% 50%, black 10%, rgba(0,0,0,0.5) 35%, rgba(0,0,0,0.15) 55%, transparent 70%)",
                       maskImage:
-                        "radial-gradient(ellipse 75% 80% at 50% 50%, black 30%, transparent 80%)",
+                        "radial-gradient(ellipse 60% 55% at 50% 50%, black 10%, rgba(0,0,0,0.5) 35%, rgba(0,0,0,0.15) 55%, transparent 70%)",
                     }}
                   >
                     <Ambience colors={imageColors || []} videoRef={watchVideoRef} videoReady={videoRefReady} />

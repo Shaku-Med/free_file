@@ -136,6 +136,8 @@ interface ControlBarProps {
   isMobileLayout?: boolean;
   /** Shown as a chevron back control when set, unless `hideControls.back`. */
   onBack?: () => void;
+  /** Rendered at the very bottom of the control bar flex-col (e.g. audio visualizer). */
+  bottomSlot?: React.ReactNode;
 }
 
 export default function ControlBar({
@@ -151,6 +153,7 @@ export default function ControlBar({
   liftBottomPx = 0,
   isMobileLayout = false,
   onBack,
+  bottomSlot,
 }: ControlBarProps) {
   const {
     state,
@@ -663,6 +666,7 @@ export default function ControlBar({
           })()}
         </div>
       </div>
+      {bottomSlot}
     </div>
   );
 }

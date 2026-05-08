@@ -2,7 +2,7 @@ import { useCallback, useRef, useState, useLayoutEffect, useEffect } from "react
 
 const PADDING = 12;
 const DRAG_THRESHOLD_PX = 4;
-const SPRING_MS = 420;
+const SPRING_MS = 380;
 const STORAGE_KEY = "mini-player-width-v1";
 const MIN_W = 260;
 const MAX_W = 520;
@@ -15,6 +15,8 @@ function estimateShellHeight(width: number) {
 /** Visible strip when tucked to screen edge (Apple PiP–style). */
 const PEEK_PX = 30;
 const EDGE_TUCK_PX = 28;
+/** Extra threshold when the player was just un-tucked — prevents accidental re-tuck. */
+const UNTUCK_RE_TUCK_PX = 80;
 
 type TuckEdge = "none" | "left" | "right";
 
@@ -79,6 +81,8 @@ export function useMiniPlayerDrag(sessionKey: string) {
   const isDragging = useRef(false);
   const isResizing = useRef(false);
   const didDragRef = useRef(false);
+  /** True during a drag that started from a tucked state — uses wider re-tuck threshold. */
+  const wasTuckedRef = useRef(false);
   const removeDragWindowListenersRef = useRef<(() => void) | null>(null);
   const startRef = useRef({ pointerX: 0, pointerY: 0, elX: 0, elY: 0, w: DEFAULT_W });
   const positionRef = useRef(position);
@@ -189,14 +193,15 @@ export function useMiniPlayerDrag(sessionKey: string) {
       const rightEdge = x + width;
       const distRight = window.innerWidth - rightEdge;
       const distLeft = x;
+      const edgeThreshold = wasTuckedRef.current ? UNTUCK_RE_TUCK_PX : EDGE_TUCK_PX;
 
       let nextTuck: TuckEdge = "none";
       let snap = { x, y: clampY(y, height) };
 
-      if (didDragRef.current && distRight <= EDGE_TUCK_PX) {
+      if (didDragRef.current && distRight <= edgeThreshold) {
         nextTuck = "right";
         snap = visPosition(x, y, width, height, "right");
-      } else if (didDragRef.current && distLeft <= EDGE_TUCK_PX) {
+      } else if (didDragRef.current && distLeft <= edgeThreshold) {
         nextTuck = "left";
         snap = visPosition(x, y, width, height, "left");
       } else {
@@ -204,6 +209,7 @@ export function useMiniPlayerDrag(sessionKey: string) {
         snap = { x: corner.x, y: clampY(corner.y, height) };
       }
 
+      wasTuckedRef.current = false;
       setTuck(nextTuck);
       setIsSnapping(true);
       setPosition(snap);
@@ -235,18 +241,8 @@ export function useMiniPlayerDrag(sessionKey: string) {
       let elX = positionRef.current.x;
       let elY = positionRef.current.y;
       if (tuckRef.current !== "none") {
-        const tw = tuckRef.current;
+        wasTuckedRef.current = true;
         setTuck("none");
-        let freeX = elX;
-        let freeY = clampY(elY, height);
-        if (tw === "right") {
-          freeX = Math.max(PADDING, window.innerWidth - width - PADDING);
-        } else if (tw === "left") {
-          freeX = PADDING;
-        }
-        elX = freeX;
-        elY = freeY;
-        setPosition({ x: elX, y: elY });
       }
       startRef.current = {
         pointerX: e.clientX,

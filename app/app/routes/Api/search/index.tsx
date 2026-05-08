@@ -1,5 +1,6 @@
 import db from '~/lib/Database/supabase';
 import { isAuthenticated } from '~/lib/Security/Password';
+import { expandSearchQuery } from '~/lib/search/expandQuery';
 
 const SEARCH_LIMIT = 20;
 
@@ -74,6 +75,9 @@ export const loader = async ({ request }: { request: Request }) => {
     const user = await isAuthenticated(request, ['id']);
     const userId: string | undefined = user?.id || undefined;
 
+    const expanded = expandSearchQuery(query);
+    const altTerms = expanded.filter(t => t.toLowerCase() !== query.toLowerCase()).slice(0, 5);
+
     const { data: results, error } = await db.rpc('search_files', {
       p_query: query,
       p_user_id: userId || null,
@@ -82,7 +86,8 @@ export const loader = async ({ request }: { request: Request }) => {
       p_category: category || null,
       p_sort_by: sortBy,
       p_cursor_score: Number.isFinite(cursorScore) ? cursorScore : null,
-      p_cursor_id: cursorId
+      p_cursor_id: cursorId,
+      p_alt_terms: altTerms.length > 0 ? altTerms : null,
     });
 
     if (error) {

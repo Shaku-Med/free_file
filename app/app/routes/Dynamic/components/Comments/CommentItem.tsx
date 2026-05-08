@@ -41,6 +41,8 @@ interface CommentItemProps {
   isLastInThread?: boolean;
   /** Per nesting depth: vertical rail in column i if ancestor at that depth had a younger sibling. */
   threadPrefix?: boolean[];
+  /** Called by child rails when user clicks the own-column line to fold the parent. */
+  onParentFold?: () => void;
 }
 
 function subtreeContainsHighlight(c: CommentType, targetId: string | null | undefined): boolean {
@@ -79,6 +81,7 @@ const CommentItem = ({
   highlightCommentId = null,
   isLastInThread = true,
   threadPrefix = [],
+  onParentFold,
 }: CommentItemProps) => {
   const [isReplying, setIsReplying] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
@@ -269,17 +272,47 @@ const CommentItem = ({
       )}
       style={level > 0 ? { paddingLeft: gutterPx } : undefined}
     >
-      {/* Rails span the full outer height (this comment + its reply subtree) — no gaps on tall comments. */}
+      {/* Rails span the full outer height (this comment + its reply subtree). Clickable to fold parent. */}
       {level > 0 && (
         <CommentThreadRails
           level={level}
           threadPrefix={threadPrefix}
           isLastInThread={isLastInThread}
+          onToggleFold={onParentFold}
         />
       )}
       {/* Row wrapper hosts the small L-elbow at the avatar's vertical center. */}
       <div className="relative">
         {level > 0 && <CommentThreadElbow level={level} />}
+        {/* Parent stem: clickable line from avatar center down — toggles reply fold. */}
+        {hasReplies && (
+          <button
+            type="button"
+            onClick={() => setShowReplies(v => !v)}
+            aria-label={showReplies ? "Collapse replies" : "Expand replies"}
+            className="absolute z-[2] group/stem"
+            style={{
+              left: COMMENT_AVATAR_SIZE_PX / 2 - 8,
+              width: 16,
+              top: COMMENT_AVATAR_SIZE_PX,
+              bottom: 0,
+              background: "none",
+              border: "none",
+              padding: 0,
+              cursor: "pointer",
+            }}
+          >
+            <span
+              className={cn(
+                "absolute left-1/2 top-0 bottom-0 -translate-x-1/2 transition-colors duration-150",
+                showReplies
+                  ? "bg-zinc-400/55 dark:bg-zinc-500/65 group-hover/stem:bg-zinc-400 dark:group-hover/stem:bg-zinc-400"
+                  : "bg-zinc-400/30 dark:bg-zinc-500/30 group-hover/stem:bg-zinc-400 dark:group-hover/stem:bg-zinc-400",
+              )}
+              style={{ width: showReplies ? 1.5 : 3, borderRadius: showReplies ? 0 : 2 }}
+            />
+          </button>
+        )}
         <div className="relative z-[1] flex items-start gap-3">
           {comment.user?.username ? (
             <Link to={`/profile/${comment.user.username}`} className="shrink-0 pt-0.5">
@@ -526,7 +559,7 @@ const CommentItem = ({
       )}
 
       {showReplies && hasReplies && (
-        <div className="relative z-[1] mt-0.5 space-y-0 overflow-visible sm:mt-1">
+        <div className="relative z-[1] space-y-0 overflow-visible">
           {comment.replies?.map((reply, idx, arr) => (
             <CommentItem
               key={reply.id}
@@ -544,6 +577,7 @@ const CommentItem = ({
               highlightCommentId={highlightCommentId}
               isLastInThread={idx === arr.length - 1}
               threadPrefix={level === 0 ? [] : [...threadPrefix, !isLastInThread]}
+              onParentFold={() => setShowReplies(false)}
             />
           ))}
         </div>

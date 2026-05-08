@@ -342,7 +342,7 @@ function PipReelItemInner({
       className={cn(
         'relative flex h-full min-h-0 w-full shrink-0 flex-col',
         variant === 'page' ? 'bg-black' : 'bg-background reel_p',
-        isActive && (variant === 'page' ? 'ring-1 ring-white/15' : 'ring-1 ring-border'),
+        isActive && variant !== 'page' && 'ring-1 ring-border',
         className,
       )}
       data-pip-reel-item-id={item.id}

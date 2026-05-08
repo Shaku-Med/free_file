@@ -57,6 +57,28 @@ export const loader = async ({ request }: { request: Request }) => {
       ? parseFloat(maxDurationParam)
       : undefined;
 
+    const sessionCatsParam = url.searchParams.get('session_cats');
+    const sessionCats: string[] = sessionCatsParam
+      ? (() => {
+          try {
+            const parsed = JSON.parse(sessionCatsParam);
+            return Array.isArray(parsed) ? parsed.filter((c: unknown) => typeof c === 'string').slice(0, 20) : [];
+          } catch { return []; }
+        })()
+      : [];
+
+    const watchedIdsParam = url.searchParams.get('watched_ids');
+    const watchedIds: string[] = watchedIdsParam
+      ? (() => {
+          try {
+            const parsed = JSON.parse(watchedIdsParam);
+            return Array.isArray(parsed)
+              ? parsed.filter((id: unknown) => typeof id === 'string' && /^[0-9a-f-]{36}$/i.test(id as string)).slice(0, 50)
+              : [];
+          } catch { return []; }
+        })()
+      : [];
+
     const reelParams: Record<string, unknown> = {
       p_user_id: userId || null,
       p_limit: REEL_LIMIT,
@@ -65,6 +87,8 @@ export const loader = async ({ request }: { request: Request }) => {
       p_cursor_pos: 0,
       ...(pExcludeIds.length > 0 ? { p_exclude_ids: pExcludeIds } : {}),
       ...(maxDuration != null && Number.isFinite(maxDuration) && maxDuration > 0 ? { p_max_duration: maxDuration } : {}),
+      ...(sessionCats.length > 0 ? { p_session_cats: sessionCats } : {}),
+      ...(watchedIds.length > 0 ? { p_watched_ids: watchedIds } : {}),
     };
 
     const { data: reelFeed, error } = await db.rpc('get_reel_feed', reelParams);
