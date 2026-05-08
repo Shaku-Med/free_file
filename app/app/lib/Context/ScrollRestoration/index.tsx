@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef } from "react";
-import { useLocation, useNavigation } from "react-router";
+import { useLocation } from "react-router";
 import { useFileContext } from "~/lib/Context/Context";
 
 const STORAGE_KEY = "scroll_restoration_data";
@@ -9,186 +9,168 @@ interface ScrollData {
   scrollTop: number;
   scrollLeft: number;
 }
+type Store = Record<string, ScrollData>;
 
-type ScrollRestorationData = {
-  [path: string]: ScrollData;
-};
+const getContainer = (): HTMLElement | null =>
+  document.getElementById("scroll_container");
 
-const getScrollContainer = (): HTMLElement | null => {
-  return document.getElementById("scroll_container");
-};
-
-const getStoredData = (): ScrollRestorationData => {
+const readStore = (): Store => {
   try {
-    const stored = sessionStorage.getItem(STORAGE_KEY);
-    return stored ? JSON.parse(stored) : {};
+    return JSON.parse(sessionStorage.getItem(STORAGE_KEY) || "{}");
   } catch {
     return {};
   }
 };
-
-const saveScrollData = (path: string, data: ScrollData) => {
+const writeEntry = (path: string, d: ScrollData) => {
   try {
-    const stored = getStoredData();
-    stored[path] = data;
-    sessionStorage.setItem(STORAGE_KEY, JSON.stringify(stored));
+    const s = readStore();
+    s[path] = d;
+    sessionStorage.setItem(STORAGE_KEY, JSON.stringify(s));
   } catch {
-    return;
+    /* quota / private mode */
   }
 };
+const readEntry = (path: string): ScrollData | null =>
+  readStore()[path] ?? null;
 
-const getScrollData = (path: string): ScrollData | null => {
-  try {
-    const stored = getStoredData();
-    return stored[path] || null;
-  } catch {
-    return null;
-  }
-};
-
-function doRestore(
-  container: HTMLElement,
-  savedData: ScrollData,
-  isRestoringRef: { current: boolean },
-) {
-  isRestoringRef.current = true;
-  let frames = 0;
-  const maxFrames = 60;
-  let lastHeight = -1;
-  let stableFrames = 0;
-
-  const restoreScroll = () => {
-    frames++;
-    const height = container.scrollHeight;
-    if (height === lastHeight) stableFrames += 1;
-    else stableFrames = 0;
-    lastHeight = height;
-
-    // Restore when content has enough height OR when layout has stabilized a bit.
-    const canScrollToTarget = height >= savedData.scrollTop + container.clientHeight * 0.6;
-    const layoutStable = stableFrames >= 3;
-
-    if (canScrollToTarget || layoutStable || frames >= maxFrames) {
-      container.scrollTop = savedData.scrollTop;
-      container.scrollLeft = savedData.scrollLeft;
-      isRestoringRef.current = false;
-    } else {
-      requestAnimationFrame(restoreScroll);
-    }
-  };
-
-  requestAnimationFrame(restoreScroll);
-}
+type RestoreState = "idle" | "pending" | "restoring";
 
 export default function ScrollRestoration() {
   const location = useLocation();
-  const nav = useNavigation();
   const { scrollDataReady, setScrollDataReady } = useFileContext();
-  const isRestoringRef = useRef(false);
-  const currentPathRef = useRef<string>("");
-  const restoredForPathRef = useRef<string>("");
-  const pendingRestorePathRef = useRef<string>("");
 
-  // On pathname change: save previous scroll, clear "data ready", reset restored flag
-  useEffect(() => {
-    const container = getScrollContainer();
+  // 'idle'      → user-driven scroll, persist freely
+  // 'pending'   → just navigated, awaiting restore (do NOT persist; user scroll cancels)
+  // 'restoring' → actively running rAF loop (do NOT persist)
+  const stateRef = useRef<RestoreState>("idle");
+  const pathRef = useRef<string>("");
+  // Bumped on every navigation; in-flight rAF loops bail if their token is stale.
+  const tokenRef = useRef(0);
+
+  // Pre-paint: save the OLD path's scroll, reset to top for the NEW path, decide
+  // whether we should attempt to restore. Runs synchronously after DOM commit but
+  // before paint, so there's no flash of the previous page's scroll.
+  useLayoutEffect(() => {
+    const container = getContainer();
     if (!container) return;
+    const newPath = location.pathname;
+    const oldPath = pathRef.current;
 
-    const currentPath = location.pathname;
-
-    if (currentPathRef.current && currentPathRef.current !== currentPath) {
-      const scrollData: ScrollData = {
+    // Persist outgoing scroll only if the user owned it (state was idle).
+    // If state was pending/restoring, the user never settled, so don't overwrite
+    // whatever was there before.
+    if (oldPath && oldPath !== newPath && stateRef.current === "idle") {
+      writeEntry(oldPath, {
         scrollTop: container.scrollTop,
         scrollLeft: container.scrollLeft,
-      };
-      saveScrollData(currentPathRef.current, scrollData);
-      setScrollDataReady(false);
-      restoredForPathRef.current = "";
+      });
     }
 
-    currentPathRef.current = currentPath;
+    pathRef.current = newPath;
+    tokenRef.current++;
 
-    if (currentPath.startsWith("/reel")) {
+    // Reset before paint so the new page never appears at the previous scroll.
+    container.scrollTop = 0;
+    container.scrollLeft = 0;
+
+    if (newPath.startsWith("/reel")) {
+      stateRef.current = "idle";
       setScrollDataReady(true);
-      container.scrollTop = 0;
-      container.scrollLeft = 0;
       return;
     }
 
-    const savedData = getScrollData(currentPath);
-    // Always reset immediately on route change so we never "flash" the previous page's scroll.
-    // If we have saved scroll, we restore it later (pre-paint) once the page data/layout is ready.
-    pendingRestorePathRef.current = savedData ? currentPath : "";
-    container.scrollTop = 0;
-    container.scrollLeft = 0;
-    // If we have savedData, we don't restore here — wait for data-ready effect
-  }, [location.pathname, nav.location, setScrollDataReady]);
+    setScrollDataReady(false);
+    stateRef.current = readEntry(newPath) ? "pending" : "idle";
+  }, [location.pathname, setScrollDataReady]);
 
-  // Wait for current route data to load before restoring scroll position
+  // Trigger restore once data is ready (or after timeout). Aborts cleanly if the
+  // user scrolls in the meantime, or another navigation supersedes us.
   useEffect(() => {
-    const container = getScrollContainer();
-    if (!container) return;
+    if (stateRef.current !== "pending") return;
 
-    const currentPath = location.pathname;
-    if (currentPath.startsWith("/reel")) return;
+    const myToken = tokenRef.current;
+    const myPath = pathRef.current;
 
-    const savedData = getScrollData(currentPath);
-    if (!savedData || restoredForPathRef.current === currentPath) return;
-
-    const runRestore = () => {
-      if (restoredForPathRef.current === currentPath) return;
-      restoredForPathRef.current = currentPath;
-      doRestore(container, savedData, isRestoringRef);
+    const trigger = () => {
+      if (myToken !== tokenRef.current) return;          // newer nav superseded
+      if (stateRef.current !== "pending") return;        // user already scrolled
+      const container = getContainer();
+      if (!container) return;
+      const saved = readEntry(myPath);
+      if (!saved) {
+        stateRef.current = "idle";
+        return;
+      }
+      stateRef.current = "restoring";
+      restoreLoop(container, saved, myToken);
     };
 
     if (scrollDataReady) {
-      runRestore();
+      trigger();
       return;
     }
-
-    const timeoutId = setTimeout(runRestore, WAIT_FOR_DATA_MS);
-    return () => clearTimeout(timeoutId);
+    const t = window.setTimeout(trigger, WAIT_FOR_DATA_MS);
+    return () => window.clearTimeout(t);
   }, [location.pathname, scrollDataReady]);
 
-  /**
-   * Pre-paint restore: prevents the "snappy" flash where the user sees the top (or old scroll)
-   * and then jumps. Only runs when we've decided we should restore for this path.
-   */
-  useLayoutEffect(() => {
-    const container = getScrollContainer();
-    if (!container) return;
-    const currentPath = location.pathname;
-    if (currentPath.startsWith("/reel")) return;
-    if (pendingRestorePathRef.current !== currentPath) return;
-    if (restoredForPathRef.current === currentPath) return;
-
-    const savedData = getScrollData(currentPath);
-    if (!savedData) return;
-    restoredForPathRef.current = currentPath;
-    doRestore(container, savedData, isRestoringRef);
-  }, [location.pathname]);
-
-  // Attach scroll listener to persist position (and reset ready when path changes is handled above)
-  useEffect(() => {
-    const container = getScrollContainer();
-    if (!container) return;
-
-    const currentPath = location.pathname;
-
-    const handleScroll = () => {
-      if (!isRestoringRef.current) {
-        const scrollData: ScrollData = {
-          scrollTop: container.scrollTop,
-          scrollLeft: container.scrollLeft,
-        };
-        saveScrollData(currentPath, scrollData);
+  // rAF loop that waits for content height to grow, then snaps once.
+  // Token-guarded so a stale loop from a previous navigation can never fire.
+  function restoreLoop(
+    container: HTMLElement,
+    saved: ScrollData,
+    token: number,
+  ) {
+    let frames = 0;
+    let lastHeight = -1;
+    let stableFrames = 0;
+    const step = () => {
+      if (token !== tokenRef.current) return;            // newer nav
+      if (stateRef.current !== "restoring") return;      // user-scroll abort
+      frames++;
+      const h = container.scrollHeight;
+      if (h === lastHeight) stableFrames++;
+      else stableFrames = 0;
+      lastHeight = h;
+      const reachable = h >= saved.scrollTop + container.clientHeight * 0.6;
+      if (reachable || stableFrames >= 3 || frames >= 60) {
+        container.scrollTop = saved.scrollTop;
+        container.scrollLeft = saved.scrollLeft;
+        // Tiny grace window: after we set scrollTop, the browser fires a scroll
+        // event. Skip that frame's save by staying in 'restoring' for one more
+        // tick before flipping back to 'idle'.
+        requestAnimationFrame(() => {
+          if (token === tokenRef.current && stateRef.current === "restoring") {
+            stateRef.current = "idle";
+          }
+        });
+        return;
       }
+      requestAnimationFrame(step);
+    };
+    requestAnimationFrame(step);
+  }
+
+  // Persist on user-driven scrolls; pivot out of 'pending' if the user
+  // scrolls before restore happens (they've expressed intent — don't fight them).
+  useEffect(() => {
+    const container = getContainer();
+    if (!container) return;
+
+    const onScroll = () => {
+      if (stateRef.current === "restoring") return;
+      if (stateRef.current === "pending") {
+        // User scrolled before we got a chance to restore — abort the restore.
+        stateRef.current = "idle";
+      }
+      writeEntry(pathRef.current, {
+        scrollTop: container.scrollTop,
+        scrollLeft: container.scrollLeft,
+      });
     };
 
-    container.addEventListener("scroll", handleScroll, { passive: true });
-    return () => container.removeEventListener("scroll", handleScroll);
-  }, [location.pathname]);
+    container.addEventListener("scroll", onScroll, { passive: true });
+    return () => container.removeEventListener("scroll", onScroll);
+  }, []);
 
   return null;
 }
-

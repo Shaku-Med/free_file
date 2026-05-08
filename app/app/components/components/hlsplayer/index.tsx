@@ -944,6 +944,14 @@ function PlayerInner({
         {(!isReelCtx || embedReelControls) && !isMiniPlayerPortalActive && (
           <div
             className={`absolute inset-0 z-[31] transition-opacity duration-300 ${showControls ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
+            onClick={(e) => {
+              // Empty-space clicks on the overlay should toggle play/pause on
+              // desktop (handleVideoClick early-returns on mobile by design).
+              if (e.target === e.currentTarget) handleVideoClick();
+            }}
+            onDoubleClick={(e) => {
+              if (e.target === e.currentTarget) handleDoubleClick(e);
+            }}
           >
             <div className="absolute bottom-0 left-0 right-0 h-32 bg-gradient-to-t from-black/80 to-transparent pointer-events-none" />
             <ControlBar
@@ -1016,15 +1024,15 @@ function PlayerInner({
         )}
       </div>
 
-      {!isReelCtx && (
-        <DropdownMenu open={Boolean(ctxMenu)} onOpenChange={(open) => { if (!open) setCtxMenu(null); }} modal={false}>
+      {!isReelCtx && ctxMenu && (
+        <DropdownMenu open onOpenChange={(open) => { if (!open) setCtxMenu(null); }} modal={false}>
           <DropdownMenuTrigger asChild>
             <div
               aria-hidden
               style={{
                 position: 'fixed',
-                left: ctxMenu?.x ?? -9999,
-                top: ctxMenu?.y ?? -9999,
+                left: ctxMenu.x,
+                top: ctxMenu.y,
                 width: 1,
                 height: 1,
                 pointerEvents: 'none',

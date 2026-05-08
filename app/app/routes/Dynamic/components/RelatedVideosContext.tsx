@@ -65,7 +65,7 @@ export const RelatedVideosProvider = ({
 }: RelatedVideosProviderProps) => {
   const filteredVideos = initialVideos.filter(video => video.unique_id !== currentVideoId)
   const [activeTab, setActiveTab] = useState<TabType>("upnext")
-  const [displayVideos, setDisplayVideos] = useState<FileType[]>(filteredVideos.slice(0, 10))
+  const [displayVideos, setDisplayVideos] = useState<FileType[]>(filteredVideos)
   const [ownerVideos, setOwnerVideos] = useState<FileType[]>([])
   const [isLoading, setIsLoading] = useState(false)
   const [isLoadingOwner, setIsLoadingOwner] = useState(false)

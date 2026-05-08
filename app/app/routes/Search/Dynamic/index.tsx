@@ -117,7 +117,7 @@ export const loader = async ({ request }: { request: Request }) => {
           }),
           db
             .from('users')
-            .select('id, username, profile_pic')
+            .select('id, username, profile_pic, file_count')
             .ilike('username', `%${sanitizedTerm}%`)
             .eq('is_memories', false)
             .limit(10),
@@ -126,44 +126,10 @@ export const loader = async ({ request }: { request: Request }) => {
         if (searchResult.error) {
           console.error("search_files RPC error:", searchResult.error);
         } else if (Array.isArray(searchResult.data)) {
-          const rawList = searchResult.data;
-          const fileIds = rawList.map((f: any) => f.id).filter(Boolean);
-          const interactionsByFile = new Map<
-            string,
-            { like_count: number; dislike_count: number; comment_count: number; user_has_liked: boolean; user_has_disliked: boolean }
-          >();
-          if (fileIds.length > 0) {
-            const { data: batch } = await db.rpc('get_batch_interactions', {
-              p_file_ids: fileIds,
-              p_user_id: userId || null,
-            });
-            if (Array.isArray(batch)) {
-              for (const row of batch) {
-                if (row?.file_id) {
-                  const fid = String(row.file_id);
-                  interactionsByFile.set(fid, {
-                    like_count: Number(row.like_count) ?? 0,
-                    dislike_count: Number(row.dislike_count) ?? 0,
-                    comment_count: Number(row.comment_count) ?? 0,
-                    user_has_liked: !!row.user_has_liked,
-                    user_has_disliked: !!row.user_has_disliked,
-                  });
-                }
-              }
-            }
-          }
-          results = rawList.map((file: any) => {
-            const fid = file.id ? String(file.id) : '';
-            const interactions = fid ? interactionsByFile.get(fid) : undefined;
-            const likeCount = interactions ? interactions.like_count : Number(file.like_count) || 0;
-            const dislikeCount = interactions ? interactions.dislike_count : Number(file.dislike_count) || 0;
-            const commentCount = interactions ? interactions.comment_count : Number(file.comment_count) || 0;
-            const userHasLiked = interactions ? interactions.user_has_liked : !!file.user_has_liked;
-            const userHasDisliked = interactions ? interactions.user_has_disliked : !!file.user_has_disliked;
-            if (userHasLiked) likedFileIds.push(file.id);
-            if (userHasDisliked) dislikedFileIds.push(file.id);
-            const mapped = mapSearchFile(file);
-            return { ...mapped, like_count: likeCount, dislike_count: dislikeCount, comment_count: commentCount };
+          results = searchResult.data.map((file: any) => {
+            if (file.user_has_liked) likedFileIds.push(file.id);
+            if (file.user_has_disliked) dislikedFileIds.push(file.id);
+            return mapSearchFile(file);
           });
 
           const lastItem = results[results.length - 1];
@@ -173,22 +139,13 @@ export const loader = async ({ request }: { request: Request }) => {
         }
 
         if (!usersResult.error && Array.isArray(usersResult.data) && usersResult.data.length > 0) {
-          const userData = usersResult.data as Array<{ id: string; username: string; profile_pic: string }>;
-          const withCounts = await Promise.all(
-            userData.map(async (u) => {
-              const { count } = await db
-                .from('files')
-                .select('*', { count: 'exact', head: true })
-                .eq('owner_id', u.id);
-              return {
-                id: u.id,
-                username: u.username,
-                profile_pic: u.profile_pic || '',
-                file_count: count || 0,
-              };
-            })
-          );
-          users = withCounts;
+          const userData = usersResult.data as Array<{ id: string; username: string; profile_pic: string; file_count: number | null }>;
+          users = userData.map((u) => ({
+            id: u.id,
+            username: u.username,
+            profile_pic: u.profile_pic || '',
+            file_count: u.file_count ?? 0,
+          }));
         }
       }
     } catch (e) {
@@ -436,32 +393,35 @@ const Search = () => {
       <div className="space-y-8">
         <form onSubmit={handleSubmit} className="w-full">
           <div className="mx-auto w-full md:max-w-2xl">
-            <div className="flex flex-col gap-3 sm:flex-row">
-              <div className="flex flex-1 items-center gap-2 rounded-full border border-border/30 bg-primary/5 backdrop-blur-xl px-4 h-12 shadow-xs focus-within:ring-4 focus-within:ring-primary/10">
-                <SearchIcon className="h-4 w-4 text-muted-foreground" />
-                <Input
-                  autoFocus
-                  type="search"
-                  enterKeyHint="search"
-                  inputMode="search"
-                  value={inputValue}
-                  onChange={(event) => setInputValue(event.target.value)}
-                  placeholder="Search photos, videos, users, IDs"
-                  className="h-12 border-0 px-0 text-base shadow-none focus-visible:ring-0 placeholder:text-muted-foreground/70"
-                />
-                {inputValue && (
-                  <button
-                    type="button"
-                    aria-label="Clear search"
-                    onClick={() => setInputValue('')}
-                    className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-muted/70 text-muted-foreground hover:bg-muted transition-colors"
-                  >
-                    <XIcon className="h-3.5 w-3.5" />
-                  </button>
-                )}
-              </div>
-              <Button type="submit" className="h-12 rounded-full px-6 font-medium shadow-sm">
-                Search
+            <div className="flex items-center gap-1 rounded-full border border-border/40 bg-primary/5 backdrop-blur-xl pl-4 pr-1 h-12 shadow-xs focus-within:ring-2 focus-within:ring-primary/30 transition-shadow">
+              <SearchIcon className="h-4 w-4 text-muted-foreground shrink-0" />
+              <Input
+                autoFocus
+                type="search"
+                enterKeyHint="search"
+                inputMode="search"
+                value={inputValue}
+                onChange={(event) => setInputValue(event.target.value)}
+                placeholder="Search anything — try a title, tag, creator…"
+                className="h-12 flex-1 min-w-0 border-0 px-2 text-base shadow-none focus-visible:ring-0 placeholder:text-muted-foreground/60"
+              />
+              {inputValue && (
+                <button
+                  type="button"
+                  aria-label="Clear search"
+                  onClick={() => setInputValue('')}
+                  className="inline-flex h-8 w-8 items-center justify-center rounded-full text-muted-foreground hover:bg-muted shrink-0 transition-colors"
+                >
+                  <XIcon className="h-4 w-4" />
+                </button>
+              )}
+              <Button
+                type="submit"
+                aria-label="Search"
+                className="h-10 rounded-full px-4 sm:px-5 font-medium shadow-sm shrink-0"
+              >
+                <SearchIcon className="h-4 w-4 sm:hidden" />
+                <span className="hidden sm:inline">Search</span>
               </Button>
             </div>
           </div>

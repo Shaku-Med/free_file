@@ -14,8 +14,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "~/components/ui/dialog";
-import { useStandalone } from "~/lib/hooks/useStandalone";
-
 type SearchUser = { id: string; username: string; profile_pic: string; file_count: number };
 
 function SkeletonCard() {
@@ -43,7 +41,6 @@ export function SearchModal({ open, onOpenChange }: SearchModalProps) {
   const location = useLocation();
   const prevLocationKeyRef = useRef(location.key);
   const [inputValue, setInputValue] = useState("");
-  const isStandalone = useStandalone();
 
   useEffect(() => {
     if (location.key !== prevLocationKeyRef.current) {
@@ -177,39 +174,52 @@ export function SearchModal({ open, onOpenChange }: SearchModalProps) {
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className={`w-[95vw] max-w-2xl sm:max-w-3xl md:max-w-4xl rounded-2xl p-0 overflow-hidden max-h-[90vh] flex flex-col ${isStandalone ? " border-none min-h-[80%] min-w-full rounded-none max-h-[80%]" : ""}`}>
-        <DialogHeader className={`px-4 sm:px-6 pt-4 pb-3 shrink-0 border-b border-border ${isStandalone ? "" : ""}`}>
+      <DialogContent
+        className={[
+          "p-0 overflow-hidden flex flex-col",
+          // Desktop: centered modal
+          "sm:w-[95vw] sm:max-w-3xl md:max-w-4xl sm:max-h-[90vh] sm:rounded-2xl",
+          // Mobile: fullscreen, edge-to-edge, no chrome
+          "max-sm:top-0 max-sm:left-0 max-sm:translate-x-0 max-sm:translate-y-0",
+          "max-sm:w-screen max-sm:h-[100dvh] max-sm:max-w-none max-sm:max-h-[100dvh]",
+          "max-sm:rounded-none max-sm:border-0 max-sm:shadow-none",
+        ].join(" ")}
+      >
+        <DialogHeader className="px-4 sm:px-6 pt-4 pb-3 shrink-0 border-b border-border">
           <DialogTitle className="text-lg font-semibold">Search</DialogTitle>
         </DialogHeader>
 
         <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
-          <form onSubmit={handleSubmit} className="shrink-0 px-4 sm:px-6 pb-4">
-            <div className="flex flex-col gap-2 sm:flex-row">
-              <div className="flex flex-1 items-center gap-2 rounded-full border border-border/30 bg-primary/5 px-4 h-11 sm:h-12 focus-within:ring-2 focus-within:ring-primary/20">
-                <SearchIcon className="h-4 w-4 text-muted-foreground shrink-0" />
-                <Input
-                  autoFocus
-                  type="search"
-                  enterKeyHint="search"
-                  inputMode="search"
-                  value={inputValue}
-                  onChange={(e) => setInputValue(e.target.value)}
-                  placeholder="Search photos, videos, users"
-                  className="h-10 sm:h-11 border-0 px-0 text-base shadow-none focus-visible:ring-0 placeholder:text-muted-foreground/70"
-                />
-                {inputValue ? (
-                  <button
-                    type="button"
-                    aria-label="Clear search"
-                    onClick={() => setInputValue("")}
-                    className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-muted/70 text-muted-foreground hover:bg-muted"
-                  >
-                    <XIcon className="h-3.5 w-3.5" />
-                  </button>
-                ) : null}
-              </div>
-              <Button type="submit" className="h-11 sm:h-12 rounded-full px-5 font-medium shrink-0">
-                Search
+          <form onSubmit={handleSubmit} className="shrink-0 px-4 sm:px-6 pt-4 pb-4">
+            <div className="flex items-center gap-1 rounded-full border border-border/40 bg-primary/5 pl-4 pr-1 h-12 focus-within:ring-2 focus-within:ring-primary/30 transition-shadow">
+              <SearchIcon className="h-4 w-4 text-muted-foreground shrink-0" />
+              <Input
+                autoFocus
+                type="search"
+                enterKeyHint="search"
+                inputMode="search"
+                value={inputValue}
+                onChange={(e) => setInputValue(e.target.value)}
+                placeholder="Search anything — try a title, tag, creator…"
+                className="h-11 flex-1 min-w-0 border-0 px-2 text-base shadow-none focus-visible:ring-0 placeholder:text-muted-foreground/60"
+              />
+              {inputValue ? (
+                <button
+                  type="button"
+                  aria-label="Clear search"
+                  onClick={() => setInputValue("")}
+                  className="inline-flex h-8 w-8 items-center justify-center rounded-full text-muted-foreground hover:bg-muted shrink-0"
+                >
+                  <XIcon className="h-4 w-4" />
+                </button>
+              ) : null}
+              <Button
+                type="submit"
+                aria-label="Search"
+                className="h-10 rounded-full px-4 sm:px-5 font-medium shrink-0"
+              >
+                <SearchIcon className="h-4 w-4 sm:hidden" />
+                <span className="hidden sm:inline">Search</span>
               </Button>
             </div>
           </form>

@@ -78,43 +78,15 @@ export const loader = async ({ request }: { request: Request }) => {
 
     let filtered = await filterFilesByAccess(request, related || []);
 
-    const fileIds = filtered.map((f: Record<string, unknown>) => f.id as string).filter(Boolean);
-    const interactionsByFile = new Map<
-      string,
-      { like_count: number; dislike_count: number; comment_count: number; user_has_liked: boolean; user_has_disliked: boolean }
-    >();
-    if (fileIds.length > 0) {
-      const { data: batch } = await db.rpc('get_batch_interactions', {
-        p_file_ids: fileIds,
-        p_user_id: userId || null,
-      });
-      if (Array.isArray(batch)) {
-        for (const row of batch) {
-          if (row?.file_id) {
-            interactionsByFile.set(row.file_id as string, {
-              like_count: Number(row.like_count) ?? 0,
-              dislike_count: Number(row.dislike_count) ?? 0,
-              comment_count: Number(row.comment_count) ?? 0,
-              user_has_liked: !!row.user_has_liked,
-              user_has_disliked: !!row.user_has_disliked,
-            });
-          }
-        }
-      }
-    }
-
     const likedFileIds: string[] = [];
     const dislikedFileIds: string[] = [];
 
     const data = filtered.map((file: Record<string, unknown>) => {
-      const interactions = file.id ? interactionsByFile.get(file.id as string) : undefined;
-      const likeCount = interactions ? interactions.like_count : Number(file.like_count) || 0;
-      const dislikeCount = interactions ? interactions.dislike_count : Number(file.dislike_count) || 0;
-      const commentCount = interactions ? interactions.comment_count : Number(file.comment_count) || 0;
-      const userHasLiked = interactions ? interactions.user_has_liked : !!file.user_has_liked;
-      const userHasDisliked = interactions ? interactions.user_has_disliked : !!file.user_has_disliked;
-      if (userHasLiked) likedFileIds.push(file.id as string);
-      if (userHasDisliked) dislikedFileIds.push(file.id as string);
+      const likeCount = Number(file.like_count) || 0;
+      const dislikeCount = Number(file.dislike_count) || 0;
+      const commentCount = Number(file.comment_count) || 0;
+      if (file.user_has_liked) likedFileIds.push(file.id as string);
+      if (file.user_has_disliked) dislikedFileIds.push(file.id as string);
       return {
         id: file.id,
         created_at: file.created_at,
