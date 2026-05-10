@@ -8,6 +8,7 @@ import (
 	"syscall"
 	"time"
 
+	"goupload/internal/captions"
 	"goupload/internal/commentimg"
 	"goupload/internal/middleware"
 	"goupload/internal/profilepic"
@@ -143,6 +144,7 @@ func main() {
 	app.Use("/api/thumbnail", middleware.AuthUpload())
 	app.Use("/api/comment-image", middleware.AuthUpload())
 	app.Use("/api/profilepic", middleware.AuthUpload())
+	app.Use("/api/captions", middleware.AuthUpload())
 
 	// Per-user rate limit for upload endpoints. Keyed by authenticated userID (set by
 	// AuthUpload above), falling back to IP for anything that slips through. The chunk
@@ -166,6 +168,22 @@ func main() {
 	app.Use("/api/thumbnail", uploadLimiter)
 	app.Use("/api/comment-image", uploadLimiter)
 	app.Use("/api/profilepic", uploadLimiter)
+
+	captionLimiter := limiter.New(limiter.Config{
+		Max:        30,
+		Expiration: 1 * time.Minute,
+		KeyGenerator: func(c *fiber.Ctx) string {
+			if v, ok := c.Locals(middleware.LocalsUserID).(string); ok && v != "" {
+				return "u:" + v
+			}
+			return "ip:" + c.IP()
+		},
+		LimitReached: func(c *fiber.Ctx) error {
+			c.Set("Retry-After", "60")
+			return c.Status(fiber.StatusTooManyRequests).JSON(fiber.Map{"error": "rate_limited"})
+		},
+	})
+	app.Use("/api/captions", captionLimiter)
 	upload.RegisterRoutes(app, manager, q, appLog)
 	thumbnail.RegisterRoutes(app, appLog, thumbnail.Config{
 		GitHubClient:  wcfg.GitHubClient,
@@ -199,6 +217,13 @@ func main() {
 		SupabaseURL:   supabaseURL,
 		SupabaseKey:   supabaseKey,
 	})
+	captions.RegisterRoutes(app, appLog, captions.Config{
+		GitHubClient: wcfg.GitHubClient,
+		GitHubOwner:  ghOwner,
+		AppBaseURL:   env.Get("APP_BASE_URL", "http://localhost:3000"),
+		AppSecret:    webhookSecret,
+	})
+
 	if env.IsDev() {
 		testpage.RegisterRoutes(app)
 	}

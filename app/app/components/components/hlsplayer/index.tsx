@@ -4,6 +4,8 @@ import { useNavigate } from 'react-router';
 import { useInView } from 'react-intersection-observer';
 import type { FileType, SeriesEpisodeGroup } from '~/lib/types';
 import { PlayerProvider, usePlayerContext, type ThumbnailSpriteMeta } from './PlayerContext';
+import { CaptionProvider } from './CaptionContext';
+import CaptionOverlay from './overlays/CaptionOverlay';
 import { FEED_EMBED_HIDE_CONTROLS, MINI_PLAYER_HIDE_CONTROLS, type HideControls } from './types';
 import SeekBar from './controls/seek/SeekBar';
 import PersistentBottomVisualizer from './controls/seek/PersistentBottomVisualizer';
@@ -126,7 +128,9 @@ const HLSPlayer: React.FC<HLSPlayerProps> = (props) => (
     reelEmbedAutoHide={Boolean((props.showFeedPlayerControls ?? false) && (props.isReel ?? false))}
     unlockPipReelAudio={props.unlockPipReelAudio ?? false}
   >
-    <PlayerInner {...props} />
+    <CaptionProvider file={props.file ?? null} videoRef={props.videoRef}>
+      <PlayerInner {...props} />
+    </CaptionProvider>
   </PlayerProvider>
 );
 
@@ -867,7 +871,7 @@ function PlayerInner({
     <div
       ref={containerRef}
       className={`relative bg-black overflow-hidden select-none ${isReelCtx ? 'z-[1]' : ''} ${className} player_inner`}
-      style={{ cursor: 'default' }}
+      style={{ cursor: showControls ? 'default' : 'none' }}
       onContextMenu={handleContextMenu}
     >
       {ambientMode && authPlayback && <AmbientBackground />}
@@ -931,6 +935,8 @@ function PlayerInner({
               {...(isReelCtx ? { disablePictureInPicture: true, controlsList: 'nopictureinpicture noremoteplayback' } : {})}
             />
           )}
+
+        <CaptionOverlay containerRef={containerRef} controlsVisible={showControls} />
 
         {!isReelCtx && !loopEnabled && (
           <EndScreen

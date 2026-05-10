@@ -15,13 +15,55 @@ import Actions from "./VideoCard/Actions";
 import { Separator } from "~/components/ui/separator";
 import { Progress } from "~/components/ui/progress";
 import CategoryBadges from "~/components/CategoryBadges";
-import { Info, MoreVertical, ChevronDown, X, Check, AlertTriangle, Send, Loader2, ImagePlus, MessageSquare, MessageSquareOff, ListVideo, Layers, ListPlus, ListChecks } from "lucide-react";
+import { Info, MoreVertical, ChevronDown, X, Check, AlertTriangle, Send, Loader2, ImagePlus, MessageSquare, MessageSquareOff, ListVideo, Layers, ListPlus, ListChecks, Captions } from "lucide-react";
+import { CaptionModal, type CaptionEntry } from "~/components/captions/CaptionModal";
+import { findLanguageLabel } from "~/lib/captions/vtt";
 import { Tooltip, TooltipContent, TooltipTrigger } from "~/components/ui/tooltip";
 import { useIsMobile } from "~/hooks/use-mobile";
 import { useSidebarOptional } from "~/components/ui/sidebar";
 import { formatTimeAgo } from "~/lib/formatTimeAgo";
 import { EpisodePicker } from "./EpisodePicker";
 import WatchProgressBar from "./WatchProgressBar";
+
+function tryUnwrapJsonEntry(val: string): CaptionEntry | null {
+  const s = val.trim();
+  if (!s.startsWith("{")) return null;
+  try {
+    const p = JSON.parse(s);
+    if (p && typeof p === "object" && typeof p.language === "string" && p.language.trim()) {
+      return { language: p.language.trim(), path: typeof p.path === "string" ? p.path.trim() : "" };
+    }
+  } catch { /* not JSON */ }
+  return null;
+}
+
+function extractCaptionEntries(raw: unknown): CaptionEntry[] {
+  let parsed = raw;
+  if (typeof parsed === "string") {
+    try { parsed = JSON.parse(parsed); } catch { return []; }
+  }
+  if (!Array.isArray(parsed)) return [];
+  const out: CaptionEntry[] = [];
+  for (const c of parsed) {
+    if (typeof c === "string" && c.trim()) {
+      const unwrapped = tryUnwrapJsonEntry(c);
+      if (unwrapped) { out.push(unwrapped); continue; }
+      out.push({ language: c.trim(), path: "" });
+      continue;
+    }
+    if (c && typeof c === "object") {
+      const e = c as Record<string, unknown>;
+      let lang = typeof e.language === "string" ? e.language.trim() : "";
+      const path = typeof e.path === "string" ? e.path.trim() : "";
+      if (lang && lang.startsWith("{")) {
+        const unwrapped = tryUnwrapJsonEntry(lang);
+        if (unwrapped) { out.push(unwrapped); continue; }
+      }
+      if (lang) out.push({ language: lang, path });
+    }
+  }
+  return out;
+}
 
 function getMetadataWarning(metadata: unknown): string | null {
   if (metadata && typeof metadata === "object" && "warning" in metadata) {
@@ -133,6 +175,10 @@ const VideoCard = ({
   });
   const [tagInput, setTagInput] = useState("");
   const [catDropdownOpen, setCatDropdownOpen] = useState(false);
+  const [editCaptions, setEditCaptions] = useState<CaptionEntry[]>(() =>
+    extractCaptionEntries(data.captions),
+  );
+  const [captionModalOpen, setCaptionModalOpen] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
   const [infoModalOpen, setInfoModalOpen] = useState(false);
@@ -318,6 +364,7 @@ const VideoCard = ({
     setEditIntroStart(formatMarker(initialMarkers?.introStart));
     setEditIntroEnd(formatMarker(initialMarkers?.introEnd));
     setEditCreditsStart(formatMarker(initialMarkers?.creditsStart));
+    setEditCaptions(extractCaptionEntries(data.captions));
   }, [
     isEditing,
     data.file_title,
@@ -327,6 +374,7 @@ const VideoCard = ({
     data.tags,
     data.comments_enabled,
     data.comment_limit,
+    data.captions,
     initialMarkers,
   ]);
 
@@ -368,6 +416,7 @@ const VideoCard = ({
         setEditCommentsEnabled(f.comments_enabled !== false);
         const lim = f.comment_limit;
         setEditCommentMax(typeof lim === "number" && lim > 0 ? String(lim) : "");
+        setEditCaptions(extractCaptionEntries(f.captions));
         if (Object.prototype.hasOwnProperty.call(f, "default_thumbnail")) {
           const dt = f.default_thumbnail;
           setEditLoadedDefaultThumb(typeof dt === "string" ? dt : dt == null ? null : undefined);
@@ -968,11 +1017,11 @@ const VideoCard = ({
            */}
           <div
             aria-hidden
-            className="pointer-events-none absolute -right-1 -top-1 z-0 h-[calc(100%-0.5rem)] w-[calc(100%-0.5rem)] translate-x-1.5 -translate-y-1 rounded-xl bg-card/90 ring-1 ring-border/40 shadow-sm dark:bg-zinc-800/80 dark:ring-white/10"
+            className="pointer-events-none absolute -right-1 -top-1 z-0 h-[calc(100%-0.5rem)] w-[calc(100%-0.5rem)] translate-x-1.5 -translate-y-1 rounded-lg bg-card/90 ring-1 ring-border/40 shadow-sm dark:bg-zinc-800/80 dark:ring-white/10"
           />
           <div
             aria-hidden
-            className="pointer-events-none absolute -right-0.5 -top-0.5 z-0 h-[calc(100%-0.25rem)] w-[calc(100%-0.25rem)] translate-x-0.5 -translate-y-0.5 rounded-xl bg-card ring-1 ring-border/50 shadow dark:bg-zinc-900 dark:ring-white/10"
+            className="pointer-events-none absolute -right-0.5 -top-0.5 z-0 h-[calc(100%-0.25rem)] w-[calc(100%-0.25rem)] translate-x-0.5 -translate-y-0.5 rounded-lg bg-card ring-1 ring-border/50 shadow dark:bg-zinc-900 dark:ring-white/10"
           />
         </>
       )}
@@ -1124,7 +1173,7 @@ const VideoCard = ({
            * viewer's player from the same file row — Netflix-style.
            */}
           {typeof data.file_type === "string" && !data.file_type.startsWith("image/") && (
-            <div className="space-y-2.5 rounded-xl border border-border/50 bg-muted/20 p-3">
+            <div className="space-y-2.5 rounded-lg border border-border/50 bg-muted/20 p-3">
               <div className="flex items-center justify-between gap-2">
                 <span className="text-xs font-medium text-muted-foreground">Skip markers</span>
                 <span className="text-[11px] text-muted-foreground/70">
@@ -1172,7 +1221,7 @@ const VideoCard = ({
 
           {/* Add to series — available on every file the viewer owns */}
           {canManageSeries && (
-            <div className="space-y-2.5 rounded-xl border border-border/50 bg-muted/20 p-3">
+            <div className="space-y-2.5 rounded-lg border border-border/50 bg-muted/20 p-3">
               <div className="flex items-center gap-2">
                 <Layers className="w-3.5 h-3.5 text-muted-foreground" />
                 <span className="text-xs font-medium text-muted-foreground">Series</span>
@@ -1766,6 +1815,30 @@ const VideoCard = ({
             )}
           </div>}
 
+          {!data.file_type?.startsWith("image/") && (
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-muted-foreground">Captions</label>
+              <button
+                type="button"
+                onClick={() => setCaptionModalOpen(true)}
+                disabled={isSaving}
+                className="w-full flex items-center gap-2 rounded-lg border border-border/50 bg-muted/30 px-3 py-2.5 text-sm text-foreground hover:bg-muted/50 transition-colors disabled:opacity-50"
+              >
+                <Captions className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+                <span className="flex-1 text-left">
+                  {editCaptions.length === 0
+                    ? "Add captions"
+                    : `${editCaptions.length} track${editCaptions.length === 1 ? "" : "s"}`}
+                </span>
+                {editCaptions.length > 0 && (
+                  <span className="text-[10px] text-muted-foreground truncate max-w-[40%]">
+                    {editCaptions.map((c) => findLanguageLabel(c.language) || c.language).join(", ")}
+                  </span>
+                )}
+              </button>
+            </div>
+          )}
+
           {data.is_adult && (
             <div className="space-y-2">
               <div className="rounded-lg borde bg-destructive/10 px-3 py-2.5">
@@ -1904,6 +1977,16 @@ const VideoCard = ({
       </DialogContent>
     </Dialog>
 
+    <CaptionModal
+      open={captionModalOpen}
+      onOpenChange={setCaptionModalOpen}
+      fileId={String(data.id || "")}
+      initialCaptions={editCaptions}
+      onCaptionsChange={setEditCaptions}
+      duration={typeof data.duration === "number" ? data.duration : undefined}
+      disabled={isSaving}
+    />
+
     {/* Series browse dialog — owner can pick one of their existing series */}
     <Dialog open={seriesBrowseOpen} onOpenChange={setSeriesBrowseOpen}>
       <DialogContent className="max-w-md rounded-2xl">
@@ -2008,7 +2091,7 @@ const VideoCard = ({
             void handleWatchNav();
           }}
           to={watchPath}
-          className="relative aspect-video w-full shrink-0 overflow-hidden rounded-xl bg-card shadow-sm ring-1 ring-border/45 dark:ring-white/10"
+          className="relative aspect-video w-full shrink-0 overflow-hidden rounded-lg bg-card shadow-sm ring-1 ring-border/45 dark:ring-white/10"
         >
           {renderThumbnail("aspect-video h-full w-full")}
         </Link>
@@ -2055,10 +2138,10 @@ const VideoCard = ({
         className={cn(
           "group flex w-full transition-colors",
           !hideActions && "hover:bg-muted/50",
-          hideActions ? "gap-3 rounded-xl" : "",
-          sidebarLayoutState === "expanded" && "fl_break_layout text-sm gap-3 rounded-xl p-2",
-          sidebarLayoutState !== "expanded" && related && "flex-row items-start gap-3 rounded-xl p-2",
-          sidebarLayoutState !== "expanded" && !related && "flex-col flex-wrap gap-3 rounded-xl p-2 md:flex-row",
+          hideActions ? "gap-3 rounded-lg" : "",
+          sidebarLayoutState === "expanded" && "fl_break_layout text-sm gap-3 rounded-lg p-2",
+          sidebarLayoutState !== "expanded" && related && "flex-row items-start gap-3 rounded-lg p-2",
+          sidebarLayoutState !== "expanded" && !related && "flex-col flex-wrap gap-3 rounded-lg p-2 md:flex-row",
           hideActions && related && "p-0 hover:bg-transparent",
         )}
       >
@@ -2070,8 +2153,8 @@ const VideoCard = ({
           to={watchPath}
           className={
             related
-              ? "relative aspect-video w-28 max-w-[42%] shrink-0 overflow-hidden rounded-xl bg-card ring-1 ring-border/30 dark:ring-white/10 sm:w-32 sm:max-w-[40%]"
-              : "relative aspect-video w-full min-w-40 max-w-full shrink-0 overflow-hidden rounded-xl bg-card md:max-w-44 md:flex-1"
+              ? "relative aspect-video w-38 max-w-[62%] shrink-0 overflow-hidden rounded-lg bg-card ring-1 ring-border/30 dark:ring-white/10 sm:w-42 sm:max-w-[60%]"
+              : "relative aspect-video w-full min-w-60 max-w-full shrink-0 overflow-hidden rounded-lg bg-card md:max-w-64 md:flex-1"
           }
         >
           {renderThumbnail("aspect-video h-full w-full")}
@@ -2173,7 +2256,7 @@ const VideoCard = ({
           }}
           to={watchPath}
           // in mobile let's make the reel size smaller the aspect ratio stays the same but let's minimize the size a bit 
-          className="relative block aspect-[9/16] w-full shrink-0 overflow-hidden rounded-xl bg-muted outline-none ring-0 transition-opacity hover:opacity-95"
+          className="relative block aspect-[9/16] w-full shrink-0 overflow-hidden rounded-lg bg-muted outline-none ring-0 transition-opacity hover:opacity-95"
         >
           {renderThumbnail("h-full w-full")}
         </Link>
@@ -2227,21 +2310,28 @@ const VideoCard = ({
   }
 
   if (layout === "compact") {
+    const durationSec = typeof data.duration === "number" ? data.duration : 0;
+    const durationStr = formatDuration(durationSec);
     return (
-      <div className="group flex gap-2 rounded-lg p-1.5 transition-colors hover:bg-muted/50">
+      <div className="group flex items-center gap-2.5 rounded-lg px-2 py-1.5 transition-colors hover:bg-muted/50">
         <Link
           onClick={(e) => {
             e.preventDefault();
             void handleWatchNav();
           }}
           to={watchPath}
-          className="relative aspect-video w-24 max-h-24 shrink-0 overflow-hidden rounded-lg bg-card"
+          className="relative aspect-video w-[7rem] shrink-0 overflow-hidden rounded-md bg-card ring-1 ring-border/20 dark:ring-white/10"
         >
           {renderThumbnail("h-full w-full")}
+          {durationStr && (
+            <span className="absolute right-1 bottom-1 rounded bg-black/80 px-1 py-px text-[9px] font-semibold tabular-nums leading-none text-white">
+              {durationStr}
+            </span>
+          )}
         </Link>
 
-        <div className="flex items-start justify-between gap-2">
-          <div className="flex min-w-0 flex-1 flex-col justify-center">
+        <div className="flex min-w-0 flex-1 items-start justify-between gap-1.5">
+          <div className="flex min-w-0 flex-1 flex-col gap-0.5">
             <Link
               to={watchPath}
               onClick={(e) => {
@@ -2250,33 +2340,35 @@ const VideoCard = ({
               }}
               className="hover:text-primary transition-colors"
             >
-              <h3 className="line-clamp-2 text-xs font-medium leading-tight">
-                <ParseFilenameInsert filename={data.file_title || data.filename} showLimit={40} />
+              <h3 className="line-clamp-2 text-[13px] font-medium leading-snug">
+                <ParseFilenameInsert filename={data.file_title || data.filename} showLimit={50} />
               </h3>
             </Link>
 
-            <div className="mt-0.5 flex min-w-0 flex-wrap items-center gap-x-1 gap-y-0.5 text-[10px] text-muted-foreground">
-              {data.owner && <span className="max-w-[min(100%,7rem)] truncate">{data.owner.username}</span>}
-              {data.owner && viewCount > 0 && <span className="text-muted-foreground/60">·</span>}
-              {viewCount > 0 && <span className="tabular-nums">{formatViews(viewCount)}</span>}
+            <div className="flex min-w-0 flex-wrap items-center gap-x-1 text-[11px] text-muted-foreground leading-tight">
+              {data.owner && (
+                <span className="max-w-[8rem] truncate hover:text-foreground transition-colors">
+                  {data.owner.username}
+                </span>
+              )}
+              {data.owner && (viewCount > 0 || data.created_at) && (
+                <span className="text-muted-foreground/50">·</span>
+              )}
+              {viewCount > 0 && (
+                <span className="tabular-nums">{formatViews(viewCount)} views</span>
+              )}
+              {viewCount > 0 && data.created_at && (
+                <span className="text-muted-foreground/50">·</span>
+              )}
+              {data.created_at && <span>{formatTimeAgo(data.created_at)}</span>}
             </div>
 
-            {
-              (!hideActions?.halfway) && (
-                <>{renderActions()}</>
-              )
-            }
+            {!hideActions?.halfway && <>{renderActions()}</>}
+          </div>
 
-          </div>
-          <div>
-            {
-              (hideActions.halfway) && (
-                <>
-                  {renderActions()}
-                </>
-              )
-            }
-          </div>
+          {hideActions.halfway && (
+            <div className="shrink-0">{renderActions()}</div>
+          )}
         </div>
 
         {renderEditDialog()}

@@ -165,7 +165,7 @@ function GuestPlayQueueLocked({
                 className="min-w-0 border-b border-border/35 py-1.5 last:border-b-0"
               >
                 <VideoCard
-                  layout="horizontal"
+                  layout={`compact`}
                   related
                   hideActions={{completely: false, halfway: true}}
                   data={video}

@@ -1733,8 +1733,14 @@ const index = () => {
         dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
       />
       <div className="relative z-10 mx-auto max-w-full">
-        <div className={!theaterMode ? "grid grid-cols-1 gap-4 sm:gap-5 lg:grid-cols-3 lg:gap-6 xl:gap-8" : ""}>
+        {/* 
+          never remove this comment
+          This is the original grid layout for the watch page I may change it later but for now keep it here.
+          <div className={!theaterMode ? "grid grid-cols-1 gap-4 sm:gap-5 lg:grid-cols-3 lg:gap-6 xl:gap-8" : ""}>
           <div className={!theaterMode ? "min-w-0 space-y-3 sm:space-y-4 lg:col-span-2" : ""}>
+        */}
+        <div className={!theaterMode ? "watch-grid" : ""}>
+          <div className={!theaterMode ? "min-w-0 space-y-3 sm:space-y-4 lg:col-span-2 xl:col-span-1" : ""}>
             <div
               className={cn(
                 "relative w-full overflow-visible",

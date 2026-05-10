@@ -71,7 +71,11 @@ function DialogContent({
           "data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0",
           "data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95",
           "data-[state=closed]:slide-out-to-top-[2%] data-[state=open]:slide-in-from-top-[2%]",
-          className
+          className,
+          "max-sm:!top-0 max-sm:!left-0 max-sm:!right-0 max-sm:!bottom-0",
+          "max-sm:!translate-x-0 max-sm:!translate-y-0",
+          "max-sm:!w-screen max-sm:!h-[100dvh] max-sm:!max-w-none max-sm:!max-h-none",
+          "max-sm:!rounded-none max-sm:!border-0 max-sm:!shadow-none"
         )}
         {...props}
       >

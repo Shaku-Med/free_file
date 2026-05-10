@@ -22,6 +22,7 @@ function fileEditResponsePayload(row: Record<string, unknown>) {
     file_type: row.file_type ?? null,
     is_adult: row.is_adult ?? false,
     metadata: row.metadata ?? null,
+    captions: normalizeCaptions(row.captions),
   };
 }
 
@@ -63,7 +64,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
       const { data: qrow, error: qErr } = await db
         .from("files")
         .select(
-          "id, unique_id, file_title, file_description, is_public, categories, tags, comments_enabled, comment_limit, default_thumbnail, file_type, is_adult, metadata"
+          "id, unique_id, file_title, file_description, is_public, categories, tags, comments_enabled, comment_limit, default_thumbnail, file_type, is_adult, metadata, captions"
         )
         .eq(lookupField, fileId)
         .eq("owner_id", user.id)
@@ -288,3 +289,21 @@ export const action = async ({ request }: { request: Request }) => {
     return toJson({ error: "Internal server error" }, 500);
   }
 };
+
+function normalizeCaptions(raw: unknown): { language: string; path: string }[] {
+  let arr: unknown[] | null = null;
+  if (Array.isArray(raw)) arr = raw;
+  else if (typeof raw === "string" && raw.trim().startsWith("[")) {
+    try { arr = JSON.parse(raw); } catch { /* not JSON */ }
+  }
+  if (!arr || !Array.isArray(arr)) return [];
+  const out: { language: string; path: string }[] = [];
+  for (const entry of arr) {
+    if (!entry || typeof entry !== "object") continue;
+    const e = entry as Record<string, unknown>;
+    const lang = typeof e.language === "string" ? e.language.trim() : "";
+    const path = typeof e.path === "string" ? e.path.trim() : "";
+    if (lang) out.push({ language: lang, path });
+  }
+  return out;
+}

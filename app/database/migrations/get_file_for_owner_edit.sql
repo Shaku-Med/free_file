@@ -41,7 +41,8 @@ RETURNS TABLE (
   is_series_main boolean,
   file_series_id uuid,
   file_series_episode_id uuid,
-  is_files_series_item boolean
+  is_files_series_item boolean,
+  captions jsonb
 )
 LANGUAGE sql
 STABLE
@@ -82,7 +83,8 @@ AS $$
     f.is_series_main,
     f.file_series_id,
     f.file_series_episode_id,
-    f.is_files_series_item
+    f.is_files_series_item,
+    to_jsonb(f.captions) AS captions
   FROM public.files f
   WHERE f.owner_id = p_viewer_id
     AND (
