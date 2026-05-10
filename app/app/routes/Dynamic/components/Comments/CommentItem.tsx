@@ -559,7 +559,10 @@ const CommentItem = ({
       )}
 
       {showReplies && hasReplies && (
-        <div className="relative z-[1] space-y-0 overflow-visible">
+        <div
+          className="relative z-[1] space-y-0 overflow-visible"
+          style={gutterPx > 0 ? { marginLeft: -gutterPx } : undefined}
+        >
           {comment.replies?.map((reply, idx, arr) => (
             <CommentItem
               key={reply.id}
