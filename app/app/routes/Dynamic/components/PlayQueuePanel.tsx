@@ -83,7 +83,7 @@ function SortableQueueRow({
       </div>
       <div className="min-w-0 flex-1">
         <VideoCard
-          layout="horizontal"
+          layout={`compact`}
           related
           hideActions={{completely: false, halfway: true}}
           data={video}

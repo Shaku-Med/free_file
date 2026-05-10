@@ -165,6 +165,7 @@ const RelatedVideosContent = ({ currentUserId }: { currentUserId?: string }) => 
         userActions={userActions}
         onAddToPlayQueue={addToPlayQueue}
         inPlayQueue={isInPlayQueue(video.id)}
+        layout={`horizontal`}
       />
     ) : (
       <VideoCard
