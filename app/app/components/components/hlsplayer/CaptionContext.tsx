@@ -52,8 +52,8 @@ interface CaptionContextValue {
   setBackgroundOpacity: (opacity: number) => void
 }
 
-export const CAPTION_CONTROLS_FLOOR_PCT = 16
-export const CAPTION_DEFAULT_Y_PCT = 20
+export const CAPTION_CONTROLS_FLOOR_PCT = 14
+export const CAPTION_DEFAULT_Y_PCT = 3
 const DEFAULT_POSITION: CaptionPosition = { xPct: 50, yBottomPct: CAPTION_DEFAULT_Y_PCT }
 const POSITION_KEY = "hls-caption-position"
 const STYLE_KEY = "hls-caption-style"

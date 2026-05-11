@@ -29,6 +29,7 @@ function computeFontSizePx(width: number, height: number, sizePreference: Captio
 const X_MIN = 5
 const X_MAX = 95
 const Y_MAX = 95
+const AUTO_BOTTOM_ZONE_PCT = 25
 
 const ALIGN_STYLE: Record<CaptionTextAlign, { left: string; transform: string }> = {
   left: { left: "4%", transform: "none" },
@@ -91,9 +92,13 @@ export default function CaptionOverlay({ containerRef, controlsVisible, compact 
     }
     const base = livePosition ?? position
     const floor = controlsVisible ? CAPTION_CONTROLS_FLOOR_PCT : 0
+    let yBottom = base.yBottomPct
+    if (!controlsVisible && yBottom <= AUTO_BOTTOM_ZONE_PCT) {
+      yBottom = CAPTION_DEFAULT_Y_PCT
+    }
     return {
       xPct: Math.min(X_MAX, Math.max(X_MIN, base.xPct)),
-      yBottomPct: Math.min(Y_MAX, Math.max(floor, base.yBottomPct)),
+      yBottomPct: Math.min(Y_MAX, Math.max(floor, yBottom)),
     }
   }, [livePosition, position, controlsVisible, compact])
 
