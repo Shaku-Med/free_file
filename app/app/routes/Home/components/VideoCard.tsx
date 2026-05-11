@@ -185,8 +185,8 @@ const VideoCard = ({
 
   /**
    * Skip-intro / next-episode markers — owner sets these on their own video and every viewer's
-   * player picks them up from `metadata.markers`. Stored as `m:ss` strings while editing for
-   * human readability; converted to seconds on save.
+   * player picks them up from `metadata.markers`. Stored as `m:ss` or `h:mm:ss` strings while
+   * editing for human readability; converted to seconds on save.
    */
   const initialMarkers = useMemo(() => {
     const meta = data.metadata;
@@ -198,8 +198,12 @@ const VideoCard = ({
   const formatMarker = (s: number | null | undefined): string => {
     if (s == null || !Number.isFinite(s) || s < 0) return "";
     const total = Math.floor(s);
-    const mm = Math.floor(total / 60);
+    const hh = Math.floor(total / 3600);
+    const mm = Math.floor((total % 3600) / 60);
     const ss = total % 60;
+    if (hh > 0) {
+      return `${hh}:${mm.toString().padStart(2, "0")}:${ss.toString().padStart(2, "0")}`;
+    }
     return `${mm}:${ss.toString().padStart(2, "0")}`;
   };
   const parseMarker = (input: string): number | null | undefined => {
@@ -209,12 +213,16 @@ const VideoCard = ({
       const n = Number(trimmed);
       return Number.isFinite(n) && n >= 0 ? n : undefined;
     }
-    const m = trimmed.match(/^(\d{1,3}):([0-5]?\d)(?:\.(\d+))?$/);
+    // Accept `h:mm:ss[.ms]` (hours optional) or `m:ss[.ms]`. When hours are present,
+    // minutes must be 0–59; without hours the first group is "total minutes" so 100+ is allowed.
+    const m = trimmed.match(/^(?:(\d{1,3}):)?(\d{1,3}):([0-5]?\d)(?:\.(\d+))?$/);
     if (!m) return undefined;
-    const mins = Number(m[1]);
-    const secs = Number(m[2]);
-    const frac = m[3] ? Number(`0.${m[3]}`) : 0;
-    return mins * 60 + secs + frac;
+    const hours = m[1] ? Number(m[1]) : 0;
+    const mins = Number(m[2]);
+    const secs = Number(m[3]);
+    const frac = m[4] ? Number(`0.${m[4]}`) : 0;
+    if (m[1] && mins >= 60) return undefined;
+    return hours * 3600 + mins * 60 + secs + frac;
   };
   const [editIntroStart, setEditIntroStart] = useState(formatMarker(initialMarkers?.introStart));
   const [editIntroEnd, setEditIntroEnd] = useState(formatMarker(initialMarkers?.introEnd));
@@ -796,17 +804,17 @@ const VideoCard = ({
       const introEndParsed = parseMarker(editIntroEnd);
       const creditsStartParsed = parseMarker(editCreditsStart);
       if (introStartParsed === undefined) {
-        setEditError("Intro start must be empty, a number of seconds, or m:ss.");
+        setEditError("Intro start must be empty, a number of seconds, m:ss, or h:mm:ss.");
         setIsSaving(false);
         return;
       }
       if (introEndParsed === undefined) {
-        setEditError("Intro end must be empty, a number of seconds, or m:ss.");
+        setEditError("Intro end must be empty, a number of seconds, m:ss, or h:mm:ss.");
         setIsSaving(false);
         return;
       }
       if (creditsStartParsed === undefined) {
-        setEditError("Credits start must be empty, a number of seconds, or m:ss.");
+        setEditError("Credits start must be empty, a number of seconds, m:ss, or h:mm:ss.");
         setIsSaving(false);
         return;
       }
@@ -1177,7 +1185,7 @@ const VideoCard = ({
               <div className="flex items-center justify-between gap-2">
                 <span className="text-xs font-medium text-muted-foreground">Skip markers</span>
                 <span className="text-[11px] text-muted-foreground/70">
-                  Format: <code>seconds</code> or <code>m:ss</code>
+                  Format: <code>seconds</code>, <code>m:ss</code>, or <code>h:mm:ss</code>
                 </span>
               </div>
               <div className="grid grid-cols-3 gap-2">
@@ -1206,7 +1214,7 @@ const VideoCard = ({
                   <Input
                     value={editCreditsStart}
                     onChange={(e) => setEditCreditsStart(e.target.value)}
-                    placeholder="42:10"
+                    placeholder="1:42:10"
                     disabled={isSaving}
                     className="bg-muted/50 font-mono"
                   />
