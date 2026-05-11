@@ -6,6 +6,8 @@ import type { FileType, SeriesEpisodeGroup } from '~/lib/types';
 import { PlayerProvider, usePlayerContext, type ThumbnailSpriteMeta } from './PlayerContext';
 import { CaptionProvider } from './CaptionContext';
 import CaptionOverlay from './overlays/CaptionOverlay';
+import VRTiltOverlay from './overlays/VRTiltOverlay';
+import { VR_PERSPECTIVE_PX } from './PlayerContext';
 import { FEED_EMBED_HIDE_CONTROLS, MINI_PLAYER_HIDE_CONTROLS, type HideControls } from './types';
 import SeekBar from './controls/seek/SeekBar';
 import PersistentBottomVisualizer from './controls/seek/PersistentBottomVisualizer';
@@ -192,6 +194,8 @@ function PlayerInner({
     loop: loopEnabled,
     authPlaybackFeatures: authPlayback,
     unlockPipReelAudio,
+    vrMode,
+    vrRotation,
   } = usePlayerContext();
   /**
    * Skip-intro / next-episode markers come from the owner-edited `metadata.markers` jsonb on
@@ -921,21 +925,38 @@ function PlayerInner({
               miniPlayerContainerRef.current
             )
           : (
-            <video
-              ref={assignVideoRef}
-              className={`w-full h-full object-contain  ${isReelCtx && !embedReelControls ? 'pointer-events-none' : ''}`}
-              muted={muted}
-              loop={loopEnabled}
-              playsInline={playsInline}
-              preload="metadata"
-              onClick={handleVideoClick}
-              onDoubleClick={handleDoubleClick}
-              disableRemotePlayback={false}
-              {...({ 'x-webkit-airplay': 'allow' } as any)}
-              {...(isReelCtx ? { disablePictureInPicture: true, controlsList: 'nopictureinpicture noremoteplayback' } : {})}
-            />
+            <div
+              className="w-full h-full"
+              style={vrMode ? { perspective: `${VR_PERSPECTIVE_PX}px` } : undefined}
+            >
+              <video
+                ref={assignVideoRef}
+                className={`w-full h-full object-contain  ${isReelCtx && !embedReelControls ? 'pointer-events-none' : ''}`}
+                muted={muted}
+                loop={loopEnabled}
+                playsInline={playsInline}
+                preload="metadata"
+                onClick={handleVideoClick}
+                onDoubleClick={handleDoubleClick}
+                disableRemotePlayback={false}
+                style={
+                  vrMode
+                    ? {
+                        transform: `rotateX(${vrRotation.x}deg) rotateY(${vrRotation.y}deg)`,
+                        transformOrigin: '50% 50%',
+                        transition: 'transform 120ms ease-out',
+                        willChange: 'transform',
+                        backfaceVisibility: 'hidden',
+                      }
+                    : undefined
+                }
+                {...({ 'x-webkit-airplay': 'allow' } as any)}
+                {...(isReelCtx ? { disablePictureInPicture: true, controlsList: 'nopictureinpicture noremoteplayback' } : {})}
+              />
+            </div>
           )}
 
+        <VRTiltOverlay />
         <CaptionOverlay containerRef={containerRef} controlsVisible={showControls} />
 
         {!isReelCtx && !loopEnabled && (

@@ -19,7 +19,10 @@ const COOKIE_NAMES = {
   quality: 'hls-quality-preference',
   spatialAudio: 'player-spatial-audio',
   spatialAudioConfig: 'player-spatial-audio-config',
+  captionLanguage: 'player-caption-language',
 } as const;
+
+const CAPTION_LANGUAGE_RE = /^[a-zA-Z]{2,3}(?:-[a-zA-Z0-9]{2,8})*$/;
 
 /** Legacy shadcn sidebar cookie; used only if `player-sidebar-open` is absent. */
 const LEGACY_SIDEBAR_STATE_COOKIE = 'sidebar_state';
@@ -67,6 +70,8 @@ export interface PlayerSettingsDto {
   spatialAudio?: boolean;
   /** JSON-encoded SpatialAudioConfig from `useSpatialAudio`. Server validates length only — shape is checked on read. */
   spatialAudioConfig?: string;
+  /** Preferred caption language (BCP-47). Empty string means captions off. */
+  captionLanguage?: string;
 }
 
 function toResponse(body: unknown, status: number, setCookies: string[] = []): Response {
@@ -101,6 +106,11 @@ export function getPlayerSettingsFromCookies(cookieHeader: string | null) {
   const spatialAudio =
     get(COOKIE_NAMES.spatialAudio) === '1' || get(COOKIE_NAMES.spatialAudio) === 'true';
   const spatialAudioConfig = get(COOKIE_NAMES.spatialAudioConfig) ?? '';
+  const captionLanguageRaw = get(COOKIE_NAMES.captionLanguage) ?? '';
+  const captionLanguage =
+    captionLanguageRaw && CAPTION_LANGUAGE_RE.test(captionLanguageRaw)
+      ? captionLanguageRaw
+      : '';
   const sidebarOpenRaw = get(COOKIE_NAMES.sidebarOpen);
   let sidebarOpen = true;
   if (sidebarOpenRaw === 'true') sidebarOpen = true;
@@ -124,6 +134,7 @@ export function getPlayerSettingsFromCookies(cookieHeader: string | null) {
     quality,
     spatialAudio,
     spatialAudioConfig,
+    captionLanguage,
   };
 }
 
@@ -229,6 +240,13 @@ export const action = async ({ request }: { request: Request }) => {
       const trimmed = body.spatialAudioConfig.slice(0, 1024);
       setCookies.push(buildSetCookie(COOKIE_NAMES.spatialAudioConfig, trimmed, secure));
       result.spatialAudioConfig = trimmed;
+    }
+    if (typeof body.captionLanguage === 'string') {
+      const trimmed = body.captionLanguage.trim();
+      const value =
+        trimmed === '' || CAPTION_LANGUAGE_RE.test(trimmed) ? trimmed : '';
+      setCookies.push(buildSetCookie(COOKIE_NAMES.captionLanguage, value, secure));
+      result.captionLanguage = value;
     }
 
     return toResponse({ success: true, settings: result }, 200, setCookies);

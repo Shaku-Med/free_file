@@ -24,6 +24,8 @@ export type PlayerSettings = {
   spatialAudio: boolean;
   /** JSON-encoded `SpatialAudioConfig` (see `useSpatialAudio`). */
   spatialAudioConfig: string;
+  /** Preferred caption language (BCP-47). Empty string = captions off. */
+  captionLanguage: string;
 };
 
 export type PlayerSettingsPatch = Partial<PlayerSettings>;

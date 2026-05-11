@@ -23,8 +23,17 @@ export interface SharedAudioGraph {
   panner: PannerNode;
   /** Created lazily; only inserted when `analyserActive` is true. */
   analyser: AnalyserNode | null;
+  /**
+   * Created lazily; inserted at the tail of the chain when `compressorActive` is true.
+   * Used for the "stable volume" feature — gentle compression so quiet clips and loud
+   * clips end up at roughly the same perceived loudness.
+   */
+  compressor: DynamicsCompressorNode | null;
+  /** Tiny makeup gain to offset the compressor's threshold reduction (~1.4x). */
+  makeupGain: GainNode | null;
   pannerActive: boolean;
   analyserActive: boolean;
+  compressorActive: boolean;
 }
 
 const graphByVideo = new WeakMap<HTMLVideoElement, SharedAudioGraph>();
@@ -99,8 +108,11 @@ export function ensureSharedGraph(video: HTMLVideoElement): SharedAudioGraph | n
       source,
       panner,
       analyser: null,
+      compressor: null,
+      makeupGain: null,
       pannerActive: false,
       analyserActive: false,
+      compressorActive: false,
     };
     rewireGraph(graph);
     graphByVideo.set(video, graph);
@@ -131,6 +143,34 @@ export function setAnalyserActive(graph: SharedAudioGraph, active: boolean) {
 export function setPannerActive(graph: SharedAudioGraph, active: boolean) {
   if (graph.pannerActive === active) return;
   graph.pannerActive = active;
+  rewireGraph(graph);
+}
+
+/**
+ * Lazily creates the compressor + makeup gain on first use. The settings are tuned for
+ * loudness leveling (taming loud peaks while preserving dynamics) rather than aggressive
+ * compression — close to a "broadcast" preset.
+ */
+export function ensureCompressor(graph: SharedAudioGraph): DynamicsCompressorNode {
+  if (graph.compressor && graph.makeupGain) return graph.compressor;
+  const compressor = graph.ctx.createDynamicsCompressor();
+  const now = graph.ctx.currentTime;
+  compressor.threshold.setValueAtTime(-22, now);
+  compressor.knee.setValueAtTime(20, now);
+  compressor.ratio.setValueAtTime(4, now);
+  compressor.attack.setValueAtTime(0.006, now);
+  compressor.release.setValueAtTime(0.25, now);
+  const makeupGain = graph.ctx.createGain();
+  makeupGain.gain.setValueAtTime(1.4, now);
+  graph.compressor = compressor;
+  graph.makeupGain = makeupGain;
+  return compressor;
+}
+
+export function setCompressorActive(graph: SharedAudioGraph, active: boolean) {
+  if (graph.compressorActive === active) return;
+  if (active) ensureCompressor(graph);
+  graph.compressorActive = active;
   rewireGraph(graph);
 }
 
@@ -197,6 +237,16 @@ function rewireGraph(graph: SharedAudioGraph) {
   try {
     graph.panner.disconnect();
   } catch {}
+  if (graph.compressor) {
+    try {
+      graph.compressor.disconnect();
+    } catch {}
+  }
+  if (graph.makeupGain) {
+    try {
+      graph.makeupGain.disconnect();
+    } catch {}
+  }
 
   let head: AudioNode = graph.source;
   if (graph.pannerActive) {
@@ -206,6 +256,11 @@ function rewireGraph(graph: SharedAudioGraph) {
   if (graph.analyserActive && graph.analyser) {
     head.connect(graph.analyser);
     head = graph.analyser;
+  }
+  if (graph.compressorActive && graph.compressor && graph.makeupGain) {
+    head.connect(graph.compressor);
+    graph.compressor.connect(graph.makeupGain);
+    head = graph.makeupGain;
   }
   head.connect(graph.ctx.destination);
 }

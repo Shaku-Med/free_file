@@ -21,6 +21,8 @@ export interface PlayerSettings {
   audioVisualizer: boolean;
   audioVisualizerStyle: 'scroll' | 'bars' | 'mirror' | 'ribbon' | 'pulse';
   quality: string;
+  /** Preferred caption language (BCP-47). Empty string = captions off. */
+  captionLanguage: string;
 }
 
 export interface PlayerSettingsPatch {
@@ -36,6 +38,7 @@ export interface PlayerSettingsPatch {
   audioVisualizer?: boolean;
   audioVisualizerStyle?: string;
   quality?: string;
+  captionLanguage?: string;
 }
 
 const DEFAULTS: PlayerSettings = {
@@ -51,6 +54,7 @@ const DEFAULTS: PlayerSettings = {
   audioVisualizer: false,
   audioVisualizerStyle: DEFAULT_AUDIO_VISUALIZER_STYLE,
   quality: 'auto',
+  captionLanguage: '',
 };
 
 export async function getPlayerSettings(): Promise<PlayerSettings> {
@@ -72,6 +76,7 @@ export async function getPlayerSettings(): Promise<PlayerSettings> {
       typeof data.audioVisualizerStyle === 'string' ? data.audioVisualizerStyle : undefined
     ),
     quality: typeof data.quality === 'string' ? data.quality : DEFAULTS.quality,
+    captionLanguage: typeof data.captionLanguage === 'string' ? data.captionLanguage : DEFAULTS.captionLanguage,
   };
 }
 

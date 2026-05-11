@@ -17,6 +17,93 @@ import {
   type SpatialAudioConfig,
   type SpatialAudioMode,
 } from './hooks/useSpatialAudio';
+import { useStableVolume } from './hooks/useStableVolume';
+
+export interface VrRotation {
+  /** rotateX in degrees — looking up (+) / down (−). */
+  x: number;
+  /** rotateY in degrees — looking right (+) / left (−). */
+  y: number;
+}
+
+export const VR_ROTATION_LIMIT = 45;
+export const VR_DRAG_SENSITIVITY = 0.3;
+export const VR_PERSPECTIVE_PX = 1200;
+const VR_MODE_KEY = 'hls-vr-mode';
+const VR_ROT_KEY = 'hls-vr-rotation';
+
+function readVrMode(): boolean {
+  if (typeof window === 'undefined') return false;
+  try {
+    return window.localStorage.getItem(VR_MODE_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
+function readVrRotation(): VrRotation {
+  if (typeof window === 'undefined') return { x: 0, y: 0 };
+  try {
+    const raw = window.localStorage.getItem(VR_ROT_KEY);
+    if (!raw) return { x: 0, y: 0 };
+    const parsed = JSON.parse(raw) as Partial<VrRotation>;
+    return {
+      x: Number.isFinite(parsed.x) ? Math.max(-VR_ROTATION_LIMIT, Math.min(VR_ROTATION_LIMIT, Number(parsed.x))) : 0,
+      y: Number.isFinite(parsed.y) ? Math.max(-VR_ROTATION_LIMIT, Math.min(VR_ROTATION_LIMIT, Number(parsed.y))) : 0,
+    };
+  } catch {
+    return { x: 0, y: 0 };
+  }
+}
+
+function writeVrMode(value: boolean) {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.setItem(VR_MODE_KEY, value ? '1' : '0');
+  } catch {
+    /* ignore */
+  }
+}
+
+function writeVrRotation(value: VrRotation) {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.setItem(VR_ROT_KEY, JSON.stringify(value));
+  } catch {
+    /* ignore */
+  }
+}
+
+export const SLEEP_TIMER_OPTIONS = [
+  'Off',
+  '5 min',
+  '10 min',
+  '15 min',
+  '30 min',
+  '45 min',
+  '1 hour',
+  'End of video',
+] as const;
+export type SleepTimerOption = (typeof SLEEP_TIMER_OPTIONS)[number];
+
+function sleepTimerMs(opt: SleepTimerOption): number | null {
+  switch (opt) {
+    case '5 min':
+      return 5 * 60_000;
+    case '10 min':
+      return 10 * 60_000;
+    case '15 min':
+      return 15 * 60_000;
+    case '30 min':
+      return 30 * 60_000;
+    case '45 min':
+      return 45 * 60_000;
+    case '1 hour':
+      return 60 * 60_000;
+    default:
+      return null;
+  }
+}
 
 export interface QualityLevel {
   height: number;
@@ -122,6 +209,17 @@ interface PlayerContextValue {
   /** Session-only debug overlay (not persisted). */
   statsForNerds: boolean;
   setStatsForNerds: (v: boolean) => void;
+  /** Sleep timer — pause the video after a chosen duration. `'Off'` = disabled. */
+  sleepTimer: SleepTimerOption;
+  setSleepTimer: (v: SleepTimerOption) => void;
+  /** Epoch ms when the active timer will fire; null when off / 'End of video'. */
+  sleepTimerEndsAt: number | null;
+  /** CSS-tilt "VR" mode: video transforms in 3D, drag to orbit. */
+  vrMode: boolean;
+  setVrMode: (v: boolean) => void;
+  vrRotation: VrRotation;
+  setVrRotation: (v: VrRotation) => void;
+  resetVrRotation: () => void;
   /** 8D / spatial audio config (live — drives the panner). */
   spatialAudio: SpatialAudioConfig;
   setSpatialAudio: (next: SpatialAudioConfig) => void;
@@ -233,6 +331,18 @@ export function PlayerProvider({
 
   const [spriteMeta, setSpriteMeta] = useState<ThumbnailSpriteMeta | null>(null);
   const [spriteUrl, setSpriteUrl] = useState<string | null>(null);
+
+  /**
+   * Thumbnail sprite is per-file. When the player swaps to a different video, clear
+   * the previous file's sprite immediately so SeekBar's hover preview doesn't show
+   * stale thumbnails until the new sprite finishes fetching (or stay blank if the
+   * new file has no sprite at all).
+   */
+  const fileSpriteKey = file?.unique_id || file?.id || null;
+  useEffect(() => {
+    setSpriteMeta(null);
+    setSpriteUrl(null);
+  }, [fileSpriteKey]);
   const [ambientModeState, setAmbientModeState] = useState(false);
   const [ambientColors, setAmbientColors] = useState<string[]>([]);
 
@@ -242,6 +352,50 @@ export function PlayerProvider({
     setPlayerSettings(prev => (prev ? { ...prev, stableVolume: v } : prev));
     savePlayerSettings({ stableVolume: v }).catch(() => {});
   }, [setPlayerSettings, savePlayerSettings]);
+  useStableVolume(videoRef, stableVolume);
+
+  const [vrMode, setVrModeState] = useState<boolean>(() => readVrMode());
+  const [vrRotation, setVrRotationState] = useState<VrRotation>(() => readVrRotation());
+  const setVrMode = useCallback((v: boolean) => {
+    setVrModeState(v);
+    writeVrMode(v);
+  }, []);
+  const setVrRotation = useCallback((v: VrRotation) => {
+    const clamped: VrRotation = {
+      x: Math.max(-VR_ROTATION_LIMIT, Math.min(VR_ROTATION_LIMIT, v.x)),
+      y: Math.max(-VR_ROTATION_LIMIT, Math.min(VR_ROTATION_LIMIT, v.y)),
+    };
+    setVrRotationState(clamped);
+    writeVrRotation(clamped);
+  }, []);
+  const resetVrRotation = useCallback(() => {
+    const zero: VrRotation = { x: 0, y: 0 };
+    setVrRotationState(zero);
+    writeVrRotation(zero);
+  }, []);
+
+  const [sleepTimer, setSleepTimerState] = useState<SleepTimerOption>('Off');
+  const [sleepTimerEndsAt, setSleepTimerEndsAt] = useState<number | null>(null);
+  const setSleepTimer = useCallback((opt: SleepTimerOption) => {
+    setSleepTimerState(opt);
+    const ms = sleepTimerMs(opt);
+    setSleepTimerEndsAt(ms == null ? null : Date.now() + ms);
+  }, []);
+  useEffect(() => {
+    if (sleepTimerEndsAt == null) return;
+    const tick = () => {
+      if (Date.now() < sleepTimerEndsAt) return;
+      const v = videoRef.current;
+      if (v && !v.paused) {
+        try { v.pause(); } catch { /* ignore */ }
+      }
+      setSleepTimerState('Off');
+      setSleepTimerEndsAt(null);
+    };
+    tick();
+    const id = window.setInterval(tick, 1000);
+    return () => window.clearInterval(id);
+  }, [sleepTimerEndsAt, videoRef]);
 
   const [audioVisualizer, setAudioVisualizerState] = useState(false);
   const audioVisualizerStyleRef = useRef<AudioVisualizerStyle>(DEFAULT_AUDIO_VISUALIZER_STYLE);
@@ -677,6 +831,14 @@ export function PlayerProvider({
     setAudioVisualizerStyle,
     statsForNerds,
     setStatsForNerds,
+    sleepTimer,
+    setSleepTimer,
+    sleepTimerEndsAt,
+    vrMode,
+    setVrMode,
+    vrRotation,
+    setVrRotation,
+    resetVrRotation,
     spatialAudio,
     setSpatialAudio,
     spatialAudioDialogOpen,

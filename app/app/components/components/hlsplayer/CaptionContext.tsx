@@ -34,6 +34,7 @@ interface CaptionContextValue {
   languages: CaptionLanguage[]
   currentLanguage: string | null
   setCurrentLanguage: (code: string | null) => void
+  prefetchLanguage: (code: string | null | undefined) => void
   currentCue: string
   isLoading: boolean
   hasError: boolean
@@ -51,7 +52,6 @@ export const CAPTION_DEFAULT_Y_PCT = 20
 const DEFAULT_POSITION: CaptionPosition = { xPct: 50, yBottomPct: CAPTION_DEFAULT_Y_PCT }
 const POSITION_KEY = "hls-caption-position"
 const STYLE_KEY = "hls-caption-style"
-const LANG_KEY = "hls-caption-language"
 
 const CaptionContext = createContext<CaptionContextValue | null>(null)
 
@@ -73,26 +73,6 @@ function writeJSON(key: string, value: unknown) {
     window.localStorage.setItem(key, JSON.stringify(value))
   } catch {
     /* quota / private mode — ignore */
-  }
-}
-
-function readString(key: string, fallback: string | null): string | null {
-  if (typeof window === "undefined") return fallback
-  try {
-    const v = window.localStorage.getItem(key)
-    return v ?? fallback
-  } catch {
-    return fallback
-  }
-}
-
-function writeString(key: string, value: string | null) {
-  if (typeof window === "undefined") return
-  try {
-    if (value === null) window.localStorage.removeItem(key)
-    else window.localStorage.setItem(key, value)
-  } catch {
-    /* ignore */
   }
 }
 
@@ -126,17 +106,15 @@ interface CaptionProviderProps {
 }
 
 export function CaptionProvider({ children, file, videoRef }: CaptionProviderProps) {
-  const { userId } = useFileContext()
+  const { userId, playerSettings, savePlayerSettings } = useFileContext()
+  const preferredLanguage = playerSettings?.captionLanguage || ""
   const languages = useMemo(
     () => (userId ? extractLanguages(file) : []),
     [file, userId],
   )
+  const fileKey = file?.unique_id || file?.id || ""
 
-  const [currentLanguage, setCurrentLanguageState] = useState<string | null>(() => {
-    const remembered = readString(LANG_KEY, null)
-    return remembered
-  })
-
+  const [currentLanguage, setCurrentLanguageState] = useState<string | null>(null)
   const [cuesByLang, setCuesByLang] = useState<Record<string, CaptionCue[]>>({})
   const [loadingLang, setLoadingLang] = useState<string | null>(null)
   const [errorLang, setErrorLang] = useState<string | null>(null)
@@ -149,16 +127,31 @@ export function CaptionProvider({ children, file, videoRef }: CaptionProviderPro
     readJSON(STYLE_KEY, { fontSize: "md" as CaptionFontSize, backgroundOpacity: 0.7 }),
   )
 
+  /**
+   * On every file change, clear the per-file cache and pick the language to display:
+   * if the user's preferred default exists on this file, auto-select it; otherwise stay off
+   * (the user can flip it on manually for this video). This mirrors how the rest of the
+   * player handles per-file state (thumbnail preview, intro markers, etc.).
+   */
   useEffect(() => {
-    if (currentLanguage && !languages.some((l) => l.code === currentLanguage)) {
+    setCuesByLang({})
+    setErrorLang(null)
+    setLoadingLang(null)
+    setCurrentCue("")
+    if (preferredLanguage && languages.some((l) => l.code === preferredLanguage)) {
+      setCurrentLanguageState(preferredLanguage)
+    } else {
       setCurrentLanguageState(null)
     }
-  }, [languages, currentLanguage])
+  }, [fileKey, languages, preferredLanguage])
 
-  const setCurrentLanguage = useCallback((code: string | null) => {
-    setCurrentLanguageState(code)
-    writeString(LANG_KEY, code)
-  }, [])
+  const setCurrentLanguage = useCallback(
+    (code: string | null) => {
+      setCurrentLanguageState(code)
+      void savePlayerSettings({ captionLanguage: code ?? "" }).catch(() => {})
+    },
+    [savePlayerSettings],
+  )
 
   const setPosition = useCallback((pos: CaptionPosition) => {
     setPositionState(pos)
@@ -187,20 +180,32 @@ export function CaptionProvider({ children, file, videoRef }: CaptionProviderPro
     })
   }, [])
 
+  const cuesRef = useRef<Record<string, CaptionCue[]>>({})
   useEffect(() => {
-    if (!currentLanguage) return
-    if (cuesByLang[currentLanguage]) return
-    const uniqueId = typeof file?.unique_id === "string" ? file.unique_id : ""
-    const fileId = typeof file?.id === "string" ? file.id : ""
-    const lookup = uniqueId || fileId
-    if (!lookup) {
-      setErrorLang(currentLanguage)
-      return
-    }
-    let cancelled = false
-    setLoadingLang(currentLanguage)
-    setErrorLang(null)
-    ;(async () => {
+    cuesRef.current = cuesByLang
+  }, [cuesByLang])
+
+  const inflightRef = useRef<Set<string>>(new Set())
+  const generationRef = useRef(0)
+
+  useEffect(() => {
+    generationRef.current += 1
+    inflightRef.current = new Set()
+  }, [fileKey])
+
+  const loadVtt = useCallback(
+    async (language: string) => {
+      if (!language || !userId) return
+      if (cuesRef.current[language]) return
+      if (inflightRef.current.has(language)) return
+      const uniqueId = typeof file?.unique_id === "string" ? file.unique_id : ""
+      const fileId = typeof file?.id === "string" ? file.id : ""
+      const lookup = uniqueId || fileId
+      if (!lookup) return
+      const gen = generationRef.current
+      inflightRef.current.add(language)
+      setLoadingLang((prev) => prev ?? language)
+      setErrorLang(null)
       try {
         const prepRes = await fetch("/api/captions/load-prepare", {
           method: "POST",
@@ -208,8 +213,8 @@ export function CaptionProvider({ children, file, videoRef }: CaptionProviderPro
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(
             uniqueId
-              ? { unique_id: uniqueId, language: currentLanguage }
-              : { file_id: fileId, language: currentLanguage },
+              ? { unique_id: uniqueId, language }
+              : { file_id: fileId, language },
           ),
         })
         if (!prepRes.ok) throw new Error(`prep ${prepRes.status}`)
@@ -223,18 +228,30 @@ export function CaptionProvider({ children, file, videoRef }: CaptionProviderPro
         if (!vttRes.ok) throw new Error(`load ${vttRes.status}`)
         const text = await vttRes.text()
         const parsed = parseVTT(text)
-        if (cancelled) return
-        setCuesByLang((prev) => ({ ...prev, [currentLanguage]: parsed.cues }))
+        if (gen !== generationRef.current) return
+        setCuesByLang((prev) => ({ ...prev, [language]: parsed.cues }))
       } catch {
-        if (!cancelled) setErrorLang(currentLanguage)
+        if (gen === generationRef.current) setErrorLang(language)
       } finally {
-        if (!cancelled) setLoadingLang(null)
+        inflightRef.current.delete(language)
+        setLoadingLang((prev) => (prev === language ? null : prev))
       }
-    })()
-    return () => {
-      cancelled = true
-    }
-  }, [currentLanguage, file?.id, file?.unique_id, cuesByLang])
+    },
+    [file?.id, file?.unique_id, userId],
+  )
+
+  useEffect(() => {
+    if (!currentLanguage) return
+    void loadVtt(currentLanguage)
+  }, [currentLanguage, loadVtt])
+
+  const prefetchLanguage = useCallback(
+    (language: string | null | undefined) => {
+      if (!language) return
+      void loadVtt(language)
+    },
+    [loadVtt],
+  )
 
   useEffect(() => {
     const video = videoRef.current
@@ -273,6 +290,7 @@ export function CaptionProvider({ children, file, videoRef }: CaptionProviderPro
       languages,
       currentLanguage,
       setCurrentLanguage,
+      prefetchLanguage,
       currentCue,
       isLoading: loadingLang !== null && loadingLang === currentLanguage,
       hasError: errorLang !== null && errorLang === currentLanguage,
@@ -288,6 +306,7 @@ export function CaptionProvider({ children, file, videoRef }: CaptionProviderPro
       languages,
       currentLanguage,
       setCurrentLanguage,
+      prefetchLanguage,
       currentCue,
       loadingLang,
       errorLang,
@@ -311,6 +330,7 @@ export function useCaptionContext(): CaptionContextValue {
       languages: [],
       currentLanguage: null,
       setCurrentLanguage: () => {},
+      prefetchLanguage: () => {},
       currentCue: "",
       isLoading: false,
       hasError: false,

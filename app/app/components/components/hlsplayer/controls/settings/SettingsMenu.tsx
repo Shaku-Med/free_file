@@ -1,4 +1,4 @@
-import { useState, type RefObject } from 'react';
+import { useEffect, useState, type RefObject } from 'react';
 import { Link } from 'react-router';
 import { isMobile } from 'react-device-detect';
 import {
@@ -14,8 +14,10 @@ import {
   Waves,
   Braces,
   Headphones,
+  Box,
+  RotateCcw,
 } from 'lucide-react';
-import { usePlayerContext } from '../../PlayerContext';
+import { usePlayerContext, SLEEP_TIMER_OPTIONS } from '../../PlayerContext';
 import { isSpatialAudioUiSupported } from '../../hooks/useSpatialAudio';
 import { cn } from '~/lib/utils';
 import {
@@ -40,7 +42,6 @@ import {
 } from '../../audioVisualizerStyles';
 
 const SPEEDS = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2];
-const SLEEP_OPTIONS = ['Off', '5 min', '10 min', '15 min', '30 min', '45 min', '1 hour', 'End of video'];
 
 function Switch({
   checked,
@@ -101,17 +102,42 @@ export function SettingsMenuBody() {
     setAudioVisualizerStyle,
     statsForNerds,
     setStatsForNerds,
+    sleepTimer,
+    setSleepTimer,
+    sleepTimerEndsAt,
+    vrMode,
+    setVrMode,
+    vrRotation,
+    resetVrRotation,
     spatialAudio,
     setSpatialAudio,
     setSpatialAudioDialogOpen,
     authPlaybackFeatures,
   } = usePlayerContext();
-  const [sleepTimer, setSleepTimer] = useState('Off');
   const auth = authPlaybackFeatures;
 
   const speedLabel = state.playbackRate === 1 ? 'Normal' : `${state.playbackRate}x`;
   const qualityLabel =
     state.currentLevel === -1 ? 'Auto' : `${state.levels[state.currentLevel]?.height ?? '?'}p`;
+
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  useEffect(() => {
+    if (sleepTimerEndsAt == null) return;
+    setNowMs(Date.now());
+    const id = window.setInterval(() => setNowMs(Date.now()), 1000);
+    return () => window.clearInterval(id);
+  }, [sleepTimerEndsAt]);
+  const sleepLabel = (() => {
+    if (sleepTimerEndsAt == null) return sleepTimer;
+    const remaining = Math.max(0, sleepTimerEndsAt - nowMs);
+    const totalSec = Math.ceil(remaining / 1000);
+    const h = Math.floor(totalSec / 3600);
+    const m = Math.floor((totalSec % 3600) / 60);
+    const s = totalSec % 60;
+    return h > 0
+      ? `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
+      : `${m}:${String(s).padStart(2, '0')}`;
+  })();
 
   const toggleRowClass =
     'flex w-full min-w-0 cursor-default items-center justify-between gap-3 rounded-lg py-0.5';
@@ -192,6 +218,25 @@ export function SettingsMenuBody() {
             </TooltipContent>
           )}
         </Tooltip>
+        <DropdownMenuItem
+          onSelect={(e) => e.preventDefault()}
+          className={toggleRowClass}
+        >
+          <span className="flex min-w-0 flex-1 items-center gap-2">
+            <Box className="size-4 shrink-0 text-muted-foreground" />
+            <span className="min-w-0 truncate">VR tilt</span>
+          </span>
+          <Switch checked={vrMode} onChange={setVrMode} />
+        </DropdownMenuItem>
+        {vrMode && (vrRotation.x !== 0 || vrRotation.y !== 0) && (
+          <DropdownMenuItem
+            onSelect={() => resetVrRotation()}
+            className="flex w-full min-w-0 items-center gap-2 rounded-lg pl-7 py-0.5 text-xs text-muted-foreground"
+          >
+            <RotateCcw className="size-3 shrink-0" />
+            <span>Reset tilt</span>
+          </DropdownMenuItem>
+        )}
         {!isMobile && (
           <Tooltip>
             <TooltipTrigger asChild>
@@ -288,11 +333,11 @@ export function SettingsMenuBody() {
               <span className="min-w-0 truncate">Sleep timer</span>
             </span>
             <span className="shrink-0 pl-1 text-right text-xs font-normal tabular-nums text-muted-foreground">
-              {sleepTimer}
+              {sleepLabel}
             </span>
           </DropdownMenuSubTrigger>
           <DropdownMenuSubContent className={cn(subMenuWidth, 'min-w-[180px]')} collisionPadding={12}>
-            {SLEEP_OPTIONS.map((opt) => (
+            {SLEEP_TIMER_OPTIONS.map((opt) => (
               <DropdownMenuItem
                 key={opt}
                 onClick={() => setSleepTimer(opt)}
