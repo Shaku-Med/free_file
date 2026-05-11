@@ -106,7 +106,7 @@ interface CaptionProviderProps {
 }
 
 export function CaptionProvider({ children, file, videoRef }: CaptionProviderProps) {
-  const { userId, playerSettings, savePlayerSettings } = useFileContext()
+  const { userId, playerSettings, setPlayerSettings, savePlayerSettings } = useFileContext()
   const preferredLanguage = playerSettings?.captionLanguage || ""
   const languages = useMemo(
     () => (userId ? extractLanguages(file) : []),
@@ -147,10 +147,15 @@ export function CaptionProvider({ children, file, videoRef }: CaptionProviderPro
 
   const setCurrentLanguage = useCallback(
     (code: string | null) => {
+      const next = code ?? ""
       setCurrentLanguageState(code)
-      void savePlayerSettings({ captionLanguage: code ?? "" }).catch(() => {})
+      // Update the FileContext copy of playerSettings synchronously so the *next* video
+      // navigation sees `preferredLanguage` = the user's most recent pick. Without this,
+      // we'd only ever read the value the root loader saw on the original page load.
+      setPlayerSettings((prev) => (prev ? { ...prev, captionLanguage: next } : prev))
+      void savePlayerSettings({ captionLanguage: next }).catch(() => {})
     },
-    [savePlayerSettings],
+    [savePlayerSettings, setPlayerSettings],
   )
 
   const setPosition = useCallback((pos: CaptionPosition) => {
