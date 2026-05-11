@@ -17,6 +17,8 @@ import {
 } from "~/lib/captions/vtt"
 import { useFileContext } from "~/lib/Context/Context"
 
+const vttCache = new Map<string, CaptionCue[]>()
+
 export interface CaptionLanguage {
   code: string
   label: string
@@ -24,6 +26,7 @@ export interface CaptionLanguage {
 }
 
 export type CaptionFontSize = "sm" | "md" | "lg" | "xl"
+export type CaptionTextAlign = "left" | "center" | "right"
 
 export interface CaptionPosition {
   xPct: number
@@ -43,6 +46,8 @@ interface CaptionContextValue {
   resetPosition: () => void
   fontSize: CaptionFontSize
   setFontSize: (size: CaptionFontSize) => void
+  textAlign: CaptionTextAlign
+  setTextAlign: (align: CaptionTextAlign) => void
   backgroundOpacity: number
   setBackgroundOpacity: (opacity: number) => void
 }
@@ -108,10 +113,23 @@ interface CaptionProviderProps {
 export function CaptionProvider({ children, file, videoRef }: CaptionProviderProps) {
   const { userId, playerSettings, setPlayerSettings, savePlayerSettings } = useFileContext()
   const preferredLanguage = playerSettings?.captionLanguage || ""
-  const languages = useMemo(
+  const languagesRaw = useMemo(
     () => (userId ? extractLanguages(file) : []),
     [file, userId],
   )
+  const languagesRef = useRef<CaptionLanguage[]>([])
+  const languages = useMemo(() => {
+    const prev = languagesRef.current
+    if (
+      prev.length === languagesRaw.length &&
+      prev.every((l, i) => l.code === languagesRaw[i].code && l.path === languagesRaw[i].path)
+    ) {
+      return prev
+    }
+    languagesRef.current = languagesRaw
+    return languagesRaw
+  }, [languagesRaw])
+
   const fileKey = file?.unique_id || file?.id || ""
 
   const [currentLanguage, setCurrentLanguageState] = useState<string | null>(null)
@@ -123,18 +141,21 @@ export function CaptionProvider({ children, file, videoRef }: CaptionProviderPro
   const [position, setPositionState] = useState<CaptionPosition>(() =>
     readJSON<CaptionPosition>(POSITION_KEY, DEFAULT_POSITION),
   )
-  const [styleState, setStyleState] = useState<{ fontSize: CaptionFontSize; backgroundOpacity: number }>(() =>
-    readJSON(STYLE_KEY, { fontSize: "md" as CaptionFontSize, backgroundOpacity: 0.7 }),
+  const [styleState, setStyleState] = useState<{ fontSize: CaptionFontSize; textAlign: CaptionTextAlign; backgroundOpacity: number }>(() =>
+    readJSON(STYLE_KEY, { fontSize: "md" as CaptionFontSize, textAlign: "center" as CaptionTextAlign, backgroundOpacity: 0.7 }),
   )
 
   /**
-   * On every file change, clear the per-file cache and pick the language to display:
-   * if the user's preferred default exists on this file, auto-select it; otherwise stay off
-   * (the user can flip it on manually for this video). This mirrors how the rest of the
-   * player handles per-file state (thumbnail preview, intro markers, etc.).
+   * On every file change, restore cached cues for this file and pick the language to display:
+   * if the user's preferred default exists on this file, auto-select it; otherwise stay off.
    */
   useEffect(() => {
-    setCuesByLang({})
+    const restored: Record<string, CaptionCue[]> = {}
+    for (const lang of languages) {
+      const cached = vttCache.get(`${fileKey}:${lang.code}`)
+      if (cached) restored[lang.code] = cached
+    }
+    setCuesByLang(restored)
     setErrorLang(null)
     setLoadingLang(null)
     setCurrentCue("")
@@ -176,6 +197,14 @@ export function CaptionProvider({ children, file, videoRef }: CaptionProviderPro
     })
   }, [])
 
+  const setTextAlign = useCallback((align: CaptionTextAlign) => {
+    setStyleState((prev) => {
+      const next = { ...prev, textAlign: align }
+      writeJSON(STYLE_KEY, next)
+      return next
+    })
+  }, [])
+
   const setBackgroundOpacity = useCallback((opacity: number) => {
     setStyleState((prev) => {
       const clamped = Math.max(0, Math.min(1, opacity))
@@ -207,6 +236,12 @@ export function CaptionProvider({ children, file, videoRef }: CaptionProviderPro
       const fileId = typeof file?.id === "string" ? file.id : ""
       const lookup = uniqueId || fileId
       if (!lookup) return
+      const cacheKey = `${fileKey}:${language}`
+      const cached = vttCache.get(cacheKey)
+      if (cached) {
+        setCuesByLang((prev) => ({ ...prev, [language]: cached }))
+        return
+      }
       const gen = generationRef.current
       inflightRef.current.add(language)
       setLoadingLang((prev) => prev ?? language)
@@ -234,6 +269,7 @@ export function CaptionProvider({ children, file, videoRef }: CaptionProviderPro
         const text = await vttRes.text()
         const parsed = parseVTT(text)
         if (gen !== generationRef.current) return
+        vttCache.set(cacheKey, parsed.cues)
         setCuesByLang((prev) => ({ ...prev, [language]: parsed.cues }))
       } catch {
         if (gen === generationRef.current) setErrorLang(language)
@@ -242,7 +278,7 @@ export function CaptionProvider({ children, file, videoRef }: CaptionProviderPro
         setLoadingLang((prev) => (prev === language ? null : prev))
       }
     },
-    [file?.id, file?.unique_id, userId],
+    [file?.id, file?.unique_id, fileKey, userId],
   )
 
   useEffect(() => {
@@ -304,6 +340,8 @@ export function CaptionProvider({ children, file, videoRef }: CaptionProviderPro
       resetPosition,
       fontSize: styleState.fontSize,
       setFontSize,
+      textAlign: styleState.textAlign,
+      setTextAlign,
       backgroundOpacity: styleState.backgroundOpacity,
       setBackgroundOpacity,
     }),
@@ -320,6 +358,8 @@ export function CaptionProvider({ children, file, videoRef }: CaptionProviderPro
       resetPosition,
       styleState.fontSize,
       setFontSize,
+      styleState.textAlign,
+      setTextAlign,
       styleState.backgroundOpacity,
       setBackgroundOpacity,
     ],
@@ -344,6 +384,8 @@ export function useCaptionContext(): CaptionContextValue {
       resetPosition: () => {},
       fontSize: "md",
       setFontSize: () => {},
+      textAlign: "center",
+      setTextAlign: () => {},
       backgroundOpacity: 0.7,
       setBackgroundOpacity: () => {},
     }

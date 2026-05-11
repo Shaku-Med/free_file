@@ -19,56 +19,62 @@ import {
 } from './hooks/useSpatialAudio';
 import { useStableVolume } from './hooks/useStableVolume';
 
-export interface VrRotation {
+export interface TiltRotation {
   /** rotateX in degrees — looking up (+) / down (−). */
   x: number;
   /** rotateY in degrees — looking right (+) / left (−). */
   y: number;
+  /** rotateZ in degrees — skew/tilt. */
+  z: number;
 }
 
-export const VR_ROTATION_LIMIT = 45;
-export const VR_DRAG_SENSITIVITY = 0.3;
-export const VR_PERSPECTIVE_PX = 1200;
-const VR_MODE_KEY = 'hls-vr-mode';
-const VR_ROT_KEY = 'hls-vr-rotation';
+export const TILT_ROTATION_LIMIT = 45;
+export const TILT_Z_LIMIT = 20;
+export const TILT_DRAG_SENSITIVITY = 0.3;
+export const TILT_PERSPECTIVE_PX = 1200;
+export const TILT_ZOOM_MIN = 0.6;
+export const TILT_ZOOM_MAX = 2.5;
+const TILT_MODE_KEY = 'hls-vr-mode';
+const TILT_ROT_KEY = 'hls-vr-rotation';
 
-function readVrMode(): boolean {
+function readTiltMode(): boolean {
   if (typeof window === 'undefined') return false;
   try {
-    return window.localStorage.getItem(VR_MODE_KEY) === '1';
+    return window.localStorage.getItem(TILT_MODE_KEY) === '1';
   } catch {
     return false;
   }
 }
 
-function readVrRotation(): VrRotation {
-  if (typeof window === 'undefined') return { x: 0, y: 0 };
+function readTiltRotation(): TiltRotation {
+  if (typeof window === 'undefined') return { x: 0, y: 0, z: 0 };
   try {
-    const raw = window.localStorage.getItem(VR_ROT_KEY);
-    if (!raw) return { x: 0, y: 0 };
-    const parsed = JSON.parse(raw) as Partial<VrRotation>;
+    const raw = window.localStorage.getItem(TILT_ROT_KEY);
+    if (!raw) return { x: 0, y: 0, z: 0 };
+    const parsed = JSON.parse(raw) as Partial<TiltRotation>;
     return {
-      x: Number.isFinite(parsed.x) ? Math.max(-VR_ROTATION_LIMIT, Math.min(VR_ROTATION_LIMIT, Number(parsed.x))) : 0,
-      y: Number.isFinite(parsed.y) ? Math.max(-VR_ROTATION_LIMIT, Math.min(VR_ROTATION_LIMIT, Number(parsed.y))) : 0,
+      x: Number.isFinite(parsed.x) ? Math.max(-TILT_ROTATION_LIMIT, Math.min(TILT_ROTATION_LIMIT, Number(parsed.x))) : 0,
+      y: Number.isFinite(parsed.y) ? Math.max(-TILT_ROTATION_LIMIT, Math.min(TILT_ROTATION_LIMIT, Number(parsed.y))) : 0,
+      z: Number.isFinite(parsed.z) ? Math.max(-TILT_Z_LIMIT, Math.min(TILT_Z_LIMIT, Number(parsed.z))) : 0,
     };
   } catch {
-    return { x: 0, y: 0 };
+    return { x: 0, y: 0, z: 0 };
   }
 }
 
-function writeVrMode(value: boolean) {
+function writeTiltMode(value: boolean) {
   if (typeof window === 'undefined') return;
   try {
-    window.localStorage.setItem(VR_MODE_KEY, value ? '1' : '0');
+    window.localStorage.setItem(TILT_MODE_KEY, value ? '1' : '0');
   } catch {
     /* ignore */
   }
 }
 
-function writeVrRotation(value: VrRotation) {
+function writeTiltRotation(value: TiltRotation) {
   if (typeof window === 'undefined') return;
   try {
-    window.localStorage.setItem(VR_ROT_KEY, JSON.stringify(value));
+    window.localStorage.setItem(TILT_ROT_KEY, JSON.stringify(value));
   } catch {
     /* ignore */
   }
@@ -214,12 +220,14 @@ interface PlayerContextValue {
   setSleepTimer: (v: SleepTimerOption) => void;
   /** Epoch ms when the active timer will fire; null when off / 'End of video'. */
   sleepTimerEndsAt: number | null;
-  /** CSS-tilt "VR" mode: video transforms in 3D, drag to orbit. */
-  vrMode: boolean;
-  setVrMode: (v: boolean) => void;
-  vrRotation: VrRotation;
-  setVrRotation: (v: VrRotation) => void;
-  resetVrRotation: () => void;
+  /** CSS-tilt mode: video transforms in 3D, drag to orbit. */
+  tiltMode: boolean;
+  setTiltMode: (v: boolean) => void;
+  tiltRotation: TiltRotation;
+  setTiltRotation: (v: TiltRotation) => void;
+  resetTiltRotation: () => void;
+  tiltZoom: number;
+  setTiltZoom: (v: number) => void;
   /** 8D / spatial audio config (live — drives the panner). */
   spatialAudio: SpatialAudioConfig;
   setSpatialAudio: (next: SpatialAudioConfig) => void;
@@ -354,24 +362,30 @@ export function PlayerProvider({
   }, [setPlayerSettings, savePlayerSettings]);
   useStableVolume(videoRef, stableVolume);
 
-  const [vrMode, setVrModeState] = useState<boolean>(() => readVrMode());
-  const [vrRotation, setVrRotationState] = useState<VrRotation>(() => readVrRotation());
-  const setVrMode = useCallback((v: boolean) => {
-    setVrModeState(v);
-    writeVrMode(v);
+  const [tiltMode, setTiltModeState] = useState<boolean>(() => readTiltMode());
+  const [tiltRotation, setTiltRotationState] = useState<TiltRotation>(() => readTiltRotation());
+  const [tiltZoom, setTiltZoomState] = useState(1);
+  const setTiltMode = useCallback((v: boolean) => {
+    setTiltModeState(v);
+    writeTiltMode(v);
   }, []);
-  const setVrRotation = useCallback((v: VrRotation) => {
-    const clamped: VrRotation = {
-      x: Math.max(-VR_ROTATION_LIMIT, Math.min(VR_ROTATION_LIMIT, v.x)),
-      y: Math.max(-VR_ROTATION_LIMIT, Math.min(VR_ROTATION_LIMIT, v.y)),
+  const setTiltRotation = useCallback((v: TiltRotation) => {
+    const clamped: TiltRotation = {
+      x: Math.max(-TILT_ROTATION_LIMIT, Math.min(TILT_ROTATION_LIMIT, v.x)),
+      y: Math.max(-TILT_ROTATION_LIMIT, Math.min(TILT_ROTATION_LIMIT, v.y)),
+      z: Math.max(-TILT_Z_LIMIT, Math.min(TILT_Z_LIMIT, v.z ?? 0)),
     };
-    setVrRotationState(clamped);
-    writeVrRotation(clamped);
+    setTiltRotationState(clamped);
+    writeTiltRotation(clamped);
   }, []);
-  const resetVrRotation = useCallback(() => {
-    const zero: VrRotation = { x: 0, y: 0 };
-    setVrRotationState(zero);
-    writeVrRotation(zero);
+  const resetTiltRotation = useCallback(() => {
+    const zero: TiltRotation = { x: 0, y: 0, z: 0 };
+    setTiltRotationState(zero);
+    writeTiltRotation(zero);
+    setTiltZoomState(1);
+  }, []);
+  const setTiltZoom = useCallback((v: number) => {
+    setTiltZoomState(Math.max(TILT_ZOOM_MIN, Math.min(TILT_ZOOM_MAX, v)));
   }, []);
 
   const [sleepTimer, setSleepTimerState] = useState<SleepTimerOption>('Off');
@@ -834,11 +848,13 @@ export function PlayerProvider({
     sleepTimer,
     setSleepTimer,
     sleepTimerEndsAt,
-    vrMode,
-    setVrMode,
-    vrRotation,
-    setVrRotation,
-    resetVrRotation,
+    tiltMode,
+    setTiltMode,
+    tiltRotation,
+    setTiltRotation,
+    resetTiltRotation,
+    tiltZoom,
+    setTiltZoom,
     spatialAudio,
     setSpatialAudio,
     spatialAudioDialogOpen,

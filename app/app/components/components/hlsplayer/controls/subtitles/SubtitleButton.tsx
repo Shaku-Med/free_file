@@ -1,4 +1,4 @@
-import { Captions, CaptionsOff, Check, RotateCcw, Loader2 } from "lucide-react"
+import { Captions, CaptionsOff, Check, RotateCcw, Loader2, AlignLeft, AlignCenter, AlignRight } from "lucide-react"
 import { cn } from "~/lib/utils"
 import { Tooltip, TooltipContent, TooltipTrigger } from "~/components/ui/tooltip"
 import {
@@ -9,13 +9,19 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "~/components/ui/dropdown-menu"
-import { useCaptionContext, type CaptionFontSize } from "../../CaptionContext"
+import { useCaptionContext, type CaptionFontSize, type CaptionTextAlign } from "../../CaptionContext"
 
 const FONT_SIZE_OPTIONS: { value: CaptionFontSize; label: string }[] = [
   { value: "sm", label: "S" },
   { value: "md", label: "M" },
   { value: "lg", label: "L" },
   { value: "xl", label: "XL" },
+]
+
+const TEXT_ALIGN_OPTIONS: { value: CaptionTextAlign; label: string; Icon: typeof AlignLeft }[] = [
+  { value: "left", label: "Left", Icon: AlignLeft },
+  { value: "center", label: "Center", Icon: AlignCenter },
+  { value: "right", label: "Right", Icon: AlignRight },
 ]
 
 export default function SubtitleButton({
@@ -31,6 +37,8 @@ export default function SubtitleButton({
     isLoading,
     fontSize,
     setFontSize,
+    textAlign,
+    setTextAlign,
     backgroundOpacity,
     setBackgroundOpacity,
     resetPosition,
@@ -173,6 +181,32 @@ export default function SubtitleButton({
               )}
             >
               {opt.label}
+            </button>
+          ))}
+        </div>
+
+        <DropdownMenuLabel className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium">
+          Alignment
+        </DropdownMenuLabel>
+        <div
+          className="flex gap-1.5 px-2 pb-1.5"
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={(e) => e.stopPropagation()}
+        >
+          {TEXT_ALIGN_OPTIONS.map((opt) => (
+            <button
+              key={opt.value}
+              type="button"
+              onClick={() => setTextAlign(opt.value)}
+              className={cn(
+                "flex-1 h-7 rounded-md text-xs font-semibold border transition-colors flex items-center justify-center gap-1",
+                textAlign === opt.value
+                  ? "border-primary bg-primary/10 text-primary"
+                  : "border-border hover:bg-accent hover:text-accent-foreground",
+              )}
+              aria-label={opt.label}
+            >
+              <opt.Icon className="w-3.5 h-3.5" />
             </button>
           ))}
         </div>

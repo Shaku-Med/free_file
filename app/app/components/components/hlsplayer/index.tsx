@@ -6,8 +6,8 @@ import type { FileType, SeriesEpisodeGroup } from '~/lib/types';
 import { PlayerProvider, usePlayerContext, type ThumbnailSpriteMeta } from './PlayerContext';
 import { CaptionProvider } from './CaptionContext';
 import CaptionOverlay from './overlays/CaptionOverlay';
-import VRTiltOverlay from './overlays/VRTiltOverlay';
-import { VR_PERSPECTIVE_PX } from './PlayerContext';
+import TiltOverlay from './overlays/VRTiltOverlay';
+import { TILT_PERSPECTIVE_PX } from './PlayerContext';
 import { FEED_EMBED_HIDE_CONTROLS, MINI_PLAYER_HIDE_CONTROLS, type HideControls } from './types';
 import SeekBar from './controls/seek/SeekBar';
 import PersistentBottomVisualizer from './controls/seek/PersistentBottomVisualizer';
@@ -194,8 +194,9 @@ function PlayerInner({
     loop: loopEnabled,
     authPlaybackFeatures: authPlayback,
     unlockPipReelAudio,
-    vrMode,
-    vrRotation,
+    tiltMode,
+    tiltRotation,
+    tiltZoom,
   } = usePlayerContext();
   /**
    * Skip-intro / next-episode markers come from the owner-edited `metadata.markers` jsonb on
@@ -875,7 +876,7 @@ function PlayerInner({
     <div
       ref={containerRef}
       className={`relative bg-black overflow-hidden select-none ${isReelCtx ? 'z-[1]' : ''} ${className} player_inner`}
-      style={{ cursor: showControls ? 'default' : 'none' }}
+      style={{ cursor: showControls ? 'default' : tiltMode ? 'grab' : 'none' }}
       onContextMenu={handleContextMenu}
     >
       {ambientMode && authPlayback && <AmbientBackground />}
@@ -900,7 +901,7 @@ function PlayerInner({
 
         {isMiniPlayerPortalActive && miniPlayerContainerRef.current
           ? createPortal(
-              <div className="w-full h-full flex flex-col bg-black">
+              <div className="w-full h-full flex flex-col bg-black relative">
                 <video
                   ref={assignVideoRef}
                   className="w-full flex-1 object-contain"
@@ -913,6 +914,7 @@ function PlayerInner({
                   disableRemotePlayback={false}
                   {...({ 'x-webkit-airplay': 'allow' } as any)}
                 />
+                <CaptionOverlay containerRef={miniPlayerContainerRef} controlsVisible={false} compact />
                 {showAudioVisualizer && (
                   <div className="shrink-0 px-3 pb-1 pt-0 pointer-events-none">
                     <AudioVisualizerBars />
@@ -926,12 +928,23 @@ function PlayerInner({
             )
           : (
             <div
-              className="w-full h-full"
-              style={vrMode ? { perspective: `${VR_PERSPECTIVE_PX}px` } : undefined}
+              className="w-full h-full flex items-center justify-center overflow-hidden"
+              style={tiltMode ? {
+                perspective: '350px',
+                perspectiveOrigin: `${50 + tiltRotation.y * 0.4}% ${50 - tiltRotation.x * 0.4}%`,
+              } : undefined}
             >
+              <div
+                className="w-full h-full"
+                style={tiltMode ? {
+                  transformStyle: 'preserve-3d' as const,
+                  transform: 'translateZ(-40px) scale(0.88)',
+                  transition: 'transform 300ms ease-out',
+                } : undefined}
+              >
               <video
                 ref={assignVideoRef}
-                className={`w-full h-full object-contain  ${isReelCtx && !embedReelControls ? 'pointer-events-none' : ''}`}
+                className={`w-full h-full object-contain ${isReelCtx && !embedReelControls ? 'pointer-events-none' : ''}`}
                 muted={muted}
                 loop={loopEnabled}
                 playsInline={playsInline}
@@ -940,23 +953,115 @@ function PlayerInner({
                 onDoubleClick={handleDoubleClick}
                 disableRemotePlayback={false}
                 style={
-                  vrMode
+                  tiltMode
                     ? {
-                        transform: `rotateX(${vrRotation.x}deg) rotateY(${vrRotation.y}deg)`,
+                        transform: `rotateX(${tiltRotation.x}deg) rotateY(${tiltRotation.y}deg) rotateZ(${tiltRotation.z}deg) translateZ(${100 + tiltZoom * 40}px) scale(${tiltZoom})`,
                         transformOrigin: '50% 50%',
-                        transition: 'transform 120ms ease-out',
+                        transition: 'transform 120ms ease-out, box-shadow 200ms ease',
                         willChange: 'transform',
                         backfaceVisibility: 'hidden',
+                        borderRadius: '8px',
+                        boxShadow: `
+                          0 ${6 + Math.abs(tiltRotation.x) * 0.7}px ${16 + Math.abs(tiltRotation.x) * 1.2}px rgba(0,0,0,0.55),
+                          inset 0 0 0 1px rgba(255,255,255,0.07)
+                        `,
                       }
                     : undefined
                 }
                 {...({ 'x-webkit-airplay': 'allow' } as any)}
                 {...(isReelCtx ? { disablePictureInPicture: true, controlsList: 'nopictureinpicture noremoteplayback' } : {})}
               />
+              {/* Specular reflection overlay */}
+              {tiltMode && (
+                <div
+                  className="absolute inset-0 pointer-events-none z-[2] overflow-hidden"
+                  style={{
+                    transform: `rotateX(${tiltRotation.x}deg) rotateY(${tiltRotation.y}deg) rotateZ(${tiltRotation.z}deg) translateZ(${101 + tiltZoom * 40}px) scale(${tiltZoom})`,
+                    transformOrigin: '50% 50%',
+                    transition: 'transform 120ms ease-out',
+                    borderRadius: '8px',
+                    background: `linear-gradient(${135 + tiltRotation.y * 2.5}deg, rgba(255,255,255,${0.05 + Math.abs(tiltRotation.y) * 0.003}) 0%, transparent 45%), linear-gradient(to bottom, rgba(255,255,255,${0.02 + Math.abs(tiltRotation.x) * 0.001}) 0%, transparent 30%)`,
+                  }}
+                  aria-hidden
+                />
+              )}
+              {/* Left edge wing */}
+              {tiltMode && (
+                <div
+                  className="absolute pointer-events-none z-[1]"
+                  style={{
+                    top: 0,
+                    bottom: 0,
+                    left: 0,
+                    width: '22%',
+                    transform: `rotateY(${38 + tiltRotation.y * 0.3}deg) rotateX(${tiltRotation.x * 0.4}deg) translateZ(${60 + tiltZoom * 25}px) scale(${tiltZoom})`,
+                    transformOrigin: 'right center',
+                    transition: 'transform 120ms ease-out',
+                    background: 'linear-gradient(to right, hsl(var(--background)) 0%, hsl(var(--muted) / 0.7) 35%, transparent 100%)',
+                    borderLeft: '1px solid hsl(var(--border) / 0.3)',
+                  }}
+                  aria-hidden
+                />
+              )}
+              {/* Right edge wing */}
+              {tiltMode && (
+                <div
+                  className="absolute pointer-events-none z-[1]"
+                  style={{
+                    top: 0,
+                    bottom: 0,
+                    right: 0,
+                    width: '22%',
+                    transform: `rotateY(${-38 + tiltRotation.y * 0.3}deg) rotateX(${tiltRotation.x * 0.4}deg) translateZ(${60 + tiltZoom * 25}px) scale(${tiltZoom})`,
+                    transformOrigin: 'left center',
+                    transition: 'transform 120ms ease-out',
+                    background: 'linear-gradient(to left, hsl(var(--background)) 0%, hsl(var(--muted) / 0.7) 35%, transparent 100%)',
+                    borderRight: '1px solid hsl(var(--border) / 0.3)',
+                  }}
+                  aria-hidden
+                />
+              )}
+              {/* Top edge wing */}
+              {tiltMode && (
+                <div
+                  className="absolute pointer-events-none z-[1]"
+                  style={{
+                    left: 0,
+                    right: 0,
+                    top: 0,
+                    height: '18%',
+                    transform: `rotateX(${-32 + tiltRotation.x * 0.3}deg) rotateY(${tiltRotation.y * 0.3}deg) translateZ(${60 + tiltZoom * 25}px) scale(${tiltZoom})`,
+                    transformOrigin: 'center bottom',
+                    transition: 'transform 120ms ease-out',
+                    background: 'linear-gradient(to bottom, hsl(var(--background)) 0%, hsl(var(--muted) / 0.7) 40%, transparent 100%)',
+                    borderTop: '1px solid hsl(var(--border) / 0.3)',
+                  }}
+                  aria-hidden
+                />
+              )}
+              {/* Bottom edge wing */}
+              {tiltMode && (
+                <div
+                  className="absolute pointer-events-none z-[1]"
+                  style={{
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    height: '18%',
+                    transform: `rotateX(${32 + tiltRotation.x * 0.3}deg) rotateY(${tiltRotation.y * 0.3}deg) translateZ(${60 + tiltZoom * 25}px) scale(${tiltZoom})`,
+                    transformOrigin: 'center top',
+                    transition: 'transform 120ms ease-out',
+                    background: 'linear-gradient(to top, hsl(var(--background)) 0%, hsl(var(--muted) / 0.7) 40%, transparent 100%)',
+                    borderBottom: '1px solid hsl(var(--border) / 0.3)',
+                  }}
+                  aria-hidden
+                />
+              )}
+              </div>
             </div>
           )}
 
-        <VRTiltOverlay />
+        <TiltOverlay />
         <CaptionOverlay containerRef={containerRef} controlsVisible={showControls} />
 
         {!isReelCtx && !loopEnabled && (
@@ -970,13 +1075,13 @@ function PlayerInner({
 
         {(!isReelCtx || embedReelControls) && !isMiniPlayerPortalActive && (
           <div
-            className={`absolute inset-0 z-[31] transition-opacity duration-300 ${showControls ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
+            className={`absolute inset-0 z-[31] transition-opacity duration-300 ${showControls ? 'opacity-100' : 'opacity-0 pointer-events-none'} ${tiltMode && showControls ? 'pointer-events-none' : ''}`}
             onClick={(e) => {
-              // Empty-space clicks on the overlay should toggle play/pause on
-              // desktop (handleVideoClick early-returns on mobile by design).
+              if (tiltMode) return;
               if (e.target === e.currentTarget) handleVideoClick();
             }}
             onDoubleClick={(e) => {
+              if (tiltMode) return;
               if (e.target === e.currentTarget) handleDoubleClick(e);
             }}
           >
@@ -995,6 +1100,7 @@ function PlayerInner({
               isMobileLayout={isMobileView}
               onBack={onBack}
               bottomSlot={showAudioVisualizer && !inPipForThisVideo ? <PersistentBottomVisualizer /> : undefined}
+              tiltMode={tiltMode}
             />
           </div>
         )}

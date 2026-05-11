@@ -5,25 +5,38 @@ import {
   CAPTION_DEFAULT_Y_PCT,
   useCaptionContext,
 } from "../CaptionContext"
-import type { CaptionFontSize } from "../CaptionContext"
+import type { CaptionFontSize, CaptionTextAlign } from "../CaptionContext"
 
 interface CaptionOverlayProps {
   containerRef: React.RefObject<HTMLDivElement | null>
   controlsVisible: boolean
+  compact?: boolean
 }
 
-const FONT_SIZE_CLASS: Record<CaptionFontSize, string> = {
-  sm: "text-sm md:text-base leading-snug",
-  md: "text-base md:text-lg leading-snug",
-  lg: "text-lg md:text-2xl leading-tight",
-  xl: "text-2xl md:text-4xl leading-tight",
+const FONT_SCALE: Record<CaptionFontSize, number> = {
+  sm: 0.7,
+  md: 1,
+  lg: 1.3,
+  xl: 1.7,
+}
+
+function computeFontSizePx(width: number, height: number, sizePreference: CaptionFontSize): number {
+  const baseline = Math.min(width * 0.045, height * 0.065)
+  const clamped = Math.max(10, Math.min(baseline, 42))
+  return clamped * FONT_SCALE[sizePreference]
 }
 
 const X_MIN = 5
 const X_MAX = 95
 const Y_MAX = 95
 
-export default function CaptionOverlay({ containerRef, controlsVisible }: CaptionOverlayProps) {
+const ALIGN_STYLE: Record<CaptionTextAlign, { left: string; transform: string }> = {
+  left: { left: "4%", transform: "none" },
+  center: { left: "50%", transform: "translateX(-50%)" },
+  right: { left: "96%", transform: "translateX(-100%)" },
+}
+
+export default function CaptionOverlay({ containerRef, controlsVisible, compact }: CaptionOverlayProps) {
   const {
     currentCue,
     currentLanguage,
@@ -31,6 +44,7 @@ export default function CaptionOverlay({ containerRef, controlsVisible }: Captio
     setPosition,
     resetPosition,
     fontSize,
+    textAlign,
     backgroundOpacity,
   } = useCaptionContext()
 
@@ -45,18 +59,47 @@ export default function CaptionOverlay({ containerRef, controlsVisible }: Captio
   } | null>(null)
   const [dragging, setDragging] = useState(false)
   const [livePosition, setLivePosition] = useState<{ xPct: number; yBottomPct: number } | null>(null)
+  const [containerSize, setContainerSize] = useState<{ w: number; h: number }>({ w: 0, h: 0 })
+
+  useEffect(() => {
+    const el = containerRef.current
+    if (!el) return
+    const ro = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        const { width, height } = entry.contentRect
+        setContainerSize((prev) =>
+          prev.w === Math.round(width) && prev.h === Math.round(height)
+            ? prev
+            : { w: Math.round(width), h: Math.round(height) },
+        )
+      }
+    })
+    ro.observe(el)
+    const rect = el.getBoundingClientRect()
+    setContainerSize({ w: Math.round(rect.width), h: Math.round(rect.height) })
+    return () => ro.disconnect()
+  }, [containerRef])
+
+  const dynamicFontSize = useMemo(() => {
+    if (containerSize.w === 0 || containerSize.h === 0) return 16
+    return computeFontSizePx(containerSize.w, containerSize.h, fontSize)
+  }, [containerSize, fontSize])
 
   const renderedPosition = useMemo(() => {
+    if (compact) {
+      return { xPct: 50, yBottomPct: 8 }
+    }
     const base = livePosition ?? position
     const floor = controlsVisible ? CAPTION_CONTROLS_FLOOR_PCT : 0
     return {
       xPct: Math.min(X_MAX, Math.max(X_MIN, base.xPct)),
       yBottomPct: Math.min(Y_MAX, Math.max(floor, base.yBottomPct)),
     }
-  }, [livePosition, position, controlsVisible])
+  }, [livePosition, position, controlsVisible, compact])
 
   const onPointerDown = useCallback(
     (e: React.PointerEvent<HTMLDivElement>) => {
+      if (compact) return
       const container = containerRef.current
       if (!container) return
       const rect = container.getBoundingClientRect()
@@ -75,7 +118,7 @@ export default function CaptionOverlay({ containerRef, controlsVisible }: Captio
       e.preventDefault()
       e.stopPropagation()
     },
-    [containerRef, position],
+    [containerRef, position, compact],
   )
 
   const onPointerMove = useCallback(
@@ -130,6 +173,8 @@ export default function CaptionOverlay({ containerRef, controlsVisible }: Captio
   if (!currentLanguage || !currentCue) return null
 
   const lines = currentCue.split("\n")
+  const alignStyle = compact ? ALIGN_STYLE.center : ALIGN_STYLE[textAlign]
+  const useDragPosition = !compact && textAlign === "center"
 
   return (
     <div
@@ -141,18 +186,21 @@ export default function CaptionOverlay({ containerRef, controlsVisible }: Captio
       onClick={(e) => e.stopPropagation()}
       onDoubleClick={(e) => e.stopPropagation()}
       style={{
-        left: `${renderedPosition.xPct}%`,
+        left: useDragPosition ? `${renderedPosition.xPct}%` : alignStyle.left,
         bottom: `${renderedPosition.yBottomPct}%`,
-        transform: "translateX(-50%)",
+        transform: useDragPosition ? "translateX(-50%)" : alignStyle.transform,
         touchAction: "none",
+        fontSize: `${dynamicFontSize}px`,
+        lineHeight: 1.3,
+        textAlign: compact ? "center" : textAlign,
         transition: dragging
           ? "none"
-          : "bottom 200ms cubic-bezier(0.4, 0, 0.2, 1)",
+          : "bottom 200ms cubic-bezier(0.4, 0, 0.2, 1), font-size 150ms ease",
       }}
       className={cn(
-        "absolute z-40 select-none px-3 py-1.5 rounded-md text-center text-white max-w-[92%] pointer-events-auto cursor-grab",
+        "absolute z-40 select-none px-3 py-1.5 rounded-md text-white max-w-[92%] pointer-events-auto",
+        !compact && textAlign === "center" && "cursor-grab",
         dragging && "cursor-grabbing ring-2 ring-white/40",
-        FONT_SIZE_CLASS[fontSize],
       )}
     >
       <div

@@ -1,6 +1,6 @@
 import { useRef, useState, useEffect, type ReactElement } from 'react';
 import { createPortal } from 'react-dom';
-import { Play, Pause, SkipForward, MoreVertical, SkipBack, ChevronLeft } from 'lucide-react';
+import { Play, Pause, SkipForward, MoreVertical, SkipBack, ChevronLeft, X } from 'lucide-react';
 import { usePlayerContext } from '../PlayerContext';
 import { useControlBarWidth } from '../hooks/useControlBarWidth';
 import SeekBar from './seek/SeekBar';
@@ -138,6 +138,8 @@ interface ControlBarProps {
   onBack?: () => void;
   /** Rendered at the very bottom of the control bar flex-col (e.g. audio visualizer). */
   bottomSlot?: React.ReactNode;
+  /** When true the parent overlay is pointer-events-none; the bar re-enables on itself. */
+  tiltMode?: boolean;
 }
 
 export default function ControlBar({
@@ -154,6 +156,7 @@ export default function ControlBar({
   isMobileLayout = false,
   onBack,
   bottomSlot,
+  tiltMode = false,
 }: ControlBarProps) {
   const {
     state,
@@ -164,9 +167,13 @@ export default function ControlBar({
     setAutoPlay,
     authPlaybackFeatures,
     reelEmbedAutoHide,
+    tiltRotation,
+    tiltZoom,
+    resetTiltRotation,
   } = usePlayerContext();
 
   const idleSeekOnly = reelEmbedAutoHide && !state.reelAuxiliaryChromeVisible;
+  const showTiltReset = tiltMode && (tiltRotation.x !== 0 || tiltRotation.y !== 0 || tiltRotation.z !== 0 || tiltZoom !== 1);
   const containerRef = useRef<HTMLDivElement>(null);
   const { showTime, showRightInline, showVolumeSlider } = useControlBarWidth(containerRef);
   const [overflowOpen, setOverflowOpen] = useState(false);
@@ -260,7 +267,7 @@ export default function ControlBar({
     return (
       <div
         ref={containerRef}
-        className="absolute left-0 right-0 z-30 flex flex-col"
+        className={`absolute left-0 right-0 z-30 flex flex-col ${tiltMode ? 'pointer-events-auto' : ''}`}
         style={{ bottom: liftBottomPx }}
       >
         {!isHidden(hideControls, 'seek') && (
@@ -297,6 +304,16 @@ export default function ControlBar({
           </div>
         )}
         <div className="pointer-events-auto absolute right-3 top-3 z-40 flex items-center gap-2">
+          {showTiltReset && (
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); resetTiltRotation(); }}
+              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-black/50 text-white/80 shadow-sm backdrop-blur-sm active:scale-95 transition-transform"
+              aria-label="Reset tilt"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          )}
           {!isHidden(hideControls, 'settings') && (
             <PlayerControlTooltip
               label={
@@ -499,7 +516,7 @@ export default function ControlBar({
   return (
     <div
       ref={containerRef}
-      className="absolute left-0 right-0 z-30 flex flex-col"
+      className={`absolute left-0 right-0 z-30 flex flex-col ${tiltMode ? 'pointer-events-auto' : ''}`}
       style={{ bottom: liftBottomPx }}
     >
       {!isHidden(hideControls, 'seek') && (
@@ -578,6 +595,18 @@ export default function ControlBar({
 
         <div className="flex min-w-0 shrink-0 items-center gap-2">
           <div className={desktopRightPill}>
+            {showTiltReset && (
+              <PlayerControlTooltip label="Reset tilt">
+                <button
+                  type="button"
+                  onClick={(e) => { e.stopPropagation(); resetTiltRotation(); }}
+                  className="rounded-lg p-2 transition-colors hover:bg-white/10 text-white/80 hover:text-white"
+                  aria-label="Reset tilt"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </PlayerControlTooltip>
+            )}
             {autoplayToggle}
             {!isHidden(hideControls, 'subtitles') && <SubtitleButton variant="desktopPill" />}
             {!authPlaybackFeatures && <GuestPlaybackBenefitsDialog variant="controlPill" />}

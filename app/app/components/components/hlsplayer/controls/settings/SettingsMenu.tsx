@@ -105,10 +105,11 @@ export function SettingsMenuBody() {
     sleepTimer,
     setSleepTimer,
     sleepTimerEndsAt,
-    vrMode,
-    setVrMode,
-    vrRotation,
-    resetVrRotation,
+    tiltMode,
+    setTiltMode,
+    tiltRotation,
+    tiltZoom,
+    resetTiltRotation,
     spatialAudio,
     setSpatialAudio,
     setSpatialAudioDialogOpen,
@@ -224,13 +225,13 @@ export function SettingsMenuBody() {
         >
           <span className="flex min-w-0 flex-1 items-center gap-2">
             <Box className="size-4 shrink-0 text-muted-foreground" />
-            <span className="min-w-0 truncate">VR tilt</span>
+            <span className="min-w-0 truncate">Tilt</span>
           </span>
-          <Switch checked={vrMode} onChange={setVrMode} />
+          <Switch checked={tiltMode} onChange={setTiltMode} />
         </DropdownMenuItem>
-        {vrMode && (vrRotation.x !== 0 || vrRotation.y !== 0) && (
+        {tiltMode && (tiltRotation.x !== 0 || tiltRotation.y !== 0 || tiltRotation.z !== 0 || tiltZoom !== 1) && (
           <DropdownMenuItem
-            onSelect={() => resetVrRotation()}
+            onSelect={() => resetTiltRotation()}
             className="flex w-full min-w-0 items-center gap-2 rounded-lg pl-7 py-0.5 text-xs text-muted-foreground"
           >
             <RotateCcw className="size-3 shrink-0" />
