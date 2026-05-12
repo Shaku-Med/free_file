@@ -25,7 +25,6 @@ const Ambience = ({ videoRef, videoReady }: AmbienceProps) => {
 
     let cancelled = false;
     let rafId: number | undefined;
-    let rvfcId: number | undefined;
 
     const draw = () => {
       if (cancelled) return;
@@ -42,17 +41,14 @@ const Ambience = ({ videoRef, videoReady }: AmbienceProps) => {
 
     const scheduleNext = () => {
       if (cancelled || !video || video.paused || video.ended) return;
-      if ("requestVideoFrameCallback" in video) {
-        rvfcId = (video as any).requestVideoFrameCallback(loop);
-      } else {
-        rafId = requestAnimationFrame(loop);
-      }
+      // Match display refresh only — avoids flicker from requestVideoFrameCallback vs upscale.
+      rafId = requestAnimationFrame(loop);
     };
 
     const cancelScheduled = () => {
-      if (rafId !== undefined) { cancelAnimationFrame(rafId); rafId = undefined; }
-      if (rvfcId !== undefined && video && "cancelVideoFrameCallback" in video) {
-        (video as any).cancelVideoFrameCallback(rvfcId); rvfcId = undefined;
+      if (rafId !== undefined) {
+        cancelAnimationFrame(rafId);
+        rafId = undefined;
       }
     };
 

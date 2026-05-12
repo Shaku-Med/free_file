@@ -48,7 +48,6 @@ export default function AmbientBackground() {
     let cancelled = false;
     let trackingVideo = false;
     let rafId: number | undefined;
-    let rvfcId: number | undefined;
 
     const paintGradient = () => {
       if (trackingVideo) return;
@@ -86,17 +85,15 @@ export default function AmbientBackground() {
 
     const scheduleNext = () => {
       if (cancelled || !video || video.paused || video.ended) return;
-      if ('requestVideoFrameCallback' in video) {
-        rvfcId = (video as any).requestVideoFrameCallback(loop);
-      } else {
-        rafId = requestAnimationFrame(loop);
-      }
+      // rAF only: samples once per display paint. requestVideoFrameCallback follows every
+      // decoded frame and often beats the screen refresh, which makes the upscale flicker.
+      rafId = requestAnimationFrame(loop);
     };
 
     const cancelScheduled = () => {
-      if (rafId !== undefined) { cancelAnimationFrame(rafId); rafId = undefined; }
-      if (rvfcId !== undefined && video && 'cancelVideoFrameCallback' in video) {
-        (video as any).cancelVideoFrameCallback(rvfcId); rvfcId = undefined;
+      if (rafId !== undefined) {
+        cancelAnimationFrame(rafId);
+        rafId = undefined;
       }
     };
 
