@@ -20,8 +20,8 @@ const SOFT_MASK =
 
 const SAMPLE_SIZE = 8;
 const GRADIENT_SIZE = 32;
-/** Blend weight for new frame (0–1). Lower = smoother, slower to follow cuts. */
-const AMBIENT_FRAME_BLEND = 0.22;
+/** How often to resample video for ambient (ms). avoids per-frame work. */
+const AMBIENT_SAMPLE_INTERVAL_MS = 1000;
 
 export default function AmbientBackground() {
   const { file, ambientMode, ambientColors, videoRef } = usePlayerContext();
@@ -50,45 +50,19 @@ export default function AmbientBackground() {
     let ctx: CanvasRenderingContext2D | null = null;
     let cancelled = false;
     let trackingVideo = false;
-    let rafId: number | undefined;
-    let rawBuf: HTMLCanvasElement | null = null;
-    let rawCtx: CanvasRenderingContext2D | null = null;
-    let smoothBuf: HTMLCanvasElement | null = null;
-    let smoothCtx: CanvasRenderingContext2D | null = null;
-    let tempBuf: HTMLCanvasElement | null = null;
-    let tempCtx: CanvasRenderingContext2D | null = null;
-    let hasSmoothedFrame = false;
+    let intervalId: number | undefined;
 
-    const cancelScheduled = () => {
-      if (rafId !== undefined) {
-        cancelAnimationFrame(rafId);
-        rafId = undefined;
+    const clearSampleInterval = () => {
+      if (intervalId !== undefined) {
+        clearInterval(intervalId);
+        intervalId = undefined;
       }
     };
 
-    /** Drop sampled video pixels + offscreen surfaces so a new source does not stack GPU work. */
+    /** Drop video sampling state so a new source does not stack work. */
     const disposeVideoSamplingResources = () => {
-      cancelScheduled();
+      clearSampleInterval();
       trackingVideo = false;
-      hasSmoothedFrame = false;
-      if (rawBuf) {
-        rawBuf.width = 0;
-        rawBuf.height = 0;
-      }
-      rawBuf = null;
-      rawCtx = null;
-      if (smoothBuf) {
-        smoothBuf.width = 0;
-        smoothBuf.height = 0;
-      }
-      smoothBuf = null;
-      smoothCtx = null;
-      if (tempBuf) {
-        tempBuf.width = 0;
-        tempBuf.height = 0;
-      }
-      tempBuf = null;
-      tempCtx = null;
       ctx = null;
     };
 
@@ -108,92 +82,63 @@ export default function AmbientBackground() {
       ctx.fillRect(0, 0, GRADIENT_SIZE, GRADIENT_SIZE);
     };
 
-    const ensureVideoBuffers = () => {
+    const ensureVideoCanvas = () => {
       if (!trackingVideo) {
         trackingVideo = true;
         canvas.width = SAMPLE_SIZE;
         canvas.height = SAMPLE_SIZE;
         ctx = canvas.getContext('2d', { alpha: false });
-        rawBuf = document.createElement('canvas');
-        rawBuf.width = SAMPLE_SIZE;
-        rawBuf.height = SAMPLE_SIZE;
-        rawCtx = rawBuf.getContext('2d', { alpha: false });
-        smoothBuf = document.createElement('canvas');
-        smoothBuf.width = SAMPLE_SIZE;
-        smoothBuf.height = SAMPLE_SIZE;
-        smoothCtx = smoothBuf.getContext('2d', { alpha: false });
-        tempBuf = document.createElement('canvas');
-        tempBuf.width = SAMPLE_SIZE;
-        tempBuf.height = SAMPLE_SIZE;
-        tempCtx = tempBuf.getContext('2d', { alpha: false });
-        hasSmoothedFrame = false;
       }
     };
 
-    /** Snap smoothing to current video (seek / pause / first paint). */
-    const drawImmediate = () => {
-      if (cancelled || !video || video.readyState < 2 || video.videoWidth === 0) return;
-      ensureVideoBuffers();
-      if (!ctx || !rawCtx || !smoothCtx) return;
+    /** Single cheap sample: one drawImage, no offscreen blending. */
+    const sampleVideo = () => {
+      if (cancelled || document.hidden) return;
+      if (!video || video.readyState < 2 || video.videoWidth === 0) return;
+      ensureVideoCanvas();
+      if (!ctx) return;
       try {
-        rawCtx.drawImage(video, 0, 0, SAMPLE_SIZE, SAMPLE_SIZE);
-        smoothCtx.globalAlpha = 1;
-        smoothCtx.globalCompositeOperation = 'source-over';
-        smoothCtx.drawImage(rawBuf!, 0, 0);
-        hasSmoothedFrame = true;
-        ctx.drawImage(smoothBuf!, 0, 0);
-        smoothCtx.globalAlpha = 1;
+        ctx.drawImage(video, 0, 0, SAMPLE_SIZE, SAMPLE_SIZE);
       } catch {}
     };
 
-    const drawSmoothed = () => {
-      if (cancelled || !video || video.readyState < 2 || video.videoWidth === 0) return;
-      ensureVideoBuffers();
-      if (!ctx || !rawCtx || !smoothCtx || !tempBuf || !tempCtx) return;
-      const k = AMBIENT_FRAME_BLEND;
-      try {
-        rawCtx.drawImage(video, 0, 0, SAMPLE_SIZE, SAMPLE_SIZE);
-        if (!hasSmoothedFrame) {
-          smoothCtx.globalAlpha = 1;
-          smoothCtx.globalCompositeOperation = 'source-over';
-          smoothCtx.drawImage(rawBuf!, 0, 0);
-          hasSmoothedFrame = true;
-        } else {
-          tempCtx.globalAlpha = 1;
-          tempCtx.globalCompositeOperation = 'source-over';
-          tempCtx.drawImage(smoothBuf!, 0, 0);
-          smoothCtx.clearRect(0, 0, SAMPLE_SIZE, SAMPLE_SIZE);
-          smoothCtx.globalCompositeOperation = 'source-over';
-          smoothCtx.globalAlpha = 1 - k;
-          smoothCtx.drawImage(tempBuf, 0, 0);
-          smoothCtx.globalAlpha = k;
-          smoothCtx.drawImage(rawBuf!, 0, 0);
-          smoothCtx.globalAlpha = 1;
+    const startSampleInterval = () => {
+      clearSampleInterval();
+      if (cancelled || !video || video.paused || video.ended || document.hidden) return;
+      intervalId = window.setInterval(() => {
+        if (cancelled || !video || video.paused || video.ended || document.hidden) {
+          clearSampleInterval();
+          return;
         }
-        ctx.drawImage(smoothBuf!, 0, 0);
-      } catch {}
+        sampleVideo();
+      }, AMBIENT_SAMPLE_INTERVAL_MS);
     };
 
-    const loop = () => {
+    const onPlay = () => {
       if (cancelled) return;
-      drawSmoothed();
-      scheduleNext();
+      clearSampleInterval();
+      sampleVideo();
+      startSampleInterval();
     };
-
-    const scheduleNext = () => {
-      if (cancelled || !video || video.paused || video.ended) return;
-      // rAF only: samples once per display paint. requestVideoFrameCallback follows every
-      // decoded frame and often beats the screen refresh, which makes the upscale flicker.
-      rafId = requestAnimationFrame(loop);
+    const onPause = () => {
+      clearSampleInterval();
+      sampleVideo();
     };
-
-    const onPlay = () => { if (cancelled) return; cancelScheduled(); loop(); };
-    const onPause = () => { cancelScheduled(); drawImmediate(); };
-    const onSeeked = () => { if (!cancelled) drawImmediate(); };
+    const onSeeked = () => {
+      if (!cancelled) sampleVideo();
+    };
     const onLoaded = () => {
       if (cancelled) return;
-      drawImmediate();
-      if (video && !video.paused) { cancelScheduled(); loop(); }
+      sampleVideo();
+      if (video && !video.paused && !video.ended) startSampleInterval();
+    };
+    const onVisibility = () => {
+      if (document.hidden) clearSampleInterval();
+      else if (video && !video.paused && !video.ended) {
+        clearSampleInterval();
+        sampleVideo();
+        startSampleInterval();
+      }
     };
 
     /** New media / emptied pipeline: kill animation + release buffers before next decode. */
@@ -206,8 +151,10 @@ export default function AmbientBackground() {
     paintGradient();
     if (!video) return;
 
-    if (!video.paused && !video.ended) loop();
-    else if (video.readyState >= 2) drawImmediate();
+    if (!video.paused && !video.ended) {
+      sampleVideo();
+      startSampleInterval();
+    } else if (video.readyState >= 2) sampleVideo();
 
     video.addEventListener('play', onPlay);
     video.addEventListener('pause', onPause);
@@ -215,10 +162,12 @@ export default function AmbientBackground() {
     video.addEventListener('loadeddata', onLoaded);
     video.addEventListener('loadstart', onMediaCleared);
     video.addEventListener('emptied', onMediaCleared);
+    document.addEventListener('visibilitychange', onVisibility);
 
     return () => {
       cancelled = true;
       disposeVideoSamplingResources();
+      document.removeEventListener('visibilitychange', onVisibility);
       if (canvas) {
         canvas.width = 0;
         canvas.height = 0;
