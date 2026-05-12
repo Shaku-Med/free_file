@@ -138,7 +138,7 @@ interface ControlBarProps {
   onBack?: () => void;
   /** Rendered at the very bottom of the control bar flex-col (e.g. audio visualizer). */
   bottomSlot?: React.ReactNode;
-  /** When true the parent overlay is pointer-events-none; the bar re-enables on itself. */
+  /** When true, 3-D tilt chrome is active (reset control, etc.). Parent overlay is pointer-events-none; mobile uses inner pointer-events-auto regions; desktop bar root uses pointer-events-auto. */
   tiltMode?: boolean;
 }
 
@@ -267,7 +267,7 @@ export default function ControlBar({
     return (
       <div
         ref={containerRef}
-        className={`absolute left-0 right-0 z-30 flex flex-col ${tiltMode ? 'pointer-events-auto' : ''}`}
+        className="pointer-events-auto absolute left-0 right-0 z-30 flex flex-col"
         style={{ bottom: liftBottomPx }}
       >
         {!isHidden(hideControls, 'seek') && (
@@ -516,7 +516,7 @@ export default function ControlBar({
   return (
     <div
       ref={containerRef}
-      className={`absolute left-0 right-0 z-30 flex flex-col ${tiltMode ? 'pointer-events-auto' : ''}`}
+      className="pointer-events-auto absolute left-0 right-0 z-30 flex flex-col"
       style={{ bottom: liftBottomPx }}
     >
       {!isHidden(hideControls, 'seek') && (
