@@ -20,6 +20,8 @@ const SOFT_MASK =
 
 const SAMPLE_SIZE = 8;
 const GRADIENT_SIZE = 32;
+/** Blend weight for new frame (0–1). Lower = smoother, slower to follow cuts. */
+const AMBIENT_FRAME_BLEND = 0.22;
 
 export default function AmbientBackground() {
   const { file, ambientMode, ambientColors, videoRef } = usePlayerContext();
@@ -48,6 +50,13 @@ export default function AmbientBackground() {
     let cancelled = false;
     let trackingVideo = false;
     let rafId: number | undefined;
+    let rawBuf: HTMLCanvasElement | null = null;
+    let rawCtx: CanvasRenderingContext2D | null = null;
+    let smoothBuf: HTMLCanvasElement | null = null;
+    let smoothCtx: CanvasRenderingContext2D | null = null;
+    let tempBuf: HTMLCanvasElement | null = null;
+    let tempCtx: CanvasRenderingContext2D | null = null;
+    let hasSmoothedFrame = false;
 
     const paintGradient = () => {
       if (trackingVideo) return;
@@ -65,21 +74,75 @@ export default function AmbientBackground() {
       ctx.fillRect(0, 0, GRADIENT_SIZE, GRADIENT_SIZE);
     };
 
-    const draw = () => {
-      if (cancelled || !video || video.readyState < 2 || video.videoWidth === 0) return;
+    const ensureVideoBuffers = () => {
       if (!trackingVideo) {
         trackingVideo = true;
         canvas.width = SAMPLE_SIZE;
         canvas.height = SAMPLE_SIZE;
         ctx = canvas.getContext('2d', { alpha: false });
+        rawBuf = document.createElement('canvas');
+        rawBuf.width = SAMPLE_SIZE;
+        rawBuf.height = SAMPLE_SIZE;
+        rawCtx = rawBuf.getContext('2d', { alpha: false });
+        smoothBuf = document.createElement('canvas');
+        smoothBuf.width = SAMPLE_SIZE;
+        smoothBuf.height = SAMPLE_SIZE;
+        smoothCtx = smoothBuf.getContext('2d', { alpha: false });
+        tempBuf = document.createElement('canvas');
+        tempBuf.width = SAMPLE_SIZE;
+        tempBuf.height = SAMPLE_SIZE;
+        tempCtx = tempBuf.getContext('2d', { alpha: false });
+        hasSmoothedFrame = false;
       }
-      if (!ctx) return;
-      try { ctx.drawImage(video, 0, 0, SAMPLE_SIZE, SAMPLE_SIZE); } catch {}
+    };
+
+    /** Snap smoothing to current video (seek / pause / first paint). */
+    const drawImmediate = () => {
+      if (cancelled || !video || video.readyState < 2 || video.videoWidth === 0) return;
+      ensureVideoBuffers();
+      if (!ctx || !rawCtx || !smoothCtx) return;
+      try {
+        rawCtx.drawImage(video, 0, 0, SAMPLE_SIZE, SAMPLE_SIZE);
+        smoothCtx.globalAlpha = 1;
+        smoothCtx.globalCompositeOperation = 'source-over';
+        smoothCtx.drawImage(rawBuf!, 0, 0);
+        hasSmoothedFrame = true;
+        ctx.drawImage(smoothBuf!, 0, 0);
+        smoothCtx.globalAlpha = 1;
+      } catch {}
+    };
+
+    const drawSmoothed = () => {
+      if (cancelled || !video || video.readyState < 2 || video.videoWidth === 0) return;
+      ensureVideoBuffers();
+      if (!ctx || !rawCtx || !smoothCtx || !tempBuf || !tempCtx) return;
+      const k = AMBIENT_FRAME_BLEND;
+      try {
+        rawCtx.drawImage(video, 0, 0, SAMPLE_SIZE, SAMPLE_SIZE);
+        if (!hasSmoothedFrame) {
+          smoothCtx.globalAlpha = 1;
+          smoothCtx.globalCompositeOperation = 'source-over';
+          smoothCtx.drawImage(rawBuf!, 0, 0);
+          hasSmoothedFrame = true;
+        } else {
+          tempCtx.globalAlpha = 1;
+          tempCtx.globalCompositeOperation = 'source-over';
+          tempCtx.drawImage(smoothBuf!, 0, 0);
+          smoothCtx.clearRect(0, 0, SAMPLE_SIZE, SAMPLE_SIZE);
+          smoothCtx.globalCompositeOperation = 'source-over';
+          smoothCtx.globalAlpha = 1 - k;
+          smoothCtx.drawImage(tempBuf, 0, 0);
+          smoothCtx.globalAlpha = k;
+          smoothCtx.drawImage(rawBuf!, 0, 0);
+          smoothCtx.globalAlpha = 1;
+        }
+        ctx.drawImage(smoothBuf!, 0, 0);
+      } catch {}
     };
 
     const loop = () => {
       if (cancelled) return;
-      draw();
+      drawSmoothed();
       scheduleNext();
     };
 
@@ -98,11 +161,11 @@ export default function AmbientBackground() {
     };
 
     const onPlay = () => { if (cancelled) return; cancelScheduled(); loop(); };
-    const onPause = () => { cancelScheduled(); draw(); };
-    const onSeeked = () => { if (!cancelled) draw(); };
+    const onPause = () => { cancelScheduled(); drawImmediate(); };
+    const onSeeked = () => { if (!cancelled) drawImmediate(); };
     const onLoaded = () => {
       if (cancelled) return;
-      draw();
+      drawImmediate();
       if (video && !video.paused) { cancelScheduled(); loop(); }
     };
 
@@ -110,7 +173,7 @@ export default function AmbientBackground() {
     if (!video) return;
 
     if (!video.paused && !video.ended) loop();
-    else if (video.readyState >= 2) draw();
+    else if (video.readyState >= 2) drawImmediate();
 
     video.addEventListener('play', onPlay);
     video.addEventListener('pause', onPause);
