@@ -1,7 +1,25 @@
 import { useEffect, useRef } from "react";
 
-const CANVAS_W = 10;
-const CANVAS_H = 6;
+/**
+ * Sample resolution. Higher than the legacy 10×6 so the CSS scale-up doesn't make the
+ * remaining blur do all the smoothing work — that lets us slash the blur radius (the
+ * expensive part). The actual cost of drawImage at 64×36 is still trivial.
+ */
+const CANVAS_W = 64;
+const CANVAS_H = 36;
+/**
+ * Both canvases get this inline so the blur lives on a GPU-cached compositor layer per
+ * canvas — when one is fading out and the other is being redrawn, the browser only
+ * re-rasterizes the changed layer instead of re-applying a full-screen blur every time
+ * a child opacity transitions (which is what killed perf when the filter sat on the
+ * wrapping div).
+ */
+const CANVAS_STYLE: React.CSSProperties = {
+  filter: "blur(18px) saturate(1.5)",
+  willChange: "opacity",
+  transform: "translateZ(0)",
+  backfaceVisibility: "hidden",
+};
 /** Throttled offscreen captures while playing (hidden canvas only — no visible transition). */
 const SILENT_CAPTURE_MS = 400;
 /** How often we promote the back buffer to the visible layer with one short crossfade. */
