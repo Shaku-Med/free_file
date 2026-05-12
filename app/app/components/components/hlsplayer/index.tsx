@@ -16,6 +16,7 @@ import { useHLS } from './hooks/useHLS';
 import { useVideoEvents } from './hooks/useVideoEvents';
 import { useMediaSession } from './hooks/useMediaSession';
 import { usePlaybackPosition } from './hooks/usePlaybackPosition';
+import { useWatchTimeHeartbeat } from './hooks/useWatchTimeHeartbeat';
 import { useAutoplay } from './hooks/useAutoplay';
 import { useControlsVisibility } from './hooks/useControlsVisibility';
 import { useFullscreen } from './hooks/useFullscreen';
@@ -377,6 +378,7 @@ function PlayerInner({
   useHLS(videoRef);
   useVideoEvents(videoRef, { onPlay, onPause, onEnded, onError });
   usePlaybackPosition(videoRef);
+  useWatchTimeHeartbeat(videoRef);
   useFullscreen();
   useWakeLock(videoRef);
   const autoplayAllowed =

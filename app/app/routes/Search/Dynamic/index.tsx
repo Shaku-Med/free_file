@@ -504,7 +504,7 @@ const Search = () => {
                     <div>
                       <h3 className="text-lg font-semibold text-foreground">Series</h3>
                       <p className="text-sm text-muted-foreground">
-                        Your search matched text on an episode inside these series.
+                        Matches an episode video, playlist label (e.g. Season 1), or other text tied to episodes in these series.
                       </p>
                     </div>
                   </div>

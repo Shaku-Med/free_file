@@ -84,6 +84,7 @@ export default [
         route(`player-settings`, 'routes/Api/player-settings/index.tsx'),
         route(`views/increment`, 'routes/Api/views/increment.tsx'),
         route(`views/watch-history`, 'routes/Api/views/watch-history.tsx'),
+        route(`views/watch-issue`, 'routes/Api/views/watch-issue.tsx'),
         route(`views/watch-time`, 'routes/Api/views/watch-time.tsx'),
         route(`saves`, 'routes/Api/saves/index.tsx'),
         route(`feed-signals`, 'routes/Api/feed-signals/index.tsx'),

@@ -51,10 +51,15 @@ function DialogContent({
   className,
   children,
   showCloseButton = true,
+  /** When true, hides the default top-right close control—use `DialogClose` in your header. Default false. */
+  shouldClose = false,
   ...props
 }: React.ComponentProps<typeof DialogPrimitive.Content> & {
   showCloseButton?: boolean
+  shouldClose?: boolean
 }) {
+  const showBuiltinClose = showCloseButton && !shouldClose
+
   return (
     <DialogPortal data-slot="dialog-portal">
       <DialogOverlay />
@@ -80,7 +85,7 @@ function DialogContent({
         {...props}
       >
         {children}
-        {showCloseButton && (
+        {showBuiltinClose && (
           <DialogPrimitive.Close
             data-slot="dialog-close"
             className={cn(

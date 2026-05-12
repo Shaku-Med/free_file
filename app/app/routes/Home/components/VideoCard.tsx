@@ -106,8 +106,8 @@ interface VideoCardProps {
   showOwnerControls?: boolean;
   related?: boolean;
   layout?: LayoutType;
-  /** Passed to `VideoCard/Actions`: default row vs reel/tiktok vertical icon stack. */
-  actionsLayout?: 'default' | 'reel' | 'tiktok';
+  /** Passed to `VideoCard/Actions`: default row vs reel-style stack vs shelf ⋮-only menu. */
+  actionsLayout?: "default" | "reel" | "tiktok" | "shortsShelf";
   /** When set (e.g. watch page sidebar), show add-to-play-queue on horizontal cards. */
   onAddToPlayQueue?: (video: FileType) => void;
   inPlayQueue?: boolean;
@@ -2113,48 +2113,103 @@ const VideoCard = ({
 
   if (layout === "shelf") {
     return (
-      <div className="group flex w-full flex-col gap-2">
+      <div className="group/shelf relative flex w-full max-w-full flex-col overflow-hidden rounded-xl border border-border/60 bg-card/40 shadow-xs transition-[border-color,box-shadow] duration-200 hover:border-border hover:shadow-sm dark:border-white/[0.08] dark:bg-card/25 dark:hover:border-white/[0.12]">
         <Link
           onClick={(e) => {
             e.preventDefault();
             void handleWatchNav();
           }}
           to={watchPath}
-          className="relative aspect-video w-full shrink-0 overflow-hidden rounded-lg bg-card shadow-sm ring-1 ring-border/45 dark:ring-white/10"
+          aria-label={`Open ${(data.file_title || data.filename || "video").slice(0, 80)}`}
+          className="relative aspect-video w-full shrink-0 overflow-hidden bg-muted/30 outline-none ring-0 transition-[filter] duration-200 hover:brightness-[1.03] focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-offset-0"
         >
           {renderThumbnail("aspect-video h-full w-full")}
         </Link>
-        <div className="min-w-0 px-0.5">
-          <Link
-            onClick={(e) => {
-              e.preventDefault();
-              void handleWatchNav();
-            }}
-            to={watchPath}
-            className="block hover:text-primary"
-          >
-            <h3 className="line-clamp-2 text-sm font-semibold leading-snug text-foreground">
-              <ParseFilenameInsert filename={data.file_title || data.filename} showLimit={64} />
-            </h3>
-          </Link>
-          <div className="mt-1 flex min-w-0 flex-wrap items-center gap-x-1 gap-y-0.5 text-xs text-muted-foreground">
-            {data.owner && (
+
+        <div className="flex min-w-0 items-start gap-1.5 border-t border-border/40 px-2.5 pb-2.5 pt-2 dark:border-white/[0.06]">
+          <div className="min-w-0 flex-1">
+            <div className="flex items-start gap-1">
               <Link
-                to={`/profile/${data.owner.username}`}
-                onClick={(e) => e.stopPropagation()}
-                className="max-w-[100%] truncate hover:text-foreground"
+                onClick={(e) => {
+                  e.preventDefault();
+                  void handleWatchNav();
+                }}
+                to={watchPath}
+                className="min-w-0 flex-1 rounded-md hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
               >
-                {data.owner.username}
+                <h3 className="line-clamp-2 text-[13px] font-semibold leading-snug tracking-tight text-foreground sm:text-sm">
+                  <ParseFilenameInsert filename={data.file_title || data.filename} showLimit={64} />
+                </h3>
               </Link>
-            )}
-            {data.owner && (viewCount > 0 || Boolean(data.created_at)) ? (
-              <span className="text-muted-foreground/50">·</span>
-            ) : null}
-            {viewCount > 0 ? <span>{formatViews(viewCount)} views</span> : null}
-            {viewCount > 0 && data.created_at ? <span className="text-muted-foreground/50">·</span> : null}
-            {data.created_at ? <span>{formatTimeAgo(data.created_at)}</span> : null}
+              {metadataWarning ? (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        setInfoModalOpen(true);
+                      }}
+                      className="mt-0.5 shrink-0 rounded-full p-0.5 text-muted-foreground hover:bg-muted/80 hover:text-foreground"
+                      aria-label="Content information"
+                    >
+                      <Info className="size-3.5 sm:size-4" aria-hidden />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent side="top" className="max-w-[200px]" sideOffset={4}>
+                    Content information
+                  </TooltipContent>
+                </Tooltip>
+              ) : null}
+            </div>
+            <div className="mt-1 flex min-w-0 flex-wrap items-center gap-x-1 gap-y-0.5 text-[11px] leading-tight text-muted-foreground sm:text-xs">
+              {data.owner && (
+                <Link
+                  to={`/profile/${data.owner.username}`}
+                  onClick={(e) => e.stopPropagation()}
+                  className="max-w-full truncate hover:text-foreground transition-colors"
+                >
+                  {data.owner.username}
+                </Link>
+              )}
+              {data.owner && (viewCount > 0 || Boolean(data.created_at)) ? (
+                <span className="select-none text-muted-foreground/40">·</span>
+              ) : null}
+              {viewCount > 0 ? <span className="tabular-nums">{formatViews(viewCount)} views</span> : null}
+              {viewCount > 0 && data.created_at ? (
+                <span className="select-none text-muted-foreground/40">·</span>
+              ) : null}
+              {data.created_at ? <span>{formatTimeAgo(data.created_at)}</span> : null}
+            </div>
           </div>
+
+          {!hideActions.completely ? (
+            <div className="-mr-1 -mt-0.5 flex shrink-0 items-start justify-end">
+              <Actions
+                layout="shortsShelf"
+                fileId={data.id ?? ""}
+                uniqueId={data.unique_id}
+                sharePagePath={watchPath}
+                likeCount={likeCount}
+                dislikeCount={dislikeCount}
+                commentCount={commentCount}
+                liked={liked}
+                disliked={disliked}
+                isOwner={isOwner}
+                isAdult={Boolean(data.is_adult)}
+                onEdit={isOwner ? () => setIsEditing(true) : undefined}
+                onUpdate={currentUserId ? handleInteractionUpdate : undefined}
+                currentUserId={currentUserId}
+                fileCreatedAt={data.created_at}
+                fileOwnerId={data.owner_id}
+                commentsEnabled={data.comments_enabled !== false}
+                howLikesDislikeComments={false}
+              />
+            </div>
+          ) : null}
         </div>
+
         {renderEditDialog()}
         {renderInfoDialog()}
         {seriesEpisodesPreviewDialogEl}

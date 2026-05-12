@@ -1,8 +1,10 @@
 -- ============================================================
 -- Search: series roots discovered via episode / item text match
--- When a query matches an episode file (is_files_series_item) but not the
--- series main row, surface the series main so users can open the full set.
--- Same return shape as search_files for client mapping.
+-- Surfaces series main rows when the query hits:
+--   • series item VIDEO rows (files.is_files_series_item) — titles, descriptions, etc.
+--   • episode bucket titles in table files_series_episodes (episode_name, e.g. "Season 1")
+-- Same return shape as search_files for the app. Depends: search_normalize(),
+-- files.search_text, tables files / files_series_episodes.
 -- ============================================================
 
 CREATE OR REPLACE FUNCTION search_series_roots_for_query(
@@ -81,8 +83,21 @@ BEGIN
       word_similarity(v_norm, f.search_text)::float                           AS _wsim,
       word_similarity(v_norm, lower(COALESCE(f.file_title, '')))::float       AS _wsim_title,
       CASE WHEN lower(COALESCE(f.file_title, '')) LIKE '%' || v_norm || '%'
-           THEN 1.0 ELSE 0.0 END                                              AS _title_hit
+           THEN 1.0 ELSE 0.0 END                                              AS _title_hit,
+
+      ts_rank_cd(
+        to_tsvector('english', search_normalize(COALESCE(epi.episode_name, ''))),
+        v_tsquery, 32
+      )::float AS _text_rank_ep_nm,
+      word_similarity(
+        v_norm,
+        search_normalize(COALESCE(epi.episode_name, ''))
+      )::float AS _wsim_ep_nm,
+      CASE WHEN search_normalize(COALESCE(epi.episode_name, '')) LIKE '%' || v_norm || '%'
+           THEN 1.0 ELSE 0.0 END                                              AS _ep_nm_hit
     FROM files f
+    LEFT JOIN files_series_episodes epi
+      ON epi.id = f.file_series_episode_id
     LEFT JOIN file_engagement_stats es ON es.file_id = f.id
     LEFT JOIN user_likes    ul ON ul.file_id = f.id
     LEFT JOIN user_dislikes ud ON ud.file_id = f.id
@@ -95,26 +110,71 @@ BEGIN
            to_tsvector('english', f.search_text) @@ v_tsquery
         OR f.search_text ILIKE '%' || v_norm || '%'
         OR v_norm <% f.search_text
+        OR (
+            epi.id IS NOT NULL AND (
+                 to_tsvector('english', search_normalize(COALESCE(epi.episode_name, ''))) @@ v_tsquery
+              OR search_normalize(COALESCE(epi.episode_name, '')) ILIKE '%' || v_norm || '%'
+              OR v_norm <% search_normalize(COALESCE(epi.episode_name, ''))
+            )
+           )
+      )
+  ),
+  -- Episode bucket label alone (Season 1, Pilot) when no matching file blob.
+  episode_definition_matches AS (
+    SELECT
+      e.feed_series_id AS file_series_id,
+      (
+          ts_rank_cd(
+            to_tsvector('english', search_normalize(COALESCE(e.episode_name, ''))),
+            v_tsquery, 32
+          )::float * 8.0
+        + word_similarity(
+          v_norm,
+          search_normalize(COALESCE(e.episode_name, ''))
+        )::float * 5.0
+        + CASE WHEN search_normalize(COALESCE(e.episode_name, '')) LIKE '%' || v_norm || '%'
+               THEN 6.0 ELSE 0 END
+      )::float AS _episode_rank
+    FROM files_series_episodes e
+    WHERE EXISTS (
+      SELECT 1 FROM files mb
+      WHERE mb.file_series_id = e.feed_series_id
+        AND mb.is_series_main IS TRUE
+        AND mb.is_public IS TRUE AND mb.is_adult IS FALSE
+        AND mb.upload_status = 'complete'
+    )
+      AND (
+           to_tsvector('english', search_normalize(COALESCE(e.episode_name, ''))) @@ v_tsquery
+        OR search_normalize(COALESCE(e.episode_name, '')) ILIKE '%' || v_norm || '%'
+        OR v_norm <% search_normalize(COALESCE(e.episode_name, ''))
       )
   ),
   episode_ranked AS (
     SELECT
       em.*,
       (
-          em._text_rank    * 8.0
-        + em._wsim         * 5.0
-        + em._wsim_title   * 4.0
-        + em._title_hit    * 6.0
+          em._text_rank      * 8.0
+        + em._wsim           * 5.0
+        + em._wsim_title     * 4.0
+        + em._title_hit      * 6.0
+        + em._text_rank_ep_nm * 8.0
+        + em._wsim_ep_nm     * 5.0
+        + em._ep_nm_hit      * 6.0
         + LN(GREATEST(em.view_count + em._like_count + 1, 1))::float * 0.5
       )::float AS _episode_rank
     FROM episode_matches em
   ),
+  ranked_union AS (
+    SELECT er.file_series_id, er._episode_rank FROM episode_ranked er
+    UNION ALL
+    SELECT edm.file_series_id, edm._episode_rank FROM episode_definition_matches edm
+  ),
   best_episode AS (
-    SELECT DISTINCT ON (er.file_series_id)
-      er.file_series_id,
-      er._episode_rank
-    FROM episode_ranked er
-    ORDER BY er.file_series_id, er._episode_rank DESC, er.id ASC
+    SELECT DISTINCT ON (ru.file_series_id)
+      ru.file_series_id,
+      ru._episode_rank
+    FROM ranked_union ru
+    ORDER BY ru.file_series_id, ru._episode_rank DESC
   ),
   mains AS (
     SELECT

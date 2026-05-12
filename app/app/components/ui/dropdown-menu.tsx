@@ -250,7 +250,7 @@ function DropdownMenuSubContent({
       )}
       {...props}
     >
-      <div className="max-h-[min(70dvh,var(--radix-popper-available-height,80vh))] max-w-full overflow-x-hidden overflow-y-auto overscroll-contain [scrollbar-gutter:stable]">
+      <div className="max-h-[min(48dvh,var(--radix-popper-available-height,calc(100dvh-5rem)))] max-w-full overflow-x-hidden overflow-y-auto overscroll-contain [scrollbar-gutter:stable] sm:max-h-[min(70dvh,var(--radix-popper-available-height,85vh))]">
         {children}
       </div>
     </DropdownMenuPrimitive.SubContent>

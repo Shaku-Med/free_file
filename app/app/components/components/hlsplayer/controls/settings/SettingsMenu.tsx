@@ -80,9 +80,19 @@ function Switch({
 }
 
 export function SettingsMenuBody() {
+  /** On narrow screens parent panel is nearly full viewport width; subs default to opening right → off-screen. */
+  const subContentSide = isMobile ? ('bottom' as const) : ('right' as const);
+  const subContentAlign = isMobile ? ('start' as const) : undefined;
+  const subContentSideOffset = isMobile ? 4 : undefined;
+  const subContentCollisionPadding = isMobile
+    ? { top: 8, right: 12, bottom: 12, left: 12 }
+    : 12;
+
   const subMenuWidth = cn(
-    'max-h-[min(50dvh,var(--radix-dropdown-menu-content-available-height))] overflow-y-auto overscroll-contain',
-    isMobile ? 'min-w-0 w-[min(18rem,calc(100vw-2rem))]' : 'min-w-[200px]',
+    // Depth: submenu inner wrapper already clamps height + scroll — keep width ≤ viewport minus safe inset
+    isMobile
+      ? 'max-w-[min(100%,calc(100vw-2rem-env(safe-area-inset-left,0px)-env(safe-area-inset-right,0px)))] min-w-0 w-full'
+      : 'min-w-[200px]',
   );
   const {
     state,
@@ -304,7 +314,13 @@ export function SettingsMenuBody() {
                   {AUDIO_VISUALIZER_STYLE_LABELS[audioVisualizerStyle]}
                 </span>
               </DropdownMenuSubTrigger>
-              <DropdownMenuSubContent className={subMenuWidth} collisionPadding={12}>
+              <DropdownMenuSubContent
+                side={subContentSide}
+                align={subContentAlign}
+                sideOffset={subContentSideOffset}
+                collisionPadding={subContentCollisionPadding}
+                className={subMenuWidth}
+              >
                 <DropdownMenuRadioGroup
                   value={audioVisualizerStyle}
                   onValueChange={(v) =>
@@ -337,7 +353,13 @@ export function SettingsMenuBody() {
               {sleepLabel}
             </span>
           </DropdownMenuSubTrigger>
-          <DropdownMenuSubContent className={cn(subMenuWidth, 'min-w-[180px]')} collisionPadding={12}>
+          <DropdownMenuSubContent
+            side={subContentSide}
+            align={subContentAlign}
+            sideOffset={subContentSideOffset}
+            collisionPadding={subContentCollisionPadding}
+            className={cn(subMenuWidth, 'min-w-[180px]')}
+          >
             {SLEEP_TIMER_OPTIONS.map((opt) => (
               <DropdownMenuItem
                 key={opt}
@@ -360,7 +382,13 @@ export function SettingsMenuBody() {
               {speedLabel}
             </span>
           </DropdownMenuSubTrigger>
-          <DropdownMenuSubContent className={cn(subMenuWidth, 'min-w-[160px]')} collisionPadding={12}>
+          <DropdownMenuSubContent
+            side={subContentSide}
+            align={subContentAlign}
+            sideOffset={subContentSideOffset}
+            collisionPadding={subContentCollisionPadding}
+            className={cn(subMenuWidth, 'min-w-[160px]')}
+          >
             {SPEEDS.map((s) => (
               <DropdownMenuItem
                 key={s}
@@ -384,7 +412,13 @@ export function SettingsMenuBody() {
                 {qualityLabel}
               </span>
             </DropdownMenuSubTrigger>
-            <DropdownMenuSubContent className={cn(subMenuWidth, 'min-w-[160px]')} collisionPadding={12}>
+            <DropdownMenuSubContent
+              side={subContentSide}
+              align={subContentAlign}
+              sideOffset={subContentSideOffset}
+              collisionPadding={subContentCollisionPadding}
+              className={cn(subMenuWidth, 'min-w-[160px]')}
+            >
               <DropdownMenuItem
                 onClick={() => setQualityLevel(-1)}
                 className={cn(state.currentLevel === -1 ? 'font-medium text-primary' : undefined)}

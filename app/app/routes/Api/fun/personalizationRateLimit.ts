@@ -1,7 +1,7 @@
 import { rateLimiter, RateLimiter } from '~/routes/Auth/fun/rateLimit';
 
-/** Aligns with watch-progress: one viewer stays well under this per minute. */
-const WATCH_TIME_MAX = 90;
+/** Watch-time pings (one-time playback token per submission). Increased headroom vs legacy. */
+const WATCH_TIME_MAX = 420;
 const WATCH_TIME_WINDOW_MS = 60 * 1000;
 const WATCH_TIME_BLOCK_MS = 5 * 60 * 1000;
 
@@ -29,6 +29,14 @@ const PERSONALIZATION_BLOCK_MS = 30 * 60 * 1000;
 export function checkWatchTimeRateLimit(request: Request, userId: string) {
   const key = userId || `ip:${RateLimiter.getClientIP(request)}`;
   return rateLimiter.checkLimit(key, 'api-watch-time', WATCH_TIME_MAX, WATCH_TIME_WINDOW_MS, WATCH_TIME_BLOCK_MS);
+}
+
+const WATCH_ISSUE_MAX = 90;
+
+/** In-memory playback token mint endpoint (paired with `/api/views/watch-time`). */
+export function checkWatchIssueRateLimit(request: Request, userId: string) {
+  const key = userId || `ip:${RateLimiter.getClientIP(request)}`;
+  return rateLimiter.checkLimit(key, 'api-watch-issue', WATCH_ISSUE_MAX, WATCH_TIME_WINDOW_MS, WATCH_TIME_BLOCK_MS);
 }
 
 export function checkSavesPostRateLimit(request: Request, userId: string) {

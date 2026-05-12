@@ -20,6 +20,14 @@ const EDGE_TUCK_PX = 28;
 /** Extra threshold when the player was just un-tucked — prevents accidental re-tuck. */
 const UNTUCK_RE_TUCK_PX = 80;
 
+/** Max distance from a corner snap pose (element top-left) to actually snap; otherwise stay free-dragged inside the viewport (mobile was effectively “all corners”). */
+function cornerSnapProximityPx(): number {
+  if (typeof window === "undefined") return 88;
+  const shortEdge = Math.min(window.innerWidth, window.innerHeight);
+  if (window.innerWidth <= 767) return Math.round(Math.min(72, Math.max(40, shortEdge * 0.104)));
+  return Math.round(Math.min(130, Math.max(88, shortEdge * 0.148)));
+}
+
 type TuckEdge = "none" | "left" | "right";
 
 /** Match `MiniPlayer` max-w-[calc(100vw-1.5rem)] */
@@ -65,22 +73,31 @@ function getCornerPositions(elWidth: number, elHeight: number) {
   };
 }
 
-function nearestCorner(cx: number, cy: number, elWidth: number, elHeight: number) {
-  const c = getCornerPositions(elWidth, elHeight);
-  const midX = cx + elWidth / 2;
-  const midY = cy + elHeight / 2;
-  let best = c.br;
-  let bestD = Infinity;
-  for (const pos of Object.values(c)) {
-    const dx = pos.x + elWidth / 2 - midX;
-    const dy = pos.y + elHeight / 2 - midY;
-    const d = dx * dx + dy * dy;
-    if (d < bestD) {
-      bestD = d;
-      best = pos;
+function snapCornerIfCloseElseClampFree(
+  x: number,
+  y: number,
+  elWidth: number,
+  elHeight: number,
+  proximityPx: number,
+): { x: number; y: number } {
+  const corners = Object.values(getCornerPositions(elWidth, elHeight));
+  let nearest = corners[0];
+  let nearestDist = Infinity;
+  for (const c of corners) {
+    const d = Math.hypot(x - c.x, y - c.y);
+    if (d < nearestDist) {
+      nearestDist = d;
+      nearest = c;
     }
   }
-  return best;
+  if (nearestDist <= proximityPx) {
+    return { x: nearest.x, y: clampY(nearest.y, elHeight) };
+  }
+  const maxX = window.innerWidth - elWidth - PADDING;
+  return {
+    x: Math.max(PADDING, Math.min(maxX, x)),
+    y: clampY(y, elHeight),
+  };
 }
 
 /**
@@ -189,9 +206,15 @@ export function useMiniPlayerDrag(sessionKey: string) {
       if (tuckRef.current !== "none") {
         setPosition(visPosition(0, positionRef.current.y, width, height, tuckRef.current));
       } else {
-        const snap = nearestCorner(positionRef.current.x, positionRef.current.y, width, height);
+        const snap = snapCornerIfCloseElseClampFree(
+          positionRef.current.x,
+          positionRef.current.y,
+          width,
+          height,
+          cornerSnapProximityPx(),
+        );
         setTuck("none");
-        setPosition({ x: snap.x, y: clampY(snap.y, height) });
+        setPosition(snap);
       }
       window.setTimeout(() => setIsSnapping(false), SPRING_MS);
     };
@@ -241,8 +264,7 @@ export function useMiniPlayerDrag(sessionKey: string) {
         nextTuck = "left";
         snap = visPosition(x, y, width, height, "left");
       } else {
-        const corner = nearestCorner(x, y, width, height);
-        snap = { x: corner.x, y: clampY(corner.y, height) };
+        snap = snapCornerIfCloseElseClampFree(x, y, width, height, cornerSnapProximityPx());
       }
 
       wasTuckedRef.current = false;
@@ -385,8 +407,15 @@ export function useMiniPlayerDrag(sessionKey: string) {
       if (tuckRef.current !== "none") {
         setPosition(visPosition(0, positionRef.current.y, width, height, tuckRef.current));
       } else {
-        const corner = nearestCorner(positionRef.current.x, positionRef.current.y, width, height);
-        setPosition({ x: corner.x, y: clampY(corner.y, height) });
+        setPosition(
+          snapCornerIfCloseElseClampFree(
+            positionRef.current.x,
+            positionRef.current.y,
+            width,
+            height,
+            cornerSnapProximityPx(),
+          ),
+        );
       }
       window.setTimeout(() => setIsSnapping(false), SPRING_MS);
     },

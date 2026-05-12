@@ -10,12 +10,17 @@ import VideoCard from "~/routes/Home/components/VideoCard";
 import { SignInToSeeMore } from "~/components/SignInWall";
 import {
   Dialog,
+  DialogClose,
   DialogContent,
   DialogHeader,
   DialogTitle,
 } from "~/components/ui/dialog";
+import { Separator } from "~/components/ui/separator";
 
 type SearchUser = { id: string; username: string; profile_pic: string; file_count: number };
+
+/** Matches the brand shown in Navbar (`components/Navbar`). */
+const APP_DISPLAY_NAME = "Memories";
 
 function SkeletonCard() {
   return (
@@ -184,8 +189,9 @@ export function SearchModal({ open, onOpenChange }: SearchModalProps) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
+        shouldClose
         className={[
-          "p-0 overflow-hidden flex flex-col",
+          "gap-0 overflow-hidden p-0 flex flex-col",
           // Desktop: centered modal
           "sm:w-[95vw] sm:max-w-3xl md:max-w-4xl sm:max-h-[90vh] sm:rounded-2xl",
           // Mobile: fullscreen, edge-to-edge, no chrome
@@ -194,55 +200,71 @@ export function SearchModal({ open, onOpenChange }: SearchModalProps) {
           "max-sm:rounded-none max-sm:border-0 max-sm:shadow-none",
         ].join(" ")}
       >
-        <DialogHeader className="px-4 sm:px-6 pt-4 pb-3 shrink-0 border-b border-border">
-          <DialogTitle className="text-lg font-semibold">Search</DialogTitle>
+        <DialogHeader
+          className={[
+            "shrink-0 border-b border-border bg-background px-4 py-2.5 text-left sm:px-5",
+            // Mobile fullscreen: keep search + close in a real top bar (safe areas, edge insets)
+            "max-sm:pt-[calc(env(safe-area-inset-top,0px)+0.625rem)] max-sm:pb-3",
+            "max-sm:pl-[max(1rem,env(safe-area-inset-left,0px))] max-sm:pr-[max(1rem,env(safe-area-inset-right,0px))]",
+          ].join(" ")}
+        >
+          <DialogTitle className="sr-only">Search</DialogTitle>
+          <div className="flex min-w-0 items-center gap-2 max-sm:gap-2.5">
+            <form onSubmit={handleSubmit} className="min-w-0 flex-1">
+              <div className="flex h-10 min-w-0 items-center gap-1.5 px-0 max-sm:h-11">
+                <SearchIcon className="size-3.5 shrink-0 text-muted-foreground opacity-70 max-sm:size-4" aria-hidden />
+                <Input
+                  autoFocus
+                  type="search"
+                  enterKeyHint="search"
+                  inputMode="search"
+                  value={inputValue}
+                  onChange={(e) => setInputValue(e.target.value)}
+                  placeholder={`Search ${APP_DISPLAY_NAME}`}
+                  className="h-9 min-w-0 flex-1 text-muted-foreground rounded-none border-0 bg-transparent px-0 py-0 text-sm shadow-none outline-none placeholder:text-muted-foreground/60 focus:outline-none focus-visible:border-transparent focus-visible:outline-none focus-visible:ring-0 focus-visible:ring-offset-0 dark:bg-transparent max-sm:h-10 max-sm:text-base"
+                />
+              </div>
+            </form>
+            <Separator orientation="vertical" className="h-6 shrink-0 self-center max-sm:h-8" decorative />
+            <DialogClose
+              type="button"
+              aria-label="Close search"
+              className={[
+                "flex h-8 w-8 shrink-0 items-center justify-center rounded-full",
+                "max-sm:h-9 max-sm:w-9",
+                "bg-muted/80 text-muted-foreground transition-colors duration-150 hover:bg-muted hover:text-foreground",
+                "outline-none focus:outline-none focus-visible:outline-none focus-visible:ring-0 focus-visible:ring-offset-0",
+                "[&_svg]:size-3.5 max-sm:[&_svg]:size-4 [&_svg]:shrink-0",
+              ].join(" ")}
+            >
+              <XIcon aria-hidden />
+              <span className="sr-only">Close</span>
+            </DialogClose>
+          </div>
         </DialogHeader>
 
-        <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
-          <form onSubmit={handleSubmit} className="shrink-0 px-4 sm:px-6 pt-4 pb-4">
-            <div className="flex items-center gap-1 rounded-full border border-border/40 bg-primary/5 pl-4 pr-1 h-12 focus-within:ring-2 focus-within:ring-primary/30 transition-shadow">
-              <SearchIcon className="h-4 w-4 text-muted-foreground shrink-0" />
-              <Input
-                autoFocus
-                type="search"
-                enterKeyHint="search"
-                inputMode="search"
-                value={inputValue}
-                onChange={(e) => setInputValue(e.target.value)}
-                placeholder="Search anything — try a title, tag, creator…"
-                className="h-11 flex-1 min-w-0 border-0 px-2 text-base shadow-none focus-visible:ring-0 placeholder:text-muted-foreground/60"
-              />
-              {inputValue ? (
-                <button
-                  type="button"
-                  aria-label="Clear search"
-                  onClick={() => setInputValue("")}
-                  className="inline-flex h-8 w-8 items-center justify-center rounded-full text-muted-foreground hover:bg-muted shrink-0"
-                >
-                  <XIcon className="h-4 w-4" />
-                </button>
-              ) : null}
-              <Button
-                type="submit"
-                aria-label="Search"
-                className="h-10 rounded-full px-4 sm:px-5 font-medium shrink-0"
-              >
-                <SearchIcon className="h-4 w-4 sm:hidden" />
-                <span className="hidden sm:inline">Search</span>
-              </Button>
-            </div>
-          </form>
-
-          <div className="flex-1 overflow-y-auto px-4 sm:px-6 pb-6 space-y-6">
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+          <div
+            className={[
+              "min-h-0 flex-1 space-y-6 overflow-y-auto pb-6",
+              "px-4 sm:px-6",
+              "max-sm:pb-[max(1.5rem,env(safe-area-inset-bottom,0px))]",
+              "max-sm:pl-[max(1rem,env(safe-area-inset-left,0px))] max-sm:pr-[max(1rem,env(safe-area-inset-right,0px))]",
+            ].join(" ")}
+          >
             {activeTerm && isLoading && !isLoadingMore ? (
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                {[1, 2, 3, 4].map((i) => (
-                  <SkeletonCard key={i} />
-                ))}
+              <div className="space-y-4">
+                <h3 className="pt-4 text-sm font-semibold text-foreground">Search results</h3>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  {[1, 2, 3, 4].map((i) => (
+                    <SkeletonCard key={i} />
+                  ))}
+                </div>
               </div>
             ) : activeTerm ? (
               files.length > 0 || searchUsers.length > 0 || seriesRoots.length > 0 ? (
                 <>
+                  <h3 className="pt-4 text-sm font-semibold text-foreground">Search results</h3>
                   {searchUsers.length > 0 && (
                     <div className="space-y-3">
                       <h3 className="text-sm font-semibold text-foreground">Users</h3>
@@ -286,7 +308,7 @@ export function SearchModal({ open, onOpenChange }: SearchModalProps) {
                         <div>
                           <h3 className="text-sm font-semibold text-foreground">Series</h3>
                           <p className="mt-0.5 text-xs text-muted-foreground">
-                            Matched from an episode in this series.
+                            Matched an episode title, playlist label (e.g. Season 1), or video in this series.
                           </p>
                         </div>
                       </div>
@@ -298,7 +320,8 @@ export function SearchModal({ open, onOpenChange }: SearchModalProps) {
                             index={index}
                             userActions={localUserActions}
                             currentUserId={userId ?? undefined}
-                            hideActions={{completely: false, halfway: false}}
+                            hideActions={{completely: true, halfway: false}}
+                            layout={`shelf`}
                           />
                         ))}
                       </div>
@@ -318,7 +341,8 @@ export function SearchModal({ open, onOpenChange }: SearchModalProps) {
                             index={index}
                             userActions={localUserActions}
                             currentUserId={userId ?? undefined}
-                            hideActions={{completely: false, halfway: false}}
+                            hideActions={{completely: true, halfway: false}}
+                            layout={`shelf`}
                           />
                         ))}
                       </div>
@@ -350,7 +374,7 @@ export function SearchModal({ open, onOpenChange }: SearchModalProps) {
                   </div>
                   {showSuggestions && suggestions.length > 0 && (
                     <div className="space-y-3">
-                      <h3 className="text-sm font-semibold text-foreground">Suggested</h3>
+                      <h3 className="text-sm font-semibold text-foreground pt-4">Suggested</h3>
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         {suggestions.slice(0, 4).map((file, index) => (
                           <VideoCard
@@ -359,7 +383,8 @@ export function SearchModal({ open, onOpenChange }: SearchModalProps) {
                             index={index}
                             userActions={localUserActions}
                             currentUserId={userId ?? undefined}
-                            hideActions={{completely: false, halfway: false}}
+                            hideActions={{completely: true, halfway: false}}
+                            layout={`shelf`}
                           />
                         ))}
                       </div>
@@ -370,7 +395,7 @@ export function SearchModal({ open, onOpenChange }: SearchModalProps) {
             ) : (
               suggestions.length > 0 && (
                 <div className="space-y-3">
-                  <h3 className="text-sm font-semibold text-foreground">Quick suggestions</h3>
+                  <h3 className="text-sm font-semibold text-foreground pt-4">Quick suggestions</h3>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     {suggestions.slice(0, 4).map((file, index) => (
                       <VideoCard
@@ -379,7 +404,8 @@ export function SearchModal({ open, onOpenChange }: SearchModalProps) {
                         index={index}
                         userActions={localUserActions}
                         currentUserId={userId ?? undefined}
-                        hideActions={{completely: false, halfway: false}}
+                        hideActions={{completely: true, halfway: false}}
+                        layout={`shelf`}
                       />
                     ))}
                   </div>

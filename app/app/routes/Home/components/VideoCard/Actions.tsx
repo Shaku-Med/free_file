@@ -495,10 +495,10 @@ export default function Actions({
         {isShortsShelf ? (
           <button
             type="button"
-            className={`inline-flex size-8 shrink-0 items-center justify-center rounded-full text-muted-foreground transition hover:bg-muted hover:text-foreground`}
+            className="inline-flex size-8 shrink-0 items-center justify-center rounded-full border border-transparent text-muted-foreground transition-colors hover:border-border/50 hover:bg-muted/80 hover:text-foreground data-[state=open]:border-border/50 data-[state=open]:bg-muted/85 data-[state=open]:text-foreground dark:hover:bg-muted/50"
             aria-label="More options"
           >
-            <MoreVertical className="size-5" aria-hidden />
+            <MoreVertical className="size-4 shrink-0" strokeWidth={2} aria-hidden />
           </button>
         ) : isReel ? (
           <button
@@ -521,7 +521,10 @@ export default function Actions({
         align="end"
         side={isReel && !isShortsShelf ? "top" : "bottom"}
         sideOffset={isReel && !isShortsShelf ? 8 : 4}
-        className="min-w-[12rem]"
+        className={cn(
+          "z-[200] rounded-xl border-border/80 p-1 shadow-lg",
+          isShortsShelf ? "min-w-[13.5rem]" : "min-w-[12rem]",
+        )}
       >
           {isOwner && typeof onEdit === "function" ? (
             <>
