@@ -5,7 +5,7 @@ import ScrollRestoration from "~/lib/Context/ScrollRestoration"
 import { useFileContext } from "~/lib/Context/Context";
 import { useLocation } from "react-router";
 import { isPipChromeRoute } from "~/routes/pip/pipEnv";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { BodyContentWidthBridge } from "~/lib/Context/BodyContentWidthContext";
 
 export interface ScrollState {
@@ -59,12 +59,19 @@ const BodyComponent = ({ children }: BodyComponentProps) => {
 
   const applyTheater = theaterMode && !isStaticRoute;
 
-  // Re-sync bar opacity when the route changes (e.g. scroll position restored).
+  // Re-sync bar opacity after navigation (after ScrollRestoration may have applied scroll).
   const handleScrollRef = useRef(handleScroll);
   handleScrollRef.current = handleScroll;
-  useEffect(() => {
-    handleScrollRef.current();
-  }, [location.pathname]);
+  useLayoutEffect(() => {
+    let r2 = 0;
+    const r1 = requestAnimationFrame(() => {
+      r2 = requestAnimationFrame(() => handleScrollRef.current());
+    });
+    return () => {
+      cancelAnimationFrame(r1);
+      if (r2) cancelAnimationFrame(r2);
+    };
+  }, [location.pathname, location.search]);
 
   if (suppressChrome) {
     return (

@@ -3,13 +3,19 @@ import { useLocation } from "react-router";
 import { useFileContext } from "~/lib/Context/Context";
 
 const STORAGE_KEY = "scroll_restoration_data";
-const WAIT_FOR_DATA_MS = 3000;
+/** Fallback if rAF never runs; restoreLoop already waits for layout/content height. */
+const RESTORE_FALLBACK_MS = 250;
 
 interface ScrollData {
   scrollTop: number;
   scrollLeft: number;
 }
 type Store = Record<string, ScrollData>;
+
+/** One scroll slot per logical page (path + query — not hash, so in-page #anchors don't reset the shell). */
+function routeScrollKey(pathname: string, search: string): string {
+  return `${pathname}${search}`;
+}
 
 const getContainer = (): HTMLElement | null =>
   document.getElementById("scroll_container");
@@ -37,13 +43,13 @@ type RestoreState = "idle" | "pending" | "restoring";
 
 export default function ScrollRestoration() {
   const location = useLocation();
-  const { scrollDataReady, setScrollDataReady } = useFileContext();
+  const { setScrollDataReady } = useFileContext();
 
   // 'idle'      → user-driven scroll, persist freely
   // 'pending'   → just navigated, awaiting restore (do NOT persist; user scroll cancels)
   // 'restoring' → actively running rAF loop (do NOT persist)
   const stateRef = useRef<RestoreState>("idle");
-  const pathRef = useRef<string>("");
+  const routeKeyRef = useRef<string>("");
   // Bumped on every navigation; in-flight rAF loops bail if their token is stale.
   const tokenRef = useRef(0);
 
@@ -53,65 +59,64 @@ export default function ScrollRestoration() {
   useLayoutEffect(() => {
     const container = getContainer();
     if (!container) return;
-    const newPath = location.pathname;
-    const oldPath = pathRef.current;
+    const newKey = routeScrollKey(location.pathname, location.search);
+    const oldKey = routeKeyRef.current;
 
     // Persist outgoing scroll only if the user owned it (state was idle).
     // If state was pending/restoring, the user never settled, so don't overwrite
     // whatever was there before.
-    if (oldPath && oldPath !== newPath && stateRef.current === "idle") {
-      writeEntry(oldPath, {
+    if (oldKey && oldKey !== newKey && stateRef.current === "idle") {
+      writeEntry(oldKey, {
         scrollTop: container.scrollTop,
         scrollLeft: container.scrollLeft,
       });
     }
 
-    pathRef.current = newPath;
+    routeKeyRef.current = newKey;
     tokenRef.current++;
 
     // Reset before paint so the new page never appears at the previous scroll.
     container.scrollTop = 0;
     container.scrollLeft = 0;
 
-    if (newPath.startsWith("/reel")) {
-      stateRef.current = "idle";
-      setScrollDataReady(true);
-      return;
-    }
+    const canRestore = Boolean(readEntry(newKey));
+    setScrollDataReady(!canRestore);
+    stateRef.current = canRestore ? "pending" : "idle";
+  }, [location.pathname, location.search, setScrollDataReady]);
 
-    setScrollDataReady(false);
-    stateRef.current = readEntry(newPath) ? "pending" : "idle";
-  }, [location.pathname, setScrollDataReady]);
-
-  // Trigger restore once data is ready (or after timeout). Aborts cleanly if the
-  // user scrolls in the meantime, or another navigation supersedes us.
+  // After navigation, begin restore quickly — restoreLoop waits for content height.
   useEffect(() => {
     if (stateRef.current !== "pending") return;
 
     const myToken = tokenRef.current;
-    const myPath = pathRef.current;
+    const myKey = routeKeyRef.current;
 
     const trigger = () => {
-      if (myToken !== tokenRef.current) return;          // newer nav superseded
-      if (stateRef.current !== "pending") return;        // user already scrolled
+      if (myToken !== tokenRef.current) return;
+      if (stateRef.current !== "pending") return;
       const container = getContainer();
       if (!container) return;
-      const saved = readEntry(myPath);
+      const saved = readEntry(myKey);
       if (!saved) {
         stateRef.current = "idle";
+        setScrollDataReady(true);
         return;
       }
       stateRef.current = "restoring";
       restoreLoop(container, saved, myToken);
     };
 
-    if (scrollDataReady) {
-      trigger();
-      return;
-    }
-    const t = window.setTimeout(trigger, WAIT_FOR_DATA_MS);
-    return () => window.clearTimeout(t);
-  }, [location.pathname, scrollDataReady]);
+    let raf2 = 0;
+    const raf1 = requestAnimationFrame(() => {
+      raf2 = requestAnimationFrame(trigger);
+    });
+    const t = window.setTimeout(trigger, RESTORE_FALLBACK_MS);
+    return () => {
+      cancelAnimationFrame(raf1);
+      if (raf2) cancelAnimationFrame(raf2);
+      window.clearTimeout(t);
+    };
+  }, [location.pathname, location.search, setScrollDataReady]);
 
   // rAF loop that waits for content height to grow, then snaps once.
   // Token-guarded so a stale loop from a previous navigation can never fire.
@@ -132,7 +137,7 @@ export default function ScrollRestoration() {
       else stableFrames = 0;
       lastHeight = h;
       const reachable = h >= saved.scrollTop + container.clientHeight * 0.6;
-      if (reachable || stableFrames >= 3 || frames >= 60) {
+      if (reachable || stableFrames >= 3 || frames >= 120) {
         container.scrollTop = saved.scrollTop;
         container.scrollLeft = saved.scrollLeft;
         // Tiny grace window: after we set scrollTop, the browser fires a scroll
@@ -141,6 +146,7 @@ export default function ScrollRestoration() {
         requestAnimationFrame(() => {
           if (token === tokenRef.current && stateRef.current === "restoring") {
             stateRef.current = "idle";
+            setScrollDataReady(true);
           }
         });
         return;
@@ -159,10 +165,10 @@ export default function ScrollRestoration() {
     const onScroll = () => {
       if (stateRef.current === "restoring") return;
       if (stateRef.current === "pending") {
-        // User scrolled before we got a chance to restore — abort the restore.
         stateRef.current = "idle";
+        setScrollDataReady(true);
       }
-      writeEntry(pathRef.current, {
+      writeEntry(routeKeyRef.current, {
         scrollTop: container.scrollTop,
         scrollLeft: container.scrollLeft,
       });
@@ -170,7 +176,7 @@ export default function ScrollRestoration() {
 
     container.addEventListener("scroll", onScroll, { passive: true });
     return () => container.removeEventListener("scroll", onScroll);
-  }, []);
+  }, [setScrollDataReady]);
 
   return null;
 }

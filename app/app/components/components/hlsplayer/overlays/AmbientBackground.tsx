@@ -22,6 +22,13 @@ const SAMPLE_SIZE = 8;
 const GRADIENT_SIZE = 32;
 /** How often to resample video for ambient (ms). avoids per-frame work. */
 const AMBIENT_SAMPLE_INTERVAL_MS = 1000;
+/** Crossfade duration after each sample (rAF only during this window). */
+const AMBIENT_TRANSITION_MS = 480;
+
+function smoothstep01(t: number): number {
+  const x = Math.min(1, Math.max(0, t));
+  return x * x * (3 - 2 * x);
+}
 
 export default function AmbientBackground() {
   const { file, ambientMode, ambientColors, videoRef } = usePlayerContext();
@@ -51,6 +58,14 @@ export default function AmbientBackground() {
     let cancelled = false;
     let trackingVideo = false;
     let intervalId: number | undefined;
+    let transRaf = 0;
+    let rawBuf: HTMLCanvasElement | null = null;
+    let rawCtx: CanvasRenderingContext2D | null = null;
+    let fromBuf: HTMLCanvasElement | null = null;
+    let fromCtx: CanvasRenderingContext2D | null = null;
+    let blendBuf: HTMLCanvasElement | null = null;
+    let blendCtx: CanvasRenderingContext2D | null = null;
+    let hasDisplayState = false;
 
     const clearSampleInterval = () => {
       if (intervalId !== undefined) {
@@ -59,10 +74,31 @@ export default function AmbientBackground() {
       }
     };
 
+    const cancelTransition = () => {
+      if (transRaf !== 0) {
+        cancelAnimationFrame(transRaf);
+        transRaf = 0;
+      }
+    };
+
     /** Drop video sampling state so a new source does not stack work. */
     const disposeVideoSamplingResources = () => {
       clearSampleInterval();
+      cancelTransition();
       trackingVideo = false;
+      hasDisplayState = false;
+      for (const b of [rawBuf, fromBuf, blendBuf]) {
+        if (b) {
+          b.width = 0;
+          b.height = 0;
+        }
+      }
+      rawBuf = null;
+      rawCtx = null;
+      fromBuf = null;
+      fromCtx = null;
+      blendBuf = null;
+      blendCtx = null;
       ctx = null;
     };
 
@@ -82,24 +118,106 @@ export default function AmbientBackground() {
       ctx.fillRect(0, 0, GRADIENT_SIZE, GRADIENT_SIZE);
     };
 
-    const ensureVideoCanvas = () => {
+    const ensureVideoBuffers = () => {
       if (!trackingVideo) {
         trackingVideo = true;
         canvas.width = SAMPLE_SIZE;
         canvas.height = SAMPLE_SIZE;
         ctx = canvas.getContext('2d', { alpha: false });
+        rawBuf = document.createElement('canvas');
+        rawBuf.width = SAMPLE_SIZE;
+        rawBuf.height = SAMPLE_SIZE;
+        rawCtx = rawBuf.getContext('2d', { alpha: false });
+        fromBuf = document.createElement('canvas');
+        fromBuf.width = SAMPLE_SIZE;
+        fromBuf.height = SAMPLE_SIZE;
+        fromCtx = fromBuf.getContext('2d', { alpha: false });
+        blendBuf = document.createElement('canvas');
+        blendBuf.width = SAMPLE_SIZE;
+        blendBuf.height = SAMPLE_SIZE;
+        blendCtx = blendBuf.getContext('2d', { alpha: true });
+        hasDisplayState = false;
       }
     };
 
-    /** Single cheap sample: one drawImage, no offscreen blending. */
-    const sampleVideo = () => {
+    const captureVideoToRaw = () => {
+      if (!video || !rawCtx) return;
+      rawCtx.drawImage(video, 0, 0, SAMPLE_SIZE, SAMPLE_SIZE);
+    };
+
+    /** Instant sample — seek / pause / first paint / hidden tab resume. */
+    const snapVideoToDisplay = () => {
       if (cancelled || document.hidden) return;
       if (!video || video.readyState < 2 || video.videoWidth === 0) return;
-      ensureVideoCanvas();
-      if (!ctx) return;
+      ensureVideoBuffers();
+      if (!ctx || !rawCtx || !rawBuf) return;
+      cancelTransition();
       try {
-        ctx.drawImage(video, 0, 0, SAMPLE_SIZE, SAMPLE_SIZE);
+        captureVideoToRaw();
+        ctx.drawImage(rawBuf, 0, 0);
+        hasDisplayState = true;
       } catch {}
+    };
+
+    /** Interval sampling: crossfade from current display to new frame (rAF only for ~AMBIENT_TRANSITION_MS). */
+    const sampleVideoCrossfade = () => {
+      if (cancelled || document.hidden) return;
+      if (!video || video.readyState < 2 || video.videoWidth === 0) return;
+      ensureVideoBuffers();
+      if (!ctx || !rawCtx || !rawBuf || !fromBuf || !fromCtx || !blendBuf || !blendCtx) return;
+      try {
+        captureVideoToRaw();
+      } catch {
+        return;
+      }
+
+      if (!hasDisplayState) {
+        cancelTransition();
+        try {
+          ctx.drawImage(rawBuf, 0, 0);
+          hasDisplayState = true;
+        } catch {}
+        return;
+      }
+
+      try {
+        fromCtx.drawImage(canvas, 0, 0, SAMPLE_SIZE, SAMPLE_SIZE);
+      } catch {
+        return;
+      }
+
+      cancelTransition();
+      const t0 = performance.now();
+
+      const step = () => {
+        if (cancelled || document.hidden) {
+          transRaf = 0;
+          return;
+        }
+        if (!ctx || !rawBuf || !fromBuf || !blendBuf || !blendCtx) {
+          transRaf = 0;
+          return;
+        }
+        const u = Math.min(1, (performance.now() - t0) / AMBIENT_TRANSITION_MS);
+        const e = smoothstep01(u);
+        blendCtx.clearRect(0, 0, SAMPLE_SIZE, SAMPLE_SIZE);
+        blendCtx.globalCompositeOperation = 'source-over';
+        blendCtx.globalAlpha = 1 - e;
+        blendCtx.drawImage(fromBuf, 0, 0);
+        blendCtx.globalAlpha = e;
+        blendCtx.drawImage(rawBuf, 0, 0);
+        blendCtx.globalAlpha = 1;
+        try {
+          ctx.drawImage(blendBuf, 0, 0);
+        } catch {
+          transRaf = 0;
+          return;
+        }
+        if (u < 1) transRaf = requestAnimationFrame(step);
+        else transRaf = 0;
+      };
+
+      transRaf = requestAnimationFrame(step);
     };
 
     const startSampleInterval = () => {
@@ -110,33 +228,37 @@ export default function AmbientBackground() {
           clearSampleInterval();
           return;
         }
-        sampleVideo();
+        sampleVideoCrossfade();
       }, AMBIENT_SAMPLE_INTERVAL_MS);
     };
 
     const onPlay = () => {
       if (cancelled) return;
       clearSampleInterval();
-      sampleVideo();
+      cancelTransition();
+      snapVideoToDisplay();
       startSampleInterval();
     };
     const onPause = () => {
       clearSampleInterval();
-      sampleVideo();
+      cancelTransition();
+      snapVideoToDisplay();
     };
     const onSeeked = () => {
-      if (!cancelled) sampleVideo();
+      if (!cancelled) snapVideoToDisplay();
     };
     const onLoaded = () => {
       if (cancelled) return;
-      sampleVideo();
+      snapVideoToDisplay();
       if (video && !video.paused && !video.ended) startSampleInterval();
     };
     const onVisibility = () => {
-      if (document.hidden) clearSampleInterval();
-      else if (video && !video.paused && !video.ended) {
+      if (document.hidden) {
         clearSampleInterval();
-        sampleVideo();
+        cancelTransition();
+      } else if (video && !video.paused && !video.ended) {
+        clearSampleInterval();
+        snapVideoToDisplay();
         startSampleInterval();
       }
     };
@@ -152,9 +274,9 @@ export default function AmbientBackground() {
     if (!video) return;
 
     if (!video.paused && !video.ended) {
-      sampleVideo();
+      snapVideoToDisplay();
       startSampleInterval();
-    } else if (video.readyState >= 2) sampleVideo();
+    } else if (video.readyState >= 2) snapVideoToDisplay();
 
     video.addEventListener('play', onPlay);
     video.addEventListener('pause', onPause);
