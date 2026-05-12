@@ -60,8 +60,9 @@ export default function SeekBarSpectrum({ analyser, active, variant }: Props) {
   const paletteRef = useRef<string[]>([]);
   const paletteRgbStopsRef = useRef<RgbaStop[]>([]);
 
-  const { state } = usePlayerContext();
+  const { state, file } = usePlayerContext();
   playingRef.current = state.isPlaying && !state.isPaused;
+  const mediaKey = file?.id ?? '';
 
   const tall = variant !== 'scroll';
 
@@ -171,7 +172,7 @@ export default function SeekBarSpectrum({ analyser, active, variant }: Props) {
       }
     };
 
-    let rafId = 0;
+    let rafId: number | null = null;
 
     const tick = () => {
       rafId = requestAnimationFrame(tick);
@@ -463,9 +464,19 @@ export default function SeekBarSpectrum({ analyser, active, variant }: Props) {
 
     return () => {
       ro.disconnect();
-      cancelAnimationFrame(rafId);
+      if (rafId != null) {
+        cancelAnimationFrame(rafId);
+        rafId = null;
+      }
+      canvas.width = 0;
+      canvas.height = 0;
+      historyAmpRef.current = null;
+      ampRef.current = null;
+      velRef.current = null;
+      freqRef.current = null;
+      tdRef.current = null;
     };
-  }, [active, variant]);
+  }, [active, variant, mediaKey]);
 
   if (!active) return null;
 

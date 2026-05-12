@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react"
+import { useMiniPlayerContext } from "~/lib/Context/MiniPlayerContext"
 import { usePlayerContext, TILT_DRAG_SENSITIVITY, TILT_ZOOM_MIN, TILT_ZOOM_MAX } from "../PlayerContext"
 
 const TAP_THRESHOLD_PX = 8
@@ -6,6 +7,7 @@ const PINCH_ZOOM_SENSITIVITY = 0.01
 const WHEEL_ZOOM_SENSITIVITY = 0.002
 
 export default function TiltOverlay() {
+  const { miniPlayer } = useMiniPlayerContext()
   const { tiltMode, tiltRotation, tiltZoom, setTiltRotation, setTiltZoom, resetTiltRotation, togglePlay } =
     usePlayerContext()
 
@@ -158,7 +160,8 @@ export default function TiltOverlay() {
     return () => window.removeEventListener("blur", onBlur)
   }, [dragging])
 
-  if (!tiltMode) return null
+  /** Mini player steals the `<video>`; skip orbit overlay so gestures don’t target empty chrome behind it. */
+  if (!tiltMode || miniPlayer) return null
 
   return (
     <div

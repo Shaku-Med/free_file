@@ -26,6 +26,7 @@ const AMBIENT_FRAME_BLEND = 0.22;
 export default function AmbientBackground() {
   const { file, ambientMode, ambientColors, videoRef } = usePlayerContext();
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const mediaKey = file?.id ?? '';
 
   const fileColors = useMemo(() => {
     const c = (file as any)?.colors;
@@ -57,6 +58,39 @@ export default function AmbientBackground() {
     let tempBuf: HTMLCanvasElement | null = null;
     let tempCtx: CanvasRenderingContext2D | null = null;
     let hasSmoothedFrame = false;
+
+    const cancelScheduled = () => {
+      if (rafId !== undefined) {
+        cancelAnimationFrame(rafId);
+        rafId = undefined;
+      }
+    };
+
+    /** Drop sampled video pixels + offscreen surfaces so a new source does not stack GPU work. */
+    const disposeVideoSamplingResources = () => {
+      cancelScheduled();
+      trackingVideo = false;
+      hasSmoothedFrame = false;
+      if (rawBuf) {
+        rawBuf.width = 0;
+        rawBuf.height = 0;
+      }
+      rawBuf = null;
+      rawCtx = null;
+      if (smoothBuf) {
+        smoothBuf.width = 0;
+        smoothBuf.height = 0;
+      }
+      smoothBuf = null;
+      smoothCtx = null;
+      if (tempBuf) {
+        tempBuf.width = 0;
+        tempBuf.height = 0;
+      }
+      tempBuf = null;
+      tempCtx = null;
+      ctx = null;
+    };
 
     const paintGradient = () => {
       if (trackingVideo) return;
@@ -153,13 +187,6 @@ export default function AmbientBackground() {
       rafId = requestAnimationFrame(loop);
     };
 
-    const cancelScheduled = () => {
-      if (rafId !== undefined) {
-        cancelAnimationFrame(rafId);
-        rafId = undefined;
-      }
-    };
-
     const onPlay = () => { if (cancelled) return; cancelScheduled(); loop(); };
     const onPause = () => { cancelScheduled(); drawImmediate(); };
     const onSeeked = () => { if (!cancelled) drawImmediate(); };
@@ -167,6 +194,13 @@ export default function AmbientBackground() {
       if (cancelled) return;
       drawImmediate();
       if (video && !video.paused) { cancelScheduled(); loop(); }
+    };
+
+    /** New media / emptied pipeline: kill animation + release buffers before next decode. */
+    const onMediaCleared = () => {
+      if (cancelled) return;
+      disposeVideoSamplingResources();
+      paintGradient();
     };
 
     paintGradient();
@@ -179,16 +213,24 @@ export default function AmbientBackground() {
     video.addEventListener('pause', onPause);
     video.addEventListener('seeked', onSeeked);
     video.addEventListener('loadeddata', onLoaded);
+    video.addEventListener('loadstart', onMediaCleared);
+    video.addEventListener('emptied', onMediaCleared);
 
     return () => {
       cancelled = true;
-      cancelScheduled();
+      disposeVideoSamplingResources();
+      if (canvas) {
+        canvas.width = 0;
+        canvas.height = 0;
+      }
       video.removeEventListener('play', onPlay);
       video.removeEventListener('pause', onPause);
       video.removeEventListener('seeked', onSeeked);
       video.removeEventListener('loadeddata', onLoaded);
+      video.removeEventListener('loadstart', onMediaCleared);
+      video.removeEventListener('emptied', onMediaCleared);
     };
-  }, [ambientMode, videoRef, colorKey]);
+  }, [ambientMode, videoRef, colorKey, mediaKey]);
 
   if (!ambientMode) return null;
 
@@ -203,7 +245,6 @@ export default function AmbientBackground() {
           height: '140%',
           opacity: 0.72,
           filter: 'saturate(1.3)',
-          willChange: 'transform',
           maskImage: SOFT_MASK,
           WebkitMaskImage: SOFT_MASK,
         }}

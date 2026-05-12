@@ -2,7 +2,8 @@ import { useCallback, useRef, useState, useLayoutEffect, useEffect } from "react
 
 const PADDING = 12;
 const DRAG_THRESHOLD_PX = 4;
-const SPRING_MS = 380;
+/** Match CSS transitions after snap (~ease-out finish). */
+const SNAP_TRANSITION_MS = 220;
 const STORAGE_KEY = "mini-player-width-v1";
 const MIN_W = 260;
 /** Hard cap — never wider than this */
@@ -20,15 +21,68 @@ const EDGE_TUCK_PX = 28;
 /** Extra threshold when the player was just un-tucked — prevents accidental re-tuck. */
 const UNTUCK_RE_TUCK_PX = 80;
 
-/** Max distance from a corner snap pose (element top-left) to actually snap; otherwise stay free-dragged inside the viewport (mobile was effectively “all corners”). */
-function cornerSnapProximityPx(): number {
-  if (typeof window === "undefined") return 88;
-  const shortEdge = Math.min(window.innerWidth, window.innerHeight);
-  if (window.innerWidth <= 767) return Math.round(Math.min(72, Math.max(40, shortEdge * 0.104)));
-  return Math.round(Math.min(130, Math.max(88, shortEdge * 0.148)));
+/** Fraction of mini-player area allowed inside the padded viewport without forcing a corner/edge settle. ≤0.5 means “halfway off bound” → snap. */
+const OFFSCREEN_RATIO_SNAP = 0.5;
+
+/** How much area of the rectangle lies inside `[PADDING, innerWidth−PADDING] × …` vertically clamped viewport band. */
+function visibleAreaFraction(
+  x: number,
+  y: number,
+  elWidth: number,
+  elHeight: number,
+): number {
+  if (typeof window === "undefined") return 1;
+  const vw = window.innerWidth;
+  const vh = window.innerHeight;
+  const ix0 = Math.max(x, PADDING);
+  const iy0 = Math.max(y, PADDING);
+  const ix1 = Math.min(x + elWidth, vw - PADDING);
+  const iy1 = Math.min(y + elHeight, vh - PADDING);
+  const iw = Math.max(0, ix1 - ix0);
+  const ih = Math.max(0, iy1 - iy0);
+  const vis = iw * ih;
+  const total = elWidth * elHeight;
+  return total > 0 ? vis / total : 0;
 }
 
-type TuckEdge = "none" | "left" | "right";
+/** Nearest anchored corner pose (within padded viewport). */
+function nearestCornerPose(x: number, y: number, elWidth: number, elHeight: number) {
+  const corners = Object.values(getCornerPositions(elWidth, elHeight));
+  let nearest = corners[0];
+  let nearestDist = Infinity;
+  for (const c of corners) {
+    const d = Math.hypot(x - c.x, y - c.y);
+    if (d < nearestDist) {
+      nearestDist = d;
+      nearest = c;
+    }
+  }
+  return { x: nearest!.x, y: clampY(nearest!.y, elHeight) };
+}
+
+function clampFreeInViewport(x: number, y: number, elWidth: number, elHeight: number) {
+  const maxX = window.innerWidth - elWidth - PADDING;
+  return {
+    x: Math.max(PADDING, Math.min(maxX, x)),
+    y: clampY(y, elHeight),
+  };
+}
+
+/**
+ * Corner / edge settling only once ≥half the shell is outside the padded viewport (“halfway off bound”).
+ * Otherwise clamp inside the viewport with no positional snap (no magnet-to-corner behavior).
+ */
+function settlePositionAfterGesture(
+  x: number,
+  y: number,
+  elWidth: number,
+  elHeight: number,
+): { x: number; y: number } {
+  if (typeof window === "undefined") return clampFreeInViewport(x, y, elWidth, elHeight);
+  const ratio = visibleAreaFraction(x, y, elWidth, elHeight);
+  if (ratio > OFFSCREEN_RATIO_SNAP) return clampFreeInViewport(x, y, elWidth, elHeight);
+  return nearestCornerPose(x, y, elWidth, elHeight);
+}
 
 /** Match `MiniPlayer` max-w-[calc(100vw-1.5rem)] */
 function viewportSideMarginPx(): number {
@@ -73,32 +127,7 @@ function getCornerPositions(elWidth: number, elHeight: number) {
   };
 }
 
-function snapCornerIfCloseElseClampFree(
-  x: number,
-  y: number,
-  elWidth: number,
-  elHeight: number,
-  proximityPx: number,
-): { x: number; y: number } {
-  const corners = Object.values(getCornerPositions(elWidth, elHeight));
-  let nearest = corners[0];
-  let nearestDist = Infinity;
-  for (const c of corners) {
-    const d = Math.hypot(x - c.x, y - c.y);
-    if (d < nearestDist) {
-      nearestDist = d;
-      nearest = c;
-    }
-  }
-  if (nearestDist <= proximityPx) {
-    return { x: nearest.x, y: clampY(nearest.y, elHeight) };
-  }
-  const maxX = window.innerWidth - elWidth - PADDING;
-  return {
-    x: Math.max(PADDING, Math.min(maxX, x)),
-    y: clampY(y, elHeight),
-  };
-}
+type TuckEdge = "none" | "left" | "right";
 
 /**
  * @param sessionKey e.g. mini `unique_id` — resets corner + tuck whenever mini session changes.
@@ -206,17 +235,16 @@ export function useMiniPlayerDrag(sessionKey: string) {
       if (tuckRef.current !== "none") {
         setPosition(visPosition(0, positionRef.current.y, width, height, tuckRef.current));
       } else {
-        const snap = snapCornerIfCloseElseClampFree(
+        const snap = settlePositionAfterGesture(
           positionRef.current.x,
           positionRef.current.y,
           width,
           height,
-          cornerSnapProximityPx(),
         );
         setTuck("none");
         setPosition(snap);
       }
-      window.setTimeout(() => setIsSnapping(false), SPRING_MS);
+      window.setTimeout(() => setIsSnapping(false), SNAP_TRANSITION_MS);
     };
     window.addEventListener("resize", onResize);
     return () => window.removeEventListener("resize", onResize);
@@ -253,25 +281,27 @@ export function useMiniPlayerDrag(sessionKey: string) {
       const distRight = window.innerWidth - rightEdge;
       const distLeft = x;
       const edgeThreshold = wasTuckedRef.current ? UNTUCK_RE_TUCK_PX : EDGE_TUCK_PX;
+      const offscreenEnough =
+        visibleAreaFraction(x, y, width, height) <= OFFSCREEN_RATIO_SNAP;
 
       let nextTuck: TuckEdge = "none";
-      let snap = { x, y: clampY(y, height) };
+      let snap: { x: number; y: number };
 
-      if (didDragRef.current && distRight <= edgeThreshold) {
+      if (didDragRef.current && offscreenEnough && distRight <= edgeThreshold) {
         nextTuck = "right";
         snap = visPosition(x, y, width, height, "right");
-      } else if (didDragRef.current && distLeft <= edgeThreshold) {
+      } else if (didDragRef.current && offscreenEnough && distLeft <= edgeThreshold) {
         nextTuck = "left";
         snap = visPosition(x, y, width, height, "left");
       } else {
-        snap = snapCornerIfCloseElseClampFree(x, y, width, height, cornerSnapProximityPx());
+        snap = settlePositionAfterGesture(x, y, width, height);
       }
 
       wasTuckedRef.current = false;
       setTuck(nextTuck);
       setIsSnapping(true);
       setPosition(snap);
-      window.setTimeout(() => setIsSnapping(false), SPRING_MS);
+      window.setTimeout(() => setIsSnapping(false), SNAP_TRANSITION_MS);
       window.setTimeout(() => {
         didDragRef.current = false;
       }, 0);
@@ -408,16 +438,15 @@ export function useMiniPlayerDrag(sessionKey: string) {
         setPosition(visPosition(0, positionRef.current.y, width, height, tuckRef.current));
       } else {
         setPosition(
-          snapCornerIfCloseElseClampFree(
+          settlePositionAfterGesture(
             positionRef.current.x,
             positionRef.current.y,
             width,
             height,
-            cornerSnapProximityPx(),
           ),
         );
       }
-      window.setTimeout(() => setIsSnapping(false), SPRING_MS);
+      window.setTimeout(() => setIsSnapping(false), SNAP_TRANSITION_MS);
     },
     [measureAndCacheSize, visPosition],
   );

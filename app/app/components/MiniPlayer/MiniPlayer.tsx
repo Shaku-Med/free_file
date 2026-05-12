@@ -91,9 +91,8 @@ function MiniPlayerContent() {
       initial={false}
       animate={{ width: frameWidth }}
       transition={
-        isSnapping
-          ? { type: "spring", stiffness: 400, damping: 28, mass: 0.9 }
-          : { type: "spring", stiffness: 320, damping: 26, mass: 0.85 }
+        isDragging ? { duration: 0 }
+          : { type: "tween", duration: isSnapping ? 0.2 : 0.15, ease: "easeOut" }
       }
       className={cn(
         "fixed z-[2147483646] max-w-[calc(100vw-1.5rem)] overflow-visible",
@@ -109,11 +108,11 @@ function MiniPlayerContent() {
         transition: isDragging
           ? "none"
           : isSnapping
-            ? "left 380ms cubic-bezier(0.25,1.25,0.5,1), top 380ms cubic-bezier(0.25,1.25,0.5,1), opacity 200ms ease, transform 200ms ease"
+            ? "left 200ms ease-out, top 200ms ease-out, opacity 200ms ease, transform 200ms ease"
             : mounted
-              ? "left 240ms cubic-bezier(0.22,1,0.36,1), top 240ms cubic-bezier(0.22,1,0.36,1), opacity 200ms ease, transform 200ms ease"
+              ? "left 180ms ease-out, top 180ms ease-out, opacity 200ms ease, transform 200ms ease"
               : "none",
-        willChange: "left, top, opacity, transform, width",
+        willChange: isDragging ? ('left, top, width') : ('opacity, transform'),
       }}
     >
       {tuck === "right" && (
@@ -125,7 +124,7 @@ function MiniPlayerContent() {
             "absolute left-0 top-1/2 z-[50] -translate-x-[72%] -translate-y-1/2",
             "pointer-events-auto",
             "h-16 w-[15px] cursor-grab touch-none select-none rounded-full active:cursor-grabbing",
-            "border border-white/30 bg-white/20 shadow-[0_2px_12px_rgba(0,0,0,0.45),inset_0_1px_0_rgba(255,255,255,0.35)] backdrop-blur-[8px]",
+            "border border-white/20 bg-black/55 shadow-md",
           )}
           style={{ isolation: "isolate" }}
           onPointerDown={handlePointerDown}
@@ -140,7 +139,7 @@ function MiniPlayerContent() {
             "absolute right-0 top-1/2 z-[50] translate-x-[72%] -translate-y-1/2",
             "pointer-events-auto",
             "h-16 w-[15px] cursor-grab touch-none select-none rounded-full active:cursor-grabbing",
-            "border border-white/30 bg-white/20 shadow-[0_2px_12px_rgba(0,0,0,0.45),inset_0_1px_0_rgba(255,255,255,0.35)] backdrop-blur-[8px]",
+            "border border-white/20 bg-black/55 shadow-md",
           )}
           style={{ isolation: "isolate" }}
           onPointerDown={handlePointerDown}
@@ -149,12 +148,12 @@ function MiniPlayerContent() {
 
       <div
         className={cn(
-          "overflow-hidden rounded-xl border border-border bg-muted",
-          "shadow-[0_8px_32px_rgba(0,0,0,0.55),0_2px_8px_rgba(0,0,0,0.35)]",
+          "overflow-hidden rounded-xl border border-border bg-black",
+          "shadow-lg shadow-black/40",
         )}
       >
         <div
-          className="flex h-9 cursor-grab touch-none select-none items-center bg-muted px-1.5 active:cursor-grabbing"
+          className="flex h-9 cursor-grab touch-none select-none items-center bg-zinc-900/95 px-1.5 active:cursor-grabbing"
           onPointerDown={handlePointerDown}
           aria-label="Drag to move mini player"
         >
@@ -221,7 +220,7 @@ function MiniPlayerContent() {
         )}
       />
 
-      <div className="bg-muted px-3 py-2.5">
+      <div className="bg-zinc-900/95 px-3 py-2.5">
         <p className="truncate text-xs font-medium leading-snug text-white/90">{titleStr}</p>
         {miniPlayer.file.owner?.username && (
           <p className="mt-0.5 truncate text-[11px] text-white/40">{miniPlayer.file.owner.username}</p>
@@ -229,7 +228,7 @@ function MiniPlayerContent() {
       </div>
 
       <div
-        className="absolute bottom-10 right-2 z-20 h-5 w-5 cursor-nwse-resize touch-none rounded-md border border-white/30 bg-black/50 shadow-sm backdrop-blur-sm hover:bg-black/65"
+        className="absolute bottom-10 right-2 z-20 h-5 w-5 cursor-nwse-resize touch-none rounded-md border border-white/25 bg-black/70 shadow-sm hover:bg-black/85"
         onPointerDown={handleResizePointerDown}
         onPointerMove={handleResizePointerMove}
         onPointerUp={handleResizePointerUp}

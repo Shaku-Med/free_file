@@ -881,7 +881,7 @@ function PlayerInner({
       style={{ cursor: showControls ? 'default' : tiltMode ? 'grab' : 'none' }}
       onContextMenu={handleContextMenu}
     >
-      {ambientMode && authPlayback && <AmbientBackground />}
+      {ambientMode && authPlayback && !isMiniPlayerPortalActive && <AmbientBackground />}
       <PosterBackground
         onImageLoaded={handlePosterImageLoaded}
       />
