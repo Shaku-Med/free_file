@@ -643,10 +643,6 @@ input[type="search"] {
   box-shadow: none;
 }
 
-.ambience-canvas {
-  filter: blur(50px);
-}
-
 @media (prefers-reduced-motion: reduce) {
   .ambience-canvas {
     display: none !important;

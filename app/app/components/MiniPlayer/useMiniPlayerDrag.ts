@@ -5,8 +5,10 @@ const DRAG_THRESHOLD_PX = 4;
 const SPRING_MS = 380;
 const STORAGE_KEY = "mini-player-width-v1";
 const MIN_W = 260;
-const MAX_W = 520;
-const DEFAULT_W = 340;
+/** Hard cap — never wider than this */
+const ABSOLUTE_MAX_W = 400;
+/** Preferred default when the viewport has room */
+const PREFERRED_DEFAULT_W = 340;
 /** Chrome + title block + 16:9 video (approx) — used until DOM measures. */
 function estimateShellHeight(width: number) {
   return 36 + 52 + (width * 9) / 16;
@@ -20,12 +22,27 @@ const UNTUCK_RE_TUCK_PX = 80;
 
 type TuckEdge = "none" | "left" | "right";
 
+/** Match `MiniPlayer` max-w-[calc(100vw-1.5rem)] */
+function viewportSideMarginPx(): number {
+  if (typeof window === "undefined") return 24;
+  const rem = parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
+  return rem * 1.5;
+}
+
+/** Max width for current screen: at most 400px, and never wider than the padded viewport. */
+export function getViewportMaxMiniPlayerWidth(): number {
+  if (typeof window === "undefined") return ABSOLUTE_MAX_W;
+  const byViewport = Math.floor(window.innerWidth - viewportSideMarginPx());
+  return Math.min(ABSOLUTE_MAX_W, Math.max(MIN_W, byViewport));
+}
+
 function loadStoredWidth(): number {
-  if (typeof window === "undefined") return DEFAULT_W;
+  if (typeof window === "undefined") return PREFERRED_DEFAULT_W;
+  const cap = getViewportMaxMiniPlayerWidth();
   const raw = sessionStorage.getItem(STORAGE_KEY);
   const n = raw ? parseInt(raw, 10) : NaN;
-  if (!Number.isFinite(n)) return DEFAULT_W;
-  return Math.min(MAX_W, Math.max(MIN_W, n));
+  if (!Number.isFinite(n)) return Math.min(PREFERRED_DEFAULT_W, cap);
+  return Math.min(cap, Math.max(MIN_W, n));
 }
 
 function initialBottomRightPosition(width: number): { x: number; y: number } {
@@ -70,10 +87,15 @@ function nearestCorner(cx: number, cy: number, elWidth: number, elHeight: number
  * @param sessionKey e.g. mini `unique_id` — resets corner + tuck whenever mini session changes.
  */
 export function useMiniPlayerDrag(sessionKey: string) {
-  const [frameWidth, setFrameWidth] = useState(loadStoredWidth);
-  const [position, setPosition] = useState(() => initialBottomRightPosition(loadStoredWidth()));
+  const [frameWidthMax, setFrameWidthMax] = useState(() =>
+    typeof window === "undefined" ? ABSOLUTE_MAX_W : getViewportMaxMiniPlayerWidth(),
+  );
+  const [frameWidth, setFrameWidth] = useState(() => loadStoredWidth());
+  const [position, setPosition] = useState(() =>
+    initialBottomRightPosition(typeof window === "undefined" ? PREFERRED_DEFAULT_W : loadStoredWidth()),
+  );
   const [isSnapping, setIsSnapping] = useState(false);
-  const [mounted, setMounted] = useState(true);
+  const [mounted] = useState(true);
   const [tuck, setTuck] = useState<TuckEdge>("none");
   /** State (not ref) so consumers can disable CSS transition during drag. */
   const [isDraggingState, setIsDraggingState] = useState(false);
@@ -84,15 +106,29 @@ export function useMiniPlayerDrag(sessionKey: string) {
   /** True during a drag that started from a tucked state — uses wider re-tuck threshold. */
   const wasTuckedRef = useRef(false);
   const removeDragWindowListenersRef = useRef<(() => void) | null>(null);
-  const startRef = useRef({ pointerX: 0, pointerY: 0, elX: 0, elY: 0, w: DEFAULT_W });
+  const startRef = useRef({ pointerX: 0, pointerY: 0, elX: 0, elY: 0, w: PREFERRED_DEFAULT_W });
   const positionRef = useRef(position);
   positionRef.current = position;
   const tuckRef = useRef<TuckEdge>("none");
   tuckRef.current = tuck;
-  const elSizeRef = useRef({ width: loadStoredWidth(), height: estimateShellHeight(loadStoredWidth()) });
+  const elSizeRef = useRef({
+    width: typeof window === "undefined" ? PREFERRED_DEFAULT_W : loadStoredWidth(),
+    height: estimateShellHeight(typeof window === "undefined" ? PREFERRED_DEFAULT_W : loadStoredWidth()),
+  });
   const elementRef = useRef<HTMLDivElement | null>(null);
   const frameWidthRef = useRef(frameWidth);
   frameWidthRef.current = frameWidth;
+
+  useEffect(() => {
+    const syncCap = () => {
+      const cap = getViewportMaxMiniPlayerWidth();
+      setFrameWidthMax(cap);
+      setFrameWidth((w) => Math.min(cap, Math.max(MIN_W, w)));
+    };
+    syncCap();
+    window.addEventListener("resize", syncCap);
+    return () => window.removeEventListener("resize", syncCap);
+  }, []);
   /** Live drag delta, written direct to DOM via transform — bypasses React for smoothness. */
   const dragDeltaRef = useRef({ dx: 0, dy: 0 });
 
@@ -325,9 +361,9 @@ export function useMiniPlayerDrag(sessionKey: string) {
   const handleResizePointerMove = useCallback((e: React.PointerEvent) => {
     if (!isResizing.current) return;
     const dx = e.clientX - startRef.current.pointerX;
-    const next = Math.min(MAX_W, Math.max(MIN_W, startRef.current.w + dx));
+    const next = Math.min(frameWidthMax, Math.max(MIN_W, startRef.current.w + dx));
     setFrameWidth(next);
-  }, []);
+  }, [frameWidthMax]);
 
   const handleResizePointerUp = useCallback(
     (e: React.PointerEvent) => {
@@ -361,6 +397,7 @@ export function useMiniPlayerDrag(sessionKey: string) {
     elementRef,
     position,
     frameWidth,
+    frameWidthMax,
     tuck,
     isSnapping,
     isDragging: isDraggingState,

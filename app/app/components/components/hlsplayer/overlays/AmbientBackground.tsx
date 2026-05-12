@@ -18,13 +18,7 @@ const FALLBACK_COLORS = ['#1e3a5f', '#0f172a', '#020617'];
 const SOFT_MASK =
   'radial-gradient(ellipse 80% 80% at 50% 50%, black 15%, rgba(0,0,0,0.4) 55%, transparent 90%)';
 
-/**
- * drawImage(video, 0, 0, 8, 8) = 64 pixels, GPU-accelerated, virtually free.
- * CSS upscale from 8px → ~1000px+ display = natural Gaussian-like blur.
- */
 const SAMPLE_SIZE = 8;
-
-/** Fallback gradient rendered until the first video frame is available. */
 const GRADIENT_SIZE = 32;
 
 export default function AmbientBackground() {
@@ -48,13 +42,13 @@ export default function AmbientBackground() {
     if (!ambientMode) return;
     const canvas = canvasRef.current;
     if (!canvas) return;
-
     const video = videoRef.current;
+
     let ctx: CanvasRenderingContext2D | null = null;
     let cancelled = false;
-    let rafId: number | null = null;
-    let rvfcId: number | null = null;
     let trackingVideo = false;
+    let rafId: number | undefined;
+    let rvfcId: number | undefined;
 
     const paintGradient = () => {
       if (trackingVideo) return;
@@ -72,68 +66,67 @@ export default function AmbientBackground() {
       ctx.fillRect(0, 0, GRADIENT_SIZE, GRADIENT_SIZE);
     };
 
-    const drawFrame = () => {
-      if (cancelled || !video) return;
-
-      if (video.readyState < 2 || video.videoWidth === 0) {
-        paintGradient();
-        rafId = requestAnimationFrame(drawFrame);
-        return;
-      }
-
+    const draw = () => {
+      if (cancelled || !video || video.readyState < 2 || video.videoWidth === 0) return;
       if (!trackingVideo) {
         trackingVideo = true;
         canvas.width = SAMPLE_SIZE;
         canvas.height = SAMPLE_SIZE;
         ctx = canvas.getContext('2d', { alpha: false });
       }
+      if (!ctx) return;
+      try { ctx.drawImage(video, 0, 0, SAMPLE_SIZE, SAMPLE_SIZE); } catch {}
+    };
 
-      if (ctx) {
-        try {
-          ctx.drawImage(video, 0, 0, SAMPLE_SIZE, SAMPLE_SIZE);
-        } catch {
-          trackingVideo = false;
-          paintGradient();
-          return;
-        }
-      }
+    const loop = () => {
+      if (cancelled) return;
+      draw();
+      scheduleNext();
+    };
 
-      if (!video.paused && !video.ended) {
-        if ('requestVideoFrameCallback' in video) {
-          rvfcId = (video as any).requestVideoFrameCallback(() => drawFrame());
-        } else {
-          rafId = requestAnimationFrame(drawFrame);
-        }
+    const scheduleNext = () => {
+      if (cancelled || !video || video.paused || video.ended) return;
+      if ('requestVideoFrameCallback' in video) {
+        rvfcId = (video as any).requestVideoFrameCallback(loop);
+      } else {
+        rafId = requestAnimationFrame(loop);
       }
     };
 
-    paintGradient();
+    const cancelScheduled = () => {
+      if (rafId !== undefined) { cancelAnimationFrame(rafId); rafId = undefined; }
+      if (rvfcId !== undefined && video && 'cancelVideoFrameCallback' in video) {
+        (video as any).cancelVideoFrameCallback(rvfcId); rvfcId = undefined;
+      }
+    };
 
+    const onPlay = () => { if (cancelled) return; cancelScheduled(); loop(); };
+    const onPause = () => { cancelScheduled(); draw(); };
+    const onSeeked = () => { if (!cancelled) draw(); };
+    const onLoaded = () => {
+      if (cancelled) return;
+      draw();
+      if (video && !video.paused) { cancelScheduled(); loop(); }
+    };
+
+    paintGradient();
     if (!video) return;
 
-    const onPlay = () => { if (!cancelled) drawFrame(); };
-    const onSeeked = () => { if (!cancelled) drawFrame(); };
-    const onLoadedData = () => { if (!cancelled) drawFrame(); };
-
-    if (!video.paused && !video.ended) {
-      drawFrame();
-    } else if (video.readyState >= 2) {
-      drawFrame();
-    }
+    if (!video.paused && !video.ended) loop();
+    else if (video.readyState >= 2) draw();
 
     video.addEventListener('play', onPlay);
+    video.addEventListener('pause', onPause);
     video.addEventListener('seeked', onSeeked);
-    video.addEventListener('loadeddata', onLoadedData);
+    video.addEventListener('loadeddata', onLoaded);
 
     return () => {
       cancelled = true;
-      if (rafId !== null) cancelAnimationFrame(rafId);
-      if (rvfcId !== null && 'cancelVideoFrameCallback' in video) {
-        (video as any).cancelVideoFrameCallback(rvfcId);
-      }
+      cancelScheduled();
       video.removeEventListener('play', onPlay);
+      video.removeEventListener('pause', onPause);
       video.removeEventListener('seeked', onSeeked);
-      video.removeEventListener('loadeddata', onLoadedData);
+      video.removeEventListener('loadeddata', onLoaded);
     };
   }, [ambientMode, videoRef, colorKey]);
 
@@ -150,6 +143,7 @@ export default function AmbientBackground() {
           height: '140%',
           opacity: 0.72,
           filter: 'saturate(1.3)',
+          willChange: 'transform',
           maskImage: SOFT_MASK,
           WebkitMaskImage: SOFT_MASK,
         }}

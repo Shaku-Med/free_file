@@ -1763,7 +1763,7 @@ const index = () => {
                     <div className="mobile_blur_overlay absolute inset-x-0 bottom-0 h-full z-[10] bg-gradient-to-t from-background/95 via-background/60 to-transparent" />
                   )}
                   <div
-                    className="absolute inset-0 opacity-80 [filter:saturate(1.5)_blur(40px)]"
+                    className="absolute inset-0 opacity-80"
                     style={{
                       WebkitMaskImage:
                         "radial-gradient(ellipse 60% 55% at 50% 50%, black 10%, rgba(0,0,0,0.5) 35%, rgba(0,0,0,0.15) 55%, transparent 70%)",
