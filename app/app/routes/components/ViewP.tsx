@@ -9,7 +9,6 @@ import { useSidebar } from '~/components/ui/sidebar'
 import HLSPlayer from '~/components/components/hlsplayer'
 import ImageLoad from '~/routes/Home/components/ImageLoad/ImageLoad'
 import RelatedVideos from '../Dynamic/components/RelatedVideos'
-import ImagePreview from '../Dynamic/components/ImagePreview/ImagePreview'
 import { ParseFilename, getVideoSrc } from '~/lib/utils'
 import { Separator } from '~/components/ui/separator'
 import UserAction from './UserAction'
@@ -54,9 +53,7 @@ const ViewP = ({ file }: ViewPProps) => {
   
     const [retryAttempt, setRetryAttempt] = useState<number>(0)
     const [showAdultContent, setShowAdultContent] = useState<boolean>(file?.is_adult ?? false)
-    const [imageUrl, setImageUrl] = useState<{ url: string, imageID: string } | null>(null)
     const [imageColors, setImageColors] = useState<string[] | null>(null)
-    const [madeImageUrl, setMadeImageUrl] = useState<string | null>(null)
     const {isMobile, state} = useSidebar();
   
     const retry = () => {
@@ -126,27 +123,24 @@ const ViewP = ({ file }: ViewPProps) => {
                               key={file.unique_id}
                               callBack={e => {
                                 setImageColors(e.colors)
-                                setMadeImageUrl(e.src)
                               }}
                               videoRef={null as unknown as React.RefObject<HTMLVideoElement>}
                             />
                           ) : (
-                              <motion.div 
-                              transition={{ duration: 0.1 }} 
-                              onClick={e => {
-                                if(madeImageUrl) {
-                                  setImageUrl({ url: madeImageUrl, imageID: file.unique_id })
-                                }
-                              }} layoutId={`image_id_${file.unique_id}`} className="w-full h-[500px] max-h-[500px] cursor-zoom-in z-[100]">
+                              <motion.div
+                                transition={{ duration: 0.1 }}
+                                layoutId={`image_id_${file.unique_id}`}
+                                className="relative z-[100] h-[500px] max-h-[500px] w-full cursor-zoom-in"
+                              >
                                 <ImageLoad
                                   link={`/api/load/image/${file.endpoint}`}
                                   retry={retry}
                                   className="w-full h-full object-contain rounded-3xl"
                                   imageID={file.unique_id}
                                   index={0}
-                                  hasAdultTag={false}
+                                  hasAdultTag={Boolean(file?.is_adult)}
+                                  shouldShowPreview={true}
                                   callBack={e => {
-                                    setMadeImageUrl(e.src)
                                     setImageColors(e.colors)
                                   }}
                                   key={file.unique_id}
@@ -209,10 +203,6 @@ const ViewP = ({ file }: ViewPProps) => {
               </div>
             </div>
       
-          {/* Image Preview */}
-          {imageUrl && (
-            <ImagePreview imageUrl={imageUrl} setImageUrl={setImageUrl} />
-          )}
     </>
   )
 }

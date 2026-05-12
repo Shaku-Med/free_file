@@ -19,7 +19,6 @@ import { useStandalone } from "~/lib/hooks/useStandalone";
 import { stripGithubRepoForClient } from "~/lib/githubStorage";
 import { checkFileAccess } from "./fun/accessControl";
 import AdultContentBadge from "./components/AdultContentBadge";
-import ImagePreview from "./components/ImagePreview/ImagePreview";
 import Actions from "../Home/components/VideoCard/Actions";
 import { isAuthenticated } from "~/lib/Security/Password";
 import CommentSection from "./components/Comments/CommentSection";
@@ -840,6 +839,7 @@ const index = () => {
   const {
     activateMiniPlayer,
     miniPlayer: activeMiniPlayer,
+    closeMiniPlayer,
     dismissMiniPlayerChrome,
     clearExpandHandoff,
     isExpanding,
@@ -893,6 +893,22 @@ const index = () => {
   const activeMiniPlayerRef = useRef(activeMiniPlayer);
   activeMiniPlayerRef.current = activeMiniPlayer;
 
+  useEffect(() => {
+    if (!file_data?.unique_id) return;
+    const fd = file_data;
+    const hls = fd.file_type === 'application/vnd.apple.mpegurl' || !!fd.endpoint?.includes('.m3u8');
+    const isVideoFile = hls || !!fd.file_type?.includes('video');
+    if (isVideoFile) return;
+    if (!activeMiniPlayer) return;
+    closeMiniPlayer();
+  }, [
+    file_data?.unique_id,
+    file_data?.file_type,
+    file_data?.endpoint,
+    activeMiniPlayer,
+    closeMiniPlayer,
+  ]);
+
   const expandMatch = expandPlaybackState && expandPlaybackState.fileId === currentId ? expandPlaybackState : null;
   // Only ?t= deep-link should seek on load. Mini→watch uses the same global `<video>`;
   // passing expand snapshot here re-runs `usePlaybackPosition` and seeks backward / stutters.
@@ -907,7 +923,6 @@ const index = () => {
       setHasIncrementedView(false);
       viewIncrementSentRef.current = false;
       setRetryAttempt(0);
-      setImageUrl(null);
       setImageColors(null);
       setMadeImageUrl(null);
       hasCachedRef.current = null;
@@ -1047,7 +1062,6 @@ const index = () => {
   }, [currentId, file_data?.id, file_data?.unique_id]);
 
   const [retryAttempt, setRetryAttempt] = useState<number>(0)
-  const [imageUrl, setImageUrl] = useState<{ url: string, imageID: string } | null>(null)
   const [imageColors, setImageColors] = useState<string[] | null>(null)
   const [madeImageUrl, setMadeImageUrl] = useState<string | null>(null)
   const [ambientEnabled, setAmbientEnabled] = useState<boolean>(() => {
@@ -1403,15 +1417,10 @@ const index = () => {
         )}
       >
         {isHLS ? null : (
-          <motion.div 
-            transition={{ duration: 0.1 }} 
-            onClick={() => {
-              if(madeImageUrl) {
-                setImageUrl({ url: madeImageUrl, imageID: file_data.unique_id })
-              }
-            }} 
-            layoutId={`image_id_${file_data.unique_id}`} 
-            className="w-full aspect-video cursor-zoom-in relative"
+          <motion.div
+            transition={{ duration: 0.1 }}
+            layoutId={`image_id_${file_data.unique_id}`}
+            className="relative aspect-video w-full cursor-zoom-in"
           >
             <ImageLoad
               link={`/api/load/image/${file_data.endpoint}`}

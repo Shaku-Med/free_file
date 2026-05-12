@@ -1077,17 +1077,14 @@ function PlayerInner({
 
         {(!isReelCtx || embedReelControls) && !isMiniPlayerPortalActive && (
           <div
-            className={`absolute inset-0 z-[31] transition-opacity duration-300 ${showControls ? 'opacity-100' : 'opacity-0 pointer-events-none'} ${tiltMode && showControls ? 'pointer-events-none' : ''}`}
-            onClick={(e) => {
-              if (tiltMode) return;
-              if (e.target === e.currentTarget) handleVideoClick();
-            }}
-            onDoubleClick={(e) => {
-              if (tiltMode) return;
-              if (e.target === e.currentTarget) handleDoubleClick(e);
-            }}
+            className={`absolute inset-0 z-[31] pointer-events-none transition-opacity duration-300 ${showControls ? 'opacity-100' : 'opacity-0'}`}
           >
             <div className="absolute bottom-0 left-0 right-0 h-32 bg-gradient-to-t from-black/80 to-transparent pointer-events-none" />
+            {/*
+              This shell stays pointer-events-none so wheel/trackpad scroll reaches the page
+              scroll_container over the video. ControlBar uses pointer-events auto only on its
+              interactive strips (desktop bottom bar; mobile inset-0 + auto regions).
+            */}
             <ControlBar
               onNext={hasNextControl ? handleNextVideo : undefined}
               nextVideo={hasNextControl ? nextVideoForTooltip : undefined}

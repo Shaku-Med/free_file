@@ -26,7 +26,8 @@ export function CloseMiniPlayerOnNavigateToVideo() {
     if (prev === next) return;
     if (!miniPlayer) return;
     const nextVideoId = getDynamicVideoIdFromPath(next);
-    if (nextVideoId && miniPlayer.file.unique_id === nextVideoId) return;
+    // Same URL id + expanding from mini → watch page will dismiss chrome after slot mounts.
+    if (nextVideoId && miniPlayer.file.unique_id === nextVideoId && isExpanding) return;
     if (isExpanding) return;
     if (isDynamicVideoPath(next)) {
       closeMiniPlayer();
