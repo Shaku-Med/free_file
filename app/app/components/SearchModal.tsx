@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useLocation } from "react-router";
-import { Search as SearchIcon, X as XIcon, User, ExternalLink } from "lucide-react";
+import { Search as SearchIcon, X as XIcon, User, ExternalLink, Layers } from "lucide-react";
 import { useFileContext } from "~/lib/Context/Context";
 import type { FileType } from "~/lib/types";
 import { Input } from "~/components/ui/input";
@@ -14,6 +14,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "~/components/ui/dialog";
+
 type SearchUser = { id: string; username: string; profile_pic: string; file_count: number };
 
 function SkeletonCard() {
@@ -60,6 +61,7 @@ export function SearchModal({ open, onOpenChange }: SearchModalProps) {
   const [isLoading, setIsLoading] = useState(false);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [suggestions, setSuggestions] = useState<FileType[]>([]);
+  const [seriesRoots, setSeriesRoots] = useState<FileType[]>([]);
   const nextCursorRef = useRef<{ cursor_score: number; cursor_id: string } | null>(null);
 
   const runSearch = useCallback(async (term: string, append: boolean) => {
@@ -94,6 +96,8 @@ export function SearchModal({ open, onOpenChange }: SearchModalProps) {
       } else {
         setFiles(newFiles);
         setSearchUsers(newUsers);
+        const sr = Array.isArray(result.seriesRoots) ? result.seriesRoots : [];
+        setSeriesRoots(sr as FileType[]);
       }
 
       nextCursorRef.current = result.nextCursor ?? null;
@@ -134,6 +138,7 @@ export function SearchModal({ open, onOpenChange }: SearchModalProps) {
       setSearchUsers([]);
       setHasMore(false);
       nextCursorRef.current = null;
+      setSeriesRoots([]);
       fetch("/api/feed")
         .then((r) => r.ok ? r.json() : null)
         .then((result) => {
@@ -169,7 +174,11 @@ export function SearchModal({ open, onOpenChange }: SearchModalProps) {
     runSearch(activeTerm, true);
   }, [isLoadingMore, hasMore, activeTerm, runSearch]);
 
-  const showSuggestions = activeTerm && files.length === 0 && searchUsers.length === 0;
+  const showSuggestions =
+    activeTerm &&
+    files.length === 0 &&
+    searchUsers.length === 0 &&
+    seriesRoots.length === 0;
   const fullSearchHref = activeTerm ? `/search/${encodeURIComponent(activeTerm)}` : "/search";
 
   return (
@@ -232,7 +241,7 @@ export function SearchModal({ open, onOpenChange }: SearchModalProps) {
                 ))}
               </div>
             ) : activeTerm ? (
-              files.length > 0 || searchUsers.length > 0 ? (
+              files.length > 0 || searchUsers.length > 0 || seriesRoots.length > 0 ? (
                 <>
                   {searchUsers.length > 0 && (
                     <div className="space-y-3">
@@ -270,9 +279,35 @@ export function SearchModal({ open, onOpenChange }: SearchModalProps) {
                     </div>
                   )}
 
+                  {seriesRoots.length > 0 && (
+                    <div className="space-y-3">
+                      <div className="flex items-start gap-2">
+                        <Layers className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
+                        <div>
+                          <h3 className="text-sm font-semibold text-foreground">Series</h3>
+                          <p className="mt-0.5 text-xs text-muted-foreground">
+                            Matched from an episode in this series.
+                          </p>
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        {seriesRoots.map((file, index) => (
+                          <VideoCard
+                            key={file.id ?? index}
+                            data={file}
+                            index={index}
+                            userActions={localUserActions}
+                            currentUserId={userId ?? undefined}
+                            hideActions={{completely: false, halfway: false}}
+                          />
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
                   {files.length > 0 && (
                     <div className="space-y-3">
-                      {searchUsers.length > 0 && (
+                      {(searchUsers.length > 0 || seriesRoots.length > 0) && (
                         <h3 className="text-sm font-semibold text-foreground">Files</h3>
                       )}
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">

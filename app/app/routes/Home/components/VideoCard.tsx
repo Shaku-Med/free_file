@@ -24,6 +24,7 @@ import { useSidebarOptional } from "~/components/ui/sidebar";
 import { formatTimeAgo } from "~/lib/formatTimeAgo";
 import { EpisodePicker } from "./EpisodePicker";
 import WatchProgressBar from "./WatchProgressBar";
+import { SeriesEpisodesPreviewDialog } from "~/components/SeriesEpisodesPreviewDialog";
 
 function tryUnwrapJsonEntry(val: string): CaptionEntry | null {
   const s = val.trim();
@@ -337,6 +338,7 @@ const VideoCard = ({
   const [seriesBrowseResults, setSeriesBrowseResults] = useState<{ file_title: string; file_series_id: string }[]>([]);
   const [seriesBrowseLoading, setSeriesBrowseLoading] = useState(false);
   const [isSeriesBusy, setIsSeriesBusy] = useState(false);
+  const [seriesEpisodesPreviewOpen, setSeriesEpisodesPreviewOpen] = useState(false);
 
   /** Series is available on any file the viewer owns. */
   const canManageSeries = isOwner;
@@ -1035,22 +1037,26 @@ const VideoCard = ({
       )}
       {data.is_adult && <AdultContentBadge />}
       {isSeriesMain ? (
-        <div
-          className="pointer-events-none absolute left-2 top-2 z-[100] inline-flex items-center gap-1 rounded-full border border-white/20 bg-gradient-to-r from-violet-600/95 via-fuchsia-600/95 to-purple-600/95 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-white shadow-lg backdrop-blur-sm"
-          aria-label="Series"
+        <button
+          type="button"
+          className="absolute left-2 top-2 z-[100] inline-flex h-7 w-7 items-center justify-center rounded-full border border-border/80 bg-card/95 text-foreground shadow-sm ring-1 ring-border/50 backdrop-blur-sm transition-colors hover:bg-muted/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40 dark:bg-zinc-900/95 dark:ring-white/10"
+          aria-label="Browse series episodes"
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            setSeriesEpisodesPreviewOpen(true);
+          }}
         >
-          <ListVideo className="h-3.5 w-3.5 shrink-0" strokeWidth={2.5} />
-          Series
-        </div>
-      ) : isSeriesFile(data) && (
+          <ListVideo className="h-3.5 w-3.5 shrink-0" strokeWidth={2.5} aria-hidden />
+        </button>
+      ) : isSeriesFile(data) ? (
         <div
-          className="pointer-events-none absolute left-2 top-2 z-[100] inline-flex items-center gap-1 rounded-full border border-white/20 bg-black/80 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-white shadow-md backdrop-blur-sm"
-          aria-label="In series"
+          className="pointer-events-none absolute left-2 top-2 z-[100] inline-flex h-7 w-7 items-center justify-center rounded-full border border-border/70 bg-muted/90 text-foreground shadow-sm ring-1 ring-border/40 backdrop-blur-sm dark:bg-zinc-900/90 dark:border-white/10"
+          aria-hidden
         >
-          <ListVideo className="h-3.5 w-3.5 shrink-0 opacity-95" strokeWidth={2.5} />
-          In series
+          <ListVideo className="h-3.5 w-3.5 shrink-0" strokeWidth={2.5} aria-hidden />
         </div>
-      )}
+      ) : null}
       {data.is_reel && (
         <div
           className="pointer-events-none absolute right-2 top-2 z-[100] inline-flex items-center rounded-full border border-destructive/50 bg-destructive px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.08em] text-destructive-foreground shadow-sm"
@@ -2090,6 +2096,21 @@ const VideoCard = ({
     </>
   )
 
+  const isSeriesMainCard =
+    data.is_series_main === true || (data.is_series_main as unknown) === 1;
+
+  const seriesEpisodesPreviewDialogEl = isSeriesMainCard ? (
+    <SeriesEpisodesPreviewDialog
+      open={seriesEpisodesPreviewOpen}
+      onOpenChange={setSeriesEpisodesPreviewOpen}
+      uniqueId={data.unique_id?.trim() ? data.unique_id : null}
+      seriesTitle={data.file_title}
+      fileSeriesId={data.file_series_id != null ? String(data.file_series_id) : null}
+      currentUserId={currentUserId}
+      userActions={userActions}
+    />
+  ) : null;
+
   if (layout === "shelf") {
     return (
       <div className="group flex w-full flex-col gap-2">
@@ -2136,6 +2157,7 @@ const VideoCard = ({
         </div>
         {renderEditDialog()}
         {renderInfoDialog()}
+        {seriesEpisodesPreviewDialogEl}
       </div>
     );
   }
@@ -2250,6 +2272,7 @@ const VideoCard = ({
 
         {renderEditDialog()}
         {renderInfoDialog()}
+        {seriesEpisodesPreviewDialogEl}
       </div>
     );
   }
@@ -2313,6 +2336,7 @@ const VideoCard = ({
 
         {renderEditDialog()}
         {renderInfoDialog()}
+        {seriesEpisodesPreviewDialogEl}
       </div>
     );
   }
@@ -2381,6 +2405,7 @@ const VideoCard = ({
 
         {renderEditDialog()}
         {renderInfoDialog()}
+        {seriesEpisodesPreviewDialogEl}
       </div>
     );
   }
@@ -2490,6 +2515,7 @@ const VideoCard = ({
       </div>
       {renderEditDialog()}
       {renderInfoDialog()}
+      {seriesEpisodesPreviewDialogEl}
     </div>
   );
 };

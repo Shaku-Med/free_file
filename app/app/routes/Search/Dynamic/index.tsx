@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { data, useLoaderData, useNavigate, Link } from "react-router";
-import { Search as SearchIcon, X as XIcon, User } from "lucide-react";
+import { Search as SearchIcon, X as XIcon, User, Layers } from "lucide-react";
 
 import { useFileContext } from "~/lib/Context/Context";
 import type { FileType } from "~/lib/types";
@@ -20,6 +20,7 @@ import "swiper/css";
 import "swiper/css/navigation";
 
 const SEARCH_LIMIT = 20;
+const SERIES_ROOTS_LIMIT = 8;
 
 function mapSearchFile(file: any) {
   return {
@@ -69,6 +70,11 @@ function mapSearchFile(file: any) {
   };
 }
 
+function dedupeSeriesRoots(seriesRoots: FileType[], files: FileType[]): FileType[] {
+  const seen = new Set(files.map((f) => f.id).filter(Boolean));
+  return seriesRoots.filter((s) => s.id && !seen.has(s.id));
+}
+
 export const loader = async ({ request }: { request: Request }) => {
   try {
     let term = request.url.split(`/search/`)[1];
@@ -86,6 +92,7 @@ export const loader = async ({ request }: { request: Request }) => {
       return data({
         url: '',
         results: [],
+        seriesRoots: [],
         users: [],
         userActions: { likedFileIds: [], dislikedFileIds: [] },
         nextCursor: null,
@@ -97,6 +104,7 @@ export const loader = async ({ request }: { request: Request }) => {
     const userId: string | undefined = user?.id || undefined;
 
     let results: any[] = [];
+    let seriesRoots: FileType[] = [];
     let likedFileIds: string[] = [];
     let dislikedFileIds: string[] = [];
     let nextCursor: { cursor_score: number; cursor_id: string } | null = null;
@@ -104,7 +112,7 @@ export const loader = async ({ request }: { request: Request }) => {
 
     try {
       if (db) {
-        const [searchResult, usersResult] = await Promise.all([
+        const [searchResult, seriesRootsResult, usersResult] = await Promise.all([
           db.rpc('search_files', {
             p_query: sanitizedTerm,
             p_user_id: userId || null,
@@ -114,6 +122,11 @@ export const loader = async ({ request }: { request: Request }) => {
             p_sort_by: 'relevance',
             p_cursor_score: null,
             p_cursor_id: null,
+          }),
+          db.rpc('search_series_roots_for_query', {
+            p_query: sanitizedTerm,
+            p_user_id: userId || null,
+            p_limit: SERIES_ROOTS_LIMIT,
           }),
           db
             .from('users')
@@ -138,6 +151,17 @@ export const loader = async ({ request }: { request: Request }) => {
           }
         }
 
+        if (!seriesRootsResult.error && Array.isArray(seriesRootsResult.data)) {
+          const mapped = (seriesRootsResult.data as any[]).map((file: any) => {
+            if (file.user_has_liked) likedFileIds.push(file.id);
+            if (file.user_has_disliked) dislikedFileIds.push(file.id);
+            return mapSearchFile(file);
+          });
+          seriesRoots = dedupeSeriesRoots(mapped, results);
+        } else if (seriesRootsResult.error) {
+          console.error("search_series_roots_for_query RPC error:", seriesRootsResult.error);
+        }
+
         if (!usersResult.error && Array.isArray(usersResult.data) && usersResult.data.length > 0) {
           const userData = usersResult.data as Array<{ id: string; username: string; profile_pic: string; file_count: number | null }>;
           users = userData.map((u) => ({
@@ -155,6 +179,7 @@ export const loader = async ({ request }: { request: Request }) => {
     return data({
       url: sanitizedTerm,
       results,
+      seriesRoots,
       users,
       userActions: { likedFileIds, dislikedFileIds },
       nextCursor,
@@ -202,6 +227,12 @@ const Search = () => {
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const nextCursorRef = useRef<{ cursor_score: number; cursor_id: string } | null>(null);
   const [suggestions, setSuggestions] = useState<FileType[]>([]);
+
+  const seriesRoots = useMemo((): FileType[] => {
+    if (!loaderData || typeof loaderData !== "object") return [];
+    const sr = (loaderData as { seriesRoots?: unknown }).seriesRoots;
+    return Array.isArray(sr) ? (sr as FileType[]) : [];
+  }, [loaderData]);
 
   useEffect(() => {
     if (!loaderData || typeof loaderData !== 'object') return;
@@ -316,7 +347,8 @@ const Search = () => {
     fetchFeed();
   }, [activeTerm]);
 
-  const showSuggestions = activeTerm && files.length === 0 && searchUsers.length === 0;
+  const showSuggestions =
+    activeTerm && files.length === 0 && searchUsers.length === 0 && seriesRoots.length === 0;
 
   const renderFileGroups = (items: FileType[], keyPrefix: string) => {
     const groups = groupConsecutiveReelClusters(items);
@@ -428,7 +460,7 @@ const Search = () => {
         </form>
 
         {activeTerm ? (
-          (files.length > 0 || searchUsers.length > 0) ? (
+          files.length > 0 || searchUsers.length > 0 || seriesRoots.length > 0 ? (
             <div className="space-y-6">
               {searchUsers.length > 0 && (
                 <div className="space-y-4">
@@ -465,9 +497,35 @@ const Search = () => {
                 </div>
               )}
 
+              {seriesRoots.length > 0 && (
+                <div className="space-y-4">
+                  <div className="flex items-start gap-2">
+                    <Layers className="mt-0.5 h-5 w-5 shrink-0 text-muted-foreground" aria-hidden />
+                    <div>
+                      <h3 className="text-lg font-semibold text-foreground">Series</h3>
+                      <p className="text-sm text-muted-foreground">
+                        Your search matched text on an episode inside these series.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-2">
+                    {seriesRoots.map((file, idx) => (
+                      <VideoCard
+                        key={file.id || file.unique_id || `sr-${idx}`}
+                        data={file}
+                        index={idx}
+                        userActions={localUserActions}
+                        currentUserId={userId || undefined}
+                        hideActions={{ completely: false }}
+                      />
+                    ))}
+                  </div>
+                </div>
+              )}
+
               {files.length > 0 && (
                 <div className="space-y-4">
-                  {searchUsers.length > 0 && (
+                  {(searchUsers.length > 0 || seriesRoots.length > 0) && (
                     <h3 className="text-lg font-semibold text-foreground">Files</h3>
                   )}
                   {renderFileGroups(files, "search")}

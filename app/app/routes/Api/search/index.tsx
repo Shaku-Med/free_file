@@ -2,6 +2,7 @@ import db from '~/lib/Database/supabase';
 import { isAuthenticated } from '~/lib/Security/Password';
 
 const SEARCH_LIMIT = 20;
+const SERIES_ROOTS_LIMIT = 8;
 
 function mapSearchFile(file: any) {
   return {
@@ -51,12 +52,17 @@ function mapSearchFile(file: any) {
   };
 }
 
+function dedupeSeriesByMainFiles(seriesRoots: ReturnType<typeof mapSearchFile>[], files: ReturnType<typeof mapSearchFile>[]) {
+  const seen = new Set(files.map((f) => f.id).filter(Boolean));
+  return seriesRoots.filter((s) => s.id && !seen.has(s.id));
+}
+
 export const loader = async ({ request }: { request: Request }) => {
   try {
     const url = new URL(request.url);
     const query = url.searchParams.get('q')?.trim();
     if (!query) {
-      return new Response(JSON.stringify({ data: [], users: [], userActions: { likedFileIds: [], dislikedFileIds: [] }, nextCursor: null }), {
+      return new Response(JSON.stringify({ data: [], seriesRoots: [], users: [], userActions: { likedFileIds: [], dislikedFileIds: [] }, nextCursor: null }), {
         headers: { 'Content-Type': 'application/json' }
       });
     }
@@ -74,7 +80,7 @@ export const loader = async ({ request }: { request: Request }) => {
     const user = await isAuthenticated(request, ['id']);
     const userId: string | undefined = user?.id || undefined;
 
-    const { data: results, error } = await db.rpc('search_files', {
+    const searchPromise = db.rpc('search_files', {
       p_query: query,
       p_user_id: userId || null,
       p_limit: SEARCH_LIMIT,
@@ -84,6 +90,17 @@ export const loader = async ({ request }: { request: Request }) => {
       p_cursor_score: Number.isFinite(cursorScore) ? cursorScore : null,
       p_cursor_id: cursorId,
     });
+
+    const seriesPromise =
+      isInitialSearch && db
+        ? db.rpc('search_series_roots_for_query', {
+            p_query: query,
+            p_user_id: userId || null,
+            p_limit: SERIES_ROOTS_LIMIT,
+          })
+        : Promise.resolve({ data: null as unknown, error: null as unknown });
+
+    const [{ data: results, error }, seriesResult] = await Promise.all([searchPromise, seriesPromise]);
 
     if (error) {
       console.error('Search RPC error:', error);
@@ -102,6 +119,22 @@ export const loader = async ({ request }: { request: Request }) => {
       if (file.user_has_disliked) dislikedFileIds.push(file.id);
       return mapSearchFile(file);
     });
+
+    let seriesRootsMapped: ReturnType<typeof mapSearchFile>[] = [];
+    if (isInitialSearch) {
+      if (seriesResult && typeof seriesResult === 'object' && 'error' in seriesResult && seriesResult.error) {
+        console.error('search_series_roots_for_query RPC error:', seriesResult.error);
+      } else {
+        const rawSeries = (seriesResult as { data?: unknown }).data;
+        const rawSeriesList = Array.isArray(rawSeries) ? rawSeries : [];
+        seriesRootsMapped = rawSeriesList.map((file: any) => {
+          if (file.user_has_liked) likedFileIds.push(file.id);
+          if (file.user_has_disliked) dislikedFileIds.push(file.id);
+          return mapSearchFile(file);
+        });
+        seriesRootsMapped = dedupeSeriesByMainFiles(seriesRootsMapped, data);
+      }
+    }
 
     const lastItem = data[data.length - 1];
     const nextCursor =
@@ -130,6 +163,7 @@ export const loader = async ({ request }: { request: Request }) => {
 
     return new Response(JSON.stringify({
       data,
+      seriesRoots: seriesRootsMapped,
       users,
       userActions: { likedFileIds, dislikedFileIds },
       nextCursor
