@@ -2,7 +2,11 @@ import { getCookie } from "~/lib/Security/Token";
 import { VerifyToken } from "~/lib/Security/unsharedkeyEncryption/Combined/Verification/VerifyToken";
 import { sanitizeFilePath } from "~/lib/Security/inputValidation";
 import { verifyHlsBootstrap, type HlsPlaybackKind } from "~/lib/Security/Server/hlsBootstrap.server";
-import { createPendingManifestKey } from "~/lib/Services/hlsManifestGate.server";
+import {
+  createPendingManifestKey,
+  pendingManifestSecondsRemaining,
+  PENDING_MANIFEST_KEY_TTL_MS,
+} from "~/lib/Services/hlsManifestGate.server";
 import {
   evaluateVideoRequestGuard,
   getAllowedOrigin,
@@ -136,10 +140,13 @@ export const action = async ({ request }: { request: Request }) => {
     request.headers,
     kind
   );
+  const expiresInSeconds =
+    pendingManifestSecondsRemaining(manifestKey) ??
+    Math.floor(PENDING_MANIFEST_KEY_TTL_MS / 1000);
 
   const url = new URL(request.url);
   return Response.json(
-    { manifestKey, expiresInSeconds: 600 },
+    { manifestKey, expiresInSeconds },
     {
       status: 200,
       headers: {

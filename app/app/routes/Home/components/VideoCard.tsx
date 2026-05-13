@@ -7,7 +7,7 @@ import { Textarea } from "~/components/ui/textarea";
 import { Button } from "~/components/ui/button";
 import { type FileType, fileWatchPath } from "~/lib/types";
 import ImageLoad from "./ImageLoad/ImageLoad";
-import { cn, getThumbnailUrl } from "~/lib/utils";
+import { cn, getDefaultThumbnail, getThumbnailUrl } from "~/lib/utils";
 import ParseFilenameInsert from "~/lib/utils/ShowFileName";
 import AdultContentBadge from "~/routes/Dynamic/components/AdultContentBadge";
 import OwnerProfile from "~/components/OwnerProfile/OwnerProfile";
@@ -983,6 +983,25 @@ const VideoCard = ({
 
   const thumbnailLink = useMemo(() => getThumbnailUrl(data, { retryAttempt }), [data.file_type, data.endpoint, data.default_thumbnail, data.thumbnails, data.created_at, data.unique_id, data.filename, retryAttempt]);
 
+  /** Same resolution order as `getThumbnailUrl` before the legacy thumbnail_*.jpg fallback — avoids a blank poster only when we know a real asset exists (matches Dynamic watch placeholder). */
+  const hasKnownThumbnailSource = useMemo(() => {
+    if (data.file_type?.startsWith("image/") && data.endpoint) return true;
+    if (getDefaultThumbnail(data.default_thumbnail ?? null)) return true;
+    if (Array.isArray(data.thumbnails) && data.thumbnails.length > 0) {
+      const hasFrame = data.thumbnails.some(
+        (t) => typeof t === "string" && (/\/thumb_\d+\.jpg$/i.test(t) || /^thumb_\d+\.jpg$/i.test(t)),
+      );
+      if (hasFrame) return true;
+      const hasPreview = data.thumbnails.some(
+        (t) =>
+          typeof t === "string" &&
+          (t.endsWith("/thumbnail_preview.jpg") || t === "thumbnail_preview.jpg"),
+      );
+      if (hasPreview) return true;
+    }
+    return false;
+  }, [data.file_type, data.endpoint, data.default_thumbnail, data.thumbnails]);
+
   /** Saved thumbnail path for edit dialog (video/audio only); quality set on ImageLoad. */
   const editDialogCurrentThumbLink = useMemo(() => {
     if (data.file_type?.startsWith("image/")) return "";
@@ -1069,17 +1088,54 @@ const VideoCard = ({
         transition={{ duration: 0.1, ease: "easeOut", damping: 10, stiffness: 100 }}
         className="w-full h-full"
       >
-        {!error && !isPending ? (
-          <ImageLoad
-            link={thumbnailLink}
-            imageID={data.unique_id}
-            index={index}
-            retry={handleRetry}
-            className="w-full h-full object-cover transition-all duration-300"
-            callBack={handleImageLoaded}
-            quality={60}
-            hasAdultTag={Boolean(data.is_adult)}
-          />
+        {!error && (!isPending || hasKnownThumbnailSource) ? (
+          <div className="relative h-full w-full">
+            <ImageLoad
+              link={thumbnailLink}
+              imageID={data.unique_id}
+              index={index}
+              retry={handleRetry}
+              className="w-full h-full object-cover transition-all duration-300"
+              callBack={handleImageLoaded}
+              quality={60}
+              hasAdultTag={Boolean(data.is_adult)}
+            />
+            {isPending && (
+              <>
+                <div
+                  className="pointer-events-none absolute inset-0 z-[15] bg-gradient-to-t from-black/85 via-black/25 to-transparent"
+                  aria-hidden
+                />
+                <div className="absolute bottom-0 left-0 right-0 z-[16] space-y-2 p-3">
+                  {isOwner &&
+                  processingProgressPct != null ? (
+                    <>
+                      <div className="flex items-center justify-between text-[11px] font-medium tabular-nums text-white/95 sm:text-xs">
+                        <span>Processing</span>
+                        <span>{processingProgressPct}%</span>
+                      </div>
+                      <div
+                        className="h-2 w-full overflow-hidden rounded-full bg-white/20"
+                        role="progressbar"
+                        aria-valuenow={processingProgressPct}
+                        aria-valuemin={0}
+                        aria-valuemax={100}
+                      >
+                        <div
+                          className="h-full rounded-full bg-primary transition-[width] duration-500 ease-out"
+                          style={{ width: `${processingProgressPct}%` }}
+                        />
+                      </div>
+                    </>
+                  ) : (
+                    <p className="text-[11px] font-medium leading-snug text-white drop-shadow-sm sm:text-xs">
+                      This video is still processing. Check back shortly.
+                    </p>
+                  )}
+                </div>
+              </>
+            )}
+          </div>
         ) : (
           <div className="w-full h-full flex flex-col items-center justify-center gap-2 bg-muted px-3 py-4 text-xs text-center text-muted-foreground">
             {isPending ? (

@@ -28,13 +28,15 @@ function postProgressBeacon(uniqueId: string, currentTime: number, duration: num
 }
 
 export function usePlaybackPosition(videoRef: React.RefObject<HTMLVideoElement | null>) {
-  const { imageID, src, startTime, file } = usePlayerContext();
+  const { imageID, src, startTime, file, isReel } = usePlayerContext();
   const fileUuid = file?.id ?? null;
   const localSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastServerSaveRef = useRef(0);
   const seedProgressCache = useWatchProgressWriter();
 
   useEffect(() => {
+    /** Reels always start at 0 — no resume from watch history / local DB. */
+    if (isReel) return;
     const video = videoRef.current;
     if (!video || !imageID) return;
     let cancelled = false;
@@ -97,9 +99,11 @@ export function usePlaybackPosition(videoRef: React.RefObject<HTMLVideoElement |
     return () => {
       cancelled = true;
     };
-  }, [imageID, startTime, fileUuid]);
+  }, [imageID, startTime, fileUuid, isReel]);
 
   useEffect(() => {
+    /** Reels do not persist position — avoids continue-watching / resume for short-form. */
+    if (isReel) return;
     const video = videoRef.current;
     if (!video || !imageID) return;
     lastServerSaveRef.current = 0;
@@ -157,7 +161,7 @@ export function usePlaybackPosition(videoRef: React.RefObject<HTMLVideoElement |
       }
       if (localSaveTimer.current) clearTimeout(localSaveTimer.current);
     };
-  }, [imageID, src, fileUuid, seedProgressCache]);
+  }, [imageID, src, fileUuid, seedProgressCache, isReel]);
 }
 
 async function fetchServerPosition(fileUuid: string): Promise<{

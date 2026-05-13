@@ -19,6 +19,7 @@ import { Plus } from "lucide-react";
 import type { MetaFunction } from "react-router";
 import { buildPageMeta } from "~/lib/seo";
 import { SignInToSeeMore } from "~/components/SignInWall";
+import { Separator } from "~/components/ui/separator";
 
 export const meta: MetaFunction = () =>
   buildPageMeta({
@@ -107,7 +108,7 @@ export default function PhotoDashboard() {
                 currentUserId={userId || undefined}
                 userActions={userActions}
                 onUpdate={handleFileUpdate}
-                hideActions={{completely: false}}
+                hideActions={{completely: false, halfway: true}}
               />
             );
           }
@@ -177,6 +178,7 @@ export default function PhotoDashboard() {
                 userActions={userActions}
                 username={userProfile?.username ?? null}
               />
+              <Separator className="my-4"/>
               {feedAfterHistory.length > 0 ? renderFeedGroups(feedAfterHistory, "feed-b") : null}
             </>
           ) : (

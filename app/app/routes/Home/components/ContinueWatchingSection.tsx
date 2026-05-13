@@ -115,10 +115,10 @@ export function ContinueWatchingSection({ userId, userActions, username }: Props
   if (!userId) return null;
 
   return (
-    <div id="home-continue-watching" className="min-w-0 scroll-mt-24 bg-muted/10" aria-label="Recently watched">
+    <div id="home-continue-watching" className="min-w-0 scroll-mt-24" aria-label="Recently watched">
       <div
         className={cn(
-          "mt-6 px-3 py-4 sm:px-4 sm:py-5",
+          "mt-6 py-4 sm:py-5",
           // "dark:bg-muted/15"
         )}
       >
@@ -147,7 +147,7 @@ export function ContinueWatchingSection({ userId, userActions, username }: Props
           <Swiper
             modules={[Navigation, Pagination, A11y, Keyboard]}
             slidesPerView={2}
-            spaceBetween={12}
+            spaceBetween={8}
             speed={380}
             watchOverflow
             navigation
@@ -158,8 +158,8 @@ export function ContinueWatchingSection({ userId, userActions, username }: Props
             }}
             breakpoints={{
               640: { slidesPerView: 2, spaceBetween: 12 },
-              1024: { slidesPerView: 4, spaceBetween: 14 },
-              1280: { slidesPerView: 5, spaceBetween: 16 },
+              1024: { slidesPerView: 3, spaceBetween: 14 },
+              1280: { slidesPerView: 3, spaceBetween: 16 },
             }}
             className="continue-watching-swiper"
             onInit={(swiper: SwiperType) => {
@@ -168,14 +168,15 @@ export function ContinueWatchingSection({ userId, userActions, username }: Props
           >
             {items.map((file, index) => (
               <SwiperSlide key={file.id || file.unique_id} className="!h-auto">
-                <div className="h-full rounded-xl border border-border/50 bg-background/60 p-1 shadow-sm">
+                <div className="h-[270px] rounded-xl border border-border/50 bg-background/60 p-1 shadow-sm">
                   <VideoCard
                     data={file}
                     index={index}
                     currentUserId={userId}
                     userActions={mergedUserActions}
                     onUpdate={handleFileUpdate}
-                    hideActions={{completely: false}}
+                    hideActions={{completely: false, halfway: true}}
+                    layout={`horizontal`}
                   />
                 </div>
               </SwiperSlide>

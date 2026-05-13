@@ -1,4 +1,4 @@
-import { data, Link, useLoaderData, useNavigate, useParams, useNavigation, useLocation, useSearchParams, type MetaFunction } from "react-router";
+import { data, Link, useLoaderData, useNavigate, useParams, useNavigation, useLocation, useSearchParams, useRevalidator, type MetaFunction } from "react-router";
 import db from "~/lib/Database/supabase";
 import { WatchPlayBootstrapSync } from "./components/WatchPlayBootstrapSync";
 import { useCallback, useEffect, useLayoutEffect, useState, useRef, useMemo } from "react";
@@ -43,6 +43,7 @@ import { useWatchSurfaceVideoRef } from "~/lib/Context/WatchSurfaceVideoRefConte
 import { formatTimeAgo } from "~/lib/formatTimeAgo";
 import LiquidAmbientGradient from "./components/LiquidAmbientGradient";
 import { computeGuestPreviewSeconds } from "~/lib/guestPreviewLimit";
+import { sanitizeFileForPublicViewer } from "~/lib/files/sanitizeFileForViewer";
 import { personalizationService } from "~/lib/Services/PersonalizationService";
 
 interface DynamicCachePayload {
@@ -283,9 +284,14 @@ export const loader = async ({ request, params }: { request: Request, params: { 
       userId
     );
 
+    const fileForClient = sanitizeFileForPublicViewer(
+      file as unknown as Record<string, unknown>,
+      userId
+    ) as typeof file;
+
     return data(
       {
-        file,
+        file: fileForClient,
         id: params.id,
         relatedVideos,
         userId,
@@ -506,6 +512,23 @@ const index = () => {
 
   const [playingVideos, setPlayingVideos] = useState<Set<number>>(new Set());
   const loaderData = useLoaderData<typeof loader>();
+  const revalidator = useRevalidator();
+
+  /** While a video has no HLS manifest yet, poll so shared links pick up the player when processing finishes. */
+  useEffect(() => {
+    if (!loaderData || loaderData.accessDenied || !("file" in loaderData) || !loaderData.file) return;
+    const f = loaderData.file as FileType;
+    const isH =
+      f.file_type === "application/vnd.apple.mpegurl" ||
+      !!(f.endpoint && String(f.endpoint).includes(".m3u8"));
+    const isVid =
+      isH || !!(f.file_type && String(f.file_type).includes("video"));
+    if (!isVid || isH) return;
+    const id = window.setInterval(() => {
+      revalidator.revalidate();
+    }, 10_000);
+    return () => window.clearInterval(id);
+  }, [loaderData, revalidator]);
 
   const [resolvedPageDetails, setResolvedPageDetails] = useState<DynamicDeferredDetails | null>(null);
 
@@ -1037,6 +1060,8 @@ const index = () => {
 
   const isHLS = file_data?.file_type === 'application/vnd.apple.mpegurl' || file_data?.endpoint?.includes('.m3u8');
   const isVideo = isHLS || file_data?.file_type?.includes('video');
+  /** Video upload still processing: playable stream not ready yet (YouTube-style poster + optional owner progress). */
+  const showVideoProcessingPlaceholder = Boolean(isVideo && !isHLS);
 
   mainPlayerSlotTargetRef.current = file_data
     ? { isHLS, uniqueId: file_data.unique_id }
@@ -1416,7 +1441,59 @@ const index = () => {
           isHLS && `player_inner_${file_data.unique_id}`,
         )}
       >
-        {isHLS ? null : (
+        {isHLS ? null : showVideoProcessingPlaceholder ? (
+          <div className="relative aspect-video w-full overflow-hidden rounded-lg bg-black">
+            <img
+              src={getThumbnailUrl(file_data, {
+                baseUrl: BASE_URL,
+                queryString: "?quality=75&is_metadata=true",
+              })}
+              alt=""
+              className="h-full w-full object-cover"
+              onError={(e) => {
+                (e.target as HTMLImageElement).style.opacity = "0";
+              }}
+            />
+            <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/85 via-black/25 to-transparent" />
+            <div className="absolute bottom-0 left-0 right-0 space-y-2 p-4">
+              {isOwner &&
+              typeof file_data.processing_progress === "number" &&
+              Number.isFinite(file_data.processing_progress) ? (
+                <>
+                  <div className="flex items-center justify-between text-xs font-medium tabular-nums text-white/95">
+                    <span>Processing</span>
+                    <span>
+                      {Math.round(
+                        Math.min(100, Math.max(0, Number(file_data.processing_progress)))
+                      )}
+                      %
+                    </span>
+                  </div>
+                  <div
+                    className="h-2 w-full overflow-hidden rounded-full bg-white/20"
+                    role="progressbar"
+                    aria-valuenow={Math.round(
+                      Math.min(100, Math.max(0, Number(file_data.processing_progress)))
+                    )}
+                    aria-valuemin={0}
+                    aria-valuemax={100}
+                  >
+                    <div
+                      className="h-full rounded-full bg-primary transition-[width] duration-500 ease-out"
+                      style={{
+                        width: `${Math.min(100, Math.max(0, Number(file_data.processing_progress)))}%`,
+                      }}
+                    />
+                  </div>
+                </>
+              ) : (
+                <p className="text-sm font-medium leading-snug text-white drop-shadow-sm">
+                  This video is still processing. Check back shortly.
+                </p>
+              )}
+            </div>
+          </div>
+        ) : (
           <motion.div
             transition={{ duration: 0.1 }}
             layoutId={`image_id_${file_data.unique_id}`}

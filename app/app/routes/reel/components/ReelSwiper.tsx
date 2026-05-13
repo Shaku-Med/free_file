@@ -18,16 +18,23 @@ interface ReelSwiperProps {
   /** Parent sets true while `/api/reel-feed` append is in flight (clears in-flight guard when false). */
   isLoadingMore?: boolean;
   userActions?: { likedFileIds: string[]; dislikedFileIds: string[] };
+  /** Full-page reel: poster palette from the active slide’s player (thumbnail colors). */
+  onReelPosterColors?: (colors: string[]) => void;
 }
 
 /** Prefetch the next API page when this many swipes from the last slide. */
 const PREFETCH_WHEN_SWIPES_REMAINING = 2;
 
+/**
+ * Keep HLS mounted for recently viewed reels so scrolling back does not cold-load again (bounded for memory).
+ */
+const MAX_STICKY_HLS_MOUNT = 20;
+
+const POSITION_PILL_VISIBLE_MS = 2200;
+
 /** Swipe-hint localStorage flag — shown once per browser. */
 const SWIPE_HINT_KEY = "memories.reelSwipeHintSeen";
 const SWIPE_HINT_AUTO_DISMISS_MS = 3000;
-/** Position pill ("3 / 24") auto-hide window. */
-const POSITION_PILL_VISIBLE_MS = 1500;
 
 function shouldPrefetchNextPage(activeIndex: number, slideCount: number): boolean {
   if (slideCount <= 0) return false;
@@ -58,6 +65,7 @@ export const ReelSwiper = ({
   hasMore = true,
   isLoadingMore = false,
   userActions,
+  onReelPosterColors,
 }: ReelSwiperProps) => {
   const likedKey = (userActions?.likedFileIds ?? [])
     .map((id) => String(id).toLowerCase())
@@ -79,12 +87,27 @@ export const ReelSwiper = ({
 
   const hasFinePointer = useHasFinePointer();
 
-  /** Nav state for desktop arrows + position pill. */
+  /** Nav state for desktop arrows + preload index. */
   const [activeIdx, setActiveIdx] = useState(0);
   const [canGoPrev, setCanGoPrev] = useState(false);
   const [canGoNext, setCanGoNext] = useState(items.length > 1 || hasMore);
 
   const rewindDeck = items.length > 1;
+
+  /** File ids that have been the active slide — stay pre-mounted when user swipes away (FIFO cap). */
+  const [stickyHlsIds, setStickyHlsIds] = useState<string[]>([]);
+  const stickyHlsSet = useMemo(() => new Set(stickyHlsIds), [stickyHlsIds]);
+
+  useEffect(() => {
+    const id = items[activeIdx]?.id;
+    if (id == null || id === "") return;
+    const s = String(id);
+    setStickyHlsIds((prev) => {
+      if (prev.includes(s)) return prev;
+      const next = [...prev, s];
+      return next.length > MAX_STICKY_HLS_MOUNT ? next.slice(-MAX_STICKY_HLS_MOUNT) : next;
+    });
+  }, [activeIdx, items]);
 
   /** One-time swipe hint. */
   const [showHint, setShowHint] = useState(false);
@@ -168,10 +191,9 @@ export const ReelSwiper = ({
   const handleSlideChangeTransitionStart = useCallback(
     (swiper: SwiperType) => {
       maybePrefetch(swiper);
-      flashPill();
       if (showHint) dismissHint();
     },
-    [dismissHint, flashPill, maybePrefetch, showHint],
+    [dismissHint, maybePrefetch, showHint],
   );
 
   const handleSlideChange = useCallback(
@@ -244,12 +266,10 @@ export const ReelSwiper = ({
     return null;
   }
 
-  const totalLabel = hasMore ? `${items.length}+` : String(items.length);
-
   return (
     <div
       className={cn(
-        "relative isolate h-[100dvh] max-h-[100dvh] min-h-0 overflow-hidden bg-black",
+        "relative isolate h-[100dvh] max-h-[100dvh] min-h-0 overflow-hidden bg-transparent",
         "mx-auto w-full reel-column",
         "touch-pan-y",
       )}
@@ -311,12 +331,11 @@ export const ReelSwiper = ({
                   showChrome={isActive}
                   userActions={userActionsStable}
                   variant="page"
-                  loadHlsPlayer={reelShouldPreloadHls(
-                    slideIndex,
-                    activeIdx,
-                    items.length,
-                    rewindDeck,
-                  )}
+                  loadHlsPlayer={
+                    reelShouldPreloadHls(slideIndex, activeIdx, items.length, rewindDeck) ||
+                    stickyHlsSet.has(String(file.id))
+                  }
+                  onReelPosterColors={onReelPosterColors}
                   className="min-h-0 flex-1"
                 />
               </div>
@@ -325,30 +344,20 @@ export const ReelSwiper = ({
         ))}
       </Swiper>
 
-      {/* Position pill — flashes after each swipe, fades out. */}
-      <div
-        aria-live="polite"
-        className={cn(
-          "pointer-events-none absolute right-3 top-[max(0.75rem,env(safe-area-inset-top))] z-30",
-          "rounded-full border border-white/20 bg-black/55 px-2.5 py-1 text-[11px] font-medium tabular-nums text-white/90 backdrop-blur-sm",
-          "transition-opacity duration-300",
-          pillVisible ? "opacity-100" : "opacity-0",
-        )}
-      >
-        {activeIdx + 1} / {totalLabel}
-      </div>
-
-      {/* Desktop prev / next arrows — only on hover-capable, fine-pointer devices. */}
+      {/* Desktop prev / next — right rail, large screens only (hidden on mobile/tablet portrait). */}
       {hasFinePointer && (
-        <>
+        <div
+          className={cn(
+            "absolute right-[max(0.75rem,env(safe-area-inset-right))] top-1/2 z-30 hidden -translate-y-1/2 flex-col gap-2 lg:flex",
+          )}
+        >
           <button
             type="button"
             onClick={goPrev}
             disabled={!canGoPrev}
             aria-label="Previous reel"
             className={cn(
-              "group absolute left-1/2 top-4 z-30 -translate-x-1/2",
-              "inline-flex h-9 w-9 items-center justify-center rounded-full",
+              "group inline-flex h-9 w-9 items-center justify-center rounded-full",
               "border border-white/15 bg-black/45 text-white/85 backdrop-blur-sm",
               "transition-all duration-200 hover:bg-black/70 hover:text-white",
               "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70",
@@ -363,9 +372,7 @@ export const ReelSwiper = ({
             disabled={!canGoNext}
             aria-label="Next reel"
             className={cn(
-              "group absolute left-1/2 z-30 -translate-x-1/2",
-              "bottom-[calc(5.5rem+env(safe-area-inset-bottom,0px))]",
-              "inline-flex h-9 w-9 items-center justify-center rounded-full",
+              "group inline-flex h-9 w-9 items-center justify-center rounded-full",
               "border border-white/15 bg-black/45 text-white/85 backdrop-blur-sm",
               "transition-all duration-200 hover:bg-black/70 hover:text-white",
               "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70",
@@ -374,7 +381,7 @@ export const ReelSwiper = ({
           >
             <ChevronDown className="h-5 w-5" aria-hidden />
           </button>
-        </>
+        </div>
       )}
 
       {/* First-visit swipe hint — arrow + text, auto-dismisses on first swipe or after 3s. */}

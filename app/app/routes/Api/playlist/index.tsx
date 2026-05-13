@@ -1,5 +1,6 @@
 import db from "~/lib/Database/supabase";
 import { isAuthenticated } from "~/lib/Security/Password";
+import { normalizeRpcFileRow } from "~/lib/profile/normalizeRpcFileRow";
 
 const PAGE_SIZE = 12;
 
@@ -156,7 +157,7 @@ export const action = async ({ request }: { request: Request }) => {
             verified: file.owner_verified ?? false,
           }
         : null;
-    return {
+    return normalizeRpcFileRow({
       id: file.id,
       created_at: file.created_at,
       endpoint: file.endpoint || "",
@@ -182,7 +183,7 @@ export const action = async ({ request }: { request: Request }) => {
       dislike_count: dislikeCount,
       comment_count: commentCount,
       owner,
-    };
+    } as Record<string, unknown>);
   });
 
   return new Response(

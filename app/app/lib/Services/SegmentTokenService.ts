@@ -9,9 +9,9 @@ import { sanitizeFilePath } from "~/lib/Security/inputValidation";
  * `sessionScope` only (cookie HMAC) — not client IP, so cellular ↔ WiFi handoff does not 403 segments.
  * Rate limiting still uses IP via `sessionRateKey`.
  */
-const GUEST_SEGMENT_TOKEN_TTL_SEC = 300;
+export const GUEST_SEGMENT_TOKEN_TTL_SEC = 300;
 /** Default 1h (was 5m). For 5h+ files without manifest refresh, raise (e.g. `8 * 3600`). */
-const SIGNED_IN_SEGMENT_TOKEN_TTL_SEC = 3600;
+export const SIGNED_IN_SEGMENT_TOKEN_TTL_SEC = 3600;
 
 function getSecret(): string {
   return process.env.SEGMENT_TOKEN_SECRET || process.env.VAPID_PRIVATE_KEY || "";

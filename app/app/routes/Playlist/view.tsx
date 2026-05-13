@@ -1,14 +1,19 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { Link, useParams, useNavigate, type MetaFunction } from "react-router";
 import VideoCard from "~/routes/Home/components/VideoCard";
 import type { FileType } from "~/lib/types";
+import { groupConsecutiveReelClusters } from "~/lib/feed/groupConsecutiveReelClusters";
+import { Swiper, SwiperSlide } from "swiper/react";
+import { Navigation, A11y, Keyboard } from "swiper/modules";
+import type { Swiper as SwiperType } from "swiper";
+import "swiper/css";
+import "swiper/css/navigation";
 import { useFileContext } from "~/lib/Context/Context";
 import { Button } from "~/components/ui/button";
 import {
   Trash2,
   Lock,
   Globe,
-  ArrowLeft,
   Music,
   Pencil,
   Share2,
@@ -16,18 +21,20 @@ import {
 } from "lucide-react";
 import { buildPageMeta } from "~/lib/seo";
 import { ShareModal } from "~/components/ShareModal";
+import { SignInToSeeMore } from "~/components/SignInWall";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "~/components/ui/dropdown-menu";
-import { useBodyVideoGridClassName } from "~/lib/Context/BodyContentWidthContext";
+
+const GUEST_MAX_VISIBLE_VIDEOS = 18;
 
 export const meta: MetaFunction = () =>
   buildPageMeta({
     title: "Playlist | Memories",
-    description: "View a playlist on Memories.",
+    description: "A playlist on Memories.",
   });
 
 function SkeletonCard() {
@@ -56,7 +63,6 @@ interface PlaylistData {
 }
 
 export default function PlaylistViewPage() {
-  const bodyVideoGridClass = useBodyVideoGridClassName();
   const { playlistId } = useParams();
   const navigate = useNavigate();
   const { userId } = useFileContext();
@@ -67,7 +73,6 @@ export default function PlaylistViewPage() {
   const [shareOpen, setShareOpen] = useState(false);
   const [editing, setEditing] = useState(false);
   const [editTitle, setEditTitle] = useState("");
-  const [editDesc, setEditDesc] = useState("");
   const [editPublic, setEditPublic] = useState(true);
   const [saving, setSaving] = useState(false);
 
@@ -119,7 +124,6 @@ export default function PlaylistViewPage() {
   const startEdit = useCallback(() => {
     if (!playlist) return;
     setEditTitle(playlist.title);
-    setEditDesc(playlist.description || "");
     setEditPublic(playlist.is_public);
     setEditing(true);
   }, [playlist]);
@@ -133,7 +137,7 @@ export default function PlaylistViewPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           title: editTitle.trim(),
-          description: editDesc.trim() || null,
+          description: null,
           is_public: editPublic,
         }),
       });
@@ -141,19 +145,35 @@ export default function PlaylistViewPage() {
         setPlaylist(prev => prev ? {
           ...prev,
           title: editTitle.trim(),
-          description: editDesc.trim() || undefined,
           is_public: editPublic,
         } : prev);
         setEditing(false);
       }
     } catch {}
     finally { setSaving(false); }
-  }, [playlistId, editTitle, editDesc, editPublic]);
+  }, [playlistId, editTitle, editPublic]);
 
   const isOwner = playlist?.owner_id === userId;
   const shareUrl = typeof window !== "undefined" && playlist
     ? `${window.location.origin}/playlist/${playlist.id}`
     : "";
+
+  const handleFileUpdate = useCallback((fileId: string, updates: Partial<FileType>) => {
+    setItems((prev) =>
+      prev.map((file) => (file.id === fileId ? { ...file, ...updates } : file))
+    );
+  }, []);
+
+  const { visibleItems, showGuestWall } = useMemo(() => {
+    if (userId) return { visibleItems: items, showGuestWall: false };
+    if (items.length <= GUEST_MAX_VISIBLE_VIDEOS) {
+      return { visibleItems: items, showGuestWall: false };
+    }
+    return {
+      visibleItems: items.slice(0, GUEST_MAX_VISIBLE_VIDEOS),
+      showGuestWall: true,
+    };
+  }, [items, userId]);
 
   if (loading) {
     return (
@@ -164,7 +184,7 @@ export default function PlaylistViewPage() {
           <div className="h-7 w-64 bg-muted rounded" />
           <div className="h-4 w-48 bg-muted rounded" />
         </div>
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-3 gap-4">
+        <div className="grid w-full min-w-0 grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
           {Array.from({ length: 6 }).map((_, i) => (
             <SkeletonCard key={i} />
           ))}
@@ -179,27 +199,19 @@ export default function PlaylistViewPage() {
         <div className="w-16 h-16 bg-muted rounded-full flex items-center justify-center mb-4">
           <Music className="w-7 h-7 text-muted-foreground" />
         </div>
-        <h1 className="text-xl font-bold mb-1">{error || "Playlist not found"}</h1>
-        <p className="text-sm text-muted-foreground mb-4">This playlist may have been deleted or is private.</p>
-        <Link to="/playlist">
-          <Button variant="outline" className="rounded-full gap-1.5">
-            <ArrowLeft className="w-4 h-4" />
-            Back to playlists
-          </Button>
-        </Link>
+        <h1 className="text-xl font-bold mb-1">{error || "Could not open this playlist"}</h1>
+        <p className="text-sm text-muted-foreground mb-4">
+          It may be private or no longer available.
+        </p>
+        <Button asChild variant="outline" className="rounded-full">
+          <Link to="/">Home</Link>
+        </Button>
       </div>
     );
   }
 
   return (
     <div className="space-y-6">
-      {/* Back link */}
-      <Link to="/playlist" className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors">
-        <ArrowLeft className="w-4 h-4" />
-        All playlists
-      </Link>
-
-      {/* Playlist header */}
       <div className="flex flex-col sm:flex-row sm:items-start gap-4">
         {/* Playlist icon */}
         <div className="w-16 h-16 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
@@ -215,14 +227,6 @@ export default function PlaylistViewPage() {
                 maxLength={100}
                 className="w-full text-xl font-bold bg-transparent border-b border-border focus:border-primary outline-none pb-1"
                 placeholder="Playlist title"
-              />
-              <textarea
-                value={editDesc}
-                onChange={(e) => setEditDesc(e.target.value)}
-                maxLength={500}
-                rows={2}
-                className="w-full text-sm bg-transparent border-b border-border focus:border-primary outline-none pb-1 resize-none text-muted-foreground"
-                placeholder="Add a description..."
               />
               <div className="flex items-center gap-3">
                 <button
@@ -263,13 +267,14 @@ export default function PlaylistViewPage() {
                   </span>
                 )}
               </div>
-              {playlist.description && (
-                <p className="text-sm text-muted-foreground mt-1">{playlist.description}</p>
-              )}
               <p className="text-xs text-muted-foreground mt-1.5">
-                {items.length} {items.length === 1 ? "item" : "items"}
-                <span className="mx-1.5">·</span>
-                {new Date(playlist.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                {items.length === 0
+                  ? "No videos"
+                  : items.length === 1
+                    ? "1 video"
+                    : `${items.length} videos`}
+                {" · "}
+                Added {new Date(playlist.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
               </p>
             </>
           )}
@@ -307,32 +312,96 @@ export default function PlaylistViewPage() {
         )}
       </div>
 
-      {/* Video grid */}
+      {/* Video grid (reel strips match Home / Profile) */}
       {items.length > 0 ? (
-        <div className={bodyVideoGridClass}>
-          {items.map((file, index) => (
-            <VideoCard
-              key={file.id || index}
-              data={file}
-              index={index}
-              currentUserId={userId || undefined}
-              userActions={{ likedFileIds: new Set(), dislikedFileIds: new Set() }}
-              hideActions={{completely: true}}
-            />
-          ))}
+        <>
+        <div className="grid w-full min-w-0 grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+          {(() => {
+            const groups = groupConsecutiveReelClusters(visibleItems);
+            let indexCounter = 0;
+            return groups.map((g) => {
+              if (g.kind === "single") {
+                const file = g.file;
+                const index = indexCounter++;
+                return (
+                  <VideoCard
+                    key={file.id || file.unique_id || index}
+                    data={file}
+                    index={index}
+                    currentUserId={userId || undefined}
+                    userActions={{ likedFileIds: new Set(), dislikedFileIds: new Set() }}
+                    onUpdate={handleFileUpdate}
+                    hideActions={{ completely: true }}
+                  />
+                );
+              }
+              const clusterKey =
+                g.files[0]?.feed_reel_cluster_id ?? g.files[0]?.id ?? "playlist";
+              return (
+                <div
+                  key={`playlist-reel-${clusterKey}`}
+                  className="col-span-full w-full min-w-0 max-w-full overflow-hidden"
+                >
+                  <Swiper
+                    modules={[Navigation, A11y, Keyboard]}
+                    slidesPerView={3.15}
+                    spaceBetween={10}
+                    speed={380}
+                    watchOverflow
+                    observer
+                    observeParents
+                    resizeObserver
+                    navigation
+                    keyboard={{ enabled: true, onlyInViewport: true }}
+                    breakpoints={{
+                      640: { slidesPerView: 2.5, spaceBetween: 12 },
+                      768: { slidesPerView: 3, spaceBetween: 12 },
+                      1024: { slidesPerView: 3.5, spaceBetween: 14 },
+                      1280: { slidesPerView: 4, spaceBetween: 14 },
+                      1536: { slidesPerView: 5, spaceBetween: 16 },
+                    }}
+                    className="feed-reel-swiper"
+                    onInit={(swiper: SwiperType) => swiper.update()}
+                  >
+                    {g.files.map((file, keyIndex) => {
+                      const index = indexCounter++;
+                      return (
+                        <SwiperSlide
+                          key={file.id || file.unique_id || keyIndex}
+                          className="!h-auto"
+                        >
+                          <VideoCard
+                            data={file}
+                            layout="reelStrip"
+                            index={index}
+                            currentUserId={userId || undefined}
+                            userActions={{ likedFileIds: new Set(), dislikedFileIds: new Set() }}
+                            onUpdate={handleFileUpdate}
+                            hideActions={{ completely: true, halfway: false }}
+                          />
+                        </SwiperSlide>
+                      );
+                    })}
+                  </Swiper>
+                </div>
+              );
+            });
+          })()}
         </div>
+        {showGuestWall && <SignInToSeeMore />}
+        </>
       ) : (
         <div className="flex items-center flex-col justify-center py-16 rounded-xl border border-dashed">
           <div className="w-16 h-16 bg-muted rounded-full flex items-center justify-center mx-auto mb-4">
             <Music className="w-7 h-7 text-muted-foreground" />
           </div>
-          <h3 className="text-lg font-semibold text-foreground mb-1">This playlist is empty</h3>
+          <h3 className="text-lg font-semibold text-foreground mb-1">Nothing here yet</h3>
           <p className="text-sm text-muted-foreground mb-5 text-center max-w-sm">
-            Add videos from the options menu on any video
+            Open the menu on any clip and add it to this list.
           </p>
           <Link to="/">
             <Button variant="default" className="rounded-full px-6">
-              Browse content
+              Browse
             </Button>
           </Link>
         </div>

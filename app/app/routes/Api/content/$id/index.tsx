@@ -4,6 +4,7 @@ import db from "~/lib/Database/supabase";
 import { isAuthenticated } from "~/lib/Security/Password";
 import { checkFileAccess } from "~/routes/Dynamic/fun/accessControl";
 import { stripGithubRepoForClient } from "~/lib/githubStorage";
+import { sanitizeFileForPublicViewer } from "~/lib/files/sanitizeFileForViewer";
 
 /**
  * Returns the data needed to render a single content card (feed hero / PiP).
@@ -68,6 +69,11 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
   const user = await isAuthenticated(request, ["id"]);
   const userId = user?.id ?? null;
 
+  const fileForClient = sanitizeFileForPublicViewer(
+    file as Record<string, unknown>,
+    userId
+  ) as typeof file;
+
   let likeCount = 0;
   let dislikeCount = 0;
   let commentCount = 0;
@@ -117,7 +123,7 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
 
   return data(
     {
-      file,
+      file: fileForClient,
       id,
       userId,
       owner,

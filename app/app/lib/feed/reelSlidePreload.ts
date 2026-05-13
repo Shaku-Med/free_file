@@ -6,11 +6,12 @@ export function swiperRealIndex(swiper: SwiperType): number {
   return typeof r === "number" ? r : swiper.activeIndex;
 }
 
-const PRELOAD_NEIGHBOR_RADIUS = 1;
-
 /**
- * Whether this slide should mount the HLS player vs poster-only (saves decoders on long feeds).
- * Preloads the active reel and immediate neighbors; optional circular distance when the deck wraps.
+ * Whether this slide should mount the HLS player vs poster-only (limits concurrent CDN / segment traffic).
+ *
+ * - **Always** the active slide.
+ * - **Forward-only:** the next **two** reels in swipe-up / feed order (no symmetric “behind” preload → fewer 429s).
+ * - Combine with ReelSwiper’s “sticky” list for reels the user has **already** opened — those stay mounted without widening the lookahead window.
  */
 export function reelShouldPreloadHls(
   slideIndex: number,
@@ -19,12 +20,15 @@ export function reelShouldPreloadHls(
   rewindDeck: boolean,
 ): boolean {
   if (total <= 0) return false;
-  let dist: number;
-  if (rewindDeck && total > 1) {
-    const d = Math.abs(slideIndex - activeIdx);
-    dist = Math.min(d, total - d);
-  } else {
-    dist = Math.abs(slideIndex - activeIdx);
+  if (slideIndex === activeIdx) return true;
+
+  if (!rewindDeck) {
+    // Linear: next two higher indices only (no preload above the current slide).
+    return slideIndex === activeIdx + 1 || slideIndex === activeIdx + 2;
   }
-  return dist <= PRELOAD_NEIGHBOR_RADIUS;
+
+  // Rewind: next two slides in circular “forward” direction (same as Swiper slideNext).
+  const next1 = (activeIdx + 1) % total;
+  const next2 = (activeIdx + 2) % total;
+  return slideIndex === next1 || slideIndex === next2;
 }

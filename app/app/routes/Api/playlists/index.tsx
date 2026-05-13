@@ -1,5 +1,6 @@
 import db from "~/lib/Database/supabase";
 import { isAuthenticated } from "~/lib/Security/Password";
+import { mapPlaylistRpcToClientRow } from "~/lib/profile/normalizePlaylistRpcRow";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const MAX_TITLE = 100;
@@ -28,7 +29,10 @@ export const loader = async ({ request }: { request: Request }) => {
     return jsonRes({ error: "Something went wrong" }, 500);
   }
 
-  return jsonRes({ playlists: data || [] });
+  const raw = Array.isArray(data) ? data : [];
+  const playlists = raw.map((p: Record<string, unknown>) => mapPlaylistRpcToClientRow(p));
+
+  return jsonRes({ playlists });
 };
 
 export const action = async ({ request }: { request: Request }) => {

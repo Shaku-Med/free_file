@@ -2,6 +2,12 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { Link, type MetaFunction } from "react-router";
 import VideoCard from "~/routes/Home/components/VideoCard";
 import type { FileType } from "~/lib/types";
+import { groupConsecutiveReelClusters } from "~/lib/feed/groupConsecutiveReelClusters";
+import { Swiper, SwiperSlide } from "swiper/react";
+import { Navigation, A11y, Keyboard } from "swiper/modules";
+import type { Swiper as SwiperType } from "swiper";
+import "swiper/css";
+import "swiper/css/navigation";
 import { useFileContext } from "~/lib/Context/Context";
 import { useLocalPlaylist } from "~/lib/hooks/useLocalPlaylist";
 import { Button } from "~/components/ui/button";
@@ -15,16 +21,14 @@ import {
   Trash2,
   Bookmark,
   Music,
-  ChevronRight,
 } from "lucide-react";
 import CreatePlaylistModal from "~/components/Playlist/CreatePlaylistModal";
-import { useBodyVideoGridClassName } from "~/lib/Context/BodyContentWidthContext";
+import { resolvePlaylistThumbSrc } from "~/lib/playlistImageUrl";
 
 export const meta: MetaFunction = () =>
   buildPageMeta({
-    title: "Your playlist and saved videos | Memories",
-    description:
-      "View and manage your saved playlist on Memories. Revisit your watch-later list and organize the photos and videos you've saved.",
+    title: "Playlists | Memories",
+    description: "Your playlists and saved clips.",
     canonicalPath: "/playlist",
   });
 
@@ -44,18 +48,6 @@ function SkeletonCard() {
   );
 }
 
-function SkeletonPlaylistCard() {
-  return (
-    <div className="animate-pulse flex items-center gap-3 p-3 rounded-xl bg-card border">
-      <div className="w-12 h-12 rounded-lg bg-muted shrink-0" />
-      <div className="flex-1 space-y-2">
-        <div className="h-4 bg-muted rounded w-[70%]" />
-        <div className="h-3 bg-muted rounded w-[40%]" />
-      </div>
-    </div>
-  );
-}
-
 interface ServerPlaylist {
   id: string;
   title: string;
@@ -64,10 +56,13 @@ interface ServerPlaylist {
   unique_id: string;
   item_count: number;
   created_at: string;
+  thumbnail_url?: string | null;
+  first_thumb?: string | null;
 }
 
 export default function PlaylistPage() {
-  const bodyVideoGridClass = useBodyVideoGridClassName();
+  const playlistGridClass =
+    "grid w-full min-w-0 grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3";
   const { userId } = useFileContext();
   const { ids, count, clear } = useLocalPlaylist();
   const [files, setFiles] = useState<FileType[]>([]);
@@ -133,6 +128,15 @@ export default function PlaylistPage() {
     [ids]
   );
 
+  const handleFileUpdate = useCallback((fileId: string, updates: Partial<FileType>) => {
+    setFiles((prev) =>
+      prev.map((file) => (file.id === fileId ? { ...file, ...updates } : file))
+    );
+  }, []);
+
+  const savedVideoGridClass =
+    "grid w-full min-w-0 grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3";
+
   useEffect(() => {
     if (ids.length === 0) {
       setFiles([]);
@@ -172,16 +176,13 @@ export default function PlaylistPage() {
   }, [hasMore, loadingMore, page, fetchPage]);
 
   return (
-    <div className="space-y-8 px-2">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">Playlists</h1>
-        </div>
+    <div className="space-y-10 px-2">
+      <div className="flex items-center justify-between gap-3">
+        <h1 className="text-2xl font-bold tracking-tight">Playlists</h1>
         {userId && (
           <Button onClick={() => setCreateOpen(true)} size="sm" className="rounded-full gap-1.5">
             <Plus className="w-4 h-4" />
-            New playlist
+            New
           </Button>
         )}
       </div>
@@ -189,49 +190,63 @@ export default function PlaylistPage() {
       {/* Server Playlists */}
       {userId && (
         <section>
-          <h2 className="text-lg font-semibold mb-3 flex items-center gap-2">
-            <ListVideo className="w-5 h-5 text-muted-foreground" />
-            My Playlists
-          </h2>
+          <h2 className="text-base font-semibold mb-4 text-muted-foreground">Your lists</h2>
           {serverLoading ? (
-            <div className={bodyVideoGridClass}>
+            <div className={playlistGridClass}>
               {Array.from({ length: 3 }).map((_, i) => (
-                <SkeletonPlaylistCard key={i} />
+                <div key={i} className="animate-pulse rounded-xl border bg-card overflow-hidden">
+                  <div className="aspect-video bg-muted" />
+                  <div className="p-3 h-14 bg-muted/40" />
+                </div>
               ))}
             </div>
           ) : serverPlaylists.length > 0 ? (
-            <div className={bodyVideoGridClass}>
-              {serverPlaylists.map((pl) => (
-                <Link
-                  key={pl.id}
-                  to={`/playlist/${pl.id}`}
-                  className="group flex items-center gap-3 p-3 rounded-xl bg-card hover:bg-accent/50 transition-colors border"
-                >
-                  <div className="w-12 h-12 rounded-lg bg-primary/10 flex items-center justify-center shrink-0 group-hover:bg-primary/15 transition-colors">
-                    <Music className="w-5 h-5 text-primary" />
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <p className="font-medium text-sm truncate group-hover:text-primary transition-colors">{pl.title}</p>
-                    <div className="flex items-center gap-2 text-xs text-muted-foreground mt-0.5">
-                      <span>{pl.item_count} {pl.item_count === 1 ? "item" : "items"}</span>
-                      <span className="text-muted-foreground/50">·</span>
-                      {pl.is_public ? (
-                        <span className="inline-flex items-center gap-0.5"><Globe className="w-3 h-3" /> Public</span>
+            <div className="grid w-full min-w-0 grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+              {serverPlaylists.map((pl) => {
+                const thumb = resolvePlaylistThumbSrc(pl.thumbnail_url || pl.first_thumb);
+                return (
+                  <Link
+                    key={pl.id}
+                    to={`/playlist/${pl.id}`}
+                    className="group block rounded-xl border bg-card overflow-hidden hover:border-primary/30 hover:bg-accent/40 transition-colors"
+                  >
+                    <div className="relative aspect-video bg-muted overflow-hidden">
+                      {thumb ? (
+                        <img
+                          src={thumb}
+                          alt=""
+                          className="absolute inset-0 w-full h-full object-cover transition-transform duration-300 group-hover:scale-[1.02]"
+                          loading="lazy"
+                        />
                       ) : (
-                        <span className="inline-flex items-center gap-0.5"><Lock className="w-3 h-3" /> Private</span>
+                        <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-primary/15 to-muted">
+                          <Music className="w-12 h-12 text-primary/70" aria-hidden />
+                        </div>
                       )}
+                      <span className="absolute bottom-2 right-2 rounded-md bg-black/65 px-2 py-0.5 text-[11px] font-medium text-white">
+                        {pl.item_count === 1 ? "1 video" : `${pl.item_count} videos`}
+                      </span>
                     </div>
-                  </div>
-                  <ChevronRight className="w-4 h-4 text-muted-foreground/50 group-hover:text-muted-foreground transition-colors shrink-0" />
-                </Link>
-              ))}
+                    <div className="p-3 min-w-0">
+                      <p className="font-medium text-sm line-clamp-2 group-hover:text-primary transition-colors">{pl.title}</p>
+                      <div className="flex items-center gap-2 text-xs text-muted-foreground mt-1.5">
+                        {pl.is_public ? (
+                          <span className="inline-flex items-center gap-0.5"><Globe className="w-3 h-3" /> Public</span>
+                        ) : (
+                          <span className="inline-flex items-center gap-0.5"><Lock className="w-3 h-3" /> Private</span>
+                        )}
+                      </div>
+                    </div>
+                  </Link>
+                );
+              })}
             </div>
           ) : (
-            <div className="rounded-xl border border-dashed p-6 text-center">
+            <div className="rounded-xl border border-dashed p-8 text-center">
               <ListVideo className="w-8 h-8 text-muted-foreground/40 mx-auto mb-2" />
               <p className="text-sm text-muted-foreground">No playlists yet</p>
               <Button variant="link" size="sm" onClick={() => setCreateOpen(true)} className="mt-1 text-primary">
-                Create your first playlist
+                Create one
               </Button>
             </div>
           )}
@@ -240,13 +255,11 @@ export default function PlaylistPage() {
 
       {/* Saved Locally */}
       <section>
-        <div className="flex items-center justify-between mb-3">
-          <h2 className="text-lg font-semibold flex items-center gap-2">
-            <Bookmark className="w-5 h-5 text-muted-foreground" />
-            Saved Locally
-            <span className="text-sm font-normal text-muted-foreground ml-1">
-              ({count})
-            </span>
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-base font-semibold text-muted-foreground flex items-center gap-2">
+            <Bookmark className="w-5 h-5 shrink-0 opacity-80" />
+            Saved on this device
+            <span className="text-sm font-normal opacity-80">({count})</span>
           </h2>
           {count > 0 && (
             <Button
@@ -262,29 +275,93 @@ export default function PlaylistPage() {
         </div>
 
         {loading ? (
-          <div className={bodyVideoGridClass}>
+          <div className={savedVideoGridClass}>
             {Array.from({ length: 6 }).map((_, i) => (
               <SkeletonCard key={i} />
             ))}
           </div>
         ) : files.length > 0 ? (
           <>
-            <div className={bodyVideoGridClass}>
-              {files.map((file, index) => (
-                <VideoCard
-                  key={file.id || index}
-                  data={file}
-                  index={index}
-                  currentUserId={userId || undefined}
-                  userActions={userActions}
-                  hideActions={{completely: true}}
-                />
-              ))}
-              {loadingMore &&
-                Array.from({ length: 4 }).map((_, i) => (
-                  <SkeletonCard key={`more-${i}`} />
-                ))
-              }
+            <div className={savedVideoGridClass}>
+              {(() => {
+                const groups = groupConsecutiveReelClusters(files);
+                let indexCounter = 0;
+                return (
+                  <>
+                    {groups.map((g) => {
+                      if (g.kind === "single") {
+                        const file = g.file;
+                        const index = indexCounter++;
+                        return (
+                          <VideoCard
+                            key={file.id || file.unique_id || index}
+                            data={file}
+                            index={index}
+                            currentUserId={userId || undefined}
+                            userActions={userActions}
+                            onUpdate={handleFileUpdate}
+                            hideActions={{ completely: true }}
+                          />
+                        );
+                      }
+                      const clusterKey =
+                        g.files[0]?.feed_reel_cluster_id ?? g.files[0]?.id ?? "saved-local";
+                      return (
+                        <div
+                          key={`saved-local-reel-${clusterKey}`}
+                          className="col-span-full w-full min-w-0 max-w-full overflow-hidden"
+                        >
+                          <Swiper
+                            modules={[Navigation, A11y, Keyboard]}
+                            slidesPerView={3.15}
+                            spaceBetween={10}
+                            speed={380}
+                            watchOverflow
+                            observer
+                            observeParents
+                            resizeObserver
+                            navigation
+                            keyboard={{ enabled: true, onlyInViewport: true }}
+                            breakpoints={{
+                              640: { slidesPerView: 2.5, spaceBetween: 12 },
+                              768: { slidesPerView: 3, spaceBetween: 12 },
+                              1024: { slidesPerView: 3.5, spaceBetween: 14 },
+                              1280: { slidesPerView: 4, spaceBetween: 14 },
+                              1536: { slidesPerView: 5, spaceBetween: 16 },
+                            }}
+                            className="feed-reel-swiper"
+                            onInit={(swiper: SwiperType) => swiper.update()}
+                          >
+                            {g.files.map((file, keyIndex) => {
+                              const index = indexCounter++;
+                              return (
+                                <SwiperSlide
+                                  key={file.id || file.unique_id || keyIndex}
+                                  className="!h-auto"
+                                >
+                                  <VideoCard
+                                    data={file}
+                                    layout="reelStrip"
+                                    index={index}
+                                    currentUserId={userId || undefined}
+                                    userActions={userActions}
+                                    onUpdate={handleFileUpdate}
+                                    hideActions={{ completely: false, halfway: true }}
+                                  />
+                                </SwiperSlide>
+                              );
+                            })}
+                          </Swiper>
+                        </div>
+                      );
+                    })}
+                    {loadingMore &&
+                      Array.from({ length: 4 }).map((_, i) => (
+                        <SkeletonCard key={`more-${i}`} />
+                      ))}
+                  </>
+                );
+              })()}
             </div>
             {hasMore && (
               userId ? (
@@ -299,15 +376,13 @@ export default function PlaylistPage() {
             <div className="w-16 h-16 bg-muted rounded-full flex items-center justify-center mx-auto mb-4">
               <Bookmark className="w-7 h-7 text-muted-foreground" />
             </div>
-            <h3 className="text-lg font-semibold text-foreground mb-1">No saved videos</h3>
-            <p className="text-sm text-muted-foreground mb-5 text-center max-w-sm">
-              Open <span className="font-medium text-foreground">⋯</span> on a video →{" "}
-              <span className="font-medium text-foreground">Add to playlist</span> →{" "}
-              <span className="font-medium text-foreground">Save locally on this device</span>
+            <h3 className="text-lg font-semibold text-foreground mb-2">Nothing saved here</h3>
+            <p className="text-sm text-muted-foreground mb-5 text-center max-w-sm leading-relaxed">
+              On any video open the menu, tap add to playlist, then choose save on this device.
             </p>
             <Link to="/">
               <Button variant="default" className="rounded-full px-6">
-                Browse content
+                Browse
               </Button>
             </Link>
           </div>

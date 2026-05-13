@@ -22,6 +22,7 @@ import { stripGithubRepoForClient } from "~/lib/githubStorage";
 import { ownerService } from "~/lib/Services/OwnerService";
 import { buildPageMeta } from "~/lib/seo";
 import { isAuthenticated } from "~/lib/Security/Password";
+import { sanitizeFileForPublicViewer } from "~/lib/files/sanitizeFileForViewer";
 
 function fileIdKey(id: unknown): string {
   return String(id ?? "").toLowerCase();
@@ -116,9 +117,14 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
       }
     }
 
+    const fileOut = sanitizeFileForPublicViewer(
+      fileWithOwner as unknown as Record<string, unknown>,
+      userId ?? null
+    ) as typeof fileWithOwner;
+
     return data(
       {
-        file: fileWithOwner,
+        file: fileOut,
         uniqueId: routeUniqueId,
         accessDenied: false as const,
         reason: undefined,

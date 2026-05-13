@@ -114,6 +114,11 @@ export interface HLSPlayerProps {
    * reel keeps autoplay without un-gating neighbors (they pass false here).
    */
   reelSwiperActive?: boolean;
+  /**
+   * When true, skip window-level player shortcuts (space, arrows, f, m, etc.) so parent UI can own
+   * keys — e.g. `/reel` page deck (Swiper uses j/k separately at the document level).
+   */
+  disableKeyboardShortcuts?: boolean;
 }
 
 const HLSPlayer: React.FC<HLSPlayerProps> = (props) => (
@@ -167,6 +172,7 @@ function PlayerInner({
   showFeedPlayerControls = false,
   onBack,
   reelSwiperActive = false,
+  disableKeyboardShortcuts = false,
 }: HLSPlayerProps) {
   const navigate = useNavigate();
   const globalPlayerLayout = useGlobalPlayerLayout();
@@ -725,6 +731,7 @@ function PlayerInner({
   );
 
   useEffect(() => {
+    if (disableKeyboardShortcuts) return;
     if (isReelCtx && !embedReelControls) return;
     const handleKey = (e: KeyboardEvent) => {
       const tag = (e.target as HTMLElement)?.tagName;
@@ -829,6 +836,7 @@ function PlayerInner({
     window.addEventListener('keydown', handleKey);
     return () => window.removeEventListener('keydown', handleKey);
   }, [
+    disableKeyboardShortcuts,
     isReelCtx,
     embedReelControls,
     inPipForThisVideo,

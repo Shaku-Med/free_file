@@ -42,6 +42,8 @@ export interface PipReelItemProps {
    * Pass `isActive || isVisible` from Swiper. Defaults to true (PiP / vertical-feed keep full player).
    */
   loadHlsPlayer?: boolean;
+  /** `/reel` full-page only: poster-derived palette for the page backdrop (from the same thumbnail as the player). */
+  onReelPosterColors?: (colors: string[]) => void;
 }
 
 function isVideoLikeFile(f: FileType): boolean {
@@ -62,6 +64,7 @@ function PipReelItemInner({
   variant = 'pip',
   className,
   loadHlsPlayer = true,
+  onReelPosterColors,
 }: PipReelItemProps) {
   const { userId } = useFileContext();
   const navigate = useNavigate();
@@ -269,6 +272,14 @@ function PipReelItemInner({
     setTrackedVideoEl(el);
   }, []);
 
+  const handleReelPosterColorsFromPlayer = useCallback(
+    (payload: { src: string; colors: string[] }) => {
+      if (variant !== 'page' || !isActive) return;
+      onReelPosterColors?.(payload.colors ?? []);
+    },
+    [variant, isActive, onReelPosterColors],
+  );
+
   const handleVideoPlay = useCallback(() => {
     onVideoTimeForView();
   }, [onVideoTimeForView]);
@@ -337,123 +348,229 @@ function PipReelItemInner({
     }
   }, [file.unique_id, navigate]);
 
+  const actionsEl = (
+    <Actions
+      layout="tiktok"
+      fileId={fileId}
+      uniqueId={uniqueId}
+      sharePagePath={fileWatchPath(file)}
+      likeCount={likeCount}
+      dislikeCount={dislikeCount}
+      commentCount={
+        Number(file.comment_count ?? item.commentCount ?? 0) || 0
+      }
+      liked={liked}
+      disliked={disliked}
+      isOwner={isOwner}
+      currentUserId={userId ?? null}
+      fileCreatedAt={item.createdAt ?? null}
+      fileOwnerId={item.ownerId}
+      getShareTimestamp={getShareTimestamp}
+      onUpdate={handleUpdate}
+    />
+  );
+
+  const videoPlayerEl =
+    videoSrc && showHls ? (
+      <PlayQueueProvider
+        currentUniqueId={file.unique_id}
+        seriesUpNextVideos={[]}
+        suggestedVideos={[]}
+        viewerCanCustomizeQueue={Boolean(userId)}
+      >
+        <DynamicHLSPlayerWithQueue
+          key={file.unique_id ?? file.id}
+          src={videoSrc}
+          videoRef={videoRef}
+          className="h-full w-full"
+          autoPlay={isActive}
+          reelSwiperActive={isActive}
+          muted={false}
+          unlockPipReelAudio
+          playsInline
+          imageID={file.unique_id}
+          file={file}
+          showFeedPlayerControls
+          hideControls={PIP_REEL_HLS_HIDE_CONTROLS}
+          isReel
+          disableKeyboardShortcuts={variant === 'page'}
+          onPlay={handleVideoPlay}
+          onVideoRef={handlePlayerVideoRef}
+          callBack={variant === 'page' ? handleReelPosterColorsFromPlayer : undefined}
+        />
+      </PlayQueueProvider>
+    ) : videoSrc && !showHls ? (
+      <div className="flex h-full w-full items-center justify-center bg-black">
+        {posterUrl ? (
+          <img
+            src={posterUrl}
+            alt=""
+            className="h-full w-full object-contain"
+            decoding="async"
+            fetchPriority="low"
+          />
+        ) : (
+          <div className="h-12 w-12 animate-pulse rounded-full bg-white/10" aria-hidden />
+        )}
+      </div>
+    ) : (
+      <div className="flex h-full w-full items-center justify-center bg-muted text-muted-foreground">
+        <span className="text-sm font-medium">Preview unavailable</span>
+      </div>
+    );
+
+  /** Shared reel metadata (desktop sidebar + mobile bottom bar below the player — matches pre–IG mobile layout). */
+  const renderReelMeta = () => (
+    <div className="flex min-w-0 flex-col gap-2 text-white [&_.text-muted-foreground]:text-white/65">
+      <div className="flex items-center gap-2">
+        <div className="min-w-0 flex-1">
+          {file.owner?.username ? (
+            <OwnerProfile
+              owner={file.owner}
+              size="sm"
+              showUsername
+              className="text-white [&_span]:text-white hover:text-white [&_span]:hover:text-white"
+            />
+          ) : (
+            <p className="truncate text-sm font-semibold text-white">@{item.username || '…'}</p>
+          )}
+        </div>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-white/70 sm:text-xs">
+        <span className="font-medium tabular-nums text-white">{formatNumber(views)} views</span>
+        {file.created_at ? (
+          <>
+            <span className="opacity-50" aria-hidden>
+              ·
+            </span>
+            <span>{formatTimeAgo(file.created_at)}</span>
+          </>
+        ) : null}
+      </div>
+
+      {file.file_title?.trim() || file.filename ? (
+        <p className="truncate text-sm font-semibold leading-tight text-white">
+          <ParseFilenameInsert
+            filename={file.file_title?.trim() || file.filename || ''}
+            className="[&_a]:text-white [&_a]:underline"
+          />
+        </p>
+      ) : null}
+
+      {item.caption?.trim() ? (
+        <div className="line-clamp-2 text-sm leading-snug text-white/80">
+          <FormattedText text={item.caption.trim()} className="text-white/80 [&_a]:text-white" />
+        </div>
+      ) : null}
+    </div>
+  );
+
+  if (variant === 'page') {
+    return (
+      <div
+        className={cn(
+          'relative flex h-full min-h-0 w-full shrink-0 flex-col bg-transparent',
+          className,
+        )}
+        data-pip-reel-item-id={item.id}
+      >
+        <div className="flex min-h-0 flex-1 flex-col lg:min-h-0 lg:flex-row lg:items-stretch lg:justify-center">
+          {/* Desktop: creator + copy — bottom-aligned with the video column */}
+          {showChrome ? (
+            <aside className="hidden min-w-0 shrink-0 lg:flex lg:w-[min(18rem,26vw)] lg:flex-col lg:justify-end lg:gap-1 lg:pb-10 lg:pl-8 lg:pr-4 xl:w-[min(20rem,28vw)]">
+              {renderReelMeta()}
+            </aside>
+          ) : null}
+
+          {/* Stage: mobile = full-bleed video + actions, then bottom bar (legacy). Desktop = 9:16 + rail. */}
+          <div className="relative flex min-h-0 min-w-0 flex-1 flex-col lg:min-w-0 lg:justify-center lg:overflow-visible lg:px-2">
+            <div className="relative flex min-h-0 flex-1 flex-col lg:flex-1 lg:flex-row lg:items-center lg:justify-center lg:overflow-visible">
+              <div className="relative mx-auto flex min-h-0 w-full max-w-full flex-1 flex-col lg:flex-none lg:items-center">
+                <div
+                  className={cn(
+                    'relative isolate flex min-h-0 w-full flex-1 flex-col lg:aspect-[9/16]',
+                    'lg:h-[min(92dvh,calc(100dvh-2.5rem))] lg:max-h-[92dvh] lg:w-auto lg:max-w-[min(420px,36vw)]',
+                  )}
+                >
+                  <div className="relative h-full min-h-0 w-full flex-1 overflow-hidden bg-black lg:rounded-2xl lg:shadow-[0_25px_80px_-15px_rgba(0,0,0,0.85)] lg:ring-1 lg:ring-white/10">
+                    {videoPlayerEl}
+                  </div>
+
+                  <div
+                    aria-hidden
+                    className="pointer-events-none absolute right-0 top-0 z-[11] w-20 bg-gradient-to-l from-black/35 to-transparent lg:hidden"
+                    style={{ bottom: 'calc(3.25rem + env(safe-area-inset-bottom, 0px))' }}
+                  />
+
+                  <div
+                    className={cn(
+                      'swiper-no-swiping pointer-events-auto absolute z-20 flex flex-col items-end px-2 pt-2',
+                      'bottom-[calc(3.75rem+env(safe-area-inset-bottom,0px))] right-0',
+                      'lg:inset-auto lg:left-full lg:top-1/2 lg:ml-3 lg:w-14 lg:-translate-y-1/2 lg:items-center lg:px-0 lg:pb-0 lg:pt-0',
+                    )}
+                  >
+                    {actionsEl}
+                  </div>
+                </div>
+              </div>
+
+              {showChrome ? (
+                <div className="shrink-0 border-t border-white/10 bg-black/90 px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] text-white lg:hidden">
+                  {renderReelMeta()}
+                </div>
+              ) : null}
+            </div>
+          </div>
+
+          {/* Balance the left aside so the video stays centered when metadata is shown */}
+          {showChrome ? (
+            <div
+              className="hidden shrink-0 lg:block lg:w-[min(18rem,26vw)] lg:pb-10 xl:w-[min(20rem,28vw)]"
+              aria-hidden
+            />
+          ) : null}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div
       className={cn(
         'relative flex h-full min-h-0 w-full shrink-0 flex-col',
-        variant === 'page' ? 'bg-black' : 'bg-background reel_p',
-        isActive && variant !== 'page' && 'ring-1 ring-border',
+        'bg-background reel_p',
+        isActive && 'ring-1 ring-border',
         className,
       )}
       data-pip-reel-item-id={item.id}
     >
       {/*
-        Video well. Actions float over the video (bottom-right) TikTok-style — no separate rail.
-        Swiper steals pointer events on slides, so the Actions wrapper opts out via `swiper-no-swiping`
-        and sits in its own z-layer so Radix dropdowns inside `Actions` still work.
+        PiP: actions over the video (bottom-right). Page variant uses the layout branch above.
       */}
       <div className="relative min-h-0 min-w-0 flex-1 overflow-hidden bg-black">
-        {videoSrc && showHls ? (
-          <PlayQueueProvider
-            currentUniqueId={file.unique_id}
-            seriesUpNextVideos={[]}
-            suggestedVideos={[]}
-            viewerCanCustomizeQueue={Boolean(userId)}
-          >
-            <DynamicHLSPlayerWithQueue
-              key={file.unique_id ?? file.id}
-              src={videoSrc}
-              videoRef={videoRef}
-              className="h-full w-full"
-              autoPlay={isActive}
-              reelSwiperActive={isActive}
-              muted={false}
-              unlockPipReelAudio
-              playsInline
-              imageID={file.unique_id}
-              file={file}
-              showFeedPlayerControls
-              hideControls={PIP_REEL_HLS_HIDE_CONTROLS}
-              isReel
-              onPlay={handleVideoPlay}
-              onVideoRef={handlePlayerVideoRef}
-            />
-          </PlayQueueProvider>
-        ) : videoSrc && !showHls ? (
-          <div className="flex h-full w-full items-center justify-center bg-black">
-            {posterUrl ? (
-              <img
-                src={posterUrl}
-                alt=""
-                className="h-full w-full object-contain"
-                decoding="async"
-                fetchPriority="low"
-              />
-            ) : (
-              <div className="h-12 w-12 animate-pulse rounded-full bg-white/10" aria-hidden />
-            )}
-          </div>
-        ) : (
-          <div className="flex h-full w-full items-center justify-center bg-muted text-muted-foreground">
-            <span className="text-sm font-medium">Preview unavailable</span>
-          </div>
-        )}
+        {videoPlayerEl}
 
-        {/*
-          Thin right-edge fade behind the floating buttons so glyphs stay readable on bright footage.
-          Stops above the seek bar (doesn't cover the scrub chrome) and doesn't reach the center.
-        */}
         <div
           aria-hidden
           className="pointer-events-none absolute right-0 top-0 w-20 bg-gradient-to-l from-black/35 to-transparent"
           style={{ bottom: 'calc(3.25rem + env(safe-area-inset-bottom, 0px))' }}
         />
 
-        {/*
-          Floating TikTok-style action rail — overlays the video, anchored bottom-right.
-          Lifted above the reel seek bar + bottom button row (~3.5rem of chrome) so the buttons
-          never sit on top of scrub / play controls.
-        */}
         <div
           className={cn(
             'swiper-no-swiping pointer-events-auto absolute right-0 z-20',
             'bottom-[calc(3.75rem+env(safe-area-inset-bottom,0px))]',
             'flex flex-col items-end',
-            'px-2 pt-2'
+            'px-2 pt-2',
           )}
         >
-          <Actions
-            layout="tiktok"
-            fileId={fileId}
-            uniqueId={uniqueId}
-            sharePagePath={fileWatchPath(file)}
-            likeCount={likeCount}
-            dislikeCount={dislikeCount}
-            commentCount={
-              Number(file.comment_count ?? item.commentCount ?? 0) || 0
-            }
-            liked={liked}
-            disliked={disliked}
-            isOwner={isOwner}
-            currentUserId={userId ?? null}
-            fileCreatedAt={item.createdAt ?? null}
-            fileOwnerId={item.ownerId}
-            getShareTimestamp={getShareTimestamp}
-            onUpdate={handleUpdate}
-          />
+          {actionsEl}
         </div>
       </div>
 
-      {/* Bottom: title / caption — below the player so nothing covers the picture. */}
-      {showChrome && (
-        <div
-          className={cn(
-            'shrink-0 border-t px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]',
-            variant === 'page'
-              ? 'border-white/10 bg-black/90 text-white [&_.text-muted-foreground]:text-white/65'
-              : 'border-border bg-card',
-          )}
-        >
+      {showChrome ? (
+        <div className="shrink-0 border-border border-t bg-card px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] text-foreground">
           <div className="flex items-center gap-2">
             <div className="min-w-0 flex-1">
               {file.owner?.username ? (
@@ -461,53 +578,32 @@ function PipReelItemInner({
                   owner={file.owner}
                   size="sm"
                   showUsername
-                  className={
-                    variant === 'page'
-                      ? 'text-white [&_span]:text-white hover:text-white [&_span]:hover:text-white'
-                      : 'text-foreground [&_span]:text-foreground hover:text-foreground [&_span]:hover:text-foreground'
-                  }
+                  className="text-foreground [&_span]:text-foreground hover:text-foreground [&_span]:hover:text-foreground"
                 />
               ) : (
-                <p
-                  className={cn(
-                    'truncate text-sm font-semibold',
-                    variant === 'page' ? 'text-white' : 'text-foreground',
-                  )}
-                >
+                <p className="truncate text-sm font-semibold text-foreground">
                   @{item.username || '…'}
                 </p>
               )}
             </div>
 
-            {variant === 'pip' ? (
-              <Button
-                type="button"
-                size="sm"
-                variant="secondary"
-                onClick={handleOpenInMain}
-                disabled={!file.unique_id}
-                className="h-8 shrink-0 gap-1.5 px-3 text-xs"
-                aria-label="Open this video in the main player"
-                title="Open in main player"
-              >
-                <Maximize2 className="size-3.5" aria-hidden />
-                <span className="hidden sm:inline">Open</span>
-              </Button>
-            ) : null}
+            <Button
+              type="button"
+              size="sm"
+              variant="secondary"
+              onClick={handleOpenInMain}
+              disabled={!file.unique_id}
+              className="h-8 shrink-0 gap-1.5 px-3 text-xs"
+              aria-label="Open this video in the main player"
+              title="Open in main player"
+            >
+              <Maximize2 className="size-3.5" aria-hidden />
+              <span className="hidden sm:inline">Open</span>
+            </Button>
           </div>
 
-          <div
-            className={cn(
-              'mt-2 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] sm:text-xs',
-              variant === 'page' ? 'text-white/70' : 'text-muted-foreground',
-            )}
-          >
-            <span
-              className={cn(
-                'font-medium tabular-nums',
-                variant === 'page' ? 'text-white' : 'text-foreground',
-              )}
-            >
+          <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-muted-foreground sm:text-xs">
+            <span className="font-medium tabular-nums text-foreground">
               {formatNumber(views)} views
             </span>
             {file.created_at ? (
@@ -521,34 +617,18 @@ function PipReelItemInner({
           </div>
 
           {file.file_title?.trim() || file.filename ? (
-            <p
-              className={cn(
-                'mt-1.5 truncate text-sm font-semibold leading-tight',
-                variant === 'page' ? 'text-white' : 'text-foreground',
-              )}
-            >
-              <ParseFilenameInsert
-                filename={file.file_title?.trim() || file.filename || ''}
-                className={variant === 'page' ? '[&_a]:text-white [&_a]:underline' : undefined}
-              />
+            <p className="mt-1.5 truncate text-sm font-semibold leading-tight text-foreground">
+              <ParseFilenameInsert filename={file.file_title?.trim() || file.filename || ''} />
             </p>
           ) : null}
 
           {item.caption?.trim() ? (
-            <div
-              className={cn(
-                'mt-1 line-clamp-2 text-sm leading-snug',
-                variant === 'page' ? 'text-white/80' : 'text-muted-foreground',
-              )}
-            >
-              <FormattedText
-                text={item.caption.trim()}
-                className={variant === 'page' ? 'text-white/80 [&_a]:text-white' : undefined}
-              />
+            <div className="mt-1 line-clamp-2 text-sm leading-snug text-muted-foreground">
+              <FormattedText text={item.caption.trim()} />
             </div>
           ) : null}
         </div>
-      )}
+      ) : null}
     </div>
   );
 }

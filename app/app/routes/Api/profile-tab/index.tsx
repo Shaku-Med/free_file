@@ -3,6 +3,8 @@ import { isAuthenticated } from "~/lib/Security/Password";
 import db from "~/lib/Database/supabase";
 import type { FileType } from "~/lib/types";
 import { isValidUUID } from "~/lib/Security/inputValidation";
+import { normalizeRpcFileRow } from "~/lib/profile/normalizeRpcFileRow";
+import { mapPlaylistRpcToClientRow } from "~/lib/profile/normalizePlaylistRpcRow";
 
 const TABS = new Set(["liked", "history", "playlists"]);
 
@@ -13,22 +15,23 @@ function mapFileRows(rows: unknown[], currentUserId: string | null): {
 } {
   const likedFileIds: string[] = [];
   const dislikedFileIds: string[] = [];
-  const files: FileType[] = (rows as any[]).map((r) => {
-    const fid = String(r.id);
-    if (r.user_has_liked) likedFileIds.push(fid);
-    if (r.user_has_disliked) dislikedFileIds.push(fid);
+  const files: FileType[] = (rows as any[]).map((row) => {
+    const r = normalizeRpcFileRow(row as Record<string, unknown>);
+    const fid = String((r as { id: string }).id);
+    if ((r as { user_has_liked?: boolean }).user_has_liked) likedFileIds.push(fid);
+    if ((r as { user_has_disliked?: boolean }).user_has_disliked) dislikedFileIds.push(fid);
     return {
       ...r,
-      like_count: Number(r.like_count) || 0,
-      dislike_count: Number(r.dislike_count) || 0,
-      comment_count: Number(r.comment_count) || 0,
-      owner: r.owner_username
+      like_count: Number(r["like_count"]) || 0,
+      dislike_count: Number(r["dislike_count"]) || 0,
+      comment_count: Number(r["comment_count"]) || 0,
+      owner: (r as { owner_username?: string }).owner_username
         ? {
-            id: r.owner_id,
-            username: r.owner_username,
-            profile_pic: r.owner_profile_pic || "",
-            verified: r.owner_verified || false,
-            about: r.owner_about || null,
+            id: (r as { owner_id: string }).owner_id,
+            username: (r as { owner_username: string }).owner_username,
+            profile_pic: (r as { owner_profile_pic?: string }).owner_profile_pic || "",
+            verified: (r as { owner_verified?: boolean }).owner_verified || false,
+            about: (r as { owner_about?: string | null }).owner_about || null,
           }
         : null,
     } as FileType;
@@ -71,7 +74,10 @@ export const loader = async ({ request }: { request: Request }) => {
         return data({ error: "Failed to load playlists", playlists: [] }, { status: 500 });
       }
       const list = Array.isArray(raw) ? raw : [];
-      const playlists = list.filter((p: { is_public?: boolean }) => p.is_public === true || isOwner);
+      const filtered = list.filter((p: { is_public?: boolean }) => p.is_public === true || isOwner);
+      const playlists = filtered.map((p: Record<string, unknown>) =>
+        mapPlaylistRpcToClientRow(p)
+      );
       return data({ playlists, tab }, { status: 200 });
     }
 

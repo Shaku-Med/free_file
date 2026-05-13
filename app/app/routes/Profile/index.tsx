@@ -15,6 +15,7 @@ import { BASE_URL } from "~/lib/URLS";
 import { buildPageMeta, buildErrorMeta, SITE_NAME, THEME_COLOR } from "~/lib/seo";
 import { usePageCache } from "~/lib/hooks/usePageCache";
 import { useFileContext } from "~/lib/Context/Context";
+import { normalizeRpcFileRow } from "~/lib/profile/normalizeRpcFileRow";
 
 
 interface ChannelStats {
@@ -70,22 +71,25 @@ export const loader = async ({ request, params }: { request: Request; params: { 
       if (!rpcError && Array.isArray(rows)) {
         hasMore = rows.length > limit;
         const sliced = rows.slice(0, limit);
-        files = sliced.map((r: any) => {
-          const fid = String(r.id);
-          if (r.user_has_liked) likedFileIds.push(fid);
-          if (r.user_has_disliked) dislikedFileIds.push(fid);
+        files = sliced.map((row: any) => {
+          const r = normalizeRpcFileRow(row as Record<string, unknown>);
+          const fid = String((r as { id: string }).id);
+          if ((r as { user_has_liked?: boolean }).user_has_liked) likedFileIds.push(fid);
+          if ((r as { user_has_disliked?: boolean }).user_has_disliked) dislikedFileIds.push(fid);
           return {
             ...r,
-            like_count: Number(r.like_count) || 0,
-            dislike_count: Number(r.dislike_count) || 0,
-            comment_count: Number(r.comment_count) || 0,
-            owner: r.owner_username ? {
-              id: r.owner_id,
-              username: r.owner_username,
-              profile_pic: r.owner_profile_pic || '',
-              verified: r.owner_verified || false,
-              about: r.owner_about || null,
-            } : null,
+            like_count: Number(r["like_count"]) || 0,
+            dislike_count: Number(r["dislike_count"]) || 0,
+            comment_count: Number(r["comment_count"]) || 0,
+            owner: r["owner_username"]
+              ? {
+                  id: r["owner_id"] as string,
+                  username: r["owner_username"] as string,
+                  profile_pic: (r["owner_profile_pic"] as string) || "",
+                  verified: (r["owner_verified"] as boolean) || false,
+                  about: (r["owner_about"] as string | null) ?? null,
+                }
+              : null,
           } as FileType;
         });
       }

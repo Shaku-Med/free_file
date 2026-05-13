@@ -2,6 +2,7 @@ import { data } from "react-router";
 import { isAuthenticated } from "~/lib/Security/Password";
 import db from "~/lib/Database/supabase";
 import type { FileType } from "~/lib/types";
+import { normalizeRpcFileRow } from "~/lib/profile/normalizeRpcFileRow";
 export const loader = async ({ request }: { request: Request }) => {
   try {
     const url = new URL(request.url);
@@ -45,22 +46,25 @@ export const loader = async ({ request }: { request: Request }) => {
     const likedFileIds: string[] = [];
     const dislikedFileIds: string[] = [];
 
-    const files: FileType[] = sliced.map((r: any) => {
-      const fid = String(r.id);
-      if (r.user_has_liked) likedFileIds.push(fid);
-      if (r.user_has_disliked) dislikedFileIds.push(fid);
+    const files: FileType[] = sliced.map((row: any) => {
+      const r = normalizeRpcFileRow(row as Record<string, unknown>);
+      const fid = String((r as { id: string }).id);
+      if ((r as { user_has_liked?: boolean }).user_has_liked) likedFileIds.push(fid);
+      if ((r as { user_has_disliked?: boolean }).user_has_disliked) dislikedFileIds.push(fid);
       return {
         ...r,
-        like_count: Number(r.like_count) || 0,
-        dislike_count: Number(r.dislike_count) || 0,
-        comment_count: Number(r.comment_count) || 0,
-        owner: r.owner_username ? {
-          id: r.owner_id,
-          username: r.owner_username,
-          profile_pic: r.owner_profile_pic || '',
-          verified: r.owner_verified || false,
-          about: r.owner_about || null,
-        } : null,
+        like_count: Number(r["like_count"]) || 0,
+        dislike_count: Number(r["dislike_count"]) || 0,
+        comment_count: Number(r["comment_count"]) || 0,
+        owner: r["owner_username"]
+          ? {
+              id: r["owner_id"] as string,
+              username: r["owner_username"] as string,
+              profile_pic: (r["owner_profile_pic"] as string) || "",
+              verified: (r["owner_verified"] as boolean) || false,
+              about: (r["owner_about"] as string | null) ?? null,
+            }
+          : null,
       } as FileType;
     });
 

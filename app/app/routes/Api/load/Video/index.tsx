@@ -7,6 +7,8 @@ import {
   rewriteM3U8,
   restrictHlsMasterPlaylistToLowestRendition,
   sessionRateKey,
+  GUEST_SEGMENT_TOKEN_TTL_SEC,
+  SIGNED_IN_SEGMENT_TOKEN_TTL_SEC,
 } from "~/lib/Services/SegmentTokenService";
 import {
   recordSegmentFetch,
@@ -252,14 +254,19 @@ export const loader = async ({ request }: { request: Request }) => {
 
     const origin = getAllowedOrigin(url, request.headers);
 
+    /** Align with `_st` lifetime so the browser can reuse responses without re-hitting the origin. */
+    const segmentCacheMaxAge = guestMode
+      ? GUEST_SEGMENT_TOKEN_TTL_SEC
+      : SIGNED_IN_SEGMENT_TOKEN_TTL_SEC;
+
     /**
      * Manifests embed a one-time `_mk` and may differ guest vs signed-in (truncated vs full HLS),
-     * so they must not be cached. Segments are addressed by `_st` token (session + path bound) and
-     * are safe to cache for the browser session — saves a round-trip on swipe-back in reels.
+     * so they must not be cached. Segments are addressed by `_st` token (session + path bound) —
+     * `max-age` matches token TTL (browser cache never outlives validity).
      */
     const videoResponseCacheHeaders: Record<string, string> = isSegment
       ? {
-          "Cache-Control": "private, max-age=60",
+          "Cache-Control": `private, max-age=${segmentCacheMaxAge}`,
           "Vary": "Origin, Cookie",
           "Cross-Origin-Resource-Policy": "same-origin",
         }

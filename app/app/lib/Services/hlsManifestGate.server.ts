@@ -2,9 +2,12 @@ import { createHmac, randomBytes, timingSafeEqual } from "crypto";
 import type { HlsPlaybackKind } from "~/lib/Security/Server/hlsBootstrap.server";
 import { sessionScope } from "~/lib/Services/SegmentTokenService";
 
-/** Pending one-shot manifest key lifetime (client must fetch manifest within this window). */
-const PENDING_TTL_MS = 10 * 60 * 1000;
-/** Block replays of a consumed _mk id even if the 10m window has not ended. */
+/**
+ * Pending `_mk` lifetime (client must fetch the first manifest within this window).
+ * Same session + same manifest path + same playback kind **reuses** one id until consumed or expiry.
+ */
+export const PENDING_MANIFEST_KEY_TTL_MS = 10 * 60 * 1000;
+/** Block replays of a consumed `_mk` id even if the 10m window has not ended. */
 const REPLAY_BLOCK_MS = 4 * 60 * 60 * 1000;
 /** HttpOnly continuation cookie: allows variant m3u8 fetches after the first master hit. */
 const CONTINUATION_TTL_MS = 2 * 60 * 60 * 1000;
@@ -19,7 +22,17 @@ type Pending = {
 };
 
 const pending = new Map<string, Pending>();
+/** `${kind}|${sessionScope}|${manifestPath}` → pending id (reuse before first consume). */
+const pendingByComposite = new Map<string, string>();
 const replayUntil = new Map<string, number>();
+
+function compositeLookupKey(
+  manifestPath: string,
+  scope: string,
+  kind: HlsPlaybackKind,
+): string {
+  return `${kind}|${scope}|${manifestPath}`;
+}
 
 function getGateSecret(): string {
   return (
@@ -33,7 +46,11 @@ function getGateSecret(): string {
 function sweep() {
   const now = Date.now();
   for (const [k, v] of pending) {
-    if (v.exp <= now) pending.delete(k);
+    if (v.exp <= now) {
+      pending.delete(k);
+      const ck = compositeLookupKey(v.manifestPath, v.scope, v.kind);
+      if (pendingByComposite.get(ck) === k) pendingByComposite.delete(ck);
+    }
   }
   for (const [k, until] of replayUntil) {
     if (until <= now) replayUntil.delete(k);
@@ -44,20 +61,51 @@ if (typeof setInterval !== "undefined") {
   setInterval(sweep, SWEEP_EVERY_MS);
 }
 
+/**
+ * Mints a one-time `_mk` consumed on first master playlist hit — **or** returns an existing
+ * unused pending id for the same `(session, kind, manifest path)` so repeated session POSTs share
+ * one key and URLs stay stable until consume (still one-shot at the CDN gate).
+ */
 export function createPendingManifestKey(
   manifestPath: string,
   headers: Headers,
   kind: HlsPlaybackKind
 ): string {
   sweep();
+  const scope = sessionScope(headers);
+  const ck = compositeLookupKey(manifestPath, scope, kind);
+  const existingId = pendingByComposite.get(ck);
+  if (existingId) {
+    const p = pending.get(existingId);
+    if (
+      p &&
+      p.exp > Date.now() &&
+      p.manifestPath === manifestPath &&
+      p.scope === scope &&
+      p.kind === kind
+    ) {
+      return existingId;
+    }
+    pendingByComposite.delete(ck);
+  }
+
   const id = randomBytes(18).toString("base64url");
   pending.set(id, {
     manifestPath,
-    scope: sessionScope(headers),
+    scope,
     kind,
-    exp: Date.now() + PENDING_TTL_MS,
+    exp: Date.now() + PENDING_MANIFEST_KEY_TTL_MS,
   });
+  pendingByComposite.set(ck, id);
   return id;
+}
+
+/** Remaining validity for a pending `_mk` id (seconds), or `null` if missing/expired. */
+export function pendingManifestSecondsRemaining(manifestKeyId: string): number | null {
+  sweep();
+  const p = pending.get(manifestKeyId);
+  if (!p || p.exp <= Date.now()) return null;
+  return Math.max(0, Math.ceil((p.exp - Date.now()) / 1000));
 }
 
 export function isManifestKeyReplayBlocked(id: string): boolean {
@@ -127,6 +175,10 @@ export function tryConsumeManifestKey(
 
   const p = pending.get(id);
   if (!p || p.exp <= Date.now()) {
+    if (p) {
+      const ckDead = compositeLookupKey(p.manifestPath, p.scope, p.kind);
+      if (pendingByComposite.get(ckDead) === id) pendingByComposite.delete(ckDead);
+    }
     pending.delete(id);
     return null;
   }
@@ -135,6 +187,9 @@ export function tryConsumeManifestKey(
   if (p.kind !== kind) return null;
 
   pending.delete(id);
+  const ck = compositeLookupKey(p.manifestPath, p.scope, p.kind);
+  if (pendingByComposite.get(ck) === id) pendingByComposite.delete(ck);
+
   replayUntil.set(id, Date.now() + REPLAY_BLOCK_MS);
 
   const lastSlash = sanitizedPath.lastIndexOf("/");

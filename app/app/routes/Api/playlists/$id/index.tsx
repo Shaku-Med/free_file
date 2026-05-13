@@ -1,6 +1,7 @@
 import db from "~/lib/Database/supabase";
 import { isAuthenticated } from "~/lib/Security/Password";
 import { filterFilesByAccess } from "~/routes/Api/fun/accessControl";
+import { normalizeRpcFileRow } from "~/lib/profile/normalizeRpcFileRow";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const MAX_TITLE = 100;
@@ -95,7 +96,9 @@ export const loader = async ({ request, params }: { request: Request; params: { 
       }))
     : [];
 
-  const items = await filterFilesByAccess(request, rawItems);
+  const items = (await filterFilesByAccess(request, rawItems)).map((item) =>
+    normalizeRpcFileRow(item as Record<string, unknown>)
+  );
 
   return jsonRes({ playlist, items });
 };
