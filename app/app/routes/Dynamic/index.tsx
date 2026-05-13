@@ -727,7 +727,7 @@ const index = () => {
           error?: string;
         };
         if (ac.signal.aborted) return;
-        if (r.status === 403) {
+        if (r.status === 403 || r.status === 401) {
           setSeriesFetch({
             episodes: null,
             loadState: "error",

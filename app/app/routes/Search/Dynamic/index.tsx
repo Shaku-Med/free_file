@@ -366,7 +366,8 @@ const Search = () => {
                 index={index}
                 userActions={localUserActions}
                 currentUserId={userId || undefined}
-                hideActions={{ completely: false }}
+                hideActions={{ completely: false,  }}
+                layout={`shelf`}
               />
             );
           }
@@ -407,7 +408,7 @@ const Search = () => {
                         index={index}
                         userActions={localUserActions}
                         currentUserId={userId || undefined}
-                        hideActions={{ completely: false, halfway: true }}
+                        hideActions={{ completely: true, halfway: false }}
                       />
                     </SwiperSlide>
                   );
@@ -502,10 +503,7 @@ const Search = () => {
                   <div className="flex items-start gap-2">
                     <Layers className="mt-0.5 h-5 w-5 shrink-0 text-muted-foreground" aria-hidden />
                     <div>
-                      <h3 className="text-lg font-semibold text-foreground">Series</h3>
-                      <p className="text-sm text-muted-foreground">
-                        Matches an episode video, playlist label (e.g. Season 1), or other text tied to episodes in these series.
-                      </p>
+                      <h3 className="text-lg font-semibold text-foreground">Found in {seriesRoots.length < 2 ? `this` : `one of these`} series</h3>
                     </div>
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-2">
@@ -516,7 +514,8 @@ const Search = () => {
                         index={idx}
                         userActions={localUserActions}
                         currentUserId={userId || undefined}
-                        hideActions={{ completely: false }}
+                        hideActions={{ completely: true, halfway: false }}
+                        layout={`shelf`}
                       />
                     ))}
                   </div>

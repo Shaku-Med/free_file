@@ -306,10 +306,7 @@ export function SearchModal({ open, onOpenChange }: SearchModalProps) {
                       <div className="flex items-start gap-2">
                         <Layers className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
                         <div>
-                          <h3 className="text-sm font-semibold text-foreground">Series</h3>
-                          <p className="mt-0.5 text-xs text-muted-foreground">
-                            Matched an episode title, playlist label (e.g. Season 1), or video in this series.
-                          </p>
+                          <h3 className="text-sm font-semibold text-foreground">Found in {seriesRoots.length < 2 ? `this` : `one of these`} series</h3>
                         </div>
                       </div>
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">

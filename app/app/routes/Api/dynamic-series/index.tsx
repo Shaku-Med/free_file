@@ -13,8 +13,8 @@ import type { SeriesEpisodeGroup } from "~/lib/types";
 
 /**
  * GET /api/dynamic-series?unique_id=<file unique_id>
- * Returns series episode tree for the file’s series (same access rules as the dynamic page).
- * Used after the page loads so the HTML document stays small.
+ * Returns series episode tree only for authenticated viewers (still gated by {@link checkFileAccess}).
+ * Anonymous users receive 401 — they may reach the watch page media, but not episode-structure payloads.
  */
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   if (request.method !== "GET") {
@@ -67,7 +67,18 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   }
 
   const user = await isAuthenticated(request, ["id"]);
-  const userId = user?.id ?? null;
+  if (!user?.id) {
+    return data(
+      {
+        error: "Unauthorized",
+        seriesEpisodes: null as SeriesEpisodeGroup[] | null,
+        seriesContext: null as { fileSeriesId: string } | null,
+        seriesVideosUserActions: { likedFileIds: [] as string[], dislikedFileIds: [] as string[] },
+      },
+      { status: 401 },
+    );
+  }
+  const userId = user.id;
 
   let seriesEpisodes: SeriesEpisodeGroup[] | null = null;
   let seriesContext: { fileSeriesId: string } | null = null;

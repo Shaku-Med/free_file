@@ -10,6 +10,7 @@ import { ExternalLink } from "lucide-react";
 import { Link } from "react-router";
 import type { SeriesEpisodeGroup } from "~/lib/types";
 import SeriesEpisodesSection from "~/routes/Dynamic/components/SeriesEpisodesSection";
+import SeriesSignInGate from "~/routes/Dynamic/components/SeriesSignInGate";
 
 export type SeriesEpisodesPreviewDialogProps = {
   open: boolean;
@@ -43,9 +44,16 @@ export function SeriesEpisodesPreviewDialog({
     dislikedFileIds: Set<string>;
   }>({ likedFileIds: new Set(), dislikedFileIds: new Set() });
 
+  const signedIn = typeof currentUserId === "string" && currentUserId.trim().length > 0;
+
   useEffect(() => {
     if (!open || !uniqueId) {
       setLoadState("idle");
+      setEpisodes(null);
+      return;
+    }
+    if (!signedIn) {
+      setLoadState("done");
       setEpisodes(null);
       return;
     }
@@ -64,6 +72,11 @@ export function SeriesEpisodesPreviewDialog({
           seriesVideosUserActions?: { likedFileIds: string[]; dislikedFileIds: string[] };
         };
         if (ac.signal.aborted) return;
+        if (r.status === 401 || r.status === 403) {
+          setLoadState("error");
+          setEpisodes(null);
+          return;
+        }
         if (!r.ok) {
           setLoadState("error");
           return;
@@ -81,7 +94,7 @@ export function SeriesEpisodesPreviewDialog({
       });
 
     return () => ac.abort();
-  }, [open, uniqueId]);
+  }, [open, uniqueId, signedIn]);
 
   const watchHref = uniqueId ? `/${encodeURIComponent(uniqueId)}` : "/";
 
@@ -95,19 +108,24 @@ export function SeriesEpisodesPreviewDialog({
         </DialogHeader>
 
         <div className="min-h-0 flex-1 overflow-y-auto px-2 py-3 sm:px-4">
-          {loadState === "loading" && (
+          {!signedIn && (
+            <div className="px-1 pb-1">
+              <SeriesSignInGate />
+            </div>
+          )}
+          {signedIn && loadState === "loading" && (
             <div
               className="h-40 animate-pulse rounded-lg border border-border/60 bg-muted/25"
               aria-busy
               aria-label="Loading series episodes"
             />
           )}
-          {loadState === "error" && (
+          {signedIn && loadState === "error" && (
             <p className="px-2 py-6 text-center text-sm text-muted-foreground">
               Could not load episodes. Try opening the series page.
             </p>
           )}
-          {loadState === "done" && episodes && episodes.length > 0 && uniqueId ? (
+          {signedIn && loadState === "done" && episodes && episodes.length > 0 && uniqueId ? (
             <SeriesEpisodesSection
               episodes={episodes}
               currentVideoUniqueId={uniqueId}
@@ -116,7 +134,9 @@ export function SeriesEpisodesPreviewDialog({
               userActions={localActions}
             />
           ) : null}
-          {loadState === "done" && (!episodes || episodes.length === 0) ? (
+          {signedIn &&
+          loadState === "done" &&
+          (!episodes || episodes.length === 0) ? (
             <p className="px-2 py-6 text-center text-sm text-muted-foreground">
               No episodes in this series yet.
             </p>

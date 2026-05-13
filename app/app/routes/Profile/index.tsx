@@ -464,7 +464,7 @@ const Profile = () => {
 
   return (
     <div className="min-h-screen" data-data-ready={true}>
-      <div className="max-w-6xl mx-auto px-4 pb-10">
+      <div className="">
         <UserProfileHeader
           profile={effectiveData.profile}
           isOwner={isOwner}
