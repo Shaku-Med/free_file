@@ -12,6 +12,7 @@ export default [
         route(`upload/thumbnail`, 'routes/Api/upload/thumbnail/index.tsx'),
         route(`captions/prepare`, 'routes/Api/captions/prepare/index.tsx'),
         route(`captions/load-prepare`, 'routes/Api/captions/load-prepare/index.tsx'),
+        route(`endcards`, 'routes/Api/endcards/index.tsx'),
         route(`internal/captions/consume-token`, 'routes/Api/internal/captions/consume-token/index.tsx'),
         route(`internal/captions/commit`, 'routes/Api/internal/captions/commit/index.tsx'),
         route(`internal/captions/uncommit`, 'routes/Api/internal/captions/uncommit/index.tsx'),

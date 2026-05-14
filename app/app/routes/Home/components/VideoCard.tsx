@@ -95,7 +95,7 @@ function isSeriesFile(f: FileType): boolean {
   return t(f.is_series_main) || t(f.is_series_episode) || t(f.is_files_series_item);
 }
 
-type LayoutType = "default" | "horizontal" | "compact" | "reelStrip" | "shelf";
+type LayoutType = "default" | "horizontal" | "compact" | "reelStrip" | "shelf" | "endCard";
 
 interface VideoCardProps {
   data: FileType;
@@ -2449,6 +2449,52 @@ const VideoCard = ({
         {renderInfoDialog()}
         {seriesEpisodesPreviewDialogEl}
       </div>
+    );
+  }
+
+  if (layout === "endCard") {
+    /**
+     * YouTube-style end card. Pure thumbnail + title + creator — no action
+     * menus, no info dialogs, no edit dialog. Sits inside the player as an
+     * overlay during the last seconds of playback; clicking navigates to the
+     * suggested video.
+     */
+    const durationSec = typeof data.duration === "number" ? data.duration : 0;
+    const durationStr = formatDuration(durationSec);
+    return (
+      <Link
+        to={watchPath}
+        onClick={(e) => {
+          e.preventDefault();
+          void handleWatchNav();
+        }}
+        className="group flex w-full flex-col gap-2 rounded-lg p-1.5 text-left transition-colors hover:bg-white/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-white/60"
+      >
+        <div className="relative aspect-video w-full overflow-hidden rounded-md bg-card ring-1 ring-white/10">
+          {renderThumbnail("h-full w-full")}
+          {durationStr && (
+            <span className="absolute right-1 bottom-1 rounded bg-black/85 px-1.5 py-0.5 text-[10px] font-semibold tabular-nums leading-none text-white">
+              {durationStr}
+            </span>
+          )}
+        </div>
+        <div className="flex min-w-0 flex-col gap-0.5 px-0.5">
+          <h3 className="line-clamp-2 text-[13px] font-medium leading-snug text-white">
+            <ParseFilenameInsert filename={data.file_title || data.filename} showLimit={60} />
+          </h3>
+          <div className="flex min-w-0 flex-wrap items-center gap-x-1 text-[11px] leading-tight text-white/70">
+            {data.owner && (
+              <span className="max-w-[10rem] truncate">{data.owner.username}</span>
+            )}
+            {data.owner && viewCount > 0 && (
+              <span className="text-white/40">·</span>
+            )}
+            {viewCount > 0 && (
+              <span className="tabular-nums">{formatViews(viewCount)} views</span>
+            )}
+          </div>
+        </div>
+      </Link>
     );
   }
 

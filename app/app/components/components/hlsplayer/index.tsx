@@ -7,6 +7,7 @@ import { PlayerProvider, usePlayerContext, type ThumbnailSpriteMeta } from './Pl
 import { CaptionProvider } from './CaptionContext';
 import CaptionOverlay from './overlays/CaptionOverlay';
 import TiltOverlay from './overlays/VRTiltOverlay';
+import EndCardOverlay, { type EndCardLayout } from './overlays/EndCardOverlay';
 import { TILT_PERSPECTIVE_PX } from './PlayerContext';
 import { FEED_EMBED_HIDE_CONTROLS, MINI_PLAYER_HIDE_CONTROLS, type HideControls } from './types';
 import SeekBar from './controls/seek/SeekBar';
@@ -86,6 +87,11 @@ export interface HLSPlayerProps {
    */
   seriesEpisodeGroups?: SeriesEpisodeGroup[] | null;
   endScreenUserActions?: { likedFileIds: Set<string>; dislikedFileIds: Set<string> };
+  /**
+   * Near-end suggestion tiles (~last 20s before finish). Uses corner/tuck layouts so the picture stays readable.
+   * Options: import `END_CARD_LAYOUT_OPTIONS` from `./overlays/EndCardOverlay` while experimenting.
+   */
+  endCardLayout?: EndCardLayout;
   currentUserId?: string;
   onVideoSelect?: (video: FileType) => void;
   onNext?: () => void;
@@ -142,6 +148,12 @@ const HLSPlayer: React.FC<HLSPlayerProps> = (props) => (
   </PlayerProvider>
 );
 
+/** Reels are discovery-only — never autoplay / “Up next” / end-screen queue targets. */
+function withoutReels(list: FileType[] | undefined): FileType[] {
+  if (!list?.length) return [];
+  return list.filter((v) => !v.is_reel);
+}
+
 function PlayerInner({
   src,
   className = '',
@@ -162,6 +174,7 @@ function PlayerInner({
   seriesUpNextVideos,
   seriesEpisodeGroups = null,
   endScreenUserActions,
+  endCardLayout,
   currentUserId,
   onVideoSelect,
   onNext,
@@ -174,6 +187,12 @@ function PlayerInner({
   reelSwiperActive = false,
   disableKeyboardShortcuts = false,
 }: HLSPlayerProps) {
+  const seriesPlayQueue = useMemo(
+    () => withoutReels(seriesUpNextVideos),
+    [seriesUpNextVideos],
+  );
+  const relatedPlayQueue = useMemo(() => withoutReels(suggestedVideos), [suggestedVideos]);
+
   const navigate = useNavigate();
   const globalPlayerLayout = useGlobalPlayerLayout();
   const { surface: watchHlsSurface } = useWatchHlsSurface();
@@ -665,27 +684,25 @@ function PlayerInner({
       onNext();
       return;
     }
-    const next = seriesUpNextVideos?.[0] ?? suggestedVideos?.[0];
+    const next = seriesPlayQueue[0] ?? relatedPlayQueue[0];
     if (next && onVideoSelect) onVideoSelect(next);
-  }, [onNext, seriesUpNextVideos, suggestedVideos, onVideoSelect]);
+  }, [onNext, seriesPlayQueue, relatedPlayQueue, onVideoSelect]);
 
   const hasNextControl =
     typeof onNext === "function" ||
-    (!!onVideoSelect && !!(seriesUpNextVideos?.[0] || suggestedVideos?.[0]));
+    (!!onVideoSelect && !!(seriesPlayQueue[0] || relatedPlayQueue[0]));
 
   const nextVideoForTooltip = useMemo(() => {
-    const fromSeries = seriesUpNextVideos?.[0];
-    const fromRelated = suggestedVideos?.[0];
-    return fromSeries ?? fromRelated;
-  }, [seriesUpNextVideos, suggestedVideos]);
+    return seriesPlayQueue[0] ?? relatedPlayQueue[0];
+  }, [seriesPlayQueue, relatedPlayQueue]);
 
   const nextVideoTooltipBadge = useMemo(() => {
     const next = nextVideoForTooltip;
     if (!next) return undefined;
-    const fromSeries = seriesUpNextVideos?.[0];
+    const fromSeries = seriesPlayQueue[0];
     if (fromSeries && fromSeries.unique_id === next.unique_id) return "Next in series";
     return "Up next";
-  }, [nextVideoForTooltip, seriesUpNextVideos]);
+  }, [nextVideoForTooltip, seriesPlayQueue]);
 
   const handlePreviousVideo = useCallback(() => {
     if (!onVideoSelect || !file?.unique_id || !seriesEpisodeGroups?.length) return;
@@ -1073,11 +1090,18 @@ function PlayerInner({
 
         <TiltOverlay />
         <CaptionOverlay containerRef={containerRef} controlsVisible={showControls} />
+        <EndCardOverlay
+          layout={endCardLayout}
+          excludeIds={[
+            ...relatedPlayQueue.map((v) => String(v.id ?? "")).filter(Boolean),
+            ...seriesPlayQueue.map((v) => String(v.id ?? "")).filter(Boolean),
+          ]}
+        />
 
         {!isReelCtx && !loopEnabled && (
           <EndScreen
-            suggestedVideos={suggestedVideos}
-            seriesUpNextVideos={seriesUpNextVideos}
+            suggestedVideos={relatedPlayQueue}
+            seriesUpNextVideos={seriesPlayQueue}
             userActions={endScreenUserActions}
             currentUserId={currentUserId}
           />
@@ -1202,5 +1226,8 @@ function PlayerInner({
     </div>
   );
 }
+
+export type { EndCardLayout } from "./overlays/EndCardOverlay";
+export { END_CARD_LAYOUT_OPTIONS } from "./overlays/EndCardOverlay";
 
 export default HLSPlayer;
