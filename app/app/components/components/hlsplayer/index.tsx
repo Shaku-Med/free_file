@@ -1086,6 +1086,14 @@ function PlayerInner({
         {(!isReelCtx || embedReelControls) && !isMiniPlayerPortalActive && (
           <div
             className={`absolute inset-0 z-[31] pointer-events-none transition-opacity duration-300 ${showControls ? 'opacity-100' : 'opacity-0'}`}
+            // When hidden (e.g. while the Skip Intro / Next Episode buttons are showing)
+            // we MUST disable hit-testing for everything inside. `opacity-0` and
+            // `pointer-events-none` on the wrapper are not enough — `ControlBar` puts
+            // `pointer-events: auto` on its own strips (and the full mobile `inset-0`
+            // overlay), so the invisible control bar would still intercept the click
+            // a user makes on top of the Skip button. `inert` recursively kills focus,
+            // pointer, and a11y for the subtree.
+            inert={!showControls || undefined}
           >
             <div className="absolute bottom-0 left-0 right-0 h-32 bg-gradient-to-t from-black/80 to-transparent pointer-events-none" />
             {/*

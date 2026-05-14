@@ -2,6 +2,7 @@ import { data } from "react-router";
 import { isAuthenticated } from "~/lib/Security/Password";
 import db from "~/lib/Database/supabase";
 import { parseUserTheme } from "~/lib/theme/constants";
+import { invalidateUserAccessContextById } from "~/lib/Services/accessCache.server";
 
 const toJson = (body: unknown, status = 200) => data(body, { status });
 
@@ -84,6 +85,10 @@ export const action = async ({ request }: { request: Request }) => {
       console.error("Failed to update settings:", error);
       return toJson({ error: "Failed to update settings" }, 500);
     }
+
+    // show_nsfw toggle changes access-control outcomes (adult content gated by it) —
+    // drop the cached user context so the next request revalidates.
+    invalidateUserAccessContextById(user.id);
 
     const theme = parseUserTheme(updated?.theme ?? null);
     return toJson({

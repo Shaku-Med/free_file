@@ -22,7 +22,6 @@ import {
 import { truncateHlsMediaPlaylistAtDuration } from "~/lib/Services/hlsPlaylistTruncate";
 import { computeGuestPreviewSeconds } from "~/lib/guestPreviewLimit";
 import { isAuthenticated } from "~/lib/Security/Password";
-import db from "~/lib/Database/supabase";
 import {
   defaultGithubBranch,
   defaultGithubRepoForStoredFile,
@@ -36,16 +35,12 @@ import {
   verifyManifestContinuationCookie,
 } from "~/lib/Services/hlsManifestGate.server";
 import { uniqueIdCandidatesFromVideoStoragePath } from "~/lib/Services/videoStoragePath.server";
+import { getCachedFileByUniqueId } from "~/lib/Services/accessCache.server";
 
 const getFileFromPath = async (path: string) => {
-  if (!db) return null;
   for (const uniqueId of uniqueIdCandidatesFromVideoStoragePath(path)) {
-    const { data } = await db
-      .from("files")
-      .select("id, is_adult, is_public, owner_id, github_repo, duration")
-      .eq("unique_id", uniqueId)
-      .maybeSingle();
-    if (data) return data;
+    const file = await getCachedFileByUniqueId(uniqueId);
+    if (file) return file;
   }
   return null;
 };

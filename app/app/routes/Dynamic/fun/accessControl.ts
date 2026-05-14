@@ -1,16 +1,9 @@
-import { isAuthenticated } from "~/lib/Security/Password";
-import db from "~/lib/Database/supabase";
+import { getCachedUserAccessContext } from "~/lib/Services/accessCache.server";
 
 interface FileData {
   is_adult: boolean;
   is_public: boolean;
   owner_id: string;
-}
-
-interface UserData {
-  id: string;
-  dob: string;
-  verified: boolean;
 }
 
 const normalizeBoolean = (value: unknown, fallback = false): boolean => {
@@ -62,9 +55,12 @@ export const checkFileAccess = async (
     : null;
   const isCompleted = uploadStatus === 'completed' || uploadStatus === 'complete';
 
-  const user = await isAuthenticated(request, ['id', 'dob', 'verified']) as UserData | null | boolean;
+  // Single cached lookup replaces the previous `isAuthenticated` + `users.show_nsfw`
+  // round trips. On the hot path (one call per HLS segment / image thumb) this is
+  // the difference between 2 DB hits and 0 most of the time.
+  const user = await getCachedUserAccessContext(request);
 
-  if (!user || typeof user === 'boolean') {
+  if (!user) {
     if (uploadStatus && !isCompleted) {
       return { allowed: false, reason: 'not_authenticated' };
     }
@@ -75,20 +71,7 @@ export const checkFileAccess = async (
   }
 
   if (isAdult) {
-    try {
-      if (db) {
-        const { data } = await db
-          .from('users')
-          .select('show_nsfw')
-          .eq('id', user.id)
-          .single();
-        if (!data?.show_nsfw) {
-          return { allowed: false, reason: 'not_authenticated' };
-        }
-      } else {
-        return { allowed: false, reason: 'not_authenticated' };
-      }
-    } catch {
+    if (!user.showNsfw) {
       return { allowed: false, reason: 'not_authenticated' };
     }
     if (!user.verified) {

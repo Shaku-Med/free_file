@@ -15,6 +15,7 @@ import { isAuthenticated } from "~/lib/Security/Password";
 import db from "~/lib/Database/supabase";
 import { checkFileAccess } from "~/routes/Dynamic/fun/accessControl";
 import { uniqueIdCandidatesFromVideoStoragePath } from "~/lib/Services/videoStoragePath.server";
+import { getCachedFileByUniqueId } from "~/lib/Services/accessCache.server";
 
 /** TEMP: remove after HTTPS / 403 production debug — logs which branch failed (no secrets). */
 const DBG = "[hls-manifest-session]";
@@ -35,14 +36,9 @@ const VKF = async (request: Request) => {
 };
 
 const getFileFromPath = async (path: string) => {
-  if (!db) return null;
   for (const uniqueId of uniqueIdCandidatesFromVideoStoragePath(path)) {
-    const { data } = await db
-      .from("files")
-      .select("id, is_adult, is_public, owner_id, github_repo, duration")
-      .eq("unique_id", uniqueId)
-      .maybeSingle();
-    if (data) return data;
+    const file = await getCachedFileByUniqueId(uniqueId);
+    if (file) return file;
   }
   return null;
 };

@@ -22,15 +22,15 @@ import { formatNumber } from "~/lib/utils/formatNumber";
 import { ShareModal } from "~/components/ShareModal";
 import {
   DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuCollapsible,
+  DropdownMenuCollapsibleContent,
+  DropdownMenuCollapsibleTrigger,
   DropdownMenuContent,
   DropdownMenuGroup,
   DropdownMenuItem,
-  DropdownMenuCheckboxItem,
-  DropdownMenuSub,
-  DropdownMenuSubContent,
-  DropdownMenuSubTrigger,
-  DropdownMenuTrigger,
   DropdownMenuSeparator,
+  DropdownMenuTrigger,
 } from "~/components/ui/dropdown-menu";
 import { cn } from "~/lib/utils";
 import CreatePlaylistModal from "~/components/Playlist/CreatePlaylistModal";
@@ -555,23 +555,18 @@ export default function Actions({
 
           <DropdownMenuSeparator />
           <DropdownMenuGroup>
-            <DropdownMenuSub onOpenChange={onPlaylistSubOpenChange}>
-              <DropdownMenuSubTrigger>
+            <DropdownMenuCollapsible onOpenChange={onPlaylistSubOpenChange}>
+              <DropdownMenuCollapsibleTrigger className="min-w-[12rem]">
                 <ListPlus className="size-4" aria-hidden />
                 Add to playlist
-              </DropdownMenuSubTrigger>
-              <DropdownMenuSubContent
-                // In the reel rail the parent menu is pinned to the right edge of a narrow PiP
-                // viewport; force the sub to open toward the center so Radix doesn't have to
-                // flip through an overflow frame first.
-                alignOffset={-4}
-                sideOffset={isReel && !isShortsShelf ? 2 : 4}
-                className={cn(
-                  "min-w-[13.5rem] p-0",
-                  isReel && !isShortsShelf && "max-w-[calc(100vw-1.5rem)]",
-                )}
-              >
-                <div className="max-h-[min(280px,var(--radix-dropdown-menu-content-available-height))] overflow-y-auto overscroll-contain p-1.5">
+              </DropdownMenuCollapsibleTrigger>
+              <DropdownMenuCollapsibleContent flush>
+                <div
+                  className={cn(
+                    "max-h-[min(280px,var(--radix-dropdown-menu-content-available-height))] overflow-y-auto overscroll-contain p-1.5",
+                    isReel && !isShortsShelf && "max-w-[calc(100vw-1.5rem)]",
+                  )}
+                >
                   <DropdownMenuCheckboxItem
                     checked={inLocalList}
                     disabled={!effectiveLocalFileId}
@@ -657,8 +652,8 @@ export default function Actions({
                     </>
                   )}
                 </div>
-              </DropdownMenuSubContent>
-            </DropdownMenuSub>
+              </DropdownMenuCollapsibleContent>
+            </DropdownMenuCollapsible>
           </DropdownMenuGroup>
         </DropdownMenuContent>
       </DropdownMenu>

@@ -22,6 +22,9 @@ import { isSpatialAudioUiSupported } from '../../hooks/useSpatialAudio';
 import { cn } from '~/lib/utils';
 import {
   DropdownMenu,
+  DropdownMenuCollapsible,
+  DropdownMenuCollapsibleContent,
+  DropdownMenuCollapsibleTrigger,
   DropdownMenuContent,
   DropdownMenuGroup,
   DropdownMenuItem,
@@ -29,9 +32,6 @@ import {
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
   DropdownMenuSeparator,
-  DropdownMenuSub,
-  DropdownMenuSubContent,
-  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from '~/components/ui/dropdown-menu';
 import { Tooltip, TooltipContent, TooltipTrigger } from '~/components/ui/tooltip';
@@ -80,20 +80,6 @@ function Switch({
 }
 
 export function SettingsMenuBody() {
-  /** On narrow screens parent panel is nearly full viewport width; subs default to opening right → off-screen. */
-  const subContentSide = isMobile ? ('bottom' as const) : ('right' as const);
-  const subContentAlign = isMobile ? ('start' as const) : undefined;
-  const subContentSideOffset = isMobile ? 4 : undefined;
-  const subContentCollisionPadding = isMobile
-    ? { top: 8, right: 12, bottom: 12, left: 12 }
-    : 12;
-
-  const subMenuWidth = cn(
-    // Depth: submenu inner wrapper already clamps height + scroll — keep width ≤ viewport minus safe inset
-    isMobile
-      ? 'max-w-[min(100%,calc(100vw-2rem-env(safe-area-inset-left,0px)-env(safe-area-inset-right,0px)))] min-w-0 w-full'
-      : 'min-w-[200px]',
-  );
   const {
     state,
     setPlaybackRate,
@@ -304,8 +290,8 @@ export function SettingsMenuBody() {
           <DropdownMenuSeparator />
           <DropdownMenuGroup>
             <DropdownMenuLabel>Visualizer</DropdownMenuLabel>
-            <DropdownMenuSub>
-              <DropdownMenuSubTrigger className="w-full min-w-0 gap-2 pr-1">
+            <DropdownMenuCollapsible>
+              <DropdownMenuCollapsibleTrigger className="w-full min-w-0 gap-2 pr-1">
                 <span className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden">
                   <Waves className="size-4 shrink-0 text-muted-foreground" />
                   <span className="min-w-0 truncate">Style</span>
@@ -313,14 +299,8 @@ export function SettingsMenuBody() {
                 <span className="shrink-0 pl-1 text-right text-xs font-normal tabular-nums text-muted-foreground">
                   {AUDIO_VISUALIZER_STYLE_LABELS[audioVisualizerStyle]}
                 </span>
-              </DropdownMenuSubTrigger>
-              <DropdownMenuSubContent
-                side={subContentSide}
-                align={subContentAlign}
-                sideOffset={subContentSideOffset}
-                collisionPadding={subContentCollisionPadding}
-                className={subMenuWidth}
-              >
+              </DropdownMenuCollapsibleTrigger>
+              <DropdownMenuCollapsibleContent>
                 <DropdownMenuRadioGroup
                   value={audioVisualizerStyle}
                   onValueChange={(v) =>
@@ -333,8 +313,8 @@ export function SettingsMenuBody() {
                     </DropdownMenuRadioItem>
                   ))}
                 </DropdownMenuRadioGroup>
-              </DropdownMenuSubContent>
-            </DropdownMenuSub>
+              </DropdownMenuCollapsibleContent>
+            </DropdownMenuCollapsible>
           </DropdownMenuGroup>
         </>
       )}
@@ -343,8 +323,8 @@ export function SettingsMenuBody() {
 
       <DropdownMenuGroup>
         <DropdownMenuLabel>Timers and media</DropdownMenuLabel>
-        <DropdownMenuSub>
-          <DropdownMenuSubTrigger className="w-full min-w-0 gap-2 pr-1">
+        <DropdownMenuCollapsible>
+          <DropdownMenuCollapsibleTrigger className="w-full min-w-0 gap-2 pr-1">
             <span className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden">
               <Moon className="size-4 shrink-0 text-muted-foreground" />
               <span className="min-w-0 truncate">Sleep timer</span>
@@ -352,14 +332,8 @@ export function SettingsMenuBody() {
             <span className="shrink-0 pl-1 text-right text-xs font-normal tabular-nums text-muted-foreground">
               {sleepLabel}
             </span>
-          </DropdownMenuSubTrigger>
-          <DropdownMenuSubContent
-            side={subContentSide}
-            align={subContentAlign}
-            sideOffset={subContentSideOffset}
-            collisionPadding={subContentCollisionPadding}
-            className={cn(subMenuWidth, 'min-w-[180px]')}
-          >
+          </DropdownMenuCollapsibleTrigger>
+          <DropdownMenuCollapsibleContent>
             {SLEEP_TIMER_OPTIONS.map((opt) => (
               <DropdownMenuItem
                 key={opt}
@@ -369,11 +343,11 @@ export function SettingsMenuBody() {
                 {opt}
               </DropdownMenuItem>
             ))}
-          </DropdownMenuSubContent>
-        </DropdownMenuSub>
+          </DropdownMenuCollapsibleContent>
+        </DropdownMenuCollapsible>
 
-        <DropdownMenuSub>
-          <DropdownMenuSubTrigger className="w-full min-w-0 gap-2 pr-1">
+        <DropdownMenuCollapsible>
+          <DropdownMenuCollapsibleTrigger className="w-full min-w-0 gap-2 pr-1">
             <span className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden">
               <Gauge className="size-4 shrink-0 text-muted-foreground" />
               <span className="min-w-0 truncate">Playback speed</span>
@@ -381,14 +355,8 @@ export function SettingsMenuBody() {
             <span className="shrink-0 pl-1 text-right text-xs font-normal tabular-nums text-muted-foreground">
               {speedLabel}
             </span>
-          </DropdownMenuSubTrigger>
-          <DropdownMenuSubContent
-            side={subContentSide}
-            align={subContentAlign}
-            sideOffset={subContentSideOffset}
-            collisionPadding={subContentCollisionPadding}
-            className={cn(subMenuWidth, 'min-w-[160px]')}
-          >
+          </DropdownMenuCollapsibleTrigger>
+          <DropdownMenuCollapsibleContent>
             {SPEEDS.map((s) => (
               <DropdownMenuItem
                 key={s}
@@ -398,12 +366,12 @@ export function SettingsMenuBody() {
                 {s === 1 ? 'Normal' : `${s}x`}
               </DropdownMenuItem>
             ))}
-          </DropdownMenuSubContent>
-        </DropdownMenuSub>
+          </DropdownMenuCollapsibleContent>
+        </DropdownMenuCollapsible>
 
         {state.levels.length > 1 && (
-          <DropdownMenuSub>
-            <DropdownMenuSubTrigger className="w-full min-w-0 gap-2 pr-1">
+          <DropdownMenuCollapsible>
+            <DropdownMenuCollapsibleTrigger className="w-full min-w-0 gap-2 pr-1">
               <span className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden">
                 <Signal className="size-4 shrink-0 text-muted-foreground" />
                 <span className="min-w-0 truncate">Quality</span>
@@ -411,14 +379,8 @@ export function SettingsMenuBody() {
               <span className="shrink-0 pl-1 text-right text-xs font-normal tabular-nums text-muted-foreground">
                 {qualityLabel}
               </span>
-            </DropdownMenuSubTrigger>
-            <DropdownMenuSubContent
-              side={subContentSide}
-              align={subContentAlign}
-              sideOffset={subContentSideOffset}
-              collisionPadding={subContentCollisionPadding}
-              className={cn(subMenuWidth, 'min-w-[160px]')}
-            >
+            </DropdownMenuCollapsibleTrigger>
+            <DropdownMenuCollapsibleContent>
               <DropdownMenuItem
                 onClick={() => setQualityLevel(-1)}
                 className={cn(state.currentLevel === -1 ? 'font-medium text-primary' : undefined)}
@@ -437,8 +399,8 @@ export function SettingsMenuBody() {
                     {height}p
                   </DropdownMenuItem>
                 ))}
-            </DropdownMenuSubContent>
-          </DropdownMenuSub>
+            </DropdownMenuCollapsibleContent>
+          </DropdownMenuCollapsible>
         )}
       </DropdownMenuGroup>
     </>

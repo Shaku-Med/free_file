@@ -1,5 +1,6 @@
 import { createCanvas, loadImage } from 'canvas';
 import db from '~/lib/Database/supabase';
+import { getCachedFileByUniqueId } from '~/lib/Services/accessCache.server';
 import {
     drawImageLetterboxedInSquare,
     SERVER_METADATA_SQUARE_SIZE,
@@ -475,20 +476,11 @@ const createTextImage = (text: string): Response => {
 };
 
 const getFileFromPath = async (path: string): Promise<any> => {
-  if (!db) return null;
-
   const pathParts = path.split('/');
-
-  if(pathParts.length > 2){
+  if (pathParts.length > 2) {
     const uniqueId = pathParts[1];
-    const { data } = await db
-      .from('files')
-      .select('id, is_adult, is_public, owner_id, upload_status, github_repo')
-      .eq('unique_id', uniqueId)
-      .maybeSingle();
-    return data || null;
+    return await getCachedFileByUniqueId(uniqueId);
   }
-
   return null;
 
   // if (path.includes('_thumb_')) {

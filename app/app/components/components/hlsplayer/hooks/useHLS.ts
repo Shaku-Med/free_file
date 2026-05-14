@@ -4,6 +4,7 @@ import { usePlayerContext } from '../PlayerContext';
 import { useFileContext } from '~/lib/Context/Context';
 import {
   exchangeHlsManifestKey,
+  invalidateManifestKeyCache,
   stripMkSearchParam,
 } from '~/lib/Services/hlsManifestSession.client';
 
@@ -226,6 +227,10 @@ export function useHLS(videoRef: React.RefObject<HTMLVideoElement | null>) {
 
           const resumeAt = video.currentTime;
           const baseSrc = stripMkSearchParam(src);
+          // A 403 here almost always means the cached `_mk` was already consumed at the
+          // CDN (e.g., by an earlier mount of the same player). Drop the cache entry so
+          // we mint a fresh token instead of replaying the dead one.
+          invalidateManifestKeyCache(baseSrc);
           const { hlsBootstrap: boot, hlsBootstrapRetry: retry } = hlsAuthRef.current;
           const newUrl = await exchangeHlsManifestKey(baseSrc, boot, retry);
 

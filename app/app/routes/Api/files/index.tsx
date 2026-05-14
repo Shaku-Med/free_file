@@ -3,6 +3,7 @@ import type { LoaderFunctionArgs } from "react-router";
 import { isAuthenticated } from "~/lib/Security/Password";
 import db from "~/lib/Database/supabase";
 import { isValidFileId, isValidUUID, sanitizeString } from "~/lib/Security/inputValidation";
+import { invalidateFileByUniqueId } from "~/lib/Services/accessCache.server";
 
 const toJson = (body: unknown, status = 200) => data(body, { status });
 
@@ -186,7 +187,7 @@ export const action = async ({ request }: { request: Request }) => {
     const lookupField = isValidUUID(fileId) ? "id" : "unique_id";
     const { data: fileRow, error: fetchError } = await db
       .from("files")
-      .select("id, owner_id, file_type, metadata")
+      .select("id, unique_id, owner_id, file_type, metadata")
       .eq(lookupField, fileId)
       .single();
 
@@ -282,6 +283,12 @@ export const action = async ({ request }: { request: Request }) => {
       console.error("Failed to update file:", updateError);
       return toJson({ error: "Failed to update file" }, 500);
     }
+
+    // Visibility / NSFW / metadata may have changed — drop the cached row so the next
+    // segment / image / manifest fetch revalidates against Supabase.
+    invalidateFileByUniqueId(
+      typeof fileRow.unique_id === "string" ? fileRow.unique_id : null,
+    );
 
     return toJson({ success: true, file: updatedFile }, 200);
   } catch (error) {

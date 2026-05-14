@@ -1,8 +1,32 @@
 import * as React from "react"
 import * as DropdownMenuPrimitive from "@radix-ui/react-dropdown-menu"
-import { CheckIcon, ChevronRightIcon, CircleIcon } from "lucide-react"
+import * as CollapsiblePrimitive from "@radix-ui/react-collapsible"
+import { CheckIcon, ChevronDownIcon, CircleIcon } from "lucide-react"
 
 import { cn } from "~/lib/utils"
+
+/**
+ * Live narrow-viewport hook for positioning defaults. Self-contained so the
+ * dropdown library has zero context dependency (callable from any tree). Reads
+ * matchMedia synchronously on mount to avoid one-frame placement flicker.
+ */
+const NARROW_QUERY = "(max-width: 899px)"
+
+function useIsNarrowViewport() {
+  const [narrow, setNarrow] = React.useState<boolean>(() => {
+    if (typeof window === "undefined" || typeof window.matchMedia !== "function") return false
+    return window.matchMedia(NARROW_QUERY).matches
+  })
+  React.useEffect(() => {
+    if (typeof window === "undefined" || typeof window.matchMedia !== "function") return
+    const mql = window.matchMedia(NARROW_QUERY)
+    const handler = () => setNarrow(mql.matches)
+    mql.addEventListener("change", handler)
+    setNarrow(mql.matches)
+    return () => mql.removeEventListener("change", handler)
+  }, [])
+  return narrow
+}
 
 function DropdownMenu({
   ...props
@@ -29,30 +53,61 @@ function DropdownMenuTrigger({
   )
 }
 
-const contentBase =
-  "z-[1000000000000001] max-h-[var(--radix-dropdown-menu-content-available-height)] min-w-[8rem] max-w-[min(28rem,calc(100vw-2rem))] origin-[var(--radix-dropdown-menu-content-transform-origin)] overflow-visible rounded-xl border border-border bg-background/95  text-popover-foreground p-1.5 shadow-xl shadow-black/20 backdrop-blur-sm data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[state=closed]:duration-150 data-[state=open]:duration-200 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2"
+const DROPDOWN_MENU_CONTENT_Z = 21474933648
+
+/**
+ * Loose, side-aware defaults. Bottom gets extra room for browser chrome / iOS home
+ * indicator; left/right respect safe-area-style padding even on rooted Android. The
+ * numbers are larger than Radix's default 0 because users often crash into the edge
+ * on narrow screens, which makes the menu feel clipped even when it technically isn't.
+ */
+const COLLISION_PADDING_NARROW = { top: 12, right: 12, bottom: 28, left: 12 }
+const COLLISION_PADDING_WIDE = 16
+
+const panelFrame =
+  "flex min-h-0 flex-col max-w-[min(28rem,calc(100vw-1rem-env(safe-area-inset-left)-env(safe-area-inset-right)))] min-w-[min(100%,14rem)] overflow-hidden rounded-xl border border-border bg-background/95 p-1.5 text-popover-foreground shadow-xl shadow-black/20 ring-1 ring-black/5 backdrop-blur-md data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[state=closed]:duration-150 data-[state=open]:duration-200 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2"
+
+/** Root dropdown: prefers menu viewport vars from Radix, falls back to Popper height. */
+const contentBase = cn(
+  panelFrame,
+  "origin-[var(--radix-dropdown-menu-content-transform-origin)]",
+  "max-h-[min(var(--radix-dropdown-menu-content-available-height,var(--radix-popper-available-height,85dvh)),calc(100dvh-2rem-env(safe-area-inset-bottom)))]",
+)
+
+const scrollBody =
+  "min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain [scrollbar-gutter:stable]"
 
 function DropdownMenuContent({
   className,
   sideOffset = 6,
-  collisionPadding = 16,
+  collisionPadding,
+  align,
   children,
   ...props
 }: React.ComponentProps<typeof DropdownMenuPrimitive.Content>) {
+  const isNarrow = useIsNarrowViewport()
+  // On narrow viewports we bias toward `end` alignment so the menu hugs the right
+  // edge of a trigger that's already near the right side of the screen — Radix will
+  // still flip via `avoidCollisions` if that doesn't fit.
+  const resolvedAlign = align ?? (isNarrow ? "end" : undefined)
+  const resolvedCollisionPadding =
+    collisionPadding ?? (isNarrow ? COLLISION_PADDING_NARROW : COLLISION_PADDING_WIDE)
   return (
     <DropdownMenuPrimitive.Portal>
       <DropdownMenuPrimitive.Content
         data-slot="dropdown-menu-content"
         sideOffset={sideOffset}
-        collisionPadding={collisionPadding}
+        align={resolvedAlign}
+        collisionPadding={resolvedCollisionPadding}
         sticky="always"
         updatePositionStrategy="always"
+        hideWhenDetached
+        avoidCollisions
+        style={{ zIndex: DROPDOWN_MENU_CONTENT_Z }}
         className={cn(contentBase, className)}
         {...props}
       >
-        <div className="max-h-[inherit] overflow-x-hidden overflow-y-auto overscroll-contain [scrollbar-gutter:stable]">
-          {children}
-        </div>
+        <div className={scrollBody}>{children}</div>
       </DropdownMenuPrimitive.Content>
     </DropdownMenuPrimitive.Portal>
   )
@@ -81,7 +136,9 @@ function DropdownMenuItem({
       data-inset={inset}
       data-variant={variant}
       className={cn(
-        "relative flex cursor-default items-center gap-2 rounded-lg px-2.5 py-2 text-sm outline-hidden select-none transition-colors duration-150 ease-out focus:bg-accent focus:text-accent-foreground data-[variant=destructive]:text-destructive data-[variant=destructive]:focus:bg-destructive/15 data-[variant=destructive]:focus:text-destructive data-[variant=destructive]:*:[svg]:!text-destructive [&_svg:not([class*='text-'])]:text-muted-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50 data-[inset]:pl-8 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+        // Bigger min-height on coarse pointers (phones/tablets) per WCAG 2.5.5
+        // touch target guidance, normal density on hover-capable inputs.
+        "relative flex cursor-default items-center gap-2 rounded-lg px-2.5 py-2 text-sm outline-hidden select-none transition-colors duration-150 ease-out focus:bg-accent focus:text-accent-foreground data-[variant=destructive]:text-destructive data-[variant=destructive]:focus:bg-destructive/15 data-[variant=destructive]:focus:text-destructive data-[variant=destructive]:*:[svg]:!text-destructive [&_svg:not([class*='text-'])]:text-muted-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50 data-[inset]:pl-8 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 [@media(pointer:coarse)]:min-h-[2.5rem] [@media(pointer:coarse)]:py-2.5",
         className
       )}
       {...props}
@@ -99,7 +156,7 @@ function DropdownMenuCheckboxItem({
     <DropdownMenuPrimitive.CheckboxItem
       data-slot="dropdown-menu-checkbox-item"
       className={cn(
-        "relative flex cursor-default items-center gap-2 rounded-lg py-2 pr-2.5 pl-8 text-sm outline-hidden select-none transition-colors duration-150 ease-out focus:bg-accent focus:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+        "relative flex cursor-default items-center gap-2 rounded-lg py-2 pr-2.5 pl-8 text-sm outline-hidden select-none transition-colors duration-150 ease-out focus:bg-accent focus:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 [@media(pointer:coarse)]:min-h-[2.5rem] [@media(pointer:coarse)]:py-2.5",
         className
       )}
       checked={checked}
@@ -135,7 +192,7 @@ function DropdownMenuRadioItem({
     <DropdownMenuPrimitive.RadioItem
       data-slot="dropdown-menu-radio-item"
       className={cn(
-        "relative flex cursor-default items-center gap-2 rounded-lg py-2 pr-2.5 pl-8 text-sm outline-hidden select-none transition-colors duration-150 ease-out focus:bg-accent focus:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+        "relative flex cursor-default items-center gap-2 rounded-lg py-2 pr-2.5 pl-8 text-sm outline-hidden select-none transition-colors duration-150 ease-out focus:bg-accent focus:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 [@media(pointer:coarse)]:min-h-[2.5rem] [@media(pointer:coarse)]:py-2.5",
         className
       )}
       {...props}
@@ -199,61 +256,136 @@ function DropdownMenuShortcut({
   )
 }
 
-function DropdownMenuSub({
-  ...props
-}: React.ComponentProps<typeof DropdownMenuPrimitive.Sub>) {
-  return <DropdownMenuPrimitive.Sub data-slot="dropdown-menu-sub" {...props} />
+function prefersReducedMotion() {
+  return (
+    typeof window !== "undefined" &&
+    typeof window.matchMedia === "function" &&
+    window.matchMedia("(prefers-reduced-motion: reduce)").matches
+  )
 }
 
-function DropdownMenuSubTrigger({
+/**
+ * Expand/collapse section inside an open dropdown (replaces submenu flyouts for long lists).
+ * Pair trigger + content; trigger uses a menu item shell so keyboard nav and dismissal match other rows.
+ */
+function DropdownMenuCollapsible({
+  onOpenChange,
+  ...props
+}: React.ComponentProps<typeof CollapsiblePrimitive.Root>) {
+  const rootRef = React.useRef<HTMLDivElement>(null)
+  const scrollFallbackTimerRef = React.useRef<number | null>(null)
+
+  React.useEffect(
+    () => () => {
+      if (scrollFallbackTimerRef.current !== null) {
+        window.clearTimeout(scrollFallbackTimerRef.current)
+      }
+    },
+    [],
+  )
+
+  const handleOpenChange = React.useCallback(
+    (next: boolean) => {
+      onOpenChange?.(next)
+      if (!next || typeof window === "undefined") return
+
+      const el = rootRef.current
+      if (!el) return
+
+      const behavior: ScrollBehavior = prefersReducedMotion() ? "auto" : "smooth"
+      const scroll = () => {
+        el.scrollIntoView({
+          behavior,
+          block: "nearest",
+          inline: "nearest",
+        })
+      }
+
+      scroll()
+      window.requestAnimationFrame(() => window.requestAnimationFrame(scroll))
+
+      if (scrollFallbackTimerRef.current !== null) {
+        window.clearTimeout(scrollFallbackTimerRef.current)
+      }
+      scrollFallbackTimerRef.current = window.setTimeout(() => {
+        scroll()
+        scrollFallbackTimerRef.current = null
+      }, 220)
+    },
+    [onOpenChange],
+  )
+
+  return (
+    <CollapsiblePrimitive.Root
+      ref={rootRef}
+      data-slot="dropdown-menu-collapsible"
+      {...props}
+      onOpenChange={handleOpenChange}
+    />
+  )
+}
+
+function DropdownMenuCollapsibleTrigger({
   className,
   inset,
   children,
   ...props
-}: React.ComponentProps<typeof DropdownMenuPrimitive.SubTrigger> & {
+}: React.ComponentProps<typeof CollapsiblePrimitive.CollapsibleTrigger> & {
   inset?: boolean
 }) {
   return (
-    <DropdownMenuPrimitive.SubTrigger
-      data-slot="dropdown-menu-sub-trigger"
-      data-inset={inset}
-      className={cn(
-        "flex cursor-default items-center gap-2 rounded-lg px-2.5 py-2 text-sm outline-hidden select-none transition-colors duration-150 ease-out focus:bg-accent focus:text-accent-foreground data-[state=open]:bg-accent data-[state=open]:text-accent-foreground [&_svg:not([class*='text-'])]:text-muted-foreground data-[inset]:pl-8 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
-        className
-      )}
-      {...props}
-    >
-      {children}
-      <ChevronRightIcon className="ml-auto size-4 opacity-70" />
-    </DropdownMenuPrimitive.SubTrigger>
+    <DropdownMenuItem asChild inset={inset} onSelect={(event) => event.preventDefault()} className="px-0">
+      <CollapsiblePrimitive.CollapsibleTrigger
+        data-slot="dropdown-menu-collapsible-trigger"
+        type="button"
+        className={cn(
+          "flex min-h-0 w-full min-w-0 cursor-default items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm outline-hidden select-none transition-colors duration-150 ease-out focus-visible:bg-accent focus-visible:text-accent-foreground hover:bg-accent/80 data-[state=open]:bg-accent data-[state=open]:text-accent-foreground data-[state=open]:[&_.dropdown-menu-collapsible-chevron]:rotate-180 [&_svg:not([class*='text-'])]:text-muted-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 [@media(pointer:coarse)]:min-h-[2.5rem] [@media(pointer:coarse)]:py-2.5 motion-reduce:transition-none",
+          className,
+        )}
+        {...props}
+      >
+        {children}
+        <ChevronDownIcon
+          aria-hidden
+          className="dropdown-menu-collapsible-chevron ml-auto size-4 shrink-0 rotate-0 opacity-70 transition-transform duration-200 ease-out motion-reduce:transition-none"
+        />
+      </CollapsiblePrimitive.CollapsibleTrigger>
+    </DropdownMenuItem>
   )
 }
 
-function DropdownMenuSubContent({
+function DropdownMenuCollapsibleContent({
   className,
-  collisionPadding = 16,
+  flush,
   children,
   ...props
-}: React.ComponentProps<typeof DropdownMenuPrimitive.SubContent>) {
+}: React.ComponentProps<typeof CollapsiblePrimitive.CollapsibleContent> & {
+  /** Full-width inset (no left rule); use for dense lists like playlists. */
+  flush?: boolean
+}) {
   return (
-    <DropdownMenuPrimitive.SubContent
-      data-slot="dropdown-menu-sub-content"
-      collisionPadding={collisionPadding}
-      avoidCollisions
-      sticky="always"
-      updatePositionStrategy="always"
+    <CollapsiblePrimitive.CollapsibleContent
+      data-slot="dropdown-menu-collapsible-content"
       className={cn(
-        contentBase,
-        "min-h-0 min-w-0 w-max max-w-[min(22rem,calc(100vw-2rem))]",
-        "data-[state=closed]:duration-150 data-[state=open]:duration-200",
+        "motion-reduce:transition-none",
+        "grid overflow-hidden transition-[grid-template-rows] duration-200 ease-out",
+        "grid-rows-[0fr] data-[state=open]:grid-rows-[1fr]",
         className,
       )}
       {...props}
     >
-      <div className="max-h-[min(48dvh,var(--radix-popper-available-height,calc(100dvh-5rem)))] max-w-full overflow-x-hidden overflow-y-auto overscroll-contain [scrollbar-gutter:stable] sm:max-h-[min(70dvh,var(--radix-popper-available-height,85vh))]">
-        {children}
+      <div className="min-h-0">
+        <div
+          className={
+            flush
+              ? "min-h-0 w-full py-1"
+              : "mr-px space-y-0.5 border-l border-border/50 py-1 pl-2 ml-7"
+          }
+        >
+          {children}
+        </div>
       </div>
-    </DropdownMenuPrimitive.SubContent>
+    </CollapsiblePrimitive.CollapsibleContent>
   )
 }
 
@@ -270,7 +402,7 @@ export {
   DropdownMenuRadioItem,
   DropdownMenuSeparator,
   DropdownMenuShortcut,
-  DropdownMenuSub,
-  DropdownMenuSubTrigger,
-  DropdownMenuSubContent,
+  DropdownMenuCollapsible,
+  DropdownMenuCollapsibleTrigger,
+  DropdownMenuCollapsibleContent,
 }

@@ -27,20 +27,25 @@ export default function SkipMarkerOverlay({
   nextEpisode,
   onActiveChange,
 }: SkipMarkerOverlayProps) {
-  const { state } = usePlayerContext();
+  const { state, authPlaybackFeatures } = usePlayerContext();
   const t = state.currentTime;
 
+  // Skip Intro and Next Episode are signed-in features (sit alongside autoplay /
+  // ambient mode / audio visualizer in the same auth-gated bucket). Guest viewers
+  // see neither button.
   const showSkipIntro = useMemo(() => {
+    if (!authPlaybackFeatures) return false;
     if (markers.introStart == null || markers.introEnd == null) return false;
     if (markers.introEnd <= markers.introStart) return false;
     return t >= markers.introStart - SKIP_INTRO_LEAD_IN && t < markers.introEnd;
-  }, [markers.introStart, markers.introEnd, t]);
+  }, [authPlaybackFeatures, markers.introStart, markers.introEnd, t]);
 
   const showNextEpisode = useMemo(() => {
+    if (!authPlaybackFeatures) return false;
     if (markers.creditsStart == null) return false;
     if (!onNextEpisode || !nextEpisode) return false;
     return t >= markers.creditsStart;
-  }, [markers.creditsStart, t, onNextEpisode, nextEpisode]);
+  }, [authPlaybackFeatures, markers.creditsStart, t, onNextEpisode, nextEpisode]);
 
   const active = showSkipIntro || showNextEpisode;
 
@@ -51,7 +56,7 @@ export default function SkipMarkerOverlay({
   if (!active) return null;
 
   return (
-    <div className="absolute bottom-6 right-6 z-30 flex flex-col items-end gap-2 pointer-events-none">
+    <div className="absolute bottom-6 right-6 z-[32] flex flex-col items-end gap-2 pointer-events-none">
       {showSkipIntro && (
         <button
           type="button"
