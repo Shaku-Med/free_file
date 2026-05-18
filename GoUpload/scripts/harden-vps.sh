@@ -66,39 +66,52 @@ echo "harden-vps: installed /usr/local/sbin/{protect-env,goupload-compose}.sh"
 # 3. sudoers drop-in — validate before install.
 SUDOERS_TMP=$(mktemp /etc/sudoers.d/.goupload-hardening.XXXXXX)
 trap 'rm -f "$SUDOERS_TMP"' EXIT
-cat > "$SUDOERS_TMP" <<EOF
-# Managed by GoUpload/scripts/harden-vps.sh — do not edit by hand.
+# Ubuntu 24.04+ ships sudo-rs (the Rust rewrite). It supports only a SUBSET
+# of classic sudoers syntax — no `logfile`, no `log_input`/`log_output`,
+# no `iolog_dir`. Detect flavor and omit unsupported lines.
+SUDO_FLAVOR=classic
+if sudo --version 2>&1 | head -n1 | grep -qi 'sudo-rs'; then
+  SUDO_FLAVOR=rs
+  echo "harden-vps: detected sudo-rs — using minimal sudoers (no I/O logging)"
+fi
 
-# Re-authenticate on every sudo invocation. The default 5-minute cached
-# credential window is a real risk for an unattended root shell.
-Defaults    timestamp_timeout=0
-
-# Audit log — sudo writes every successful + failed command here.
-Defaults    logfile=/var/log/sudo.log
-Defaults    log_input,log_output
-Defaults    iolog_dir=/var/log/sudo-io
-
-# Narrow NOPASSWD: deploy user can ONLY invoke these two wrappers — nothing
-# else. NOPASSWD overrides timestamp_timeout=0 for these specific commands,
-# which is exactly what we want (CI doesn't prompt) while every OTHER
-# `sudo` invocation still requires a fresh password.
-$DEPLOY_USER ALL=(root) NOPASSWD: /usr/local/sbin/protect-env.sh, /usr/local/sbin/goupload-compose.sh
-EOF
+{
+  echo "# Managed by GoUpload/scripts/harden-vps.sh — do not edit by hand."
+  echo ""
+  echo "# Re-auth on every sudo. NOPASSWD entries below bypass this for the"
+  echo "# specific wrappers so CI doesn't prompt."
+  echo "Defaults    timestamp_timeout=0"
+  if [[ "$SUDO_FLAVOR" = "classic" ]]; then
+    echo ""
+    echo "# Audit log (classic sudo only)."
+    echo "Defaults    logfile=/var/log/sudo.log"
+    echo "Defaults    log_input,log_output"
+    echo "Defaults    iolog_dir=/var/log/sudo-io"
+  fi
+  echo ""
+  echo "# Narrow NOPASSWD: deploy user can ONLY invoke these two wrappers."
+  echo "$DEPLOY_USER ALL=(root) NOPASSWD: /usr/local/sbin/protect-env.sh, /usr/local/sbin/goupload-compose.sh"
+} > "$SUDOERS_TMP"
 chmod 0440 "$SUDOERS_TMP"
 
-if ! visudo -cf "$SUDOERS_TMP" >/dev/null; then
-  echo "harden-vps: sudoers syntax check failed — aborting" >&2
-  exit 1
+if command -v visudo >/dev/null 2>&1; then
+  if ! visudo -cf "$SUDOERS_TMP" >/dev/null; then
+    echo "harden-vps: sudoers syntax check failed — aborting" >&2
+    cat "$SUDOERS_TMP" >&2
+    exit 1
+  fi
 fi
 mv "$SUDOERS_TMP" /etc/sudoers.d/goupload-hardening
 trap - EXIT
 echo "harden-vps: installed /etc/sudoers.d/goupload-hardening"
 
-# Make sure the iolog dir exists with safe perms.
-install -d -m 0700 -o root -g root /var/log/sudo-io
-touch /var/log/sudo.log
-chown root:root /var/log/sudo.log
-chmod 0600      /var/log/sudo.log
+# I/O log dirs only matter on classic sudo.
+if [[ "$SUDO_FLAVOR" = "classic" ]]; then
+  install -d -m 0700 -o root -g root /var/log/sudo-io
+  touch /var/log/sudo.log
+  chown root:root /var/log/sudo.log
+  chmod 0600      /var/log/sudo.log
+fi
 
 # 4. We intentionally do NOT add the deploy user to the docker group.
 #    docker-group membership is effectively root and would let a

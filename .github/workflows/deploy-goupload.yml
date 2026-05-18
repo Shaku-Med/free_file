@@ -113,11 +113,13 @@ jobs:
           EOF
           # Perms intentionally left at 0644 — see comment above.
 
-      # We scp into a deploy-owned staging dir under $HOME instead of
-      # /opt/goupload directly — /opt/goupload itself is root:root 0750
-      # so the deploy user can't write there. The post-scp sudo step
-      # promotes the staged files into /opt/goupload as root:root 0600.
-      - name: Copy deploy files to VPS staging
+      # Simple deploy: scp into the SSH user's home, then ssh to move into
+      # /opt/goupload and run docker compose directly. Assumes VPS_USER is
+      # root (or a user already in the docker group). The optional
+      # harden-vps.sh hardening is a SEPARATE, manual step the operator
+      # runs once — see GoUpload/scripts/README. This workflow tolerates
+      # both the hardened and unhardened server states.
+      - name: Copy deploy files to VPS
         uses: appleboy/scp-action@v0.1.7
         with:
           host: ${{ secrets.VPS_HOST }}
@@ -141,29 +143,57 @@ jobs:
           script: |
             set -euo pipefail
 
-            # Sanity-check the staged files before promoting them.
+            # Sanity-check staged files
             test -f "$HOME/goupload-staging/docker-compose.yml"
             test -f "$HOME/goupload-staging/goupload.env"
             test -f "$HOME/goupload-staging/nsfwapi.env"
             test -f "$HOME/goupload-staging/.env"
 
-            # Promote staged files → /opt/goupload as root:root 0600 and
-            # wipe the staging dir. Narrow NOPASSWD via sudoers drop-in.
-            sudo /usr/local/sbin/protect-env.sh
+            # Pick `sudo` only if we're not already root — keeps this
+            # workflow working whether VPS_USER is root or a sudoer.
+            SUDO=""
+            if [ "$(id -u)" -ne 0 ]; then
+              SUDO="sudo"
+            fi
 
-            # Everything below runs through the narrow goupload-compose
-            # wrapper. The deploy user never touches docker or the env
-            # files directly — those stay locked to root:root 0600.
-            echo "$GHCR_TOKEN" | sudo /usr/local/sbin/goupload-compose.sh login "$GHCR_USER"
+            # If the hardened wrappers are installed, prefer them. Otherwise
+            # do a direct move + chmod. Either path ends with /opt/goupload
+            # populated and ready for docker compose.
+            if [ -x /usr/local/sbin/protect-env.sh ]; then
+              echo "→ using hardened protect-env.sh wrapper"
+              $SUDO /usr/local/sbin/protect-env.sh
+            else
+              echo "→ no protect-env.sh, doing direct move"
+              $SUDO mkdir -p /opt/goupload
+              $SUDO mv "$HOME/goupload-staging/docker-compose.yml" /opt/goupload/
+              $SUDO mv "$HOME/goupload-staging/goupload.env"       /opt/goupload/
+              $SUDO mv "$HOME/goupload-staging/nsfwapi.env"        /opt/goupload/
+              $SUDO mv "$HOME/goupload-staging/.env"               /opt/goupload/
+              $SUDO chown -R root:root /opt/goupload
+              $SUDO chmod 0600 /opt/goupload/*.env /opt/goupload/.env
+              $SUDO chmod 0644 /opt/goupload/docker-compose.yml
+              rmdir "$HOME/goupload-staging" 2>/dev/null || true
+            fi
 
-            sudo /usr/local/sbin/goupload-compose.sh pull
-            sudo /usr/local/sbin/goupload-compose.sh up
+            cd /opt/goupload
 
-            # Drop dangling images so the 100GB disk doesn't fill up.
-            sudo /usr/local/sbin/goupload-compose.sh prune || true
-
-            echo "✅ Deployed"
-            sudo /usr/local/sbin/goupload-compose.sh ps
+            # Same fallback pattern for compose: hardened wrapper if present,
+            # otherwise call docker compose directly.
+            if [ -x /usr/local/sbin/goupload-compose.sh ]; then
+              echo "$GHCR_TOKEN" | $SUDO /usr/local/sbin/goupload-compose.sh login "$GHCR_USER"
+              $SUDO /usr/local/sbin/goupload-compose.sh pull
+              $SUDO /usr/local/sbin/goupload-compose.sh up
+              $SUDO /usr/local/sbin/goupload-compose.sh prune || true
+              echo "✅ Deployed"
+              $SUDO /usr/local/sbin/goupload-compose.sh ps
+            else
+              echo "$GHCR_TOKEN" | $SUDO docker login ghcr.io -u "$GHCR_USER" --password-stdin
+              $SUDO docker compose pull
+              $SUDO docker compose up -d --remove-orphans
+              $SUDO docker image prune -f --filter "until=72h" || true
+              echo "✅ Deployed"
+              $SUDO docker compose ps
+            fi
 
       - name: Logout from ghcr on VPS
         if: always()
@@ -173,4 +203,10 @@ jobs:
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.HOSTER_SSH_KEY }}
           script: |
-            sudo /usr/local/sbin/goupload-compose.sh logout || true
+            SUDO=""
+            if [ "$(id -u)" -ne 0 ]; then SUDO="sudo"; fi
+            if [ -x /usr/local/sbin/goupload-compose.sh ]; then
+              $SUDO /usr/local/sbin/goupload-compose.sh logout || true
+            else
+              $SUDO docker logout ghcr.io || true
+            fi
