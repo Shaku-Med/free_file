@@ -91,7 +91,11 @@ jobs:
           cp GoUpload/docker-compose.yml deploy/docker-compose.yml
           printf '%s' "$GOUPLOAD_ENV"  > deploy/goupload.env
           printf '%s' "$NSFWAPI_ENV"   > deploy/nsfwapi.env
-          chmod 600 deploy/goupload.env deploy/nsfwapi.env
+          # NOTE: leave perms at the runner default (0644). appleboy/scp-action
+          # runs in a Docker container with a different UID and its `tar` can't
+          # read 0600 files. The runner is ephemeral; the env files only exist
+          # here for ~10 seconds. protect-env.sh on the VPS re-locks them to
+          # root:root 0600 the moment they land.
 
           OWNER_LC=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
           REPO_LC=$(echo "${{ github.event.repository.name }}" | tr '[:upper:]' '[:lower:]')
@@ -107,7 +111,7 @@ jobs:
           WORKER_MAX=6
           WORKER_INITIAL=2
           EOF
-          chmod 600 deploy/.env
+          # Perms intentionally left at 0644 — see comment above.
 
       # We scp into a deploy-owned staging dir under $HOME instead of
       # /opt/goupload directly — /opt/goupload itself is root:root 0750
