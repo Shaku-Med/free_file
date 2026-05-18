@@ -1,0 +1,6 @@
+# Require a password on every sudo invocation (no credential cache window).
+# Install with scripts/install-dangerous-guard.sh (validates via visudo) or merge by hand:
+#   sudo visudo -f /etc/sudoers.d/99-no-sudo-cache
+#
+Defaults timestamp_timeout=0
+Defaults passwd_tries=3

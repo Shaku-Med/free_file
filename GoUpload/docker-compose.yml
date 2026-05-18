@@ -1,0 +1,89 @@
+name: goupload
+
+# Resource limits assume a small VPS (~4 CPU / 8 GB). Tune via env vars before
+# `docker compose up`. The adaptive worker pool inside goupload reads cgroup-v2
+# memory.max + /proc/stat to stay within these caps.
+
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: goupload-redis
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory", "256mb", "--maxmemory-policy", "allkeys-lru"]
+    volumes:
+      - redis-data:/data
+    networks:
+      - goupload-net
+    deploy:
+      resources:
+        limits:
+          cpus: "0.50"
+          memory: 384M
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 15s
+      timeout: 3s
+      retries: 5
+
+  nsfwapi:
+    image: ${NSFWAPI_IMAGE:-ghcr.io/OWNER/REPO/nsfwapi:latest}
+    container_name: goupload-nsfwapi
+    restart: unless-stopped
+    env_file:
+      - ./nsfwapi.env
+    networks:
+      - goupload-net
+    deploy:
+      resources:
+        limits:
+          cpus: "${NSFWAPI_CPUS:-1.0}"
+          memory: ${NSFWAPI_MEM:-768M}
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3004/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  goupload:
+    image: ${GOUPLOAD_IMAGE:-ghcr.io/OWNER/REPO/goupload:latest}
+    container_name: goupload
+    restart: unless-stopped
+    env_file:
+      - ./goupload.env
+    environment:
+      REDIS_ADDR: redis:6379
+      NSFW_API_URL: http://nsfwapi:3004/api/nsfw/detect
+      # Adaptive worker pool — see internal/worker/pool.go. These can also live
+      # in goupload.env if you prefer.
+      WORKER_MIN: ${WORKER_MIN:-1}
+      WORKER_MAX: ${WORKER_MAX:-6}
+      WORKER_INITIAL: ${WORKER_INITIAL:-2}
+    ports:
+      - "127.0.0.1:${GOUPLOAD_PORT:-3003}:3003"
+    volumes:
+      - upload-data:/app/upload
+    networks:
+      - goupload-net
+    depends_on:
+      redis:
+        condition: service_healthy
+      nsfwapi:
+        condition: service_started
+    deploy:
+      resources:
+        limits:
+          cpus: "${GOUPLOAD_CPUS:-2.5}"
+          memory: ${GOUPLOAD_MEM:-4G}
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3003/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+networks:
+  goupload-net:
+    driver: bridge
+
+volumes:
+  redis-data:
+  upload-data:

@@ -1,4 +1,4 @@
-name: Deploy to VPS
+name: Deploy GoUpload (Docker)
 
 on:
   push:
@@ -10,126 +10,163 @@ on:
   workflow_dispatch:
 
 env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  REGISTRY: ghcr.io
+  IMAGE_OWNER: ${{ github.repository_owner }}
+  REPO_SLUG: ${{ github.event.repository.name }}
 
 jobs:
-  deploy:
-    name: Deploy to VPS
+  build:
+    name: Build & push images
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      goupload_image: ${{ steps.tags.outputs.goupload }}
+      nsfwapi_image: ${{ steps.tags.outputs.nsfwapi }}
     steps:
       - name: Checkout
         uses: actions/checkout@v5
 
-      # ==================== GoUpload Deployment ====================
-      - name: Set up Go
-        uses: actions/setup-go@v5
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to ghcr.io
+        uses: docker/login-action@v3
         with:
-          go-version: '1.23'
-          cache-dependency-path: GoUpload/go.sum
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build GoUpload
+      - name: Compute image tags
+        id: tags
         run: |
-          cd GoUpload
-          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o goupload .
+          OWNER_LC=$(echo "${IMAGE_OWNER}" | tr '[:upper:]' '[:lower:]')
+          REPO_LC=$(echo "${REPO_SLUG}" | tr '[:upper:]' '[:lower:]')
+          BASE_GO="${REGISTRY}/${OWNER_LC}/${REPO_LC}/goupload"
+          BASE_NSFW="${REGISTRY}/${OWNER_LC}/${REPO_LC}/nsfwapi"
+          echo "goupload=${BASE_GO}:${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+          echo "nsfwapi=${BASE_NSFW}:${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+          echo "goupload_latest=${BASE_GO}:latest" >> "$GITHUB_OUTPUT"
+          echo "nsfwapi_latest=${BASE_NSFW}:latest" >> "$GITHUB_OUTPUT"
 
-      - name: Create .env for GoUpload
+      - name: Build & push GoUpload
+        uses: docker/build-push-action@v6
+        with:
+          context: ./GoUpload
+          file: ./GoUpload/Dockerfile
+          push: true
+          tags: |
+            ${{ steps.tags.outputs.goupload }}
+            ${{ steps.tags.outputs.goupload_latest }}
+          cache-from: type=gha,scope=goupload
+          cache-to: type=gha,scope=goupload,mode=max
+
+      - name: Build & push NSFWAPI
+        uses: docker/build-push-action@v6
+        with:
+          context: ./NSFWAPI
+          file: ./NSFWAPI/Dockerfile
+          push: true
+          tags: |
+            ${{ steps.tags.outputs.nsfwapi }}
+            ${{ steps.tags.outputs.nsfwapi_latest }}
+          cache-from: type=gha,scope=nsfwapi
+          cache-to: type=gha,scope=nsfwapi,mode=max
+
+  deploy:
+    name: Deploy to VPS
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Stage compose + env files
         env:
-          VPS_ENV: ${{ secrets.VPS_ENV }}
+          GOUPLOAD_ENV: ${{ secrets.VPS_ENV }}
+          NSFWAPI_ENV: ${{ secrets.NSFWAPI_ENV }}
         run: |
-          printf '%s' "$VPS_ENV" > GoUpload/.env
+          mkdir -p deploy
+          cp GoUpload/docker-compose.yml deploy/docker-compose.yml
+          printf '%s' "$GOUPLOAD_ENV"  > deploy/goupload.env
+          printf '%s' "$NSFWAPI_ENV"   > deploy/nsfwapi.env
+          chmod 600 deploy/goupload.env deploy/nsfwapi.env
 
-      - name: Copy GoUpload to VPS
+          OWNER_LC=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          REPO_LC=$(echo "${{ github.event.repository.name }}" | tr '[:upper:]' '[:lower:]')
+          cat > deploy/.env <<EOF
+          GOUPLOAD_IMAGE=ghcr.io/${OWNER_LC}/${REPO_LC}/goupload:${GITHUB_SHA}
+          NSFWAPI_IMAGE=ghcr.io/${OWNER_LC}/${REPO_LC}/nsfwapi:${GITHUB_SHA}
+          GOUPLOAD_PORT=3003
+          GOUPLOAD_CPUS=2.5
+          GOUPLOAD_MEM=4G
+          NSFWAPI_CPUS=1.0
+          NSFWAPI_MEM=768M
+          WORKER_MIN=1
+          WORKER_MAX=6
+          WORKER_INITIAL=2
+          EOF
+          chmod 600 deploy/.env
+
+      # We scp into a deploy-owned staging dir under $HOME instead of
+      # /opt/goupload directly — /opt/goupload itself is root:root 0750
+      # so the deploy user can't write there. The post-scp sudo step
+      # promotes the staged files into /opt/goupload as root:root 0600.
+      - name: Copy deploy files to VPS staging
         uses: appleboy/scp-action@v0.1.7
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.HOSTER_SSH_KEY }}
-          source: 'GoUpload/goupload,GoUpload/.env'
-          target: /opt/goupload/
-          strip_components: 1
-
-      - name: Restart GoUpload Service
-        uses: appleboy/ssh-action@v1.0.3
-        with:
-          host: ${{ secrets.VPS_HOST }}
-          username: ${{ secrets.VPS_USER }}
-          key: ${{ secrets.HOSTER_SSH_KEY }}
-          script: |
-            sudo chown hoster:hoster /opt/goupload/goupload
-            sudo chown hoster:hoster /opt/goupload/.env
-            sudo chmod +x /opt/goupload/goupload
-            sudo systemctl restart goupload
-            echo "✅ GoUpload restarted"
-
-      # ==================== NSFWAPI Deployment ====================
-      - name: Copy NSFWAPI to VPS
-        uses: appleboy/scp-action@v0.1.7
-        with:
-          host: ${{ secrets.VPS_HOST }}
-          username: ${{ secrets.VPS_USER }}
-          key: ${{ secrets.HOSTER_SSH_KEY }}
-          source: 'NSFWAPI/*'
-          target: /opt/goupload/nsfwapi/
+          source: 'deploy/docker-compose.yml,deploy/goupload.env,deploy/nsfwapi.env,deploy/.env'
+          target: goupload-staging/
           strip_components: 1
           overwrite: true
 
-      - name: Install and Build NSFWAPI
+      - name: Pull & restart on VPS
         uses: appleboy/ssh-action@v1.0.3
+        env:
+          GHCR_USER: ${{ github.actor }}
+          GHCR_TOKEN: ${{ secrets.GHCR_PULL_TOKEN }}
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.HOSTER_SSH_KEY }}
+          envs: GHCR_USER,GHCR_TOKEN
           script: |
-            # Fix ownership
-            sudo chown -R hoster:hoster /opt/goupload/nsfwapi
-            
-            cd /opt/goupload/nsfwapi
-            
-            # Clean up
-            rm -rf node_modules package-lock.json dist
-            
-            # Install all dependencies (including dev for build)
-            npm install
-            
-            # Build TypeScript
-            npm run build
-            
-            # Verify build
-            if [ ! -f "dist/index.js" ]; then
-              echo "❌ Build failed - dist/index.js not found"
-              exit 1
-            fi
-            
-            echo "✅ NSFWAPI built successfully"
+            set -euo pipefail
 
-      # ==================== Deployment Complete ====================
-      - name: Show Deployment Status
+            # Sanity-check the staged files before promoting them.
+            test -f "$HOME/goupload-staging/docker-compose.yml"
+            test -f "$HOME/goupload-staging/goupload.env"
+            test -f "$HOME/goupload-staging/nsfwapi.env"
+            test -f "$HOME/goupload-staging/.env"
+
+            # Promote staged files → /opt/goupload as root:root 0600 and
+            # wipe the staging dir. Narrow NOPASSWD via sudoers drop-in.
+            sudo /usr/local/sbin/protect-env.sh
+
+            # Everything below runs through the narrow goupload-compose
+            # wrapper. The deploy user never touches docker or the env
+            # files directly — those stay locked to root:root 0600.
+            echo "$GHCR_TOKEN" | sudo /usr/local/sbin/goupload-compose.sh login "$GHCR_USER"
+
+            sudo /usr/local/sbin/goupload-compose.sh pull
+            sudo /usr/local/sbin/goupload-compose.sh up
+
+            # Drop dangling images so the 100GB disk doesn't fill up.
+            sudo /usr/local/sbin/goupload-compose.sh prune || true
+
+            echo "✅ Deployed"
+            sudo /usr/local/sbin/goupload-compose.sh ps
+
+      - name: Logout from ghcr on VPS
+        if: always()
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.HOSTER_SSH_KEY }}
           script: |
-            echo ""
-            echo "📊 Deployment Status:"
-            echo "===================="
-            echo ""
-            echo "GoUpload Service:"
-            sudo systemctl status goupload --no-pager | head -10
-            echo ""
-            echo "NSFWAPI Files:"
-            ls -lh /opt/goupload/nsfwapi/dist/
-            echo ""
-            echo "✅ Deployment complete!"
-            echo ""
-            echo "📌 Go ↔ NSFWAPI on same host: use localhost (default)."
-            echo "   Go .env: NSFW_API_URL=http://localhost:3004/api/nsfw/detect"
-            echo "   Ensure NSFWAPI is running on 3004 and has GOOGLE_VISION_API_KEYS set."
-            echo ""
-            echo "🔧 If NSFWAPI is not running, start it:"
-            echo "   1. cd /opt/goupload/nsfwapi"
-            echo "   2. Create .env with GOOGLE_VISION_API_KEYS=your_key (or set in pm2 env)"
-            echo "   3. pm2 delete nsfwapi || true"
-            echo "   4. pm2 start dist/index.js --name nsfwapi"
-            echo "   5. pm2 save"
-            echo "   Test: curl -s http://localhost:3004/health"
+            sudo /usr/local/sbin/goupload-compose.sh logout || true

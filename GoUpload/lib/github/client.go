@@ -38,8 +38,55 @@ func NewClient(cfg Config) *github.Client {
 	return github.NewClient(oauth2.NewClient(context.Background(), ts))
 }
 
+// singleFileGate serialises Contents-API writes per (owner/repo) so concurrent
+// workers don't race each other into 409 conflicts. The Contents API checks
+// the parent SHA at PUT time — if N goroutines GET the same parent then race
+// to PUT, only one wins and the rest 409. Holding a per-repo mutex around
+// the GET+PUT pair eliminates the race in-process; the retry loop below
+// handles the cross-process case (another deploy pushing concurrently).
+var (
+	singleFileGateMu sync.Mutex
+	singleFileGates  = map[string]*sync.Mutex{}
+)
+
+func gateFor(owner, repo string) *sync.Mutex {
+	singleFileGateMu.Lock()
+	defer singleFileGateMu.Unlock()
+	key := owner + "/" + repo
+	m, ok := singleFileGates[key]
+	if !ok {
+		m = &sync.Mutex{}
+		singleFileGates[key] = m
+	}
+	return m
+}
+
+// isContentsConflict reports a 409 / "does not match" from the Contents API,
+// which is what GitHub returns when our parent SHA is stale.
+func isContentsConflict(err error) bool {
+	var ge *github.ErrorResponse
+	if !errors.As(err, &ge) || ge.Response == nil {
+		return false
+	}
+	if ge.Response.StatusCode == 409 {
+		return true
+	}
+	if ge.Response.StatusCode == 422 {
+		// Some versions return 422 "sha does not match".
+		if strings.Contains(strings.ToLower(ge.Message), "does not match") {
+			return true
+		}
+	}
+	return false
+}
+
 // CreateOrUpdateFile writes a single file via the Contents API.
 // Kept for single-file uploads (images). For bulk uploads use BatchCommit.
+//
+// Concurrency: GitHub's Contents API does a parent-SHA check on every PUT,
+// so N parallel workers writing distinct paths to the same repo can still
+// collide on the branch's HEAD. We serialise per repo via singleFileGates
+// and retry on 409 by re-fetching the latest blob SHA.
 func CreateOrUpdateFile(ctx context.Context, client *github.Client, owner, repo, path string, content []byte, message string) error {
 	if client == nil || owner == "" || repo == "" || path == "" {
 		return nil
@@ -48,32 +95,54 @@ func CreateOrUpdateFile(ctx context.Context, client *github.Client, owner, repo,
 		message = "Upload " + filepath.Base(path)
 	}
 
-	var sha *string
-	fc, _, _, err := client.Repositories.GetContents(ctx, owner, repo, path, nil)
-	if err != nil {
-		var ge *github.ErrorResponse
-		if errors.As(err, &ge) && ge.Response != nil && ge.Response.StatusCode == 404 {
-			sha = nil
-		} else {
-			return fmt.Errorf("get contents %s: %w", path, err)
-		}
-	} else if fc != nil {
-		s := fc.GetSHA()
-		if s != "" {
-			sha = &s
-		}
-	}
+	gate := gateFor(owner, repo)
+	gate.Lock()
+	defer gate.Unlock()
 
-	opts := &github.RepositoryContentFileOptions{
-		Message: &message,
-		Content: content,
-		SHA:     sha,
+	const maxAttempts = 5
+	var lastErr error
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		var sha *string
+		fc, _, _, err := client.Repositories.GetContents(ctx, owner, repo, path, nil)
+		if err != nil {
+			var ge *github.ErrorResponse
+			if errors.As(err, &ge) && ge.Response != nil && ge.Response.StatusCode == 404 {
+				sha = nil
+			} else {
+				return fmt.Errorf("get contents %s: %w", path, err)
+			}
+		} else if fc != nil {
+			s := fc.GetSHA()
+			if s != "" {
+				sha = &s
+			}
+		}
+
+		opts := &github.RepositoryContentFileOptions{
+			Message: &message,
+			Content: content,
+			SHA:     sha,
+		}
+		_, _, err = client.Repositories.CreateFile(ctx, owner, repo, path, opts)
+		if err == nil {
+			return nil
+		}
+		lastErr = err
+
+		// Retry only on parent-SHA conflicts; everything else is fatal.
+		if !isContentsConflict(err) {
+			return fmt.Errorf("create/update %s: %w", path, err)
+		}
+
+		// Tiny jittered backoff so we don't immediately re-race ourselves.
+		backoff := time.Duration(200*attempt) * time.Millisecond
+		select {
+		case <-time.After(backoff):
+		case <-ctx.Done():
+			return ctx.Err()
+		}
 	}
-	_, _, err = client.Repositories.CreateFile(ctx, owner, repo, path, opts)
-	if err != nil {
-		return fmt.Errorf("create/update %s: %w", path, err)
-	}
-	return nil
+	return fmt.Errorf("create/update %s: exhausted retries: %w", path, lastErr)
 }
 
 func UploadLocalFile(ctx context.Context, client *github.Client, owner, repo, path, localPath, message string) error {

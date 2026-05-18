@@ -165,10 +165,41 @@ func (w *Worker) notifyRunningProgress(job *queue.Job, pct int) {
 	})
 }
 
+// sharedRootDirs are directories that hold *every* job's working files —
+// failJob must NEVER RemoveAll one of these, or it'll wipe out siblings
+// that are still mid-pipeline. We accept some empty leftover dirs in
+// exchange for never trashing a healthy job.
+var sharedRootDirs = map[string]struct{}{
+	"assembled":       {},
+	"hls":             {},
+	"thumbnails":      {},
+	"temp":            {},
+	"temp_processing": {},
+	"upload":          {},
+}
+
 func (w *Worker) failJob(job *queue.Job, reason string, cleanupPaths ...string) {
 	w.log.Errorf("job FAILED job=%s reason=%s", job.ID, reason)
 	for _, p := range cleanupPaths {
 		if p == "" {
+			continue
+		}
+		// Non-recursive first: works for empty parent dirs and is harmless
+		// when the dir holds other jobs (errors out, no damage).
+		if err := os.Remove(p); err == nil {
+			continue
+		}
+		info, statErr := os.Stat(p)
+		if statErr != nil {
+			continue
+		}
+		if !info.IsDir() {
+			_ = os.Remove(p)
+			continue
+		}
+		// Refuse to recurse into any shared-root directory — that's the
+		// regression that nuked sibling jobs' assembled files.
+		if _, shared := sharedRootDirs[filepath.Base(p)]; shared {
 			continue
 		}
 		_ = os.RemoveAll(p)
@@ -280,8 +311,12 @@ func (w *Worker) processJob(job *queue.Job) {
 		} else {
 			w.log.Infof("cleanup assembled file job=%s path=%s", job.ID, result.OutputPath)
 		}
+		// Non-recursive removes: if the user has other concurrent uploads
+		// in flight, these will fail silently and the orphan sweeper will
+		// pick up the dir later. Using RemoveAll here used to wipe sibling
+		// jobs' assembled files (concurrent worker pool regression).
 		assembledDir := filepath.Dir(result.OutputPath)
-		_ = os.RemoveAll(assembledDir)
+		_ = os.Remove(assembledDir)
 		_ = os.Remove(filepath.Dir(assembledDir))
 
 		w.notifyRunningProgress(job, 92)
@@ -552,7 +587,8 @@ func (w *Worker) processJob(job *queue.Job) {
 			_ = os.RemoveAll(thumbDir)
 			_ = os.Remove(filepath.Dir(thumbDir))
 			_ = os.Remove(result.OutputPath)
-			_ = os.RemoveAll(filepath.Dir(result.OutputPath))
+			// Non-recursive — see comment in image success path.
+			_ = os.Remove(filepath.Dir(result.OutputPath))
 			_ = os.Remove(filepath.Dir(filepath.Dir(result.OutputPath)))
 			_ = w.queue.SetJobStatus(context.Background(), job.ID, "failed")
 			webhook.NotifyJobStatus(webhook.Payload{JobID: job.ID, Status: "failed", UploadID: job.UploadID, UserID: job.UserID, FileName: job.FileName, FileSize: job.FileSize})
@@ -569,14 +605,16 @@ func (w *Worker) processJob(job *queue.Job) {
 	_ = os.Remove(filepath.Dir(thumbDir))
 	_ = os.Remove(w.cfg.ThumbnailDir)
 
-	// Cleanup: remove assembled file, uploadID dir, and empty user dir
+	// Cleanup: remove assembled file, then non-recursive parent removes.
+	// Never RemoveAll the user dir here — sibling jobs may have their own
+	// assembled files in it.
 	if err := os.Remove(result.OutputPath); err != nil {
 		w.log.Errorf("cleanup assembled file failed job=%s err=%s", job.ID, err.Error())
 	} else {
 		w.log.Infof("cleanup assembled file job=%s path=%s", job.ID, result.OutputPath)
 	}
 	assembledDir := filepath.Dir(result.OutputPath)
-	_ = os.RemoveAll(assembledDir)
+	_ = os.Remove(assembledDir)
 	_ = os.Remove(filepath.Dir(assembledDir))
 
 	// Build default thumbnail GitHub path

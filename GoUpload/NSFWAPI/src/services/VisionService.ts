@@ -1,4 +1,5 @@
 import dotenv from 'dotenv';
+import { CaptionService } from './CaptionService.js';
 dotenv.config();
 
 interface SafeSearchAnnotation {
@@ -60,6 +61,7 @@ const SAFE_CONTEXT_LABELS = new Set([
 
 export class VisionService {
   private apiKeys: string[];
+  private captioner: CaptionService;
 
   constructor() {
     const keysStr = process.env.GOOGLE_VISION_API_KEYS || '';
@@ -73,6 +75,7 @@ export class VisionService {
         'No Google Vision API keys configured. Set GOOGLE_VISION_API_KEYS in .env (comma-separated).'
       );
     }
+    this.captioner = new CaptionService();
     process.stdout.write(
       `[VisionService] Loaded ${this.apiKeys.length} API key(s)\n`
     );
@@ -98,6 +101,12 @@ export class VisionService {
       try {
         console.log(`[VisionService] Attempt ${attempt + 1}/${maxAttempts} using key #${idx} (${this.apiKeys[idx].slice(0, 10)}...)`);
         const result = await this.callVisionAPI(this.apiKeys[idx], imageBase64);
+        // Caption pass runs in parallel-friendly order: vision first (cheap, blocks
+        // NSFW gate), then VLM. If VLM fails we keep the label-based fallback.
+        if (this.captioner.isEnabled()) {
+          const caption = await this.captioner.caption(imageBase64);
+          if (caption) result.description = caption;
+        }
         console.log(`[VisionService] SUCCESS on attempt ${attempt + 1}`);
         return result;
       } catch (err) {

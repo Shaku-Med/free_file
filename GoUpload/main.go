@@ -79,7 +79,12 @@ func main() {
 		wcfg.GitHubClient = ghlib.NewClient(ghlib.Config{Token: ghToken, Owner: ghOwner, Repo: ghRepo})
 	}
 	w := worker.New(q, appLog, wcfg)
-	w.Start()
+	pool := worker.NewPool(w, worker.PoolConfig{
+		MinWorkers:     int(env.GetInt64("WORKER_MIN", 1)),
+		MaxWorkers:     int(env.GetInt64("WORKER_MAX", 6)),
+		InitialWorkers: int(env.GetInt64("WORKER_INITIAL", 2)),
+	})
+	pool.Start()
 
 	app := fiber.New(fiber.Config{
 		BodyLimit:      int(upload.ChunkSizeBytes),
@@ -248,6 +253,6 @@ func main() {
 	<-stop
 
 	appLog.Infof("shutting down")
-	w.Stop()
+	pool.Stop()
 	_ = app.Shutdown()
 }
