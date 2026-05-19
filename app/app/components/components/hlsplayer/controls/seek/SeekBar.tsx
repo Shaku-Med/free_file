@@ -236,6 +236,35 @@ function ThinSeekTrack({
               />
             </div>
 
+            {/* Buffered ranges — rendered as semi-opaque foreground bars
+                over the unplayed waveform. Same color family as played
+                but lower opacity, so the eye reads: muted → buffered →
+                played, like YouTube. Each range gets its own clip box;
+                the inner canvas is positioned in pixels relative to the
+                whole track so the bars stay aligned with the muted and
+                primary layers underneath. */}
+            {duration > 0 &&
+              trackWidth > 0 &&
+              bufferedRanges.map((range, i) => {
+                const leftPx = (range.start / duration) * trackWidth;
+                const widthPx = ((range.end - range.start) / duration) * trackWidth;
+                if (widthPx <= 0) return null;
+                return (
+                  <div
+                    key={i}
+                    className="pointer-events-none absolute inset-y-0 overflow-hidden text-foreground/70 opacity-35 transition-opacity duration-200 group-hover/seek:opacity-50"
+                    style={{ left: `${leftPx}px`, width: `${widthPx}px` }}
+                  >
+                    <div
+                      className="absolute inset-y-0"
+                      style={{ left: `${-leftPx}px`, width: `${trackWidth}px` }}
+                    >
+                      <WaveformCanvas url={waveformUrl} height={WAVEFORM_HEIGHT} />
+                    </div>
+                  </div>
+                );
+              })}
+
             {/* Played waveform — primary, clipped to progress%. The inner
                 canvas always renders at the track's full pixel width so
                 that as the clip grows the bars stay aligned with the

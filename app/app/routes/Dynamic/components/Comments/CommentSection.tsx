@@ -20,6 +20,12 @@ interface CommentSectionProps {
    * composer stays fixed at the bottom of the panel.
    */
   fillHeight?: boolean;
+  /**
+   * Video duration in seconds — enables timestamp linkification in
+   * comment bodies (M:SS / H:MM:SS spans become clickable seek buttons).
+   * Omit on non-video pages.
+   */
+  fileDurationSec?: number;
 }
 
 /** Normalize API comment to full Comment shape (replies, counts, etc.) */
@@ -82,6 +88,7 @@ const CommentSection = ({
   highlightCommentId = null,
   className,
   fillHeight = false,
+  fileDurationSec,
 }: CommentSectionProps) => {
   const [comments, setComments] = useState<Comment[]>([]);
   const [totalCount, setTotalCount] = useState(0);
@@ -393,6 +400,7 @@ const CommentSection = ({
                       onHide={handleHide}
                       onLike={handleLike}
                       highlightCommentId={highlightCommentId}
+                      fileDurationSec={fileDurationSec}
                     />
                   ))}
                 </div>

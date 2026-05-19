@@ -43,6 +43,8 @@ interface CommentItemProps {
   threadPrefix?: boolean[];
   /** Called by child rails when user clicks the own-column line to fold the parent. */
   onParentFold?: () => void;
+  /** Video duration in seconds — enables timestamp linkification when set. */
+  fileDurationSec?: number;
 }
 
 function subtreeContainsHighlight(c: CommentType, targetId: string | null | undefined): boolean {
@@ -82,6 +84,7 @@ const CommentItem = ({
   isLastInThread = true,
   threadPrefix = [],
   onParentFold,
+  fileDurationSec,
 }: CommentItemProps) => {
   const [isReplying, setIsReplying] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
@@ -422,6 +425,11 @@ const CommentItem = ({
                         <FormattedText
                           text={comment.content}
                           mentionLinkClassName="!text-sky-600 hover:!text-sky-500 dark:!text-[#3ea6ff] dark:hover:!text-sky-300"
+                          timestamps={
+                            fileDurationSec != null && fileDurationSec > 0
+                              ? { maxSeconds: fileDurationSec, fileId }
+                              : undefined
+                          }
                         />
                       </div>
                       {isOverflowing && (
@@ -581,6 +589,7 @@ const CommentItem = ({
               isLastInThread={idx === arr.length - 1}
               threadPrefix={level === 0 ? [] : [...threadPrefix, !isLastInThread]}
               onParentFold={() => setShowReplies(false)}
+              fileDurationSec={fileDurationSec}
             />
           ))}
         </div>

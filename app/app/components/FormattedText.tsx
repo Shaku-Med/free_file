@@ -18,7 +18,42 @@ type Segment =
   | { type: "phone"; value: string }
   | { type: "mdlink"; label: string; href: string }
   | { type: "hashtag"; value: string }
-  | { type: "mention"; value: string };
+  | { type: "mention"; value: string }
+  | { type: "timestamp"; value: string; seconds: number };
+
+/**
+ * Matches video-style timestamps: M:SS, MM:SS, H:MM:SS, HH:MM:SS.
+ *  - Seconds must be 00-59 (the regex enforces it)
+ *  - Hours / minutes are unconstrained at parse time; we filter against
+ *    the actual video duration when rendering, so "99:59" parses but
+ *    won't render as a link if the video is shorter.
+ *  - Word boundaries on both sides so "v1.2.3" / "tel:1234" don't false-positive
+ */
+const TIMESTAMP_RE = /\b(\d{1,2}):([0-5]\d)(?::([0-5]\d))?\b/g;
+
+function timestampToSeconds(m: RegExpExecArray): number {
+  const a = Number(m[1]);
+  const b = Number(m[2]);
+  const c = m[3] != null ? Number(m[3]) : null;
+  if (c == null) return a * 60 + b; // M:SS
+  return a * 3600 + b * 60 + c;     // H:MM:SS
+}
+
+/** Global event the player listens to. Decouples comment rendering from
+ *  the player so any mounted player (main, mini, embed) can react. */
+export const SEEK_TO_EVENT = "memories:seek-to";
+
+export interface SeekToEventDetail {
+  seconds: number;
+  /** Optional fileId — if provided, players ignore the event unless their
+   *  current file matches. Useful for embeds on profile pages. */
+  fileId?: string;
+}
+
+export function dispatchSeekTo(detail: SeekToEventDetail): void {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(new CustomEvent<SeekToEventDetail>(SEEK_TO_EVENT, { detail }));
+}
 
 const LINKIFY_REGEX = new RegExp(
   `(${URL_RE.source})|(${EMAIL_RE.source})|(${PHONE_RE.source})`,
@@ -116,10 +151,51 @@ function pushMarkdownSegments(text: string, segments: Segment[]) {
   }
 }
 
+/**
+ * Walk an already-built segment list and replace plain text containing
+ * timestamps with explicit timestamp segments. Runs as a post-pass so it
+ * never interferes with phone numbers / URLs / markdown links (those
+ * segments aren't touched).
+ *
+ * `maxSeconds` filters out absurd numbers (e.g. "99:59" on a 30s clip).
+ * If unset, every parseable timestamp becomes a link — the player
+ * silently no-ops when seeking past the end.
+ */
+function expandTimestamps(segments: Segment[], maxSeconds?: number): Segment[] {
+  const out: Segment[] = [];
+  for (const seg of segments) {
+    if (seg.type !== "text" || seg.bold || seg.italic || seg.code) {
+      out.push(seg);
+      continue;
+    }
+    const s = seg.value;
+    TIMESTAMP_RE.lastIndex = 0;
+    let pos = 0;
+    let m: RegExpExecArray | null;
+    let matched = false;
+    while ((m = TIMESTAMP_RE.exec(s)) !== null) {
+      const seconds = timestampToSeconds(m);
+      if (maxSeconds != null && seconds > maxSeconds) continue;
+      if (seconds < 0) continue;
+      matched = true;
+      if (m.index > pos) out.push({ type: "text", value: s.slice(pos, m.index) });
+      out.push({ type: "timestamp", value: m[0], seconds });
+      pos = TIMESTAMP_RE.lastIndex;
+    }
+    if (matched) {
+      if (pos < s.length) out.push({ type: "text", value: s.slice(pos) });
+    } else {
+      out.push(seg);
+    }
+  }
+  return out;
+}
+
 function renderSegments(
   segments: Segment[],
   keyPrefix: string,
   mentionLinkClassName?: string,
+  timestampFileId?: string,
 ): React.ReactNode[] {
   const out: React.ReactNode[] = [];
   let i = 0;
@@ -213,6 +289,23 @@ function renderSegments(
           {seg.value}
         </Link>
       );
+    } else if (seg.type === "timestamp") {
+      const seconds = seg.seconds;
+      out.push(
+        <button
+          key={k}
+          type="button"
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            dispatchSeekTo({ seconds, fileId: timestampFileId });
+          }}
+          className="font-medium text-primary tabular-nums hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm align-baseline"
+          aria-label={`Jump to ${seg.value}`}
+        >
+          {seg.value}
+        </button>
+      );
     }
     i++;
   }
@@ -224,18 +317,45 @@ export interface FormattedTextProps {
   className?: string;
   /** Applied to @mention profile links only (e.g. YouTube-style blue in comments). */
   mentionLinkClassName?: string;
+  /**
+   * Detect M:SS / H:MM:SS timestamps in the text and render them as
+   * clickable buttons that dispatch a `memories:seek-to` window event.
+   * Set this on comment sections / descriptions on the watch page.
+   *
+   * `maxSeconds` filters out timestamps that exceed the actual video
+   * length \u2014 pass the video's duration so "99:59 lol" doesn't become
+   * a link on a 30-second clip.
+   *
+   * `fileId` is forwarded in the seek event so embeds on other pages
+   * can ignore seeks meant for a different file.
+   */
+  timestamps?: { maxSeconds?: number; fileId?: string } | boolean;
 }
 
-export function FormattedText({ text, className, mentionLinkClassName }: FormattedTextProps) {
+export function FormattedText({
+  text,
+  className,
+  mentionLinkClassName,
+  timestamps,
+}: FormattedTextProps) {
   if (!text) return null;
+
+  const tsOpts =
+    timestamps === true ? {} : timestamps === false || timestamps == null ? null : timestamps;
 
   const lines = text.split("\n");
   const nodes: React.ReactNode[] = [];
 
   for (let i = 0; i < lines.length; i++) {
-    const segments = linkifyLine(lines[i]);
+    let segments = linkifyLine(lines[i]);
+    if (tsOpts) segments = expandTimestamps(segments, tsOpts.maxSeconds);
     const lineKey = `line-${i}`;
-    const rendered = renderSegments(segments, lineKey, mentionLinkClassName);
+    const rendered = renderSegments(
+      segments,
+      lineKey,
+      mentionLinkClassName,
+      tsOpts?.fileId,
+    );
     nodes.push(
       <Fragment key={lineKey}>
         {rendered.length > 0 ? rendered : "\u00A0"}

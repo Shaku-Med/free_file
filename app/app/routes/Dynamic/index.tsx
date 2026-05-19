@@ -1660,7 +1660,14 @@ const index = () => {
                   !descriptionExpanded && "line-clamp-3",
                 )}
               >
-                <FormattedText text={description} />
+                <FormattedText
+                  text={description}
+                  timestamps={
+                    typeof file_data.duration === "number" && file_data.duration > 0
+                      ? { maxSeconds: file_data.duration, fileId: file_data.id }
+                      : undefined
+                  }
+                />
               </div>
               {!descriptionExpanded && isOverflowing && (
                 <div
@@ -1781,6 +1788,7 @@ const index = () => {
             fileOwnerId={file_data.owner_id || undefined}
             commentsEnabled={file_data.comments_enabled !== false}
             highlightCommentId={highlightCommentId}
+            fileDurationSec={typeof file_data.duration === "number" ? file_data.duration : undefined}
           />
         </div>
       )}

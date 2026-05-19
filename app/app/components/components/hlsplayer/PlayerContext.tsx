@@ -635,6 +635,30 @@ export function PlayerProvider({
     v.currentTime = Math.max(0, Math.min(time, v.duration || 0));
   }, []);
 
+  // Listen for `memories:seek-to` events fired by clickable timestamps in
+  // comments / descriptions. If the event includes a fileId, ignore it
+  // when it doesn't match this player's file — important for embed /
+  // mini-player scenarios where multiple players exist simultaneously.
+  // Also auto-plays after seeking, mirroring YouTube's behavior when you
+  // click a timestamp in a comment.
+  useEffect(() => {
+    const onSeekTo = (e: Event) => {
+      const ce = e as CustomEvent<{ seconds: number; fileId?: string }>;
+      const detail = ce.detail;
+      if (!detail || typeof detail.seconds !== "number") return;
+      if (detail.fileId && file?.id && detail.fileId !== file.id) return;
+      const v = videoRef.current;
+      if (!v) return;
+      const target = Math.max(0, Math.min(detail.seconds, v.duration || detail.seconds));
+      v.currentTime = target;
+      // Auto-play after click — matches YouTube. Wrapped in catch because
+      // browsers may reject play() on a still-muted-autoplay-blocked tab.
+      if (v.paused) v.play().catch(() => {});
+    };
+    window.addEventListener("memories:seek-to", onSeekTo);
+    return () => window.removeEventListener("memories:seek-to", onSeekTo);
+  }, [file?.id]);
+
   const setVolume = useCallback((vol: number) => {
     const v = videoRef.current;
     if (!v) return;
