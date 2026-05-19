@@ -177,10 +177,13 @@ jobs:
               rmdir "$HOME/goupload-staging" 2>/dev/null || true
             fi
 
-            cd /opt/goupload
-
             # Same fallback pattern for compose: hardened wrapper if present,
             # otherwise call docker compose directly. -f, not -x (see above).
+            #
+            # Don't `cd /opt/goupload` from the SSH user — when the hardening
+            # is on, the dir is 0750 root:root and the deploy user can't enter.
+            # The wrapper does its own `cd` as root; the direct-docker path
+            # uses an explicit -f/--project-directory pointer instead.
             if [ -f /usr/local/sbin/goupload-compose.sh ]; then
               echo "$GHCR_TOKEN" | $SUDO /usr/local/sbin/goupload-compose.sh login "$GHCR_USER"
               $SUDO /usr/local/sbin/goupload-compose.sh pull
@@ -189,6 +192,7 @@ jobs:
               echo "✅ Deployed"
               $SUDO /usr/local/sbin/goupload-compose.sh ps
             else
+              cd /opt/goupload
               echo "$GHCR_TOKEN" | $SUDO docker login ghcr.io -u "$GHCR_USER" --password-stdin
               $SUDO docker compose pull
               $SUDO docker compose up -d --remove-orphans
