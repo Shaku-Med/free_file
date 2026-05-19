@@ -159,7 +159,9 @@ jobs:
             # If the hardened wrappers are installed, prefer them. Otherwise
             # do a direct move + chmod. Either path ends with /opt/goupload
             # populated and ready for docker compose.
-            if [ -x /usr/local/sbin/protect-env.sh ]; then
+            # NOTE: -f, not -x — the wrapper is 0750 root:root so the deploy
+            # user can't `-x` test it directly; we invoke it via sudo.
+            if [ -f /usr/local/sbin/protect-env.sh ]; then
               echo "→ using hardened protect-env.sh wrapper"
               $SUDO /usr/local/sbin/protect-env.sh
             else
@@ -178,8 +180,8 @@ jobs:
             cd /opt/goupload
 
             # Same fallback pattern for compose: hardened wrapper if present,
-            # otherwise call docker compose directly.
-            if [ -x /usr/local/sbin/goupload-compose.sh ]; then
+            # otherwise call docker compose directly. -f, not -x (see above).
+            if [ -f /usr/local/sbin/goupload-compose.sh ]; then
               echo "$GHCR_TOKEN" | $SUDO /usr/local/sbin/goupload-compose.sh login "$GHCR_USER"
               $SUDO /usr/local/sbin/goupload-compose.sh pull
               $SUDO /usr/local/sbin/goupload-compose.sh up
@@ -205,7 +207,7 @@ jobs:
           script: |
             SUDO=""
             if [ "$(id -u)" -ne 0 ]; then SUDO="sudo"; fi
-            if [ -x /usr/local/sbin/goupload-compose.sh ]; then
+            if [ -f /usr/local/sbin/goupload-compose.sh ]; then
               $SUDO /usr/local/sbin/goupload-compose.sh logout || true
             else
               $SUDO docker logout ghcr.io || true
