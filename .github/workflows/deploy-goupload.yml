@@ -83,6 +83,11 @@ jobs:
     # the security model is unchanged.
     runs-on: self-hosted
     needs: build
+    permissions:
+      contents: read
+      # Auto-injected GITHUB_TOKEN with read:packages — pulls the images we
+      # just pushed in the build job. No GHCR_PULL_TOKEN PAT to maintain.
+      packages: read
     env:
       STAGING: /home/hoster/goupload-staging
     steps:
@@ -133,7 +138,9 @@ jobs:
       - name: Pull images & restart stack
         env:
           GHCR_USER: ${{ github.actor }}
-          GHCR_TOKEN: ${{ secrets.GHCR_PULL_TOKEN }}
+          # GITHUB_TOKEN is auto-injected with the permissions block above —
+          # no PAT to set up, expires when the job ends.
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           # Authenticate ghcr (token via stdin — never as argv).
