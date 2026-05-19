@@ -27,6 +27,9 @@ export default [
         // route(`get/*`, 'routes/Api/get/index.tsx'),
         route(`public-key`, 'routes/Api/PublicKey/index.tsx'),
         route(`handshake`, 'routes/Api/handshake/index.tsx'),
+        // Per-session HMAC signing key — fetched once per tab, used by
+        // signedFetch() to authenticate every other API call.
+        route(`handshake/sig-key`, 'routes/Api/handshake/sig-key.tsx'),
         route(`email`, 'routes/Api/email/index.tsx'),
         route(`socials`, 'routes/Api/Socials/layout.tsx', [
             route(`info/*`, 'routes/Api/Socials/Info.tsx'),

@@ -54,7 +54,12 @@ export function useWatchTimeHeartbeat(videoRef: RefObject<HTMLVideoElement | nul
       if (playbackToken || tokenFetchInFlight || disposed) return Boolean(playbackToken);
       tokenFetchInFlight = true;
       try {
-        const res = await fetch(
+        // signedFetch attaches X-Sig + X-Sig-Ts so the server-side guard
+        // can confirm this request came from our JS, not a stolen-cookie
+        // replay in Postman. Lazy import keeps the security module out of
+        // the SSR bundle.
+        const { signedFetch } = await import('~/lib/Security/requestSigning.client');
+        const res = await signedFetch(
           `/api/views/watch-issue?${new URLSearchParams({ fileId })}`,
           { credentials: 'include' },
         );
