@@ -53,8 +53,26 @@ if [[ -n "$DEPLOY_USER" ]] && id -u "$DEPLOY_USER" >/dev/null 2>&1; then
         install -m 0600 -o root -g root "$src" "$dst"
       fi
     done
+    # Self-update the runtime wrappers if newer versions were scp'd into
+    # staging. This is what makes the workflow real CI/CD — pushing a fix
+    # to goupload-compose.sh or dangerous-guard.sh now propagates on the
+    # next deploy without manual ssh-in-and-curl steps.
+    #
+    # We intentionally DO NOT self-update protect-env.sh itself: a broken
+    # version of this script would brick future deploys with no easy
+    # recovery. That one stays manual on purpose.
+    if [[ -f "$STAGING/goupload-compose.sh" && ! -L "$STAGING/goupload-compose.sh" ]]; then
+      install -m 0750 -o root -g root "$STAGING/goupload-compose.sh" /usr/local/sbin/goupload-compose.sh
+      echo "protect-env: refreshed /usr/local/sbin/goupload-compose.sh"
+    fi
+    if [[ -f "$STAGING/dangerous-guard.sh" && ! -L "$STAGING/dangerous-guard.sh" ]]; then
+      install -m 0644 -o root -g root "$STAGING/dangerous-guard.sh" /etc/profile.d/dangerous-guard.sh
+      echo "protect-env: refreshed /etc/profile.d/dangerous-guard.sh"
+    fi
+
     # Wipe staging so the secrets don't linger in the deploy user's home.
-    rm -f "$STAGING"/*.env "$STAGING/.env" "$STAGING/docker-compose.yml" 2>/dev/null || true
+    rm -f "$STAGING"/*.env "$STAGING/.env" "$STAGING/docker-compose.yml" \
+          "$STAGING/goupload-compose.sh" "$STAGING/dangerous-guard.sh" 2>/dev/null || true
     rmdir --ignore-fail-on-non-empty "$STAGING" 2>/dev/null || true
   fi
 fi

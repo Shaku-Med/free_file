@@ -66,7 +66,17 @@ case "$ACTION" in
       echo "goupload-compose: login requires username arg" >&2
       exit 2
     fi
-    exec docker login ghcr.io -u "$user" --password-stdin
+    # Read stdin into memory FIRST. sudo-rs (Ubuntu 24.04+) doesn't always
+    # forward the parent's stdin pipe through to an exec'd child, which makes
+    # `docker login --password-stdin` complain "cannot perform an interactive
+    # login from a non TTY device". Pulling the token into a variable here
+    # and re-piping it via printf works on both classic sudo and sudo-rs.
+    token=$(cat)
+    if [[ -z "$token" ]]; then
+      echo "goupload-compose: login token missing on stdin" >&2
+      exit 2
+    fi
+    printf '%s' "$token" | docker login ghcr.io -u "$user" --password-stdin
     ;;
   logout)
     exec docker logout ghcr.io
