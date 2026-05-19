@@ -362,11 +362,18 @@ func (w *Worker) processJob(job *queue.Job) {
 		w.log.Infof("thumbnail_preview job=%s preview=%s meta=%s", job.ID, previewPath, metaPath)
 	}
 
-	waveformPath, werr := ffmpeg.ExtractWaveform(result.OutputPath, thumbDir)
+	// ExtractWaveform always writes a file now — peaks if extraction
+	// succeeded, zeros otherwise (silent/no-audio videos). werr is purely
+	// informational; the file ships either way.
+	waveformResult, werr := ffmpeg.ExtractWaveform(result.OutputPath, thumbDir)
+	hasAudio := false
+	if waveformResult != nil {
+		hasAudio = waveformResult.HasAudio
+	}
 	if werr != nil {
-		w.log.Infof("waveform extraction skipped job=%s err=%s", job.ID, werr.Error())
-	} else {
-		w.log.Infof("waveforms job=%s path=%s", job.ID, waveformPath)
+		w.log.Infof("waveform fallback (flat) job=%s reason=%s has_audio=%v", job.ID, werr.Error(), hasAudio)
+	} else if waveformResult != nil {
+		w.log.Infof("waveform job=%s path=%s has_audio=%v", job.ID, waveformResult.Path, hasAudio)
 	}
 
 	if verr := ffmpeg.ValidateVideo(result.OutputPath); verr != nil {
@@ -457,7 +464,7 @@ func (w *Worker) processJob(job *queue.Job) {
 			Thumbnails:       thumbnailPaths,
 			DefaultThumbnail: defaultThumbGH,
 			Duration:         videoDuration,
-			IsReel:           reelAutoFromVideo(videoDuration, videoInfo.Width, videoInfo.Height),
+			IsReel:           resolveReel(job.ReelMode, videoDuration, videoInfo.Width, videoInfo.Height),
 		})
 		w.log.Infof("thumbnails available early job=%s paths=%d", job.ID, len(thumbnailPaths))
 	}
@@ -532,6 +539,12 @@ func (w *Worker) processJob(job *queue.Job) {
 			"bitrate":     videoInfo.AudioBitrate,
 			"sample_rate": videoInfo.AudioSampleRate,
 			"channels":    videoInfo.AudioChannels,
+			// has_audio combines the probe (is there an audio stream at all)
+			// with the waveform analysis (is there any non-trivial amplitude).
+			// The client uses this to grey out the volume button on silent
+			// videos — both "video shot with mic muted" and "stock footage
+			// with no audio track" land here.
+			"has_audio": hasAudio && videoInfo.AudioCodec != "",
 		}
 	}
 	if loudnessInfo != nil {
@@ -635,7 +648,7 @@ func (w *Worker) processJob(job *queue.Job) {
 		Endpoint:            videoEndpoint,
 		Thumbnails:          thumbnailPaths,
 		Duration:            videoDuration,
-		IsReel:              reelAutoFromVideo(videoDuration, videoInfo.Width, videoInfo.Height),
+		IsReel:              resolveReel(job.ReelMode, videoDuration, videoInfo.Width, videoInfo.Height),
 		IsAdult:             &isAdult,
 		Colors:              vidColors,
 		Categories:          categories,
@@ -665,13 +678,37 @@ func reelAspectMatch(width, height int) bool {
 	return r >= lo && r <= hi
 }
 
-// reelAutoFromVideo sets is_reel when duration is under 2 minutes or aspect ratio is reel-shaped.
-func reelAutoFromVideo(seconds float64, width, height int) *bool {
+// reelMaxSeconds is the hard ceiling for reel duration. Anything longer
+// can never be a reel regardless of what the uploader chose. Mirrors the
+// 3-minute limit documented in the upload UI.
+const reelMaxSeconds = 180
+
+// resolveReel decides the final is_reel flag from (a) the user's chosen
+// reelMode and (b) the inferred video shape. Order:
+//   "no"   → always false (only honored if duration is known)
+//   "yes"  → true, but only when duration <= reelMaxSeconds (we silently
+//            downgrade to auto when over the cap rather than refuse the
+//            upload — surface the cap in the UI instead)
+//   "auto" → existing heuristic (short OR portrait-9:16)
+func resolveReel(reelMode string, seconds float64, width, height int) *bool {
 	hasDur := seconds > 0
 	hasWH := width > 0 && height > 0
 	if !hasDur && !hasWH {
 		return nil
 	}
+	switch reelMode {
+	case "no":
+		f := false
+		return &f
+	case "yes":
+		if hasDur && seconds > reelMaxSeconds {
+			// Too long to be a reel — fall through to auto.
+			break
+		}
+		t := true
+		return &t
+	}
+	// Auto-detect: short clip OR portrait aspect.
 	if (hasDur && seconds < 120) || reelAspectMatch(width, height) {
 		t := true
 		return &t

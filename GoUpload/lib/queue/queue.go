@@ -15,6 +15,11 @@ type Client struct {
 	queueName string
 }
 
+// ReelMode is the user's chosen reel intent for an upload.
+//   "auto" — server picks based on duration + aspect ratio (default)
+//   "yes"  — force is_reel=true (refused when duration > 3 min)
+//   "no"   — force is_reel=false regardless of shape/length
+// Locked at upload time; can't be edited after the file ships.
 type Job struct {
 	ID               string       `json:"id"`
 	UserID           string       `json:"user_id"`
@@ -27,6 +32,7 @@ type Job struct {
 	UserCategories   []string     `json:"user_categories,omitempty"`
 	UserTags         []string     `json:"user_tags,omitempty"`
 	DefaultThumbnail string       `json:"default_thumbnail,omitempty"`
+	ReelMode         string       `json:"reel_mode,omitempty"`
 	FileSeriesID        string `json:"file_series_id,omitempty"`
 	FileSeriesEpisodeID string `json:"file_series_episode_id,omitempty"`
 	IsNewSeries         bool   `json:"is_new_series"`
@@ -52,7 +58,15 @@ func NewClient(addr, password string, db int, queueName string) (*Client, error)
 	return &Client{rdb: rdb, queueName: queueName}, nil
 }
 
-func (c *Client) Enqueue(ctx context.Context, userID, uploadID, fileName string, fileSize int64, totalChunks int, title, description string, userCategories, userTags []string, defaultThumbnail string, fileSeriesID, fileSeriesEpisodeID string, isNewSeries bool, newEpisodeName, parentEpisodeID string) (string, error) {
+func (c *Client) Enqueue(ctx context.Context, userID, uploadID, fileName string, fileSize int64, totalChunks int, title, description string, userCategories, userTags []string, defaultThumbnail, reelMode string, fileSeriesID, fileSeriesEpisodeID string, isNewSeries bool, newEpisodeName, parentEpisodeID string) (string, error) {
+	// Reject unknown reel modes early — silent fallthrough to "auto" is
+	// safer than dropping the upload, but log-worthy for the caller.
+	switch reelMode {
+	case "", "auto", "yes", "no":
+		// ok
+	default:
+		reelMode = "auto"
+	}
 	jobID := newJobID()
 	job := Job{
 		ID:               jobID,
@@ -66,6 +80,7 @@ func (c *Client) Enqueue(ctx context.Context, userID, uploadID, fileName string,
 		UserCategories:   userCategories,
 		UserTags:         userTags,
 		DefaultThumbnail: defaultThumbnail,
+		ReelMode:         reelMode,
 		FileSeriesID:        fileSeriesID,
 		FileSeriesEpisodeID: fileSeriesEpisodeID,
 		IsNewSeries:         isNewSeries,

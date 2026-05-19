@@ -36,6 +36,9 @@ import {
   Play,
   GripVertical,
   Plus,
+  Sparkles,
+  Smartphone,
+  Film,
 } from "lucide-react"
 import { GenerateUniqueID } from "~/lib/GenerateUniqueID"
 import { useFileContext } from "~/lib/Context/Context"
@@ -183,6 +186,12 @@ interface MediaSelectionModalProps {
 
 type UploadStatus = "idle" | "uploading" | "processing" | "success" | "error"
 
+type ReelMode = "auto" | "yes" | "no"
+
+// Mirror of the server-side hard ceiling keep in sync with
+// reelMaxSeconds in GoUpload/internal/worker/worker.go.
+const REEL_MAX_SECONDS = 180
+
 interface MediaItem {
   id: string
   file: File
@@ -206,6 +215,10 @@ interface MediaItem {
   error: string | null
   jobId: string | null
   isLocked: boolean
+  /** Reel intent chosen by the uploader. Locked once upload starts; the
+   *  server resolves to the actual is_reel flag (server may downgrade
+   *  "yes" to auto if the video is longer than REEL_MAX_SECONDS). */
+  reelMode: ReelMode
   seriesMode: "none" | "create" | "existing"
   seriesEpisodeName: string
   seriesSelected: { file_series_id: string; file_title: string } | null
@@ -576,6 +589,7 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
       error: null,
       jobId: null,
       isLocked: false,
+      reelMode: "auto",
       seriesMode: "none",
       seriesEpisodeName: "",
       seriesSelected: null,
@@ -1083,6 +1097,8 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
               ? item.commentLimit
               : null,
           ...(defaultThumbnailB64 ? { default_thumbnail: defaultThumbnailB64 } : {}),
+          // Only meaningful for videos; harmless for images (worker ignores it).
+          ...(item.file.type.startsWith("video/") ? { reel_mode: item.reelMode } : {}),
           ...seriesPayload,
         }),
       },
@@ -1515,7 +1531,7 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
                         <div className="min-w-0 flex-1">
                           <p className="text-[14px] font-semibold tracking-tight text-foreground">Series organizer</p>
                           <p className="mt-0.5 text-[12px] leading-relaxed text-muted-foreground">
-                            Pick videos from your library to add to a group. Files stay in your library — order follows the library.
+                            Pick videos from your library to add to a group. Files stay in your library order follows the library.
                           </p>
                         </div>
                       </div>
@@ -1899,7 +1915,7 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
                           <div className="relative z-10 flex flex-col items-center gap-3 px-4 py-6">
                             <FileVideo className="w-11 h-11 sm:w-12 sm:h-12 text-muted-foreground" />
                             <p className="text-xs text-center text-muted-foreground max-w-[240px] leading-relaxed">
-                              No thumbnail — tap play to preview the file
+                              No thumbnail tap play to preview the file
                             </p>
                             <span className="flex h-14 w-14 items-center justify-center rounded-full bg-primary text-primary-foreground ring-2 ring-ring">
                               <Play className="h-7 w-7 ml-0.5" fill="currentColor" />
@@ -2016,7 +2032,7 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
                           onChange={(e) =>
                             updateItemSeries(activeItem.id, (c) => ({ ...c, seriesEpisodeName: e.target.value }))
                           }
-                          placeholder="e.g. Episode 1 — Pilot"
+                          placeholder="e.g. Episode 1 Pilot"
                           maxLength={500}
                           disabled={isFieldDisabled}
                           className="text-sm h-9 bg-background border-border/60"
@@ -2309,6 +2325,58 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
                     </button>
                   </div>
                 </div>
+
+                {/* Reel mode videos only. Locked once the upload starts
+                    (isFieldDisabled covers the whole post-submit lifecycle).
+                    Server hard-caps reels at REEL_MAX_SECONDS / 3 min. */}
+                {activeItem && activeItem.file.type.startsWith("video/") && (
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-medium text-muted-foreground">
+                      Reel
+                    </label>
+                    <div className="flex rounded-lg border border-border/50 overflow-hidden bg-muted/30">
+                      {(
+                        [
+                          { mode: "auto", icon: Sparkles, label: "Auto" },
+                          { mode: "yes", icon: Smartphone, label: "Yes" },
+                          { mode: "no", icon: Film, label: "No" },
+                        ] as { mode: ReelMode; icon: typeof Sparkles; label: string }[]
+                      ).map(({ mode, icon: Icon, label }) => {
+                        const selected = activeItem.reelMode === mode
+                        return (
+                          <button
+                            key={mode}
+                            type="button"
+                            onClick={() =>
+                              updateItem(activeItem.id, current => ({
+                                ...current,
+                                reelMode: mode,
+                              }))
+                            }
+                            disabled={isFieldDisabled}
+                            className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 sm:py-2 min-h-[44px] sm:min-h-0 text-sm font-medium transition-all disabled:cursor-not-allowed touch-manipulation ${
+                              selected
+                                ? "bg-primary text-primary-foreground shadow-sm"
+                                : "text-muted-foreground hover:text-foreground"
+                            }`}
+                          >
+                            <Icon className="w-3.5 h-3.5" />
+                            {label}
+                          </button>
+                        )
+                      })}
+                    </div>
+                    <p className="text-[10px] text-muted-foreground/60">
+                      {activeItem.reelMode === "auto" &&
+                        "Auto picks based on length and shape usually short or portrait clips."}
+                      {activeItem.reelMode === "yes" &&
+                        `Forces this clip to appear as a reel. Skipped if longer than ${REEL_MAX_SECONDS / 60} min.`}
+                      {activeItem.reelMode === "no" &&
+                        "Keeps this video out of reel feeds even if short / portrait."}
+                      {" Can't be changed after upload."}
+                    </p>
+                  </div>
+                )}
 
                 {activeItem && !activeItem.file.type.startsWith("image/") && <div className="space-y-1.5">
                   <label className="text-xs font-medium text-muted-foreground">Thumbnail</label>

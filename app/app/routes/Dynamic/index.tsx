@@ -1517,9 +1517,26 @@ const index = () => {
   );
 
   const description = file_data.file_description?.trim() ?? "";
-  const descriptionPreviewLength = 120;
-  const hasLongDescription = description.length > descriptionPreviewLength;
-  const descriptionToShow = descriptionExpanded || !hasLongDescription ? description : description.slice(0, descriptionPreviewLength);
+  // Collapsed = 3 lines visible (matches YouTube). Overflow is measured
+  // off the rendered DOM after layout — see the descRef + isOverflowing
+  // pair below — because a 3-line clamp depends on font + width, not on
+  // raw character count.
+  const descRef = useRef<HTMLDivElement>(null);
+  const [isOverflowing, setIsOverflowing] = useState(false);
+  useEffect(() => {
+    const el = descRef.current;
+    if (!el) {
+      setIsOverflowing(false);
+      return;
+    }
+    // Compare scrollHeight (full text height) against clientHeight (clamped
+    // visible height). +1 fudge avoids sub-pixel rounding false positives.
+    const check = () => setIsOverflowing(el.scrollHeight > el.clientHeight + 1);
+    check();
+    const ro = new ResizeObserver(check);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [description, descriptionExpanded]);
 
   const categoriesList: string[] = Array.isArray(file_data.categories)
     ? (file_data.categories as unknown[]).filter((c: unknown): c is string => typeof c === "string")
@@ -1629,23 +1646,57 @@ const index = () => {
             <span className="font-semibold">{formatTimeAgo(file_data.created_at)}</span>
           )}
         </div>
-        {(description || hasLongDescription) && (
+        {description && (
           <div className="mt-1.5">
-            <div className="text-sm text-foreground break-words">
-              <FormattedText text={descriptionToShow} />
-              {hasLongDescription && !descriptionExpanded && (
-                <>
-                  {" "}
+            {/* Wrapper is positioned so the fade-out gradient at the
+                bottom of the clamp can layer on top of the last visible
+                line. The fade only renders when collapsed AND the text
+                actually overflows — short descriptions stay clean. */}
+            <div className="relative">
+              <div
+                ref={descRef}
+                className={cn(
+                  "text-sm text-foreground break-words whitespace-pre-wrap",
+                  !descriptionExpanded && "line-clamp-3",
+                )}
+              >
+                <FormattedText text={description} />
+              </div>
+              {!descriptionExpanded && isOverflowing && (
+                <div
+                  aria-hidden
+                  className="pointer-events-none absolute inset-x-0 bottom-0 h-6 bg-gradient-to-t from-muted/40 to-transparent"
+                />
+              )}
+            </div>
+
+            {/* Collapsed: simple inline "...more" link below the clamp.
+                Expanded: sticky bottom-of-viewport "Show less" so the
+                collapse affordance stays reachable even on very long
+                descriptions without scrolling all the way down. */}
+            {(isOverflowing || descriptionExpanded) && (
+              <>
+                {descriptionExpanded ? (
+                  <div className="sticky bottom-2 z-10 mt-2 flex justify-start">
+                    <button
+                      type="button"
+                      onClick={() => setDescriptionExpanded(false)}
+                      className="rounded-full bg-foreground text-background px-3.5 py-1.5 text-xs font-semibold shadow-md ring-1 ring-border hover:bg-foreground/90 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    >
+                      Show less
+                    </button>
+                  </div>
+                ) : (
                   <button
                     type="button"
                     onClick={() => setDescriptionExpanded(true)}
-                    className="font-semibold text-foreground hover:underline"
+                    className="mt-1 text-sm font-semibold text-foreground hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm"
                   >
                     ...more
                   </button>
-                </>
-              )}
-            </div>
+                )}
+              </>
+            )}
           </div>
         )}
         {(categoriesList.length > 0 || tagsList.length > 0) && (

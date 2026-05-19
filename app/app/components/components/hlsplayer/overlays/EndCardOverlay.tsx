@@ -10,8 +10,14 @@ const TRIGGER_REMAINING_SEC = 20;
 /** Skip the overlay entirely on videos shorter than this — pointless on reels. */
 const MIN_DURATION_SEC = 60;
 
-/** Layout presets — corners stay clear of center picture like YouTube’s corner tiles. */
+/** Layout presets — corners stay clear of center picture like YouTube's corner tiles. */
 export const END_CARD_LAYOUT_OPTIONS = [
+  /**
+   * YouTube-style grid: a responsive 2x2 / 1x4 deck of cards floating over
+   * the lower half of the player, with a soft top→bottom dim so the cards
+   * stand out without hiding the video. Default for new players.
+   */
+  "grid",
   "4-corners",
   "two-center",
   "4-corners-plus-2-center",
@@ -94,7 +100,7 @@ const SAFE_ABOVE_CONTROLS =
  * `max` so they don't look gigantic.
  */
 type SlotClassName = string;
-const LAYOUT_SLOTS: Record<Exclude<EndCardLayout, "bottom-row">, SlotClassName[]> = {
+const LAYOUT_SLOTS: Record<Exclude<EndCardLayout, "bottom-row" | "grid">, SlotClassName[]> = {
   "4-corners": [
     cn("absolute z-[2] w-[clamp(7.25rem,min(26vw,22%),11rem)]", SAFE_TOP, SAFE_LEFT),
     cn("absolute z-[2] w-[clamp(7.25rem,min(26vw,22%),11rem)]", SAFE_TOP, SAFE_RIGHT),
@@ -132,6 +138,7 @@ const LAYOUT_SLOTS: Record<Exclude<EndCardLayout, "bottom-row">, SlotClassName[]
 };
 
 const CARD_CAP: Record<EndCardLayout, number> = {
+  "grid": 4,
   "4-corners": 4,
   "two-center": 2,
   "4-corners-plus-2-center": 6,
@@ -140,7 +147,7 @@ const CARD_CAP: Record<EndCardLayout, number> = {
 };
 
 export default function EndCardOverlay({
-  layout = "4-corners",
+  layout = "grid",
   excludeIds,
 }: EndCardOverlayProps = {}) {
   const { state, file, isReel } = usePlayerContext();
@@ -232,6 +239,65 @@ export default function EndCardOverlay({
       <X className="h-4 w-4" />
     </button>
   );
+
+  /**
+   * YouTube-style grid — soft bottom-half gradient + 2×2 (narrow) or 1×4
+   * (wide) deck of recommendation cards. Video keeps playing underneath
+   * full-opacity; the gradient just gives the cards readable contrast.
+   */
+  if (layout === "grid") {
+    return (
+      <div className="pointer-events-none absolute inset-0 z-30" aria-label="Up next">
+        {/* Soft scrim — covers the lower ~65% of the player so card text is
+            readable on bright frames without hiding the video itself. */}
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 top-[35%] bg-gradient-to-t from-black/80 via-black/55 to-transparent" />
+
+        {/* Dismiss X — top-right, above the scrim so it always works. */}
+        {dismissBtn}
+
+        {/* Header — sits just above the deck. The pulse dot mirrors the
+            "live" affordance YouTube uses on its end screen. */}
+        <div
+          className={cn(
+            "pointer-events-none absolute z-[2] flex items-center gap-1.5 text-xs font-medium uppercase tracking-wider text-white/85 drop-shadow-sm sm:text-sm",
+            SAFE_LEFT,
+          )}
+          style={{ top: "38%" }}
+        >
+          <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-primary" />
+          Up next
+        </div>
+
+        {/* Card deck — absolutely centered, sits above the ControlBar via
+            SAFE_ABOVE_CONTROLS. Grid breakpoints:
+              < sm  → 2 columns (2×2)
+              ≥ sm  → 4 columns (1×4) like YouTube desktop
+            max-w cap keeps cards from going gigantic on cinema players. */}
+        <div
+          className={cn(
+            "pointer-events-auto absolute left-1/2 z-[3] -translate-x-1/2 grid",
+            "w-[min(56rem,92%)] grid-cols-2 gap-2 sm:grid-cols-4 sm:gap-3",
+            "px-1 sm:px-2",
+            SAFE_ABOVE_CONTROLS,
+          )}
+        >
+          {cards.slice(0, 4).map((card, i) => (
+            <div
+              key={card.id ?? card.unique_id}
+              className="animate-in fade-in slide-in-from-bottom-2 duration-300"
+              style={{ animationDelay: `${i * 60}ms`, animationFillMode: "both" }}
+            >
+              {/* Slight glassy frame so each card reads against bright
+                  video frames even where the scrim is thinnest. */}
+              <div className="overflow-hidden rounded-lg bg-black/60 ring-1 ring-white/10 backdrop-blur-sm transition-transform duration-200 hover:scale-[1.02] hover:ring-white/25">
+                <VideoCard data={card} layout="endCard" />
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
 
   /** Floating chips above controls — wide slab avoided so centre stays readable. */
   if (layout === "bottom-row") {

@@ -41,15 +41,31 @@ function inferHasAudio(video: HTMLVideoElement, hls: HlsLike | null): boolean | 
 /**
  * Best-effort: disable volume UI when the stream clearly has no audio.
  * Defaults to true until we detect otherwise (avoids hiding controls on unknown browsers).
+ *
+ * `serverHint` is the authoritative `has_audio` flag from the upload pipeline
+ * (computed from waveform peak amplitudes). When the server says the track
+ * is silent we believe it — covers the "audio stream exists but it's all
+ * silence" case (recording with mic muted, stock footage with empty track)
+ * which the stream-level detection above can't catch.
  */
 export function useVideoHasAudio(
   videoRef: RefObject<HTMLVideoElement | null>,
   hlsRef: RefObject<Hls | null>,
-  src: string
+  src: string,
+  serverHint?: boolean | null
 ): boolean {
-  const [hasAudio, setHasAudio] = useState(true);
+  // If the server explicitly told us there's no audio, short-circuit. The
+  // runtime detection below would still report true (a silent AAC stream
+  // is still an audio stream) so we'd never disable the button without
+  // this override.
+  const earlyOut = serverHint === false;
+  const [hasAudio, setHasAudio] = useState(!earlyOut);
 
   useEffect(() => {
+    if (earlyOut) {
+      setHasAudio(false);
+      return;
+    }
     setHasAudio(true);
     const video = videoRef.current;
     if (!video || !src) return;
@@ -108,7 +124,7 @@ export function useVideoHasAudio(
       video.removeEventListener('playing', onPlaying);
       video.removeEventListener('timeupdate', onTime);
     };
-  }, [src, videoRef, hlsRef]);
+  }, [src, videoRef, hlsRef, earlyOut]);
 
   return hasAudio;
 }

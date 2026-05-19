@@ -200,7 +200,13 @@ interface PlayerContextValue {
   spriteUrl: string | null;
   setSpriteMeta: (meta: ThumbnailSpriteMeta | null) => void;
   setSpriteUrl: (url: string | null) => void;
+  /** Preferred waveform — JSON peaks rendered client-side. May 404 for
+   *  old uploads (which only have the PNG). The SeekBar tries this first
+   *  and falls back to waveformPngUrl below. */
   waveformUrl: string | null;
+  /** Legacy PNG waveform — used when the JSON doesn't exist. Rendered
+   *  ABOVE the normal thin seekbar as decoration. */
+  waveformPngUrl: string | null;
 
   ambientMode: boolean;
   setAmbientMode: (v: boolean) => void;
@@ -582,16 +588,28 @@ export function PlayerProvider({
     return () => v.removeEventListener('volumechange', onVolumeChange);
   }, [isContentInPip, imageID, state.isMuted, state.volume, videoRef]);
 
-  const waveformUrl = useMemo(() => {
+  // Build BOTH URL variants up-front. The SeekBar resolves which to use
+  // at fetch time — preferring the new JSON, falling back to the legacy
+  // PNG when the JSON 404s. Computing both here keeps the URL build
+  // logic in one place.
+  const waveformPrefix = useMemo(() => {
     if (!file) return null;
-    const prefix = getWaveformImagePathPrefix({
+    return getWaveformImagePathPrefix({
       default_thumbnail: file.default_thumbnail,
       thumbnails: file.thumbnails,
       endpoint: file.endpoint,
       file_type: file.file_type,
     });
-    return prefix ? `/api/load/image/${prefix}waveform.png` : null;
   }, [file?.id, file?.default_thumbnail, file?.thumbnails, file?.endpoint, file?.file_type]);
+
+  const waveformUrl = useMemo(
+    () => (waveformPrefix ? `/api/load/image/${waveformPrefix}waveform.json` : null),
+    [waveformPrefix]
+  );
+  const waveformPngUrl = useMemo(
+    () => (waveformPrefix ? `/api/load/image/${waveformPrefix}waveform.png` : null),
+    [waveformPrefix]
+  );
 
   const play = useCallback(() => {
     videoRef.current?.play().catch(() => {});
@@ -833,6 +851,7 @@ export function PlayerProvider({
     setSpriteMeta,
     setSpriteUrl,
     waveformUrl,
+    waveformPngUrl,
     ambientMode: ambientModeState,
     setAmbientMode,
     ambientColors,

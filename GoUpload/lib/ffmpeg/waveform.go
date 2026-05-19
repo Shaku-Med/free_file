@@ -3,49 +3,115 @@ package ffmpeg
 import (
 	"context"
 	"encoding/binary"
+	"encoding/json"
 	"fmt"
-	"image"
-	"image/color"
-	"image/png"
 	"math"
 	"os"
 	"path/filepath"
 	"time"
 )
 
+// Waveform output is now JSON, not a PNG. The client renders the bars on
+// a <canvas> using these normalized peaks — same idea as YouTube /
+// SoundCloud — so we can re-style (color, height, bar width) without
+// regenerating files server-side.
+
 const (
-	WaveformWidth  = 800
-	WaveformHeight = 48
-	pcmSampleRate  = 200
-	minPCMBytes    = WaveformWidth * 2
+	// WaveformSamples is the number of normalized amplitude buckets stored
+	// in the JSON. 800 is enough resolution for the typical seek-bar width
+	// across desktop + mobile; the client decimates if it has fewer pixels.
+	WaveformSamples = 800
+	// pcmSampleRate is the PCM sample rate ffmpeg downmixes to before we
+	// bucket. Low because we only need amplitude envelope, not playable audio.
+	pcmSampleRate = 200
+	minPCMBytes   = WaveformSamples * 2
 )
 
-func ExtractWaveform(videoPath, outputDir string) (outPath string, err error) {
+// WaveformFile is what we serialise. Version makes future format changes
+// safe to roll out without breaking older clients.
+type WaveformFile struct {
+	Version    int       `json:"version"`
+	Samples    int       `json:"samples"`
+	SampleRate int       `json:"sample_rate"`
+	HasAudio   bool      `json:"has_audio"`
+	Peaks      []float64 `json:"peaks"`
+}
+
+// WaveformResult is what worker code consumes — the JSON path plus the
+// flags it needs to drive UI (disable the volume button on silent videos,
+// flag obviously-corrupt-audio cases for logging, etc.).
+type WaveformResult struct {
+	Path     string
+	HasAudio bool
+}
+
+// hasAudioRMSThreshold is the minimum normalized RMS amplitude we count as
+// "real audio". Picked empirically — line-level hiss on a phone recording
+// sits around 0.003, an intentionally silent track is < 0.001. 0.01 is
+// conservative enough to mark dead-silent footage as no-audio while still
+// catching whispered dialogue.
+const hasAudioRMSThreshold = 0.01
+
+// ExtractWaveform pulls a mono PCM stream from the video, buckets it into
+// `WaveformSamples` normalized RMS amplitudes (0..1), and writes a small
+// JSON file the client can render with a few lines of canvas code.
+//
+// Always writes a file. If audio extraction fails (silent video, no audio
+// stream, corrupt input, etc.) we still emit a flat-zeros peaks array so
+// downstream consumers can rely on the file existing — the player just
+// renders a hairline instead of branching on "has waveform".
+//
+// Returns a WaveformResult with .HasAudio set to true when at least one
+// bucket's RMS amplitude clears `hasAudioRMSThreshold`. The Go worker
+// pipes that boolean into webhook metadata so the React player can grey
+// out the volume button on silent videos.
+func ExtractWaveform(videoPath, outputDir string) (*WaveformResult, error) {
 	if err := os.MkdirAll(outputDir, 0700); err != nil {
-		return "", fmt.Errorf("create output dir: %w", err)
+		return nil, fmt.Errorf("create output dir: %w", err)
+	}
+	outPath := filepath.Join(outputDir, "waveform.json")
+
+	peaks, perr := extractAudioPeaks(videoPath, outputDir)
+	hasAudio := false
+	if perr != nil {
+		// Soft-fail: write a zeroed peaks array so the JSON file always
+		// exists. Caller can still inspect the returned error if it cares.
+		peaks = make([]float64, WaveformSamples)
+	} else {
+		// Decide has_audio BEFORE rounding — rounding to 4dp can flatten
+		// tiny-but-real amplitudes near the threshold.
+		for _, v := range peaks {
+			if v >= hasAudioRMSThreshold {
+				hasAudio = true
+				break
+			}
+		}
 	}
 
-	outPath = filepath.Join(outputDir, "waveform.png")
-
-	peaks, err := extractAudioPeaks(videoPath, outputDir)
-	if err != nil {
-		return "", err
+	// Round to 4 decimals — keeps the file tiny (~6 KB) without losing
+	// any visual fidelity at the resolutions we render.
+	for i, v := range peaks {
+		peaks[i] = math.Round(v*10000) / 10000
 	}
 
-	img := drawFilledWaveform(peaks)
-
-	f, err := os.Create(outPath)
-	if err != nil {
-		return "", fmt.Errorf("create waveform file: %w", err)
+	doc := WaveformFile{
+		Version:    1,
+		Samples:    len(peaks),
+		SampleRate: pcmSampleRate,
+		HasAudio:   hasAudio,
+		Peaks:      peaks,
 	}
-	defer f.Close()
-
-	if err := png.Encode(f, img); err != nil {
-		_ = os.Remove(outPath)
-		return "", fmt.Errorf("encode waveform png: %w", err)
+	buf, merr := json.Marshal(doc)
+	if merr != nil {
+		return nil, fmt.Errorf("marshal waveform: %w", merr)
+	}
+	if werr := os.WriteFile(outPath, buf, 0644); werr != nil {
+		return nil, fmt.Errorf("write waveform json: %w", werr)
 	}
 
-	return outPath, nil
+	// Surface the extraction error to the caller (for logging) but the
+	// file is on disk either way.
+	return &WaveformResult{Path: outPath, HasAudio: hasAudio}, perr
 }
 
 func extractAudioPeaks(videoPath, tmpDir string) ([]float64, error) {
@@ -88,15 +154,15 @@ func extractAudioPeaks(videoPath, tmpDir string) ([]float64, error) {
 	}
 
 	totalSamples := len(raw) / 2
-	samplesPerBin := totalSamples / WaveformWidth
+	samplesPerBin := totalSamples / WaveformSamples
 	if samplesPerBin < 1 {
 		samplesPerBin = 1
 	}
 
-	peaks := make([]float64, WaveformWidth)
+	peaks := make([]float64, WaveformSamples)
 	var maxPeak float64
 
-	for i := 0; i < WaveformWidth; i++ {
+	for i := 0; i < WaveformSamples; i++ {
 		start := i * samplesPerBin
 		end := start + samplesPerBin
 		if end > totalSamples {
@@ -128,6 +194,8 @@ func extractAudioPeaks(videoPath, tmpDir string) ([]float64, error) {
 		}
 	}
 
+	// Light smoothing kills single-sample spikes so the rendered bars look
+	// more like a YouTube waveform than a stock chart.
 	smoothed := make([]float64, len(peaks))
 	const radius = 2
 	for i := range peaks {
@@ -143,31 +211,4 @@ func extractAudioPeaks(videoPath, tmpDir string) ([]float64, error) {
 	}
 
 	return smoothed, nil
-}
-
-// drawFilledWaveform draws a YouTube-style filled waveform:
-// amplitude grows upward from the bottom, filled solid underneath.
-func drawFilledWaveform(peaks []float64) *image.NRGBA {
-	img := image.NewNRGBA(image.Rect(0, 0, WaveformWidth, WaveformHeight))
-
-	maxH := float64(WaveformHeight - 1)
-	baseline := WaveformHeight - 1
-	white := color.NRGBA{R: 255, G: 255, B: 255, A: 255}
-
-	for x := 0; x < WaveformWidth && x < len(peaks); x++ {
-		h := peaks[x] * maxH
-		if h < 1 {
-			h = 1
-		}
-		topY := baseline - int(math.Round(h))
-		if topY < 0 {
-			topY = 0
-		}
-
-		for y := topY; y <= baseline; y++ {
-			img.SetNRGBA(x, y, white)
-		}
-	}
-
-	return img
 }

@@ -109,6 +109,8 @@ type completeBody struct {
 	Tags             []string `json:"tags"`
 	CommentsEnabled  *bool    `json:"comments_enabled"`
 	DefaultThumbnail string   `json:"default_thumbnail"`
+	// ReelMode: "auto" (default), "yes", or "no". Locked at upload time.
+	ReelMode            string `json:"reel_mode"`
 	FileSeriesID        string `json:"file_series_id"`
 	FileSeriesEpisodeID string `json:"file_series_episode_id"`
 	IsNewSeries         *bool  `json:"is_new_series"`
@@ -185,6 +187,15 @@ func (h *Handler) completeUpload(c *fiber.Ctx) error {
 		defaultThumbnail = b.DefaultThumbnail
 	}
 
+	reelMode := strings.TrimSpace(seriesBody.ReelMode)
+	switch reelMode {
+	case "", "auto", "yes", "no":
+		// ok
+	default:
+		// Unknown value — quietly snap to auto rather than reject the upload.
+		reelMode = "auto"
+	}
+
 	if err := validateFileSeriesComplete(seriesBody); err != nil {
 		return badRequest(c, err.Error())
 	}
@@ -207,7 +218,7 @@ func (h *Handler) completeUpload(c *fiber.Ctx) error {
 	if err != nil {
 		return h.safeErrorResponse(c, userID, uploadID, "complete", err)
 	}
-	jobID, err := h.queue.Enqueue(context.Background(), meta.UserID, meta.UploadID, meta.FileName, meta.FileSize, meta.TotalChunks, title, description, userCategories, userTags, defaultThumbnail, fileSeriesID, fileSeriesEpisodeID, isNewSeries, newEpisodeName, parentEpisodeID)
+	jobID, err := h.queue.Enqueue(context.Background(), meta.UserID, meta.UploadID, meta.FileName, meta.FileSize, meta.TotalChunks, title, description, userCategories, userTags, defaultThumbnail, reelMode, fileSeriesID, fileSeriesEpisodeID, isNewSeries, newEpisodeName, parentEpisodeID)
 	if err != nil {
 		if h.log != nil {
 			h.log.Errorf("queue_error user=%s upload=%s err=%s", userID, uploadID, err.Error())

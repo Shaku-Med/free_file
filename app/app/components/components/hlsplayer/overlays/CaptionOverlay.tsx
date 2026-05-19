@@ -30,6 +30,10 @@ const X_MIN = 5
 const X_MAX = 95
 const Y_MAX = 95
 const AUTO_BOTTOM_ZONE_PCT = 25
+/** Inner padding (each side, in % of container width) the caption box
+ *  refuses to cross. Keeps the box from straddling the player edge while
+ *  dragging — which previously caused the text to wrap into a thin tower. */
+const EDGE_MARGIN_PCT = 2
 
 const ALIGN_STYLE: Record<CaptionTextAlign, { left: string; transform: string }> = {
   left: { left: "4%", transform: "none" },
@@ -56,6 +60,10 @@ export default function CaptionOverlay({ containerRef, controlsVisible, compact 
     startY: number
     startPos: { xPct: number; yBottomPct: number }
     rect: DOMRect
+    /** Box width as % of container at drag start. Used to clamp the live
+     *  X% so the box never straddles a player edge — kills the thin-tower
+     *  wrap effect when you drag a caption near a side. */
+    boxWidthPct: number
     movedBelowFloor: boolean
   } | null>(null)
   const [dragging, setDragging] = useState(false)
@@ -109,6 +117,13 @@ export default function CaptionOverlay({ containerRef, controlsVisible, compact 
       if (!container) return
       const rect = container.getBoundingClientRect()
       if (rect.width === 0 || rect.height === 0) return
+      // Measure the caption's current rendered width as a % of the container.
+      // Captured once at drag start so the clamp doesn't oscillate if the
+      // text changes (a new cue) mid-drag — the box can grow afterwards.
+      const captionEl = captionRef.current
+      const captionRect = captionEl?.getBoundingClientRect()
+      const boxWidthPct =
+        captionRect && rect.width > 0 ? (captionRect.width / rect.width) * 100 : 50
       ;(e.target as HTMLElement).setPointerCapture(e.pointerId)
       dragRef.current = {
         pointerId: e.pointerId,
@@ -116,6 +131,7 @@ export default function CaptionOverlay({ containerRef, controlsVisible, compact 
         startY: e.clientY,
         startPos: position,
         rect,
+        boxWidthPct,
         movedBelowFloor: false,
       }
       setDragging(true)
@@ -134,7 +150,17 @@ export default function CaptionOverlay({ containerRef, controlsVisible, compact 
       const dy = e.clientY - drag.startY
       const xPct = drag.startPos.xPct + (dx / drag.rect.width) * 100
       const yBottomPct = drag.startPos.yBottomPct - (dy / drag.rect.height) * 100
-      const clampedX = Math.min(X_MAX, Math.max(X_MIN, xPct))
+      // Compute the tightest X bounds that keep the entire caption box
+      // inside the player — half the box width + a small edge margin on
+      // each side. Falls back to the static X_MIN/X_MAX if the box is so
+      // wide it can't be clamped (shouldn't happen with the new
+      // max-width cap below, but stay defensive).
+      const half = drag.boxWidthPct / 2
+      const innerMin = Math.max(X_MIN, half + EDGE_MARGIN_PCT)
+      const innerMax = Math.min(X_MAX, 100 - half - EDGE_MARGIN_PCT)
+      const xMin = innerMin <= innerMax ? innerMin : X_MIN
+      const xMax = innerMin <= innerMax ? innerMax : X_MAX
+      const clampedX = Math.min(xMax, Math.max(xMin, xPct))
       const clampedY = Math.min(Y_MAX, Math.max(2, yBottomPct))
       if (clampedY < CAPTION_CONTROLS_FLOOR_PCT) drag.movedBelowFloor = true
       setLivePosition({ xPct: clampedX, yBottomPct: clampedY })
@@ -198,12 +224,25 @@ export default function CaptionOverlay({ containerRef, controlsVisible, compact 
         fontSize: `${dynamicFontSize}px`,
         lineHeight: 1.3,
         textAlign: compact ? "center" : textAlign,
+        // width: max-content makes the box hug its longest line of text
+        // instead of shrink-to-fit'ing into the available horizontal room.
+        // Without this, dragging near an edge could force the box to wrap
+        // into a thin tower as the browser tried to fit it on screen.
+        // The maxWidth still caps absurdly long lines so we don't blow
+        // past the player width.
+        width: "max-content",
+        maxWidth: "min(92%, 56rem)",
+        // Soft-wrap only on whitespace; never break individual words —
+        // keeps the bar visually stable even on long cues.
+        whiteSpace: "pre-wrap",
+        wordBreak: "normal",
+        overflowWrap: "normal",
         transition: dragging
           ? "none"
           : "bottom 200ms cubic-bezier(0.4, 0, 0.2, 1), font-size 150ms ease",
       }}
       className={cn(
-        "absolute z-40 select-none px-3 py-1.5 rounded-md text-white max-w-[92%] pointer-events-auto",
+        "absolute z-40 select-none px-3 py-1.5 rounded-md text-white pointer-events-auto",
         !compact && textAlign === "center" && "cursor-grab",
         dragging && "cursor-grabbing ring-2 ring-white/40",
       )}

@@ -11,8 +11,16 @@ interface VolumeControlProps {
 }
 
 export default function VolumeControl({ showSlider = true, barPill = false, expandWithTap = false }: VolumeControlProps) {
-  const { state, setVolume, toggleMute, videoRef, hlsRef, src } = usePlayerContext();
-  const hasAudioTrack = useVideoHasAudio(videoRef, hlsRef, src);
+  const { state, setVolume, toggleMute, videoRef, hlsRef, src, file } = usePlayerContext();
+  // Read the upload-time has_audio flag (waveform analysis) — when the
+  // server says the track is silent, the volume button has no purpose
+  // even though the stream technically contains an audio channel.
+  const serverHasAudio = (() => {
+    const audio = (file?.metadata as { audio?: { has_audio?: boolean } } | undefined)?.audio;
+    if (!audio || typeof audio.has_audio !== 'boolean') return null;
+    return audio.has_audio;
+  })();
+  const hasAudioTrack = useVideoHasAudio(videoRef, hlsRef, src, serverHasAudio);
   const sliderRef = useRef<HTMLDivElement>(null);
   const rootRef = useRef<HTMLDivElement>(null);
   const [isDragging, setIsDragging] = useState(false);
