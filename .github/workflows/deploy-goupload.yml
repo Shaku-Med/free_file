@@ -113,13 +113,16 @@ jobs:
           GOUPLOAD_IMAGE=ghcr.io/${OWNER_LC}/${REPO_LC}/goupload:${GITHUB_SHA}
           NSFWAPI_IMAGE=ghcr.io/${OWNER_LC}/${REPO_LC}/nsfwapi:${GITHUB_SHA}
           GOUPLOAD_PORT=3003
-          GOUPLOAD_CPUS=2.5
-          GOUPLOAD_MEM=4G
-          NSFWAPI_CPUS=1.0
-          NSFWAPI_MEM=768M
+          # Tuned for a 2 CPU VPS. goupload + nsfwapi + redis must sum to
+          # <2.00 with headroom for the host. WORKER_MAX must not exceed
+          # GOUPLOAD_CPUS or transcodes will throttle each other.
+          GOUPLOAD_CPUS=1.4
+          GOUPLOAD_MEM=2G
+          NSFWAPI_CPUS=0.4
+          NSFWAPI_MEM=512M
           WORKER_MIN=1
-          WORKER_MAX=6
-          WORKER_INITIAL=2
+          WORKER_MAX=2
+          WORKER_INITIAL=1
           EOF
 
           # Ship the runtime wrappers too — protect-env.sh self-updates these
