@@ -100,23 +100,34 @@ async function fetchKeyFromServer(): Promise<string | null> {
  * Returns null if the handshake fails — caller should still issue the
  * request and let the server return 401.
  */
-async function getSigningKey(): Promise<CryptoKey | null> {
-  if (cachedKey) return cachedKey;
+async function getSigningKey(forceRefresh = false): Promise<CryptoKey | null> {
+  if (cachedKey && !forceRefresh) return cachedKey;
   if (inflightHandshake) return inflightHandshake;
 
   inflightHandshake = (async () => {
-    let material = readStoredKey();
-    if (!material) {
-      material = await fetchKeyFromServer();
-      if (material) writeStoredKey(material);
+    if (forceRefresh) {
+      cachedKey = null;
+      cachedKeyMaterial = null;
+      writeStoredKey(null);
     }
-    if (!material) return null;
-    const k = await importKey(material);
-    if (k) {
-      cachedKey = k;
-      cachedKeyMaterial = material;
+
+    for (let attempt = 0; attempt < 2; attempt++) {
+      let material = attempt === 0 && !forceRefresh ? readStoredKey() : null;
+      if (!material) {
+        material = await fetchKeyFromServer();
+        if (material) writeStoredKey(material);
+      }
+      if (!material) return null;
+
+      const k = await importKey(material);
+      if (k) {
+        cachedKey = k;
+        cachedKeyMaterial = material;
+        return k;
+      }
+      writeStoredKey(null);
     }
-    return k;
+    return null;
   })();
 
   try {
@@ -126,15 +137,20 @@ async function getSigningKey(): Promise<CryptoKey | null> {
   }
 }
 
+/** Drop cached signing material (e.g. after logout). */
+export function clearSigningKey(): void {
+  cachedKey = null;
+  cachedKeyMaterial = null;
+  writeStoredKey(null);
+}
+
 /**
  * Force-rotates the signing key (handshake + re-cache). Call this after
  * login, account switch, or when you receive an `X-Sig-Stale` response.
  */
 export async function rotateSigningKey(): Promise<void> {
-  cachedKey = null;
-  cachedKeyMaterial = null;
-  writeStoredKey(null);
-  await getSigningKey();
+  clearSigningKey();
+  await getSigningKey(true);
 }
 
 async function sha256Hex(bytes: Uint8Array): Promise<string> {
@@ -199,6 +215,53 @@ async function readBodyBytes(init?: RequestInit): Promise<Uint8Array> {
   return new Uint8Array(0);
 }
 
+async function attachSignatureHeaders(
+  headers: Headers,
+  key: CryptoKey,
+  method: string,
+  input: RequestInfo | URL,
+  init?: RequestInit,
+): Promise<void> {
+  const ts = Date.now().toString();
+  const path = pathAndQueryFromUrl(
+    input instanceof Request ? input.url : (input as string | URL),
+  );
+  const bodyBytes = await readBodyBytes(init);
+  const bodyHash = await sha256Hex(bodyBytes);
+  const sig = await signCanonical(key, ts, method, path, bodyHash);
+  headers.set("X-Sig", sig);
+  headers.set("X-Sig-Ts", ts);
+}
+
+async function shouldRefreshSigningKey(res: Response, hadSignature: boolean): Promise<boolean> {
+  if (res.status !== 401) return false;
+  if (res.headers.get("x-sig-stale") === "1") return true;
+  if (!hadSignature) return true;
+  try {
+    const data = (await res.clone().json()) as { error?: string };
+    return data?.error === "Forbidden";
+  } catch {
+    return false;
+  }
+}
+
+async function issueSignedRequest(
+  input: RequestInfo | URL,
+  init: RequestInit | undefined,
+  method: string,
+  credentials: RequestCredentials,
+): Promise<{ res: Response; hadSignature: boolean }> {
+  const key = await getSigningKey();
+  const headers = new Headers(init?.headers);
+  let hadSignature = false;
+  if (key) {
+    await attachSignatureHeaders(headers, key, method, input, init);
+    hadSignature = true;
+  }
+  const res = await fetch(input, { ...init, headers, credentials });
+  return { res, hadSignature };
+}
+
 /**
  * Drop-in replacement for `fetch` that adds X-Sig + X-Sig-Ts. Always
  * sends credentials (include cookies) and lets you pass everything else
@@ -213,31 +276,14 @@ export async function signedFetch(
   init?: RequestInit,
 ): Promise<Response> {
   const method = (init?.method ?? "GET").toUpperCase();
-  const headers = new Headers(init?.headers);
-
-  // Always include cookies for authenticated APIs unless caller overrode.
   const credentials: RequestCredentials = init?.credentials ?? "include";
 
-  const key = await getSigningKey();
-  if (key) {
-    const ts = Date.now().toString();
-    const path = pathAndQueryFromUrl(
-      input instanceof Request ? input.url : (input as string | URL),
-    );
-    const bodyBytes = await readBodyBytes(init);
-    const bodyHash = await sha256Hex(bodyBytes);
-    const sig = await signCanonical(key, ts, method, path, bodyHash);
-    headers.set("X-Sig", sig);
-    headers.set("X-Sig-Ts", ts);
-  }
+  let { res, hadSignature } = await issueSignedRequest(input, init, method, credentials);
 
-  const res = await fetch(input, { ...init, headers, credentials });
-
-  // On 401 with a hint that the signature was stale (e.g. server
-  // rotated the master secret), try once more with a fresh handshake.
-  if (res.status === 401 && res.headers.get("x-sig-stale") === "1") {
+  // Stale sessionStorage key (login switch, dev hot reload, clock skew).
+  if (await shouldRefreshSigningKey(res, hadSignature)) {
     await rotateSigningKey();
-    return fetch(input, { ...init, headers, credentials });
+    ({ res } = await issueSignedRequest(input, init, method, credentials));
   }
 
   return res;

@@ -32,12 +32,10 @@ const MASTER_SECRET: Buffer = ENV_SECRET
   ? Buffer.from(ENV_SECRET, "utf8")
   : (() => {
       const b = randomBytes(32);
-      if (process.env.NODE_ENV === "production") {
-        console.warn(
-          "[requestSignature] REQUEST_SIG_SECRET not set — generated a random one. " +
-            "Multi-process deploys will reject each other's signatures. Set this env var.",
-        );
-      }
+      console.warn(
+        "[requestSignature] REQUEST_SIG_SECRET not set — generated a random one. " +
+          "Dev hot reload and multi-process deploys will reject cached signatures. Set this env var.",
+      );
       return b;
     })();
 

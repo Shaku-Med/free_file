@@ -38,10 +38,16 @@ export const loader = async ({ request }: { request: Request }) => {
       bodyBytes: body.bytes,
     });
     if (!sig.valid) {
-      // Tell the client to refresh its key on `stale_ts` — usually a
-      // browser tab that opened before the master secret rotated.
+      console.warn('[watch-issue] signature rejected:', sig.reason);
       const headers = new Headers({ 'Content-Type': 'application/json' });
-      if (sig.reason === 'stale_ts') headers.set('X-Sig-Stale', '1');
+      // Hint client to re-handshake — stale tab key, cookie switch, or dev reload.
+      if (
+        sig.reason === 'stale_ts' ||
+        sig.reason === 'hmac_mismatch' ||
+        sig.reason === 'missing_sig_headers'
+      ) {
+        headers.set('X-Sig-Stale', '1');
+      }
       return new Response(JSON.stringify({ error: 'Forbidden' }), {
         status: 401,
         headers,
