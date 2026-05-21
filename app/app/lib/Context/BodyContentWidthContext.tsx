@@ -1,18 +1,22 @@
 import {
   createContext,
   useContext,
-  useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
   type ReactNode,
 } from "react";
+import { useSidebar } from "~/components/ui/sidebar";
 import { cn } from "~/lib/utils";
 
 export type BodyVideoGridColumns = 1 | 2 | 3;
 
 const W_MIN_2_COL = 520;
 const W_MIN_3_COL = 960;
+
+/** Main column wide enough for centered navbar search (sidebar inset, not viewport). */
+export const NAV_INLINE_SEARCH_MIN_PX = 640;
 
 export function bodyVideoGridColumnsFromWidth(widthPx: number): BodyVideoGridColumns {
   if (!Number.isFinite(widthPx) || widthPx <= 0) return 1;
@@ -54,6 +58,13 @@ export function useBodyVideoGridClassName(): string {
   );
 }
 
+/** True when the measured main column fits inline (center) navbar search. */
+export function useNavInlineSearch(): boolean {
+  const { bodyContentWidthPx } = useBodyContentWidth();
+  if (bodyContentWidthPx <= 0) return false;
+  return bodyContentWidthPx >= NAV_INLINE_SEARCH_MIN_PX;
+}
+
 /**
  * Observes this element’s content width (the main Body column) so grids can reflow
  * with sidebar / theater / padding changes instead of viewport breakpoints.
@@ -67,17 +78,35 @@ export function BodyContentWidthBridge({
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const [widthPx, setWidthPx] = useState(0);
+  const { state: sidebarState, isMobile: sidebarIsMobile, openMobile } = useSidebar();
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const el = ref.current;
     if (!el) return;
-    const ro = new ResizeObserver((entries) => {
-      setWidthPx(entries[0]?.contentRect.width ?? 0);
-    });
+
+    let raf = 0;
+    const measure = () => {
+      cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(() => {
+        const next = el.getBoundingClientRect().width;
+        setWidthPx((prev) => (prev === next ? prev : next));
+      });
+    };
+
+    const ro = new ResizeObserver(measure);
     ro.observe(el);
-    setWidthPx(el.getBoundingClientRect().width);
-    return () => ro.disconnect();
-  }, []);
+    measure();
+
+    window.addEventListener("resize", measure);
+    window.visualViewport?.addEventListener("resize", measure);
+
+    return () => {
+      cancelAnimationFrame(raf);
+      ro.disconnect();
+      window.removeEventListener("resize", measure);
+      window.visualViewport?.removeEventListener("resize", measure);
+    };
+  }, [sidebarState, sidebarIsMobile, openMobile]);
 
   const value = useMemo(
     () => ({

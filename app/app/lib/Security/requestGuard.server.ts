@@ -43,6 +43,25 @@ const extraOrigins = (process.env.EXTRA_ALLOWED_ORIGINS ?? "")
   .filter(Boolean);
 for (const o of extraOrigins) ALLOWED_ORIGINS.add(o);
 
+/** In dev, accept any localhost / 127.0.0.1 origin regardless of port —
+ *  Vite / RR sometimes flips ports (5173 → 5174 if 5173 is busy), and
+ *  manually keeping the allowlist in sync is annoying. Prod stays strict. */
+const IS_DEV = process.env.NODE_ENV !== "production";
+function isDevLocalhostOrigin(origin: string): boolean {
+  if (!IS_DEV) return false;
+  try {
+    const u = new URL(origin);
+    return (
+      (u.protocol === "http:" || u.protocol === "https:") &&
+      (u.hostname === "localhost" ||
+        u.hostname === "127.0.0.1" ||
+        u.hostname === "[::1]")
+    );
+  } catch {
+    return false;
+  }
+}
+
 /** Headers a browser cannot fake from JavaScript. */
 const SEC_FETCH_SITE = "sec-fetch-site";
 const SEC_FETCH_MODE = "sec-fetch-mode";
@@ -73,6 +92,23 @@ const jsonResponse = (status: number, body: unknown) =>
     headers: { "Content-Type": "application/json" },
   });
 
+/** Log why a guard rejected the request — dev only — so operators can
+ *  see "this 403 was caused by missing Sec-Fetch-Site" instead of
+ *  squinting at network panel. Never leak this to the client body. */
+function reject(reason: string, request: Request): Response {
+  if (IS_DEV) {
+    const u = (() => {
+      try { return new URL(request.url).pathname; } catch { return "?"; }
+    })();
+    console.warn(
+      `[requestGuard] 403 ${u} — ${reason} ` +
+        `(origin=${request.headers.get("origin") ?? "-"}, ` +
+        `sec-fetch-site=${request.headers.get("sec-fetch-site") ?? "-"})`,
+    );
+  }
+  return jsonResponse(403, { error: `Forbidden: ${reason}` });
+}
+
 /**
  * Returns null when the request looks like it came from a real browser
  * in our origin. Returns a `Response` (403) when something's wrong, ready
@@ -90,13 +126,13 @@ export function assertSafeRequest(
   const sfSite = h.get(SEC_FETCH_SITE)?.toLowerCase() ?? null;
   if (!sfSite) {
     if (!options.allowMissingSecFetch) {
-      return jsonResponse(403, { error: "Forbidden: bad fetch metadata" });
+      return reject("missing sec-fetch", request);
     }
   } else if (!options.allowCrossSite && !SAME_ORIGIN_SITE_VALUES.has(sfSite)) {
     // Browser navigations from a bookmark / typed URL come in as
     // "none" — we explicitly do NOT allow that for APIs because no API
     // should be hit directly from the address bar.
-    return jsonResponse(403, { error: "Forbidden: cross-site request" });
+    return reject(`cross-site (${sfSite})`, request);
   }
 
   // 2. Sec-Fetch-Mode + Sec-Fetch-Dest — defensive. We want CORS-style
@@ -105,18 +141,18 @@ export function assertSafeRequest(
   const sfMode = h.get(SEC_FETCH_MODE)?.toLowerCase();
   const sfDest = h.get(SEC_FETCH_DEST)?.toLowerCase();
   if (sfMode && !["cors", "navigate", "same-origin", "no-cors"].includes(sfMode)) {
-    return jsonResponse(403, { error: "Forbidden: bad fetch mode" });
+    return reject(`bad mode (${sfMode})`, request);
   }
   if (sfDest && !["empty", "document", "iframe"].includes(sfDest)) {
-    return jsonResponse(403, { error: "Forbidden: bad fetch dest" });
+    return reject(`bad dest (${sfDest})`, request);
   }
 
   // 3. Origin allowlist — for state-changing methods especially.
   if (!options.allowAnyOrigin) {
     const origin = h.get("origin");
     if (origin) {
-      if (!ALLOWED_ORIGINS.has(origin)) {
-        return jsonResponse(403, { error: "Forbidden: origin" });
+      if (!ALLOWED_ORIGINS.has(origin) && !isDevLocalhostOrigin(origin)) {
+        return reject(`origin not allowed (${origin})`, request);
       }
     } else if (
       method !== "GET" &&
@@ -125,7 +161,7 @@ export function assertSafeRequest(
     ) {
       // POST/PUT/PATCH/DELETE without Origin is suspicious — every
       // browser sends Origin for these in modern versions.
-      return jsonResponse(403, { error: "Forbidden: missing origin" });
+      return reject("missing origin on state-changing request", request);
     }
   }
 
@@ -136,7 +172,7 @@ export function assertSafeRequest(
   if (!options.allowEmptyUA) {
     const ua = h.get("user-agent") ?? "";
     if (ua.length < 8) {
-      return jsonResponse(403, { error: "Forbidden: bad user agent" });
+      return reject("ua too short", request);
     }
     const lowerUA = ua.toLowerCase();
     if (
@@ -148,7 +184,7 @@ export function assertSafeRequest(
       lowerUA.includes("httpie/") ||
       lowerUA.includes("go-http-client")
     ) {
-      return jsonResponse(403, { error: "Forbidden: tool detected" });
+      return reject(`tool detected (${lowerUA.slice(0, 40)})`, request);
     }
   }
 

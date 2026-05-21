@@ -185,23 +185,19 @@ export function UserProfileDropdown({ variant }: UserProfileDropdownProps) {
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <button
-          className="flex items-center gap-1.5 sm:gap-2 rounded-lg p-0.5 sm:px-1.5 sm:py-1 hover:bg-primary/10 ios-scale min-w-0 max-w-[120px] sm:max-w-[160px] md:max-w-[200px] shrink-0"
+          className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full p-0 transition-colors hover:bg-muted/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           aria-label="User menu"
         >
           {userProfileLoading ? (
-            <div className="size-7 sm:size-8 shrink-0 rounded-full bg-muted animate-pulse" />
+            <div className="size-8 shrink-0 rounded-full bg-muted animate-pulse" />
           ) : (
-            <Avatar className="h-7 w-7 sm:h-8 sm:w-8 shrink-0 ring-2 ring-border">
+            <Avatar className="h-8 w-8 shrink-0">
               <AvatarImage src={getProfilePicUrl(userProfile?.profile_pic)} alt={userProfile?.username} />
-              <AvatarFallback className="bg-primary/20 text-primary text-xs font-medium">
+              <AvatarFallback className="bg-primary/15 text-primary text-xs font-semibold">
                 {userProfile?.username?.charAt(0).toUpperCase() ?? "?"}
               </AvatarFallback>
             </Avatar>
           )}
-          <span className="hidden sm:inline text-xs sm:text-sm font-medium text-foreground truncate">
-            {userProfileLoading ? "..." : userProfile?.username ?? "Profile"}
-          </span>
-          <ChevronDown className="h-3.5 w-3.5 sm:h-4 sm:w-4 shrink-0 text-muted-foreground hidden sm:block" />
         </button>
       </DropdownMenuTrigger>
       <ProfileMenuContent username={userProfile?.username} />

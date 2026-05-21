@@ -2,6 +2,10 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { X } from "lucide-react";
 import { cn } from "~/lib/utils";
 import { usePlayerContext } from "../PlayerContext";
+import {
+  playerEndUiLayout,
+  usePlayerContainerSize,
+} from "../hooks/usePlayerContainerSize";
 import VideoCard from "~/routes/Home/components/VideoCard";
 import type { FileType } from "~/lib/types";
 
@@ -89,9 +93,14 @@ function toFileType(s: Suggestion): FileType {
 const SAFE_TOP = "top-[max(0.5rem,env(safe-area-inset-top,0px))]";
 const SAFE_LEFT = "left-[max(0.5rem,env(safe-area-inset-left,0px))]";
 const SAFE_RIGHT = "right-[max(0.5rem,env(safe-area-inset-right,0px))]";
-/** Reserve extra vertical space at max-sm heights where chrome stacks taller */
-const SAFE_ABOVE_CONTROLS =
-  "bottom-[max(8.75rem,calc(6.25rem+env(safe-area-inset-bottom,0px)))] sm:bottom-[max(6.25rem,calc(5rem+env(safe-area-inset-bottom,0px)))] md:bottom-[max(5.5rem,calc(4.75rem+env(safe-area-inset-bottom,0px)))]";
+
+function slotWidthClass(playerW: number, maxPct: number, minRem: number, maxRem: number) {
+  if (playerW <= 0) {
+    return `w-[clamp(${minRem}rem,min(26vw,22%),${maxRem}rem)]`;
+  }
+  const capPx = Math.round(playerW * maxPct);
+  return `w-[clamp(${minRem}rem,${capPx}px,${maxRem}rem)]`;
+}
 
 /**
  * Slot positioning per layout. Each slot is one absolutely-positioned wrapper
@@ -100,42 +109,42 @@ const SAFE_ABOVE_CONTROLS =
  * `max` so they don't look gigantic.
  */
 type SlotClassName = string;
-const LAYOUT_SLOTS: Record<Exclude<EndCardLayout, "bottom-row" | "grid">, SlotClassName[]> = {
-  "4-corners": [
-    cn("absolute z-[2] w-[clamp(7.25rem,min(26vw,22%),11rem)]", SAFE_TOP, SAFE_LEFT),
-    cn("absolute z-[2] w-[clamp(7.25rem,min(26vw,22%),11rem)]", SAFE_TOP, SAFE_RIGHT),
-    cn("absolute z-[2] w-[clamp(7.25rem,min(26vw,22%),11rem)]", SAFE_ABOVE_CONTROLS, SAFE_LEFT),
-    cn("absolute z-[2] w-[clamp(7.25rem,min(26vw,22%),11rem)]", SAFE_ABOVE_CONTROLS, SAFE_RIGHT),
-  ],
-  "two-center": [
-    cn(
-      "absolute left-1/2 z-[2] w-[clamp(7.25rem,min(72vw,26%),12rem)] -translate-x-1/2",
-      SAFE_TOP,
-    ),
-    cn(
-      "absolute left-1/2 z-[2] w-[clamp(7.25rem,min(72vw,26%),12rem)] -translate-x-1/2",
-      SAFE_ABOVE_CONTROLS,
-    ),
-  ],
-  "4-corners-plus-2-center": [
-    cn("absolute z-[2] w-[clamp(7rem,min(22vw,20%),10.5rem)]", SAFE_TOP, SAFE_LEFT),
-    cn("absolute z-[2] w-[clamp(7rem,min(22vw,20%),10.5rem)]", SAFE_TOP, SAFE_RIGHT),
-    cn(
-      "absolute left-1/2 z-[2] w-[clamp(7rem,min(62vw,20%),10.5rem)] -translate-x-1/2",
-      SAFE_TOP,
-    ),
-    cn("absolute z-[2] w-[clamp(7rem,min(22vw,20%),10.5rem)]", SAFE_ABOVE_CONTROLS, SAFE_LEFT),
-    cn("absolute z-[2] w-[clamp(7rem,min(22vw,20%),10.5rem)]", SAFE_ABOVE_CONTROLS, SAFE_RIGHT),
-    cn(
-      "absolute left-1/2 z-[2] w-[clamp(7rem,min(62vw,20%),10.5rem)] -translate-x-1/2",
-      SAFE_ABOVE_CONTROLS,
-    ),
-  ],
-  "bottom-corners": [
-    cn("absolute z-[2] w-[clamp(7.5rem,min(28vw,26%),12rem)]", SAFE_ABOVE_CONTROLS, SAFE_LEFT),
-    cn("absolute z-[2] w-[clamp(7.5rem,min(28vw,26%),12rem)]", SAFE_ABOVE_CONTROLS, SAFE_RIGHT),
-  ],
-};
+
+function layoutSlots(playerW: number, controlsBottom: string): Record<
+  Exclude<EndCardLayout, "bottom-row" | "grid">,
+  SlotClassName[]
+> {
+  const cornerW = slotWidthClass(playerW, 0.22, 7.25, 11);
+  const centerW = slotWidthClass(playerW, 0.26, 7.25, 12);
+  const tightCornerW = slotWidthClass(playerW, 0.2, 7, 10.5);
+  const tightCenterW = slotWidthClass(playerW, 0.2, 7, 10.5);
+  const bottomW = slotWidthClass(playerW, 0.26, 7.5, 12);
+
+  return {
+    "4-corners": [
+      cn("absolute z-[2]", cornerW, SAFE_TOP, SAFE_LEFT),
+      cn("absolute z-[2]", cornerW, SAFE_TOP, SAFE_RIGHT),
+      cn("absolute z-[2]", cornerW, controlsBottom, SAFE_LEFT),
+      cn("absolute z-[2]", cornerW, controlsBottom, SAFE_RIGHT),
+    ],
+    "two-center": [
+      cn("absolute left-1/2 z-[2] -translate-x-1/2", centerW, SAFE_TOP),
+      cn("absolute left-1/2 z-[2] -translate-x-1/2", centerW, controlsBottom),
+    ],
+    "4-corners-plus-2-center": [
+      cn("absolute z-[2]", tightCornerW, SAFE_TOP, SAFE_LEFT),
+      cn("absolute z-[2]", tightCornerW, SAFE_TOP, SAFE_RIGHT),
+      cn("absolute left-1/2 z-[2] -translate-x-1/2", tightCenterW, SAFE_TOP),
+      cn("absolute z-[2]", tightCornerW, controlsBottom, SAFE_LEFT),
+      cn("absolute z-[2]", tightCornerW, controlsBottom, SAFE_RIGHT),
+      cn("absolute left-1/2 z-[2] -translate-x-1/2", tightCenterW, controlsBottom),
+    ],
+    "bottom-corners": [
+      cn("absolute z-[2]", bottomW, controlsBottom, SAFE_LEFT),
+      cn("absolute z-[2]", bottomW, controlsBottom, SAFE_RIGHT),
+    ],
+  };
+}
 
 const CARD_CAP: Record<EndCardLayout, number> = {
   "grid": 4,
@@ -150,7 +159,14 @@ export default function EndCardOverlay({
   layout = "grid",
   excludeIds,
 }: EndCardOverlayProps = {}) {
-  const { state, file, isReel } = usePlayerContext();
+  const { state, file, isReel, containerRef } = usePlayerContext();
+  const { width: playerW, height: playerH } = usePlayerContainerSize(containerRef);
+  const ui = playerEndUiLayout(playerW, playerH);
+  const controlsBottom = `bottom-[max(${ui.controlsClearancePx}px,calc(4rem+env(safe-area-inset-bottom,0px)))]`;
+  const layoutSlotsForPlayer = useMemo(
+    () => layoutSlots(playerW, controlsBottom),
+    [playerW, ui.controlsClearancePx],
+  );
   const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
   const [dismissed, setDismissed] = useState(false);
   const fetchedForFileRef = useRef<string | null>(null);
@@ -246,20 +262,25 @@ export default function EndCardOverlay({
    * full-opacity; the gradient just gives the cards readable contrast.
    */
   if (layout === "grid") {
+    const gridCols = ui.endCardGridCols;
+    const gridClass =
+      gridCols === 4
+        ? "grid-cols-4 gap-2.5"
+        : gridCols === 2
+          ? "grid-cols-2 gap-2"
+          : "grid-cols-1 gap-2";
+    const gridCards = cards.slice(0, gridCols === 1 ? 2 : 4);
+
     return (
-      <div className="pointer-events-none absolute inset-0 z-30" aria-label="Up next">
-        {/* Soft scrim — covers the lower ~65% of the player so card text is
-            readable on bright frames without hiding the video itself. */}
+      <div className="pointer-events-none absolute inset-0 z-30 overflow-hidden" aria-label="Up next">
         <div className="pointer-events-none absolute inset-x-0 bottom-0 top-[35%] bg-gradient-to-t from-black/80 via-black/55 to-transparent" />
 
-        {/* Dismiss X — top-right, above the scrim so it always works. */}
         {dismissBtn}
 
-        {/* Header — sits just above the deck. The pulse dot mirrors the
-            "live" affordance YouTube uses on its end screen. */}
         <div
           className={cn(
-            "pointer-events-none absolute z-[2] flex items-center gap-1.5 text-xs font-medium uppercase tracking-wider text-white/85 drop-shadow-sm sm:text-sm",
+            "pointer-events-none absolute z-[2] flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wider text-white/85 drop-shadow-sm",
+            playerW >= 440 && "text-xs",
             SAFE_LEFT,
           )}
           style={{ top: "38%" }}
@@ -268,23 +289,18 @@ export default function EndCardOverlay({
           Up next
         </div>
 
-        {/* Card deck — absolutely centered, sits above the ControlBar via
-            SAFE_ABOVE_CONTROLS. Grid breakpoints:
-              < sm  → 2 columns (2×2)
-              ≥ sm  → 4 columns (1×4) like YouTube desktop
-            max-w cap keeps cards from going gigantic on cinema players. */}
         <div
           className={cn(
-            "pointer-events-auto absolute left-1/2 z-[3] -translate-x-1/2 grid",
-            "w-[min(56rem,92%)] grid-cols-2 gap-2 sm:grid-cols-4 sm:gap-3",
-            "px-1 sm:px-2",
-            SAFE_ABOVE_CONTROLS,
+            "pointer-events-auto absolute left-1/2 z-[3] min-w-0 max-w-full -translate-x-1/2 grid",
+            "w-[min(100%,56rem)] px-1",
+            gridClass,
+            controlsBottom,
           )}
         >
-          {cards.slice(0, 4).map((card, i) => (
+          {gridCards.map((card, i) => (
             <div
               key={card.id ?? card.unique_id}
-              className="animate-in fade-in slide-in-from-bottom-2 duration-300"
+              className="min-w-0 max-w-full animate-in fade-in slide-in-from-bottom-2 duration-300"
               style={{ animationDelay: `${i * 60}ms`, animationFillMode: "both" }}
             >
               {/* Slight glassy frame so each card reads against bright
@@ -301,22 +317,30 @@ export default function EndCardOverlay({
 
   /** Floating chips above controls — wide slab avoided so centre stays readable. */
   if (layout === "bottom-row") {
+    const chipWidth =
+      playerW > 0
+        ? slotWidthClass(playerW, playerW < 380 ? 0.42 : 0.33, 6.75, 11)
+        : "w-[clamp(6.75rem,min(38vw,33%),11rem)]";
+
     return (
-      <div className="pointer-events-none absolute inset-0 z-30" aria-label="Up next">
+      <div className="pointer-events-none absolute inset-0 z-30 overflow-hidden" aria-label="Up next">
         {dismissBtn}
         <div
           className={cn(
-            "pointer-events-none absolute z-[2] flex justify-center",
+            "pointer-events-none absolute z-[2] flex min-w-0 max-w-full justify-center",
             SAFE_LEFT,
             SAFE_RIGHT,
-            SAFE_ABOVE_CONTROLS,
+            controlsBottom,
           )}
         >
-          <div className="pointer-events-auto flex max-w-full flex-row flex-wrap justify-center gap-2">
+          <div className="pointer-events-auto flex max-w-full min-w-0 flex-row flex-wrap justify-center gap-2 px-1">
             {cards.map((card, i) => (
               <div
                 key={card.id ?? card.unique_id}
-                className="w-[clamp(7.25rem,min(38vw,33%),11rem)] animate-in fade-in slide-in-from-bottom-1 duration-300 max-[380px]:w-[clamp(6.75rem,42vw,10rem)]"
+                className={cn(
+                  chipWidth,
+                  "min-w-0 max-w-full animate-in fade-in slide-in-from-bottom-1 duration-300",
+                )}
                 style={{ animationDelay: `${i * 60}ms`, animationFillMode: "both" }}
               >
                 <div className="rounded-md bg-black/55 ring-1 ring-white/10 backdrop-blur-sm">
@@ -330,7 +354,7 @@ export default function EndCardOverlay({
     );
   }
 
-  const slots = LAYOUT_SLOTS[layout];
+  const slots = layoutSlotsForPlayer[layout];
   return (
     <div className="pointer-events-none absolute inset-0 z-30" aria-label="Up next">
       {dismissBtn}

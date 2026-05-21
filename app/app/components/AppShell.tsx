@@ -3,6 +3,7 @@ import { AppSidebar } from '~/components/Navbar/components/Sidebar';
 import BodyComponent from '~/components/Navbar/components/BodyComponent';
 import NavProgress from '~/routes/Home/NavProgress/NavProgress';
 import { useFileContext } from '~/lib/Context/Context';
+import { BodyContentWidthBridge } from '~/lib/Context/BodyContentWidthContext';
 import { cn } from '~/lib/utils';
 import { useLocation } from 'react-router';
 import { isPipChromeRoute } from '~/routes/pip/pipEnv';
@@ -26,8 +27,10 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
           suppressChrome && 'w-full max-w-none flex-1',
         )}
       >
-        <BodyComponent>{children}</BodyComponent>
-        <NavProgress />
+        <BodyContentWidthBridge className="flex h-full min-h-0 min-w-0 w-full flex-1 flex-col">
+          <BodyComponent>{children}</BodyComponent>
+          <NavProgress />
+        </BodyContentWidthBridge>
       </SidebarInset>
     </SidebarProvider>
   );

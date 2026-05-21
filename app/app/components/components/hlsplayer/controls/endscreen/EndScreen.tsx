@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback, useRef, useMemo } from "react";
 import { Film, RotateCcw, X } from "lucide-react";
 import { usePlayerContext } from "../../PlayerContext";
-import { usePlayerContainerSize } from "../../hooks/usePlayerContainerSize";
+import { usePlayerContainerSize, playerEndUiLayout } from "../../hooks/usePlayerContainerSize";
 import type { FileType } from "~/lib/types";
 import VideoCard from "~/routes/Home/components/VideoCard";
 import { useLocation, useNavigate, useParams } from "react-router";
@@ -167,18 +167,22 @@ export default function EndScreen({
     return Math.round(Math.min(Math.max(playerH * 0.36, 120), 340));
   }, [playerH]);
 
+  const ui = playerEndUiLayout(playerW, playerH);
+  const {
+    sideBySideReplay,
+    twoColumnSuggest,
+    roomierPadding,
+    largerType,
+    replayRailWidth,
+  } = ui;
+  const heroUsesEndCard = playerW > 0 && playerW < 400;
+
   if (!state.isEnded) return null;
 
   const heroHeading = nextFromSeries ? "Next in series" : "Up next";
   const dashLen = (countdown / COUNTDOWN_SEC) * 100.5;
-
-  /** Layout breakpoints follow the player box (`containerRef`), not the viewport. */
-  const sideBySideReplay = playerW >= 420;
-  const twoColumnSuggest =
-    playerW >= 560 && showSeriesPanel && showRelatedPanel;
-  const roomierPadding = playerW >= 380;
-  const largerType = playerW >= 440;
-  const replayRailWidth = playerW >= 500;
+  const showTwoColumnGrid =
+    twoColumnSuggest && showSeriesPanel && showRelatedPanel;
 
   return (
     <div
@@ -196,14 +200,14 @@ export default function EndScreen({
       >
         <div
           className={cn(
-            "mx-auto flex w-full max-w-full flex-col",
+            "mx-auto flex w-full min-w-0 max-w-full flex-col",
             roomierPadding ? "gap-4 px-3.5 py-3.5" : "gap-3 px-2.5 py-2.5",
             sideBySideReplay && "gap-5"
           )}
         >
           <div
             className={cn(
-              "flex items-stretch",
+              "flex min-w-0 items-stretch",
               sideBySideReplay ? "flex-row gap-6" : "flex-col gap-3"
             )}
           >
@@ -304,7 +308,7 @@ export default function EndScreen({
                   <button
                     type="button"
                     className={cn(
-                      "relative w-full overflow-hidden rounded-2xl border border-white/12 bg-white/[0.06] text-left",
+                      "relative min-w-0 max-w-full overflow-hidden rounded-2xl border border-white/12 bg-white/[0.06] text-left",
                       "shadow-lg shadow-black/40 ring-1 ring-white/[0.06] transition hover:border-white/20 hover:bg-white/[0.09]"
                     )}
                     onClick={() => handleVideoSelect(nextVideo)}
@@ -354,14 +358,15 @@ export default function EndScreen({
                         </div>
                       </div>
                     </div>
-                    <div className="pointer-events-none">
+                    <div className="pointer-events-none min-w-0 max-w-full">
                       <VideoCard
                         data={nextVideo}
                         index={0}
                         userActions={actions}
                         currentUserId={currentUserId}
-                        layout="horizontal"
-                        hideActions={{completely: true}}
+                        layout={heroUsesEndCard ? "endCard" : "horizontal"}
+                        related={!heroUsesEndCard}
+                        hideActions={{ completely: true }}
                       />
                     </div>
                   </button>
@@ -375,8 +380,8 @@ export default function EndScreen({
               {showSuggestionsGrid && (
                 <div
                   className={cn(
-                    "grid min-h-0 grid-cols-1 items-start",
-                    twoColumnSuggest ? "grid-cols-2 gap-5" : "gap-4"
+                    "grid min-h-0 w-full min-w-0 max-w-full grid-cols-1 items-start",
+                    showTwoColumnGrid ? "grid-cols-2 gap-4" : "gap-3"
                   )}
                 >
                   {showSeriesPanel && (

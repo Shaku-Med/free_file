@@ -4,6 +4,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import { arrayMove } from "@dnd-kit/sortable";
@@ -54,6 +55,8 @@ type PlayQueueContextValue = {
   isInQueue: (fileId: string) => boolean;
   /** Signed-in users only: customize queue, drag-and-drop, and add from sidebar. */
   viewerCanCustomizeQueue: boolean;
+  queueLoading: boolean;
+  refreshQueue: () => void;
 };
 
 const PlayQueueContext = createContext<PlayQueueContextValue | null>(null);
@@ -64,12 +67,18 @@ export function PlayQueueProvider({
   seriesUpNextVideos,
   suggestedVideos,
   viewerCanCustomizeQueue = true,
+  queueFetchKey = 0,
+  queueLoading = false,
+  refreshQueue = () => {},
 }: {
   children: React.ReactNode;
   currentUniqueId: string;
   seriesUpNextVideos: FileType[];
   suggestedVideos: FileType[];
   viewerCanCustomizeQueue?: boolean;
+  queueFetchKey?: number;
+  queueLoading?: boolean;
+  refreshQueue?: () => void;
 }) {
   const defaultQueue = useMemo(() => {
     const merged = [...seriesUpNextVideos, ...suggestedVideos];
@@ -78,6 +87,7 @@ export function PlayQueueProvider({
 
   const [queue, setQueue] = useState<FileType[]>(defaultQueue);
   const [isCustomized, setIsCustomized] = useState(false);
+  const lastSeedRef = useRef({ uniqueId: currentUniqueId, fetchKey: queueFetchKey });
 
   useEffect(() => {
     if (!isCustomized) return;
@@ -85,10 +95,28 @@ export function PlayQueueProvider({
   }, [currentUniqueId, isCustomized]);
 
   useEffect(() => {
+    const uniqueChanged = lastSeedRef.current.uniqueId !== currentUniqueId;
+    const fetchKeyChanged = lastSeedRef.current.fetchKey !== queueFetchKey;
+
+    if (uniqueChanged) {
+      lastSeedRef.current = { uniqueId: currentUniqueId, fetchKey: queueFetchKey };
+      setIsCustomized(false);
+      setQueue(defaultQueue);
+      return;
+    }
+
+    if (fetchKeyChanged) {
+      lastSeedRef.current.fetchKey = queueFetchKey;
+      if (!isCustomized) {
+        setQueue(defaultQueue);
+      }
+      return;
+    }
+
     if (!isCustomized) {
       setQueue(defaultQueue);
     }
-  }, [defaultQueue, isCustomized]);
+  }, [currentUniqueId, queueFetchKey, defaultQueue, isCustomized]);
 
   useEffect(() => {
     if (!viewerCanCustomizeQueue) {
@@ -225,6 +253,8 @@ export function PlayQueueProvider({
       replaceQueueWith,
       isInQueue,
       viewerCanCustomizeQueue,
+      queueLoading,
+      refreshQueue,
     }),
     [
       currentUniqueId,
@@ -243,6 +273,8 @@ export function PlayQueueProvider({
       replaceQueueWith,
       isInQueue,
       viewerCanCustomizeQueue,
+      queueLoading,
+      refreshQueue,
     ]
   );
 

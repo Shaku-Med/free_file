@@ -1431,7 +1431,7 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
   return (
     <>
     <Dialog open={isOpen} onOpenChange={handleClose}>
-      <DialogContent className="w-[min(100%,calc(100vw-1rem))] max-w-[520px] sm:max-w-xl md:max-w-3xl lg:max-w-6xl rounded-3xl p-0 overflow-hidden max-h-[min(92dvh,900px)] flex flex-col gap-0 shadow-2xl border-border/60">
+      <DialogContent className="w-[min(100%,calc(100vw-1rem))] max-w-[520px] sm:max-w-xl md:max-w-3xl lg:max-w-6xl h-full rounded-3xl p-0 overflow-hidden max-h-[min(92dvh,900px)] flex flex-col gap-0 shadow-2xl border-border/60">
 
         <div
           className="relative flex-1 overflow-y-auto overflow-x-hidden min-h-0"

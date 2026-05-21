@@ -1,8 +1,18 @@
+import { useState } from "react";
 import { useDroppable } from "@dnd-kit/core";
 import { SortableContext, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { Link } from "react-router";
-import { GripVertical, ListVideo, Lock, RotateCcw, X } from "lucide-react";
+import {
+  ChevronDown,
+  ChevronUp,
+  GripVertical,
+  ListVideo,
+  Lock,
+  RefreshCw,
+  RotateCcw,
+  X,
+} from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "~/components/ui/tooltip";
 import { Button } from "~/components/ui/button";
 import { cn } from "~/lib/utils";
@@ -22,6 +32,73 @@ const PLAY_QUEUE_MAX_HEIGHT =
 
 const PLAY_QUEUE_SCROLL_BODY =
   "min-h-0 overflow-y-auto overscroll-auto [scrollbar-gutter:stable]";
+
+function QueuePanelHeader({
+  count,
+  isCustomized,
+  collapsed,
+  onToggleCollapsed,
+  onReset,
+  onRefresh,
+  refreshing,
+}: {
+  count?: number;
+  isCustomized?: boolean;
+  collapsed: boolean;
+  onToggleCollapsed: () => void;
+  onReset?: () => void;
+  onRefresh?: () => void;
+  refreshing?: boolean;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-2 border-b border-border/50 px-3 py-2">
+      <button
+        type="button"
+        className="flex min-w-0 flex-1 items-center gap-2 text-left"
+        onClick={onToggleCollapsed}
+        aria-expanded={!collapsed}
+      >
+        <ListVideo className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
+        <span className="truncate text-sm font-semibold text-foreground">Play queue</span>
+        {typeof count === "number" ? (
+          <span className="text-xs text-muted-foreground tabular-nums">({count})</span>
+        ) : null}
+        {collapsed ? (
+          <ChevronDown className="ml-auto h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
+        ) : (
+          <ChevronUp className="ml-auto h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
+        )}
+      </button>
+      <div className="flex shrink-0 items-center gap-0.5">
+        {onRefresh ? (
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8 shrink-0"
+            onClick={onRefresh}
+            disabled={refreshing}
+            aria-label="Refresh play queue"
+          >
+            <RefreshCw className={cn("h-3.5 w-3.5", refreshing && "animate-spin")} />
+          </Button>
+        ) : null}
+        {isCustomized && onReset ? (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="h-8 shrink-0 gap-1 px-2 text-xs"
+            onClick={onReset}
+          >
+            <RotateCcw className="h-3.5 w-3.5" />
+            Reset
+          </Button>
+        ) : null}
+      </div>
+    </div>
+  );
+}
 
 function QueueDropAppend() {
   const { setNodeRef, isOver } = useDroppable({ id: PLAY_QUEUE_DROP_APPEND });
@@ -117,40 +194,60 @@ function GuestPlayQueueLocked({
   currentUserId?: string;
   userActions?: { likedFileIds: Set<string>; dislikedFileIds: Set<string> };
 }) {
+  const [collapsed, setCollapsed] = useState(false);
+
   return (
     <div className="rounded-lg border border-border/60 bg-muted/20">
       <div className="border-b border-border/50 px-3 py-2">
         <div className="flex items-start gap-2">
-          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground">
-            <Lock className="h-4 w-4" aria-hidden />
-          </div>
-          <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-2">
-              <ListVideo className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
-              <span className="text-sm font-semibold text-foreground">Play queue</span>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <span className="cursor-help text-xs text-muted-foreground underline decoration-dotted">
-                    Why locked?
-                  </span>
-                </TooltipTrigger>
-                <TooltipContent side="bottom" className="max-w-[240px]">
-                  Sign in to edit your play queue.
-                </TooltipContent>
-              </Tooltip>
+          <button
+            type="button"
+            className="flex min-w-0 flex-1 items-start gap-2 text-left"
+            onClick={() => setCollapsed((c) => !c)}
+            aria-expanded={!collapsed}
+          >
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground">
+              <Lock className="h-4 w-4" aria-hidden />
             </div>
-            <p className="mt-1.5 text-xs leading-snug text-muted-foreground">
-              <Link to="/auth/login" className="font-medium text-primary hover:underline">
-                Sign in
-              </Link>{" "}
-              to customize what plays next.
-            </p>
-          </div>
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2">
+                <ListVideo className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
+                <span className="text-sm font-semibold text-foreground">Play queue</span>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span
+                      className="cursor-help text-xs text-muted-foreground underline decoration-dotted"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      Why locked?
+                    </span>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom" className="max-w-[240px]">
+                    Sign in to edit your play queue.
+                  </TooltipContent>
+                </Tooltip>
+                {collapsed ? (
+                  <ChevronDown className="ml-auto h-4 w-4 shrink-0 text-muted-foreground" />
+                ) : (
+                  <ChevronUp className="ml-auto h-4 w-4 shrink-0 text-muted-foreground" />
+                )}
+              </div>
+              {!collapsed ? (
+                <p className="mt-1.5 text-xs leading-snug text-muted-foreground">
+                  <Link to="/auth/login" className="font-medium text-primary hover:underline">
+                    Sign in
+                  </Link>{" "}
+                  to customize what plays next.
+                </p>
+              ) : null}
+            </div>
+          </button>
         </div>
       </div>
-      {defaultQueue.length === 0 ? (
+      {!collapsed && defaultQueue.length === 0 ? (
         <div className="px-3 py-4 text-center text-xs text-muted-foreground">Nothing queued yet.</div>
-      ) : (
+      ) : null}
+      {!collapsed && defaultQueue.length > 0 ? (
         <div
           className={cn(
             "opacity-80",
@@ -177,7 +274,7 @@ function GuestPlayQueueLocked({
             ))}
           </ul>
         </div>
-      )}
+      ) : null}
     </div>
   );
 }
@@ -207,10 +304,20 @@ export function PlayQueuePanel({ currentUserId: currentUserIdProp, userActions }
   const q = usePlayQueueOptional();
   const { userId: fileUserId } = useFileContext();
   const currentUserId = currentUserIdProp ?? fileUserId ?? undefined;
+  const [collapsed, setCollapsed] = useState(false);
 
   if (!q) return null;
 
-  const { queue, defaultQueue, viewerCanCustomizeQueue, isCustomized, removeAt, resetQueue } = q;
+  const {
+    queue,
+    defaultQueue,
+    viewerCanCustomizeQueue,
+    isCustomized,
+    removeAt,
+    resetQueue,
+    refreshQueue,
+    queueLoading,
+  } = q;
 
   if (!viewerCanCustomizeQueue) {
     return (
@@ -227,81 +334,65 @@ export function PlayQueuePanel({ currentUserId: currentUserIdProp, userActions }
   if (queue.length === 0) {
     return (
       <div className="rounded-lg border border-border/60 bg-card/40">
-        <div className="flex items-center justify-between gap-2 border-b border-border/50 px-3 py-2">
-          <div className="flex min-w-0 items-center gap-2">
-            <ListVideo className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
-            <span className="truncate text-sm font-semibold text-foreground">Play queue</span>
+        <QueuePanelHeader
+          isCustomized={isCustomized}
+          collapsed={collapsed}
+          onToggleCollapsed={() => setCollapsed((c) => !c)}
+          onReset={resetQueue}
+          onRefresh={refreshQueue}
+          refreshing={queueLoading}
+        />
+        {!collapsed ? (
+          <div className="p-2">
+            <EmptyQueueDropZone />
           </div>
-          {isCustomized ? (
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              className="h-8 shrink-0 gap-1 px-2 text-xs"
-              onClick={resetQueue}
-            >
-              <RotateCcw className="h-3.5 w-3.5" />
-              Reset
-            </Button>
-          ) : null}
-        </div>
-        <div className="p-2">
-          <EmptyQueueDropZone />
-        </div>
+        ) : null}
       </div>
     );
   }
 
   return (
     <div className="rounded-lg border border-border/60 bg-card/40">
-      <div className="flex items-center justify-between gap-2 border-b border-border/50 px-3 py-2">
-        <div className="flex min-w-0 items-center gap-2">
-          <ListVideo className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
-          <span className="truncate text-sm font-semibold text-foreground">Play queue</span>
-          <span className="text-xs text-muted-foreground tabular-nums">({queue.length})</span>
+      <QueuePanelHeader
+        count={queue.length}
+        isCustomized={isCustomized}
+        collapsed={collapsed}
+        onToggleCollapsed={() => setCollapsed((c) => !c)}
+        onReset={resetQueue}
+        onRefresh={refreshQueue}
+        refreshing={queueLoading}
+      />
+      {!collapsed ? (
+        <div
+          className={cn(
+            "flex min-h-0 flex-col overflow-hidden",
+            PLAY_QUEUE_MAX_HEIGHT,
+          )}
+        >
+          <SortableContext items={sortableIds} strategy={verticalListSortingStrategy}>
+            <ul
+              className={cn(
+                "m-0 min-h-0 flex-1 list-none space-y-0 px-1 pb-1",
+                PLAY_QUEUE_SCROLL_BODY,
+              )}
+            >
+              {queue.map((video, index) => (
+                <SortableQueueRow
+                  key={video.id}
+                  video={video}
+                  index={index}
+                  onRemove={() => removeAt(index)}
+                  currentUserId={currentUserId}
+                  userActions={userActions}
+                />
+              ))}
+            </ul>
+          </SortableContext>
+          <div className="shrink-0 border-t border-border/50 p-1">
+            <QueueDropAppend />
+          </div>
         </div>
-        {isCustomized ? (
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            className="h-8 shrink-0 gap-1 px-2 text-xs"
-            onClick={resetQueue}
-          >
-            <RotateCcw className="h-3.5 w-3.5" />
-            Reset
-          </Button>
-        ) : null}
-      </div>
-      <div
-        className={cn(
-          "flex min-h-0 flex-col overflow-hidden",
-          PLAY_QUEUE_MAX_HEIGHT,
-        )}
-      >
-        <SortableContext items={sortableIds} strategy={verticalListSortingStrategy}>
-          <ul
-            className={cn(
-              "m-0 min-h-0 flex-1 list-none space-y-0 px-1 pb-1",
-              PLAY_QUEUE_SCROLL_BODY,
-            )}
-          >
-            {queue.map((video, index) => (
-              <SortableQueueRow
-                key={video.id}
-                video={video}
-                index={index}
-                onRemove={() => removeAt(index)}
-                currentUserId={currentUserId}
-                userActions={userActions}
-              />
-            ))}
-          </ul>
-        </SortableContext>
-        <div className="shrink-0 border-t border-border/50 p-1">
-          <QueueDropAppend />
-        </div>
-      </div>
+      ) : null}
     </div>
   );
 }

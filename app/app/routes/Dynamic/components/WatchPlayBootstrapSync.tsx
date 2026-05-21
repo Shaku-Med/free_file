@@ -1,34 +1,24 @@
 import { useEffect } from "react";
-import type { FileType } from "~/lib/types";
 import { useWatchPlayBootstrap } from "~/lib/Context/WatchPlayBootstrapContext";
 
-/** Registers Dynamic-route queue inputs for the root-hoisted `PlayQueueProvider`. */
+/** Registers Dynamic-route watch identity for the root-hoisted play queue fetch. */
 export function WatchPlayBootstrapSync({
   currentUniqueId,
-  seriesUpNextVideos,
-  suggestedVideos,
+  fileId,
   viewerCanCustomizeQueue,
 }: {
   currentUniqueId: string;
-  seriesUpNextVideos: FileType[];
-  suggestedVideos: FileType[];
+  fileId?: string;
   viewerCanCustomizeQueue: boolean;
 }) {
   const { setBootstrap } = useWatchPlayBootstrap();
   useEffect(() => {
     setBootstrap({
       currentUniqueId,
-      seriesUpNextVideos,
-      suggestedVideos,
+      fileId,
       viewerCanCustomizeQueue,
     });
     return () => setBootstrap(null);
-  }, [
-    currentUniqueId,
-    seriesUpNextVideos,
-    suggestedVideos,
-    viewerCanCustomizeQueue,
-    setBootstrap,
-  ]);
+  }, [currentUniqueId, fileId, viewerCanCustomizeQueue, setBootstrap]);
   return null;
 }

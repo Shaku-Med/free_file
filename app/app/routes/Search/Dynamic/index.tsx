@@ -1,10 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { data, useLoaderData, useNavigate, Link } from "react-router";
-import { Search as SearchIcon, X as XIcon, User, Layers } from "lucide-react";
+import { data, useLoaderData, Link } from "react-router";
+import { User, Layers } from "lucide-react";
 
 import { useFileContext } from "~/lib/Context/Context";
 import type { FileType } from "~/lib/types";
-import { Input } from "~/components/ui/input";
 import { Button } from "~/components/ui/button";
 import { getProfilePicUrl } from "~/lib/utils/profilePic";
 import VideoCard from "~/routes/Home/components/VideoCard";
@@ -208,7 +207,6 @@ function SkeletonCard() {
 
 const Search = () => {
   const loaderData = useLoaderData<typeof loader>();
-  const navigate = useNavigate();
   const { userActions: globalUserActions, userId } = useFileContext();
 
   const initialTerm = useMemo(() => {
@@ -216,7 +214,6 @@ const Search = () => {
     return loaderData.url.trim();
   }, [loaderData]);
 
-  const [inputValue, setInputValue] = useState(initialTerm);
   const [activeTerm, setActiveTerm] = useState(initialTerm);
   const [files, setFiles] = useState<FileType[]>([]);
   const [localUserActions, setLocalUserActions] = useState<{ likedFileIds: Set<string>; dislikedFileIds: Set<string> }>({
@@ -251,20 +248,8 @@ const Search = () => {
   }, [loaderData, globalUserActions]);
 
   useEffect(() => {
-    setInputValue(initialTerm);
     setActiveTerm(initialTerm);
   }, [initialTerm]);
-
-  const handleSubmit = useCallback(
-    (event: React.FormEvent<HTMLFormElement>) => {
-      event.preventDefault();
-      const trimmed = inputValue.trim();
-      if (!trimmed) return;
-      setActiveTerm(trimmed);
-      navigate(`/search/${encodeURIComponent(trimmed)}`, { replace: false });
-    },
-    [inputValue, navigate]
-  );
 
   const loadMore = useCallback(async () => {
     if (isLoadingMore || !hasMore || !activeTerm) return;
@@ -424,42 +409,6 @@ const Search = () => {
   return (
     <div className="mx-auto w-full py-10">
       <div className="space-y-8">
-        <form onSubmit={handleSubmit} className="w-full">
-          <div className="mx-auto w-full md:max-w-2xl">
-            <div className="flex items-center gap-1 rounded-full border border-border/40 bg-primary/5 backdrop-blur-xl pl-4 pr-1 h-12 shadow-xs focus-within:ring-2 focus-within:ring-primary/30 transition-shadow">
-              <SearchIcon className="h-4 w-4 text-muted-foreground shrink-0" />
-              <Input
-                autoFocus
-                type="search"
-                enterKeyHint="search"
-                inputMode="search"
-                value={inputValue}
-                onChange={(event) => setInputValue(event.target.value)}
-                placeholder="Search anything — try a title, tag, creator…"
-                className="h-12 flex-1 min-w-0 border-0 px-2 text-base shadow-none focus-visible:ring-0 placeholder:text-muted-foreground/60"
-              />
-              {inputValue && (
-                <button
-                  type="button"
-                  aria-label="Clear search"
-                  onClick={() => setInputValue('')}
-                  className="inline-flex h-8 w-8 items-center justify-center rounded-full text-muted-foreground hover:bg-muted shrink-0 transition-colors"
-                >
-                  <XIcon className="h-4 w-4" />
-                </button>
-              )}
-              <Button
-                type="submit"
-                aria-label="Search"
-                className="h-10 rounded-full px-4 sm:px-5 font-medium shadow-sm shrink-0"
-              >
-                <SearchIcon className="h-4 w-4 sm:hidden" />
-                <span className="hidden sm:inline">Search</span>
-              </Button>
-            </div>
-          </div>
-        </form>
-
         {activeTerm ? (
           files.length > 0 || searchUsers.length > 0 || seriesRoots.length > 0 ? (
             <div className="space-y-6">

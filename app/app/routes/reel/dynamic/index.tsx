@@ -23,6 +23,7 @@ import { ownerService } from "~/lib/Services/OwnerService";
 import { buildPageMeta } from "~/lib/seo";
 import { isAuthenticated } from "~/lib/Security/Password";
 import { sanitizeFileForPublicViewer } from "~/lib/files/sanitizeFileForViewer";
+import WatchModalShell from "~/components/WatchModalShell";
 
 function fileIdKey(id: unknown): string {
   return String(id ?? "").toLowerCase();
@@ -263,6 +264,7 @@ const index = () => {
 
   if (!file) {
     return (
+      <WatchModalShell variant="sheet">
       <div className="flex items-center justify-center min-h-[70vh] py-20 px-4">
         <div className="text-center max-w-xs space-y-6">
           <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-muted">
@@ -295,6 +297,7 @@ const index = () => {
           </div>
         </div>
       </div>
+      </WatchModalShell>
     );
   }
 
@@ -304,7 +307,9 @@ const index = () => {
   };
 
   return (
-    <Reel initialItems={[file as FileType]} initialUserActions={initialUserActions} />
+    <WatchModalShell variant="sheet">
+      <Reel initialItems={[file as FileType]} initialUserActions={initialUserActions} />
+    </WatchModalShell>
   );
 };
 

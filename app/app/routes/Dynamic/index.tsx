@@ -1,4 +1,5 @@
 import { data, Link, useLoaderData, useNavigate, useParams, useNavigation, useLocation, useSearchParams, useRevalidator, type MetaFunction } from "react-router";
+import WatchModalShell from "~/components/WatchModalShell";
 import db from "~/lib/Database/supabase";
 import { WatchPlayBootstrapSync } from "./components/WatchPlayBootstrapSync";
 import { useCallback, useEffect, useLayoutEffect, useState, useRef, useMemo } from "react";
@@ -6,7 +7,6 @@ import RelatedVideos from "./components/RelatedVideos";
 import SeriesEpisodesSection from "./components/SeriesEpisodesSection";
 import SeriesSignInGate from "./components/SeriesSignInGate";
 import { type FileType, type SeriesEpisodeGroup, fileWatchPath } from "~/lib/types";
-import { collectSeriesMemberIds, getSeriesUpNextVideos } from "./fun/mapSeriesRpcRows";
 import { BASE_URL } from "~/lib/URLS";
 import { buildPageMeta } from "~/lib/seo";
 import ImageLoad from "../Home/components/ImageLoad/ImageLoad";
@@ -482,7 +482,10 @@ function blendDynamicData(cached: DynamicCachePayload, fresh: FreshForBlend): Dy
   };
 }
 
-const index = () => {
+interface DynamicPageProps {
+  is_modal?: boolean;
+}
+const DynamicPage = ({ is_modal }: DynamicPageProps) => {
   const params = useParams();
   const navigation = useNavigation();
   const navigate = useNavigate();
@@ -1201,23 +1204,6 @@ const index = () => {
     relatedBootstrap && relatedBootstrap.videos.length > 0
       ? relatedBootstrap.videos
       : (data.relatedVideos ?? []);
-  const seriesMemberIds = useMemo(
-    () => collectSeriesMemberIds(seriesEpisodesResolved),
-    [seriesEpisodesResolved]
-  );
-  const seriesUpNextVideos = useMemo(
-    () => getSeriesUpNextVideos(seriesEpisodesResolved, currentId ?? ""),
-    [seriesEpisodesResolved, currentId]
-  );
-  const suggestedVideos = useMemo(
-    () =>
-      relatedVideos
-        .filter(
-          (v: FileType) => v.unique_id !== currentId && !seriesMemberIds.has(v.unique_id)
-        )
-        .slice(0, 10),
-    [relatedVideos, currentId, seriesMemberIds]
-  );
 
   const isNavigating = navigation.state === 'loading' && navigation.location?.pathname !== window.location.pathname;
 
@@ -1865,11 +1851,10 @@ const index = () => {
   );
 
   return (
-    <>
+    <WatchModalShell variant="page">
       <WatchPlayBootstrapSync
         currentUniqueId={file_data.unique_id}
-        seriesUpNextVideos={seriesUpNextVideos}
-        suggestedVideos={suggestedVideos}
+        fileId={file_data.id}
         viewerCanCustomizeQueue={Boolean(userId)}
       />
     <div className="relative min-h-screen reel_p" key={`dynamic-${currentId}`}>
@@ -1952,7 +1937,7 @@ const index = () => {
         </div>
       </div>
     </div>
-    </>
+    </WatchModalShell>
   );
 }
-export default index
+export default DynamicPage

@@ -6,7 +6,7 @@ import { useFileContext } from "~/lib/Context/Context";
 import { useLocation } from "react-router";
 import { isPipChromeRoute } from "~/routes/pip/pipEnv";
 import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { BodyContentWidthBridge } from "~/lib/Context/BodyContentWidthContext";
+import PersistentHomeView from "~/routes/Home/PersistentHomeView";
 
 export interface ScrollState {
   state: boolean;
@@ -73,6 +73,16 @@ const BodyComponent = ({ children }: BodyComponentProps) => {
     };
   }, [location.pathname, location.search]);
 
+  // The Home feed lives in `<PersistentHomeView />` here — mounted ONCE
+  // inside the scroll container and visibility-toggled by pathname.
+  // When the URL is `/`, the persistent view is visible and `children`
+  // (the matched route, which is a no-op marker for `/`) renders null.
+  // For any other route, the persistent view is hidden via `display:none`
+  // so its DOM, refs, and observers stay alive — closing a watch / reel
+  // modal returns the user to a feed that NEVER unmounted, preserving
+  // scroll position and all client state.
+  const isHomeRoute = location.pathname === "/";
+
   if (suppressChrome) {
     return (
       <div className="flex h-full min-h-0 w-full min-w-0 flex-1 flex-col overflow-hidden">
@@ -83,7 +93,12 @@ const BodyComponent = ({ children }: BodyComponentProps) => {
           onScroll={handleScroll}
         >
           <ScrollRestoration />
-          <div className="sidebar_body h-full min-h-0 w-full min-w-0 flex-1">{children}</div>
+          <div className="sidebar_body h-full min-h-0 w-full min-w-0 flex-1">
+            <div style={{ display: isHomeRoute ? "block" : "none" }} aria-hidden={!isHomeRoute}>
+              <PersistentHomeView />
+            </div>
+            <div style={{ display: isHomeRoute ? "none" : "block" }}>{children}</div>
+          </div>
         </div>
       </div>
     );
@@ -101,13 +116,16 @@ const BodyComponent = ({ children }: BodyComponentProps) => {
       >
         <ScrollRestoration />
         <Navbar hasScrolled={hasScrolled} />
-        <BodyContentWidthBridge
-          className={`mx-auto w-full min-w-0 ${
+        <div
+          className={`mx-auto w-full min-w-0 flex-1 ${
             applyTheater ? 'max-w-none px-0' : ' px-3 sm:px-5 lg:px-8 xl:px-4'
           } sidebar_body`}
         >
-          {children}
-        </BodyContentWidthBridge>
+          <div style={{ display: isHomeRoute ? "block" : "none" }} aria-hidden={!isHomeRoute}>
+            <PersistentHomeView />
+          </div>
+          <div style={{ display: isHomeRoute ? "none" : "block" }}>{children}</div>
+        </div>
         <Footer />
       </div>
     </div>
