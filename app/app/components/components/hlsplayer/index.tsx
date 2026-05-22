@@ -749,18 +749,17 @@ function PlayerInner({
       const touch = e.changedTouches[0];
       if (!touch) return;
 
-      // Don't hijack taps on actual interactive UI (play/pause button,
-      // settings, seek thumb, etc.) — they have their own onClick and
-      // should run unaltered. Closest-up check covers nested icons.
+      // The toggle (and double-tap seek) only fires when the user taps
+      // the bare video surface — NOT when they tap any chrome layered
+      // on top (control bar wrapper, seek bar, settings, end card,
+      // captions, etc.). Easiest check: is the event target literally
+      // the <video> element? If anything else is on top (the ControlBar
+      // panel, an overlay div), the target will be that overlay, not
+      // the video — and we leave the event to bubble to its own
+      // handlers without changing controls visibility.
       const target = e.target as HTMLElement | null;
-      if (
-        target &&
-        target.closest(
-          'button, a, [role="button"], [role="slider"], input, select, textarea',
-        )
-      ) {
-        return;
-      }
+      const isOnVideoSurface = target !== null && target === videoRef.current;
+      if (!isOnVideoSurface) return;
 
       const now = Date.now();
       const x = touch.clientX;
@@ -773,19 +772,18 @@ function PlayerInner({
         return;
       }
 
-      // Single tap on mobile = toggle controls visibility. Play/pause is
-      // intentionally NOT triggered — the user said tapping the screen
-      // should only show/hide chrome; pausing is via the play button.
+      // Single tap on mobile, ON THE VIDEO ITSELF = toggle controls
+      // visibility. Play/pause is intentionally NOT triggered — the
+      // user said tapping the screen should only show/hide chrome;
+      // pausing is via the play button.
       //
-      // We defer to the same window we use to detect doubles so a
-      // pending second tap doesn't ALSO flip the controls. The delay
-      // matches the double-tap window above (350ms) plus a small buffer.
+      // Defer to the same window we use to detect doubles so a pending
+      // second tap doesn't ALSO flip the controls.
       if (isMobile) {
         const tapId = now;
         const wasVisible = state.controlsVisible;
         window.setTimeout(() => {
-          // Bail if another tap landed in the meantime — it's becoming a
-          // double-tap and the seek branch will own the gesture.
+          // Bail if another tap landed — it's becoming a double-tap.
           if (lastTapRef.current?.time !== tapId) return;
           setControlsVisible(!wasVisible);
         }, 320);
@@ -795,6 +793,7 @@ function PlayerInner({
       isReelCtx,
       embedReelControls,
       inPipForThisVideo,
+      videoRef,
       performSeekByTap,
       state.controlsVisible,
       setControlsVisible,
