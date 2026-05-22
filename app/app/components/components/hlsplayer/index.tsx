@@ -744,22 +744,22 @@ function PlayerInner({
 
   const handleTouchEnd = useCallback(
     (e: React.TouchEvent) => {
+      // Tap-to-toggle-controls is intentionally NOT done here. The
+      // existing `useControlsVisibility` hook already wires touchstart
+      // on the container to show controls + auto-hide after 3s, which
+      // is the standard mobile video-player behavior. Adding another
+      // toggle on touchend caused a visible flash (show via touchstart,
+      // immediately hide via this handler) — so this handler now ONLY
+      // owns the double-tap-to-seek gesture.
       if (isReelCtx && !embedReelControls) return;
       if (inPipForThisVideo) return;
       const touch = e.changedTouches[0];
       if (!touch) return;
 
-      // The toggle (and double-tap seek) only fires when the user taps
-      // the bare video surface — NOT when they tap any chrome layered
-      // on top (control bar wrapper, seek bar, settings, end card,
-      // captions, etc.). Easiest check: is the event target literally
-      // the <video> element? If anything else is on top (the ControlBar
-      // panel, an overlay div), the target will be that overlay, not
-      // the video — and we leave the event to bubble to its own
-      // handlers without changing controls visibility.
+      // Restrict to taps that landed on the bare video — chrome taps
+      // are handled by their own buttons / overlays.
       const target = e.target as HTMLElement | null;
-      const isOnVideoSurface = target !== null && target === videoRef.current;
-      if (!isOnVideoSurface) return;
+      if (!target || target !== videoRef.current) return;
 
       const now = Date.now();
       const x = touch.clientX;
@@ -769,24 +769,6 @@ function PlayerInner({
       if (isDoubleTap) {
         lastDoubleTapTimeRef.current = now;
         performSeekByTap(x);
-        return;
-      }
-
-      // Single tap on mobile, ON THE VIDEO ITSELF = toggle controls
-      // visibility. Play/pause is intentionally NOT triggered — the
-      // user said tapping the screen should only show/hide chrome;
-      // pausing is via the play button.
-      //
-      // Defer to the same window we use to detect doubles so a pending
-      // second tap doesn't ALSO flip the controls.
-      if (isMobile) {
-        const tapId = now;
-        const wasVisible = state.controlsVisible;
-        window.setTimeout(() => {
-          // Bail if another tap landed — it's becoming a double-tap.
-          if (lastTapRef.current?.time !== tapId) return;
-          setControlsVisible(!wasVisible);
-        }, 320);
       }
     },
     [
@@ -795,8 +777,6 @@ function PlayerInner({
       inPipForThisVideo,
       videoRef,
       performSeekByTap,
-      state.controlsVisible,
-      setControlsVisible,
     ],
   );
 
