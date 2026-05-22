@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router";
-import { Fingerprint, Monitor, Moon, Sun } from "lucide-react";
+import { BellRing, Fingerprint, Monitor, Moon, Sun } from "lucide-react";
+import { usePushNotifications } from "~/lib/hooks/usePushNotifications";
 import { Button } from "~/components/ui/button";
 import { Input } from "~/components/ui/input";
 import { Separator } from "~/components/ui/separator";
@@ -42,6 +43,7 @@ const THEME_MODE_LABELS: Record<ThemeMode, string> = {
 const SettingsPage = () => {
   const { userId } = useFileContext();
   const navigate = useNavigate();
+  const push = usePushNotifications();
   const [showNsfw, setShowNsfw] = useState(false);
   const [theme, setTheme] = useState<UserTheme>(DEFAULT_THEME);
   const [isLoading, setIsLoading] = useState(true);
@@ -353,6 +355,53 @@ const SettingsPage = () => {
           </section>
 
           <Separator />
+
+          {push.supported && (
+            <>
+              <section>
+                <h2 className="text-sm font-medium text-foreground mb-2">Notifications</h2>
+                <div className="flex items-start justify-between gap-4 py-1">
+                  <div className="flex min-w-0 flex-1 items-start gap-3">
+                    <BellRing className="h-5 w-5 shrink-0 text-primary mt-0.5" />
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-medium text-foreground">Push notifications</p>
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        {push.permission === "denied"
+                          ? "Blocked in your browser settings. Allow notifications for this site to enable."
+                          : push.isSubscribed
+                            ? "You'll get browser alerts for new activity when you're not on the site."
+                            : "Get notified when you're not on the site."}
+                      </p>
+                      {push.error && (
+                        <p className="mt-2 rounded-md bg-destructive/10 px-2 py-1.5 text-xs text-destructive">
+                          {push.error}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={push.isSubscribed}
+                    aria-label={push.isSubscribed ? "Disable push notifications" : "Enable push notifications"}
+                    onClick={() => (push.isSubscribed ? push.unsubscribe() : push.subscribe())}
+                    disabled={push.loading || push.permission === "denied"}
+                    className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full border border-input transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 ${
+                      push.isSubscribed ? "bg-primary border-primary" : "bg-muted"
+                    }`}
+                  >
+                    <span
+                      className={`pointer-events-none block h-5 w-5 rounded-full bg-background shadow ring-0 transition-transform ${
+                        push.isSubscribed ? "translate-x-5" : "translate-x-0.5"
+                      }`}
+                    />
+                  </button>
+                </div>
+              </section>
+
+              <Separator />
+            </>
+          )}
 
           <section>
             <h2 className="text-sm font-medium text-foreground mb-2">Content</h2>

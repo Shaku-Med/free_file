@@ -270,10 +270,36 @@ export function useMiniPlayerDrag(sessionKey: string) {
       const { dx, dy } = dragDeltaRef.current;
       const x = startRef.current.elX + dx;
       const y = startRef.current.elY + dy;
-      // Clear inline transform; commit final left/top to React state in the same render.
+      // Hand-off from transform → left/top WITHOUT a visual jump.
+      //
+      // Previously we cleared `transform` first and then queued a React
+      // setState for the new `position`. Between those two steps the
+      // element was effectively at `position-state + transform=0`, which
+      // is the *pre-drag* origin — so the user briefly saw the player
+      // teleport back to where they grabbed it, then transition to its
+      // final spot. That's the "snap" the user is complaining about.
+      //
+      // The fix: commit the live drag position to `left/top` IN THE SAME
+      // DOM batch as clearing `transform`. The browser paints the element
+      // exactly where the finger left it. React's subsequent setState
+      // updates left/top to the snap target — the CSS transition runs
+      // from the released position to the snap, smooth and direct.
       const el = elementRef.current;
       if (el) {
+        // Suspend transition during the swap so the element doesn't try
+        // to animate from old left/top to new left/top while we're
+        // simultaneously zeroing the transform.
+        const prevTransition = el.style.transition;
+        el.style.transition = "none";
+        el.style.left = `${x}px`;
+        el.style.top = `${y}px`;
         el.style.transform = "";
+        // Restore so the React-driven snap below animates as intended.
+        // Read offsetWidth to flush the no-transition paint before
+        // re-enabling — without this the browser may coalesce and skip
+        // the transition entirely on the next frame.
+        void el.offsetWidth;
+        el.style.transition = prevTransition;
       }
       dragDeltaRef.current = { dx: 0, dy: 0 };
       positionRef.current = { x, y };

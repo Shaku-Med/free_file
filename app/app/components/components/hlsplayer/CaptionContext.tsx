@@ -326,6 +326,121 @@ export function CaptionProvider({ children, file, videoRef }: CaptionProviderPro
     }
   }, [videoRef, currentLanguage, cuesByLang])
 
+  /**
+   * Mirror caption cues into the native `<video>` element's TextTracks.
+   *
+   * Why: iOS Safari's native fullscreen player has no idea about our
+   * React caption overlay — the overlay is hidden behind iOS's own
+   * video chrome. When the user taps fullscreen on a phone they get
+   * Apple's native player. Native players show a CC button if (and
+   * only if) the `<video>` has TextTracks attached.
+   *
+   * Strategy:
+   *   - Maintain one TextTrack per language. Cues get added once and
+   *     reused for the lifetime of the video element.
+   *   - Default `mode = 'hidden'` so our React overlay owns rendering
+   *     in normal (non-fullscreen) mode without double-displaying.
+   *   - On fullscreen enter (covers both W3C `fullscreenchange` and
+   *     iOS-specific `webkitbeginfullscreen` on the video element),
+   *     flip the active language to `'showing'` so native captions
+   *     render inside Apple's player. Restore to `'hidden'` on exit.
+   *   - If the user clicks the iOS CC button itself we don't fight it —
+   *     iOS may flip modes to `'disabled'` and that just means "no
+   *     captions" in native UI, which is fine.
+   */
+  useEffect(() => {
+    const video = videoRef.current
+    if (!video) return
+    if (languages.length === 0) return
+
+    // Map of language code → its native TextTrack on this video.
+    const trackMap = new Map<string, TextTrack>()
+
+    for (const lang of languages) {
+      // Reuse a track for this language if we already added one (e.g. when
+      // the user toggles between langs without remounting the video).
+      let track: TextTrack | undefined
+      for (let i = 0; i < video.textTracks.length; i++) {
+        const t = video.textTracks[i]
+        if (t.language === lang.code && t.label === lang.label) {
+          track = t
+          break
+        }
+      }
+      if (!track) {
+        track = video.addTextTrack("captions", lang.label, lang.code)
+      }
+      trackMap.set(lang.code, track)
+
+      const cues = cuesByLang[lang.code]
+      if (!cues || cues.length === 0) continue
+      // Only refill if the cue count differs — addCue is idempotent-ish
+      // but VTTCue creation is non-trivial when the cue list is huge.
+      if ((track.cues?.length ?? 0) === cues.length) continue
+      // Clear and re-add to keep it in sync.
+      if (track.cues) {
+        while (track.cues.length > 0) {
+          track.removeCue(track.cues[0])
+        }
+      }
+      for (const cue of cues) {
+        try {
+          track.addCue(new VTTCue(cue.start, cue.end, cue.text))
+        } catch {
+          /* malformed cue — skip silently */
+        }
+      }
+    }
+
+    // Find the track for the active language, if any.
+    const activeTrack = currentLanguage ? trackMap.get(currentLanguage) ?? null : null
+
+    // Default: all tracks hidden (our React overlay owns non-fullscreen
+    // rendering). Tracks for non-active languages get `disabled` so iOS
+    // doesn't list them as "off-by-default but available" — only the
+    // chosen language shows up as the togglable one.
+    for (const [code, t] of trackMap) {
+      if (code === currentLanguage) {
+        t.mode = "hidden"
+      } else {
+        t.mode = "disabled"
+      }
+    }
+
+    // Sync mode to fullscreen state. Inside fullscreen → 'showing' so
+    // iOS renders the captions natively. Outside → 'hidden' so our
+    // React overlay is the sole renderer.
+    const isInFullscreen = () => {
+      if (typeof document === "undefined") return false
+      const fsEl = document.fullscreenElement ?? (document as Document & { webkitFullscreenElement?: Element | null }).webkitFullscreenElement
+      if (fsEl) return true
+      // iOS Safari sets `webkitDisplayingFullscreen` on the video element
+      // itself, separate from the document fullscreen API.
+      const v = video as HTMLVideoElement & { webkitDisplayingFullscreen?: boolean }
+      return Boolean(v.webkitDisplayingFullscreen)
+    }
+
+    const syncMode = () => {
+      if (!activeTrack) return
+      activeTrack.mode = isInFullscreen() ? "showing" : "hidden"
+    }
+    syncMode()
+
+    document.addEventListener("fullscreenchange", syncMode)
+    document.addEventListener("webkitfullscreenchange", syncMode as EventListener)
+    video.addEventListener("webkitbeginfullscreen", syncMode)
+    video.addEventListener("webkitendfullscreen", syncMode)
+
+    return () => {
+      document.removeEventListener("fullscreenchange", syncMode)
+      document.removeEventListener("webkitfullscreenchange", syncMode as EventListener)
+      video.removeEventListener("webkitbeginfullscreen", syncMode)
+      video.removeEventListener("webkitendfullscreen", syncMode)
+      // Don't destroy tracks on cleanup — keeping them lets a fast
+      // language toggle reuse the loaded cues without refetching.
+    }
+  }, [videoRef, languages, cuesByLang, currentLanguage])
+
   const value = useMemo<CaptionContextValue>(
     () => ({
       languages,

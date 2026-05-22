@@ -19,6 +19,10 @@ export function useHLS(videoRef: React.RefObject<HTMLVideoElement | null>) {
   /** Tracks which engine path serviced the previous src so we can decide whether to hot-swap. */
   const lastEnginePathRef = useRef<'hlsjs' | 'native' | 'direct' | null>(null);
   const lastAttachedVideoRef = useRef<HTMLVideoElement | null>(null);
+  /** Most-recent non-zero playback position. Sampled on timeupdate so a
+   *  brief `currentTime === 0` reading during an error path doesn't
+   *  cause the resume logic to restart the video from the beginning. */
+  const lastKnownGoodTimeRef = useRef<number>(0);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -38,6 +42,7 @@ export function useHLS(videoRef: React.RefObject<HTMLVideoElement | null>) {
     if (!video || !src) return;
 
     let nativeLoadedCleanup: (() => void) | null = null;
+    let timeUpdateCleanup: (() => void) | null = null;
 
     const isHLSStream =
       src.includes('.m3u8') || src.includes('application/vnd.apple.mpegurl');
@@ -178,21 +183,57 @@ export function useHLS(videoRef: React.RefObject<HTMLVideoElement | null>) {
 
         hlsRef.current = hls;
 
+        // Pending resume target. Set when we trigger a remint / network
+        // recovery. The next MANIFEST_PARSED handler reads this and
+        // forces the <video> element back to that position, because
+        // hls.js's `startLoad(seekPosition)` is best-effort — depending
+        // on timing it can leave the playhead at 0 after a loadSource,
+        // which is exactly the "boom it starts from the beginning" the
+        // user was hitting.
+        let pendingResumeAt: number | null = null;
+
         const startLoadResumingVoD = (resumeSeconds: number) => {
           if (!Number.isFinite(resumeSeconds) || resumeSeconds < 0) {
             hls.startLoad(-1);
+            pendingResumeAt = null;
             return;
           }
           const d = video.duration;
           if (Number.isFinite(d) && d > 0) {
+            // Past-the-end: don't restart from zero — pin to the last
+            // frame so the player just shows the ended state, matching
+            // what the user was seeing before the token died.
             if (resumeSeconds >= d - 0.25) {
-              hls.startLoad(-1);
+              const endPos = Math.max(0, d - 0.1);
+              pendingResumeAt = endPos;
+              hls.startLoad(endPos);
               return;
             }
-            hls.startLoad(Math.min(Math.max(0, resumeSeconds), d - 0.05));
+            const clamped = Math.min(Math.max(0, resumeSeconds), d - 0.05);
+            pendingResumeAt = clamped;
+            hls.startLoad(clamped);
             return;
           }
+          pendingResumeAt = resumeSeconds;
           hls.startLoad(resumeSeconds);
+        };
+
+        // Defensive resume: if pendingResumeAt is set when the next
+        // manifest finishes parsing, re-seek the <video> if it's drifted
+        // off target. Cheaper than fighting hls.js's start-position
+        // semantics and works across loadSource boundaries.
+        const applyPendingResume = () => {
+          const target = pendingResumeAt;
+          if (target === null || !Number.isFinite(target)) return;
+          pendingResumeAt = null;
+          try {
+            const cur = video.currentTime;
+            if (Math.abs(cur - target) > 0.5) {
+              video.currentTime = target;
+            }
+          } catch {
+            /* readyState may be too early — ignore, next event will retry */
+          }
         };
 
         let playlistRemintInFlight = false;
@@ -225,7 +266,15 @@ export function useHLS(videoRef: React.RefObject<HTMLVideoElement | null>) {
           lastRemintAt = now;
           remintCountInWindow += 1;
 
-          const resumeAt = video.currentTime;
+          // Resume target: prefer the live playhead, but fall back to
+          // the most-recent non-zero position we've seen. video.currentTime
+          // can momentarily read 0 mid-error (Safari especially), and if
+          // we capture 0 here the user gets the dreaded restart-from-start.
+          const live = video.currentTime;
+          const resumeAt =
+            Number.isFinite(live) && live > 0.1
+              ? live
+              : lastKnownGoodTimeRef.current ?? 0;
           const baseSrc = stripMkSearchParam(src);
           // A 403 here almost always means the cached `_mk` was already consumed at the
           // CDN (e.g., by an earlier mount of the same player). Drop the cache entry so
@@ -256,8 +305,38 @@ export function useHLS(videoRef: React.RefObject<HTMLVideoElement | null>) {
         lastEnginePathRef.current = 'hlsjs';
         lastAttachedVideoRef.current = video;
 
+        // Sample the last known good playhead. The remint / recovery
+        // path falls back to this when video.currentTime momentarily
+        // reads 0 mid-error (Safari quirk most often), preventing the
+        // "boom it restarts" symptom.
+        const onTimeUpdate = () => {
+          const t = video.currentTime;
+          if (Number.isFinite(t) && t > 0.1) {
+            lastKnownGoodTimeRef.current = t;
+          }
+        };
+        video.addEventListener('timeupdate', onTimeUpdate);
+        // Replace any prior listener registration so src-change re-runs
+        // don't accumulate listeners on the persistent video element.
+        timeUpdateCleanup?.();
+        timeUpdateCleanup = () => {
+          video.removeEventListener('timeupdate', onTimeUpdate);
+        };
+
         hls.on(Hls.Events.MANIFEST_PARSED, () => {
           if (!mountedRef.current) return;
+          // Re-seek if a remint / recovery captured a position we still
+          // owe. Runs before level selection so the playhead is correct
+          // by the time hls picks the next fragment.
+          applyPendingResume();
+          // Belt + suspenders: video metadata may not be loaded yet on
+          // first MANIFEST_PARSED — wait once more after LEVEL_LOADED to
+          // finish the seek if the first attempt no-op'd.
+          const onceLevel = () => {
+            applyPendingResume();
+            hls.off(Hls.Events.LEVEL_LOADED, onceLevel);
+          };
+          hls.on(Hls.Events.LEVEL_LOADED, onceLevel);
           const lvls = (hls.levels || []).map((l: any) => ({
             height: l.height,
             width: l.width,
@@ -423,6 +502,7 @@ export function useHLS(videoRef: React.RefObject<HTMLVideoElement | null>) {
     return () => {
       cancelled = true;
       nativeLoadedCleanup?.();
+      timeUpdateCleanup?.();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- bootstrap via hlsAuthRef only; new tokens on root revalidate must not restart HLS
   }, [src]);

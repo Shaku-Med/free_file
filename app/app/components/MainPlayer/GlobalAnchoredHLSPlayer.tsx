@@ -1,5 +1,5 @@
 import { createPortal } from "react-dom";
-import { useEffect, useMemo, useLayoutEffect, useRef, useState, type RefObject } from "react";
+import { useCallback, useEffect, useMemo, useLayoutEffect, useRef, useState, type RefObject } from "react";
 import { useNavigate } from "react-router";
 import { DynamicHLSPlayerWithQueue } from "~/routes/Dynamic/components/DynamicHLSPlayerWithQueue";
 import type { DynamicHLSPlayerWithQueueProps } from "~/routes/Dynamic/components/DynamicHLSPlayerWithQueue";
@@ -61,8 +61,25 @@ export function GlobalAnchoredHLSPlayer() {
   const syncPositionEachFrame =
     Boolean(inMiniLayout && state.miniAnchorEl) ||
     Boolean(surface?.props && state.anchorEl);
+  // Imperative position updates — bypasses React's reconciler so scroll
+  // and drag no longer re-render the entire portal'd player subtree on
+  // every frame. The hook still hands us a state-backed rect for the
+  // FIRST mount (so the portal renders), then routes subsequent updates
+  // through onUpdate which we apply directly to the container's style.
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const onRectUpdate = useCallback((r: { top: number; left: number; width: number; height: number }) => {
+    const el = containerRef.current;
+    if (!el) return;
+    // Update style directly. style writes are coalesced by the browser
+    // and never trigger React work — this is the entire perf fix.
+    el.style.top = `${r.top}px`;
+    el.style.left = `${r.left}px`;
+    el.style.width = `${r.width}px`;
+    el.style.height = `${r.height}px`;
+  }, []);
   const rawRect = useAnchorBoundingRect(anchorEl, {
     syncPositionEachFrame,
+    onUpdate: onRectUpdate,
   });
   const lastGoodRectRef = useRef<{
     top: number;
@@ -171,6 +188,7 @@ export function GlobalAnchoredHLSPlayer() {
 
   return createPortal(
     <div
+      ref={containerRef}
       className={cn(
         "pointer-events-auto overflow-hidden",
         theaterMode ? "bg-black" : "rounded-lg",
@@ -182,6 +200,9 @@ export function GlobalAnchoredHLSPlayer() {
         width: rect.width,
         height: rect.height,
         zIndex: z,
+        // Promote to its own compositor layer — scroll won't repaint the
+        // video texture, just re-position the layer. Cheap to keep on.
+        willChange: "top, left, width, height",
       }}
     >
       <DynamicHLSPlayerWithQueue

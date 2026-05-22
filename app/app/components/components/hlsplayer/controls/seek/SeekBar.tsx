@@ -581,7 +581,13 @@ export default function SeekBar({ mobileStyle = false }: { mobileStyle?: boolean
   }, [isDragging, endInteraction, finishScrubbing]);
 
   return (
-    <div className={cn('relative w-full group/seek px-0', mobileStyle && 'touch-none')}>
+    // `touch-pan-y` on mobile lets the browser keep ownership of
+    // vertical pan gestures (so the user can scroll the page when their
+    // finger lands on the seek bar) while still letting our pointer
+    // handlers receive horizontal swipes for scrubbing. Previously this
+    // was `touch-none`, which captured ALL gestures and silently broke
+    // page scroll over the bar.
+    <div className={cn('relative w-full group/seek px-0', mobileStyle && 'touch-pan-y')}>
       {/* PNG legacy preload — only fires when we've fallen back to the
           PNG branch. Flags the PNG-specific error flag so the resolution
           ladder above can drop the whole waveform if even the PNG 404s.

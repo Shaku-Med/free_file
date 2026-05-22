@@ -336,11 +336,18 @@ function PlayerInner({
   const callBackRef = useRef(callBack);
   callBackRef.current = callBack;
   const [mediaSessionImage, setMediaSessionImage] = useState<string | null>(null);
+  // Absolute HTTP poster URL. Goes into MediaMetadata.artwork as a
+  // network-fetchable fallback so cast / AirPlay receivers can show the
+  // poster even when the HLS stream isn't reachable on the TV side.
+  // Cast can't fetch the blob: URL that mediaSessionImage carries; this
+  // one IS fetchable because it points at the regular thumbnail endpoint.
+  const [mediaSessionPosterHttp, setMediaSessionPosterHttp] = useState<string | null>(null);
   const mediaSessionFileUidRef = useRef<string | undefined>(file?.unique_id);
   mediaSessionFileUidRef.current = file?.unique_id;
 
   useEffect(() => {
     setMediaSessionImage(null);
+    setMediaSessionPosterHttp(null);
   }, [file?.unique_id]);
   const [showPlayPauseFeedback, setShowPlayPauseFeedback] = useState(false);
   const [feedbackFading, setFeedbackFading] = useState(false);
@@ -536,6 +543,12 @@ function PlayerInner({
     callBackRef.current?.({ src: imgSrc, colors });
     const source = mediaSessionUrl ?? imgSrc;
     const uid = file?.unique_id;
+    // Capture the absolute HTTP poster up-front. PosterBackground already
+    // prepends window.location.origin so `mediaSessionUrl` is a fully
+    // qualified URL — perfect for cast / AirPlay receivers to fetch.
+    if (mediaSessionUrl) {
+      setMediaSessionPosterHttp(mediaSessionUrl);
+    }
     if (!source) {
       setMediaSessionImage(null);
       return;
@@ -725,7 +738,8 @@ function PlayerInner({
           onNext: handleNextVideo,
           onPrevious: handlePreviousVideo,
         }
-      : null
+      : null,
+    mediaSessionPosterHttp,
   );
 
   const handleTouchEnd = useCallback(
@@ -734,6 +748,20 @@ function PlayerInner({
       if (inPipForThisVideo) return;
       const touch = e.changedTouches[0];
       if (!touch) return;
+
+      // Don't hijack taps on actual interactive UI (play/pause button,
+      // settings, seek thumb, etc.) — they have their own onClick and
+      // should run unaltered. Closest-up check covers nested icons.
+      const target = e.target as HTMLElement | null;
+      if (
+        target &&
+        target.closest(
+          'button, a, [role="button"], [role="slider"], input, select, textarea',
+        )
+      ) {
+        return;
+      }
+
       const now = Date.now();
       const x = touch.clientX;
       const prev = lastTapRef.current;
@@ -742,9 +770,35 @@ function PlayerInner({
       if (isDoubleTap) {
         lastDoubleTapTimeRef.current = now;
         performSeekByTap(x);
+        return;
+      }
+
+      // Single tap on mobile = toggle controls visibility. Play/pause is
+      // intentionally NOT triggered — the user said tapping the screen
+      // should only show/hide chrome; pausing is via the play button.
+      //
+      // We defer to the same window we use to detect doubles so a
+      // pending second tap doesn't ALSO flip the controls. The delay
+      // matches the double-tap window above (350ms) plus a small buffer.
+      if (isMobile) {
+        const tapId = now;
+        const wasVisible = state.controlsVisible;
+        window.setTimeout(() => {
+          // Bail if another tap landed in the meantime — it's becoming a
+          // double-tap and the seek branch will own the gesture.
+          if (lastTapRef.current?.time !== tapId) return;
+          setControlsVisible(!wasVisible);
+        }, 320);
       }
     },
-    [isReelCtx, embedReelControls, inPipForThisVideo, performSeekByTap]
+    [
+      isReelCtx,
+      embedReelControls,
+      inPipForThisVideo,
+      performSeekByTap,
+      state.controlsVisible,
+      setControlsVisible,
+    ],
   );
 
   useEffect(() => {

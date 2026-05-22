@@ -43,7 +43,11 @@ export function playerEndUiLayout(playerW: number, playerH: number) {
     roomierPadding: playerW >= 380,
     largerType: playerW >= 440,
     replayRailWidth: playerW >= 500,
-    endCardGridCols: playerW >= 520 ? 4 : playerW >= 260 ? 2 : 1,
+    // YouTube-style end card stays as a fixed 4-column grid at every
+    // player size — the cards themselves shrink. Breaking into 2x2 / 1x4
+    // makes the end card feel like a different surface; keeping 4-up
+    // matches how YouTube does it across phone / tablet / desktop.
+    endCardGridCols: 4,
     controlsClearancePx:
       playerH >= 480 ? 88 : playerH >= 360 ? 100 : playerH > 0 ? 132 : 100,
   };

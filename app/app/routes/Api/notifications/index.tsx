@@ -30,9 +30,17 @@ export const loader = async ({ request }: { request: Request }) => {
     const limit = validateInteger(url.searchParams.get("limit"), 1, 50) ?? 20;
     const offset = validateInteger(url.searchParams.get("offset"), 0, 10000) ?? 0;
 
+    // Thumbnail columns join: getThumbnailUrl needs default_thumbnail /
+    // thumbnails / file_type / endpoint / created_at / filename /
+    // unique_id to resolve a real poster URL on the client. is_adult is
+    // pulled too so the renderer can blur NSFW posters in the inbox.
     const { data: rows, error } = await db
       .from("notifications")
-      .select("id, type, actor_id, file_id, comment_id, created_at, read_at, users!actor_id(username, profile_pic), files!file_id(unique_id)")
+      .select(
+        "id, type, actor_id, file_id, comment_id, created_at, read_at, " +
+          "users!actor_id(username, profile_pic), " +
+          "files!file_id(unique_id, default_thumbnail, thumbnails, file_type, endpoint, created_at, filename, is_adult)",
+      )
       .eq("user_id", user.id)
       .order("created_at", { ascending: false })
       .range(offset, offset + limit - 1);

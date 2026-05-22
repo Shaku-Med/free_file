@@ -36,6 +36,7 @@ import AppShell from "./components/AppShell";
 import RegisterServiceWorker from "./components/RegisterServiceWorker";
 import { ThemeApply } from "./components/ThemeApply";
 import SignInPrompt from "./components/SignInPrompt";
+import PushPromptOverlay from "./components/PushPromptOverlay";
 import type { UserTheme } from "./lib/theme/constants";
 import { parseUserTheme } from "./lib/theme/constants";
 import { getPlayerSettingsFromCookies } from "./routes/Api/player-settings";
@@ -308,6 +309,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
                               <MiniPlayer />
                               <GlobalAnchoredHLSPlayer />
                               <SignInPrompt />
+                              <PushPromptOverlay />
                             </GlobalPlayerLayoutProvider>
                           </RootPlayQueueProvider>
                         </MainPlayerSlotProvider>

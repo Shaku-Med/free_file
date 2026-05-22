@@ -15,7 +15,7 @@ import Actions from "./VideoCard/Actions";
 import { Separator } from "~/components/ui/separator";
 import { Progress } from "~/components/ui/progress";
 import CategoryBadges from "~/components/CategoryBadges";
-import { Info, MoreVertical, ChevronDown, X, Check, AlertTriangle, Send, Loader2, ImagePlus, MessageSquare, MessageSquareOff, ListVideo, Layers, ListPlus, ListChecks, Captions } from "lucide-react";
+import { Info, MoreVertical, ChevronDown, X, Check, AlertTriangle, Send, Loader2, ImagePlus, MessageSquare, MessageSquareOff, ListVideo, Layers, ListPlus, ListChecks, Captions, Clapperboard } from "lucide-react";
 import { CaptionModal, type CaptionEntry } from "~/components/captions/CaptionModal";
 import { findLanguageLabel } from "~/lib/captions/vtt";
 import { Tooltip, TooltipContent, TooltipTrigger } from "~/components/ui/tooltip";
@@ -95,7 +95,7 @@ function isSeriesFile(f: FileType): boolean {
   return t(f.is_series_main) || t(f.is_series_episode) || t(f.is_files_series_item);
 }
 
-type LayoutType = "default" | "horizontal" | "compact" | "reelStrip" | "shelf" | "endCard";
+type LayoutType = "default" | "horizontal" | "compact" | "reelStrip" | "shelf" | "endCard" | "notificationThumb";
 
 interface VideoCardProps {
   data: FileType;
@@ -1078,10 +1078,10 @@ const VideoCard = ({
       ) : null}
       {data.is_reel && (
         <div
-          className="pointer-events-none absolute right-2 top-2 z-[100] inline-flex items-center rounded-full border border-destructive/50 bg-destructive px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.08em] text-destructive-foreground shadow-sm"
+          className="pointer-events-none absolute right-2 top-2 z-[100] inline-flex items-center justify-center rounded-full text-shadow-lg"
           aria-label="Reel"
         >
-          Reel
+          <Clapperboard className="h-3.5 w-3.5 shrink-0" strokeWidth={2.5} aria-hidden />
         </div>
       )}
       <motion.div
@@ -2468,21 +2468,24 @@ const VideoCard = ({
           e.preventDefault();
           void handleWatchNav();
         }}
-        className="group flex w-full flex-col gap-2 rounded-lg p-1.5 text-left transition-colors hover:bg-white/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-white/60"
+        // End-card cells get tighter as the player narrows — fluid
+        // padding + clamp-sized type so the 4-column grid stays readable
+        // on a 320px phone player without forcing us to drop to 2x2.
+        className="group flex w-full flex-col gap-[clamp(0.25rem,1.5cqi,0.5rem)] rounded-lg p-[clamp(0.25rem,1.2cqi,0.5rem)] text-left transition-colors hover:bg-white/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-white/60"
       >
         <div className="relative aspect-video w-full overflow-hidden rounded-md bg-card ring-1 ring-white/10">
           {renderThumbnail("h-full w-full")}
           {durationStr && (
-            <span className="absolute right-1 bottom-1 rounded bg-black/85 px-1.5 py-0.5 text-[10px] font-semibold tabular-nums leading-none text-white">
+            <span className="absolute right-1 bottom-1 rounded bg-black/85 px-1 py-0.5 text-[clamp(8px,2cqi,10px)] font-semibold tabular-nums leading-none text-white">
               {durationStr}
             </span>
           )}
         </div>
         <div className="flex min-w-0 flex-col gap-0.5 px-0.5">
-          <h3 className="line-clamp-2 text-[13px] font-medium leading-snug text-white">
+          <h3 className="line-clamp-2 text-[clamp(10px,2.6cqi,13px)] font-medium leading-snug text-white">
             <ParseFilenameInsert filename={data.file_title || data.filename} showLimit={60} />
           </h3>
-          <div className="flex min-w-0 flex-wrap items-center gap-x-1 text-[11px] leading-tight text-white/70">
+          <div className="flex min-w-0 flex-wrap items-center gap-x-1 text-[clamp(9px,2.2cqi,11px)] leading-tight text-white/70">
             {data.owner && (
               <span className="max-w-[10rem] truncate">{data.owner.username}</span>
             )}
@@ -2495,6 +2498,24 @@ const VideoCard = ({
           </div>
         </div>
       </Link>
+    );
+  }
+
+  if (layout === "notificationThumb") {
+    /**
+     * Bare 16:9 poster — no title, no actions, no internal <Link>. Used
+     * as the right-side preview in the notifications inbox where the
+     * notification row IS already a link wrapping the whole thing.
+     *
+     * All the actual thumbnail logic (default vs thumbnails[] vs
+     * legacy path, NSFW handling, retry-on-error, lazy loading) lives
+     * in `renderThumbnail` above — this layout exists purely so the
+     * inbox doesn't reinvent it.
+     */
+    return (
+      <div className="relative h-full w-full overflow-hidden rounded-md bg-card ring-1 ring-border/40">
+        {renderThumbnail("h-full w-full")}
+      </div>
     );
   }
 

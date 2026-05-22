@@ -72,7 +72,7 @@ export default function Navbar({ hasScrolled = { state: false, opacityLevel: 0 }
     >
       <div
         aria-hidden
-        className="pointer-events-none absolute inset-0 border-b border-border/40 bg-card/90 backdrop-blur-md supports-[backdrop-filter]:bg-card/75"
+        className="pointer-events-none absolute inset-0 border-b border-border/40 bg-background/90 sm:bg-card/90 backdrop-blur-md supports-[backdrop-filter]:bg-background/75 sm:supports-[backdrop-filter]:bg-card/75"
         style={{ opacity: barOpacity }}
       />
       <div className="relative z-10 mx-auto flex h-14 min-w-0 items-center gap-1 px-2 sm:px-4">

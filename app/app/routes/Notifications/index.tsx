@@ -4,8 +4,9 @@ import { useFileContext } from "~/lib/Context/Context";
 import { Button } from "~/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "~/components/ui/avatar";
 import { getProfilePicUrl } from "~/lib/utils/profilePic";
-import { Heart, MessageCircle, Reply, ThumbsUp, AtSign, BellRing, UserPlus } from "lucide-react";
-import { usePushNotifications } from "~/lib/hooks/usePushNotifications";
+import { Heart, MessageCircle, Reply, ThumbsUp, AtSign, UserPlus } from "lucide-react";
+import VideoCard from "~/routes/Home/components/VideoCard";
+import type { FileType } from "~/lib/types";
 
 type NotificationType =
   | "file_like"
@@ -24,8 +25,18 @@ interface NotificationRow {
   created_at: string;
   read_at: string | null;
   users: { username: string; profile_pic: string | null } | null;
-  /** From joined files table; use for video URL (Dynamic route uses unique_id) */
-  files: { unique_id: string } | null;
+  /** From joined files table — enough fields to resolve a poster URL via
+   *  `getThumbnailUrl()` AND to navigate to the watch page. */
+  files: {
+    unique_id: string;
+    default_thumbnail: string | null;
+    thumbnails: string[] | null;
+    file_type: string | null;
+    endpoint: string | null;
+    created_at: string;
+    filename: string;
+    is_adult: boolean | null;
+  } | null;
 }
 
 function getNotificationLabel(type: NotificationType): string {
@@ -72,7 +83,6 @@ export default function NotificationsPage() {
   const [list, setList] = useState<NotificationRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [markingAll, setMarkingAll] = useState(false);
-  const push = usePushNotifications();
 
   useEffect(() => {
     if (!userId) {
@@ -154,35 +164,8 @@ export default function NotificationsPage() {
           )}
         </div>
 
-        {push.supported && (
-          <div className="mb-6 rounded-xl border border-border bg-card p-4">
-            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:gap-3">
-              <div className="flex min-w-0 flex-1 items-start gap-3 sm:items-center">
-                <BellRing className="h-5 w-5 shrink-0 text-primary" />
-              <div className="min-w-0 flex-1">
-                <p className="text-sm font-medium text-foreground">Push notifications</p>
-                <p className="text-xs text-muted-foreground">
-                  {push.isSubscribed
-                    ? "You’ll get browser alerts for new activity."
-                    : "Get notified when you’re not on the site."}
-                </p>
-                {push.error && (
-                  <p className="mt-2 rounded-md bg-destructive/10 px-2 py-1.5 text-xs text-destructive">{push.error}</p>
-                )}
-              </div>
-              </div>
-              <Button
-                variant={push.isSubscribed ? "outline" : "default"}
-                size="sm"
-                className="w-full shrink-0 sm:w-auto"
-                disabled={push.loading || push.permission === "denied"}
-                onClick={() => (push.isSubscribed ? push.unsubscribe() : push.subscribe())}
-              >
-                {push.loading ? "..." : push.isSubscribed ? "Disable" : "Enable"}
-              </Button>
-            </div>
-          </div>
-        )}
+        {/* Push notifications enable/disable now lives in Settings — this
+            page focuses on the in-app notifications feed. */}
 
         {loading ? (
           <div className="space-y-3">
@@ -198,6 +181,28 @@ export default function NotificationsPage() {
               const actor = n.users;
               const username = actor?.username ?? "Someone";
               const href = linkTo(n);
+              // Resolve the file's thumbnail URL only when this row is
+              // about a file (likes, comments, replies, mentions).
+              // Subscribe events have no file → no thumbnail, the row
+              // keeps its existing avatar-only shape.
+              // Shape the joined `files` row into the minimum that
+              // VideoCard / renderThumbnail need. Everything thumbnail-
+              // related (default vs frames[] vs legacy path, NSFW blur,
+              // retry-on-error, lazy loading) is already handled inside
+              // VideoCard — we don't re-implement it here.
+              const fileForThumb: FileType | null = n.files
+                ? ({
+                    id: n.file_id ?? n.files.unique_id,
+                    unique_id: n.files.unique_id,
+                    filename: n.files.filename,
+                    default_thumbnail: n.files.default_thumbnail,
+                    thumbnails: n.files.thumbnails ?? undefined,
+                    file_type: n.files.file_type ?? undefined,
+                    endpoint: n.files.endpoint ?? undefined,
+                    created_at: n.files.created_at,
+                    is_adult: Boolean(n.files.is_adult),
+                  } as FileType)
+                : null;
               return (
                 <li key={n.id}>
                   <Link
@@ -225,7 +230,24 @@ export default function NotificationsPage() {
                         })}
                       </p>
                     </div>
-                    <div className="flex-shrink-0">{getNotificationIcon(n.type)}</div>
+                    {/* File preview — instagram-style right-side thumb.
+                        Reuses VideoCard's `notificationThumb` layout so
+                        we inherit all the thumbnail resolution + NSFW
+                        handling already shipped in the rest of the app.
+                        The type-icon corner badge is overlaid here at
+                        the row level (notification-specific UI). */}
+                    {fileForThumb ? (
+                      <div className="relative h-12 w-[4.25rem] flex-shrink-0">
+                        <VideoCard data={fileForThumb} layout="notificationThumb" />
+                        {getNotificationIcon(n.type) && (
+                          <div className="pointer-events-none absolute bottom-0.5 right-0.5 flex h-5 w-5 items-center justify-center rounded-full bg-background/90 shadow-sm ring-1 ring-border">
+                            {getNotificationIcon(n.type)}
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="flex-shrink-0">{getNotificationIcon(n.type)}</div>
+                    )}
                   </Link>
                 </li>
               );

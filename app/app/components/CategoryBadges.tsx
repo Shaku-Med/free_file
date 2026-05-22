@@ -59,7 +59,7 @@ export default function CategoryBadges({ categories, max = 3, size = "md" }: Cat
         return (
           <Tooltip key={cat}>
             <TooltipTrigger  asChild>
-              <span className={`flex items-center justify-center ${boxClass} rounded-lg bg-card/50 backdrop-blur-lg border shadow-md cursor-default select-none text-foreground`}>
+              <span className={`flex items-center justify-center ${boxClass} rounded-lg cursor-default select-none text-foreground text-shadow-lg`}>
                 <Icon className={iconClass} strokeWidth={2} size={10} />
               </span>
             </TooltipTrigger>

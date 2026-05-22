@@ -262,14 +262,16 @@ export default function EndCardOverlay({
    * full-opacity; the gradient just gives the cards readable contrast.
    */
   if (layout === "grid") {
-    const gridCols = ui.endCardGridCols;
+    // Fixed 4-column grid at every player size. The cards (each
+    // `min-w-0`) shrink as the player narrows. Gap also tightens on
+    // small players so we don't waste pixels between cards.
     const gridClass =
-      gridCols === 4
+      playerW >= 520
         ? "grid-cols-4 gap-2.5"
-        : gridCols === 2
-          ? "grid-cols-2 gap-2"
-          : "grid-cols-1 gap-2";
-    const gridCards = cards.slice(0, gridCols === 1 ? 2 : 4);
+        : playerW >= 380
+          ? "grid-cols-4 gap-1.5"
+          : "grid-cols-4 gap-1";
+    const gridCards = cards.slice(0, 4);
 
     return (
       <div className="pointer-events-none absolute inset-0 z-30 overflow-hidden" aria-label="Up next">
@@ -301,7 +303,16 @@ export default function EndCardOverlay({
             <div
               key={card.id ?? card.unique_id}
               className="min-w-0 max-w-full animate-in fade-in slide-in-from-bottom-2 duration-300"
-              style={{ animationDelay: `${i * 60}ms`, animationFillMode: "both" }}
+              // container-type establishes the cell as a container so the
+              // VideoCard's `clamp(…, …cqi, …)` font + spacing values
+              // resolve against the actual cell width (not viewport).
+              // That's what makes the 4-column grid stay legible from a
+              // 320px phone player all the way up to cinema width.
+              style={{
+                animationDelay: `${i * 60}ms`,
+                animationFillMode: "both",
+                containerType: "inline-size",
+              }}
             >
               {/* Slight glassy frame so each card reads against bright
                   video frames even where the scrim is thinnest. */}

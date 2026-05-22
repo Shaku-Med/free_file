@@ -13,11 +13,21 @@ export function useMediaSession(
   mediaSessionImage: string | null,
   videoRef: React.RefObject<HTMLVideoElement | null>,
   /** When set and not a reel, registers Media Session next / previous track actions. */
-  playlist: MediaSessionPlaylistHandlers | null = null
+  playlist: MediaSessionPlaylistHandlers | null = null,
+  /**
+   * Absolute HTTP URL to the original poster image (NOT the canvas-cropped
+   * blob). Cast / AirPlay receivers can fetch this directly so the TV can
+   * display the poster as a fallback when the HLS video stream isn't
+   * reachable. `mediaSessionImage` (the square blob) stays in the artwork
+   * array for the OS notification UI which renders best at 512×512.
+   */
+  posterHttpUrl: string | null = null,
 ) {
   const { file, isReel } = usePlayerContext();
   const imageRef = useRef(mediaSessionImage);
   imageRef.current = mediaSessionImage;
+  const posterHttpRef = useRef(posterHttpUrl);
+  posterHttpRef.current = posterHttpUrl;
   const fileRef = useRef(file);
   fileRef.current = file;
   const playlistRef = useRef<MediaSessionPlaylistHandlers | null>(playlist);
@@ -36,12 +46,37 @@ export function useMediaSession(
     if (!currentFile || !video) return;
 
     const title = currentFile.file_title || ParseFilename(currentFile.filename);
+    // Artwork ladder for receivers to pick from:
+    //   1. Original HTTP poster URL — Cast / AirPlay can fetch this over
+    //      the network even when the HLS video stream is unreachable, so
+    //      the TV shows the cover image as a fallback. Listed FIRST and
+    //      with a larger size hint so receivers prefer it for the big-art
+    //      slot. Some receivers also reject blob: URLs entirely.
+    //   2. The square canvas-cropped blob URL — best for the OS
+    //      notification / lock-screen widget where a square 512 wins.
+    //
+    // Listing both is per-spec; receivers pick by sizes / capability.
+    const artwork: MediaImage[] = [];
+    if (posterHttpRef.current) {
+      artwork.push({
+        src: posterHttpRef.current,
+        // 1280×720 hint matches our default thumbnail size; receivers
+        // that ask for "largest" art pick this entry.
+        sizes: '1280x720',
+        type: 'image/jpeg',
+      });
+    }
+    if (imageRef.current) {
+      artwork.push({
+        src: imageRef.current,
+        sizes: '512x512',
+        type: 'image/jpeg',
+      });
+    }
     navigator.mediaSession.metadata = new MediaMetadata({
       title: typeof title === 'string' ? title : (title as string[]).join(''),
       artist: currentFile.owner?.username || 'Memories',
-      artwork: imageRef.current
-        ? [{ src: imageRef.current, sizes: '512x512', type: 'image/jpeg' }]
-        : [],
+      artwork,
     });
 
     try {
@@ -59,8 +94,12 @@ export function useMediaSession(
   }, [videoRef]);
 
   useEffect(() => {
-    if (mediaSessionImage) updateMetadata();
-  }, [mediaSessionImage, updateMetadata]);
+    // Re-publish metadata whenever EITHER artwork URL changes so the OS
+    // / cast receiver picks up the new entry. Previously we only fired
+    // on the blob URL changing, which meant a posterHttpUrl that landed
+    // first (or alone) never reached MediaSession.
+    if (mediaSessionImage || posterHttpUrl) updateMetadata();
+  }, [mediaSessionImage, posterHttpUrl, updateMetadata]);
 
   useEffect(() => {
     if (!('mediaSession' in navigator) || !file) return;
