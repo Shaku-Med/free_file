@@ -1,5 +1,5 @@
 -- ============================================================
--- PROFILE FILES — paginated file listing for user profiles
+-- PROFILE FILES  paginated file listing for user profiles
 -- Counts directly via subqueries (not materialized view)
 -- Adult content only visible to the profile owner
 -- ============================================================

@@ -16,7 +16,7 @@ function isValidSignalType(value: unknown): value is ValidSignalType {
   return typeof value === 'string' && (VALID_SIGNAL_TYPES as readonly string[]).includes(value);
 }
 
-/** Category labels only — keeps storage bounded and aligned with feed SQL. */
+/** Category labels only  keeps storage bounded and aligned with feed SQL. */
 const MAX_CATEGORY_LEN = 128;
 
 // POST: Add a negative signal (not interested, hide creator, hide category)

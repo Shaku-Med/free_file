@@ -109,7 +109,7 @@ export const loader = async ({ request }: { request: Request }) => {
       userId
     );
 
-    // Don't mark as seen here — it would shrink the "unseen" set before load-more
+    // Don't mark as seen here  it would shrink the "unseen" set before load-more
     // requests, breaking cursor_pos pagination. Frontend marks on page leave instead.
 
     // Use position-based pagination: next page starts at cursorPos + rawCount.

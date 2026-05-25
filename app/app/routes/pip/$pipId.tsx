@@ -23,7 +23,7 @@ export interface PipLoaderData {
   accessDenied: boolean;
   reason?: string;
   userActions: PipLoaderUserActions;
-  /** Seed the server rolled for this feed — echo back on pagination so pages align. */
+  /** Seed the server rolled for this feed  echo back on pagination so pages align. */
   seed: string | null;
   /** Cursor for the next page (`GET /api/pip-feed`), or null if exhausted. */
   nextCursor: { cursor_pos: number } | null;

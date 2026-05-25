@@ -2,7 +2,7 @@ import { getVideoSrc } from "~/lib/utils";
 
 type CacheEntry = { url: string; exp: number };
 
-/** In-memory mint cache — keeps the same ?t= URL across watch ↔ mini handoffs. */
+/** In-memory mint cache  keeps the same ?t= URL across watch ↔ mini handoffs. */
 const cache = new Map<string, CacheEntry>();
 
 const EXPIRY_BUFFER_MS = 45_000;
@@ -48,6 +48,14 @@ export function playbackAssetPath(url: string): string | null {
   }
 }
 
+/** True when a LoadPlay (or /v/{id}/) URL belongs to the given file. */
+export function playbackUrlMatchesFile(url: string, fileId: string): boolean {
+  if (!url?.trim() || !fileId) return false;
+  const path = playbackAssetPath(url);
+  if (!path) return false;
+  return path.includes(`/v/${fileId}/`);
+}
+
 /**
  * Pick a stable playback src for the global player. Prefers the live
  * player URL, then cache, then a freshly minted URL.
@@ -61,14 +69,21 @@ export function resolvePlaybackSrc(
   opts?: { preferredSrc?: string | null; mintedUrl?: string | null },
 ): string {
   const fileId = file.unique_id ?? "";
-  const preferred = opts?.preferredSrc?.trim();
+  let preferred = opts?.preferredSrc?.trim() ?? "";
+  if (preferred && fileId && !playbackUrlMatchesFile(preferred, fileId)) {
+    preferred = "";
+  }
   if (preferred) {
     if (fileId) setCachedPlaybackUrl(fileId, preferred);
     return preferred;
   }
   const cached = fileId ? getCachedPlaybackUrl(fileId) : null;
   if (cached) return cached;
-  const minted = getVideoSrc(file.endpoint ?? "", file.file_type ?? undefined, opts?.mintedUrl ?? null);
+  let mintedUrl = opts?.mintedUrl ?? null;
+  if (mintedUrl && fileId && !playbackUrlMatchesFile(mintedUrl, fileId)) {
+    mintedUrl = null;
+  }
+  const minted = getVideoSrc(file.endpoint ?? "", file.file_type ?? undefined, mintedUrl);
   if (minted && fileId) setCachedPlaybackUrl(fileId, minted);
   return minted;
 }

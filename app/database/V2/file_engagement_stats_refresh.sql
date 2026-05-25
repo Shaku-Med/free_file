@@ -1,5 +1,5 @@
 -- ============================================================
--- file_engagement_stats — keep counts in sync with likes/dislike/comments
+-- file_engagement_stats  keep counts in sync with likes/dislike/comments
 -- ============================================================
 -- The materialized view does NOT auto-update. When users like,
 -- dislike, or comment, the underlying tables change but the view

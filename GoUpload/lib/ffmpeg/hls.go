@@ -319,7 +319,7 @@ func runTierConversion(inputPath, m3u8Path, segmentPattern string, opts HLSOptio
 	if ffmpegErr != nil {
 		if m3u8Exists && segCount >= minSalvageableSegments {
 			// FFmpeg died (often corrupt input near end-of-file) but wrote enough
-			// usable output. Salvage what we have — the m3u8 references written segments
+			// usable output. Salvage what we have  the m3u8 references written segments
 			// and HLS players handle a truncated stream gracefully.
 			log.Printf("[ffmpeg] salvaging partial output: %d segments written despite error: %v", segCount, ffmpegErr)
 		} else {

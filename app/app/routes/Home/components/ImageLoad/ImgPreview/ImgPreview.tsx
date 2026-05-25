@@ -251,7 +251,7 @@ export default function ImgPreview({
 
   const handlePointerDown = (e: React.PointerEvent) => {
     resetHideTimer();
-    // Only capture mouse, not touch — touch needs to flow to touch handlers for swipe
+    // Only capture mouse, not touch  touch needs to flow to touch handlers for swipe
     if (e.pointerType !== "mouse") return;
     if (pinching.current) return;
     if (zoomRef.current <= 1) return;
@@ -335,7 +335,7 @@ export default function ImgPreview({
         };
         setPan(clampPan(nextPan, zoomRef.current));
       }
-      // Let swipe detection happen on touchEnd — don't cancel swipeStart here
+      // Let swipe detection happen on touchEnd  don't cancel swipeStart here
     }
   };
 
@@ -369,7 +369,7 @@ export default function ImgPreview({
     swipeStart.current = null;
   };
 
-  // ── Tap handling (mouse only — touch uses swipe) ──
+  // ── Tap handling (mouse only  touch uses swipe) ──
 
   const lastTap = useRef(0);
   const handleClick = (e: React.MouseEvent) => {

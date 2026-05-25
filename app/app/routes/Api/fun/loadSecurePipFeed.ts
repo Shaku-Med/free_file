@@ -43,7 +43,7 @@ export type SecurePipFeedOk = {
   dislikedFileIds: string[];
   nextCursor: { cursor_pos: number } | null;
   rawCount: number;
-  /** Seed the RPC used for this page — client MUST echo it back for paginated calls. */
+  /** Seed the RPC used for this page  client MUST echo it back for paginated calls. */
   seed: string;
 };
 
@@ -56,14 +56,14 @@ export type SecurePipFeedErr = {
 /**
  * Fresh seed per session when the client doesn't pin one. Using a timestamped, high-entropy
  * value (not `"default"`) means each visit to `/pip/:id` gets a different `get_pip_feed`
- * ordering — avoids the "I keep seeing the same reels" feeling.
+ * ordering  avoids the "I keep seeing the same reels" feeling.
  *
  * On pagination, the client echoes the same seed back so subsequent pages line up with the
- * first — otherwise mid-scroll you'd get a brand new ordering and duplicates.
+ * first  otherwise mid-scroll you'd get a brand new ordering and duplicates.
  */
 function generateFreshSeed(userId: string | null): string {
   const base = userId ?? 'anon';
-  // 36^10 ≈ 3.6e15 — plenty of entropy, short enough to pass around in URLs.
+  // 36^10 ≈ 3.6e15  plenty of entropy, short enough to pass around in URLs.
   const rand = Math.random().toString(36).slice(2, 12);
   return `${base}-${Date.now().toString(36)}-${rand}`;
 }

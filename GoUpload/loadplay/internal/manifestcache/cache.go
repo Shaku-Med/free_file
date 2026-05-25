@@ -6,7 +6,7 @@ import (
 )
 
 // Cache stores raw manifest bodies keyed by `repo|path`. Manifests for
-// finished uploads are immutable — caching them for a minute eliminates
+// finished uploads are immutable  caching them for a minute eliminates
 // nearly all upstream GitHub fetches under hot-video load. The rewritten
 // (token-stamped) body is NOT cached because the token rotates per
 // session; we cache the raw body and rewrite per request (cheap).

@@ -1,4 +1,4 @@
-/** Conservative GitHub repo segment — must match Go `supabase.ValidGitHubRepoName`. */
+/** Conservative GitHub repo segment  must match Go `supabase.ValidGitHubRepoName`. */
 const REPO_NAME = /^[a-zA-Z0-9._-]{1,100}$/;
 
 export function validGitHubRepoName(name: string | null | undefined): boolean {

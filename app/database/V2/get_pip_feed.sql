@@ -1,5 +1,5 @@
 -- ============================================================
--- PIP FEED — Same logic as get_feed (feed_smart_v5), but only rows
+-- PIP FEED  Same logic as get_feed (feed_smart_v5), but only rows
 -- where files.file_type starts with "video" (case-insensitive).
 -- Run in Supabase SQL Editor after feed_smart_v5.sql.
 -- ============================================================
@@ -209,7 +209,7 @@ BEGIN
       AND LOWER(TRIM(COALESCE(f.file_type, ''))) LIKE 'video%'
   ),
 
-  -- ── Pool 1: FRESH — new content (last 48h)
+  -- ── Pool 1: FRESH  new content (last 48h)
   pool_fresh AS (
     SELECT b.*, 'fresh'::text AS _pool,
       ROW_NUMBER() OVER (
@@ -227,7 +227,7 @@ BEGIN
     LIMIT (v_fresh_lim * v_page_mult) * 2
   ),
 
-  -- ── Pool 2: TRENDING — high engagement velocity
+  -- ── Pool 2: TRENDING  high engagement velocity
   pool_trending AS (
     SELECT b.*, 'trending'::text AS _pool,
       ROW_NUMBER() OVER (
@@ -247,7 +247,7 @@ BEGIN
     LIMIT (v_trend_lim * v_page_mult) * 2
   ),
 
-  -- ── Pool 3: POPULAR — high total engagement, good ratio
+  -- ── Pool 3: POPULAR  high total engagement, good ratio
   pool_popular AS (
     SELECT b.*, 'popular'::text AS _pool,
       ROW_NUMBER() OVER (
@@ -267,7 +267,7 @@ BEGIN
     LIMIT (v_pop_lim * v_page_mult) * 2
   ),
 
-  -- ── Pool 4: SUBSCRIBED — content from followed channels (newest first)
+  -- ── Pool 4: SUBSCRIBED  content from followed channels (newest first)
   pool_subscribed AS (
     SELECT b.*, 'subscribed'::text AS _pool,
       ROW_NUMBER() OVER (
@@ -283,7 +283,7 @@ BEGIN
     LIMIT (v_sub_lim * v_page_mult) * 2
   ),
 
-  -- ── Pool 5: DISCOVERY — diverse content the user hasn't seen
+  -- ── Pool 5: DISCOVERY  diverse content the user hasn't seen
   pool_discovery AS (
     SELECT b.*, 'discovery'::text AS _pool,
       ROW_NUMBER() OVER (

@@ -1,6 +1,6 @@
 // Package sysload samples host CPU + memory pressure from /proc and from
 // cgroup v2 (when the worker runs inside a Docker container with limits set).
-// No external deps — just file reads. On non-Linux dev boxes the readers return
+// No external deps  just file reads. On non-Linux dev boxes the readers return
 // 0% which means the worker pool will never throttle, exactly what we want for
 // local testing.
 package sysload

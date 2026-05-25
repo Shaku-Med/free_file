@@ -460,7 +460,7 @@ export default function SpatialAudioDialog({
             </div>
           )}
 
-          {/* Manual position pad — only in manual mode */}
+          {/* Manual position pad  only in manual mode */}
           {showManualPad && (
             <div className="space-y-3 rounded-xl border border-border/50 bg-muted/15 p-3">
               <div className="flex flex-wrap items-end gap-3 sm:flex-nowrap">

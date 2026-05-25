@@ -25,7 +25,7 @@ interface NotificationRow {
   created_at: string;
   read_at: string | null;
   users: { username: string; profile_pic: string | null } | null;
-  /** From joined files table — enough fields to resolve a poster URL via
+  /** From joined files table  enough fields to resolve a poster URL via
    *  `getThumbnailUrl()` AND to navigate to the watch page. */
   files: {
     unique_id: string;
@@ -164,7 +164,7 @@ export default function NotificationsPage() {
           )}
         </div>
 
-        {/* Push notifications enable/disable now lives in Settings — this
+        {/* Push notifications enable/disable now lives in Settings  this
             page focuses on the in-app notifications feed. */}
 
         {loading ? (
@@ -189,7 +189,7 @@ export default function NotificationsPage() {
               // VideoCard / renderThumbnail need. Everything thumbnail-
               // related (default vs frames[] vs legacy path, NSFW blur,
               // retry-on-error, lazy loading) is already handled inside
-              // VideoCard — we don't re-implement it here.
+              // VideoCard  we don't re-implement it here.
               const fileForThumb: FileType | null = n.files
                 ? ({
                     id: n.file_id ?? n.files.unique_id,
@@ -230,7 +230,7 @@ export default function NotificationsPage() {
                         })}
                       </p>
                     </div>
-                    {/* File preview — instagram-style right-side thumb.
+                    {/* File preview  instagram-style right-side thumb.
                         Reuses VideoCard's `notificationThumb` layout so
                         we inherit all the thumbnail resolution + NSFW
                         handling already shipped in the rest of the app.

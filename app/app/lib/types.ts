@@ -50,7 +50,7 @@ export interface FileType {
   comments_enabled?: boolean;
   /** null/undefined = unlimited; 0 = no comments allowed; positive = max visible comments */
   comment_limit?: number | null;
-  /** Caption tracks — may arrive as language code strings or {language,path} objects from the DB. */
+  /** Caption tracks  may arrive as language code strings or {language,path} objects from the DB. */
   captions?: (string | { language: string; path?: string })[];
 }
 

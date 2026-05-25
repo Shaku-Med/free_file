@@ -8,7 +8,7 @@ import {
 
 /**
  * Taps the video element into Web Audio for spectrum data. The audio graph is shared
- * with the spatial-audio engine (`useSpatialAudio`) so both features can coexist —
+ * with the spatial-audio engine (`useSpatialAudio`) so both features can coexist 
  * `MediaElementAudioSource` can only exist once per `<video>`.
  */
 export function useVideoAnalyser(

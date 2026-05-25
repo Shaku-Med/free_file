@@ -77,7 +77,7 @@ export const action = async ({ request }: { request: Request }) => {
       // Send email notification immediately
       const emailSent = await sendEmailDirectly({
         to: REVIEW_EMAIL,
-        subject: `Review #${parsed.request_count} — ${fileTitle}`,
+        subject: `Review #${parsed.request_count}  ${fileTitle}`,
         html: `<!DOCTYPE html>
 <html><head><meta charset="utf-8"></head>
 <body style="font-family: system-ui, -apple-system, sans-serif; color: #e4e4e7; background: #18181b; margin: 0; padding: 0;">

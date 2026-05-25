@@ -4,7 +4,7 @@ import { sessionScope } from "./SegmentTokenService";
  * Per-segment-token consumption gate.
  *
  * Each `_st` may be redeemed at most {@link MAX_USES} times within {@link RETRY_WINDOW_MS}
- * of its first use. After that the token is dead — even if its HMAC + expiry are still
+ * of its first use. After that the token is dead  even if its HMAC + expiry are still
  * structurally valid, this gate rejects it.
  *
  * Why not single-use:
@@ -17,7 +17,7 @@ import { sessionScope } from "./SegmentTokenService";
  * Why bind to {@link sessionScope}:
  *   The scope is HMAC-derived from the session cookie. A stolen URL can't share a gate
  *   entry with the original session's player, so an attacker reusing a leaked token
- *   has its own (empty) bucket — but they still need a valid cookie too, which the
+ *   has its own (empty) bucket  but they still need a valid cookie too, which the
  *   token's own HMAC requires.
  */
 
@@ -52,7 +52,7 @@ if (typeof setInterval !== "undefined") {
  * Returns `true` on first use or within the retry tolerance; `false` once the token
  * has been spent past {@link MAX_USES} or the {@link RETRY_WINDOW_MS} has elapsed.
  *
- * Caller MUST verify the token's HMAC first — this gate trusts that step and only
+ * Caller MUST verify the token's HMAC first  this gate trusts that step and only
  * tracks consumption. It is never a substitute for `verifySegmentToken`.
  */
 export function trySpendSegmentToken(

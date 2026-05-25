@@ -97,7 +97,7 @@ func main() {
 	// CORS: allow app origin for browser uploads.
 	//
 	// SECURITY: Access-Control-Allow-Credentials: true MUST NEVER be combined with a
-	// reflective / wildcard origin policy — doing so lets any website the user visits
+	// reflective / wildcard origin policy  doing so lets any website the user visits
 	// make authenticated requests against this server and read the responses. We only
 	// send credentials when the request's Origin is in an explicit allowlist; any other
 	// accepted origin (dev-mode reflection, "*") is served WITHOUT credentials.
@@ -126,7 +126,7 @@ func main() {
 			allow = true
 			c.Set("Access-Control-Allow-Credentials", "true")
 		} else if origin != "" && (env.IsDev() || origins == "*") {
-			// Reflective allow: no credentials — browsers will refuse authenticated
+			// Reflective allow: no credentials  browsers will refuse authenticated
 			// cross-origin reads, which is the desired safe default.
 			allow = true
 		}

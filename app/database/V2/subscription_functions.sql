@@ -1,5 +1,5 @@
 -- ============================================================
--- Subscription functions — subscribe, unsubscribe, counts, feeds
+-- Subscription functions  subscribe, unsubscribe, counts, feeds
 -- ============================================================
 -- Requires: subscriptions, users, files tables
 -- Run after subscriptions.sql
@@ -39,7 +39,7 @@ END $$;
 
 
 -- ============================================================
--- 1. subscribe — follow a channel
+-- 1. subscribe  follow a channel
 -- ============================================================
 CREATE OR REPLACE FUNCTION subscribe(
   p_subscriber_id uuid,
@@ -81,7 +81,7 @@ $$;
 
 
 -- ============================================================
--- 2. unsubscribe — unfollow a channel
+-- 2. unsubscribe  unfollow a channel
 -- ============================================================
 CREATE OR REPLACE FUNCTION unsubscribe(
   p_subscriber_id uuid,
@@ -110,7 +110,7 @@ $$;
 
 
 -- ============================================================
--- 3. toggle_subscription — subscribe if not, unsubscribe if yes
+-- 3. toggle_subscription  subscribe if not, unsubscribe if yes
 -- ============================================================
 CREATE OR REPLACE FUNCTION toggle_subscription(
   p_subscriber_id uuid,
@@ -160,7 +160,7 @@ $$;
 
 
 -- ============================================================
--- 4. is_subscribed — check if user follows a channel
+-- 4. is_subscribed  check if user follows a channel
 -- ============================================================
 CREATE OR REPLACE FUNCTION is_subscribed(
   p_subscriber_id uuid,
@@ -181,7 +181,7 @@ $$;
 
 
 -- ============================================================
--- 5. get_subscriber_count — how many subscribers a channel has
+-- 5. get_subscriber_count  how many subscribers a channel has
 -- ============================================================
 CREATE OR REPLACE FUNCTION get_subscriber_count(p_channel_id uuid)
 RETURNS bigint
@@ -195,7 +195,7 @@ $$;
 
 
 -- ============================================================
--- 6. get_subscription_count — how many channels a user follows
+-- 6. get_subscription_count  how many channels a user follows
 -- ============================================================
 CREATE OR REPLACE FUNCTION get_subscription_count(p_user_id uuid)
 RETURNS bigint
@@ -209,7 +209,7 @@ $$;
 
 
 -- ============================================================
--- 7. get_subscribers — list of people subscribed to a channel
+-- 7. get_subscribers  list of people subscribed to a channel
 -- ============================================================
 CREATE OR REPLACE FUNCTION get_subscribers(
   p_channel_id  uuid,
@@ -248,7 +248,7 @@ $$;
 
 
 -- ============================================================
--- 8. get_subscriptions — channels a user is subscribed to
+-- 8. get_subscriptions  channels a user is subscribed to
 -- ============================================================
 CREATE OR REPLACE FUNCTION get_subscriptions(
   p_user_id     uuid,
@@ -294,7 +294,7 @@ $$;
 
 
 -- ============================================================
--- 9. get_subscription_feed — latest uploads from subscribed channels
+-- 9. get_subscription_feed  latest uploads from subscribed channels
 --    Mirrors the get_feed return type for consistency
 -- ============================================================
 CREATE OR REPLACE FUNCTION get_subscription_feed(
@@ -451,7 +451,7 @@ $$;
 
 
 -- ============================================================
--- 10. toggle_subscription_notify — toggle notification bell
+-- 10. toggle_subscription_notify  toggle notification bell
 -- ============================================================
 CREATE OR REPLACE FUNCTION toggle_subscription_notify(
   p_subscriber_id uuid,
@@ -480,7 +480,7 @@ $$;
 
 
 -- ============================================================
--- 11. get_channel_stats — subscriber count + subscription count for a user
+-- 11. get_channel_stats  subscriber count + subscription count for a user
 -- ============================================================
 CREATE OR REPLACE FUNCTION get_channel_stats(
   p_user_id    uuid,

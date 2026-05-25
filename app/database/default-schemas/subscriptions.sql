@@ -1,5 +1,5 @@
 -- ============================================================
--- Subscriptions — user-to-user follow/subscribe relationship
+-- Subscriptions  user-to-user follow/subscribe relationship
 -- ============================================================
 
 create table public.subscriptions (

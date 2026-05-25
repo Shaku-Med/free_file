@@ -1,5 +1,5 @@
 /**
- * Legacy export — search now lives in the navbar dropdown (`NavbarSearchBar`).
+ * Legacy export  search now lives in the navbar dropdown (`NavbarSearchBar`).
  * Kept so older imports don't break.
  */
 export { NavbarSearchBar } from "./SearchDropdown/NavbarSearchBar";

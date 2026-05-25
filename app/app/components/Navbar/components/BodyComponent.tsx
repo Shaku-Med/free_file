@@ -20,7 +20,7 @@ interface BodyComponentProps {
 const staticRoutes = ["/", "/privacy", "/terms", "/features", "/auth", "/api", '/search', '/playlist', '/profile', '/subscriptions'];
 const SCROLL_THRESHOLD = 300;
 
-// Easing function — starts slow, accelerates, then eases into full opacity.
+// Easing function  starts slow, accelerates, then eases into full opacity.
 // Makes the transition feel natural instead of linear.
 function easeOutCubic(t: number): number {
   return 1 - Math.pow(1 - t, 3);
@@ -73,12 +73,12 @@ const BodyComponent = ({ children }: BodyComponentProps) => {
     };
   }, [location.pathname, location.search]);
 
-  // The Home feed lives in `<PersistentHomeView />` here — mounted ONCE
+  // The Home feed lives in `<PersistentHomeView />` here  mounted ONCE
   // inside the scroll container and visibility-toggled by pathname.
   // When the URL is `/`, the persistent view is visible and `children`
   // (the matched route, which is a no-op marker for `/`) renders null.
   // For any other route, the persistent view is hidden via `display:none`
-  // so its DOM, refs, and observers stay alive — closing a watch / reel
+  // so its DOM, refs, and observers stay alive  closing a watch / reel
   // modal returns the user to a feed that NEVER unmounted, preserving
   // scroll position and all client state.
   const isHomeRoute = location.pathname === "/";

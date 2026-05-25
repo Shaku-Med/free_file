@@ -10,7 +10,7 @@ const toJson = (body: unknown, status = 200) =>
     headers: { "Content-Type": "application/json" },
   });
 
-/** GET ?commentId= — list users who liked (positive engagement only; no dislikes on comments). */
+/** GET ?commentId=  list users who liked (positive engagement only; no dislikes on comments). */
 export const loader = async ({ request }: { request: Request }) => {
   try {
     const url = new URL(request.url);

@@ -3,7 +3,7 @@ import { useLocation } from "react-router";
 import { useFileContext } from "~/lib/Context/Context";
 
 /**
- * Per-route scroll memory — our own implementation, decoupled from
+ * Per-route scroll memory  our own implementation, decoupled from
  * react-router's data router. Saves the scroll position of every visited
  * page to `sessionStorage` (so it survives within a tab but doesn't leak
  * across sessions). On return, snaps the container to the saved value
@@ -15,11 +15,11 @@ import { useFileContext } from "~/lib/Context/Context";
  *      new route, set scroll_container.scrollTop to the saved value.
  *      If content isn't tall enough yet, the browser clamps; we then
  *      keep retrying as soon as new content lands.
- *   3. ResizeObserver on scroll_container — every time its scrollHeight
+ *   3. ResizeObserver on scroll_container  every time its scrollHeight
  *      grows (lazy-loaded feed cards, image height settle, etc.), retry
  *      the snap until either we hit the target or the user scrolls.
  *   4. As soon as the user actually scrolls (real interaction, not our
- *      programmatic .scrollTop write), stop retrying — they've taken
+ *      programmatic .scrollTop write), stop retrying  they've taken
  *      over and we don't want to fight them.
  *
  * Why not the built-in `<ScrollRestoration />`: that one uses RR's
@@ -30,7 +30,7 @@ import { useFileContext } from "~/lib/Context/Context";
 
 const STORAGE_KEY = "memories.scroll.v2";
 /** A scroll within this many px of the saved target is "close enough"
- *  and considered restored — avoids one-pixel jitter retries. */
+ *  and considered restored  avoids one-pixel jitter retries. */
 const RESTORE_EPS = 2;
 /** Give up retrying after this long; if content never gets tall enough,
  *  the user is on a page that genuinely doesn't have that much height. */
@@ -65,7 +65,7 @@ function writeStore(store: ScrollStore) {
   try {
     window.sessionStorage.setItem(STORAGE_KEY, JSON.stringify(store));
   } catch {
-    /* quota / private mode — ignore */
+    /* quota / private mode  ignore */
   }
 }
 
@@ -88,7 +88,7 @@ export default function ScrollRestoration() {
   const location = useLocation();
   const { setScrollDataReady } = useFileContext();
   const currentKeyRef = useRef<string>(keyFor(location));
-  /** Whether the current route's restore is "settled" — either we hit
+  /** Whether the current route's restore is "settled"  either we hit
    *  the target, the user intervened, or we timed out. Until then, we
    *  keep grabbing height-grow events to retry the snap. */
   const settledRef = useRef(false);
@@ -96,15 +96,15 @@ export default function ScrollRestoration() {
    *  captured value and bail if a newer navigation has begun. */
   const tokenRef = useRef(0);
   /** Most recent scrollTop we wrote programmatically. The scroll listener
-   *  uses this to ignore the echo from our own writes — without it, our
+   *  uses this to ignore the echo from our own writes  without it, our
    *  own restore call would look like "user scrolled to X" and would
    *  immediately mark the page as settled (and worse, save the clamped
    *  value as the new target, overwriting the user's actual position). */
   const programmaticTopRef = useRef<number | null>(null);
 
   // SAVE on scroll. Throttle to once per animation frame so we don't
-  // hammer sessionStorage on a long scroll. We always capture — even
-  // before the route is "settled" — because if the user starts
+  // hammer sessionStorage on a long scroll. We always capture  even
+  // before the route is "settled"  because if the user starts
   // scrolling immediately on arrival, THAT new position is what they
   // want remembered next time.
   useEffect(() => {
@@ -135,7 +135,7 @@ export default function ScrollRestoration() {
       ) {
         return;
       }
-      // Real user scroll — they've taken over, stop our retries.
+      // Real user scroll  they've taken over, stop our retries.
       programmaticTopRef.current = null;
       settledRef.current = true;
       pendingTop = currentTop;
@@ -186,7 +186,7 @@ export default function ScrollRestoration() {
       return;
     }
 
-    // First attempt synchronously — if the new content is already tall
+    // First attempt synchronously  if the new content is already tall
     // enough (cached data, persistent layout, etc.) this is the only
     // attempt needed and the user sees zero scroll change.
     const targetTop = Math.max(0, saved.top);
@@ -205,7 +205,7 @@ export default function ScrollRestoration() {
     }
   }, [location.pathname, location.search, setScrollDataReady]);
 
-  // RETRY loop — runs after every navigation, watches the container's
+  // RETRY loop  runs after every navigation, watches the container's
   // scrollHeight via ResizeObserver. As new content lands and the
   // container grows tall enough, set scrollTop to the saved target.
   useEffect(() => {
@@ -229,14 +229,14 @@ export default function ScrollRestoration() {
       if (myToken !== tokenRef.current) return; // newer nav
       if (settledRef.current) return;            // user scrolled
       if (performance.now() - startedAt > RETRY_BUDGET_MS) {
-        // Budget elapsed — give up so we don't fight long-running
+        // Budget elapsed  give up so we don't fight long-running
         // streams of late-arriving content forever.
         settledRef.current = true;
         setScrollDataReady(true);
         return;
       }
       const max = container.scrollHeight - container.clientHeight;
-      if (max <= 0) return; // wait — nothing to scroll yet
+      if (max <= 0) return; // wait  nothing to scroll yet
       const clamped = Math.min(targetTop, max);
       if (Math.abs(container.scrollTop - clamped) > RESTORE_EPS) {
         programmaticTopRef.current = clamped;
@@ -251,7 +251,7 @@ export default function ScrollRestoration() {
     // Watch the container for size changes (children loading in).
     const ro = new ResizeObserver(() => tryRestore());
     ro.observe(container);
-    // Also watch direct children — content height often grows as feed
+    // Also watch direct children  content height often grows as feed
     // cards mount even when the container itself isn't resizing.
     const childObs: ResizeObserver[] = [];
     for (const child of Array.from(container.children)) {
@@ -262,7 +262,7 @@ export default function ScrollRestoration() {
       }
     }
 
-    // One immediate try after layout settles — covers the case where
+    // One immediate try after layout settles  covers the case where
     // the container already has the right height at this useEffect.
     tryRestore();
 

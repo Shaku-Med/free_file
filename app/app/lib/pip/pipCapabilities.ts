@@ -19,7 +19,7 @@ export function hasNativeVideoPictureInPicture(): boolean {
   return typeof HTMLVideoElement.prototype.requestPictureInPicture === 'function';
 }
 
-/** iOS Safari and some WebKit builds — check on a real element when possible. */
+/** iOS Safari and some WebKit builds  check on a real element when possible. */
 export function videoSupportsWebKitPresentationPiP(video: HTMLVideoElement | null): boolean {
   if (!video) return false;
   const v = video as HTMLVideoElement & {

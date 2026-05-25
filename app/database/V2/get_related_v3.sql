@@ -1,11 +1,11 @@
 -- ============================================================
--- get_related v3 — Personalized "Up Next" with subscription mix-in
+-- get_related v3  Personalized "Up Next" with subscription mix-in
 -- ============================================================
 -- Adds on top of v2:
---   1. subscribed_creators CTE — user's follow graph
+--   1. subscribed_creators CTE  user's follow graph
 --   2. Subscription boost (always-on bump for subscribed creators)
 --   3. Recency bonus on subscribed creators' uploads (last 30 days)
---      — that's the "YouTube mixes in your subs" behavior
+--       that's the "YouTube mixes in your subs" behavior
 --   4. Per-creator cap (max 2 per creator in the result set, except
 --      the source video's creator which can have up to 4) so a single
 --      subscribed channel can't flood the up-next list.
@@ -225,7 +225,7 @@ BEGIN
 
   -- Per-creator rank: each row's position within its creator (1 = creator's
   -- best). We use this for ORDERING ONLY (top-2 per creator surface first),
-  -- not as a filter — that way infinite scroll can still reach surplus rows
+  -- not as a filter  that way infinite scroll can still reach surplus rows
   -- from heavy creators on later pages.
   capped AS (
     SELECT s.*,

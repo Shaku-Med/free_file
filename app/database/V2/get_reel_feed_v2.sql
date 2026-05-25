@@ -1,5 +1,5 @@
 -- ============================================================
--- REEL FEED v2 — Personalized like get_feed v6 but for reels
+-- REEL FEED v2  Personalized like get_feed v6 but for reels
 -- ============================================================
 -- Upgrades over v1:
 --   1. Interest profile scoring (user_interest_scores)
@@ -272,7 +272,7 @@ BEGIN
       )
   ),
 
-  -- Pool 1: FOR YOU — personalized picks based on interest + creator affinity
+  -- Pool 1: FOR YOU  personalized picks based on interest + creator affinity
   pool_foryou AS (
     SELECT b.*, 'foryou'::text AS _pool,
       ROW_NUMBER() OVER (
@@ -291,7 +291,7 @@ BEGIN
     LIMIT (v_foryou_lim * v_page_mult) * 2
   ),
 
-  -- Pool 2: TRENDING — high engagement velocity
+  -- Pool 2: TRENDING  high engagement velocity
   pool_trending AS (
     SELECT b.*, 'trending'::text AS _pool,
       ROW_NUMBER() OVER (
@@ -310,7 +310,7 @@ BEGIN
     LIMIT (v_trend_lim * v_page_mult) * 2
   ),
 
-  -- Pool 3: FRESH — new reels (last 48h)
+  -- Pool 3: FRESH  new reels (last 48h)
   pool_fresh AS (
     SELECT b.*, 'fresh'::text AS _pool,
       ROW_NUMBER() OVER (
@@ -329,7 +329,7 @@ BEGIN
     LIMIT (v_fresh_lim * v_page_mult) * 2
   ),
 
-  -- Pool 4: POPULAR — proven content
+  -- Pool 4: POPULAR  proven content
   pool_popular AS (
     SELECT b.*, 'popular'::text AS _pool,
       ROW_NUMBER() OVER (
@@ -348,7 +348,7 @@ BEGIN
     LIMIT (v_pop_lim * v_page_mult) * 2
   ),
 
-  -- Pool 5: DISCOVERY — random exploration
+  -- Pool 5: DISCOVERY  random exploration
   pool_discovery AS (
     SELECT b.*, 'discovery'::text AS _pool,
       ROW_NUMBER() OVER (

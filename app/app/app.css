@@ -98,7 +98,7 @@
     transform: scale(0.95);
   }
 
-  /** Thumbnail / ImageLoad placeholder — sweeps a highlight across muted base */
+  /** Thumbnail / ImageLoad placeholder  sweeps a highlight across muted base */
   .image-load-shimmer-bg {
     background: linear-gradient(
       105deg,
@@ -248,7 +248,7 @@ input[type="file"] {
   height: 8px;
 }
 
-/* Home — continue watching horizontal carousel */
+/* Home  continue watching horizontal carousel */
 .continue-watching-swiper {
   --swiper-navigation-size: 1.25rem;
   --swiper-pagination-bottom: 0;
@@ -297,7 +297,7 @@ input[type="file"] {
   background: var(--primary);
 }
 
-/* Home / Subscriptions — reel cluster horizontal carousel */
+/* Home / Subscriptions  reel cluster horizontal carousel */
 .feed-reel-swiper {
   --swiper-navigation-size: 1.25rem;
   --swiper-pagination-bottom: 0;
@@ -356,7 +356,7 @@ input[type="file"] {
   background: var(--primary);
 }
 
-/* /reel — first-visit swipe-up hint. Arrow bounces, whole overlay fades out. */
+/* /reel  first-visit swipe-up hint. Arrow bounces, whole overlay fades out. */
 @keyframes reelHintFade {
   0% { opacity: 0; transform: translateY(12px); }
   15% { opacity: 1; transform: translateY(0); }

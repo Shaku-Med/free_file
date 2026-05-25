@@ -140,7 +140,7 @@ class AutoplayService {
   }
 
   /**
-   * Autoplay without changing mute — `HTMLVideoElement` should already match saved player settings
+   * Autoplay without changing mute  `HTMLVideoElement` should already match saved player settings
    * (PlayerContext). Does not force muted fallback (that stuck users in mute and fought manual unmute).
    * Returns true when playback is unmuted after a successful play().
    */

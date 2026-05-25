@@ -1,5 +1,5 @@
 -- ============================================================
--- Playlist functions — CRUD + queries for server-side playlists
+-- Playlist functions  CRUD + queries for server-side playlists
 -- ============================================================
 -- Requires: playlists, playlist_items, files, users tables
 -- Run after playlists.sql
@@ -37,7 +37,7 @@ END $$;
 
 
 -- ============================================================
--- 1. get_user_playlists — list playlists for a user with item counts
+-- 1. get_user_playlists  list playlists for a user with item counts
 -- ============================================================
 CREATE OR REPLACE FUNCTION get_user_playlists(p_user_id uuid)
 RETURNS TABLE (
@@ -88,7 +88,7 @@ $$;
 
 
 -- ============================================================
--- 2. get_playlist_with_items — full playlist + ordered file list
+-- 2. get_playlist_with_items  full playlist + ordered file list
 -- ============================================================
 CREATE OR REPLACE FUNCTION get_playlist_with_items(
   p_playlist_id uuid,
@@ -347,7 +347,7 @@ $$;
 
 
 -- ============================================================
--- 6. add_playlist_item — append file to end of playlist
+-- 6. add_playlist_item  append file to end of playlist
 -- ============================================================
 CREATE OR REPLACE FUNCTION add_playlist_item(
   p_user_id     uuid,
@@ -426,7 +426,7 @@ $$;
 
 
 -- ============================================================
--- 8. reorder_playlist_items — set positions from ordered file_id array
+-- 8. reorder_playlist_items  set positions from ordered file_id array
 -- ============================================================
 CREATE OR REPLACE FUNCTION reorder_playlist_items(
   p_user_id     uuid,
@@ -460,7 +460,7 @@ $$;
 
 
 -- ============================================================
--- 9. get_playlists_containing_file — check which of user's playlists
+-- 9. get_playlists_containing_file  check which of user's playlists
 --    already contain a given file (for the "Add to playlist" modal)
 -- ============================================================
 CREATE OR REPLACE FUNCTION get_playlists_containing_file(

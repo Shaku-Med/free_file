@@ -63,7 +63,7 @@ BEGIN
   v_tsquery := websearch_to_tsquery('english', p_query);
   v_pattern := '%' || lower(p_query) || '%';
 
-  -- v_nsfw_on removed — never show adult content
+  -- v_nsfw_on removed  never show adult content
 
   RETURN QUERY
   WITH

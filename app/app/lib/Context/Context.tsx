@@ -280,7 +280,7 @@ export const ContextProvider = ({ children, st, user_agent, userId, c_user, uplo
           }
 
           // Seed exhausted. Rotate to a fresh one and try again. Only give up once we've
-          // rotated a few times without seeing any new items — that's a true empty feed.
+          // rotated a few times without seeing any new items  that's a true empty feed.
           if (rotation < MAX_SEED_ROTATIONS) {
             feedSeedRef.current = `${Date.now()}_${rotation + 1}`
             nextCursorRef.current = null

@@ -13,7 +13,7 @@ import (
 )
 
 // FileMeta is everything LoadPlay needs to make an access decision for a
-// single file. Kept tiny on purpose — the more columns we pull, the
+// single file. Kept tiny on purpose  the more columns we pull, the
 // more pressure on the DB and the slower the cache fill.
 type FileMeta struct {
 	ID         string
@@ -29,7 +29,7 @@ type FileMeta struct {
 // scan attempts don't pound the DB.
 var ErrNotFound = errors.New("file not found")
 
-// Client is the minimum surface — base URL + service role key. Both
+// Client is the minimum surface  base URL + service role key. Both
 // from env, never hardcoded.
 type Client struct {
 	BaseURL    string
@@ -46,7 +46,7 @@ func New(baseURL, serviceKey string) *Client {
 }
 
 // GetFileMeta loads a file row by public `unique_id` (the value in URLs
-// and playback tokens — NOT the internal UUID primary key). Service-role
+// and playback tokens  NOT the internal UUID primary key). Service-role
 // key only; never exposed to the browser.
 func (c *Client) GetFileMeta(ctx context.Context, uniqueID string) (*FileMeta, error) {
 	if c.BaseURL == "" || c.ServiceKey == "" {

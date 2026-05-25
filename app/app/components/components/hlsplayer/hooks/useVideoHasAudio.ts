@@ -44,7 +44,7 @@ function inferHasAudio(video: HTMLVideoElement, hls: HlsLike | null): boolean | 
  *
  * `serverHint` is the authoritative `has_audio` flag from the upload pipeline
  * (computed from waveform peak amplitudes). When the server says the track
- * is silent we believe it — covers the "audio stream exists but it's all
+ * is silent we believe it  covers the "audio stream exists but it's all
  * silence" case (recording with mic muted, stock footage with empty track)
  * which the stream-level detection above can't catch.
  */

@@ -41,7 +41,7 @@ export interface DetectionResult {
 const NSFW_ADULT = new Set(['LIKELY', 'VERY_LIKELY']);
 const NSFW_HIGH = new Set(['VERY_LIKELY']);
 
-// Labels that indicate harmful/violent/gory content — flag as NSFW even if SafeSearch misses them
+// Labels that indicate harmful/violent/gory content  flag as NSFW even if SafeSearch misses them
 const HARMFUL_LABELS = new Set([
   'blood', 'gore', 'wound', 'injury', 'corpse', 'dead body', 'murder',
   'killing', 'stabbing', 'gunshot', 'shooting', 'decapitation', 'mutilation',
@@ -50,7 +50,7 @@ const HARMFUL_LABELS = new Set([
   'extremism', 'hate symbol', 'war crime',
 ]);
 
-// Labels that indicate the content is performance/fashion/beach context — NOT adult
+// Labels that indicate the content is performance/fashion/beach context  NOT adult
 const SAFE_CONTEXT_LABELS = new Set([
   'music', 'music video', 'concert', 'performance', 'singer', 'dancer',
   'dance', 'choreography', 'stage', 'swimming', 'swimwear', 'bikini',
@@ -189,19 +189,19 @@ export class VisionService {
     let flagReason = '';
 
     if (ss) {
-      // 1. Explicit adult content — always flag
+      // 1. Explicit adult content  always flag
       if (NSFW_ADULT.has(ss.adult)) {
         isNSFW = true;
         flagReason = 'adult content';
       }
 
-      // 2. Racy content — only flag if there's NO safe context (fixes bikini false positives)
+      // 2. Racy content  only flag if there's NO safe context (fixes bikini false positives)
       if (!isNSFW && NSFW_HIGH.has(ss.racy) && !hasSafeContext) {
         isNSFW = true;
         flagReason = 'racy content without safe context';
       }
 
-      // 3. Violence — flag LIKELY and above (lowered from VERY_LIKELY to catch more harmful content)
+      // 3. Violence  flag LIKELY and above (lowered from VERY_LIKELY to catch more harmful content)
       if (!isNSFW && NSFW_ADULT.has(ss.violence)) {
         isNSFW = true;
         flagReason = 'violent content';

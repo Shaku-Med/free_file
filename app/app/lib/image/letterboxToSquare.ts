@@ -3,7 +3,7 @@ import type { CanvasRenderingContext2D, Image } from 'canvas';
 /** No CSS on the server; neutral dark fill aligned with typical app shell. */
 export const SERVER_METADATA_SQUARE_BG = '#0a0a0a';
 
-/** Square metadata thumbnails — same footprint as client media-session artwork (400×400). */
+/** Square metadata thumbnails  same footprint as client media-session artwork (400×400). */
 export const SERVER_METADATA_SQUARE_SIZE = 400;
 
 /**

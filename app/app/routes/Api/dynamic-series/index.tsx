@@ -14,7 +14,7 @@ import type { SeriesEpisodeGroup } from "~/lib/types";
 /**
  * GET /api/dynamic-series?unique_id=<file unique_id>
  * Returns series episode tree only for authenticated viewers (still gated by {@link checkFileAccess}).
- * Anonymous users receive 401 — they may reach the watch page media, but not episode-structure payloads.
+ * Anonymous users receive 401  they may reach the watch page media, but not episode-structure payloads.
  */
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   if (request.method !== "GET") {

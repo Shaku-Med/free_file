@@ -40,7 +40,7 @@ func NewClient(cfg Config) *github.Client {
 
 // singleFileGate serialises Contents-API writes per (owner/repo) so concurrent
 // workers don't race each other into 409 conflicts. The Contents API checks
-// the parent SHA at PUT time — if N goroutines GET the same parent then race
+// the parent SHA at PUT time  if N goroutines GET the same parent then race
 // to PUT, only one wins and the rest 409. Holding a per-repo mutex around
 // the GET+PUT pair eliminates the race in-process; the retry loop below
 // handles the cross-process case (another deploy pushing concurrently).
@@ -376,7 +376,7 @@ func BatchCommit(ctx context.Context, client *github.Client, owner, repo, branch
 			// Exponential backoff for 502/500 errors
 			if attempt < maxTreeRetries {
 				backoff := time.Duration(attempt*attempt) * 2 * time.Second
-				logf("batch: tree chunk %d/%d failed (attempt %d/%d): %v — retrying in %s", chunkNum, totalChunks, attempt, maxTreeRetries, terr, backoff)
+				logf("batch: tree chunk %d/%d failed (attempt %d/%d): %v  retrying in %s", chunkNum, totalChunks, attempt, maxTreeRetries, terr, backoff)
 				time.Sleep(backoff)
 			}
 		}
@@ -409,7 +409,7 @@ func BatchCommit(ctx context.Context, client *github.Client, owner, repo, branch
 			}
 			if attempt < maxTreeRetries {
 				backoff := time.Duration(attempt*attempt) * 2 * time.Second
-				logf("batch: commit chunk %d/%d failed (attempt %d/%d): %v — retrying in %s", chunkNum, totalChunks, attempt, maxTreeRetries, cerr, backoff)
+				logf("batch: commit chunk %d/%d failed (attempt %d/%d): %v  retrying in %s", chunkNum, totalChunks, attempt, maxTreeRetries, cerr, backoff)
 				time.Sleep(backoff)
 			}
 		}
@@ -427,7 +427,7 @@ func BatchCommit(ctx context.Context, client *github.Client, owner, repo, branch
 		}
 	}
 
-	// Retry ref update — this is the final critical step
+	// Retry ref update  this is the final critical step
 	var mergeFallbackTried bool
 	for attempt := 1; attempt <= maxTreeRetries; attempt++ {
 		ref.Object.SHA = &currentCommitSHA
@@ -466,7 +466,7 @@ func BatchCommit(ctx context.Context, client *github.Client, owner, repo, branch
 		}
 		if attempt < maxTreeRetries {
 			backoff := time.Duration(attempt*attempt) * 2 * time.Second
-			logf("batch: ref update failed (attempt %d/%d): %v — retrying in %s", attempt, maxTreeRetries, err, backoff)
+			logf("batch: ref update failed (attempt %d/%d): %v  retrying in %s", attempt, maxTreeRetries, err, backoff)
 			time.Sleep(backoff)
 		}
 	}

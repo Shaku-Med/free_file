@@ -145,7 +145,7 @@ export default function AmbientBackground() {
       rawCtx.drawImage(video, 0, 0, SAMPLE_SIZE, SAMPLE_SIZE);
     };
 
-    /** Instant sample — seek / pause / first paint / hidden tab resume. */
+    /** Instant sample  seek / pause / first paint / hidden tab resume. */
     const snapVideoToDisplay = () => {
       if (cancelled || document.hidden) return;
       if (!video || video.readyState < 2 || video.videoWidth === 0) return;

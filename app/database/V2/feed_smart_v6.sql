@@ -1,13 +1,13 @@
 -- ============================================================
--- FEED v6.0 — Instagram-Grade Personalization Engine
+-- FEED v6.0  Instagram-Grade Personalization Engine
 -- ============================================================
 -- Upgrades over v5:
---   1. Watch time affinity — #1 signal, weighted from file_watch_time
---   2. Creator affinity — boost content from creators user engages with
---   3. Deep interest profiles — pre-computed user_interest_scores replace simple category affinity
---   4. Save signal — saved_files as a strong quality indicator
---   5. Negative signal filtering — hide_creator, not_interested, hide_category
---   6. Session boost parameter — real-time in-session interest adaptation
+--   1. Watch time affinity  #1 signal, weighted from file_watch_time
+--   2. Creator affinity  boost content from creators user engages with
+--   3. Deep interest profiles  pre-computed user_interest_scores replace simple category affinity
+--   4. Save signal  saved_files as a strong quality indicator
+--   5. Negative signal filtering  hide_creator, not_interested, hide_category
+--   6. Session boost parameter  real-time in-session interest adaptation
 --   7. Rebalanced pool weights with new signals
 -- ============================================================
 -- Run in Supabase SQL Editor. Replaces get_feed from v5.
@@ -337,7 +337,7 @@ BEGIN
       )
   ),
 
-  -- ── Pool 1: FRESH — new content (last 48h), personalized ranking
+  -- ── Pool 1: FRESH  new content (last 48h), personalized ranking
   pool_fresh AS (
     SELECT b.*, 'fresh'::text AS _pool,
       ROW_NUMBER() OVER (
@@ -357,7 +357,7 @@ BEGIN
     LIMIT (v_fresh_lim * v_page_mult) * 2
   ),
 
-  -- ── Pool 2: TRENDING — high engagement velocity, personalized
+  -- ── Pool 2: TRENDING  high engagement velocity, personalized
   pool_trending AS (
     SELECT b.*, 'trending'::text AS _pool,
       ROW_NUMBER() OVER (
@@ -379,7 +379,7 @@ BEGIN
     LIMIT (v_trend_lim * v_page_mult) * 2
   ),
 
-  -- ── Pool 3: POPULAR — high total engagement, quality content
+  -- ── Pool 3: POPULAR  high total engagement, quality content
   pool_popular AS (
     SELECT b.*, 'popular'::text AS _pool,
       ROW_NUMBER() OVER (
@@ -400,7 +400,7 @@ BEGIN
     LIMIT (v_pop_lim * v_page_mult) * 2
   ),
 
-  -- ── Pool 4: SUBSCRIBED — content from followed channels, personalized order
+  -- ── Pool 4: SUBSCRIBED  content from followed channels, personalized order
   pool_subscribed AS (
     SELECT b.*, 'subscribed'::text AS _pool,
       ROW_NUMBER() OVER (
@@ -421,7 +421,7 @@ BEGIN
     LIMIT (v_sub_lim * v_page_mult) * 2
   ),
 
-  -- ── Pool 5: DISCOVERY — diverse content, serendipity with smart nudges
+  -- ── Pool 5: DISCOVERY  diverse content, serendipity with smart nudges
   pool_discovery AS (
     SELECT b.*, 'discovery'::text AS _pool,
       ROW_NUMBER() OVER (

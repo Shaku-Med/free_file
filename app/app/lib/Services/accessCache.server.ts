@@ -1,15 +1,15 @@
 /**
  * Per-process access-control cache. Used by the load/image, load/video and
- * load/hls-manifest-session endpoints — every video segment and every thumbnail
+ * load/hls-manifest-session endpoints  every video segment and every thumbnail
  * goes through one of those, so hitting Supabase for the same file row / same
  * user context dozens of times per minute is wasted work.
  *
  * Two narrow caches with short TTLs:
- *  1. File row by `unique_id` — only the visibility fields needed for the access
+ *  1. File row by `unique_id`  only the visibility fields needed for the access
  *     check. Owners flipping a file to private propagates within FILE_TTL_MS at
  *     worst, OR immediately when the file edit endpoint calls
  *     `invalidateFileByUniqueId`.
- *  2. User access context by encrypted `c_user` cookie — `id, dob, verified,
+ *  2. User access context by encrypted `c_user` cookie  `id, dob, verified,
  *     show_nsfw`. Settings changes propagate within USER_TTL_MS, OR immediately
  *     when the settings endpoint calls `invalidateUserAccessContextById`.
  *
@@ -20,7 +20,7 @@
  *    misbehaving caller probing for unique_ids can't get cheap "not found"
  *    answers from cache (they hit the DB rate limit naturally).
  *  - Cookies are keys but never serialized anywhere off-process.
- *  - Cache falls back to DB on any read miss — failure-open is fine here
+ *  - Cache falls back to DB on any read miss  failure-open is fine here
  *    because the cache only ever returns rows the DB already returned.
  */
 
@@ -75,7 +75,7 @@ function readFresh<T>(map: Map<string, Entry<T>>, key: string): T | null {
     map.delete(key);
     return null;
   }
-  // Touch for LRU ordering — Map iteration order is insertion order, so
+  // Touch for LRU ordering  Map iteration order is insertion order, so
   // delete+set moves the entry to "most recent".
   map.delete(key);
   map.set(key, e);
@@ -134,12 +134,12 @@ export async function getCachedFileByUniqueId(
   }
 }
 
-/** Drop the cached row for one file — call this on PATCH /api/files. */
+/** Drop the cached row for one file  call this on PATCH /api/files. */
 export function invalidateFileByUniqueId(uniqueId: string | null | undefined): void {
   if (uniqueId) fileByUniqueId.delete(uniqueId);
 }
 
-/** Drop everything — useful in tests / on environment switches. */
+/** Drop everything  useful in tests / on environment switches. */
 export function clearAccessCaches(): void {
   fileByUniqueId.clear();
   userByCookie.clear();
@@ -150,7 +150,7 @@ export function clearAccessCaches(): void {
  * `c_user` cookie, or queries Supabase + caches. Null when the cookie is missing,
  * malformed, or the user row no longer exists.
  *
- * The cache key is the cookie string itself — same cookie → same user, and the
+ * The cache key is the cookie string itself  same cookie → same user, and the
  * cookie rotates on logout / password reset which auto-invalidates the entry.
  */
 export async function getCachedUserAccessContext(
@@ -188,7 +188,7 @@ export async function getCachedUserAccessContext(
   }
 }
 
-/** Drop every cached entry belonging to one user — call on settings update / logout. */
+/** Drop every cached entry belonging to one user  call on settings update / logout. */
 export function invalidateUserAccessContextById(userId: string | null | undefined): void {
   if (!userId) return;
   for (const [key, entry] of userByCookie) {

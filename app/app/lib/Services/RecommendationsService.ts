@@ -259,7 +259,7 @@ export class RecommendationsService {
         }
       }
 
-      // 4) Creator affinity — more from creators the user likes
+      // 4) Creator affinity  more from creators the user likes
       if (preferredCreators.size > 0) {
         const creatorIds = [...preferredCreators].slice(0, 10);
         const { data: creatorFiles } = await db
@@ -278,7 +278,7 @@ export class RecommendationsService {
         }
       }
 
-      // 5) Trending backfill — discovery for content the user hasn't engaged with
+      // 5) Trending backfill  discovery for content the user hasn't engaged with
       const { data: trending } = await db
         .from('files')
         .select('id, owner_id')

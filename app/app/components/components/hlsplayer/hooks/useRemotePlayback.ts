@@ -66,7 +66,7 @@ export function useRemotePlayback(videoRef: React.RefObject<HTMLVideoElement | n
 
     const webkitVideo = video as WebKitVideoElement;
 
-    // ─── Safari / iOS — AirPlay ───
+    // ─── Safari / iOS  AirPlay ───
     if (
       (window as any).WebKitPlaybackTargetAvailabilityEvent ||
       webkitVideo.webkitShowPlaybackTargetPicker
@@ -98,7 +98,7 @@ export function useRemotePlayback(videoRef: React.RefObject<HTMLVideoElement | n
       };
     }
 
-    // ─── Chrome / Edge — Remote Playback API ───
+    // ─── Chrome / Edge  Remote Playback API ───
     const remote = (video as VideoWithRemote).remote;
 
     if (remote) {
@@ -129,7 +129,7 @@ export function useRemotePlayback(videoRef: React.RefObject<HTMLVideoElement | n
             if (!cancelled) watchIdRef.current = id;
           })
           .catch(() => {
-            // watchAvailability not supported — show button anyway
+            // watchAvailability not supported  show button anyway
             if (!cancelled) setIsAvailable(true);
           });
 
@@ -146,7 +146,7 @@ export function useRemotePlayback(videoRef: React.RefObject<HTMLVideoElement | n
         };
       }
 
-      // No watchAvailability — just show the button
+      // No watchAvailability  just show the button
       setIsAvailable(true);
       return () => {
         remote.removeEventListener('connect', handleConnect);

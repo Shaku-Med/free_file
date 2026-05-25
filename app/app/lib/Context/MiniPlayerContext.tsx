@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useCallback, useRef, useEff
 import { useLocation } from 'react-router';
 import type { FileType } from '~/lib/types';
 import { setCachedPlaybackUrl } from '~/lib/playbackUrlCache';
+import { useFileContext } from '~/lib/Context/Context';
 
 export interface MiniPlayerState {
   src: string;
@@ -9,7 +10,7 @@ export interface MiniPlayerState {
   imageID: string;
   /**
    * Optional metadata when activating a *second* player instance.
-   * With the global player, playback continues on the same `<video>` — these are unused for props.
+   * With the global player, playback continues on the same `<video>`  these are unused for props.
    */
   currentTime?: number;
   wasPlaying?: boolean;
@@ -78,7 +79,7 @@ interface MiniPlayerContextType {
   clearExpandHandoff: () => void;
   /** Playback state to hand off to the main player when expanding. Null if not expanding or IDs don't match. */
   expandPlaybackState: ExpandPlaybackState | null;
-  /** Ref to the source (large) video element — set before activating so mini player can mute it once ready */
+  /** Ref to the source (large) video element  set before activating so mini player can mute it once ready */
   sourceVideoRef: React.MutableRefObject<HTMLVideoElement | null>;
 }
 
@@ -91,6 +92,7 @@ export function useMiniPlayerContext() {
 }
 
 export function MiniPlayerProvider({ children }: { children: React.ReactNode }) {
+  const { userId } = useFileContext();
   const [miniPlayer, setMiniPlayer] = useState<MiniPlayerState | null>(null);
   const [isPortalMode, setIsPortalMode] = useState(false);
   const [containerReady, setContainerReady] = useState(false);
@@ -128,6 +130,7 @@ export function MiniPlayerProvider({ children }: { children: React.ReactNode }) 
   }, []);
 
   const activateMiniPlayer = useCallback((state: MiniPlayerState, options?: ActivateMiniPlayerOptions) => {
+    if (!userId) return;
     if (state.src && state.file.unique_id) {
       setCachedPlaybackUrl(state.file.unique_id, state.src);
     }
@@ -136,7 +139,7 @@ export function MiniPlayerProvider({ children }: { children: React.ReactNode }) 
     setPendingNavigateTo(options?.navigateTo ?? null);
     setIsExpanding(false);
     setExpandPlaybackState(null);
-  }, []);
+  }, [userId]);
 
   const [isExpanding, setIsExpanding] = useState(false);
   const [expandPlaybackState, setExpandPlaybackState] = useState<ExpandPlaybackState | null>(null);
@@ -149,6 +152,10 @@ export function MiniPlayerProvider({ children }: { children: React.ReactNode }) 
     setExpandPlaybackState(null);
     sourceVideoRef.current = null;
   }, []);
+
+  useEffect(() => {
+    if (!userId) closeMiniPlayer();
+  }, [userId, closeMiniPlayer]);
 
   const startExpand = useCallback((playbackState: ExpandPlaybackState) => {
     setIsExpanding(true);

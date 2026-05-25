@@ -18,7 +18,7 @@
 --         `unique_id` column (NOT the uuid `id`).
 --
 -- Run:    Paste this entire file into the Supabase SQL editor
---         and execute. It is idempotent — safe to re-run.
+--         and execute. It is idempotent  safe to re-run.
 -- ============================================================
 
 -- ------------------------------------------------------------
@@ -530,7 +530,7 @@ $$;
 GRANT EXECUTE ON FUNCTION public.get_reel_feed(uuid, int, text, text, int, uuid[], numeric) TO anon, authenticated;
 
 -- ------------------------------------------------------------
--- 3) Sanity checks (safe to run — they only SELECT)
+-- 3) Sanity checks (safe to run  they only SELECT)
 -- ------------------------------------------------------------
 -- Smoke test: should return rows or an empty set, but MUST NOT error.
 -- SELECT * FROM public.get_reel_feed(NULL, 5, NULL, 'smoke-' || now()::text) LIMIT 5;

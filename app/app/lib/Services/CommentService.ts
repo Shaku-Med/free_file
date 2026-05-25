@@ -99,7 +99,7 @@ async function mergePendingCommentImageRepo(commentId: string, imagePath: string
   if (pendErr) {
     const msg = `${pendErr.message || ''} ${(pendErr as { code?: string }).code || ''}`.toLowerCase();
     if (msg.includes('comment_image_upload_repos') || msg.includes('does not exist')) {
-      console.warn('[comments] comment_image_upload_repos missing — run migration add_comment_image_upload_repos.sql');
+      console.warn('[comments] comment_image_upload_repos missing  run migration add_comment_image_upload_repos.sql');
     }
   }
 

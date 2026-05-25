@@ -39,7 +39,7 @@ func AuthUpload() fiber.Handler {
 	checkURL := appBaseURL + "/api/upload-server-check"
 
 	return func(c *fiber.Ctx) error {
-		// Allow CORS preflight requests through — browsers send OPTIONS without auth headers
+		// Allow CORS preflight requests through  browsers send OPTIONS without auth headers
 		if c.Method() == fiber.MethodOptions {
 			return c.Next()
 		}

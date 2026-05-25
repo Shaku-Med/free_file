@@ -9,7 +9,7 @@ import (
 // Gate caps the number of concurrent upstream fetches. When the cap
 // is hit, additional callers queue on the semaphore up to `wait`. If
 // the wait expires, we shed load with ErrBusy rather than letting
-// the queue grow unbounded — that's how a slow GitHub turns into a
+// the queue grow unbounded  that's how a slow GitHub turns into a
 // memory blow-up otherwise.
 //
 // Sizing: maxConcurrent should be ~ (peak QPS × p99 fetch seconds).

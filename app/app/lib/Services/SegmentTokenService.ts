@@ -6,7 +6,7 @@ import { sanitizeFilePath } from "~/lib/Security/inputValidation";
  * Guest preview: keep short so leaked segment URLs die quickly.
  * Signed-in: `_st` is minted for every segment URL when the manifest is rewritten; static VoD
  * playlists often never reload, so TTL must cover your longest typical watch. Bound to
- * `sessionScope` only (cookie HMAC) — not client IP, so cellular ↔ WiFi handoff does not 403 segments.
+ * `sessionScope` only (cookie HMAC)  not client IP, so cellular ↔ WiFi handoff does not 403 segments.
  * Rate limiting still uses IP via `sessionRateKey`.
  */
 export const GUEST_SEGMENT_TOKEN_TTL_SEC = 300;
@@ -35,7 +35,7 @@ function extractIp(headers: Headers): string {
  * cookie so the segment URL never echoes it back. A stolen segment URL is
  * useless in any other session because the binding here won't match.
  * `c_user` for signed-in, `token` for guests; "anon" only when neither
- * cookie is present (rare — the route already requires one path or another).
+ * cookie is present (rare  the route already requires one path or another).
  */
 /** Exported for HLS manifest gate + session rate limits (same binding as segment tokens). */
 export function sessionScope(headers: Headers): string {
@@ -64,7 +64,7 @@ export function sessionRateKey(headers: Headers): string {
 }
 
 /**
- * Tokens bind to `sessionScope` (cookie-HMAC) only. IP is no longer part of the binding —
+ * Tokens bind to `sessionScope` (cookie-HMAC) only. IP is no longer part of the binding 
  * mobile users handing off cellular ↔ wifi mid-watch were getting 403s on every segment
  * until the manifest re-loaded. Cross-session reuse is still blocked: a stolen URL has the
  * thief's `sessionScope` cookie, not the original's. IP-based abuse is gated separately by
@@ -79,7 +79,7 @@ export function createSegmentToken(segmentPath: string, headers: Headers): strin
 /**
  * Signed-out preview only: binds segment URL to the server-chosen preview cap so
  * tokens from a full (signed-in) playlist cannot be reused while logged out.
- * The limit is never taken from the client — callers pass the same value used for HLS truncation.
+ * The limit is never taken from the client  callers pass the same value used for HLS truncation.
  */
 export function createGuestSegmentToken(
   segmentPath: string,

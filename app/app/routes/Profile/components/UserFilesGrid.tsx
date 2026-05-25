@@ -74,7 +74,7 @@ const UserFilesGrid = ({
   );
 
   // Reset only when viewing a different profile (userId). Do not reset when parent passes a longer
-  // file list after load-more — that used to wipe merged like/dislike state from the API.
+  // file list after load-more  that used to wipe merged like/dislike state from the API.
   useEffect(() => {
     if (lastProfileUserIdRef.current === userId) return;
     lastProfileUserIdRef.current = userId;
@@ -105,14 +105,14 @@ const UserFilesGrid = ({
   );
 
   /**
-   * Upload-progress polling — only runs while at least one of the user's own files is in a
+   * Upload-progress polling  only runs while at least one of the user's own files is in a
    * non-terminal upload state. Designed to be gentle on the server:
    *
-   *  - Starts at a 12s interval (was 3.5s — way too aggressive for a 1-server setup).
+   *  - Starts at a 12s interval (was 3.5s  way too aggressive for a 1-server setup).
    *  - Backs off to 25s after the first minute and 45s after five minutes; processing jobs
    *    typically take much longer than the original cadence assumed, so the early pings were
    *    mostly wasted bandwidth.
-   *  - Pauses entirely when the tab is hidden — `visibilitychange` resumes immediately and
+   *  - Pauses entirely when the tab is hidden  `visibilitychange` resumes immediately and
    *    schedules the next tick at the appropriate backoff step.
    *  - Skips the next tick if a previous one is still in flight (no overlap on slow servers).
    */

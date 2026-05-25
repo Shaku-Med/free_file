@@ -1,5 +1,5 @@
 -- ============================================================
--- get_by_tag — Tag page feed: match tag in tags, categories,
+-- get_by_tag  Tag page feed: match tag in tags, categories,
 -- file_title, or file_description. Cursor pagination, sort options.
 -- ============================================================
 
@@ -61,7 +61,7 @@ BEGIN
     RETURN;
   END IF;
 
-  -- v_nsfw_on removed — never show adult content
+  -- v_nsfw_on removed  never show adult content
 
   RETURN QUERY
   WITH

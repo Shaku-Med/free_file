@@ -19,13 +19,13 @@ export function isSpatialAudioUiSupported(): boolean {
 /**
  * Spatial-audio modes, ordered roughly from "subtle" to "trippy".
  *
- * - `stereo`   — classic 8D feel: a wide L↔R sweep at ear level. This is what most
+ * - `stereo`    classic 8D feel: a wide L↔R sweep at ear level. This is what most
  *                people mean when they say "8D". Works on speakers and headphones.
- * - `orbit`    — sound circles your head horizontally (HRTF). Headphones recommended.
- * - `tumble`   — sound moves overhead → behind → underfoot → in front (HRTF).
- * - `figure8`  — lemniscate sweep in the horizontal plane (HRTF).
- * - `manual`   — fixed XYZ position you pick on the pad.
- * - `room-front` — stable "speakers in front of you" sweet spot — no motion.
+ * - `orbit`     sound circles your head horizontally (HRTF). Headphones recommended.
+ * - `tumble`    sound moves overhead → behind → underfoot → in front (HRTF).
+ * - `figure8`   lemniscate sweep in the horizontal plane (HRTF).
+ * - `manual`    fixed XYZ position you pick on the pad.
+ * - `room-front`  stable "speakers in front of you" sweet spot  no motion.
  */
 export type SpatialAudioMode =
   | 'stereo'
@@ -45,7 +45,7 @@ export function isAnimatedSpatialMode(mode: SpatialAudioMode): boolean {
 export interface SpatialAudioConfig {
   /** Master toggle. When false the panner is detached and audio routes natively. */
   enabled: boolean;
-  /** Movement pattern — see {@link SpatialAudioMode}. */
+  /** Movement pattern  see {@link SpatialAudioMode}. */
   mode: SpatialAudioMode;
   /** Manual position (used in `manual` mode). Each component is roughly in [-3, 3]. */
   position: { x: number; y: number; z: number };
@@ -64,7 +64,7 @@ export const DEFAULT_SPATIAL_CONFIG: SpatialAudioConfig = {
 };
 
 /**
- * Pure position math — given a config and a wall-clock timestamp (ms), returns the
+ * Pure position math  given a config and a wall-clock timestamp (ms), returns the
  * panner position to apply. Shared with the dialog so the on-screen preview animates
  * in lock-step with the actual audio panner.
  */
@@ -103,7 +103,7 @@ export function computeSpatialPosition(
       return { x: 0, y: Math.sin(phase) * r, z: -Math.cos(phase) * r };
     }
     case 'figure8': {
-      // Lemniscate of Bernoulli — sweeps an ∞ in the horizontal plane.
+      // Lemniscate of Bernoulli  sweeps an ∞ in the horizontal plane.
       const denom = 1 + Math.sin(phase) * Math.sin(phase);
       return {
         x: (Math.cos(phase) * r) / denom,

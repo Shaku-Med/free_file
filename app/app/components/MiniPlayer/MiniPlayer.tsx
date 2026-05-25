@@ -243,7 +243,7 @@ function MiniPlayerContent() {
   );
 }
 
-/** Reel surface owns the global player while user is on `/reel*` — mini is closed, not just hidden. */
+/** Reel surface owns the global player while user is on `/reel*`  mini is closed, not just hidden. */
 function isReelPath(pathname: string): boolean {
   const s = pathname.replace(/^\/+/, "");
   return s === "reel" || s.startsWith("reel/");

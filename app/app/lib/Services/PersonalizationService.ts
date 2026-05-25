@@ -1,5 +1,5 @@
 /**
- * PersonalizationService — Client-side service for managing feed personalization.
+ * PersonalizationService  Client-side service for managing feed personalization.
  *
  * Handles:
  * - Refreshing user interest profiles on login

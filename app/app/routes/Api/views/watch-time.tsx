@@ -18,7 +18,7 @@ const toJson = (body: unknown, status = 200) =>
 
 interface WatchTimeBody {
   playbackToken?: string;
-  /** Ignored — `file_id` comes only from the consumed one-time playback token (anti‑tamper). */
+  /** Ignored  `file_id` comes only from the consumed one-time playback token (anti‑tamper). */
   fileId?: string;
   watchDurationSeconds?: number;
   totalDurationSeconds?: number;
@@ -60,7 +60,7 @@ export const action = async ({ request }: { request: Request }) => {
       return toJson({ error: 'Invalid or expired playback token', code: 'invalid_playback_token' }, 409);
     }
     if (consumed.userId !== user.id) {
-      /** Token/session mismatch — treat like replay / cross-user sniff. */
+      /** Token/session mismatch  treat like replay / cross-user sniff. */
       return toJson({ error: 'Session mismatch', code: 'playback_token_mismatch' }, 403);
     }
 

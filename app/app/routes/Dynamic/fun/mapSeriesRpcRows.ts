@@ -124,7 +124,7 @@ export function groupSeriesRpcRows(rows: Record<string, unknown>[]): SeriesEpiso
 /**
  * Earliest `created_at` among the items in this episode (and recursively, its nested episodes).
  * That date is the only thing that's reliably present and meaningful regardless of how the user
- * named things — it's when the FIRST piece of content in this branch was uploaded, which is the
+ * named things  it's when the FIRST piece of content in this branch was uploaded, which is the
  * natural "first / middle / last" ordering people actually want.
  */
 function earliestItemTimestamp(group: SeriesEpisodeGroup): number {
@@ -145,11 +145,11 @@ function earliestItemTimestamp(group: SeriesEpisodeGroup): number {
 /**
  * Order siblings the way the user expects, regardless of naming:
  *   1) explicit `episode_number` if both have it (manual override)
- *   2) earliest upload time in the branch — first uploaded → first, last uploaded → last
+ *   2) earliest upload time in the branch  first uploaded → first, last uploaded → last
  *   3) name fallback (numeric-collation locale compare) when timestamps are missing/equal
  *
  * The RPC returns alphabetical, which is wrong as soon as users name things freely.
- * Going by upload time means "any name" works — the user doesn't have to follow a
+ * Going by upload time means "any name" works  the user doesn't have to follow a
  * convention to get the right order.
  */
 function sortEpisodeGroups(groups: SeriesEpisodeGroup[]): SeriesEpisodeGroup[] {

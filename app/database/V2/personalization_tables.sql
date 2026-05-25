@@ -1,5 +1,5 @@
 -- ============================================================
--- PERSONALIZATION TABLES — Instagram-grade feed signals
+-- PERSONALIZATION TABLES  Instagram-grade feed signals
 -- ============================================================
 -- Run in Supabase SQL Editor. Creates tables for:
 --   1. Watch time events (strongest signal)
@@ -111,7 +111,7 @@ GRANT EXECUTE ON FUNCTION record_watch_time(uuid, uuid, real, real) TO authentic
 
 -- ============================================================
 -- 2. SAVED / BOOKMARKED FILES
--- Quick save button — stronger signal than likes (Instagram data).
+-- Quick save button  stronger signal than likes (Instagram data).
 -- ============================================================
 CREATE TABLE IF NOT EXISTS saved_files (
   user_id uuid NOT NULL REFERENCES users (id) ON DELETE CASCADE,
@@ -412,7 +412,7 @@ GRANT EXECUTE ON FUNCTION refresh_user_personalization(uuid) TO authenticated;
 
 
 -- ============================================================
--- 7. RLS policies — own-row SELECT for authenticated (defense in depth).
+-- 7. RLS policies  own-row SELECT for authenticated (defense in depth).
 -- Server service role bypasses RLS; these help if tables are ever queried with a user JWT.
 -- ============================================================
 DROP POLICY IF EXISTS "file_watch_time_select_own" ON file_watch_time;

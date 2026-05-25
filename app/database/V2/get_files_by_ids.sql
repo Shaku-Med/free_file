@@ -1,5 +1,5 @@
 -- ============================================================
--- get_files_by_ids — fetch file rows by ID list (for playlist, etc.)
+-- get_files_by_ids  fetch file rows by ID list (for playlist, etc.)
 -- ============================================================
 -- SECURITY DEFINER so anon/authenticated can load playlist data
 -- regardless of RLS on files. Only returns completed/public-ready files.

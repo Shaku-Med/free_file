@@ -4,10 +4,15 @@ import {
   setCachedPlaybackUrl,
 } from "~/lib/playbackUrlCache";
 
+type MintState = { forFileId: string; url: string | null };
+
 /**
  * Fetches a signed LoadPlay URL from POST /api/play/mint when the given
  * file is HLS-shaped. URLs are cached in-memory per fileId so watch ↔ mini
  * handoffs reuse the same ?t= token and Hls.js never reloads the manifest.
+ *
+ * Returns null while the fileId changes until a URL for *that* file is ready 
+ * never leaks the previous file's minted URL across watch→watch navigation.
  */
 export function usePlaybackUrl(file: {
   unique_id?: string | null;
@@ -18,24 +23,28 @@ export function usePlaybackUrl(file: {
   const fileType = file?.file_type ?? null;
   const endpoint = file?.endpoint ?? null;
 
-  const [url, setUrl] = useState<string | null>(() =>
-    fileId ? getCachedPlaybackUrl(fileId) : null,
-  );
+  const [mintState, setMintState] = useState<MintState | null>(() => {
+    if (!fileId) return null;
+    const cached = getCachedPlaybackUrl(fileId);
+    return cached ? { forFileId: fileId, url: cached } : null;
+  });
 
   useEffect(() => {
     const isHls =
       fileType === "application/vnd.apple.mpegurl" ||
       (typeof endpoint === "string" && endpoint.includes(".m3u8"));
     if (!fileId || !isHls) {
-      setUrl(null);
+      setMintState(null);
       return;
     }
 
     const cached = getCachedPlaybackUrl(fileId);
     if (cached) {
-      setUrl(cached);
+      setMintState({ forFileId: fileId, url: cached });
       return;
     }
+
+    setMintState({ forFileId: fileId, url: null });
 
     let cancelled = false;
     fetch("/api/play/mint", {
@@ -55,10 +64,10 @@ export function usePlaybackUrl(file: {
       .then((next) => {
         if (cancelled || !next) return;
         setCachedPlaybackUrl(fileId, next);
-        setUrl(next);
+        setMintState({ forFileId: fileId, url: next });
       })
       .catch(() => {
-        if (!cancelled) setUrl(null);
+        if (!cancelled) setMintState({ forFileId: fileId, url: null });
       });
 
     return () => {
@@ -66,5 +75,9 @@ export function usePlaybackUrl(file: {
     };
   }, [fileId, fileType, endpoint]);
 
-  return url;
+  if (!fileId) return null;
+  if (mintState?.forFileId === fileId) {
+    return mintState.url ?? getCachedPlaybackUrl(fileId);
+  }
+  return getCachedPlaybackUrl(fileId);
 }

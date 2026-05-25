@@ -16,7 +16,7 @@ import (
 // override what they want.
 type PoolConfig struct {
 	// MinWorkers floor concurrency. Always at least 1 worker is processing,
-	// even under heavy system load — otherwise the queue would just stall.
+	// even under heavy system load  otherwise the queue would just stall.
 	MinWorkers int
 	// MaxWorkers ceiling concurrency. Hard cap on how many jobs can run at once.
 	MaxWorkers int
@@ -27,7 +27,7 @@ type PoolConfig struct {
 	CPUHigh float64
 	CPULow  float64
 	// MemHigh memory pressure threshold that forces a throttle-down even when
-	// CPU is fine. No "MemLow" — we only ramp on CPU.
+	// CPU is fine. No "MemLow"  we only ramp on CPU.
 	MemHigh float64
 	// Cooldown gap between adjustments so we don't oscillate.
 	Cooldown time.Duration
@@ -126,7 +126,7 @@ func (p *Pool) active() int32 {
 	return p.activeTarget.Load()
 }
 
-// runWorker — worker idx i runs when active >= i+1. Otherwise it idles in
+// runWorker  worker idx i runs when active >= i+1. Otherwise it idles in
 // 500 ms ticks rechecking. The currently-running job (if any) finishes first.
 func (p *Pool) runWorker(idx int) {
 	defer p.wg.Done()

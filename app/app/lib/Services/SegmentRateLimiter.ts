@@ -3,7 +3,7 @@
  * pulls segments at ~real-time pace, with small bursts to fill the buffer)
  * from a ripper (ffmpeg / extension grabbing as fast as the network allows).
  *
- * In-memory only — single-instance deploys. Swap for Redis when you scale out;
+ * In-memory only  single-instance deploys. Swap for Redis when you scale out;
  * the API is intentionally tiny so the call sites don't change.
  */
 

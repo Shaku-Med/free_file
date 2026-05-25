@@ -5,7 +5,7 @@ import (
 	"time"
 )
 
-// Mirrors app SegmentRateLimiter — in-memory sliding windows per key.
+// Mirrors app SegmentRateLimiter  in-memory sliding windows per key.
 const (
 	segmentWindow    = 45 * time.Second
 	segmentMax       = 70

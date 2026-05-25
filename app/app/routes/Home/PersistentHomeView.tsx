@@ -3,7 +3,7 @@
  *
  * The actual feed JSX that used to live inside `routes/Home/index.tsx`'s
  * `PhotoDashboard` component. We pulled it out so it can be mounted ONCE
- * inside the AppShell scroll container — independent of the route match
+ * inside the AppShell scroll container  independent of the route match
  * lifecycle.
  *
  * Why:
@@ -14,7 +14,7 @@
  *     back instantly with everything intact.
  *   - The route file (`routes/Home/index.tsx`) still owns `meta` and any
  *     loader so SEO / SSR are unaffected. Its component just returns
- *     null — the visible UI lives here.
+ *     null  the visible UI lives here.
  *
  * Visibility:
  *   - The parent (`BodyComponent`) toggles CSS `display` based on the
@@ -24,7 +24,7 @@
  *     so each surface restores correctly.
  *
  * NB: every hook + state read here is identical to the original
- * component — this is a verbatim extraction, not a refactor.
+ * component  this is a verbatim extraction, not a refactor.
  */
 
 import { useCallback } from "react";

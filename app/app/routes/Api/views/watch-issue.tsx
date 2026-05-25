@@ -13,7 +13,7 @@ const toJson = (body: unknown, status = 200) =>
     headers: { 'Content-Type': 'application/json' },
   });
 
-/** GET /api/views/watch-issue?fileId=<uuid> — mint a one-use playback nonce for chained POSTs (no DB row). */
+/** GET /api/views/watch-issue?fileId=<uuid>  mint a one-use playback nonce for chained POSTs (no DB row). */
 export const loader = async ({ request }: { request: Request }) => {
   try {
     if (request.method !== 'GET') return toJson({ error: 'Method not allowed' }, 405);
@@ -40,7 +40,7 @@ export const loader = async ({ request }: { request: Request }) => {
     if (!sig.valid) {
       console.warn('[watch-issue] signature rejected:', sig.reason);
       const headers = new Headers({ 'Content-Type': 'application/json' });
-      // Hint client to re-handshake — stale tab key, cookie switch, or dev reload.
+      // Hint client to re-handshake  stale tab key, cookie switch, or dev reload.
       if (
         sig.reason === 'stale_ts' ||
         sig.reason === 'hmac_mismatch' ||

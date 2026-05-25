@@ -1,5 +1,5 @@
 -- ============================================================
--- FEED v4.1 — hard block adult content, everything else unchanged
+-- FEED v4.1  hard block adult content, everything else unchanged
 -- ============================================================
 
 DROP FUNCTION IF EXISTS get_feed;
@@ -61,7 +61,7 @@ DECLARE
   v_disc_lim   int;
   v_page_mult  int := 10;
 BEGIN
-  -- v_nsfw_on removed — feed never shows adult content
+  -- v_nsfw_on removed  feed never shows adult content
 
   v_fresh_lim := GREATEST(CEIL(p_limit * 0.30)::int, 1);
   v_trend_lim := GREATEST(CEIL(p_limit * 0.25)::int, 1);

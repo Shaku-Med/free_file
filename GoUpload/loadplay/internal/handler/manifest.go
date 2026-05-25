@@ -50,7 +50,7 @@ type ManifestDeps struct {
 // `if err != nil { return err }` actually short-circuits the handler.
 //
 // CRITICAL: deny() must NOT return nil. c.Status(...).JSON(...) returns
-// nil on success, which would let the caller continue past the reject —
+// nil on success, which would let the caller continue past the reject 
 // the handler would then keep running, generate the manifest, and
 // SendString it, overwriting the JSON body but leaving the 403 status.
 // Result: 403 response with the real manifest in the body. That's a
@@ -214,7 +214,7 @@ func softGuardOrFingerprint(c *fiber.Ctx, deps ManifestDeps, tok *token.Playback
 
 // resolveAccessAndStorage looks the file up via the cache (DB on miss,
 // FIFO + TTL on hit), enforces token↔owner binding for private files,
-// and returns the storage config — same as `deps.Storage` but with the
+// and returns the storage config  same as `deps.Storage` but with the
 // per-file `github_repo` swapped in when the row has one. denyStatus is
 // 0 when access is granted; non-zero is the HTTP status the caller
 // should return to the client.
@@ -229,7 +229,7 @@ func resolveAccessAndStorage(ctx context.Context, deps ManifestDeps, tok *token.
 		return cfg, fiber.StatusNotFound
 	}
 	if err != nil {
-		// Upstream Supabase blip — fail closed but log. The cache won't
+		// Upstream Supabase blip  fail closed but log. The cache won't
 		// remember this so the next request can succeed.
 		deps.Log.Errorf("meta fetch err=%s id=%s", err.Error(), tok.FileID)
 		return cfg, fiber.StatusServiceUnavailable
@@ -248,11 +248,11 @@ func resolveAccessAndStorage(ctx context.Context, deps ManifestDeps, tok *token.
 }
 
 // loadManifestBody folds three traffic controls into one call:
-//   1. manifest body cache (~60s) — finished uploads are immutable, so
+//   1. manifest body cache (~60s)  finished uploads are immutable, so
 //      hot videos serve from RAM and never re-fetch GitHub
-//   2. singleflight — concurrent misses for the same manifest collapse
+//   2. singleflight  concurrent misses for the same manifest collapse
 //      into a single upstream fetch
-//   3. fetch gate — caps concurrent upstream fetches so a slow GitHub
+//   3. fetch gate  caps concurrent upstream fetches so a slow GitHub
 //      can't grow our in-flight queue unboundedly (returns ErrBusy →
 //      503 + Retry-After to shed load)
 func loadManifestBody(c *fiber.Ctx, deps ManifestDeps, st storage.Config, relPath string) (string, error) {
@@ -324,7 +324,7 @@ func rewriteManifest(body, manifestPath, rawToken, fileID, publicBase string) (s
 
 	resolve := func(uri string) string {
 		// Absolute URLs aren't expected from our pipeline. If one ever
-		// shows up in a manifest, drop it rather than echo it — that
+		// shows up in a manifest, drop it rather than echo it  that
 		// would leak the storage origin (github raw) to the client.
 		// Empty string preserves the line shape; the player will skip
 		// the unresolvable segment and recover.

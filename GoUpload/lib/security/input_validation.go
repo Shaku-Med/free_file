@@ -94,7 +94,7 @@ func ValidatePagination(page, limit interface{}, maxLimit int) (p, l int, ok boo
 	return p, l, true
 }
 
-// RE2 has no lookahead; (?s) makes . match newlines — strip script blocks in one pass.
+// RE2 has no lookahead; (?s) makes . match newlines  strip script blocks in one pass.
 var scriptTagRegex = regexp.MustCompile(`(?is)<script\b[^>]*>[\s\S]*?</script>`)
 var onHandlerRegex = regexp.MustCompile(`(?i)on\w+\s*=`)
 var jsProtoRegex = regexp.MustCompile(`(?i)javascript:`)
@@ -128,7 +128,7 @@ func IsValidUsername(username string) bool {
 // SafeUploadFilename validates a client-supplied filename for disk storage and for passing to
 // external tools via exec.Command argv.
 //
-// Go's exec.Command does not invoke /bin/sh — arguments are passed as an array, so characters
+// Go's exec.Command does not invoke /bin/sh  arguments are passed as an array, so characters
 // like ;|&$ are not interpreted as shell syntax. This still rejects path separators and
 // traversal-like names so filepath.Join(outputDir, userID, uploadID+"_"+name) cannot escape
 // the intended directory, and strips risky patterns for safer logs and future refactors.

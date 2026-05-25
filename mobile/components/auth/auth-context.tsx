@@ -3,7 +3,7 @@ import { createContext, useCallback, useContext, useMemo, useState, type ReactNo
 type AuthContextValue = {
   /** Whether the user is currently signed in. */
   isAuthenticated: boolean;
-  /** Auth token, if any. Stored in memory for now — wire to secure storage later. */
+  /** Auth token, if any. Stored in memory for now  wire to secure storage later. */
   token: string | null;
   /** Mark the user as signed in with a token from the OAuth flow. */
   signIn: (token: string) => void;

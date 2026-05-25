@@ -10,7 +10,7 @@ import { isProfilePicPathForUser, validGitHubRepoName } from "~/lib/profilePicSe
 const ALLOWED_MIME_TYPES = ["image/jpeg", "image/jpg", "image/png", "image/gif", "image/webp"];
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
 
-/** No user-visible error strings — only flags for the client. */
+/** No user-visible error strings  only flags for the client. */
 export const action = async ({ request }: { request: Request }) => {
   if (request.method !== "POST") {
     return data({ success: false }, { status: 405 });

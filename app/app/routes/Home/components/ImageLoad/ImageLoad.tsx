@@ -28,7 +28,7 @@ interface ImageLoadProps {
     multipleImages?: string[]
     multipleCurrentImageIndex?: number
     getMediaSessionURL?: boolean
-    /** Modals/portals: IO often flips false after open and cancels work — treat as always visible for loading. */
+    /** Modals/portals: IO often flips false after open and cancels work  treat as always visible for loading. */
     eagerLoad?: boolean
     /** Use same-origin `/api/...` as <img src> (avoids dev :3000 vs IMAGE_BASE_URL :3001 mismatches). */
     useRelativeApiUrl?: boolean
@@ -505,7 +505,7 @@ const ImageLoad = ({
     const canShowFromUrl = !needsBlobFetch && !!resolvedLink && !error
     const canShowImage = needsBlobFetch ? hasBlobSrc : hasBlobSrc || canShowFromUrl || preferFetchedBlob
 
-    /** Cached images often finish before `onLoad` is attached — clear loading layer / opacity. */
+    /** Cached images often finish before `onLoad` is attached  clear loading layer / opacity. */
     useLayoutEffect(() => {
         if (!canShowImage || !imgDisplaySrc) return
         const el = imgRef.current

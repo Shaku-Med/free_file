@@ -111,7 +111,7 @@ export function ShareModal({ open, onOpenChange, shareUrl, currentTime }: ShareM
           <DialogTitle className="text-base font-semibold">Share</DialogTitle>
         </div>
 
-        {/* Social icons — horizontal scroll */}
+        {/* Social icons  horizontal scroll */}
         <div className="  pb-5">
           <div className="grid grid-cols-5 gap-2">
             {socials.map(({ name, icon: Icon, bg, url }) => (
@@ -142,7 +142,7 @@ export function ShareModal({ open, onOpenChange, shareUrl, currentTime }: ShareM
           </div>
         </div>
 
-        {/* URL + copy — single bar */}
+        {/* URL + copy  single bar */}
         <div className="px-5 pb-5 space-y-3">
           {hasTimestamp && (
             <label className="flex items-center gap-2.5 cursor-pointer select-none">

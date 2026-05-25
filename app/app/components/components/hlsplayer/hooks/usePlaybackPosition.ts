@@ -35,7 +35,7 @@ export function usePlaybackPosition(videoRef: React.RefObject<HTMLVideoElement |
   const seedProgressCache = useWatchProgressWriter();
 
   useEffect(() => {
-    /** Reels always start at 0 — no resume from watch history / local DB. */
+    /** Reels always start at 0  no resume from watch history / local DB. */
     if (isReel) return;
     const video = videoRef.current;
     if (!video || !imageID) return;
@@ -102,7 +102,7 @@ export function usePlaybackPosition(videoRef: React.RefObject<HTMLVideoElement |
   }, [imageID, startTime, fileUuid, isReel]);
 
   useEffect(() => {
-    /** Reels do not persist position — avoids continue-watching / resume for short-form. */
+    /** Reels do not persist position  avoids continue-watching / resume for short-form. */
     if (isReel) return;
     const video = videoRef.current;
     if (!video || !imageID) return;

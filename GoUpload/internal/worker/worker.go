@@ -165,7 +165,7 @@ func (w *Worker) notifyRunningProgress(job *queue.Job, pct int) {
 	})
 }
 
-// sharedRootDirs are directories that hold *every* job's working files —
+// sharedRootDirs are directories that hold *every* job's working files 
 // failJob must NEVER RemoveAll one of these, or it'll wipe out siblings
 // that are still mid-pipeline. We accept some empty leftover dirs in
 // exchange for never trashing a healthy job.
@@ -197,7 +197,7 @@ func (w *Worker) failJob(job *queue.Job, reason string, cleanupPaths ...string) 
 			_ = os.Remove(p)
 			continue
 		}
-		// Refuse to recurse into any shared-root directory — that's the
+		// Refuse to recurse into any shared-root directory  that's the
 		// regression that nuked sibling jobs' assembled files.
 		if _, shared := sharedRootDirs[filepath.Base(p)]; shared {
 			continue
@@ -362,7 +362,7 @@ func (w *Worker) processJob(job *queue.Job) {
 		w.log.Infof("thumbnail_preview job=%s preview=%s meta=%s", job.ID, previewPath, metaPath)
 	}
 
-	// ExtractWaveform always writes a file now — peaks if extraction
+	// ExtractWaveform always writes a file now  peaks if extraction
 	// succeeded, zeros otherwise (silent/no-audio videos). werr is purely
 	// informational; the file ships either way.
 	waveformResult, werr := ffmpeg.ExtractWaveform(result.OutputPath, thumbDir)
@@ -542,7 +542,7 @@ func (w *Worker) processJob(job *queue.Job) {
 			// has_audio combines the probe (is there an audio stream at all)
 			// with the waveform analysis (is there any non-trivial amplitude).
 			// The client uses this to grey out the volume button on silent
-			// videos — both "video shot with mic muted" and "stock footage
+			// videos  both "video shot with mic muted" and "stock footage
 			// with no audio track" land here.
 			"has_audio": hasAudio && videoInfo.AudioCodec != "",
 		}
@@ -600,7 +600,7 @@ func (w *Worker) processJob(job *queue.Job) {
 			_ = os.RemoveAll(thumbDir)
 			_ = os.Remove(filepath.Dir(thumbDir))
 			_ = os.Remove(result.OutputPath)
-			// Non-recursive — see comment in image success path.
+			// Non-recursive  see comment in image success path.
 			_ = os.Remove(filepath.Dir(result.OutputPath))
 			_ = os.Remove(filepath.Dir(filepath.Dir(result.OutputPath)))
 			_ = w.queue.SetJobStatus(context.Background(), job.ID, "failed")
@@ -619,7 +619,7 @@ func (w *Worker) processJob(job *queue.Job) {
 	_ = os.Remove(w.cfg.ThumbnailDir)
 
 	// Cleanup: remove assembled file, then non-recursive parent removes.
-	// Never RemoveAll the user dir here — sibling jobs may have their own
+	// Never RemoveAll the user dir here  sibling jobs may have their own
 	// assembled files in it.
 	if err := os.Remove(result.OutputPath); err != nil {
 		w.log.Errorf("cleanup assembled file failed job=%s err=%s", job.ID, err.Error())
@@ -688,7 +688,7 @@ const reelMaxSeconds = 180
 //   "no"   → always false (only honored if duration is known)
 //   "yes"  → true, but only when duration <= reelMaxSeconds (we silently
 //            downgrade to auto when over the cap rather than refuse the
-//            upload — surface the cap in the UI instead)
+//            upload  surface the cap in the UI instead)
 //   "auto" → existing heuristic (short OR portrait-9:16)
 func resolveReel(reelMode string, seconds float64, width, height int) *bool {
 	hasDur := seconds > 0
@@ -702,7 +702,7 @@ func resolveReel(reelMode string, seconds float64, width, height int) *bool {
 		return &f
 	case "yes":
 		if hasDur && seconds > reelMaxSeconds {
-			// Too long to be a reel — fall through to auto.
+			// Too long to be a reel  fall through to auto.
 			break
 		}
 		t := true

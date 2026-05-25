@@ -19,14 +19,14 @@ function rectClose(a: AnchorBoundingRect, b: AnchorBoundingRect, eps = 0.25) {
 export type UseAnchorBoundingRectOptions = {
   /**
    * When true, sample every animation frame (needed when the anchor moves
-   * via CSS `left`/`top` on an ancestor — e.g. dragging the mini player).
+   * via CSS `left`/`top` on an ancestor  e.g. dragging the mini player).
    */
   syncPositionEachFrame?: boolean;
   /**
    * Optional imperative update path. When provided, position updates after
    * the initial mount route through this callback INSTEAD of React state.
    * The caller is expected to mutate the portal element's style directly
-   * — this avoids re-rendering the entire player subtree on every scroll
+   *  this avoids re-rendering the entire player subtree on every scroll
    * frame. State is still set on the first valid rect so the portal can
    * render at all; subsequent updates go imperative.
    *
@@ -86,7 +86,7 @@ export function useAnchorBoundingRect(
 
       const cb = onUpdateRef.current;
       if (cb && didInitialCommit) {
-        // Imperative path — caller mutates DOM directly, no React render.
+        // Imperative path  caller mutates DOM directly, no React render.
         cb(next);
         return;
       }

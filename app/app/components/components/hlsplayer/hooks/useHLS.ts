@@ -92,7 +92,17 @@ export function useHLS(videoRef: React.RefObject<HTMLVideoElement | null>) {
 
   useEffect(() => {
     const video = videoRef.current;
-    if (!video || !src) return;
+    if (!video) return;
+    // Watch→watch: mint clears src briefly  pause so the previous manifest
+    // doesn't keep playing under the new page's metadata.
+    if (!src) {
+      try {
+        video.pause();
+      } catch {
+        /* ignore */
+      }
+      return;
+    }
 
     let nativeLoadedCleanup: (() => void) | null = null;
     let timeUpdateCleanup: (() => void) | null = null;
@@ -114,7 +124,7 @@ export function useHLS(videoRef: React.RefObject<HTMLVideoElement | null>) {
 
     if (canHotSwapHlsjs) {
       const hls = hlsRef.current!;
-      // Treat ended video as "was playing" — auto-next after end card
+      // Treat ended video as "was playing"  auto-next after end card
       // means the user wants the new video to start playing. Otherwise
       // we'd freeze on the last frame of the previous video.
       const wasPlaying = (!video.paused && !video.ended) || video.ended;
@@ -141,7 +151,7 @@ export function useHLS(videoRef: React.RefObject<HTMLVideoElement | null>) {
           video.currentTime = 0;
         }
       } catch {
-        /* ignore — some browsers throw if duration isn't ready yet */
+        /* ignore  some browsers throw if duration isn't ready yet */
       }
 
       const resumeAfterSwap = () => {

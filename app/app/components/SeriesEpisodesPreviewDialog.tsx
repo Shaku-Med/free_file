@@ -15,7 +15,7 @@ import SeriesSignInGate from "~/routes/Dynamic/components/SeriesSignInGate";
 export type SeriesEpisodesPreviewDialogProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  /** Series main or any file in the series — `/api/dynamic-series` resolves by unique_id */
+  /** Series main or any file in the series  `/api/dynamic-series` resolves by unique_id */
   uniqueId: string | null;
   seriesTitle?: string | null;
   fileSeriesId?: string | null;

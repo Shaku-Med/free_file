@@ -1,4 +1,4 @@
-# Livestream — Memories
+# Livestream  Memories
 
 > This feature is currently under development and has not been deployed yet.
 
@@ -22,12 +22,12 @@ Go live straight from your browser or phone with no external app. Uses WebRTC so
 
 ## What's Being Built
 
-- **DVR / Catch-up** — viewers can rewind and jump back to live at any point during an active stream
-- **Live chat** — realtime chat using Supabase Realtime
-- **Viewer count** — updates live as people join and leave
-- **Moderation** — automated checks on video frames, audio transcription for harmful speech, chat filtering, and a strike system for repeat violations
-- **Ban system** — stream-level and platform-level bans, temporary or permanent
-- **Captions** — auto-generated via Whisper, defaults to the viewer's region language, switchable anytime
+- **DVR / Catch-up**  viewers can rewind and jump back to live at any point during an active stream
+- **Live chat**  realtime chat using Supabase Realtime
+- **Viewer count**  updates live as people join and leave
+- **Moderation**  automated checks on video frames, audio transcription for harmful speech, chat filtering, and a strike system for repeat violations
+- **Ban system**  stream-level and platform-level bans, temporary or permanent
+- **Captions**  auto-generated via Whisper, defaults to the viewer's region language, switchable anytime
 
 ---
 

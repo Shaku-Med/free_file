@@ -7,7 +7,7 @@
  *   - Headless clients that "forgot" to lie about being a browser
  *
  * Real browsers automatically attach `Sec-Fetch-*` headers per
- * https://www.w3.org/TR/fetch-metadata/ — Postman / curl don't, and they
+ * https://www.w3.org/TR/fetch-metadata/  Postman / curl don't, and they
  * can't be set from JavaScript (they're in the `forbidden header` list).
  * That makes them the single best "is this a real browser?" signal we
  * can rely on without paid services.
@@ -28,7 +28,7 @@ const ALLOWED_ORIGINS = new Set<string>([
   // Production
   "https://memories.brozy.org",
   "https://uploads.memories.brozy.org",
-  // Local dev — react-router default
+  // Local dev  react-router default
   "http://localhost:3000",
   "http://localhost:5173",
   "http://127.0.0.1:3000",
@@ -43,7 +43,7 @@ const extraOrigins = (process.env.EXTRA_ALLOWED_ORIGINS ?? "")
   .filter(Boolean);
 for (const o of extraOrigins) ALLOWED_ORIGINS.add(o);
 
-/** In dev, accept any localhost / 127.0.0.1 origin regardless of port —
+/** In dev, accept any localhost / 127.0.0.1 origin regardless of port 
  *  Vite / RR sometimes flips ports (5173 → 5174 if 5173 is busy), and
  *  manually keeping the allowlist in sync is annoying. Prod stays strict. */
 const IS_DEV = process.env.NODE_ENV !== "production";
@@ -76,7 +76,7 @@ export interface RequestGuardOptions {
   /**
    * Allow requests that don't include Sec-Fetch-* headers at all.
    * Defaults to false for authenticated APIs. Older clients / non-secure
-   * contexts (rare) may need this — but it's the killer flag for Postman
+   * contexts (rare) may need this  but it's the killer flag for Postman
    * so flip it sparingly.
    */
   allowMissingSecFetch?: boolean;
@@ -92,7 +92,7 @@ const jsonResponse = (status: number, body: unknown) =>
     headers: { "Content-Type": "application/json" },
   });
 
-/** Log why a guard rejected the request — dev only — so operators can
+/** Log why a guard rejected the request  dev only  so operators can
  *  see "this 403 was caused by missing Sec-Fetch-Site" instead of
  *  squinting at network panel. Never leak this to the client body. */
 function reject(reason: string, request: Request): Response {
@@ -101,7 +101,7 @@ function reject(reason: string, request: Request): Response {
       try { return new URL(request.url).pathname; } catch { return "?"; }
     })();
     console.warn(
-      `[requestGuard] 403 ${u} — ${reason} ` +
+      `[requestGuard] 403 ${u}  ${reason} ` +
         `(origin=${request.headers.get("origin") ?? "-"}, ` +
         `sec-fetch-site=${request.headers.get("sec-fetch-site") ?? "-"})`,
     );
@@ -121,7 +121,7 @@ export function assertSafeRequest(
   const h = request.headers;
   const method = request.method.toUpperCase();
 
-  // 1. Sec-Fetch-* — Postman / curl / cross-site fetches fail here.
+  // 1. Sec-Fetch-*  Postman / curl / cross-site fetches fail here.
   //    A real browser ALWAYS sends Sec-Fetch-Site on every fetch.
   const sfSite = h.get(SEC_FETCH_SITE)?.toLowerCase() ?? null;
   if (!sfSite) {
@@ -130,12 +130,12 @@ export function assertSafeRequest(
     }
   } else if (!options.allowCrossSite && !SAME_ORIGIN_SITE_VALUES.has(sfSite)) {
     // Browser navigations from a bookmark / typed URL come in as
-    // "none" — we explicitly do NOT allow that for APIs because no API
+    // "none"  we explicitly do NOT allow that for APIs because no API
     // should be hit directly from the address bar.
     return reject(`cross-site (${sfSite})`, request);
   }
 
-  // 2. Sec-Fetch-Mode + Sec-Fetch-Dest — defensive. We want CORS-style
+  // 2. Sec-Fetch-Mode + Sec-Fetch-Dest  defensive. We want CORS-style
   //    fetches with empty dest (XHR / fetch), or navigations with
   //    "document" dest. Anything else (object, embed, iframe) is sus.
   const sfMode = h.get(SEC_FETCH_MODE)?.toLowerCase();
@@ -147,7 +147,7 @@ export function assertSafeRequest(
     return reject(`bad dest (${sfDest})`, request);
   }
 
-  // 3. Origin allowlist — for state-changing methods especially.
+  // 3. Origin allowlist  for state-changing methods especially.
   if (!options.allowAnyOrigin) {
     const origin = h.get("origin");
     if (origin) {
@@ -159,13 +159,13 @@ export function assertSafeRequest(
       method !== "HEAD" &&
       method !== "OPTIONS"
     ) {
-      // POST/PUT/PATCH/DELETE without Origin is suspicious — every
+      // POST/PUT/PATCH/DELETE without Origin is suspicious  every
       // browser sends Origin for these in modern versions.
       return reject("missing origin on state-changing request", request);
     }
   }
 
-  // 4. User-Agent sanity — must be present and look browser-ish.
+  // 4. User-Agent sanity  must be present and look browser-ish.
   //    Postman sends "PostmanRuntime/...". curl sends "curl/...". Both
   //    can be spoofed, so this is the weakest layer; #1 is the real
   //    defense. We just block the obvious tools as defense-in-depth.

@@ -76,7 +76,7 @@ export function WatchProgressProvider({ children }: { children: ReactNode }) {
           return next;
         });
       } catch {
-        /* best-effort — cards just won't show a progress bar */
+        /* best-effort  cards just won't show a progress bar */
       } finally {
         if (pendingRef.current.size > 0 && flushTimerRef.current == null) {
           flushTimerRef.current = setTimeout(flush, BATCH_FLUSH_MS);

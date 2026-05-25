@@ -31,7 +31,7 @@ END $$;
 
 
 -- ============================================================
--- 1. submit_adult_review_request — user requests review of their file
+-- 1. submit_adult_review_request  user requests review of their file
 --    Max 2 requests per file per user
 -- ============================================================
 CREATE OR REPLACE FUNCTION submit_adult_review_request(
@@ -147,7 +147,7 @@ $$;
 
 
 -- ============================================================
--- 2. get_adult_review_status — check review status for a file
+-- 2. get_adult_review_status  check review status for a file
 -- ============================================================
 CREATE OR REPLACE FUNCTION get_adult_review_status(
   p_user_id  uuid,
@@ -191,7 +191,7 @@ $$;
 
 
 -- ============================================================
--- 3. respond_adult_review — admin responds to a review request
+-- 3. respond_adult_review  admin responds to a review request
 --    If accepted, sets files.is_adult = false
 -- ============================================================
 CREATE OR REPLACE FUNCTION respond_adult_review(

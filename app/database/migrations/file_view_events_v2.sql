@@ -1,5 +1,5 @@
 -- ============================================================
--- FILE VIEW EVENTS v2 — Hardened anti-gaming
+-- FILE VIEW EVENTS v2  Hardened anti-gaming
 -- ============================================================
 -- Fixes over v1:
 --   1. Advisory lock prevents race condition (two concurrent requests both counting)
@@ -51,7 +51,7 @@ BEGIN
     RETURN;
   END IF;
 
-  -- Clamp inputs server-side (defense in depth — API already clamps, but don't trust the caller)
+  -- Clamp inputs server-side (defense in depth  API already clamps, but don't trust the caller)
   v_safe_ct := LEAST(86400.0::real, GREATEST(0.0::real, COALESCE(p_current_time_s, 0)));
   v_safe_dur := LEAST(86400.0::real, GREATEST(0.0::real, COALESCE(p_duration_s, 0)));
 
@@ -113,7 +113,7 @@ BEGIN
     RETURN;
   END IF;
 
-  -- ── All checks passed — record the view ───────────────────
+  -- ── All checks passed  record the view ───────────────────
   INSERT INTO file_view_events (file_id, user_id, viewer_key, created_at)
   VALUES (p_file_id, p_user_id, p_viewer_key, v_now);
 

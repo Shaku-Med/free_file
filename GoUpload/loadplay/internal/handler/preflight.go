@@ -8,7 +8,7 @@ import (
 
 // playbackPreflight is the HARDEST gate on the playback surface.
 //
-// Rules — no exceptions, no fallbacks:
+// Rules  no exceptions, no fallbacks:
 //   1. Request MUST carry an Origin header.
 //   2. Request MUST carry a Referer header.
 //   3. Origin MUST exactly match one of ALLOWED_ORIGINS (parsed via
@@ -16,12 +16,12 @@ import (
 //   4. Referer MUST exactly match either ALLOWED_ORIGINS (app fetch) or
 //      BLOCKED_ORIGINS (HLS player following its own rewritten CDN URLs).
 //
-// Anything else — typed URL in address bar, "Open in new tab", curl,
-// view-source, hot-linked <video src=...> on evil.com, bookmark — gets
+// Anything else  typed URL in address bar, "Open in new tab", curl,
+// view-source, hot-linked <video src=...> on evil.com, bookmark  gets
 // 403 here and never sees a single byte further down the pipeline.
 //
 // Called as the FIRST line of every playback handler. If a path skips
-// this, that path is broken — fix the path, not this function.
+// this, that path is broken  fix the path, not this function.
 func playbackPreflight(c *fiber.Ctx, deps ManifestDeps) error {
 	origin := strings.TrimSpace(c.Get("Origin"))
 	referer := strings.TrimSpace(c.Get("Referer"))

@@ -2,7 +2,7 @@
  * Walks a flat list of episodes (each with optional `parent_episode_id`) into a
  * preorder DFS list with depth + breadcrumb path. Used by the series selectors
  * in `MediaSelectionModal` and the inline `VideoCard` edit so users can see the
- * exact place in the hierarchy they're picking — siblings sharing a name no
+ * exact place in the hierarchy they're picking  siblings sharing a name no
  * longer collapse into ambiguous duplicates.
  */
 
@@ -24,7 +24,7 @@ export type EpisodeNode = {
   indentedLabel: string;
 };
 
-const INDENT = "  "; // non-breaking spaces — `<select>` collapses regular spaces.
+const INDENT = "  "; // non-breaking spaces  `<select>` collapses regular spaces.
 const TWIG = "└ ";
 
 function fallbackName(id: string): string {
@@ -33,7 +33,7 @@ function fallbackName(id: string): string {
 
 /**
  * Returns episodes in DFS preorder with depth + breadcrumb info. Orphans (parent
- * id present but unknown — e.g. parent was deleted) surface at depth 0 so they
+ * id present but unknown  e.g. parent was deleted) surface at depth 0 so they
  * don't disappear from the picker.
  */
 export function buildEpisodeTree(rows: readonly EpisodeRow[]): EpisodeNode[] {

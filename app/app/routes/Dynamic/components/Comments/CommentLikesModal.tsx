@@ -36,7 +36,7 @@ export function CommentLikesModal({
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!open || !commentId) return;
+    if (!open || !commentId || !currentUserId) return;
     setLoading(true);
     setError(null);
     setUsers([]);
@@ -55,7 +55,7 @@ export function CommentLikesModal({
         setError(e instanceof Error ? e.message : "Failed to load likes")
       )
       .finally(() => setLoading(false));
-  }, [open, commentId]);
+  }, [open, commentId, currentUserId]);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>

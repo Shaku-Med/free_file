@@ -39,7 +39,7 @@ function mapSearchFile(file: any) {
     view_count: file.view_count,
     share_count: file.share_count,
     is_reel: file.is_reel,
-    // Series fields — required for VideoCard badges + resume click logic.
+    // Series fields  required for VideoCard badges + resume click logic.
     is_series_main: file.is_series_main,
     is_series_episode: file.is_series_episode,
     is_files_series_item: file.is_files_series_item,

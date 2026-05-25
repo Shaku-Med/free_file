@@ -27,7 +27,7 @@ func IPPrefix(ip string) string {
 }
 
 // Hash produces a short, stable base64url digest. Same input, same output
-// across app + CDN — that's how the main app pre-computes the value to
+// across app + CDN  that's how the main app pre-computes the value to
 // embed in the token and we re-compute here to compare.
 func Hash(s string) string {
 	if s == "" {

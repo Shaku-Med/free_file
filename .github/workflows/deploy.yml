@@ -1,6 +1,6 @@
 name: Deploy Memories to EC2
 
-# App / EC2 only — never runs for GoUpload, NSFWAPI, or LoadPlay pushes.
+# App / EC2 only  never runs for GoUpload, NSFWAPI, or LoadPlay pushes.
 on:
   push:
     branches: [main]

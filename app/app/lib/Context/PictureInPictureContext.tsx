@@ -5,7 +5,7 @@ import {
   type PipImplementationKind,
 } from '~/lib/pip/pipCapabilities';
 
-/** Which PiP path is active — native/WebKit use the same `<video>` element (must keep playing). */
+/** Which PiP path is active  native/WebKit use the same `<video>` element (must keep playing). */
 export type ActivePipKind = Exclude<PipImplementationKind, 'none'>;
 
 interface PictureInPictureContextType {
@@ -24,9 +24,9 @@ interface PictureInPictureContextType {
   toggleDocumentPip: (src: string, videoRef: React.RefObject<HTMLVideoElement | null>, contentId: string, file?: any, loop?: boolean, updateMediaSession?: (isPlaying: boolean, currentTime: number, duration: number) => void) => Promise<void>;
   closePip: () => void;
   isContentInPip: (contentId: string) => boolean;
-  /** Browser UI opened native PiP (not our button) — sync session so custom overlay / state match. */
+  /** Browser UI opened native PiP (not our button)  sync session so custom overlay / state match. */
   notifyBrowserDrivenNativePipEntered: (video: HTMLVideoElement, contentId: string) => void;
-  /** Browser / WebKit entered presentation-mode PiP — sync session (e.g. iOS Safari). */
+  /** Browser / WebKit entered presentation-mode PiP  sync session (e.g. iOS Safari). */
   notifyBrowserDrivenWebKitPipEntered: (video: HTMLVideoElement, contentId: string) => void;
 }
 
@@ -49,7 +49,7 @@ const PIP_PHONE_HEIGHT = 844;
 
 const MAX_SEEK_SECONDS = 24 * 60 * 60;
 
-/** iOS/WebKit often flips `muted` right after PiP — re-apply if the user was playing with sound. */
+/** iOS/WebKit often flips `muted` right after PiP  re-apply if the user was playing with sound. */
 export function restoreVideoAudioAfterSystemPip(video: HTMLVideoElement, wantSound: boolean) {
   if (!wantSound) return;
   const apply = () => {

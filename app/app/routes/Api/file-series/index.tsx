@@ -7,13 +7,13 @@ import { isValidFileId, isValidUUID, sanitizeString } from "~/lib/Security/input
 /**
  * Endpoint: /api/file-series
  *
- * GET  — returns the current series state for a single file the caller owns.
+ * GET   returns the current series state for a single file the caller owns.
  *        Query: ?fileId=<uuid|unique_id>
  *        Response: { success, state: { is_series_main, is_files_series_item,
  *                    file_series_id, file_series_episode_id,
  *                    series_title, episode_name } }
  *
- * POST — assigns the file to a series (new or existing), or removes it.
+ * POST  assigns the file to a series (new or existing), or removes it.
  *        Body: { action: "assign" | "unassign", fileId, ...fields }
  *
  * Security

@@ -1,10 +1,10 @@
 import { cn } from "~/lib/utils";
 
-/** Stroke width — YouTube-like thin rails; still visible on OLED. */
+/** Stroke width  YouTube-like thin rails; still visible on OLED. */
 const STROKE = 1.5;
 /** Horizontal width of one thread column (indent per nesting level). */
 export const COMMENT_THREAD_STEP_PX = 28;
-/** @deprecated Use commentThreadGutterWidthPx(level) — kept for imports expecting a single step. */
+/** @deprecated Use commentThreadGutterWidthPx(level)  kept for imports expecting a single step. */
 export const COMMENT_THREAD_GUTTER_PX = COMMENT_THREAD_STEP_PX;
 /** Matches `Avatar` in CommentItem (`h-9 w-9`) so the elbow meets the avatar center. */
 export const COMMENT_AVATAR_SIZE_PX = 36;
@@ -46,7 +46,7 @@ type RailsProps = {
 const RAIL_HIT_W = 16;
 
 /**
- * Vertical thread rails — rendered at the comment's *outer* container level so they extend
+ * Vertical thread rails  rendered at the comment's *outer* container level so they extend
  * the full height of the comment plus its reply subtree. Each rail is one absolute span.
  * The own-column rail is clickable when `onToggleFold` is provided.
  */
@@ -66,7 +66,7 @@ export function CommentThreadRails({
       className={cn("absolute inset-0 overflow-visible", onToggleFold ? "" : "pointer-events-none", className)}
       aria-hidden
     >
-      {/* Ancestor rails — always full height of this subtree. */}
+      {/* Ancestor rails  always full height of this subtree. */}
       {prefix.map((draw, i) =>
         draw ? (
           <span
@@ -76,7 +76,7 @@ export function CommentThreadRails({
           />
         ) : null,
       )}
-      {/* Own column rail — clickable hit area wrapping the thin visual line. */}
+      {/* Own column rail  clickable hit area wrapping the thin visual line. */}
       {isLastInThread ? (
         onToggleFold ? (
           <button
@@ -121,7 +121,7 @@ export function CommentThreadRails({
 }
 
 type ElbowProps = {
-  /** Used only as a guard — elbow geometry is identical at every level. */
+  /** Used only as a guard  elbow geometry is identical at every level. */
   level: number;
   className?: string;
 };

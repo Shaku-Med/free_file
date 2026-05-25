@@ -1,5 +1,5 @@
 -- ============================================================
--- Denormalized file_count on users — kills the N+1 in search
+-- Denormalized file_count on users  kills the N+1 in search
 -- ============================================================
 -- Before: every user search ran one COUNT(*) query per matched
 -- user. With 10 matches that's 11 queries per request.

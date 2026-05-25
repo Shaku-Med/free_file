@@ -1,5 +1,5 @@
 -- ============================================================
--- REEL FEED — Advanced reel-only feed (like feed but reels + tuning)
+-- REEL FEED  Advanced reel-only feed (like feed but reels + tuning)
 -- ============================================================
 -- Deploy: run this whole file in Supabase if reel-feed fails with:
 --   42P01 relation "public.series" does not exist

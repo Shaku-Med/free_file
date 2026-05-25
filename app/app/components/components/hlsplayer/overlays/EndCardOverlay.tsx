@@ -1,388 +1,496 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { X } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { useLocation, useNavigate, useParams } from "react-router";
+import { RotateCcw, X } from "lucide-react";
 import { cn } from "~/lib/utils";
 import { usePlayerContext } from "../PlayerContext";
-import {
-  playerEndUiLayout,
-  usePlayerContainerSize,
-} from "../hooks/usePlayerContainerSize";
+import { usePlayerContainerSize, endCardOverlayLayout } from "../hooks/usePlayerContainerSize";
 import VideoCard from "~/routes/Home/components/VideoCard";
 import type { FileType } from "~/lib/types";
 
-/** Show the cards when remaining playback drops below this many seconds. */
+/**
+ * EndCardOverlay
+ *
+ * The single end-of-video surface. Replaces the previous full-screen
+ * EndScreen + API-backed mid-video EndCardOverlay. Renders only when
+ * the player reports `state.isEnded`. Suggestions come from props the
+ * watch page already loads (related + series)  no extra API.
+ *
+ * Layout: on desktop, four corners inside control clearances; on mobile, two
+ * cards in the side columns of a safe grid that reserves top / center /
+ * bottom bands for the player's own controls. Sizes scale with the player
+ * box via `endCardOverlayLayout` + VideoCard `cqi` units.
+ */
+
+const COUNTDOWN_SEC = 5;
+const MAX_CARDS = 4;
+/** Show the corner cards once playback gets this close to the end. */
 const TRIGGER_REMAINING_SEC = 20;
-/** Skip the overlay entirely on videos shorter than this — pointless on reels. */
-const MIN_DURATION_SEC = 60;
-
-/** Layout presets — corners stay clear of center picture like YouTube's corner tiles. */
-export const END_CARD_LAYOUT_OPTIONS = [
-  /**
-   * YouTube-style grid: a responsive 2x2 / 1x4 deck of cards floating over
-   * the lower half of the player, with a soft top→bottom dim so the cards
-   * stand out without hiding the video. Default for new players.
-   */
-  "grid",
-  "4-corners",
-  "two-center",
-  "4-corners-plus-2-center",
-  "bottom-corners",
-  /** Thin floating chips above controls (no full-width slab). */
-  "bottom-row",
-] as const;
-
-export type EndCardLayout = (typeof END_CARD_LAYOUT_OPTIONS)[number];
+/** Skip the overlay on anything shorter than this (reels, snippets). */
+const MIN_DURATION_SEC = 30;
 
 interface EndCardOverlayProps {
-  /** Defaults to `'4-corners'` — least intrusive. */
-  layout?: EndCardLayout;
-  /**
-   * UUIDs of files the surrounding page is already showing in its related /
-   * up-next rails. Forwarded to the RPC as `p_exclude_ids` so the end-card
-   * panel always lands on a *distinct* slice instead of duplicating cards
-   * the viewer already sees on the page.
-   */
-  excludeIds?: string[];
+  suggestedVideos?: FileType[];
+  seriesUpNextVideos?: FileType[];
+  /** Reserved for future use  currently unused; VideoCard reads via context. */
+  userActions?: { likedFileIds: Set<string>; dislikedFileIds: Set<string> };
+  currentUserId?: string;
 }
 
-interface Suggestion {
-  id: string;
-  unique_id: string;
-  file_title: string | null;
-  filename: string | null;
-  default_thumbnail: string | null;
-  duration: number | null;
-  view_count: number | null;
-  is_reel: boolean | null;
-  is_adult: boolean | null;
-  is_public: boolean | null;
-  created_at: string | null;
-  owner_id: string | null;
-  owner_username: string | null;
-  owner_profile_pic: string | null;
-  owner_verified: boolean | null;
+const emptyUserActions = {
+  likedFileIds: new Set<string>(),
+  dislikedFileIds: new Set<string>(),
+};
+
+function getVisitedVideos(): Set<string> {
+  try {
+    if (typeof sessionStorage === "undefined") return new Set();
+    const stored = sessionStorage.getItem("visited_videos");
+    return stored ? new Set(JSON.parse(stored)) : new Set();
+  } catch {
+    return new Set();
+  }
 }
 
-function toFileType(s: Suggestion): FileType {
-  return {
-    id: s.id,
-    unique_id: s.unique_id,
-    file_title: s.file_title ?? undefined,
-    filename: s.filename ?? "",
-    default_thumbnail: s.default_thumbnail ?? null,
-    duration: typeof s.duration === "number" ? s.duration : undefined,
-    view_count: typeof s.view_count === "number" ? s.view_count : 0,
-    is_reel: Boolean(s.is_reel),
-    is_adult: Boolean(s.is_adult),
-    is_public: s.is_public !== false,
-    created_at: s.created_at ?? undefined,
-    owner: s.owner_username
-      ? {
-          id: s.owner_id ?? "",
-          username: s.owner_username,
-          profile_pic: s.owner_profile_pic ?? null,
-          verified: Boolean(s.owner_verified),
-        }
-      : undefined,
-  } as FileType;
+function addVisitedVideo(uniqueId: string) {
+  try {
+    if (typeof sessionStorage === "undefined") return;
+    const visited = getVisitedVideos();
+    visited.add(uniqueId);
+    const arr = Array.from(visited).slice(-50);
+    sessionStorage.setItem("visited_videos", JSON.stringify(arr));
+  } catch {
+    /* ignore */
+  }
 }
 
 /**
- * Safe-area aware placement so tiles stay clear of notched screens and of the ControlBar /
- * seek stack (especially tall mobile layouts).
+ * Filters that apply to ANY end-card candidate, before the visited gate.
+ * Auto-next should ONLY surface long-form videos:
+ *   - never reels (they live in /reel and have their own swiper)
+ *   - never images / audio / other non-video files
+ *   - never the file we're currently watching
  */
-const SAFE_TOP = "top-[max(0.5rem,env(safe-area-inset-top,0px))]";
+function isVideoCandidate(v: FileType): boolean {
+  if (!v || v.is_reel) return false;
+  const ft = (v.file_type ?? "").toLowerCase();
+  const ep = (v.endpoint ?? "").toLowerCase();
+  // Allow only if MIME is video/* OR HLS OR endpoint looks like an HLS stream.
+  // Anything starting with image/, audio/, application/pdf, etc. is rejected.
+  const isVideo =
+    ft.startsWith("video/") ||
+    ft === "application/vnd.apple.mpegurl" ||
+    ep.includes(".m3u8") ||
+    ep.includes(".m2u8");
+  return isVideo;
+}
+
+function pruneList(videos: FileType[], currentVideoId: string | undefined): FileType[] {
+  const visited = getVisitedVideos();
+  const candidates = videos.filter(
+    (v) => v.unique_id !== currentVideoId && isVideoCandidate(v),
+  );
+  const fresh = candidates.filter((v) => !visited.has(v.unique_id));
+  // If every candidate is visited, fall back to the candidate list (still
+  // video-only, still not the current video) so the overlay is never empty.
+  return fresh.length > 0 ? fresh : candidates;
+}
+
 const SAFE_LEFT = "left-[max(0.5rem,env(safe-area-inset-left,0px))]";
 const SAFE_RIGHT = "right-[max(0.5rem,env(safe-area-inset-right,0px))]";
 
-function slotWidthClass(playerW: number, maxPct: number, minRem: number, maxRem: number) {
-  if (playerW <= 0) {
-    return `w-[clamp(${minRem}rem,min(26vw,22%),${maxRem}rem)]`;
-  }
-  const capPx = Math.round(playerW * maxPct);
-  return `w-[clamp(${minRem}rem,${capPx}px,${maxRem}rem)]`;
+type DesktopCorner = { top: boolean; left: boolean };
+
+const DESKTOP_CORNERS: DesktopCorner[] = [
+  { top: true, left: true },
+  { top: true, left: false },
+  { top: false, left: true },
+  { top: false, left: false },
+];
+
+function EndCardSlot({
+  card,
+  index,
+  className,
+  style,
+  countdownActive,
+  countdown,
+  dashLen,
+  onSelect,
+  onCancelAutoplay,
+}: {
+  card: FileType;
+  index: number;
+  className?: string;
+  style?: CSSProperties;
+  countdownActive: boolean;
+  countdown: number;
+  dashLen: number;
+  onSelect: (video: FileType) => void;
+  onCancelAutoplay: () => void;
+}) {
+  const isFeatured = index === 0;
+  return (
+    <div
+      className={cn(
+        className,
+        "pointer-events-auto min-h-0 min-w-0 animate-in fade-in slide-in-from-bottom-2 duration-300",
+      )}
+      style={{
+        ...style,
+        animationDelay: `${index * 70}ms`,
+        animationFillMode: "both",
+        containerType: "inline-size",
+      }}
+    >
+      <div
+        className={cn(
+          "relative overflow-hidden rounded-lg bg-black/60 ring-1 ring-white/10 backdrop-blur-sm transition-transform duration-200 hover:scale-[1.03] hover:ring-white/30",
+          isFeatured && countdownActive && "ring-2 ring-primary/70",
+        )}
+        onClick={() => {
+          onCancelAutoplay();
+          onSelect(card);
+        }}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            onCancelAutoplay();
+            onSelect(card);
+          }
+        }}
+        role="button"
+        tabIndex={0}
+      >
+        <VideoCard data={card} layout="endCard" />
+
+        {isFeatured && countdownActive && (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onCancelAutoplay();
+            }}
+            className="absolute right-1.5 top-1.5 z-[3] flex h-9 w-9 items-center justify-center rounded-full transition-transform hover:scale-105 focus:outline-none focus-visible:ring-2 focus-visible:ring-white/70"
+            aria-label={`Cancel autoplay (${Math.max(0, countdown)} seconds left)`}
+            title="Cancel autoplay"
+          >
+            <svg viewBox="0 0 36 36" className="absolute inset-0 h-full w-full -rotate-90 pointer-events-none">
+              <circle
+                cx="18"
+                cy="18"
+                r="16"
+                fill="rgba(0,0,0,0.55)"
+                stroke="rgba(255,255,255,0.2)"
+                strokeWidth="2"
+              />
+              <circle
+                cx="18"
+                cy="18"
+                r="16"
+                fill="none"
+                stroke="currentColor"
+                className="text-primary"
+                strokeWidth="2.5"
+                strokeLinecap="round"
+                strokeDasharray={`${dashLen}, 100.5`}
+                style={{ transition: "stroke-dasharray 1s linear" }}
+              />
+            </svg>
+            <span className="relative text-[11px] font-semibold text-white drop-shadow pointer-events-none">
+              {Math.max(0, countdown)}
+            </span>
+          </button>
+        )}
+      </div>
+    </div>
+  );
 }
-
-/**
- * Slot positioning per layout. Each slot is one absolutely-positioned wrapper
- * around a single card. Widths use `clamp` so on tiny players (e.g. mini) they
- * never balloon past ~30% of the player width; on big players they cap at the
- * `max` so they don't look gigantic.
- */
-type SlotClassName = string;
-
-function layoutSlots(playerW: number, controlsBottom: string): Record<
-  Exclude<EndCardLayout, "bottom-row" | "grid">,
-  SlotClassName[]
-> {
-  const cornerW = slotWidthClass(playerW, 0.22, 7.25, 11);
-  const centerW = slotWidthClass(playerW, 0.26, 7.25, 12);
-  const tightCornerW = slotWidthClass(playerW, 0.2, 7, 10.5);
-  const tightCenterW = slotWidthClass(playerW, 0.2, 7, 10.5);
-  const bottomW = slotWidthClass(playerW, 0.26, 7.5, 12);
-
-  return {
-    "4-corners": [
-      cn("absolute z-[2]", cornerW, SAFE_TOP, SAFE_LEFT),
-      cn("absolute z-[2]", cornerW, SAFE_TOP, SAFE_RIGHT),
-      cn("absolute z-[2]", cornerW, controlsBottom, SAFE_LEFT),
-      cn("absolute z-[2]", cornerW, controlsBottom, SAFE_RIGHT),
-    ],
-    "two-center": [
-      cn("absolute left-1/2 z-[2] -translate-x-1/2", centerW, SAFE_TOP),
-      cn("absolute left-1/2 z-[2] -translate-x-1/2", centerW, controlsBottom),
-    ],
-    "4-corners-plus-2-center": [
-      cn("absolute z-[2]", tightCornerW, SAFE_TOP, SAFE_LEFT),
-      cn("absolute z-[2]", tightCornerW, SAFE_TOP, SAFE_RIGHT),
-      cn("absolute left-1/2 z-[2] -translate-x-1/2", tightCenterW, SAFE_TOP),
-      cn("absolute z-[2]", tightCornerW, controlsBottom, SAFE_LEFT),
-      cn("absolute z-[2]", tightCornerW, controlsBottom, SAFE_RIGHT),
-      cn("absolute left-1/2 z-[2] -translate-x-1/2", tightCenterW, controlsBottom),
-    ],
-    "bottom-corners": [
-      cn("absolute z-[2]", bottomW, controlsBottom, SAFE_LEFT),
-      cn("absolute z-[2]", bottomW, controlsBottom, SAFE_RIGHT),
-    ],
-  };
-}
-
-const CARD_CAP: Record<EndCardLayout, number> = {
-  "grid": 4,
-  "4-corners": 4,
-  "two-center": 2,
-  "4-corners-plus-2-center": 6,
-  "bottom-row": 4,
-  "bottom-corners": 2,
-};
 
 export default function EndCardOverlay({
-  layout = "grid",
-  excludeIds,
+  suggestedVideos = [],
+  seriesUpNextVideos = [],
+  userActions: _userActionsProp,
+  currentUserId: _currentUserId,
 }: EndCardOverlayProps = {}) {
-  const { state, file, isReel, containerRef } = usePlayerContext();
-  const { width: playerW, height: playerH } = usePlayerContainerSize(containerRef);
-  const ui = playerEndUiLayout(playerW, playerH);
-  const controlsBottom = `bottom-[max(${ui.controlsClearancePx}px,calc(4rem+env(safe-area-inset-bottom,0px)))]`;
-  const layoutSlotsForPlayer = useMemo(
-    () => layoutSlots(playerW, controlsBottom),
-    [playerW, ui.controlsClearancePx],
-  );
-  const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
-  const [dismissed, setDismissed] = useState(false);
-  const fetchedForFileRef = useRef<string | null>(null);
+  // Reserved props consumed via context inside VideoCard; suppress lint.
+  void _userActionsProp;
+  void _currentUserId;
 
-  const fileId = typeof file?.id === "string" ? file.id : "";
-  /**
-   * Stable signature of the exclusion list — guards the lazy-fetch effect so a
-   * new reference for an *unchanged* set of IDs doesn't kick off a re-fetch.
-   */
-  const excludeKey = useMemo(() => {
-    if (!excludeIds || excludeIds.length === 0) return "";
-    const clean = excludeIds.filter((id) => typeof id === "string" && id.length > 0);
-    return clean.slice().sort().join(",");
-  }, [excludeIds]);
+  const { state, replay, autoPlay, containerRef, authPlaybackFeatures, file, isReel } =
+    usePlayerContext();
+  const { width: playerW, height: playerH } = usePlayerContainerSize(containerRef);
+  const layout = useMemo(
+    () => endCardOverlayLayout(playerW, playerH),
+    [playerW, playerH],
+  );
+  const navigate = useNavigate();
+  const location = useLocation();
+  const params = useParams();
+  const currentVideoId = file?.unique_id ?? params.uniqueId ?? params.id;
+
+  const [countdown, setCountdown] = useState(COUNTDOWN_SEC);
+  const [autoplayActive, setAutoplayActive] = useState(true);
+  const [dismissed, setDismissed] = useState(false);
+  const navigatingRef = useRef(false);
+
+  // Series first, then related  series episodes win the featured slot.
+  const seriesQueue = useMemo(
+    () => pruneList(seriesUpNextVideos, currentVideoId),
+    [seriesUpNextVideos, currentVideoId],
+  );
+  const relatedQueue = useMemo(
+    () => pruneList(suggestedVideos, currentVideoId),
+    [suggestedVideos, currentVideoId],
+  );
+  const merged = useMemo(() => {
+    const seen = new Set<string>();
+    const out: FileType[] = [];
+    for (const v of [...seriesQueue, ...relatedQueue]) {
+      if (!v?.unique_id || seen.has(v.unique_id)) continue;
+      seen.add(v.unique_id);
+      out.push(v);
+      if (out.length >= MAX_CARDS) break;
+    }
+    return out;
+  }, [seriesQueue, relatedQueue]);
+
+  const nextVideo = merged[0] ?? null;
+
+  // Reset visual + autoplay state on every file change
+  // starts with a fresh countdown and re-armed autoplay.
+  //
+  // NOTE: navigatingRef is INTENTIONALLY not reset here. If we cleared it
+  // synchronously, the same render commit would see countdown=0 (queued
+  // setCountdown hasn't applied yet) + navigatingRef=false + nextVideo
+  // pointing at a NEW suggestion → the countdown effect would fire
+  // handleNavigate again, double-navigating past the video we just
+  // landed on. We let the isEnded→false reset clear navigatingRef when
+  // the new video actually starts playing  by then all state is sane.
+  useEffect(() => {
+    setCountdown(COUNTDOWN_SEC);
+    setAutoplayActive(true);
+    setDismissed(false);
+  }, [currentVideoId]);
+
+  // When the new video begins playing (isEnded flips false), clear the
+  // navigation lock and re-arm everything. This is the single source of
+  // truth for "we're ready to auto-next again".
+  useEffect(() => {
+    if (!state.isEnded) {
+      setCountdown(COUNTDOWN_SEC);
+      setAutoplayActive(true);
+      navigatingRef.current = false;
+    }
+  }, [state.isEnded]);
+
+  const handleNavigate = useCallback(
+    (video: FileType) => {
+      if (navigatingRef.current) return;
+      navigatingRef.current = true;
+      addVisitedVideo(video.unique_id);
+      const path = location.pathname.startsWith("/reel/")
+        ? `/reel/${video.unique_id}`
+        : `/${video.unique_id}`;
+      navigate(path);
+    },
+    [navigate, location.pathname],
+  );
+
+  const cancelAutoplay = useCallback(() => {
+    setAutoplayActive(false);
+    setCountdown(COUNTDOWN_SEC);
+  }, []);
+
+  // Auto-next countdown  ONLY runs after the video has fully ended.
+  // While the video is still playing (near-end preview), the cards are
+  // visible but the countdown stays parked at COUNTDOWN_SEC so the user
+  // can pick any card without time pressure.
+  useEffect(() => {
+    if (
+      !state.isEnded ||
+      !autoPlay ||
+      !autoplayActive ||
+      !nextVideo ||
+      navigatingRef.current ||
+      !authPlaybackFeatures ||
+      dismissed
+    ) {
+      return;
+    }
+    if (countdown <= 0) {
+      handleNavigate(nextVideo);
+      return;
+    }
+    const t = window.setTimeout(() => setCountdown((c) => c - 1), 1000);
+    return () => window.clearTimeout(t);
+  }, [
+    state.isEnded,
+    autoPlay,
+    autoplayActive,
+    nextVideo,
+    countdown,
+    authPlaybackFeatures,
+    dismissed,
+    handleNavigate,
+  ]);
+
+  // Visibility logic:
+  //   - Long-form video AND in the last TRIGGER_REMAINING_SEC seconds → show cards
+  //   - Video has ended → show cards + countdown
+  // Reels / very short clips never show the overlay (it'd cover the whole frame).
   const durationOk = state.duration >= MIN_DURATION_SEC;
   const remaining = state.duration > 0 ? state.duration - state.currentTime : Infinity;
-  const active =
-    !state.isEnded &&
-    durationOk &&
-    !isReel &&
-    !dismissed &&
-    remaining > 0 &&
-    remaining <= TRIGGER_REMAINING_SEC &&
-    Boolean(fileId);
+  const nearEnd =
+    durationOk && remaining > 0 && remaining <= TRIGGER_REMAINING_SEC;
+  const shouldShow =
+    !isReel && !dismissed && merged.length > 0 && (state.isEnded || nearEnd);
 
-  // Reset on file change so we re-fetch fresh suggestions and don't show stale
-  // cards from the previous video.
-  useEffect(() => {
-    setDismissed(false);
-    setSuggestions([]);
-    fetchedForFileRef.current = null;
-  }, [fileId]);
-
-  // Lazy fetch — first time the overlay would render for this file, grab the
-  // suggestions. Cached server-side, cached browser-side by the response's
-  // Cache-Control: private, max-age=60.
-  useEffect(() => {
-    if (!active) return;
-    if (!fileId) return;
-    const cap = CARD_CAP[layout];
-    const cacheKey = `${fileId}::${excludeKey}::${cap}`;
-    if (fetchedForFileRef.current === cacheKey) return;
-    fetchedForFileRef.current = cacheKey;
-    let cancelled = false;
-    (async () => {
-      try {
-        const params = new URLSearchParams({
-          file_id: fileId,
-          limit: String(cap),
-        });
-        if (excludeKey) params.set("exclude_ids", excludeKey);
-        const res = await fetch(`/api/endcards?${params.toString()}`, {
-          credentials: "include",
-        });
-        if (!res.ok) return;
-        const json = (await res.json()) as { suggestions?: Suggestion[] };
-        if (cancelled) return;
-        setSuggestions(Array.isArray(json.suggestions) ? json.suggestions : []);
-      } catch {
-        /* offline / aborted — fail silently, nothing to show */
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [active, fileId, excludeKey, layout]);
-
-  const cards = useMemo(() => {
-    const mapped = suggestions.slice(0, CARD_CAP[layout]).map(toFileType);
-    return mapped.filter((c) => !c.is_reel);
-  }, [suggestions, layout]);
-
-  if (!active || cards.length === 0) return null;
-
-  const dismissBtn = (
-    <button
-      type="button"
-      onClick={() => setDismissed(true)}
-      className={cn(
-        "pointer-events-auto absolute z-[5] flex h-8 w-8 items-center justify-center rounded-full bg-black/55 text-white/85 ring-1 ring-white/15 backdrop-blur-sm transition-colors hover:bg-black/75 hover:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-white/60",
-        SAFE_TOP,
-        SAFE_RIGHT,
-      )}
-      aria-label="Dismiss suggestions"
-    >
-      <X className="h-4 w-4" />
-    </button>
-  );
-
-  /**
-   * YouTube-style grid — soft bottom-half gradient + 2×2 (narrow) or 1×4
-   * (wide) deck of recommendation cards. Video keeps playing underneath
-   * full-opacity; the gradient just gives the cards readable contrast.
-   */
-  if (layout === "grid") {
-    // Fixed 4-column grid at every player size. The cards (each
-    // `min-w-0`) shrink as the player narrows. Gap also tightens on
-    // small players so we don't waste pixels between cards.
-    const gridClass =
-      playerW >= 520
-        ? "grid-cols-4 gap-2.5"
-        : playerW >= 380
-          ? "grid-cols-4 gap-1.5"
-          : "grid-cols-4 gap-1";
-    const gridCards = cards.slice(0, 4);
-
-    return (
-      <div className="pointer-events-none absolute inset-0 z-30 overflow-hidden" aria-label="Up next">
-        <div className="pointer-events-none absolute inset-x-0 bottom-0 top-[35%] bg-gradient-to-t from-black/80 via-black/55 to-transparent" />
-
-        {dismissBtn}
-
-        <div
-          className={cn(
-            "pointer-events-none absolute z-[2] flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wider text-white/85 drop-shadow-sm",
-            playerW >= 440 && "text-xs",
-            SAFE_LEFT,
-          )}
-          style={{ top: "38%" }}
-        >
-          <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-primary" />
-          Up next
-        </div>
-
-        <div
-          className={cn(
-            "pointer-events-auto absolute left-1/2 z-[3] min-w-0 max-w-full -translate-x-1/2 grid",
-            "w-[min(100%,56rem)] px-1",
-            gridClass,
-            controlsBottom,
-          )}
-        >
-          {gridCards.map((card, i) => (
-            <div
-              key={card.id ?? card.unique_id}
-              className="min-w-0 max-w-full animate-in fade-in slide-in-from-bottom-2 duration-300"
-              // container-type establishes the cell as a container so the
-              // VideoCard's `clamp(…, …cqi, …)` font + spacing values
-              // resolve against the actual cell width (not viewport).
-              // That's what makes the 4-column grid stay legible from a
-              // 320px phone player all the way up to cinema width.
-              style={{
-                animationDelay: `${i * 60}ms`,
-                animationFillMode: "both",
-                containerType: "inline-size",
-              }}
-            >
-              {/* Slight glassy frame so each card reads against bright
-                  video frames even where the scrim is thinnest. */}
-              <div className="overflow-hidden rounded-lg bg-black/60 ring-1 ring-white/10 backdrop-blur-sm transition-transform duration-200 hover:scale-[1.02] hover:ring-white/25">
-                <VideoCard data={card} layout="endCard" />
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-    );
+  if (!shouldShow) {
+    return null;
   }
 
-  /** Floating chips above controls — wide slab avoided so centre stays readable. */
-  if (layout === "bottom-row") {
-    const chipWidth =
-      playerW > 0
-        ? slotWidthClass(playerW, playerW < 380 ? 0.42 : 0.33, 6.75, 11)
-        : "w-[clamp(6.75rem,min(38vw,33%),11rem)]";
+  const cards = merged.slice(0, layout.maxCards);
+  const countdownActive =
+    state.isEnded &&
+    autoPlay &&
+    autoplayActive &&
+    Boolean(nextVideo) &&
+    authPlaybackFeatures;
+  const dashLen = Math.max(0, Math.min(100.5, (countdown / COUNTDOWN_SEC) * 100.5));
 
-    return (
-      <div className="pointer-events-none absolute inset-0 z-30 overflow-hidden" aria-label="Up next">
-        {dismissBtn}
-        <div
-          className={cn(
-            "pointer-events-none absolute z-[2] flex min-w-0 max-w-full justify-center",
-            SAFE_LEFT,
-            SAFE_RIGHT,
-            controlsBottom,
-          )}
-        >
-          <div className="pointer-events-auto flex max-w-full min-w-0 flex-row flex-wrap justify-center gap-2 px-1">
-            {cards.map((card, i) => (
-              <div
-                key={card.id ?? card.unique_id}
-                className={cn(
-                  chipWidth,
-                  "min-w-0 max-w-full animate-in fade-in slide-in-from-bottom-1 duration-300",
-                )}
-                style={{ animationDelay: `${i * 60}ms`, animationFillMode: "both" }}
-              >
-                <div className="rounded-md bg-black/55 ring-1 ring-white/10 backdrop-blur-sm">
-                  <VideoCard data={card} layout="endCard" />
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-    );
-  }
+  const cardProps = {
+    countdownActive,
+    countdown,
+    dashLen,
+    onSelect: handleNavigate,
+    onCancelAutoplay: cancelAutoplay,
+  };
 
-  const slots = layoutSlotsForPlayer[layout];
+  const dismissTopPx = layout.isMobile ? layout.insetTopPx : layout.insetTopPx + 4;
+
   return (
-    <div className="pointer-events-none absolute inset-0 z-30" aria-label="Up next">
-      {dismissBtn}
-      {cards.map((card, i) => {
-        const slotClass = slots[i] ?? slots[slots.length - 1];
-        return (
-          <div
-            key={card.id ?? card.unique_id}
-            className={`${slotClass} pointer-events-auto animate-in fade-in slide-in-from-bottom-1 duration-300`}
-            style={{ animationDelay: `${i * 60}ms`, animationFillMode: "both" }}
-          >
-            <div className="rounded-md bg-black/55 ring-1 ring-white/10 backdrop-blur-sm">
-              <VideoCard data={card} layout="endCard" />
-            </div>
-          </div>
-        );
-      })}
+    <div
+      className="pointer-events-none absolute inset-0 z-30"
+      aria-label="Up next"
+    >
+      {/* Backdrop: near-end shows nothing (video still playing). After end,
+          a soft dim so cards stand out against the paused last frame. */}
+      {state.isEnded && (
+        <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-black/30 via-black/15 to-black/45" />
+      )}
+
+      {/* Dismiss  top-right, inside the reserved top control band. */}
+      <button
+        type="button"
+        onClick={() => {
+          cancelAutoplay();
+          setDismissed(true);
+        }}
+        className={cn(
+          "pointer-events-auto absolute z-[5] flex h-9 w-9 items-center justify-center rounded-full bg-black/55 text-white/85 ring-1 ring-white/15 backdrop-blur-sm transition-colors hover:bg-black/75 hover:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-white/60",
+          SAFE_RIGHT,
+        )}
+        style={{ top: dismissTopPx }}
+        aria-label="Dismiss suggestions"
+      >
+        <X className="h-4 w-4" />
+      </button>
+
+      {/* Cancel autoplay  visible while the redirect countdown is running. */}
+      {countdownActive && nextVideo && (
+        <button
+          type="button"
+          onClick={cancelAutoplay}
+          className="pointer-events-auto absolute left-1/2 z-[5] flex max-w-[min(92%,20rem)] -translate-x-1/2 items-center gap-2 rounded-full bg-black/70 px-3 py-1.5 text-xs font-medium text-white ring-1 ring-white/20 backdrop-blur-md transition-colors hover:bg-black/85 hover:ring-white/35 focus:outline-none focus-visible:ring-2 focus-visible:ring-white sm:px-4 sm:py-2 sm:text-sm"
+          style={{ top: dismissTopPx + (layout.isMobile ? 44 : 48) }}
+          aria-label="Cancel autoplay"
+        >
+          <span className="truncate text-white/90">
+            Up next in {Math.max(0, countdown)}s
+          </span>
+          <span className="shrink-0 rounded-full bg-white/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white sm:text-[11px]">
+            Cancel
+          </span>
+        </button>
+      )}
+
+      {layout.isMobile ? (
+        <>
+          {cards.map((card, i) => (
+            <EndCardSlot
+              key={card.id ?? card.unique_id}
+              card={card}
+              index={i}
+              className={cn(
+                "absolute z-[2]",
+                i === 0 ? SAFE_LEFT : SAFE_RIGHT,
+              )}
+              style={{
+                bottom: layout.insetBottomPx,
+                width: layout.cardWidthPx,
+              }}
+              {...cardProps}
+            />
+          ))}
+
+          {state.isEnded && (
+            <button
+              type="button"
+              onClick={() => {
+                cancelAutoplay();
+                replay();
+              }}
+              className="pointer-events-auto absolute left-1/2 z-[4] flex -translate-x-1/2 items-center gap-1.5 rounded-full bg-black/65 px-3 py-2 text-xs font-medium text-white ring-1 ring-white/20 backdrop-blur-md transition-all hover:bg-black/80 hover:ring-white/40 focus:outline-none focus-visible:ring-2 focus-visible:ring-white sm:gap-2 sm:px-4 sm:py-2.5 sm:text-sm"
+              style={{
+                bottom: layout.insetBottomPx + layout.cardWidthPx * 0.55 + 8,
+              }}
+              aria-label="Replay video"
+            >
+              <RotateCcw className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
+              Replay
+            </button>
+          )}
+        </>
+      ) : (
+        <>
+          {state.isEnded && (
+            <button
+              type="button"
+              onClick={() => {
+                cancelAutoplay();
+                replay();
+              }}
+              className="pointer-events-auto absolute left-1/2 top-1/2 z-[4] flex -translate-x-1/2 -translate-y-1/2 items-center gap-2 rounded-full bg-black/65 px-4 py-2.5 text-sm font-medium text-white ring-1 ring-white/20 backdrop-blur-md transition-all hover:bg-black/80 hover:ring-white/40 focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
+              aria-label="Replay video"
+            >
+              <RotateCcw className="h-4 w-4" />
+              Replay
+            </button>
+          )}
+
+          {cards.map((card, i) => {
+            const corner = DESKTOP_CORNERS[i] ?? DESKTOP_CORNERS[0];
+            return (
+              <EndCardSlot
+                key={card.id ?? card.unique_id}
+                card={card}
+                index={i}
+                className={cn(
+                  "absolute z-[2]",
+                  corner.left ? SAFE_LEFT : SAFE_RIGHT,
+                )}
+                style={{
+                  width: layout.cardWidthPx,
+                  ...(corner.top
+                    ? { top: layout.insetTopPx }
+                    : { bottom: layout.insetBottomPx }),
+                }}
+                {...cardProps}
+              />
+            );
+          })}
+        </>
+      )}
     </div>
   );
 }

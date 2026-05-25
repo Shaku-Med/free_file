@@ -1,5 +1,5 @@
 /**
- * Home route — `/` (index).
+ * Home route  `/` (index).
  *
  * The actual feed UI lives in `<PersistentHomeView />` mounted at the
  * AppShell level so it stays MOUNTED when the user navigates to a watch
@@ -13,7 +13,7 @@
  *   - Browser-back from any other route still navigates here
  *
  * The persistent view's visibility is toggled in `BodyComponent` based
- * on `pathname === "/"` — no extra wiring needed at this level.
+ * on `pathname === "/"`  no extra wiring needed at this level.
  */
 
 import type { MetaFunction } from "react-router";

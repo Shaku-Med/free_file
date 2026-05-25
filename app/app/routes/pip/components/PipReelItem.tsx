@@ -296,7 +296,7 @@ function PipReelItemInner({
   const uniqueId = item.unique_id ?? item.id;
   const isOwner = Boolean(userId && item.ownerId && userId === item.ownerId);
 
-  // Same JIT-mint flow as the main reel — see ~/lib/hooks/usePlaybackUrl.
+  // Same JIT-mint flow as the main reel  see ~/lib/hooks/usePlaybackUrl.
   const playbackUrl = usePlaybackUrl(file);
   const videoSrc = isVideoLikeFile(file)
     ? getVideoSrc(file.endpoint ?? '', file.file_type, playbackUrl)
@@ -327,7 +327,7 @@ function PipReelItemInner({
   );
 
   /**
-   * "Open in main" — leaves the PiP iframe and navigates the main window to `/{unique_id}`.
+   * "Open in main"  leaves the PiP iframe and navigates the main window to `/{unique_id}`.
    * Sends the close handshake with our current timestamp so the shell can resume at the same
    * spot in the full Dynamic player. Falls back to in-place navigation when this page isn't
    * framed (e.g. someone opened `/pip/:id` directly in a tab).
@@ -341,7 +341,7 @@ function PipReelItemInner({
     requestPipClosingHandshake(t, uid);
     requestNavigateFromPipToMain(href);
 
-    // If we're not inside a PiP iframe and have no opener, nothing heard those messages — go local.
+    // If we're not inside a PiP iframe and have no opener, nothing heard those messages  go local.
     if (
       typeof window !== 'undefined' &&
       window.parent === window &&
@@ -422,7 +422,7 @@ function PipReelItemInner({
       </div>
     );
 
-  /** Shared reel metadata (desktop sidebar + mobile bottom bar below the player — matches pre–IG mobile layout). */
+  /** Shared reel metadata (desktop sidebar + mobile bottom bar below the player  matches pre–IG mobile layout). */
   const renderReelMeta = () => (
     <div className="flex min-w-0 flex-col gap-2 text-white [&_.text-muted-foreground]:text-white/65">
       <div className="flex items-center gap-2">
@@ -479,7 +479,7 @@ function PipReelItemInner({
         data-pip-reel-item-id={item.id}
       >
         <div className="flex min-h-0 flex-1 flex-col lg:min-h-0 lg:flex-row lg:items-stretch lg:justify-center">
-          {/* Desktop: creator + copy — bottom-aligned with the video column */}
+          {/* Desktop: creator + copy  bottom-aligned with the video column */}
           {showChrome ? (
             <aside className="hidden min-w-0 shrink-0 lg:flex lg:w-[min(18rem,26vw)] lg:flex-col lg:justify-end lg:gap-1 lg:pb-10 lg:pl-8 lg:pr-4 xl:w-[min(20rem,28vw)]">
               {renderReelMeta()}

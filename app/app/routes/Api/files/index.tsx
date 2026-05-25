@@ -108,7 +108,7 @@ export const action = async ({ request }: { request: Request }) => {
     const { fileId, title, description, isPublic, categories, tags, defaultThumbnail, commentsEnabled, commentLimit, markers } = body || {};
 
     /**
-     * Skip-intro / next-episode markers — owner-edited, baked into `metadata.markers` so
+     * Skip-intro / next-episode markers  owner-edited, baked into `metadata.markers` so
      * every viewer's player picks them up automatically. Each field accepts a non-negative
      * number (seconds) or null to clear it. We sanity-check the relationship between the
      * intro start/end so the player can't get into a state where the skip button never hides.
@@ -199,7 +199,7 @@ export const action = async ({ request }: { request: Request }) => {
       return toJson({ error: "Forbidden" }, 403);
     }
 
-    // Image files use their own endpoint as thumbnail — reject thumbnail changes
+    // Image files use their own endpoint as thumbnail  reject thumbnail changes
     const isImageFile = typeof fileRow.file_type === "string" && fileRow.file_type.startsWith("image/");
     if (isImageFile && typeof defaultThumbnail === "string") {
       return toJson({ error: "Thumbnail cannot be changed for image files" }, 400);
@@ -284,7 +284,7 @@ export const action = async ({ request }: { request: Request }) => {
       return toJson({ error: "Failed to update file" }, 500);
     }
 
-    // Visibility / NSFW / metadata may have changed — drop the cached row so the next
+    // Visibility / NSFW / metadata may have changed  drop the cached row so the next
     // segment / image / manifest fetch revalidates against Supabase.
     invalidateFileByUniqueId(
       typeof fileRow.unique_id === "string" ? fileRow.unique_id : null,

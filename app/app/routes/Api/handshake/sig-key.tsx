@@ -11,7 +11,7 @@
  *
  * The key itself is derived deterministically from the cookie value +
  * a server master secret. Same cookie produces the same key, so reading
- * this endpoint twice from the same session is idempotent — useful for
+ * this endpoint twice from the same session is idempotent  useful for
  * page reloads / new tabs.
  */
 
@@ -25,11 +25,11 @@ const json = (status: number, body: unknown) =>
     status,
     headers: {
       "Content-Type": "application/json",
-      // Don't let the key sit in caches — fresh per request.
+      // Don't let the key sit in caches  fresh per request.
       "Cache-Control": "no-store, max-age=0",
       // Belt-and-suspenders: refuse framing of this response.
       "X-Frame-Options": "DENY",
-      // Reflect-CORS-disabled — only same-origin browsers should reach this.
+      // Reflect-CORS-disabled  only same-origin browsers should reach this.
       "Vary": "Origin",
     },
   });
@@ -37,7 +37,7 @@ const json = (status: number, body: unknown) =>
 export const action = async ({ request }: { request: Request }) => {
   if (request.method !== "POST") return json(405, { error: "method" });
 
-  // 1. Browser shape — Sec-Fetch / Origin / UA. Fails Postman here.
+  // 1. Browser shape  Sec-Fetch / Origin / UA. Fails Postman here.
   const blocked = assertSafeRequest(request);
   if (blocked) return blocked;
 

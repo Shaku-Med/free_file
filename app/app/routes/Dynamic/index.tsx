@@ -71,7 +71,7 @@ interface DynamicCachePayload {
 
 type FreshForBlend = DynamicCachePayload & { _deferredPending?: boolean };
 
-/** Resolved after shell — interactions, channel row, comment count (loads in parallel). */
+/** Resolved after shell  interactions, channel row, comment count (loads in parallel). */
 export type DynamicDeferredDetails = {
   userLiked: boolean;
   userDisliked: boolean;
@@ -683,7 +683,7 @@ const DynamicPage = ({ is_modal }: DynamicPageProps) => {
   const file_data = effectiveData?.file;
   const data = effectiveData;
 
-  // JIT signed URL — see ~/lib/hooks/usePlaybackUrl. URL is NEVER in
+  // JIT signed URL  see ~/lib/hooks/usePlaybackUrl. URL is NEVER in
   // HTML / loader JSON, so view-source / scrapers can't lift it.
   const playbackUrl = usePlaybackUrl(file_data ?? null);
 
@@ -888,7 +888,7 @@ const DynamicPage = ({ is_modal }: DynamicPageProps) => {
   /**
    * Param-swap remounts the anchor div: the ref fires `null` (old el unmounts), then `newEl`
    * (new el mounts) in the same commit. We defer null-clears one rAF so the same-frame
-   * remount cancels it — slot transitions directly old→new with no gap, so the global
+   * remount cancels it  slot transitions directly old→new with no gap, so the global
    * player keeps the same React tree and `<video>` mounted.
    */
   const pendingSlotClearRef = useRef<number | null>(null);
@@ -929,6 +929,10 @@ const DynamicPage = ({ is_modal }: DynamicPageProps) => {
 
   const activeMiniPlayerRef = useRef(activeMiniPlayer);
   activeMiniPlayerRef.current = activeMiniPlayer;
+  const userIdRef = useRef(userId);
+  userIdRef.current = userId;
+  const closeMiniPlayerRef = useRef(closeMiniPlayer);
+  closeMiniPlayerRef.current = closeMiniPlayer;
 
   useEffect(() => {
     if (!file_data?.unique_id) return;
@@ -1216,48 +1220,62 @@ const DynamicPage = ({ is_modal }: DynamicPageProps) => {
       ? relatedBootstrap.videos
       : (data.relatedVideos ?? []);
 
-  const isNavigating = navigation.state === 'loading' && navigation.location?.pathname !== window.location.pathname;
+  const isNavigating =
+    navigation.state === "loading" &&
+    navigation.location != null &&
+    navigation.location.pathname !== location.pathname;
 
   // Pause-during-Dynamic→Dynamic-navigation:
   //   When the next route is also a watch page (single-segment path like
   //   "/<unique_id>"), pause the current video the moment navigation starts.
   //   This stops the old src from continuing to play while the new file_data
   //   streams in. Once navigation finishes and the new playback URL resolves,
-  //   useHLS hot-swaps and autoplays the new manifest naturally.
+  //   useHLS hot-swaps and resumes if the user was playing (or auto-next).
   //
-  //   We remember whether the user was playing so we can resume after the
-  //   swap completes. Auto-next from the end card always wants to play; a
-  //   user-initiated mid-video navigation also wants to keep playing.
+  //   End-of-video auto-next counts as "was playing" even though the element
+  //   is ended  otherwise the next video would stay frozen on the last frame.
   const wasPlayingAtNavRef = useRef(false);
-  useEffect(() => {
-    const nextPath = navigation.location?.pathname ?? '';
+  const navTargetFileIdRef = useRef<string | null>(null);
+  useLayoutEffect(() => {
+    const nextPath = navigation.location?.pathname ?? "";
     const goingToWatchPage = isSingleSegmentWatchPath(nextPath);
     if (!isNavigating || !goingToWatchPage) return;
     const video = watchVideoRef.current;
     if (!video) return;
-    wasPlayingAtNavRef.current = !video.paused && !video.ended;
+    navTargetFileIdRef.current = getDynamicVideoIdFromPath(nextPath);
+    wasPlayingAtNavRef.current = video.ended || !video.paused;
     try {
       video.pause();
     } catch {
       /* ignore */
     }
-  }, [isNavigating, navigation.location?.pathname]);
+  }, [isNavigating, navigation.location?.pathname, location.pathname, watchVideoRef]);
 
   // After the new file_data is mounted and the new playback URL has resolved,
-  // resume playback if the user was playing right before the navigation.
+  // resume playback if the user was playing (or auto-next) before navigation.
   useEffect(() => {
     if (isNavigating || !file_data?.unique_id || !playbackUrl) return;
-    if (!wasPlayingAtNavRef.current) return;
+    if (navTargetFileIdRef.current && navTargetFileIdRef.current !== file_data.unique_id) {
+      return;
+    }
+    if (!wasPlayingAtNavRef.current) {
+      navTargetFileIdRef.current = null;
+      return;
+    }
     wasPlayingAtNavRef.current = false;
+    navTargetFileIdRef.current = null;
     const video = watchVideoRef.current;
     if (!video) return;
-    // Small RAF so the new src has actually been attached to the element
-    // by useHLS before we tell it to play.
-    const id = window.requestAnimationFrame(() => {
+    const tryPlay = () => {
       void video.play().catch(() => {});
-    });
-    return () => window.cancelAnimationFrame(id);
-  }, [isNavigating, file_data?.unique_id, playbackUrl]);
+    };
+    if (video.readyState >= 2) {
+      const id = window.requestAnimationFrame(tryPlay);
+      return () => window.cancelAnimationFrame(id);
+    }
+    video.addEventListener("canplay", tryPlay, { once: true });
+    return () => video.removeEventListener("canplay", tryPlay);
+  }, [isNavigating, file_data?.unique_id, playbackUrl, location.pathname, watchVideoRef]);
 
   const requiredViewSeconds = (() => {
     if (isHLS && file_data?.duration != null && Number(file_data.duration) > 0) {
@@ -1365,7 +1383,7 @@ const DynamicPage = ({ is_modal }: DynamicPageProps) => {
   }, [watchVideoRef, onVideoTimeForView]);
 
   /**
-   * Don't clear surface on payload swap — that causes a transient `null` between cleanup
+   * Don't clear surface on payload swap  that causes a transient `null` between cleanup
    * and the new effect run, which unmounts the global player and forces a fresh HLS init
    * on every watch→watch param swap. The dedicated unmount effect below handles real exit.
    */
@@ -1426,14 +1444,23 @@ const DynamicPage = ({ is_modal }: DynamicPageProps) => {
   /* Full unmount of the watch index only (not param swaps on the same route). */
   useEffect(() => {
     return () => {
+      if (!userIdRef.current) {
+        closeMiniPlayerRef.current();
+        try {
+          watchVideoRef.current?.pause();
+        } catch {
+          /* ignore */
+        }
+        return;
+      }
       if (activeMiniPlayerRef.current) return;
       const path = typeof window !== "undefined" ? window.location.pathname : "";
       const destId = getDynamicVideoIdFromPath(path);
-      // Race-defense: URL still says we're on this watch page (unmount without nav) — leave the player alone.
+      // Race-defense: URL still says we're on this watch page (unmount without nav)  leave the player alone.
       if (destId && fileDataRef.current && destId === fileDataRef.current.unique_id) return;
-      // Different watch ID is taking over — let it own the handoff.
+      // Different watch ID is taking over  let it own the handoff.
       if (isSingleSegmentWatchPath(path)) return;
-      // Reel owns the global player — no mini handoff, just tear down.
+      // Reel owns the global player  no mini handoff, just tear down.
       if (path === "/reel" || path.startsWith("/reel/")) return;
       const video = watchVideoRef.current;
       const fd = fileDataRef.current;
@@ -1447,7 +1474,7 @@ const DynamicPage = ({ is_modal }: DynamicPageProps) => {
       });
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional: only on true unmount of this screen
-  }, [activateMiniPlayer]);
+  }, [activateMiniPlayer, closeMiniPlayer]);
 
   useEffect(() => {
     if (isHLS || hasIncrementedView || !file_data?.id) return;
@@ -1559,8 +1586,8 @@ const DynamicPage = ({ is_modal }: DynamicPageProps) => {
 
   const description = file_data.file_description?.trim() ?? "";
   // Collapsed = 3 lines visible (matches YouTube). Overflow is measured
-  // off the rendered DOM after layout — see the descRef + isOverflowing
-  // pair below — because a 3-line clamp depends on font + width, not on
+  // off the rendered DOM after layout  see the descRef + isOverflowing
+  // pair below  because a 3-line clamp depends on font + width, not on
   // raw character count.
   const descRef = useRef<HTMLDivElement>(null);
   const [isOverflowing, setIsOverflowing] = useState(false);
@@ -1692,7 +1719,7 @@ const DynamicPage = ({ is_modal }: DynamicPageProps) => {
             {/* Wrapper is positioned so the fade-out gradient at the
                 bottom of the clamp can layer on top of the last visible
                 line. The fade only renders when collapsed AND the text
-                actually overflows — short descriptions stay clean. */}
+                actually overflows  short descriptions stay clean. */}
             <div className="relative">
               <div
                 ref={descRef}

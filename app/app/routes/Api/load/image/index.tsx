@@ -561,7 +561,7 @@ export const loader = async ({ request }: { request: Request }) => {
             return new Response(null, { status: 404 });
         }
 
-        // Comment images are public — no access control needed, just proxy from GitHub
+        // Comment images are public  no access control needed, just proxy from GitHub
         if (splitUrl.startsWith('comment-images/')) {
             return await loadImageWithRetry(
                 splitUrl,

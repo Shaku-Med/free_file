@@ -55,7 +55,7 @@ export function SignInDialog({
   open,
   onOpenChange,
   title = "Sign in to continue",
-  description = "Create a free account or sign in to enjoy full access — uploads, playlists, comments, and more.",
+  description = "Create a free account or sign in to enjoy full access  uploads, playlists, comments, and more.",
 }: {
   open: boolean;
   onOpenChange: (v: boolean) => void;

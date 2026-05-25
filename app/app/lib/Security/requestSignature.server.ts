@@ -18,7 +18,7 @@
  *
  * The signing key is derived deterministically from the cookie value +
  * a server-side master secret (env: `REQUEST_SIG_SECRET`). That keeps
- * us stateless — no Redis lookup per request — while still being
+ * us stateless  no Redis lookup per request  while still being
  * unguessable without both halves.
  */
 
@@ -33,13 +33,13 @@ const MASTER_SECRET: Buffer = ENV_SECRET
   : (() => {
       const b = randomBytes(32);
       console.warn(
-        "[requestSignature] REQUEST_SIG_SECRET not set — generated a random one. " +
+        "[requestSignature] REQUEST_SIG_SECRET not set  generated a random one. " +
           "Dev hot reload and multi-process deploys will reject cached signatures. Set this env var.",
       );
       return b;
     })();
 
-/** Replay window — requests older than this are rejected even with a
+/** Replay window  requests older than this are rejected even with a
  *  valid signature. 30s is generous for clock skew + slow networks. */
 const REPLAY_WINDOW_MS = 30_000;
 
@@ -78,7 +78,7 @@ function hashBody(bodyBytes: Uint8Array | null): string {
  * produce the exact same string for the HMAC to match.
  *
  * Path is taken from the URL's pathname + search (so query params are
- * authenticated). We do NOT include host — that's already implied by
+ * authenticated). We do NOT include host  that's already implied by
  * the Origin check elsewhere.
  */
 function canonicalPayload(
@@ -106,7 +106,7 @@ export interface SignatureValidationOptions {
 
 export interface SignatureValidationResult {
   valid: boolean;
-  /** Failure reason — useful for logging, never echo to the client. */
+  /** Failure reason  useful for logging, never echo to the client. */
   reason?: string;
 }
 

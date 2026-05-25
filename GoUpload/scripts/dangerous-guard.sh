@@ -5,7 +5,7 @@
 # letting them proceed. Non-interactive shells / scripts that explicitly
 # call `command rm` / `/bin/rm` bypass this so CI deploys still work.
 #
-# Patterns covered (not exhaustive — defense in depth, not a sandbox):
+# Patterns covered (not exhaustive  defense in depth, not a sandbox):
 #   rm -rf /, rm -rf /*, rm -rf /<root-dir>
 #   dd  ...  of=/dev/sd*, /dev/nvme*, /dev/mmcblk*, /dev/hd*
 #   mkfs.* on a block device
@@ -16,16 +16,16 @@
 #   piping curl|sh, wget|sh, curl|bash, wget|bash
 #   shutdown / reboot / halt / poweroff
 #   Sensitive reads: cat/less/head/tail/vi on .env, keys, PEMs, shadow, etc.
-#     (skips guard when the path exists but is not readable — normal user gets
+#     (skips guard when the path exists but is not readable  normal user gets
 #     EPERM without a pointless prompt.)
 #
 # All wrappers are bash functions, so:
 #   - Interactive shells get the guard.
-#   - Non-interactive shells exit at the top — cron / CI / `ssh host cmd` skip it.
+#   - Non-interactive shells exit at the top  cron / CI / `ssh host cmd` skip it.
 #   - Scripts that use the absolute path (/bin/rm, /usr/bin/cat) skip it.
-#   - `command rm` / `command cat` also skip — narrow escape hatch for deploy scripts.
+#   - `command rm` / `command cat` also skip  narrow escape hatch for deploy scripts.
 
-# Only run in interactive bash sessions — never in non-interactive shells
+# Only run in interactive bash sessions  never in non-interactive shells
 # (scp / rsync / ansible / cron / docker exec without -t).
 case $- in *i*) ;; *) return 0 ;; esac
 
@@ -34,7 +34,7 @@ __guard_confirm_phrase='I UNDERSTAND THE RISK'
 __guard_reauth() {
   # Invalidate cached sudo creds then force a fresh password prompt. With
   # `timestamp_timeout=0` in sudoers, this is required for *every* dangerous
-  # command — defense against an attacker who already has a shell session
+  # command  defense against an attacker who already has a shell session
   # open after an unattended user walked away.
   # Note: direct root login often gets a no-op `sudo -v`; paired with
   # `harden-env-permissions.sh` + phrase confirmation, this is still a

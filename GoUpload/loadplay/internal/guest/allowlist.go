@@ -8,7 +8,7 @@ import (
 )
 
 // Allowlist remembers segment paths a guest token may fetch after we serve
-// a truncated media playlist — blocks direct .ts URL guessing with the
+// a truncated media playlist  blocks direct .ts URL guessing with the
 // same ?t= token.
 type Allowlist struct {
 	ttl time.Duration

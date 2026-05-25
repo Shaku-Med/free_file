@@ -31,6 +31,10 @@ export function useSearchPanel(open: boolean) {
   const nextCursorRef = useRef<{ cursor_score: number; cursor_id: string } | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const suggestionsAbortRef = useRef<AbortController | null>(null);
+  /** Last term we fetched  skip refetch when user reopens / refocuses the same query. */
+  const lastFetchedTermRef = useRef<string | null>(null);
+  const prevDebouncedTermRef = useRef("");
+  const suggestionsLoadedRef = useRef(false);
 
   const runSearch = useCallback(async (term: string, append: boolean) => {
     if (!term.trim()) return;
@@ -113,6 +117,7 @@ export function useSearchPanel(open: boolean) {
       const result = await response.json();
       if (!Array.isArray(result.data)) return;
       setSuggestions(result.data);
+      suggestionsLoadedRef.current = true;
       if (result.userActions) {
         setLocalUserActions((prev) => {
           const liked = new Set(prev.likedFileIds);
@@ -140,22 +145,36 @@ export function useSearchPanel(open: boolean) {
     });
   }, [open, globalUserActions]);
 
+  // Fetch only when the debounced query changes  not on every dropdown open/focus.
   useEffect(() => {
-    if (!open) return;
+    const prevTerm = prevDebouncedTermRef.current;
 
     if (debouncedTerm) {
+      prevDebouncedTermRef.current = debouncedTerm;
+      if (lastFetchedTermRef.current === debouncedTerm) {
+        return;
+      }
+      lastFetchedTermRef.current = debouncedTerm;
       nextCursorRef.current = null;
       void runSearch(debouncedTerm, false);
       return;
     }
 
-    abortRef.current?.abort();
-    setFiles([]);
-    setSearchUsers([]);
-    setSeriesRoots([]);
-    setHasMore(false);
-    nextCursorRef.current = null;
-    setIsLoading(false);
+    const hadSearch = Boolean(prevTerm);
+    prevDebouncedTermRef.current = debouncedTerm;
+    lastFetchedTermRef.current = null;
+
+    if (hadSearch) {
+      setFiles([]);
+      setSearchUsers([]);
+      setSeriesRoots([]);
+      setHasMore(false);
+      nextCursorRef.current = null;
+      setIsLoading(false);
+    }
+
+    if (!open) return;
+    if (suggestionsLoadedRef.current) return;
     void loadSuggestions();
   }, [open, debouncedTerm, runSearch, loadSuggestions]);
 
@@ -176,8 +195,12 @@ export function useSearchPanel(open: boolean) {
     setFiles([]);
     setSearchUsers([]);
     setSeriesRoots([]);
+    setSuggestions([]);
     setHasMore(false);
     nextCursorRef.current = null;
+    lastFetchedTermRef.current = null;
+    prevDebouncedTermRef.current = "";
+    suggestionsLoadedRef.current = false;
   }, []);
 
   return {

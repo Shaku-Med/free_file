@@ -12,7 +12,7 @@ import { useFileContext } from "~/lib/Context/Context";
 import { useAnchorBoundingRect } from "~/lib/hooks/useAnchorBoundingRect";
 import { cn } from "~/lib/utils";
 import { usePlaybackUrl } from "~/lib/hooks/usePlaybackUrl";
-import { resolvePlaybackSrc } from "~/lib/playbackUrlCache";
+import { resolvePlaybackSrc, playbackUrlMatchesFile } from "~/lib/playbackUrlCache";
 import type { FileType } from "~/lib/types";
 
 const MAIN_ANCHOR_Z = 99_999_995;
@@ -56,7 +56,7 @@ export function GlobalAnchoredHLSPlayer() {
   const { userId } = useFileContext();
   const navigate = useNavigate();
   // Mini-player gets its own JIT-minted, IP+UA-bound URL. The watch
-  // surface already has one from Dynamic — when the surface clears and
+  // surface already has one from Dynamic  when the surface clears and
   // mini takes over, this hook re-mints for the same file so playback
   // stays seamless without leaking a URL through HTML.
   const miniPlaybackUrl = usePlaybackUrl(
@@ -67,6 +67,9 @@ export function GlobalAnchoredHLSPlayer() {
   const stableSrcRef = useRef<{ fileId: string; src: string } | null>(null);
 
   const pickStableSrc = useCallback((fileId: string, nextSrc: string) => {
+    if (nextSrc && fileId && !playbackUrlMatchesFile(nextSrc, fileId)) {
+      nextSrc = "";
+    }
     if (nextSrc) {
       stableSrcRef.current = { fileId, src: nextSrc };
       return nextSrc;
@@ -75,14 +78,26 @@ export function GlobalAnchoredHLSPlayer() {
     return prev?.fileId === fileId ? prev.src : nextSrc;
   }, []);
 
-  /** Mini takes over only after the watch surface is cleared — same global player, new anchor. */
+  const activeFileId =
+    surface?.props?.file?.unique_id ??
+    surface?.props?.imageID ??
+    miniPlayer?.file.unique_id ??
+    "";
+
+  useLayoutEffect(() => {
+    if (stableSrcRef.current && activeFileId && stableSrcRef.current.fileId !== activeFileId) {
+      stableSrcRef.current = null;
+    }
+  }, [activeFileId]);
+
+  /** Mini takes over only after the watch surface is cleared  same global player, new anchor. */
   const inMiniLayout = Boolean(miniPlayer && !surface?.props);
   const anchorEl = inMiniLayout ? state.miniAnchorEl : state.anchorEl;
-  /** Theater + layoutId use transform animation; RO/scroll won't update — match parent every frame. */
+  /** Theater + layoutId use transform animation; RO/scroll won't update  match parent every frame. */
   const syncPositionEachFrame =
     Boolean(inMiniLayout && state.miniAnchorEl) ||
     Boolean(surface?.props && state.anchorEl);
-  // Imperative position updates — bypasses React's reconciler so scroll
+  // Imperative position updates  bypasses React's reconciler so scroll
   // and drag no longer re-render the entire portal'd player subtree on
   // every frame. The hook still hands us a state-backed rect for the
   // FIRST mount (so the portal renders), then routes subsequent updates
@@ -92,7 +107,7 @@ export function GlobalAnchoredHLSPlayer() {
     const el = containerRef.current;
     if (!el) return;
     // Update style directly. style writes are coalesced by the browser
-    // and never trigger React work — this is the entire perf fix.
+    // and never trigger React work  this is the entire perf fix.
     el.style.top = `${r.top}px`;
     el.style.left = `${r.left}px`;
     el.style.width = `${r.width}px`;
@@ -135,12 +150,7 @@ export function GlobalAnchoredHLSPlayer() {
   const resolved = useMemo(() => {
     if (surface?.props) {
       const fileId = surface.props.file?.unique_id ?? surface.props.imageID ?? "";
-      const src = pickStableSrc(
-        fileId,
-        resolvePlaybackSrc(surface.props.file ?? { unique_id: fileId }, {
-          preferredSrc: surface.props.src,
-        }),
-      );
+      const src = pickStableSrc(fileId, surface.props.src ?? "");
       return {
         kind: "watch" as const,
         props: { ...surface.props, src },
@@ -148,7 +158,7 @@ export function GlobalAnchoredHLSPlayer() {
         z: MAIN_ANCHOR_Z,
       };
     }
-    if (miniPlayer && !surface?.props) {
+    if (miniPlayer && !surface?.props && userId) {
       const fileId = miniPlayer.file.unique_id;
       const p = miniFallbackProps(miniPlayer, videoRef, userId, miniPlaybackUrl);
       const src = pickStableSrc(fileId, p.src);
@@ -232,7 +242,7 @@ export function GlobalAnchoredHLSPlayer() {
         width: rect.width,
         height: rect.height,
         zIndex: z,
-        // Promote to its own compositor layer — scroll won't repaint the
+        // Promote to its own compositor layer  scroll won't repaint the
         // video texture, just re-position the layer. Cheap to keep on.
         willChange: "top, left, width, height",
       }}

@@ -1,7 +1,7 @@
 import { Navigate, useSearchParams } from 'react-router';
 
 /**
- * No standalone `/pip` page — only `/pip/:uniqueId` (iframe loads that URL).
+ * No standalone `/pip` page  only `/pip/:uniqueId` (iframe loads that URL).
  * Legacy `?id=` redirects into the param route; otherwise send users home.
  */
 export default function PipRootRedirect() {

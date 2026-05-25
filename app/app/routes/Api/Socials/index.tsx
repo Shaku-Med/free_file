@@ -506,7 +506,7 @@ export const AllActions = async () => {
 
 export const loader = async ({ request }: { request: Request }) => {
     try {
-        // Auth check — only authenticated users can use social downloads
+        // Auth check  only authenticated users can use social downloads
         const { isAuthenticated } = await import("~/lib/Security/Password");
         const user = await isAuthenticated(request, ["id"]);
         if (!user?.id) {

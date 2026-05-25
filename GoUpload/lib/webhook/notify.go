@@ -79,7 +79,7 @@ func NotifyJobStatus(p Payload) {
 		log.Printf("[webhook] NotifyJobStatus http_error job=%s upload=%s payload_status=%s http=%d body=%q (check APP_BASE_URL, UPLOAD_WEBHOOK_SECRET, and Remix /api/upload-job-status)",
 			p.JobID, p.UploadID, p.Status, resp.StatusCode, strings.TrimSpace(string(bodySnippet)))
 	} else {
-		// payload_status may be "failed" (job failed) while delivery still succeeded — do not log "failed: success".
+		// payload_status may be "failed" (job failed) while delivery still succeeded  do not log "failed: success".
 		log.Printf("[webhook] NotifyJobStatus delivered_ok job=%s upload=%s payload_status=%s http=%d",
 			p.JobID, p.UploadID, p.Status, resp.StatusCode)
 	}

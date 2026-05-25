@@ -757,7 +757,7 @@ const CommentForm = ({
             </div>
           )}
 
-          {/* GIF grid — scrollable area fills remaining space */}
+          {/* GIF grid  scrollable area fills remaining space */}
           <div className="flex-1 min-h-0 overflow-y-auto px-3 sm:px-4 pb-2">
             {gifLoading && gifResults.length === 0 ? (
               <div className="flex items-center justify-center h-48">

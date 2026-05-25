@@ -20,11 +20,11 @@ import {
 import { useStableVolume } from './hooks/useStableVolume';
 
 export interface TiltRotation {
-  /** rotateX in degrees — looking up (+) / down (−). */
+  /** rotateX in degrees  looking up (+) / down (−). */
   x: number;
-  /** rotateY in degrees — looking right (+) / left (−). */
+  /** rotateY in degrees  looking right (+) / left (−). */
   y: number;
-  /** rotateZ in degrees — skew/tilt. */
+  /** rotateZ in degrees  skew/tilt. */
   z: number;
 }
 
@@ -191,7 +191,7 @@ interface PlayerContextValue {
   replay: () => void;
   setControlsVisible: (visible: boolean) => void;
   setReelAuxiliaryChromeVisible: (visible: boolean) => void;
-  /** True when `showFeedPlayerControls && isReel` — idle timer hides all but seek. */
+  /** True when `showFeedPlayerControls && isReel`  idle timer hides all but seek. */
   reelEmbedAutoHide: boolean;
   startInteraction: () => void;
   endInteraction: () => void;
@@ -200,11 +200,11 @@ interface PlayerContextValue {
   spriteUrl: string | null;
   setSpriteMeta: (meta: ThumbnailSpriteMeta | null) => void;
   setSpriteUrl: (url: string | null) => void;
-  /** Preferred waveform — JSON peaks rendered client-side. May 404 for
+  /** Preferred waveform  JSON peaks rendered client-side. May 404 for
    *  old uploads (which only have the PNG). The SeekBar tries this first
    *  and falls back to waveformPngUrl below. */
   waveformUrl: string | null;
-  /** Legacy PNG waveform — used when the JSON doesn't exist. Rendered
+  /** Legacy PNG waveform  used when the JSON doesn't exist. Rendered
    *  ABOVE the normal thin seekbar as decoration. */
   waveformPngUrl: string | null;
 
@@ -221,7 +221,7 @@ interface PlayerContextValue {
   /** Session-only debug overlay (not persisted). */
   statsForNerds: boolean;
   setStatsForNerds: (v: boolean) => void;
-  /** Sleep timer — pause the video after a chosen duration. `'Off'` = disabled. */
+  /** Sleep timer  pause the video after a chosen duration. `'Off'` = disabled. */
   sleepTimer: SleepTimerOption;
   setSleepTimer: (v: SleepTimerOption) => void;
   /** Epoch ms when the active timer will fire; null when off / 'End of video'. */
@@ -234,7 +234,7 @@ interface PlayerContextValue {
   resetTiltRotation: () => void;
   tiltZoom: number;
   setTiltZoom: (v: number) => void;
-  /** 8D / spatial audio config (live — drives the panner). */
+  /** 8D / spatial audio config (live  drives the panner). */
   spatialAudio: SpatialAudioConfig;
   setSpatialAudio: (next: SpatialAudioConfig) => void;
   spatialAudioDialogOpen: boolean;
@@ -244,7 +244,7 @@ interface PlayerContextValue {
   /** When false (e.g. signed-out watch page), ambient, visualizer, and up-next controls are disabled in UI. */
   authPlaybackFeatures: boolean;
   /**
-   * Document PiP vertical reel: keep audio unmuted — don't apply global saved mute, and don't
+   * Document PiP vertical reel: keep audio unmuted  don't apply global saved mute, and don't
    * force-mute inactive swiper slides via useAutoplay.
    */
   unlockPipReelAudio: boolean;
@@ -295,7 +295,7 @@ interface PlayerProviderProps {
   authPlaybackFeatures?: boolean;
   /** Reel + feed embed: auto-hide play/volume/etc.; seek bar stays. */
   reelEmbedAutoHide?: boolean;
-  /** PiP iframe reel — avoid global mute + inactive-slide forced mute (see useAutoplay). */
+  /** PiP iframe reel  avoid global mute + inactive-slide forced mute (see useAutoplay). */
   unlockPipReelAudio?: boolean;
 }
 
@@ -356,6 +356,11 @@ export function PlayerProvider({
   useEffect(() => {
     setSpriteMeta(null);
     setSpriteUrl(null);
+  }, [fileSpriteKey]);
+
+  /** End-card / watch→watch: clear ended overlay state when the file changes. */
+  useEffect(() => {
+    setState((s) => ({ ...s, isEnded: false, hasError: false }));
   }, [fileSpriteKey]);
   const [ambientModeState, setAmbientModeState] = useState(false);
   const [ambientColors, setAmbientColors] = useState<string[]>([]);
@@ -540,7 +545,7 @@ export function PlayerProvider({
     setSpatialAudioState(parsed);
     const v = videoRef.current;
     if (v) {
-      // Don't touch the video element while AirPlay / Chromecast is active —
+      // Don't touch the video element while AirPlay / Chromecast is active 
       // changing volume, muted, or playbackRate can interrupt the remote session.
       const isRemote =
         (v as any).webkitCurrentPlaybackTargetIsWireless ||
@@ -589,7 +594,7 @@ export function PlayerProvider({
   }, [isContentInPip, imageID, state.isMuted, state.volume, videoRef]);
 
   // Build BOTH URL variants up-front. The SeekBar resolves which to use
-  // at fetch time — preferring the new JSON, falling back to the legacy
+  // at fetch time  preferring the new JSON, falling back to the legacy
   // PNG when the JSON 404s. Computing both here keeps the URL build
   // logic in one place.
   const waveformPrefix = useMemo(() => {
@@ -637,7 +642,7 @@ export function PlayerProvider({
 
   // Listen for `memories:seek-to` events fired by clickable timestamps in
   // comments / descriptions. If the event includes a fileId, ignore it
-  // when it doesn't match this player's file — important for embed /
+  // when it doesn't match this player's file  important for embed /
   // mini-player scenarios where multiple players exist simultaneously.
   // Also auto-plays after seeking, mirroring YouTube's behavior when you
   // click a timestamp in a comment.
@@ -651,7 +656,7 @@ export function PlayerProvider({
       if (!v) return;
       const target = Math.max(0, Math.min(detail.seconds, v.duration || detail.seconds));
       v.currentTime = target;
-      // Auto-play after click — matches YouTube. Wrapped in catch because
+      // Auto-play after click  matches YouTube. Wrapped in catch because
       // browsers may reject play() on a still-muted-autoplay-blocked tab.
       if (v.paused) v.play().catch(() => {});
     };

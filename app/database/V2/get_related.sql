@@ -1,5 +1,5 @@
 -- ============================================================
--- get_related — Related videos/files for a given file
+-- get_related  Related videos/files for a given file
 -- ============================================================
 -- Returns content related by: same owner, shared tags, shared
 -- categories, same file type, then fallback by engagement/recency.
@@ -62,7 +62,7 @@ DECLARE
   v_categories jsonb;
   v_file_type  text;
 BEGIN
-  -- v_nsfw_on removed — related never shows adult content
+  -- v_nsfw_on removed  related never shows adult content
 
   -- Source file (for relevance scoring)
   SELECT f.owner_id, f.tags, f.categories, f.file_type

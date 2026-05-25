@@ -8,7 +8,7 @@ import { sanitizeFileForPublicViewer } from "~/lib/files/sanitizeFileForViewer";
 
 /**
  * Returns the data needed to render a single content card (feed hero / PiP).
- * Mirrors a trimmed subset of the Dynamic route loader — no related videos,
+ * Mirrors a trimmed subset of the Dynamic route loader  no related videos,
  * no series, no channel stats. Looks up by `unique_id`.
  */
 export const loader = async ({ request, params }: LoaderFunctionArgs) => {

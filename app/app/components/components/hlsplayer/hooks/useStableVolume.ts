@@ -7,7 +7,7 @@ import {
 
 /**
  * Routes the video through a DynamicsCompressor + makeup gain when `enabled`. Coexists
- * with the spatial-audio engine and the analyser visualizer — they all share a single
+ * with the spatial-audio engine and the analyser visualizer  they all share a single
  * `MediaElementAudioSource` (see `sharedAudioGraph`).
  */
 export function useStableVolume(

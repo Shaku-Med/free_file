@@ -103,7 +103,7 @@ export default function SubscribeButton({
 
   const iconSize = compact ? "w-3.5 h-3.5" : "w-4 h-4";
 
-  // Not subscribed — single rounded pill
+  // Not subscribed  single rounded pill
   if (!subscribed) {
     return (
       <button
@@ -120,7 +120,7 @@ export default function SubscribeButton({
     );
   }
 
-  // Subscribed — grouped pill: [Subscribed ▾ | 🔔]
+  // Subscribed  grouped pill: [Subscribed ▾ | 🔔]
   return (
     <div
       className={cn(
@@ -165,7 +165,7 @@ export default function SubscribeButton({
                 "inline-flex items-center justify-center transition-colors hover:bg-accent disabled:opacity-60",
                 compact ? "px-2 py-1" : "px-3 py-2"
               )}
-              aria-label={notify ? "Notifications on — click to turn off" : "Notifications off — click to turn on"}
+              aria-label={notify ? "Notifications on  click to turn off" : "Notifications off  click to turn on"}
             >
               {bellBusy ? (
                 <Loader2 className={cn(iconSize, "animate-spin")} />

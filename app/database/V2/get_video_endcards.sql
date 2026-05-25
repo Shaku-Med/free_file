@@ -1,9 +1,9 @@
 -- ============================================================
--- get_video_endcards — Lightweight end-card suggestions
+-- get_video_endcards  Lightweight end-card suggestions
 -- ============================================================
 -- YouTube-style end-card grid that appears in the last ~20 seconds of a video.
 -- Differences from get_endscreen_suggestions / the related-videos rail:
---   * NO REELS — reels are never recommended here; viewers should reach them
+--   * NO REELS  reels are never recommended here; viewers should reach them
 --     via the dedicated reel feed, not as a watch-next from a long-form video.
 --   * Accepts `p_exclude_ids` so the caller can pass in whatever rows the
 --     page is already rendering (related rail + series up-next). That way

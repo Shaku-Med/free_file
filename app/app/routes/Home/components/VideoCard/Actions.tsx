@@ -769,7 +769,7 @@ export default function Actions({
         /**
          * YouTube-style comments bottom sheet:
          *  - Full width, anchored flush to the bottom edge (no centered card insets).
-         *  - Tall — up to 85dvh — leaving the video visible above so the user keeps watching.
+         *  - Tall  up to 85dvh  leaving the video visible above so the user keeps watching.
          *  - Sits at the very top of the stacking order via the drawer primitive's max z-index;
          *    floating UI like the mini-player dock can no longer cover it.
          *  - Backdrop is lighter on mobile so the video peeking above stays readable.

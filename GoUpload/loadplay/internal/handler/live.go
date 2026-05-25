@@ -15,9 +15,9 @@ type ProductionRelease struct {
 	Note    string `json:"note"`
 }
 
-// productionLiveLedger — static prod history (YYYY-MM-DD, UTC calendar dates).
+// productionLiveLedger  static prod history (YYYY-MM-DD, UTC calendar dates).
 var productionLiveLedger = []ProductionRelease{
-	{Version: "1.0", LiveAt: "2026-05-18", Note: "memories.brozy.org — initial production system"},
+	{Version: "1.0", LiveAt: "2026-05-18", Note: "memories.brozy.org  initial production system"},
 	{Version: "1.1", LiveAt: "2026-05-19", Note: "API security + session hardening"},
 	{Version: "1.2", LiveAt: "2026-05-21", Note: "Header + mobile UI refresh"},
 	{Version: "2.0", LiveAt: "2026-05-25", Note: "LoadPlay CDN + JIT playback minting"},
@@ -29,7 +29,7 @@ func productionLiveMessage() string {
 		if i > 0 {
 			b.WriteByte('\n')
 		}
-		fmt.Fprintf(&b, "v%s went live %s — %s", r.Version, r.LiveAt, r.Note)
+		fmt.Fprintf(&b, "v%s went live %s  %s", r.Version, r.LiveAt, r.Note)
 	}
 	return b.String()
 }

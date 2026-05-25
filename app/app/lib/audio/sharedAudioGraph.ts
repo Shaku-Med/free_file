@@ -3,7 +3,7 @@
  * `MediaElementAudioSource` per `<video>` element, so the audio visualizer (analyser)
  * and the spatial-audio engine (panner) must talk to the same source.
  *
- * Default routing: `source → destination` (transparent — no DSP).
+ * Default routing: `source → destination` (transparent  no DSP).
  * With analyser: `source → analyser → destination`.
  * With panner:   `source → panner → destination`.
  * Both:          `source → panner → analyser → destination`.
@@ -25,7 +25,7 @@ export interface SharedAudioGraph {
   analyser: AnalyserNode | null;
   /**
    * Created lazily; inserted at the tail of the chain when `compressorActive` is true.
-   * Used for the "stable volume" feature — gentle compression so quiet clips and loud
+   * Used for the "stable volume" feature  gentle compression so quiet clips and loud
    * clips end up at roughly the same perceived loudness.
    */
   compressor: DynamicsCompressorNode | null;
@@ -85,7 +85,7 @@ export function ensureSharedGraph(video: HTMLVideoElement): SharedAudioGraph | n
     panner.coneInnerAngle = 360;
     panner.coneOuterAngle = 360;
     panner.coneOuterGain = 1;
-    // Default position: directly in front of the listener at unit distance — a
+    // Default position: directly in front of the listener at unit distance  a
     // transparent baseline for when spatial audio is disabled.
     setPannerPositionImmediate(panner, ctx, 0, 0, -1);
 
@@ -149,7 +149,7 @@ export function setPannerActive(graph: SharedAudioGraph, active: boolean) {
 /**
  * Lazily creates the compressor + makeup gain on first use. The settings are tuned for
  * loudness leveling (taming loud peaks while preserving dynamics) rather than aggressive
- * compression — close to a "broadcast" preset.
+ * compression  close to a "broadcast" preset.
  */
 export function ensureCompressor(graph: SharedAudioGraph): DynamicsCompressorNode {
   if (graph.compressor && graph.makeupGain) return graph.compressor;

@@ -135,7 +135,7 @@ func TestStandaloneSiteNoneRejected(t *testing.T) {
 }
 
 func TestStandardOriginRefererAccepted(t *testing.T) {
-	// X-App-Origin / X-App-Referer are no longer required — the standard
+	// X-App-Origin / X-App-Referer are no longer required  the standard
 	// Origin + Referer pair (set by browsers, not JS) is sufficient.
 	// Curl/scripts can't forge these because browsers won't send Origin
 	// on top-level navigation and won't send Referer on typed URLs.

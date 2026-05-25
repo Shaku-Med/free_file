@@ -35,7 +35,7 @@ export interface PipReelContainerProps {
   /** `unique_id` or numeric id string of the slide to show first. */
   initialActiveId?: string;
   className?: string;
-  /** From loader / `/api/pip-feed` — same as vertical feed `userActions`. */
+  /** From loader / `/api/pip-feed`  same as vertical feed `userActions`. */
   userActions?: PipReelUserActions;
   /**
    * Feed shuffling seed returned by `loadSecurePipFeed` on the initial page. Paginated fetches
@@ -68,7 +68,7 @@ async function fetchMorePipFeed(params: {
     cursor_pos: String(params.cursorPos),
   });
   // Send the ids we've already rendered so the server can dedupe across pages.
-  // Cap length — server also re-validates UUID shape.
+  // Cap length  server also re-validates UUID shape.
   if (params.excludeIds.length > 0) {
     qs.set('exclude_ids', JSON.stringify(params.excludeIds.slice(-200)));
   }
@@ -188,7 +188,7 @@ export function PipReelContainer({
       const fresh = page.data.filter((f) => !existing.has(String(f.id)));
 
       if (fresh.length === 0 || !page.nextCursor) {
-        // Nothing new or server says we're done — stop polling so we don't spam.
+        // Nothing new or server says we're done  stop polling so we don't spam.
         setExhausted(true);
       }
 
@@ -221,7 +221,7 @@ export function PipReelContainer({
   const loadMoreRef = useRef(loadMore);
   loadMoreRef.current = loadMore;
 
-  /** Fire while the user is moving — `activeIndex` may still be the previous slide; prefetch uses realIndex when present. */
+  /** Fire while the user is moving  `activeIndex` may still be the previous slide; prefetch uses realIndex when present. */
   const handleSlideChangeTransitionStart = useCallback(
     (swiper: SwiperType) => {
       const idx =

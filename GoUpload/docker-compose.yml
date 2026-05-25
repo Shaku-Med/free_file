@@ -53,7 +53,7 @@ services:
     environment:
       REDIS_ADDR: redis:6379
       NSFW_API_URL: http://nsfwapi:3004/api/nsfw/detect
-      # Adaptive worker pool — see internal/worker/pool.go. These can also live
+      # Adaptive worker pool  see internal/worker/pool.go. These can also live
       # in goupload.env if you prefer.
       WORKER_MIN: ${WORKER_MIN:-1}
       WORKER_MAX: ${WORKER_MAX:-6}

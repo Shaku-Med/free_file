@@ -224,7 +224,7 @@ function ThinSeekTrack({
       >
         {isJson ? (
           <>
-            {/* Unplayed waveform — muted-foreground, fades a touch more
+            {/* Unplayed waveform  muted-foreground, fades a touch more
                 until hover so the primary fill pops. Only this canvas
                 wires onError; the played-layer canvas above shares the
                 same URL and would fire a redundant callback. */}
@@ -236,7 +236,7 @@ function ThinSeekTrack({
               />
             </div>
 
-            {/* Buffered ranges — rendered as semi-opaque foreground bars
+            {/* Buffered ranges  rendered as semi-opaque foreground bars
                 over the unplayed waveform. Same color family as played
                 but lower opacity, so the eye reads: muted → buffered →
                 played, like YouTube. Each range gets its own clip box;
@@ -265,7 +265,7 @@ function ThinSeekTrack({
                 );
               })}
 
-            {/* Played waveform — primary, clipped to progress%. The inner
+            {/* Played waveform  primary, clipped to progress%. The inner
                 canvas always renders at the track's full pixel width so
                 that as the clip grows the bars stay aligned with the
                 muted layer underneath. */}
@@ -306,7 +306,7 @@ function ThinSeekTrack({
           </>
         ) : (
           <>
-            {/* Legacy PNG waveform — displayed ABOVE a normal thin rail.
+            {/* Legacy PNG waveform  displayed ABOVE a normal thin rail.
                 The PNG is fixed in the top portion of the track; the rail
                 sits at the bottom and behaves like the no-waveform case.
                 Themed to text-primary via filter so it picks up shadcn. */}
@@ -322,7 +322,7 @@ function ThinSeekTrack({
                 mixBlendMode: 'lighten',
               }}
             />
-            {/* Thin rail at the bottom — same as the no-waveform branch
+            {/* Thin rail at the bottom  same as the no-waveform branch
                 so the seek/scrub UX matches. */}
             <div className="absolute inset-x-0 bottom-0 flex items-center pb-0.5">
               <div className="relative h-1 w-full overflow-visible rounded-full bg-secondary transition-[height] duration-150 group-hover/seek:h-1.5">
@@ -375,7 +375,7 @@ export default function SeekBar({ mobileStyle = false }: { mobileStyle?: boolean
   const [hoverTime, setHoverTime] = useState<number | null>(null);
   const [hoverX, setHoverX] = useState(0);
   const [trackWidth, setTrackWidth] = useState(0);
-  // Two separate error flags — the JSON path failing should not poison
+  // Two separate error flags  the JSON path failing should not poison
   // the PNG fallback attempt, and vice versa.
   const [jsonError, setJsonError] = useState(false);
   const [pngError, setPngError] = useState(false);
@@ -391,7 +391,7 @@ export default function SeekBar({ mobileStyle = false }: { mobileStyle?: boolean
         ? waveformPngUrl
         : null;
   const isDraggingRef = useRef(false);
-  /** True while pointer is down scrubbing — used to resume playback only after scrub ends */
+  /** True while pointer is down scrubbing  used to resume playback only after scrub ends */
   const scrubActiveRef = useRef(false);
   const wasPlayingBeforeScrubRef = useRef(false);
 
@@ -433,14 +433,14 @@ export default function SeekBar({ mobileStyle = false }: { mobileStyle?: boolean
     return () => window.removeEventListener('blur', onWinBlur);
   }, [endInteraction, finishScrubbing]);
 
-  // Reset both error flags whenever the underlying file changes — a 404
+  // Reset both error flags whenever the underlying file changes  a 404
   // on one video shouldn't poison the next one even if it succeeds.
   useEffect(() => {
     setJsonError(false);
     setPngError(false);
   }, [waveformJsonUrl, waveformPngUrl]);
 
-  // Stable callbacks for child error handlers — flagging one variant as
+  // Stable callbacks for child error handlers  flagging one variant as
   // missing falls through to the next branch in the URL resolution above.
   const handleJsonError = useCallback(() => setJsonError(true), []);
   const handlePngError = useCallback(() => setPngError(true), []);
@@ -453,7 +453,7 @@ export default function SeekBar({ mobileStyle = false }: { mobileStyle?: boolean
   // pointer event. Without this, the clipped canvas would inherit the
   // played-fraction width and the bars would scale instead of mask.
   // useLayoutEffect so the synchronous initial measurement lands before
-  // the first paint — no width-flash on mount.
+  // the first paint  no width-flash on mount.
   useLayoutEffect(() => {
     const el = trackRef.current;
     if (!el) return;
@@ -588,7 +588,7 @@ export default function SeekBar({ mobileStyle = false }: { mobileStyle?: boolean
     // was `touch-none`, which captured ALL gestures and silently broke
     // page scroll over the bar.
     <div className={cn('relative w-full group/seek px-0', mobileStyle && 'touch-pan-y')}>
-      {/* PNG legacy preload — only fires when we've fallen back to the
+      {/* PNG legacy preload  only fires when we've fallen back to the
           PNG branch. Flags the PNG-specific error flag so the resolution
           ladder above can drop the whole waveform if even the PNG 404s.
           JSON peaks are loaded inside WaveformCanvas. */}

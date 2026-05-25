@@ -9,7 +9,7 @@
 #   3. This script copies them into /opt/goupload/ as root:root 0600 and
 #      wipes the staging dir.
 #
-# Whitelist of source + dest paths is hard-coded — sudoers grants
+# Whitelist of source + dest paths is hard-coded  sudoers grants
 # NOPASSWD with NO arguments, so an attacker landing on the deploy account
 # can't pass arbitrary paths.
 #
@@ -27,7 +27,7 @@ fi
 
 # SUDO_USER tells us which deploy account invoked us. If we're being run
 # directly as root (e.g. from harden-vps.sh's initial setup), there's no
-# staging step — we just re-lock whatever is already in /opt/goupload.
+# staging step  we just re-lock whatever is already in /opt/goupload.
 DEPLOY_USER="${SUDO_USER:-}"
 DEPLOY_DIR=/opt/goupload
 
@@ -43,7 +43,7 @@ if [[ -n "$DEPLOY_USER" ]] && id -u "$DEPLOY_USER" >/dev/null 2>&1; then
       src="$STAGING/$name"
       dst="$DEPLOY_DIR/$name"
       if [[ -e "$src" ]]; then
-        # Reject symlinks — defense against the deploy user swapping a
+        # Reject symlinks  defense against the deploy user swapping a
         # path for a link to /etc/shadow before we copy.
         if [[ -L "$src" ]]; then
           echo "protect-env: refusing symlink at $src" >&2
@@ -54,7 +54,7 @@ if [[ -n "$DEPLOY_USER" ]] && id -u "$DEPLOY_USER" >/dev/null 2>&1; then
       fi
     done
     # Self-update the runtime wrappers if newer versions were scp'd into
-    # staging. This is what makes the workflow real CI/CD — pushing a fix
+    # staging. This is what makes the workflow real CI/CD  pushing a fix
     # to goupload-compose.sh or dangerous-guard.sh now propagates on the
     # next deploy without manual ssh-in-and-curl steps.
     #

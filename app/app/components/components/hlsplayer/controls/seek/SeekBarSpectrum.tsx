@@ -17,11 +17,11 @@ type Props = {
 };
 
 const PAUSE_TAIL = 0.88;
-/** Spring chase speed — bars snap up fast */
+/** Spring chase speed  bars snap up fast */
 const ATTACK = 0.55;
-/** Decay speed — bars fall with bounce */
+/** Decay speed  bars fall with bounce */
 const DECAY = 0.12;
-/** Velocity retained per frame — gives bounce overshoot */
+/** Velocity retained per frame  gives bounce overshoot */
 const VELOCITY_DAMPING = 0.72;
 /** How much velocity overshoots the target */
 const OVERSHOOT = 1.6;

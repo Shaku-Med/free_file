@@ -2,7 +2,7 @@
  * loadplayToken.server.ts
  *
  * Mints HMAC-SHA256 playback tokens that the Go LoadPlay service can
- * verify. The wire format must match exactly — see
+ * verify. The wire format must match exactly  see
  * `GoUpload/loadplay/internal/token/verify.go`.
  *
  * Token: `base64url(JSON_payload).base64url(HMAC_SHA256(secret, payload_b64url))`
@@ -20,7 +20,7 @@ const GUEST_PLAYBACK_TTL_MS = 5 * 60_000;
 // usePlaybackUrl can be extended to refresh on token-near-expiry.
 const SIGNED_IN_PLAYBACK_TTL_MS = 15 * 60_000;
 
-/** LoadPlay CDN origin — override with `LOADPLAY_BASE_URL` in env. */
+/** LoadPlay CDN origin  override with `LOADPLAY_BASE_URL` in env. */
 export const LOADPLAY_DEV_ORIGIN = "http://localhost:3006";
 export const LOADPLAY_PROD_ORIGIN = "https://cdn.memories.brozy.org";
 
@@ -85,7 +85,7 @@ export function mintLoadplayToken(input: MintInput): MintResult | null {
   if (input.ipHash) payload.i = input.ipHash;
   if (input.uaHash) payload.a = input.uaHash;
   // Always emit a nonce. LoadPlay binds the first fingerprint to use it
-  // and rejects copies pasted into a different browser / network —
+  // and rejects copies pasted into a different browser / network 
   // even if the HMAC + expiry still check out.
   payload.n = input.nonce ?? b64url(randomBytes(12));
 

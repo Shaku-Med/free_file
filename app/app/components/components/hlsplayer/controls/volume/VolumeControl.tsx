@@ -12,7 +12,7 @@ interface VolumeControlProps {
 
 export default function VolumeControl({ showSlider = true, barPill = false, expandWithTap = false }: VolumeControlProps) {
   const { state, setVolume, toggleMute, videoRef, hlsRef, src, file } = usePlayerContext();
-  // Read the upload-time has_audio flag (waveform analysis) — when the
+  // Read the upload-time has_audio flag (waveform analysis)  when the
   // server says the track is silent, the volume button has no purpose
   // even though the stream technically contains an audio channel.
   const serverHasAudio = (() => {

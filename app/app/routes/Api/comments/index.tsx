@@ -102,7 +102,7 @@ export const action = async ({ request }: { request: Request }) => {
             }
           }
         } catch {
-          // columns may not exist yet — allow comments by default
+          // columns may not exist yet  allow comments by default
         }
       }
 
@@ -238,7 +238,7 @@ export const action = async ({ request }: { request: Request }) => {
       return toJson({ success: true });
     }
 
-    // HIDE/UNHIDE — file owner only
+    // HIDE/UNHIDE  file owner only
     if (request.method === "PUT") {
       const body = await request.json();
       const { commentId, hidden } = body;

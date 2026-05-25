@@ -6,11 +6,11 @@ const DRAG_THRESHOLD_PX = 4;
 const SNAP_TRANSITION_MS = 220;
 const STORAGE_KEY = "mini-player-width-v1";
 const MIN_W = 260;
-/** Hard cap — never wider than this */
+/** Hard cap  never wider than this */
 const ABSOLUTE_MAX_W = 400;
 /** Preferred default when the viewport has room */
 const PREFERRED_DEFAULT_W = 340;
-/** Chrome + title block + 16:9 video (approx) — used until DOM measures. */
+/** Chrome + title block + 16:9 video (approx)  used until DOM measures. */
 function estimateShellHeight(width: number) {
   return 36 + 52 + (width * 9) / 16;
 }
@@ -18,7 +18,7 @@ function estimateShellHeight(width: number) {
 /** Visible strip when tucked to screen edge (Apple PiP–style). */
 const PEEK_PX = 30;
 const EDGE_TUCK_PX = 28;
-/** Extra threshold when the player was just un-tucked — prevents accidental re-tuck. */
+/** Extra threshold when the player was just un-tucked  prevents accidental re-tuck. */
 const UNTUCK_RE_TUCK_PX = 80;
 
 /** Fraction of mini-player area allowed inside the padded viewport without forcing a corner/edge settle. ≤0.5 means “halfway off bound” → snap. */
@@ -130,7 +130,7 @@ function getCornerPositions(elWidth: number, elHeight: number) {
 type TuckEdge = "none" | "left" | "right";
 
 /**
- * @param sessionKey e.g. mini `unique_id` — resets corner + tuck whenever mini session changes.
+ * @param sessionKey e.g. mini `unique_id`  resets corner + tuck whenever mini session changes.
  */
 export function useMiniPlayerDrag(sessionKey: string) {
   const [frameWidthMax, setFrameWidthMax] = useState(() =>
@@ -149,7 +149,7 @@ export function useMiniPlayerDrag(sessionKey: string) {
   const isDragging = useRef(false);
   const isResizing = useRef(false);
   const didDragRef = useRef(false);
-  /** True during a drag that started from a tucked state — uses wider re-tuck threshold. */
+  /** True during a drag that started from a tucked state  uses wider re-tuck threshold. */
   const wasTuckedRef = useRef(false);
   const removeDragWindowListenersRef = useRef<(() => void) | null>(null);
   const startRef = useRef({ pointerX: 0, pointerY: 0, elX: 0, elY: 0, w: PREFERRED_DEFAULT_W });
@@ -175,7 +175,7 @@ export function useMiniPlayerDrag(sessionKey: string) {
     window.addEventListener("resize", syncCap);
     return () => window.removeEventListener("resize", syncCap);
   }, []);
-  /** Live drag delta, written direct to DOM via transform — bypasses React for smoothness. */
+  /** Live drag delta, written direct to DOM via transform  bypasses React for smoothness. */
   const dragDeltaRef = useRef({ dx: 0, dy: 0 });
 
   const measureAndCacheSize = useCallback(() => {
@@ -275,14 +275,14 @@ export function useMiniPlayerDrag(sessionKey: string) {
       // Previously we cleared `transform` first and then queued a React
       // setState for the new `position`. Between those two steps the
       // element was effectively at `position-state + transform=0`, which
-      // is the *pre-drag* origin — so the user briefly saw the player
+      // is the *pre-drag* origin  so the user briefly saw the player
       // teleport back to where they grabbed it, then transition to its
       // final spot. That's the "snap" the user is complaining about.
       //
       // The fix: commit the live drag position to `left/top` IN THE SAME
       // DOM batch as clearing `transform`. The browser paints the element
       // exactly where the finger left it. React's subsequent setState
-      // updates left/top to the snap target — the CSS transition runs
+      // updates left/top to the snap target  the CSS transition runs
       // from the released position to the snap, smooth and direct.
       const el = elementRef.current;
       if (el) {
@@ -296,7 +296,7 @@ export function useMiniPlayerDrag(sessionKey: string) {
         el.style.transform = "";
         // Restore so the React-driven snap below animates as intended.
         // Read offsetWidth to flush the no-transition paint before
-        // re-enabling — without this the browser may coalesce and skip
+        // re-enabling  without this the browser may coalesce and skip
         // the transition entirely on the next frame.
         void el.offsetWidth;
         el.style.transition = prevTransition;
@@ -397,7 +397,7 @@ export function useMiniPlayerDrag(sessionKey: string) {
           return;
         }
         didDragRef.current = true;
-        // Write transform direct to DOM — no React state, no re-render, no transition fight.
+        // Write transform direct to DOM  no React state, no re-render, no transition fight.
         // GPU-composited; tracks the cursor 1:1.
         const el = elementRef.current;
         if (el) {

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 
 // Cache fetched waveform JSON across remounts (PlayerContext rebuilds on
-// each file change). Keyed by URL — these payloads are immutable per file.
+// each file change). Keyed by URL  these payloads are immutable per file.
 const peaksCache = new Map<string, number[]>();
 const inflight = new Map<string, Promise<number[] | null>>();
 // Negative-cache for URLs we've already confirmed 404 / unusable. Without
@@ -33,7 +33,7 @@ async function fetchPeaks(url: string): Promise<number[] | null> {
       if (!res.ok) return markMissing();
       const data = (await res.json()) as WaveformJson;
       if (!Array.isArray(data.peaks) || data.peaks.length === 0) return markMissing();
-      // Defensive clamp — anything outside [0, 1] is a backend bug, but a
+      // Defensive clamp  anything outside [0, 1] is a backend bug, but a
       // single bad sample shouldn't blow up the renderer.
       const clean = data.peaks.map(p => (typeof p === 'number' && p >= 0 && p <= 1 ? p : 0));
       // Treat all-zero peaks as "no waveform" so the seek bar falls back
@@ -58,10 +58,10 @@ interface WaveformCanvasProps {
   /**
    * CSS color string for the bars. Pass `currentColor` and set `color`
    * on a parent to drive this from a shadcn token like `text-primary`
-   * — that's the cleanest theme integration.
+   *  that's the cleanest theme integration.
    */
   color?: string;
-  /** Optional fallback if fetch fails — usually the parent will hide on null */
+  /** Optional fallback if fetch fails  usually the parent will hide on null */
   onError?: () => void;
   className?: string;
 }

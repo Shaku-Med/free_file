@@ -42,7 +42,7 @@ func checkPlaybackContext(c *fiber.Ctx, deps ManifestDeps) playbackContextResult
 	// X-App-Origin / X-App-Referer custom headers are belt-and-suspenders
 	// but they don't survive every browser/HLS-loader path (CORS preflight
 	// strips them on some master.m3u8 requests). The standard Origin +
-	// Referer pair we already validated above is sufficient — they're set
+	// Referer pair we already validated above is sufficient  they're set
 	// by the browser, not JS, so curl / address-bar paste / hot-link all
 	// die at the origin/referer gate. If the headers ARE present, treat
 	// them as bonus signal (logged), but never block on absence.
@@ -126,7 +126,7 @@ func setPlaybackResponseHeaders(c *fiber.Ctx, deps ManifestDeps) {
 }
 
 // standaloneReason is non-empty when the request looks like address-bar /
-// "Open in new tab" navigation or a direct download — NOT an in-page
+// "Open in new tab" navigation or a direct download  NOT an in-page
 // HLS.js XHR (cors + same-site|cross-site + dest=empty).
 func standaloneReason(c *fiber.Ctx) string {
 	mode := strings.ToLower(strings.TrimSpace(c.Get("Sec-Fetch-Mode")))
@@ -168,7 +168,7 @@ func standaloneReason(c *fiber.Ctx) string {
 	return ""
 }
 
-// appAttestationReason requires X-App-Origin + X-App-Referer — set only by
+// appAttestationReason requires X-App-Origin + X-App-Referer  set only by
 // our HLS.js client (useHLS.ts). nginx reverse proxies must NOT inject these;
 // if they only forge Origin/Referer/Sec-Fetch, curl still fails here.
 func appAttestationReason(c *fiber.Ctx, deps ManifestDeps) string {

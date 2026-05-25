@@ -87,7 +87,7 @@ function DropdownMenuContent({
 }: React.ComponentProps<typeof DropdownMenuPrimitive.Content>) {
   const isNarrow = useIsNarrowViewport()
   // On narrow viewports we bias toward `end` alignment so the menu hugs the right
-  // edge of a trigger that's already near the right side of the screen — Radix will
+  // edge of a trigger that's already near the right side of the screen  Radix will
   // still flip via `avoidCollisions` if that doesn't fit.
   const resolvedAlign = align ?? (isNarrow ? "end" : undefined)
   const resolvedCollisionPadding =

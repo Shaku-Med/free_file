@@ -1,22 +1,22 @@
 -- ============================================================
--- FEED v5.0 — Phase 1 Smart Recommendation Engine
+-- FEED v5.0  Phase 1 Smart Recommendation Engine
 -- ============================================================
 -- Reel strips: `feed_reel_cluster_id` is assigned per response page so that
 -- consecutive `is_reel` rows share one id; non-reels each get a unique id.
 -- Use in the app with `groupConsecutiveReelClusters` (horizontal VideoCard row).
 -- ============================================================
 -- Upgrades:
---   1. Subscription boost — content from followed channels ranks higher
---   2. Category affinity — boost categories user has liked before
---   3. Like ratio signal — files with high like-to-dislike ratio rank higher
---   4. Engagement velocity — fast-growing content gets boosted
---   5. New "subscribed" pool — 15% of feed from subscriptions
+--   1. Subscription boost  content from followed channels ranks higher
+--   2. Category affinity  boost categories user has liked before
+--   3. Like ratio signal  files with high like-to-dislike ratio rank higher
+--   4. Engagement velocity  fast-growing content gets boosted
+--   5. New "subscribed" pool  15% of feed from subscriptions
 --   6. Exponential recency decay instead of linear
 --   7. Materialized view refresh helper
 -- ============================================================
 -- Run in Supabase SQL Editor. Replaces get_feed, get_reel_feed, get_related.
 -- Feed visibility: exclude episode-only files (is_files_series_item without is_series_main).
--- Storage: files.github_repo is server-only — never add f.github_repo to SELECT / RETURNS here.
+-- Storage: files.github_repo is server-only  never add f.github_repo to SELECT / RETURNS here.
 -- ============================================================
 
 
@@ -42,7 +42,7 @@ GRANT EXECUTE ON FUNCTION refresh_engagement_stats() TO authenticated;
 
 
 -- ============================================================
--- MAIN FEED v5 — Smart personalized feed
+-- MAIN FEED v5  Smart personalized feed
 -- ============================================================
 DROP FUNCTION IF EXISTS get_feed;
 
@@ -259,7 +259,7 @@ BEGIN
       AND (p_exclude_ids = '{}'::uuid[] OR f.id != ALL(p_exclude_ids))
   ),
 
-  -- ── Pool 1: FRESH — new content (last 48h)
+  -- ── Pool 1: FRESH  new content (last 48h)
   pool_fresh AS (
     SELECT b.*, 'fresh'::text AS _pool,
       ROW_NUMBER() OVER (
@@ -277,7 +277,7 @@ BEGIN
     LIMIT (v_fresh_lim * v_page_mult) * 2
   ),
 
-  -- ── Pool 2: TRENDING — high engagement velocity
+  -- ── Pool 2: TRENDING  high engagement velocity
   pool_trending AS (
     SELECT b.*, 'trending'::text AS _pool,
       ROW_NUMBER() OVER (
@@ -297,7 +297,7 @@ BEGIN
     LIMIT (v_trend_lim * v_page_mult) * 2
   ),
 
-  -- ── Pool 3: POPULAR — high total engagement, good ratio
+  -- ── Pool 3: POPULAR  high total engagement, good ratio
   pool_popular AS (
     SELECT b.*, 'popular'::text AS _pool,
       ROW_NUMBER() OVER (
@@ -317,7 +317,7 @@ BEGIN
     LIMIT (v_pop_lim * v_page_mult) * 2
   ),
 
-  -- ── Pool 4: SUBSCRIBED — content from followed channels (newest first)
+  -- ── Pool 4: SUBSCRIBED  content from followed channels (newest first)
   pool_subscribed AS (
     SELECT b.*, 'subscribed'::text AS _pool,
       ROW_NUMBER() OVER (
@@ -333,7 +333,7 @@ BEGIN
     LIMIT (v_sub_lim * v_page_mult) * 2
   ),
 
-  -- ── Pool 5: DISCOVERY — diverse content the user hasn't seen
+  -- ── Pool 5: DISCOVERY  diverse content the user hasn't seen
   pool_discovery AS (
     SELECT b.*, 'discovery'::text AS _pool,
       ROW_NUMBER() OVER (
@@ -497,7 +497,7 @@ GRANT EXECUTE ON FUNCTION get_feed TO anon, authenticated;
 
 
 -- ============================================================
--- REEL FEED v5 — Smart reel feed with same improvements
+-- REEL FEED v5  Smart reel feed with same improvements
 -- ============================================================
 -- PG cannot CREATE OR REPLACE when RETURNS TABLE columns change; drop every overload first
 -- (e.g. legacy 6-arg without p_max_duration, or older OUT set without feed_reel_cluster_id).
@@ -679,7 +679,7 @@ BEGIN
     WHERE f.is_public = true
       AND f.is_adult = false
       AND f.upload_status = 'complete'
-      -- Hide series episodes via real schema (never use legacy public.series — table does not exist).
+      -- Hide series episodes via real schema (never use legacy public.series  table does not exist).
       AND NOT EXISTS (
         SELECT 1 FROM public.files_series_episode_items esi
         WHERE esi.file_id = f.unique_id
@@ -856,7 +856,7 @@ GRANT EXECUTE ON FUNCTION get_reel_feed(uuid, int, text, text, int, uuid[], nume
 
 
 -- ============================================================
--- RELATED v5 — Smart related with subscription + category affinity
+-- RELATED v5  Smart related with subscription + category affinity
 -- ============================================================
 DROP FUNCTION IF EXISTS get_related;
 

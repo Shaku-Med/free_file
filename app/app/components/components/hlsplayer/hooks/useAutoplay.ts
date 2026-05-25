@@ -5,9 +5,9 @@ import { usePlayerContext } from '../PlayerContext';
 
 /** Returns true when the video is streaming via AirPlay or Remote Playback (Cast). */
 function isRemotePlaybackActive(video: HTMLVideoElement): boolean {
-  // Safari / iOS — AirPlay
+  // Safari / iOS  AirPlay
   if ((video as any).webkitCurrentPlaybackTargetIsWireless) return true;
-  // Chrome / Edge — Remote Playback API
+  // Chrome / Edge  Remote Playback API
   if ((video as any).remote?.state === 'connected') return true;
   return false;
 }
@@ -34,7 +34,7 @@ export function useAutoplay(
     if (!autoPlay) {
       // Only pause if we're NOT casting. Re-check right before mutating.
       if (isRemotePlaybackActive(video)) return;
-      /** Native / WebKit PiP keeps using this `<video>` — don't pause or mute it when autoplay prefs are off. */
+      /** Native / WebKit PiP keeps using this `<video>`  don't pause or mute it when autoplay prefs are off. */
       if (pipContentId === imageID) return;
       if (!video.paused) video.pause();
       /** Never force-mute here: "autoplay off" is about not calling play(), not overriding saved volume/mute.

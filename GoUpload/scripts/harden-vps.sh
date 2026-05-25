@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# harden-vps.sh — one-shot installer to lock down the goupload VPS.
+# harden-vps.sh  one-shot installer to lock down the goupload VPS.
 #
 # Run ONCE as root on the server (e.g. via `sudo bash harden-vps.sh`).
 # Idempotent: safe to re-run after pulling a new copy of this repo.
@@ -13,7 +13,7 @@
 #        - Defaults timestamp_timeout=0    (re-auth on every sudo)
 #        - Defaults logfile=/var/log/sudo.log
 #        - Narrow NOPASSWD for the deploy user → /usr/local/sbin/protect-env.sh
-#      Validated with `visudo -cf` before install — bad syntax means we
+#      Validated with `visudo -cf` before install  bad syntax means we
 #      bail rather than break sudo.
 #   4. Locks /opt/goupload + .env files to root:root 0600.
 #
@@ -49,7 +49,7 @@ if [[ -z "${DEPLOY_USER:-}" ]]; then
   fi
 fi
 if ! id -u "$DEPLOY_USER" >/dev/null 2>&1; then
-  echo "harden-vps: deploy user '$DEPLOY_USER' not found — set DEPLOY_USER=<name> and re-run" >&2
+  echo "harden-vps: deploy user '$DEPLOY_USER' not found  set DEPLOY_USER=<name> and re-run" >&2
   exit 1
 fi
 echo "harden-vps: using deploy user = $DEPLOY_USER"
@@ -63,20 +63,20 @@ install -m 0750 -o root -g root "$PROTECT_SRC"  /usr/local/sbin/protect-env.sh
 install -m 0750 -o root -g root "$COMPOSE_SRC"  /usr/local/sbin/goupload-compose.sh
 echo "harden-vps: installed /usr/local/sbin/{protect-env,goupload-compose}.sh"
 
-# 3. sudoers drop-in — validate before install.
+# 3. sudoers drop-in  validate before install.
 SUDOERS_TMP=$(mktemp /etc/sudoers.d/.goupload-hardening.XXXXXX)
 trap 'rm -f "$SUDOERS_TMP"' EXIT
 # Ubuntu 24.04+ ships sudo-rs (the Rust rewrite). It supports only a SUBSET
-# of classic sudoers syntax — no `logfile`, no `log_input`/`log_output`,
+# of classic sudoers syntax  no `logfile`, no `log_input`/`log_output`,
 # no `iolog_dir`. Detect flavor and omit unsupported lines.
 SUDO_FLAVOR=classic
 if sudo --version 2>&1 | head -n1 | grep -qi 'sudo-rs'; then
   SUDO_FLAVOR=rs
-  echo "harden-vps: detected sudo-rs — using minimal sudoers (no I/O logging)"
+  echo "harden-vps: detected sudo-rs  using minimal sudoers (no I/O logging)"
 fi
 
 {
-  echo "# Managed by GoUpload/scripts/harden-vps.sh — do not edit by hand."
+  echo "# Managed by GoUpload/scripts/harden-vps.sh  do not edit by hand."
   echo ""
   echo "# Re-auth on every sudo. NOPASSWD entries below bypass this for the"
   echo "# specific wrappers so CI doesn't prompt."
@@ -96,7 +96,7 @@ chmod 0440 "$SUDOERS_TMP"
 
 if command -v visudo >/dev/null 2>&1; then
   if ! visudo -cf "$SUDOERS_TMP" >/dev/null; then
-    echo "harden-vps: sudoers syntax check failed — aborting" >&2
+    echo "harden-vps: sudoers syntax check failed  aborting" >&2
     cat "$SUDOERS_TMP" >&2
     exit 1
   fi

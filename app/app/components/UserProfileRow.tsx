@@ -20,7 +20,7 @@ export interface UserProfileRowProps {
 }
 
 /**
- * Avatar + username + subscriber count + Subscribe button — reuse anywhere you show another user’s channel.
+ * Avatar + username + subscriber count + Subscribe button  reuse anywhere you show another user’s channel.
  */
 export function UserProfileRow({
   userId,

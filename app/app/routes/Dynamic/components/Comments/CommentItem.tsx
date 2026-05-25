@@ -24,6 +24,7 @@ import {
   commentThreadGutterWidthPx,
 } from "./CommentThreadConnector";
 import { CommentLikesModal } from "./CommentLikesModal";
+import { CommentSignInDialog } from "./CommentSignInDialog";
 
 interface CommentItemProps {
   comment: CommentType;
@@ -43,7 +44,7 @@ interface CommentItemProps {
   threadPrefix?: boolean[];
   /** Called by child rails when user clicks the own-column line to fold the parent. */
   onParentFold?: () => void;
-  /** Video duration in seconds — enables timestamp linkification when set. */
+  /** Video duration in seconds  enables timestamp linkification when set. */
   fileDurationSec?: number;
 }
 
@@ -95,6 +96,7 @@ const CommentItem = ({
   const [userLiked, setUserLiked] = useState(comment.user_has_liked ?? false);
   const [liking, setLiking] = useState(false);
   const [likesModalOpen, setLikesModalOpen] = useState(false);
+  const [likesSignInOpen, setLikesSignInOpen] = useState(false);
   const [floatingHearts, setFloatingHearts] = useState<
     { id: number; x: number; y: number; size: number; drift: number; delay: number; rotation: number }[]
   >([]);
@@ -260,7 +262,7 @@ const CommentItem = ({
   };
 
   const gutterPx = level > 0 ? commentThreadGutterWidthPx(level) : 0;
-  /** Avatar (`h-9`) + `gap-2` (8px) — aligns reply composer with the main row. */
+  /** Avatar (`h-9`) + `gap-2` (8px)  aligns reply composer with the main row. */
   const replyComposerInset = COMMENT_AVATAR_SIZE_PX + 8;
 
   return (
@@ -287,7 +289,7 @@ const CommentItem = ({
       {/* Row wrapper hosts the small L-elbow at the avatar's vertical center. */}
       <div className="relative">
         {level > 0 && <CommentThreadElbow level={level} />}
-        {/* Parent stem: clickable line from avatar center down — toggles reply fold. */}
+        {/* Parent stem: clickable line from avatar center down  toggles reply fold. */}
         {hasReplies && (
           <button
             type="button"
@@ -512,7 +514,13 @@ const CommentItem = ({
                       {likeCount > 0 ? (
                         <button
                           type="button"
-                          onClick={() => setLikesModalOpen(true)}
+                          onClick={() => {
+                            if (!currentUserId) {
+                              setLikesSignInOpen(true);
+                              return;
+                            }
+                            setLikesModalOpen(true);
+                          }}
                           className="rounded-md px-1.5 py-0.5 font-medium tabular-nums text-muted-foreground hover:bg-muted/50 hover:text-foreground"
                         >
                           {formatCompactCount(likeCount)}
@@ -600,6 +608,12 @@ const CommentItem = ({
         open={likesModalOpen}
         onOpenChange={setLikesModalOpen}
         currentUserId={currentUserId}
+      />
+      <CommentSignInDialog
+        open={likesSignInOpen}
+        onOpenChange={setLikesSignInOpen}
+        title="Sign in to see who liked this"
+        description="Likes are visible to signed-in members only. Sign in to see who reacted to this comment."
       />
     </div>
   );

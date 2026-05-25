@@ -12,8 +12,8 @@ import (
 )
 
 // Waveform output is now JSON, not a PNG. The client renders the bars on
-// a <canvas> using these normalized peaks — same idea as YouTube /
-// SoundCloud — so we can re-style (color, height, bar width) without
+// a <canvas> using these normalized peaks  same idea as YouTube /
+// SoundCloud  so we can re-style (color, height, bar width) without
 // regenerating files server-side.
 
 const (
@@ -37,7 +37,7 @@ type WaveformFile struct {
 	Peaks      []float64 `json:"peaks"`
 }
 
-// WaveformResult is what worker code consumes — the JSON path plus the
+// WaveformResult is what worker code consumes  the JSON path plus the
 // flags it needs to drive UI (disable the volume button on silent videos,
 // flag obviously-corrupt-audio cases for logging, etc.).
 type WaveformResult struct {
@@ -46,7 +46,7 @@ type WaveformResult struct {
 }
 
 // hasAudioRMSThreshold is the minimum normalized RMS amplitude we count as
-// "real audio". Picked empirically — line-level hiss on a phone recording
+// "real audio". Picked empirically  line-level hiss on a phone recording
 // sits around 0.003, an intentionally silent track is < 0.001. 0.01 is
 // conservative enough to mark dead-silent footage as no-audio while still
 // catching whispered dialogue.
@@ -58,7 +58,7 @@ const hasAudioRMSThreshold = 0.01
 //
 // Always writes a file. If audio extraction fails (silent video, no audio
 // stream, corrupt input, etc.) we still emit a flat-zeros peaks array so
-// downstream consumers can rely on the file existing — the player just
+// downstream consumers can rely on the file existing  the player just
 // renders a hairline instead of branching on "has waveform".
 //
 // Returns a WaveformResult with .HasAudio set to true when at least one
@@ -78,7 +78,7 @@ func ExtractWaveform(videoPath, outputDir string) (*WaveformResult, error) {
 		// exists. Caller can still inspect the returned error if it cares.
 		peaks = make([]float64, WaveformSamples)
 	} else {
-		// Decide has_audio BEFORE rounding — rounding to 4dp can flatten
+		// Decide has_audio BEFORE rounding  rounding to 4dp can flatten
 		// tiny-but-real amplitudes near the threshold.
 		for _, v := range peaks {
 			if v >= hasAudioRMSThreshold {
@@ -88,7 +88,7 @@ func ExtractWaveform(videoPath, outputDir string) (*WaveformResult, error) {
 		}
 	}
 
-	// Round to 4 decimals — keeps the file tiny (~6 KB) without losing
+	// Round to 4 decimals  keeps the file tiny (~6 KB) without losing
 	// any visual fidelity at the resolutions we render.
 	for i, v := range peaks {
 		peaks[i] = math.Round(v*10000) / 10000

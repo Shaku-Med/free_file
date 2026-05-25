@@ -68,7 +68,7 @@ export interface PlayerSettingsDto {
   audioVisualizerStyle?: string;
   quality?: string;
   spatialAudio?: boolean;
-  /** JSON-encoded SpatialAudioConfig from `useSpatialAudio`. Server validates length only — shape is checked on read. */
+  /** JSON-encoded SpatialAudioConfig from `useSpatialAudio`. Server validates length only  shape is checked on read. */
   spatialAudioConfig?: string;
   /** Preferred caption language (BCP-47). Empty string means captions off. */
   captionLanguage?: string;
@@ -236,7 +236,7 @@ export const action = async ({ request }: { request: Request }) => {
       result.spatialAudio = body.spatialAudio;
     }
     if (typeof body.spatialAudioConfig === 'string') {
-      // Cap to a sane size — shape validation lives on the client where the type exists.
+      // Cap to a sane size  shape validation lives on the client where the type exists.
       const trimmed = body.spatialAudioConfig.slice(0, 1024);
       setCookies.push(buildSetCookie(COOKIE_NAMES.spatialAudioConfig, trimmed, secure));
       result.spatialAudioConfig = trimmed;

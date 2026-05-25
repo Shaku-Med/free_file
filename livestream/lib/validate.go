@@ -15,7 +15,7 @@ const MaxBodySize = 1 << 20 // 1MB
 var safeIDPattern = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
 
 // DecodeJSON reads the request body with a size cap and decodes into dst.
-// Does NOT reject unknown fields — MediaMTX webhooks may add new fields
+// Does NOT reject unknown fields  MediaMTX webhooks may add new fields
 // across versions and we need forward compatibility.
 func DecodeJSON(r *http.Request, dst any) error {
 	r.Body = http.MaxBytesReader(nil, r.Body, MaxBodySize)

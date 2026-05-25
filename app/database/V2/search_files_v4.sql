@@ -8,7 +8,7 @@
 --
 -- Heads up: adding the STORED generated column triggers a one-time
 -- table rewrite. Run during low-traffic window. After this lands,
--- inserts/updates auto-populate search_text — no app changes needed
+-- inserts/updates auto-populate search_text  no app changes needed
 -- for indexing.
 -- ============================================================
 

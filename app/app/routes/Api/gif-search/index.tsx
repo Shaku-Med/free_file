@@ -4,7 +4,7 @@ import { isAuthenticated } from "~/lib/Security/Password";
 /**
  * GIF search + trending via GIPHY API.
  * GIPHY image URLs are stable CDN links; we store url + id for comments.
- * Beta keys: 100 req/hr — we return trending by default and cache responses to reduce calls.
+ * Beta keys: 100 req/hr  we return trending by default and cache responses to reduce calls.
  */
 const GIPHY_SEARCH = "https://api.giphy.com/v1/gifs/search";
 const GIPHY_TRENDING = "https://api.giphy.com/v1/gifs/trending";

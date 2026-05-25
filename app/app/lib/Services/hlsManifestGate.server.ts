@@ -62,7 +62,7 @@ if (typeof setInterval !== "undefined") {
 }
 
 /**
- * Mints a one-time `_mk` consumed on first master playlist hit — **or** returns an existing
+ * Mints a one-time `_mk` consumed on first master playlist hit  **or** returns an existing
  * unused pending id for the same `(session, kind, manifest path)` so repeated session POSTs share
  * one key and URLs stay stable until consume (still one-shot at the CDN gate).
  */

@@ -1,6 +1,6 @@
 name: Deploy GoUpload (Docker)
 
-# VPS / Go stack only — never runs for app-only pushes.
+# VPS / Go stack only  never runs for app-only pushes.
 on:
   push:
     branches: [main]

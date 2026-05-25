@@ -8,12 +8,12 @@
  *   - The user hasn't dismissed this prompt before
  *
  * Triggering the browser's native permission dialog from inside an
- * overlay (in response to a user click) is the modern best practice —
+ * overlay (in response to a user click) is the modern best practice 
  * Chrome and Firefox both penalise sites that call `requestPermission`
  * out of the blue on page load. The overlay gives the user context
  * before the OS-level prompt appears.
  *
- * Dismissal is remembered in `localStorage` so we don't nag — the user
+ * Dismissal is remembered in `localStorage` so we don't nag  the user
  * can still flip notifications on later from Settings.
  */
 
@@ -49,7 +49,7 @@ function recordDismiss() {
   try {
     window.localStorage.setItem(DISMISS_KEY, String(Date.now()));
   } catch {
-    /* private mode — ignore */
+    /* private mode  ignore */
   }
 }
 
@@ -129,7 +129,7 @@ export default function PushPromptOverlay() {
               Turn on notifications?
             </p>
             <p id="push-prompt-desc" className="mt-1 text-xs text-muted-foreground">
-              Get a ping when someone replies, likes, or subscribes — only
+              Get a ping when someone replies, likes, or subscribes  only
               when you're not on the site. You can change this anytime
               in Settings.
             </p>

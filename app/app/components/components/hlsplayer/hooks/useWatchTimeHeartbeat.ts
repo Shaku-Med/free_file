@@ -143,7 +143,7 @@ export function useWatchTimeHeartbeat(videoRef: RefObject<HTMLVideoElement | nul
 
     const onPauseEnded = () => {
       lastSampleWallMs = performance.now();
-      /** Discard client-side chain after pause — next play re-mints fresh session via bootstrap. */
+      /** Discard client-side chain after pause  next play re-mints fresh session via bootstrap. */
       playbackToken = null;
     };
 
@@ -202,7 +202,7 @@ export function useWatchTimeHeartbeat(videoRef: RefObject<HTMLVideoElement | nul
       if (postTimer != null) clearInterval(postTimer);
       void sendChain;
 
-      /** No network flush on teardown — aligns with \"no POST when not playing\". */
+      /** No network flush on teardown  aligns with \"no POST when not playing\". */
       playbackToken = null;
     };
   }, [fileId, authPlaybackFeatures]);

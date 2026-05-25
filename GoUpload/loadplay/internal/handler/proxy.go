@@ -73,7 +73,7 @@ func streamStorageObject(
 
 	setPlaybackResponseHeaders(c, deps)
 	c.Set("Content-Type", mediaContentType(relPath))
-	// No Content-Disposition — .ts in a standalone tab triggers download;
+	// No Content-Disposition  .ts in a standalone tab triggers download;
 	// those requests must 403 before we reach here.
 	if res.StatusCode == http.StatusPartialContent {
 		if cr := res.Header.Get("Content-Range"); cr != "" {

@@ -5,9 +5,9 @@
  *   1. Lazily fetches the per-session signing key from `/api/handshake/sig-key`.
  *      That endpoint requires a valid cookie + browser-shape headers, so a
  *      cookie-only attacker (Postman, curl) can't ever get this key.
- *   2. Caches the key in `sessionStorage` — per-tab, JS-only. Cleared on
+ *   2. Caches the key in `sessionStorage`  per-tab, JS-only. Cleared on
  *      browser close.
- *   3. Exposes `signedFetch(...)` — drop-in replacement for `fetch` that
+ *   3. Exposes `signedFetch(...)`  drop-in replacement for `fetch` that
  *      adds `X-Sig` + `X-Sig-Ts` to every call. Use this for any
  *      authenticated API request.
  *
@@ -38,7 +38,7 @@ function writeStoredKey(b64url: string | null): void {
     if (b64url) window.sessionStorage.setItem(SIG_KEY_STORAGE, b64url);
     else window.sessionStorage.removeItem(SIG_KEY_STORAGE);
   } catch {
-    /* private mode / quota — ignore */
+    /* private mode / quota  ignore */
   }
 }
 
@@ -97,7 +97,7 @@ async function fetchKeyFromServer(): Promise<string | null> {
 /**
  * Resolves to the current session's HMAC signing key, fetching it via
  * the handshake endpoint on first use. Caches across calls within a tab.
- * Returns null if the handshake fails — caller should still issue the
+ * Returns null if the handshake fails  caller should still issue the
  * request and let the server return 401.
  */
 async function getSigningKey(forceRefresh = false): Promise<CryptoKey | null> {
@@ -189,7 +189,7 @@ async function signCanonical(
 
 function pathAndQueryFromUrl(input: string | URL | Request): string {
   if (input instanceof Request) input = input.url;
-  // Allow relative URLs ("/api/foo") — pretend they're on the current origin.
+  // Allow relative URLs ("/api/foo")  pretend they're on the current origin.
   const base =
     typeof window !== "undefined" ? window.location.origin : "http://localhost";
   const u = typeof input === "string" ? new URL(input, base) : input;
@@ -205,13 +205,13 @@ async function readBodyBytes(init?: RequestInit): Promise<Uint8Array> {
   if (b instanceof Blob) return new Uint8Array(await b.arrayBuffer());
   if (b instanceof FormData) {
     // FormData isn't deterministically serialisable, so we'd have to
-    // intercept it. Skip signing for FormData payloads — callers should
+    // intercept it. Skip signing for FormData payloads  callers should
     // prefer JSON for authenticated calls. The server should also skip
     // the signature check for multipart uploads (file streams).
     return new Uint8Array(0);
   }
   if (b instanceof URLSearchParams) return new TextEncoder().encode(b.toString());
-  // ReadableStream — also not signable in advance.
+  // ReadableStream  also not signable in advance.
   return new Uint8Array(0);
 }
 
@@ -267,7 +267,7 @@ async function issueSignedRequest(
  * sends credentials (include cookies) and lets you pass everything else
  * through unchanged.
  *
- * If the signature key isn't available, issues the request unsigned —
+ * If the signature key isn't available, issues the request unsigned 
  * the server will 401. We don't pre-empt because the caller has no way
  * to recover from a hard rejection here.
  */
@@ -289,7 +289,7 @@ export async function signedFetch(
   return res;
 }
 
-/** Test-only — exposes the cached material so tests can confirm caching. */
+/** Test-only  exposes the cached material so tests can confirm caching. */
 export const __test = {
   getCachedMaterial: () => cachedKeyMaterial,
   resetForTests: () => {

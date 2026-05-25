@@ -10,7 +10,7 @@ dotenv.config();
  * Provider: Groq llama vision (fast, generous free tier). API surface is
  * OpenAI-compatible so swapping providers later is a single env change away.
  *
- * Fails silently — caller must treat caption as optional. We never throw to
+ * Fails silently  caller must treat caption as optional. We never throw to
  * the upload pipeline just because the caption hop failed.
  */
 
@@ -58,7 +58,7 @@ export class CaptionService {
     this.cfg = loadConfig();
     if (!this.cfg) {
       process.stdout.write(
-        '[CaptionService] GROQ_API_KEYS not set — captions will be skipped.\n',
+        '[CaptionService] GROQ_API_KEYS not set  captions will be skipped.\n',
       );
     } else {
       process.stdout.write(

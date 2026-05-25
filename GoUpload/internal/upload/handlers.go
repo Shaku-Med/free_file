@@ -192,7 +192,7 @@ func (h *Handler) completeUpload(c *fiber.Ctx) error {
 	case "", "auto", "yes", "no":
 		// ok
 	default:
-		// Unknown value — quietly snap to auto rather than reject the upload.
+		// Unknown value  quietly snap to auto rather than reject the upload.
 		reelMode = "auto"
 	}
 

@@ -6,7 +6,7 @@ const LOADPLAY_HOSTS = new Set([
   "cdn.memories.brozy.org",
 ]);
 
-/** True when playback should use the signed `?t=` token only — no app cookies. */
+/** True when playback should use the signed `?t=` token only  no app cookies. */
 export function isLoadplayPlaybackUrl(url: string): boolean {
   if (!url) return false;
   try {

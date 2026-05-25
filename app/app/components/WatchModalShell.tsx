@@ -3,7 +3,7 @@
  *
  * Wrapper around the watch / reel page content. Currently a pass-through:
  * the watch surface renders inline in the AppShell content area exactly
- * like the original full-page layout — sidebar + top navbar stay where
+ * like the original full-page layout  sidebar + top navbar stay where
  * they were, no portal, no Dialog chrome, no close button. The user
  * never sees that this is "a modal."
  *
@@ -22,7 +22,7 @@ interface WatchModalShellProps {
   children: React.ReactNode;
   /**
    * Variant kept on the prop surface for future use. Currently a no-op
-   * — the page renders inline regardless. `"page"` is the watch page,
+   *  the page renders inline regardless. `"page"` is the watch page,
    * `"sheet"` is the reel fullscreen-style sheet.
    */
   variant?: "page" | "sheet";

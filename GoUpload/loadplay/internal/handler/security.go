@@ -14,7 +14,7 @@ import (
 
 // replayFingerprint identifies the requester for nonce binding.
 // Combines the network bucket (IP /24+UA hash) with the REQUEST SHAPE
-// — Sec-Fetch-Site, Sec-Fetch-Mode, Sec-Fetch-Dest, the Accept-Language
+//  Sec-Fetch-Site, Sec-Fetch-Mode, Sec-Fetch-Dest, the Accept-Language
 // triplet, and whether X-App-Origin is set. A private-tab paste of the
 // same URL on the same machine shows a different request shape (mode=
 // navigate, site=none, dest=document, no X-App-Origin), so the second

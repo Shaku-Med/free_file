@@ -92,7 +92,7 @@ func New(cfg Config) *FileCache {
 }
 
 // Stats returns cache counters. Upstreams is the number of Supabase
-// round-trips — should stay ~1 per unique_id per hit-TTL window even
+// round-trips  should stay ~1 per unique_id per hit-TTL window even
 // under heavy segment traffic.
 func (c *FileCache) Stats() Stats {
 	c.mu.RLock()
@@ -183,7 +183,7 @@ func (c *FileCache) lookup(fileID string) (*supabase.FileMeta, bool) {
 }
 
 func (c *FileCache) store(fileID string, meta *supabase.FileMeta, err error) {
-	// Only cache "found" or "not found" — transient errors (network /
+	// Only cache "found" or "not found"  transient errors (network /
 	// 5xx) should not be remembered, otherwise a brief upstream blip
 	// poisons the cache for the whole TTL window.
 	var e *entry

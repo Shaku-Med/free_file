@@ -77,7 +77,7 @@ function writeJSON(key: string, value: unknown) {
   try {
     window.localStorage.setItem(key, JSON.stringify(value))
   } catch {
-    /* quota / private mode — ignore */
+    /* quota / private mode  ignore */
   }
 }
 
@@ -330,7 +330,7 @@ export function CaptionProvider({ children, file, videoRef }: CaptionProviderPro
    * Mirror caption cues into the native `<video>` element's TextTracks.
    *
    * Why: iOS Safari's native fullscreen player has no idea about our
-   * React caption overlay — the overlay is hidden behind iOS's own
+   * React caption overlay  the overlay is hidden behind iOS's own
    * video chrome. When the user taps fullscreen on a phone they get
    * Apple's native player. Native players show a CC button if (and
    * only if) the `<video>` has TextTracks attached.
@@ -344,7 +344,7 @@ export function CaptionProvider({ children, file, videoRef }: CaptionProviderPro
    *     iOS-specific `webkitbeginfullscreen` on the video element),
    *     flip the active language to `'showing'` so native captions
    *     render inside Apple's player. Restore to `'hidden'` on exit.
-   *   - If the user clicks the iOS CC button itself we don't fight it —
+   *   - If the user clicks the iOS CC button itself we don't fight it 
    *     iOS may flip modes to `'disabled'` and that just means "no
    *     captions" in native UI, which is fine.
    */
@@ -374,7 +374,7 @@ export function CaptionProvider({ children, file, videoRef }: CaptionProviderPro
 
       const cues = cuesByLang[lang.code]
       if (!cues || cues.length === 0) continue
-      // Only refill if the cue count differs — addCue is idempotent-ish
+      // Only refill if the cue count differs  addCue is idempotent-ish
       // but VTTCue creation is non-trivial when the cue list is huge.
       if ((track.cues?.length ?? 0) === cues.length) continue
       // Clear and re-add to keep it in sync.
@@ -387,7 +387,7 @@ export function CaptionProvider({ children, file, videoRef }: CaptionProviderPro
         try {
           track.addCue(new VTTCue(cue.start, cue.end, cue.text))
         } catch {
-          /* malformed cue — skip silently */
+          /* malformed cue  skip silently */
         }
       }
     }
@@ -397,7 +397,7 @@ export function CaptionProvider({ children, file, videoRef }: CaptionProviderPro
 
     // Default: all tracks hidden (our React overlay owns non-fullscreen
     // rendering). Tracks for non-active languages get `disabled` so iOS
-    // doesn't list them as "off-by-default but available" — only the
+    // doesn't list them as "off-by-default but available"  only the
     // chosen language shows up as the togglable one.
     for (const [code, t] of trackMap) {
       if (code === currentLanguage) {
@@ -436,7 +436,7 @@ export function CaptionProvider({ children, file, videoRef }: CaptionProviderPro
       document.removeEventListener("webkitfullscreenchange", syncMode as EventListener)
       video.removeEventListener("webkitbeginfullscreen", syncMode)
       video.removeEventListener("webkitendfullscreen", syncMode)
-      // Don't destroy tracks on cleanup — keeping them lets a fast
+      // Don't destroy tracks on cleanup  keeping them lets a fast
       // language toggle reuse the loaded cues without refetching.
     }
   }, [videoRef, languages, cuesByLang, currentLanguage])

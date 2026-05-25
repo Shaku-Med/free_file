@@ -45,7 +45,7 @@ function rgbaStopToString(s: { r: number; g: number; b: number; a: number }): st
 }
 
 /**
- * 6 string stops for horizontal lerp — all from primary (darker / base / lighter) so scroll stays smooth.
+ * 6 string stops for horizontal lerp  all from primary (darker / base / lighter) so scroll stays smooth.
  */
 export function buildPrimaryVisualizerPalette(): string[] {
   const resolved = resolvePrimaryColorForCanvas();

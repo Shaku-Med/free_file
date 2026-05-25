@@ -5,6 +5,8 @@ export default [
     index("routes/Home/index.tsx"),
     route(`privacy`, 'routes/Privacy/index.tsx'),
     route(`terms`, 'routes/Terms/index.tsx'),
+    route(`dmca`, 'routes/DMCA/index.tsx'),
+    route(`community-guidelines`, 'routes/CommunityGuidelines/index.tsx'),
     route(`api`, 'routes/Api/layout.tsx', [
         route(`upload`, 'routes/Api/upload/index.tsx'),
         route(`upload/profilepic`, 'routes/Api/upload/profilepic/index.tsx'),
@@ -12,7 +14,6 @@ export default [
         route(`upload/thumbnail`, 'routes/Api/upload/thumbnail/index.tsx'),
         route(`captions/prepare`, 'routes/Api/captions/prepare/index.tsx'),
         route(`captions/load-prepare`, 'routes/Api/captions/load-prepare/index.tsx'),
-        route(`endcards`, 'routes/Api/endcards/index.tsx'),
         route(`internal/captions/consume-token`, 'routes/Api/internal/captions/consume-token/index.tsx'),
         route(`internal/captions/commit`, 'routes/Api/internal/captions/commit/index.tsx'),
         route(`internal/captions/uncommit`, 'routes/Api/internal/captions/uncommit/index.tsx'),
@@ -25,7 +26,7 @@ export default [
         // route(`get/*`, 'routes/Api/get/index.tsx'),
         route(`public-key`, 'routes/Api/PublicKey/index.tsx'),
         route(`handshake`, 'routes/Api/handshake/index.tsx'),
-        // Per-session HMAC signing key — fetched once per tab, used by
+        // Per-session HMAC signing key  fetched once per tab, used by
         // signedFetch() to authenticate every other API call.
         route(`handshake/sig-key`, 'routes/Api/handshake/sig-key.tsx'),
         route(`email`, 'routes/Api/email/index.tsx'),

@@ -23,7 +23,7 @@ const VIEW_USER_RATE_WINDOW_MS = 60 * 60 * 1000;
 const VIEW_USER_RATE_BLOCK_MS = 30 * 60 * 1000;
 
 // ── Max values to reject obviously spoofed payloads ──────────
-const MAX_CURRENT_TIME_S = 86_400; // 24 hours — no video is longer
+const MAX_CURRENT_TIME_S = 86_400; // 24 hours  no video is longer
 const MAX_DURATION_S = 86_400;
 
 function getClientIP(request: Request): string {
@@ -109,7 +109,7 @@ export const action = async ({ request }: { request: Request }) => {
 
     // Server-side sanity: currentTime shouldn't exceed duration by a large margin.
     // Legitimate players can overshoot slightly (buffering), but not by 2x.
-    // Silently clamp rather than reject — could be a quirky player, not necessarily a bot.
+    // Silently clamp rather than reject  could be a quirky player, not necessarily a bot.
     if (safeDur > 0 && safeCt > safeDur * 1.5) {
       safeCt = safeDur;
     }

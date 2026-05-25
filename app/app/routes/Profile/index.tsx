@@ -530,7 +530,7 @@ const Profile = () => {
                 userId={effectiveData.profile.id}
                 currentUserId={effectiveData.currentUserId ?? undefined}
                 sectionTitle="Watch history"
-                emptyMessage="No watch history yet — videos you finish watching will show up here"
+                emptyMessage="No watch history yet  videos you finish watching will show up here"
                 dataReady={true}
               />
             </TabsContent>

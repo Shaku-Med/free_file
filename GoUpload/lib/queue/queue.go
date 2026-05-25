@@ -16,9 +16,9 @@ type Client struct {
 }
 
 // ReelMode is the user's chosen reel intent for an upload.
-//   "auto" — server picks based on duration + aspect ratio (default)
-//   "yes"  — force is_reel=true (refused when duration > 3 min)
-//   "no"   — force is_reel=false regardless of shape/length
+//   "auto"  server picks based on duration + aspect ratio (default)
+//   "yes"   force is_reel=true (refused when duration > 3 min)
+//   "no"    force is_reel=false regardless of shape/length
 // Locked at upload time; can't be edited after the file ships.
 type Job struct {
 	ID               string       `json:"id"`
@@ -59,7 +59,7 @@ func NewClient(addr, password string, db int, queueName string) (*Client, error)
 }
 
 func (c *Client) Enqueue(ctx context.Context, userID, uploadID, fileName string, fileSize int64, totalChunks int, title, description string, userCategories, userTags []string, defaultThumbnail, reelMode string, fileSeriesID, fileSeriesEpisodeID string, isNewSeries bool, newEpisodeName, parentEpisodeID string) (string, error) {
-	// Reject unknown reel modes early — silent fallthrough to "auto" is
+	// Reject unknown reel modes early  silent fallthrough to "auto" is
 	// safer than dropping the upload, but log-worthy for the caller.
 	switch reelMode {
 	case "", "auto", "yes", "no":

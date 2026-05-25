@@ -122,7 +122,7 @@ export const loader = async ({ request }: { request: Request }) => {
  * Body: { fileId?: uuid, uniqueId?: string, currentTime: number, duration: number }
  *
  * Upserts the signed-in viewer's playback position for one file. Throttled by the caller
- * (`usePlaybackPosition`) — the server does not rate-limit since each viewer touches one
+ * (`usePlaybackPosition`)  the server does not rate-limit since each viewer touches one
  * row at a time. Guests receive `{ saved: false }` without an error so the hook can keep
  * its IndexedDB save path running unchanged.
  */
@@ -165,7 +165,7 @@ export const action = async ({ request }: { request: Request }) => {
      * Server-side rate limit. The hook already throttles to one save per 10s of timeupdate,
      * so a legitimate viewer comes nowhere near 60 saves/min. A misbehaving client gets a
      * 429 + 5-minute block. Keyed per user (or IP for guests, though guests get rejected
-     * earlier — defense in depth).
+     * earlier  defense in depth).
      */
     const rateKey = user.id || `ip:${RateLimiter.getClientIP(request)}`;
     const limit = rateLimiter.checkLimit(

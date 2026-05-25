@@ -111,7 +111,7 @@ interface VideoCardProps {
   /** When set (e.g. watch page sidebar), show add-to-play-queue on horizontal cards. */
   onAddToPlayQueue?: (video: FileType) => void;
   inPlayQueue?: boolean;
-  /** Hide like/share/⋯ row — use on watch sidebar, queue, playlists, series lists (YouTube-style). */
+  /** Hide like/share/⋯ row  use on watch sidebar, queue, playlists, series lists (YouTube-style). */
   hideActions?: {
     halfway?: boolean;
     completely?: boolean;
@@ -185,7 +185,7 @@ const VideoCard = ({
   const [infoModalOpen, setInfoModalOpen] = useState(false);
 
   /**
-   * Skip-intro / next-episode markers — owner sets these on their own video and every viewer's
+   * Skip-intro / next-episode markers  owner sets these on their own video and every viewer's
    * player picks them up from `metadata.markers`. Stored as `m:ss` or `h:mm:ss` strings while
    * editing for human readability; converted to seconds on save.
    */
@@ -740,7 +740,7 @@ const VideoCard = ({
     setIsSaving(true);
     setEditError(null);
     try {
-      // Apply series change first — if this fails we surface the error and stop
+      // Apply series change first  if this fails we surface the error and stop
       // before touching any other file fields.
       if (seriesHasDraftChange) {
         const seriesOk = await applySeriesChangeIfAny();
@@ -752,7 +752,7 @@ const VideoCard = ({
 
       let newDefaultThumbnail: string | undefined;
 
-      // Images use their own endpoint as thumbnail — no thumbnail editing allowed
+      // Images use their own endpoint as thumbnail  no thumbnail editing allowed
       if (!data.file_type?.startsWith("image/") && customThumbFile) {
         setIsUploadingThumb(true);
         try {
@@ -983,7 +983,7 @@ const VideoCard = ({
 
   const thumbnailLink = useMemo(() => getThumbnailUrl(data, { retryAttempt }), [data.file_type, data.endpoint, data.default_thumbnail, data.thumbnails, data.created_at, data.unique_id, data.filename, retryAttempt]);
 
-  /** Same resolution order as `getThumbnailUrl` before the legacy thumbnail_*.jpg fallback — avoids a blank poster only when we know a real asset exists (matches Dynamic watch placeholder). */
+  /** Same resolution order as `getThumbnailUrl` before the legacy thumbnail_*.jpg fallback  avoids a blank poster only when we know a real asset exists (matches Dynamic watch placeholder). */
   const hasKnownThumbnailSource = useMemo(() => {
     if (data.file_type?.startsWith("image/") && data.endpoint) return true;
     if (getDefaultThumbnail(data.default_thumbnail ?? null)) return true;
@@ -1240,7 +1240,7 @@ const VideoCard = ({
           {/**
            * Skip-intro / next-episode markers. Only meaningful for media with a timeline,
            * so we hide it for image files. Stored in `metadata.markers` and read by every
-           * viewer's player from the same file row — Netflix-style.
+           * viewer's player from the same file row  Netflix-style.
            */}
           {typeof data.file_type === "string" && !data.file_type.startsWith("image/") && (
             <div className="space-y-2.5 rounded-lg border border-border/50 bg-muted/20 p-3">
@@ -1289,7 +1289,7 @@ const VideoCard = ({
             </div>
           )}
 
-          {/* Add to series — available on every file the viewer owns */}
+          {/* Add to series  available on every file the viewer owns */}
           {canManageSeries && (
             <div className="space-y-2.5 rounded-lg border border-border/50 bg-muted/20 p-3">
               <div className="flex items-center gap-2">
@@ -1682,7 +1682,7 @@ const VideoCard = ({
               className="bg-muted/50 text-foreground placeholder:text-muted-foreground"
             />
           </div>
-          {/* Thumbnail selector — only for video/audio, not images */}
+          {/* Thumbnail selector  only for video/audio, not images */}
           {!data.file_type?.startsWith("image/") && <div className="space-y-2">
             <label className="text-xs font-medium text-muted-foreground">Thumbnail</label>
             {editDialogCurrentThumbLink ? (
@@ -1939,7 +1939,7 @@ const VideoCard = ({
                     <div className="flex items-center gap-2">
                       <Check className="w-3.5 h-3.5 text-primary shrink-0" />
                       <p className="text-[11px] text-primary">
-                        Review accepted — adult flag has been removed.
+                        Review accepted  adult flag has been removed.
                       </p>
                     </div>
                   )}
@@ -2057,7 +2057,7 @@ const VideoCard = ({
       disabled={isSaving}
     />
 
-    {/* Series browse dialog — owner can pick one of their existing series */}
+    {/* Series browse dialog  owner can pick one of their existing series */}
     <Dialog open={seriesBrowseOpen} onOpenChange={setSeriesBrowseOpen}>
       <DialogContent className="max-w-md rounded-2xl">
         <DialogHeader>
@@ -2454,7 +2454,7 @@ const VideoCard = ({
 
   if (layout === "endCard") {
     /**
-     * YouTube-style end card. Pure thumbnail + title + creator — no action
+     * YouTube-style end card. Pure thumbnail + title + creator  no action
      * menus, no info dialogs, no edit dialog. Sits inside the player as an
      * overlay during the last seconds of playback; clicking navigates to the
      * suggested video.
@@ -2468,24 +2468,23 @@ const VideoCard = ({
           e.preventDefault();
           void handleWatchNav();
         }}
-        // End-card cells get tighter as the player narrows — fluid
-        // padding + clamp-sized type so the 4-column grid stays readable
-        // on a 320px phone player without forcing us to drop to 2x2.
-        className="group flex w-full flex-col gap-[clamp(0.25rem,1.5cqi,0.5rem)] rounded-lg p-[clamp(0.25rem,1.2cqi,0.5rem)] text-left transition-colors hover:bg-white/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-white/60"
+        // End-card cells scale with the player slot  fluid padding + clamp
+        // type so cards grow on cinema layouts and stay legible on phone.
+        className="group flex w-full flex-col gap-[clamp(0.25rem,1.5cqi,0.625rem)] rounded-lg p-[clamp(0.25rem,1.2cqi,0.625rem)] text-left transition-colors hover:bg-white/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-white/60"
       >
         <div className="relative aspect-video w-full overflow-hidden rounded-md bg-card ring-1 ring-white/10">
           {renderThumbnail("h-full w-full")}
           {durationStr && (
-            <span className="absolute right-1 bottom-1 rounded bg-black/85 px-1 py-0.5 text-[clamp(8px,2cqi,10px)] font-semibold tabular-nums leading-none text-white">
+            <span className="absolute right-1 bottom-1 rounded bg-black/85 px-1 py-0.5 text-[clamp(8px,2.2cqi,11px)] font-semibold tabular-nums leading-none text-white">
               {durationStr}
             </span>
           )}
         </div>
         <div className="flex min-w-0 flex-col gap-0.5 px-0.5">
-          <h3 className="line-clamp-2 text-[clamp(10px,2.6cqi,13px)] font-medium leading-snug text-white">
+          <h3 className="line-clamp-2 text-[clamp(10px,2.8cqi,15px)] font-medium leading-snug text-white">
             <ParseFilenameInsert filename={data.file_title || data.filename} showLimit={60} />
           </h3>
-          <div className="flex min-w-0 flex-wrap items-center gap-x-1 text-[clamp(9px,2.2cqi,11px)] leading-tight text-white/70">
+          <div className="flex min-w-0 flex-wrap items-center gap-x-1 text-[clamp(9px,2.4cqi,12px)] leading-tight text-white/70">
             {data.owner && (
               <span className="max-w-[10rem] truncate">{data.owner.username}</span>
             )}
@@ -2503,13 +2502,13 @@ const VideoCard = ({
 
   if (layout === "notificationThumb") {
     /**
-     * Bare 16:9 poster — no title, no actions, no internal <Link>. Used
+     * Bare 16:9 poster  no title, no actions, no internal <Link>. Used
      * as the right-side preview in the notifications inbox where the
      * notification row IS already a link wrapping the whole thing.
      *
      * All the actual thumbnail logic (default vs thumbnails[] vs
      * legacy path, NSFW handling, retry-on-error, lazy loading) lives
-     * in `renderThumbnail` above — this layout exists purely so the
+     * in `renderThumbnail` above  this layout exists purely so the
      * inbox doesn't reinvent it.
      */
     return (

@@ -7,7 +7,7 @@ import { PlayerProvider, usePlayerContext, type ThumbnailSpriteMeta } from './Pl
 import { CaptionProvider } from './CaptionContext';
 import CaptionOverlay from './overlays/CaptionOverlay';
 import TiltOverlay from './overlays/VRTiltOverlay';
-import EndCardOverlay, { type EndCardLayout } from './overlays/EndCardOverlay';
+import EndCardOverlay from './overlays/EndCardOverlay';
 import { TILT_PERSPECTIVE_PX } from './PlayerContext';
 import { FEED_EMBED_HIDE_CONTROLS, MINI_PLAYER_HIDE_CONTROLS, type HideControls } from './types';
 import SeekBar from './controls/seek/SeekBar';
@@ -24,7 +24,7 @@ import { useFullscreen } from './hooks/useFullscreen';
 import { useWakeLock } from './hooks/useWakeLock';
 import { useSpatialAudio, isSpatialAudioUiSupported } from './hooks/useSpatialAudio';
 import ControlBar from './controls/ControlBar';
-import EndScreen from './controls/endscreen/EndScreen';
+// EndScreen was replaced by EndCardOverlay (single 4-corner end-of-video surface).
 import BufferingSpinner from './overlays/BufferingSpinner';
 import ErrorOverlay from './overlays/ErrorOverlay';
 import AutoplayPrompt from './overlays/AutoplayPrompt';
@@ -45,6 +45,7 @@ import {
 import AmbientBackground from '~/components/components/hlsplayer/overlays/AmbientBackground';
 import GuestPreviewWall from '~/components/components/hlsplayer/overlays/GuestPreviewWall';
 import GuestPreviewNudge from '~/components/components/hlsplayer/overlays/GuestPreviewNudge';
+import { GuestPlaybackSignInDialog } from './controls/GuestPlaybackSignInDialog';
 import { useGuestWatchLimit } from './hooks/useGuestWatchLimit';
 import { usePictureInPictureContext } from '~/lib/Context/PictureInPictureContext';
 import { useFileContext } from '~/lib/Context/Context';
@@ -87,11 +88,6 @@ export interface HLSPlayerProps {
    */
   seriesEpisodeGroups?: SeriesEpisodeGroup[] | null;
   endScreenUserActions?: { likedFileIds: Set<string>; dislikedFileIds: Set<string> };
-  /**
-   * Near-end suggestion tiles (~last 20s before finish). Uses corner/tuck layouts so the picture stays readable.
-   * Options: import `END_CARD_LAYOUT_OPTIONS` from `./overlays/EndCardOverlay` while experimenting.
-   */
-  endCardLayout?: EndCardLayout;
   currentUserId?: string;
   onVideoSelect?: (video: FileType) => void;
   onNext?: () => void;
@@ -116,13 +112,13 @@ export interface HLSPlayerProps {
   unlockPipReelAudio?: boolean;
   /**
    * Swiper / deck active slide. iOS + CSS transforms can leave IntersectionObserver stuck false on the
-   * `<video>` while the slide is still the active index — combine with `reelVideoInView` so the primary
+   * `<video>` while the slide is still the active index  combine with `reelVideoInView` so the primary
    * reel keeps autoplay without un-gating neighbors (they pass false here).
    */
   reelSwiperActive?: boolean;
   /**
    * When true, skip window-level player shortcuts (space, arrows, f, m, etc.) so parent UI can own
-   * keys — e.g. `/reel` page deck (Swiper uses j/k separately at the document level).
+   * keys  e.g. `/reel` page deck (Swiper uses j/k separately at the document level).
    */
   disableKeyboardShortcuts?: boolean;
 }
@@ -148,7 +144,7 @@ const HLSPlayer: React.FC<HLSPlayerProps> = (props) => (
   </PlayerProvider>
 );
 
-/** Reels are discovery-only — never autoplay / “Up next” / end-screen queue targets. */
+/** Reels are discovery-only  never autoplay / “Up next” / end-screen queue targets. */
 function withoutReels(list: FileType[] | undefined): FileType[] {
   if (!list?.length) return [];
   return list.filter((v) => !v.is_reel);
@@ -174,7 +170,6 @@ function PlayerInner({
   seriesUpNextVideos,
   seriesEpisodeGroups = null,
   endScreenUserActions,
-  endCardLayout,
   currentUserId,
   onVideoSelect,
   onNext,
@@ -226,7 +221,7 @@ function PlayerInner({
   } = usePlayerContext();
   /**
    * Skip-intro / next-episode markers come from the owner-edited `metadata.markers` jsonb on
-   * the file row — same data for every viewer, just like Netflix. The VideoCard edit dialog
+   * the file row  same data for every viewer, just like Netflix. The VideoCard edit dialog
    * writes this; the player only consumes it.
    */
   const skipMarkers = useMemo(() => {
@@ -246,7 +241,7 @@ function PlayerInner({
   const [skipMarkerActive, setSkipMarkerActive] = useState(false);
 
   /**
-   * Reel / PiP vertical feed: observe the `<video>` like `ImageLoad` — virtual slides keep neighbors mounted.
+   * Reel / PiP vertical feed: observe the `<video>` like `ImageLoad`  virtual slides keep neighbors mounted.
    *
    * Strict threshold (0.6) is critical: during Swiper virtual transitions the outgoing, incoming and
    * pre-rendered neighbor slides can all partially intersect the viewport. With a permissive threshold
@@ -322,9 +317,9 @@ function PlayerInner({
     notifyBrowserDrivenWebKitPipEntered,
   } = usePictureInPictureContext();
   const inPipForThisVideo = isPipActive && isContentInPip(imageID);
-  /** Native / WebKit PiP uses this `<video>` — must not pause or block `play`. Document PiP uses a separate iframe. */
+  /** Native / WebKit PiP uses this `<video>`  must not pause or block `play`. Document PiP uses a separate iframe. */
   const documentPipPausesMain = inPipForThisVideo && activePipKind === 'document';
-  /** A different file is in PiP — pause this player so only one plays. */
+  /** A different file is in PiP  pause this player so only one plays. */
   const otherVideoInPipBlocksThisPlayer =
     Boolean(isPipActive && pipContentId !== null && pipContentId !== imageID);
   const pipPauseMainPlayer = documentPipPausesMain || otherVideoInPipBlocksThisPlayer;
@@ -545,7 +540,7 @@ function PlayerInner({
     const uid = file?.unique_id;
     // Capture the absolute HTTP poster up-front. PosterBackground already
     // prepends window.location.origin so `mediaSessionUrl` is a fully
-    // qualified URL — perfect for cast / AirPlay receivers to fetch.
+    // qualified URL  perfect for cast / AirPlay receivers to fetch.
     if (mediaSessionUrl) {
       setMediaSessionPosterHttp(mediaSessionUrl);
     }
@@ -691,7 +686,7 @@ function PlayerInner({
     [isReelCtx, embedReelControls, inPipForThisVideo, performSeekByTap]
   );
 
-  /** Prefer series order, then related — matches end-screen autoplay when `onNext` is not supplied. */
+  /** Prefer series order, then related  matches end-screen autoplay when `onNext` is not supplied. */
   const handleNextVideo = useCallback(() => {
     if (onNext) {
       onNext();
@@ -749,14 +744,14 @@ function PlayerInner({
       // on the container to show controls + auto-hide after 3s, which
       // is the standard mobile video-player behavior. Adding another
       // toggle on touchend caused a visible flash (show via touchstart,
-      // immediately hide via this handler) — so this handler now ONLY
+      // immediately hide via this handler)  so this handler now ONLY
       // owns the double-tap-to-seek gesture.
       if (isReelCtx && !embedReelControls) return;
       if (inPipForThisVideo) return;
       const touch = e.changedTouches[0];
       if (!touch) return;
 
-      // Restrict to taps that landed on the bare video — chrome taps
+      // Restrict to taps that landed on the bare video  chrome taps
       // are handled by their own buttons / overlays.
       const target = e.target as HTMLElement | null;
       if (!target || target !== videoRef.current) return;
@@ -863,7 +858,7 @@ function PlayerInner({
               {
                 // `src` is the JIT-minted LoadPlay URL from the parent's
                 // usePlaybackUrl hook. The getVideoSrc fallback is only
-                // hit when no src was passed — defensive, legacy proxy.
+                // hit when no src was passed  defensive, legacy proxy.
                 src: src || getVideoSrc(file.endpoint ?? '', file.file_type),
                 file,
                 imageID: imageID || file.unique_id,
@@ -926,13 +921,18 @@ function PlayerInner({
       (state.isBuffering && Boolean(videoEl && videoEl.readyState < 3)));
 
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null);
+  const [ctxSignInOpen, setCtxSignInOpen] = useState(false);
   const handleContextMenu = useCallback(
     (e: React.MouseEvent) => {
       if (isReelCtx) return;
       e.preventDefault();
+      if (!authPlayback) {
+        setCtxSignInOpen(true);
+        return;
+      }
       setCtxMenu({ x: e.clientX, y: e.clientY });
     },
-    [isReelCtx],
+    [isReelCtx, authPlayback],
   );
 
   return (
@@ -1126,16 +1126,15 @@ function PlayerInner({
 
         <TiltOverlay />
         <CaptionOverlay containerRef={containerRef} controlsVisible={showControls} />
-        <EndCardOverlay
-          layout={endCardLayout}
-          excludeIds={[
-            ...relatedPlayQueue.map((v) => String(v.id ?? "")).filter(Boolean),
-            ...seriesPlayQueue.map((v) => String(v.id ?? "")).filter(Boolean),
-          ]}
-        />
 
+        {/* Single end-of-video overlay. Replaces both the legacy full-screen
+            EndScreen and the old API-backed EndCardOverlay. Renders only on
+            `state.isEnded`, shows up to 4 corner suggestion cards adapted to
+            the player size, embeds the auto-next countdown on the featured
+            card, and lets the user replay or dismiss. Reel surfaces opt out
+            via `isReel` inside the component itself. */}
         {!isReelCtx && !loopEnabled && (
-          <EndScreen
+          <EndCardOverlay
             suggestedVideos={relatedPlayQueue}
             seriesUpNextVideos={seriesPlayQueue}
             userActions={endScreenUserActions}
@@ -1148,7 +1147,7 @@ function PlayerInner({
             className={`absolute inset-0 z-[31] pointer-events-none transition-opacity duration-300 ${showControls ? 'opacity-100' : 'opacity-0'}`}
             // When hidden (e.g. while the Skip Intro / Next Episode buttons are showing)
             // we MUST disable hit-testing for everything inside. `opacity-0` and
-            // `pointer-events-none` on the wrapper are not enough — `ControlBar` puts
+            // `pointer-events-none` on the wrapper are not enough  `ControlBar` puts
             // `pointer-events: auto` on its own strips (and the full mobile `inset-0`
             // overlay), so the invisible control bar would still intercept the click
             // a user makes on top of the Skip button. `inert` recursively kills focus,
@@ -1232,7 +1231,7 @@ function PlayerInner({
         )}
       </div>
 
-      {!isReelCtx && ctxMenu && (
+      {!isReelCtx && authPlayback && ctxMenu && (
         <DropdownMenu open onOpenChange={(open) => { if (!open) setCtxMenu(null); }} modal={false}>
           <DropdownMenuTrigger asChild>
             <div
@@ -1259,11 +1258,18 @@ function PlayerInner({
           </DropdownMenuContent>
         </DropdownMenu>
       )}
+
+      {!isReelCtx && !authPlayback && (
+        <GuestPlaybackSignInDialog
+          open={ctxSignInOpen}
+          onOpenChange={setCtxSignInOpen}
+          title="Sign in for player options"
+          description="Playback speed, quality, theater mode, mini player, and other right-click settings are available when you're signed in."
+        />
+      )}
     </div>
   );
 }
 
-export type { EndCardLayout } from "./overlays/EndCardOverlay";
-export { END_CARD_LAYOUT_OPTIONS } from "./overlays/EndCardOverlay";
 
 export default HLSPlayer;

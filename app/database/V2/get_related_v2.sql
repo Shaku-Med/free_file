@@ -1,5 +1,5 @@
 -- ============================================================
--- get_related v2 — Personalized related/suggestions
+-- get_related v2  Personalized related/suggestions
 -- ============================================================
 -- Upgrades over v1:
 --   1. Session categories boost (p_session_cats)

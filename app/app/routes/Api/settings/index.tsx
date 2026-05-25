@@ -86,7 +86,7 @@ export const action = async ({ request }: { request: Request }) => {
       return toJson({ error: "Failed to update settings" }, 500);
     }
 
-    // show_nsfw toggle changes access-control outcomes (adult content gated by it) —
+    // show_nsfw toggle changes access-control outcomes (adult content gated by it) 
     // drop the cached user context so the next request revalidates.
     invalidateUserAccessContextById(user.id);
 

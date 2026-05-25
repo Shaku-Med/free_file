@@ -1,7 +1,7 @@
 -- ============================================================
 -- Search: series roots discovered via episode / item text match
 -- Surfaces series main rows when the query hits:
---   • series item VIDEO rows (files.is_files_series_item) — titles, descriptions, etc.
+--   • series item VIDEO rows (files.is_files_series_item)  titles, descriptions, etc.
 --   • episode bucket titles in table files_series_episodes (episode_name, e.g. "Season 1")
 -- Same return shape as search_files for the app. Depends: search_normalize(),
 -- files.search_text, tables files / files_series_episodes.

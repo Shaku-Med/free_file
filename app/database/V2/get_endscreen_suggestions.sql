@@ -1,5 +1,5 @@
 -- ============================================================
--- get_endscreen_suggestions — Up next / end screen suggestions
+-- get_endscreen_suggestions  Up next / end screen suggestions
 -- ============================================================
 -- Convenience wrapper around get_related for "Up next" / end screen.
 -- Returns the first page of related items (default 8).

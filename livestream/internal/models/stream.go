@@ -27,7 +27,7 @@ var (
 )
 
 // AuthRequest matches MediaMTX's external authentication webhook payload.
-// Fields must stay in sync with MediaMTX config — a mismatch silently fails auth.
+// Fields must stay in sync with MediaMTX config  a mismatch silently fails auth.
 type AuthRequest struct {
 	IP       string `json:"ip"`
 	User     string `json:"user"`
@@ -66,7 +66,7 @@ type StreamTypeInfo struct {
 }
 
 // WebRTCProxyResponse carries MediaMTX's WHIP/WHEP response back through our proxy.
-// Headers like Location and ETag are protocol-critical — dropping them breaks session management.
+// Headers like Location and ETag are protocol-critical  dropping them breaks session management.
 type WebRTCProxyResponse struct {
 	StatusCode  int
 	Body        []byte

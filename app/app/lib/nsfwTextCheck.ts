@@ -1,7 +1,7 @@
 /**
  * Lightweight check for adult/sensitive language in title or description.
  * Used only to set metadata.warning when content (is_adult) is false but text may be NSFW.
- * Does NOT determine is_adult status — that comes from content (e.g. vision/Go).
+ * Does NOT determine is_adult status  that comes from content (e.g. vision/Go).
  */
 
 const NSFW_WORDS = new Set([

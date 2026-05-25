@@ -11,7 +11,7 @@ export function swiperRealIndex(swiper: SwiperType): number {
  *
  * - **Always** the active slide.
  * - **Forward-only:** the next **two** reels in swipe-up / feed order (no symmetric “behind” preload → fewer 429s).
- * - Combine with ReelSwiper’s “sticky” list for reels the user has **already** opened — those stay mounted without widening the lookahead window.
+ * - Combine with ReelSwiper’s “sticky” list for reels the user has **already** opened  those stay mounted without widening the lookahead window.
  */
 export function reelShouldPreloadHls(
   slideIndex: number,

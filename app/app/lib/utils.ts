@@ -157,13 +157,13 @@ export function getThumbnailPreviewApiPaths(file: {
 }
 
 /**
- * Playback src for the HLS player — LoadPlay CDN only (`playbackUrl` from loader).
+ * Playback src for the HLS player  LoadPlay CDN only (`playbackUrl` from loader).
  */
 export function getVideoSrc(_endpoint: string, _fileType?: string, playbackUrl?: string | null): string {
   return playbackUrl && playbackUrl.length > 0 ? playbackUrl : "";
 }
 
-/** Search / social preview crawlers — use canonical image URLs in HTML for indexing. */
+/** Search / social preview crawlers  use canonical image URLs in HTML for indexing. */
 export function isSearchBotUserAgent(ua: string | null | undefined): boolean {
   if (!ua || typeof ua !== 'string') return false
   return /bytespider|applebot|googlebot|google-inspectiontool|bingbot|msnbot|slurp|duckduckbot|baiduspider|yandexbot|facebookexternalhit|facebot|twitterbot|linkedinbot|slackbot|embedly|pinterest|semrushbot|ahrefsbot|petalbot/i.test(

@@ -5,13 +5,17 @@ import CommentForm from "./CommentForm";
 import type { CommentGif, CommentImage } from "./CommentForm";
 import type { Comment } from "~/lib/Services/CommentService";
 import { cn } from "~/lib/utils";
+import { CommentSignInDialog } from "./CommentSignInDialog";
+import { Button } from "~/components/ui/button";
+
+const COMMENTS_PAGE_SIZE = 50;
 interface CommentSectionProps {
   fileId: string;
   currentUserId?: string;
   fileOwnerId?: string;
   isReel?: boolean;
   commentsEnabled?: boolean;
-  /** From `?comment=` — scroll to this comment and emphasize it (e.g. notification deep link). */
+  /** From `?comment=`  scroll to this comment and emphasize it (e.g. notification deep link). */
   highlightCommentId?: string | null;
   /** e.g. `min-h-0` when inside a flex / scroll parent */
   className?: string;
@@ -21,7 +25,7 @@ interface CommentSectionProps {
    */
   fillHeight?: boolean;
   /**
-   * Video duration in seconds — enables timestamp linkification in
+   * Video duration in seconds  enables timestamp linkification in
    * comment bodies (M:SS / H:MM:SS spans become clickable seek buttons).
    * Omit on non-video pages.
    */
@@ -93,18 +97,21 @@ const CommentSection = ({
   const [comments, setComments] = useState<Comment[]>([]);
   const [totalCount, setTotalCount] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [currentUserId] = useState<string | undefined>(initialUserId);
   const [error, setError] = useState<string | null>(null);
+  const [loadMoreSignInOpen, setLoadMoreSignInOpen] = useState(false);
   const channelRef = useRef<any>(null);
 
-  const fetchComments = useCallback(async () => {
-    try {
-      setIsLoading(true);
+  const hasMoreComments = comments.length > 0 && comments.length < totalCount;
+
+  const fetchCommentPage = useCallback(
+    async (offset: number, append: boolean) => {
       const params = new URLSearchParams({
         fileId,
-        limit: "50",
-        offset: "0",
+        limit: String(COMMENTS_PAGE_SIZE),
+        offset: String(offset),
       });
       if (highlightCommentId) {
         params.set("focusCommentId", highlightCommentId);
@@ -115,30 +122,72 @@ const CommentSection = ({
 
       const result = await response.json().catch(() => null);
       if (!response.ok) {
-        const msg = result && typeof result === "object" && "error" in result && typeof (result as { error?: string }).error === "string"
-          ? (result as { error: string }).error
-          : "Failed to fetch comments";
+        const msg =
+          result &&
+          typeof result === "object" &&
+          "error" in result &&
+          typeof (result as { error?: string }).error === "string"
+            ? (result as { error: string }).error
+            : "Failed to fetch comments";
         throw new Error(msg);
       }
 
-      if (result?.success) {
-        setComments(Array.isArray(result.data) ? result.data : []);
-        setTotalCount(typeof result.totalCount === "number" ? result.totalCount : result.data?.length ?? 0);
-        setError(null);
-      } else {
+      if (!result?.success) {
         throw new Error(
-          result && typeof result === "object" && "error" in result && typeof (result as { error?: string }).error === "string"
+          result &&
+            typeof result === "object" &&
+            "error" in result &&
+            typeof (result as { error?: string }).error === "string"
             ? (result as { error: string }).error
-            : "Failed to load comments"
+            : "Failed to load comments",
         );
       }
+
+      const batch = Array.isArray(result.data) ? result.data : [];
+      setComments((prev) => (append ? [...prev, ...batch] : batch));
+      setTotalCount(
+        typeof result.totalCount === "number" ? result.totalCount : batch.length,
+      );
+      setError(null);
+      return batch;
+    },
+    [fileId, highlightCommentId],
+  );
+
+  const fetchComments = useCallback(async () => {
+    try {
+      setIsLoading(true);
+      await fetchCommentPage(0, false);
     } catch (err) {
       console.error("Error fetching comments:", err);
       setError(err instanceof Error ? err.message : "Failed to load comments");
     } finally {
       setIsLoading(false);
     }
-  }, [fileId, highlightCommentId]);
+  }, [fetchCommentPage]);
+
+  const loadMoreComments = useCallback(async () => {
+    if (!currentUserId) {
+      setLoadMoreSignInOpen(true);
+      return;
+    }
+    if (loadingMore || !hasMoreComments) return;
+    try {
+      setLoadingMore(true);
+      await fetchCommentPage(comments.length, true);
+    } catch (err) {
+      console.error("Error loading more comments:", err);
+      setError(err instanceof Error ? err.message : "Failed to load more comments");
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [
+    currentUserId,
+    loadingMore,
+    hasMoreComments,
+    fetchCommentPage,
+    comments.length,
+  ]);
 
   useEffect(() => {
     fetchComments();
@@ -287,7 +336,7 @@ const CommentSection = ({
           throw new Error(errBody.error || "Failed to delete comment");
         }
 
-        // Server cascades soft-delete to all nested replies — refetch to stay in sync
+        // Server cascades soft-delete to all nested replies  refetch to stay in sync
         await fetchComments();
       } catch (err) {
         console.error("Error deleting comment:", err);
@@ -333,7 +382,7 @@ const CommentSection = ({
     "sticky bottom-0 z-10 shrink-0 border-t border-border/60 bg-background/95 pt-3 shadow-[0_-8px_24px_-8px_rgba(0,0,0,0.1)] backdrop-blur-md supports-[backdrop-filter]:bg-background/85 pb-[max(0.25rem,env(safe-area-inset-bottom))] dark:shadow-[0_-8px_24px_-8px_rgba(0,0,0,0.35)]";
 
   /**
-   * Auto-stretch — no internal scroll, no `max-h`. The thread flows with the page.
+   * Auto-stretch  no internal scroll, no `max-h`. The thread flows with the page.
    * `fillHeight` (mobile drawer) keeps its own scroll; everything else just renders.
    */
   const scrollShellClass = cn(
@@ -350,8 +399,73 @@ const CommentSection = ({
     </div>
   ) : null;
 
+  const loadMoreFooter =
+    hasMoreComments && !isLoading ? (
+      <div className="flex justify-center border-t border-border/40 px-2 py-4">
+        {currentUserId ? (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={loadingMore}
+            onClick={() => void loadMoreComments()}
+            className="min-w-[10rem] gap-2"
+          >
+            {loadingMore ? (
+              <>
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Loading…
+              </>
+            ) : (
+              `Load more comments (${comments.length} of ${totalCount})`
+            )}
+          </Button>
+        ) : (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => setLoadMoreSignInOpen(true)}
+            className="gap-2"
+          >
+            Sign in to load more comments
+          </Button>
+        )}
+      </div>
+    ) : null;
+
+  const commentList = (
+    <>
+      {comments.map((comment) => (
+        <CommentItem
+          key={comment.id}
+          comment={comment}
+          currentUserId={currentUserId}
+          fileOwnerId={fileOwnerId}
+          fileId={fileId}
+          allowNewComments={Boolean(commentsEnabled && currentUserId)}
+          onReply={handleReply}
+          onEdit={handleEdit}
+          onDelete={handleDelete}
+          onHide={handleHide}
+          onLike={handleLike}
+          highlightCommentId={highlightCommentId}
+          fileDurationSec={fileDurationSec}
+        />
+      ))}
+      {loadMoreFooter}
+    </>
+  );
+
   return (
     <div className={cn("flex min-h-0 flex-col gap-3 sm:gap-4", className)}>
+      <CommentSignInDialog
+        open={loadMoreSignInOpen}
+        onOpenChange={setLoadMoreSignInOpen}
+        title="Sign in to load more comments"
+        description="You're viewing the first comments on this video. Sign in to load the rest of the thread."
+      />
+
       {!commentsEnabled && currentUserId && (
         <div className="bg-muted/40 shrink-0 rounded-lg border border-border/50 px-3 py-2.5 text-center">
           <p className="text-sm text-muted-foreground">
@@ -385,46 +499,11 @@ const CommentSection = ({
           ) : hasThread ? (
             showComposer ? (
               <div className="flex min-h-full min-w-0 flex-col">
-                <div className="min-w-0 flex-1 space-y-0 px-0.5 pb-1">
-                  {comments.map((comment) => (
-                    <CommentItem
-                      key={comment.id}
-                      comment={comment}
-                      currentUserId={currentUserId}
-                      fileOwnerId={fileOwnerId}
-                      fileId={fileId}
-                      allowNewComments={Boolean(commentsEnabled && currentUserId)}
-                      onReply={handleReply}
-                      onEdit={handleEdit}
-                      onDelete={handleDelete}
-                      onHide={handleHide}
-                      onLike={handleLike}
-                      highlightCommentId={highlightCommentId}
-                      fileDurationSec={fileDurationSec}
-                    />
-                  ))}
-                </div>
+                <div className="min-w-0 flex-1 space-y-0 px-0.5 pb-1">{commentList}</div>
                 {composerNode}
               </div>
             ) : (
-              <div className="min-w-0 space-y-0 px-0.5 pb-1">
-                {comments.map((comment) => (
-                  <CommentItem
-                    key={comment.id}
-                    comment={comment}
-                    currentUserId={currentUserId}
-                    fileOwnerId={fileOwnerId}
-                    fileId={fileId}
-                    allowNewComments={Boolean(commentsEnabled && currentUserId)}
-                    onReply={handleReply}
-                    onEdit={handleEdit}
-                    onDelete={handleDelete}
-                    onHide={handleHide}
-                    onLike={handleLike}
-                    highlightCommentId={highlightCommentId}
-                  />
-                ))}
-              </div>
+              <div className="min-w-0 space-y-0 px-0.5 pb-1">{commentList}</div>
             )
           ) : (
             <div className="flex min-h-full min-w-0 flex-col">

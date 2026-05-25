@@ -47,12 +47,12 @@ export function useMediaSession(
 
     const title = currentFile.file_title || ParseFilename(currentFile.filename);
     // Artwork ladder for receivers to pick from:
-    //   1. Original HTTP poster URL — Cast / AirPlay can fetch this over
+    //   1. Original HTTP poster URL  Cast / AirPlay can fetch this over
     //      the network even when the HLS video stream is unreachable, so
     //      the TV shows the cover image as a fallback. Listed FIRST and
     //      with a larger size hint so receivers prefer it for the big-art
     //      slot. Some receivers also reject blob: URLs entirely.
-    //   2. The square canvas-cropped blob URL — best for the OS
+    //   2. The square canvas-cropped blob URL  best for the OS
     //      notification / lock-screen widget where a square 512 wins.
     //
     // Listing both is per-spec; receivers pick by sizes / capability.

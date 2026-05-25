@@ -46,7 +46,7 @@ export default function SubtitleButton({
 
   /**
    * As soon as the user opens the menu, warm the cache for every available track
-   * (and the saved preferred one first). VTT files are tiny — by the time they
+   * (and the saved preferred one first). VTT files are tiny  by the time they
    * decide which language to click, the response is already in cuesByLang, so
    * flipping it on feels instant instead of the prior 2-roundtrip stall.
    */

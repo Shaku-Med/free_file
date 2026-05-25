@@ -32,7 +32,7 @@ const Y_MAX = 95
 const AUTO_BOTTOM_ZONE_PCT = 25
 /** Inner padding (each side, in % of container width) the caption box
  *  refuses to cross. Keeps the box from straddling the player edge while
- *  dragging — which previously caused the text to wrap into a thin tower. */
+ *  dragging  which previously caused the text to wrap into a thin tower. */
 const EDGE_MARGIN_PCT = 2
 
 const ALIGN_STYLE: Record<CaptionTextAlign, { left: string; transform: string }> = {
@@ -61,7 +61,7 @@ export default function CaptionOverlay({ containerRef, controlsVisible, compact 
     startPos: { xPct: number; yBottomPct: number }
     rect: DOMRect
     /** Box width as % of container at drag start. Used to clamp the live
-     *  X% so the box never straddles a player edge — kills the thin-tower
+     *  X% so the box never straddles a player edge  kills the thin-tower
      *  wrap effect when you drag a caption near a side. */
     boxWidthPct: number
     movedBelowFloor: boolean
@@ -119,7 +119,7 @@ export default function CaptionOverlay({ containerRef, controlsVisible, compact 
       if (rect.width === 0 || rect.height === 0) return
       // Measure the caption's current rendered width as a % of the container.
       // Captured once at drag start so the clamp doesn't oscillate if the
-      // text changes (a new cue) mid-drag — the box can grow afterwards.
+      // text changes (a new cue) mid-drag  the box can grow afterwards.
       const captionEl = captionRef.current
       const captionRect = captionEl?.getBoundingClientRect()
       const boxWidthPct =
@@ -151,7 +151,7 @@ export default function CaptionOverlay({ containerRef, controlsVisible, compact 
       const xPct = drag.startPos.xPct + (dx / drag.rect.width) * 100
       const yBottomPct = drag.startPos.yBottomPct - (dy / drag.rect.height) * 100
       // Compute the tightest X bounds that keep the entire caption box
-      // inside the player — half the box width + a small edge margin on
+      // inside the player  half the box width + a small edge margin on
       // each side. Falls back to the static X_MIN/X_MAX if the box is so
       // wide it can't be clamped (shouldn't happen with the new
       // max-width cap below, but stay defensive).
@@ -232,7 +232,7 @@ export default function CaptionOverlay({ containerRef, controlsVisible, compact 
         // past the player width.
         width: "max-content",
         maxWidth: "min(92%, 56rem)",
-        // Soft-wrap only on whitespace; never break individual words —
+        // Soft-wrap only on whitespace; never break individual words 
         // keeps the bar visually stable even on long cues.
         whiteSpace: "pre-wrap",
         wordBreak: "normal",

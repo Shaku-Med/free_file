@@ -139,7 +139,7 @@ export const action = async ({ request }: { request: Request }) => {
   });
 };
 
-// Coarse IP bucket — must match LoadPlay's fingerprint.IPPrefix (/24 for v4, /64 for v6)
+// Coarse IP bucket  must match LoadPlay's fingerprint.IPPrefix (/24 for v4, /64 for v6)
 // so the LoadPlay side computes the same hash from the live request.
 function ipPrefix(ip: string): string {
   const clean = ip.trim();

@@ -50,7 +50,7 @@ export const action = async ({ request }: { request: Request }) => {
       return toJson({ error: 'Method not allowed' }, 405);
     }
 
-    // Auth check — only authenticated users can trigger trending refresh
+    // Auth check  only authenticated users can trigger trending refresh
     const user = await isAuthenticated(request, ['id']);
     if (!user?.id) {
       return toJson({ error: 'Unauthorized' }, 401);

@@ -32,7 +32,7 @@ const MAX_STICKY_HLS_MOUNT = 20;
 
 const POSITION_PILL_VISIBLE_MS = 2200;
 
-/** Swipe-hint localStorage flag — shown once per browser. */
+/** Swipe-hint localStorage flag  shown once per browser. */
 const SWIPE_HINT_KEY = "memories.reelSwipeHintSeen";
 const SWIPE_HINT_AUTO_DISMISS_MS = 3000;
 
@@ -94,7 +94,7 @@ export const ReelSwiper = ({
 
   const rewindDeck = items.length > 1;
 
-  /** File ids that have been the active slide — stay pre-mounted when user swipes away (FIFO cap). */
+  /** File ids that have been the active slide  stay pre-mounted when user swipes away (FIFO cap). */
   const [stickyHlsIds, setStickyHlsIds] = useState<string[]>([]);
   const stickyHlsSet = useMemo(() => new Set(stickyHlsIds), [stickyHlsIds]);
 
@@ -117,7 +117,7 @@ export const ReelSwiper = ({
       const seen = window.localStorage.getItem(SWIPE_HINT_KEY);
       if (!seen && items.length > 1) setShowHint(true);
     } catch {
-      // storage blocked — skip the hint rather than risk throwing
+      // storage blocked  skip the hint rather than risk throwing
     }
   }, [items.length]);
 
@@ -136,7 +136,7 @@ export const ReelSwiper = ({
     return () => window.clearTimeout(t);
   }, [showHint, dismissHint]);
 
-  /** Position pill visibility — show briefly after each navigation, then fade out. */
+  /** Position pill visibility  show briefly after each navigation, then fade out. */
   const [pillVisible, setPillVisible] = useState(false);
   const pillTimerRef = useRef<number | null>(null);
   const flashPill = useCallback(() => {
@@ -275,7 +275,7 @@ export const ReelSwiper = ({
       )}
     >
       {/*
-        Transform-mode Swiper (NOT cssMode) — the user reported scroll being stuck in cssMode,
+        Transform-mode Swiper (NOT cssMode)  the user reported scroll being stuck in cssMode,
         which is expected because cssMode relies on native scroll-snap and conflicts with the
         nested <video> + overlay chrome. Overlays that must not swipe (Actions rail) use
         `swiper-no-swiping`; everything else forwards touches to Swiper.
@@ -298,7 +298,7 @@ export const ReelSwiper = ({
         rewind={rewindDeck}
         watchSlidesProgress
         speed={240}
-        // Gesture tuning — feels like TikTok, not like a desktop carousel.
+        // Gesture tuning  feels like TikTok, not like a desktop carousel.
         threshold={8}
         longSwipes
         longSwipesMs={180}
@@ -344,7 +344,7 @@ export const ReelSwiper = ({
         ))}
       </Swiper>
 
-      {/* Desktop prev / next — right rail, large screens only (hidden on mobile/tablet portrait). */}
+      {/* Desktop prev / next  right rail, large screens only (hidden on mobile/tablet portrait). */}
       {hasFinePointer && (
         <div
           className={cn(
@@ -384,7 +384,7 @@ export const ReelSwiper = ({
         </div>
       )}
 
-      {/* First-visit swipe hint — arrow + text, auto-dismisses on first swipe or after 3s. */}
+      {/* First-visit swipe hint  arrow + text, auto-dismisses on first swipe or after 3s. */}
       {showHint && (
         <div
           className={cn(

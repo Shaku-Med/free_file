@@ -45,7 +45,7 @@ export const SEEK_TO_EVENT = "memories:seek-to";
 
 export interface SeekToEventDetail {
   seconds: number;
-  /** Optional fileId — if provided, players ignore the event unless their
+  /** Optional fileId  if provided, players ignore the event unless their
    *  current file matches. Useful for embeds on profile pages. */
   fileId?: string;
 }
@@ -158,7 +158,7 @@ function pushMarkdownSegments(text: string, segments: Segment[]) {
  * segments aren't touched).
  *
  * `maxSeconds` filters out absurd numbers (e.g. "99:59" on a 30s clip).
- * If unset, every parseable timestamp becomes a link — the player
+ * If unset, every parseable timestamp becomes a link  the player
  * silently no-ops when seeking past the end.
  */
 function expandTimestamps(segments: Segment[], maxSeconds?: number): Segment[] {

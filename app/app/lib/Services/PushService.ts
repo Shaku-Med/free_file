@@ -80,7 +80,7 @@ export async function sendPushToUser(userId: string, payload: PushPayload): Prom
       const statusCode = err?.statusCode || err?.status;
       console.error(`[Push] Failed to send to subscription ${i + 1}/${subs.length}:`, statusCode, err?.body || err?.message || err);
 
-      // 404 or 410 means the subscription is expired/invalid — remove it
+      // 404 or 410 means the subscription is expired/invalid  remove it
       if (statusCode === 404 || statusCode === 410) {
         expiredEndpoints.push(subs[i].endpoint);
       }

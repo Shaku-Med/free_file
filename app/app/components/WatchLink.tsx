@@ -7,7 +7,7 @@
  * extra state is what a future "true intercepting routes" pass will use
  * to keep the previous page mounted underneath while the modal is open.
  *
- * Until that pass lands, behavior is identical to a normal Link — no
+ * Until that pass lands, behavior is identical to a normal Link  no
  * regressions, just future-proofing every call site so we don't have to
  * touch them again.
  *
@@ -15,7 +15,7 @@
  *   <WatchLink to={fileWatchPath(file)}>...</WatchLink>
  *   <WatchLink to={`/reel/${id}`} replace>...</WatchLink>
  *
- * Anything you'd pass to <Link> works — `to`, `replace`, `prefetch`,
+ * Anything you'd pass to <Link> works  `to`, `replace`, `prefetch`,
  * children, className, onClick, etc. The only behavioral change is the
  * `state` is overridden with `{ backgroundLocation, ...yourState }`.
  */
@@ -30,7 +30,7 @@ const WatchLink = forwardRef<HTMLAnchorElement, WatchLinkProps>(
     const location = useLocation();
 
     // Snapshot the *outgoing* location into state. We only capture
-    // pathname/search/hash — passing the full history `state` object
+    // pathname/search/hash  passing the full history `state` object
     // would create a cyclic reference if the user click-trails through
     // multiple modal opens.
     const mergedState = useMemo(

@@ -100,7 +100,7 @@ func (h *WebRTCHandler) GetStreamType(w http.ResponseWriter, r *http.Request) {
 }
 
 // writeWebRTCResponse forwards MediaMTX's WHIP/WHEP response to the client.
-// Location header must be preserved — the browser uses it for ICE trickle and session teardown.
+// Location header must be preserved  the browser uses it for ICE trickle and session teardown.
 func writeWebRTCResponse(w http.ResponseWriter, resp *models.WebRTCProxyResponse) {
 	if resp.Location != "" {
 		w.Header().Set("Location", resp.Location)

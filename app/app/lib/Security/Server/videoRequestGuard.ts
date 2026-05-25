@@ -52,7 +52,7 @@ function isInAppFetch(headers: Headers): boolean {
   /**
    * Top-level navigations (address bar, open in new tab, clicking a raw .m3u8
    * link) use mode=navigate and Sec-Fetch-User: ?1. hls.js XHR uses mode=cors;
-   * native <video> uses mode=no-cors — neither is a document navigation.
+   * native <video> uses mode=no-cors  neither is a document navigation.
    */
   if (mode === "navigate") return false;
   if (userInitiated === "?1") return false;

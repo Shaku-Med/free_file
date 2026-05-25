@@ -75,7 +75,7 @@ export function VerticalFeedItem({
   );
 
   // NOTE: no manual play/pause here. `HLSPlayer` (via `isReel` + its internal IntersectionObserver)
-  // is the single source of truth for which reel is playing — duplicating the gate here raced with
+  // is the single source of truth for which reel is playing  duplicating the gate here raced with
   // it during Swiper virtual transitions and caused multiple slides to play simultaneously.
 
   return (
@@ -142,7 +142,7 @@ export function VerticalFeedItem({
                 <div className="mt-3 flex items-center gap-2 text-xs text-white/75">
                   <Music2 className="h-4 w-4 shrink-0 opacity-90" aria-hidden />
                   <span className="truncate">
-                    Original sound —{' '}
+                    Original sound {' '}
                     <ParseFilenameInsert
                       filename={
                         file?.file_title?.trim() || file?.filename || item.title || ''

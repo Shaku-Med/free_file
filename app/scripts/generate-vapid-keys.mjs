@@ -57,7 +57,7 @@ async function main() {
   const hasPrivate = existing.VAPID_PRIVATE_KEY && existing.VAPID_PRIVATE_KEY.length > 10;
 
   if (hasPublic && hasPrivate) {
-    console.log("[vapid] .env.notification already has VAPID keys — skipping generation.");
+    console.log("[vapid] .env.notification already has VAPID keys  skipping generation.");
     return;
   }
 

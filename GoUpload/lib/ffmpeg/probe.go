@@ -34,7 +34,7 @@ type LoudnessInfo struct {
 
 func ProbeVideo(path string) (*VideoInfo, error) {
 	args := []string{
-		// Note: do not pass -nostdin here — ffprobe does not support it (only ffmpeg does).
+		// Note: do not pass -nostdin here  ffprobe does not support it (only ffmpeg does).
 		"-v", "quiet",
 		"-analyzeduration", "200M",
 		"-probesize", "200M",

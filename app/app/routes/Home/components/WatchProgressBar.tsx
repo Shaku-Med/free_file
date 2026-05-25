@@ -9,7 +9,7 @@ interface WatchProgressBarProps {
 
 /**
  * Thin red progress strip along the bottom of a video card thumbnail (YouTube style).
- * Reads from the shared `WatchProgressContext` — only renders when the user has watched
+ * Reads from the shared `WatchProgressContext`  only renders when the user has watched
  * this file. Renders nothing for guests, never-watched files, or files where we can't
  * derive a fraction yet.
  */

@@ -2,10 +2,10 @@
 -- Comments: file-level settings + owner moderation (idempotent)
 -- Run once on Supabase/Postgres. Safe to re-run (IF NOT EXISTS / OR REPLACE).
 --
--- files.comments_enabled   — owner can turn comments on/off (default on)
--- files.comment_limit      — NULL = unlimited; 0 = no new comments; N = cap
--- comments.is_hidden       — owner can hide a comment from other viewers
--- delete_comment_cascade   — soft-delete a comment and all nested replies
+-- files.comments_enabled    owner can turn comments on/off (default on)
+-- files.comment_limit       NULL = unlimited; 0 = no new comments; N = cap
+-- comments.is_hidden        owner can hide a comment from other viewers
+-- delete_comment_cascade    soft-delete a comment and all nested replies
 -- =============================================================================
 
 -- File columns

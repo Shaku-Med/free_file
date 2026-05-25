@@ -553,7 +553,7 @@ router.get('/*', async (req: Request, res: Response) => {
             return res.status(404).send(null);
         }
 
-        // Comment images are public — no access control needed, just proxy from GitHub
+        // Comment images are public  no access control needed, just proxy from GitHub
         if (splitUrl.startsWith('comment-images/')) {
             const result = await loadImageWithRetry(
                 splitUrl,
@@ -586,7 +586,7 @@ router.get('/*', async (req: Request, res: Response) => {
             if (!hasAccess && file.is_adult) {
                 shouldBlur = true;
             }
-            // Video-folder comment PNGs: same as comment-images/ — still proxy; optional blur from parent is_adult.
+            // Video-folder comment PNGs: same as comment-images/  still proxy; optional blur from parent is_adult.
             // Do not 403 private parents (avoids broken <img> for comment attachments).
             const isVideoFolderComment = isVideoFolderCommentAttachmentPath(splitUrl);
             if (!isVideoFolderComment && !hasAccess && !file.is_public && !file.is_adult) {
