@@ -100,8 +100,22 @@ func main() {
 	}
 
 	blockedOrigins := env.Get("BLOCKED_ORIGINS", "http://localhost:3006,https://cdn.memories.brozy.org")
-	if ph := strings.TrimSpace(env.Get("PUBLIC_HOST", "")); ph == "" {
+	if ph := strings.TrimSpace(env.Get("PUBLIC_HOST", "")); ph != "" {
 		blockedOrigins = blockedOrigins + "," + strings.TrimRight(ph, "/")
+	}
+
+	appEnv := env.Get("APP_ENV", "development")
+	allowedOriginsCSV := env.Get("ALLOWED_ORIGINS", "")
+	if appEnv == "production" && strings.TrimSpace(allowedOriginsCSV) == "" {
+		log.Fatal("ALLOWED_ORIGINS is required when APP_ENV=production")
+	}
+	publicHost := env.Get("PUBLIC_HOST", "")
+	if appEnv != "production" && strings.Contains(publicHost, "cdn.memories.brozy.org") {
+		lg.Errorf(
+			"WARNING: PUBLIC_HOST=%q while APP_ENV=%q — manifest rewrite will send segment URLs to PROD CDN even though LoadPlay runs locally. Unset PUBLIC_HOST or use http://localhost:3006 for local dev.",
+			publicHost,
+			appEnv,
+		)
 	}
 
 	deps := handler.ManifestDeps{
@@ -146,10 +160,11 @@ func main() {
 	// Browser playback from the main app (different origin/port) is
 	// credentialess — auth rides in ?t= only. CORS must allow the app
 	// origin without credentials so players don't attach huge app cookies.
-	allowedOrigins := env.Get("ALLOWED_ORIGINS", "")
-	if allowedOrigins != "" {
+	if strings.TrimSpace(allowedOriginsCSV) == "" {
+		lg.Errorf("ALLOWED_ORIGINS is empty — all playback requests will be rejected (fail-closed)")
+	} else {
 		app.Use(cors.New(cors.Config{
-			AllowOrigins:     allowedOrigins,
+			AllowOrigins:     allowedOriginsCSV,
 			AllowMethods:     "GET,HEAD,OPTIONS",
 			AllowHeaders:     "Origin,Accept,Range,Content-Type,X-App-Origin,X-App-Referer",
 			AllowCredentials: false,
@@ -175,6 +190,9 @@ func main() {
 
 	// Single route, both manifest + segment. Manifest sniffs on ".m3u8".
 	app.Get("/v/:fileId/*", handler.Segment(deps))
+
+	// Hidden prod go-live ledger — 404 on purpose, body has version dates.
+	app.Get("/live", handler.ProductionLive)
 
 	// Catch-all — anything that isn't /health or /v/... returns a generic
 	// 404 so the CDN doesn't advertise its existence to standalone

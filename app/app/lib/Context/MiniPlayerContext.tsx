@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useCallback, useRef, useEffect } from 'react';
 import { useLocation } from 'react-router';
 import type { FileType } from '~/lib/types';
+import { setCachedPlaybackUrl } from '~/lib/playbackUrlCache';
 
 export interface MiniPlayerState {
   src: string;
@@ -127,6 +128,9 @@ export function MiniPlayerProvider({ children }: { children: React.ReactNode }) 
   }, []);
 
   const activateMiniPlayer = useCallback((state: MiniPlayerState, options?: ActivateMiniPlayerOptions) => {
+    if (state.src && state.file.unique_id) {
+      setCachedPlaybackUrl(state.file.unique_id, state.src);
+    }
     setMiniPlayer(state);
     setIsPortalMode(false);
     setPendingNavigateTo(options?.navigateTo ?? null);

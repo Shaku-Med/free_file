@@ -10,8 +10,9 @@ import { useWatchSurfaceVideoRef } from "~/lib/Context/WatchSurfaceVideoRefConte
 import { useGlobalPlayerLayoutContext } from "~/lib/Context/GlobalPlayerLayoutContext";
 import { useFileContext } from "~/lib/Context/Context";
 import { useAnchorBoundingRect } from "~/lib/hooks/useAnchorBoundingRect";
-import { getVideoSrc, cn } from "~/lib/utils";
+import { cn } from "~/lib/utils";
 import { usePlaybackUrl } from "~/lib/hooks/usePlaybackUrl";
+import { resolvePlaybackSrc } from "~/lib/playbackUrlCache";
 import type { FileType } from "~/lib/types";
 
 const MAIN_ANCHOR_Z = 99_999_995;
@@ -19,15 +20,14 @@ const MAIN_ANCHOR_Z = 99_999_995;
 const MINI_DOCK_Z = 2147483647;
 
 function miniFallbackProps(
-  mini: Pick<MiniPlayerState, "file" | "imageID">,
+  mini: MiniPlayerState,
   videoRef: RefObject<HTMLVideoElement | null>,
   userId: string | null,
-  playbackUrl: string | null,
+  mintedUrl: string | null,
 ): DynamicHLSPlayerWithQueueProps {
   return {
     videoRef,
-    /** Same URL computation as the watch page so `useHLS` never sees a spurious `src` change. */
-    src: getVideoSrc(mini.file.endpoint ?? "", mini.file.file_type, playbackUrl),
+    src: resolvePlaybackSrc(mini.file, { preferredSrc: mini.src, mintedUrl }),
     className: "h-full w-full",
     playsInline: true,
     imageID: mini.imageID,
@@ -59,7 +59,21 @@ export function GlobalAnchoredHLSPlayer() {
   // surface already has one from Dynamic — when the surface clears and
   // mini takes over, this hook re-mints for the same file so playback
   // stays seamless without leaking a URL through HTML.
-  const miniPlaybackUrl = usePlaybackUrl(miniPlayer?.file ?? null);
+  const miniPlaybackUrl = usePlaybackUrl(
+    miniPlayer && !surface?.props ? miniPlayer.file : null,
+  );
+
+  /** Keep one stable src string while the same video moves between watch + mini. */
+  const stableSrcRef = useRef<{ fileId: string; src: string } | null>(null);
+
+  const pickStableSrc = useCallback((fileId: string, nextSrc: string) => {
+    if (nextSrc) {
+      stableSrcRef.current = { fileId, src: nextSrc };
+      return nextSrc;
+    }
+    const prev = stableSrcRef.current;
+    return prev?.fileId === fileId ? prev.src : nextSrc;
+  }, []);
 
   /** Mini takes over only after the watch surface is cleared — same global player, new anchor. */
   const inMiniLayout = Boolean(miniPlayer && !surface?.props);
@@ -100,6 +114,7 @@ export function GlobalAnchoredHLSPlayer() {
   useLayoutEffect(() => {
     if (!miniPlayer && !surface?.props) {
       lastGoodRectRef.current = null;
+      stableSrcRef.current = null;
     }
   }, [miniPlayer, surface?.props]);
 
@@ -119,19 +134,29 @@ export function GlobalAnchoredHLSPlayer() {
 
   const resolved = useMemo(() => {
     if (surface?.props) {
+      const fileId = surface.props.file?.unique_id ?? surface.props.imageID ?? "";
+      const src = pickStableSrc(
+        fileId,
+        resolvePlaybackSrc(surface.props.file ?? { unique_id: fileId }, {
+          preferredSrc: surface.props.src,
+        }),
+      );
       return {
         kind: "watch" as const,
-        props: surface.props,
+        props: { ...surface.props, src },
         theaterMode: surface.theaterMode,
         z: MAIN_ANCHOR_Z,
       };
     }
     if (miniPlayer && !surface?.props) {
+      const fileId = miniPlayer.file.unique_id;
       const p = miniFallbackProps(miniPlayer, videoRef, userId, miniPlaybackUrl);
+      const src = pickStableSrc(fileId, p.src);
       return {
         kind: "mini" as const,
         props: {
           ...p,
+          src,
           onVideoSelect: miniNavigateSelect,
         },
         theaterMode: false,
@@ -139,7 +164,7 @@ export function GlobalAnchoredHLSPlayer() {
       };
     }
     return null;
-  }, [surface, miniPlayer, videoRef, userId, miniNavigateSelect, miniPlaybackUrl]);
+  }, [surface, miniPlayer, videoRef, userId, miniNavigateSelect, miniPlaybackUrl, pickStableSrc]);
 
   useLayoutEffect(() => {
     if (!resolved) {

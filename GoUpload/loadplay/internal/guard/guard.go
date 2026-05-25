@@ -78,7 +78,7 @@ func (c Config) Diagnose(raw string) HostVerdict {
 		return HostVerdict{Reason: "blocked_cdn", Parsed: prefix}
 	}
 	if len(c.AllowedOrigins) == 0 {
-		return HostVerdict{OK: true, Reason: "ok", Parsed: prefix}
+		return HostVerdict{Reason: "not_in_allowlist", Parsed: prefix}
 	}
 	if c.isAllowedHost(raw) {
 		return HostVerdict{OK: true, Reason: "ok", Parsed: prefix}
@@ -104,7 +104,7 @@ func (c Config) AllowsOrigin(raw string) bool {
 		return false
 	}
 	if len(c.AllowedOrigins) == 0 {
-		return true
+		return false
 	}
 	return c.isAllowedHost(raw)
 }

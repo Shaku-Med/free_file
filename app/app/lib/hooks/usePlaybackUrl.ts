@@ -1,18 +1,13 @@
 import { useEffect, useState } from "react";
+import {
+  getCachedPlaybackUrl,
+  setCachedPlaybackUrl,
+} from "~/lib/playbackUrlCache";
 
 /**
- * usePlaybackUrl
- *
  * Fetches a signed LoadPlay URL from POST /api/play/mint when the given
- * file is HLS-shaped. The URL is bound server-side to the requester's
- * IP + UA, so it can't be reused off-device even if it leaks.
- *
- * The URL is never written to HTML or loader JSON — it only exists in
- * component state, which means view-source / scrapers can't lift it.
- *
- * Returns `null` until the mint resolves; callers should pass that
- * straight to `getVideoSrc(..., playbackUrl)` which falls back to the
- * legacy `/api/load/video/` proxy when the URL isn't ready yet.
+ * file is HLS-shaped. URLs are cached in-memory per fileId so watch ↔ mini
+ * handoffs reuse the same ?t= token and Hls.js never reloads the manifest.
  */
 export function usePlaybackUrl(file: {
   unique_id?: string | null;
@@ -23,7 +18,9 @@ export function usePlaybackUrl(file: {
   const fileType = file?.file_type ?? null;
   const endpoint = file?.endpoint ?? null;
 
-  const [url, setUrl] = useState<string | null>(null);
+  const [url, setUrl] = useState<string | null>(() =>
+    fileId ? getCachedPlaybackUrl(fileId) : null,
+  );
 
   useEffect(() => {
     const isHls =
@@ -34,8 +31,13 @@ export function usePlaybackUrl(file: {
       return;
     }
 
+    const cached = getCachedPlaybackUrl(fileId);
+    if (cached) {
+      setUrl(cached);
+      return;
+    }
+
     let cancelled = false;
-    setUrl(null);
     fetch("/api/play/mint", {
       method: "POST",
       credentials: "same-origin",
@@ -51,7 +53,9 @@ export function usePlaybackUrl(file: {
         return body?.url ?? null;
       })
       .then((next) => {
-        if (!cancelled) setUrl(next);
+        if (cancelled || !next) return;
+        setCachedPlaybackUrl(fileId, next);
+        setUrl(next);
       })
       .catch(() => {
         if (!cancelled) setUrl(null);

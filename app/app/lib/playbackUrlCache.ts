@@ -1,0 +1,74 @@
+import { getVideoSrc } from "~/lib/utils";
+
+type CacheEntry = { url: string; exp: number };
+
+/** In-memory mint cache — keeps the same ?t= URL across watch ↔ mini handoffs. */
+const cache = new Map<string, CacheEntry>();
+
+const EXPIRY_BUFFER_MS = 45_000;
+
+function decodeTokenExp(url: string): number | null {
+  try {
+    const token = new URL(url, "http://local").searchParams.get("t");
+    if (!token) return null;
+    const payloadB64 = token.split(".")[0];
+    if (!payloadB64) return null;
+    const padded = payloadB64.replace(/-/g, "+").replace(/_/g, "/");
+    const json = JSON.parse(atob(padded)) as { e?: unknown };
+    return typeof json.e === "number" && Number.isFinite(json.e) ? json.e : null;
+  } catch {
+    return null;
+  }
+}
+
+export function getCachedPlaybackUrl(fileId: string): string | null {
+  if (!fileId) return null;
+  const entry = cache.get(fileId);
+  if (!entry) return null;
+  if (Date.now() >= entry.exp - EXPIRY_BUFFER_MS) {
+    cache.delete(fileId);
+    return null;
+  }
+  return entry.url;
+}
+
+export function setCachedPlaybackUrl(fileId: string, url: string): void {
+  if (!fileId || !url) return;
+  const exp = decodeTokenExp(url) ?? Date.now() + 5 * 60_000;
+  cache.set(fileId, { url, exp });
+}
+
+/** Same manifest path (ignores rotating ?t= tokens). */
+export function playbackAssetPath(url: string): string | null {
+  try {
+    const u = new URL(url, typeof window !== "undefined" ? window.location.origin : "http://local");
+    return u.pathname;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Pick a stable playback src for the global player. Prefers the live
+ * player URL, then cache, then a freshly minted URL.
+ */
+export function resolvePlaybackSrc(
+  file: {
+    unique_id?: string | null;
+    endpoint?: string | null;
+    file_type?: string | null;
+  },
+  opts?: { preferredSrc?: string | null; mintedUrl?: string | null },
+): string {
+  const fileId = file.unique_id ?? "";
+  const preferred = opts?.preferredSrc?.trim();
+  if (preferred) {
+    if (fileId) setCachedPlaybackUrl(fileId, preferred);
+    return preferred;
+  }
+  const cached = fileId ? getCachedPlaybackUrl(fileId) : null;
+  if (cached) return cached;
+  const minted = getVideoSrc(file.endpoint ?? "", file.file_type, opts?.mintedUrl ?? null);
+  if (minted && fileId) setCachedPlaybackUrl(fileId, minted);
+  return minted;
+}

@@ -28,7 +28,10 @@ export const LOADPLAY_PROD_ORIGIN = "https://cdn.memories.brozy.org";
 export function getLoadplayBaseUrl(): string {
   const override = process.env.LOADPLAY_BASE_URL?.trim();
   if (override) return override.replace(/\/+$/, "");
-  if (process.env.NODE_ENV === "production") return LOADPLAY_PROD_ORIGIN;
+  const isProd =
+    process.env.APP_ENV === "production" ||
+    process.env.NODE_ENV === "production";
+  if (isProd) return LOADPLAY_PROD_ORIGIN;
   return LOADPLAY_DEV_ORIGIN;
 }
 

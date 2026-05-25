@@ -73,9 +73,8 @@ func streamStorageObject(
 
 	setPlaybackResponseHeaders(c, deps)
 	c.Set("Content-Type", mediaContentType(relPath))
-	if isSegmentLike(relPath) {
-		c.Set("Content-Disposition", `inline; filename="seg.ts"`)
-	}
+	// No Content-Disposition — .ts in a standalone tab triggers download;
+	// those requests must 403 before we reach here.
 	if res.StatusCode == http.StatusPartialContent {
 		if cr := res.Header.Get("Content-Range"); cr != "" {
 			c.Set("Content-Range", cr)
@@ -100,11 +99,6 @@ func mediaContentType(relPath string) string {
 	default:
 		return "application/octet-stream"
 	}
-}
-
-func isSegmentLike(relPath string) bool {
-	ext := fileExt(relPath)
-	return ext == "ts" || ext == "m4s" || ext == "mp4"
 }
 
 func fileExt(relPath string) string {

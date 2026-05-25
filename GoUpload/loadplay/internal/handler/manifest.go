@@ -49,7 +49,17 @@ type ManifestDeps struct {
 // Generic "something is off, don't tell the client what" response.
 // Per project rules: never leak server-side detail through the body.
 func deny(c *fiber.Ctx, status int) error {
+	setDenyResponseHeaders(c)
 	return c.Status(status).JSON(fiber.Map{"error": "Something's wrong."})
+}
+
+func setDenyResponseHeaders(c *fiber.Ctx) {
+	c.Set("Cache-Control", "private, no-store, no-cache, must-revalidate, max-age=0")
+	c.Set("Pragma", "no-cache")
+	c.Set("Expires", "0")
+	c.Set("CDN-Cache-Control", "no-store")
+	c.Set("X-Content-Type-Options", "nosniff")
+	c.Set("X-Robots-Tag", "noindex, noarchive, nofollow")
 }
 
 // extractClientIP picks the leftmost X-Forwarded-For when present

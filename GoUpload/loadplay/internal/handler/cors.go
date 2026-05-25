@@ -112,23 +112,44 @@ func setPlaybackResponseHeaders(c *fiber.Ctx, deps ManifestDeps) {
 	c.Set("Cache-Control", "private, no-store, no-cache, must-revalidate, max-age=0")
 	c.Set("Pragma", "no-cache")
 	c.Set("Expires", "0")
-	c.Set("Vary", "Origin, Referer, Sec-Fetch-Mode, Sec-Fetch-Dest")
+	c.Set("CDN-Cache-Control", "no-store")
+	c.Set("Vary", "Origin, Referer, Sec-Fetch-Mode, Sec-Fetch-Dest, Sec-Fetch-Site")
 	c.Set("X-Content-Type-Options", "nosniff")
 	c.Set("X-Robots-Tag", "noindex, noarchive, nofollow")
 }
 
 // standaloneReason is non-empty when the request looks like address-bar /
-// "Open in new tab" navigation rather than an in-page HLS fetch.
+// "Open in new tab" navigation or a direct download — NOT an in-page
+// HLS.js XHR (cors + same-site|cross-site + dest=empty).
 func standaloneReason(c *fiber.Ctx) string {
 	mode := strings.ToLower(strings.TrimSpace(c.Get("Sec-Fetch-Mode")))
 	dest := strings.ToLower(strings.TrimSpace(c.Get("Sec-Fetch-Dest")))
+	site := strings.ToLower(strings.TrimSpace(c.Get("Sec-Fetch-Site")))
+	accept := strings.ToLower(strings.TrimSpace(c.Get("Accept")))
+
+	// User-initiated top-level navigation (omnibox, open-in-new-tab).
+	if strings.TrimSpace(c.Get("Sec-Fetch-User")) == "?1" {
+		return "standalone_user_navigation"
+	}
+	// Browser page loads ask for HTML, not HLS segment bytes.
+	if strings.Contains(accept, "text/html") {
+		return "standalone_html_accept"
+	}
 	switch {
 	case mode == "navigate":
 		return "standalone_navigate"
 	case dest == "document" || dest == "iframe":
 		return "standalone_document"
-	case mode != "" && mode != "cors" && mode != "no-cors":
+	case dest == "video" || dest == "audio":
+		return "standalone_media_dest"
+	case site == "none":
+		return "standalone_site_none"
+	case mode == "no-cors":
+		return "standalone_no_cors"
+	case mode != "" && mode != "cors":
 		return "standalone_fetch_mode_" + mode
+	case dest != "" && dest != "empty":
+		return "standalone_dest_" + dest
 	}
 	return ""
 }
