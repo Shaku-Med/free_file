@@ -68,7 +68,7 @@ export function resolvePlaybackSrc(
   }
   const cached = fileId ? getCachedPlaybackUrl(fileId) : null;
   if (cached) return cached;
-  const minted = getVideoSrc(file.endpoint ?? "", file.file_type, opts?.mintedUrl ?? null);
+  const minted = getVideoSrc(file.endpoint ?? "", file.file_type ?? undefined, opts?.mintedUrl ?? null);
   if (minted && fileId) setCachedPlaybackUrl(fileId, minted);
   return minted;
 }

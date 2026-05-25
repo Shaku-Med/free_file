@@ -1218,6 +1218,47 @@ const DynamicPage = ({ is_modal }: DynamicPageProps) => {
 
   const isNavigating = navigation.state === 'loading' && navigation.location?.pathname !== window.location.pathname;
 
+  // Pause-during-Dynamic→Dynamic-navigation:
+  //   When the next route is also a watch page (single-segment path like
+  //   "/<unique_id>"), pause the current video the moment navigation starts.
+  //   This stops the old src from continuing to play while the new file_data
+  //   streams in. Once navigation finishes and the new playback URL resolves,
+  //   useHLS hot-swaps and autoplays the new manifest naturally.
+  //
+  //   We remember whether the user was playing so we can resume after the
+  //   swap completes. Auto-next from the end card always wants to play; a
+  //   user-initiated mid-video navigation also wants to keep playing.
+  const wasPlayingAtNavRef = useRef(false);
+  useEffect(() => {
+    const nextPath = navigation.location?.pathname ?? '';
+    const goingToWatchPage = isSingleSegmentWatchPath(nextPath);
+    if (!isNavigating || !goingToWatchPage) return;
+    const video = watchVideoRef.current;
+    if (!video) return;
+    wasPlayingAtNavRef.current = !video.paused && !video.ended;
+    try {
+      video.pause();
+    } catch {
+      /* ignore */
+    }
+  }, [isNavigating, navigation.location?.pathname]);
+
+  // After the new file_data is mounted and the new playback URL has resolved,
+  // resume playback if the user was playing right before the navigation.
+  useEffect(() => {
+    if (isNavigating || !file_data?.unique_id || !playbackUrl) return;
+    if (!wasPlayingAtNavRef.current) return;
+    wasPlayingAtNavRef.current = false;
+    const video = watchVideoRef.current;
+    if (!video) return;
+    // Small RAF so the new src has actually been attached to the element
+    // by useHLS before we tell it to play.
+    const id = window.requestAnimationFrame(() => {
+      void video.play().catch(() => {});
+    });
+    return () => window.cancelAnimationFrame(id);
+  }, [isNavigating, file_data?.unique_id, playbackUrl]);
+
   const requiredViewSeconds = (() => {
     if (isHLS && file_data?.duration != null && Number(file_data.duration) > 0) {
       const d = Number(file_data.duration);

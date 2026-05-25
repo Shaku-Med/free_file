@@ -114,7 +114,10 @@ export function useHLS(videoRef: React.RefObject<HTMLVideoElement | null>) {
 
     if (canHotSwapHlsjs) {
       const hls = hlsRef.current!;
-      const wasPlaying = !video.paused && !video.ended;
+      // Treat ended video as "was playing" — auto-next after end card
+      // means the user wants the new video to start playing. Otherwise
+      // we'd freeze on the last frame of the previous video.
+      const wasPlaying = (!video.paused && !video.ended) || video.ended;
 
       setState((s) => ({
         ...s,
@@ -126,9 +129,31 @@ export function useHLS(videoRef: React.RefObject<HTMLVideoElement | null>) {
         subtitleTracks: [],
       }));
 
+      // Hard-reset the underlying HTMLVideoElement BEFORE handing it a
+      // new manifest. Without these calls the element stays in its
+      // previous state (ended=true, currentTime=duration, last frame
+      // still painted) and the new manifest never visually replaces it.
+      try {
+        video.pause();
+        // Setting currentTime on an ended element is the canonical way
+        // to clear `ended` and bring it back to "paused at 0".
+        if (Number.isFinite(video.duration) && video.duration > 0) {
+          video.currentTime = 0;
+        }
+      } catch {
+        /* ignore — some browsers throw if duration isn't ready yet */
+      }
+
       const resumeAfterSwap = () => {
         if (cancelled || !mountedRef.current) return;
         if (wasPlaying || autoPlay) {
+          // Reset position again post-parse in case the engine restored
+          // the previous timestamp during manifest swap.
+          try {
+            if (video.currentTime > 0.5) video.currentTime = 0;
+          } catch {
+            /* ignore */
+          }
           void video.play().catch(() => {});
         }
       };
