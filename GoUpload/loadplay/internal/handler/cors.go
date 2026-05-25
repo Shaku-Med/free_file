@@ -1,108 +1,138 @@
 package handler
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/gofiber/fiber/v2"
+
+	"goupload/loadplay/internal/guard"
+	"goupload/lib/logger"
 )
 
-// hasPlaybackContext rejects every request that isn't a player subresource
-// fetch from a real app page. Address-bar pastes, "Open in new tab",
-// bookmarks, direct navigations, view-source — all rejected.
-//
-// We require BOTH:
-//   - Sec-Fetch-* headers consistent with a player subresource fetch
-//     (Mode != "navigate", Site != "none", Dest != "document"). Browsers
-//     don't let JS forge these.
-//   - App Origin/Referer signal pointing at memories.brozy.org.
+type playbackContextResult struct {
+	OK     bool
+	Detail string
+	Origin guard.HostVerdict
+	Refer  guard.HostVerdict
+}
+
+func checkPlaybackContext(c *fiber.Ctx, deps ManifestDeps) playbackContextResult {
+	rawOrigin := strings.TrimSpace(c.Get("Origin"))
+	rawReferer := strings.TrimSpace(c.Get("Referer"))
+	origin := deps.Guard.Diagnose(rawOrigin)
+	referer := deps.Guard.Diagnose(rawReferer)
+
+	if !origin.OK {
+		return playbackContextResult{
+			OK:     false,
+			Detail: fmt.Sprintf("origin_%s", origin.Reason),
+			Origin: origin,
+			Refer:  referer,
+		}
+	}
+	if !referer.OK {
+		return playbackContextResult{
+			OK:     false,
+			Detail: fmt.Sprintf("referer_%s", referer.Reason),
+			Origin: origin,
+			Refer:  referer,
+		}
+	}
+	if reason := standaloneReason(c); reason != "" {
+		return playbackContextResult{
+			OK:     false,
+			Detail: reason,
+			Origin: origin,
+			Refer:  referer,
+		}
+	}
+	return playbackContextResult{
+		OK:     true,
+		Detail: "ok",
+		Origin: origin,
+		Refer:  referer,
+	}
+}
+
 func hasPlaybackContext(c *fiber.Ctx, deps ManifestDeps) bool {
-	// Modern browsers emit these on every request. If they're absent
-	// entirely the client is a curl/cli tool — reject. (Tool-UA filter
-	// already catches the common cases; this is belt-and-suspenders.)
-	mode := strings.ToLower(strings.TrimSpace(c.Get("Sec-Fetch-Mode")))
-	site := strings.ToLower(strings.TrimSpace(c.Get("Sec-Fetch-Site")))
-	dest := strings.ToLower(strings.TrimSpace(c.Get("Sec-Fetch-Dest")))
-
-	// Address-bar paste / typed URL → mode=navigate, site=none, dest=document.
-	// Right-click "Open in new tab" → same. Bookmarks too.
-	if mode == "navigate" || dest == "document" {
-		return false
-	}
-	// "none" = no referrer-y context (typed URL). Legit player fetches
-	// are always "same-site" or "cross-site".
-	if site == "none" {
-		return false
-	}
-	// If Sec-Fetch is missing entirely (very old browser / non-browser
-	// client), require explicit app headers to compensate. We still
-	// allow it to fall through to the Origin check below; if those
-	// aren't set either, we reject.
-	if mode == "" && site == "" && dest == "" {
-		// Falls through; the Origin/Referer check below will reject
-		// unless the client manually set X-App-Origin (legitimate
-		// fallback for old WebViews).
-	}
-
-	origin := strings.TrimSpace(c.Get("Origin"))
-	appOrigin := strings.TrimSpace(c.Get("X-App-Origin"))
-	referer := effectiveReferer(c)
-
-	if origin != "" && deps.Guard.IsBlockedHost(origin) {
-		return false
-	}
-	if appOrigin != "" && deps.Guard.IsBlockedHost(appOrigin) {
-		return false
-	}
-
-	appOriginOK := (origin != "" && deps.Guard.AllowsOrigin(origin)) ||
-		(appOrigin != "" && deps.Guard.AllowsOrigin(appOrigin))
-	if !appOriginOK {
-		return false
-	}
-
-	if referer == "" {
-		return false
-	}
-
-	if deps.Guard.IsBlockedHost(referer) {
-		return true
-	}
-
-	return deps.Guard.AllowsOrigin(referer)
+	return checkPlaybackContext(c, deps).OK
 }
 
-func effectiveReferer(c *fiber.Ctx) string {
-	if r := strings.TrimSpace(c.Get("Referer")); r != "" {
-		return r
+func logPlaybackContext(
+	log *logger.Logger,
+	debug bool,
+	tag string,
+	fileID string,
+	c *fiber.Ctx,
+	deps ManifestDeps,
+	result playbackContextResult,
+) {
+	allowed := deps.Guard.AllowedList()
+	if result.OK {
+		if !debug {
+			return
+		}
+		log.Infof(
+			"%s pass unique_id=%s origin_raw=%q origin_parsed=%q referer_raw=%q referer_parsed=%q allowed=%v sec_mode=%q sec_site=%q sec_dest=%q x_app_origin=%q x_app_referer=%q",
+			tag, fileID,
+			c.Get("Origin"), result.Origin.Parsed,
+			c.Get("Referer"), result.Refer.Parsed,
+			allowed,
+			c.Get("Sec-Fetch-Mode"), c.Get("Sec-Fetch-Site"), c.Get("Sec-Fetch-Dest"),
+			c.Get("X-App-Origin"), c.Get("X-App-Referer"),
+		)
+		return
 	}
-	return strings.TrimSpace(c.Get("X-App-Referer"))
-}
-
-func isNavigateFetch(c *fiber.Ctx) bool {
-	return strings.EqualFold(strings.TrimSpace(c.Get("Sec-Fetch-Mode")), "navigate")
+	log.Errorf(
+		"%s REJECT unique_id=%s reason=%s origin_raw=%q origin_verdict=%s origin_parsed=%q referer_raw=%q referer_verdict=%s referer_parsed=%q allowed=%v blocked=%v sec_mode=%q sec_site=%q sec_dest=%q x_app_origin=%q x_app_referer=%q ua=%q path=%s",
+		tag, fileID, result.Detail,
+		c.Get("Origin"), result.Origin.Reason, result.Origin.Parsed,
+		c.Get("Referer"), result.Refer.Reason, result.Refer.Parsed,
+		allowed, deps.Guard.BlockedOrigins,
+		c.Get("Sec-Fetch-Mode"), c.Get("Sec-Fetch-Site"), c.Get("Sec-Fetch-Dest"),
+		c.Get("X-App-Origin"), c.Get("X-App-Referer"),
+		c.Get("User-Agent"), c.Path(),
+	)
 }
 
 func setPlaybackCORS(c *fiber.Ctx, deps ManifestDeps) {
 	origin := strings.TrimSpace(c.Get("Origin"))
 	if origin != "" && deps.Guard.AllowsOrigin(origin) {
 		c.Set("Access-Control-Allow-Origin", origin)
-		c.Set("Vary", "Origin")
-		return
-	}
-	appOrigin := strings.TrimSpace(c.Get("X-App-Origin"))
-	if appOrigin != "" && deps.Guard.AllowsOrigin(appOrigin) {
-		c.Set("Access-Control-Allow-Origin", appOrigin)
-		c.Set("Vary", "Origin")
 	}
 }
 
-// requestPublicBase returns the URL prefix used when rewriting manifest
-// segment URIs. The Host header is attacker-controllable, so we ONLY
-// honour it when the resulting origin appears on the operator-curated
-// blocked-origins list (which doubles as "LoadPlay's own public hosts").
-// Anything else falls back to the explicit PUBLIC_HOST, then to the
-// first blocked origin — never to the raw Host. Prevents an attacker
-// from making the player follow up to evil.com with our token attached.
+// setPlaybackResponseHeaders prevents browsers from caching segments/manifests
+// for later standalone replay (paste URL in new tab). Without no-store the
+// player fetch caches bytes and a navigation load can replay them without
+// hitting our origin/referer gate.
+func setPlaybackResponseHeaders(c *fiber.Ctx, deps ManifestDeps) {
+	setPlaybackCORS(c, deps)
+	c.Set("Cache-Control", "private, no-store, no-cache, must-revalidate, max-age=0")
+	c.Set("Pragma", "no-cache")
+	c.Set("Expires", "0")
+	c.Set("Vary", "Origin, Referer, Sec-Fetch-Mode, Sec-Fetch-Dest")
+	c.Set("X-Content-Type-Options", "nosniff")
+	c.Set("X-Robots-Tag", "noindex, noarchive, nofollow")
+}
+
+// standaloneReason is non-empty when the request looks like address-bar /
+// "Open in new tab" navigation rather than an in-page HLS fetch.
+func standaloneReason(c *fiber.Ctx) string {
+	mode := strings.ToLower(strings.TrimSpace(c.Get("Sec-Fetch-Mode")))
+	dest := strings.ToLower(strings.TrimSpace(c.Get("Sec-Fetch-Dest")))
+	switch {
+	case mode == "navigate":
+		return "standalone_navigate"
+	case dest == "document" || dest == "iframe":
+		return "standalone_document"
+	case mode != "" && mode != "cors" && mode != "no-cors":
+		return "standalone_fetch_mode_" + mode
+	}
+	return ""
+}
+
 func requestPublicBase(c *fiber.Ctx, deps ManifestDeps) string {
 	if h := strings.TrimSpace(deps.PublicHost); h != "" {
 		return strings.TrimRight(h, "/")
@@ -121,7 +151,5 @@ func requestPublicBase(c *fiber.Ctx, deps ManifestDeps) string {
 	if len(deps.Guard.BlockedOrigins) > 0 {
 		return strings.TrimRight(deps.Guard.BlockedOrigins[0], "/")
 	}
-	// Last resort: c.Hostname() is parsed from Host too, but only host
-	// portion, no scheme injection. Still safer than echoing the raw header.
 	return scheme + "://" + c.Hostname()
 }

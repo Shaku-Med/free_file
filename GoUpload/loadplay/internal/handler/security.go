@@ -66,14 +66,12 @@ func enforcePlaybackSecurity(
 	tok *token.Playback,
 	isManifest bool,
 ) error {
-	if !hasPlaybackContext(c, deps) {
-		deps.Log.Errorf(
-			"playback reject not from app unique_id=%s origin=%q referer=%q app_origin=%q app_referer=%q sec_site=%q sec_mode=%q",
-			tok.FileID, c.Get("Origin"), c.Get("Referer"), c.Get("X-App-Origin"), c.Get("X-App-Referer"),
-			c.Get("Sec-Fetch-Site"), c.Get("Sec-Fetch-Mode"),
-		)
+	ctx := checkPlaybackContext(c, deps)
+	if !ctx.OK {
+		logPlaybackContext(deps.Log, deps.PlaybackDebug, "playback_context", tok.FileID, c, deps, ctx)
 		return deny(c, fiber.StatusForbidden)
 	}
+	logPlaybackContext(deps.Log, deps.PlaybackDebug, "playback_context", tok.FileID, c, deps, ctx)
 	// Nonce binding: a token's nonce is locked to the first fingerprint
 	// that uses it. A copy of the URL pasted into another browser /
 	// network gets rejected even if the HMAC + expiry are still valid.

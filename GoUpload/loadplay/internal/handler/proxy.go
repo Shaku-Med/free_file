@@ -71,10 +71,7 @@ func streamStorageObject(
 		return deny(c, fiber.StatusBadGateway)
 	}
 
-	setPlaybackCORS(c, deps)
-	c.Set("Cache-Control", "private, max-age=30")
-	c.Set("X-Content-Type-Options", "nosniff")
-	c.Set("X-Robots-Tag", "noindex, noarchive, nofollow")
+	setPlaybackResponseHeaders(c, deps)
 	c.Set("Content-Type", mediaContentType(relPath))
 	if isSegmentLike(relPath) {
 		c.Set("Content-Disposition", `inline; filename="seg.ts"`)

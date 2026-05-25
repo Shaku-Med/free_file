@@ -54,9 +54,8 @@ func Segment(deps SegmentDeps) fiber.Handler {
 		}
 
 		// Access control + per-file repo via the same cache pipeline as
-		// the manifest path. Cached for 5 minutes per file, so even a
-		// long HLS playback session with hundreds of segment fetches
-		// translates into a single Supabase round-trip.
+		// the manifest path. Cached in RAM per unique_id — segment storms
+		// do not translate into Supabase round-trips.
 		storageCfg, denyStatus := resolveAccessAndStorage(c.Context(), deps, tok)
 		if denyStatus != 0 {
 			return deny(c, denyStatus)

@@ -4,32 +4,49 @@ import (
 	"context"
 	"errors"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"goupload/loadplay/lib/supabase"
 )
 
+// FileMetaFetcher is the upstream lookup surface. *supabase.Client satisfies it.
+type FileMetaFetcher interface {
+	GetFileMeta(ctx context.Context, uniqueID string) (*supabase.FileMeta, error)
+}
+
 // FileCache keeps file metadata in-memory so the DB doesn't get hit
 // once per HLS segment. Two TTLs:
-//   - hit  → 5 min (file existence + access flags rarely flip mid-watch)
+//   - hit  → default 15 min (matches signed-in playback token; metadata
+//     rarely flips mid-watch)
 //   - miss → 30s (404 / not-found; short so legit creates show up quickly)
-// A simple FIFO eviction caps memory; access patterns are mostly
-// short-lived per-video so LRU isn't worth the extra book-keeping.
+//
+// Concurrent misses for the same id collapse into one upstream call.
 type FileCache struct {
-	client   *supabase.Client
+	client   FileMetaFetcher
 	envRepo  string
 	hitTTL   time.Duration
 	missTTL  time.Duration
 	maxItems int
+	onMiss   func(fileID string)
 
 	mu    sync.RWMutex
 	items map[string]*entry
 	order []string
 
-	// In-flight dedup — if 100 segments for the same file race in
-	// uncached, only ONE Supabase request fires; the others wait.
 	flightMu sync.Mutex
 	flights  map[string]*flight
+
+	hits      atomic.Uint64
+	misses    atomic.Uint64
+	upstreams atomic.Uint64
+}
+
+type Stats struct {
+	Hits      uint64
+	Misses    uint64
+	Upstreams uint64
+	Items     int
 }
 
 type entry struct {
@@ -44,16 +61,17 @@ type flight struct {
 }
 
 type Config struct {
-	Client     *supabase.Client
+	Client     FileMetaFetcher
 	EnvRepo    string
 	HitTTL     time.Duration
 	MissTTL    time.Duration
 	MaxItems   int
+	OnUpstream func(fileID string) // optional; fires on a real Supabase round-trip
 }
 
 func New(cfg Config) *FileCache {
 	if cfg.HitTTL <= 0 {
-		cfg.HitTTL = 5 * time.Minute
+		cfg.HitTTL = 15 * time.Minute
 	}
 	if cfg.MissTTL <= 0 {
 		cfg.MissTTL = 30 * time.Second
@@ -67,8 +85,24 @@ func New(cfg Config) *FileCache {
 		hitTTL:   cfg.HitTTL,
 		missTTL:  cfg.MissTTL,
 		maxItems: cfg.MaxItems,
+		onMiss:   cfg.OnUpstream,
 		items:    make(map[string]*entry, cfg.MaxItems),
 		flights:  make(map[string]*flight),
+	}
+}
+
+// Stats returns cache counters. Upstreams is the number of Supabase
+// round-trips — should stay ~1 per unique_id per hit-TTL window even
+// under heavy segment traffic.
+func (c *FileCache) Stats() Stats {
+	c.mu.RLock()
+	items := len(c.items)
+	c.mu.RUnlock()
+	return Stats{
+		Hits:      c.hits.Load(),
+		Misses:    c.misses.Load(),
+		Upstreams: c.upstreams.Load(),
+		Items:     items,
 	}
 }
 
@@ -78,10 +112,11 @@ func New(cfg Config) *FileCache {
 // `github_repo` if set, otherwise the env fallback.
 func (c *FileCache) Get(ctx context.Context, fileID string) (*supabase.FileMeta, error) {
 	if hit, ok := c.lookup(fileID); ok {
+		c.hits.Add(1)
 		if hit == nil {
 			return nil, supabase.ErrNotFound
 		}
-		return hit, nil
+		return cloneMeta(hit), nil
 	}
 
 	c.flightMu.Lock()
@@ -93,26 +128,29 @@ func (c *FileCache) Get(ctx context.Context, fileID string) (*supabase.FileMeta,
 	c.flightMu.Unlock()
 
 	if busy {
-		// Another goroutine already firing — wait, then read its result.
 		select {
 		case <-fl.done:
 			if errors.Is(fl.err, supabase.ErrNotFound) {
 				return nil, supabase.ErrNotFound
 			}
-			return fl.meta, fl.err
+			return cloneMeta(fl.meta), fl.err
 		case <-ctx.Done():
 			return nil, ctx.Err()
 		}
 	}
 
+	c.misses.Add(1)
+	c.upstreams.Add(1)
+	if c.onMiss != nil {
+		c.onMiss(fileID)
+	}
+
 	meta, err := c.client.GetFileMeta(ctx, fileID)
-	// Apply env fallback before caching so consumers don't have to.
 	if meta != nil && meta.GithubRepo == "" {
 		meta.GithubRepo = c.envRepo
 	}
 	c.store(fileID, meta, err)
 
-	// Hand the result to any waiters and clear the flight.
 	c.flightMu.Lock()
 	fl.meta, fl.err = meta, err
 	close(fl.done)
@@ -122,7 +160,7 @@ func (c *FileCache) Get(ctx context.Context, fileID string) (*supabase.FileMeta,
 	if errors.Is(err, supabase.ErrNotFound) {
 		return nil, supabase.ErrNotFound
 	}
-	return meta, err
+	return cloneMeta(meta), err
 }
 
 func (c *FileCache) lookup(fileID string) (*supabase.FileMeta, bool) {
@@ -169,4 +207,12 @@ func (c *FileCache) store(fileID string, meta *supabase.FileMeta, err error) {
 		c.order = c.order[1:]
 		delete(c.items, oldest)
 	}
+}
+
+func cloneMeta(m *supabase.FileMeta) *supabase.FileMeta {
+	if m == nil {
+		return nil
+	}
+	cp := *m
+	return &cp
 }

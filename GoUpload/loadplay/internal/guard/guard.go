@@ -5,9 +5,7 @@ import (
 	"strings"
 )
 
-// Soft hot-link gate. Returns "" when the request looks legit, else a
-// short reason string the caller can log. Token + HMAC are the real
-// auth; this layer just cuts down on casual leeching.
+// Config holds hot-link / origin allowlists for LoadPlay.
 type Config struct {
 	AllowedOrigins []string
 	BlockedOrigins []string
@@ -34,6 +32,9 @@ func splitCSV(raw string) []string {
 }
 
 func (c Config) Check(origin, referer, userAgent string) string {
+	if strings.TrimSpace(origin) == "" || strings.TrimSpace(referer) == "" {
+		return "missing-origin-or-referer"
+	}
 	if origin != "" {
 		if c.IsBlockedHost(origin) {
 			return "self-origin"
@@ -44,9 +45,9 @@ func (c Config) Check(origin, referer, userAgent string) string {
 	}
 	if referer != "" {
 		if c.IsBlockedHost(referer) {
-			// HLS follow-up requests often carry a LoadPlay manifest URL as
-			// Referer. Combined Origin checks happen in enforcePlaybackSecurity.
-		} else if !c.isAllowedHost(referer) {
+			return "self-referer"
+		}
+		if !c.isAllowedHost(referer) {
 			return "referer"
 		}
 	}
@@ -56,21 +57,58 @@ func (c Config) Check(origin, referer, userAgent string) string {
 	return ""
 }
 
-func (c Config) AllowsOrigin(origin string) bool {
-	if origin == "" {
+// HostVerdict explains why a header passed or failed the allowlist.
+type HostVerdict struct {
+	OK     bool
+	Reason string // missing | parse_failed | blocked_cdn | not_in_allowlist | ok
+	Parsed string // normalized scheme://host[:port]
+}
+
+// Diagnose checks one Origin or Referer value against the allowlist.
+func (c Config) Diagnose(raw string) HostVerdict {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return HostVerdict{Reason: "missing"}
+	}
+	prefix, ok := hostPrefix(raw)
+	if !ok {
+		return HostVerdict{Reason: "parse_failed", Parsed: raw}
+	}
+	if c.IsBlockedHost(raw) {
+		return HostVerdict{Reason: "blocked_cdn", Parsed: prefix}
+	}
+	if len(c.AllowedOrigins) == 0 {
+		return HostVerdict{OK: true, Reason: "ok", Parsed: prefix}
+	}
+	if c.isAllowedHost(raw) {
+		return HostVerdict{OK: true, Reason: "ok", Parsed: prefix}
+	}
+	return HostVerdict{Reason: "not_in_allowlist", Parsed: prefix}
+}
+
+func (c Config) AllowedList() []string {
+	out := make([]string, len(c.AllowedOrigins))
+	copy(out, c.AllowedOrigins)
+	return out
+}
+
+// AllowsOrigin is true when raw parses to an exact scheme://host match on
+// ALLOWED_ORIGINS. Uses net/url — never a substring/contains check, so
+// https://memories.brozy.org.evil.com and
+// https://evil.com/?ref=https://memories.brozy.org do not pass.
+func (c Config) AllowsOrigin(raw string) bool {
+	if raw == "" {
 		return false
 	}
-	if c.IsBlockedHost(origin) {
+	if c.IsBlockedHost(raw) {
 		return false
 	}
 	if len(c.AllowedOrigins) == 0 {
 		return true
 	}
-	return c.isAllowedHost(origin)
+	return c.isAllowedHost(raw)
 }
 
-// IsBlockedHost is true when the URL belongs to LoadPlay itself — standalone
-// browser access, pasted CDN links, etc. Must never count as app context.
 func (c Config) IsBlockedHost(raw string) bool {
 	prefix, ok := hostPrefix(raw)
 	if !ok {
@@ -92,7 +130,7 @@ func (c Config) isAllowedHost(raw string) bool {
 	}
 	for _, allowed := range c.AllowedOrigins {
 		ap, ok := hostPrefix(allowed)
-		if ok && strings.EqualFold(ap, prefix) {
+		if ok && ap == prefix {
 			return true
 		}
 	}
@@ -104,11 +142,19 @@ func hostPrefix(raw string) (string, bool) {
 	if err != nil || u.Host == "" {
 		return "", false
 	}
-	scheme := strings.ToLower(u.Scheme)
-	if scheme == "" {
-		scheme = "https"
+	if u.User != nil {
+		return "", false
 	}
-	return scheme + "://" + strings.ToLower(u.Host), true
+	scheme := strings.ToLower(u.Scheme)
+	if scheme != "http" && scheme != "https" {
+		return "", false
+	}
+	host := strings.ToLower(u.Hostname())
+	port := u.Port()
+	if port != "" {
+		host = host + ":" + port
+	}
+	return scheme + "://" + host, true
 }
 
 func looksLikeTool(ua string) bool {

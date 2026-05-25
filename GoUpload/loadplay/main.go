@@ -27,6 +27,18 @@ import (
 	"goupload/lib/logger"
 )
 
+func parseDurationEnv(key string, fallback time.Duration) time.Duration {
+	raw := strings.TrimSpace(env.Get(key, ""))
+	if raw == "" {
+		return fallback
+	}
+	d, err := time.ParseDuration(raw)
+	if err != nil || d <= 0 {
+		return fallback
+	}
+	return d
+}
+
 // LoadPlay — small CDN-style service that fronts HLS playback. Validates
 // HMAC-signed playback tokens minted by the main app. Manifests are
 // fetched + rewritten in flight; segments are proxied (storage URLs
@@ -44,6 +56,7 @@ import (
 //   PUBLIC_HOST             optional public CDN base, also added to blocked origins
 //   REQUIRE_FINGERPRINT     "1" to enforce IP/UA binding (default off until app side starts emitting it)
 //   BLOCK_TOOL_UA           "1" to reject curl/Postman/etc by UA string
+//   PLAYBACK_DEBUG          "1" to log every successful origin/referer check too
 func main() {
 	lg := logger.New(2048)
 	_ = env.Load(".env")
@@ -67,20 +80,27 @@ func main() {
 	var fileCache *cache.FileCache
 	if supaURL != "" && supaKey != "" {
 		client := supabase.New(supaURL, supaKey)
+		hitTTL := parseDurationEnv("FILE_CACHE_HIT_TTL", 15*time.Minute)
+		missTTL := parseDurationEnv("FILE_CACHE_MISS_TTL", 30*time.Second)
 		fileCache = cache.New(cache.Config{
 			Client:   client,
 			EnvRepo:  repo,
-			HitTTL:   5 * time.Minute,
-			MissTTL:  30 * time.Second,
+			HitTTL:   hitTTL,
+			MissTTL:  missTTL,
 			MaxItems: 5000,
+			OnUpstream: func(fileID string) {
+				if env.Get("PLAYBACK_DEBUG", "0") == "1" {
+					lg.Infof("file_cache upstream unique_id=%s (one Supabase round-trip; segments reuse RAM cache)", fileID)
+				}
+			},
 		})
-		lg.Infof("supabase access-control enabled (hit_ttl=5m miss_ttl=30s)")
+		lg.Infof("supabase access-control enabled (hit_ttl=%s miss_ttl=%s)", hitTTL, missTTL)
 	} else {
 		lg.Infof("supabase env not set — running without DB access control")
 	}
 
 	blockedOrigins := env.Get("BLOCKED_ORIGINS", "http://localhost:3006,https://cdn.memories.brozy.org")
-	if ph := strings.TrimSpace(env.Get("PUBLIC_HOST", "")); ph != "" {
+	if ph := strings.TrimSpace(env.Get("PUBLIC_HOST", "")); ph == "" {
 		blockedOrigins = blockedOrigins + "," + strings.TrimRight(ph, "/")
 	}
 
@@ -109,7 +129,8 @@ func main() {
 		// Upstream concurrency cap. If GitHub slows, in-flight fetches
 		// queue up to 2s then 503 with Retry-After so we shed load
 		// instead of growing memory.
-		FetchGate: fetchgate.New(64, 2*time.Second),
+		FetchGate:     fetchgate.New(64, 2*time.Second),
+		PlaybackDebug: env.Get("PLAYBACK_DEBUG", "0") == "1",
 	}
 
 	app := fiber.New(fiber.Config{
@@ -135,10 +156,30 @@ func main() {
 		}))
 	}
 
-	app.Get("/health", handler.Health)
+	app.Get("/health", func(c *fiber.Ctx) error {
+		if !handler.IsInternalPeer(c.IP()) {
+			return handler.NotFound(c)
+		}
+		body := fiber.Map{"ok": true}
+		if fileCache != nil {
+			st := fileCache.Stats()
+			body["file_cache"] = fiber.Map{
+				"hits":      st.Hits,
+				"misses":    st.Misses,
+				"upstreams": st.Upstreams,
+				"items":     st.Items,
+			}
+		}
+		return c.JSON(body)
+	})
 
 	// Single route, both manifest + segment. Manifest sniffs on ".m3u8".
 	app.Get("/v/:fileId/*", handler.Segment(deps))
+
+	// Catch-all — anything that isn't /health or /v/... returns a generic
+	// 404 so the CDN doesn't advertise its existence to standalone
+	// visitors. Must be registered LAST so it doesn't shadow real routes.
+	app.Use(handler.NotFound)
 
 	port := env.Get("PORT", "3006")
 	lg.Infof("LoadPlay listening on :%s", port)

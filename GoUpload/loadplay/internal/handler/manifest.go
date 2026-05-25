@@ -42,7 +42,8 @@ type ManifestDeps struct {
 	Allowlist     *guest.Allowlist
 	NonceStore    *noncestore.Store
 	ManifestCache *manifestcache.Cache
-	FetchGate     *fetchgate.Gate
+	FetchGate       *fetchgate.Gate
+	PlaybackDebug   bool
 }
 
 // Generic "something is off, don't tell the client what" response.
@@ -87,9 +88,9 @@ func Manifest(deps ManifestDeps) fiber.Handler {
 			return deny(c, fiber.StatusForbidden)
 		}
 
-		// DB-backed access control + per-file repo. Cached aggressively
-		// (5 min on hits, 30s on misses, dedup on concurrent fetches)
-		// so heavy playback traffic doesn't translate into DB pressure.
+		// DB-backed access control + per-file repo. Cached in RAM (default
+		// 15 min on hits, 30s on misses, singleflight on concurrent misses)
+		// so hundreds of segment fetches per video → one Supabase call.
 		storageCfg, denyStatus := resolveAccessAndStorage(c.Context(), deps, tok)
 		if denyStatus != 0 {
 			return deny(c, denyStatus)
@@ -128,8 +129,7 @@ func Manifest(deps ManifestDeps) fiber.Handler {
 			return deny(c, fiber.StatusBadGateway)
 		}
 
-		setPlaybackCORS(c, deps)
-		c.Set("Cache-Control", "no-store")
+		setPlaybackResponseHeaders(c, deps)
 		c.Set("Content-Type", "application/vnd.apple.mpegurl")
 		return c.SendString(rewritten)
 	}
@@ -152,8 +152,15 @@ func manifestPathAllowed(asked, allowed string) bool {
 }
 
 func softGuardOrFingerprint(c *fiber.Ctx, deps ManifestDeps, tok *token.Playback) error {
-	if reason := deps.Guard.Check(c.Get("Origin"), c.Get("Referer"), c.Get("User-Agent")); reason != "" {
-		deps.Log.Errorf("guard reject reason=%s", reason)
+	origin := c.Get("Origin")
+	referer := c.Get("Referer")
+	if reason := deps.Guard.Check(origin, referer, c.Get("User-Agent")); reason != "" {
+		od := deps.Guard.Diagnose(origin)
+		rd := deps.Guard.Diagnose(referer)
+		deps.Log.Errorf(
+			"guard reject reason=%s unique_id=%s origin_raw=%q origin_verdict=%s referer_raw=%q referer_verdict=%s allowed=%v ua=%q",
+			reason, tok.FileID, origin, od.Reason, referer, rd.Reason, deps.Guard.AllowedList(), c.Get("User-Agent"),
+		)
 		return deny(c, fiber.StatusForbidden)
 	}
 	if !deps.RequireBind {
