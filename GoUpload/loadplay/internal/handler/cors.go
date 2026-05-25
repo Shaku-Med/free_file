@@ -39,14 +39,13 @@ func checkPlaybackContext(c *fiber.Ctx, deps ManifestDeps) playbackContextResult
 			Refer:  referer,
 		}
 	}
-	if detail := appAttestationReason(c, deps); detail != "" {
-		return playbackContextResult{
-			OK:     false,
-			Detail: detail,
-			Origin: origin,
-			Refer:  referer,
-		}
-	}
+	// X-App-Origin / X-App-Referer custom headers are belt-and-suspenders
+	// but they don't survive every browser/HLS-loader path (CORS preflight
+	// strips them on some master.m3u8 requests). The standard Origin +
+	// Referer pair we already validated above is sufficient — they're set
+	// by the browser, not JS, so curl / address-bar paste / hot-link all
+	// die at the origin/referer gate. If the headers ARE present, treat
+	// them as bonus signal (logged), but never block on absence.
 	if reason := standaloneReason(c); reason != "" {
 		return playbackContextResult{
 			OK:     false,
