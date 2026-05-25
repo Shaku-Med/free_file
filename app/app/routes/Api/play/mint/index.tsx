@@ -35,10 +35,32 @@ const jsonError = (status: number) =>
     headers: { "Content-Type": "application/json" },
   });
 
+// Public origin behind the reverse proxy. `request.url` is the internal
+// node URL (http://127.0.0.1:PORT) when nginx is in front, so we have
+// to reconstruct from forwarded headers OR the Host header.
+function expectedOrigin(request: Request): string {
+  const fwdHost = request.headers.get("X-Forwarded-Host") ?? "";
+  const host = request.headers.get("Host") ?? "";
+  const publicHost = fwdHost || host;
+  if (!publicHost) {
+    try {
+      return new URL(request.url).origin;
+    } catch {
+      return "";
+    }
+  }
+  const fwdProto = request.headers.get("X-Forwarded-Proto") ?? "";
+  const proto =
+    fwdProto ||
+    (request.url.startsWith("https://") ? "https" : "http");
+  return `${proto}://${publicHost}`;
+}
+
 function isSameOrigin(request: Request): boolean {
   const origin = request.headers.get("Origin") ?? "";
   const referer = request.headers.get("Referer") ?? "";
-  const expected = new URL(request.url).origin;
+  const expected = expectedOrigin(request);
+  if (!expected) return false;
   if (origin && origin !== expected) return false;
   if (!origin && !referer) return false;
   if (referer) {
