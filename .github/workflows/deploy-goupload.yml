@@ -172,6 +172,8 @@ jobs:
           context: ./GoUpload
           file: ./GoUpload/loadplay/Dockerfile
           push: true
+          build-args: |
+            BUILD_VERSION=${{ github.sha }}
           tags: |
             ${{ steps.tags.outputs.loadplay }}
             ${{ steps.tags.outputs.loadplay_latest }}

@@ -27,6 +27,9 @@ import (
 	"goupload/lib/logger"
 )
 
+// Set at link time by Docker/CI (-ldflags). Verify prod via GET /live → "build" field.
+var buildVersion = "dev"
+
 func parseDurationEnv(key string, fallback time.Duration) time.Duration {
 	raw := strings.TrimSpace(env.Get(key, ""))
 	if raw == "" {
@@ -59,6 +62,7 @@ func parseDurationEnv(key string, fallback time.Duration) time.Duration {
 //   PLAYBACK_DEBUG          "1" to log every successful origin/referer check too
 func main() {
 	lg := logger.New(2048)
+	handler.SetBuildVersion(buildVersion)
 	_ = env.Load(".env")
 
 	secret := env.EnvValidator("PLAYBACK_TOKEN_SECRET")
@@ -200,7 +204,7 @@ func main() {
 	app.Use(handler.NotFound)
 
 	port := env.Get("PORT", "3006")
-	lg.Infof("LoadPlay listening on :%s", port)
+	lg.Infof("LoadPlay listening on :%s (playback security: origin+referer+sec-fetch+cors)", port)
 
 	// Graceful shutdown: stop accepting, finish in-flight, then exit.
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)

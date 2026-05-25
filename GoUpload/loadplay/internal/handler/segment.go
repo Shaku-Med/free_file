@@ -17,6 +17,14 @@ type SegmentDeps = ManifestDeps
 // Storage URLs never reach the client — same as /api/load/video.
 func Segment(deps SegmentDeps) fiber.Handler {
 	return func(c *fiber.Ctx) error {
+		// HARD GATE: Origin + Referer both required, both must match
+		// allowed app/CDN hosts. Runs BEFORE everything else — curl,
+		// address-bar paste, "Open in new tab", view-source, evil.com
+		// hot-link all die here.
+		if denyResp := playbackPreflight(c, deps); denyResp != nil {
+			return denyResp
+		}
+
 		askedPath := c.Params("*")
 		if strings.HasSuffix(strings.ToLower(askedPath), ".m3u8") {
 			// m3u8 always goes through Manifest, never here.

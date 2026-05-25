@@ -9,9 +9,12 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     go mod download
 COPY . .
+ARG BUILD_VERSION=dev
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
-    CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/loadplay ./loadplay
+    CGO_ENABLED=0 GOOS=linux go build -trimpath \
+      -ldflags="-s -w -X main.buildVersion=${BUILD_VERSION}" \
+      -o /out/loadplay ./loadplay
 
 # ── Final ─────────────────────────────────────────────
 FROM alpine:3.20

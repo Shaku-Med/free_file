@@ -32,6 +32,9 @@ func splitCSV(raw string) []string {
 }
 
 func (c Config) Check(origin, referer, userAgent string) string {
+	if c.BlockToolUA && looksLikeTool(userAgent) {
+		return "tool-ua"
+	}
 	if strings.TrimSpace(origin) == "" || strings.TrimSpace(referer) == "" {
 		return "missing-origin-or-referer"
 	}

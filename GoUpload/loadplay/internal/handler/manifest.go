@@ -75,6 +75,14 @@ func extractClientIP(c *fiber.Ctx) string {
 // segment file so the player keeps coming back through the CDN.
 func Manifest(deps ManifestDeps) fiber.Handler {
 	return func(c *fiber.Ctx) error {
+		// HARD GATE: Origin + Referer both required, both must match
+		// allowed app/CDN hosts. Runs BEFORE token verify so curl /
+		// address-bar / hot-link attempts are 403'd without revealing
+		// whether the token is even valid.
+		if denyResp := playbackPreflight(c, deps); denyResp != nil {
+			return denyResp
+		}
+
 		rawTok := c.Query("t")
 		if rawTok == "" {
 			return deny(c, fiber.StatusUnauthorized)

@@ -43,5 +43,6 @@ func ProductionLive(c *fiber.Ctx) error {
 		"error":    "Something's wrong.",
 		"message":  productionLiveMessage(),
 		"releases": productionLiveLedger,
+		"build":    BuildVersion,
 	})
 }

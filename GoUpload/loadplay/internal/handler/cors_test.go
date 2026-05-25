@@ -17,6 +17,17 @@ func testGuard() guard.Config {
 	)
 }
 
+func setHLSSecFetch(c *fiber.Ctx) {
+	c.Request().Header.Set("Sec-Fetch-Mode", "cors")
+	c.Request().Header.Set("Sec-Fetch-Site", "same-site")
+	c.Request().Header.Set("Sec-Fetch-Dest", "empty")
+}
+
+func setAppAttestation(c *fiber.Ctx, origin, referer string) {
+	c.Request().Header.Set("X-App-Origin", origin)
+	c.Request().Header.Set("X-App-Referer", referer)
+}
+
 func TestHasPlaybackContext(t *testing.T) {
 	deps := ManifestDeps{Guard: testGuard()}
 
@@ -45,6 +56,10 @@ func TestHasPlaybackContext(t *testing.T) {
 				}
 				if tc.referer != "" {
 					c.Request().Header.Set("Referer", tc.referer)
+				}
+				if tc.want {
+					setHLSSecFetch(c)
+					setAppAttestation(c, tc.origin, tc.referer)
 				}
 				got := hasPlaybackContext(c, deps)
 				if got != tc.want {
@@ -85,9 +100,8 @@ func TestHLSFetchAllowed(t *testing.T) {
 	app.Get("/", func(c *fiber.Ctx) error {
 		c.Request().Header.Set("Origin", "http://localhost:3000")
 		c.Request().Header.Set("Referer", "http://localhost:3000/watch/abc")
-		c.Request().Header.Set("Sec-Fetch-Mode", "cors")
-		c.Request().Header.Set("Sec-Fetch-Site", "same-site")
-		c.Request().Header.Set("Sec-Fetch-Dest", "empty")
+		setHLSSecFetch(c)
+		setAppAttestation(c, "http://localhost:3000", "http://localhost:3000/watch/abc")
 		c.Request().Header.Set("Accept", "*/*")
 		if !hasPlaybackContext(c, deps) {
 			t.Fatal("expected in-page cors fetch to pass")
@@ -111,6 +125,41 @@ func TestStandaloneSiteNoneRejected(t *testing.T) {
 		c.Request().Header.Set("Sec-Fetch-Dest", "empty")
 		if hasPlaybackContext(c, deps) {
 			t.Fatal("expected site=none to be rejected")
+		}
+		return nil
+	})
+	req := httptest.NewRequest("GET", "/", nil)
+	if _, err := app.Test(req); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestMissingAppHeadersRejected(t *testing.T) {
+	deps := ManifestDeps{Guard: testGuard()}
+	app := fiber.New()
+	app.Get("/", func(c *fiber.Ctx) error {
+		c.Request().Header.Set("Origin", "http://localhost:3000")
+		c.Request().Header.Set("Referer", "http://localhost:3000/watch/abc")
+		setHLSSecFetch(c)
+		if hasPlaybackContext(c, deps) {
+			t.Fatal("expected missing X-App-* headers to be rejected")
+		}
+		return nil
+	})
+	req := httptest.NewRequest("GET", "/", nil)
+	if _, err := app.Test(req); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestBareCurlLikeRejected(t *testing.T) {
+	deps := ManifestDeps{Guard: testGuard()}
+	app := fiber.New()
+	app.Get("/", func(c *fiber.Ctx) error {
+		c.Request().Header.Set("User-Agent", "curl/8.5.0")
+		c.Request().Header.Set("Accept", "*/*")
+		if hasPlaybackContext(c, deps) {
+			t.Fatal("expected bare curl-like request to be rejected")
 		}
 		return nil
 	})
@@ -146,6 +195,8 @@ func TestStandaloneHtmlAcceptRejected(t *testing.T) {
 	app.Get("/", func(c *fiber.Ctx) error {
 		c.Request().Header.Set("Origin", "http://localhost:3000")
 		c.Request().Header.Set("Referer", "http://localhost:3000/watch/abc")
+		c.Request().Header.Set("Sec-Fetch-Mode", "cors")
+		c.Request().Header.Set("Sec-Fetch-Site", "same-site")
 		c.Request().Header.Set("Accept", "text/html,application/xhtml+xml")
 		if hasPlaybackContext(c, deps) {
 			t.Fatal("expected html accept to be rejected")

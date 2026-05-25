@@ -39,6 +39,14 @@ func checkPlaybackContext(c *fiber.Ctx, deps ManifestDeps) playbackContextResult
 			Refer:  referer,
 		}
 	}
+	if detail := appAttestationReason(c, deps); detail != "" {
+		return playbackContextResult{
+			OK:     false,
+			Detail: detail,
+			Origin: origin,
+			Refer:  referer,
+		}
+	}
 	if reason := standaloneReason(c); reason != "" {
 		return playbackContextResult{
 			OK:     false,
@@ -127,6 +135,12 @@ func standaloneReason(c *fiber.Ctx) string {
 	site := strings.ToLower(strings.TrimSpace(c.Get("Sec-Fetch-Site")))
 	accept := strings.ToLower(strings.TrimSpace(c.Get("Accept")))
 
+	// curl/wget/scripts omit the Sec-Fetch-* family; real browser subresource
+	// fetches (HLS.js XHR) always send at least Sec-Fetch-Mode.
+	if mode == "" && dest == "" && site == "" {
+		return "missing_sec_fetch"
+	}
+
 	// User-initiated top-level navigation (omnibox, open-in-new-tab).
 	if strings.TrimSpace(c.Get("Sec-Fetch-User")) == "?1" {
 		return "standalone_user_navigation"
@@ -144,12 +158,31 @@ func standaloneReason(c *fiber.Ctx) string {
 		return "standalone_media_dest"
 	case site == "none":
 		return "standalone_site_none"
-	case mode == "no-cors":
-		return "standalone_no_cors"
-	case mode != "" && mode != "cors":
+	// HLS.js in-page fetch must be cors + same-site|cross-site + empty dest.
+	case mode != "cors":
 		return "standalone_fetch_mode_" + mode
-	case dest != "" && dest != "empty":
+	case site != "same-site" && site != "cross-site" && site != "same-origin":
+		return "standalone_site_" + site
+	case dest != "empty":
 		return "standalone_dest_" + dest
+	}
+	return ""
+}
+
+// appAttestationReason requires X-App-Origin + X-App-Referer — set only by
+// our HLS.js client (useHLS.ts). nginx reverse proxies must NOT inject these;
+// if they only forge Origin/Referer/Sec-Fetch, curl still fails here.
+func appAttestationReason(c *fiber.Ctx, deps ManifestDeps) string {
+	xOrigin := strings.TrimSpace(c.Get("X-App-Origin"))
+	xReferer := strings.TrimSpace(c.Get("X-App-Referer"))
+	if xOrigin == "" || xReferer == "" {
+		return "missing_app_headers"
+	}
+	if v := deps.Guard.Diagnose(xOrigin); !v.OK {
+		return "app_origin_" + v.Reason
+	}
+	if v := deps.Guard.Diagnose(xReferer); !v.OK {
+		return "app_referer_" + v.Reason
 	}
 	return ""
 }
