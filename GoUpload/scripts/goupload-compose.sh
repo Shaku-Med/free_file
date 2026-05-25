@@ -81,8 +81,8 @@ case "$ACTION" in
     ;;
   login)
     # Reads token from stdin only — we never accept it as an argv (would
-    # leak into `ps`/audit logs).
-    user="${2:-}"
+    # leak into `ps`/audit logs). Username is $1 after the action shift.
+    user="${1:-}"
     if [[ -z "$user" ]]; then
       echo "goupload-compose: login requires username arg" >&2
       exit 2
