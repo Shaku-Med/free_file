@@ -46,11 +46,25 @@ type ManifestDeps struct {
 	PlaybackDebug   bool
 }
 
+// ErrPlaybackDenied is the sentinel returned by deny() so callers'
+// `if err != nil { return err }` actually short-circuits the handler.
+//
+// CRITICAL: deny() must NOT return nil. c.Status(...).JSON(...) returns
+// nil on success, which would let the caller continue past the reject —
+// the handler would then keep running, generate the manifest, and
+// SendString it, overwriting the JSON body but leaving the 403 status.
+// Result: 403 response with the real manifest in the body. That's a
+// catastrophic leak: an attacker sees the segment URLs and can fetch
+// them directly. The sentinel error breaks that chain.
+var ErrPlaybackDenied = errors.New("playback denied")
+
 // Generic "something is off, don't tell the client what" response.
 // Per project rules: never leak server-side detail through the body.
+// Returns ErrPlaybackDenied so the caller's `if err != nil` check fires.
 func deny(c *fiber.Ctx, status int) error {
 	setDenyResponseHeaders(c)
-	return c.Status(status).JSON(fiber.Map{"error": "Something's wrong."})
+	_ = c.Status(status).JSON(fiber.Map{"error": "Something's wrong."})
+	return ErrPlaybackDenied
 }
 
 func setDenyResponseHeaders(c *fiber.Ctx) {

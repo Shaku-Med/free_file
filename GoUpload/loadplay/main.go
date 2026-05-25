@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"log"
 	"net/http"
 	"os/signal"
@@ -158,6 +159,19 @@ func main() {
 		WriteTimeout:          5 * time.Minute,
 		IdleTimeout:           120 * time.Second,
 		ProxyHeader:           "X-Forwarded-For",
+		// deny() returns ErrPlaybackDenied AFTER writing the 4xx body.
+		// Fiber's DefaultErrorHandler would overwrite with err.Error()
+		// — we don't want that. Recognize the sentinel and just return
+		// (response is already constructed). Everything else falls
+		// through to a generic 500 with the same opaque body.
+		ErrorHandler: func(c *fiber.Ctx, err error) error {
+			if errors.Is(err, handler.ErrPlaybackDenied) {
+				return nil
+			}
+			c.Set("Cache-Control", "private, no-store")
+			return c.Status(fiber.StatusInternalServerError).
+				JSON(fiber.Map{"error": "Something's wrong."})
+		},
 	})
 	app.Use(recover.New())
 
