@@ -1,5 +1,6 @@
 name: Deploy GoUpload (Docker)
 
+# VPS / Go stack only — never runs for app-only pushes.
 on:
   push:
     branches: [main]
@@ -15,16 +16,100 @@ env:
   REPO_SLUG: ${{ github.event.repository.name }}
 
 jobs:
+  changes:
+    name: Detect changed services
+    runs-on: ubuntu-latest
+    outputs:
+      goupload: ${{ steps.flags.outputs.goupload }}
+      nsfwapi: ${{ steps.flags.outputs.nsfwapi }}
+      loadplay: ${{ steps.flags.outputs.loadplay }}
+      compose: ${{ steps.flags.outputs.compose }}
+      any: ${{ steps.flags.outputs.any }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Path filter
+        uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            goupload:
+              - 'GoUpload/**'
+              - '!GoUpload/loadplay/**'
+              - '!GoUpload/LoadPlay/**'
+              - '!GoUpload/NSFWAPI/**'
+            loadplay:
+              - 'GoUpload/loadplay/**'
+              - 'GoUpload/LoadPlay/**'
+            shared:
+              - 'GoUpload/go.mod'
+              - 'GoUpload/go.sum'
+              - 'GoUpload/lib/**'
+            nsfwapi:
+              - 'NSFWAPI/**'
+              - 'GoUpload/NSFWAPI/**'
+            compose:
+              - 'GoUpload/docker-compose.yml'
+              - 'GoUpload/scripts/**'
+            workflow:
+              - '.github/workflows/deploy-goupload.yml'
+
+      - name: Set deploy flags
+        id: flags
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "goupload=true" >> "$GITHUB_OUTPUT"
+            echo "nsfwapi=true" >> "$GITHUB_OUTPUT"
+            echo "loadplay=true" >> "$GITHUB_OUTPUT"
+            echo "compose=true" >> "$GITHUB_OUTPUT"
+            echo "any=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          wf="${{ steps.filter.outputs.workflow }}"
+          shared="${{ steps.filter.outputs.shared }}"
+          goupload="${{ steps.filter.outputs.goupload }}"
+          loadplay="${{ steps.filter.outputs.loadplay }}"
+          nsfwapi="${{ steps.filter.outputs.nsfwapi }}"
+          compose="${{ steps.filter.outputs.compose }}"
+
+          if [ "$shared" = "true" ]; then
+            goupload=true
+            loadplay=true
+          fi
+          if [ "$wf" = "true" ]; then
+            goupload=true
+            nsfwapi=true
+            loadplay=true
+            compose=true
+          fi
+
+          deploy_goupload=false
+          deploy_nsfwapi=false
+          deploy_loadplay=false
+          deploy_compose=false
+          any=false
+
+          [ "$goupload" = "true" ] && deploy_goupload=true && any=true
+          [ "$loadplay" = "true" ] && deploy_loadplay=true && any=true
+          [ "$nsfwapi" = "true" ] && deploy_nsfwapi=true && any=true
+          [ "$compose" = "true" ] && deploy_compose=true && any=true
+
+          echo "goupload=$deploy_goupload" >> "$GITHUB_OUTPUT"
+          echo "nsfwapi=$deploy_nsfwapi" >> "$GITHUB_OUTPUT"
+          echo "loadplay=$deploy_loadplay" >> "$GITHUB_OUTPUT"
+          echo "compose=$deploy_compose" >> "$GITHUB_OUTPUT"
+          echo "any=$any" >> "$GITHUB_OUTPUT"
+
   build:
     name: Build & push images
     runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.any == 'true'
     permissions:
       contents: read
       packages: write
-    outputs:
-      goupload_image: ${{ steps.tags.outputs.goupload }}
-      nsfwapi_image: ${{ steps.tags.outputs.nsfwapi }}
-      loadplay_image: ${{ steps.tags.outputs.loadplay }}
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -55,6 +140,7 @@ jobs:
           echo "loadplay_latest=${BASE_LP}:latest" >> "$GITHUB_OUTPUT"
 
       - name: Build & push GoUpload
+        if: needs.changes.outputs.goupload == 'true'
         uses: docker/build-push-action@v6
         with:
           context: ./GoUpload
@@ -67,6 +153,7 @@ jobs:
           cache-to: type=gha,scope=goupload,mode=max
 
       - name: Build & push NSFWAPI
+        if: needs.changes.outputs.nsfwapi == 'true'
         uses: docker/build-push-action@v6
         with:
           context: ./NSFWAPI
@@ -78,9 +165,8 @@ jobs:
           cache-from: type=gha,scope=nsfwapi
           cache-to: type=gha,scope=nsfwapi,mode=max
 
-      # LoadPlay shares GoUpload's go.mod (parent dir), so the build
-      # context is the GoUpload root and the Dockerfile path is nested.
       - name: Build & push LoadPlay
+        if: needs.changes.outputs.loadplay == 'true'
         uses: docker/build-push-action@v6
         with:
           context: ./GoUpload
@@ -94,20 +180,20 @@ jobs:
 
   deploy:
     name: Deploy to VPS
-    # Runs on the self-hosted runner registered on the VPS itself — no SSH,
-    # no scp, no Hostinger firewall to fight. The runner process is owned by
-    # `hoster`, which has the same sudo NOPASSWD entries we configured for
-    # the SSH path (protect-env.sh + goupload-compose.sh), so the rest of
-    # the security model is unchanged.
     runs-on: self-hosted
-    needs: build
+    needs: [changes, build]
+    if: |
+      needs.changes.outputs.any == 'true' &&
+      needs.build.result == 'success'
     permissions:
       contents: read
-      # Auto-injected GITHUB_TOKEN with read:packages — pulls the images we
-      # just pushed in the build job. No GHCR_PULL_TOKEN PAT to maintain.
       packages: read
     env:
       STAGING: /home/hoster/goupload-staging
+      DEPLOY_GOUPLOAD: ${{ needs.changes.outputs.goupload }}
+      DEPLOY_NSFWAPI: ${{ needs.changes.outputs.nsfwapi }}
+      DEPLOY_LOADPLAY: ${{ needs.changes.outputs.loadplay }}
+      DEPLOY_COMPOSE: ${{ needs.changes.outputs.compose }}
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -116,8 +202,6 @@ jobs:
         env:
           GOUPLOAD_ENV: ${{ secrets.VPS_ENV }}
           NSFWAPI_ENV: ${{ secrets.NSFWAPI_ENV }}
-          # Full contents of GoUpload/loadplay/.env (the file we never commit).
-          # Holds SEGMENT_TOKEN_SECRET, SUPABASE_*, ALLOWED_ORIGINS, etc.
           LOADPLAY_ENV: ${{ secrets.LOADPLAY_ENV }}
         run: |
           set -euo pipefail
@@ -131,15 +215,29 @@ jobs:
 
           OWNER_LC=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
           REPO_LC=$(echo  "${{ github.event.repository.name }}" | tr '[:upper:]' '[:lower:]')
+          BASE="ghcr.io/${OWNER_LC}/${REPO_LC}"
+
+          # Keep running tags for services we did not rebuild this push.
+          GOUPLOAD_TAG="latest"
+          NSFWAPI_TAG="latest"
+          LOADPLAY_TAG="latest"
+          if [ -f /opt/goupload/.env ]; then
+            # shellcheck disable=SC1091
+            source /opt/goupload/.env
+            GOUPLOAD_TAG="${GOUPLOAD_IMAGE##*:}"
+            NSFWAPI_TAG="${NSFWAPI_IMAGE##*:}"
+            LOADPLAY_TAG="${LOADPLAY_IMAGE##*:}"
+          fi
+          if [ "$DEPLOY_GOUPLOAD" = "true" ]; then GOUPLOAD_TAG="${GITHUB_SHA}"; fi
+          if [ "$DEPLOY_NSFWAPI" = "true" ]; then NSFWAPI_TAG="${GITHUB_SHA}"; fi
+          if [ "$DEPLOY_LOADPLAY" = "true" ]; then LOADPLAY_TAG="${GITHUB_SHA}"; fi
+
           cat > "$STAGING/.env" <<EOF
-          GOUPLOAD_IMAGE=ghcr.io/${OWNER_LC}/${REPO_LC}/goupload:${GITHUB_SHA}
-          NSFWAPI_IMAGE=ghcr.io/${OWNER_LC}/${REPO_LC}/nsfwapi:${GITHUB_SHA}
-          LOADPLAY_IMAGE=ghcr.io/${OWNER_LC}/${REPO_LC}/loadplay:${GITHUB_SHA}
+          GOUPLOAD_IMAGE=${BASE}/goupload:${GOUPLOAD_TAG}
+          NSFWAPI_IMAGE=${BASE}/nsfwapi:${NSFWAPI_TAG}
+          LOADPLAY_IMAGE=${BASE}/loadplay:${LOADPLAY_TAG}
           GOUPLOAD_PORT=3003
           LOADPLAY_PORT=3006
-          # Tuned for a 2 CPU VPS. goupload + nsfwapi + redis + loadplay must
-          # sum to <2.00 with headroom for the host. WORKER_MAX must not exceed
-          # GOUPLOAD_CPUS or transcodes will throttle each other.
           GOUPLOAD_CPUS=1.2
           GOUPLOAD_MEM=2G
           NSFWAPI_CPUS=0.4
@@ -151,31 +249,42 @@ jobs:
           WORKER_INITIAL=1
           EOF
 
-          # Ship the runtime wrappers too — protect-env.sh self-updates these
-          # so a fix in the repo lands on the VPS next deploy automatically.
           cp GoUpload/scripts/goupload-compose.sh "$STAGING/goupload-compose.sh"
           cp GoUpload/scripts/dangerous-guard.sh  "$STAGING/dangerous-guard.sh"
+
+          echo "Deploy targets: goupload=$DEPLOY_GOUPLOAD nsfwapi=$DEPLOY_NSFWAPI loadplay=$DEPLOY_LOADPLAY compose=$DEPLOY_COMPOSE"
 
       - name: Promote staged files into /opt/goupload
         run: |
           set -euo pipefail
-          # protect-env.sh: moves staged files → /opt/goupload as root:root
-          # 0600, refreshes the wrapper scripts, wipes staging. Allowed via
-          # NOPASSWD in /etc/sudoers.d/goupload-hardening.
           sudo /usr/local/sbin/protect-env.sh
 
-      - name: Pull images & restart stack
+      - name: Pull images & restart changed services
         env:
           GHCR_USER: ${{ github.actor }}
-          # GITHUB_TOKEN is auto-injected with the permissions block above —
-          # no PAT to set up, expires when the job ends.
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          # Authenticate ghcr (token via stdin — never as argv).
           printf '%s' "$GHCR_TOKEN" | sudo /usr/local/sbin/goupload-compose.sh login "$GHCR_USER"
-          sudo /usr/local/sbin/goupload-compose.sh pull
-          sudo /usr/local/sbin/goupload-compose.sh up
+
+          SERVICES=()
+          [ "$DEPLOY_GOUPLOAD" = "true" ] && SERVICES+=(goupload)
+          [ "$DEPLOY_NSFWAPI" = "true" ] && SERVICES+=(nsfwapi)
+          [ "$DEPLOY_LOADPLAY" = "true" ] && SERVICES+=(loadplay)
+
+          if [ ${#SERVICES[@]} -eq 0 ] && [ "$DEPLOY_COMPOSE" = "true" ]; then
+            SERVICES=(goupload nsfwapi loadplay)
+          fi
+
+          if [ ${#SERVICES[@]} -gt 0 ]; then
+            sudo /usr/local/sbin/goupload-compose.sh pull "${SERVICES[@]}"
+            sudo /usr/local/sbin/goupload-compose.sh up "${SERVICES[@]}"
+          elif [ "$DEPLOY_COMPOSE" = "true" ]; then
+            sudo /usr/local/sbin/goupload-compose.sh up
+          else
+            echo "Nothing to pull/restart"
+          fi
+
           sudo /usr/local/sbin/goupload-compose.sh prune || true
           echo "✅ Deployed"
           sudo /usr/local/sbin/goupload-compose.sh ps

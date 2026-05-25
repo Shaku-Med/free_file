@@ -1,4 +1,6 @@
 name: Deploy Memories to EC2
+
+# App / EC2 only — never runs for GoUpload, NSFWAPI, or LoadPlay pushes.
 on:
   push:
     branches: [main]
@@ -11,15 +13,44 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
+  changes:
+    name: Detect app changes
+    runs-on: ubuntu-latest
+    outputs:
+      app: ${{ steps.flags.outputs.app }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Path filter
+        uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            app:
+              - 'app/**'
+              - '.github/workflows/deploy.yml'
+
+      - name: Set deploy flag
+        id: flags
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "app=true" >> "$GITHUB_OUTPUT"
+          elif [ "${{ steps.filter.outputs.app }}" = "true" ]; then
+            echo "app=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "app=false" >> "$GITHUB_OUTPUT"
+          fi
+
   deploy:
     name: Deploy Memories
     runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.app == 'true'
     steps:
-      # 1️⃣ Checkout repo
       - name: Checkout repository
         uses: actions/checkout@v5
-      
-      # 2️⃣ Create .env file
+
       - name: Create .env file from GitHub secret
         run: |
           if [ -n "${{ secrets.ENV_FILE }}" ]; then
@@ -31,8 +62,7 @@ jobs:
             echo "❌ ERROR: ENV_FILE secret is empty!"
             exit 1
           fi
-      
-      # 3️⃣ Deploy files to EC2 (NO node_modules, NO rm)
+
       - name: Deploy app to EC2
         uses: appleboy/scp-action@v0.1.7
         with:
@@ -42,8 +72,7 @@ jobs:
           source: "app/*"
           target: "/var/www/memories.brozy.org/"
           overwrite: true
-      
-      # 4️⃣ Restart app with PM2
+
       - name: Restart app
         uses: appleboy/ssh-action@v1
         with:

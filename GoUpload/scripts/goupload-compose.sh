@@ -22,6 +22,7 @@ fi
 
 DEPLOY_DIR=/opt/goupload
 ACTION="${1:-}"
+shift || true
 
 case "$ACTION" in
   pull|up|down|restart|ps|logs|prune|login|logout)
@@ -29,17 +30,37 @@ case "$ACTION" in
   *)
     echo "goupload-compose: unsupported action '${ACTION}'" >&2
     echo "  allowed: pull | up | down | restart | ps | logs | prune | login | logout" >&2
+    echo "  optional service list after pull/up: goupload | nsfwapi | loadplay | redis" >&2
     exit 2
     ;;
 esac
+
+# Optional service list after the action — whitelisted names only.
+SERVICES=()
+if [[ $# -gt 0 && "$ACTION" != "login" ]]; then
+  allowed=" goupload nsfwapi loadplay redis "
+  for svc in "$@"; do
+    if [[ "$allowed" != *" ${svc} "* ]]; then
+      echo "goupload-compose: unsupported service '${svc}'" >&2
+      exit 2
+    fi
+    SERVICES+=("$svc")
+  done
+fi
 
 cd "$DEPLOY_DIR"
 
 case "$ACTION" in
   pull)
+    if [[ ${#SERVICES[@]} -gt 0 ]]; then
+      exec docker compose pull -- "${SERVICES[@]}"
+    fi
     exec docker compose pull
     ;;
   up)
+    if [[ ${#SERVICES[@]} -gt 0 ]]; then
+      exec docker compose up -d --remove-orphans -- "${SERVICES[@]}"
+    fi
     exec docker compose up -d --remove-orphans
     ;;
   down)
