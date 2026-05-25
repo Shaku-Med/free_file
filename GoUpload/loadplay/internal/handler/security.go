@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"strconv"
+	"strings"
 
 	"github.com/gofiber/fiber/v2"
 
@@ -11,14 +12,38 @@ import (
 	"goupload/loadplay/internal/token"
 )
 
-// replayFingerprint identifies the requester for nonce binding. Uses
-// the IP /24-or-/64 prefix plus UA hash — same coarse bucket as
-// fingerprint binding so mobile cell↔wifi swaps don't false-positive.
+// replayFingerprint identifies the requester for nonce binding.
+// Combines the network bucket (IP /24+UA hash) with the REQUEST SHAPE
+// — Sec-Fetch-Site, Sec-Fetch-Mode, Sec-Fetch-Dest, the Accept-Language
+// triplet, and whether X-App-Origin is set. A private-tab paste of the
+// same URL on the same machine shows a different request shape (mode=
+// navigate, site=none, dest=document, no X-App-Origin), so the second
+// fetch arrives with a DIFFERENT fingerprint than the first and the
+// nonce store rejects it.
 func replayFingerprint(c *fiber.Ctx) string {
 	ip := extractClientIP(c)
 	ipBucket := fingerprint.Hash(fingerprint.IPPrefix(ip))
 	uaBucket := fingerprint.Hash(c.Get("User-Agent"))
-	return ipBucket + "|" + uaBucket
+
+	// Coarse "is this a real player subresource fetch?" shape.
+	// Address-bar paste → navigate|none|document
+	// Player fetch     → cors|same-site|empty (or video/audio)
+	shape := strings.Join([]string{
+		strings.ToLower(strings.TrimSpace(c.Get("Sec-Fetch-Mode"))),
+		strings.ToLower(strings.TrimSpace(c.Get("Sec-Fetch-Site"))),
+		strings.ToLower(strings.TrimSpace(c.Get("Sec-Fetch-Dest"))),
+		boolFlag(c.Get("X-App-Origin") != ""),
+	}, "|")
+	shapeBucket := fingerprint.Hash(shape)
+
+	return ipBucket + "|" + uaBucket + "|" + shapeBucket
+}
+
+func boolFlag(b bool) string {
+	if b {
+		return "1"
+	}
+	return "0"
 }
 
 func safePrefix(s string) string {

@@ -15,7 +15,10 @@ import { computeGuestPreviewSeconds } from "~/lib/guestPreviewLimit";
 
 const SECRET_ENV = "SEGMENT_TOKEN_SECRET";
 const GUEST_PLAYBACK_TTL_MS = 5 * 60_000;
-const SIGNED_IN_PLAYBACK_TTL_MS = 60 * 60_000;
+// Short signed-in TTL keeps the replay window tight. The client
+// re-mints automatically via usePlaybackUrl on file change, and
+// usePlaybackUrl can be extended to refresh on token-near-expiry.
+const SIGNED_IN_PLAYBACK_TTL_MS = 15 * 60_000;
 
 /** LoadPlay CDN origin — override with `LOADPLAY_BASE_URL` in env. */
 export const LOADPLAY_DEV_ORIGIN = "http://localhost:3006";

@@ -6,13 +6,41 @@ import (
 	"github.com/gofiber/fiber/v2"
 )
 
-// hasPlaybackContext requires an app Origin signal plus a Referer signal.
-// Browsers omit Referer on many HLS fetches, so the player also sends
-// X-App-Origin and X-App-Referer. Standalone CDN access (address-bar
-// navigation or missing app headers) is rejected.
+// hasPlaybackContext rejects every request that isn't a player subresource
+// fetch from a real app page. Address-bar pastes, "Open in new tab",
+// bookmarks, direct navigations, view-source — all rejected.
+//
+// We require BOTH:
+//   - Sec-Fetch-* headers consistent with a player subresource fetch
+//     (Mode != "navigate", Site != "none", Dest != "document"). Browsers
+//     don't let JS forge these.
+//   - App Origin/Referer signal pointing at memories.brozy.org.
 func hasPlaybackContext(c *fiber.Ctx, deps ManifestDeps) bool {
-	if isNavigateFetch(c) {
+	// Modern browsers emit these on every request. If they're absent
+	// entirely the client is a curl/cli tool — reject. (Tool-UA filter
+	// already catches the common cases; this is belt-and-suspenders.)
+	mode := strings.ToLower(strings.TrimSpace(c.Get("Sec-Fetch-Mode")))
+	site := strings.ToLower(strings.TrimSpace(c.Get("Sec-Fetch-Site")))
+	dest := strings.ToLower(strings.TrimSpace(c.Get("Sec-Fetch-Dest")))
+
+	// Address-bar paste / typed URL → mode=navigate, site=none, dest=document.
+	// Right-click "Open in new tab" → same. Bookmarks too.
+	if mode == "navigate" || dest == "document" {
 		return false
+	}
+	// "none" = no referrer-y context (typed URL). Legit player fetches
+	// are always "same-site" or "cross-site".
+	if site == "none" {
+		return false
+	}
+	// If Sec-Fetch is missing entirely (very old browser / non-browser
+	// client), require explicit app headers to compensate. We still
+	// allow it to fall through to the Origin check below; if those
+	// aren't set either, we reject.
+	if mode == "" && site == "" && dest == "" {
+		// Falls through; the Origin/Referer check below will reject
+		// unless the client manually set X-App-Origin (legitimate
+		// fallback for old WebViews).
 	}
 
 	origin := strings.TrimSpace(c.Get("Origin"))
