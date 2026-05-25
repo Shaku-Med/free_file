@@ -183,8 +183,9 @@ jobs:
     runs-on: self-hosted
     needs: [changes, build]
     if: |
+      always() &&
       needs.changes.outputs.any == 'true' &&
-      needs.build.result == 'success'
+      (needs.build.result == 'success' || needs.build.result == 'skipped')
     permissions:
       contents: read
       packages: read
