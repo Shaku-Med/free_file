@@ -1,6 +1,7 @@
 import { useCallback, useRef, useState } from 'react';
 import { Music2 } from 'lucide-react';
 import { cn, getVideoSrc } from '~/lib/utils';
+import { usePlaybackUrl } from '~/lib/hooks/usePlaybackUrl';
 import ParseFilenameInsert from '~/lib/utils/ShowFileName';
 import { FormattedText } from '~/components/FormattedText';
 // Same `~/components/components/hlsplayer` as Dynamic (queue wrapper adds suggested/next props only).
@@ -59,9 +60,13 @@ export function VerticalFeedItem({
   const sharePagePath = file ? fileWatchPath(file) : `/${uniqueId}`;
   const isOwner = Boolean(userId && item.ownerId && userId === item.ownerId);
 
+  // Just-in-time signed URL for HLS files. Bound to this browser's IP+UA
+  // server-side, so a copy-pasted URL won't play elsewhere. Falls back
+  // to the legacy proxy until the mint resolves.
+  const playbackUrl = usePlaybackUrl(file ?? null);
   const videoSrc =
     file && isVideoLikeFile(file)
-      ? getVideoSrc(file.endpoint ?? '', file.file_type)
+      ? getVideoSrc(file.endpoint ?? '', file.file_type, playbackUrl)
       : undefined;
 
   const getShareTimestamp = useCallback(

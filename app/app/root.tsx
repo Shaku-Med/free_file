@@ -43,7 +43,6 @@ import { getPlayerSettingsFromCookies } from "./routes/Api/player-settings";
 import { BASE_URL } from "./lib/URLS";
 import { isMobileUserAgent } from "./lib/device.server";
 import { readAltAccountsFromRequest } from "./lib/Security/accountVault";
-import { issueHlsBootstrap } from "./lib/Security/Server/hlsBootstrap.server";
 
 export const links: Route.LinksFunction = () => [
   { rel: "preconnect", href: "https://fonts.googleapis.com" },
@@ -191,13 +190,7 @@ export const loader = async ({request}: {request: Request}) => {
       profile_pic: pic ?? null,
     }));
 
-    const hlsPlaybackKind = userId ? "user" : "guest";
-    const [hlsBootstrap, hlsBootstrapRetry] = await Promise.all([
-      issueHlsBootstrap(request.headers, hlsPlaybackKind, userId),
-      issueHlsBootstrap(request.headers, hlsPlaybackKind, userId),
-    ]);
-
-    return data({ st: sessionToken, user_agent: request.headers.get('user-agent'), userId, c_user, uploadServerUrl, userTheme, playerSettingsFromLoader, isMobileServer, isDevelopmentServer, requestURL, altAccounts, hlsBootstrap, hlsBootstrapRetry }, {
+    return data({ st: sessionToken, user_agent: request.headers.get('user-agent'), userId, c_user, uploadServerUrl, userTheme, playerSettingsFromLoader, isMobileServer, isDevelopmentServer, requestURL, altAccounts }, {
       status: 200,
       headers: (token) ? { // I left this part open for now. Fix will be done later.
         'Set-Cookie': `token=${token}; Path=/; HttpOnly; ${secure}; ${sameSite}`
@@ -220,6 +213,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
        <html className="system" lang="en">
         <head>
           <meta charSet="utf-8" />
+          <meta name="referrer" content="strict-origin-when-cross-origin" />
           <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
           <meta name="apple-mobile-web-app-capable" content="yes" />
           <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
@@ -244,7 +238,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
     )
   }
 
-  const { st, user_agent, userId, c_user, uploadServerUrl, userTheme, playerSettingsFromLoader, isMobileServer, isDevelopmentServer, requestURL, altAccounts, hlsBootstrap, hlsBootstrapRetry } = data;
+  const { st, user_agent, userId, c_user, uploadServerUrl, userTheme, playerSettingsFromLoader, isMobileServer, isDevelopmentServer, requestURL, altAccounts } = data;
   const themeClass = userTheme?.theme ?? "system";
   const themeStyle = userTheme?.style ?? "default";
 
@@ -252,6 +246,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
     <html className={`${themeClass} overflow-hidden h-full w-full fixed top-0 left-0`} lang="en">
       <head>
         <meta charSet="utf-8" />
+        <meta name="referrer" content="strict-origin-when-cross-origin" />
         <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
@@ -293,7 +288,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
         <ThemeApply userTheme={userTheme ?? null} />
         <RegisterServiceWorker />
         <ErrorBoundary>
-          <ContextProvider st={st} user_agent={user_agent || ''} userId={userId || null} c_user={c_user || null} uploadServerUrl={uploadServerUrl || ''} playerSettingsFromLoader={playerSettingsFromLoader ?? null} isMobileServer={isMobileServer ?? false} isDevelopment={isDevelopmentServer ?? false} altAccounts={altAccounts ?? []} hlsBootstrap={hlsBootstrap ?? null} hlsBootstrapRetry={hlsBootstrapRetry ?? null}>
+          <ContextProvider st={st} user_agent={user_agent || ''} userId={userId || null} c_user={c_user || null} uploadServerUrl={uploadServerUrl || ''} playerSettingsFromLoader={playerSettingsFromLoader ?? null} isMobileServer={isMobileServer ?? false} isDevelopment={isDevelopmentServer ?? false} altAccounts={altAccounts ?? []}>
             <LikeProvider>
               <WatchProgressProvider>
               <PictureInPictureProvider>

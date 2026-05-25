@@ -11,6 +11,7 @@ import { useGlobalPlayerLayoutContext } from "~/lib/Context/GlobalPlayerLayoutCo
 import { useFileContext } from "~/lib/Context/Context";
 import { useAnchorBoundingRect } from "~/lib/hooks/useAnchorBoundingRect";
 import { getVideoSrc, cn } from "~/lib/utils";
+import { usePlaybackUrl } from "~/lib/hooks/usePlaybackUrl";
 import type { FileType } from "~/lib/types";
 
 const MAIN_ANCHOR_Z = 99_999_995;
@@ -21,11 +22,12 @@ function miniFallbackProps(
   mini: Pick<MiniPlayerState, "file" | "imageID">,
   videoRef: RefObject<HTMLVideoElement | null>,
   userId: string | null,
+  playbackUrl: string | null,
 ): DynamicHLSPlayerWithQueueProps {
   return {
     videoRef,
     /** Same URL computation as the watch page so `useHLS` never sees a spurious `src` change. */
-    src: getVideoSrc(mini.file.endpoint ?? "", mini.file.file_type),
+    src: getVideoSrc(mini.file.endpoint ?? "", mini.file.file_type, playbackUrl),
     className: "h-full w-full",
     playsInline: true,
     imageID: mini.imageID,
@@ -53,6 +55,11 @@ export function GlobalAnchoredHLSPlayer() {
   const videoRef = useWatchSurfaceVideoRef();
   const { userId } = useFileContext();
   const navigate = useNavigate();
+  // Mini-player gets its own JIT-minted, IP+UA-bound URL. The watch
+  // surface already has one from Dynamic — when the surface clears and
+  // mini takes over, this hook re-mints for the same file so playback
+  // stays seamless without leaking a URL through HTML.
+  const miniPlaybackUrl = usePlaybackUrl(miniPlayer?.file ?? null);
 
   /** Mini takes over only after the watch surface is cleared — same global player, new anchor. */
   const inMiniLayout = Boolean(miniPlayer && !surface?.props);
@@ -120,7 +127,7 @@ export function GlobalAnchoredHLSPlayer() {
       };
     }
     if (miniPlayer && !surface?.props) {
-      const p = miniFallbackProps(miniPlayer, videoRef, userId);
+      const p = miniFallbackProps(miniPlayer, videoRef, userId, miniPlaybackUrl);
       return {
         kind: "mini" as const,
         props: {
@@ -132,7 +139,7 @@ export function GlobalAnchoredHLSPlayer() {
       };
     }
     return null;
-  }, [surface, miniPlayer, videoRef, userId, miniNavigateSelect]);
+  }, [surface, miniPlayer, videoRef, userId, miniNavigateSelect, miniPlaybackUrl]);
 
   useLayoutEffect(() => {
     if (!resolved) {

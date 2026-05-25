@@ -11,6 +11,7 @@ import { BASE_URL } from "~/lib/URLS";
 import { buildPageMeta } from "~/lib/seo";
 import ImageLoad from "../Home/components/ImageLoad/ImageLoad";
 import { ParseFilename, getVideoSrc, getThumbnailUrl, getThumbnailPreviewApiPaths, cn } from "~/lib/utils";
+import { usePlaybackUrl } from "~/lib/hooks/usePlaybackUrl";
 import { motion } from "framer-motion";
 import { ChevronDown, MessageCircle } from "lucide-react";
 import { Button } from "~/components/ui/button";
@@ -288,6 +289,11 @@ export const loader = async ({ request, params }: { request: Request, params: { 
       file as unknown as Record<string, unknown>,
       userId
     ) as typeof file;
+
+    // Playback URL is NOT minted here. It would land in the HTML / loader
+    // JSON where view-source / scrapers could harvest it. The client
+    // calls POST /api/play/mint just-in-time and receives a token bound
+    // to its own IP + UA. Loader stays free of any signed URL.
 
     return data(
       {
@@ -675,6 +681,10 @@ const DynamicPage = ({ is_modal }: DynamicPageProps) => {
 
   const file_data = effectiveData?.file;
   const data = effectiveData;
+
+  // JIT signed URL — see ~/lib/hooks/usePlaybackUrl. URL is NEVER in
+  // HTML / loader JSON, so view-source / scrapers can't lift it.
+  const playbackUrl = usePlaybackUrl(file_data ?? null);
 
   const [seriesFetch, setSeriesFetch] = useState<{
     episodes: SeriesEpisodeGroup[] | null;
@@ -1256,7 +1266,7 @@ const DynamicPage = ({ is_modal }: DynamicPageProps) => {
       theaterMode,
       props: {
         videoRef: watchVideoRef as React.RefObject<HTMLVideoElement>,
-        src: getVideoSrc(file_data.endpoint ?? "", file_data.file_type),
+        src: getVideoSrc(file_data.endpoint ?? "", file_data.file_type, playbackUrl),
         className: "h-full w-full",
         onPlay: () => {
           setPlayingVideos((prev) => new Set(prev).add(1));
@@ -1300,6 +1310,7 @@ const DynamicPage = ({ is_modal }: DynamicPageProps) => {
     handleVideoSelect,
     setAmbientEnabled,
     startTime,
+    playbackUrl,
     data?.guestPreviewLimitSeconds,
     seriesEpisodesResolved,
   ]);
@@ -1361,6 +1372,8 @@ const DynamicPage = ({ is_modal }: DynamicPageProps) => {
 
   const fileDataRef = useRef(file_data);
   fileDataRef.current = file_data;
+  const playbackUrlRef = useRef<string | null>(playbackUrl);
+  playbackUrlRef.current = playbackUrl;
   const isHLSRef = useRef(false);
 
   useEffect(() => {
@@ -1386,7 +1399,7 @@ const DynamicPage = ({ is_modal }: DynamicPageProps) => {
       // Paused/ended → fall through to natural unmount; HLS is destroyed in useHLS cleanup.
       if (video.paused || video.ended) return;
       activateMiniPlayer({
-        src: getVideoSrc(fd.endpoint ?? "", fd.file_type),
+        src: getVideoSrc(fd.endpoint ?? "", fd.file_type, playbackUrlRef.current),
         file: fd,
         imageID: fd.unique_id,
       });

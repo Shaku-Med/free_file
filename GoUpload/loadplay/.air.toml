@@ -1,0 +1,12 @@
+root = "."
+tmp_dir = "tmp"
+
+[build]
+cmd = "go build -o ./tmp/loadplay.exe ."
+bin = "./tmp/loadplay.exe"
+include_ext = ["go", "mod", "sum"]
+exclude_dir = ["tmp", "vendor"]
+delay = 200
+
+[log]
+time = true

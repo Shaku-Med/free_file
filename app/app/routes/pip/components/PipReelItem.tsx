@@ -2,6 +2,7 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { Maximize2 } from 'lucide-react';
 import { cn, getThumbnailUrl, getVideoSrc, ParseFilename } from '~/lib/utils';
+import { usePlaybackUrl } from '~/lib/hooks/usePlaybackUrl';
 import ParseFilenameInsert from '~/lib/utils/ShowFileName';
 import { FormattedText } from '~/components/FormattedText';
 import { formatNumber } from '~/lib/utils/formatNumber';
@@ -295,8 +296,10 @@ function PipReelItemInner({
   const uniqueId = item.unique_id ?? item.id;
   const isOwner = Boolean(userId && item.ownerId && userId === item.ownerId);
 
+  // Same JIT-mint flow as the main reel — see ~/lib/hooks/usePlaybackUrl.
+  const playbackUrl = usePlaybackUrl(file);
   const videoSrc = isVideoLikeFile(file)
-    ? getVideoSrc(file.endpoint ?? '', file.file_type)
+    ? getVideoSrc(file.endpoint ?? '', file.file_type, playbackUrl)
     : undefined;
 
   const showHls = Boolean(videoSrc) && (variant === 'pip' || loadHlsPlayer);

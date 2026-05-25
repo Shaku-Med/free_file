@@ -156,16 +156,11 @@ export function getThumbnailPreviewApiPaths(file: {
   }
 }
 
-export function getVideoSrc(endpoint: string, fileType?: string): string {
-  if (!endpoint) return `/api/load/video/`
-  const isHLS =
-    fileType === 'application/vnd.apple.mpegurl' ||
-    endpoint.includes('.m3u8') ||
-    endpoint.includes('.m2u8')
-  if (isHLS && !endpoint.includes('.m3u8') && !endpoint.includes('.m2u8')) {
-    return `/api/load/video/${endpoint.replace(/\/?$/, '')}/master.m3u8`
-  }
-  return `/api/load/video/${endpoint}`
+/**
+ * Playback src for the HLS player — LoadPlay CDN only (`playbackUrl` from loader).
+ */
+export function getVideoSrc(_endpoint: string, _fileType?: string, playbackUrl?: string | null): string {
+  return playbackUrl && playbackUrl.length > 0 ? playbackUrl : "";
 }
 
 /** Search / social preview crawlers — use canonical image URLs in HTML for indexing. */

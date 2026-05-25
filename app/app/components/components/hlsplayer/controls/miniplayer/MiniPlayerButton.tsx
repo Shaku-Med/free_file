@@ -28,6 +28,11 @@ export default function MiniPlayerButton({
     flushSync(() => {
       activateMiniPlayer(
         {
+          // `src` is always populated when this button is clickable (the
+          // active player has a src). Fallback exists only as a defensive
+          // guard for off-spec callers; it returns the legacy proxy URL,
+          // which the LoadPlay-aware getVideoSrc(playbackUrl=undefined)
+          // path handles gracefully.
           src: src || getVideoSrc(file.endpoint ?? '', file.file_type),
           file,
           imageID: imageID || file.unique_id,

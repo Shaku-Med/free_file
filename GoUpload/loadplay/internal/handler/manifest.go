@@ -1,0 +1,344 @@
+package handler
+
+import (
+	"bufio"
+	"context"
+	"errors"
+	"io"
+	"net/http"
+	"path"
+	"strings"
+	"time"
+
+	"github.com/gofiber/fiber/v2"
+
+	"goupload/loadplay/internal/cache"
+	"goupload/loadplay/internal/fetchgate"
+	"goupload/loadplay/internal/fingerprint"
+	"goupload/loadplay/internal/guard"
+	"goupload/loadplay/internal/guest"
+	"goupload/loadplay/internal/hls"
+	"goupload/loadplay/internal/manifestcache"
+	"goupload/loadplay/internal/noncestore"
+	"goupload/loadplay/internal/ratelimit"
+	"goupload/loadplay/internal/token"
+	"goupload/loadplay/lib/storage"
+	"goupload/loadplay/lib/supabase"
+	"goupload/lib/logger"
+)
+
+// ManifestDeps is everything a manifest handler needs from outside; passed
+// in so the handler stays test-friendly and doesn't reach for globals.
+type ManifestDeps struct {
+	Log         *logger.Logger
+	Secret      []byte
+	Storage     storage.Config
+	Guard       guard.Config
+	HTTPClient  *http.Client
+	PublicHost  string
+	RequireBind bool
+	FileCache     *cache.FileCache
+	RateLimit     *ratelimit.Limiter
+	Allowlist     *guest.Allowlist
+	NonceStore    *noncestore.Store
+	ManifestCache *manifestcache.Cache
+	FetchGate     *fetchgate.Gate
+}
+
+// Generic "something is off, don't tell the client what" response.
+// Per project rules: never leak server-side detail through the body.
+func deny(c *fiber.Ctx, status int) error {
+	return c.Status(status).JSON(fiber.Map{"error": "Something's wrong."})
+}
+
+// extractClientIP picks the leftmost X-Forwarded-For when present
+// (nginx sits in front); falls back to the immediate peer.
+func extractClientIP(c *fiber.Ctx) string {
+	xff := c.Get("X-Forwarded-For")
+	return fingerprint.FromRequest(c.IP(), xff)
+}
+
+// Manifest handles GET /v/:fileId/master.m3u8 (and any sub-playlist
+// referenced by the master). Validates token, fetches the playlist
+// from storage, rewrites every line that names another playlist or
+// segment file so the player keeps coming back through the CDN.
+func Manifest(deps ManifestDeps) fiber.Handler {
+	return func(c *fiber.Ctx) error {
+		rawTok := c.Query("t")
+		if rawTok == "" {
+			return deny(c, fiber.StatusUnauthorized)
+		}
+		tok, err := token.Verify(rawTok, deps.Secret)
+		if err != nil {
+			deps.Log.Errorf("manifest token reject reason=%s", err.Error())
+			return deny(c, fiber.StatusUnauthorized)
+		}
+
+		if deny := softGuardOrFingerprint(c, deps, tok); deny != nil {
+			return deny
+		}
+		if deny := enforcePlaybackSecurity(c, deps, rawTok, tok, true); deny != nil {
+			return deny
+		}
+
+		askedPath := c.Params("*")
+		if !manifestPathAllowed(askedPath, tok.Path) {
+			deps.Log.Errorf("manifest path mismatch asked=%s allowed=%s", askedPath, tok.Path)
+			return deny(c, fiber.StatusForbidden)
+		}
+
+		// DB-backed access control + per-file repo. Cached aggressively
+		// (5 min on hits, 30s on misses, dedup on concurrent fetches)
+		// so heavy playback traffic doesn't translate into DB pressure.
+		storageCfg, denyStatus := resolveAccessAndStorage(c.Context(), deps, tok)
+		if denyStatus != 0 {
+			return deny(c, denyStatus)
+		}
+
+		// Walk the manifest text. m3u8 line types we rewrite:
+		//   - URI="..." attributes (EXT-X-MEDIA, EXT-X-MAP, EXT-X-KEY)
+		//   - bare URLs on their own line (segment URIs after EXTINF, sub-playlist URIs after EXT-X-STREAM-INF)
+		body, err := loadManifestBody(c, deps, storageCfg, askedPath)
+		if err != nil {
+			deps.Log.Errorf("manifest upstream fetch err=%s path=%s", err.Error(), askedPath)
+			if errors.Is(err, fetchgate.ErrBusy) {
+				c.Set("Retry-After", "2")
+				return deny(c, fiber.StatusServiceUnavailable)
+			}
+			return deny(c, fiber.StatusBadGateway)
+		}
+
+		if tok.IsGuest() {
+			preview := tok.GuestPreviewSeconds()
+			if hls.IsMasterPlaylist(body) {
+				body = hls.RestrictMasterToLowestRendition(body)
+			}
+			if hls.IsMediaPlaylist(body) {
+				body = hls.TruncateMediaPlaylistAtDuration(body, preview)
+				if deps.Allowlist != nil {
+					deps.Allowlist.Register(playbackSessionKey(c, rawTok, tok), askedPath, body)
+				}
+			}
+		}
+
+		publicBase := requestPublicBase(c, deps)
+		rewritten, err := rewriteManifest(body, askedPath, rawTok, tok.FileID, publicBase)
+		if err != nil {
+			deps.Log.Errorf("manifest rewrite err=%s", err.Error())
+			return deny(c, fiber.StatusBadGateway)
+		}
+
+		setPlaybackCORS(c, deps)
+		c.Set("Cache-Control", "no-store")
+		c.Set("Content-Type", "application/vnd.apple.mpegurl")
+		return c.SendString(rewritten)
+	}
+}
+
+// Permit the exact path the token bound, OR any other *.m3u8 under the
+// same video asset tree (ABR subfolders like 480p/playlist.m3u8). The
+// asset-root constraint stops a token for video A from reaching video B.
+func manifestPathAllowed(asked, allowed string) bool {
+	if asked == "" || allowed == "" {
+		return false
+	}
+	if asked == allowed {
+		return true
+	}
+	if !strings.HasSuffix(strings.ToLower(asked), ".m3u8") {
+		return false
+	}
+	return pathUnderPlaybackRoot(asked, allowed)
+}
+
+func softGuardOrFingerprint(c *fiber.Ctx, deps ManifestDeps, tok *token.Playback) error {
+	if reason := deps.Guard.Check(c.Get("Origin"), c.Get("Referer"), c.Get("User-Agent")); reason != "" {
+		deps.Log.Errorf("guard reject reason=%s", reason)
+		return deny(c, fiber.StatusForbidden)
+	}
+	if !deps.RequireBind {
+		return nil
+	}
+	ip := extractClientIP(c)
+	ipHash := fingerprint.Hash(fingerprint.IPPrefix(ip))
+	uaHash := fingerprint.Hash(c.Get("User-Agent"))
+	if tok.IPHash != "" && tok.IPHash != ipHash {
+		deps.Log.Errorf("fingerprint ip mismatch token=%s req=%s", tok.IPHash, ipHash)
+		return deny(c, fiber.StatusUnauthorized)
+	}
+	if tok.UAHash != "" && tok.UAHash != uaHash {
+		deps.Log.Errorf("fingerprint ua mismatch")
+		return deny(c, fiber.StatusUnauthorized)
+	}
+	return nil
+}
+
+// resolveAccessAndStorage looks the file up via the cache (DB on miss,
+// FIFO + TTL on hit), enforces token↔owner binding for private files,
+// and returns the storage config — same as `deps.Storage` but with the
+// per-file `github_repo` swapped in when the row has one. denyStatus is
+// 0 when access is granted; non-zero is the HTTP status the caller
+// should return to the client.
+func resolveAccessAndStorage(ctx context.Context, deps ManifestDeps, tok *token.Playback) (storage.Config, int) {
+	cfg := deps.Storage
+	if deps.FileCache == nil {
+		return cfg, 0
+	}
+	meta, err := deps.FileCache.Get(ctx, tok.FileID)
+	if errors.Is(err, supabase.ErrNotFound) {
+		deps.Log.Errorf("file not found unique_id=%s", tok.FileID)
+		return cfg, fiber.StatusNotFound
+	}
+	if err != nil {
+		// Upstream Supabase blip — fail closed but log. The cache won't
+		// remember this so the next request can succeed.
+		deps.Log.Errorf("meta fetch err=%s id=%s", err.Error(), tok.FileID)
+		return cfg, fiber.StatusServiceUnavailable
+	}
+	if !meta.IsPublic {
+		if tok.UserID == "" || tok.UserID != meta.OwnerID {
+			deps.Log.Errorf("private access denied id=%s user=%s owner=%s", tok.FileID, tok.UserID, meta.OwnerID)
+			return cfg, fiber.StatusForbidden
+		}
+	}
+	// Per-file repo override beats env default when set.
+	if meta.GithubRepo != "" {
+		cfg.Repo = meta.GithubRepo
+	}
+	return cfg, 0
+}
+
+// loadManifestBody folds three traffic controls into one call:
+//   1. manifest body cache (~60s) — finished uploads are immutable, so
+//      hot videos serve from RAM and never re-fetch GitHub
+//   2. singleflight — concurrent misses for the same manifest collapse
+//      into a single upstream fetch
+//   3. fetch gate — caps concurrent upstream fetches so a slow GitHub
+//      can't grow our in-flight queue unboundedly (returns ErrBusy →
+//      503 + Retry-After to shed load)
+func loadManifestBody(c *fiber.Ctx, deps ManifestDeps, st storage.Config, relPath string) (string, error) {
+	fetch := func() (string, error) {
+		if deps.FetchGate != nil {
+			release, err := deps.FetchGate.Acquire(c.Context())
+			if err != nil {
+				return "", err
+			}
+			defer release()
+		}
+		return fetchUpstreamWith(c.Context(), deps, st, relPath)
+	}
+	if deps.ManifestCache == nil {
+		return fetch()
+	}
+	key := st.Repo + "|" + relPath
+	return deps.ManifestCache.Do(key, fetch)
+}
+
+func fetchUpstreamWith(ctx context.Context, deps ManifestDeps, st storage.Config, relPath string) (string, error) {
+	rawURL, err := st.RawURL(relPath)
+	if err != nil {
+		return "", err
+	}
+	reqCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(reqCtx, http.MethodGet, rawURL, nil)
+	if err != nil {
+		return "", err
+	}
+	res, err := deps.HTTPClient.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer res.Body.Close()
+	if res.StatusCode < 200 || res.StatusCode >= 300 {
+		return "", io.ErrUnexpectedEOF
+	}
+	const maxManifest = 4 << 20 // 4 MiB hard cap; real manifests are KB
+	limited := io.LimitReader(res.Body, maxManifest)
+	buf := make([]byte, 0, 8192)
+	br := bufio.NewReader(limited)
+	for {
+		chunk := make([]byte, 4096)
+		n, err := br.Read(chunk)
+		if n > 0 {
+			buf = append(buf, chunk[:n]...)
+		}
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return "", err
+		}
+	}
+	return string(buf), nil
+}
+
+// rewriteManifest swaps every storage path the manifest references into
+// a CDN URL carrying the SAME token. One token, one playback session,
+// the whole HLS surface is reachable until the token expires.
+func rewriteManifest(body, manifestPath, rawToken, fileID, publicBase string) (string, error) {
+	dir := path.Dir(manifestPath)
+	if dir == "." {
+		dir = ""
+	}
+	cdnPrefix := strings.TrimRight(publicBase, "/") + "/v/" + fileID + "/"
+
+	resolve := func(uri string) string {
+		// Absolute URLs aren't expected from our pipeline. If one ever
+		// shows up in a manifest, drop it rather than echo it — that
+		// would leak the storage origin (github raw) to the client.
+		// Empty string preserves the line shape; the player will skip
+		// the unresolvable segment and recover.
+		if strings.HasPrefix(uri, "http://") || strings.HasPrefix(uri, "https://") {
+			return ""
+		}
+		var full string
+		if dir == "" {
+			full = uri
+		} else {
+			full = dir + "/" + uri
+		}
+		full = path.Clean(full)
+		return cdnPrefix + full + "?t=" + rawToken
+	}
+
+	var out strings.Builder
+	out.Grow(len(body) + 256)
+	scanner := bufio.NewScanner(strings.NewReader(body))
+	scanner.Buffer(make([]byte, 0, 64*1024), 1<<20)
+	for scanner.Scan() {
+		line := scanner.Text()
+		trimmed := strings.TrimSpace(line)
+		switch {
+		case trimmed == "":
+			out.WriteString(line)
+		case strings.HasPrefix(trimmed, "#"):
+			out.WriteString(rewriteTagURI(line, resolve))
+		default:
+			out.WriteString(resolve(trimmed))
+		}
+		out.WriteByte('\n')
+	}
+	if err := scanner.Err(); err != nil {
+		return "", err
+	}
+	return out.String(), nil
+}
+
+// rewriteTagURI handles `URI="..."` attributes inside tag lines like
+// EXT-X-MAP, EXT-X-MEDIA, EXT-X-KEY. Anything else passes through.
+func rewriteTagURI(line string, resolve func(string) string) string {
+	const marker = `URI="`
+	idx := strings.Index(line, marker)
+	if idx < 0 {
+		return line
+	}
+	start := idx + len(marker)
+	end := strings.Index(line[start:], `"`)
+	if end < 0 {
+		return line
+	}
+	end += start
+	original := line[start:end]
+	return line[:start] + resolve(original) + line[end:]
+}

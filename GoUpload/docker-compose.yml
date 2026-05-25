@@ -80,6 +80,30 @@ services:
       timeout: 5s
       retries: 3
 
+  # CDN-style playback service. Separate binary from `goupload` (same
+  # `go.mod`, different `main` package), separate Dockerfile, separate
+  # port. Validates HMAC playback tokens, proxies segments (storage hidden).
+  loadplay:
+    image: ${LOADPLAY_IMAGE:-ghcr.io/OWNER/REPO/loadplay:latest}
+    container_name: goupload-loadplay
+    restart: unless-stopped
+    env_file:
+      - ./loadplay.env
+    ports:
+      - "127.0.0.1:${LOADPLAY_PORT:-3006}:3006"
+    networks:
+      - goupload-net
+    deploy:
+      resources:
+        limits:
+          cpus: "${LOADPLAY_CPUS:-0.4}"
+          memory: ${LOADPLAY_MEM:-256M}
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3006/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
 networks:
   goupload-net:
     driver: bridge

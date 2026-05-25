@@ -861,6 +861,9 @@ function PlayerInner({
             const backTarget = getNavigateBackTarget();
             triggerMiniPlayer(
               {
+                // `src` is the JIT-minted LoadPlay URL from the parent's
+                // usePlaybackUrl hook. The getVideoSrc fallback is only
+                // hit when no src was passed — defensive, legacy proxy.
                 src: src || getVideoSrc(file.endpoint ?? '', file.file_type),
                 file,
                 imageID: imageID || file.unique_id,

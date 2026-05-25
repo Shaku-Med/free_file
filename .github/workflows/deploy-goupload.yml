@@ -24,6 +24,7 @@ jobs:
     outputs:
       goupload_image: ${{ steps.tags.outputs.goupload }}
       nsfwapi_image: ${{ steps.tags.outputs.nsfwapi }}
+      loadplay_image: ${{ steps.tags.outputs.loadplay }}
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -45,10 +46,13 @@ jobs:
           REPO_LC=$(echo "${REPO_SLUG}" | tr '[:upper:]' '[:lower:]')
           BASE_GO="${REGISTRY}/${OWNER_LC}/${REPO_LC}/goupload"
           BASE_NSFW="${REGISTRY}/${OWNER_LC}/${REPO_LC}/nsfwapi"
+          BASE_LP="${REGISTRY}/${OWNER_LC}/${REPO_LC}/loadplay"
           echo "goupload=${BASE_GO}:${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
           echo "nsfwapi=${BASE_NSFW}:${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+          echo "loadplay=${BASE_LP}:${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
           echo "goupload_latest=${BASE_GO}:latest" >> "$GITHUB_OUTPUT"
           echo "nsfwapi_latest=${BASE_NSFW}:latest" >> "$GITHUB_OUTPUT"
+          echo "loadplay_latest=${BASE_LP}:latest" >> "$GITHUB_OUTPUT"
 
       - name: Build & push GoUpload
         uses: docker/build-push-action@v6
@@ -74,6 +78,20 @@ jobs:
           cache-from: type=gha,scope=nsfwapi
           cache-to: type=gha,scope=nsfwapi,mode=max
 
+      # LoadPlay shares GoUpload's go.mod (parent dir), so the build
+      # context is the GoUpload root and the Dockerfile path is nested.
+      - name: Build & push LoadPlay
+        uses: docker/build-push-action@v6
+        with:
+          context: ./GoUpload
+          file: ./GoUpload/loadplay/Dockerfile
+          push: true
+          tags: |
+            ${{ steps.tags.outputs.loadplay }}
+            ${{ steps.tags.outputs.loadplay_latest }}
+          cache-from: type=gha,scope=loadplay
+          cache-to: type=gha,scope=loadplay,mode=max
+
   deploy:
     name: Deploy to VPS
     # Runs on the self-hosted runner registered on the VPS itself — no SSH,
@@ -98,6 +116,9 @@ jobs:
         env:
           GOUPLOAD_ENV: ${{ secrets.VPS_ENV }}
           NSFWAPI_ENV: ${{ secrets.NSFWAPI_ENV }}
+          # Full contents of GoUpload/loadplay/.env (the file we never commit).
+          # Holds SEGMENT_TOKEN_SECRET, SUPABASE_*, ALLOWED_ORIGINS, etc.
+          LOADPLAY_ENV: ${{ secrets.LOADPLAY_ENV }}
         run: |
           set -euo pipefail
           rm -rf "$STAGING"
@@ -106,20 +127,25 @@ jobs:
           cp GoUpload/docker-compose.yml "$STAGING/docker-compose.yml"
           printf '%s' "$GOUPLOAD_ENV"  > "$STAGING/goupload.env"
           printf '%s' "$NSFWAPI_ENV"   > "$STAGING/nsfwapi.env"
+          printf '%s' "$LOADPLAY_ENV"  > "$STAGING/loadplay.env"
 
           OWNER_LC=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
           REPO_LC=$(echo  "${{ github.event.repository.name }}" | tr '[:upper:]' '[:lower:]')
           cat > "$STAGING/.env" <<EOF
           GOUPLOAD_IMAGE=ghcr.io/${OWNER_LC}/${REPO_LC}/goupload:${GITHUB_SHA}
           NSFWAPI_IMAGE=ghcr.io/${OWNER_LC}/${REPO_LC}/nsfwapi:${GITHUB_SHA}
+          LOADPLAY_IMAGE=ghcr.io/${OWNER_LC}/${REPO_LC}/loadplay:${GITHUB_SHA}
           GOUPLOAD_PORT=3003
-          # Tuned for a 2 CPU VPS. goupload + nsfwapi + redis must sum to
-          # <2.00 with headroom for the host. WORKER_MAX must not exceed
+          LOADPLAY_PORT=3006
+          # Tuned for a 2 CPU VPS. goupload + nsfwapi + redis + loadplay must
+          # sum to <2.00 with headroom for the host. WORKER_MAX must not exceed
           # GOUPLOAD_CPUS or transcodes will throttle each other.
-          GOUPLOAD_CPUS=1.4
+          GOUPLOAD_CPUS=1.2
           GOUPLOAD_MEM=2G
           NSFWAPI_CPUS=0.4
           NSFWAPI_MEM=512M
+          LOADPLAY_CPUS=0.3
+          LOADPLAY_MEM=256M
           WORKER_MIN=1
           WORKER_MAX=2
           WORKER_INITIAL=1
