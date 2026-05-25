@@ -97,11 +97,11 @@ export default function PrivacyPage() {
       <P>We share information only as described here:</P>
       <UL>
         <li>
-          <strong>Service providers (subprocessors)</strong> who help us run the
-          platform  currently Supabase (auth + database), our VPS hosts
-          (Hostinger for CDN, AWS EC2 for app), and GitHub (object storage for
-          uploaded media). Each is bound by confidentiality and used only to
-          provide the Service.
+          <strong>Service providers</strong> who help us host, operate, and
+          secure the Service (for example, cloud infrastructure, databases,
+          authentication, media delivery, and email). Each provider is bound by
+          confidentiality obligations and may use your information only to
+          provide services to us.
         </li>
         <li>
           <strong>Other users:</strong> public-facing parts of your profile and
@@ -127,8 +127,8 @@ export default function PrivacyPage() {
       <P>
         We keep account info for as long as your account is active. User Content
         is retained while it remains posted; if you delete content, copies may
-        remain in backups and CDN caches for up to 30 days before being purged.
-        Logs are kept up to 12 months. Records we are legally required to keep
+        remain in backups and cached copies for up to 30 days before being
+        purged. Logs are kept up to 12 months. Records we are legally required to keep
         (e.g. mandatory reporting evidence) are retained for the period required
         by law.
       </P>
@@ -165,18 +165,18 @@ export default function PrivacyPage() {
 
       <SectionTitle>8. Security</SectionTitle>
       <P>
-        We use TLS for transit, HMAC-signed playback tokens, hashed passwords,
-        IP/UA fingerprint binding, and access controls. No system is perfectly
-        secure; we cannot guarantee absolute security. Report suspected
-        vulnerabilities to security@memories.brozy.org.
+        We use industry-standard safeguards, including encryption in transit,
+        secure authentication, hashed passwords, and access controls. No system
+        is perfectly secure; we cannot guarantee absolute security. Report
+        suspected vulnerabilities to security@memories.brozy.org.
       </P>
 
       <SectionTitle>9. International Transfers</SectionTitle>
       <P>
-        Our servers are located in the United States and the European Union. By
-        using the Service, you consent to your information being processed in
-        those regions. Where required, we use standard contractual clauses or
-        equivalent safeguards.
+        Your information may be processed in countries where we or our service
+        providers operate. By using the Service, you consent to this processing.
+        Where required by law, we use standard contractual clauses or equivalent
+        safeguards.
       </P>
 
       <SectionTitle>10. Cookies &amp; Tracking</SectionTitle>

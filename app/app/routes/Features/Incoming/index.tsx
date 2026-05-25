@@ -101,7 +101,7 @@ const features: Feature[] = [
   {
     title: "Faster everything",
     description:
-      "Caption and manifest tokens cached client-side, file access cached server-side. The same video used to hit Supabase ~1,800 times per session. Now it hits ~5.",
+      "Smarter caching on the client and server so pages and playback feel snappier, with far fewer redundant requests per watch session.",
     status: "shipped",
   },
 
