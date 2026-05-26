@@ -210,24 +210,7 @@ export default function PlaylistPage() {
                     to={`/playlist/${pl.id}`}
                     className="group block rounded-xl border bg-card overflow-hidden hover:border-primary/30 hover:bg-accent/40 transition-colors"
                   >
-                    <div className="relative aspect-video bg-muted overflow-hidden">
-                      {thumb ? (
-                        <img
-                          src={thumb}
-                          alt=""
-                          className="absolute inset-0 w-full h-full object-cover transition-transform duration-300 group-hover:scale-[1.02]"
-                          loading="lazy"
-                        />
-                      ) : (
-                        <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-primary/15 to-muted">
-                          <Music className="w-12 h-12 text-primary/70" aria-hidden />
-                        </div>
-                      )}
-                      <span className="absolute bottom-2 right-2 rounded-md bg-black/65 px-2 py-0.5 text-[11px] font-medium text-white">
-                        {pl.item_count === 1 ? "1 video" : `${pl.item_count} videos`}
-                      </span>
-                    </div>
-                    <div className="p-3 min-w-0">
+                    <div className="p-3 min-w-0 relative">
                       <p className="font-medium text-sm line-clamp-2 group-hover:text-primary transition-colors">{pl.title}</p>
                       <div className="flex items-center gap-2 text-xs text-muted-foreground mt-1.5">
                         {pl.is_public ? (
@@ -235,6 +218,9 @@ export default function PlaylistPage() {
                         ) : (
                           <span className="inline-flex items-center gap-0.5"><Lock className="w-3 h-3" /> Private</span>
                         )}
+                      <span className="absolute top-1.5 right-1.5 rounded-md bg-black/65 px-2 py-0.5 text-[11px] font-medium text-white">
+                        {pl.item_count === 1 ? "1 video" : `${pl.item_count} videos`}
+                      </span>
                       </div>
                     </div>
                   </Link>

@@ -106,7 +106,7 @@ const moreNavItems = [
 export function AppSidebar() {
   const location = useLocation()
   const { setIsModalOpen, files } = useFileContext()
-  const { isMobile, setOpenMobile } = useSidebar()
+  const { isMobile, setOpenMobile, sheetOnly } = useSidebar()
   const [monitoredFiles, setMonitoredFiles] = useState<FileType[]>([])
   const [displayCount, setDisplayCount] = useState(100)
   const [moreOpen, setMoreOpen] = useState(false)
@@ -155,7 +155,7 @@ export function AppSidebar() {
   return (
     <Sidebar variant="sidebar" collapsible="offcanvas" className="bg-background border-none">
       {/* Header  Logo */}
-      <SidebarHeader className={`${!isMobile ? 'pt-7' : 'pt-3.5'} px-4 pb-2`}>
+      <SidebarHeader className={`${!isMobile && !sheetOnly ? "pt-7" : "pt-3.5"} px-4 pb-2`}>
         <Link to="/" id="home_button" className="flex items-center gap-2 group w-fit">
           <Logo className="relative h-9 w-9 text-primary transition-transform duration-200 group-hover:scale-110" />
           <span className="text-lg font-bold bg-gradient-to-r from-primary to-primary/60 bg-clip-text text-transparent">

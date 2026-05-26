@@ -43,7 +43,7 @@ func parseDurationEnv(key string, fallback time.Duration) time.Duration {
 	return d
 }
 
-// LoadPlay — small CDN-style service that fronts HLS playback. Validates
+// LoadPlay  small CDN-style service that fronts HLS playback. Validates
 // HMAC-signed playback tokens minted by the main app. Manifests are
 // fetched + rewritten in flight; segments are proxied (storage URLs
 // never sent to clients).
@@ -76,7 +76,7 @@ func main() {
 		log.Fatal("GITHUB_OWNER and GITHUB_REPO are required")
 	}
 
-	// Optional Supabase wiring. Without these, LoadPlay still serves —
+	// Optional Supabase wiring. Without these, LoadPlay still serves 
 	// it just trusts the token's user/file binding without DB checks
 	// and always uses the env GITHUB_REPO. Supplying both unlocks
 	// per-file github_repo override + private-file owner enforcement.
@@ -101,7 +101,7 @@ func main() {
 		})
 		lg.Infof("supabase access-control enabled (hit_ttl=%s miss_ttl=%s)", hitTTL, missTTL)
 	} else {
-		lg.Infof("supabase env not set — running without DB access control")
+		lg.Infof("supabase env not set  running without DB access control")
 	}
 
 	blockedOrigins := env.Get("BLOCKED_ORIGINS", "http://localhost:3006,https://cdn.memories.brozy.org")
@@ -117,7 +117,7 @@ func main() {
 	publicHost := env.Get("PUBLIC_HOST", "")
 	if appEnv != "production" && strings.Contains(publicHost, "cdn.memories.brozy.org") {
 		lg.Errorf(
-			"WARNING: PUBLIC_HOST=%q while APP_ENV=%q — manifest rewrite will send segment URLs to PROD CDN even though LoadPlay runs locally. Unset PUBLIC_HOST or use http://localhost:3006 for local dev.",
+			"WARNING: PUBLIC_HOST=%q while APP_ENV=%q  manifest rewrite will send segment URLs to PROD CDN even though LoadPlay runs locally. Unset PUBLIC_HOST or use http://localhost:3006 for local dev.",
 			publicHost,
 			appEnv,
 		)
@@ -161,7 +161,7 @@ func main() {
 		ProxyHeader:           "X-Forwarded-For",
 		// deny() returns ErrPlaybackDenied AFTER writing the 4xx body.
 		// Fiber's DefaultErrorHandler would overwrite with err.Error()
-		// — we don't want that. Recognize the sentinel and just return
+		//  we don't want that. Recognize the sentinel and just return
 		// (response is already constructed). Everything else falls
 		// through to a generic 500 with the same opaque body.
 		ErrorHandler: func(c *fiber.Ctx, err error) error {
@@ -176,10 +176,10 @@ func main() {
 	app.Use(recover.New())
 
 	// Browser playback from the main app (different origin/port) is
-	// credentialess — auth rides in ?t= only. CORS must allow the app
+	// credentialess  auth rides in ?t= only. CORS must allow the app
 	// origin without credentials so players don't attach huge app cookies.
 	if strings.TrimSpace(allowedOriginsCSV) == "" {
-		lg.Errorf("ALLOWED_ORIGINS is empty — all playback requests will be rejected (fail-closed)")
+		lg.Errorf("ALLOWED_ORIGINS is empty  all playback requests will be rejected (fail-closed)")
 	} else {
 		app.Use(cors.New(cors.Config{
 			AllowOrigins:     allowedOriginsCSV,
@@ -209,10 +209,10 @@ func main() {
 	// Single route, both manifest + segment. Manifest sniffs on ".m3u8".
 	app.Get("/v/:fileId/*", handler.Segment(deps))
 
-	// Hidden prod go-live ledger — 404 on purpose, body has version dates.
+	// Hidden prod go-live ledger  404 on purpose, body has version dates.
 	app.Get("/live", handler.ProductionLive)
 
-	// Catch-all — anything that isn't /health or /v/... returns a generic
+	// Catch-all  anything that isn't /health or /v/... returns a generic
 	// 404 so the CDN doesn't advertise its existence to standalone
 	// visitors. Must be registered LAST so it doesn't shadow real routes.
 	app.Use(handler.NotFound)

@@ -22,6 +22,58 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from "~/components/ui/collapsible";
+import { AlertTriangle, EyeOff, ShieldQuestion } from "lucide-react";
+import { useCallback } from "react";
+
+/**
+ * Pure helper that removes adult-flagged items the viewer is NOT the
+ * owner of, recursively across nested episodes. Owners always keep
+ * visibility into their own adult-flagged uploads so they can review /
+ * request a re-classification.
+ *
+ * When ownerHideAdult is true, the owner ALSO hides their own adult
+ * items (helps owners screen-share without exposing flagged uploads).
+ */
+function pruneAdultForViewer(
+  eps: SeriesEpisodeGroup[],
+  viewerUserId: string | undefined,
+  ownerHideAdult: boolean,
+): SeriesEpisodeGroup[] {
+  return eps.map((ep) => ({
+    ...ep,
+    items: ep.items.filter((v) => {
+      if (!v.is_adult) return true;
+      const isOwner =
+        typeof v.owner_id === "string" &&
+        typeof viewerUserId === "string" &&
+        v.owner_id === viewerUserId;
+      // Non-owners never see adult items; owners see them unless they've
+      // toggled the hide switch (screen-share / privacy mode).
+      if (!isOwner) return false;
+      return !ownerHideAdult;
+    }),
+    nested: ep.nested
+      ? pruneAdultForViewer(ep.nested, viewerUserId, ownerHideAdult)
+      : ep.nested,
+  }));
+}
+
+/** True when the viewer owns at least one adult-flagged file in this series. */
+function viewerOwnsAdultInSeries(
+  eps: SeriesEpisodeGroup[],
+  viewerUserId: string | undefined,
+): boolean {
+  if (!viewerUserId) return false;
+  for (const ep of eps) {
+    for (const v of ep.items) {
+      if (v.is_adult && v.owner_id === viewerUserId) return true;
+    }
+    if (ep.nested && viewerOwnsAdultInSeries(ep.nested, viewerUserId)) {
+      return true;
+    }
+  }
+  return false;
+}
 
 /** Thread geometry (Facebook-style spine + elbow) */
 const SPINE_LEFT = "left-[15px]";
@@ -147,6 +199,8 @@ function EpisodeBlock({
   setEpisodeOpen,
   onAddToPlayQueue,
   inPlayQueue,
+  onRequestAdultReview,
+  reviewingFor,
 }: {
   ep: SeriesEpisodeGroup;
   depth: number;
@@ -157,6 +211,8 @@ function EpisodeBlock({
   setEpisodeOpen: Dispatch<SetStateAction<Record<string, boolean>>>;
   onAddToPlayQueue?: (video: FileType) => void;
   inPlayQueue: (fileId: string) => boolean;
+  onRequestAdultReview?: (fileId: string) => void;
+  reviewingFor?: string | null;
 }) {
   const label = ep.episode_name?.trim() || "Episode";
   const part =
@@ -210,6 +266,10 @@ function EpisodeBlock({
           <ul className="m-0 list-none space-y-0 px-0">
             {ep.items.map((video, index) => {
               const isCurrent = video.unique_id === currentVideoUniqueId;
+              const isOwnerAdult =
+                Boolean(video.is_adult) &&
+                typeof currentUserId === "string" &&
+                video.owner_id === currentUserId;
               return (
                 <li
                   key={video.unique_id}
@@ -224,11 +284,11 @@ function EpisodeBlock({
                       <Play className="h-4 w-4 shrink-0 fill-primary text-primary" aria-hidden />
                     ) : null}
                   </div>
-                  <div className="min-w-0 flex-1">
+                  <div className="min-w-0 flex-1 space-y-1">
                     <VideoCard
                       layout={`compact`}
                       related
-                      hideActions={{completely: false, halfway: true}}
+                      hideActions={{ completely: false, halfway: true }}
                       data={video}
                       index={index}
                       currentUserId={currentUserId}
@@ -236,6 +296,27 @@ function EpisodeBlock({
                       onAddToPlayQueue={onAddToPlayQueue}
                       inPlayQueue={inPlayQueue(video.id)}
                     />
+                    {/* Owner-only "Adult flagged" badge + review request. Never
+                        visible to anyone else because the file is filtered out
+                        of `ep.items` for non-owners upstream. */}
+                    {isOwnerAdult && onRequestAdultReview && (
+                      <div className="flex flex-wrap items-center gap-2 rounded-md border border-amber-500/30 bg-amber-500/5 px-2 py-1 text-[11px]">
+                        <span className="inline-flex items-center gap-1 text-amber-300">
+                          <AlertTriangle className="h-3 w-3" aria-hidden />
+                          Flagged as adult
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => onRequestAdultReview(video.id)}
+                          disabled={reviewingFor === video.id}
+                          className="ml-auto inline-flex items-center gap-1 rounded border border-border/60 bg-background/70 px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground disabled:opacity-60"
+                          title="Ask us to review this classification"
+                        >
+                          <ShieldQuestion className="h-3 w-3" aria-hidden />
+                          {reviewingFor === video.id ? "Sending…" : "Request review"}
+                        </button>
+                      </div>
+                    )}
                   </div>
                   <div className="w-8 shrink-0" aria-hidden />
                 </li>
@@ -257,6 +338,8 @@ function EpisodeBlock({
                       setEpisodeOpen={setEpisodeOpen}
                       onAddToPlayQueue={onAddToPlayQueue}
                       inPlayQueue={inPlayQueue}
+                      onRequestAdultReview={onRequestAdultReview}
+                      reviewingFor={reviewingFor}
                     />
                   </div>
                 </NestedEpisodeRow>
@@ -280,7 +363,7 @@ function EpisodeBlock({
 }
 
 export default function SeriesEpisodesSection({
-  episodes,
+  episodes: rawEpisodes,
   currentVideoUniqueId,
   fileSeriesId,
   currentUserId,
@@ -291,6 +374,58 @@ export default function SeriesEpisodesSection({
     ? (video: FileType) => playQueue.addToQueue(video)
     : undefined;
   const inPlayQueue = (fileId: string) => playQueue?.isInQueue(fileId) ?? false;
+
+  // Owner-only toggle: hide my own adult-flagged items (e.g. when
+  // screen-sharing). Default = show. Has no effect for non-owners,
+  // who never see adult items in this list regardless.
+  const [ownerHideAdult, setOwnerHideAdult] = useState(false);
+
+  const ownerHasAdultFlagged = useMemo(
+    () => viewerOwnsAdultInSeries(rawEpisodes, currentUserId),
+    [rawEpisodes, currentUserId],
+  );
+
+  // Apply the viewer-side filter. Non-owners NEVER see is_adult items;
+  // owners see theirs unless they toggle "hide". This is defense-in-depth
+  // at the rendering layer — the server should already enforce access on
+  // the file row itself.
+  const episodes = useMemo(
+    () => pruneAdultForViewer(rawEpisodes, currentUserId, ownerHideAdult),
+    [rawEpisodes, currentUserId, ownerHideAdult],
+  );
+
+  // Request a moderation re-review for one of my adult-flagged files.
+  // Posts to the existing /api/adult-review endpoint with action=submit.
+  const [reviewingFor, setReviewingFor] = useState<string | null>(null);
+  const [reviewStatus, setReviewStatus] = useState<string | null>(null);
+  const requestAdultReview = useCallback(async (fileId: string) => {
+    setReviewingFor(fileId);
+    setReviewStatus(null);
+    try {
+      const res = await fetch("/api/adult-review", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          file_id: fileId,
+          action: "submit",
+          reason: "Owner requested adult-classification review from series view.",
+        }),
+      });
+      const body = (await res.json().catch(() => null)) as
+        | { success?: boolean; error?: string }
+        | null;
+      if (res.ok && body?.success !== false) {
+        setReviewStatus("Review requested. We'll get back to you.");
+      } else {
+        setReviewStatus(body?.error || "Could not submit review right now.");
+      }
+    } catch {
+      setReviewStatus("Could not submit review right now.");
+    } finally {
+      setReviewingFor(null);
+    }
+  }, []);
 
   const seriesNext = useMemo(
     () => getSeriesUpNextVideos(episodes, currentVideoUniqueId),
@@ -398,6 +533,38 @@ export default function SeriesEpisodesSection({
         </div>
 
         <CollapsibleContent>
+          {/* Owner-only adult-content toolbar: appears only when the
+              viewer owns at least one adult-flagged file in this series.
+              Non-owners never see this row (and never see the items at all). */}
+          {ownerHasAdultFlagged && (
+            <div className="flex flex-wrap items-center gap-2 border-b border-border/50 bg-amber-500/5 px-3 py-2 text-xs">
+              <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-amber-500" aria-hidden />
+              <span className="text-muted-foreground">
+                Some of your items in this series are flagged as adult — only
+                you can see them.
+              </span>
+              <button
+                type="button"
+                onClick={() => setOwnerHideAdult((v) => !v)}
+                className={cn(
+                  "ml-auto inline-flex items-center gap-1.5 rounded-md border px-2 py-1 font-medium transition-colors",
+                  ownerHideAdult
+                    ? "border-amber-500/40 bg-amber-500/10 text-amber-300 hover:bg-amber-500/15"
+                    : "border-border/60 bg-background/60 text-muted-foreground hover:text-foreground hover:bg-muted/40",
+                )}
+                aria-pressed={ownerHideAdult}
+              >
+                <EyeOff className="h-3.5 w-3.5" aria-hidden />
+                {ownerHideAdult ? "Hidden in this view" : "Hide in this view"}
+              </button>
+              {reviewStatus && (
+                <span className="basis-full text-[11px] text-muted-foreground">
+                  {reviewStatus}
+                </span>
+              )}
+            </div>
+          )}
+
           {(resumeTarget || (playQueue?.viewerCanCustomizeQueue && seriesNext.length > 0)) && (
             <div className="space-y-2 border-b border-border/50 bg-muted/15 px-2 py-2">
               {resumeTarget ? (
@@ -439,6 +606,8 @@ export default function SeriesEpisodesSection({
                   setEpisodeOpen={setEpisodeOpen}
                   onAddToPlayQueue={onAddToPlayQueue}
                   inPlayQueue={inPlayQueue}
+                  onRequestAdultReview={requestAdultReview}
+                  reviewingFor={reviewingFor}
                 />
               ))}
             </ul>

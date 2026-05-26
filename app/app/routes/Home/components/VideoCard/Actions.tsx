@@ -17,6 +17,7 @@ import {
   Pencil,
   Bookmark,
   MoveVertical,
+  Trash2,
 } from "lucide-react";
 import { formatNumber } from "~/lib/utils/formatNumber";
 import { ShareModal } from "~/components/ShareModal";
@@ -58,6 +59,7 @@ export interface ActionsProps {
   isOwner: boolean;
   isAdult?: boolean;
   onEdit?: () => void;
+  onDelete?: () => void;
   onUpdate?: (updates: {
     liked: boolean;
     disliked: boolean;
@@ -176,6 +178,7 @@ export default function Actions({
   isOwner,
   isAdult,
   onEdit,
+  onDelete,
   onUpdate,
   getShareTimestamp,
   onShareSuccess,
@@ -526,13 +529,24 @@ export default function Actions({
           isShortsShelf ? "min-w-[13.5rem]" : "min-w-[12rem]",
         )}
       >
-          {isOwner && typeof onEdit === "function" ? (
+          {isOwner && (typeof onEdit === "function" || typeof onDelete === "function") ? (
             <>
               <DropdownMenuGroup>
-                <DropdownMenuItem onSelect={() => onEdit()}>
-                  <Pencil className="size-4" aria-hidden />
-                  Edit upload
-                </DropdownMenuItem>
+                {typeof onEdit === "function" && (
+                  <DropdownMenuItem onSelect={() => onEdit()}>
+                    <Pencil className="size-4" aria-hidden />
+                    Edit upload
+                  </DropdownMenuItem>
+                )}
+                {/* {typeof onDelete === "function" && (
+                  <DropdownMenuItem
+                    onSelect={() => onDelete()}
+                    className="text-destructive focus:text-destructive"
+                  >
+                    <Trash2 className="size-4" aria-hidden />
+                    Delete
+                  </DropdownMenuItem>
+                )} */}
               </DropdownMenuGroup>
               <DropdownMenuSeparator />
             </>
@@ -663,10 +677,10 @@ export default function Actions({
   const likeDislikeSegment = (
     <div
       className={cn(
-        "inline-flex items-stretch overflow-hidden rounded-full border border-border bg-card/80 shadow-sm",
+        "inline-flex items-stretch overflow-hidden rounded-full border shadow-sm",
         isReel
-          ? "flex-col divide-y divide-border"
-          : "flex-row divide-x divide-border",
+          ? "flex-col divide-y divide-white/15 border-white/18 bg-black/45 backdrop-blur-md shadow-none"
+          : "flex-row divide-x divide-border border-border bg-card/80",
       )}
       role="group"
       aria-label="Like and dislike"
@@ -675,8 +689,9 @@ export default function Actions({
         type="button"
         className={cn(
           segmentBtn,
-          isReel && "flex-col gap-1 py-2.5",
-          liked && "bg-primary/15 text-primary hover:bg-primary/20",
+          isReel && "flex-col gap-1 py-2.5 text-white hover:bg-white/10",
+          !isReel && liked && "bg-primary/15 text-primary hover:bg-primary/20",
+          isReel && liked && "bg-primary/35 text-white hover:bg-primary/45",
         )}
         onClick={() => applyLikeDislike("like")}
         disabled={likeBusy}
@@ -688,7 +703,7 @@ export default function Actions({
         ) : (
           <ThumbsUp className={cn("h-[1.125rem] w-[1.125rem] shrink-0", liked && "fill-current")} aria-hidden />
         )}
-        <span className={cn(countClass, isReel && "text-[11px] leading-none")}>
+        <span className={cn(isReel ? reelLabel : countClass, isReel && "text-[11px] leading-none")}>
           {formatNumber(likeCount)}
         </span>
       </button>
@@ -696,8 +711,9 @@ export default function Actions({
         type="button"
         className={cn(
           segmentBtn,
-          isReel && "flex-col gap-1 py-2.5",
-          disliked && "bg-destructive/10 text-destructive hover:bg-destructive/15",
+          isReel && "flex-col gap-1 py-2.5 text-white hover:bg-white/10",
+          !isReel && disliked && "bg-destructive/10 text-destructive hover:bg-destructive/15",
+          isReel && disliked && "bg-rose-500/30 text-white hover:bg-rose-500/40",
         )}
         onClick={() => applyLikeDislike("dislike")}
         disabled={dislikeBusy}
@@ -709,7 +725,7 @@ export default function Actions({
         ) : (
           <ThumbsDown className={cn("h-[1.125rem] w-[1.125rem] shrink-0", disliked && "fill-current")} aria-hidden />
         )}
-        <span className={cn(countClass, isReel && "text-[11px] leading-none")}>
+        <span className={cn(isReel ? reelLabel : countClass, isReel && "text-[11px] leading-none")}>
           {formatNumber(dislikeCount)}
         </span>
       </button>
@@ -732,19 +748,32 @@ export default function Actions({
   );
 
   const reelRow = (
-    <div className="flex flex-col items-center gap-4">
+    <div className="flex flex-col items-center gap-5">
       {howLikesDislikeComments ? likeDislikeSegment : null}
 
       {howLikesDislikeComments && (
       <button
         type="button"
-        className={cn(pillOuter, "flex-col gap-1 py-2.5")}
+        className={cn(
+          isReel ? "flex flex-col items-center gap-1" : cn(pillOuter, "flex-col gap-1 py-2.5"),
+        )}
         onClick={openComments}
         aria-label="View comments"
       >
-        <MessageCircle className="h-[1.125rem] w-[1.125rem] shrink-0" aria-hidden />
-          <span className={cn(countClass, "text-[11px] leading-none")}>{formatNumber(commentCount)}</span>
-        </button>
+        {isReel ? (
+          <>
+            <span className={reelIconBtn}>
+              <MessageCircle className="h-[1.125rem] w-[1.125rem] shrink-0" aria-hidden />
+            </span>
+            <span className={reelLabel}>{formatNumber(commentCount)}</span>
+          </>
+        ) : (
+          <>
+            <MessageCircle className="h-[1.125rem] w-[1.125rem] shrink-0" aria-hidden />
+            <span className={cn(countClass, "text-[11px] leading-none")}>{formatNumber(commentCount)}</span>
+          </>
+        )}
+      </button>
       )}
 
       {moreDropdown}

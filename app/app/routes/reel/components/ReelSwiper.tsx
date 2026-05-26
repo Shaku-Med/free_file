@@ -388,17 +388,17 @@ export const ReelSwiper = ({
       {showHint && (
         <div
           className={cn(
-            "pointer-events-none absolute inset-x-0 bottom-[calc(6rem+env(safe-area-inset-bottom,0px))] z-30",
-            "flex flex-col items-center gap-1.5 text-white/90",
+            "pointer-events-none absolute inset-x-0 bottom-[max(7rem,calc(6rem+env(safe-area-inset-bottom,0px)))] z-30",
+            "flex flex-col items-center gap-2 text-white/90",
             "animate-[reelHintFade_3s_ease-in-out_forwards]",
           )}
           aria-hidden
         >
-          <div className="reel-hint-chevron">
-            <ChevronUp className="h-6 w-6" aria-hidden />
+          <div className="reel-hint-chevron rounded-full border border-white/15 bg-black/50 p-2 backdrop-blur-sm">
+            <ChevronUp className="h-5 w-5" aria-hidden />
           </div>
-          <span className="rounded-full border border-white/20 bg-black/60 px-3 py-1 text-xs font-medium backdrop-blur-sm">
-            Swipe up for more
+          <span className="rounded-full border border-white/20 bg-black/60 px-3 py-1.5 text-xs font-medium backdrop-blur-sm">
+            Swipe up for the next reel
           </span>
         </div>
       )}
@@ -406,8 +406,8 @@ export const ReelSwiper = ({
       {isLoadingMore ? (
         <div
           className={cn(
-            "pointer-events-none absolute bottom-24 left-1/2 z-30 flex -translate-x-1/2 items-center gap-2",
-            "rounded-full border border-white/20 bg-black/80 px-3 py-1.5 text-xs text-white/90 shadow-md backdrop-blur-sm sm:bottom-28",
+            "pointer-events-none absolute bottom-[max(5rem,calc(4rem+env(safe-area-inset-bottom,0px)))] left-1/2 z-30 flex -translate-x-1/2 items-center gap-2",
+            "rounded-full border border-white/20 bg-black/75 px-3 py-1.5 text-xs text-white/90 shadow-lg backdrop-blur-sm",
           )}
           aria-live="polite"
         >

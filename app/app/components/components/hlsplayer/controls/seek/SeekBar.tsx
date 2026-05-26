@@ -369,6 +369,7 @@ export default function SeekBar({ mobileStyle = false }: { mobileStyle?: boolean
     waveformPngUrl,
     startInteraction,
     endInteraction,
+    isReel,
   } = usePlayerContext();
   const trackRef = useRef<HTMLDivElement>(null);
   const [isDragging, setIsDragging] = useState(false);
@@ -384,8 +385,10 @@ export default function SeekBar({ mobileStyle = false }: { mobileStyle?: boolean
   //   1. Try JSON (new format, primary).
   //   2. If JSON 404s / has no real audio → try PNG (legacy).
   //   3. If PNG 404s too → null, SeekBar renders plain rail.
-  const waveformUrl =
-    waveformJsonUrl && !jsonError
+  // Reels use the plain progress rail (same as mobile), not the waveform seeker.
+  const waveformUrl = isReel
+    ? null
+    : waveformJsonUrl && !jsonError
       ? waveformJsonUrl
       : waveformPngUrl && !pngError
         ? waveformPngUrl

@@ -1,5 +1,13 @@
 import type { MetaFunction } from "react-router";
 import { buildPageMeta } from "~/lib/seo";
+import {
+  LegalContactCard,
+  LegalDocumentLayout,
+  LegalOL,
+  LegalP,
+  LegalSection,
+  type LegalTocItem,
+} from "~/components/legal/LegalDocumentLayout";
 
 export const meta: MetaFunction = () =>
   buildPageMeta({
@@ -9,129 +17,130 @@ export const meta: MetaFunction = () =>
     canonicalPath: "/dmca",
   });
 
-const SectionTitle = ({ children }: { children: React.ReactNode }) => (
-  <h2 className="text-lg font-semibold text-foreground mb-2 mt-6">{children}</h2>
-);
-const P = ({ children }: { children: React.ReactNode }) => (
-  <p className="text-sm text-muted-foreground mb-3 leading-relaxed">{children}</p>
-);
-const OL = ({ children }: { children: React.ReactNode }) => (
-  <ol className="list-decimal list-inside space-y-1 text-sm text-muted-foreground mb-3">
-    {children}
-  </ol>
-);
+const TOC: LegalTocItem[] = [
+  { id: "designated-agent", label: "Designated agent" },
+  { id: "takedown-notice", label: "Takedown notice" },
+  { id: "false-notices", label: "False notices" },
+  { id: "counter-notice", label: "Counter-notice" },
+  { id: "repeat-infringer", label: "Repeat infringers" },
+  { id: "contact", label: "Contact" },
+];
 
 export default function DMCAPage() {
   return (
-    <article className="max-w-3xl py-8 mandatory_select">
-      <h1 className="text-2xl font-semibold text-foreground mb-2">DMCA Copyright Policy</h1>
-      <p className="text-xs text-muted-foreground mb-6">
-        Effective date: {new Date().toLocaleDateString()}
-      </p>
-
-      <P>
+    <LegalDocumentLayout
+      activeNav="dmca"
+      title="DMCA Copyright Policy"
+      summary="How to submit copyright takedown notices and counter-notices under the Digital Millennium Copyright Act."
+      toc={TOC}
+    >
+      <LegalP>
         Memories complies with the Digital Millennium Copyright Act (DMCA, 17
         U.S.C. §512). We respond expeditiously to valid takedown notices and
         terminate the accounts of repeat infringers in appropriate
         circumstances.
-      </P>
+      </LegalP>
 
-      <SectionTitle>Designated Agent</SectionTitle>
-      <P>
-        Send DMCA notices to our designated agent registered with the U.S.
-        Copyright Office:
-      </P>
-      <P>
-        Email: dmca@memories.brozy.org
-        <br />
-        Subject line: "DMCA Takedown Notice"
-      </P>
+      <LegalSection id="designated-agent" title="Designated Agent">
+        <LegalP>
+          Send DMCA notices to our designated agent registered with the U.S.
+          Copyright Office:
+        </LegalP>
+        <LegalContactCard>
+          Email: dmca@memories.brozy.org
+          <br />
+          Subject line: &quot;DMCA Takedown Notice&quot;
+        </LegalContactCard>
+      </LegalSection>
 
-      <SectionTitle>Filing a Takedown Notice</SectionTitle>
-      <P>
-        To be effective under 17 U.S.C. §512(c)(3), your notice must include all
-        of the following:
-      </P>
-      <OL>
-        <li>
-          A physical or electronic signature of the copyright owner or a person
-          authorized to act on the owner's behalf
-        </li>
-        <li>
-          Identification of the copyrighted work claimed to have been infringed
-          (or a representative list if multiple works)
-        </li>
-        <li>
-          Identification of the material that is claimed to be infringing,
-          including the URL(s) on memories.brozy.org so we can locate it
-        </li>
-        <li>
-          Your name, address, telephone number, and email address
-        </li>
-        <li>
-          A statement that you have a good-faith belief that use of the material
-          in the manner complained of is not authorized by the copyright owner,
-          its agent, or the law
-        </li>
-        <li>
-          A statement, under penalty of perjury, that the information in the
-          notice is accurate and that you are the copyright owner or are
-          authorized to act on the copyright owner's behalf
-        </li>
-      </OL>
-      <P>
-        Notices missing any of the above may be invalid. We may forward your
-        notice (including your contact information) to the user who posted the
-        material and to the Lumen Database for transparency.
-      </P>
+      <LegalSection id="takedown-notice" title="Filing a Takedown Notice">
+        <LegalP>
+          To be effective under 17 U.S.C. §512(c)(3), your notice must include all
+          of the following:
+        </LegalP>
+        <LegalOL>
+          <li>
+            A physical or electronic signature of the copyright owner or a person
+            authorized to act on the owner&apos;s behalf
+          </li>
+          <li>
+            Identification of the copyrighted work claimed to have been infringed
+            (or a representative list if multiple works)
+          </li>
+          <li>
+            Identification of the material that is claimed to be infringing,
+            including the URL(s) on memories.brozy.org so we can locate it
+          </li>
+          <li>Your name, address, telephone number, and email address</li>
+          <li>
+            A statement that you have a good-faith belief that use of the material
+            in the manner complained of is not authorized by the copyright owner,
+            its agent, or the law
+          </li>
+          <li>
+            A statement, under penalty of perjury, that the information in the
+            notice is accurate and that you are the copyright owner or are
+            authorized to act on the copyright owner&apos;s behalf
+          </li>
+        </LegalOL>
+        <LegalP>
+          Notices missing any of the above may be invalid. We may forward your
+          notice (including your contact information) to the user who posted the
+          material and to the Lumen Database for transparency.
+        </LegalP>
+      </LegalSection>
 
-      <SectionTitle>False or Misleading Notices</SectionTitle>
-      <P>
-        Under 17 U.S.C. §512(f), anyone who knowingly materially misrepresents
-        that material is infringing may be liable for damages. Don't send bogus
-        takedowns.
-      </P>
+      <LegalSection id="false-notices" title="False or Misleading Notices">
+        <LegalP>
+          Under 17 U.S.C. §512(f), anyone who knowingly materially misrepresents
+          that material is infringing may be liable for damages. Don&apos;t send bogus
+          takedowns.
+        </LegalP>
+      </LegalSection>
 
-      <SectionTitle>Counter-Notice</SectionTitle>
-      <P>
-        If you believe your content was removed in error, you may submit a
-        counter-notice to dmca@memories.brozy.org including:
-      </P>
-      <OL>
-        <li>Your physical or electronic signature</li>
-        <li>
-          Identification of the material that was removed and the location at
-          which it appeared before removal
-        </li>
-        <li>
-          A statement under penalty of perjury that you have a good-faith belief
-          the material was removed as a result of mistake or misidentification
-        </li>
-        <li>
-          Your name, address, and telephone number, and a statement that you
-          consent to the jurisdiction of the U.S. federal district court for the
-          judicial district where you are located (or, if outside the U.S., the
-          district where Memories is located), and that you will accept service
-          of process from the person who sent the original notice or their
-          agent
-        </li>
-      </OL>
-      <P>
-        If we receive a valid counter-notice, we will forward it to the original
-        complainant. Unless they file suit within 10–14 business days, we may
-        restore the content.
-      </P>
+      <LegalSection id="counter-notice" title="Counter-Notice">
+        <LegalP>
+          If you believe your content was removed in error, you may submit a
+          counter-notice to dmca@memories.brozy.org including:
+        </LegalP>
+        <LegalOL>
+          <li>Your physical or electronic signature</li>
+          <li>
+            Identification of the material that was removed and the location at
+            which it appeared before removal
+          </li>
+          <li>
+            A statement under penalty of perjury that you have a good-faith belief
+            the material was removed as a result of mistake or misidentification
+          </li>
+          <li>
+            Your name, address, and telephone number, and a statement that you
+            consent to the jurisdiction of the U.S. federal district court for the
+            judicial district where you are located (or, if outside the U.S., the
+            district where Memories is located), and that you will accept service
+            of process from the person who sent the original notice or their
+            agent
+          </li>
+        </LegalOL>
+        <LegalP>
+          If we receive a valid counter-notice, we will forward it to the original
+          complainant. Unless they file suit within 10–14 business days, we may
+          restore the content.
+        </LegalP>
+      </LegalSection>
 
-      <SectionTitle>Repeat-Infringer Policy</SectionTitle>
-      <P>
-        We terminate the accounts of users who, in our reasonable judgment, are
-        repeat infringers. Three valid takedowns on a single account is the
-        general threshold; serious or egregious infringement may result in
-        immediate termination.
-      </P>
+      <LegalSection id="repeat-infringer" title="Repeat-Infringer Policy">
+        <LegalP>
+          We terminate the accounts of users who, in our reasonable judgment, are
+          repeat infringers. Three valid takedowns on a single account is the
+          general threshold; serious or egregious infringement may result in
+          immediate termination.
+        </LegalP>
+      </LegalSection>
 
-      <SectionTitle>Contact</SectionTitle>
-      <P>dmca@memories.brozy.org</P>
-    </article>
+      <LegalSection id="contact" title="Contact">
+        <LegalContactCard>dmca@memories.brozy.org</LegalContactCard>
+      </LegalSection>
+    </LegalDocumentLayout>
   );
 }

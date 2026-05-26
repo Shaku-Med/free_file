@@ -95,7 +95,7 @@ function isSeriesFile(f: FileType): boolean {
   return t(f.is_series_main) || t(f.is_series_episode) || t(f.is_files_series_item);
 }
 
-type LayoutType = "default" | "horizontal" | "compact" | "reelStrip" | "shelf" | "endCard" | "notificationThumb";
+type LayoutType = "default" | "horizontal" | "compact" | "reelStrip" | "shelf" | "endCard" | "notificationThumb" | "studioRow";
 
 interface VideoCardProps {
   data: FileType;
@@ -118,6 +118,8 @@ interface VideoCardProps {
   };
   /** 0–1 = red progress strip along bottom of thumbnail (YouTube queue style). */
   thumbnailProgress?: number;
+  /** Owner-only delete callback. When set, the ⋯ menu shows a Delete item. */
+  onDelete?: (file: FileType) => void;
 }
 
 const CATEGORIES = ["Gaming", "Music", "Entertainment", "Education", "Technology", "Sports", "News", "Lifestyle", "Anime", "Film", "Automotive", "Art", "Nature", "Other"];
@@ -139,6 +141,7 @@ const VideoCard = ({
     completely: false,
   },
   thumbnailProgress,
+  onDelete,
 }: VideoCardProps) => {
   const isMobile = useIsMobile();
   const sidebarCtx = useSidebarOptional();
@@ -450,6 +453,17 @@ const VideoCard = ({
       cancelled = true;
     };
   }, [isEditing, isOwner, data.id, data.unique_id]);
+
+  // Brozy Studio keeps Actions in a separate table column; open the same edit dialog.
+  useEffect(() => {
+    if (layout !== "studioRow" || !isOwner) return;
+    const onOpen = (e: Event) => {
+      const uid = (e as CustomEvent<{ uniqueId?: string }>).detail?.uniqueId;
+      if (uid && uid === data.unique_id) setIsEditing(true);
+    };
+    window.addEventListener(VIDEOCARD_OPEN_EDIT_EVENT, onOpen);
+    return () => window.removeEventListener(VIDEOCARD_OPEN_EDIT_EVENT, onOpen);
+  }, [layout, isOwner, data.unique_id]);
 
   // Load series state whenever the edit dialog opens for a file owned by the user.
   useEffect(() => {
@@ -2142,6 +2156,7 @@ const VideoCard = ({
             disliked={disliked}
             isOwner={isOwner}
             onEdit={isOwner ? () => setIsEditing(true) : undefined}
+            onDelete={isOwner && onDelete ? () => onDelete(data) : undefined}
             onUpdate={currentUserId ? handleInteractionUpdate : undefined}
             currentUserId={currentUserId}
             fileCreatedAt={data.created_at}
@@ -2255,6 +2270,7 @@ const VideoCard = ({
                 isOwner={isOwner}
                 isAdult={Boolean(data.is_adult)}
                 onEdit={isOwner ? () => setIsEditing(true) : undefined}
+                onDelete={isOwner && onDelete ? () => onDelete(data) : undefined}
                 onUpdate={currentUserId ? handleInteractionUpdate : undefined}
                 currentUserId={currentUserId}
                 fileCreatedAt={data.created_at}
@@ -2500,6 +2516,56 @@ const VideoCard = ({
     );
   }
 
+  if (layout === "studioRow") {
+    // Studio table cell. Uses the same renderThumbnail + renderEditDialog
+    // as every other layout so adult blur, retry, lazy load, and the edit
+    // upload dialog (title / description / skip markers / series) stay
+    // identical to the rest of the app — no duplication.
+    const durationSec = typeof data.duration === "number" ? data.duration : 0;
+    const durationStr = formatDuration(durationSec);
+    const sameYear =
+      data.created_at && new Date(data.created_at).getFullYear() === new Date().getFullYear();
+    const postedAt = data.created_at
+      ? new Date(data.created_at).toLocaleString(undefined, {
+          month: "short",
+          day: "numeric",
+          ...(sameYear ? {} : { year: "numeric" }),
+          hour: "numeric",
+          minute: "2-digit",
+        })
+      : "";
+    return (
+      <>
+        <Link
+          to={watchPath}
+          onClick={(e) => {
+            e.preventDefault();
+            void handleWatchNav();
+          }}
+          className="flex min-w-0 items-start gap-3"
+        >
+          <div className="relative h-[4.25rem] w-[6.75rem] shrink-0 overflow-hidden rounded-md bg-card ring-1 ring-border/30 sm:h-16 sm:w-28">
+            {renderThumbnail("h-full w-full")}
+            {durationStr && (
+              <span className="absolute right-1 bottom-1 rounded bg-black/80 px-1 py-px text-[10px] font-semibold tabular-nums leading-none text-white">
+                {durationStr}
+              </span>
+            )}
+          </div>
+          <div className="min-w-0">
+            <p className="line-clamp-2 text-sm font-semibold text-foreground">
+              <ParseFilenameInsert filename={data.file_title || data.filename} showLimit={120} />
+            </p>
+            {postedAt && (
+              <p className="mt-1 text-xs text-muted-foreground">{postedAt}</p>
+            )}
+          </div>
+        </Link>
+        {renderEditDialog()}
+      </>
+    );
+  }
+
   if (layout === "notificationThumb") {
     /**
      * Bare 16:9 poster  no title, no actions, no internal <Link>. Used
@@ -2696,5 +2762,14 @@ const VideoCard = ({
     </div>
   );
 };
+
+export const VIDEOCARD_OPEN_EDIT_EVENT = "videocard:open-edit";
+
+export function requestVideoCardEdit(uniqueId: string) {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(
+    new CustomEvent(VIDEOCARD_OPEN_EDIT_EVENT, { detail: { uniqueId } }),
+  );
+}
 
 export default VideoCard;

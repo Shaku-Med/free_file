@@ -1,4 +1,4 @@
-import { useRef, useState, useEffect, type ReactElement } from 'react';
+import { useRef, useState, useEffect, useLayoutEffect, type ReactElement } from 'react';
 import { createPortal } from 'react-dom';
 import { Play, Pause, SkipForward, MoreVertical, SkipBack, ChevronLeft, X } from 'lucide-react';
 import { usePlayerContext } from '../PlayerContext';
@@ -167,6 +167,7 @@ export default function ControlBar({
     setAutoPlay,
     authPlaybackFeatures,
     reelEmbedAutoHide,
+    setReelChromeBottomReservePx,
     tiltRotation,
     tiltZoom,
     resetTiltRotation,
@@ -175,6 +176,37 @@ export default function ControlBar({
   const idleSeekOnly = reelEmbedAutoHide && !state.reelAuxiliaryChromeVisible;
   const showTiltReset = tiltMode && (tiltRotation.x !== 0 || tiltRotation.y !== 0 || tiltRotation.z !== 0 || tiltZoom !== 1);
   const containerRef = useRef<HTMLDivElement>(null);
+  const bottomStripRef = useRef<HTMLDivElement>(null);
+
+  /** Report bottom chrome height so ReelInfoOverlay can sit above volume/time/seek. */
+  useLayoutEffect(() => {
+    if (!reelEmbedAutoHide) {
+      setReelChromeBottomReservePx(0);
+      return;
+    }
+    const el = bottomStripRef.current;
+    if (!el) {
+      setReelChromeBottomReservePx(0);
+      return;
+    }
+    const measure = () => {
+      setReelChromeBottomReservePx(Math.ceil(el.getBoundingClientRect().height) + 12);
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => {
+      ro.disconnect();
+      setReelChromeBottomReservePx(0);
+    };
+  }, [
+    reelEmbedAutoHide,
+    idleSeekOnly,
+    isMobileLayout,
+    hideControls,
+    state.reelAuxiliaryChromeVisible,
+    setReelChromeBottomReservePx,
+  ]);
   const { showTime, showRightInline, showVolumeSlider } = useControlBarWidth(containerRef);
   const [overflowOpen, setOverflowOpen] = useState(false);
   const overflowRef = useRef<HTMLDivElement>(null);
@@ -256,6 +288,7 @@ export default function ControlBar({
           style={{ bottom: liftBottomPx }}
         >
           <div
+            ref={bottomStripRef}
             className="pointer-events-auto absolute bottom-0 left-0 right-0 z-40 flex flex-col px-3 pb-3 pt-2"
             style={{ paddingBottom: 'max(0.75rem, env(safe-area-inset-bottom))' }}
           >
@@ -266,7 +299,10 @@ export default function ControlBar({
     }
     return (
       <div
-        ref={containerRef}
+        ref={(node) => {
+          containerRef.current = node;
+          bottomStripRef.current = node;
+        }}
         className="pointer-events-auto absolute left-0 right-0 z-30 flex flex-col"
         style={{ bottom: liftBottomPx }}
       >
@@ -435,6 +471,7 @@ export default function ControlBar({
         </div>
 
         <div
+          ref={bottomStripRef}
           className="pointer-events-auto absolute bottom-0 left-0 right-0 z-40 flex flex-col gap-2 px-3 pb-3 pt-2"
           style={{ paddingBottom: 'max(0.75rem, env(safe-area-inset-bottom))' }}
         >
@@ -515,7 +552,10 @@ export default function ControlBar({
 
   return (
     <div
-      ref={containerRef}
+      ref={(node) => {
+        containerRef.current = node;
+        bottomStripRef.current = node;
+      }}
       className="pointer-events-auto absolute left-0 right-0 z-30 flex flex-col"
       style={{ bottom: liftBottomPx }}
     >

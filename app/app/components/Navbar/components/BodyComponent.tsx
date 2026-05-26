@@ -5,6 +5,7 @@ import ScrollRestoration from "~/lib/Context/ScrollRestoration"
 import { useFileContext } from "~/lib/Context/Context";
 import { useLocation } from "react-router";
 import { isPipChromeRoute } from "~/routes/pip/pipEnv";
+import { isReelRoute } from "~/lib/reelRoute";
 import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
 import PersistentHomeView from "~/routes/Home/PersistentHomeView";
 
@@ -17,7 +18,7 @@ interface BodyComponentProps {
   children: React.ReactNode
 }
 
-const staticRoutes = ["/", "/privacy", "/terms", "/features", "/auth", "/api", '/search', '/playlist', '/profile', '/subscriptions'];
+const staticRoutes = ["/", "/privacy", "/terms", "/dmca", "/community-guidelines", "/features", "/auth", "/api", '/search', '/playlist', '/profile', '/subscriptions'];
 const SCROLL_THRESHOLD = 300;
 
 // Easing function  starts slow, accelerates, then eases into full opacity.
@@ -27,10 +28,11 @@ function easeOutCubic(t: number): number {
 }
 
 const BodyComponent = ({ children }: BodyComponentProps) => {
-  const { isMobile, state } = useSidebar()
+  const { isMobile, state, sheetOnly } = useSidebar()
   const { theaterMode, hideAppChrome } = useFileContext();
   const location = useLocation();
   const suppressChrome = hideAppChrome || isPipChromeRoute(location.pathname);
+  const onReelRoute = isReelRoute(location.pathname);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const [hasScrolled, setHasScrolled] = useState<ScrollState>({
     state: false,
@@ -58,6 +60,7 @@ const BodyComponent = ({ children }: BodyComponentProps) => {
   );
 
   const applyTheater = theaterMode && !isStaticRoute;
+  const sidebarExpandedLayout = !isMobile && state === "expanded" && !sheetOnly;
 
   // Re-sync bar opacity after navigation (after ScrollRestoration may have applied scroll).
   const handleScrollRef = useRef(handleScroll);
@@ -106,11 +109,11 @@ const BodyComponent = ({ children }: BodyComponentProps) => {
 
   return (
     <div
-      className={`flex h-full min-h-0 w-full min-w-0 flex-1 flex-col ${!isMobile && state === 'expanded' && 'pt-2'}`}
+      className={`flex h-full min-h-0 w-full min-w-0 flex-1 flex-col ${sidebarExpandedLayout && "pt-2"}`}
     >
       <div
         id="scroll_container"
-        className={`${!isMobile && state === 'expanded' && 'rounded-tl-2xl bg-card shadow-sm'} min-h-0 w-full min-w-0 flex-1 overflow-y-auto overflow-x-hidden pb-20`}
+        className={`${sidebarExpandedLayout && "rounded-tl-2xl bg-card shadow-sm"} min-h-0 w-full min-w-0 flex-1 overflow-y-auto overflow-x-hidden ${onReelRoute ? "overflow-hidden pb-0" : "pb-20"}`}
         ref={scrollContainerRef}
         onScroll={handleScroll}
       >
@@ -118,7 +121,9 @@ const BodyComponent = ({ children }: BodyComponentProps) => {
         <Navbar hasScrolled={hasScrolled} />
         <div
           className={`mx-auto w-full min-w-0 flex-1 ${
-            applyTheater ? 'max-w-none px-0' : ' px-3 sm:px-5 lg:px-8 xl:px-4'
+            applyTheater || onReelRoute
+              ? "max-w-none px-0"
+              : " px-3 sm:px-5 lg:px-8 xl:px-4"
           } sidebar_body`}
         >
           <div style={{ display: isHomeRoute ? "block" : "none" }} aria-hidden={!isHomeRoute}>
@@ -126,7 +131,7 @@ const BodyComponent = ({ children }: BodyComponentProps) => {
           </div>
           <div style={{ display: isHomeRoute ? "none" : "block" }}>{children}</div>
         </div>
-        <Footer />
+        {!onReelRoute ? <Footer /> : null}
       </div>
     </div>
   )

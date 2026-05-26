@@ -1,5 +1,13 @@
 import type { MetaFunction } from "react-router";
 import { buildPageMeta } from "~/lib/seo";
+import {
+  LegalContactCard,
+  LegalDocumentLayout,
+  LegalP,
+  LegalSection,
+  LegalUL,
+  type LegalTocItem,
+} from "~/components/legal/LegalDocumentLayout";
 
 export const meta: MetaFunction = () =>
   buildPageMeta({
@@ -9,203 +17,214 @@ export const meta: MetaFunction = () =>
     canonicalPath: "/privacy",
   });
 
-const SectionTitle = ({ children }: { children: React.ReactNode }) => (
-  <h2 className="text-lg font-semibold text-foreground mb-2 mt-6">{children}</h2>
-);
-const P = ({ children }: { children: React.ReactNode }) => (
-  <p className="text-sm text-muted-foreground mb-3 leading-relaxed">{children}</p>
-);
-const UL = ({ children }: { children: React.ReactNode }) => (
-  <ul className="list-disc list-inside space-y-1 text-sm text-muted-foreground mb-3">
-    {children}
-  </ul>
-);
+const TOC: LegalTocItem[] = [
+  { id: "information-we-collect", label: "Information we collect" },
+  { id: "how-we-use", label: "How we use it" },
+  { id: "legal-bases", label: "Legal bases" },
+  { id: "how-we-share", label: "How we share" },
+  { id: "data-retention", label: "Data retention" },
+  { id: "your-rights", label: "Your rights" },
+  { id: "children", label: "Children's privacy" },
+  { id: "security", label: "Security" },
+  { id: "international", label: "International transfers" },
+  { id: "cookies", label: "Cookies" },
+  { id: "do-not-track", label: "Do Not Track" },
+  { id: "changes", label: "Changes" },
+  { id: "contact", label: "Contact" },
+];
 
 export default function PrivacyPage() {
   return (
-    <article className="max-w-3xl py-8 mandatory_select">
-      <h1 className="text-2xl font-semibold text-foreground mb-2">Privacy Policy</h1>
-      <p className="text-xs text-muted-foreground mb-6">
-        Effective date: {new Date().toLocaleDateString()}
-      </p>
-
-      <P>
-        This Privacy Policy explains how Memories ("we", "us") collects, uses, and
+    <LegalDocumentLayout
+      activeNav="privacy"
+      title="Privacy Policy"
+      summary="How Memories collects, uses, and protects your information when you use memories.brozy.org and related services."
+      toc={TOC}
+    >
+      <LegalP>
+        This Privacy Policy explains how Memories (&quot;we&quot;, &quot;us&quot;) collects, uses, and
         shares information when you use memories.brozy.org and related services
-        (the "Service"). By using the Service you agree to this Policy.
-      </P>
+        (the &quot;Service&quot;). By using the Service you agree to this Policy.
+      </LegalP>
 
-      <SectionTitle>1. Information We Collect</SectionTitle>
-      <P>We collect the following categories of information:</P>
-      <UL>
-        <li>
-          <strong>Account info:</strong> email, username, password hash, profile
-          picture, profile description.
-        </li>
-        <li>
-          <strong>User Content:</strong> videos, images, captions, comments,
-          reactions, playlists, and metadata you upload or create.
-        </li>
-        <li>
-          <strong>Technical info:</strong> IP address, user agent, device type,
-          OS, browser, referrer, timestamps, and basic logs needed to operate the
-          Service.
-        </li>
-        <li>
-          <strong>Usage info:</strong> watch history, search queries, likes,
-          subscriptions, watch time, and similar interaction events you generate
-          on the Service.
-        </li>
-        <li>
-          <strong>Cookies &amp; local storage:</strong> session identifiers,
-          security tokens, preferences (theme, volume), and the visited-videos
-          list. We do not currently use third-party advertising trackers.
-        </li>
-        <li>
-          <strong>Push subscription:</strong> if you opt in, your browser-provided
-          push endpoint and keys (we never see your device PIN or password).
-        </li>
-      </UL>
+      <LegalSection id="information-we-collect" title="1. Information We Collect">
+        <LegalP>We collect the following categories of information:</LegalP>
+        <LegalUL>
+          <li>
+            <strong className="text-foreground">Account info:</strong> email, username, password hash, profile
+            picture, profile description.
+          </li>
+          <li>
+            <strong className="text-foreground">User Content:</strong> videos, images, captions, comments,
+            reactions, playlists, and metadata you upload or create.
+          </li>
+          <li>
+            <strong className="text-foreground">Technical info:</strong> IP address, user agent, device type,
+            OS, browser, referrer, timestamps, and basic logs needed to operate the
+            Service.
+          </li>
+          <li>
+            <strong className="text-foreground">Usage info:</strong> watch history, search queries, likes,
+            subscriptions, watch time, and similar interaction events you generate
+            on the Service.
+          </li>
+          <li>
+            <strong className="text-foreground">Cookies &amp; local storage:</strong> session identifiers,
+            security tokens, preferences (theme, volume), and the visited-videos
+            list. We do not currently use third-party advertising trackers.
+          </li>
+          <li>
+            <strong className="text-foreground">Push subscription:</strong> if you opt in, your browser-provided
+            push endpoint and keys (we never see your device PIN or password).
+          </li>
+        </LegalUL>
+      </LegalSection>
 
-      <SectionTitle>2. How We Use Information</SectionTitle>
-      <UL>
-        <li>Provide and operate the Service (host and stream User Content)</li>
-        <li>
-          Authenticate you, secure your account, and prevent fraud and abuse
-        </li>
-        <li>
-          Improve features, personalize recommendations, and tune performance
-        </li>
-        <li>Send service notifications and (if you opt in) push alerts</li>
-        <li>Enforce our Terms and comply with applicable law</li>
-        <li>
-          Detect and report child sexual abuse material to NCMEC and law
-          enforcement as required by 18 U.S.C. §2258A
-        </li>
-      </UL>
+      <LegalSection id="how-we-use" title="2. How We Use Information">
+        <LegalUL>
+          <li>Provide and operate the Service (host and stream User Content)</li>
+          <li>Authenticate you, secure your account, and prevent fraud and abuse</li>
+          <li>Improve features, personalize recommendations, and tune performance</li>
+          <li>Send service notifications and (if you opt in) push alerts</li>
+          <li>Enforce our Terms and comply with applicable law</li>
+          <li>
+            Detect and report child sexual abuse material to NCMEC and law
+            enforcement as required by 18 U.S.C. §2258A
+          </li>
+        </LegalUL>
+      </LegalSection>
 
-      <SectionTitle>3. Legal Bases (EU/UK Users)</SectionTitle>
-      <P>
-        Where the GDPR applies we rely on: (a) contract  to deliver the Service
-        you requested; (b) legitimate interests  operating, securing, and
-        improving the Service; (c) consent  for push notifications and any
-        optional analytics; (d) legal obligation  record-keeping, mandatory
-        reporting, and responses to lawful requests.
-      </P>
+      <LegalSection id="legal-bases" title="3. Legal Bases (EU/UK Users)">
+        <LegalP>
+          Where the GDPR applies we rely on: (a) contract — to deliver the Service
+          you requested; (b) legitimate interests — operating, securing, and
+          improving the Service; (c) consent — for push notifications and any
+          optional analytics; (d) legal obligation — record-keeping, mandatory
+          reporting, and responses to lawful requests.
+        </LegalP>
+      </LegalSection>
 
-      <SectionTitle>4. How We Share Information</SectionTitle>
-      <P>We share information only as described here:</P>
-      <UL>
-        <li>
-          <strong>Service providers</strong> who help us host, operate, and
-          secure the Service (for example, cloud infrastructure, databases,
-          authentication, media delivery, and email). Each provider is bound by
-          confidentiality obligations and may use your information only to
-          provide services to us.
-        </li>
-        <li>
-          <strong>Other users:</strong> public-facing parts of your profile and
-          User Content you choose to make public are visible to others.
-        </li>
-        <li>
-          <strong>Legal requests:</strong> we may disclose information if
-          required by law, subpoena, court order, or to protect the rights,
-          safety, or property of Memories, our users, or the public.
-        </li>
-        <li>
-          <strong>Business transfers:</strong> if we are acquired or merge,
-          information may transfer to the successor under terms at least as
-          protective.
-        </li>
-      </UL>
-      <P>
-        We do not sell your personal information for money. We do not share it
-        with advertisers for cross-context behavioral advertising.
-      </P>
+      <LegalSection id="how-we-share" title="4. How We Share Information">
+        <LegalP>We share information only as described here:</LegalP>
+        <LegalUL>
+          <li>
+            <strong className="text-foreground">Service providers</strong> who help us host, operate, and
+            secure the Service (for example, cloud infrastructure, databases,
+            authentication, media delivery, and email). Each provider is bound by
+            confidentiality obligations and may use your information only to
+            provide services to us.
+          </li>
+          <li>
+            <strong className="text-foreground">Other users:</strong> public-facing parts of your profile and
+            User Content you choose to make public are visible to others.
+          </li>
+          <li>
+            <strong className="text-foreground">Legal requests:</strong> we may disclose information if
+            required by law, subpoena, court order, or to protect the rights,
+            safety, or property of Memories, our users, or the public.
+          </li>
+          <li>
+            <strong className="text-foreground">Business transfers:</strong> if we are acquired or merge,
+            information may transfer to the successor under terms at least as
+            protective.
+          </li>
+        </LegalUL>
+        <LegalP>
+          We do not sell your personal information for money. We do not share it
+          with advertisers for cross-context behavioral advertising.
+        </LegalP>
+      </LegalSection>
 
-      <SectionTitle>5. Data Retention</SectionTitle>
-      <P>
-        We keep account info for as long as your account is active. User Content
-        is retained while it remains posted; if you delete content, copies may
-        remain in backups and cached copies for up to 30 days before being
-        purged. Logs are kept up to 12 months. Records we are legally required to keep
-        (e.g. mandatory reporting evidence) are retained for the period required
-        by law.
-      </P>
+      <LegalSection id="data-retention" title="5. Data Retention">
+        <LegalP>
+          We keep account info for as long as your account is active. User Content
+          is retained while it remains posted; if you delete content, copies may
+          remain in backups and cached copies for up to 30 days before being
+          purged. Logs are kept up to 12 months. Records we are legally required to keep
+          (e.g. mandatory reporting evidence) are retained for the period required
+          by law.
+        </LegalP>
+      </LegalSection>
 
-      <SectionTitle>6. Your Rights</SectionTitle>
-      <P>
-        Depending on where you live (EU/UK GDPR, California CCPA/CPRA, and
-        similar laws), you may have the right to:
-      </P>
-      <UL>
-        <li>Access the personal information we hold about you</li>
-        <li>Correct inaccurate information</li>
-        <li>Delete your account and associated data</li>
-        <li>Export your data in a portable format</li>
-        <li>Object to or restrict certain processing</li>
-        <li>Withdraw consent for processing based on consent</li>
-        <li>
-          Lodge a complaint with your local data protection authority (EU/UK)
-        </li>
-      </UL>
-      <P>
-        To exercise these rights email privacy@memories.brozy.org from the email
-        associated with your account. We respond within 30 days. We will not
-        discriminate against you for exercising your rights.
-      </P>
+      <LegalSection id="your-rights" title="6. Your Rights">
+        <LegalP>
+          Depending on where you live (EU/UK GDPR, California CCPA/CPRA, and
+          similar laws), you may have the right to:
+        </LegalP>
+        <LegalUL>
+          <li>Access the personal information we hold about you</li>
+          <li>Correct inaccurate information</li>
+          <li>Delete your account and associated data</li>
+          <li>Export your data in a portable format</li>
+          <li>Object to or restrict certain processing</li>
+          <li>Withdraw consent for processing based on consent</li>
+          <li>Lodge a complaint with your local data protection authority (EU/UK)</li>
+        </LegalUL>
+        <LegalP>
+          To exercise these rights email privacy@memories.brozy.org from the email
+          associated with your account. We respond within 30 days. We will not
+          discriminate against you for exercising your rights.
+        </LegalP>
+      </LegalSection>
 
-      <SectionTitle>7. Children's Privacy</SectionTitle>
-      <P>
-        The Service is not directed to children under 13. We do not knowingly
-        collect personal information from children under 13. If you believe a
-        child under 13 has provided us information, contact
-        privacy@memories.brozy.org and we will delete it promptly.
-      </P>
+      <LegalSection id="children" title="7. Children's Privacy">
+        <LegalP>
+          The Service is not directed to children under 13. We do not knowingly
+          collect personal information from children under 13. If you believe a
+          child under 13 has provided us information, contact
+          privacy@memories.brozy.org and we will delete it promptly.
+        </LegalP>
+      </LegalSection>
 
-      <SectionTitle>8. Security</SectionTitle>
-      <P>
-        We use industry-standard safeguards, including encryption in transit,
-        secure authentication, hashed passwords, and access controls. No system
-        is perfectly secure; we cannot guarantee absolute security. Report
-        suspected vulnerabilities to security@memories.brozy.org.
-      </P>
+      <LegalSection id="security" title="8. Security">
+        <LegalP>
+          We use industry-standard safeguards, including encryption in transit,
+          secure authentication, hashed passwords, and access controls. No system
+          is perfectly secure; we cannot guarantee absolute security. Report
+          suspected vulnerabilities to security@memories.brozy.org.
+        </LegalP>
+      </LegalSection>
 
-      <SectionTitle>9. International Transfers</SectionTitle>
-      <P>
-        Your information may be processed in countries where we or our service
-        providers operate. By using the Service, you consent to this processing.
-        Where required by law, we use standard contractual clauses or equivalent
-        safeguards.
-      </P>
+      <LegalSection id="international" title="9. International Transfers">
+        <LegalP>
+          Your information may be processed in countries where we or our service
+          providers operate. By using the Service, you consent to this processing.
+          Where required by law, we use standard contractual clauses or equivalent
+          safeguards.
+        </LegalP>
+      </LegalSection>
 
-      <SectionTitle>10. Cookies &amp; Tracking</SectionTitle>
-      <P>
-        We use first-party cookies and local storage for session management,
-        security, and remembering preferences. We do not use third-party
-        advertising cookies. You can clear cookies in your browser settings 
-        doing so may sign you out and reset preferences.
-      </P>
+      <LegalSection id="cookies" title="10. Cookies &amp; Tracking">
+        <LegalP>
+          We use first-party cookies and local storage for session management,
+          security, and remembering preferences. We do not use third-party
+          advertising cookies. You can clear cookies in your browser settings —
+          doing so may sign you out and reset preferences.
+        </LegalP>
+      </LegalSection>
 
-      <SectionTitle>11. Do Not Track</SectionTitle>
-      <P>
-        We do not respond to "Do Not Track" browser signals because there is no
-        agreed standard. We otherwise do not track you across third-party sites.
-      </P>
+      <LegalSection id="do-not-track" title="11. Do Not Track">
+        <LegalP>
+          We do not respond to &quot;Do Not Track&quot; browser signals because there is no
+          agreed standard. We otherwise do not track you across third-party sites.
+        </LegalP>
+      </LegalSection>
 
-      <SectionTitle>12. Changes to This Policy</SectionTitle>
-      <P>
-        We may update this Policy. Material changes will be announced in the
-        Service or by email. Continued use after the effective date constitutes
-        acceptance.
-      </P>
+      <LegalSection id="changes" title="12. Changes to This Policy">
+        <LegalP>
+          We may update this Policy. Material changes will be announced in the
+          Service or by email. Continued use after the effective date constitutes
+          acceptance.
+        </LegalP>
+      </LegalSection>
 
-      <SectionTitle>13. Contact</SectionTitle>
-      <P>
-        Privacy questions: privacy@memories.brozy.org
-        <br />
-        Security: security@memories.brozy.org
-      </P>
-    </article>
+      <LegalSection id="contact" title="13. Contact">
+        <LegalContactCard>
+          Privacy questions: privacy@memories.brozy.org
+          <br />
+          Security: security@memories.brozy.org
+        </LegalContactCard>
+      </LegalSection>
+    </LegalDocumentLayout>
   );
 }

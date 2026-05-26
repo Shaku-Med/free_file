@@ -96,7 +96,7 @@ func (c Config) AllowedList() []string {
 }
 
 // AllowsOrigin is true when raw parses to an exact scheme://host match on
-// ALLOWED_ORIGINS. Uses net/url — never a substring/contains check, so
+// ALLOWED_ORIGINS. Uses net/url  never a substring/contains check, so
 // https://memories.brozy.org.evil.com and
 // https://evil.com/?ref=https://memories.brozy.org do not pass.
 func (c Config) AllowsOrigin(raw string) bool {

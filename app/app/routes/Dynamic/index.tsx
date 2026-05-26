@@ -1306,6 +1306,18 @@ const DynamicPage = ({ is_modal }: DynamicPageProps) => {
         if (result?.success && result.counted !== false) {
           setViews((v) => result.views ?? result.view_count ?? v + 1);
           setHasIncrementedView(true);
+          // Studio analytics event. Fires only after the view is counted
+          // so we never double record on aborted / spam plays.
+          void import('~/lib/studio/track.client').then(({ trackStudioEvent }) => {
+            trackStudioEvent({
+              type: 'video_view',
+              fileId: file_data.id,
+              metadata: {
+                watchSeconds: Math.round(payload.currentTimeSeconds || 0),
+                durationSeconds: Math.round(payload.durationSeconds || 0),
+              },
+            });
+          }).catch(() => {});
         }
       })
       .catch(() => {});

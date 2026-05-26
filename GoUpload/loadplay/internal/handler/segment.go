@@ -8,17 +8,17 @@ import (
 	"goupload/loadplay/internal/token"
 )
 
-// SegmentDeps mirrors ManifestDeps — both routes share the same shape
+// SegmentDeps mirrors ManifestDeps  both routes share the same shape
 // (cache, secret, storage, guard, etc.). Aliasing keeps things tidy.
 type SegmentDeps = ManifestDeps
 
 // Segment handles GET /v/:fileId/* for non-m3u8 media (.ts, .m4s, .vtt, …).
 // Validates the playback token, then proxies bytes from backing storage.
-// Storage URLs never reach the client — same as /api/load/video.
+// Storage URLs never reach the client  same as /api/load/video.
 func Segment(deps SegmentDeps) fiber.Handler {
 	return func(c *fiber.Ctx) error {
 		// HARD GATE: Origin + Referer both required, both must match
-		// allowed app/CDN hosts. Runs BEFORE everything else — curl,
+		// allowed app/CDN hosts. Runs BEFORE everything else  curl,
 		// address-bar paste, "Open in new tab", view-source, evil.com
 		// hot-link all die here.
 		if denyResp := playbackPreflight(c, deps); denyResp != nil {
@@ -53,7 +53,7 @@ func Segment(deps SegmentDeps) fiber.Handler {
 		// Guests get a truncated playlist; segments past the truncation
 		// point are NOT registered in the allowlist, so direct .ts URL
 		// guessing with the same ?t= must fail. This is what enforces
-		// the preview cap — without it, the cap was advisory only.
+		// the preview cap  without it, the cap was advisory only.
 		if tok.IsGuest() && deps.Allowlist != nil {
 			if !deps.Allowlist.Allowed(playbackSessionKey(c, rawTok, tok), askedPath) {
 				deps.Log.Errorf("guest segment outside preview window unique_id=%s path=%s", tok.FileID, askedPath)
@@ -62,7 +62,7 @@ func Segment(deps SegmentDeps) fiber.Handler {
 		}
 
 		// Access control + per-file repo via the same cache pipeline as
-		// the manifest path. Cached in RAM per unique_id — segment storms
+		// the manifest path. Cached in RAM per unique_id  segment storms
 		// do not translate into Supabase round-trips.
 		storageCfg, denyStatus := resolveAccessAndStorage(c.Context(), deps, tok)
 		if denyStatus != 0 {

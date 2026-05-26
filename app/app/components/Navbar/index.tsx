@@ -11,6 +11,7 @@ import { useStandalone } from "~/lib/hooks/useStandalone";
 import type { ScrollState } from "./components/BodyComponent";
 import { NotificationsDropdown } from "./NotificationsDropdown";
 import { cn } from "~/lib/utils";
+import { isReelRoute } from "~/lib/reelRoute";
 
 interface NavbarProps {
   hasScrolled?: ScrollState;
@@ -18,6 +19,9 @@ interface NavbarProps {
 
 const iconBtn =
   "inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-foreground/90 transition-colors hover:bg-muted/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring active:scale-[0.97]";
+
+const iconBtnReel =
+  "text-white/95 hover:bg-white/12 focus-visible:ring-white/40";
 
 export default function Navbar({ hasScrolled = { state: false, opacityLevel: 0 } }: NavbarProps) {
   const { setIsModalOpen, userId } = useFileContext();
@@ -28,12 +32,12 @@ export default function Navbar({ hasScrolled = { state: false, opacityLevel: 0 }
   const { bodyContentWidthPx } = useBodyContentWidth();
   const showCreateLabel = bodyContentWidthPx >= 720;
   const showMemoriesLabel = bodyContentWidthPx >= 420;
-  const isReelRoute = location.pathname.startsWith("/reel");
+  const onReelRoute = isReelRoute(location.pathname);
   const isStandalone = useStandalone();
 
   const searchExpanded = mobileSearchOpen && !inlineSearch;
-  const showSearchBar = !isReelRoute && (inlineSearch || mobileSearchOpen);
-  const barOpacity = isReelRoute ? 0.92 : searchExpanded ? 1 : hasScrolled.opacityLevel;
+  const showSearchBar = !onReelRoute && (inlineSearch || mobileSearchOpen);
+  const barOpacity = onReelRoute ? 0 : searchExpanded ? 1 : hasScrolled.opacityLevel;
 
   useEffect(() => {
     setMobileSearchOpen(false);
@@ -87,8 +91,8 @@ export default function Navbar({ hasScrolled = { state: false, opacityLevel: 0 }
           </button>
         ) : (
           <div className="flex min-w-0 shrink-0 items-center gap-1">
-            <SidebarTrigger className={cn(iconBtn, "[&_svg]:size-5")} />
-            {!isReelRoute ? (
+            <SidebarTrigger className={cn(iconBtn, onReelRoute && iconBtnReel, "[&_svg]:size-5")} />
+            {!onReelRoute ? (
               <Link
                 to="/"
                 id="home_button"
@@ -127,7 +131,7 @@ export default function Navbar({ hasScrolled = { state: false, opacityLevel: 0 }
 
         {!searchExpanded ? (
           <div className="ml-auto flex shrink-0 items-center gap-0.5 sm:gap-1">
-            {!isReelRoute ? (
+            {!onReelRoute ? (
               <>
                 {!inlineSearch && !mobileSearchOpen ? (
                   <button

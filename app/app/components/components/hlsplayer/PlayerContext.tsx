@@ -193,6 +193,9 @@ interface PlayerContextValue {
   setReelAuxiliaryChromeVisible: (visible: boolean) => void;
   /** True when `showFeedPlayerControls && isReel`  idle timer hides all but seek. */
   reelEmbedAutoHide: boolean;
+  /** Measured height of the bottom control strip (px) for reel info overlay clearance. */
+  reelChromeBottomReservePx: number;
+  setReelChromeBottomReservePx: (px: number) => void;
   startInteraction: () => void;
   endInteraction: () => void;
 
@@ -326,6 +329,7 @@ export function PlayerProvider({
 
   const [loop, setLoopState] = useState(isReel ? true : initialLoop);
   const [autoPlay, setAutoPlayState] = useState(initialAutoPlay);
+  const [reelChromeBottomReservePx, setReelChromeBottomReservePx] = useState(0);
 
   const setLoop = useCallback((v: boolean) => {
     if (isReel) return;
@@ -598,22 +602,22 @@ export function PlayerProvider({
   // PNG when the JSON 404s. Computing both here keeps the URL build
   // logic in one place.
   const waveformPrefix = useMemo(() => {
-    if (!file) return null;
+    if (!file || isReel) return null;
     return getWaveformImagePathPrefix({
       default_thumbnail: file.default_thumbnail,
       thumbnails: file.thumbnails,
       endpoint: file.endpoint,
       file_type: file.file_type,
     });
-  }, [file?.id, file?.default_thumbnail, file?.thumbnails, file?.endpoint, file?.file_type]);
+  }, [file?.id, file?.default_thumbnail, file?.thumbnails, file?.endpoint, file?.file_type, isReel]);
 
   const waveformUrl = useMemo(
     () => (waveformPrefix ? `/api/load/image/${waveformPrefix}waveform.json` : null),
-    [waveformPrefix]
+    [waveformPrefix],
   );
   const waveformPngUrl = useMemo(
     () => (waveformPrefix ? `/api/load/image/${waveformPrefix}waveform.png` : null),
-    [waveformPrefix]
+    [waveformPrefix],
   );
 
   const play = useCallback(() => {
@@ -873,6 +877,8 @@ export function PlayerProvider({
     setControlsVisible,
     setReelAuxiliaryChromeVisible,
     reelEmbedAutoHide,
+    reelChromeBottomReservePx,
+    setReelChromeBottomReservePx,
     startInteraction,
     endInteraction,
     spriteMeta,

@@ -125,14 +125,14 @@ export default function TagPage() {
 
   if (initialLoading) {
     return (
-      <div className="mx-auto py-8">
+      <div className="mx-auto py-8 px-4">
         <FeedSkeleton />
       </div>
     );
   }
 
   return (
-    <div className="mx-auto py-8">
+    <div className="mx-auto py-8 px-4">
       <div className="mb-6">
         <h1 className="text-2xl font-bold text-foreground">
           Tag: <span className="text-primary">{decodedTag}</span>

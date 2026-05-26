@@ -1,7 +1,13 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router';
+import { isMobile } from 'react-device-detect';
 import { Maximize2 } from 'lucide-react';
 import { cn, getThumbnailUrl, getVideoSrc, ParseFilename } from '~/lib/utils';
+import {
+  REEL_FALLBACK_ASPECT,
+  readVideoAspectRatio,
+  reelVideoFrameStyle,
+} from '~/lib/reel/reelVideoFrame';
 import { usePlaybackUrl } from '~/lib/hooks/usePlaybackUrl';
 import ParseFilenameInsert from '~/lib/utils/ShowFileName';
 import { FormattedText } from '~/components/FormattedText';
@@ -12,6 +18,7 @@ import { Button } from '~/components/ui/button';
 import { DynamicHLSPlayerWithQueue } from '~/routes/Dynamic/components/DynamicHLSPlayerWithQueue';
 import { PlayQueueProvider } from '~/routes/Dynamic/components/PlayQueueContext';
 import Actions from '~/routes/Home/components/VideoCard/Actions';
+import { ReelMetaPanel } from '~/routes/reel/components/ReelMetaPanel';
 import { useFileContext } from '~/lib/Context/Context';
 import { type FileType, fileWatchPath } from '~/lib/types';
 import { fileToFeedItem, type VerticalFeedItemData } from '~/components/vertical-feed';
@@ -72,6 +79,9 @@ function PipReelItemInner({
   const videoRef = useRef<HTMLVideoElement | null>(null);
   /** Drives `useWatchTracking` when the HLS `<video>` mounts (ref alone doesn’t re-render). */
   const [trackedVideoEl, setTrackedVideoEl] = useState<HTMLVideoElement | null>(null);
+  /** Intrinsic W/H from the active `<video>` — sizes the reel frame on `/reel`. */
+  const [videoAspect, setVideoAspect] = useState<number | null>(null);
+  const [isReelMobileLayout, setIsReelMobileLayout] = useState(isMobile);
 
   const isHLS =
     file.file_type === 'application/vnd.apple.mpegurl' ||
@@ -143,6 +153,7 @@ function PipReelItemInner({
     setHasIncrementedView(false);
     viewIncrementSentRef.current = false;
     setTrackedVideoEl(null);
+    setVideoAspect(null);
     if (viewIncrementTimerRef.current) {
       clearTimeout(viewIncrementTimerRef.current);
       viewIncrementTimerRef.current = null;
@@ -273,6 +284,44 @@ function PipReelItemInner({
     setTrackedVideoEl(el);
   }, []);
 
+  useEffect(() => {
+    const mql = window.matchMedia('(max-width: 1023px)');
+    const update = () => setIsReelMobileLayout(isMobile || mql.matches);
+    update();
+    mql.addEventListener('change', update);
+    return () => mql.removeEventListener('change', update);
+  }, []);
+
+  useEffect(() => {
+    if (variant !== 'page' || isReelMobileLayout) return;
+    const v = trackedVideoEl ?? videoRef.current;
+    if (!v) return;
+
+    const syncAspect = () => {
+      const ar = readVideoAspectRatio(v.videoWidth, v.videoHeight);
+      if (ar) setVideoAspect(ar);
+    };
+
+    syncAspect();
+    v.addEventListener('loadedmetadata', syncAspect);
+    v.addEventListener('loadeddata', syncAspect);
+    v.addEventListener('resize', syncAspect);
+
+    return () => {
+      v.removeEventListener('loadedmetadata', syncAspect);
+      v.removeEventListener('loadeddata', syncAspect);
+      v.removeEventListener('resize', syncAspect);
+    };
+  }, [variant, isReelMobileLayout, trackedVideoEl, fileIdNorm]);
+
+  const reelFrameStyle = useMemo(() => {
+    if (variant !== 'page' || isReelMobileLayout) return undefined;
+    return reelVideoFrameStyle(videoAspect ?? REEL_FALLBACK_ASPECT, {
+      maxHeight: 'min(calc(100dvh - 0.5rem), 920px)',
+      maxWidth: 'min(100%, calc(100vw - 14rem))',
+    });
+  }, [variant, videoAspect, isReelMobileLayout]);
+
   const handleReelPosterColorsFromPlayer = useCallback(
     (payload: { src: string; colors: string[] }) => {
       if (variant !== 'page' || !isActive) return;
@@ -373,6 +422,11 @@ function PipReelItemInner({
     />
   );
 
+  const reelInfoSlot =
+    variant === 'page' && showChrome ? (
+      <ReelMetaPanel file={file} item={item} views={views} />
+    ) : undefined;
+
   const videoPlayerEl =
     videoSrc && showHls ? (
       <PlayQueueProvider
@@ -397,6 +451,7 @@ function PipReelItemInner({
           hideControls={PIP_REEL_HLS_HIDE_CONTROLS}
           isReel
           disableKeyboardShortcuts={variant === 'page'}
+          reelInfoSlot={reelInfoSlot}
           onPlay={handleVideoPlay}
           onVideoRef={handlePlayerVideoRef}
           callBack={variant === 'page' ? handleReelPosterColorsFromPlayer : undefined}
@@ -422,117 +477,62 @@ function PipReelItemInner({
       </div>
     );
 
-  /** Shared reel metadata (desktop sidebar + mobile bottom bar below the player  matches pre–IG mobile layout). */
-  const renderReelMeta = () => (
-    <div className="flex min-w-0 flex-col gap-2 text-white [&_.text-muted-foreground]:text-white/65">
-      <div className="flex items-center gap-2">
-        <div className="min-w-0 flex-1">
-          {file.owner?.username ? (
-            <OwnerProfile
-              owner={file.owner}
-              size="sm"
-              showUsername
-              className="text-white [&_span]:text-white hover:text-white [&_span]:hover:text-white"
-            />
-          ) : (
-            <p className="truncate text-sm font-semibold text-white">@{item.username || '…'}</p>
-          )}
-        </div>
-      </div>
-
-      <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-white/70 sm:text-xs">
-        <span className="font-medium tabular-nums text-white">{formatNumber(views)} views</span>
-        {file.created_at ? (
-          <>
-            <span className="opacity-50" aria-hidden>
-              ·
-            </span>
-            <span>{formatTimeAgo(file.created_at)}</span>
-          </>
-        ) : null}
-      </div>
-
-      {file.file_title?.trim() || file.filename ? (
-        <p className="truncate text-sm font-semibold leading-tight text-white">
-          <ParseFilenameInsert
-            filename={file.file_title?.trim() || file.filename || ''}
-            className="[&_a]:text-white [&_a]:underline"
-          />
-        </p>
-      ) : null}
-
-      {item.caption?.trim() ? (
-        <div className="line-clamp-2 text-sm leading-snug text-white/80">
-          <FormattedText text={item.caption.trim()} className="text-white/80 [&_a]:text-white" />
-        </div>
-      ) : null}
-    </div>
-  );
-
-  if (variant === 'page') {
+  if (variant === "page") {
     return (
       <div
         className={cn(
-          'relative flex h-full min-h-0 w-full shrink-0 flex-col bg-transparent',
+          "relative flex h-full min-h-0 w-full shrink-0 flex-col bg-transparent",
           className,
         )}
         data-pip-reel-item-id={item.id}
       >
-        <div className="flex min-h-0 flex-1 flex-col lg:min-h-0 lg:flex-row lg:items-stretch lg:justify-center">
-          {/* Desktop: creator + copy  bottom-aligned with the video column */}
-          {showChrome ? (
-            <aside className="hidden min-w-0 shrink-0 lg:flex lg:w-[min(18rem,26vw)] lg:flex-col lg:justify-end lg:gap-1 lg:pb-10 lg:pl-8 lg:pr-4 xl:w-[min(20rem,28vw)]">
-              {renderReelMeta()}
-            </aside>
-          ) : null}
+        <div className="flex h-full min-h-0 w-full items-center justify-center max-lg:items-stretch max-lg:justify-stretch">
+          <div
+            className={cn(
+              "relative flex h-full w-full max-w-full flex-row items-center justify-center gap-3 lg:gap-4 lg:px-6",
+              "max-lg:gap-0 max-lg:px-0",
+            )}
+          >
+            <div
+              className={cn(
+                "relative shrink-0 overflow-hidden bg-black",
+                "max-lg:h-[100dvh] max-lg:min-h-[100dvh] max-lg:max-h-[100dvh] max-lg:w-full max-lg:max-w-full",
+                "lg:max-w-full lg:transition-[width,height] lg:duration-300 lg:ease-out",
+                "max-lg:rounded-none",
+                "lg:rounded-2xl lg:shadow-[0_25px_80px_-15px_rgba(0,0,0,0.9)] lg:ring-1 lg:ring-white/10",
+              )}
+              style={reelFrameStyle}
+            >
+              {videoPlayerEl}
 
-          {/* Stage: mobile = full-bleed video + actions, then bottom bar (legacy). Desktop = 9:16 + rail. */}
-          <div className="relative flex min-h-0 min-w-0 flex-1 flex-col lg:min-w-0 lg:justify-center lg:overflow-visible lg:px-2">
-            <div className="relative flex min-h-0 flex-1 flex-col lg:flex-1 lg:flex-row lg:items-center lg:justify-center lg:overflow-visible">
-              <div className="relative mx-auto flex min-h-0 w-full max-w-full flex-1 flex-col lg:flex-none lg:items-center">
-                <div
-                  className={cn(
-                    'relative isolate flex min-h-0 w-full flex-1 flex-col lg:aspect-[9/16]',
-                    'lg:h-[min(92dvh,calc(100dvh-2.5rem))] lg:max-h-[92dvh] lg:w-auto lg:max-w-[min(420px,36vw)]',
-                  )}
-                >
-                  <div className="relative h-full min-h-0 w-full flex-1 overflow-hidden bg-black lg:rounded-2xl lg:shadow-[0_25px_80px_-15px_rgba(0,0,0,0.85)] lg:ring-1 lg:ring-white/10">
-                    {videoPlayerEl}
-                  </div>
-
-                  <div
-                    aria-hidden
-                    className="pointer-events-none absolute right-0 top-0 z-[11] w-20 bg-gradient-to-l from-black/35 to-transparent lg:hidden"
-                    style={{ bottom: 'calc(3.25rem + env(safe-area-inset-bottom, 0px))' }}
-                  />
-
-                  <div
-                    className={cn(
-                      'swiper-no-swiping pointer-events-auto absolute z-20 flex flex-col items-end px-2 pt-2',
-                      'bottom-[calc(3.75rem+env(safe-area-inset-bottom,0px))] right-0',
-                      'lg:inset-auto lg:left-full lg:top-1/2 lg:ml-3 lg:w-14 lg:-translate-y-1/2 lg:items-center lg:px-0 lg:pb-0 lg:pt-0',
-                    )}
-                  >
-                    {actionsEl}
-                  </div>
-                </div>
-              </div>
+              <div
+                aria-hidden
+                className="pointer-events-none absolute inset-x-0 top-0 z-[11] h-24 bg-gradient-to-b from-black/60 via-black/20 to-transparent"
+              />
+              <div
+                aria-hidden
+                className="pointer-events-none absolute inset-y-0 right-0 z-[11] w-[30%] max-w-[7rem] bg-gradient-to-l from-black/35 to-transparent lg:hidden"
+              />
 
               {showChrome ? (
-                <div className="shrink-0 border-t border-white/10 bg-black/90 px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] text-white lg:hidden">
-                  {renderReelMeta()}
+                <div
+                  className={cn(
+                    "swiper-no-swiping pointer-events-auto absolute z-20 flex flex-col items-center lg:hidden",
+                    "right-[max(0.5rem,env(safe-area-inset-right))]",
+                    "top-1/2 -translate-y-1/2",
+                  )}
+                >
+                  {actionsEl}
                 </div>
               ) : null}
             </div>
-          </div>
 
-          {/* Balance the left aside so the video stays centered when metadata is shown */}
-          {showChrome ? (
-            <div
-              className="hidden shrink-0 lg:block lg:w-[min(18rem,26vw)] lg:pb-10 xl:w-[min(20rem,28vw)]"
-              aria-hidden
-            />
-          ) : null}
+            {showChrome ? (
+              <div className="swiper-no-swiping pointer-events-auto z-30 hidden shrink-0 flex-col items-center lg:flex">
+                {actionsEl}
+              </div>
+            ) : null}
+          </div>
         </div>
       </div>
     );

@@ -27,6 +27,8 @@ import {
 } from "~/components/ui/tooltip"
 import { useStandalone } from "~/lib/hooks/useStandalone"
 import { useFileContext } from "~/lib/Context/Context"
+import { useLocation } from "react-router"
+import { isReelRoute } from "~/lib/reelRoute"
 
 const SIDEBAR_WIDTH = "19rem"
 const SIDEBAR_WIDTH_MOBILE = "19rem"
@@ -40,6 +42,8 @@ type SidebarContextProps = {
   openMobile: boolean
   setOpenMobile: (open: boolean) => void
   isMobile: boolean
+  /** Reel routes: always sheet, no desktop rail / resize / shortcut. */
+  sheetOnly: boolean
   toggleSidebar: () => void
 }
 
@@ -73,6 +77,8 @@ function SidebarProvider({
   onOpenChange?: (open: boolean) => void
 }) {
   const isMobile = useIsMobile()
+  const { pathname } = useLocation()
+  const sheetOnly = isReelRoute(pathname)
   const { playerSettings, setPlayerSettings, savePlayerSettings } = useFileContext()
   const [openMobile, setOpenMobile] = React.useState(false)
 
@@ -91,22 +97,27 @@ function SidebarProvider({
         _setOpen(openState)
       }
 
-      // Persist desktop rail via same API/cookies as player controls (not mobile sheet).
-      if (!isMobile) {
+      // Persist desktop rail via same API/cookies as player controls (not mobile / reel sheet).
+      if (!isMobile && !sheetOnly) {
         setPlayerSettings((prev) => (prev ? { ...prev, sidebarOpen: openState } : prev))
         savePlayerSettings({ sidebarOpen: openState }).catch(() => {})
       }
     },
-    [setOpenProp, open, isMobile, setPlayerSettings, savePlayerSettings]
+    [setOpenProp, open, isMobile, sheetOnly, setPlayerSettings, savePlayerSettings]
   )
 
   // Helper to toggle the sidebar.
   const toggleSidebar = React.useCallback(() => {
-    return isMobile ? setOpenMobile((open) => !open) : setOpen((open) => !open)
-  }, [isMobile, setOpen, setOpenMobile])
+    if (sheetOnly || isMobile) {
+      return setOpenMobile((open) => !open)
+    }
+    return setOpen((open) => !open)
+  }, [isMobile, sheetOnly, setOpen, setOpenMobile])
 
-  // Adds a keyboard shortcut to toggle the sidebar.
+  // Adds a keyboard shortcut to toggle the sidebar (disabled on reel).
   React.useEffect(() => {
+    if (sheetOnly) return
+
     const handleKeyDown = (event: KeyboardEvent) => {
       if (
         event.key === SIDEBAR_KEYBOARD_SHORTCUT &&
@@ -119,7 +130,7 @@ function SidebarProvider({
 
     window.addEventListener("keydown", handleKeyDown)
     return () => window.removeEventListener("keydown", handleKeyDown)
-  }, [toggleSidebar])
+  }, [toggleSidebar, sheetOnly])
 
   // We add a state so that we can do data-state="expanded" or "collapsed".
   // This makes it easier to style the sidebar with Tailwind classes.
@@ -133,9 +144,10 @@ function SidebarProvider({
       isMobile,
       openMobile,
       setOpenMobile,
+      sheetOnly,
       toggleSidebar,
     }),
-    [state, open, setOpen, isMobile, openMobile, setOpenMobile, toggleSidebar]
+    [state, open, setOpen, isMobile, openMobile, setOpenMobile, sheetOnly, toggleSidebar]
   )
 
   return (
@@ -175,7 +187,7 @@ function Sidebar({
   variant?: "sidebar" | "floating" | "inset"
   collapsible?: "offcanvas" | "icon" | "none"
 }) {
-  const { isMobile, state, openMobile, setOpenMobile } = useSidebar()
+  const { isMobile, state, openMobile, setOpenMobile, sheetOnly } = useSidebar()
 
   if (collapsible === "none") {
     return (
@@ -192,14 +204,15 @@ function Sidebar({
     )
   }
 
-  if (isMobile) {
+  if (sheetOnly || isMobile) {
     return (
       <Sheet open={openMobile} onOpenChange={setOpenMobile} {...props}>
         <SheetContent
           data-sidebar="sidebar"
           data-slot="sidebar"
           data-mobile="true"
-          className="bg-background/95 backdrop-blur-xl text-sidebar-foreground w-[80%] p-0 [&>button]:hidden z-[10000000000] border-none"
+          data-sheet-only={sheetOnly ? "true" : undefined}
+          className="bg-background/95 backdrop-blur-xl text-sidebar-foreground w-[min(80vw,19rem)] p-0 [&>button]:hidden z-[10000000000] border-none"
           style={
             {
               "--sidebar-width": SIDEBAR_WIDTH_MOBILE,
@@ -294,7 +307,9 @@ function SidebarTrigger({
 }
 
 function SidebarRail({ className, ...props }: React.ComponentProps<"button">) {
-  const { toggleSidebar } = useSidebar()
+  const { toggleSidebar, sheetOnly } = useSidebar()
+
+  if (sheetOnly) return null
 
   return (
     <Tooltip>

@@ -12,7 +12,7 @@ import {
 } from "~/components/ui/dropdown-menu";
 import { useFileContext } from "~/lib/Context/Context";
 import { getProfilePicUrl } from "~/lib/utils/profilePic";
-import { LogIn, User, Settings, LogOut, ChevronDown, Heart, UserPlus } from "lucide-react";
+import { LogIn, User, Settings, LogOut, ChevronDown, Heart, UserPlus, Video, FileEdit } from "lucide-react";
 
 type Variant = "sidebar" | "topbar";
 
@@ -51,6 +51,12 @@ function ProfileMenuContent({ username }: { username: string | undefined }) {
         <Link to={username ? `/profile/${username}` : "/"} className="flex items-center gap-2">
           <User className="h-4 w-4" />
           <span>Profile</span>
+        </Link>
+      </DropdownMenuItem>
+      <DropdownMenuItem asChild>
+        <Link to="/brozystudio" className="flex items-center gap-2">
+          <FileEdit className="h-4 w-4" />
+          <span>Studio</span>
         </Link>
       </DropdownMenuItem>
       <DropdownMenuItem asChild>

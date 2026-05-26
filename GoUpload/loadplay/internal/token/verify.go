@@ -45,7 +45,7 @@ func (p *Playback) GuestPreviewSeconds() int {
 }
 
 // Format on the wire: base64url(json).base64url(hmac).
-// Same shape as JWT-compact minus the algorithm header — algorithm is fixed.
+// Same shape as JWT-compact minus the algorithm header  algorithm is fixed.
 const sep = "."
 
 var (

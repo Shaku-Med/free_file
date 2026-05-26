@@ -24,6 +24,7 @@ import { useFullscreen } from './hooks/useFullscreen';
 import { useWakeLock } from './hooks/useWakeLock';
 import { useSpatialAudio, isSpatialAudioUiSupported } from './hooks/useSpatialAudio';
 import ControlBar from './controls/ControlBar';
+import { ReelInfoOverlay } from './overlays/ReelInfoOverlay';
 // EndScreen was replaced by EndCardOverlay (single 4-corner end-of-video surface).
 import BufferingSpinner from './overlays/BufferingSpinner';
 import ErrorOverlay from './overlays/ErrorOverlay';
@@ -121,6 +122,8 @@ export interface HLSPlayerProps {
    * keys  e.g. `/reel` page deck (Swiper uses j/k separately at the document level).
    */
   disableKeyboardShortcuts?: boolean;
+  /** Reel page: creator/title/caption rendered inside the player, above controls. */
+  reelInfoSlot?: React.ReactNode;
 }
 
 const HLSPlayer: React.FC<HLSPlayerProps> = (props) => (
@@ -181,6 +184,7 @@ function PlayerInner({
   onBack,
   reelSwiperActive = false,
   disableKeyboardShortcuts = false,
+  reelInfoSlot,
 }: HLSPlayerProps) {
   const seriesPlayQueue = useMemo(
     () => withoutReels(seriesUpNextVideos),
@@ -1141,6 +1145,10 @@ function PlayerInner({
             currentUserId={currentUserId}
           />
         )}
+
+        {isReelCtx && reelInfoSlot ? (
+          <ReelInfoOverlay>{reelInfoSlot}</ReelInfoOverlay>
+        ) : null}
 
         {(!isReelCtx || embedReelControls) && !isMiniPlayerPortalActive && (
           <div

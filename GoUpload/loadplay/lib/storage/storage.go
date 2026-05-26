@@ -7,7 +7,7 @@ import (
 	"strings"
 )
 
-// Where the real bytes live. Used server-side only — never sent to clients.
+// Where the real bytes live. Used server-side only  never sent to clients.
 type Config struct {
 	Owner  string
 	Repo   string
@@ -28,7 +28,7 @@ func PathFor(rel string) (string, error) {
 }
 
 // RawURL builds the server-side fetch URL for a storage path. Never expose
-// this to browsers — proxy through LoadPlay instead.
+// this to browsers  proxy through LoadPlay instead.
 func (c Config) RawURL(storagePath string) (string, error) {
 	clean, err := PathFor(storagePath)
 	if err != nil {
