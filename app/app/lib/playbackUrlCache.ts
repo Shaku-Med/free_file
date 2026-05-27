@@ -38,6 +38,49 @@ export function setCachedPlaybackUrl(fileId: string, url: string): void {
   cache.set(fileId, { url, exp });
 }
 
+// Refresh subscribers per fileId. When useHLS hits a 401 mid playback it
+// calls requestPlaybackUrlRefresh(fileId) which wipes the cache entry and
+// pings every usePlaybackUrl mounted for that file to re fetch the mint.
+const refreshListeners = new Map<string, Set<() => void>>();
+
+export function clearCachedPlaybackUrl(fileId: string): void {
+  if (!fileId) return;
+  cache.delete(fileId);
+}
+
+export function requestPlaybackUrlRefresh(fileId: string): void {
+  if (!fileId) return;
+  cache.delete(fileId);
+  const subs = refreshListeners.get(fileId);
+  if (!subs) return;
+  for (const fn of subs) {
+    try {
+      fn();
+    } catch {
+      /* listener errors are non fatal */
+    }
+  }
+}
+
+export function subscribePlaybackUrlRefresh(
+  fileId: string,
+  fn: () => void,
+): () => void {
+  if (!fileId) return () => {};
+  let set = refreshListeners.get(fileId);
+  if (!set) {
+    set = new Set();
+    refreshListeners.set(fileId, set);
+  }
+  set.add(fn);
+  return () => {
+    const s = refreshListeners.get(fileId);
+    if (!s) return;
+    s.delete(fn);
+    if (s.size === 0) refreshListeners.delete(fileId);
+  };
+}
+
 /** Same manifest path (ignores rotating ?t= tokens). */
 export function playbackAssetPath(url: string): string | null {
   try {

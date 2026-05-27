@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import {
   getCachedPlaybackUrl,
   setCachedPlaybackUrl,
+  subscribePlaybackUrlRefresh,
 } from "~/lib/playbackUrlCache";
 
 type MintState = { forFileId: string; url: string | null };
@@ -28,6 +29,14 @@ export function usePlaybackUrl(file: {
     const cached = getCachedPlaybackUrl(fileId);
     return cached ? { forFileId: fileId, url: cached } : null;
   });
+  const [refreshTick, setRefreshTick] = useState(0);
+
+  useEffect(() => {
+    if (!fileId) return;
+    return subscribePlaybackUrlRefresh(fileId, () => {
+      setRefreshTick((t) => t + 1);
+    });
+  }, [fileId]);
 
   useEffect(() => {
     const isHls =
@@ -73,7 +82,7 @@ export function usePlaybackUrl(file: {
     return () => {
       cancelled = true;
     };
-  }, [fileId, fileType, endpoint]);
+  }, [fileId, fileType, endpoint, refreshTick]);
 
   if (!fileId) return null;
   if (mintState?.forFileId === fileId) {

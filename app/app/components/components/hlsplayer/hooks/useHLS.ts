@@ -3,6 +3,7 @@ import Hls from 'hls.js';
 import { usePlayerContext } from '../PlayerContext';
 import { useFileContext } from '~/lib/Context/Context';
 import { isLoadplayPlaybackUrl } from '~/lib/Services/loadplayPlayback.client';
+import { requestPlaybackUrlRefresh, playbackAssetPath } from '~/lib/playbackUrlCache';
 
 function hlsUsesCredentials(url: string): boolean {
   return !isLoadplayPlaybackUrl(url);
@@ -68,7 +69,7 @@ function applyVideoCrossOrigin(video: HTMLVideoElement, playbackSrc: string) {
 }
 
 export function useHLS(videoRef: React.RefObject<HTMLVideoElement | null>) {
-  const { hlsRef, setState, src, autoPlay } = usePlayerContext();
+  const { hlsRef, setState, src, autoPlay, file } = usePlayerContext();
   const { playerSettings } = useFileContext();
   const mountedRef = useRef(true);
   const qualityPrefRef = useRef(playerSettings?.quality ?? 'auto');
@@ -76,6 +77,9 @@ export function useHLS(videoRef: React.RefObject<HTMLVideoElement | null>) {
   const lastEnginePathRef = useRef<'hlsjs' | 'native' | 'direct' | null>(null);
   const lastAttachedVideoRef = useRef<HTMLVideoElement | null>(null);
   const lastKnownGoodTimeRef = useRef<number>(0);
+  // Tracks the previous src path (no ?t=) so we can detect a token only
+  // refresh vs a true video change and preserve currentTime in the former.
+  const lastSrcPathRef = useRef<string | null>(null);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -124,46 +128,58 @@ export function useHLS(videoRef: React.RefObject<HTMLVideoElement | null>) {
 
     if (canHotSwapHlsjs) {
       const hls = hlsRef.current!;
-      // Treat ended video as "was playing"  auto-next after end card
-      // means the user wants the new video to start playing. Otherwise
-      // we'd freeze on the last frame of the previous video.
+      // Distinguish a token only refresh (same /v/<fileId>/... path, new
+      // ?t=) from a true video change. On token refresh we resume at the
+      // last good currentTime so the user doesn't see a jump back to 0.
+      const newPath = playbackAssetPath(src);
+      const sameAsset =
+        Boolean(newPath) && lastSrcPathRef.current === newPath;
+      lastSrcPathRef.current = newPath;
+
       const wasPlaying = (!video.paused && !video.ended) || video.ended;
+      const resumeAt =
+        sameAsset && Number.isFinite(video.currentTime) && video.currentTime > 0.1
+          ? video.currentTime
+          : sameAsset
+            ? lastKnownGoodTimeRef.current
+            : 0;
 
       setState((s) => ({
         ...s,
         isLoaded: false,
         hasError: false,
         isBuffering: false,
-        isEnded: false,
+        isEnded: !sameAsset ? false : s.isEnded,
         levels: [],
         subtitleTracks: [],
       }));
 
-      // Hard-reset the underlying HTMLVideoElement BEFORE handing it a
-      // new manifest. Without these calls the element stays in its
-      // previous state (ended=true, currentTime=duration, last frame
-      // still painted) and the new manifest never visually replaces it.
       try {
         video.pause();
-        // Setting currentTime on an ended element is the canonical way
-        // to clear `ended` and bring it back to "paused at 0".
-        if (Number.isFinite(video.duration) && video.duration > 0) {
+        if (!sameAsset && Number.isFinite(video.duration) && video.duration > 0) {
+          // True video change: clear ended + reset to 0.
           video.currentTime = 0;
         }
       } catch {
-        /* ignore  some browsers throw if duration isn't ready yet */
+        /* some browsers throw if duration isn't ready yet */
       }
 
       const resumeAfterSwap = () => {
         if (cancelled || !mountedRef.current) return;
-        if (wasPlaying || autoPlay) {
-          // Reset position again post-parse in case the engine restored
-          // the previous timestamp during manifest swap.
+        if (sameAsset && resumeAt > 0.1) {
+          try {
+            video.currentTime = resumeAt;
+          } catch {
+            /* ignore */
+          }
+        } else if (!sameAsset) {
           try {
             if (video.currentTime > 0.5) video.currentTime = 0;
           } catch {
             /* ignore */
           }
+        }
+        if (wasPlaying || autoPlay) {
           void video.play().catch(() => {});
         }
       };
@@ -172,7 +188,7 @@ export function useHLS(videoRef: React.RefObject<HTMLVideoElement | null>) {
       try {
         hls.stopLoad();
         hls.loadSource(src);
-        hls.startLoad(-1);
+        hls.startLoad(sameAsset ? resumeAt : -1);
       } catch {
         hls.off(Hls.Events.MANIFEST_PARSED, resumeAfterSwap);
       }
@@ -247,6 +263,7 @@ export function useHLS(videoRef: React.RefObject<HTMLVideoElement | null>) {
         hls.attachMedia(video);
         lastEnginePathRef.current = 'hlsjs';
         lastAttachedVideoRef.current = video;
+        lastSrcPathRef.current = playbackAssetPath(src);
 
         const onTimeUpdate = () => {
           const t = video.currentTime;
@@ -320,13 +337,30 @@ export function useHLS(videoRef: React.RefObject<HTMLVideoElement | null>) {
           if (!mountedRef.current || !data.fatal) return;
 
           switch (data.type) {
-            case Hls.ErrorTypes.NETWORK_ERROR:
+            case Hls.ErrorTypes.NETWORK_ERROR: {
+              // LoadPlay token expired or got 401/403 mid playback (long
+              // pause, late segment past 15 min TTL, fingerprint drift on
+              // a network switch). Wipe the cached URL so usePlaybackUrl
+              // re mints; the parent will then pass a fresh ?t= and useHLS
+              // hot swaps onto it. We do NOT retry with the dead URL.
+              const responseCode = Number(data.response?.code) || 0;
+              const isLoadplayUrl =
+                typeof src === 'string' && isLoadplayPlaybackUrl(src);
+              const looksLikeAuth =
+                responseCode === 401 || responseCode === 403;
+              if (isLoadplayUrl && looksLikeAuth && file?.unique_id) {
+                requestPlaybackUrlRefresh(file.unique_id);
+                // Don't retry the load with the stale URL; the swap on the
+                // new mint will resume playback at the right position.
+                break;
+              }
               startLoadResumingVoD(
                 Number.isFinite(video.currentTime) && video.currentTime > 0.1
                   ? video.currentTime
                   : lastKnownGoodTimeRef.current,
               );
               break;
+            }
             case Hls.ErrorTypes.MEDIA_ERROR:
               try {
                 hls.recoverMediaError();
