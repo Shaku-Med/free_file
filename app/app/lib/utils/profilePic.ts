@@ -1,5 +1,3 @@
-import { IMAGE_BASE_URL } from "~/lib/URLS";
-
 /** Same rules as the profilepic loader: no leading slash, single slashes (matches DB / GitHub path). */
 export function canonicalProfilePicStoragePath(
   profilePic: string | null | undefined,
@@ -43,9 +41,7 @@ export const getProfilePicUrl = (
   const rel = canonicalProfilePicStoragePath(profilePic);
   if (!rel) return undefined;
 
-  // Route through LoadNodeServer (the same CDN that serves /api/load/image).
-  // Falls back to the same-origin path during SSR if IMAGE_BASE_URL is unset.
-  const base = `${IMAGE_BASE_URL || ""}/api/load/profilepic/${rel}`;
+  const base = `/api/load/profilepic/${rel}`;
   if (cacheBuster != null && cacheBuster > 0) {
     return `${base}?v=${cacheBuster}`;
   }

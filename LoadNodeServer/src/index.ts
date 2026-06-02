@@ -54,8 +54,12 @@ const startServer = async () => {
     app.use('/api/load/image', imageRouter);
     app.use('/api/load/profilepic', profilepicRouter);
 
+    // Unmatched routes  return 404, NOT 401. This is a public CDN; nothing
+    // here requires authentication. Returning 401 was the original cause of
+    // image tags failing because <img> can't send credentials and would
+    // surface "Unauthorized" instead of the correct "Not Found".
     app.use('*', (req, res) => {
-        res.status(401).send(null);
+        res.status(404).send(null);
     });
 
     app.listen(PORT, () => {
