@@ -55,7 +55,7 @@ func streamStorageObject(
 
 	res, err := deps.HTTPClient.Do(req)
 	if err != nil {
-		deps.Log.Errorf("segment upstream fetch err=%s path=%s", err.Error(), relPath)
+		deps.Log.Errorf("segment upstream fetch err=%s path=%s", redactUpstreamErr(err), relPath)
 		return deny(c, fiber.StatusBadGateway)
 	}
 	defer res.Body.Close()

@@ -1,4 +1,13 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type RefObject,
+} from "react";
 import {
   ChevronLeft,
   ChevronRight,
@@ -14,6 +23,28 @@ import { Dialog, DialogContent, DialogTitle } from "~/components/ui/dialog";
 import { motion } from "motion/react";
 import CanvasGradient from "~/components/accessories/CanvasGradient/CanvasGradient";
 import { useStandalone } from "~/lib/hooks/useStandalone";
+import { useAdaptiveTone, type Tone } from "~/lib/useAdaptiveTone";
+import { cn } from "~/lib/utils";
+
+// Lets nested controls sample the image without prop drilling. Provided once
+// near the modal root with the live `<img>` ref + a trigger string that flips
+// whenever the visible pixels change (current image, zoom, pan, rotation).
+const AdaptiveCtx = createContext<{
+  imageRef: RefObject<HTMLImageElement | null>;
+  trigger: string;
+} | null>(null);
+
+const NULL_IMG_REF: RefObject<HTMLImageElement | null> = { current: null };
+
+function useControlTone(targetRef: RefObject<HTMLElement | null>): Tone {
+  const ctx = useContext(AdaptiveCtx);
+  return useAdaptiveTone({
+    imageRef: ctx?.imageRef ?? NULL_IMG_REF,
+    targetRef,
+    trigger: ctx?.trigger,
+    defaultTone: "light",
+  });
+}
 
 interface ImgPreviewProps {
   images: string[];
@@ -44,6 +75,7 @@ export default function ImgPreview({
   const dragStart = useRef({ x: 0, y: 0 });
   const panStart = useRef({ x: 0, y: 0 });
   const containerRef = useRef<HTMLDivElement>(null);
+  const imgRef = useRef<HTMLImageElement>(null);
   const zoomRef = useRef(zoom);
   const panRef = useRef(pan);
 
@@ -424,6 +456,17 @@ export default function ImgPreview({
 
   const controlsClass = `transition-opacity duration-300 ${showControls ? "opacity-100" : "opacity-0 pointer-events-none"}`;
 
+  // Re-sample tone whenever the visible pixels change. The hook also listens
+  // for img.load and resize, but explicit triggers cover zoom/pan/rotation.
+  const adaptTrigger = useMemo(
+    () => `${current}|${zoom}|${rotation}|${pan.x}|${pan.y}`,
+    [current, zoom, rotation, pan.x, pan.y],
+  );
+  const adaptCtxValue = useMemo(
+    () => ({ imageRef: imgRef, trigger: adaptTrigger }),
+    [adaptTrigger],
+  );
+
   if (images.length < 1) return null;
 
   const imageSrc = images[current];
@@ -438,6 +481,7 @@ export default function ImgPreview({
         style={{ borderRadius: 0, top: 0, left: 0, transform: "none" }}
         onPointerMove={resetHideTimer}
       >
+        <AdaptiveCtx.Provider value={adaptCtxValue}>
         <DialogTitle className="sr-only">
           Image preview{images.length > 1 ? `, ${current + 1} of ${images.length}` : ""}
         </DialogTitle>
@@ -474,6 +518,7 @@ export default function ImgPreview({
           >
             
             <img
+                ref={imgRef}
                 src={imageSrc}
                 alt=""
                 className="h-full w-full max-h-[100dvh] object-contain select-none"
@@ -506,9 +551,13 @@ export default function ImgPreview({
               >
                 <Minus className="h-4 w-4" />
               </ToolButton>
-              <span className="min-w-[3rem] text-center text-xs text-white/60">
+              <ToneText
+                className="min-w-[3rem] text-center text-xs"
+                light="text-white/60"
+                dark="text-black/60"
+              >
                 {Math.round(zoom * 100)}%
-              </span>
+              </ToneText>
               <ToolButton
                 onClick={zoomIn}
                 label="Zoom in"
@@ -640,30 +689,11 @@ export default function ImgPreview({
         {/* ── Prev / Next ── */}
         {images.length > 1 && (
           <div className={controlsClass}>
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                go(-1);
-              }}
-              className="absolute left-3 top-1/2 z-[1000000] flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full bg-black/40 text-white shadow-md ring-1 ring-white/10 backdrop-blur-sm transition-colors hover:bg-black/55 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/35 sm:left-5 sm:h-12 sm:w-12"
-              aria-label="Previous image"
-            >
-              <ChevronLeft className="h-5 w-5" />
-            </button>
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                go(1);
-              }}
-              className="absolute right-3 top-1/2 z-[1000000] flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full bg-black/40 text-white shadow-md ring-1 ring-white/10 backdrop-blur-sm transition-colors hover:bg-black/55 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/35 sm:right-5 sm:h-12 sm:w-12"
-              aria-label="Next image"
-            >
-              <ChevronRight className="h-5 w-5" />
-            </button>
+            <NavArrow direction="prev" onClick={() => go(-1)} />
+            <NavArrow direction="next" onClick={() => go(1)} />
           </div>
         )}
+        </AdaptiveCtx.Provider>
       </DialogContent>
     </Dialog>
   );
@@ -680,8 +710,11 @@ function ToolButton({
   disabled?: boolean;
   children: React.ReactNode;
 }) {
+  const ref = useRef<HTMLButtonElement>(null);
+  const tone = useControlTone(ref);
   return (
     <button
+      ref={ref}
       type="button"
       onClick={(e) => {
         e.stopPropagation();
@@ -689,7 +722,12 @@ function ToolButton({
       }}
       disabled={disabled}
       aria-label={label}
-      className="flex h-9 w-9 items-center justify-center rounded-full bg-white/10 text-white/80 ring-1 ring-white/5 transition-colors hover:bg-white/20 hover:text-white disabled:opacity-30 disabled:hover:bg-transparent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/35"
+      className={cn(
+        "flex h-9 w-9 items-center justify-center rounded-full ring-1 transition-colors disabled:opacity-30 disabled:hover:bg-transparent focus-visible:outline-none focus-visible:ring-2",
+        tone === "light"
+          ? "bg-white/10 text-white/85 ring-white/10 hover:bg-white/22 hover:text-white focus-visible:ring-white/35"
+          : "bg-black/15 text-black/85 ring-black/10 hover:bg-black/25 hover:text-black focus-visible:ring-black/35",
+      )}
     >
       {children}
     </button>
@@ -698,4 +736,58 @@ function ToolButton({
 
 function Divider() {
   return <div className="mx-1 h-4 w-px bg-white/20" />;
+}
+
+// Small text that flips color based on what's behind it. Used for "1 / N" and
+// the zoom-percent label.
+function ToneText({
+  children,
+  className,
+  light = "text-white/90",
+  dark = "text-black/90",
+}: {
+  children: React.ReactNode;
+  className?: string;
+  light?: string;
+  dark?: string;
+}) {
+  const ref = useRef<HTMLSpanElement>(null);
+  const tone = useControlTone(ref);
+  return (
+    <span ref={ref} className={cn(tone === "light" ? light : dark, className)}>
+      {children}
+    </span>
+  );
+}
+
+function NavArrow({
+  direction,
+  onClick,
+}: {
+  direction: "prev" | "next";
+  onClick: (e: React.MouseEvent) => void;
+}) {
+  const ref = useRef<HTMLButtonElement>(null);
+  const tone = useControlTone(ref);
+  const Icon = direction === "prev" ? ChevronLeft : ChevronRight;
+  return (
+    <button
+      ref={ref}
+      type="button"
+      onClick={(e) => {
+        e.stopPropagation();
+        onClick(e);
+      }}
+      aria-label={direction === "prev" ? "Previous image" : "Next image"}
+      className={cn(
+        "absolute top-1/2 z-[1000000] flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full shadow-md ring-1 backdrop-blur-sm transition-colors focus-visible:outline-none focus-visible:ring-2 sm:h-12 sm:w-12",
+        direction === "prev" ? "left-3 sm:left-5" : "right-3 sm:right-5",
+        tone === "light"
+          ? "bg-black/40 text-white ring-white/10 hover:bg-black/55 focus-visible:ring-white/35"
+          : "bg-white/60 text-black ring-black/10 hover:bg-white/75 focus-visible:ring-black/35",
+      )}
+    >
+      <Icon className="h-5 w-5" />
+    </button>
+  );
 }

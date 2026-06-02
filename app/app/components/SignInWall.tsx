@@ -70,9 +70,7 @@ export function SignInDialog({
             <LogIn className="h-7 w-7" strokeWidth={1.75} />
           </div>
           <DialogTitle className="text-lg">{title}</DialogTitle>
-          <DialogDescription className="text-sm text-muted-foreground leading-relaxed">
-            {description}
-          </DialogDescription>
+          <DialogDescription className="sr-only">{description}</DialogDescription>
         </DialogHeader>
         <DialogFooter className="flex-col gap-2 sm:flex-col">
           <Button asChild className="w-full gap-2" size="lg">

@@ -237,6 +237,53 @@ func (m *Manager) CompleteUpload(userID, uploadID string) (CompleteMeta, error) 
 	}, nil
 }
 
+// ChunkFolderSize returns the actual on-disk byte sum of every chunk for an
+// upload. Used to size-check before queueing without trusting the client-
+// declared FileSize.
+func (m *Manager) ChunkFolderSize(userID, uploadID string) (int64, error) {
+	if !ValidUploadID(uploadID) {
+		return 0, ErrInvalidUploadID
+	}
+	dir := filepath.Join(m.baseDir, userID, uploadID)
+	var size int64
+	err := filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			return nil
+		}
+		// Skip metadata file; only count actual chunks.
+		if d.Name() == "meta.json" {
+			return nil
+		}
+		info, err := d.Info()
+		if err != nil {
+			return err
+		}
+		size += info.Size()
+		return nil
+	})
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return 0, nil
+		}
+		return 0, err
+	}
+	return size, nil
+}
+
+// AbandonUpload deletes every chunk + meta for an upload and forgets it. Use
+// when a quota check rejects an upload after chunks were already stored.
+func (m *Manager) AbandonUpload(userID, uploadID string) error {
+	if !ValidUploadID(uploadID) {
+		return ErrInvalidUploadID
+	}
+	m.clearActive(uploadID)
+	dir := filepath.Join(m.baseDir, userID, uploadID)
+	return os.RemoveAll(dir)
+}
+
 func (m *Manager) ServerStatus() (ServerStatusResponse, error) {
 	usage, err := m.diskUsage()
 	if err != nil {

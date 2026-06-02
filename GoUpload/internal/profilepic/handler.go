@@ -23,6 +23,8 @@ import (
 	"goupload/lib/ffmpeg"
 	ghlib "goupload/lib/github"
 	"goupload/lib/logger"
+	"goupload/lib/quota"
+	"goupload/lib/r2"
 	"goupload/lib/supabase"
 	"goupload/lib/nsfw"
 	"goupload/lib/nsfwstrikes"
@@ -50,14 +52,16 @@ var extByMIME = map[string]string{
 }
 
 type Handler struct {
-	log          *logger.Logger
-	nsfw         *nsfw.Detector
-	strikes      *nsfwstrikes.Limiter
-	ghCli        *github.Client
-	ghOwner      string
-	ghRepo       string
-	supabaseURL  string
-	supabaseKey  string
+	log            *logger.Logger
+	nsfw           *nsfw.Detector
+	strikes        *nsfwstrikes.Limiter
+	ghCli          *github.Client
+	ghOwner        string
+	ghRepo         string
+	supabaseURL    string
+	supabaseKey    string
+	r2             *r2.Client
+	storageBackend string
 }
 
 type Config struct {
@@ -71,20 +75,30 @@ type Config struct {
 	// GITHUB_REPO and we PATCH users.github_repo to that default.
 	SupabaseURL string
 	SupabaseKey string
+	// R2 dual-backend: when StorageBackend == "r2" and R2 is set, new profile
+	// pics go to R2 and users.storage_backend is set to 'r2'.
+	R2             *r2.Client
+	StorageBackend string
 }
 
 func RegisterRoutes(app *fiber.App, log *logger.Logger, cfg Config) {
 	h := &Handler{
-		log:         log,
-		nsfw:        nsfw.NewDetector(cfg.NSFWApiURL, cfg.NSFWApiSecret),
-		strikes:     cfg.Strikes,
-		ghCli:       cfg.GitHubClient,
-		ghOwner:     cfg.GitHubOwner,
-		ghRepo:      cfg.GitHubRepo,
-		supabaseURL: strings.TrimSpace(cfg.SupabaseURL),
-		supabaseKey: strings.TrimSpace(cfg.SupabaseKey),
+		log:            log,
+		nsfw:           nsfw.NewDetector(cfg.NSFWApiURL, cfg.NSFWApiSecret),
+		strikes:        cfg.Strikes,
+		ghCli:          cfg.GitHubClient,
+		ghOwner:        cfg.GitHubOwner,
+		ghRepo:         cfg.GitHubRepo,
+		supabaseURL:    strings.TrimSpace(cfg.SupabaseURL),
+		supabaseKey:    strings.TrimSpace(cfg.SupabaseKey),
+		r2:             cfg.R2,
+		storageBackend: cfg.StorageBackend,
 	}
 	app.Post("/api/profilepic/upload", h.upload)
+}
+
+func (h *Handler) useR2() bool {
+	return h.storageBackend == "r2" && h.r2 != nil
 }
 
 func (h *Handler) upload(c *fiber.Ctx) error {
@@ -186,10 +200,6 @@ func (h *Handler) upload(c *fiber.Ctx) error {
 		}
 	}
 
-	if h.ghCli == nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"success": false})
-	}
-
 	ext := strings.ToLower(filepath.Ext(file.Filename))
 	if ext == "" || ext == "." {
 		ext = extByMIME[mime]
@@ -207,6 +217,30 @@ func (h *Handler) upload(c *fiber.Ctx) error {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
+
+	// R2 path: upload + mark users.storage_backend so the loader presigns R2.
+	if h.useR2() {
+		if err := h.r2.PutObject(ctx, ghPath, data, mime); err != nil {
+			h.log.Errorf("profilepic R2 upload failed: %v", err)
+			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"success": false})
+		}
+		if h.supabaseURL != "" && h.supabaseKey != "" {
+			if err := supabase.SetUserStorageBackend(ctx, h.supabaseURL, h.supabaseKey, uid, "r2"); err != nil {
+				h.log.Errorf("profilepic set users.storage_backend: %v", err)
+			}
+		}
+		h.log.Infof("profilepic uploaded backend=r2 user=%s path=%s", uid, ghPath)
+		go quota.Record(context.Background(), uid, fmt.Sprintf("pic_%s_%d", uid, time.Now().UnixNano()), int64(len(data)))
+		return c.JSON(fiber.Map{
+			"success":         true,
+			"profile_pic":     ghPath,
+			"storage_backend": "r2",
+		})
+	}
+
+	if h.ghCli == nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"success": false})
+	}
 
 	targetRepo := strings.TrimSpace(h.ghRepo)
 
@@ -237,9 +271,13 @@ func (h *Handler) upload(c *fiber.Ctx) error {
 		if err := supabase.SetUserGithubRepo(ctx, h.supabaseURL, h.supabaseKey, uid, targetRepo); err != nil {
 			h.log.Errorf("profilepic set users.github_repo: %v", err)
 		}
+		if err := supabase.SetUserStorageBackend(ctx, h.supabaseURL, h.supabaseKey, uid, "github"); err != nil {
+			h.log.Errorf("profilepic set users.storage_backend: %v", err)
+		}
 	}
 
-	h.log.Infof("profilepic uploaded user=%s repo=%s path=%s", uid, targetRepo, ghPath)
+	h.log.Infof("profilepic uploaded backend=github user=%s repo=%s path=%s", uid, targetRepo, ghPath)
+	go quota.Record(context.Background(), uid, fmt.Sprintf("pic_%s_%d", uid, time.Now().UnixNano()), int64(len(data)))
 
 	return c.JSON(fiber.Map{
 		"success":      true,

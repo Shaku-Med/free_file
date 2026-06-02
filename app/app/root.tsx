@@ -37,6 +37,8 @@ import RegisterServiceWorker from "./components/RegisterServiceWorker";
 import { ThemeApply } from "./components/ThemeApply";
 import SignInPrompt from "./components/SignInPrompt";
 import PushPromptOverlay from "./components/PushPromptOverlay";
+import { Toaster } from "./components/ui/sonner";
+import { ErrorDetailsDialog } from "./components/ErrorDetailsDialog";
 import type { UserTheme } from "./lib/theme/constants";
 import { parseUserTheme } from "./lib/theme/constants";
 import { getPlayerSettingsFromCookies } from "./routes/Api/player-settings";
@@ -317,6 +319,8 @@ export function Layout({ children }: { children: React.ReactNode }) {
             </LikeProvider>
           </ContextProvider>
         </ErrorBoundary>
+        <Toaster />
+        <ErrorDetailsDialog />
         <Scripts />
 
         <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>

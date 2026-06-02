@@ -27,6 +27,9 @@ import (
 	"goupload/lib/logger"
 	"goupload/lib/nsfw"
 	"goupload/lib/nsfwstrikes"
+	"goupload/lib/quota"
+	"goupload/lib/r2"
+	"goupload/lib/supabase"
 )
 
 var reDateFolder = regexp.MustCompile(`^\d{2}_\d{2}_\d{4}$`)
@@ -55,6 +58,9 @@ type Handler struct {
 	ghOwner       string
 	ghRepo        string
 	assembledRoot string // local-only video files for /extract (user subdir enforced)
+	r2            *r2.Client
+	supabaseURL   string
+	supabaseKey   string
 }
 
 type Config struct {
@@ -67,6 +73,11 @@ type Config struct {
 	// AssembledRoot is the directory where completed uploads are written (e.g. upload/assembled).
 	// /api/thumbnail/extract only reads videos under AssembledRoot/<userID>/...
 	AssembledRoot string
+	// R2 dual-backend: a custom default thumbnail follows its video's backend,
+	// looked up from files.storage_backend via Supabase.
+	R2          *r2.Client
+	SupabaseURL string
+	SupabaseKey string
 }
 
 func RegisterRoutes(app *fiber.App, log *logger.Logger, cfg Config) {
@@ -78,6 +89,9 @@ func RegisterRoutes(app *fiber.App, log *logger.Logger, cfg Config) {
 		ghOwner:       cfg.GitHubOwner,
 		ghRepo:        cfg.GitHubRepo,
 		assembledRoot: strings.TrimSpace(cfg.AssembledRoot),
+		r2:            cfg.R2,
+		supabaseURL:   strings.TrimSpace(cfg.SupabaseURL),
+		supabaseKey:   strings.TrimSpace(cfg.SupabaseKey),
 	}
 	app.Post("/api/thumbnail/extract", h.extractAtTimestamp)
 	app.Post("/api/thumbnail/upload", h.uploadDefaultThumbnail)
@@ -284,21 +298,38 @@ func (h *Handler) uploadDefaultThumbnail(c *fiber.Ctx) error {
 	}
 	jpegBytes := jpegBuf.Bytes()
 
-	if h.ghCli == nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "storage not configured"})
-	}
-
 	ghPath := fmt.Sprintf("%s/%s/default_thumbnail.jpg", dateFolder, uniqueId)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	if err := ghlib.CreateOrUpdateFile(ctx, h.ghCli, h.ghOwner, h.ghRepo, ghPath, jpegBytes, fmt.Sprintf("Default thumbnail for %s", uniqueId)); err != nil {
-		h.log.Errorf("thumbnail GitHub upload failed: %v", err)
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "upload failed"})
+	// Follow the parent video's backend so the thumbnail reads from the same place.
+	backend := "github"
+	if h.supabaseURL != "" && h.supabaseKey != "" {
+		if fb, ferr := supabase.FetchFileStorageBackend(ctx, h.supabaseURL, h.supabaseKey, uniqueId); ferr == nil {
+			backend = fb
+		} else {
+			h.log.Errorf("thumbnail parent backend lookup: %v", ferr)
+		}
 	}
 
-	h.log.Infof("default thumbnail uploaded user=%s path=%s", uid, ghPath)
+	if backend == "r2" && h.r2 != nil {
+		if err := h.r2.PutObject(ctx, ghPath, jpegBytes, "image/jpeg"); err != nil {
+			h.log.Errorf("thumbnail R2 upload failed: %v", err)
+			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "upload failed"})
+		}
+	} else {
+		if h.ghCli == nil {
+			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "storage not configured"})
+		}
+		if err := ghlib.CreateOrUpdateFile(ctx, h.ghCli, h.ghOwner, h.ghRepo, ghPath, jpegBytes, fmt.Sprintf("Default thumbnail for %s", uniqueId)); err != nil {
+			h.log.Errorf("thumbnail GitHub upload failed: %v", err)
+			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "upload failed"})
+		}
+	}
+
+	h.log.Infof("default thumbnail uploaded backend=%s user=%s path=%s", backend, uid, ghPath)
+	go quota.Record(context.Background(), uid, fmt.Sprintf("thumb_%s_%d", uniqueId, time.Now().UnixNano()), int64(len(jpegBytes)))
 
 	return c.JSON(fiber.Map{
 		"success":           true,

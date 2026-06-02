@@ -1,4 +1,5 @@
 import React from 'react';
+import { reportClientError, showErrorToast } from '~/lib/clientError';
 
 interface ErrorBoundaryState {
   hasError: boolean;
@@ -10,7 +11,15 @@ interface ErrorBoundaryProps {
   fallback?: React.ReactNode;
 }
 
+// Root error boundary. When something crashes the render tree we can't keep
+// rendering the children (React unmounts them), but we don't want a big
+// dramatic error screen either. So we show a tiny inline notice + fire a
+// persistent toast carrying the support code. Most app errors never hit this
+// boundary  they get caught explicitly via reportClientError() from
+// `~/lib/clientError` and just show the toast without ever unmounting.
 export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundaryState> {
+  private reported = false;
+
   constructor(props: ErrorBoundaryProps) {
     super(props);
     this.state = { hasError: false };
@@ -22,42 +31,35 @@ export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoun
 
   componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
     console.error('ErrorBoundary caught an error:', error, errorInfo);
+    if (this.reported) return;
+    this.reported = true;
+    // Fire and forget; the toast appears as soon as the ref comes back.
+    void reportClientError({
+      error,
+      source: errorInfo?.componentStack?.slice(0, 200),
+      title: 'The page hit a snag',
+    }).catch(() => {
+      // Worst case still show the toast so the user knows something happened.
+      showErrorToast({ title: 'The page hit a snag' });
+    });
   }
 
   render() {
     if (this.state.hasError) {
-      return this.props.fallback || (
-        <div className="flex items-center justify-center min-h-screen bg-background px-4">
-          <div className="text-center max-w-xs space-y-6">
-            <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-muted">
-              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="text-muted-foreground" aria-hidden="true">
-                <circle cx="12" cy="12" r="10" />
-                <line x1="12" y1="8" x2="12" y2="12" />
-                <line x1="12" y1="16" x2="12.01" y2="16" />
-              </svg>
-            </div>
-
-            <div className="space-y-1.5">
-              <h2 className="text-lg font-semibold text-foreground">Something went wrong</h2>
-              <p className="text-[13px] text-muted-foreground leading-relaxed">
-                A quick refresh usually fixes it.
-              </p>
-            </div>
-
-            <div className="flex items-center justify-center gap-3">
-              <button
-                onClick={() => window.location.reload()}
-                className="inline-flex items-center justify-center rounded-full bg-primary px-6 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
-              >
-                Refresh
-              </button>
-              <button
-                onClick={() => { window.location.href = '/'; }}
-                className="inline-flex items-center justify-center rounded-full border border-border px-6 py-2 text-sm font-medium text-foreground transition-colors hover:bg-accent"
-              >
-                Home
-              </button>
-            </div>
+      if (this.props.fallback) return this.props.fallback;
+      // Minimal inline fallback. No big AI-style apology page; the toast
+      // carries the user-visible message.
+      return (
+        <div className="flex min-h-screen items-center justify-center bg-background px-4">
+          <div className="text-center space-y-4 max-w-xs">
+            <p className="text-sm text-muted-foreground">Try refreshing.</p>
+            <button
+              type="button"
+              onClick={() => window.location.reload()}
+              className="inline-flex items-center justify-center rounded-full bg-primary px-6 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+            >
+              Refresh
+            </button>
           </div>
         </div>
       );

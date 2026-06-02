@@ -14,6 +14,9 @@ import (
 	ghlib "goupload/lib/github"
 	"goupload/lib/nsfw"
 	"goupload/lib/nsfwstrikes"
+	"goupload/lib/quota"
+	"goupload/lib/r2"
+	"goupload/lib/supabase"
 	"goupload/lib/webhook"
 
 	"github.com/gofiber/fiber/v2"
@@ -51,12 +54,16 @@ var allowedMIME = map[string]bool{
 }
 
 type Handler struct {
-	log     *logger.Logger
-	nsfw    *nsfw.Detector
-	strikes *nsfwstrikes.Limiter
-	ghCli   *github.Client
-	ghOwner string
-	ghRepo  string
+	log            *logger.Logger
+	nsfw           *nsfw.Detector
+	strikes        *nsfwstrikes.Limiter
+	ghCli          *github.Client
+	ghOwner        string
+	ghRepo         string
+	r2             *r2.Client
+	storageBackend string
+	supabaseURL    string
+	supabaseKey    string
 }
 
 type Config struct {
@@ -66,16 +73,26 @@ type Config struct {
 	NSFWApiURL    string
 	NSFWApiSecret string
 	Strikes       *nsfwstrikes.Limiter
+	// R2 dual-backend. Standalone comment images use StorageBackend; images
+	// under a video's folder follow that file's backend (looked up via Supabase).
+	R2             *r2.Client
+	StorageBackend string
+	SupabaseURL    string
+	SupabaseKey    string
 }
 
 func RegisterRoutes(app *fiber.App, log *logger.Logger, cfg Config) {
 	h := &Handler{
-		log:     log,
-		nsfw:    nsfw.NewDetector(cfg.NSFWApiURL, cfg.NSFWApiSecret),
-		strikes: cfg.Strikes,
-		ghCli:   cfg.GitHubClient,
-		ghOwner: cfg.GitHubOwner,
-		ghRepo:  cfg.GitHubRepo,
+		log:            log,
+		nsfw:           nsfw.NewDetector(cfg.NSFWApiURL, cfg.NSFWApiSecret),
+		strikes:        cfg.Strikes,
+		ghCli:          cfg.GitHubClient,
+		ghOwner:        cfg.GitHubOwner,
+		ghRepo:         cfg.GitHubRepo,
+		r2:             cfg.R2,
+		storageBackend: cfg.StorageBackend,
+		supabaseURL:    strings.TrimSpace(cfg.SupabaseURL),
+		supabaseKey:    strings.TrimSpace(cfg.SupabaseKey),
 	}
 	app.Post("/api/comment-image/upload", h.upload)
 }
@@ -166,10 +183,6 @@ func (h *Handler) upload(c *fiber.Ctx) error {
 		}
 	}
 
-	if h.ghCli == nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "storage not configured"})
-	}
-
 	ext := strings.ToLower(filepath.Ext(file.Filename))
 	if ext == "" {
 		ext = ".jpg"
@@ -179,8 +192,9 @@ func (h *Handler) upload(c *fiber.Ctx) error {
 	dateFolder := strings.TrimSpace(c.FormValue("date_folder"))
 	uniqueID := strings.TrimSpace(c.FormValue("unique_id"))
 	var ghPath string
-	if dateFolder != "" && uniqueID != "" &&
-		reDateFolder.MatchString(dateFolder) && isSafeUniqueIDSegment(uniqueID) {
+	isVideoFolder := dateFolder != "" && uniqueID != "" &&
+		reDateFolder.MatchString(dateFolder) && isSafeUniqueIDSegment(uniqueID)
+	if isVideoFolder {
 		ghPath = fmt.Sprintf("%s/%s/comments/%s%s", dateFolder, uniqueID, imageID, ext)
 	} else {
 		ghPath = fmt.Sprintf("comment-images/%s/%s%s", uid, imageID, ext)
@@ -189,14 +203,42 @@ func (h *Handler) upload(c *fiber.Ctx) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	if err := ghlib.CreateOrUpdateFile(ctx, h.ghCli, h.ghOwner, h.ghRepo, ghPath, data, fmt.Sprintf("Comment image by %s", uid)); err != nil {
-		h.log.Errorf("comment-image GitHub upload failed: %v", err)
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "upload failed"})
+	// Backend: video-folder images follow the parent file; standalone images
+	// use the global default.
+	backend := h.storageBackend
+	if backend != "r2" {
+		backend = "github"
+	}
+	if isVideoFolder && h.supabaseURL != "" && h.supabaseKey != "" {
+		if fb, ferr := supabase.FetchFileStorageBackend(ctx, h.supabaseURL, h.supabaseKey, uniqueID); ferr == nil {
+			backend = fb
+		} else {
+			h.log.Errorf("comment-image parent backend lookup: %v", ferr)
+		}
 	}
 
-	webhook.NotifyCommentImageStorage(ghPath, h.ghRepo)
+	repoForWebhook := h.ghRepo
+	if backend == "r2" && h.r2 != nil {
+		if err := h.r2.PutObject(ctx, ghPath, data, mime); err != nil {
+			h.log.Errorf("comment-image R2 upload failed: %v", err)
+			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "upload failed"})
+		}
+		repoForWebhook = ""
+	} else {
+		backend = "github"
+		if h.ghCli == nil {
+			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "storage not configured"})
+		}
+		if err := ghlib.CreateOrUpdateFile(ctx, h.ghCli, h.ghOwner, h.ghRepo, ghPath, data, fmt.Sprintf("Comment image by %s", uid)); err != nil {
+			h.log.Errorf("comment-image GitHub upload failed: %v", err)
+			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "upload failed"})
+		}
+	}
 
-	h.log.Infof("comment-image uploaded user=%s path=%s", uid, ghPath)
+	webhook.NotifyCommentImageStorage(ghPath, repoForWebhook, backend)
+	go quota.Record(context.Background(), uid, "cmt_"+imageID, int64(len(data)))
+
+	h.log.Infof("comment-image uploaded backend=%s user=%s path=%s", backend, uid, ghPath)
 
 	return c.JSON(fiber.Map{
 		"success": true,

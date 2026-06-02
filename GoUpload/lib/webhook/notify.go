@@ -41,6 +41,9 @@ type Payload struct {
 	NewEpisodeName      string `json:"new_episode_name,omitempty"`
 	ParentEpisodeID     string `json:"parent_episode_id,omitempty"`
 	GitHubRepo          string `json:"github_repo,omitempty"`
+	// Storage backend the worker wrote to ("github" or "r2"); bucket set for r2.
+	StorageBackend string `json:"storage_backend,omitempty"`
+	StorageBucket  string `json:"storage_bucket,omitempty"`
 	// 0–100 while status is running; omitted for queued/completed/failed unless set.
 	Progress *int `json:"progress,omitempty"`
 }
@@ -85,17 +88,24 @@ func NotifyJobStatus(p Payload) {
 	}
 }
 
-// CommentImagePayload is sent after a comment image is stored in GitHub (same secret as upload-job-status).
+// CommentImagePayload is sent after a comment image is stored (same secret as upload-job-status).
 type CommentImagePayload struct {
-	ImageURL   string `json:"image_url"`
-	GitHubRepo string `json:"github_repo"`
+	ImageURL       string `json:"image_url"`
+	GitHubRepo     string `json:"github_repo"`
+	StorageBackend string `json:"storage_backend,omitempty"`
 }
 
-// NotifyCommentImageStorage upserts path→repo so the app can set comments.image_github_repo when the comment row is created.
-func NotifyCommentImageStorage(imageURL, githubRepo string) {
+// NotifyCommentImageStorage upserts path→(repo, backend) so the app can set the
+// comment row's storage fields when it's created. For R2, githubRepo is "".
+func NotifyCommentImageStorage(imageURL, githubRepo, storageBackend string) {
 	imageURL = strings.TrimSpace(imageURL)
 	githubRepo = strings.TrimSpace(githubRepo)
-	if imageURL == "" || githubRepo == "" {
+	storageBackend = strings.TrimSpace(storageBackend)
+	if storageBackend == "" {
+		storageBackend = "github"
+	}
+	// Need at least a path; GitHub also needs a repo, R2 does not.
+	if imageURL == "" || (storageBackend == "github" && githubRepo == "") {
 		return
 	}
 	base := strings.TrimSuffix(env.Get("APP_BASE_URL", ""), "/")
@@ -104,7 +114,7 @@ func NotifyCommentImageStorage(imageURL, githubRepo string) {
 		log.Printf("[webhook] NotifyCommentImageStorage skipped: APP_BASE_URL=%q secret_set=%v", base, secret != "")
 		return
 	}
-	body, err := json.Marshal(CommentImagePayload{ImageURL: imageURL, GitHubRepo: githubRepo})
+	body, err := json.Marshal(CommentImagePayload{ImageURL: imageURL, GitHubRepo: githubRepo, StorageBackend: storageBackend})
 	if err != nil {
 		log.Printf("[webhook] NotifyCommentImageStorage marshal: %v", err)
 		return

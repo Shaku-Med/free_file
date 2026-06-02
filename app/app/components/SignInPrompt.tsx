@@ -121,9 +121,7 @@ export default function SignInPrompt() {
             <Icon className="h-7 w-7" strokeWidth={1.75} />
           </div>
           <DialogTitle className="text-lg">{prompt.title}</DialogTitle>
-          <DialogDescription className="text-sm text-muted-foreground leading-relaxed">
-            {prompt.description}
-          </DialogDescription>
+          <DialogDescription className="sr-only">{prompt.description}</DialogDescription>
         </DialogHeader>
         <DialogFooter className="flex-col gap-2 sm:flex-col">
           <Button asChild className="w-full gap-2" size="lg">

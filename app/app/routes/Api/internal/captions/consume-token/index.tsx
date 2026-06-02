@@ -44,6 +44,7 @@ export const action = async ({ request }: { request: Request }) => {
     unique_id: row.unique_id,
     date_folder: row.date_folder,
     github_repo: row.github_repo,
+    storage_backend: row.storage_backend === "r2" ? "r2" : "github",
     language: row.language,
     action: row.action,
   })

@@ -18,6 +18,7 @@ import (
 	"goupload/lib/logger"
 	"goupload/lib/nsfw"
 	"goupload/lib/queue"
+	"goupload/lib/r2"
 	"goupload/lib/webhook"
 
 	"github.com/google/go-github/v62/github"
@@ -35,6 +36,11 @@ type Config struct {
 	GitHubClient *github.Client
 	GitHubOwner  string
 	GitHubRepo   string
+	// R2: when StorageBackend == "r2" and R2 is non-nil, new uploads go to
+	// Cloudflare R2 instead of GitHub. Legacy files keep resolving via their
+	// stored github_repo (dual-backend).
+	R2             *r2.Client
+	StorageBackend string
 }
 
 type Worker struct {
@@ -64,6 +70,102 @@ func New(q *queue.Client, log *logger.Logger, cfg Config) *Worker {
 		cfg:    cfg,
 		stopCh: make(chan struct{}),
 	}
+}
+
+// useR2 reports whether new uploads for this worker target R2.
+func (w *Worker) useR2() bool {
+	return w.cfg.StorageBackend == "r2" && w.cfg.R2 != nil
+}
+
+func contentTypeFor(name string) string {
+	switch strings.ToLower(filepath.Ext(name)) {
+	case ".m3u8":
+		return "application/vnd.apple.mpegurl"
+	case ".ts":
+		return "video/mp2t"
+	case ".m4s", ".mp4", ".m4v":
+		return "video/mp4"
+	case ".jpg", ".jpeg":
+		return "image/jpeg"
+	case ".png":
+		return "image/png"
+	case ".gif":
+		return "image/gif"
+	case ".webp":
+		return "image/webp"
+	case ".bmp":
+		return "image/bmp"
+	case ".json":
+		return "application/json"
+	default:
+		return "application/octet-stream"
+	}
+}
+
+func (w *Worker) putLocalR2(ctx context.Context, key, localPath string) error {
+	if w.cfg.R2 == nil {
+		return fmt.Errorf("r2 client not configured")
+	}
+	data, err := os.ReadFile(localPath)
+	if err != nil {
+		return err
+	}
+	return w.cfg.R2.PutObject(ctx, key, data, contentTypeFor(key))
+}
+
+// uploadBatchR2 pushes a set of (RepoPath -> LocalPath) files to R2 using the
+// same key layout GitHub used, with bounded concurrency. Returns the first
+// error; the caller cleans up and fails the job on error.
+func (w *Worker) uploadBatchR2(ctx context.Context, files []ghlib.BatchFile) error {
+	if w.cfg.R2 == nil {
+		return fmt.Errorf("r2 client not configured")
+	}
+	const concurrency = 6
+	sem := make(chan struct{}, concurrency)
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	var firstErr error
+	for _, f := range files {
+		wg.Add(1)
+		go func(file ghlib.BatchFile) {
+			defer wg.Done()
+			// Catch any panic so a single file's blow-up cant take the worker
+			// (and the whole process) down.
+			defer func() {
+				if r := recover(); r != nil {
+					if w.log != nil {
+						w.log.Errorf("uploadBatchR2 panic recovered file=%s err=%v", file.RepoPath, r)
+					}
+					mu.Lock()
+					if firstErr == nil {
+						firstErr = fmt.Errorf("upload panic: %v", r)
+					}
+					mu.Unlock()
+				}
+			}()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+			mu.Lock()
+			stop := firstErr != nil
+			mu.Unlock()
+			if stop {
+				return
+			}
+			data, err := os.ReadFile(file.LocalPath)
+			if err == nil {
+				err = w.cfg.R2.PutObject(ctx, file.RepoPath, data, contentTypeFor(file.RepoPath))
+			}
+			if err != nil {
+				mu.Lock()
+				if firstErr == nil {
+					firstErr = err
+				}
+				mu.Unlock()
+			}
+		}(f)
+	}
+	wg.Wait()
+	return firstErr
 }
 
 func (w *Worker) Start() {
@@ -214,6 +316,17 @@ func (w *Worker) processJob(job *queue.Job) {
 	w.notifyRunningProgress(job, 10)
 	w.log.Infof("processing job=%s user=%s upload=%s file=%s", job.ID, job.UserID, job.UploadID, job.FileName)
 
+	// Storage backend for THIS upload. github_repo is only meaningful for the
+	// GitHub backend; R2 rows carry the bucket instead.
+	storageBackend := "github"
+	storageBucket := ""
+	repoForPayload := w.cfg.GitHubRepo
+	if w.useR2() {
+		storageBackend = "r2"
+		storageBucket = w.cfg.R2.Bucket()
+		repoForPayload = ""
+	}
+
 	result, err := assembler.Assemble(assembler.Config{
 		ChunksDir:   w.cfg.ChunksDir,
 		OutputDir:   w.cfg.OutputDir,
@@ -264,14 +377,23 @@ func (w *Worker) processJob(job *queue.Job) {
 		w.notifyRunningProgress(job, 40)
 
 		dateFolder := ghlib.DateFolder(time.Now())
-		ghPath := dateFolder + "/" + job.UploadID + "/" + job.FileName
-		if err := ghlib.UploadLocalFile(context.Background(), w.cfg.GitHubClient, w.cfg.GitHubOwner, w.cfg.GitHubRepo, ghPath, result.OutputPath, "Upload "+job.FileName); err != nil {
-			w.log.Errorf("github upload failed job=%s path=%s err=%s", job.ID, ghPath, err.Error())
+		// Never put the user-supplied filename in the storage key  it can
+		// contain spaces / unicode / unsafe chars that break the path. Use a
+		// fixed name; the original filename stays in the files.filename column.
+		ghPath := dateFolder + "/" + job.UploadID + "/" + safeImageObjectName(job.FileName)
+		var upErr error
+		if w.useR2() {
+			upErr = w.putLocalR2(context.Background(), ghPath, result.OutputPath)
+		} else {
+			upErr = ghlib.UploadLocalFile(context.Background(), w.cfg.GitHubClient, w.cfg.GitHubOwner, w.cfg.GitHubRepo, ghPath, result.OutputPath, "Upload "+job.FileName)
+		}
+		if upErr != nil {
+			w.log.Errorf("storage upload failed backend=%s job=%s path=%s err=%s", storageBackend, job.ID, ghPath, upErr.Error())
 			_ = w.queue.SetJobStatus(context.Background(), job.ID, "failed")
 			webhook.NotifyJobStatus(webhook.Payload{JobID: job.ID, Status: "failed", UploadID: job.UploadID, UserID: job.UserID, FileName: job.FileName, FileSize: job.FileSize})
 			return
 		}
-		w.log.Infof("github uploaded job=%s path=%s", job.ID, ghPath)
+		w.log.Infof("storage uploaded backend=%s job=%s path=%s", storageBackend, job.ID, ghPath)
 		w.notifyRunningProgress(job, 65)
 
 		isAdult := false
@@ -339,7 +461,9 @@ func (w *Worker) processJob(job *queue.Job) {
 			IsNewSeries:         job.IsNewSeries,
 			NewEpisodeName:      job.NewEpisodeName,
 			ParentEpisodeID:     job.ParentEpisodeID,
-			GitHubRepo:          w.cfg.GitHubRepo,
+			GitHubRepo:          repoForPayload,
+			StorageBackend:      storageBackend,
+			StorageBucket:       storageBucket,
 		})
 		w.log.Infof("job complete job=%s duration=%s", job.ID, time.Since(start))
 		return
@@ -428,14 +552,20 @@ func (w *Worker) processJob(job *queue.Job) {
 		if cerr != nil {
 			w.log.Errorf("collect thumbnail files (early) failed job=%s err=%s", job.ID, cerr.Error())
 		} else if len(thumbFiles) > 0 {
-			ghBranch := os.Getenv("GITHUB_BRANCH")
-			if ghBranch == "" {
-				ghBranch = "main"
-			}
-			if err := ghlib.BatchCommit(context.Background(), w.cfg.GitHubClient, w.cfg.GitHubOwner, w.cfg.GitHubRepo, ghBranch, "Thumbnails "+job.UploadID, thumbFiles, 4, w.log.Infof); err != nil {
-				w.log.Errorf("github thumbnail upload failed job=%s err=%s", job.ID, err.Error())
+			var thErr error
+			if w.useR2() {
+				thErr = w.uploadBatchR2(context.Background(), thumbFiles)
 			} else {
-				w.log.Infof("github thumbnails uploaded early job=%s files=%d", job.ID, len(thumbFiles))
+				ghBranch := os.Getenv("GITHUB_BRANCH")
+				if ghBranch == "" {
+					ghBranch = "main"
+				}
+				thErr = ghlib.BatchCommit(context.Background(), w.cfg.GitHubClient, w.cfg.GitHubOwner, w.cfg.GitHubRepo, ghBranch, "Thumbnails "+job.UploadID, thumbFiles, 4, w.log.Infof)
+			}
+			if thErr != nil {
+				w.log.Errorf("thumbnail upload failed backend=%s job=%s err=%s", storageBackend, job.ID, thErr.Error())
+			} else {
+				w.log.Infof("thumbnails uploaded early backend=%s job=%s files=%d", storageBackend, job.ID, len(thumbFiles))
 			}
 		}
 
@@ -589,12 +719,18 @@ func (w *Worker) processJob(job *queue.Job) {
 
 	if len(batchFiles) > 0 {
 		w.notifyRunningProgress(job, 85)
-		ghBranch := os.Getenv("GITHUB_BRANCH")
-		if ghBranch == "" {
-			ghBranch = "main"
+		var buErr error
+		if w.useR2() {
+			buErr = w.uploadBatchR2(context.Background(), batchFiles)
+		} else {
+			ghBranch := os.Getenv("GITHUB_BRANCH")
+			if ghBranch == "" {
+				ghBranch = "main"
+			}
+			buErr = ghlib.BatchCommit(context.Background(), w.cfg.GitHubClient, w.cfg.GitHubOwner, w.cfg.GitHubRepo, ghBranch, "Upload "+job.UploadID, batchFiles, 4, w.log.Infof)
 		}
-		if err := ghlib.BatchCommit(context.Background(), w.cfg.GitHubClient, w.cfg.GitHubOwner, w.cfg.GitHubRepo, ghBranch, "Upload "+job.UploadID, batchFiles, 4, w.log.Infof); err != nil {
-			w.log.Errorf("github batch upload failed job=%s files=%d err=%s", job.ID, len(batchFiles), err.Error())
+		if buErr != nil {
+			w.log.Errorf("storage batch upload failed backend=%s job=%s files=%d err=%s", storageBackend, job.ID, len(batchFiles), buErr.Error())
 			_ = os.RemoveAll(hlsDir)
 			_ = os.Remove(filepath.Dir(hlsDir))
 			_ = os.RemoveAll(thumbDir)
@@ -607,7 +743,7 @@ func (w *Worker) processJob(job *queue.Job) {
 			webhook.NotifyJobStatus(webhook.Payload{JobID: job.ID, Status: "failed", UploadID: job.UploadID, UserID: job.UserID, FileName: job.FileName, FileSize: job.FileSize})
 			return
 		}
-		w.log.Infof("github batch uploaded job=%s files=%d", job.ID, len(batchFiles))
+		w.log.Infof("storage batch uploaded backend=%s job=%s files=%d", storageBackend, job.ID, len(batchFiles))
 	}
 
 	// Cleanup local HLS + thumbnail dirs
@@ -660,7 +796,9 @@ func (w *Worker) processJob(job *queue.Job) {
 		IsNewSeries:         job.IsNewSeries,
 		NewEpisodeName:      job.NewEpisodeName,
 		ParentEpisodeID:     job.ParentEpisodeID,
-		GitHubRepo:          w.cfg.GitHubRepo,
+		GitHubRepo:          repoForPayload,
+		StorageBackend:      storageBackend,
+		StorageBucket:       storageBucket,
 	})
 	w.log.Infof("job complete job=%s user=%s upload=%s duration=%s thumbnails=%d colors=%d tags=%d", job.ID, job.UserID, job.UploadID, time.Since(start), len(thumbnailPaths), len(vidColors), len(tags))
 }
@@ -724,6 +862,18 @@ func isVideo(filename string) bool {
 		return true
 	}
 	return false
+}
+
+// safeImageObjectName returns a fixed storage name ("image" + a known-good
+// extension) so the user's original filename never lands in the object key.
+func safeImageObjectName(filename string) string {
+	ext := strings.ToLower(filepath.Ext(filename))
+	switch ext {
+	case ".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp":
+	default:
+		ext = ".jpg"
+	}
+	return "image" + ext
 }
 
 func isImage(filename string) bool {

@@ -12,6 +12,8 @@ import { chunkFile } from './processFunctions/chunking';
 import type { ChunkInfo } from './processFunctions/chunking';
 import db from '~/lib/Database/supabase';
 import { MAX_UPLOAD_FILE_BYTES, MAX_UPLOAD_LABEL } from '~/lib/uploadLimits';
+import { reserveUploadQuota, refundUploadQuota } from '~/lib/uploadQuota.server';
+import { logError } from '~/lib/Logging/errorLog.server';
 
 if (typeof process !== 'undefined') {
   try {
@@ -66,6 +68,9 @@ const serverToServerUpload = async (request: Request): Promise<boolean> => {
 }
 
 export const action = async ({ request }: { request: Request }) => {
+  // Tracked so we can refund the weekly-quota reservation if anything after
+  // reserving fails before the job is safely queued.
+  let quotaUploadId = '';
   try {
 
     let serverToServer = await serverToServerUpload(request)
@@ -191,10 +196,29 @@ export const action = async ({ request }: { request: Request }) => {
       : (user && typeof user !== 'boolean' && user.id ? user.id : process.env.DEFAULT_ID);
 
     if (!ownerId) {
-      return new Response(JSON.stringify({ error: 'Invalid owner ID' }), { 
+      return new Response(JSON.stringify({ error: 'Invalid owner ID' }), {
         status: 500,
         headers: { 'Content-Type': 'application/json' }
       });
+    }
+
+    // Weekly upload quota: reserve before doing any heavy work. Skipped for
+    // trusted server-to-server uploads. Refunded later on queue failure.
+    if (!serverToServer) {
+      const reservation = await reserveUploadQuota(ownerId, uniqueID, file.size);
+      if (!reservation.ok) {
+        if (reservation.reason === 'limit') {
+          return new Response(
+            JSON.stringify({ error: 'Weekly upload limit reached. Please try again later.' }),
+            { status: 429, headers: { 'Content-Type': 'application/json' } }
+          );
+        }
+        return new Response(
+          JSON.stringify({ error: 'Something went wrong! Please try again later.' }),
+          { status: 500, headers: { 'Content-Type': 'application/json' } }
+        );
+      }
+      quotaUploadId = uniqueID;
     }
 
     try {
@@ -257,6 +281,10 @@ export const action = async ({ request }: { request: Request }) => {
     const jobId = await uploadQueue.addJob(jobPayload as any);
 
     if (!jobId) {
+      if (quotaUploadId) {
+        await refundUploadQuota(quotaUploadId);
+        quotaUploadId = '';
+      }
       if (db) {
         try {
           await db
@@ -288,8 +316,11 @@ export const action = async ({ request }: { request: Request }) => {
     });
 
   } catch (error) {
-    console.error('Upload error:', error);
-    return new Response(JSON.stringify({ error: 'Upload failed' }), { 
+    if (quotaUploadId) {
+      await refundUploadQuota(quotaUploadId);
+    }
+    const ref = await logError({ error, source: 'api/upload', request, status: 500 });
+    return new Response(JSON.stringify({ error: 'Upload failed', ref }), {
       status: 500,
       headers: { 'Content-Type': 'application/json' }
     });

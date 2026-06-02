@@ -956,7 +956,10 @@ function PlayerInner({
       <div className="relative z-10 w-full h-full" onTouchEnd={handleTouchEnd}>
         {state.hasError && <ErrorOverlay />}
 
-        {showLoadingOverlay && <BufferingSpinner />}
+        {/* On mobile with controls visible, the spinner lives INSIDE the
+            center play/pause circle (ControlBar)  hide the full-screen one
+            so we don't double-up. */}
+        {showLoadingOverlay && !(isMobile && showControls) && <BufferingSpinner />}
 
         {showPlayPauseFeedback && !showSeekFeedback && !isReelCtx && !isMobile && !inPipForThisVideo && (
           <PlayPauseFeedback isPlaying={feedbackIconPlaying} fading={feedbackFading} />

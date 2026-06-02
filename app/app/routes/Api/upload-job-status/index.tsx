@@ -1,6 +1,7 @@
 import db from '~/lib/Database/supabase';
 import { textContainsNsfw, DEFAULT_METADATA_WARNING } from '~/lib/nsfwTextCheck';
 import { isValidUUID } from '~/lib/Security/inputValidation';
+import { recordUploadUsage, refundUploadQuota } from '~/lib/uploadQuota.server';
 
 function inferFileType(filename: string): string {
   if (!filename) return 'application/octet-stream';
@@ -282,6 +283,9 @@ export const action = async ({ request }: { request: Request }) => {
     new_episode_name?: string;
     parent_episode_id?: string;
     github_repo?: string;
+    /** 'github' (default) or 'r2' */
+    storage_backend?: string;
+    storage_bucket?: string;
     /** 0–100 from Go worker while processing */
     progress?: number;
   };
@@ -368,9 +372,13 @@ export const action = async ({ request }: { request: Request }) => {
     } else {
       console.log('[upload-job-status] files created for', upload_id, 'with status queued');
     }
+    // Record weekly-quota usage now so it shows immediately. Idempotent by upload_id.
+    await recordUploadUsage(user_id, upload_id, file_size);
   }
 
   if (status === 'failed' && upload_id) {
+    // Failed upload never lands in storage  release its quota reservation.
+    await refundUploadQuota(upload_id);
     // Delete the file record on failure so user doesn't see broken entry
     const { error: deleteErr } = await db
       .from('files')
@@ -449,6 +457,19 @@ export const action = async ({ request }: { request: Request }) => {
     if (ghRepo) {
       updateData.github_repo = ghRepo;
     }
+    // Storage backend: only accept the two known values; bucket only for r2.
+    const storageBackend =
+      body?.storage_backend === 'r2' ? 'r2' : body?.storage_backend === 'github' ? 'github' : '';
+    if (storageBackend) {
+      updateData.storage_backend = storageBackend;
+    }
+    if (storageBackend === 'r2') {
+      const storageBucket =
+        typeof body?.storage_bucket === 'string' ? body.storage_bucket.trim().slice(0, 128) : '';
+      if (storageBucket) {
+        updateData.storage_bucket = storageBucket;
+      }
+    }
     if (thumbnails.length > 0) {
       updateData.thumbnails = thumbnails;
     }
@@ -493,6 +514,14 @@ export const action = async ({ request }: { request: Request }) => {
     } else {
       const fn = typeof body.file_name === 'string' ? body.file_name.trim() : '';
       await applyFileSeriesOnComplete(upload_id, body, fn);
+    }
+
+    // Reconcile with the real uploaded size. recordUploadUsage upserts, so this
+    // works whether or not the queued webhook (or app-route reserve) ran first.
+    const actualBytes =
+      typeof body?.file_size === 'number' && body.file_size >= 0 ? body.file_size : 0;
+    if (user_id) {
+      await recordUploadUsage(user_id, upload_id, actualBytes);
     }
   }
 

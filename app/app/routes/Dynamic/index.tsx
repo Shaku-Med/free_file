@@ -1954,7 +1954,18 @@ const DynamicPage = ({ is_modal }: DynamicPageProps) => {
     <div className="relative min-h-screen reel_p" key={`dynamic-${currentId}`}>
       <script
         type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+        dangerouslySetInnerHTML={{
+          // Escape characters that could break out of the <script> tag or be
+          // mis-parsed (`</script>`, line/paragraph separators). User-input
+          // fields (title, description, author) flow through this string  the
+          // raw JSON.stringify would let `</script>` inside a title break out.
+          __html: JSON.stringify(jsonLd)
+            .replace(/</g, "\\u003c")
+            .replace(/>/g, "\\u003e")
+            .replace(/&/g, "\\u0026")
+            .replace(new RegExp("\\u2028", "g"), "\\u2028")
+            .replace(new RegExp("\\u2029", "g"), "\\u2029"),
+        }}
       />
       <div className="relative z-10 mx-auto max-w-full">
         {/* 

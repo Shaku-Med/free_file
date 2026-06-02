@@ -67,9 +67,7 @@ const EditProfileDialog = ({ profile, isOpen, onClose }: EditProfileDialogProps)
       <DialogContent className="sm:max-w-[500px]">
         <DialogHeader>
           <DialogTitle>Edit Profile</DialogTitle>
-          <DialogDescription>
-            Update your profile information. Changes will be visible to all users.
-          </DialogDescription>
+          <DialogDescription className="sr-only">Edit profile fields</DialogDescription>
         </DialogHeader>
         <div className="space-y-4 py-4">
           <div className="space-y-2">

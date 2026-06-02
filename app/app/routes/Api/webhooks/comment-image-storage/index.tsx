@@ -30,7 +30,7 @@ export const action = async ({ request }: { request: Request }) => {
     });
   }
 
-  let body: { image_url?: string; github_repo?: string };
+  let body: { image_url?: string; github_repo?: string; storage_backend?: string };
   try {
     body = await request.json();
   } catch {
@@ -42,7 +42,9 @@ export const action = async ({ request }: { request: Request }) => {
 
   const imageUrl = typeof body?.image_url === "string" ? body.image_url.trim() : "";
   const githubRepo = typeof body?.github_repo === "string" ? body.github_repo.trim() : "";
-  if (!imageUrl || !githubRepo) {
+  const storageBackend = body?.storage_backend === "r2" ? "r2" : "github";
+  // GitHub needs a repo; R2 does not.
+  if (!imageUrl || (storageBackend === "github" && !githubRepo)) {
     return new Response(JSON.stringify({ error: "image_url and github_repo required" }), {
       status: 400,
       headers: { "Content-Type": "application/json" },
@@ -50,7 +52,7 @@ export const action = async ({ request }: { request: Request }) => {
   }
 
   const { error } = await db.from("comment_image_upload_repos").upsert(
-    { storage_path: imageUrl, github_repo: githubRepo },
+    { storage_path: imageUrl, github_repo: githubRepo, storage_backend: storageBackend },
     { onConflict: "storage_path" },
   );
 

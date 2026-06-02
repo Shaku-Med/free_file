@@ -37,6 +37,8 @@ export interface CachedFileAccess {
   owner_id: string;
   upload_status: string | null;
   github_repo: string | null;
+  storage_backend: string | null;
+  storage_bucket: string | null;
   duration: number | null;
 }
 
@@ -113,7 +115,7 @@ export async function getCachedFileByUniqueId(
   try {
     const { data } = await db
       .from("files")
-      .select("id, unique_id, is_adult, is_public, owner_id, upload_status, github_repo, duration")
+      .select("id, unique_id, is_adult, is_public, owner_id, upload_status, github_repo, storage_backend, storage_bucket, duration")
       .eq("unique_id", uniqueId)
       .maybeSingle();
     if (!data) return null;
@@ -125,6 +127,8 @@ export async function getCachedFileByUniqueId(
       owner_id: String(data.owner_id ?? ""),
       upload_status: typeof data.upload_status === "string" ? data.upload_status : null,
       github_repo: typeof data.github_repo === "string" ? data.github_repo : null,
+      storage_backend: typeof data.storage_backend === "string" ? data.storage_backend : null,
+      storage_bucket: typeof data.storage_bucket === "string" ? data.storage_bucket : null,
       duration: typeof data.duration === "number" ? data.duration : null,
     };
     writeWithLru(fileByUniqueId, uniqueId, row, FILE_TTL_MS, MAX_FILE_ENTRIES);

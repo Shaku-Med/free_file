@@ -5,6 +5,7 @@ import {
   githubRawFileUrl,
   resolveGithubRepoForFile,
 } from '~/lib/githubStorage';
+import { r2PresignGet } from '~/lib/r2.server';
 import { canAccessFile } from '~/routes/Api/fun/accessControl';
 
 const CELL_WIDTH = 160;
@@ -31,7 +32,7 @@ export const loader = async ({
 
   const { data: file, error } = await db
     .from('files')
-    .select('unique_id, thumbnails, duration, is_public, is_adult, upload_status, github_repo')
+    .select('unique_id, thumbnails, duration, is_public, is_adult, upload_status, github_repo, storage_backend, storage_bucket')
     .eq('unique_id', uniqueId)
     .maybeSingle();
 
@@ -88,13 +89,21 @@ export const loader = async ({
       return data({ error: 'Image processing unavailable' }, { status: 503 });
     }
 
-    const owner = process.env.GITHUB_OWNER;
-    if (!owner) {
-      return data({ error: 'Storage not configured' }, { status: 503 });
+    // Per-file storage backend: presign R2 objects, else GitHub raw.
+    const isR2 = (file as { storage_backend?: string | null }).storage_backend === 'r2';
+    let resolveObjectUrl: (objectPath: string) => string | null;
+    if (isR2) {
+      resolveObjectUrl = (objectPath: string) => r2PresignGet(objectPath);
+    } else {
+      const owner = process.env.GITHUB_OWNER;
+      if (!owner) {
+        return data({ error: 'Storage not configured' }, { status: 503 });
+      }
+      const repo = resolveGithubRepoForFile(file as { github_repo?: string | null });
+      const branch = defaultGithubBranch();
+      const baseUrl = githubRawFileUrl(owner, repo, branch, '');
+      resolveObjectUrl = (objectPath: string) => baseUrl + objectPath;
     }
-    const repo = resolveGithubRepoForFile(file as { github_repo?: string | null });
-    const branch = defaultGithubBranch();
-    const baseUrl = githubRawFileUrl(owner, repo, branch, '');
     const width = cols * CELL_WIDTH;
     const height = rows * CELL_HEIGHT;
     const compositeInput: { input: Buffer; top: number; left: number }[] = [];
@@ -104,7 +113,9 @@ export const loader = async ({
       const path = thumbnails[i];
       if (!path || typeof path !== 'string') continue;
       try {
-        const res = await fetch(baseUrl + path);
+        const objectUrl = resolveObjectUrl(path);
+        if (!objectUrl) continue;
+        const res = await fetch(objectUrl);
         if (!res.ok) continue;
         const buf = Buffer.from(await res.arrayBuffer());
         const resized = await sharp(buf)

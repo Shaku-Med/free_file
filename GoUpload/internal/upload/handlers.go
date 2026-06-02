@@ -13,6 +13,7 @@ import (
 	"goupload/lib/env"
 	"goupload/lib/logger"
 	"goupload/lib/queue"
+	"goupload/lib/quota"
 	"goupload/lib/webhook"
 )
 
@@ -218,6 +219,36 @@ func (h *Handler) completeUpload(c *fiber.Ctx) error {
 	if err != nil {
 		return h.safeErrorResponse(c, userID, uploadID, "complete", err)
 	}
+
+	// Weekly-quota gate. Measure ACTUAL on-disk bytes (we don't trust the
+	// client-declared size), predict the post-processing footprint, and ask
+	// the app whether it fits in the user's remaining budget. Reject + clean
+	// up before we waste a worker slot on a job that would be over-limit.
+	actualBytes, sizeErr := h.manager.ChunkFolderSize(userID, uploadID)
+	if sizeErr != nil {
+		if h.log != nil {
+			h.log.Errorf("chunk_size_error user=%s upload=%s err=%s", userID, uploadID, sizeErr.Error())
+		}
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "internal_error"})
+	}
+	predicted := quota.PredictFinalBytes(actualBytes, meta.FileName)
+	qres, qerr := quota.Check(c.Context(), userID, predicted)
+	if qerr == nil && !qres.OK {
+		_ = h.manager.AbandonUpload(userID, uploadID)
+		if h.log != nil {
+			h.log.Infof("quota_reject user=%s upload=%s actual=%d predicted=%d used=%d limit=%d", userID, uploadID, actualBytes, predicted, qres.Used, qres.Limit)
+		}
+		// 413 Payload Too Large + machine-readable code so the client can
+		// show a friendly "weekly limit reached" message (not a generic fail).
+		return c.Status(fiber.StatusRequestEntityTooLarge).JSON(fiber.Map{
+			"error":     "weekly_limit_exceeded",
+			"used":      qres.Used,
+			"limit":     qres.Limit,
+			"remaining": qres.Remaining,
+			"predicted": predicted,
+		})
+	}
+
 	jobID, err := h.queue.Enqueue(context.Background(), meta.UserID, meta.UploadID, meta.FileName, meta.FileSize, meta.TotalChunks, title, description, userCategories, userTags, defaultThumbnail, reelMode, fileSeriesID, fileSeriesEpisodeID, isNewSeries, newEpisodeName, parentEpisodeID)
 	if err != nil {
 		if h.log != nil {

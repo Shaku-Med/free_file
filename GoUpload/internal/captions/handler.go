@@ -17,7 +17,11 @@ import (
 	captionslib "goupload/lib/captions"
 	ghlib "goupload/lib/github"
 	"goupload/lib/logger"
+	"goupload/lib/quota"
+	"goupload/lib/r2"
 )
+
+const captionContentType = "text/vtt; charset=utf-8"
 
 const (
 	consumeTimeout = 12 * time.Second
@@ -30,6 +34,9 @@ type Config struct {
 	GitHubOwner  string
 	AppBaseURL   string
 	AppSecret    string
+	// R2 dual-backend: caption files follow the parent video's backend, which
+	// is carried on the token (payload.StorageBackend).
+	R2 *r2.Client
 }
 
 type Handler struct {
@@ -47,11 +54,12 @@ func RegisterRoutes(app *fiber.App, log *logger.Logger, cfg Config) {
 type tokenPayload struct {
 	UserID     string `json:"user_id"`
 	FileID     string `json:"file_id"`
-	UniqueID   string `json:"unique_id"`
-	DateFolder string `json:"date_folder"`
-	GithubRepo string `json:"github_repo"`
-	Language   string `json:"language"`
-	Action     string `json:"action"`
+	UniqueID       string `json:"unique_id"`
+	DateFolder     string `json:"date_folder"`
+	GithubRepo     string `json:"github_repo"`
+	StorageBackend string `json:"storage_backend"`
+	Language       string `json:"language"`
+	Action         string `json:"action"`
 }
 
 func (h *Handler) consumeToken(ctx context.Context, token, expectedAction string) (*tokenPayload, int, error) {
@@ -85,12 +93,20 @@ func (h *Handler) consumeToken(ctx context.Context, token, expectedAction string
 	if err := json.NewDecoder(limited).Decode(&payload); err != nil {
 		return nil, http.StatusInternalServerError, err
 	}
-	if payload.UserID == "" || payload.FileID == "" || payload.UniqueID == "" || payload.DateFolder == "" || payload.GithubRepo == "" || payload.Language == "" || payload.Action == "" {
+	if payload.StorageBackend == "" {
+		payload.StorageBackend = "github"
+	}
+	if payload.UserID == "" || payload.FileID == "" || payload.UniqueID == "" || payload.DateFolder == "" || payload.Language == "" || payload.Action == "" {
 		return nil, http.StatusInternalServerError, errors.New("invalid token payload")
+	}
+	// GitHub backend needs a valid repo; R2 does not.
+	if payload.StorageBackend == "github" {
+		if payload.GithubRepo == "" || !captionslib.IsSafeGithubRepo(payload.GithubRepo) {
+			return nil, http.StatusInternalServerError, errors.New("invalid token repo")
+		}
 	}
 	if !captionslib.IsSafeUniqueID(payload.UniqueID) ||
 		!captionslib.IsSafeDateFolder(payload.DateFolder) ||
-		!captionslib.IsSafeGithubRepo(payload.GithubRepo) ||
 		!captionslib.IsValidLanguageCode(payload.Language) {
 		return nil, http.StatusInternalServerError, errors.New("invalid token fields")
 	}
@@ -128,7 +144,7 @@ func (h *Handler) upload(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "missing_user_id"})
 	}
 
-	if h.cfg.GitHubClient == nil {
+	if h.cfg.GitHubClient == nil && h.cfg.R2 == nil {
 		return c.Status(fiber.StatusServiceUnavailable).JSON(fiber.Map{"error": "storage not configured"})
 	}
 
@@ -170,7 +186,10 @@ func (h *Handler) upload(c *fiber.Ctx) error {
 
 	cleaned, cueCount, err := captionslib.Sanitize(raw)
 	if err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid VTT: " + err.Error()})
+		if h.log != nil {
+			h.log.Errorf("caption sanitize failed user=%s err=%v", uid, err)
+		}
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid_vtt"})
 	}
 	if cueCount == 0 {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "no usable cues"})
@@ -194,7 +213,12 @@ func (h *Handler) upload(c *fiber.Ctx) error {
 
 	ghCtx, ghCancel := context.WithTimeout(context.Background(), githubTimeout)
 	defer ghCancel()
-	if err := ghlib.CreateOrUpdateFile(
+	if tk.StorageBackend == "r2" && h.cfg.R2 != nil {
+		if err := h.cfg.R2.PutObject(ghCtx, ghPath, []byte(cleaned), captionContentType); err != nil {
+			h.log.Errorf("caption r2 upload failed user=%s path=%s err=%v", uid, ghPath, err)
+			return c.Status(fiber.StatusBadGateway).JSON(fiber.Map{"error": "storage upload failed"})
+		}
+	} else if err := ghlib.CreateOrUpdateFile(
 		ghCtx,
 		h.cfg.GitHubClient,
 		h.cfg.GitHubOwner,
@@ -220,6 +244,7 @@ func (h *Handler) upload(c *fiber.Ctx) error {
 	}
 
 	h.log.Infof("caption upload user=%s file=%s repo=%s lang=%s cues=%d size=%d", uid, tk.FileID, tk.GithubRepo, tk.Language, cueCount, len(cleaned))
+	go quota.Record(context.Background(), uid, fmt.Sprintf("cap_%s_%s_%d", tk.UniqueID, tk.Language, time.Now().UnixNano()), int64(len(cleaned)))
 	return c.JSON(fiber.Map{
 		"success":  true,
 		"language": tk.Language,
@@ -238,7 +263,7 @@ func (h *Handler) delete(c *fiber.Ctx) error {
 	if uid == "" {
 		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "missing_user_id"})
 	}
-	if h.cfg.GitHubClient == nil {
+	if h.cfg.GitHubClient == nil && h.cfg.R2 == nil {
 		return c.Status(fiber.StatusServiceUnavailable).JSON(fiber.Map{"error": "storage not configured"})
 	}
 
@@ -269,7 +294,11 @@ func (h *Handler) delete(c *fiber.Ctx) error {
 
 	ghCtx, ghCancel := context.WithTimeout(context.Background(), githubTimeout)
 	defer ghCancel()
-	if err := deleteGitHubFile(ghCtx, h.cfg.GitHubClient, h.cfg.GitHubOwner, tk.GithubRepo, ghPath, fmt.Sprintf("Remove caption %s for %s", tk.Language, tk.UniqueID)); err != nil {
+	if tk.StorageBackend == "r2" && h.cfg.R2 != nil {
+		if err := h.cfg.R2.DeleteObject(ghCtx, ghPath); err != nil {
+			h.log.Errorf("caption r2 delete failed user=%s path=%s err=%v", uid, ghPath, err)
+		}
+	} else if err := deleteGitHubFile(ghCtx, h.cfg.GitHubClient, h.cfg.GitHubOwner, tk.GithubRepo, ghPath, fmt.Sprintf("Remove caption %s for %s", tk.Language, tk.UniqueID)); err != nil {
 		h.log.Errorf("caption github delete failed user=%s repo=%s path=%s err=%v", uid, tk.GithubRepo, ghPath, err)
 	}
 

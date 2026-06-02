@@ -1,6 +1,6 @@
 import { useRef, useState, useEffect, useLayoutEffect, type ReactElement } from 'react';
 import { createPortal } from 'react-dom';
-import { Play, Pause, SkipForward, MoreVertical, SkipBack, ChevronLeft, X } from 'lucide-react';
+import { Play, Pause, SkipForward, MoreVertical, SkipBack, ChevronLeft, X, LoaderCircle } from 'lucide-react';
 import { usePlayerContext } from '../PlayerContext';
 import { useControlBarWidth } from '../hooks/useControlBarWidth';
 import SeekBar from './seek/SeekBar';
@@ -420,26 +420,43 @@ export default function ControlBar({
               </button>
             </PlayerControlTooltip>
           )}
-          {!isHidden(hideControls, 'playPause') && (
-            <PlayerControlTooltip label={state.isPlaying ? 'Pause' : 'Play'}>
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  togglePlay();
-                  onPlayPauseClick?.();
-                }}
-                className="flex h-[4.5rem] w-[4.5rem] shrink-0 items-center justify-center rounded-full bg-black/50 text-white shadow-md active:scale-95 transition-transform"
-                aria-label={state.isPlaying ? 'Pause' : 'Play'}
-              >
-                {state.isPlaying ? (
-                  <Pause className="h-9 w-9 fill-white" />
-                ) : (
-                  <Play className="ml-1 h-9 w-9 fill-white" />
-                )}
-              </button>
-            </PlayerControlTooltip>
-          )}
+          {!isHidden(hideControls, 'playPause') && (() => {
+            // Mobile: while the player is loading / buffering, replace the
+            // play-pause circle with a spinner in the same spot. Avoids the
+            // global spinner sitting behind the button and looking broken.
+            const isPlayPauseLoading = !state.isLoaded || state.isBuffering;
+            if (isPlayPauseLoading) {
+              return (
+                <div
+                  className="flex h-[4.5rem] w-[4.5rem] shrink-0 items-center justify-center rounded-full bg-black/50 text-white shadow-md"
+                  aria-label="Loading"
+                  role="status"
+                >
+                  <LoaderCircle className="h-9 w-9 animate-spin opacity-90" />
+                </div>
+              );
+            }
+            return (
+              <PlayerControlTooltip label={state.isPlaying ? 'Pause' : 'Play'}>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    togglePlay();
+                    onPlayPauseClick?.();
+                  }}
+                  className="flex h-[4.5rem] w-[4.5rem] shrink-0 items-center justify-center rounded-full bg-black/50 text-white shadow-md active:scale-95 transition-transform"
+                  aria-label={state.isPlaying ? 'Pause' : 'Play'}
+                >
+                  {state.isPlaying ? (
+                    <Pause className="h-9 w-9 fill-white" />
+                  ) : (
+                    <Play className="ml-1 h-9 w-9 fill-white" />
+                  )}
+                </button>
+              </PlayerControlTooltip>
+            );
+          })()}
           {!isHidden(hideControls, 'next') && onNext && (
             <NextVideoTooltipButton
               onClick={handleNextTap}

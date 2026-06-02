@@ -26,6 +26,7 @@ import (
 	"goupload/loadplay/lib/supabase"
 	"goupload/lib/env"
 	"goupload/lib/logger"
+	"goupload/lib/r2"
 )
 
 // Set at link time by Docker/CI (-ldflags). Verify prod via GET /live → "build" field.
@@ -123,6 +124,14 @@ func main() {
 		)
 	}
 
+	// R2 (dual-backend). Files whose row says storage_backend='r2' are
+	// presigned + proxied from R2; GitHub-backed files are unchanged. nil
+	// when R2 env is unset  R2 files then fail closed (503), GitHub still serves.
+	r2Client := r2.FromEnv()
+	if r2Client != nil {
+		lg.Infof("r2 fetch backend ready bucket=%s", r2Client.Bucket())
+	}
+
 	deps := handler.ManifestDeps{
 		Log:    lg,
 		Secret: []byte(secret),
@@ -130,6 +139,8 @@ func main() {
 			Owner:  owner,
 			Repo:   repo,
 			Branch: env.Get("GITHUB_BRANCH", "main"),
+			R2:     r2Client,
+			R2TTL:  time.Duration(env.GetInt64("R2_PRESIGN_TTL_SECONDS", 300)) * time.Second,
 		},
 		Guard:       guard.NewConfig(env.Get("ALLOWED_ORIGINS", ""), blockedOrigins, env.Get("BLOCK_TOOL_UA", "1") == "1"),
 		HTTPClient:  &http.Client{Timeout: 20 * time.Second},

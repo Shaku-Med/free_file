@@ -21,6 +21,7 @@ import (
 	"goupload/lib/logger"
 	"goupload/lib/nsfwstrikes"
 	"goupload/lib/queue"
+	"goupload/lib/r2"
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/limiter"
 )
@@ -64,6 +65,17 @@ func main() {
 		appLog.Infof("nsfw strike limiter max=%d window=%s", strikeMax, strikeWindow)
 	}
 
+	// R2 (dual-backend). When UPLOAD_STORAGE_BACKEND=r2, new uploads go to R2;
+	// legacy files keep resolving via their stored github_repo.
+	r2Client := r2.FromEnv()
+	storageBackend := strings.ToLower(strings.TrimSpace(env.Get("UPLOAD_STORAGE_BACKEND", "github")))
+	if storageBackend == "r2" && r2Client == nil {
+		log.Fatal("UPLOAD_STORAGE_BACKEND=r2 but R2_* env not fully configured (need R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_BUCKET, and R2_ACCOUNT_ID or R2_ENDPOINT)")
+	}
+	if r2Client != nil {
+		appLog.Infof("r2 client ready bucket=%s active_backend=%s", r2Client.Bucket(), storageBackend)
+	}
+
 	wcfg := worker.Config{
 		ChunksDir:      chunksDir,
 		OutputDir:      outputDir,
@@ -74,6 +86,8 @@ func main() {
 		NSFWApiSecret:  webhookSecret,
 		GitHubOwner:    ghOwner,
 		GitHubRepo:     ghRepo,
+		R2:             r2Client,
+		StorageBackend: storageBackend,
 	}
 	if ghToken != "" && ghOwner != "" {
 		wcfg.GitHubClient = ghlib.NewClient(ghlib.Config{Token: ghToken, Owner: ghOwner, Repo: ghRepo})
@@ -189,6 +203,11 @@ func main() {
 		},
 	})
 	app.Use("/api/captions", captionLimiter)
+	supabaseURL := env.EnvValidator("SUPABASE_URL")
+	supabaseKey := env.EnvValidator("SUPABASE_SERVICE_ROLE_KEY")
+	if supabaseKey == "" {
+		supabaseKey = env.EnvValidator("SUPABASE_ANON_KEY")
+	}
 	upload.RegisterRoutes(app, manager, q, appLog)
 	thumbnail.RegisterRoutes(app, appLog, thumbnail.Config{
 		GitHubClient:  wcfg.GitHubClient,
@@ -198,35 +217,40 @@ func main() {
 		NSFWApiSecret: webhookSecret,
 		Strikes:       nsfwStrikes,
 		AssembledRoot: outputDir,
-	})
-	commentimg.RegisterRoutes(app, appLog, commentimg.Config{
-		GitHubClient:  wcfg.GitHubClient,
-		GitHubOwner:   ghOwner,
-		GitHubRepo:    ghRepo,
-		NSFWApiURL:    nsfwAPI,
-		NSFWApiSecret: webhookSecret,
-		Strikes:       nsfwStrikes,
-	})
-	supabaseURL := env.EnvValidator("SUPABASE_URL")
-	supabaseKey := env.EnvValidator("SUPABASE_SERVICE_ROLE_KEY")
-	if supabaseKey == "" {
-		supabaseKey = env.EnvValidator("SUPABASE_ANON_KEY")
-	}
-	profilepic.RegisterRoutes(app, appLog, profilepic.Config{
-		GitHubClient:  wcfg.GitHubClient,
-		GitHubOwner:   ghOwner,
-		GitHubRepo:    ghRepo,
-		NSFWApiURL:    nsfwAPI,
-		NSFWApiSecret: webhookSecret,
-		Strikes:       nsfwStrikes,
+		R2:            r2Client,
 		SupabaseURL:   supabaseURL,
 		SupabaseKey:   supabaseKey,
+	})
+	commentimg.RegisterRoutes(app, appLog, commentimg.Config{
+		GitHubClient:   wcfg.GitHubClient,
+		GitHubOwner:    ghOwner,
+		GitHubRepo:     ghRepo,
+		NSFWApiURL:     nsfwAPI,
+		NSFWApiSecret:  webhookSecret,
+		Strikes:        nsfwStrikes,
+		R2:             r2Client,
+		StorageBackend: storageBackend,
+		SupabaseURL:    supabaseURL,
+		SupabaseKey:    supabaseKey,
+	})
+	profilepic.RegisterRoutes(app, appLog, profilepic.Config{
+		GitHubClient:   wcfg.GitHubClient,
+		GitHubOwner:    ghOwner,
+		GitHubRepo:     ghRepo,
+		NSFWApiURL:     nsfwAPI,
+		NSFWApiSecret:  webhookSecret,
+		Strikes:        nsfwStrikes,
+		SupabaseURL:    supabaseURL,
+		SupabaseKey:    supabaseKey,
+		R2:             r2Client,
+		StorageBackend: storageBackend,
 	})
 	captions.RegisterRoutes(app, appLog, captions.Config{
 		GitHubClient: wcfg.GitHubClient,
 		GitHubOwner:  ghOwner,
 		AppBaseURL:   env.Get("APP_BASE_URL", "http://localhost:3000"),
 		AppSecret:    webhookSecret,
+		R2:           r2Client,
 	})
 
 	if env.IsDev() {

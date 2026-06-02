@@ -16,12 +16,14 @@ import (
 // single file. Kept tiny on purpose  the more columns we pull, the
 // more pressure on the DB and the slower the cache fill.
 type FileMeta struct {
-	ID         string
-	GithubRepo string
-	OwnerID    string
-	IsPublic   bool
-	IsAdult    bool
-	Exists     bool
+	ID             string
+	GithubRepo     string
+	StorageBackend string // "github" (default) or "r2"
+	StorageBucket  string // R2 bucket when StorageBackend == "r2"
+	OwnerID        string
+	IsPublic       bool
+	IsAdult        bool
+	Exists         bool
 }
 
 // ErrNotFound is returned (and cached) when the row is missing. The
@@ -57,7 +59,7 @@ func (c *Client) GetFileMeta(ctx context.Context, uniqueID string) (*FileMeta, e
 	}
 
 	reqURL := fmt.Sprintf(
-		"%s/rest/v1/files?unique_id=eq.%s&select=id,github_repo,owner_id,is_public,is_adult&limit=1",
+		"%s/rest/v1/files?unique_id=eq.%s&select=id,github_repo,storage_backend,storage_bucket,owner_id,is_public,is_adult&limit=1",
 		c.BaseURL, url.QueryEscape(uniqueID),
 	)
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
@@ -81,11 +83,13 @@ func (c *Client) GetFileMeta(ctx context.Context, uniqueID string) (*FileMeta, e
 		return nil, fmt.Errorf("supabase %d", res.StatusCode)
 	}
 	var rows []struct {
-		ID         string  `json:"id"`
-		GithubRepo *string `json:"github_repo"`
-		OwnerID    *string `json:"owner_id"`
-		IsPublic   *bool   `json:"is_public"`
-		IsAdult    *bool   `json:"is_adult"`
+		ID             string  `json:"id"`
+		GithubRepo     *string `json:"github_repo"`
+		StorageBackend *string `json:"storage_backend"`
+		StorageBucket  *string `json:"storage_bucket"`
+		OwnerID        *string `json:"owner_id"`
+		IsPublic       *bool   `json:"is_public"`
+		IsAdult        *bool   `json:"is_adult"`
 	}
 	if err := json.Unmarshal(body, &rows); err != nil {
 		return nil, err
@@ -100,6 +104,12 @@ func (c *Client) GetFileMeta(ctx context.Context, uniqueID string) (*FileMeta, e
 	}
 	if r.GithubRepo != nil {
 		meta.GithubRepo = strings.TrimSpace(*r.GithubRepo)
+	}
+	if r.StorageBackend != nil {
+		meta.StorageBackend = strings.TrimSpace(*r.StorageBackend)
+	}
+	if r.StorageBucket != nil {
+		meta.StorageBucket = strings.TrimSpace(*r.StorageBucket)
 	}
 	if r.OwnerID != nil {
 		meta.OwnerID = *r.OwnerID

@@ -58,7 +58,7 @@ export const action = async ({ request }: { request: Request }) => {
 
   const { data: fileRow, error: fileErr } = await db
     .from("files")
-    .select("id, unique_id, created_at, owner_id, file_type, captions, github_repo")
+    .select("id, unique_id, created_at, owner_id, file_type, captions, github_repo, storage_backend")
     .eq("id", fileId)
     .maybeSingle()
   if (fileErr) {
@@ -90,14 +90,18 @@ export const action = async ({ request }: { request: Request }) => {
   if (!createdAt) return data({ error: "File metadata invalid" }, { status: 500 })
   const dateFolder = arrangeDateFolder(createdAt)
 
-  let githubRepo: string
-  try {
-    githubRepo = resolveGithubRepoForFile({ github_repo: fileRow.github_repo as string | null })
-  } catch {
-    return data({ error: "Storage not configured" }, { status: 503 })
-  }
-  if (!isSafeGithubRepo(githubRepo)) {
-    return data({ error: "File metadata invalid" }, { status: 500 })
+  const backend = (fileRow as { storage_backend?: string | null }).storage_backend === "r2" ? "r2" : "github"
+  // GitHub-backed captions need a valid repo; R2 captions follow the file's bucket.
+  let githubRepo = ""
+  if (backend === "github") {
+    try {
+      githubRepo = resolveGithubRepoForFile({ github_repo: fileRow.github_repo as string | null })
+    } catch {
+      return data({ error: "Storage not configured" }, { status: 503 })
+    }
+    if (!isSafeGithubRepo(githubRepo)) {
+      return data({ error: "File metadata invalid" }, { status: 500 })
+    }
   }
 
   const token = generateToken()
@@ -110,6 +114,7 @@ export const action = async ({ request }: { request: Request }) => {
     unique_id: uniqueId,
     date_folder: dateFolder,
     github_repo: githubRepo,
+    storage_backend: backend,
     language,
     action: actionType,
     expires_at: expiresAt,

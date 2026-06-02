@@ -44,7 +44,7 @@ export function GuestPlaybackSignInDialog({
             <Lock className="h-5 w-5 shrink-0 text-muted-foreground" aria-hidden />
             {title}
           </DialogTitle>
-          <DialogDescription>{description}</DialogDescription>
+          <DialogDescription className="sr-only">{description}</DialogDescription>
         </DialogHeader>
         <ul className="list-disc space-y-2 pl-5 text-sm text-muted-foreground">
           {GUEST_PLAYBACK_BENEFITS.map((line) => (

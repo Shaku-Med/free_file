@@ -16,7 +16,11 @@ export default [
         route(`inspiration`, 'routes/studio/inspiration/index.tsx'),
     ]),
     route(`api`, 'routes/Api/layout.tsx', [
+        route(`internal/client-error`, 'routes/Api/internal/client-error/index.tsx'),
+        route(`internal/quota-check`, 'routes/Api/internal/quota-check/index.tsx'),
+        route(`internal/quota-record`, 'routes/Api/internal/quota-record/index.tsx'),
         route(`upload`, 'routes/Api/upload/index.tsx'),
+        route(`upload/quota`, 'routes/Api/upload/quota/index.tsx'),
         route(`upload/profilepic`, 'routes/Api/upload/profilepic/index.tsx'),
         route(`upload/comment-image`, 'routes/Api/upload/comment-image/index.tsx'),
         route(`upload/thumbnail`, 'routes/Api/upload/thumbnail/index.tsx'),

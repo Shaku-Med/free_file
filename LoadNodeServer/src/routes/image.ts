@@ -14,6 +14,7 @@ import {
     isVideoFolderCommentAttachmentPath,
     resolveGithubRepoForFile,
 } from '../utils/githubStorage.js';
+import { getR2Client, r2PresignTtlSeconds } from '../utils/r2.js';
 
 const router = express.Router();
 
@@ -104,13 +105,14 @@ async function fetchGithubJsonWithRetry(
     splitUrl: string,
     githubRepo: string,
     branch: string,
+    urlResolver?: (urlPath: string) => string,
 ): Promise<string> {
     const owner = process.env.GITHUB_OWNER;
-    if (!owner) {
+    if (!urlResolver && !owner) {
         throw new Error('GITHUB_OWNER is not set');
     }
     for (const path of buildGithubRawAttemptUrls(splitUrl)) {
-        const rawUrl = githubRawFileUrl(owner, githubRepo, branch, path);
+        const rawUrl = urlResolver ? urlResolver(path) : githubRawFileUrl(owner!, githubRepo, branch, path);
         try {
             const res = await fetch(rawUrl);
             if (res.ok) {
@@ -178,13 +180,14 @@ const loadImageWithRetry = async (
     shouldBlur: boolean = false,
     githubRepo: string = defaultGithubRepoForStoredFile(),
     branch: string = defaultGithubBranch(),
+    urlResolver?: (urlPath: string) => string,
 ): Promise<ImageResult> => {
     const owner = process.env.GITHUB_OWNER;
-    if (!owner) {
+    if (!urlResolver && !owner) {
         throw new Error('GITHUB_OWNER is not set');
     }
     const tryLoadImage = async (urlPath: string): Promise<ImageResult> => {
-        const videoUrl = githubRawFileUrl(owner, githubRepo, branch, urlPath);
+        const videoUrl = urlResolver ? urlResolver(urlPath) : githubRawFileUrl(owner!, githubRepo, branch, urlPath);
         const response = await fetch(videoUrl);
     
         if (!response.ok) throw new Error('Fetch failed');
@@ -455,7 +458,7 @@ const getFileFromPath = async (path: string): Promise<any> => {
         const uniqueId = pathParts[1];
         const { data } = await db
             .from('files')
-            .select('id, is_adult, is_public, owner_id, upload_status, github_repo')
+            .select('id, is_adult, is_public, owner_id, upload_status, github_repo, storage_backend, storage_bucket')
             .eq('unique_id', uniqueId)
             .maybeSingle();
 
@@ -599,6 +602,35 @@ router.get('/*', async (req: Request, res: Response) => {
             // For security, we should still check if the URL suggests adult content
             // But to be safe, we'll allow the image to load (it might be a public file)
             // The main security is handled by the file lookup - if it's in the DB and is_adult, blur is applied
+        }
+
+        // R2-backed files: presign + proxy. Bucket stays private, same as the
+        // GitHub-raw path. shouldBlur still applies (processing is buffer-based).
+        if (file.storage_backend === 'r2') {
+            const r2 = getR2Client();
+            if (!r2) {
+                return res.status(503).send(null);
+            }
+            const ttl = r2PresignTtlSeconds();
+            const r2Resolver = (urlPath: string) => r2.presignGet(urlPath, ttl);
+            if (splitUrl.toLowerCase().endsWith('.json')) {
+                const body = await fetchGithubJsonWithRetry(splitUrl, '', '', r2Resolver);
+                res.set({
+                    'Content-Type': 'application/json',
+                    'Cache-Control': 'public, max-age=300',
+                    'CDN-Cache-Control': 'no-store',
+                    'Vercel-CDN-Cache-Control': 'no-store',
+                });
+                return res.send(body);
+            }
+            const result = await loadImageWithRetry(splitUrl, qualityParam, shouldBlur, '', '', r2Resolver);
+            res.set({
+                'Content-Type': result.contentType,
+                'Cache-Control': result.cacheControl,
+                'CDN-Cache-Control': 'no-store',
+                'Vercel-CDN-Cache-Control': 'no-store',
+            });
+            return res.send(result.buffer);
         }
 
         const branch = defaultGithubBranch();

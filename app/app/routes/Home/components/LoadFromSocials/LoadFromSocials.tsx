@@ -151,9 +151,7 @@ const LoadFromSocials: React.FC<LoadFromSocialsProps> = ({ onDownloadCallback })
                         <DialogTitle className="text-xl font-semibold">
                             How to Upload from Socials
                         </DialogTitle>
-                        <DialogDescription className="text-sm text-muted-foreground">
-                            Learn how to download and upload media from social media platforms
-                        </DialogDescription>
+                        <DialogDescription className="sr-only">How to upload from socials</DialogDescription>
                     </DialogHeader>
                     <div className="space-y-4 mt-4">
                        {InfoArray.map((item, index) => (

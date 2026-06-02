@@ -16,6 +16,7 @@ import {
 } from "~/lib/theme/constants";
 import { applyTheme } from "~/lib/theme/apply";
 import { PasskeyUserMessage, friendlyPasskeyClientError } from "~/lib/webauthn/userMessages";
+import { StorageQuotaMeter } from "~/components/StorageQuotaMeter";
 
 const STYLE_COLORS: Record<ThemeStyle, string> = {
   default: "#00a85c",
@@ -402,6 +403,14 @@ const SettingsPage = () => {
               <Separator />
             </>
           )}
+
+          <Separator />
+
+          <section>
+            <StorageQuotaMeter variant="card" />
+          </section>
+
+          <Separator />
 
           <section>
             <h2 className="text-sm font-medium text-foreground mb-2">Content</h2>

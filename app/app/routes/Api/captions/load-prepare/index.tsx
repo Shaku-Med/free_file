@@ -49,7 +49,7 @@ export const action = async ({ request }: { request: Request }) => {
   const { data: row, error: fetchErr } = await db
     .from("files")
     .select(
-      "id, unique_id, owner_id, is_public, is_adult, upload_status, github_repo, captions",
+      "id, unique_id, owner_id, is_public, is_adult, upload_status, github_repo, storage_backend, captions",
     )
     .eq(lookupColumn, lookup)
     .maybeSingle()
@@ -71,15 +71,18 @@ export const action = async ({ request }: { request: Request }) => {
     return ok({ error: "invalid stored path" }, 500)
   }
 
-  let githubRepo: string
-  try {
-    githubRepo = resolveGithubRepoForFile({
-      github_repo: row.github_repo as string | null,
-    })
-  } catch {
-    return ok({ error: "storage not configured" }, 503)
+  const backend = (row as { storage_backend?: string | null }).storage_backend === "r2" ? "r2" : "github"
+  let githubRepo = ""
+  if (backend === "github") {
+    try {
+      githubRepo = resolveGithubRepoForFile({
+        github_repo: row.github_repo as string | null,
+      })
+    } catch {
+      return ok({ error: "storage not configured" }, 503)
+    }
+    if (!isSafeGithubRepo(githubRepo)) return ok({ error: "metadata invalid" }, 500)
   }
-  if (!isSafeGithubRepo(githubRepo)) return ok({ error: "metadata invalid" }, 500)
 
   const token = generateToken()
   const expiresAt = new Date(Date.now() + LOAD_TOKEN_TTL_SECONDS * 1000).toISOString()
@@ -90,6 +93,7 @@ export const action = async ({ request }: { request: Request }) => {
     language,
     path,
     github_repo: githubRepo,
+    storage_backend: backend,
     expires_at: expiresAt,
   })
   if (mintErr) {

@@ -94,6 +94,37 @@ export function useHLS(videoRef: React.RefObject<HTMLVideoElement | null>) {
     };
   }, []);
 
+  // Mobile-resume recovery. When the page is backgrounded for longer than the
+  // playback token's TTL (15 min), the next segment fetch fails with 401 and
+  // the user lands on "Failed to load". We get ahead of that by re-minting as
+  // soon as the page becomes visible after a 60s+ hide  the mint is cheap and
+  // idempotent (debounced), and the hot swap is seamless if the current URL
+  // still works.
+  useEffect(() => {
+    if (typeof document === 'undefined') return;
+    let hiddenSince = 0;
+    const onVis = () => {
+      if (document.hidden) {
+        hiddenSince = Date.now();
+        return;
+      }
+      const fileId = file?.unique_id;
+      if (!fileId) return;
+      const hiddenMs = hiddenSince ? Date.now() - hiddenSince : 0;
+      hiddenSince = 0;
+      // Refresh if we were backgrounded long enough to risk expiry, OR if the
+      // player is currently in an error state from a fetch that died while
+      // hidden.
+      const inError = Boolean(hlsRef.current) && Boolean(videoRef.current?.error);
+      if (hiddenMs > 60_000 || inError) {
+        setState((s) => ({ ...s, hasError: false }));
+        requestPlaybackUrlRefresh(fileId);
+      }
+    };
+    document.addEventListener('visibilitychange', onVis);
+    return () => document.removeEventListener('visibilitychange', onVis);
+  }, [file?.unique_id, setState, videoRef, hlsRef]);
+
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
@@ -110,6 +141,31 @@ export function useHLS(videoRef: React.RefObject<HTMLVideoElement | null>) {
 
     let nativeLoadedCleanup: (() => void) | null = null;
     let timeUpdateCleanup: (() => void) | null = null;
+
+    // Single source of truth for picking the active level from the user's
+    // preference. Called after every manifest parse (initial AND hot swap)
+    // so the chosen quality survives token refreshes.
+    const applyQualityPref = (
+      hls: Hls,
+      lvls: { height: number }[],
+    ) => {
+      const pref = qualityPrefRef.current || 'auto';
+      if (pref === 'auto' || lvls.length <= 1) {
+        hls.currentLevel = -1;
+        return;
+      }
+      const want = parseInt(pref, 10);
+      let idx = lvls.findIndex((l) => l.height === want);
+      if (idx === -1) {
+        const sorted = lvls
+          .map((l, i) => ({ ...l, i }))
+          .sort((a, b) => b.height - a.height);
+        const closest =
+          sorted.find((x) => x.height <= want) || sorted[sorted.length - 1];
+        idx = closest.i;
+      }
+      hls.currentLevel = idx;
+    };
 
     const isHLSStream =
       src.includes('.m3u8') || src.includes('application/vnd.apple.mpegurl');
@@ -166,6 +222,16 @@ export function useHLS(videoRef: React.RefObject<HTMLVideoElement | null>) {
 
       const resumeAfterSwap = () => {
         if (cancelled || !mountedRef.current) return;
+        // Reapply the user's quality preference  hls.js resets the active
+        // level on a fresh manifest parse, so without this the player would
+        // silently drop back to auto after a token refresh / hot swap.
+        const newLvls = (hls.levels || []).map((l: any) => ({
+          height: l.height,
+          width: l.width,
+          bitrate: l.bitrate,
+        }));
+        setState((s) => ({ ...s, levels: newLvls }));
+        applyQualityPref(hls, newLvls);
         if (sameAsset && resumeAt > 0.1) {
           try {
             video.currentTime = resumeAt;
@@ -291,23 +357,7 @@ export function useHLS(videoRef: React.RefObject<HTMLVideoElement | null>) {
             bitrate: l.bitrate,
           }));
           setState((s) => ({ ...s, levels: lvls }));
-
-          const pref = qualityPrefRef.current || 'auto';
-          if (pref === 'auto' || lvls.length <= 1) {
-            hls.currentLevel = -1;
-          } else {
-            const want = parseInt(pref, 10);
-            let idx = lvls.findIndex((l) => l.height === want);
-            if (idx === -1) {
-              const sorted = lvls
-                .map((l, i) => ({ ...l, i }))
-                .sort((a, b) => b.height - a.height);
-              const closest =
-                sorted.find((x) => x.height <= want) || sorted[sorted.length - 1];
-              idx = closest.i;
-            }
-            hls.currentLevel = idx;
-          }
+          applyQualityPref(hls, lvls);
         });
 
         hls.on(Hls.Events.LEVEL_SWITCHED, (_: any, data: any) => {
@@ -338,20 +388,17 @@ export function useHLS(videoRef: React.RefObject<HTMLVideoElement | null>) {
 
           switch (data.type) {
             case Hls.ErrorTypes.NETWORK_ERROR: {
-              // LoadPlay token expired or got 401/403 mid playback (long
-              // pause, late segment past 15 min TTL, fingerprint drift on
-              // a network switch). Wipe the cached URL so usePlaybackUrl
-              // re mints; the parent will then pass a fresh ?t= and useHLS
-              // hot swaps onto it. We do NOT retry with the dead URL.
-              const responseCode = Number(data.response?.code) || 0;
+              // For LoadPlay URLs we always re-mint on a fatal network error,
+              // not just 401/403. After a long mobile background the token can
+              // expire, the fingerprint can drift on a network switch, or the
+              // fetch itself can fail (code 0) while the WiFi reconnects. A
+              // fresh mint hot-swaps onto a working URL and the user never sees
+              // a failure. Mint refresh is debounced upstream, so multiple
+              // fatal errors collapse into one re-mint.
               const isLoadplayUrl =
                 typeof src === 'string' && isLoadplayPlaybackUrl(src);
-              const looksLikeAuth =
-                responseCode === 401 || responseCode === 403;
-              if (isLoadplayUrl && looksLikeAuth && file?.unique_id) {
+              if (isLoadplayUrl && file?.unique_id) {
                 requestPlaybackUrlRefresh(file.unique_id);
-                // Don't retry the load with the stale URL; the swap on the
-                // new mint will resume playback at the right position.
                 break;
               }
               startLoadResumingVoD(

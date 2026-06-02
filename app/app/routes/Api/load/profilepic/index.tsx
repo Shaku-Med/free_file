@@ -1,6 +1,7 @@
 import { config } from "~/lib/config";
 import db from "~/lib/Database/supabase";
 import { validGitHubRepoName } from "~/lib/profilePicSecurity.server";
+import { r2PresignGet } from "~/lib/r2.server";
 
 /** Align with Go `IsValidUsername`: first path segment when path is `{username}/{uuid}.ext`. */
 const USERNAME_FIRST_SEGMENT = /^[a-zA-Z0-9_-]{3,30}$/;
@@ -70,39 +71,51 @@ function resolveContentType(buf: ArrayBuffer, headerValue: string | null): strin
   return sniffImageContentType(buf);
 }
 
-async function resolveGithubRepoForPath(pathCanon: string): Promise<string | null> {
-  if (!db) return null;
+interface ProfilePicStorage {
+  repo: string | null;
+  backend: "github" | "r2";
+}
+
+async function resolveProfilePicStorage(pathCanon: string): Promise<ProfilePicStorage> {
+  if (!db) return { repo: null, backend: "github" };
 
   const variants = profilePicPathVariantsForDb(pathCanon);
   const { data: rows, error: inErr } = await db
     .from("users")
-    .select("github_repo")
+    .select("github_repo, storage_backend")
     .in("profile_pic", variants)
     .limit(1);
 
   if (inErr) {
     console.error("[profilepic load] users by profile_pic:", inErr);
   }
-  const r0 = typeof rows?.[0]?.github_repo === "string" ? rows[0].github_repo.trim() : "";
-  if (r0 && validGitHubRepoName(r0)) return r0;
+  if (rows?.[0]) {
+    const backend = rows[0].storage_backend === "r2" ? "r2" : "github";
+    if (backend === "r2") return { repo: null, backend: "r2" };
+    const r0 = typeof rows[0].github_repo === "string" ? rows[0].github_repo.trim() : "";
+    if (r0 && validGitHubRepoName(r0)) return { repo: r0, backend: "github" };
+  }
 
   const firstSeg = pathCanon.split("/")[0] ?? "";
-  if (!USERNAME_FIRST_SEGMENT.test(firstSeg)) return null;
+  if (!USERNAME_FIRST_SEGMENT.test(firstSeg)) return { repo: null, backend: "github" };
 
   const { data: byUser, error: userErr } = await db
     .from("users")
-    .select("github_repo, profile_pic")
+    .select("github_repo, profile_pic, storage_backend")
     .eq("username", firstSeg)
     .maybeSingle();
 
   if (userErr) {
     console.error("[profilepic load] users by username:", userErr);
-    return null;
+    return { repo: null, backend: "github" };
   }
-  if (!byUser || !sameProfilePicStoragePath(byUser.profile_pic, pathCanon)) return null;
+  if (!byUser || !sameProfilePicStoragePath(byUser.profile_pic, pathCanon)) {
+    return { repo: null, backend: "github" };
+  }
+  if (byUser.storage_backend === "r2") return { repo: null, backend: "r2" };
   const r1 = typeof byUser.github_repo === "string" ? byUser.github_repo.trim() : "";
-  if (r1 && validGitHubRepoName(r1)) return r1;
-  return null;
+  if (r1 && validGitHubRepoName(r1)) return { repo: r1, backend: "github" };
+  return { repo: null, backend: "github" };
 }
 
 function uniqueRepoOrder(userRepo: string | null, envRepo: string): string[] {
@@ -129,17 +142,26 @@ export const loader = async ({ request }: { request: Request }) => {
       return new Response(null, { status: 400 });
     }
 
-    if (!config.github.token || !config.github.owner) {
-      return new Response(null, { status: 503 });
+    const storage = await resolveProfilePicStorage(path);
+
+    // Candidate fetch URLs in priority order. R2 is a single presigned URL;
+    // GitHub tries the user repo then env/legacy fallbacks.
+    const urls: string[] = [];
+    if (storage.backend === "r2") {
+      const signed = r2PresignGet(path);
+      if (signed) urls.push(signed);
+    } else {
+      if (!config.github.token || !config.github.owner) {
+        return new Response(null, { status: 503 });
+      }
+      const envRepo = config.github.repo.trim();
+      for (const repo of uniqueRepoOrder(storage.repo, envRepo)) {
+        urls.push(`https://raw.githubusercontent.com/${config.github.owner}/${repo}/main/${path}`);
+      }
     }
 
-    const envRepo = config.github.repo.trim();
-    const userRepo = await resolveGithubRepoForPath(path);
-    const repos = uniqueRepoOrder(userRepo, envRepo);
-
-    for (const repo of repos) {
-      const githubUrl = `https://raw.githubusercontent.com/${config.github.owner}/${repo}/main/${path}`;
-      const response = await fetch(githubUrl);
+    for (const fetchUrl of urls) {
+      const response = await fetch(fetchUrl);
       if (!response.ok) continue;
 
       const cl = response.headers.get("content-length");
@@ -162,9 +184,10 @@ export const loader = async ({ request }: { request: Request }) => {
         status: 200,
         headers: {
           "Content-Type": contentType,
-          "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate",
-          Pragma: "no-cache",
-          Expires: "0",
+          // Cache for 3h. Updates flip the avatar cache-key on the client
+          // (?cb=N changes), so the URL changes and the new pic is fetched
+          // straight away  no stale-content risk.
+          "Cache-Control": "public, max-age=10800",
           "X-Content-Type-Options": "nosniff",
           "Access-Control-Allow-Origin": "*",
         },

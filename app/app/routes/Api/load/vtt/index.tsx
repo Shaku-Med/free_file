@@ -1,6 +1,7 @@
 import { defaultGithubBranch, githubRawFileUrl } from "~/lib/githubStorage"
 import { MAX_VTT_BYTES } from "~/lib/captions/server"
 import db from "~/lib/Database/supabase"
+import { r2PresignGet } from "~/lib/r2.server"
 
 const FETCH_TIMEOUT_MS = 8000
 const SAFE_PATH_RE = /^[A-Za-z0-9._\-/]{1,256}$/
@@ -39,8 +40,7 @@ export const loader = async ({ request }: { request: Request }) => {
     return errorResponse(400)
   }
 
-  const owner = process.env.GITHUB_OWNER
-  if (!owner || !db) return errorResponse(503)
+  if (!db) return errorResponse(503)
 
   const { data: rows, error } = await db.rpc("consume_caption_load_token", {
     p_token: token,
@@ -53,10 +53,20 @@ export const loader = async ({ request }: { request: Request }) => {
   if (!row || typeof row !== "object") return errorResponse(403)
 
   if (row.path !== requestedPath) return errorResponse(403)
-  if (typeof row.github_repo !== "string" || !row.github_repo) return errorResponse(503)
 
-  const branch = defaultGithubBranch()
-  const rawUrl = githubRawFileUrl(owner, row.github_repo, branch, row.path)
+  // R2-backed captions presign; GitHub-backed need a repo + owner.
+  const isR2 = row.storage_backend === "r2"
+  let rawUrl: string
+  if (isR2) {
+    const signed = r2PresignGet(row.path)
+    if (!signed) return errorResponse(503)
+    rawUrl = signed
+  } else {
+    const owner = process.env.GITHUB_OWNER
+    if (!owner) return errorResponse(503)
+    if (typeof row.github_repo !== "string" || !row.github_repo) return errorResponse(503)
+    rawUrl = githubRawFileUrl(owner, row.github_repo, defaultGithubBranch(), row.path)
+  }
 
   const ctrl = new AbortController()
   const timer = setTimeout(() => ctrl.abort(), FETCH_TIMEOUT_MS)

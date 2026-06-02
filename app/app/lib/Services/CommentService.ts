@@ -92,7 +92,7 @@ async function mergePendingCommentImageRepo(commentId: string, imagePath: string
 
   const { data: pending, error: pendErr } = await db
     .from('comment_image_upload_repos')
-    .select('github_repo')
+    .select('github_repo, storage_backend')
     .eq('storage_path', path)
     .maybeSingle();
 
@@ -103,13 +103,16 @@ async function mergePendingCommentImageRepo(commentId: string, imagePath: string
     }
   }
 
-  let repo = typeof pending?.github_repo === 'string' ? pending.github_repo.trim() : '';
-  if (!repo) {
-    repo = process.env.GITHUB_REPO?.trim() || '';
+  const backend = (pending as { storage_backend?: string | null } | null)?.storage_backend === 'r2' ? 'r2' : 'github';
+  const update: Record<string, unknown> = { storage_backend: backend };
+  if (backend === 'github') {
+    let repo = typeof pending?.github_repo === 'string' ? pending.github_repo.trim() : '';
+    if (!repo) {
+      repo = process.env.GITHUB_REPO?.trim() || '';
+    }
+    if (repo) update.image_github_repo = repo;
   }
-  if (repo) {
-    await db.from('comments').update({ image_github_repo: repo }).eq('id', commentId);
-  }
+  await db.from('comments').update(update).eq('id', commentId);
   if (pending) {
     await db.from('comment_image_upload_repos').delete().eq('storage_path', path);
   }

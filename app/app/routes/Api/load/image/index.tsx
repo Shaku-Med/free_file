@@ -16,6 +16,7 @@ import {
     isVideoFolderCommentAttachmentPath,
     resolveGithubRepoForFile,
 } from '~/lib/githubStorage';
+import { r2PresignGet } from '~/lib/r2.server';
 
 /** Thrown when every GitHub fetch / decode attempt failed (loader maps to 404). */
 class ImageLoadExhaustedError extends Error {
@@ -105,14 +106,15 @@ async function fetchGithubJsonWithRetry(
     splitUrl: string,
     githubRepo: string,
     branch: string,
+    urlResolver?: (urlPath: string) => string,
 ): Promise<Response> {
     const owner = process.env.GITHUB_OWNER;
-    if (!owner) {
+    if (!urlResolver && !owner) {
         throw new Error('GITHUB_OWNER is not set');
     }
     let lastError: unknown;
     for (const path of buildGithubRawAttemptUrls(splitUrl)) {
-        const rawUrl = githubRawFileUrl(owner, githubRepo, branch, path);
+        const rawUrl = urlResolver ? urlResolver(path) : githubRawFileUrl(owner!, githubRepo, branch, path);
         try {
             const res = await fetch(rawUrl);
             if (res.ok) {
@@ -168,13 +170,14 @@ const loadImageWithRetry = async (
     isMetadata: boolean = false,
     githubRepo: string = defaultGithubRepoForStoredFile(),
     branch: string = defaultGithubBranch(),
+    urlResolver?: (urlPath: string) => string,
 ): Promise<Response> => {
     const owner = process.env.GITHUB_OWNER;
-    if (!owner) {
+    if (!urlResolver && !owner) {
         throw new Error('GITHUB_OWNER is not set');
     }
     const tryLoadImage = async (urlPath: string): Promise<Response> => {
-        const videoUrl = githubRawFileUrl(owner, githubRepo, branch, urlPath);
+        const videoUrl = urlResolver ? urlResolver(urlPath) : githubRawFileUrl(owner!, githubRepo, branch, urlPath);
         const response = await fetch(videoUrl);
     
         if (!response.ok) throw new Error('Fetch failed');
@@ -302,7 +305,8 @@ const loadImageWithRetry = async (
                 contentType,
                 hexPreview,
                 bufferLength: buffer.length,
-                videoUrl,
+                // Strip query string: R2 presigned URLs carry signing material.
+                videoUrl: videoUrl.split('?')[0],
                 loadError,
             });
             throw new Error('Failed to decode image');
@@ -525,6 +529,29 @@ const getFileFromPath = async (path: string): Promise<any> => {
   // return file;
 };
 
+/** Backend for a standalone comment image (comment-images/...): comment row first, then the staging table. */
+async function lookupCommentImageBackend(storagePath: string): Promise<'github' | 'r2'> {
+  if (!db) return 'github';
+  try {
+    const { data: c } = await db
+      .from('comments')
+      .select('storage_backend')
+      .eq('image_url', storagePath)
+      .maybeSingle();
+    if ((c as { storage_backend?: string | null } | null)?.storage_backend === 'r2') return 'r2';
+    if (c) return 'github';
+    const { data: pending } = await db
+      .from('comment_image_upload_repos')
+      .select('storage_backend')
+      .eq('storage_path', storagePath)
+      .maybeSingle();
+    if ((pending as { storage_backend?: string | null } | null)?.storage_backend === 'r2') return 'r2';
+    return 'github';
+  } catch {
+    return 'github';
+  }
+}
+
 async function lookupCommentImageGithubRepo(storagePath: string): Promise<string | null> {
   if (!db) return null;
   try {
@@ -561,8 +588,17 @@ export const loader = async ({ request }: { request: Request }) => {
             return new Response(null, { status: 404 });
         }
 
-        // Comment images are public  no access control needed, just proxy from GitHub
+        // Comment images are public  no access control needed, just proxy.
         if (splitUrl.startsWith('comment-images/')) {
+            const backend = await lookupCommentImageBackend(splitUrl);
+            if (backend === 'r2') {
+                const r2Resolver = (urlPath: string) => {
+                    const signed = r2PresignGet(urlPath);
+                    if (!signed) throw new ImageLoadExhaustedError();
+                    return signed;
+                };
+                return await loadImageWithRetry(splitUrl, qualityParam, false, isMetadata, '', '', r2Resolver);
+            }
             return await loadImageWithRetry(
                 splitUrl,
                 qualityParam,
@@ -593,6 +629,20 @@ export const loader = async ({ request }: { request: Request }) => {
                     { status: 403, headers: { 'Content-Type': 'application/json' } }
                 );
             }
+        }
+
+        // R2-backed files: presign + proxy. Bucket stays private (same as GitHub
+        // raw). Blur still applies (processing is buffer-based, not URL-based).
+        if ((file as { storage_backend?: string | null }).storage_backend === 'r2') {
+            const r2Resolver = (urlPath: string) => {
+                const signed = r2PresignGet(urlPath);
+                if (!signed) throw new ImageLoadExhaustedError();
+                return signed;
+            };
+            if (splitUrl.toLowerCase().endsWith('.json')) {
+                return await fetchGithubJsonWithRetry(splitUrl, '', '', r2Resolver);
+            }
+            return await loadImageWithRetry(splitUrl, qualityParam, shouldBlur, isMetadata, '', '', r2Resolver);
         }
 
         const branch = defaultGithubBranch();

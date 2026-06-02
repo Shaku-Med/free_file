@@ -293,10 +293,7 @@ export default function SpatialAudioDialog({
               <Headphones className="h-5 w-5 text-primary" />
               8D / Spatial Audio
             </DialogTitle>
-            <DialogDescription className="pt-1 text-xs sm:text-sm">
-              Pick how the sound moves around you. Headphones usually feel best, and
-              Classic 8D still sounds nice on speakers. You can turn this off any time.
-            </DialogDescription>
+            <DialogDescription className="sr-only">8D spatial audio settings</DialogDescription>
           </div>
         </DialogHeader>
 

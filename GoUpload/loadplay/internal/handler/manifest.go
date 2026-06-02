@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"path"
+	"regexp"
 	"strings"
 	"time"
 
@@ -76,6 +77,20 @@ func setDenyResponseHeaders(c *fiber.Ctx) {
 	c.Set("X-Robots-Tag", "noindex, noarchive, nofollow")
 }
 
+// redactUpstreamErr strips query strings from an error message before logging.
+// Go's http client wraps the request URL into its error; for R2 that URL is a
+// presigned link carrying X-Amz-Credential + X-Amz-Signature, which must never
+// land in logs. Removing the query string keeps host/path for debugging while
+// dropping the signing material.
+func redactUpstreamErr(err error) string {
+	if err == nil {
+		return ""
+	}
+	return queryStringRe.ReplaceAllString(err.Error(), "?<redacted>")
+}
+
+var queryStringRe = regexp.MustCompile(`\?[^"\s]*`)
+
 // extractClientIP picks the leftmost X-Forwarded-For when present
 // (nginx sits in front); falls back to the immediate peer.
 func extractClientIP(c *fiber.Ctx) string {
@@ -133,7 +148,7 @@ func Manifest(deps ManifestDeps) fiber.Handler {
 		//   - bare URLs on their own line (segment URIs after EXTINF, sub-playlist URIs after EXT-X-STREAM-INF)
 		body, err := loadManifestBody(c, deps, storageCfg, askedPath)
 		if err != nil {
-			deps.Log.Errorf("manifest upstream fetch err=%s path=%s", err.Error(), askedPath)
+			deps.Log.Errorf("manifest upstream fetch err=%s path=%s", redactUpstreamErr(err), askedPath)
 			if errors.Is(err, fetchgate.ErrBusy) {
 				c.Set("Retry-After", "2")
 				return deny(c, fiber.StatusServiceUnavailable)
@@ -244,6 +259,19 @@ func resolveAccessAndStorage(ctx context.Context, deps ManifestDeps, tok *token.
 	if meta.GithubRepo != "" {
 		cfg.Repo = meta.GithubRepo
 	}
+	// Per-file storage backend. R2 files presign against the env-configured
+	// bucket; fail closed if this LoadPlay instance has no R2 client.
+	if meta.StorageBackend == "r2" {
+		if cfg.R2 == nil {
+			deps.Log.Errorf("r2 file but loadplay has no R2 client id=%s", tok.FileID)
+			return cfg, fiber.StatusServiceUnavailable
+		}
+		if meta.StorageBucket != "" && meta.StorageBucket != cfg.R2.Bucket() {
+			deps.Log.Errorf("r2 bucket mismatch id=%s file_bucket=%s client_bucket=%s", tok.FileID, meta.StorageBucket, cfg.R2.Bucket())
+		}
+		cfg.Backend = "r2"
+		cfg.Bucket = meta.StorageBucket
+	}
 	return cfg, 0
 }
 
@@ -269,7 +297,7 @@ func loadManifestBody(c *fiber.Ctx, deps ManifestDeps, st storage.Config, relPat
 	if deps.ManifestCache == nil {
 		return fetch()
 	}
-	key := st.Repo + "|" + relPath
+	key := st.Backend + "|" + st.Repo + "|" + st.Bucket + "|" + relPath
 	return deps.ManifestCache.Do(key, fetch)
 }
 

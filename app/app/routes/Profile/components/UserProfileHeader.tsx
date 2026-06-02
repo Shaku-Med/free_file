@@ -14,7 +14,7 @@ import {
   DialogTitle,
 } from "~/components/ui/dialog";
 import { getProfilePicUrl } from "~/lib/utils/profilePic";
-import { TransformWrapper, TransformComponent } from "react-zoom-pan-pinch";
+import ImgPreview from "~/routes/Home/components/ImageLoad/ImgPreview/ImgPreview";
 import SubscribeButton, { formatSubscriberCount } from "~/components/SubscribeButton";
 
 interface ChannelStats {
@@ -191,11 +191,21 @@ const UserProfileHeader = ({
     await handleDirectUpload(croppedFile, onProgress);
   };
 
+  // Avatar click always opens the full preview (owners + viewers). Owners can
+  // still change the pic via the camera button overlay on the avatar.
   const handleAvatarClick = () => {
-    if (isOwner && !isUploading) {
-      setIsUploadModalOpen(true);
-    } else {
+    if (profilePic) {
       setIsPreviewModalOpen(true);
+    } else if (isOwner && !isUploading) {
+      // No pic yet  go straight to upload.
+      setIsUploadModalOpen(true);
+    }
+  };
+
+  const handleEditAvatarClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!isUploading) {
+      setIsUploadModalOpen(true);
     }
   };
 
@@ -238,13 +248,14 @@ const UserProfileHeader = ({
           </Avatar>
           {isOwner && (
             <button
-              onClick={handleAvatarClick}
+              onClick={handleEditAvatarClick}
+              aria-label="Change profile picture"
               className="absolute bottom-0 right-0 w-9 h-9 rounded-full bg-primary text-primary-foreground shadow-lg flex items-center justify-center hover:bg-primary/90 transition-colors border-2 border-background"
             >
               <Camera className="h-4 w-4" />
             </button>
           )}
-          {!isOwner && profilePic && (
+          {profilePic && (
             <div className="absolute inset-0 flex items-center justify-center bg-black/30 rounded-full opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
               <span className="text-white text-xs font-medium">View</span>
             </div>
@@ -311,14 +322,7 @@ const UserProfileHeader = ({
             <DialogContent className="w-[95vw] max-w-4xl max-h-[95vh] p-0 gap-0 flex flex-col">
               <DialogHeader className="px-4 sm:px-6 pt-4 sm:pt-6 pb-3 sm:pb-4 border-b flex-shrink-0 bg-background sticky top-0 z-10">
                 <DialogTitle className="text-lg sm:text-xl font-semibold">Change Profile Picture</DialogTitle>
-                <DialogDescription className="text-xs sm:text-sm text-muted-foreground">
-                  {showCropper
-                    ? "Crop your image to a square. Drag to position, pinch/scroll to zoom."
-                    : isUploading
-                    ? "Uploading your profile picture..."
-                    : "Upload a new profile picture. Maximum file size is 10MB. Images must be square (1:1 aspect ratio)."
-                  }
-                </DialogDescription>
+                <DialogDescription className="sr-only">Change profile picture</DialogDescription>
               </DialogHeader>
               <div className="px-4 sm:px-6 py-4 space-y-4 overflow-y-auto flex-1" style={{ maxHeight: uploadError ? 'calc(95vh - 250px)' : 'calc(95vh - 180px)' }}>
                 {showCropper && preview ? (
@@ -395,52 +399,14 @@ const UserProfileHeader = ({
           </Dialog>
         </>
       )}
-      <Dialog open={isPreviewModalOpen} onOpenChange={setIsPreviewModalOpen}>
-        <DialogContent className="w-full h-full max-w-none max-h-none p-0 gap-0 bg-black border-none rounded-none m-0">
-          <div className="relative w-screen h-screen flex items-center justify-center">
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={() => setIsPreviewModalOpen(false)}
-              className="absolute top-4 right-4 z-50 h-10 w-10 rounded-full bg-background/80 hover:bg-background text-foreground"
-            >
-              <X className="h-5 w-5" />
-            </Button>
-            {profilePic ? (
-              <TransformWrapper
-                initialScale={1}
-                minScale={0.5}
-                maxScale={5}
-                centerOnInit
-                wheel={{ step: 0.1 }}
-                doubleClick={{ disabled: false, step: 0.7 }}
-                limitToBounds={false}
-              >
-                <TransformComponent
-                  wrapperStyle={{ width: '100%', height: '100%' }}
-                  contentStyle={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-                >
-                  <img
-                    src={getProfilePicUrl(profilePic, avatarCacheKey) || ""}
-                    alt={profile.username}
-                    className="w-auto h-auto max-w-[90vw] max-h-[90vh] object-contain"
-                    draggable={false}
-                  />
-                </TransformComponent>
-              </TransformWrapper>
-            ) : (
-              <div className="flex flex-col items-center justify-center text-muted-foreground">
-                <div className="h-32 w-32 rounded-full bg-muted flex items-center justify-center mb-4">
-                  <span className="text-6xl font-bold">
-                    {profile.username.charAt(0).toUpperCase()}
-                  </span>
-                </div>
-                <p className="text-lg">No profile picture</p>
-              </div>
-            )}
-          </div>
-        </DialogContent>
-      </Dialog>
+      {profilePic && (
+        <ImgPreview
+          images={[getProfilePicUrl(profilePic, avatarCacheKey) || ""]}
+          index={0}
+          isOpen={isPreviewModalOpen}
+          setIsOpen={setIsPreviewModalOpen}
+        />
+      )}
     </div>
   );
 };

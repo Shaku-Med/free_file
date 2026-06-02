@@ -46,6 +46,8 @@ import { EpisodePicker } from "./EpisodePicker"
 import { Link, useNavigate } from "react-router"
 import { MAX_UPLOAD_FILE_BYTES } from "~/lib/uploadLimits"
 import { SignInDialog } from "~/components/SignInWall"
+import { StorageQuotaMeter } from "~/components/StorageQuotaMeter"
+import { formatBytes as formatBytesShort } from "~/lib/formatBytes"
 import { cn } from "~/lib/utils"
 import { Tooltip, TooltipContent, TooltipTrigger } from "~/components/ui/tooltip"
 
@@ -324,61 +326,59 @@ function SortableFileRow({
       ref={setNodeRef}
       style={style}
       className={cn(
-        "w-full rounded-2xl p-2 sm:p-1.5 min-h-[52px] sm:min-h-0 transition-all duration-200 flex items-stretch gap-1 sm:gap-1.5 group/item",
-        "bg-card/80 backdrop-blur-sm border border-border/60",
-        isActive && "ring-1 ring-primary/40 border-primary/30 bg-accent shadow-[0_1px_2px_rgba(0,0,0,0.04)]",
-        !isActive && "hover:bg-accent/60 hover:border-border",
-        isDragging && "z-20 scale-[1.02] shadow-lg ring-1 ring-primary/30 bg-card"
+        "group/item flex w-full items-center gap-1.5 rounded-lg px-1.5 py-1.5 transition-colors",
+        isActive && "bg-accent",
+        !isActive && !isDragging && "hover:bg-accent/50",
+        isDragging && "bg-card opacity-95 shadow-lg shadow-foreground/10 cursor-grabbing",
       )}
     >
       <button
         type="button"
-        className="shrink-0 w-9 sm:w-8 flex items-center justify-center rounded-lg text-muted-foreground hover:bg-muted cursor-grab active:cursor-grabbing touch-none"
-        aria-label="Drag to reorder or drop onto a series"
+        className="flex h-7 w-4 shrink-0 cursor-grab items-center justify-center text-muted-foreground/40 opacity-0 transition-opacity hover:text-muted-foreground group-hover/item:opacity-100 focus-visible:opacity-100 active:cursor-grabbing touch-none"
+        aria-label="Drag to reorder"
         {...attributes}
         {...listeners}
       >
-        <GripVertical className="w-4 h-4" />
+        <GripVertical className="h-3.5 w-3.5" />
       </button>
       <button
         type="button"
         onClick={onSelect}
-        className="flex-1 min-w-0 text-left flex items-center gap-2.5 py-0.5 rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
+        className="flex min-w-0 flex-1 items-center gap-2.5 rounded text-left outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
       >
-        <div className="relative w-11 h-11 sm:w-10 sm:h-10 rounded-xl overflow-hidden bg-muted shrink-0 ring-1 ring-border/70">
+        <div className="relative h-9 w-9 shrink-0 overflow-hidden rounded-md bg-muted">
           {isVideo ? (
             item.isExtractingVideoPoster && !videoStill ? (
-              <div className="w-full h-full flex items-center justify-center">
-                <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
+              <div className="flex h-full w-full items-center justify-center">
+                <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
               </div>
             ) : videoStill ? (
-              <img src={videoStill} alt="" className="w-full h-full object-cover" />
+              <img src={videoStill} alt="" className="h-full w-full object-cover" />
             ) : (
-              <div className="w-full h-full flex items-center justify-center">
-                <FileVideo className="w-5 h-5 text-muted-foreground" />
+              <div className="flex h-full w-full items-center justify-center">
+                <FileVideo className="h-4 w-4 text-muted-foreground" />
               </div>
             )
           ) : (
-            <img src={item.previewUrl} alt="" className="w-full h-full object-cover" />
+            <img src={item.previewUrl} alt="" className="h-full w-full object-cover" />
           )}
           {item.status !== "idle" && (
             <div
-              className={`absolute inset-0 flex items-center justify-center ${
-                item.status === "success"
-                  ? "bg-green-500/20"
-                  : item.status === "error"
-                    ? "bg-destructive/20"
-                    : "bg-foreground/25"
-              }`}
+              className={cn(
+                "absolute inset-0 flex items-center justify-center",
+                item.status === "success" && "bg-green-500/25",
+                item.status === "error" && "bg-destructive/25",
+                (item.status === "uploading" || item.status === "processing") && "bg-foreground/30",
+              )}
             >
               {statusIcon(item.status)}
             </div>
           )}
         </div>
-        <div className="flex-1 min-w-0">
+        <div className="min-w-0 flex-1">
           <Tooltip>
             <TooltipTrigger asChild>
-              <span className="block min-w-0 truncate text-[13px] font-medium text-foreground leading-tight cursor-default text-left">
+              <span className="block min-w-0 truncate text-[13px] font-medium leading-snug text-foreground">
                 {item.file.name}
               </span>
             </TooltipTrigger>
@@ -386,19 +386,21 @@ function SortableFileRow({
               {item.file.name}
             </TooltipContent>
           </Tooltip>
-          <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 mt-0.5">
-            <p className="text-[11px] text-muted-foreground tabular-nums">
+          <div className="mt-0.5 flex items-center gap-1.5">
+            <span className="text-[11px] text-muted-foreground tabular-nums">
               {formatBytes(item.file.size)}
               {item.status === "uploading" && ` · ${item.progress}%`}
-            </p>
+            </span>
             {laneBadge && isVideo && (
-              <span className="text-[10px] font-medium text-primary/90 bg-primary/10 px-1.5 py-px rounded-md truncate max-w-[120px]">
+              <span className="max-w-[120px] truncate rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary">
                 {laneBadge}
               </span>
             )}
           </div>
-          {item.status === "uploading" && <Progress value={item.progress} className="h-0.5 mt-1" />}
-          {item.error && <p className="text-[10px] text-destructive truncate mt-0.5">{item.error}</p>}
+          {item.status === "uploading" && <Progress value={item.progress} className="mt-1 h-0.5" />}
+          {item.error && (
+            <p className="mt-0.5 truncate text-[10px] text-destructive">{item.error}</p>
+          )}
         </div>
       </button>
       {!isUploadingBatch && (
@@ -408,10 +410,10 @@ function SortableFileRow({
             e.stopPropagation()
             onRemove()
           }}
-          className="shrink-0 w-9 h-9 sm:w-8 sm:h-8 rounded-lg flex items-center justify-center opacity-100 md:opacity-0 md:group-hover/item:opacity-100 focus-visible:opacity-100 hover:bg-destructive/10 hover:text-destructive transition-opacity touch-manipulation self-center"
+          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground/60 opacity-0 transition-opacity hover:bg-destructive/10 hover:text-destructive group-hover/item:opacity-100 focus-visible:opacity-100 max-md:opacity-100"
           aria-label={`Remove ${item.file.name}`}
         >
-          <X className="w-4 h-4 sm:w-3.5 sm:h-3.5" />
+          <X className="h-3.5 w-3.5" />
         </button>
       )}
     </div>
@@ -1106,8 +1108,20 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
     )
     if (completeRes.status === 401) throw new Error("Session expired. Please log in again.")
     if (!completeRes.ok) {
-      const j = await completeRes.json().catch(() => ({}))
-      throw new Error((j as { error?: string }).error || "Complete upload failed")
+      const j = (await completeRes.json().catch(() => ({}))) as {
+        error?: string
+        remaining?: number
+      }
+      // Pre-queue weekly limit reject. Human message, no "upload failed" jargon.
+      if (completeRes.status === 413 && j.error === "weekly_limit_exceeded") {
+        const left = typeof j.remaining === "number" ? formatBytesShort(j.remaining) : null
+        throw new Error(
+          left
+            ? `Weekly upload limit reached. ${left} left this week.`
+            : "Weekly upload limit reached. Try again in a few days.",
+        )
+      }
+      throw new Error(j.error || "Complete upload failed")
     }
     const completeJson = (await completeRes.json()) as { job_id?: string; jobId?: string }
     const jobId = completeJson.job_id ?? completeJson.jobId
@@ -1473,15 +1487,18 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
                 </Button>
               ) : null}
             </div>
+            <div className="shrink-0 border-b border-border/60 bg-background/60 px-4 py-2.5">
+              <StorageQuotaMeter variant="compact" refreshKey={uploadResultBanner} />
+            </div>
             <div className="grid min-h-0 flex-1 grid-cols-1 md:grid-cols-[minmax(0,220px)_minmax(0,1fr)] lg:grid-cols-[minmax(0,240px)_minmax(0,1fr)]">
-            <div className="border-b md:border-b-0 md:border-r border-border/60 bg-muted/20 p-3 sm:p-3.5 flex min-h-0 flex-col max-md:min-h-[min(42vh,320px)] md:h-full">
-              <div className="mb-2.5 shrink-0 px-0.5">
-                <span className="text-[11px] font-semibold text-muted-foreground/80 uppercase tracking-[0.08em]">Library</span>
+            <div className="flex min-h-0 flex-col border-b border-border/60 p-2.5 max-md:min-h-[min(42vh,320px)] md:h-full md:border-b-0 md:border-r">
+              <div className="mb-2 shrink-0 px-1">
+                <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/80">Library</span>
               </div>
 
               <SortableContext items={items.map((i) => i.id)} strategy={verticalListSortingStrategy}>
                 <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain pr-0.5 -mr-0.5 [scrollbar-gutter:stable]">
-                  <div className="space-y-2">
+                  <div className="space-y-0.5">
                     {items.map((item) => {
                       const isActive = activeId === item.id
                       const lane = item.assignedSeriesLaneId
@@ -1506,12 +1523,12 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
                 </div>
               </SortableContext>
 
-              <div className="sticky bottom-0 z-10 mt-auto shrink-0 -mx-3 border-t border-border/60 bg-muted/20 px-3 pt-3 sm:-mx-3.5 sm:px-3.5 supports-[backdrop-filter]:bg-muted/15 backdrop-blur-md">
+              <div className="sticky bottom-0 z-10 mt-2 shrink-0 -mx-2.5 border-t border-border/60 bg-background/80 px-2.5 pt-2 backdrop-blur supports-[backdrop-filter]:bg-background/60">
                 <button
                   type="button"
                   onClick={openFilePicker}
                   disabled={isUploadingBatch}
-                  className="w-full flex items-center justify-center gap-1.5 px-3 py-2.5 sm:py-2 rounded-2xl border border-dashed border-border/70 text-xs font-medium text-muted-foreground hover:text-primary hover:border-primary/50 hover:bg-primary/5 transition-all disabled:opacity-50 disabled:cursor-not-allowed min-h-[44px] sm:min-h-0 touch-manipulation"
+                  className="flex w-full min-h-[40px] items-center justify-center gap-1.5 rounded-lg border border-dashed border-border text-xs font-medium text-muted-foreground transition-colors hover:border-primary/50 hover:bg-primary/5 hover:text-primary disabled:cursor-not-allowed disabled:opacity-50 touch-manipulation"
                 >
                   <ImagePlus className="w-3.5 h-3.5 shrink-0" />
                   Add more
