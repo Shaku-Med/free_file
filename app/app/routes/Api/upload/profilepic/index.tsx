@@ -82,6 +82,7 @@ export const action = async ({ request }: { request: Request }) => {
     nsfw?: boolean;
     profile_pic?: string;
     github_repo?: string;
+    storage_backend?: string;
   };
 
   if (goRes.status === 422 && goJson.nsfw) {
@@ -115,9 +116,25 @@ export const action = async ({ request }: { request: Request }) => {
   }
 
   const repoFromGo = typeof goJson.github_repo === "string" ? goJson.github_repo.trim() : "";
-  const userUpdate: { profile_pic: string; github_repo?: string } = { profile_pic: githubPath };
+  // Read the backend the Go handler actually wrote to. Without this the column
+  // stays at its default 'github' and LoadNodeServer / the load route silently
+  // route every R2-backed pic back to raw.githubusercontent.com.
+  const backendFromGo: "r2" | "github" | null =
+    goJson.storage_backend === "r2"
+      ? "r2"
+      : goJson.storage_backend === "github"
+      ? "github"
+      : null;
+  const userUpdate: {
+    profile_pic: string;
+    github_repo?: string;
+    storage_backend?: "r2" | "github";
+  } = { profile_pic: githubPath };
   if (repoFromGo && validGitHubRepoName(repoFromGo)) {
     userUpdate.github_repo = repoFromGo;
+  }
+  if (backendFromGo) {
+    userUpdate.storage_backend = backendFromGo;
   }
 
   const { error: updateError } = await db.from("users").update(userUpdate).eq("id", user.id);

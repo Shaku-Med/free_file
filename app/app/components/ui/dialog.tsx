@@ -82,7 +82,7 @@ function DialogContent({
           "max-sm:!top-0 max-sm:!left-0 max-sm:!right-0 max-sm:!bottom-0",
           "max-sm:!translate-x-0 max-sm:!translate-y-0",
           "max-sm:!w-screen max-sm:!h-[100dvh] max-sm:!max-w-none max-sm:!max-h-none",
-          "max-sm:!rounded-none max-sm:!border-0 max-sm:!shadow-none"
+          "max-sm:!rounded-none max-sm:!border-0 max-sm:!shadow-none",
         )}
         {...props}
       >

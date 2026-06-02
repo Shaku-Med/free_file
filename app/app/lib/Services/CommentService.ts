@@ -599,6 +599,26 @@ export class CommentService {
         return { data: null, error: 'Unauthorized' };
       }
 
+      // Before deleting, grab every R2 image attached to this comment + its
+      // reply tree so we can purge them from storage afterwards. Best-effort
+      // (failure to fetch the list never blocks the delete).
+      let r2KeysToDelete: string[] = [];
+      try {
+        const { data: imgRows } = await db.rpc('get_comment_tree_images', {
+          p_comment_id: commentId,
+        });
+        if (Array.isArray(imgRows)) {
+          for (const row of imgRows) {
+            const r = row as { image_url?: string | null; storage_backend?: string | null };
+            if (r.storage_backend === 'r2' && typeof r.image_url === 'string' && r.image_url) {
+              r2KeysToDelete.push(r.image_url);
+            }
+          }
+        }
+      } catch (e) {
+        console.warn('[comments] fetch tree images:', e);
+      }
+
       // Soft-delete this comment and all nested replies recursively
       const { error } = await db.rpc('delete_comment_cascade', {
         p_comment_id: commentId,
@@ -619,6 +639,23 @@ export class CommentService {
           console.error('Error deleting comment cascade:', error);
           return { data: null, error: 'Failed to delete comment' };
         }
+      }
+
+      // Fire-and-forget R2 cleanup. We don't await it  the user already got
+      // a success response and the soft-delete already hides the rows.
+      if (r2KeysToDelete.length > 0) {
+        const keys = r2KeysToDelete;
+        void (async () => {
+          const { r2DeleteObject } = await import('~/lib/r2.server');
+          await Promise.all(
+            keys.map((k) =>
+              r2DeleteObject(k).catch((e) => {
+                console.warn('[comments] r2 delete failed', k, e);
+                return false;
+              }),
+            ),
+          );
+        })();
       }
 
       return { data: true, error: null };

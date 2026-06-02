@@ -102,6 +102,52 @@ class R2Client {
 
     return `${this.scheme}://${this.host}${canonicalURI}?${canonicalQuery}&X-Amz-Signature=${signature}`;
   }
+
+  // Header-signed SigV4 DELETE. Returns true on 204/200/404 (404 = already
+  // gone, treat as success so idempotent retries don't surface "errors").
+  async deleteObject(key: string): Promise<boolean> {
+    if (!key) return false;
+    const now = new Date();
+    const amzDate = now.toISOString().replace(/[:-]|\.\d{3}/g, '');
+    const dateStamp = amzDate.slice(0, 8);
+    const scope = `${dateStamp}/${this.region}/s3/aws4_request`;
+    const canonicalURI = `/${uriEncode(this.bucket, true)}/${uriEncode(key, false)}`;
+    // sha256 of empty body.
+    const payloadHash = sha256Hex('');
+    const canonicalHeaders =
+      `host:${this.host}\n` +
+      `x-amz-content-sha256:${payloadHash}\n` +
+      `x-amz-date:${amzDate}\n`;
+    const signedHeaders = 'host;x-amz-content-sha256;x-amz-date';
+    const canonicalRequest =
+      `DELETE\n${canonicalURI}\n\n${canonicalHeaders}\n${signedHeaders}\n${payloadHash}`;
+    const stringToSign = `${ALGORITHM}\n${amzDate}\n${scope}\n${sha256Hex(canonicalRequest)}`;
+    const kDate = hmac('AWS4' + this.secretAccessKey, dateStamp);
+    const kRegion = hmac(kDate, this.region);
+    const kService = hmac(kRegion, 's3');
+    const kSigning = hmac(kService, 'aws4_request');
+    const signature = crypto
+      .createHmac('sha256', kSigning)
+      .update(stringToSign, 'utf8')
+      .digest('hex');
+    const authorization =
+      `${ALGORITHM} Credential=${this.accessKeyId}/${scope}, ` +
+      `SignedHeaders=${signedHeaders}, Signature=${signature}`;
+
+    try {
+      const res = await fetch(`${this.scheme}://${this.host}${canonicalURI}`, {
+        method: 'DELETE',
+        headers: {
+          Authorization: authorization,
+          'X-Amz-Date': amzDate,
+          'X-Amz-Content-Sha256': payloadHash,
+        },
+      });
+      return res.status === 204 || res.status === 200 || res.status === 404;
+    } catch {
+      return false;
+    }
+  }
 }
 
 let cached: R2Client | null | undefined;
@@ -137,4 +183,11 @@ export function r2PresignGet(key: string): string | null {
   const client = getClient();
   if (!client) return null;
   return client.presignGet(key, presignTtlSeconds());
+}
+
+/** Best-effort delete. Returns false when R2 isn't configured or the call failed. */
+export async function r2DeleteObject(key: string): Promise<boolean> {
+  const client = getClient();
+  if (!client) return false;
+  return client.deleteObject(key);
 }

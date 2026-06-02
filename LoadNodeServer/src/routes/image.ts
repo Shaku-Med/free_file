@@ -509,6 +509,30 @@ const getFileFromPath = async (path: string): Promise<any> => {
 
 };
 
+// Backend for a standalone comment image (`comment-images/...`): comment row first,
+// then the staging table set by the GoUpload webhook before the comment is created.
+async function lookupCommentImageBackend(storagePath: string): Promise<'github' | 'r2'> {
+    if (!db) return 'github';
+    try {
+        const { data: c } = await db
+            .from('comments')
+            .select('storage_backend')
+            .eq('image_url', storagePath)
+            .maybeSingle();
+        if ((c as { storage_backend?: string | null } | null)?.storage_backend === 'r2') return 'r2';
+        if (c) return 'github';
+        const { data: pending } = await db
+            .from('comment_image_upload_repos')
+            .select('storage_backend')
+            .eq('storage_path', storagePath)
+            .maybeSingle();
+        if ((pending as { storage_backend?: string | null } | null)?.storage_backend === 'r2') return 'r2';
+        return 'github';
+    } catch {
+        return 'github';
+    }
+}
+
 async function lookupCommentImageGithubRepo(storagePath: string): Promise<string | null> {
     if (!db) return null;
     try {
@@ -556,15 +580,33 @@ router.get('/*', async (req: Request, res: Response) => {
             return res.status(404).send(null);
         }
 
-        // Comment images are public  no access control needed, just proxy from GitHub
+        // Comment images are public, just proxy. Backend can be R2 (recent
+        // uploads) or GitHub (legacy)  comment row + staging table tell us.
         if (splitUrl.startsWith('comment-images/')) {
-            const result = await loadImageWithRetry(
-                splitUrl,
-                qualityParam,
-                false,
-                defaultGithubRepoForSharedAssets(),
-                defaultGithubBranch(),
-            );
+            const backend = await lookupCommentImageBackend(splitUrl);
+            let result;
+            if (backend === 'r2') {
+                const r2 = getR2Client();
+                if (!r2) return res.status(503).send(null);
+                const ttl = r2PresignTtlSeconds();
+                const r2Resolver = (urlPath: string) => r2.presignGet(urlPath, ttl);
+                result = await loadImageWithRetry(
+                    splitUrl,
+                    qualityParam,
+                    false,
+                    '',
+                    '',
+                    r2Resolver,
+                );
+            } else {
+                result = await loadImageWithRetry(
+                    splitUrl,
+                    qualityParam,
+                    false,
+                    defaultGithubRepoForSharedAssets(),
+                    defaultGithubBranch(),
+                );
+            }
             res.set({
                 'Content-Type': result.contentType,
                 'Cache-Control': result.cacheControl,

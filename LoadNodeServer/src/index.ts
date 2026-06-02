@@ -49,8 +49,10 @@ const startServer = async () => {
     envInitialized = true;
 
     const imageRouter = (await import('./routes/image.js')).default;
+    const profilepicRouter = (await import('./routes/profilepic.js')).default;
 
     app.use('/api/load/image', imageRouter);
+    app.use('/api/load/profilepic', profilepicRouter);
 
     app.use('*', (req, res) => {
         res.status(401).send(null);

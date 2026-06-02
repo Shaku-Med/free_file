@@ -15,6 +15,7 @@ import {
 } from "~/components/ui/dialog";
 import { getProfilePicUrl } from "~/lib/utils/profilePic";
 import ImgPreview from "~/routes/Home/components/ImageLoad/ImgPreview/ImgPreview";
+import { bumpProfilePicCache } from "~/lib/profilePicCache.client";
 import SubscribeButton, { formatSubscriberCount } from "~/components/SubscribeButton";
 
 interface ChannelStats {
@@ -153,6 +154,9 @@ const UserProfileHeader = ({
           const path = parsed.profile_pic;
           if (onProgress) onProgress(100);
           setAvatarCacheKey((k) => k + 1);
+          // Tell every other avatar in the app (navbar, sidebar, comment
+          // authors, mini-player owner badge, etc.) to refetch this user's pic.
+          bumpProfilePicCache(profile.id);
           setProfilePic(path);
           setUploadError(null);
           setPreview(null);

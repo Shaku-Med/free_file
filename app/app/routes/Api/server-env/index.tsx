@@ -14,7 +14,16 @@ const REQUIRED_ENV_KEYS = [
     'TEMP_TOKEN',
     'SESSION_ID',
     'PASSWORDS',
-    'SERVER_AUTH'
+    'SERVER_AUTH',
+    // R2 creds for LoadNodeServer: without these, getR2Client() returns null
+    // and every R2-backed image / profile pic silently falls back to GitHub.
+    'R2_ACCOUNT_ID',
+    'R2_ACCESS_KEY_ID',
+    'R2_SECRET_ACCESS_KEY',
+    'R2_BUCKET',
+    'R2_ENDPOINT',
+    'R2_REGION',
+    'R2_PRESIGN_TTL_SECONDS',
 ];
 
 const getEnvData = (): Record<string, string> => {

@@ -145,19 +145,22 @@ export const loader = async ({ request }: { request: Request }) => {
     const storage = await resolveProfilePicStorage(path);
 
     // Candidate fetch URLs in priority order. R2 is a single presigned URL;
-    // GitHub tries the user repo then env/legacy fallbacks.
+    // GitHub tries the user repo then env/legacy fallbacks. We ALWAYS append
+    // the GitHub candidates after R2 so partially-migrated rows (backend
+    // flagged 'r2' but the object only lives in GitHub) still resolve.
     const urls: string[] = [];
     if (storage.backend === "r2") {
       const signed = r2PresignGet(path);
       if (signed) urls.push(signed);
-    } else {
-      if (!config.github.token || !config.github.owner) {
-        return new Response(null, { status: 503 });
-      }
+    }
+    if (config.github.token && config.github.owner) {
       const envRepo = config.github.repo.trim();
       for (const repo of uniqueRepoOrder(storage.repo, envRepo)) {
         urls.push(`https://raw.githubusercontent.com/${config.github.owner}/${repo}/main/${path}`);
       }
+    }
+    if (urls.length === 0) {
+      return new Response(null, { status: 503 });
     }
 
     for (const fetchUrl of urls) {
