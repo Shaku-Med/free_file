@@ -2160,6 +2160,7 @@ const VideoCard = ({
             onUpdate={currentUserId ? handleInteractionUpdate : undefined}
             currentUserId={currentUserId}
             fileCreatedAt={data.created_at}
+            fileOwnerId={data.owner_id}
             howLikesDislikeComments={hideActions.halfway ? false : true}
           />
         </div>

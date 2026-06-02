@@ -18,7 +18,12 @@ import {
   Bookmark,
   MoveVertical,
   Trash2,
+  Flag,
+  EyeOff,
+  UserMinus,
 } from "lucide-react";
+import { ReportDialog } from "~/components/ReportDialog";
+import { hideFromFeed } from "~/lib/feedPreferences.client";
 import { formatNumber } from "~/lib/utils/formatNumber";
 import { ShareModal } from "~/components/ShareModal";
 import {
@@ -200,6 +205,7 @@ export default function Actions({
   const [shareBusy, setShareBusy] = useState(false);
   const [canWebShare, setCanWebShare] = useState(false);
   const [shareModalOpen, setShareModalOpen] = useState(false);
+  const [reportOpen, setReportOpen] = useState(false);
 
   const [playlists, setPlaylists] = useState<UserPlaylist[]>([]);
   const [addedTo, setAddedTo] = useState<Set<string>>(() => new Set());
@@ -669,6 +675,39 @@ export default function Actions({
               </DropdownMenuCollapsibleContent>
             </DropdownMenuCollapsible>
           </DropdownMenuGroup>
+          {!isOwner && currentUserId ? (
+            <>
+              <DropdownMenuSeparator />
+              <DropdownMenuGroup>
+                <DropdownMenuItem
+                  onSelect={() => {
+                    void hideFromFeed("file", uniqueId, {
+                      successText: "Got it. We'll show less like this.",
+                    });
+                  }}
+                >
+                  <EyeOff className="size-4" aria-hidden />
+                  Not interested
+                </DropdownMenuItem>
+                {fileOwnerId ? (
+                  <DropdownMenuItem
+                    onSelect={() => {
+                      void hideFromFeed("user", fileOwnerId, {
+                        successText: "We won't recommend this creator.",
+                      });
+                    }}
+                  >
+                    <UserMinus className="size-4" aria-hidden />
+                    Don't recommend creator
+                  </DropdownMenuItem>
+                ) : null}
+                <DropdownMenuItem onSelect={() => setReportOpen(true)}>
+                  <Flag className="size-4" aria-hidden />
+                  Report
+                </DropdownMenuItem>
+              </DropdownMenuGroup>
+            </>
+          ) : null}
         </DropdownMenuContent>
       </DropdownMenu>
   );
@@ -861,6 +900,12 @@ export default function Actions({
         onOpenChange={setShareModalOpen}
         shareUrl={buildPageShareUrl(pagePathForShare, resolveShareSeconds())}
         currentTime={currentTime}
+      />
+      <ReportDialog
+        open={reportOpen}
+        onOpenChange={setReportOpen}
+        targetType="file"
+        targetId={uniqueId}
       />
     </>
   );

@@ -19,6 +19,8 @@ export default [
         route(`internal/client-error`, 'routes/Api/internal/client-error/index.tsx'),
         route(`internal/quota-check`, 'routes/Api/internal/quota-check/index.tsx'),
         route(`internal/quota-record`, 'routes/Api/internal/quota-record/index.tsx'),
+        route(`reports`, 'routes/Api/reports/index.tsx'),
+        route(`feed-preferences`, 'routes/Api/feed-preferences/index.tsx'),
         route(`upload`, 'routes/Api/upload/index.tsx'),
         route(`upload/quota`, 'routes/Api/upload/quota/index.tsx'),
         route(`upload/profilepic`, 'routes/Api/upload/profilepic/index.tsx'),
