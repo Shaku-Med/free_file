@@ -444,12 +444,15 @@ func (w *Worker) processJob(job *queue.Job) {
 		w.notifyRunningProgress(job, 92)
 		_ = w.queue.SetJobStatus(context.Background(), job.ID, "completed")
 		webhook.NotifyJobStatus(webhook.Payload{
-			JobID:               job.ID,
-			Status:              "completed",
-			UploadID:            job.UploadID,
-			UserID:              job.UserID,
-			FileName:            job.FileName,
-			FileSize:            job.FileSize,
+			JobID:    job.ID,
+			Status:   "completed",
+			UploadID: job.UploadID,
+			UserID:   job.UserID,
+			FileName: job.FileName,
+			// Actual stored bytes (assembled file). For images this matches
+			// the source closely; we still send the post-processing number so
+			// the ledger reflects R2 reality, not the declared size.
+			FileSize:            result.FileSize,
 			Endpoint:            ghPath,
 			IsAdult:             &isAdult,
 			Colors:              imgColors,
@@ -746,6 +749,23 @@ func (w *Worker) processJob(job *queue.Job) {
 		w.log.Infof("storage batch uploaded backend=%s job=%s files=%d", storageBackend, job.ID, len(batchFiles))
 	}
 
+	// Measure the ACTUAL post-processing bytes BEFORE cleanup. HLS ladder
+	// (360p/480p/720p/1080p) + segments + manifests + thumbnails are the real
+	// storage cost; the declared source size we got at /start is unrelated.
+	// Falls back to job.FileSize if the walk somehow returns 0.
+	processedBytes := dirSizeBytes(hlsDir) + dirSizeBytes(thumbDir)
+	if processedBytes <= 0 {
+		processedBytes = job.FileSize
+	}
+	w.log.Infof("post-processing size job=%s source=%d processed=%d ratio=%.2fx",
+		job.ID, job.FileSize, processedBytes,
+		func() float64 {
+			if job.FileSize == 0 {
+				return 0
+			}
+			return float64(processedBytes) / float64(job.FileSize)
+		}())
+
 	// Cleanup local HLS + thumbnail dirs
 	_ = os.RemoveAll(hlsDir)
 	_ = os.Remove(filepath.Dir(hlsDir))
@@ -775,12 +795,16 @@ func (w *Worker) processJob(job *queue.Job) {
 	w.notifyRunningProgress(job, 95)
 	_ = w.queue.SetJobStatus(context.Background(), job.ID, "completed")
 	webhook.NotifyJobStatus(webhook.Payload{
-		JobID:               job.ID,
-		Status:              "completed",
-		UploadID:            job.UploadID,
-		UserID:              job.UserID,
-		FileName:            job.FileName,
-		FileSize:            job.FileSize,
+		JobID:    job.ID,
+		Status:   "completed",
+		UploadID: job.UploadID,
+		UserID:   job.UserID,
+		FileName: job.FileName,
+		// Actual stored bytes (HLS ladder + thumbnails) measured before
+		// cleanup, NOT the declared source size  the user is billed on what
+		// lives in R2, which can be 1.5-2x the source for low-bitrate phone
+		// videos.
+		FileSize:            processedBytes,
 		Endpoint:            videoEndpoint,
 		Thumbnails:          thumbnailPaths,
 		Duration:            videoDuration,
@@ -862,6 +886,32 @@ func isVideo(filename string) bool {
 		return true
 	}
 	return false
+}
+
+// dirSizeBytes sums the bytes of every regular file under dir. Used to bill
+// the user for the ACTUAL post-processing footprint (HLS ladder + thumbnails)
+// instead of the declared source size. Returns 0 on any walk error  the
+// caller falls back to the declared size in that case.
+func dirSizeBytes(dir string) int64 {
+	if dir == "" {
+		return 0
+	}
+	var total int64
+	_ = filepath.WalkDir(dir, func(_ string, d os.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		if d.IsDir() {
+			return nil
+		}
+		info, ierr := d.Info()
+		if ierr != nil {
+			return nil
+		}
+		total += info.Size()
+		return nil
+	})
+	return total
 }
 
 // safeImageObjectName returns a fixed storage name ("image" + a known-good
