@@ -94,36 +94,30 @@ export function useHLS(videoRef: React.RefObject<HTMLVideoElement | null>) {
     };
   }, []);
 
-  // Mobile-resume recovery. When the page is backgrounded for longer than the
-  // playback token's TTL (15 min), the next segment fetch fails with 401 and
-  // the user lands on "Failed to load". We get ahead of that by re-minting as
-  // soon as the page becomes visible after a 60s+ hide  the mint is cheap and
-  // idempotent (debounced), and the hot swap is seamless if the current URL
-  // still works.
+  // Visibility-resume recovery. ONLY runs when the page comes back and the
+  // player is actually in a broken state (real video error, or hls.js error
+  // flag set). We do NOT proactively re-mint just because the tab was hidden
+  //  the HLS error handler already re-mints reactively when a segment 401s,
+  // and a proactive refresh during a happy paused-then-resumed session is
+  // annoying (hot swap reloads the manifest + can revive autoplay).
   useEffect(() => {
     if (typeof document === 'undefined') return;
-    let hiddenSince = 0;
     const onVis = () => {
-      if (document.hidden) {
-        hiddenSince = Date.now();
-        return;
-      }
+      if (document.hidden) return;
       const fileId = file?.unique_id;
       if (!fileId) return;
-      const hiddenMs = hiddenSince ? Date.now() - hiddenSince : 0;
-      hiddenSince = 0;
-      // Refresh if we were backgrounded long enough to risk expiry, OR if the
-      // player is currently in an error state from a fetch that died while
-      // hidden.
-      const inError = Boolean(hlsRef.current) && Boolean(videoRef.current?.error);
-      if (hiddenMs > 60_000 || inError) {
-        setState((s) => ({ ...s, hasError: false }));
-        requestPlaybackUrlRefresh(fileId);
-      }
+      const video = videoRef.current;
+      const inError =
+        Boolean(video?.error) ||
+        // networkState=3 (NETWORK_NO_SOURCE) shows up after a failed fetch.
+        (video ? (video as HTMLVideoElement).networkState === 3 : false);
+      if (!inError) return;
+      setState((s) => ({ ...s, hasError: false }));
+      requestPlaybackUrlRefresh(fileId);
     };
     document.addEventListener('visibilitychange', onVis);
     return () => document.removeEventListener('visibilitychange', onVis);
-  }, [file?.unique_id, setState, videoRef, hlsRef]);
+  }, [file?.unique_id, setState, videoRef]);
 
   useEffect(() => {
     const video = videoRef.current;
@@ -192,7 +186,12 @@ export function useHLS(videoRef: React.RefObject<HTMLVideoElement | null>) {
         Boolean(newPath) && lastSrcPathRef.current === newPath;
       lastSrcPathRef.current = newPath;
 
-      const wasPlaying = (!video.paused && !video.ended) || video.ended;
+      // Snapshot the user's intent at the moment of the swap. We DON'T treat
+      // "ended" as "was playing"  the original code did, which made paused-
+      // at-end states resume on every token refresh. And we keep this strict
+      // (no autoPlay override) on same-asset swaps so a paused user stays
+      // paused after a refresh.
+      const wasPlaying = !video.paused && !video.ended;
       const resumeAt =
         sameAsset && Number.isFinite(video.currentTime) && video.currentTime > 0.1
           ? video.currentTime
@@ -245,7 +244,12 @@ export function useHLS(videoRef: React.RefObject<HTMLVideoElement | null>) {
             /* ignore */
           }
         }
-        if (wasPlaying || autoPlay) {
+        // Same-asset hot swap (token refresh): respect the user's pause state
+        // strictly  no autoPlay override. If they paused before the swap,
+        // they stay paused after. For a true video change (different asset)
+        // we still honor autoPlay so the next file starts on its own.
+        const shouldResume = sameAsset ? wasPlaying : wasPlaying || autoPlay;
+        if (shouldResume) {
           void video.play().catch(() => {});
         }
       };
