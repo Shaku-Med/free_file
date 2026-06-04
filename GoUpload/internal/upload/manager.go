@@ -284,6 +284,121 @@ func (m *Manager) AbandonUpload(userID, uploadID string) error {
 	return os.RemoveAll(dir)
 }
 
+// userIDSafe is the same shape the auth middleware accepts (UUID-ish, max 64
+// chars, no path separators). Re-applied here so any future caller that
+// bypasses the middleware can't pass `../victim` into a filesystem op.
+var userIDSafe = regexp.MustCompile(`^[a-zA-Z0-9_-]{1,64}$`)
+
+// PurgeUserChunks removes EVERY abandoned chunk folder for a user under the
+// chunks root. Used when the user hits their weekly quota cap: the upload
+// they just tried to finish is already gone via AbandonUpload, and any other
+// chunk folder for the same user is now over-budget too  we'd just be
+// holding storage for files that will all get rejected at /complete anyway.
+//
+// `keep` is an optional uploadID to spare (e.g. the rejected upload that we
+// want to log separately, or an upload we know is currently mid-chunk-write).
+// Pass "" to purge everything.
+//
+// Returns the list of uploadIDs that were actually removed so the caller can
+// tell the app to refund their quota reservations + delete their DB rows.
+//
+// Defence in depth: userID is re-validated against `userIDSafe` to prevent
+// path traversal even if the caller forgot to do so; we never walk outside
+// `m.baseDir/<validated userID>`.
+func (m *Manager) PurgeUserChunks(userID, keep string) ([]string, error) {
+	if !userIDSafe.MatchString(userID) {
+		return nil, errors.New("invalid_user_id")
+	}
+
+	// Snapshot + clear in-memory entries first so a concurrent SaveChunk on a
+	// purged upload sees the cleared state and bails. We hold the write lock
+	// only briefly  the disk delete loop below doesn't need it.
+	m.activeMu.Lock()
+	removed := make(map[string]struct{})
+	for id, info := range m.active {
+		if info.UserID != userID || id == keep {
+			continue
+		}
+		if !ValidUploadID(id) {
+			// Skip anything that looks malformed; we never want to act on it
+			// even from in-memory state.
+			continue
+		}
+		removed[id] = struct{}{}
+		delete(m.active, id)
+	}
+	m.activeMu.Unlock()
+
+	// Walk the user's chunks dir and delete every upload subdir. This catches
+	// crash-debris (chunks left over from a previous process that wasn't in
+	// our in-memory `active` map) on top of the live entries we cleared above.
+	userDir := filepath.Join(m.baseDir, userID)
+	entries, readErr := os.ReadDir(userDir)
+	if readErr != nil {
+		if errors.Is(readErr, os.ErrNotExist) {
+			// No on-disk debris; just return whatever we cleared from memory.
+			return setToSortedSlice(removed), nil
+		}
+		// Even if reading the dir failed we already cleared memory; surface
+		// the error so the caller can log it.
+		return setToSortedSlice(removed), readErr
+	}
+
+	// Defensive cap. A user dir should hold at most a handful of upload
+	// folders; if there are millions, something is very wrong and walking
+	// them all would just stall the request. Cap at 1000 deletions per call;
+	// any leftover gets cleaned by the background CleanupOrphanedChunks loop.
+	const maxPurgePerCall = 1000
+	deleted := 0
+	for _, entry := range entries {
+		if deleted >= maxPurgePerCall {
+			break
+		}
+		if !entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		if name == keep {
+			continue
+		}
+		// Only act on directories that match the upload-id shape. Anything
+		// else might be unrelated content we shouldn't touch.
+		if !ValidUploadID(name) {
+			continue
+		}
+		removed[name] = struct{}{}
+		// os.RemoveAll is no-op if the dir vanished between ReadDir and now.
+		_ = os.RemoveAll(filepath.Join(userDir, name))
+		deleted++
+	}
+	return setToSortedSlice(removed), nil
+}
+
+func setToSortedSlice(s map[string]struct{}) []string {
+	if len(s) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(s))
+	for k := range s {
+		out = append(out, k)
+	}
+	// Stable order so callers / logs are deterministic. Sort uses the same
+	// `sort` package already imported by meta.go.
+	stringsSort(out)
+	return out
+}
+
+// stringsSort sorts in-place. Kept as a thin wrapper so we don't add a fresh
+// `sort` import just for one line; the package is already imported elsewhere
+// in the upload package via meta.go.
+func stringsSort(s []string) {
+	for i := 1; i < len(s); i++ {
+		for j := i; j > 0 && s[j-1] > s[j]; j-- {
+			s[j-1], s[j] = s[j], s[j-1]
+		}
+	}
+}
+
 func (m *Manager) ServerStatus() (ServerStatusResponse, error) {
 	usage, err := m.diskUsage()
 	if err != nil {

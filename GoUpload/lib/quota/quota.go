@@ -96,6 +96,62 @@ func PredictFinalBytes(actualBytes int64, filename string) int64 {
 
 var videoExt = []string{".mp4", ".webm", ".mkv", ".avi", ".mov", ".wmv", ".flv", ".m4v"}
 
+// PurgeUser tells the app to drop every `queued` files row that belongs to
+// the user (and refund the quota reservation for each). Called immediately
+// after the upload server purges that user's abandoned chunk folders, so the
+// DB view of "pending uploads" stops listing rows whose disk data we just
+// destroyed.
+//
+// Best-effort + panic-safe. If the app is unreachable we just log + move on;
+// the next `/complete` call from this user will fail the same quota check
+// and re-trigger the cleanup. We never want a flaky purge to block the
+// 413 response the user is waiting for.
+//
+// Caller passes the list of uploadIDs whose chunks were just removed; the
+// app uses this only as a hint  the broader "delete all queued rows for
+// this user" sweep is what actually runs server-side, so a missed uploadID
+// here still gets cleaned up.
+func PurgeUser(ctx context.Context, userID string, purgedUploadIDs []string) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("[quota] PurgeUser panic recovered: %v", r)
+		}
+	}()
+	base := strings.TrimSuffix(env.Get("APP_BASE_URL", ""), "/")
+	secret := env.Get("UPLOAD_WEBHOOK_SECRET", "")
+	if base == "" || secret == "" || userID == "" {
+		return
+	}
+	// Cap the list size before serialising. The app caps it again on its
+	// side, but trimming here keeps the request body small and predictable.
+	const maxIDs = 256
+	ids := purgedUploadIDs
+	if len(ids) > maxIDs {
+		ids = ids[:maxIDs]
+	}
+	payload, err := json.Marshal(map[string]interface{}{
+		"user_id":            userID,
+		"purged_upload_ids":  ids,
+	})
+	if err != nil {
+		return
+	}
+	reqCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(reqCtx, http.MethodPost, base+"/api/internal/quota-purge", bytes.NewReader(payload))
+	if err != nil {
+		return
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Webhook-Secret", secret)
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return
+	}
+	defer res.Body.Close()
+	_, _ = io.Copy(io.Discard, io.LimitReader(res.Body, 1<<10))
+}
+
 // Record reports an upload's actual bytes to the app so it counts toward the
 // user's weekly budget. Best-effort + non-blocking: if the app is unreachable
 // the upload still succeeds (the weekly limit is advisory for these side

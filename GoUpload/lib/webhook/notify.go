@@ -48,8 +48,32 @@ type Payload struct {
 	Progress *int `json:"progress,omitempty"`
 }
 
+// terminalStatuses are payload statuses we MUST land in the DB for the row
+// to ever recover. A dropped 'queued' / 'running' update is annoying but
+// self-healing (the next status push overwrites it). A dropped 'completed'
+// or 'failed' update leaves the files row stranded at upload_status='running'
+// /  processing_progress=N forever  exactly the "stuck at 85%" bug this
+// retry loop exists to prevent.
+var terminalStatuses = map[string]struct{}{
+	"completed": {},
+	"failed":    {},
+}
+
 // NotifyJobStatus sends the payload to the app's /api/upload-job-status.
 // The app writes to upload_jobs and files (Supabase). No-op if APP_BASE_URL or UPLOAD_WEBHOOK_SECRET is empty.
+//
+// Delivery semantics:
+//   - "queued" / "running" updates fire once, best-effort. Losing one is
+//     fine: progress events arrive frequently and the next one overwrites.
+//   - "completed" / "failed" updates are RETRIED with exponential backoff
+//     until they land (or we hit the cap). Losing one of these would
+//     strand the files row at 'running' state forever  the user sees a
+//     stuck "85%" with no way out except a manual SQL UPDATE.
+//
+// Retries are bounded (max ~30s total) so a permanently broken app doesn't
+// pin a worker goroutine; if every attempt fails we log loud enough to
+// notice and the SQL recovery query (see operator notes) can sweep stuck
+// rows after the fact.
 func NotifyJobStatus(p Payload) {
 	base := strings.TrimSuffix(env.Get("APP_BASE_URL", ""), "/")
 	secret := env.Get("UPLOAD_WEBHOOK_SECRET", "")
@@ -63,28 +87,63 @@ func NotifyJobStatus(p Payload) {
 		log.Printf("[webhook] NotifyJobStatus marshal: %v", err)
 		return
 	}
-	req, err := http.NewRequest(http.MethodPost, base+"/api/upload-job-status", bytes.NewReader(body))
-	if err != nil {
-		log.Printf("[webhook] NotifyJobStatus newrequest: %v", err)
-		return
+
+	_, isTerminal := terminalStatuses[p.Status]
+	// Non-terminal updates: one shot, fast fail. Terminal updates: 5 tries
+	// with 1s/2s/4s/8s backoff (max ~15s sleep + per-call timeouts ≈ 30s
+	// upper bound; well under any sane HTTP timeout the caller might have).
+	attempts := 1
+	if isTerminal {
+		attempts = 5
 	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-Webhook-Secret", secret)
+	backoff := time.Second
+
+	url := base + "/api/upload-job-status"
 	client := &http.Client{Timeout: 10 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		log.Printf("[webhook] NotifyJobStatus %s %s: %v", p.JobID, p.Status, err)
-		return
+
+	for i := 0; i < attempts; i++ {
+		req, rerr := http.NewRequest(http.MethodPost, url, bytes.NewReader(body))
+		if rerr != nil {
+			log.Printf("[webhook] NotifyJobStatus newrequest: %v", rerr)
+			return
+		}
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-Webhook-Secret", secret)
+
+		resp, derr := client.Do(req)
+		if derr != nil {
+			log.Printf("[webhook] NotifyJobStatus attempt=%d/%d job=%s upload=%s payload_status=%s transport_err=%v",
+				i+1, attempts, p.JobID, p.UploadID, p.Status, derr)
+		} else {
+			bodySnippet, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
+			resp.Body.Close()
+			if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+				log.Printf("[webhook] NotifyJobStatus delivered_ok attempt=%d/%d job=%s upload=%s payload_status=%s http=%d",
+					i+1, attempts, p.JobID, p.UploadID, p.Status, resp.StatusCode)
+				return
+			}
+			// 4xx other than 408/429 won't ever succeed on retry  the body
+			// is malformed or the secret is wrong. Don't burn budget retrying.
+			retriable := resp.StatusCode >= 500 || resp.StatusCode == 408 || resp.StatusCode == 429
+			log.Printf("[webhook] NotifyJobStatus attempt=%d/%d job=%s upload=%s payload_status=%s http=%d retriable=%v body=%q",
+				i+1, attempts, p.JobID, p.UploadID, p.Status, resp.StatusCode, retriable, strings.TrimSpace(string(bodySnippet)))
+			if !retriable {
+				return
+			}
+		}
+
+		// Don't sleep after the final attempt.
+		if i+1 >= attempts {
+			break
+		}
+		time.Sleep(backoff)
+		backoff *= 2
 	}
-	defer resp.Body.Close()
-	bodySnippet, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		log.Printf("[webhook] NotifyJobStatus http_error job=%s upload=%s payload_status=%s http=%d body=%q (check APP_BASE_URL, UPLOAD_WEBHOOK_SECRET, and Remix /api/upload-job-status)",
-			p.JobID, p.UploadID, p.Status, resp.StatusCode, strings.TrimSpace(string(bodySnippet)))
-	} else {
-		// payload_status may be "failed" (job failed) while delivery still succeeded  do not log "failed: success".
-		log.Printf("[webhook] NotifyJobStatus delivered_ok job=%s upload=%s payload_status=%s http=%d",
-			p.JobID, p.UploadID, p.Status, resp.StatusCode)
+
+	if isTerminal {
+		// Loud final-failure log so the operator can sweep stuck rows.
+		log.Printf("[webhook] NotifyJobStatus EXHAUSTED job=%s upload=%s payload_status=%s  files row may be stuck; run the recovery SQL",
+			p.JobID, p.UploadID, p.Status)
 	}
 }
 

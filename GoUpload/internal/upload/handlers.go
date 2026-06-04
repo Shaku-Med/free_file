@@ -234,9 +234,31 @@ func (h *Handler) completeUpload(c *fiber.Ctx) error {
 	predicted := quota.PredictFinalBytes(actualBytes, meta.FileName)
 	qres, qerr := quota.Check(c.Context(), userID, predicted)
 	if qerr == nil && !qres.OK {
+		// 1. Delete THIS upload's chunks (the one that just tripped the cap).
 		_ = h.manager.AbandonUpload(userID, uploadID)
+
+		// 2. Sweep every other chunk folder this user has on disk. A user
+		//    that's over the weekly cap can't make ANY of their pending
+		//    uploads succeed  every future /complete will fail the same
+		//    quota check, so we'd be holding storage for nothing. Anything
+		//    already accepted into the worker queue is untouched (the
+		//    worker will finish it; that's a sunk cost we don't undo).
+		purgedIDs, purgeErr := h.manager.PurgeUserChunks(userID, "")
+		if purgeErr != nil && h.log != nil {
+			h.log.Errorf("purge_user_chunks_error user=%s err=%s", userID, purgeErr.Error())
+		}
+
+		// 3. Tell the app to drop the user's still-`queued` DB rows + refund
+		//    their quota reservations. Best-effort  if the app is down the
+		//    next /complete from this user will re-trigger this whole path.
+		//    Runs in a goroutine so we don't block the 413 response on it;
+		//    PurgeUser is panic-safe so this is fine even if the goroutine
+		//    fails mid-call.
+		go quota.PurgeUser(context.Background(), userID, purgedIDs)
+
 		if h.log != nil {
-			h.log.Infof("quota_reject user=%s upload=%s actual=%d predicted=%d used=%d limit=%d", userID, uploadID, actualBytes, predicted, qres.Used, qres.Limit)
+			h.log.Infof("quota_reject user=%s upload=%s actual=%d predicted=%d used=%d limit=%d purged=%d",
+				userID, uploadID, actualBytes, predicted, qres.Used, qres.Limit, len(purgedIDs))
 		}
 		// 413 Payload Too Large + machine-readable code so the client can
 		// show a friendly "weekly limit reached" message (not a generic fail).
