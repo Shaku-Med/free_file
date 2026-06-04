@@ -1111,14 +1111,44 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
       const j = (await completeRes.json().catch(() => ({}))) as {
         error?: string
         remaining?: number
+        predicted?: number
+        source_bytes?: number
       }
-      // Pre-queue weekly limit reject. Human message, no "upload failed" jargon.
-      if (completeRes.status === 413 && j.error === "weekly_limit_exceeded") {
+      // Pre-queue monthly limit reject. Two flavors:
+      //  1. Source file already exceeds remaining quota  honest "you're out"
+      //     message.
+      //  2. Source file fits but our HLS-ladder predictor says the final
+      //     stored size (source + 360p + 480p + 720p + ...) would exceed
+      //     the cap. We tell the user our prediction caught it instead of
+      //     starting a long upload that would only get rejected at /complete
+      //     anyway. This is the "10 GB file with 2 GB left" abuse-case
+      //     guard  rejecting at this stage means we never waste worker
+      //     time processing a file we'd just throw away.
+      if (
+        completeRes.status === 413 &&
+        (j.error === "monthly_limit_exceeded" || j.error === "weekly_limit_exceeded")
+      ) {
         const left = typeof j.remaining === "number" ? formatBytesShort(j.remaining) : null
+        const predicted = typeof j.predicted === "number" ? formatBytesShort(j.predicted) : null
+        const source = typeof j.source_bytes === "number" ? formatBytesShort(j.source_bytes) : null
+        // Prediction-rejection: source fits but final won't.
+        if (
+          predicted &&
+          source &&
+          typeof j.source_bytes === "number" &&
+          typeof j.remaining === "number" &&
+          j.source_bytes <= j.remaining
+        ) {
+          throw new Error(
+            `Our predictor estimates this file will use ${predicted} after processing (HLS qualities + thumbnails)` +
+              (left ? `, more than the ${left} left this month.` : `, more than your monthly budget.`) +
+              " Try a shorter clip or wait for older uploads to roll off.",
+          )
+        }
         throw new Error(
           left
-            ? `Weekly upload limit reached. ${left} left this week.`
-            : "Weekly upload limit reached. Try again in a few days.",
+            ? `Monthly upload limit reached. ${left} left this month.`
+            : "Monthly upload limit reached. Try again later this month.",
         )
       }
       throw new Error(j.error || "Complete upload failed")

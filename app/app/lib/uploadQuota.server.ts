@@ -1,18 +1,34 @@
 import db from '~/lib/Database/supabase';
 
-// Rolling 7-day per-user upload cap. Reserve before queueing, finalize with
+// Rolling 30-day per-user upload cap. Reserve before queueing, finalize with
 // the real size on completion, refund on cancel/failure. Limit comes from env
 // so it is never hardcoded; defaults to 5 GiB.
-const DEFAULT_WEEKLY_LIMIT_BYTES = 5 * 1024 * 1024 * 1024;
+//
+// Window length is enforced by the Supabase function `get_monthly_upload_usage`
+// (see app/database/migrations/monthly_upload_quota.sql)  if you change it
+// there, mirror the marketing-copy window in StorageQuotaMeter too.
+const DEFAULT_MONTHLY_LIMIT_BYTES = 5 * 1024 * 1024 * 1024;
 
-export function getWeeklyUploadLimitBytes(): number {
-  const raw = typeof process !== 'undefined' ? process.env?.WEEKLY_UPLOAD_LIMIT_BYTES : undefined;
+export function getMonthlyUploadLimitBytes(): number {
+  // Accept either MONTHLY_UPLOAD_LIMIT_BYTES (new name) or
+  // WEEKLY_UPLOAD_LIMIT_BYTES (legacy env name)  the value carried the same
+  // meaning before/after the rolling window changed, and we don't want a
+  // missed-rename in .env to silently drop everyone to the default.
+  const monthly = typeof process !== 'undefined' ? process.env?.MONTHLY_UPLOAD_LIMIT_BYTES : undefined;
+  const legacy = typeof process !== 'undefined' ? process.env?.WEEKLY_UPLOAD_LIMIT_BYTES : undefined;
+  const raw = monthly || legacy;
   if (raw) {
     const n = Number(raw);
     if (Number.isFinite(n) && n > 0) return Math.floor(n);
   }
-  return DEFAULT_WEEKLY_LIMIT_BYTES;
+  return DEFAULT_MONTHLY_LIMIT_BYTES;
 }
+
+/**
+ * Backwards-compat alias  any caller still importing the old name keeps
+ * working through the rename. Delete once all call sites use the new one.
+ */
+export const getWeeklyUploadLimitBytes = getMonthlyUploadLimitBytes;
 
 export interface QuotaResult {
   ok: boolean;
@@ -41,7 +57,7 @@ export async function reserveUploadQuota(
       p_user_id: userId,
       p_upload_id: uploadId,
       p_bytes: Math.floor(bytes),
-      p_limit_bytes: getWeeklyUploadLimitBytes(),
+      p_limit_bytes: getMonthlyUploadLimitBytes(),
     });
     if (error) {
       console.error('[uploadQuota] reserve rpc:', error.message ?? error);

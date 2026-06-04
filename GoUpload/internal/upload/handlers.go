@@ -11,6 +11,7 @@ import (
 
 	"github.com/gofiber/fiber/v2"
 	"goupload/lib/env"
+	"goupload/lib/ffmpeg"
 	"goupload/lib/logger"
 	"goupload/lib/queue"
 	"goupload/lib/quota"
@@ -231,7 +232,26 @@ func (h *Handler) completeUpload(c *fiber.Ctx) error {
 		}
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "internal_error"})
 	}
-	predicted := quota.PredictFinalBytes(actualBytes, meta.FileName)
+	// Probe the first chunk for source resolution so the predictor can pick
+	// the right HLS multiplier. ffprobe reads as much metadata as it can from
+	// whatever bytes we point it at  for moov-at-start mp4 (the common case
+	// for modern phones and web encoders) the first chunk is plenty. If the
+	// probe fails (moov-at-end mobile files, broken first chunk, image, etc.)
+	// we pass height=0 and PredictFinalBytes uses its worst-case fallback,
+	// which over-estimates rather than under-estimates  the only failure
+	// mode is "quota-reject an upload that would have actually fit", never
+	// "let an over-budget upload through". The latter would let users do the
+	// "10 GB file with 2 GB left" abuse the user explicitly called out.
+	srcHeight := 0
+	if isLikelyVideo(meta.FileName) {
+		if firstChunk := h.manager.FirstChunkPath(userID, uploadID); firstChunk != "" {
+			if info, perr := ffmpeg.ProbeVideo(firstChunk); perr == nil && info != nil {
+				srcHeight = info.Height
+			}
+		}
+	}
+
+	predicted := quota.PredictFinalBytes(actualBytes, meta.FileName, srcHeight)
 	qres, qerr := quota.Check(c.Context(), userID, predicted)
 	if qerr == nil && !qres.OK {
 		// 1. Delete THIS upload's chunks (the one that just tripped the cap).
@@ -257,17 +277,23 @@ func (h *Handler) completeUpload(c *fiber.Ctx) error {
 		go quota.PurgeUser(context.Background(), userID, purgedIDs)
 
 		if h.log != nil {
-			h.log.Infof("quota_reject user=%s upload=%s actual=%d predicted=%d used=%d limit=%d purged=%d",
-				userID, uploadID, actualBytes, predicted, qres.Used, qres.Limit, len(purgedIDs))
+			h.log.Infof("quota_reject user=%s upload=%s actual=%d predicted=%d src_height=%d used=%d limit=%d purged=%d",
+				userID, uploadID, actualBytes, predicted, srcHeight, qres.Used, qres.Limit, len(purgedIDs))
 		}
 		// 413 Payload Too Large + machine-readable code so the client can
-		// show a friendly "weekly limit reached" message (not a generic fail).
+		// show a friendly "monthly limit reached" message (not a generic fail).
+		// The `predicted` field tells the user this was a prediction-based
+		// rejection (file would balloon past their cap after HLS ladder
+		// expansion), not just "you already used it all"  the UI uses this
+		// to render a "your file is predicted to exceed your limit after
+		// processing" explanation instead of a generic over-quota message.
 		return c.Status(fiber.StatusRequestEntityTooLarge).JSON(fiber.Map{
-			"error":     "weekly_limit_exceeded",
+			"error":     "monthly_limit_exceeded",
 			"used":      qres.Used,
 			"limit":     qres.Limit,
 			"remaining": qres.Remaining,
 			"predicted": predicted,
+			"source_bytes": actualBytes,
 		})
 	}
 
@@ -380,4 +406,21 @@ func trimForLog(b []byte, max int) string {
 		return s
 	}
 	return s[:max] + "..."
+}
+
+// isLikelyVideo reports whether a filename extension matches our accepted
+// video formats. Used to skip the chunk-probe step on image uploads (probing
+// a JPEG with ffprobe just returns 'no video stream', which is wasted work).
+// The same allowlist lives in manager.allowedExtensions / quota.videoExt;
+// we intentionally duplicate it here as a small constant rather than import
+// because both other lists also contain image extensions, and a typo in one
+// place wouldn't open a security hole  worst case we run an extra probe.
+func isLikelyVideo(filename string) bool {
+	ext := strings.ToLower(filename)
+	for _, v := range []string{".mp4", ".webm", ".mkv", ".avi", ".mov", ".wmv", ".flv", ".m4v"} {
+		if strings.HasSuffix(ext, v) {
+			return true
+		}
+	}
+	return false
 }

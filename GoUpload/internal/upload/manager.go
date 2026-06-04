@@ -237,6 +237,18 @@ func (m *Manager) CompleteUpload(userID, uploadID string) (CompleteMeta, error) 
 	}, nil
 }
 
+// FirstChunkPath returns the on-disk path of the very first chunk for an
+// upload. The handler uses this to ffprobe for source resolution at /complete
+// time so PredictFinalBytes can pick the correct HLS multiplier instead of
+// the worst-case fallback. Returns "" when the upload id is malformed; the
+// caller treats that as "no probe possible" and uses the conservative path.
+func (m *Manager) FirstChunkPath(userID, uploadID string) string {
+	if !ValidUploadID(uploadID) {
+		return ""
+	}
+	return chunkPath(m.baseDir, userID, uploadID, 0)
+}
+
 // ChunkFolderSize returns the actual on-disk byte sum of every chunk for an
 // upload. Used to size-check before queueing without trusting the client-
 // declared FileSize.

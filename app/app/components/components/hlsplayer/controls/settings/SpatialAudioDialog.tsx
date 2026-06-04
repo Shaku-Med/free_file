@@ -28,95 +28,37 @@ interface SpatialAudioDialogProps {
   onChange: (next: SpatialAudioConfig) => void;
 }
 
+// Description fields intentionally removed  per UX feedback the dialog should
+// surface labels only (the glyph + name carry the meaning), no explainer copy
+// under each card / preset. Re-add a `description` field here if you ever
+// want hover tooltips back; the render sites are kept simple on purpose.
 interface ModeOption {
   id: SpatialAudioMode;
   label: string;
-  description: string;
   /** Lucide-style emoji glyph for the card; keeps the design playful w/o extra deps. */
   glyph: string;
 }
 
 const MODES: ModeOption[] = [
-  {
-    id: 'stereo',
-    label: 'Classic 8D',
-    description: 'Wide left ↔ right sweep at ear level. The classic 8D feel.',
-    glyph: '↔',
-  },
-  {
-    id: 'orbit',
-    label: 'Orbit',
-    description: 'Sound circles around your head. Headphones recommended.',
-    glyph: '◯',
-  },
-  {
-    id: 'tumble',
-    label: 'Tumble',
-    description: 'Above → behind → underfoot → in front. Very trippy.',
-    glyph: '⟳',
-  },
-  {
-    id: 'figure8',
-    label: 'Figure 8',
-    description: 'Sweeps a lemniscate around you.',
-    glyph: '∞',
-  },
-  {
-    id: 'room-front',
-    label: 'Front Speakers',
-    description: 'A stable sweet spot in front of you. No motion.',
-    glyph: '◉',
-  },
-  {
-    id: 'manual',
-    label: 'Manual',
-    description: 'Pin the sound to a fixed direction. Drag the dot.',
-    glyph: '✛',
-  },
+  { id: 'stereo', label: 'Classic 8D', glyph: '↔' },
+  { id: 'orbit', label: 'Orbit', glyph: '◯' },
+  { id: 'tumble', label: 'Tumble', glyph: '⟳' },
+  { id: 'figure8', label: 'Figure 8', glyph: '∞' },
+  { id: 'room-front', label: 'Front Speakers', glyph: '◉' },
+  { id: 'manual', label: 'Manual', glyph: '✛' },
 ];
 
 const PRESETS: Array<{
   id: string;
   label: string;
-  description: string;
   patch: Partial<SpatialAudioConfig>;
 }> = [
-  {
-    id: 'classic-8d',
-    label: 'Classic 8D',
-    description: 'A slow left and right sweep that feels familiar.',
-    patch: { mode: 'stereo', radius: 1.6, speedHz: 0.2 },
-  },
-  {
-    id: 'fast-8d',
-    label: 'Fast 8D',
-    description: 'Same sweep, snappier.',
-    patch: { mode: 'stereo', radius: 1.6, speedHz: 0.5 },
-  },
-  {
-    id: 'wide-8d',
-    label: 'Wide 8D',
-    description: 'A wider sweep with more space around you.',
-    patch: { mode: 'stereo', radius: 2.6, speedHz: 0.18 },
-  },
-  {
-    id: 'classic-orbit',
-    label: 'Around Your Head',
-    description: 'A full circle around your head. Headphones feel best.',
-    patch: { mode: 'orbit', radius: 1.5, speedHz: 0.22 },
-  },
-  {
-    id: 'concert-hall',
-    label: 'Concert Hall',
-    description: 'Stage in front, gentle horizontal float.',
-    patch: { mode: 'stereo', radius: 0.9, speedHz: 0.08 },
-  },
-  {
-    id: 'in-room',
-    label: 'In Front of You',
-    description: 'Feels like speakers in front of you with no movement.',
-    patch: { mode: 'room-front', radius: 1.4, speedHz: 0.2 },
-  },
+  { id: 'classic-8d', label: 'Classic 8D', patch: { mode: 'stereo', radius: 1.6, speedHz: 0.2 } },
+  { id: 'fast-8d', label: 'Fast 8D', patch: { mode: 'stereo', radius: 1.6, speedHz: 0.5 } },
+  { id: 'wide-8d', label: 'Wide 8D', patch: { mode: 'stereo', radius: 2.6, speedHz: 0.18 } },
+  { id: 'classic-orbit', label: 'Around Your Head', patch: { mode: 'orbit', radius: 1.5, speedHz: 0.22 } },
+  { id: 'concert-hall', label: 'Concert Hall', patch: { mode: 'stereo', radius: 0.9, speedHz: 0.08 } },
+  { id: 'in-room', label: 'In Front of You', patch: { mode: 'room-front', radius: 1.4, speedHz: 0.2 } },
 ];
 
 const POSITION_PRESETS: Array<{
@@ -320,11 +262,6 @@ export default function SpatialAudioDialog({
                 <div className="text-sm font-medium">
                   Spatial audio is {value.enabled ? 'on' : 'off'}
                 </div>
-                <div className="text-xs text-muted-foreground">
-                  {value.enabled
-                    ? `Mode: ${MODES.find((m) => m.id === value.mode)?.label ?? value.mode}`
-                    : 'Pick a preset below or turn it on with the switch.'}
-                </div>
               </div>
             </div>
             <Switch
@@ -353,14 +290,10 @@ export default function SpatialAudioDialog({
                     <button
                       key={p.id}
                       type="button"
-                      title={p.description}
                       onClick={() => applyPreset(p.patch)}
                       className="rounded-lg border border-border/60 bg-background px-2.5 py-2 text-left text-xs transition hover:-translate-y-px hover:border-primary/40 hover:bg-primary/5"
                     >
                       <div className="font-medium">{p.label}</div>
-                      <div className="line-clamp-2 text-[11px] text-muted-foreground">
-                        {p.description}
-                      </div>
                     </button>
                   ))}
                 </div>
@@ -380,10 +313,9 @@ export default function SpatialAudioDialog({
                   <button
                     key={m.id}
                     type="button"
-                    title={m.description}
                     onClick={() => update({ mode: m.id })}
                     className={cn(
-                      'flex items-start gap-2.5 rounded-lg border px-2.5 py-2 text-left transition',
+                      'flex items-center gap-2.5 rounded-lg border px-2.5 py-2 text-left transition',
                       active
                         ? 'border-primary bg-primary/10 text-foreground'
                         : 'border-border/60 bg-background hover:border-primary/40 hover:bg-primary/5',
@@ -400,12 +332,7 @@ export default function SpatialAudioDialog({
                     >
                       {m.glyph}
                     </span>
-                    <span className="min-w-0">
-                      <span className="block text-xs font-medium">{m.label}</span>
-                      <span className="line-clamp-2 block text-[11px] text-muted-foreground">
-                        {m.description}
-                      </span>
-                    </span>
+                    <span className="block min-w-0 text-xs font-medium">{m.label}</span>
                   </button>
                 );
               })}

@@ -37,8 +37,12 @@ function barColor(pct: number): string {
 }
 
 /**
- * Reusable weekly upload-budget meter. Drop it anywhere; by default it fetches
- * the signed-in user's usage. Includes a "?" that explains the limit.
+ * Reusable monthly upload-budget meter. Drop it anywhere; by default it
+ * fetches the signed-in user's usage. Includes a "?" that explains the limit.
+ *
+ * The window is a rolling 30-day cap (see app/database/migrations/monthly_upload_quota.sql)
+ * not a calendar month, so usage frees up as old uploads age out one day at
+ * a time rather than resetting on the 1st.
  */
 export function StorageQuotaMeter({
   data,
@@ -71,7 +75,7 @@ export function StorageQuotaMeter({
           used: body.used,
           limit: body.limit,
           remaining: body.remaining,
-          windowDays: typeof body.windowDays === "number" ? body.windowDays : 7,
+          windowDays: typeof body.windowDays === "number" ? body.windowDays : 30,
         });
       } else {
         setFailed(true);
@@ -147,17 +151,17 @@ export function StorageQuotaMeter({
     <Dialog open={helpOpen} onOpenChange={setHelpOpen}>
       <DialogContent className="max-w-md">
         <DialogHeader>
-          <DialogTitle>Weekly upload limit</DialogTitle>
+          <DialogTitle>Monthly upload limit</DialogTitle>
           <DialogDescription className="sr-only">Upload budget details</DialogDescription>
         </DialogHeader>
         <div className="space-y-3 text-sm text-muted-foreground leading-relaxed">
           <p>
             Free app, free storage costs money. You get{" "}
             <span className="font-medium text-foreground">{limitLabel || "a set amount"}</span>{" "}
-            to upload every 7 days.
+            to upload every 30 days.
           </p>
           <p>
-            Rolling window. Space frees up as your old uploads age past 7 days. Nothing already
+            Rolling window. Space frees up as your old uploads age past 30 days. Nothing already
             posted gets removed.
           </p>
         </div>
@@ -170,7 +174,7 @@ export function StorageQuotaMeter({
       <div className={cn("w-full", className)}>
         <div className="mb-1 flex items-center justify-between gap-2">
           <div className="flex items-center gap-1.5">
-            <span className="text-xs font-medium text-foreground">Weekly upload budget</span>
+            <span className="text-xs font-medium text-foreground">Monthly upload budget</span>
             {HelpButton}
           </div>
           <span className="text-xs text-muted-foreground">
@@ -196,7 +200,7 @@ export function StorageQuotaMeter({
       </div>
       {Bar}
       {quota && (
-        <p className="mt-2 text-xs text-muted-foreground">{remainingLabel} left this week</p>
+        <p className="mt-2 text-xs text-muted-foreground">{remainingLabel} left this month</p>
       )}
       {Explainer}
     </div>

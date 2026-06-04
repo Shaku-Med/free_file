@@ -1,5 +1,5 @@
 import db from "~/lib/Database/supabase";
-import { getWeeklyUploadLimitBytes } from "~/lib/uploadQuota.server";
+import { getMonthlyUploadLimitBytes } from "~/lib/uploadQuota.server";
 import { isValidUUID } from "~/lib/Security/inputValidation";
 
 // POST /api/internal/quota-check
@@ -39,10 +39,10 @@ export const action = async ({ request }: { request: Request }) => {
   const predicted = Number.isFinite(predictedRaw) && predictedRaw > 0 ? Math.floor(predictedRaw) : 0;
   if (!userId || !isValidUUID(userId)) return json({ error: "invalid" }, 400);
 
-  const limit = getWeeklyUploadLimitBytes();
+  const limit = getMonthlyUploadLimitBytes();
   let used = 0;
   try {
-    const { data, error } = await db.rpc("get_weekly_upload_usage", { p_user_id: userId });
+    const { data, error } = await db.rpc("get_monthly_upload_usage", { p_user_id: userId });
     if (!error) {
       const n = typeof data === "number" ? data : Number(data);
       if (Number.isFinite(n) && n >= 0) used = n;
