@@ -119,6 +119,137 @@ export function useHLS(videoRef: React.RefObject<HTMLVideoElement | null>) {
     return () => document.removeEventListener('visibilitychange', onVis);
   }, [file?.unique_id, setState, videoRef]);
 
+  // Stall watchdog. During long mobile playback the buffer can drain when
+  // the radio drops (tower handoff, elevator, weak signal). hls.js retries
+  // the fragment a few times, then either goes fatal or just idles in its
+  // backoff window  if the connection comes back AFTER retries exhausted,
+  // nothing wakes the player and the spinner stays forever until the user
+  // refreshes the page. This watchdog covers the gap:
+  //   t+12s stalled → hls.startLoad(currentTime)  fresh fragment fetches,
+  //                    resets retry state. This is hls.js's documented
+  //                    network-error recovery path.
+  //   t+25s stalled → re-mint the playback URL (for LoadPlay), same code
+  //                    path the visibility-recovery and fatal-error handlers
+  //                    already use.
+  //   window 'online' → kick immediately instead of waiting for the timer.
+  // Any 'playing'/'canplay' event clears the timers, so a slow-but-healthy
+  // buffer fill never trips it.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const video = videoRef.current;
+    if (!video) return;
+
+    const KICK_MS = 12_000;
+    const REFRESH_MS = 25_000;
+    let kickTimer: ReturnType<typeof setTimeout> | null = null;
+    let refreshTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const clearTimers = () => {
+      if (kickTimer !== null) {
+        clearTimeout(kickTimer);
+        kickTimer = null;
+      }
+      if (refreshTimer !== null) {
+        clearTimeout(refreshTimer);
+        refreshTimer = null;
+      }
+    };
+
+    // "Stalled" = user wants playback, but media isn't progressing. We don't
+    // intervene when the user has deliberately paused.
+    const stillStalled = () =>
+      !video.paused && !video.ended && video.readyState < 3;
+
+    const kickHls = () => {
+      const hls = hlsRef.current;
+      if (!hls) return;
+      const at =
+        Number.isFinite(video.currentTime) && video.currentTime > 0.1
+          ? video.currentTime
+          : lastKnownGoodTimeRef.current;
+      try {
+        hls.startLoad(at);
+      } catch {
+        /* hls instance may already be destroyed  ignore */
+      }
+    };
+
+    const triggerRemint = () => {
+      const fileId = file?.unique_id;
+      if (!fileId) return;
+      if (typeof src !== 'string' || !isLoadplayPlaybackUrl(src)) {
+        // Non-LoadPlay direct URL: a second startLoad kick is the best
+        // recovery available without changing the src.
+        kickHls();
+        return;
+      }
+      requestPlaybackUrlRefresh(fileId);
+    };
+
+    const armWatchdog = () => {
+      clearTimers();
+      if (!stillStalled()) return;
+      kickTimer = setTimeout(() => {
+        kickTimer = null;
+        if (!stillStalled()) return;
+        kickHls();
+        refreshTimer = setTimeout(() => {
+          refreshTimer = null;
+          if (!stillStalled()) return;
+          triggerRemint();
+        }, REFRESH_MS - KICK_MS);
+      }, KICK_MS);
+    };
+
+    const onWaiting = () => armWatchdog();
+    const onStalled = () => armWatchdog();
+    const onPlaying = () => clearTimers();
+    const onCanPlay = () => clearTimers();
+    const onPause = () => clearTimers();
+    const onEnded = () => clearTimers();
+    const onSeeked = () => clearTimers();
+
+    const onOnline = () => {
+      // Network restored. If we're still spinning, recover immediately
+      // instead of waiting up to 12 more seconds for the watchdog tick.
+      if (!stillStalled()) return;
+      clearTimers();
+      kickHls();
+      // Belt-and-suspenders: if the kick alone doesn't recover within the
+      // refresh window, fall back to a fresh mint.
+      refreshTimer = setTimeout(() => {
+        refreshTimer = null;
+        if (!stillStalled()) return;
+        triggerRemint();
+      }, REFRESH_MS - KICK_MS);
+    };
+
+    video.addEventListener('waiting', onWaiting);
+    video.addEventListener('stalled', onStalled);
+    video.addEventListener('playing', onPlaying);
+    video.addEventListener('canplay', onCanPlay);
+    video.addEventListener('pause', onPause);
+    video.addEventListener('ended', onEnded);
+    video.addEventListener('seeked', onSeeked);
+    window.addEventListener('online', onOnline);
+
+    // If we mount mid-stall (e.g. handoff from mini-player while buffering)
+    // arm the watchdog immediately so we don't sit here forever.
+    if (stillStalled()) armWatchdog();
+
+    return () => {
+      clearTimers();
+      video.removeEventListener('waiting', onWaiting);
+      video.removeEventListener('stalled', onStalled);
+      video.removeEventListener('playing', onPlaying);
+      video.removeEventListener('canplay', onCanPlay);
+      video.removeEventListener('pause', onPause);
+      video.removeEventListener('ended', onEnded);
+      video.removeEventListener('seeked', onSeeked);
+      window.removeEventListener('online', onOnline);
+    };
+  }, [src, file?.unique_id, videoRef]);
+
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;

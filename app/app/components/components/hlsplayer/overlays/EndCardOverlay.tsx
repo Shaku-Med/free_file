@@ -112,6 +112,7 @@ function EndCardSlot({
   index,
   className,
   style,
+  variant = "tile",
   countdownActive,
   countdown,
   dashLen,
@@ -122,6 +123,8 @@ function EndCardSlot({
   index: number;
   className?: string;
   style?: CSSProperties;
+  /** `tile` = desktop corner card. `row` = mobile YT-style horizontal card. */
+  variant?: "tile" | "row";
   countdownActive: boolean;
   countdown: number;
   dashLen: number;
@@ -144,7 +147,9 @@ function EndCardSlot({
     >
       <div
         className={cn(
-          "relative overflow-hidden rounded-lg bg-black/60 ring-1 ring-white/10 backdrop-blur-sm transition-transform duration-200 hover:scale-[1.03] hover:ring-white/30",
+          "relative h-full w-full overflow-hidden rounded-lg bg-black/60 ring-1 ring-white/10 backdrop-blur-sm transition-transform duration-200 hover:ring-white/30",
+          variant === "tile" && "hover:scale-[1.03]",
+          variant === "row" && "active:scale-[0.99]",
           isFeatured && countdownActive && "ring-2 ring-primary/70",
         )}
         onClick={() => {
@@ -161,7 +166,10 @@ function EndCardSlot({
         role="button"
         tabIndex={0}
       >
-        <VideoCard data={card} layout="endCard" />
+        <VideoCard
+          data={card}
+          layout={variant === "row" ? "endCardHorizontal" : "endCard"}
+        />
 
         {isFeatured && countdownActive && (
           <button
@@ -414,20 +422,25 @@ export default function EndCardOverlay({
         </button>
       )}
 
-      {layout.isMobile ? (
+      {layout.variant === "stack" && (
         <>
+          {/* YouTube portrait-phone end screen  vertical stack of
+              full-width horizontal cards anchored to the bottom of the
+              player. Cards stack from bottom upward: index 0 (featured /
+              autoplay target) sits closest to the controls. */}
           {cards.map((card, i) => (
             <EndCardSlot
               key={card.id ?? card.unique_id}
               card={card}
               index={i}
-              className={cn(
-                "absolute z-[2]",
-                i === 0 ? SAFE_LEFT : SAFE_RIGHT,
-              )}
+              variant="row"
+              className="absolute left-1/2 z-[2] -translate-x-1/2"
               style={{
-                bottom: layout.insetBottomPx,
+                bottom:
+                  layout.insetBottomPx +
+                  i * (layout.cardHeightPx + layout.cardGapPx),
                 width: layout.cardWidthPx,
+                height: layout.cardHeightPx,
               }}
               {...cardProps}
             />
@@ -442,7 +455,10 @@ export default function EndCardOverlay({
               }}
               className="pointer-events-auto absolute left-1/2 z-[4] flex -translate-x-1/2 items-center gap-1.5 rounded-full bg-black/65 px-3 py-2 text-xs font-medium text-white ring-1 ring-white/20 backdrop-blur-md transition-all hover:bg-black/80 hover:ring-white/40 focus:outline-none focus-visible:ring-2 focus-visible:ring-white sm:gap-2 sm:px-4 sm:py-2.5 sm:text-sm"
               style={{
-                bottom: layout.insetBottomPx + layout.cardWidthPx * 0.55 + 8,
+                bottom:
+                  layout.insetBottomPx +
+                  cards.length * (layout.cardHeightPx + layout.cardGapPx) +
+                  8,
               }}
               aria-label="Replay video"
             >
@@ -451,7 +467,51 @@ export default function EndCardOverlay({
             </button>
           )}
         </>
-      ) : (
+      )}
+
+      {layout.variant === "sideBySide" && (
+        <>
+          {/* YouTube landscape-phone end screen  two horizontal cards
+              flanking a center column reserved for the replay button.
+              Cards are vertically centered between the top control row
+              and the bottom progress bar, so they CAN'T overlap the HD /
+              PiP / theater / settings icons (the bug the user reported). */}
+          {cards.slice(0, 2).map((card, i) => (
+            <EndCardSlot
+              key={card.id ?? card.unique_id}
+              card={card}
+              index={i}
+              variant="row"
+              className={cn(
+                "absolute top-1/2 z-[2] -translate-y-1/2",
+                i === 0 ? SAFE_LEFT : SAFE_RIGHT,
+              )}
+              style={{
+                width: layout.cardWidthPx,
+                height: layout.cardHeightPx,
+              }}
+              {...cardProps}
+            />
+          ))}
+
+          {state.isEnded && (
+            <button
+              type="button"
+              onClick={() => {
+                cancelAutoplay();
+                replay();
+              }}
+              className="pointer-events-auto absolute left-1/2 top-1/2 z-[4] flex -translate-x-1/2 -translate-y-1/2 items-center gap-1.5 rounded-full bg-black/65 px-3 py-2 text-xs font-medium text-white ring-1 ring-white/20 backdrop-blur-md transition-all hover:bg-black/80 hover:ring-white/40 focus:outline-none focus-visible:ring-2 focus-visible:ring-white sm:gap-2 sm:px-4 sm:py-2.5 sm:text-sm"
+              aria-label="Replay video"
+            >
+              <RotateCcw className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
+              Replay
+            </button>
+          )}
+        </>
+      )}
+
+      {layout.variant === "corners" && (
         <>
           {state.isEnded && (
             <button

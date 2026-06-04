@@ -95,7 +95,7 @@ function isSeriesFile(f: FileType): boolean {
   return t(f.is_series_main) || t(f.is_series_episode) || t(f.is_files_series_item);
 }
 
-type LayoutType = "default" | "horizontal" | "compact" | "reelStrip" | "shelf" | "endCard" | "notificationThumb" | "studioRow";
+type LayoutType = "default" | "horizontal" | "compact" | "reelStrip" | "shelf" | "endCard" | "endCardHorizontal" | "notificationThumb" | "studioRow";
 
 interface VideoCardProps {
   data: FileType;
@@ -2504,6 +2504,55 @@ const VideoCard = ({
           <div className="flex min-w-0 flex-wrap items-center gap-x-1 text-[clamp(9px,2.4cqi,12px)] leading-tight text-white/70">
             {data.owner && (
               <span className="max-w-[10rem] truncate">{data.owner.username}</span>
+            )}
+            {data.owner && viewCount > 0 && (
+              <span className="text-white/40">·</span>
+            )}
+            {viewCount > 0 && (
+              <span className="tabular-nums">{formatViews(viewCount)} views</span>
+            )}
+          </div>
+        </div>
+      </Link>
+    );
+  }
+
+  if (layout === "endCardHorizontal") {
+    /**
+     * YouTube-mobile end card: horizontal layout (thumbnail left, text right).
+     * Used by the player's EndCardOverlay on narrow players where a vertical
+     * stack of full-width cards reads way better than tiny side-by-side
+     * thumbnails. Sizing is driven by the player container (container queries
+     *  cqi units) so the card grows with the player.
+     */
+    const durationSec = typeof data.duration === "number" ? data.duration : 0;
+    const durationStr = formatDuration(durationSec);
+    return (
+      <Link
+        to={watchPath}
+        onClick={(e) => {
+          e.preventDefault();
+          void handleWatchNav();
+        }}
+        className="group flex h-full w-full items-stretch gap-[clamp(0.5rem,2cqi,0.875rem)] rounded-lg p-[clamp(0.25rem,1cqi,0.5rem)] text-left transition-colors hover:bg-white/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-white/60"
+      >
+        {/* Thumbnail  fixed 38% of card width, locked to 16:9 so card height
+            stays predictable for the overlay's vertical stack math. */}
+        <div className="relative aspect-video h-full shrink-0 overflow-hidden rounded-md bg-card ring-1 ring-white/10">
+          {renderThumbnail("h-full w-full")}
+          {durationStr && (
+            <span className="absolute right-1 bottom-1 rounded bg-black/85 px-1 py-0.5 text-[clamp(9px,2.4cqi,11px)] font-semibold tabular-nums leading-none text-white">
+              {durationStr}
+            </span>
+          )}
+        </div>
+        <div className="flex min-w-0 flex-1 flex-col justify-center gap-[clamp(0.125rem,0.7cqi,0.375rem)]">
+          <h3 className="line-clamp-2 text-[clamp(12px,3cqi,16px)] font-semibold leading-snug text-white">
+            <ParseFilenameInsert filename={data.file_title || data.filename} showLimit={80} />
+          </h3>
+          <div className="flex min-w-0 flex-wrap items-center gap-x-1 text-[clamp(10px,2.4cqi,13px)] leading-tight text-white/70">
+            {data.owner && (
+              <span className="max-w-[12rem] truncate">{data.owner.username}</span>
             )}
             {data.owner && viewCount > 0 && (
               <span className="text-white/40">·</span>
