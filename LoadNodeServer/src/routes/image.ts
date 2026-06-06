@@ -15,6 +15,19 @@ import {
     resolveGithubRepoForFile,
 } from '../utils/githubStorage.js';
 import { getR2Client, r2PresignTtlSeconds } from '../utils/r2.js';
+import { buildCacheKey, getMemoryCache } from '../utils/cache/memoryCache.js';
+import {
+    fileMetaCache,
+    commentBackendCache,
+    commentRepoCache,
+    FILE_404_TTL_MS,
+} from '../utils/cache/metadataCache.js';
+
+// Cache TTLs + CDN directives for public, non-blurred, non-adult responses only.
+const PUBLIC_IMAGE_TTL_MS = 24 * 60 * 60 * 1000;
+const PUBLIC_JSON_TTL_MS  = 60 * 60 * 1000;
+const PUBLIC_CDN_CACHE = 'public, s-maxage=86400, stale-while-revalidate=604800';
+const PUBLIC_JSON_CDN_CACHE = 'public, s-maxage=3600, stale-while-revalidate=86400';
 
 const router = express.Router();
 
@@ -451,22 +464,24 @@ const createTextImage = (text: string): Buffer => {
 
 const getFileFromPath = async (path: string): Promise<any> => {
     if (!db) return null;
-
     const pathParts = path.split('/');
+    if (pathParts.length <= 2) return null;
 
-    if(pathParts.length > 2){
-        const uniqueId = pathParts[1];
-        const { data } = await db
-            .from('files')
-            .select('id, is_adult, is_public, owner_id, upload_status, github_repo, storage_backend, storage_bucket')
-            .eq('unique_id', uniqueId)
-            .maybeSingle();
+    // Cache by uniqueId — multiple paths under the same upload share metadata.
+    const uniqueId = pathParts[1]!;
+    const hit = fileMetaCache.get(uniqueId);
+    if (hit !== undefined) return hit;
 
-        return data || null;
-    }
+    const { data } = await db
+        .from('files')
+        .select('id, is_adult, is_public, owner_id, upload_status, github_repo, storage_backend, storage_bucket')
+        .eq('unique_id', uniqueId)
+        .maybeSingle();
 
-
-    return null
+    const value = data || null;
+    // Negative caching prevents 404 floods from hammering the DB.
+    fileMetaCache.set(uniqueId, value, value === null ? FILE_404_TTL_MS : undefined);
+    return value;
 
     // if (path.includes('_thumb_')) {
     //     const uniqueIdMatch = path.match(/([^\/]+)_thumb_\d+\.jpg/);
@@ -513,21 +528,27 @@ const getFileFromPath = async (path: string): Promise<any> => {
 // then the staging table set by the GoUpload webhook before the comment is created.
 async function lookupCommentImageBackend(storagePath: string): Promise<'github' | 'r2'> {
     if (!db) return 'github';
+    const hit = commentBackendCache.get(storagePath);
+    if (hit !== undefined) return hit;
     try {
         const { data: c } = await db
             .from('comments')
             .select('storage_backend')
             .eq('image_url', storagePath)
             .maybeSingle();
-        if ((c as { storage_backend?: string | null } | null)?.storage_backend === 'r2') return 'r2';
-        if (c) return 'github';
-        const { data: pending } = await db
-            .from('comment_image_upload_repos')
-            .select('storage_backend')
-            .eq('storage_path', storagePath)
-            .maybeSingle();
-        if ((pending as { storage_backend?: string | null } | null)?.storage_backend === 'r2') return 'r2';
-        return 'github';
+        let result: 'github' | 'r2';
+        if ((c as { storage_backend?: string | null } | null)?.storage_backend === 'r2') result = 'r2';
+        else if (c) result = 'github';
+        else {
+            const { data: pending } = await db
+                .from('comment_image_upload_repos')
+                .select('storage_backend')
+                .eq('storage_path', storagePath)
+                .maybeSingle();
+            result = (pending as { storage_backend?: string | null } | null)?.storage_backend === 'r2' ? 'r2' : 'github';
+        }
+        commentBackendCache.set(storagePath, result);
+        return result;
     } catch {
         return 'github';
     }
@@ -535,15 +556,22 @@ async function lookupCommentImageBackend(storagePath: string): Promise<'github' 
 
 async function lookupCommentImageGithubRepo(storagePath: string): Promise<string | null> {
     if (!db) return null;
+    const hit = commentRepoCache.get(storagePath);
+    if (hit !== undefined) return hit;
     try {
         const { data, error } = await db
             .from('comments')
             .select('image_github_repo')
             .eq('image_url', storagePath)
             .maybeSingle();
-        if (error || !data) return null;
+        if (error || !data) {
+            commentRepoCache.set(storagePath, null);
+            return null;
+        }
         const r = (data as { image_github_repo?: string | null }).image_github_repo;
-        return typeof r === 'string' && r.trim() ? r.trim() : null;
+        const value = typeof r === 'string' && r.trim() ? r.trim() : null;
+        commentRepoCache.set(storagePath, value);
+        return value;
     } catch {
         return null;
     }
@@ -562,8 +590,8 @@ router.get('/*', async (req: Request, res: Response) => {
     try {
         const qualityParam = req.query.quality as string | null;
         const textParam = req.query.text as string | null;
-        
-        
+
+
         if (textParam) {
             const buffer = createTextImage(textParam);
             res.set({
@@ -572,7 +600,7 @@ router.get('/*', async (req: Request, res: Response) => {
             });
             return res.send(buffer);
         }
-        
+
         const rawPath = githubImagePathFromRequest(req);
         const splitUrl = normalizeGithubImagePath(rawPath);
 
@@ -580,10 +608,30 @@ router.get('/*', async (req: Request, res: Response) => {
             return res.status(404).send(null);
         }
 
+        const cache = getMemoryCache();
+
         // Comment images are public, just proxy. Backend can be R2 (recent
         // uploads) or GitHub (legacy)  comment row + staging table tell us.
         if (splitUrl.startsWith('comment-images/')) {
             const backend = await lookupCommentImageBackend(splitUrl);
+            const cacheKey = buildCacheKey({
+                path: splitUrl,
+                quality: qualityParam,
+                blur: false,
+                backend: backend === 'r2' ? 'r2' : 'gh',
+            });
+            const cached = cache.get(cacheKey);
+            if (cached) {
+                res.set({
+                    'Content-Type': cached.contentType,
+                    'Cache-Control': cached.cacheControl,
+                    'CDN-Cache-Control': PUBLIC_CDN_CACHE,
+                    'Vercel-CDN-Cache-Control': PUBLIC_CDN_CACHE,
+                    'X-Cache': 'HIT',
+                });
+                return res.send(cached.buffer);
+            }
+
             let result;
             if (backend === 'r2') {
                 const r2 = getR2Client();
@@ -607,11 +655,13 @@ router.get('/*', async (req: Request, res: Response) => {
                     defaultGithubBranch(),
                 );
             }
+            cache.set(cacheKey, result.buffer, result.contentType, result.cacheControl, PUBLIC_IMAGE_TTL_MS);
             res.set({
                 'Content-Type': result.contentType,
                 'Cache-Control': result.cacheControl,
-                'CDN-Cache-Control': 'no-store',
-                'Vercel-CDN-Cache-Control': 'no-store',
+                'CDN-Cache-Control': PUBLIC_CDN_CACHE,
+                'Vercel-CDN-Cache-Control': PUBLIC_CDN_CACHE,
+                'X-Cache': 'MISS',
             });
             return res.send(result.buffer);
         }
@@ -646,6 +696,13 @@ router.get('/*', async (req: Request, res: Response) => {
             // The main security is handled by the file lookup - if it's in the DB and is_adult, blur is applied
         }
 
+        // Only cache responses that don't depend on viewer identity AND
+        // belong to a finished upload (mid-upload bytes can still change).
+        const isUploadComplete = file.upload_status === 'complete' || file.upload_status === 'completed';
+        const isCacheable = !shouldBlur && file.is_public === true && file.is_adult !== true && isUploadComplete;
+        const cdnDirective = isCacheable ? PUBLIC_CDN_CACHE : 'no-store';
+        const cdnJsonDirective = isCacheable ? PUBLIC_JSON_CDN_CACHE : 'no-store';
+
         // R2-backed files: presign + proxy. Bucket stays private, same as the
         // GitHub-raw path. shouldBlur still applies (processing is buffer-based).
         if (file.storage_backend === 'r2') {
@@ -655,22 +712,54 @@ router.get('/*', async (req: Request, res: Response) => {
             }
             const ttl = r2PresignTtlSeconds();
             const r2Resolver = (urlPath: string) => r2.presignGet(urlPath, ttl);
-            if (splitUrl.toLowerCase().endsWith('.json')) {
+
+            const isJson = splitUrl.toLowerCase().endsWith('.json');
+            const cacheKey = buildCacheKey({
+                path: splitUrl,
+                quality: qualityParam,
+                blur: shouldBlur,
+                backend: 'r2',
+            });
+
+            if (isCacheable) {
+                const cached = cache.get(cacheKey);
+                if (cached) {
+                    res.set({
+                        'Content-Type': cached.contentType,
+                        'Cache-Control': cached.cacheControl,
+                        'CDN-Cache-Control': cdnDirective,
+                        'Vercel-CDN-Cache-Control': cdnDirective,
+                        'X-Cache': 'HIT',
+                    });
+                    return res.send(cached.buffer);
+                }
+            }
+
+            if (isJson) {
                 const body = await fetchGithubJsonWithRetry(splitUrl, '', '', r2Resolver);
+                const jsonBuf = Buffer.from(body, 'utf-8');
+                if (isCacheable) {
+                    cache.set(cacheKey, jsonBuf, 'application/json', 'public, max-age=300', PUBLIC_JSON_TTL_MS);
+                }
                 res.set({
                     'Content-Type': 'application/json',
                     'Cache-Control': 'public, max-age=300',
-                    'CDN-Cache-Control': 'no-store',
-                    'Vercel-CDN-Cache-Control': 'no-store',
+                    'CDN-Cache-Control': cdnJsonDirective,
+                    'Vercel-CDN-Cache-Control': cdnJsonDirective,
+                    'X-Cache': isCacheable ? 'MISS' : 'BYPASS',
                 });
                 return res.send(body);
             }
             const result = await loadImageWithRetry(splitUrl, qualityParam, shouldBlur, '', '', r2Resolver);
+            if (isCacheable) {
+                cache.set(cacheKey, result.buffer, result.contentType, result.cacheControl, PUBLIC_IMAGE_TTL_MS);
+            }
             res.set({
                 'Content-Type': result.contentType,
                 'Cache-Control': result.cacheControl,
-                'CDN-Cache-Control': 'no-store',
-                'Vercel-CDN-Cache-Control': 'no-store',
+                'CDN-Cache-Control': cdnDirective,
+                'Vercel-CDN-Cache-Control': cdnDirective,
+                'X-Cache': isCacheable ? 'MISS' : 'BYPASS',
             });
             return res.send(result.buffer);
         }
@@ -684,16 +773,41 @@ router.get('/*', async (req: Request, res: Response) => {
             ? githubReposToTryForVideoCommentAttachment(file, commentImageRepo)
             : [resolveGithubRepoForFile(file)];
 
+        // Key by path, not repo — the multi-repo fallback returns the same body.
+        const ghCacheKey = buildCacheKey({
+            path: splitUrl,
+            quality: qualityParam,
+            blur: shouldBlur,
+            backend: 'gh',
+        });
+
         if (splitUrl.toLowerCase().endsWith('.json')) {
+            if (isCacheable) {
+                const cached = cache.get(ghCacheKey);
+                if (cached) {
+                    res.set({
+                        'Content-Type': cached.contentType,
+                        'Cache-Control': cached.cacheControl,
+                        'CDN-Cache-Control': cdnJsonDirective,
+                        'Vercel-CDN-Cache-Control': cdnJsonDirective,
+                        'X-Cache': 'HIT',
+                    });
+                    return res.send(cached.buffer);
+                }
+            }
             let lastExhausted: ImageLoadExhaustedError | null = null;
             for (const repo of repos) {
                 try {
                     const body = await fetchGithubJsonWithRetry(splitUrl, repo, branch);
+                    if (isCacheable) {
+                        cache.set(ghCacheKey, Buffer.from(body, 'utf-8'), 'application/json', 'public, max-age=300', PUBLIC_JSON_TTL_MS);
+                    }
                     res.set({
                         'Content-Type': 'application/json',
                         'Cache-Control': 'public, max-age=300',
-                        'CDN-Cache-Control': 'no-store',
-                        'Vercel-CDN-Cache-Control': 'no-store',
+                        'CDN-Cache-Control': cdnJsonDirective,
+                        'Vercel-CDN-Cache-Control': cdnJsonDirective,
+                        'X-Cache': isCacheable ? 'MISS' : 'BYPASS',
                     });
                     return res.send(body);
                 } catch (e) {
@@ -705,16 +819,34 @@ router.get('/*', async (req: Request, res: Response) => {
             throw new Error('No GitHub repo candidates for path');
         }
 
+        if (isCacheable) {
+            const cached = cache.get(ghCacheKey);
+            if (cached) {
+                res.set({
+                    'Content-Type': cached.contentType,
+                    'Cache-Control': cached.cacheControl,
+                    'CDN-Cache-Control': cdnDirective,
+                    'Vercel-CDN-Cache-Control': cdnDirective,
+                    'X-Cache': 'HIT',
+                });
+                return res.send(cached.buffer);
+            }
+        }
+
         // SECURITY: Now fetch image with shouldBlur flag already determined
         let lastExhausted: ImageLoadExhaustedError | null = null;
         for (const repo of repos) {
             try {
                 const result = await loadImageWithRetry(splitUrl, qualityParam, shouldBlur, repo, branch);
+                if (isCacheable) {
+                    cache.set(ghCacheKey, result.buffer, result.contentType, result.cacheControl, PUBLIC_IMAGE_TTL_MS);
+                }
                 res.set({
                     'Content-Type': result.contentType,
                     'Cache-Control': result.cacheControl,
-                    'CDN-Cache-Control': 'no-store',
-                    'Vercel-CDN-Cache-Control': 'no-store',
+                    'CDN-Cache-Control': cdnDirective,
+                    'Vercel-CDN-Cache-Control': cdnDirective,
+                    'X-Cache': isCacheable ? 'MISS' : 'BYPASS',
                 });
                 return res.send(result.buffer);
             } catch (e) {

@@ -3,6 +3,8 @@ import cors from 'cors';
 import { initializeEnv, refreshEnv } from './utils/envFetcher.js';
 import { reinitializeDatabase } from './utils/database.js';
 import { getServerToServerBaseURL } from './utils/url.js';
+import { startLoadMonitor, getLoadSnapshot } from './utils/cache/loadMonitor.js';
+import { rateLimit } from './utils/cache/rateLimit.js';
 import dotenv from 'dotenv';
 dotenv.config();
 
@@ -51,8 +53,22 @@ const startServer = async () => {
     const imageRouter = (await import('./routes/image.js')).default;
     const profilepicRouter = (await import('./routes/profilepic.js')).default;
 
-    app.use('/api/load/image', imageRouter);
-    app.use('/api/load/profilepic', profilepicRouter);
+    app.use('/api/load/image', rateLimit, imageRouter);
+    app.use('/api/load/profilepic', rateLimit, profilepicRouter);
+
+    startLoadMonitor();
+
+    // RSS / heap / lag + cache stats. Metrics only, no secrets.
+    // Set HEALTH_TOKEN to require ?token=<value>; leave unset for public health.
+    app.get('/health', (req, res) => {
+        const required = process.env.HEALTH_TOKEN;
+        if (required && req.query.token !== required) {
+            return res.status(404).send(null);
+        }
+        const snap = getLoadSnapshot();
+        res.set('Cache-Control', 'no-store');
+        res.json({ ok: true, ...snap });
+    });
 
     // Unmatched routes  return 404, NOT 401. This is a public CDN; nothing
     // here requires authentication. Returning 401 was the original cause of
