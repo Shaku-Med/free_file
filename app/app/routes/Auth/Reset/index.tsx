@@ -6,11 +6,19 @@ import { Input } from '~/components/ui/input';
 import { Card, CardContent, CardHeader } from '~/components/ui/card';
 import { isAuthenticated } from '~/lib/Security/Password';
 import db from '~/lib/Database/supabase';
-import { generateVerificationCode, hashVerificationCode, saveVerificationCode } from '../fun/verification';
+import crypto from 'crypto';
+import { generateVerificationCode, hashVerificationCode, saveVerificationCode, issueVerifyContext, appendVerifyContextCookie } from '../fun/verification';
 import { sendVerificationEmail } from '../fun/email';
 import { checkAuthRateLimit, resetAuthRateLimit } from '../fun/rateLimit';
 import { normalizeIdentifier, sanitizeString, isValidEmail, constantTimeDelay } from '../fun/validation';
 import { KeyRound, AlertCircle, ArrowLeft } from 'lucide-react';
+
+async function redirectToVerifyReset(userId: string): Promise<Response> {
+  const token = await issueVerifyContext(userId, 'reset');
+  const headers = new Headers();
+  if (token) appendVerifyContextCookie(headers, token);
+  return redirect('/auth/verify?type=reset', { headers });
+}
 
 export const loader = async ({ request }: { request: Request }) => {
   const is_auth = await isAuthenticated(request);
@@ -68,8 +76,10 @@ export const action = async ({ request }: { request: Request }) => {
     }
 
     if (!user) {
+      // Enumeration-safe: issue a context for a non-resolvable id so the
+      // verify page renders identically to the real path.
       await constantTimeDelay();
-      return redirect(`/auth/verify?userId=pending&type=reset&sent=true`);
+      return redirectToVerifyReset(crypto.randomUUID());
     }
 
     const code = generateVerificationCode();
@@ -91,7 +101,7 @@ export const action = async ({ request }: { request: Request }) => {
 
     resetAuthRateLimit(request, 'reset', identifier.toLowerCase());
 
-    return redirect(`/auth/verify?userId=${user.id}&type=reset`);
+    return redirectToVerifyReset(user.id);
   } catch (error) {
     console.error('Error in reset action:', error);
     return data({ error: 'Something went wrong. Please try again.' }, { status: 500 });
@@ -113,7 +123,7 @@ const Reset = () => {
 
   return (
     <div className="w-full">
-      <Card className="border border-border/60 shadow-sm">
+      <Card className="border-0 bg-transparent shadow-none">
         <CardHeader className="pb-1 pt-7 sm:pt-8 px-5 sm:px-8">
           <div className="flex flex-col items-center gap-2">
             <KeyRound className="h-8 w-8 text-primary" />

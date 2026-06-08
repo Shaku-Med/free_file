@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect } from "react";
 import Dislike from "./Icons/Dislike";
 import { useSidebar } from "~/components/ui/sidebar";
+import { buildLoginHref } from "~/lib/loginRedirect";
 
 interface DislikedProps {
   fileId: string;
@@ -36,7 +37,7 @@ const Disliked = ({ fileId, dislikeCount, disliked, onUpdate }: DislikedProps) =
           body: JSON.stringify({ fileId }),
         });
         if (res.status === 401) {
-          window.location.href = "/auth/login";
+          window.location.href = buildLoginHref(window.location.pathname + window.location.search);
           return;
         }
         const data = await res.json();

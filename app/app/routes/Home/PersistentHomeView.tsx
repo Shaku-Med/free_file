@@ -27,7 +27,7 @@
  * component  this is a verbatim extraction, not a refactor.
  */
 
-import { useCallback } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Swiper, SwiperSlide } from "swiper/react";
 import { A11y, Keyboard, Navigation } from "swiper/modules";
 import type { Swiper as SwiperType } from "swiper";
@@ -36,17 +36,38 @@ import "swiper/css/navigation";
 import "swiper/css/pagination";
 
 import { useFileContext } from "~/lib/Context/Context";
+import SuggestedCreatorsRow, {
+  type SuggestedCreator,
+} from "./components/SuggestedCreatorsRow";
 import VideoCard from "./components/VideoCard";
-import {
-  ContinueWatchingSection,
-  getContinueWatchingSplitIndex,
-} from "./components/ContinueWatchingSection";
+import { ContinueWatchingSection } from "./components/ContinueWatchingSection";
 import type { FileType } from "~/lib/types";
 import { groupConsecutiveReelClusters } from "~/lib/feed/groupConsecutiveReelClusters";
 import { Button } from "~/components/ui/button";
 import { Plus } from "lucide-react";
 import { SignInToSeeMore } from "~/components/SignInWall";
 import { Separator } from "~/components/ui/separator";
+
+// Stable object reference so VideoCard's memo isn't broken by a fresh literal.
+const FEED_HIDE_ACTIONS = { completely: false, halfway: true } as const;
+
+// Inject a "People you may know" row after roughly this many feed cards.
+// Capped at SUGGESTION_MAX_ROWS so the feed isn't flooded as the user scrolls /
+// loads more  a couple of spaced rows, Instagram-style, not one every batch.
+const SUGGESTION_EVERY = 10;
+const SUGGESTION_MAX_ROWS = 2;
+const SUGGESTIONS_PER_ROW = 6;
+const SUGGESTION_POOL_SIZE = 30;
+
+/** Wrap-around slice so each injected row surfaces different creators. */
+function rotatedSlice(pool: SuggestedCreator[], start: number, count: number): SuggestedCreator[] {
+  if (pool.length === 0) return [];
+  const out: SuggestedCreator[] = [];
+  for (let i = 0; i < Math.min(count, pool.length); i++) {
+    out.push(pool[(start + i) % pool.length]);
+  }
+  return out;
+}
 
 function SkeletonCard() {
   return (
@@ -94,6 +115,37 @@ export default function PersistentHomeView() {
     );
   }, [setFiles]);
 
+  // "People you may know" pool, fetched once per session. Rotated across
+  // multiple feed positions so different creators surface each time.
+  const [suggestions, setSuggestions] = useState<SuggestedCreator[]>([]);
+  useEffect(() => {
+    if (!userId) {
+      setSuggestions([]);
+      return;
+    }
+    let cancelled = false;
+    fetch(`/api/suggested-creators?limit=${SUGGESTION_POOL_SIZE}`, { credentials: "include" })
+      .then((r) => r.json())
+      .then((j) => {
+        if (!cancelled) setSuggestions(Array.isArray(j?.data) ? (j.data as SuggestedCreator[]) : []);
+      })
+      .catch(() => {
+        if (!cancelled) setSuggestions([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [userId]);
+
+  // Continue-watching strip position: a random EARLY card index, stable per
+  // mount. Early + fixed so it doesn't drift downward as load-more appends.
+  const continueWatchingPos = useRef(2 + Math.floor(Math.random() * 6)); // 2–7
+
+  // Shared across feed-a / feed-b so suggestion rows keep rotating through the
+  // pool (different creators at each position). Declared with the other hooks
+  // (before any early return) to keep hook order stable.
+  const suggestionRotation = useRef({ ordinal: 0 });
+
   if (initialLoading) {
     return (
       <div className="w-full min-w-0">
@@ -106,82 +158,107 @@ export default function PersistentHomeView() {
     "grid w-full min-w-0 grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3";
 
   const splitForHistory =
-    userId && files.length > 0 ? getContinueWatchingSplitIndex(files.length) : 0;
+    userId && files.length > 0
+      ? Math.max(1, Math.min(continueWatchingPos.current, files.length - 1))
+      : 0;
   const feedBeforeHistory = (userId ? files.slice(0, splitForHistory) : files) as FileType[];
   const feedAfterHistory = (userId ? files.slice(splitForHistory) : []) as FileType[];
+
+  // Reset rotation each full render pass (not a hook — safe after early return).
+  suggestionRotation.current.ordinal = 0;
 
   const renderFeedGroups = (slice: FileType[], keyPrefix: string) => {
     const groups = groupConsecutiveReelClusters(slice);
     let indexCounter = 0;
-    return (
-      <div className={gridClass}>
-        {groups.map((g) => {
-          if (g.kind === "single") {
-            const file = g.file;
-            const index = indexCounter++;
-            return (
-              <VideoCard
-                key={`${keyPrefix}-${file.id || index}`}
-                data={file}
-                index={index}
-                currentUserId={userId || undefined}
-                userActions={userActions}
-                onUpdate={handleFileUpdate}
-                hideActions={{ completely: false, halfway: true }}
-              />
-            );
-          }
-          const clusterKey = g.files[0]?.feed_reel_cluster_id ?? g.files[0]?.id ?? keyPrefix;
-          return (
-            <div
-              key={`${keyPrefix}-reel-${clusterKey}`}
-              className="col-span-full w-full min-w-0 max-w-full overflow-hidden"
-            >
-              <Swiper
-                modules={[Navigation, A11y, Keyboard]}
-                slidesPerView={3.15}
-                spaceBetween={10}
-                speed={380}
-                watchOverflow
-                observer
-                observeParents
-                resizeObserver
-                navigation
-                keyboard={{ enabled: true, onlyInViewport: true }}
-                breakpoints={{
-                  640: { slidesPerView: 2.5, spaceBetween: 12 },
-                  768: { slidesPerView: 3, spaceBetween: 12 },
-                  1024: { slidesPerView: 3.5, spaceBetween: 14 },
-                  1280: { slidesPerView: 4, spaceBetween: 14 },
-                  1536: { slidesPerView: 5, spaceBetween: 16 },
-                }}
-                className="feed-reel-swiper"
-                onInit={(swiper: SwiperType) => {
-                  swiper.update();
-                }}
-              >
-                {g.files.map((file, keyIndex) => {
-                  const index = indexCounter++;
-                  return (
-                    <SwiperSlide key={file.id || file.unique_id || keyIndex} className="!h-auto">
-                      <VideoCard
-                        data={file}
-                        layout="reelStrip"
-                        index={index}
-                        currentUserId={userId || undefined}
-                        userActions={userActions}
-                        onUpdate={handleFileUpdate}
-                        hideActions={{ completely: false, halfway: true }}
-                      />
-                    </SwiperSlide>
-                  );
-                })}
-              </Swiper>
-            </div>
-          );
-        })}
-      </div>
-    );
+    let cardsSinceSuggestion = 0;
+    const nodes: React.ReactNode[] = [];
+
+    const maybeInjectSuggestions = (anchorKey: string) => {
+      if (suggestions.length === 0 || cardsSinceSuggestion < SUGGESTION_EVERY) return;
+      if (suggestionRotation.current.ordinal >= SUGGESTION_MAX_ROWS) return;
+      cardsSinceSuggestion = 0;
+      const ord = suggestionRotation.current.ordinal++;
+      const start = (ord * SUGGESTIONS_PER_ROW) % suggestions.length;
+      nodes.push(
+        <SuggestedCreatorsRow
+          key={`sugg-${keyPrefix}-${anchorKey}-${ord}`}
+          creators={rotatedSlice(suggestions, start, SUGGESTIONS_PER_ROW)}
+          currentUserId={userId || null}
+        />,
+      );
+    };
+
+    for (const g of groups) {
+      if (g.kind === "single") {
+        const file = g.file;
+        const index = indexCounter++;
+        nodes.push(
+          <VideoCard
+            key={`${keyPrefix}-${file.id || index}`}
+            data={file}
+            index={index}
+            currentUserId={userId || undefined}
+            userActions={userActions}
+            onUpdate={handleFileUpdate}
+            hideActions={FEED_HIDE_ACTIONS}
+          />,
+        );
+        cardsSinceSuggestion++;
+        maybeInjectSuggestions(file.id || String(index));
+        continue;
+      }
+
+      const clusterKey = g.files[0]?.feed_reel_cluster_id ?? g.files[0]?.id ?? keyPrefix;
+      nodes.push(
+        <div
+          key={`${keyPrefix}-reel-${clusterKey}`}
+          className="col-span-full w-full min-w-0 max-w-full overflow-hidden"
+        >
+          <Swiper
+            modules={[Navigation, A11y, Keyboard]}
+            slidesPerView={3.15}
+            spaceBetween={10}
+            speed={380}
+            watchOverflow
+            observer
+            observeParents
+            resizeObserver
+            navigation
+            keyboard={{ enabled: true, onlyInViewport: true }}
+            breakpoints={{
+              640: { slidesPerView: 2.5, spaceBetween: 12 },
+              768: { slidesPerView: 3, spaceBetween: 12 },
+              1024: { slidesPerView: 3.5, spaceBetween: 14 },
+              1280: { slidesPerView: 4, spaceBetween: 14 },
+              1536: { slidesPerView: 5, spaceBetween: 16 },
+            }}
+            className="feed-reel-swiper"
+            onInit={(swiper: SwiperType) => {
+              swiper.update();
+            }}
+          >
+            {g.files.map((file, keyIndex) => {
+              const index = indexCounter++;
+              return (
+                <SwiperSlide key={file.id || file.unique_id || keyIndex} className="!h-auto">
+                  <VideoCard
+                    data={file}
+                    layout="reelStrip"
+                    index={index}
+                    currentUserId={userId || undefined}
+                    userActions={userActions}
+                    onUpdate={handleFileUpdate}
+                    hideActions={FEED_HIDE_ACTIONS}
+                  />
+                </SwiperSlide>
+              );
+            })}
+          </Swiper>
+        </div>,
+      );
+    }
+
+    return <div className={gridClass}>{nodes}</div>;
   };
 
   return (

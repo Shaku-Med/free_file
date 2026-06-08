@@ -1,6 +1,7 @@
 import { Link } from "react-router";
 import { LogIn } from "lucide-react";
 import { Button } from "~/components/ui/button";
+import { useAuthHrefs } from "~/lib/loginRedirect";
 
 type Props = {
   open: boolean;
@@ -16,6 +17,7 @@ function formatClock(sec: number) {
 }
 
 export default function GuestPreviewWall({ open, limitSeconds, onDismiss }: Props) {
+  const { loginHref } = useAuthHrefs();
   if (!open) return null;
 
   return (
@@ -35,7 +37,7 @@ export default function GuestPreviewWall({ open, limitSeconds, onDismiss }: Prop
         </p>
         <div className="mt-5 flex flex-col gap-2 sm:flex-row sm:justify-center">
           <Button asChild className="gap-2">
-            <Link to="/auth/login">
+            <Link to={loginHref}>
               <LogIn className="h-4 w-4" />
               Sign in
             </Link>

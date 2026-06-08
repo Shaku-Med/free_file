@@ -75,10 +75,10 @@ export const action = async ({ request }: { request: Request }) => {
         if (!ALLOWED_EVENTS.has(type)) return null;
 
         const fileId = typeof e.fileId === "string" ? e.fileId : null;
-        const ownerCandidate =
-          (typeof e.ownerId === "string" ? e.ownerId : null) ||
-          (fileId ? fileOwners.get(fileId)?.owner_id : null);
-        const ownerId = typeof ownerCandidate === "string" ? ownerCandidate : null;
+        // Owner is ALWAYS the server-resolved file owner. Never trust a
+        // client-supplied ownerId (it could attribute events to any account).
+        const resolvedOwner = fileId ? fileOwners.get(fileId)?.owner_id : null;
+        const ownerId = typeof resolvedOwner === "string" ? resolvedOwner : null;
 
         const meta =
           e.metadata && typeof e.metadata === "object" && !Array.isArray(e.metadata)

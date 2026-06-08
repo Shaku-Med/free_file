@@ -9,6 +9,7 @@ import {
   DialogFooter,
 } from "~/components/ui/dialog";
 import { Button } from "~/components/ui/button";
+import { useAuthHrefs } from "~/lib/loginRedirect";
 import { LogIn, UserPlus, Lock } from "lucide-react";
 
 /**
@@ -62,6 +63,7 @@ export function SignInDialog({
   title?: string;
   description?: string;
 }) {
+  const { loginHref, signupHref } = useAuthHrefs();
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="flex w-[calc(100vw-1.5rem)] max-w-md flex-col gap-5 overflow-hidden">
@@ -74,7 +76,7 @@ export function SignInDialog({
         </DialogHeader>
         <DialogFooter className="flex-col gap-2 sm:flex-col">
           <Button asChild className="w-full gap-2" size="lg">
-            <Link to="/auth/login" onClick={() => onOpenChange(false)}>
+            <Link to={loginHref} onClick={() => onOpenChange(false)}>
               <LogIn className="h-4 w-4" />
               Sign In
             </Link>
@@ -85,7 +87,7 @@ export function SignInDialog({
             className="w-full gap-2"
             size="lg"
           >
-            <Link to="/auth/signup" onClick={() => onOpenChange(false)}>
+            <Link to={signupHref} onClick={() => onOpenChange(false)}>
               <UserPlus className="h-4 w-4" />
               Create Account
             </Link>

@@ -75,10 +75,9 @@ function viewerOwnsAdultInSeries(
   return false;
 }
 
-/** Thread geometry (Facebook-style spine + elbow) */
-const SPINE_LEFT = "left-[15px]";
-const CONNECTOR_TOP = "top-[22px]";
-const THREAD_PL = "pl-[30px]";
+/** Nested tree guide geometry (clean vertical spine + short tick). */
+const SPINE_LEFT = "left-[10px]";
+const THREAD_PL = "pl-[22px]";
 
 function countEpisodeItems(ep: SeriesEpisodeGroup): number {
   let n = ep.items.length;
@@ -136,55 +135,27 @@ interface SeriesEpisodesSectionProps {
   userActions?: { likedFileIds: Set<string>; dislikedFileIds: Set<string> };
 }
 
-/** Vertical spine + per-row elbow (rounded └) like FB comment threads */
-function NestedEpisodeThread({
-  children,
-}: {
-  children: ReactNode;
-}) {
+/** Clean nested tree: one continuous vertical guide + a short tick per child. */
+function NestedEpisodeThread({ children }: { children: ReactNode }) {
   return (
-    <div className={cn("relative mt-2", THREAD_PL)}>
-      {/* Continuous vertical line */}
+    <div className={cn("relative mt-1.5", THREAD_PL)}>
       <div
-        className={cn(
-          "pointer-events-none absolute bottom-0 top-0 w-[2px] rounded-full",
-          SPINE_LEFT,
-          "bg-muted-foreground/22 dark:bg-muted-foreground/30"
-        )}
+        className={cn("pointer-events-none absolute bottom-2 top-0 w-px bg-border", SPINE_LEFT)}
         aria-hidden
       />
-      <ul className="m-0 list-none space-y-2 p-0">{children}</ul>
+      <ul className="m-0 list-none space-y-1.5 p-0">{children}</ul>
     </div>
   );
 }
 
-function NestedEpisodeRow({
-  children,
-}: {
-  children: ReactNode;
-}) {
+function NestedEpisodeRow({ children }: { children: ReactNode }) {
   return (
-    <li className="relative min-w-0 pt-0.5">
-      {/* Rounded inner corner (└) where spine meets row */}
+    <li className="relative min-w-0">
       <div
-        className={cn(
-          "pointer-events-none absolute z-0 h-[11px] w-[11px] border-l-2 border-b-2 border-muted-foreground/22",
-          "rounded-bl-[10px] dark:border-muted-foreground/30",
-          SPINE_LEFT,
-          "top-[21px] -translate-y-full"
-        )}
+        className={cn("pointer-events-none absolute top-[18px] h-px w-3 bg-border", SPINE_LEFT)}
         aria-hidden
       />
-      {/* Horizontal segment toward the card */}
-      <div
-        className={cn(
-          "pointer-events-none absolute z-0 h-[2px] w-[12px] rounded-r-full bg-muted-foreground/22 dark:bg-muted-foreground/30",
-          SPINE_LEFT,
-          CONNECTOR_TOP
-        )}
-        aria-hidden
-      />
-      <div className="relative z-[1] min-w-0">{children}</div>
+      <div className="relative z-[1] min-w-0 pl-3.5">{children}</div>
     </li>
   );
 }
@@ -215,10 +186,6 @@ function EpisodeBlock({
   reviewingFor?: string | null;
 }) {
   const label = ep.episode_name?.trim() || "Episode";
-  const part =
-    ep.episode_number != null && !Number.isNaN(ep.episode_number)
-      ? `Part ${ep.episode_number}`
-      : null;
   const nestedCount = ep.nested?.length ?? 0;
   const totalVideos = countEpisodeItems(ep);
 
@@ -235,10 +202,10 @@ function EpisodeBlock({
         <button
           type="button"
           className={cn(
-            "flex w-full items-center gap-2 border-b border-border/50 px-2 py-2 text-left transition-colors",
+            "flex w-full items-center gap-2 px-2.5 py-2.5 text-left transition-colors",
             "hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30 focus-visible:ring-inset",
-            "data-[state=open]:bg-muted/15",
-            !isRoot && "px-1.5"
+            "data-[state=open]:bg-muted/20",
+            !isRoot && "px-2 py-2"
           )}
         >
           <ChevronRight
@@ -249,21 +216,22 @@ function EpisodeBlock({
             strokeWidth={2}
             aria-hidden
           />
-          <div className="flex min-w-0 flex-1 items-center justify-between gap-2">
-            <span className="truncate text-sm font-semibold leading-snug text-foreground">
-              {label}
+          {ep.episode_number != null && !Number.isNaN(ep.episode_number) ? (
+            <span className="inline-flex h-5 min-w-[1.25rem] shrink-0 items-center justify-center rounded-md bg-muted px-1 text-[11px] font-semibold tabular-nums text-muted-foreground">
+              {ep.episode_number}
             </span>
-            <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
-              {[part, `${totalVideos} video${totalVideos === 1 ? "" : "s"}`]
-                .filter(Boolean)
-                .join(" · ")}
-            </span>
-          </div>
+          ) : null}
+          <span className="min-w-0 flex-1 truncate text-sm font-semibold leading-snug text-foreground">
+            {label}
+          </span>
+          <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
+            {totalVideos} video{totalVideos === 1 ? "" : "s"}
+          </span>
         </button>
       </CollapsibleTrigger>
       <CollapsibleContent>
-        <div className="space-y-1 pb-1 pt-0">
-          <ul className="m-0 list-none space-y-0 px-0">
+        <div className="space-y-1 px-1.5 pb-1.5 pt-1">
+          <ul className="m-0 list-none space-y-0.5 px-0">
             {ep.items.map((video, index) => {
               const isCurrent = video.unique_id === currentVideoUniqueId;
               const isOwnerAdult =
@@ -274,14 +242,15 @@ function EpisodeBlock({
                 <li
                   key={video.unique_id}
                   className={cn(
-                    "flex min-w-0 list-none items-stretch gap-2 border-b border-border/40 py-1.5 pl-1 pr-0 last:border-b-0",
-                    isCurrent &&
-                      "rounded-lg bg-[#3d2c20]/35 ring-1 ring-[#6b4c2e]/45 dark:bg-white/[0.07] dark:ring-white/12",
+                    "flex min-w-0 list-none items-stretch gap-1.5 rounded-lg py-1.5 pl-1 pr-1.5 transition-colors",
+                    isCurrent
+                      ? "bg-primary/10 ring-1 ring-primary/25"
+                      : "hover:bg-muted/30",
                   )}
                 >
-                  <div className="flex w-7 shrink-0 items-start justify-center pt-2" aria-hidden>
+                  <div className="flex w-5 shrink-0 items-start justify-center pt-2" aria-hidden>
                     {isCurrent ? (
-                      <Play className="h-4 w-4 shrink-0 fill-primary text-primary" aria-hidden />
+                      <Play className="h-3.5 w-3.5 shrink-0 fill-primary text-primary" aria-hidden />
                     ) : null}
                   </div>
                   <div className="min-w-0 flex-1 space-y-1">
@@ -318,7 +287,6 @@ function EpisodeBlock({
                       </div>
                     )}
                   </div>
-                  <div className="w-8 shrink-0" aria-hidden />
                 </li>
               );
             })}
@@ -327,7 +295,7 @@ function EpisodeBlock({
             <NestedEpisodeThread>
               {ep.nested.map((child) => (
                 <NestedEpisodeRow key={child.episode_id}>
-                  <div className="overflow-hidden rounded-lg border border-border/50 bg-muted/10">
+                  <div className="overflow-hidden rounded-lg border border-border/40 bg-muted/[0.06]">
                     <EpisodeBlock
                       ep={child}
                       depth={depth + 1}

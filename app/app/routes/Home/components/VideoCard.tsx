@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import { memo, useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { motion } from "framer-motion";
 import { Link, useNavigate } from "react-router";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "~/components/ui/dialog";
@@ -95,7 +95,7 @@ function isSeriesFile(f: FileType): boolean {
   return t(f.is_series_main) || t(f.is_series_episode) || t(f.is_files_series_item);
 }
 
-type LayoutType = "default" | "horizontal" | "compact" | "reelStrip" | "shelf" | "endCard" | "endCardHorizontal" | "notificationThumb" | "studioRow";
+type LayoutType = "default" | "horizontal" | "compact" | "reelStrip" | "shelf" | "endCard" | "endCardHorizontal" | "continueWatch" | "notificationThumb" | "studioRow";
 
 interface VideoCardProps {
   data: FileType;
@@ -2414,8 +2414,9 @@ const VideoCard = ({
             void handleWatchNav();
           }}
           to={watchPath}
-          // in mobile let's make the reel size smaller the aspect ratio stays the same but let's minimize the size a bit 
-          className="relative block aspect-[9/16] w-full shrink-0 overflow-hidden rounded-lg bg-muted outline-none ring-0 transition-opacity hover:opacity-95"
+          // Shorter portrait card for the feed strip (cover-crops the reel) so
+          // it doesn't eat as much vertical space as a full 9:16.
+          className="relative block aspect-[3/4] w-full shrink-0 overflow-hidden rounded-lg bg-muted outline-none ring-0 transition-opacity hover:opacity-95"
         >
           {renderThumbnail("h-full w-full")}
         </Link>
@@ -2511,6 +2512,45 @@ const VideoCard = ({
             {viewCount > 0 && (
               <span className="tabular-nums">{formatViews(viewCount)} views</span>
             )}
+          </div>
+        </div>
+      </Link>
+    );
+  }
+
+  if (layout === "continueWatch") {
+    /**
+     * Compact landscape card for the home "Continue watching" rail. Clean
+     * thumbnail + duration + title + creator, self-sizing (no fixed height)
+     * so the rail stays short.
+     */
+    const durationSec = typeof data.duration === "number" ? data.duration : 0;
+    const durationStr = formatDuration(durationSec);
+    return (
+      <Link
+        to={watchPath}
+        onClick={(e) => {
+          e.preventDefault();
+          void handleWatchNav();
+        }}
+        className="group flex w-full flex-col gap-2 text-left"
+      >
+        <div className="relative aspect-video w-full overflow-hidden rounded-xl bg-card ring-1 ring-border/40 transition-all group-hover:-translate-y-0.5 group-hover:ring-border">
+          {renderThumbnail("h-full w-full")}
+          {durationStr && (
+            <span className="absolute right-1.5 bottom-1.5 rounded bg-black/80 px-1.5 py-0.5 text-[11px] font-semibold tabular-nums leading-none text-white">
+              {durationStr}
+            </span>
+          )}
+        </div>
+        <div className="min-w-0 px-0.5">
+          <h3 className="line-clamp-2 text-sm font-medium leading-snug text-foreground">
+            <ParseFilenameInsert filename={data.file_title || data.filename} showLimit={60} />
+          </h3>
+          <div className="mt-0.5 flex min-w-0 flex-wrap items-center gap-x-1 text-xs leading-tight text-muted-foreground">
+            {data.owner && <span className="max-w-[10rem] truncate">{data.owner.username}</span>}
+            {data.owner && viewCount > 0 && <span className="text-muted-foreground/50">·</span>}
+            {viewCount > 0 && <span className="tabular-nums">{formatViews(viewCount)} views</span>}
           </div>
         </div>
       </Link>
@@ -2822,4 +2862,8 @@ export function requestVideoCardEdit(uniqueId: string) {
   );
 }
 
-export default VideoCard;
+// Memoized: the feed keeps every card mounted, so without this each
+// load-more / context update re-renders the entire list. Props from the feed
+// are referentially stable (data per-file, hideActions hoisted, callbacks
+// memoized), so the default shallow compare is effective.
+export default memo(VideoCard);

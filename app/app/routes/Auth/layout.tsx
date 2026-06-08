@@ -1,11 +1,11 @@
-import React from 'react'
 import { data, Outlet, redirect } from 'react-router'
 import { isAuthenticated } from '~/lib/Security/Password';
 import { useLoaderData } from 'react-router';
 import { getAllKeys } from '~/lib/Security/unsharedkeyEncryption/Combined/Verification/TokenKeys';
 import SetToken from '~/lib/Security/unsharedkeyEncryption/Combined/Verification/SetToken';
 import Logo from '~/components/Navbar/Logo/Logo';
-import { ShieldAlert, ShieldCheck, Image, Video, Music, Upload } from 'lucide-react';
+import { AuthGridFlow } from '~/components/AuthGridFlow';
+import { ShieldAlert, Image, Video } from 'lucide-react';
 
 export const loader = async ({ request }: { request: Request }) => {
   const is_auth = await isAuthenticated(request);
@@ -55,59 +55,51 @@ const layout = () => {
     );
   }
 
+  const features = [
+    { icon: Image, label: 'Photos' },
+    { icon: Video, label: 'Videos' },
+  ];
+
   return (
-    <div className="min-h-[100dvh] grid grid-cols-1 lg:grid-cols-[1fr_480px] xl:grid-cols-[1fr_520px]">
-      <aside className="hidden lg:flex flex-col justify-between bg-card border-r border-border/60 overflow-hidden relative">
-        <div className="absolute inset-0 bg-gradient-to-br from-primary/5 via-transparent to-primary/3" />
+    <div className="relative min-h-[100dvh] flex flex-col lg:flex-row overflow-hidden">
+      <AuthGridFlow />
 
-        <div className="relative z-10 flex flex-col justify-center flex-1 px-12 xl:px-20 py-12">
-          <div className="max-w-[340px]">
-            <div className="flex items-center gap-3 mb-8">
-              <Logo className="w-9 h-9 text-primary" />
-              <span className="text-xl font-semibold text-foreground tracking-tight">Memories</span>
-            </div>
-            <h1 className="text-3xl font-bold tracking-tight text-foreground leading-tight">
-              A place where anything that enters never leaves.
-            </h1>
-            <p className="mt-4 text-muted-foreground leading-relaxed">
-              Upload, share, and relive your favorite moments. Your content, your space.
-            </p>
+      <aside className="relative z-10 hidden lg:flex lg:w-[46%] xl:w-1/2 flex-col justify-between p-12 xl:p-20">
+        <div className="flex items-center gap-3">
+          <Logo className="h-9 w-9 text-primary" />
+          <span className="text-xl font-semibold tracking-tight text-foreground">Memories</span>
+        </div>
 
-            <div className="mt-10 grid grid-cols-2 gap-3">
-              <div className="flex items-center gap-2.5 rounded-lg border border-border/40 bg-background/50 px-3.5 py-2.5">
-                <Image className="h-4 w-4 text-primary shrink-0" />
-                <span className="text-xs text-muted-foreground">Photos</span>
+        <div className="max-w-md">
+          <h1 className="text-4xl xl:text-5xl font-bold leading-[1.1] tracking-tight text-foreground">
+            Your moments, kept close.
+          </h1>
+          <p className="mt-5 text-base leading-relaxed text-muted-foreground">
+            Upload your photos and videos, share what you love, and come back to them whenever you want.
+          </p>
+
+          <div className="mt-10 flex flex-wrap gap-3">
+            {features.map(({ icon: Icon, label }) => (
+              <div
+                key={label}
+                className="flex items-center gap-2.5 rounded-full border border-border/60 bg-card/40 px-4 py-2 backdrop-blur-sm"
+              >
+                <Icon className="h-4 w-4 shrink-0 text-primary" />
+                <span className="text-sm font-medium text-foreground">{label}</span>
               </div>
-              <div className="flex items-center gap-2.5 rounded-lg border border-border/40 bg-background/50 px-3.5 py-2.5">
-                <Video className="h-4 w-4 text-primary shrink-0" />
-                <span className="text-xs text-muted-foreground">Videos</span>
-              </div>
-              <div className="flex items-center gap-2.5 rounded-lg border border-border/40 bg-background/50 px-3.5 py-2.5">
-                <Music className="h-4 w-4 text-primary shrink-0" />
-                <span className="text-xs text-muted-foreground">Audio</span>
-              </div>
-              <div className="flex items-center gap-2.5 rounded-lg border border-border/40 bg-background/50 px-3.5 py-2.5">
-                <Upload className="h-4 w-4 text-primary shrink-0" />
-                <span className="text-xs text-muted-foreground">Any file</span>
-              </div>
-            </div>
+            ))}
           </div>
         </div>
 
-        <div className="relative z-10 px-12 xl:px-20 pb-8">
-          <div className="flex items-center gap-2 text-xs text-muted-foreground/60">
-            <ShieldCheck className="h-3.5 w-3.5" />
-            <span>Protected with end-to-end encryption</span>
-          </div>
-        </div>
-
-        <div className="absolute -bottom-16 -right-16 w-64 h-64 rounded-full bg-primary/5 blur-3xl" />
-        <div className="absolute -top-8 -right-8 w-40 h-40 rounded-full bg-primary/3 blur-2xl" />
+        <p className="text-sm text-muted-foreground/70">
+          © {new Date().getFullYear()} Memories
+        </p>
       </aside>
-      <main className="flex flex-col justify-center items-center w-full min-h-[100dvh] py-6 px-5 sm:px-8">
-        <div className="lg:hidden flex items-center gap-2.5 mb-6">
-          <Logo className="w-8 h-8 text-primary" />
-          <span className="text-lg font-semibold text-foreground tracking-tight">Memories</span>
+
+      <main className="relative z-10 flex flex-1 flex-col items-center justify-center px-5 py-10 sm:px-8">
+        <div className="lg:hidden mb-8 flex items-center gap-2.5">
+          <Logo className="h-8 w-8 text-primary" />
+          <span className="text-lg font-semibold tracking-tight text-foreground">Memories</span>
         </div>
         <div className="w-full max-w-[400px]">
           <Outlet />

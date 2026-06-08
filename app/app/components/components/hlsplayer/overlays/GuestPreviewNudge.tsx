@@ -1,6 +1,7 @@
 import { Link } from "react-router";
 import { LogIn, X } from "lucide-react";
 import { Button } from "~/components/ui/button";
+import { useAuthHrefs } from "~/lib/loginRedirect";
 
 type Props = {
   visible: boolean;
@@ -13,6 +14,7 @@ export default function GuestPreviewNudge({
   secondsRemaining,
   onDismiss,
 }: Props) {
+  const { loginHref } = useAuthHrefs();
   if (!visible) return null;
 
   const s = Math.max(0, Math.ceil(secondsRemaining));
@@ -29,7 +31,7 @@ export default function GuestPreviewNudge({
       </p>
       <div className="flex shrink-0 items-center gap-2">
         <Button asChild size="sm" className="gap-1.5">
-          <Link to="/auth/login">
+          <Link to={loginHref}>
             <LogIn className="h-3.5 w-3.5" />
             Sign in
           </Link>

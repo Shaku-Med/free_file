@@ -146,8 +146,8 @@ export function ContinueWatchingSection({ userId, userActions, username }: Props
         ) : items.length > 0 ? (
           <Swiper
             modules={[Navigation, Pagination, A11y, Keyboard]}
-            slidesPerView={2}
-            spaceBetween={8}
+            slidesPerView={1.6}
+            spaceBetween={10}
             speed={380}
             watchOverflow
             navigation
@@ -157,9 +157,9 @@ export function ContinueWatchingSection({ userId, userActions, username }: Props
               dynamicBullets: items.length > 6,
             }}
             breakpoints={{
-              640: { slidesPerView: 2, spaceBetween: 12 },
-              1024: { slidesPerView: 3, spaceBetween: 14 },
-              1280: { slidesPerView: 3, spaceBetween: 16 },
+              640: { slidesPerView: 2.4, spaceBetween: 12 },
+              1024: { slidesPerView: 3.2, spaceBetween: 14 },
+              1280: { slidesPerView: 4, spaceBetween: 16 },
             }}
             className="continue-watching-swiper"
             onInit={(swiper: SwiperType) => {
@@ -168,17 +168,15 @@ export function ContinueWatchingSection({ userId, userActions, username }: Props
           >
             {items.map((file, index) => (
               <SwiperSlide key={file.id || file.unique_id} className="!h-auto">
-                <div className="h-[270px] rounded-xl border border-border/50 bg-background/60 p-1 shadow-sm">
-                  <VideoCard
-                    data={file}
-                    index={index}
-                    currentUserId={userId}
-                    userActions={mergedUserActions}
-                    onUpdate={handleFileUpdate}
-                    hideActions={{completely: false, halfway: true}}
-                    layout={`horizontal`}
-                  />
-                </div>
+                <VideoCard
+                  data={file}
+                  index={index}
+                  currentUserId={userId}
+                  userActions={mergedUserActions}
+                  onUpdate={handleFileUpdate}
+                  hideActions={{ completely: false, halfway: true }}
+                  layout="continueWatch"
+                />
               </SwiperSlide>
             ))}
           </Swiper>

@@ -1,5 +1,6 @@
 import { recordUploadUsage } from "~/lib/uploadQuota.server";
 import { isValidUUID } from "~/lib/Security/inputValidation";
+import { verifyWebhookSecret } from "~/lib/Security/webhookAuth.server";
 
 // Belt-and-suspenders cap on a single recorded upload even if the webhook
 // secret leaks. 100 GiB is well above any legitimate upload (per-file ceiling
@@ -20,11 +21,7 @@ const json = (body: unknown, status = 200) =>
 
 export const action = async ({ request }: { request: Request }) => {
   if (request.method !== "POST") return json({ error: "method not allowed" }, 405);
-  const secret =
-    request.headers.get("X-Webhook-Secret") ??
-    request.headers.get("Authorization")?.replace(/^Bearer\s+/i, "").trim();
-  const expected = typeof process !== "undefined" ? process.env?.UPLOAD_WEBHOOK_SECRET : "";
-  if (!expected || secret !== expected) return json({ error: "unauthorized" }, 401);
+  if (!verifyWebhookSecret(request)) return json({ error: "unauthorized" }, 401);
 
   let body: { user_id?: unknown; upload_id?: unknown; bytes?: unknown };
   try {

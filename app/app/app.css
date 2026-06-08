@@ -98,16 +98,18 @@
     transform: scale(0.95);
   }
 
-  /** Thumbnail / ImageLoad placeholder  sweeps a highlight across muted base */
+  /** Thumbnail / ImageLoad placeholder  soft highlight gliding across muted base */
   .image-load-shimmer-bg {
     background: linear-gradient(
-      105deg,
+      100deg,
       var(--muted) 0%,
-      color-mix(in oklch, var(--muted-foreground) 28%, var(--muted)) 48%,
+      var(--muted) 34%,
+      color-mix(in oklch, var(--muted-foreground) 15%, var(--muted)) 50%,
+      var(--muted) 66%,
       var(--muted) 100%
     );
-    background-size: 220% 100%;
-    animation: image-load-shimmer 1.75s ease-in-out infinite;
+    background-size: 260% 100%;
+    animation: image-load-shimmer 2.6s cubic-bezier(0.4, 0, 0.2, 1) infinite;
   }
 }
 
@@ -116,7 +118,7 @@
     background-position: 200% 50%;
   }
   100% {
-    background-position: -200% 50%;
+    background-position: -160% 50%;
   }
 }
 

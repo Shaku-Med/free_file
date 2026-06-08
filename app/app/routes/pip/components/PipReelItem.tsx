@@ -181,11 +181,56 @@ function PipReelItemInner({
   useEffect(() => {
     const v = trackedVideoEl ?? videoRef.current;
     if (!v || !isVideo) return;
-    if (isActive) {
-      void v.play().catch(() => {});
-    } else if (!v.paused) {
-      v.pause();
+
+    if (!isActive) {
+      if (!v.paused) v.pause();
+      return;
     }
+
+    // Robust autoplay for reels. Fast scrolling makes play() race with the
+    // previous slide's pause() (AbortError), and mobile can reject the
+    // unmuted play() once the gesture credit lapses  the old `.catch(()=>{})`
+    // just left the video paused, forcing the user to tap. Instead: retry a
+    // couple times for transient aborts, and if still blocked, resume on the
+    // viewer's very next scroll/tap (they're already interacting) so it never
+    // gets stuck paused.
+    let cancelled = false;
+    let retries = 3;
+
+    const cleanupGesture = () => {
+      document.removeEventListener('pointerdown', onGesture);
+      document.removeEventListener('touchend', onGesture);
+    };
+    const onGesture = () => {
+      if (cancelled) return;
+      cleanupGesture();
+      void v.play().catch(() => {});
+    };
+    const armGestureResume = () => {
+      document.addEventListener('pointerdown', onGesture, { once: true, passive: true });
+      document.addEventListener('touchend', onGesture, { once: true, passive: true });
+    };
+
+    const attempt = () => {
+      if (cancelled) return;
+      const p = v.play();
+      if (p && typeof p.then === 'function') {
+        p.catch(() => {
+          if (cancelled || !v.paused) return; // already recovered
+          if (retries-- > 0) {
+            window.setTimeout(attempt, 120); // transient abort  retry
+          } else {
+            armGestureResume(); // blocked  resume on next interaction
+          }
+        });
+      }
+    };
+    attempt();
+
+    return () => {
+      cancelled = true;
+      cleanupGesture();
+    };
   }, [isActive, isVideo, trackedVideoEl]);
 
   useEffect(() => {

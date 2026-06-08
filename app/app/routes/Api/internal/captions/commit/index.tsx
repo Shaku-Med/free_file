@@ -1,6 +1,7 @@
 import { data } from "react-router"
 import db from "~/lib/Database/supabase"
 import { isValidUUID } from "~/lib/Security/inputValidation"
+import { verifyWebhookSecret } from "~/lib/Security/webhookAuth.server"
 import {
   MAX_LANGUAGES_PER_FILE,
   isValidLanguageCode,
@@ -20,11 +21,7 @@ const SAFE_PATH_RE = /^[A-Za-z0-9._\-/]{1,256}$/
 export const action = async ({ request }: { request: Request }) => {
   if (request.method !== "POST") return ok({ error: "Method not allowed" }, 405)
 
-  const secret =
-    request.headers.get("X-Webhook-Secret") ??
-    request.headers.get("Authorization")?.replace(/^Bearer\s+/i, "").trim()
-  const expected = process.env.UPLOAD_WEBHOOK_SECRET ?? ""
-  if (!expected || secret !== expected) return ok({ error: "unauthorized" }, 401)
+  if (!verifyWebhookSecret(request)) return ok({ error: "unauthorized" }, 401)
 
   if (!db) return ok({ error: "unavailable" }, 503)
 

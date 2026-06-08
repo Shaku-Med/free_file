@@ -48,23 +48,35 @@ export function usePushNotifications() {
       setPermission("unsupported");
       return false;
     }
-    setLoading(true);
-    setError(null);
     const log = (msg: string, err?: unknown) => {
       if (err !== undefined) console.error("[Push]", msg, err);
       else console.log("[Push]", msg);
     };
+
+    // Request permission as the FIRST thing in the click handler  before any
+    // setState or other async work. React state updates / extra awaits ahead
+    // of this can consume the browser's transient user-activation, which makes
+    // strict browsers (notably Safari) silently suppress the OS prompt.
+    let permissionResult: NotificationPermission;
     try {
       log("1. Requesting notification permission...");
-      const permissionResult = await Notification.requestPermission();
-      setPermission(permissionResult === "granted" ? "granted" : permissionResult === "denied" ? "denied" : "default");
-      if (permissionResult !== "granted") {
-        setError(permissionResult === "denied" ? "Permission denied." : "Permission dismissed.");
-        log("1. Permission not granted:", permissionResult);
-        return false;
-      }
-      log("1. Permission granted");
+      permissionResult = await Notification.requestPermission();
+    } catch (e) {
+      log("1. requestPermission threw:", e);
+      setError("Something went wrong. Please try again.");
+      return false;
+    }
+    setPermission(permissionResult === "granted" ? "granted" : permissionResult === "denied" ? "denied" : "default");
+    if (permissionResult !== "granted") {
+      setError(permissionResult === "denied" ? "Permission denied." : "Permission dismissed.");
+      log("1. Permission not granted:", permissionResult);
+      return false;
+    }
+    log("1. Permission granted");
 
+    setLoading(true);
+    setError(null);
+    try {
       log("2. Waiting for service worker...");
       const reg = await navigator.serviceWorker.ready;
       if (!reg.active) {

@@ -41,8 +41,10 @@ export function useControlsVisibility() {
     if (isReel && !reelEmbedAutoHide) return;
 
     if (reelEmbedAutoHide) {
+      // Reels: never auto-show chrome  the viewer reveals it with a tap.
+      // Paused/ended just stops the auto-hide timer; it does NOT pop controls
+      // (and would otherwise pop them on every inactive/paused slide).
       if (state.isPaused || state.isEnded) {
-        setReelAuxiliaryChromeVisible(true);
         clearHideTimer();
         return;
       }
@@ -100,7 +102,12 @@ export function useControlsVisibility() {
 
     el.addEventListener('mousemove', handleMove);
     el.addEventListener('mouseleave', handleLeave);
-    el.addEventListener('touchstart', handleMove, { passive: true });
+    // Reels: no touchstart auto-show  scrolling must not flash controls.
+    // (Desktop hover via mousemove is still fine.) Tap-to-reveal is handled
+    // by the player's click handler.
+    if (!reelEmbedAutoHide) {
+      el.addEventListener('touchstart', handleMove, { passive: true });
+    }
 
     return () => {
       el.removeEventListener('mousemove', handleMove);

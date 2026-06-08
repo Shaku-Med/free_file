@@ -1,8 +1,20 @@
 import { useMemo } from "react";
-import { NavLink, Outlet, useLocation } from "react-router";
+import { NavLink, Outlet, useLocation, redirect } from "react-router";
+import { isAuthenticated } from "~/lib/Security/Password";
 import { cn } from "~/lib/utils";
 
 // /brozystudio — secondary bar sticks under the main navbar.
+
+// Gate the whole studio: signed-out users are bounced to login. Runs before
+// every child route loader (RR nesting), so no studio page renders unauthed.
+export const loader = async ({ request }: { request: Request }) => {
+  const user = await isAuthenticated(request, ["id"]).catch(() => null);
+  if (!user?.id) {
+    const url = new URL(request.url);
+    return redirect(`/auth/login?redirect=${encodeURIComponent(url.pathname + url.search)}`);
+  }
+  return null;
+};
 
 interface NavItem {
   to: string;

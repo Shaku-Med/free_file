@@ -1,4 +1,5 @@
 import { BASE_URL } from "~/lib/URLS";
+import { timingSafeEqualStr } from "~/lib/Security/webhookAuth.server";
 
 const INDEXNOW_KEY = "memories-indexnow-key";
 const KEY_LOCATION = `${BASE_URL}/memories-indexnow-key.txt`;
@@ -12,10 +13,12 @@ export const action = async ({ request }: { request: Request }) => {
     });
   }
 
+  // Fail CLOSED: if INDEXNOW_SECRET isn't configured, reject  better than
+  // letting anyone trigger crawl-notification spam. Constant-time compare.
   const authHeader = request.headers.get("Authorization");
-  const secret = authHeader?.replace(/^Bearer\s+/i, "").trim();
-  const expected = typeof process !== "undefined" ? process.env.INDEXNOW_SECRET : "";
-  if (expected && secret !== expected) {
+  const secret = authHeader?.replace(/^Bearer\s+/i, "").trim() ?? "";
+  const expected = typeof process !== "undefined" ? process.env.INDEXNOW_SECRET ?? "" : "";
+  if (!expected || !timingSafeEqualStr(secret, expected)) {
     return new Response(JSON.stringify({ error: "Unauthorized" }), {
       status: 401,
       headers: { "Content-Type": "application/json" },

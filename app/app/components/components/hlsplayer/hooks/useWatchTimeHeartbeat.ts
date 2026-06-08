@@ -1,5 +1,6 @@
 import { useEffect, type RefObject } from 'react';
 import { usePlayerContext } from '../PlayerContext';
+import { signedFetch } from '~/lib/Security/requestSigning.client';
 
 /** Spaced heartbeats; server rate limit headroom is generous with one-time playback tokens. */
 const HEARTBEAT_MS = 15_000;
@@ -56,9 +57,7 @@ export function useWatchTimeHeartbeat(videoRef: RefObject<HTMLVideoElement | nul
       try {
         // signedFetch attaches X-Sig + X-Sig-Ts so the server-side guard
         // can confirm this request came from our JS, not a stolen-cookie
-        // replay in Postman. Lazy import keeps the security module out of
-        // the SSR bundle.
-        const { signedFetch } = await import('~/lib/Security/requestSigning.client');
+        // replay in Postman.
         const res = await signedFetch(
           `/api/views/watch-issue?${new URLSearchParams({ fileId })}`,
           { credentials: 'include' },

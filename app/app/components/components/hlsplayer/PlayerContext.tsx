@@ -8,6 +8,7 @@ import {
   restoreVideoAudioAfterSystemPip,
 } from '~/lib/Context/PictureInPictureContext';
 import { getWaveformImagePathPrefix } from '~/lib/utils';
+import { reelChromeStore } from './reelChromeStore';
 import {
   type AudioVisualizerStyle,
   DEFAULT_AUDIO_VISUALIZER_STYLE,
@@ -324,6 +325,11 @@ export function PlayerProvider({
   const [state, setState] = useState<PlayerState>({
     ...INITIAL_STATE,
     isMuted: unlockPipReelAudio ? false : initialMuted,
+    // Reels start with chrome hidden, inheriting the shared value so scrolling
+    // to a new reel never flashes controls.
+    reelAuxiliaryChromeVisible: reelEmbedAutoHide
+      ? reelChromeStore.get()
+      : INITIAL_STATE.reelAuxiliaryChromeVisible,
   });
   const appliedInitialRef = useRef(false);
 
@@ -746,8 +752,22 @@ export function PlayerProvider({
   }, []);
 
   const setReelAuxiliaryChromeVisible = useCallback((visible: boolean) => {
+    // Reels: route through the shared store so every reel player reflects the
+    // same state. The subscription below applies it to local state.
+    if (reelEmbedAutoHide) {
+      reelChromeStore.set(visible);
+      return;
+    }
     setState(s => ({ ...s, reelAuxiliaryChromeVisible: visible }));
-  }, []);
+  }, [reelEmbedAutoHide]);
+
+  useEffect(() => {
+    if (!reelEmbedAutoHide) return;
+    setState(s => ({ ...s, reelAuxiliaryChromeVisible: reelChromeStore.get() }));
+    return reelChromeStore.subscribe((v) =>
+      setState(s => (s.reelAuxiliaryChromeVisible === v ? s : { ...s, reelAuxiliaryChromeVisible: v })),
+    );
+  }, [reelEmbedAutoHide]);
 
   const startInteraction = useCallback(() => {
     interactingRef.current = true;

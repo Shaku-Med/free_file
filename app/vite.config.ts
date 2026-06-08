@@ -36,11 +36,24 @@ export default defineConfig(({mode}) => {
 
   let addedModules = isProduction ? {
     build: {
+      // Heavy but lazy-loaded feature chunks (player, video card) are expected
+      // for a media app; the vendor split below keeps them cacheable.
+      chunkSizeWarningLimit: 900,
       rollupOptions: {
         external: (id: string) => {
           if (serverOnlyModules.some(mod => id === mod || id.startsWith(`${mod}/`))) return true;
           if (id.startsWith('node:') || ['fs', 'path', 'crypto', 'stream', 'util', 'events', 'url', 'net', 'tls', 'dns', 'os', 'assert', 'child_process', 'worker_threads'].includes(id)) return true;
           return false;
+        },
+        output: {
+          // Split the big client-only vendors into their own chunks so they
+          // cache independently and don't bloat the feature chunks.
+          manualChunks(id: string) {
+            if (!id.includes('node_modules')) return;
+            if (id.includes('hls.js')) return 'vendor-hls';
+            if (id.includes('framer-motion')) return 'vendor-motion';
+            if (id.includes('swiper')) return 'vendor-swiper';
+          },
         },
       }
     },

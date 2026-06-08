@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader } from '~/components/ui/card';
 import { createUser } from '../fun/auth';
 import { isAuthenticated } from '~/lib/Security/Password';
 import { checkAuthRateLimit, resetAuthRateLimit } from '../fun/rateLimit';
+import { issueVerifyContext, appendVerifyContextCookie } from '../fun/verification';
 import { Eye, EyeOff, AlertCircle, User, Mail, Calendar, Lock } from 'lucide-react';
 
 export const loader = async ({ request }: { request: Request }) => {
@@ -40,7 +41,13 @@ export const action = async ({ request }: { request: Request }) => {
 
     resetAuthRateLimit(request, 'signup', email.toLowerCase());
 
-    return redirect(`/auth/verify?userId=${result.userId}&email=${encodeURIComponent(email)}&type=signup`);
+    const ctxToken = await issueVerifyContext(result.userId!, 'signup');
+    if (!ctxToken) {
+      return data({ error: 'Something went wrong. Please try again.' }, { status: 500 });
+    }
+    const headers = new Headers();
+    appendVerifyContextCookie(headers, ctxToken);
+    return redirect('/auth/verify?type=signup', { headers });
   } catch (error) {
     console.error('Error in signup action:', error);
     return data({ error: 'Something went wrong. Please try again.' }, { status: 500 });
@@ -63,7 +70,7 @@ const Signup = () => {
 
   return (
     <div className="w-full">
-      <Card className="border border-border/60 shadow-sm">
+      <Card className="border-0 bg-transparent shadow-none">
         <CardHeader className="pb-1 pt-7 sm:pt-8 px-5 sm:px-8">
           <div className="text-center">
             <h1 className="text-xl font-semibold text-foreground">Create account</h1>

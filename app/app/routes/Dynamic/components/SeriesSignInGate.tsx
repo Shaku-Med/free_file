@@ -1,11 +1,13 @@
 import { Link } from "react-router";
 import { Layers, LogIn, Lock } from "lucide-react";
 import { Button } from "~/components/ui/button";
+import { useAuthHrefs } from "~/lib/loginRedirect";
 
 /**
  * Shown on the watch page when the media belongs to a series but the viewer is not signed in.
  */
 export default function SeriesSignInGate() {
+  const { loginHref } = useAuthHrefs();
   return (
     <div className="rounded-lg border border-border/60 bg-muted/25 p-4">
       <div className="flex gap-3">
@@ -21,7 +23,7 @@ export default function SeriesSignInGate() {
             Sign in to view episodes, see where this video fits in the series, and jump between parts.
           </p>
           <Button asChild size="sm" className="gap-2">
-            <Link to="/auth/login">
+            <Link to={loginHref}>
               <LogIn className="h-4 w-4" />
               Sign in
             </Link>

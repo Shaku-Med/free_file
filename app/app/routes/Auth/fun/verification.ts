@@ -4,6 +4,55 @@ import db from '~/lib/Database/supabase';
 import { EncryptCombine, DecryptCombine } from '~/lib/Security/unsharedkeyEncryption/Combined/Combined';
 import { getAllKeys, extractTokenHeaders } from '~/lib/Security/unsharedkeyEncryption/Combined/Verification/TokenKeys';
 import { getClientIP } from '~/lib/Security/unsharedkeyEncryption/Combined/Verification/GetIp';
+import { getCookie } from '~/lib/Security/Token';
+
+// Signed, HttpOnly flow context for /auth/verify. The userId is carried here
+// instead of the URL so an attacker can't target an arbitrary account by
+// editing ?userId=. Issued only when a flow legitimately starts (signup /
+// login-needs-verify / reset request).
+const VERIFY_CTX_COOKIE = 'verify_ctx';
+const VERIFY_CTX_TTL_SEC = 30 * 60;
+export type VerifyFlow = 'signup' | 'reset';
+
+export async function issueVerifyContext(userId: string, type: VerifyFlow): Promise<string | null> {
+  if (!userId) return null;
+  const keys = await getAllKeys(['temp_token']);
+  if (!keys) return null;
+  return EncryptCombine({ userId, type, ctx: 'verify' }, keys, {
+    expiresIn: VERIFY_CTX_TTL_SEC,
+    algorithm: 'HS512',
+  });
+}
+
+export async function readVerifyContext(
+  request: Request
+): Promise<{ userId: string; type: VerifyFlow } | null> {
+  const token = getCookie(VERIFY_CTX_COOKIE, request.headers);
+  if (!token) return null;
+  const keys = await getAllKeys(['temp_token']);
+  if (!keys) return null;
+  const decoded = await DecryptCombine(token, keys, { algorithm: 'HS512' });
+  if (!decoded || typeof decoded !== 'object') return null;
+  if (decoded.ctx !== 'verify' || !decoded.userId) return null;
+  if (decoded.type !== 'signup' && decoded.type !== 'reset') return null;
+  return { userId: String(decoded.userId), type: decoded.type };
+}
+
+export function appendVerifyContextCookie(headers: Headers, token: string): void {
+  const secure = process.env.NODE_ENV === 'production' ? 'Secure' : '';
+  headers.append(
+    'Set-Cookie',
+    `${VERIFY_CTX_COOKIE}=${token}; Path=/; Max-Age=${VERIFY_CTX_TTL_SEC}; HttpOnly; ${secure}; SameSite=Lax`
+  );
+}
+
+export function clearVerifyContextCookie(headers: Headers): void {
+  const secure = process.env.NODE_ENV === 'production' ? 'Secure' : '';
+  headers.append(
+    'Set-Cookie',
+    `${VERIFY_CTX_COOKIE}=; Path=/; Max-Age=0; HttpOnly; ${secure}; SameSite=Lax`
+  );
+}
 
 export const generateVerificationCode = (): string => {
   return crypto.randomInt(100000, 999999).toString();
@@ -40,44 +89,45 @@ export const saveVerificationCode = async (
     const expiresAt = new Date();
     expiresAt.setDate(expiresAt.getDate() + expiresInDays);
 
-    const { data: existingRecord } = await db
+    // Delete + insert so a re-issued code starts with a fresh attempts
+    // counter (column DEFAULT 0). Avoids depending on the column existing
+    // in the write payload.
+    await db.from('verification').delete().eq('user_id', userId);
+
+    const { error: insertError } = await db
       .from('verification')
-      .select('user_id')
-      .eq('user_id', userId)
-      .maybeSingle();
+      .insert({
+        user_id: userId,
+        code_hash: codeHash,
+        expires_at: expiresAt.toISOString()
+      });
 
-    if (existingRecord) {
-      const { error: updateError } = await db
-        .from('verification')
-        .update({
-          code_hash: codeHash,
-          expires_at: expiresAt.toISOString()
-        })
-        .eq('user_id', userId);
-
-      if (updateError) {
-        console.error('Error updating verification code:', updateError);
-        return false;
-      }
-    } else {
-      const { error: insertError } = await db
-        .from('verification')
-        .insert({
-          user_id: userId,
-          code_hash: codeHash,
-          expires_at: expiresAt.toISOString()
-        });
-
-      if (insertError) {
-        console.error('Error inserting verification code:', insertError);
-        return false;
-      }
+    if (insertError) {
+      console.error('Error inserting verification code:', insertError);
+      return false;
     }
 
     return true;
   } catch (error) {
     console.error('Error in saveVerificationCode:', error);
     return false;
+  }
+};
+
+/** Increment failed-attempt counter for a code. Returns the new count (or null). */
+export const incrementVerificationAttempts = async (userId: string): Promise<number | null> => {
+  try {
+    if (!db) return null;
+    const { data, error } = await db.rpc('increment_verification_attempts', { p_user_id: userId });
+    if (error) {
+      console.error('Error incrementing verification attempts:', error);
+      return null;
+    }
+    const n = typeof data === 'number' ? data : Number(data);
+    return Number.isFinite(n) ? n : null;
+  } catch (error) {
+    console.error('Error in incrementVerificationAttempts:', error);
+    return null;
   }
 };
 

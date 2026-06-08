@@ -1,6 +1,7 @@
 import db from "~/lib/Database/supabase";
 import { getMonthlyUploadLimitBytes } from "~/lib/uploadQuota.server";
 import { isValidUUID } from "~/lib/Security/inputValidation";
+import { verifyWebhookSecret } from "~/lib/Security/webhookAuth.server";
 
 // POST /api/internal/quota-check
 // Body: { user_id: uuid, predicted_bytes: number }
@@ -18,11 +19,7 @@ const json = (body: unknown, status = 200) =>
 export const action = async ({ request }: { request: Request }) => {
   if (request.method !== "POST") return json({ error: "method not allowed" }, 405);
 
-  const secret =
-    request.headers.get("X-Webhook-Secret") ??
-    request.headers.get("Authorization")?.replace(/^Bearer\s+/i, "").trim();
-  const expected = typeof process !== "undefined" ? process.env?.UPLOAD_WEBHOOK_SECRET : "";
-  if (!expected || secret !== expected) return json({ error: "unauthorized" }, 401);
+  if (!verifyWebhookSecret(request)) return json({ error: "unauthorized" }, 401);
 
   if (!db) return json({ error: "unavailable" }, 503);
 

@@ -1,6 +1,7 @@
 import db from "~/lib/Database/supabase";
 import { refundUploadQuota } from "~/lib/uploadQuota.server";
 import { isValidUUID } from "~/lib/Security/inputValidation";
+import { verifyWebhookSecret } from "~/lib/Security/webhookAuth.server";
 
 /**
  * POST /api/internal/quota-purge
@@ -42,14 +43,8 @@ const MAX_DELETED_ROWS = 1024;
 export const action = async ({ request }: { request: Request }) => {
   if (request.method !== "POST") return json({ error: "method not allowed" }, 405);
 
-  // Webhook secret  same one the worker already uses for every other
-  // server-to-server call. No new key surface.
-  const secret =
-    request.headers.get("X-Webhook-Secret") ??
-    request.headers.get("Authorization")?.replace(/^Bearer\s+/i, "").trim();
-  const expected =
-    typeof process !== "undefined" ? process.env?.UPLOAD_WEBHOOK_SECRET : "";
-  if (!expected || secret !== expected) return json({ error: "unauthorized" }, 401);
+  // Webhook secret (constant-time) — same one the worker uses everywhere.
+  if (!verifyWebhookSecret(request)) return json({ error: "unauthorized" }, 401);
 
   if (!db) return json({ error: "unavailable" }, 503);
 

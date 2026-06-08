@@ -663,8 +663,10 @@ function PlayerInner({
     if (inPipForThisVideo) return;
     if (isMobile && !embedReelControls) return;
     if (Date.now() - lastDoubleTapTimeRef.current < 300) return;
+    // Reel chrome hidden: first tap just reveals controls (don't also pause).
     if (reelEmbedAutoHide && !state.reelAuxiliaryChromeVisible) {
       setReelAuxiliaryChromeVisible(true);
+      return;
     }
     togglePlay();
     triggerPlayPauseFeedback();

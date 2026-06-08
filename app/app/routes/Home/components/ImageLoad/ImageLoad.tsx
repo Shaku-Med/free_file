@@ -87,6 +87,8 @@ const ImageLoad = ({
     const [colors, setColors] = useState<string[]>([])
     const [containerBox, setContainerBox] = useState({ w: 0, h: 0 })
     const [preferFetchedBlob, setPreferFetchedBlob] = useState(false)
+    /** Blob URL when the image is already in IndexedDB/memory (non-blob path). */
+    const [cachedBlobSrc, setCachedBlobSrc] = useState<string | null>(null)
     const containerRef = useRef<HTMLDivElement | null>(null)
     const imgRef = useRef<HTMLImageElement | null>(null)
     const recoveryBlobRef = useRef<string | null>(null)
@@ -133,15 +135,14 @@ const ImageLoad = ({
     const isSearchBot = useMemo(() => isSearchBotUserAgent(user_agent), [user_agent])
 
     /**
-     * Crawlers: canonical `https?://…` on `<img>` only (no blob / IDB).
-     * `!hasFetchedImages`: same for humans (SSR + first paint) so HTML is indexable.
-     * After `hasFetchedImages`: row 0 stays URL+cache; other rows use fetch+IDB (adult/media-session always blob when needed).
+     * Only adult (server-blurred blob) and media-session (needs a real blob
+     * URL) require a blocking fetch. Everything else renders the URL straight
+     * into <img src> and warms IndexedDB in the background  no waiting.
      */
     const needsBlobFetch = useMemo(() => {
         if (isSearchBot) return false
-        if (!hasFetchedImages) return hasAdultTag || getMediaSessionURL
-        return hasAdultTag || getMediaSessionURL || index !== 0
-    }, [isSearchBot, hasFetchedImages, hasAdultTag, getMediaSessionURL, index])
+        return hasAdultTag || getMediaSessionURL
+    }, [isSearchBot, hasAdultTag, getMediaSessionURL])
 
     const hasFetchedRef = useRef(false)
 
@@ -155,6 +156,7 @@ const ImageLoad = ({
         recoveryInFlight.current = false
         setPreferFetchedBlob(false)
         setSrc(null)
+        setCachedBlobSrc(null)
         setError(false)
         setLoaded(false)
     }, [resolvedLink, resolvedImageID, needsBlobFetch])
@@ -175,22 +177,20 @@ const ImageLoad = ({
                     return
                 }
 
+                // 1. Memory cache hit  show the cached blob instantly.
                 if (resolvedImageID && (window as any)[`_${resolvedImageID}`]) {
                     const cachedUrl = (window as any)[`_${resolvedImageID}`].imageUrl as string
                     if (!cancelled) {
-                        setSrc(cachedUrl)
+                        setCachedBlobSrc(cachedUrl)
                         setError(false)
                         const nextColors = shouldShowPreview ? await getImageColorsHEX({ src: cachedUrl }) : []
                         setColors(nextColors || [])
-                        callBackRef.current?.({
-                            src: cachedUrl,
-                            colors: nextColors || [],
-                            ...(getMediaSessionURL && { mediaSessionUrl: cachedUrl }),
-                        })
+                        callBackRef.current?.({ src: cachedUrl, colors: nextColors || [] })
                     }
                     return
                 }
 
+                // 2. IndexedDB hit  use the cached blob (the "fetch" path).
                 if (resolvedImageID && (await hasImageBlob(resolvedImageID))) {
                     const cachedImage = await getImageBlob(resolvedImageID)
                     if (cachedImage && !cancelled) {
@@ -199,22 +199,49 @@ const ImageLoad = ({
                             ...currentCache,
                             imageUrl: cachedImage.url,
                         }
-                        setSrc(cachedImage.url)
+                        setCachedBlobSrc(cachedImage.url)
                         setError(false)
                         const nextColors = shouldShowPreview
                             ? await getImageColorsHEX({ src: cachedImage.url })
                             : []
                         setColors(nextColors || [])
-                        callBackRef.current?.({
-                            src: cachedImage.url,
-                            colors: nextColors || [],
-                            ...(getMediaSessionURL && { mediaSessionUrl: cachedImage.url }),
-                        })
+                        callBackRef.current?.({ src: cachedImage.url, colors: nextColors || [] })
                     }
                     return
                 }
 
+                // 3. Not cached  render the URL directly (old way) and warm
+                //    IndexedDB in the background. Display never waits on it.
                 if (!cancelled) setError(false)
+                if (resolvedImageID) {
+                    const bgUrl =
+                        useRelativeApiUrl && resolvedLink.startsWith('/') && typeof window !== 'undefined'
+                            ? `${window.location.origin}${resolvedLink}`
+                            : `${secondaryBaseUrl || IMAGE_BASE_URL}${resolvedLink}`
+                    void (async () => {
+                        try {
+                            const resp = await fetch(bgUrl, {
+                                method: 'GET',
+                                headers: { 'c-user': c_user ? `${c_user}` : '' },
+                                mode: 'cors',
+                            })
+                            if (!resp.ok) return
+                            const blob = await resp.blob()
+                            if (!blob.size) return
+                            await storeImageBlob(resolvedImageID, blob, resolvedLink)
+                            // Keep a memory handle for instant reuse this session;
+                            // do NOT swap the visible <img> (URL is already showing).
+                            const objectUrl = URL.createObjectURL(blob)
+                            const currentCache = (window as any)[`_${resolvedImageID}`] || {}
+                            ;(window as any)[`_${resolvedImageID}`] = {
+                                ...currentCache,
+                                imageUrl: objectUrl,
+                            }
+                        } catch {
+                            /* background warm-up failure is non-fatal */
+                        }
+                    })()
+                }
                 return
             }
 
@@ -433,7 +460,7 @@ const ImageLoad = ({
     /** Canonical-URL thumbnails: colors after `<img onLoad>`. Skip if we already show an IDB/memory blob. */
     useEffect(() => {
         const showingBlobInsteadOfCdn =
-            !needsBlobFetch && typeof src === 'string' && !!src
+            !needsBlobFetch && typeof cachedBlobSrc === 'string' && !!cachedBlobSrc
         if (
             isSearchBot ||
             needsBlobFetch ||
@@ -465,7 +492,7 @@ const ImageLoad = ({
         return () => {
             cancelled = true
         }
-    }, [inViewForLoad, loaded, needsBlobFetch, colorSampleSrc, shouldShowPreview, src, isSearchBot])
+    }, [inViewForLoad, loaded, needsBlobFetch, colorSampleSrc, shouldShowPreview, cachedBlobSrc, isSearchBot])
 
     useEffect(() => {
         if(window !== undefined) {
@@ -483,13 +510,15 @@ const ImageLoad = ({
         e.stopPropagation()
         setIsPreviewOpen(true)
         const singlePreview =
-            typeof src === 'string' && src
-                ? [src]
-                : colorSampleSrc
-                  ? [colorSampleSrc]
-                  : absoluteImageUrl
-                    ? [absoluteImageUrl]
-                    : []
+            typeof cachedBlobSrc === 'string' && cachedBlobSrc
+                ? [cachedBlobSrc]
+                : typeof src === 'string' && src
+                  ? [src]
+                  : colorSampleSrc
+                    ? [colorSampleSrc]
+                    : absoluteImageUrl
+                      ? [absoluteImageUrl]
+                      : []
         setPreviewData({
             images: multipleImages.length > 0 ? multipleImages : singlePreview,
             index: multipleCurrentImageIndex || 0,
@@ -497,13 +526,20 @@ const ImageLoad = ({
     }
 
     const hasBlobSrc = typeof src === 'string' && !!src
-    const useBlobForDisplay =
-        needsBlobFetch || preferFetchedBlob || (!files.length && hasBlobSrc)
-    const imgDisplaySrc =
-        useBlobForDisplay && typeof src === 'string' && src ? (src as string) : imgUrlForUrlMode
+    const hasCachedBlob = typeof cachedBlobSrc === 'string' && !!cachedBlobSrc
+
+    const imgDisplaySrc = preferFetchedBlob && hasBlobSrc
+        ? (src as string)                                   // error-recovery blob
+        : needsBlobFetch
+            ? (hasBlobSrc ? (src as string) : imgUrlForUrlMode)
+            : hasCachedBlob
+                ? (cachedBlobSrc as string)                 // already in IDB/memory
+                : imgUrlForUrlMode                          // default: straight URL
 
     const canShowFromUrl = !needsBlobFetch && !!resolvedLink && !error
-    const canShowImage = needsBlobFetch ? hasBlobSrc : hasBlobSrc || canShowFromUrl || preferFetchedBlob
+    const canShowImage = needsBlobFetch
+        ? hasBlobSrc
+        : hasCachedBlob || canShowFromUrl || (preferFetchedBlob && hasBlobSrc)
 
     /** Cached images often finish before `onLoad` is attached  clear loading layer / opacity. */
     useLayoutEffect(() => {
@@ -539,8 +575,8 @@ const ImageLoad = ({
                             src={imgDisplaySrc}
                             alt="Thumbnail"
                             className={cn(
-                                "relative z-[2] h-full w-full object-cover animate-in fade-in-0 zoom-in-95",
-                                loaded ? "opacity-100" : "opacity-0",
+                                "relative z-[2] h-full w-full object-cover transition-[opacity,transform] duration-700 ease-out will-change-[opacity,transform]",
+                                loaded ? "opacity-100 scale-100" : "opacity-0 scale-[1.03]",
                                 className,
                             )}
                             loading={eagerLoad || index === 0 ? 'eager' : 'lazy'}

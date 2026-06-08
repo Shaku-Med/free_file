@@ -1,6 +1,6 @@
 import { Avatar, AvatarFallback, AvatarImage } from "~/components/ui/avatar";
 import { Button } from "~/components/ui/button";
-import { Calendar, Edit2, Camera, Upload, X, FileUp, Users, UserCheck } from "lucide-react";
+import { Calendar, Edit2, Camera, Upload, X, Users } from "lucide-react";
 import type { UserProfile } from "~/lib/Services/UserProfileService";
 import { formatDistanceToNow } from "date-fns";
 import { useState, useRef, useEffect } from "react";

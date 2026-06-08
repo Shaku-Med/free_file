@@ -1,5 +1,6 @@
 import { useEffect, useState, type RefObject } from 'react';
 import { Link } from 'react-router';
+import { useAuthHrefs } from '~/lib/loginRedirect';
 import { isMobile } from 'react-device-detect';
 import {
   Settings,
@@ -80,6 +81,7 @@ function Switch({
 }
 
 export function SettingsMenuBody() {
+  const { loginHref } = useAuthHrefs();
   const {
     state,
     setPlaybackRate,
@@ -143,7 +145,7 @@ export function SettingsMenuBody() {
     <>
       {!auth && (
         <div className="mx-1 mb-2 rounded-md border border-border/60 bg-muted/40 px-2.5 py-2 text-xs leading-snug text-muted-foreground sm:mx-2 sm:px-3">
-          <Link to="/auth/login" className="font-medium text-primary hover:underline">
+          <Link to={loginHref} className="font-medium text-primary hover:underline">
             Sign in
           </Link>{' '}
           to use autoplay (up next), ambient mode, and the audio visualizer.

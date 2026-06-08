@@ -6,6 +6,7 @@ import {
   type FormEvent,
   type KeyboardEvent,
 } from "react";
+import { useNavigate } from "react-router";
 import { Search } from "lucide-react";
 import { cn } from "~/lib/utils";
 import { SearchPanel } from "./SearchPanel";
@@ -27,6 +28,7 @@ export function NavbarSearchBar({
   const rootRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const [open, setOpen] = useState(false);
+  const navigate = useNavigate();
 
   const panel = useSearchPanel(open);
   const {
@@ -85,9 +87,16 @@ export function NavbarSearchBar({
 
   const handleSubmit = useCallback((event?: FormEvent) => {
     event?.preventDefault();
+    const q = inputValue.trim();
+    if (q) {
+      navigate(`/search/${encodeURIComponent(q)}`);
+      closeDropdown();
+      inputRef.current?.blur();
+      return;
+    }
     setOpen(true);
     inputRef.current?.focus();
-  }, []);
+  }, [inputValue, navigate, closeDropdown]);
 
   const handleInputKeyDown = useCallback((event: KeyboardEvent<HTMLInputElement>) => {
     if (event.key === "ArrowDown" || event.key === "Enter") {

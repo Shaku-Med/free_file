@@ -1,4 +1,5 @@
 import db from "~/lib/Database/supabase";
+import { verifyWebhookSecret } from "~/lib/Security/webhookAuth.server";
 
 /**
  * GoUpload calls this after storing a comment image in GitHub (same X-Webhook-Secret as upload-job-status).
@@ -12,11 +13,7 @@ export const action = async ({ request }: { request: Request }) => {
     });
   }
 
-  const secret =
-    request.headers.get("X-Webhook-Secret") ??
-    request.headers.get("Authorization")?.replace(/^Bearer\s+/i, "").trim();
-  const expected = process.env.UPLOAD_WEBHOOK_SECRET ?? "";
-  if (!expected || secret !== expected) {
+  if (!verifyWebhookSecret(request)) {
     return new Response(JSON.stringify({ error: "unauthorized" }), {
       status: 401,
       headers: { "Content-Type": "application/json" },
@@ -40,8 +37,8 @@ export const action = async ({ request }: { request: Request }) => {
     });
   }
 
-  const imageUrl = typeof body?.image_url === "string" ? body.image_url.trim() : "";
-  const githubRepo = typeof body?.github_repo === "string" ? body.github_repo.trim() : "";
+  const imageUrl = typeof body?.image_url === "string" ? body.image_url.trim().slice(0, 512) : "";
+  const githubRepo = typeof body?.github_repo === "string" ? body.github_repo.trim().slice(0, 128) : "";
   const storageBackend = body?.storage_backend === "r2" ? "r2" : "github";
   // GitHub needs a repo; R2 does not.
   if (!imageUrl || (storageBackend === "github" && !githubRepo)) {

@@ -25,6 +25,7 @@ import {
 } from '~/lib/Security/accountVault';
 import { PasskeyUserMessage, friendlyPasskeyClientError } from '~/lib/webauthn/userMessages';
 import { checkAuthRateLimit, resetAuthRateLimit } from '../fun/rateLimit';
+import { issueVerifyContext, appendVerifyContextCookie } from '../fun/verification';
 import { getProfilePicUrl } from '~/lib/utils/profilePic';
 import { Eye, EyeOff, AlertCircle, Fingerprint, KeyRound, CheckCircle2, Users } from 'lucide-react';
 
@@ -55,6 +56,12 @@ export const action = async ({ request }: { request: Request }) => {
 
     const normalizedIdentifier = identifier?.toLowerCase() || '';
 
+    // Per-IP cap first (stops password spraying across many accounts), then
+    // the tighter per-identifier cap.
+    const ipLimit = checkAuthRateLimit(request, 'login_ip');
+    if (!ipLimit.allowed) {
+      return data({ error: ipLimit.error || 'Too many attempts. Please wait a bit and try again.' }, { status: 429 });
+    }
     const rateLimitCheck = checkAuthRateLimit(request, 'login', normalizedIdentifier);
     if (!rateLimitCheck.allowed) {
       return data({ error: rateLimitCheck.error || 'Too many attempts. Please wait a bit and try again.' }, { status: 429 });
@@ -67,8 +74,14 @@ export const action = async ({ request }: { request: Request }) => {
     const result = await loginUser({ identifier, password }, request);
 
     if (!result.success) {
-      if (result.needsVerification && result.userId && result.email) {
-        return redirect(`/auth/verify?userId=${result.userId}&email=${encodeURIComponent(result.email)}&type=signup`);
+      if (result.needsVerification && result.userId) {
+        const ctxToken = await issueVerifyContext(result.userId, 'signup');
+        if (!ctxToken) {
+          return data({ error: 'Something went wrong. Please try again.' }, { status: 500 });
+        }
+        const headers = new Headers();
+        appendVerifyContextCookie(headers, ctxToken);
+        return redirect('/auth/verify?type=signup', { headers });
       }
       return data({ error: result.error || 'Incorrect username or password. Please try again.' }, { status: 401 });
     }
@@ -227,7 +240,7 @@ const Login = () => {
         </div>
       )}
 
-      <Card className="border border-border/60 shadow-sm">
+      <Card className="border-0 bg-transparent shadow-none">
         <CardHeader className="pb-1 pt-7 sm:pt-8 px-5 sm:px-8">
           <div className="text-center">
             <h1 className="text-xl font-semibold text-foreground">
@@ -362,7 +375,7 @@ const Login = () => {
               <div className="w-full border-t border-border/60" />
             </div>
             <div className="relative flex justify-center text-xs">
-              <span className="bg-card px-3 text-muted-foreground">or</span>
+              <span className="bg-background px-3 text-muted-foreground">or</span>
             </div>
           </div>
 

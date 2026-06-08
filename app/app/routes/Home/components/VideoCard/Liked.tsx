@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect } from "react";
 import Like from "./Icons/Like";
 import { useSidebar } from "~/components/ui/sidebar";
+import { buildLoginHref } from "~/lib/loginRedirect";
 
 interface LikedProps {
   fileId: string;
@@ -36,7 +37,7 @@ const Liked = ({ fileId, likeCount, liked, onUpdate }: LikedProps) => {
           body: JSON.stringify({ fileId }),
         });
         if (res.status === 401) {
-          window.location.href = "/auth/login";
+          window.location.href = buildLoginHref(window.location.pathname + window.location.search);
           return;
         }
         const data = await res.json();

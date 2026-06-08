@@ -5,6 +5,13 @@ import CommentForm from "./CommentForm";
 import type { CommentGif, CommentImage } from "./CommentForm";
 import type { Comment } from "~/lib/Services/CommentService";
 import { cn } from "~/lib/utils";
+import { buildLoginHref } from "~/lib/loginRedirect";
+
+function goToLogin() {
+  window.location.href = buildLoginHref(
+    window.location.pathname + window.location.search,
+  );
+}
 import { CommentSignInDialog } from "./CommentSignInDialog";
 import { Button } from "~/components/ui/button";
 
@@ -207,7 +214,7 @@ const CommentSection = ({
   const handleSubmit = useCallback(
     async (content: string, parentId?: string | null, gif?: CommentGif | null, image?: CommentImage | null) => {
       if (!currentUserId) {
-        window.location.href = "/auth/login";
+        goToLogin();
         return;
       }
 
@@ -229,7 +236,7 @@ const CommentSection = ({
 
         if (!response.ok) {
           if (response.status === 401) {
-            window.location.href = "/auth/login";
+            goToLogin();
             return;
           }
           const errBody = await response.json();

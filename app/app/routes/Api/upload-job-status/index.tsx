@@ -2,6 +2,7 @@ import db from '~/lib/Database/supabase';
 import { textContainsNsfw, DEFAULT_METADATA_WARNING } from '~/lib/nsfwTextCheck';
 import { isValidUUID } from '~/lib/Security/inputValidation';
 import { recordUploadUsage, refundUploadQuota } from '~/lib/uploadQuota.server';
+import { verifyWebhookSecret } from '~/lib/Security/webhookAuth.server';
 
 function inferFileType(filename: string): string {
   if (!filename) return 'application/octet-stream';
@@ -244,9 +245,7 @@ export const action = async ({ request }: { request: Request }) => {
     });
   }
 
-  const secret = request.headers.get('X-Webhook-Secret') ?? request.headers.get('Authorization')?.replace(/^Bearer\s+/i, '').trim();
-  const expected = typeof process !== 'undefined' ? process.env?.UPLOAD_WEBHOOK_SECRET : '';
-  if (!expected || secret !== expected) {
+  if (!verifyWebhookSecret(request)) {
     return new Response(JSON.stringify({ error: 'unauthorized' }), {
       status: 401,
       headers: { 'Content-Type': 'application/json' },

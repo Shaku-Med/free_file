@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useLocation } from "react-router";
 import { useFileContext } from "~/lib/Context/Context";
+import { buildLoginHref, buildSignupHref } from "~/lib/loginRedirect";
 import {
   Dialog,
   DialogContent,
@@ -56,6 +57,7 @@ const AUTH_PATHS = ["/auth", "/logout"];
 export default function SignInPrompt() {
   const { userId } = useFileContext();
   const location = useLocation();
+  const returnTo = `${location.pathname}${location.search}`;
   const [open, setOpen] = useState(false);
   const [prompt, setPrompt] = useState(PROMPTS[0]);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -125,13 +127,13 @@ export default function SignInPrompt() {
         </DialogHeader>
         <DialogFooter className="flex-col gap-2 sm:flex-col">
           <Button asChild className="w-full gap-2" size="lg">
-            <Link to="/auth/login" onClick={() => setOpen(false)}>
+            <Link to={buildLoginHref(returnTo)} onClick={() => setOpen(false)}>
               <LogIn className="h-4 w-4" />
               Sign In
             </Link>
           </Button>
           <Button asChild variant="outline" className="w-full gap-2" size="lg">
-            <Link to="/auth/signup" onClick={() => setOpen(false)}>
+            <Link to={buildSignupHref(returnTo)} onClick={() => setOpen(false)}>
               <UserPlus className="h-4 w-4" />
               Create Account
             </Link>

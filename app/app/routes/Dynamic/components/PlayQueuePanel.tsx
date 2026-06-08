@@ -19,6 +19,7 @@ import { cn } from "~/lib/utils";
 import type { FileType } from "~/lib/types";
 import VideoCard from "~/routes/Home/components/VideoCard";
 import { useFileContext } from "~/lib/Context/Context";
+import { useAuthHrefs } from "~/lib/loginRedirect";
 import {
   PLAY_QUEUE_DROP_APPEND,
   PLAY_QUEUE_DROP_EMPTY,
@@ -195,6 +196,7 @@ function GuestPlayQueueLocked({
   userActions?: { likedFileIds: Set<string>; dislikedFileIds: Set<string> };
 }) {
   const [collapsed, setCollapsed] = useState(false);
+  const { loginHref } = useAuthHrefs();
 
   return (
     <div className="rounded-lg border border-border/60 bg-muted/20">
@@ -234,7 +236,7 @@ function GuestPlayQueueLocked({
               </div>
               {!collapsed ? (
                 <p className="mt-1.5 text-xs leading-snug text-muted-foreground">
-                  <Link to="/auth/login" className="font-medium text-primary hover:underline">
+                  <Link to={loginHref} className="font-medium text-primary hover:underline">
                     Sign in
                   </Link>{" "}
                   to customize what plays next.

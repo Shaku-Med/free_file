@@ -142,7 +142,7 @@ const ResetConfirm = () => {
 
   return (
     <div className="w-full">
-      <Card className="border border-border/60 shadow-sm">
+      <Card className="border-0 bg-transparent shadow-none">
         <CardHeader className="pb-1 pt-7 sm:pt-8 px-5 sm:px-8">
           <div className="flex flex-col items-center gap-2">
             <ShieldCheck className="h-8 w-8 text-primary" />
