@@ -96,17 +96,52 @@ export function useVideoEvents(videoRef: React.RefObject<HTMLVideoElement | null
       setState(s => s.isBuffering ? { ...s, isBuffering: false } : s);
     };
 
+    // `progress` fires rapidly while HLS is downloading. Each update used to
+    // re-render every player-context consumer (~25 components), which is a
+    // big part of why navigation feels slow during loading. Throttle to a
+    // few updates/sec (the buffered bar doesn't need 60fps) and bail when the
+    // ranges haven't meaningfully moved.
+    const PROGRESS_MIN_INTERVAL = 350;
     let progressRafId = 0;
-    const onProgress = () => {
-      if (progressRafId) return;
-      progressRafId = requestAnimationFrame(() => {
-        progressRafId = 0;
-        const ranges: { start: number; end: number }[] = [];
-        for (let i = 0; i < video.buffered.length; i++) {
-          ranges.push({ start: video.buffered.start(i), end: video.buffered.end(i) });
-        }
-        setState(s => ({ ...s, bufferedRanges: ranges }));
+    let progressTrailingId: ReturnType<typeof setTimeout> | null = null;
+    let lastProgressUpdate = 0;
+
+    const flushBuffered = () => {
+      progressRafId = 0;
+      lastProgressUpdate = performance.now();
+      const ranges: { start: number; end: number }[] = [];
+      for (let i = 0; i < video.buffered.length; i++) {
+        ranges.push({ start: video.buffered.start(i), end: video.buffered.end(i) });
+      }
+      setState(s => {
+        const prev = s.bufferedRanges;
+        const unchanged =
+          prev.length === ranges.length &&
+          prev.every(
+            (r, i) =>
+              Math.abs(r.start - ranges[i].start) < 0.25 &&
+              Math.abs(r.end - ranges[i].end) < 0.25,
+          );
+        return unchanged ? s : { ...s, bufferedRanges: ranges };
       });
+    };
+
+    const scheduleBufferedFlush = () => {
+      if (progressRafId) return;
+      progressRafId = requestAnimationFrame(flushBuffered);
+    };
+
+    const onProgress = () => {
+      if (progressRafId || progressTrailingId) return;
+      const elapsed = performance.now() - lastProgressUpdate;
+      if (elapsed >= PROGRESS_MIN_INTERVAL) {
+        scheduleBufferedFlush();
+      } else {
+        progressTrailingId = setTimeout(() => {
+          progressTrailingId = null;
+          scheduleBufferedFlush();
+        }, PROGRESS_MIN_INTERVAL - elapsed);
+      }
     };
 
     const onVolumeChange = () => {
@@ -143,6 +178,7 @@ export function useVideoEvents(videoRef: React.RefObject<HTMLVideoElement | null
     return () => {
       if (timeRafId) cancelAnimationFrame(timeRafId);
       if (progressRafId) cancelAnimationFrame(progressRafId);
+      if (progressTrailingId) clearTimeout(progressTrailingId);
       video.removeEventListener('play', onPlay);
       video.removeEventListener('pause', onPause);
       video.removeEventListener('ended', onEnded);

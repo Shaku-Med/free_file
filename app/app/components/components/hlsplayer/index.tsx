@@ -412,9 +412,14 @@ function PlayerInner({
   useWatchTimeHeartbeat(videoRef);
   useFullscreen();
   useWakeLock(videoRef);
-  const autoplayAllowed =
-    autoPlayEnabled &&
-    (!isReelCtx || reelVideoInView || reelSwiperActive);
+  // Reels always autoplay the in-view / active slide  that's the whole point
+  // of the reel feed  so they must NOT inherit the global autoplay toggle.
+  // Otherwise, with autoplay off, useAutoplay actively pauses the active reel
+  // and fights the reel's own play logic (the slide keeps getting paused).
+  // Non-reel players keep respecting the user's autoplay preference.
+  const autoplayAllowed = isReelCtx
+    ? reelVideoInView || reelSwiperActive
+    : autoPlayEnabled;
   const { showPrompt, enableAutoplay, dismissPrompt } = useAutoplay(
     autoplayAllowed,
     videoRef,
@@ -582,20 +587,47 @@ function PlayerInner({
         ? file.default_thumbnail.replace(/[^/]+$/, '')
         : '';
     if (!prefix) return;
+
+    let cancelled = false;
+    const metaUrl = `/api/load/image/${prefix}thumbnail_preview.json`;
+    const spriteImgUrl = `/api/load/image/${prefix}thumbnail_preview.jpg`;
+
+    // Warm the sprite sheet into the browser cache up-front, in parallel with
+    // the meta fetch. The seek preview paints the sprite via a CSS
+    // `background-image`, which the browser otherwise doesn't download until
+    // the very first hover  causing the slow/blank first scrub. Preloading
+    // here means the first preview paints instantly from cache. Low priority +
+    // async decode so it never competes with the actual video segments.
+    const preloadImg = new Image();
+    preloadImg.decoding = 'async';
+    try {
+      (preloadImg as HTMLImageElement & { fetchPriority?: string }).fetchPriority = 'low';
+    } catch {
+      /* fetchPriority unsupported  ignore */
+    }
+    preloadImg.src = spriteImgUrl;
+
     const loadSpriteMeta = async () => {
-      const metaUrl = `/api/load/image/${prefix}thumbnail_preview.json`;
-      const spriteImgUrl = `/api/load/image/${prefix}thumbnail_preview.jpg`;
       try {
         const res = await fetch(metaUrl);
-        if (!res.ok) return;
+        if (!res.ok || cancelled) return;
         const meta = (await res.json()) as ThumbnailSpriteMeta;
+        if (cancelled) return;
         if (meta?.cells?.length) {
           setSpriteMeta(meta);
           setSpriteUrl(spriteImgUrl);
+          // Force a decode so the first hover has no decode hitch either.
+          preloadImg.decode?.().catch(() => {});
         }
       } catch {}
     };
     loadSpriteMeta();
+
+    return () => {
+      cancelled = true;
+      // Abort the preload if the file changes before it finishes downloading.
+      preloadImg.src = '';
+    };
   }, [file?.default_thumbnail, setSpriteMeta, setSpriteUrl]);
 
   const triggerSeekFeedbackOverlay = useCallback(

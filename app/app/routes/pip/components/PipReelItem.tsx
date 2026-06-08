@@ -187,40 +187,68 @@ function PipReelItemInner({
       return;
     }
 
-    // Robust autoplay for reels. Fast scrolling makes play() race with the
-    // previous slide's pause() (AbortError), and mobile can reject the
-    // unmuted play() once the gesture credit lapses  the old `.catch(()=>{})`
-    // just left the video paused, forcing the user to tap. Instead: retry a
-    // couple times for transient aborts, and if still blocked, resume on the
-    // viewer's very next scroll/tap (they're already interacting) so it never
-    // gets stuck paused.
+    // Robust autoplay for reels  the active slide must NEVER stay paused.
+    // Two things break naive autoplay on mobile:
+    //   1. Fast scrolling makes this slide's play() race the previous slide's
+    //      pause() → AbortError.
+    //   2. After a few slides the browser revokes audible-autoplay permission
+    //      → play() rejects with NotAllowedError. The old code then waited for
+    //      a tap/finger-lift to resume, which is why playback felt stuck and
+    //      "you had to put your hands down to play".
+    // Strategy (TikTok-style): retry transient aborts; if SOUND is blocked,
+    // fall back to a MUTED play so the reel keeps rolling, then restore sound
+    // on the viewer's next interaction instead of forcing a manual un-pause.
     let cancelled = false;
     let retries = 3;
 
     const cleanupGesture = () => {
-      document.removeEventListener('pointerdown', onGesture);
-      document.removeEventListener('touchend', onGesture);
+      document.removeEventListener('pointerdown', onUnmuteGesture);
+      document.removeEventListener('touchend', onUnmuteGesture);
     };
-    const onGesture = () => {
-      if (cancelled) return;
+    const onUnmuteGesture = () => {
       cleanupGesture();
-      void v.play().catch(() => {});
+      if (cancelled || !isActive) return;
+      const el = trackedVideoEl ?? videoRef.current;
+      if (!el) return;
+      // The video is already playing (muted fallback) — a genuine interaction
+      // lets us bring the sound back without interrupting playback.
+      if (el.muted) el.muted = false;
+      if (el.paused) void el.play().catch(() => {});
     };
-    const armGestureResume = () => {
-      document.addEventListener('pointerdown', onGesture, { once: true, passive: true });
-      document.addEventListener('touchend', onGesture, { once: true, passive: true });
+    const armUnmuteGesture = () => {
+      cleanupGesture();
+      document.addEventListener('pointerdown', onUnmuteGesture, { once: true, passive: true });
+      document.addEventListener('touchend', onUnmuteGesture, { once: true, passive: true });
+    };
+
+    const playMutedFallback = () => {
+      if (cancelled) return;
+      v.muted = true;
+      v.play()
+        .then(() => {
+          if (cancelled) return;
+          armUnmuteGesture();
+        })
+        .catch(() => {
+          if (!cancelled && retries-- > 0) window.setTimeout(attempt, 150);
+        });
     };
 
     const attempt = () => {
-      if (cancelled) return;
+      if (cancelled || !isActive) return;
       const p = v.play();
       if (p && typeof p.then === 'function') {
-        p.catch(() => {
+        p.catch((err: unknown) => {
           if (cancelled || !v.paused) return; // already recovered
-          if (retries-- > 0) {
+          const name =
+            err && typeof err === 'object' && 'name' in err
+              ? String((err as { name: string }).name)
+              : '';
+          if (name === 'NotAllowedError') {
+            // Audible autoplay blocked → keep playing muted instead of pausing.
+            playMutedFallback();
+          } else if (retries-- > 0) {
             window.setTimeout(attempt, 120); // transient abort  retry
-          } else {
-            armGestureResume(); // blocked  resume on next interaction
           }
         });
       }

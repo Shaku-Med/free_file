@@ -15,7 +15,7 @@ type WaveformJson = {
   peaks?: number[];
 };
 
-async function fetchPeaks(url: string): Promise<number[] | null> {
+export async function fetchPeaks(url: string): Promise<number[] | null> {
   if (missingUrls.has(url)) return null;
   const cached = peaksCache.get(url);
   if (cached) return cached;
@@ -181,6 +181,26 @@ export default function WaveformCanvas({
       style={{ height, color }}
     />
   );
+}
+
+/**
+ * Synchronous peek into the warm cache. Lets the SeekBar decide up-front
+ * whether usable peaks already exist (file revisit) so it can render the
+ * waveform immediately instead of flashing the plain rail.
+ */
+export function getCachedPeaks(url: string | undefined | null): number[] | null {
+  if (!url) return null;
+  return peaksCache.get(url) ?? null;
+}
+
+/**
+ * True when a previous fetch already confirmed this URL is 404 / silent /
+ * unusable. The SeekBar uses it to skip straight to the fallback rail (or
+ * PNG) without kicking off another request or flashing a blank waveform.
+ */
+export function isPeaksMissing(url: string | undefined | null): boolean {
+  if (!url) return false;
+  return missingUrls.has(url);
 }
 
 // Re-export for callers that just want to detect format up-front.

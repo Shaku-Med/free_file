@@ -3,7 +3,12 @@ import { usePlayerContext } from '../../PlayerContext';
 import type { BufferedRange } from '../../PlayerContext';
 import ThumbnailPreview from './ThumbnailPreview';
 import { formatTime } from './functions/formatTime';
-import WaveformCanvas, { isWaveformJson } from './WaveformCanvas';
+import WaveformCanvas, {
+  isWaveformJson,
+  fetchPeaks,
+  getCachedPeaks,
+  isPeaksMissing,
+} from './WaveformCanvas';
 import { cn } from '~/lib/utils';
 
 function BufferSegments({ ranges, duration, className }: {
@@ -380,17 +385,35 @@ export default function SeekBar({ mobileStyle = false }: { mobileStyle?: boolean
   // the PNG fallback attempt, and vice versa.
   const [jsonError, setJsonError] = useState(false);
   const [pngError, setPngError] = useState(false);
+  // The JSON peaks are fetched asynchronously inside WaveformCanvas. Until
+  // they actually land we must NOT switch the track to the waveform layout,
+  // otherwise the seeker shows a blank strip (just a hairline) while the
+  // request is in flight  the bug this guards against. `jsonReady` flips
+  // true only once usable peaks exist, so the plain progress rail stays up
+  // during the request and the waveform swaps in cleanly when it's ready.
+  const [jsonReady, setJsonReady] = useState(false);
+
+  const hasJsonCandidate =
+    !isReel &&
+    Boolean(waveformJsonUrl) &&
+    !jsonError &&
+    isWaveformJson(waveformJsonUrl);
+  // JSON exists for this file but its peaks haven't loaded yet  hold the
+  // default rail (don't fall through to PNG, which would flicker once the
+  // JSON resolves).
+  const jsonPending = hasJsonCandidate && !jsonReady;
 
   // Resolve which waveform URL to actually render this frame:
-  //   1. Try JSON (new format, primary).
-  //   2. If JSON 404s / has no real audio → try PNG (legacy).
-  //   3. If PNG 404s too → null, SeekBar renders plain rail.
+  //   1. JSON peaks loaded → render the client-side waveform.
+  //   2. JSON still loading → null (plain rail), wait for it.
+  //   3. JSON 404s / silent → try PNG (legacy).
+  //   4. PNG 404s too → null, SeekBar renders the plain rail.
   // Reels use the plain progress rail (same as mobile), not the waveform seeker.
   const waveformUrl = isReel
     ? null
-    : waveformJsonUrl && !jsonError
+    : hasJsonCandidate && jsonReady
       ? waveformJsonUrl
-      : waveformPngUrl && !pngError
+      : !jsonPending && waveformPngUrl && !pngError
         ? waveformPngUrl
         : null;
   const isDraggingRef = useRef(false);
@@ -436,12 +459,39 @@ export default function SeekBar({ mobileStyle = false }: { mobileStyle?: boolean
     return () => window.removeEventListener('blur', onWinBlur);
   }, [endInteraction, finishScrubbing]);
 
-  // Reset both error flags whenever the underlying file changes  a 404
-  // on one video shouldn't poison the next one even if it succeeds.
+  // Reset error/ready flags whenever the underlying file changes  a 404
+  // on one video shouldn't poison the next one even if it succeeds  then
+  // pre-load the JSON peaks so we only flip to the waveform layout once
+  // they're actually available. While the request is in flight the seeker
+  // stays on the plain rail instead of rendering a blank waveform strip.
   useEffect(() => {
     setJsonError(false);
     setPngError(false);
-  }, [waveformJsonUrl, waveformPngUrl]);
+    setJsonReady(false);
+
+    if (isReel || !waveformJsonUrl || !isWaveformJson(waveformJsonUrl)) return;
+
+    // Warm-cache hit (file revisit): show the waveform immediately.
+    if (getCachedPeaks(waveformJsonUrl)) {
+      setJsonReady(true);
+      return;
+    }
+    // Already known to be missing/silent: skip straight to the fallback.
+    if (isPeaksMissing(waveformJsonUrl)) {
+      setJsonError(true);
+      return;
+    }
+
+    let alive = true;
+    fetchPeaks(waveformJsonUrl).then((peaks) => {
+      if (!alive) return;
+      if (peaks) setJsonReady(true);
+      else setJsonError(true);
+    });
+    return () => {
+      alive = false;
+    };
+  }, [waveformJsonUrl, waveformPngUrl, isReel]);
 
   // Stable callbacks for child error handlers  flagging one variant as
   // missing falls through to the next branch in the URL resolution above.
@@ -469,7 +519,10 @@ export default function SeekBar({ mobileStyle = false }: { mobileStyle?: boolean
     });
     ro.observe(el);
     return () => ro.disconnect();
-  }, []);
+    // Re-attach when the track layout swaps (plain rail ↔ waveform) so the
+    // observer follows the new DOM node and the played-waveform layer gets a
+    // correct pixel width after the swap.
+  }, [waveformUrl, mobileStyle]);
 
   const showWaveform = Boolean(waveformUrl);
 

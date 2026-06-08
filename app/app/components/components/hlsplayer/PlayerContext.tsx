@@ -748,7 +748,12 @@ export function PlayerProvider({
   const controlTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const setControlsVisible = useCallback((visible: boolean) => {
-    setState(s => ({ ...s, controlsVisible: visible }));
+    // Idempotent: `useControlsVisibility` calls this on every `mousemove`
+    // over the player. Returning the same state ref when nothing changed
+    // lets React bail out instead of re-rendering all ~25 context consumers
+    // 60120/sec while the pointer moves  the main cause of the player
+    // dragging down navigation.
+    setState(s => (s.controlsVisible === visible ? s : { ...s, controlsVisible: visible }));
   }, []);
 
   const setReelAuxiliaryChromeVisible = useCallback((visible: boolean) => {
@@ -758,7 +763,9 @@ export function PlayerProvider({
       reelChromeStore.set(visible);
       return;
     }
-    setState(s => ({ ...s, reelAuxiliaryChromeVisible: visible }));
+    setState(s =>
+      s.reelAuxiliaryChromeVisible === visible ? s : { ...s, reelAuxiliaryChromeVisible: visible },
+    );
   }, [reelEmbedAutoHide]);
 
   useEffect(() => {
@@ -771,11 +778,11 @@ export function PlayerProvider({
 
   const startInteraction = useCallback(() => {
     interactingRef.current = true;
-    setState(s => ({
-      ...s,
-      controlsVisible: true,
-      ...(reelEmbedAutoHide ? { reelAuxiliaryChromeVisible: true } : {}),
-    }));
+    setState(s => {
+      const nextAux = reelEmbedAutoHide ? true : s.reelAuxiliaryChromeVisible;
+      if (s.controlsVisible && s.reelAuxiliaryChromeVisible === nextAux) return s;
+      return { ...s, controlsVisible: true, reelAuxiliaryChromeVisible: nextAux };
+    });
     if (controlTimerRef.current) clearTimeout(controlTimerRef.current);
   }, [reelEmbedAutoHide]);
 

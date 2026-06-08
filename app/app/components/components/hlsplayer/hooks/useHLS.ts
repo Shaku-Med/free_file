@@ -69,11 +69,15 @@ function applyVideoCrossOrigin(video: HTMLVideoElement, playbackSrc: string) {
 }
 
 export function useHLS(videoRef: React.RefObject<HTMLVideoElement | null>) {
-  const { hlsRef, setState, src, autoPlay, file } = usePlayerContext();
+  const { hlsRef, setState, src, autoPlay, file, isReel } = usePlayerContext();
   const { playerSettings } = useFileContext();
   const mountedRef = useRef(true);
-  const qualityPrefRef = useRef(playerSettings?.quality ?? 'auto');
-  qualityPrefRef.current = playerSettings?.quality ?? 'auto';
+  // Reels always stream at adaptive `auto`  short, vertical, fast-scrolled
+  // clips shouldn't inherit the user's global quality pick (e.g. a forced
+  // 1080p that stalls on mobile). Non-reel players keep the saved preference.
+  const resolveQualityPref = () => (isReel ? 'auto' : playerSettings?.quality ?? 'auto');
+  const qualityPrefRef = useRef(resolveQualityPref());
+  qualityPrefRef.current = resolveQualityPref();
   const lastEnginePathRef = useRef<'hlsjs' | 'native' | 'direct' | null>(null);
   const lastAttachedVideoRef = useRef<HTMLVideoElement | null>(null);
   const lastKnownGoodTimeRef = useRef<number>(0);

@@ -26,9 +26,12 @@ interface ReelSwiperProps {
 const PREFETCH_WHEN_SWIPES_REMAINING = 2;
 
 /**
- * Keep HLS mounted for recently viewed reels so scrolling back does not cold-load again (bounded for memory).
+ * Keep HLS mounted for recently viewed reels so scrolling back does not cold-load again.
+ * Kept small: each entry is a live hls.js instance + <video> decoder, and 20 of them piling
+ * up made sustained scrolling stutter (and pressured mobile memory). 8 covers realistic
+ * scroll-back without that cost.
  */
-const MAX_STICKY_HLS_MOUNT = 20;
+const MAX_STICKY_HLS_MOUNT = 8;
 
 const POSITION_PILL_VISIBLE_MS = 2200;
 
@@ -297,15 +300,19 @@ export const ReelSwiper = ({
         spaceBetween={0}
         rewind={rewindDeck}
         watchSlidesProgress
-        speed={240}
+        speed={300}
         // Gesture tuning  feels like TikTok, not like a desktop carousel.
-        threshold={8}
+        // Lower threshold + higher touchRatio make the slide track the finger
+        // sooner and 1:1-ish, which kills the "stiff" feel; a slightly shorter
+        // long-swipe ratio lets a small flick commit to the next reel.
+        threshold={4}
+        touchRatio={1.25}
         longSwipes
         longSwipesMs={180}
-        longSwipesRatio={0.2}
+        longSwipesRatio={0.15}
         shortSwipes
         followFinger
-        resistanceRatio={0.35}
+        resistanceRatio={0.2}
         preventInteractionOnTransition={false}
         // Don't preventDefault on touchstart so native video controls (seek, etc.) keep working.
         touchStartPreventDefault={false}

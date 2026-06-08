@@ -210,37 +210,54 @@ const ImageLoad = ({
                     return
                 }
 
-                // 3. Not cached  render the URL directly (old way) and warm
-                //    IndexedDB in the background. Display never waits on it.
+                // 3. Not cached  render the URL directly (old way). Display
+                //    never waits on a fetch. We still warm IndexedDB for
+                //    offline / instant revisit, but ONLY once the browser is
+                //    idle, so this extra download never competes with the
+                //    visible <img> requests (firing it eagerly double-fetched
+                //    every thumbnail and starved the feed  the slowness).
                 if (!cancelled) setError(false)
                 if (resolvedImageID) {
                     const bgUrl =
                         useRelativeApiUrl && resolvedLink.startsWith('/') && typeof window !== 'undefined'
                             ? `${window.location.origin}${resolvedLink}`
                             : `${secondaryBaseUrl || IMAGE_BASE_URL}${resolvedLink}`
-                    void (async () => {
-                        try {
-                            const resp = await fetch(bgUrl, {
-                                method: 'GET',
-                                headers: { 'c-user': c_user ? `${c_user}` : '' },
-                                mode: 'cors',
-                            })
-                            if (!resp.ok) return
-                            const blob = await resp.blob()
-                            if (!blob.size) return
-                            await storeImageBlob(resolvedImageID, blob, resolvedLink)
-                            // Keep a memory handle for instant reuse this session;
-                            // do NOT swap the visible <img> (URL is already showing).
-                            const objectUrl = URL.createObjectURL(blob)
-                            const currentCache = (window as any)[`_${resolvedImageID}`] || {}
-                            ;(window as any)[`_${resolvedImageID}`] = {
-                                ...currentCache,
-                                imageUrl: objectUrl,
+                    const warmIndexedDb = () => {
+                        if (cancelled) return
+                        void (async () => {
+                            try {
+                                const resp = await fetch(bgUrl, {
+                                    method: 'GET',
+                                    headers: { 'c-user': c_user ? `${c_user}` : '' },
+                                    mode: 'cors',
+                                    // Hint the browser to keep this off the critical path.
+                                    ...({ priority: 'low' } as RequestInit),
+                                })
+                                if (!resp.ok || cancelled) return
+                                const blob = await resp.blob()
+                                if (!blob.size || cancelled) return
+                                await storeImageBlob(resolvedImageID, blob, resolvedLink)
+                                // Keep a memory handle for instant reuse this session;
+                                // do NOT swap the visible <img> (URL is already showing).
+                                const objectUrl = URL.createObjectURL(blob)
+                                const currentCache = (window as any)[`_${resolvedImageID}`] || {}
+                                ;(window as any)[`_${resolvedImageID}`] = {
+                                    ...currentCache,
+                                    imageUrl: objectUrl,
+                                }
+                            } catch {
+                                /* background warm-up failure is non-fatal */
                             }
-                        } catch {
-                            /* background warm-up failure is non-fatal */
-                        }
-                    })()
+                        })()
+                    }
+                    const ric = (window as unknown as {
+                        requestIdleCallback?: (cb: () => void, opts?: { timeout?: number }) => number
+                    }).requestIdleCallback
+                    if (typeof ric === 'function') {
+                        ric(warmIndexedDb, { timeout: 4000 })
+                    } else {
+                        setTimeout(warmIndexedDb, 1200)
+                    }
                 }
                 return
             }
@@ -532,9 +549,14 @@ const ImageLoad = ({
         ? (src as string)                                   // error-recovery blob
         : needsBlobFetch
             ? (hasBlobSrc ? (src as string) : imgUrlForUrlMode)
-            : hasCachedBlob
-                ? (cachedBlobSrc as string)                 // already in IDB/memory
-                : imgUrlForUrlMode                          // default: straight URL
+            : imgUrlForUrlMode                              // default: straight URL, no blob swap
+
+    // Note: for the normal (non-blob) path we deliberately keep showing the
+    // direct URL even when an IndexedDB/memory blob exists. Swapping <img src>
+    // to a blob URL after the async cache lookup remounts the image (key is the
+    // src) and forces a reload/redecode  a visible flash and wasted work for
+    // an identical pixel. The browser HTTP cache already makes the URL instant
+    // on revisit; the blob cache stays purely for offline / preview use.
 
     const canShowFromUrl = !needsBlobFetch && !!resolvedLink && !error
     const canShowImage = needsBlobFetch
