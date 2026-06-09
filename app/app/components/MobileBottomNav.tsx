@@ -4,7 +4,6 @@ import { Home, Users, Plus, Film } from "lucide-react";
 import { useSidebar } from "~/components/ui/sidebar";
 import { useFileContext } from "~/lib/Context/Context";
 import { UserProfileDropdown } from "~/components/UserProfileDropdown";
-import { useStandalone } from "~/lib/hooks/useStandalone";
 import { isReelRoute } from "~/lib/reelRoute";
 import { isPipChromeRoute } from "~/routes/pip/pipEnv";
 import { cn } from "~/lib/utils";
@@ -30,7 +29,6 @@ export default function MobileBottomNav() {
   const { isMobile } = useSidebar();
   const { pathname } = useLocation();
   const { setIsModalOpen, hideAppChrome } = useFileContext();
-  const isStandalone = useStandalone();
   const [isFullscreen, setIsFullscreen] = useState(false);
 
   // Hide when the player goes browser-fullscreen (not covered by route checks).
@@ -72,10 +70,9 @@ export default function MobileBottomNav() {
       ref={(el) => {
         if (el) document.documentElement.style.setProperty("--app-bottom-nav-h", `${el.offsetHeight}px`);
       }}
-      className={cn(
-        "fixed inset-x-0 bottom-0 z-[var(--z-app-chrome)] border-t border-border/60 bg-background/90 backdrop-blur-md supports-[backdrop-filter]:bg-background/75",
-        isStandalone && "pb-[env(safe-area-inset-bottom)]",
-      )}
+      // Always reserve the home-indicator inset (env() is 0 on devices without one)
+      // so the bar's background fills down to the true bottom edge  no black gap.
+      className="fixed inset-x-0 bottom-0 z-[var(--z-app-chrome)] border-t border-border/60 bg-background/90 backdrop-blur-md supports-[backdrop-filter]:bg-background/75 pb-[env(safe-area-inset-bottom)]"
     >
       <ul className="flex h-14 items-stretch justify-around px-1">
         {navItems.slice(0, 2).map((item) => (

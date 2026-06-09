@@ -56,6 +56,23 @@
   --z-sidebar-sheet: 10000000000; /* mobile sidebar sheet (over chrome) */
 }
 
+/* Installed PWA (standalone / fullscreen) on phones: the fixed-viewport shell
+   (position:fixed + height:100%) leaves a gap at the bottom on iOS  the app
+   doesn't reach the real screen edge. Drop the fixed positioning and fill the
+   dynamic viewport so it flows edge-to-edge like a native app. Browser tabs are
+   untouched. */
+@media all and (display-mode: standalone), all and (display-mode: fullscreen) {
+  html,
+  body {
+    position: static !important;
+    inset: auto !important;
+    height: 100vh !important;
+    height: 100dvh !important;
+    min-height: 100vh !important;
+    min-height: 100dvh !important;
+  }
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;

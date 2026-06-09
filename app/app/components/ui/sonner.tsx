@@ -7,6 +7,9 @@ export function Toaster(props: ToasterProps) {
       position="bottom-right"
       richColors
       closeButton
+      // Lift toasts above the mobile tab bar (var is 0 when the bar isn't shown).
+      offset={{ bottom: "calc(var(--app-bottom-nav-h, 0px) + 24px)" }}
+      mobileOffset={{ bottom: "calc(var(--app-bottom-nav-h, 0px) + 16px)" }}
       toastOptions={{
         classNames: {
           toast:

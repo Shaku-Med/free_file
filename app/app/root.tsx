@@ -34,6 +34,7 @@ import SetToken from "./lib/Security/unsharedkeyEncryption/Combined/Verification
 import { isAuthenticated } from "./lib/Security/Password";
 import AppShell from "./components/AppShell";
 import RegisterServiceWorker from "./components/RegisterServiceWorker";
+import OrientationLock from "./components/OrientationLock";
 import { ThemeApply } from "./components/ThemeApply";
 import SignInPrompt from "./components/SignInPrompt";
 import PushPromptOverlay from "./components/PushPromptOverlay";
@@ -290,6 +291,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
       <body className={`flex flex-col fixed top-0 left-0 w-full h-full`}>
         <ThemeApply userTheme={userTheme ?? null} />
         <RegisterServiceWorker />
+        <OrientationLock />
         <ErrorBoundary>
           <ContextProvider st={st} user_agent={user_agent || ''} userId={userId || null} c_user={null} uploadServerUrl={uploadServerUrl || ''} playerSettingsFromLoader={playerSettingsFromLoader ?? null} isMobileServer={isMobileServer ?? false} isDevelopment={isDevelopmentServer ?? false} altAccounts={altAccounts ?? []}>
             <LikeProvider>

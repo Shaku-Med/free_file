@@ -221,7 +221,7 @@ function Sidebar({
           side={side}
         >
           <div className="flex h-full w-full flex-col relative">
-            <SheetClose className="absolute top-4 right-4 z-50 rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:pointer-events-none">
+            <SheetClose className="absolute top-[calc(env(safe-area-inset-top)+1rem)] right-4 z-50 rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:pointer-events-none">
               <XIcon className="h-4 w-4" />
               <span className="sr-only">Close</span>
             </SheetClose>

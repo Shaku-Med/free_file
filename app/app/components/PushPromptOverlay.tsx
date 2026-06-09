@@ -104,7 +104,7 @@ export default function PushPromptOverlay() {
       // Bottom-anchored card on mobile (matches OS toast patterns),
       // floating bottom-right on desktop. Pointer events stay scoped
       // to the card so the rest of the app stays interactive.
-      className="pointer-events-none fixed inset-x-0 bottom-0 z-[60] flex justify-center p-3 sm:inset-auto sm:bottom-4 sm:right-4 sm:p-0"
+      className="pointer-events-none fixed inset-x-0 bottom-[var(--app-bottom-nav-h,0px)] z-[60] flex justify-center p-3 sm:inset-auto sm:bottom-4 sm:right-4 sm:p-0"
     >
       <div className="pointer-events-auto w-full max-w-md rounded-2xl border border-border bg-card shadow-xl ring-1 ring-black/5 backdrop-blur-sm sm:w-[22rem]">
         <div className="relative flex gap-3 p-4">
