@@ -276,6 +276,7 @@ export const action = async ({ request }: { request: Request }) => {
       .from("files")
       .update(updateData)
       .eq(lookupField, fileId)
+      .eq("owner_id", user.id)
       .select("id, file_title, file_description, is_public, categories, tags, comments_enabled, comment_limit, default_thumbnail, metadata")
       .single();
 

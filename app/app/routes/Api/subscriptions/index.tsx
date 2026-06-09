@@ -30,6 +30,49 @@ function fireNewSubscriberNotifications(channelId: string, subscriberId: string)
   })();
 }
 
+/**
+ * GET /api/subscriptions?channel_id=… — is the current viewer subscribed to this channel?
+ * Reuses the same `get_channel_stats` RPC the profile page uses (returns `is_subscribed`),
+ * so reels can hide the Subscribe button for channels you already follow without threading
+ * subscription state through the whole feed.
+ */
+export const loader = async ({ request }: { request: Request }) => {
+  try {
+    const url = new URL(request.url);
+    const channelId = url.searchParams.get("channel_id");
+    if (!channelId) {
+      return data({ success: false, error: "channel_id is required" }, { status: 400 });
+    }
+    if (!db) {
+      return data({ success: false, error: "Database unavailable" }, { status: 500 });
+    }
+
+    const user = await isAuthenticated(request, ["id"]);
+    // Logged-out viewers can't be subscribed to anything.
+    if (!user?.id) {
+      return data({ success: true, subscribed: false }, { status: 200 });
+    }
+
+    const { data: statsResult } = await db.rpc("get_channel_stats", {
+      p_user_id: channelId,
+      p_viewer_id: user.id,
+    });
+    const parsed =
+      typeof statsResult === "string" ? JSON.parse(statsResult) : statsResult;
+
+    return data(
+      {
+        success: true,
+        subscribed: Boolean(parsed?.is_subscribed),
+        subscriber_count: Number(parsed?.subscriber_count) || 0,
+      },
+      { status: 200 },
+    );
+  } catch {
+    return data({ success: false, error: "Internal server error" }, { status: 500 });
+  }
+};
+
 export const action = async ({ request }: { request: Request }) => {
   try {
     if (request.method !== "POST") {

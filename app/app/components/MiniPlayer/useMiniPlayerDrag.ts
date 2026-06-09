@@ -1,6 +1,14 @@
 import { useCallback, useRef, useState, useLayoutEffect, useEffect } from "react";
 
 const PADDING = 12;
+
+/** Space the mobile bottom nav reserves at the viewport bottom, if present. */
+function bottomReservedPx(): number {
+  if (typeof window === "undefined") return 0;
+  const raw = getComputedStyle(document.documentElement).getPropertyValue("--app-bottom-nav-h");
+  const n = parseFloat(raw);
+  return Number.isFinite(n) ? n : 0;
+}
 const DRAG_THRESHOLD_PX = 4;
 /** Match CSS transitions after snap (~ease-out finish). */
 const SNAP_TRANSITION_MS = 220;
@@ -112,16 +120,17 @@ function initialBottomRightPosition(width: number): { x: number; y: number } {
   const h = estimateShellHeight(width);
   return {
     x: window.innerWidth - width - PADDING,
-    y: window.innerHeight - h - PADDING,
+    y: window.innerHeight - h - PADDING - bottomReservedPx(),
   };
 }
 
 function getCornerPositions(elWidth: number, elHeight: number) {
   const w = window.innerWidth;
   const h = window.innerHeight;
+  const bottomY = h - elHeight - PADDING - bottomReservedPx();
   return {
-    br: { x: w - elWidth - PADDING, y: h - elHeight - PADDING },
-    bl: { x: PADDING, y: h - elHeight - PADDING },
+    br: { x: w - elWidth - PADDING, y: bottomY },
+    bl: { x: PADDING, y: bottomY },
     tr: { x: w - elWidth - PADDING, y: PADDING },
     tl: { x: PADDING, y: PADDING },
   };
@@ -494,6 +503,6 @@ export function useMiniPlayerDrag(sessionKey: string) {
 }
 
 function clampY(y: number, elHeight: number) {
-  const maxY = window.innerHeight - elHeight - PADDING;
+  const maxY = window.innerHeight - elHeight - PADDING - bottomReservedPx();
   return Math.max(PADDING, Math.min(maxY, y));
 }

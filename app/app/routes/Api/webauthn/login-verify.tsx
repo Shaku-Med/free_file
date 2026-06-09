@@ -18,7 +18,9 @@ import { checkAuthRateLimit, resetAuthRateLimit } from "~/routes/Auth/fun/rateLi
 export const loader = () => data({ error: PasskeyUserMessage.tryAgainLater }, { status: 405 });
 
 function safeRedirectPath(value: unknown, fallback: string): string {
-  if (typeof value !== "string" || !value.startsWith("/") || value.startsWith("//")) {
+  // Same-origin absolute path only; reject protocol-relative ("//host") and
+  // backslash tricks ("/\\host") that browsers normalize to off-site URLs.
+  if (typeof value !== "string" || !value.startsWith("/") || value.startsWith("//") || value.includes("\\")) {
     return fallback;
   }
   return value.length > 500 ? fallback : value;

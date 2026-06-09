@@ -144,10 +144,13 @@ export const loader = async ({ request }: { request: Request }) => {
 
     let users: Array<{ id: string; username: string; profile_pic: string; file_count: number }> = [];
     if (db && isInitialSearch) {
+      // Escape LIKE wildcards so a user can't inject `%`/`_` to widen the match
+      // (enumeration) or force expensive leading-wildcard scans.
+      const likeSafe = query.replace(/[\\%_]/g, (c) => `\\${c}`);
       const usersResult = await db
         .from('users')
         .select('id, username, profile_pic, file_count')
-        .ilike('username', `%${query}%`)
+        .ilike('username', `%${likeSafe}%`)
         .eq('is_memories', false)
         .limit(10);
       if (!usersResult.error && Array.isArray(usersResult.data)) {

@@ -1,5 +1,6 @@
 import type { LoaderFunctionArgs } from "react-router";
 import { isAuthenticated } from "~/lib/Security/Password";
+import { safeFetch } from "~/lib/Security/ssrfGuard.server";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
     try {
@@ -47,22 +48,31 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
         const targetUrlObj = new URL(targetUrl);
         const refererUrl = `${targetUrlObj.protocol}//${targetUrlObj.host}/`;
 
-        const response = await fetch(targetUrl, {
-            method: 'GET',
-            headers: {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
-                'Accept-Language': 'en-US,en;q=0.9',
-                'Accept-Encoding': 'gzip, deflate, br',
-                'Referer': refererUrl,
-                'Sec-Fetch-Dest': 'document',
-                'Sec-Fetch-Mode': 'navigate',
-                'Sec-Fetch-Site': 'same-origin',
-                'Sec-Fetch-User': '?1',
-                'Upgrade-Insecure-Requests': '1',
-            },
-            redirect: 'follow',
-        });
+        let response: Response;
+        try {
+            // SSRF guard: blocks private/loopback/link-local/metadata targets and
+            // re-validates every redirect hop. Replaces a raw redirect:'follow' fetch.
+            response = await safeFetch(targetUrl, {
+                method: 'GET',
+                headers: {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
+                    'Accept-Language': 'en-US,en;q=0.9',
+                    'Accept-Encoding': 'gzip, deflate, br',
+                    'Referer': refererUrl,
+                    'Sec-Fetch-Dest': 'document',
+                    'Sec-Fetch-Mode': 'navigate',
+                    'Sec-Fetch-Site': 'same-origin',
+                    'Sec-Fetch-User': '?1',
+                    'Upgrade-Insecure-Requests': '1',
+                },
+            });
+        } catch {
+            return new Response(JSON.stringify({ error: 'Invalid URL format' }), {
+                status: 400,
+                headers: { 'Content-Type': 'application/json' }
+            });
+        }
 
         if (!response.ok) {
             return new Response(JSON.stringify({ 

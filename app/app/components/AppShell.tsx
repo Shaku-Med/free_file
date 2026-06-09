@@ -1,6 +1,7 @@
 import { SidebarInset, SidebarProvider } from '~/components/ui/sidebar';
 import { AppSidebar } from '~/components/Navbar/components/Sidebar';
 import BodyComponent from '~/components/Navbar/components/BodyComponent';
+import MobileBottomNav from '~/components/MobileBottomNav';
 import NavProgress from '~/routes/Home/NavProgress/NavProgress';
 import { useFileContext } from '~/lib/Context/Context';
 import { BodyContentWidthBridge } from '~/lib/Context/BodyContentWidthContext';
@@ -32,6 +33,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
           <NavProgress />
         </BodyContentWidthBridge>
       </SidebarInset>
+      {!suppressChrome && <MobileBottomNav />}
     </SidebarProvider>
   );
 }

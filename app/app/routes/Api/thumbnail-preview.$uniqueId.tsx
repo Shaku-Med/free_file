@@ -53,7 +53,10 @@ export const loader = async ({
   }
 
   const hasAccess = await canAccessFile(request, file as any);
-  if (!hasAccess && !(file as any).is_public) {
+  // Deny when the viewer lacks access AND the file is either private OR
+  // age-gated. Public non-adult thumbnails stay open; this closes the NSFW
+  // bypass where is_public short-circuited the age gate.
+  if (!hasAccess && (!(file as any).is_public || (file as any).is_adult)) {
     return data({ error: 'Access denied' }, { status: 403 });
   }
 

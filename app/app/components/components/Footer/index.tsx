@@ -74,7 +74,7 @@ const Footer = () => {
   if (shouldHideFooter(pathname)) return null;
 
   return (
-    <footer className="mt-auto border-t border-border/60 bg-muted/20">
+    <footer className="mt-auto border-t border-border/60 bg-background">
       <div className="mx-auto w-full max-w-6xl px-3 py-8 sm:px-5 sm:py-10 lg:px-8">
         <div className="grid gap-8 sm:grid-cols-2 lg:grid-cols-12 lg:gap-10">
           <div className="min-w-0 sm:col-span-2 lg:col-span-5">

@@ -243,7 +243,13 @@ function renderSegments(
         </a>
       );
     } else if (seg.type === "mdlink") {
-      const isRelative = seg.href.startsWith("/") || seg.href.startsWith("#");
+      // Only true same-origin paths get an in-app <Link>. Protocol-relative
+      // hrefs ("//evil.com") start with "/" but navigate OFF-site, so they must
+      // NOT be treated as relative  otherwise a friendly-labelled comment link
+      // becomes a stealth open-redirect. They fall through to the external <a>.
+      const isRelative =
+        (seg.href.startsWith("/") && !seg.href.startsWith("//")) ||
+        seg.href.startsWith("#");
       if (isRelative) {
         out.push(
           <Link key={k} to={seg.href} className="text-primary hover:underline">

@@ -127,9 +127,11 @@ export function ensureAnalyser(graph: SharedAudioGraph): AnalyserNode {
   if (graph.analyser) return graph.analyser;
   const node = graph.ctx.createAnalyser();
   node.fftSize = 2048;
-  node.smoothingTimeConstant = 0.38;
-  node.minDecibels = -100;
-  node.maxDecibels = -28;
+  node.smoothingTimeConstant = 0.45;
+  // Headroom so loud content doesn't peg every bin at 255 (which makes the bars
+  // sit pinned at full height with only the tips moving, and hides bass kicks).
+  node.minDecibels = -90;
+  node.maxDecibels = -20;
   graph.analyser = node;
   return node;
 }

@@ -247,9 +247,13 @@ export const PictureInPictureProvider: React.FC<PictureInPictureProviderProps> =
         closePip();
         try {
           const next = new URL(e.data.href, window.location.origin);
-          window.location.assign(next.href);
+          // Only navigate to same-origin destinations; a protocol-relative or
+          // absolute off-site href must never trigger window.location.assign.
+          if (next.origin === window.location.origin) {
+            window.location.assign(next.href);
+          }
         } catch {
-          window.location.assign(e.data.href);
+          /* malformed href: ignore */
         }
         return;
       }

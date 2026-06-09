@@ -342,13 +342,32 @@ export const action = async ({ request }: { request: Request }) => {
     const uploadTargetRepo =
       (typeof body?.github_repo === 'string' ? body.github_repo.trim() : '') ||
       (typeof process.env.GITHUB_REPO === 'string' ? process.env.GITHUB_REPO.trim() : '');
+
+    // Ownership binding (defense-in-depth): if a row for this upload already
+    // exists (created by /api/upload from the user's session), its owner is
+    // authoritative  never let a webhook body reassign ownership. Only trust
+    // body.user_id when there is no existing row to bind to.
+    let ownerId = user_id;
+    const { data: existingRow } = await db
+      .from('files')
+      .select('owner_id')
+      .eq('unique_id', upload_id)
+      .maybeSingle();
+    const existingOwner =
+      existingRow && typeof (existingRow as { owner_id?: unknown }).owner_id === 'string'
+        ? (existingRow as { owner_id: string }).owner_id
+        : '';
+    if (existingOwner) {
+      ownerId = existingOwner;
+    }
+
     const fileRow: Record<string, unknown> = {
       unique_id: upload_id,
       filename: file_name,
       endpoint: '', // Empty initially, filled when completed
       upload_status: 'queued',
       processing_progress: parseProcessingProgress(body.progress) ?? 0,
-      owner_id: user_id,
+      owner_id: ownerId,
       is_public: is_public,
       comments_enabled,
       comment_limit,
@@ -372,17 +391,22 @@ export const action = async ({ request }: { request: Request }) => {
       console.log('[upload-job-status] files created for', upload_id, 'with status queued');
     }
     // Record weekly-quota usage now so it shows immediately. Idempotent by upload_id.
-    await recordUploadUsage(user_id, upload_id, file_size);
+    // Charge the authoritative owner, not whatever the body claimed.
+    await recordUploadUsage(ownerId, upload_id, file_size);
   }
 
   if (status === 'failed' && upload_id) {
     // Failed upload never lands in storage  release its quota reservation.
     await refundUploadQuota(upload_id);
-    // Delete the file record on failure so user doesn't see broken entry
+    // Delete the file record on failure so user doesn't see broken entry.
+    // Scope to not-yet-complete rows only: a genuine failure is always still
+    // 'queued'/'running', so this can never nuke an already-shipped file even
+    // if a stale/spoofed 'failed' webhook arrives for a completed upload_id.
     const { error: deleteErr } = await db
       .from('files')
       .delete()
-      .eq('unique_id', upload_id);
+      .eq('unique_id', upload_id)
+      .neq('upload_status', 'complete');
     if (deleteErr) {
       console.warn('[upload-job-status] files delete (failed):', deleteErr);
     }

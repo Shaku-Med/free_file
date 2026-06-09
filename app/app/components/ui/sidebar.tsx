@@ -212,7 +212,7 @@ function Sidebar({
           data-slot="sidebar"
           data-mobile="true"
           data-sheet-only={sheetOnly ? "true" : undefined}
-          className="bg-background/95 backdrop-blur-xl text-sidebar-foreground w-[min(80vw,19rem)] p-0 [&>button]:hidden z-[10000000000] border-none"
+          className="bg-background/95 backdrop-blur-xl text-sidebar-foreground w-[min(80vw,19rem)] p-0 [&>button]:hidden z-[var(--z-sidebar-sheet)] border-none"
           style={
             {
               "--sidebar-width": SIDEBAR_WIDTH_MOBILE,
@@ -307,9 +307,39 @@ function SidebarTrigger({
 }
 
 function SidebarRail({ className, ...props }: React.ComponentProps<"button">) {
-  const { toggleSidebar, sheetOnly } = useSidebar()
+  const { toggleSidebar, setOpen, sheetOnly } = useSidebar()
+  // Drag the edge to reveal/hide (left sidebar: drag right = open, left = close).
+  const drag = React.useRef({ active: false, startX: 0, moved: false })
+  const DRAG_THRESHOLD = 24
 
   if (sheetOnly) return null
+
+  const onPointerDown = (e: React.PointerEvent<HTMLButtonElement>) => {
+    drag.current = { active: true, startX: e.clientX, moved: false }
+    try { e.currentTarget.setPointerCapture(e.pointerId) } catch { /* ignore */ }
+  }
+  const onPointerMove = (e: React.PointerEvent<HTMLButtonElement>) => {
+    const d = drag.current
+    if (!d.active) return
+    const dx = e.clientX - d.startX
+    if (Math.abs(dx) >= DRAG_THRESHOLD) {
+      d.moved = true
+      d.active = false
+      setOpen(dx > 0)
+      try { e.currentTarget.releasePointerCapture(e.pointerId) } catch { /* ignore */ }
+    }
+  }
+  const onPointerUp = () => {
+    drag.current.active = false
+  }
+  const onClick = () => {
+    // Suppress the toggle that follows a drag gesture.
+    if (drag.current.moved) {
+      drag.current.moved = false
+      return
+    }
+    toggleSidebar()
+  }
 
   return (
     <Tooltip>
@@ -319,7 +349,11 @@ function SidebarRail({ className, ...props }: React.ComponentProps<"button">) {
           data-slot="sidebar-rail"
           aria-label="Toggle Sidebar"
           tabIndex={-1}
-          onClick={toggleSidebar}
+          onClick={onClick}
+          onPointerDown={onPointerDown}
+          onPointerMove={onPointerMove}
+          onPointerUp={onPointerUp}
+          onPointerCancel={onPointerUp}
           className={cn(
             "hover:after:bg-sidebar-border absolute inset-y-0 z-20 hidden w-4 -translate-x-1/2 transition-all ease-linear group-data-[side=left]:-right-4 group-data-[side=right]:left-0 after:absolute after:inset-y-0 after:left-1/2 after:w-[2px] sm:flex",
             "in-data-[side=left]:cursor-w-resize in-data-[side=right]:cursor-e-resize",

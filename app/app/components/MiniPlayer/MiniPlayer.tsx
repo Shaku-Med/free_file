@@ -95,7 +95,7 @@ function MiniPlayerContent() {
           : { type: "tween", duration: isSnapping ? 0.2 : 0.15, ease: "easeOut" }
       }
       className={cn(
-        "fixed z-[2147483646] max-w-[calc(100vw-1.5rem)] overflow-visible",
+        "fixed z-[var(--z-mini-player)] max-w-[calc(100vw-1.5rem)] overflow-visible",
         closing && "opacity-0 scale-95 translate-y-3",
         !closing && mounted && "opacity-100 scale-100 translate-y-0",
         !mounted && "opacity-0",

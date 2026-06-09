@@ -4,6 +4,7 @@ import { existsSync } from 'fs';
 import { join } from 'path';
 import { tmpdir, platform } from 'os';
 import { randomUUID } from 'crypto';
+import { safeFetch } from '~/lib/Security/ssrfGuard.server';
 
 interface RequestQueueItem {
     social_url: string;
@@ -638,7 +639,16 @@ export const loader = async ({ request }: { request: Request }) => {
         }
         
         if (cookiesUrl) {
-            const resp = await fetch(cookiesUrl);
+            // SSRF guard: cookies_url is user-supplied; block private/internal targets.
+            let resp: Response;
+            try {
+                resp = await safeFetch(cookiesUrl);
+            } catch {
+                return new Response(JSON.stringify({ error: 'Failed to fetch cookies file' }), {
+                    status: 400,
+                    headers: { 'Content-Type': 'application/json' }
+                });
+            }
             if (!resp.ok) {
                 console.error('Failed to fetch cookies file:', resp.status, resp.statusText);
                 return new Response(JSON.stringify({ error: 'Failed to fetch cookies file' }), {

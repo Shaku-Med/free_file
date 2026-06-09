@@ -1,6 +1,8 @@
-import { useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { FormattedText } from "~/components/FormattedText";
 import OwnerProfile from "~/components/OwnerProfile/OwnerProfile";
+import SubscribeButton from "~/components/SubscribeButton";
+import { FriendLikeBubbles } from "~/routes/reel/components/FriendLikeBubbles";
 import {
   Drawer,
   DrawerContent,
@@ -8,6 +10,7 @@ import {
   DrawerOverlay,
   DrawerTitle,
 } from "~/components/ui/drawer";
+import { useFileContext } from "~/lib/Context/Context";
 import { formatTimeAgo } from "~/lib/formatTimeAgo";
 import { formatNumber } from "~/lib/utils/formatNumber";
 import ParseFilenameInsert from "~/lib/utils/ShowFileName";
@@ -18,6 +21,72 @@ export interface ReelMetaPanelProps {
   file: FileType;
   item: VerticalFeedItemData;
   views: number;
+}
+
+/**
+ * Per-session subscribe-status cache so swiping back to a creator (or revisiting in the
+ * feed) doesn't refetch. Keyed by `viewerId:channelId`.
+ */
+const subStatusCache = new Map<string, boolean>();
+const subStatusInflight = new Map<string, Promise<boolean>>();
+
+/**
+ * Returns whether the viewer is subscribed to `channelId`:
+ * `null` while unknown/loading (so we don't flash a Subscribe button to people who
+ * already follow), then `true`/`false`.
+ */
+function useReelSubscribed(
+  channelId: string | undefined,
+  userId: string | null | undefined,
+): boolean | null {
+  const [subscribed, setSubscribed] = useState<boolean | null>(() => {
+    if (!channelId || !userId) return false;
+    const key = `${userId}:${channelId}`;
+    return subStatusCache.has(key) ? subStatusCache.get(key)! : null;
+  });
+
+  useEffect(() => {
+    if (!channelId || !userId) {
+      setSubscribed(false);
+      return;
+    }
+    const key = `${userId}:${channelId}`;
+    if (subStatusCache.has(key)) {
+      setSubscribed(subStatusCache.get(key)!);
+      return;
+    }
+
+    let cancelled = false;
+    setSubscribed(null);
+
+    let inflight = subStatusInflight.get(key);
+    if (!inflight) {
+      inflight = fetch(`/api/subscriptions?channel_id=${encodeURIComponent(channelId)}`, {
+        credentials: "include",
+      })
+        .then((r) => (r.ok ? r.json() : null))
+        .then((d) => {
+          const sub = Boolean(d?.success && d.subscribed);
+          subStatusCache.set(key, sub);
+          return sub;
+        })
+        .catch(() => false)
+        .finally(() => {
+          subStatusInflight.delete(key);
+        });
+      subStatusInflight.set(key, inflight);
+    }
+
+    inflight.then((sub) => {
+      if (!cancelled) setSubscribed(sub);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [channelId, userId]);
+
+  return subscribed;
 }
 
 function ReelCaptionPreview({
@@ -66,9 +135,15 @@ function ReelCaptionPreview({
 
 /** Creator, title, caption, and stats for the reel info overlay inside the player. */
 export function ReelMetaPanel({ file, item, views }: ReelMetaPanelProps) {
+  const { userId } = useFileContext();
   const [descriptionOpen, setDescriptionOpen] = useState(false);
   const caption = item.caption?.trim() ?? "";
   const title = file.file_title?.trim() || file.filename || "";
+  const ownerId = file.owner?.id;
+  const isOwner = Boolean(userId && ownerId && userId === ownerId);
+  // null = still checking; only surface the button once we know they're NOT subscribed,
+  // so already-subscribed viewers never see it (they unsubscribe from the profile).
+  const subscribed = useReelSubscribed(ownerId, userId);
 
   return (
     <>
@@ -77,6 +152,9 @@ export function ReelMetaPanel({ file, item, views }: ReelMetaPanelProps) {
         onClick={(e) => e.stopPropagation()}
         onPointerDown={(e) => e.stopPropagation()}
       >
+        {/* Floats above the owner row, Instagram-style. */}
+        <FriendLikeBubbles fileId={file.id} viewerId={userId ?? null} enabled={Boolean(userId)} />
+
         <div className="flex min-w-0 items-center gap-2">
           {file.owner?.username ? (
             <OwnerProfile
@@ -88,6 +166,21 @@ export function ReelMetaPanel({ file, item, views }: ReelMetaPanelProps) {
           ) : (
             <p className="truncate text-sm font-semibold text-white">@{item.username || "…"}</p>
           )}
+          {/* Reuse the existing subscribe flow (handles auth, counts, notify).
+              Only shown when we've confirmed the viewer is NOT subscribed; once they
+              subscribe here it hides itself (`hideWhenSubscribed`). */}
+          {ownerId && !isOwner && subscribed === false ? (
+            <SubscribeButton
+              channelId={ownerId}
+              currentUserId={userId ?? null}
+              initialSubscribed={false}
+              initialNotify={false}
+              initialCount={0}
+              isOwner={isOwner}
+              compact
+              hideWhenSubscribed
+            />
+          ) : null}
         </div>
 
         {title ? (
@@ -102,18 +195,6 @@ export function ReelMetaPanel({ file, item, views }: ReelMetaPanelProps) {
         {caption ? (
           <ReelCaptionPreview caption={caption} onSeeMore={() => setDescriptionOpen(true)} />
         ) : null}
-
-        <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-white/80 sm:text-xs">
-          <span className="font-medium tabular-nums text-white/95">{formatNumber(views)} views</span>
-          {file.created_at ? (
-            <>
-              <span className="opacity-50" aria-hidden>
-                ·
-              </span>
-              <span>{formatTimeAgo(file.created_at)}</span>
-            </>
-          ) : null}
-        </div>
       </div>
 
       {caption ? (
@@ -135,6 +216,18 @@ export function ReelMetaPanel({ file, item, views }: ReelMetaPanelProps) {
                   <ParseFilenameInsert filename={title} />
                 </p>
               ) : null}
+              {/* Views + posted-time live here (in "See more") to keep the overlay uncluttered. */}
+              <div className="mb-3 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted-foreground">
+                <span className="font-medium tabular-nums text-foreground">{formatNumber(views)} views</span>
+                {file.created_at ? (
+                  <>
+                    <span className="opacity-50" aria-hidden>
+                      ·
+                    </span>
+                    <span>{formatTimeAgo(file.created_at)}</span>
+                  </>
+                ) : null}
+              </div>
               <div className="text-sm leading-relaxed text-foreground">
                 <FormattedText text={caption} />
               </div>

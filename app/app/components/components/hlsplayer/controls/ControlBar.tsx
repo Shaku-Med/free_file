@@ -166,6 +166,7 @@ export default function ControlBar({
     autoPlay,
     setAutoPlay,
     authPlaybackFeatures,
+    isReel,
     reelEmbedAutoHide,
     setReelChromeBottomReservePx,
     tiltRotation,
@@ -405,7 +406,8 @@ export default function ControlBar({
         </div>
 
         <div className="pointer-events-auto absolute left-1/2 top-1/2 z-40 flex -translate-x-1/2 -translate-y-1/2 items-center gap-4">
-          {!isHidden(hideControls, 'seek') && (
+          {/* Reels swipe to navigate  no 10s skip-back/forward circles. */}
+          {!isReel && !isHidden(hideControls, 'seek') && (
             <PlayerControlTooltip label={`Rewind ${MOBILE_SKIP_SEC} seconds`}>
               <button
                 type="button"
@@ -470,7 +472,7 @@ export default function ControlBar({
               <SkipForward className="h-5 w-5 fill-white" />
             </NextVideoTooltipButton>
           )}
-          {!isHidden(hideControls, 'next') && !onNext && !isHidden(hideControls, 'seek') && (
+          {!isReel && !isHidden(hideControls, 'next') && !onNext && !isHidden(hideControls, 'seek') && (
             <PlayerControlTooltip label={`Forward ${MOBILE_SKIP_SEC} seconds`}>
               <button
                 type="button"

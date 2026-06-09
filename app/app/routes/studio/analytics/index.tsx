@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { lazy, Suspense, useMemo, useState } from "react";
 import type { MetaFunction } from "react-router";
 import { buildPageMeta } from "~/lib/seo";
 import { formatNumber } from "~/lib/utils/formatNumber";
@@ -8,6 +8,9 @@ import { useStudioData } from "~/lib/studio/studioCache";
 import VideoCard from "~/routes/Home/components/VideoCard";
 import type { FileType } from "~/lib/types";
 import { useFileContext } from "~/lib/Context/Context";
+
+// Lazy so recharts only downloads when the overview chart is actually shown.
+const ViewsAreaChart = lazy(() => import("./ViewsAreaChart"));
 
 export const meta: MetaFunction = () =>
   buildPageMeta({
@@ -165,97 +168,6 @@ function downloadCsv(filename: string, rows: string[][]) {
   URL.revokeObjectURL(url);
 }
 
-function LineChart({ points }: { points: { date: string; views: number }[] }) {
-  if (points.length === 0) {
-    return <div className="h-64 w-full rounded-md bg-muted/20" />;
-  }
-  const width = 1000;
-  const height = 260;
-  const padL = 16;
-  const padR = 56;
-  const padT = 16;
-  const padB = 28;
-  const innerW = width - padL - padR;
-  const innerH = height - padT - padB;
-  const max = Math.max(1, ...points.map((p) => p.views));
-  const niceMax = Math.ceil(max * 1.1);
-  const xStep = points.length > 1 ? innerW / (points.length - 1) : 0;
-  const xy = points.map((p, i) => {
-    const x = padL + i * xStep;
-    const y = padT + innerH - (p.views / niceMax) * innerH;
-    return { x, y, point: p };
-  });
-  const path = xy.map((p, i) => `${i === 0 ? "M" : "L"}${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" ");
-  const area =
-    xy.length > 0
-      ? `M${xy[0].x},${padT + innerH} ${xy
-          .map((p) => `L${p.x.toFixed(1)},${p.y.toFixed(1)}`)
-          .join(" ")} L${xy[xy.length - 1].x},${padT + innerH} Z`
-      : "";
-
-  const ticks = 5;
-  const yTicks = Array.from({ length: ticks + 1 }, (_, i) => {
-    const v = (niceMax * (ticks - i)) / ticks;
-    const y = padT + (innerH * i) / ticks;
-    return { v, y };
-  });
-
-  return (
-    <svg viewBox={`0 0 ${width} ${height}`} className="h-64 w-full" preserveAspectRatio="none">
-      {yTicks.map((t, i) => (
-        <g key={i}>
-          <line
-            x1={padL}
-            x2={width - padR}
-            y1={t.y}
-            y2={t.y}
-            stroke="currentColor"
-            className="text-border/40"
-            strokeDasharray="3 3"
-            strokeWidth={1}
-          />
-          <text
-            x={width - padR + 6}
-            y={t.y + 4}
-            className="fill-muted-foreground text-[10px]"
-          >
-            {formatNumber(Math.round(t.v))}
-          </text>
-        </g>
-      ))}
-      {area && <path d={area} className="fill-primary/10" />}
-      {path && <path d={path} className="stroke-primary" strokeWidth={2} fill="none" />}
-      {xy.map((p, i) => (
-        <circle
-          key={i}
-          cx={p.x}
-          cy={p.y}
-          r={3}
-          className="fill-background stroke-primary"
-          strokeWidth={2}
-        >
-          <title>{`${p.point.date}: ${p.point.views}`}</title>
-        </circle>
-      ))}
-      {xy.length > 0 && (
-        <>
-          <text x={xy[0].x} y={height - 8} className="fill-muted-foreground text-[10px]">
-            {xy[0].point.date.slice(5)}
-          </text>
-          <text
-            x={xy[xy.length - 1].x}
-            y={height - 8}
-            textAnchor="end"
-            className="fill-muted-foreground text-[10px]"
-          >
-            {xy[xy.length - 1].point.date.slice(5)}
-          </text>
-        </>
-      )}
-    </svg>
-  );
-}
-
 export default function StudioAnalyticsPage() {
   const [tab, setTab] = useState<Tab>("overview");
   const [days, setDays] = useState<(typeof RANGES)[number]["value"]>(7);
@@ -363,10 +275,23 @@ export default function StudioAnalyticsPage() {
           </div>
 
           <div className="rounded-lg border border-border/60 bg-card/40 p-4">
+            <div className="mb-3 flex items-baseline justify-between">
+              <div>
+                <h2 className="text-sm font-semibold">Views</h2>
+                <p className="text-xs text-muted-foreground">Last {days} days</p>
+              </div>
+              <span className="text-sm font-medium tabular-nums">
+                {formatNumber(data?.totals.views ?? 0)}
+              </span>
+            </div>
             {loading || !data ? (
               <div className="h-64 w-full animate-pulse rounded bg-muted" />
             ) : (
-              <LineChart points={data.timeline.map((b) => ({ date: b.date, views: b.views }))} />
+              <Suspense fallback={<div className="h-64 w-full animate-pulse rounded bg-muted" />}>
+                <ViewsAreaChart
+                  data={data.timeline.map((b) => ({ date: b.date, views: b.views }))}
+                />
+              </Suspense>
             )}
           </div>
         </>

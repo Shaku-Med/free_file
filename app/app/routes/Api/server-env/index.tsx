@@ -74,8 +74,19 @@ export const loader = async ({ request }: { request: Request }) => {
             });
         }
 
-        const tokenAge = Date.now() - new Date(decryptedAuth.timestamp).getTime();
-        if (tokenAge > 60000) {
+        const ts = new Date(decryptedAuth.timestamp).getTime();
+        if (!Number.isFinite(ts)) {
+            return new Response(JSON.stringify({ error: 'Invalid token format' }), {
+                status: 401,
+                headers: { 'Content-Type': 'application/json' }
+            });
+        }
+        const tokenAge = Date.now() - ts;
+        // Reject expired tokens AND future-dated ones (negative age): without
+        // the lower bound, a token minted with a far-future timestamp would
+        // pass the replay window forever. Allow a small clock-skew tolerance.
+        const SKEW_MS = 5000;
+        if (tokenAge > 60000 || tokenAge < -SKEW_MS) {
             return new Response(JSON.stringify({ error: 'Token expired' }), {
                 status: 401,
                 headers: { 'Content-Type': 'application/json' }

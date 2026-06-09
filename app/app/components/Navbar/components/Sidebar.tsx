@@ -3,8 +3,6 @@
 import { useState, useEffect, useMemo, useCallback } from "react"
 import { Link, useLocation } from "react-router"
 import {
-  Search,
-  Plus,
   File,
   ChevronDown,
   ChevronRight,
@@ -13,6 +11,7 @@ import {
   ListVideo,
   Users,
   Sparkles,
+  Home,
 } from "lucide-react"
 import {
   Sidebar,
@@ -25,18 +24,20 @@ import {
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
+  SidebarRail,
   SidebarSeparator,
   useSidebar,
 } from "~/components/ui/sidebar"
 import { Button } from "~/components/ui/button"
+import { UserProfileDropdown } from "~/components/UserProfileDropdown"
 import { Badge } from "~/components/ui/badge"
 import Logo from "../Logo/Logo"
 import { useFileContext } from "~/lib/Context/Context"
-import { getThumbnailUrl, ParseFilename } from "~/lib/utils"
+import { getThumbnailUrl, ParseFilename, cn } from "~/lib/utils"
 import type { FileType } from "~/lib/types"
-import SidebarUserProfile from "./SidebarUserProfile"
 import ImageLoad from "~/routes/Home/components/ImageLoad/ImageLoad"
-import HomeIcon from "~/components/ui/Icons/Home"
+import { useStandalone } from "~/lib/hooks/useStandalone"
+import { isWatchRoute } from "~/lib/watchRoute"
 
 const noopRetry = () => {}
 
@@ -65,18 +66,13 @@ function getFileTitle(file: FileType): string {
 const mainNavItems = [
   {
     title: "Home",
-    icon: HomeIcon,
+    icon: Home,
     href: "/",
   },
   {
     title: "Subscriptions",
     icon: Users,
     href: "/subscriptions",
-  },
-  {
-    title: "Search",
-    icon: Search,
-    href: "/search",
   },
   {
     title: "Playlist",
@@ -105,8 +101,18 @@ const moreNavItems = [
 
 export function AppSidebar() {
   const location = useLocation()
-  const { setIsModalOpen, files } = useFileContext()
-  const { isMobile, setOpenMobile, sheetOnly } = useSidebar()
+  const { files } = useFileContext()
+  const { isMobile, setOpenMobile, sheetOnly, state } = useSidebar()
+  const isStandalone = useStandalone()
+  // Desktop rail (collapsed to icons): hide content-heavy sections so the
+  // thumbnail lists unmount instead of clipping inside the 4rem rail.
+  // On the watch page collapse fully (offcanvas) so the player goes full-width;
+  // everywhere else collapse to the icon rail.
+  const onWatch = isWatchRoute(location.pathname)
+  const collapsibleMode = onWatch ? "offcanvas" : "icon"
+  const railMode = !isMobile && !sheetOnly && !onWatch && state === "collapsed"
+  // Mirror the navbar's pt-2 offset (only present when the rail is expanded).
+  const expandedDesktop = !isMobile && !sheetOnly && state === "expanded"
   const [monitoredFiles, setMonitoredFiles] = useState<FileType[]>([])
   const [displayCount, setDisplayCount] = useState(100)
   const [moreOpen, setMoreOpen] = useState(false)
@@ -153,15 +159,22 @@ export function AppSidebar() {
   }, [isActiveRoute])
 
   return (
-    <Sidebar variant="sidebar" collapsible="offcanvas" className="bg-background border-none">
-      {/* Header  Logo */}
-      <SidebarHeader className={`${!isMobile && !sheetOnly ? "pt-7" : "pt-3.5"} px-4 pb-2`}>
-        <Link to="/" id="home_button" className="flex items-center gap-2 group w-fit">
-          <Logo className="relative h-9 w-9 text-primary transition-transform duration-200 group-hover:scale-110" />
-          <span className="text-lg font-bold bg-gradient-to-r from-primary to-primary/60 bg-clip-text text-transparent">
-            Memories
-          </span>
-        </Link>
+    <Sidebar variant="sidebar" collapsible={collapsibleMode} className="bg-background border-none">
+      {/* Header  Logo. Matches the navbar's h-14 row so the mark lines up. */}
+      <SidebarHeader className={cn("p-0", isStandalone && "pt-[env(safe-area-inset-top)]")}>
+        <div
+          className={cn(
+            "flex h-14 items-center px-4 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-2",
+            expandedDesktop && "mt-2",
+          )}
+        >
+          <Link to="/" id="home_button" className="flex items-center gap-2 group w-fit group-data-[collapsible=icon]:w-full group-data-[collapsible=icon]:justify-center">
+            <Logo className="relative h-8 w-8 text-primary transition-transform duration-200 group-hover:scale-110 group-data-[collapsible=icon]:h-7 group-data-[collapsible=icon]:w-7" />
+            <span className="text-lg font-bold bg-gradient-to-r from-primary to-primary/60 bg-clip-text text-transparent group-data-[collapsible=icon]:hidden">
+              Memories
+            </span>
+          </Link>
+        </div>
       </SidebarHeader>
 
       <SidebarContent className="px-1 overflow-x-hidden">
@@ -188,36 +201,40 @@ export function AppSidebar() {
                 )
               })}
 
-              {/* More  collapsible */}
-              <SidebarMenuItem>
-                <SidebarMenuButton
-                  tooltip="More"
-                  onClick={() => setMoreOpen(prev => !prev)}
-                  className="text-muted-foreground"
-                >
-                  <ChevronRight className={`w-[18px] h-[18px] transition-transform duration-200 ${moreOpen ? 'rotate-90' : ''}`} />
-                  <span>More</span>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-
-              {moreOpen && moreNavItems.map((item) => {
-                const isActive = isActiveRoute(item.href)
-                return (
-                  <SidebarMenuItem key={item.title}>
+              {/* More  collapsible (hidden in the icon rail) */}
+              {!railMode && (
+                <>
+                  <SidebarMenuItem>
                     <SidebarMenuButton
-                      asChild
-                      isActive={isActive}
-                      tooltip={item.title}
-                      className={`ml-2 ${isActive ? "bg-primary/10 text-primary font-medium" : "text-muted-foreground"}`}
+                      tooltip="More"
+                      onClick={() => setMoreOpen(prev => !prev)}
+                      className="text-muted-foreground"
                     >
-                      <Link to={item.href}>
-                        <item.icon className="w-4 h-4 fill-none stroke-current" />
-                        <span className="text-[13px]">{item.title}</span>
-                      </Link>
+                      <ChevronRight className={`w-[18px] h-[18px] transition-transform duration-200 ${moreOpen ? 'rotate-90' : ''}`} />
+                      <span>More</span>
                     </SidebarMenuButton>
                   </SidebarMenuItem>
-                )
-              })}
+
+                  {moreOpen && moreNavItems.map((item) => {
+                    const isActive = isActiveRoute(item.href)
+                    return (
+                      <SidebarMenuItem key={item.title}>
+                        <SidebarMenuButton
+                          asChild
+                          isActive={isActive}
+                          tooltip={item.title}
+                          className={`ml-2 ${isActive ? "bg-primary/10 text-primary font-medium" : "text-muted-foreground"}`}
+                        >
+                          <Link to={item.href}>
+                            <item.icon className="w-4 h-4 fill-none stroke-current" />
+                            <span className="text-[13px]">{item.title}</span>
+                          </Link>
+                        </SidebarMenuButton>
+                      </SidebarMenuItem>
+                    )
+                  })}
+                </>
+              )}
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
@@ -225,7 +242,7 @@ export function AppSidebar() {
         <SidebarSeparator />
 
         {/* Now Playing */}
-        {currentFile && (
+        {currentFile && !railMode && (
           <>
             <SidebarGroup className="py-1">
               <SidebarGroupLabel className="text-xs font-semibold uppercase tracking-wider text-muted-foreground/60 px-3">
@@ -260,7 +277,7 @@ export function AppSidebar() {
         )}
 
         {/* Files Library */}
-        {allOtherFiles.length > 0 && (
+        {allOtherFiles.length > 0 && !railMode && (
           <SidebarGroup className="py-1 flex-1">
             <button
               onClick={() => setFilesCollapsed(prev => !prev)}
@@ -321,20 +338,76 @@ export function AppSidebar() {
             )}
           </SidebarGroup>
         )}
+
+        {/* Files Library  icon rail. The full list is hidden in rail mode (text
+            clips at 4rem), so show just the thumbnails as square icons, with the
+            now-playing file pinned on top and a tooltip carrying the title. */}
+        {railMode && (currentFile || allOtherFiles.length > 0) && (
+          <SidebarGroup className="py-1 flex-1 min-h-0 overflow-y-auto">
+            <SidebarGroupContent>
+              <div className="flex flex-col items-center gap-1.5">
+                {currentFile && (
+                  <Link
+                    to={`/${currentFile.unique_id}`}
+                    title={getFileTitle(currentFile)}
+                    aria-label={getFileTitle(currentFile)}
+                    className="relative h-9 w-9 shrink-0 overflow-hidden rounded-md bg-muted ring-2 ring-primary transition-transform hover:scale-105"
+                  >
+                    <SidebarThumbnail file={currentFile} imageID={`${currentFile.unique_id}_sidebar_rail_current`} />
+                    <span className="absolute inset-0 flex items-center justify-center bg-black/20">
+                      <Play className="h-3.5 w-3.5 fill-white text-white" />
+                    </span>
+                  </Link>
+                )}
+                {otherFiles.map((file) => (
+                  <Link
+                    key={file.unique_id}
+                    to={`/${file.unique_id}`}
+                    title={getFileTitle(file)}
+                    aria-label={getFileTitle(file)}
+                    className={cn(
+                      "relative h-9 w-9 shrink-0 overflow-hidden rounded-md bg-muted ring-1 transition-all hover:scale-105 hover:ring-primary/50 group/railfile",
+                      location.pathname === `/${file.unique_id}` ? "ring-2 ring-primary" : "ring-border/50",
+                    )}
+                  >
+                    <SidebarThumbnail file={file} imageID={`${file.unique_id}_sidebar_rail`} />
+                    <span className="absolute inset-0 flex items-center justify-center bg-black/30 opacity-0 transition-opacity group-hover/railfile:opacity-100">
+                      <Play className="h-3 w-3 fill-white text-white" />
+                    </span>
+                    {file.is_adult && (
+                      <span className="absolute inset-x-0 bottom-0 bg-black/65 text-center text-[7px] font-semibold leading-tight text-white">
+                        18+
+                      </span>
+                    )}
+                  </Link>
+                ))}
+                {hasMore && (
+                  <button
+                    type="button"
+                    onClick={handleLoadMore}
+                    aria-label="Show more"
+                    title="Show more"
+                    className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-muted-foreground/60 ring-1 ring-border/50 transition-colors hover:bg-muted hover:text-foreground"
+                  >
+                    <ChevronDown className="h-4 w-4" />
+                  </button>
+                )}
+              </div>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        )}
       </SidebarContent>
 
-      {/* Footer */}
-      <SidebarFooter className="border-t border-sidebar-border/50 p-3 space-y-2">
-        <Button
-          onClick={() => setIsModalOpen(true)}
-          className="w-full gap-2 h-10 font-medium shadow-sm"
-          size="default"
-        >
-          <Plus className="h-4 w-4" />
-          Upload
-        </Button>
-        <SidebarUserProfile />
+      {/* Account  reuses the same profile dropdown/menu as the navbar; the
+          sidebar variant adds the username + subscriber/upload counts when the
+          rail is expanded (and in the mobile sheet), collapsing to the avatar
+          in the icon rail. */}
+      <SidebarFooter className="border-t border-border/40">
+        <UserProfileDropdown variant="sidebar" />
       </SidebarFooter>
+
+      {/* Grab handle at the edge  drag/click to reveal when collapsed. */}
+      <SidebarRail />
     </Sidebar>
   )
 }

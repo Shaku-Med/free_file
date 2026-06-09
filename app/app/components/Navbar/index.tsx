@@ -3,7 +3,7 @@ import { Link, useLocation } from "react-router";
 import { ArrowLeft, Plus, Search } from "lucide-react";
 import Logo from "./Logo/Logo";
 import { useFileContext } from "~/lib/Context/Context";
-import { SidebarTrigger } from "../ui/sidebar";
+import { SidebarTrigger, useSidebar } from "../ui/sidebar";
 import { UserProfileDropdown } from "~/components/UserProfileDropdown";
 import { NavbarSearchBar } from "~/components/SearchDropdown/NavbarSearchBar";
 import { useNavInlineSearch, useBodyContentWidth } from "~/lib/Context/BodyContentWidthContext";
@@ -24,30 +24,40 @@ const iconBtnReel =
   "text-white/95 hover:bg-white/12 focus-visible:ring-white/40";
 
 export default function Navbar({ hasScrolled = { state: false, opacityLevel: 0 } }: NavbarProps) {
-  const { setIsModalOpen, userId } = useFileContext();
+  const { userId, setIsModalOpen } = useFileContext();
+  const { isMobile, state, sheetOnly } = useSidebar();
+  // When the rail is expanded the content area becomes a card surface, so the
+  // bar matches it (bg-card); otherwise it sits on the plain background.
+  const expandedDesktop = !isMobile && !sheetOnly && state === "expanded";
   const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
   const location = useLocation();
   const inlineSearch = useNavInlineSearch();
   const { bodyContentWidthPx } = useBodyContentWidth();
-  const showCreateLabel = bodyContentWidthPx >= 720;
   const showMemoriesLabel = bodyContentWidthPx >= 420;
   const onReelRoute = isReelRoute(location.pathname);
   const isStandalone = useStandalone();
 
-  const searchExpanded = mobileSearchOpen && !inlineSearch;
-  const showSearchBar = !onReelRoute && (inlineSearch || mobileSearchOpen);
-  const barOpacity = onReelRoute ? 0 : searchExpanded ? 1 : hasScrolled.opacityLevel;
+  // On reels we never use the inline (desktop) search bar — it would cover the video.
+  // Force the icon → expand flow at every screen size there.
+  const effectiveInlineSearch = inlineSearch && !onReelRoute;
+
+  const searchExpanded = mobileSearchOpen && !effectiveInlineSearch;
+  // Search stays available on reels too (just over the video).
+  const showSearchBar = effectiveInlineSearch || mobileSearchOpen;
+  // Reel keeps a transparent bar, but give a backdrop while the search is expanded
+  // so the field stays readable against the video.
+  const barOpacity = searchExpanded ? 1 : onReelRoute ? 0 : hasScrolled.opacityLevel;
 
   useEffect(() => {
     setMobileSearchOpen(false);
   }, [location.pathname]);
 
   useEffect(() => {
-    if (inlineSearch) {
+    if (effectiveInlineSearch) {
       setMobileSearchOpen(false);
     }
-  }, [inlineSearch]);
+  }, [effectiveInlineSearch]);
 
   useEffect(() => {
     if (!userId) {
@@ -69,14 +79,19 @@ export default function Navbar({ hasScrolled = { state: false, opacityLevel: 0 }
   return (
     <header
       className={cn(
-        "sticky top-0 z-[100000000] w-full shrink-0",
+        "sticky top-0 z-[var(--z-app-chrome)] w-full shrink-0",
         isStandalone && "pt-[env(safe-area-inset-top)]",
       )}
       aria-label="Main"
     >
       <div
         aria-hidden
-        className="pointer-events-none absolute inset-0 border-b border-border/40 bg-background/90 sm:bg-card/90 backdrop-blur-md supports-[backdrop-filter]:bg-background/75 sm:supports-[backdrop-filter]:bg-card/75"
+        className={cn(
+          "pointer-events-none absolute inset-0 border-b border-border/40 backdrop-blur-md",
+          expandedDesktop
+            ? "bg-card/90 supports-[backdrop-filter]:bg-card/75"
+            : "bg-background/90 supports-[backdrop-filter]:bg-background/75",
+        )}
         style={{ opacity: barOpacity }}
       />
       <div className="relative z-10 mx-auto flex h-14 min-w-0 items-center gap-1 px-2 sm:px-4">
@@ -92,7 +107,8 @@ export default function Navbar({ hasScrolled = { state: false, opacityLevel: 0 }
         ) : (
           <div className="flex min-w-0 shrink-0 items-center gap-1">
             <SidebarTrigger className={cn(iconBtn, onReelRoute && iconBtnReel, "[&_svg]:size-5")} />
-            {!onReelRoute ? (
+            {/* Logo lives in the sidebar on desktop  topbar carries it only on mobile (sheet nav). */}
+            {isMobile && !onReelRoute ? (
               <Link
                 to="/"
                 id="home_button"
@@ -116,11 +132,11 @@ export default function Navbar({ hasScrolled = { state: false, opacityLevel: 0 }
           <div
             className={cn(
               "min-w-0 flex-1",
-              inlineSearch && "flex justify-center px-1 lg:px-6",
+              effectiveInlineSearch && "flex justify-center px-1 lg:px-6",
             )}
           >
             <NavbarSearchBar
-              className={cn(inlineSearch ? "w-full max-w-[720px]" : "w-full")}
+              className={cn(effectiveInlineSearch ? "w-full max-w-[720px]" : "w-full")}
               autoFocus={searchExpanded}
               onClose={() => setMobileSearchOpen(false)}
             />
@@ -131,40 +147,29 @@ export default function Navbar({ hasScrolled = { state: false, opacityLevel: 0 }
 
         {!searchExpanded ? (
           <div className="ml-auto flex shrink-0 items-center gap-0.5 sm:gap-1">
-            {!onReelRoute ? (
-              <>
-                {!inlineSearch && !mobileSearchOpen ? (
-                  <button
-                    type="button"
-                    onClick={() => setMobileSearchOpen(true)}
-                    className={iconBtn}
-                    aria-label="Search"
-                  >
-                    <Search className="h-5 w-5" strokeWidth={2} />
-                  </button>
-                ) : null}
+            {/* Search  available everywhere, including reels (white icon on the video). */}
+            {!effectiveInlineSearch && !mobileSearchOpen ? (
+              <button
+                type="button"
+                onClick={() => setMobileSearchOpen(true)}
+                className={cn(iconBtn, onReelRoute && iconBtnReel)}
+                aria-label="Search"
+              >
+                <Search className="h-5 w-5" strokeWidth={2} />
+              </button>
+            ) : null}
 
-                {!inlineSearch ? (
-                  <button
-                    type="button"
-                    onClick={() => setIsModalOpen(true)}
-                    className={iconBtn}
-                    aria-label="Upload"
-                  >
-                    <Plus className="h-5 w-5" strokeWidth={2} />
-                  </button>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={() => setIsModalOpen(true)}
-                    className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-full px-3 text-sm font-medium text-foreground/90 transition-colors hover:bg-muted/80"
-                    aria-label="Upload"
-                  >
-                    <Plus className="h-5 w-5" strokeWidth={2} />
-                    {showCreateLabel ? <span>Create</span> : null}
-                  </button>
-                )}
-              </>
+            {/* Create  topbar is the single home on desktop; mobile uses the tab bar. */}
+            {!onReelRoute && !isMobile ? (
+              <button
+                type="button"
+                onClick={() => setIsModalOpen(true)}
+                className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-full bg-secondary px-3.5 text-sm font-medium text-secondary-foreground transition-colors hover:bg-secondary/80"
+                aria-label="Create"
+              >
+                <Plus className="h-4 w-4" strokeWidth={2.2} />
+                <span>Create</span>
+              </button>
             ) : null}
 
             {userId ? (
@@ -176,7 +181,8 @@ export default function Navbar({ hasScrolled = { state: false, opacityLevel: 0 }
               />
             ) : null}
 
-            <UserProfileDropdown variant="topbar" />
+            {/* Profile / Sign in  desktop only; mobile uses the tab bar. */}
+            {!isMobile ? <UserProfileDropdown variant="topbar" /> : null}
           </div>
         ) : null}
       </div>

@@ -258,7 +258,7 @@ const Reel = ({ initialItems, initialUserActions }: ReelProps) => {
   const posterBackdropImage = reelPosterBackdropImage(reelPosterColors);
 
   return (
-    <div className="fixed inset-0 z-40 reel_p">
+    <div className="fixed inset-0 z-[var(--z-reel)] reel_p">
       {/*
         Ambient plate ~600px wide (centered): solid zinc-950 + poster palette from the active slide’s thumbnail.
       */}

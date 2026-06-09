@@ -254,6 +254,10 @@ BEGIN
         WHERE esi.file_id = f.unique_id
       )
       AND f.is_reel = true
+      -- Don't surface the viewer's OWN reels in their feed  people want to
+      -- discover other creators, not watch their own clips every time.
+      -- (Their reels still show on their profile / studio, just not here.)
+      AND (p_user_id IS NULL OR f.owner_id IS DISTINCT FROM p_user_id)
       AND (p_max_duration IS NULL OR f.duration IS NULL OR f.duration <= p_max_duration)
       AND (p_category IS NULL OR f.categories @> to_jsonb(p_category)::jsonb)
       AND (p_user_id IS NULL OR ud.file_id IS NULL)

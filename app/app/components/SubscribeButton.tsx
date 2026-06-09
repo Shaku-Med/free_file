@@ -12,6 +12,13 @@ interface SubscribeButtonProps {
   initialCount: number;
   isOwner?: boolean;
   compact?: boolean;
+  /** Label for the unsubscribed state (e.g. "Follow" on reels). Defaults to "Subscribe". */
+  label?: string;
+  /**
+   * When true, render nothing once subscribed (e.g. reels: to unsubscribe you go to the
+   * creator's profile). Avoids exposing an unsubscribe control in the feed.
+   */
+  hideWhenSubscribed?: boolean;
   /** Fires when toggle succeeds and the server returns an updated subscriber count. */
   onSubscriberCountChange?: (subscriberCount: number) => void;
 }
@@ -30,6 +37,8 @@ export default function SubscribeButton({
   initialCount,
   isOwner = false,
   compact = false,
+  label = "Subscribe",
+  hideWhenSubscribed = false,
   onSubscriberCountChange,
 }: SubscribeButtonProps) {
   const navigate = useNavigate();
@@ -100,6 +109,8 @@ export default function SubscribeButton({
   }, [channelId, currentUserId, subscribed]);
 
   if (isOwner) return null;
+  // Reel/feed mode: once subscribed there's no inline unsubscribe — hide entirely.
+  if (hideWhenSubscribed && subscribed) return null;
 
   const iconSize = compact ? "w-3.5 h-3.5" : "w-4 h-4";
 
@@ -115,7 +126,7 @@ export default function SubscribeButton({
           compact ? "px-3 py-1 text-xs" : "px-4 py-2 text-sm"
         )}
       >
-        {busy ? <Loader2 className={cn(iconSize, "animate-spin")} /> : "Subscribe"}
+        {busy ? <Loader2 className={cn(iconSize, "animate-spin")} /> : label}
       </button>
     );
   }

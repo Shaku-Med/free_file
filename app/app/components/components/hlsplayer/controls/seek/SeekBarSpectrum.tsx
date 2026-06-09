@@ -4,10 +4,7 @@ import type { AudioVisualizerStyle } from '../../audioVisualizerStyles';
 import {
   applyAlphaToCssColor,
   buildPrimaryVisualizerPalette,
-  lerpPaletteStops,
   paletteColorAtIndex,
-  paletteToRgbStops,
-  type RgbaStop,
 } from '../../visualizerPalette';
 
 type Props = {
@@ -16,7 +13,6 @@ type Props = {
   variant: AudioVisualizerStyle;
 };
 
-const PAUSE_TAIL = 0.88;
 /** Spring chase speed  bars snap up fast */
 const ATTACK = 0.55;
 /** Decay speed  bars fall with bounce */
@@ -38,9 +34,29 @@ function avgFreq(freq: ArrayLike<number>, lo: number, hi: number): number {
   return c ? s / c / 255 : 0;
 }
 
+/**
+ * Map a 0..1 frequency-bin reading to a 0..1 bar height.
+ *
+ * `raw` comes from getByteFrequencyData over the analyser's -90..-20 dB window.
+ * The old `Math.min(1, raw * 5)` pinned almost everything to 1.0 (bars stuck at
+ * full height with only the tips moving). Instead: drop a small noise floor and
+ * expand with a gentle gamma + modest gain so bars actually travel their range.
+ */
 function visEnergy(raw: number): number {
-  const x = Math.min(1, raw * 5);
-  return Math.min(1, Math.pow(x, 0.5));
+  const FLOOR = 0.12;
+  const x = (raw - FLOOR) / (1 - FLOOR);
+  if (x <= 0) return 0;
+  return Math.min(1, Math.pow(x, 0.78) * 1.3);
+}
+
+/**
+ * Treble bins carry far less energy than bass, so without a lift only the
+ * left (bass) bars move. Ramp a gain from 1.0 at the low end up to ~2.1 at the
+ * high end so the whole spectrum dances.
+ */
+function freqTilt(i: number, count: number): number {
+  if (count <= 1) return 1;
+  return 1 + (i / (count - 1)) * 1.1;
 }
 
 export default function SeekBarSpectrum({ analyser, active, variant }: Props) {
@@ -51,26 +67,19 @@ export default function SeekBarSpectrum({ analyser, active, variant }: Props) {
   const variantRef = useRef(variant);
   variantRef.current = variant;
 
-  const historyAmpRef = useRef<Float32Array | null>(null);
   const ampRef = useRef<Float32Array | null>(null);
   const velRef = useRef<Float32Array | null>(null);
   const freqRef = useRef<Uint8Array | null>(null);
-  const tdRef = useRef<Uint8Array | null>(null);
   const playingRef = useRef(false);
   const paletteRef = useRef<string[]>([]);
-  const paletteRgbStopsRef = useRef<RgbaStop[]>([]);
 
   const { state, file } = usePlayerContext();
   playingRef.current = state.isPlaying && !state.isPaused;
   const mediaKey = file?.id ?? '';
 
-  const tall = variant !== 'scroll';
-
   useEffect(() => {
     const syncPalette = () => {
-      const p = buildPrimaryVisualizerPalette();
-      paletteRef.current = p;
-      paletteRgbStopsRef.current = paletteToRgbStops(p);
+      paletteRef.current = buildPrimaryVisualizerPalette();
     };
     syncPalette();
     if (typeof document === 'undefined') return;
@@ -195,12 +204,7 @@ export default function SeekBarSpectrum({ analyser, active, variant }: Props) {
       if (palette.length === 0) {
         palette = buildPrimaryVisualizerPalette();
         paletteRef.current = palette;
-        paletteRgbStopsRef.current = paletteToRgbStops(palette);
       }
-      if (paletteRgbStopsRef.current.length === 0) {
-        paletteRgbStopsRef.current = paletteToRgbStops(palette);
-      }
-      const rgbStops = paletteRgbStopsRef.current;
 
       const fdLen = an.frequencyBinCount;
       if (!freqRef.current || freqRef.current.length !== fdLen) {
@@ -209,66 +213,19 @@ export default function SeekBarSpectrum({ analyser, active, variant }: Props) {
       const fd = freqRef.current;
       an.getByteFrequencyData(fd as Parameters<AnalyserNode['getByteFrequencyData']>[0]);
 
-      const tdLen = an.fftSize;
-      if (!tdRef.current || tdRef.current.length !== tdLen) {
-        tdRef.current = new Uint8Array(tdLen);
-      }
-      const td = tdRef.current;
-      an.getByteTimeDomainData(td as Parameters<AnalyserNode['getByteTimeDomainData']>[0]);
-
-      let rms = 0;
-      for (let i = 0; i < tdLen; i++) {
-        const x = (td[i]! - 128) / 128;
-        rms += x * x;
-      }
-      rms = Math.sqrt(rms / tdLen);
-      const sample = Math.min(1, Math.pow(rms * 5.5, 0.82));
-
       ctx.clearRect(0, 0, w, h);
 
-      // ── Scroll wave ── many tiny bars, auto-scaled
-      if (v === 'scroll') {
-        const barPx = 1.8;
-        const gapPx = 0.6;
-        const slots = Math.max(16, Math.floor(w / (barPx + gapPx)));
-        let ampH = historyAmpRef.current;
-        if (!ampH || ampH.length !== slots) {
-          ampH = new Float32Array(slots);
-          historyAmpRef.current = ampH;
-        }
-
-        for (let i = 0; i < slots - 1; i++) ampH[i] = ampH[i + 1]!;
-        ampH[slots - 1] = playing ? visEnergy(Math.min(1, sample * 1.5)) : 0;
-        if (!playing) {
-          for (let i = 0; i < slots; i++) ampH[i] *= PAUSE_TAIL;
-        }
-
-        const cy = h / 2;
-        const bw = (w - gapPx * (slots - 1)) / slots;
-
-        for (let i = 0; i < slots; i++) {
-          const amp = ampH[i]!;
-          if (amp < 0.004) continue;
-          const x = i * (bw + gapPx);
-          const half = Math.max(1, amp * h * 0.48);
-          const t = slots > 1 ? i / (slots - 1) : 0;
-          const c = lerpPaletteStops(rgbStops, t);
-          drawCBar(x, cy, bw, half, c, amp, Math.min(bw * 0.5, 1.5));
-        }
-        return;
-      }
-
-      // Auto-scale bar count: ~2px bars with ~0.8px gaps
+      // Auto-scale bar count. Bigger/chunkier bars so they read at a glance.
       const autoBarCount = (minBars: number, maxBars: number, pxPerBar: number) =>
         Math.max(minBars, Math.min(maxBars, Math.floor(w / pxPerBar)));
 
-      // ── Spectrum bars ── tons of thin bars, aggressive bounce
+      // ── Spectrum bars ── chunky bars, aggressive bounce
       if (v === 'bars') {
-        const bars = autoBarCount(32, 200, 2.5);
+        const bars = autoBarCount(16, 80, 6);
         const usable = Math.floor(fdLen * 0.88);
         const step = Math.max(1, usable / bars);
-        const gapPx = 0.7;
-        const bw = Math.max(1, (w - gapPx * (bars - 1)) / bars);
+        const gapPx = 1.8;
+        const bw = Math.max(2.5, (w - gapPx * (bars - 1)) / bars);
 
         let sAmp = ampRef.current;
         let sVel = velRef.current;
@@ -284,25 +241,25 @@ export default function SeekBarSpectrum({ analyser, active, variant }: Props) {
         for (let i = 0; i < bars; i++) {
           const lo = Math.floor(i * step);
           const hi = Math.min(Math.ceil(lo + step), usable);
-          const target = playing ? visEnergy(avgFreq(fd, lo, hi)) : 0;
+          const target = playing ? visEnergy(avgFreq(fd, lo, hi) * freqTilt(i, bars)) : 0;
           springChase(sAmp, sVel, i, target);
           const amp = sAmp[i]!;
           if (amp < 0.008) continue;
-          const bh = Math.max(1.5, amp * h * 0.95);
+          const bh = Math.max(2.5, amp * h * 0.95);
           const c = paletteColorAtIndex(palette, i, bars);
           const x = i * (bw + gapPx);
-          drawBar(x, h - bh, bw, bh, c, amp, Math.min(1.5, bw * 0.4));
+          drawBar(x, h - bh, bw, bh, c, amp, Math.min(2.5, bw * 0.4));
         }
         return;
       }
 
-      // ── Mirror ── thin mirrored bars with bounce
+      // ── Mirror ── mirrored bars with bounce
       if (v === 'mirror') {
-        const bars = autoBarCount(28, 160, 2.8);
+        const bars = autoBarCount(14, 72, 6.5);
         const usable = Math.floor(fdLen * 0.88);
         const step = Math.max(1, usable / bars);
-        const gapPx = 0.7;
-        const bw = Math.max(1, (w - gapPx * (bars - 1)) / bars);
+        const gapPx = 1.8;
+        const bw = Math.max(2.5, (w - gapPx * (bars - 1)) / bars);
         const cy = h / 2;
 
         let sAmp = ampRef.current;
@@ -319,14 +276,14 @@ export default function SeekBarSpectrum({ analyser, active, variant }: Props) {
         for (let i = 0; i < bars; i++) {
           const lo = Math.floor(i * step);
           const hi = Math.min(Math.ceil(lo + step), usable);
-          const target = playing ? visEnergy(avgFreq(fd, lo, hi)) : 0;
+          const target = playing ? visEnergy(avgFreq(fd, lo, hi) * freqTilt(i, bars)) : 0;
           springChase(sAmp, sVel, i, target);
           const amp = sAmp[i]!;
           if (amp < 0.008) continue;
-          const half = Math.max(1, amp * h * 0.47);
+          const half = Math.max(1.5, amp * h * 0.47);
           const c = paletteColorAtIndex(palette, i, bars);
           const x = i * (bw + gapPx);
-          drawCBar(x, cy, bw, half, c, amp, Math.min(1.5, bw * 0.4));
+          drawCBar(x, cy, bw, half, c, amp, Math.min(2.5, bw * 0.4));
         }
         return;
       }
@@ -353,7 +310,7 @@ export default function SeekBarSpectrum({ analyser, active, variant }: Props) {
           const center = Math.min(usable - 1, i * step);
           const lo = Math.max(0, Math.floor(center - step * 0.6));
           const hi = Math.min(usable, Math.ceil(center + step * 0.6));
-          const target = playing ? visEnergy(avgFreq(fd, lo, hi)) : 0;
+          const target = playing ? visEnergy(avgFreq(fd, lo, hi) * freqTilt(i, pointCount)) : 0;
           springChase(sAmp, sVel, i, target);
           const y = h - 3 - sAmp[i]! * (h - 6);
           pts.push({ x: (i / pointCount) * w, y });
@@ -428,11 +385,11 @@ export default function SeekBarSpectrum({ analyser, active, variant }: Props) {
       }
 
       // ── Pulse bands ── aggressive bounce
-      const segs = autoBarCount(40, 160, 2.8);
+      const segs = autoBarCount(14, 72, 6.5);
       const usableP = Math.floor(fdLen * 0.88);
       const stepP = Math.max(1, usableP / segs);
-      const gapPx = 0.7;
-      const bw = Math.max(1, (w - gapPx * (segs - 1)) / segs);
+      const gapPx = 1.8;
+      const bw = Math.max(2.5, (w - gapPx * (segs - 1)) / segs);
       const cy = h / 2;
 
       let sAmp = ampRef.current;
@@ -449,14 +406,14 @@ export default function SeekBarSpectrum({ analyser, active, variant }: Props) {
       for (let i = 0; i < segs; i++) {
         const lo = Math.floor(i * stepP);
         const hi = Math.min(Math.ceil(lo + stepP), usableP);
-        const target = playing ? visEnergy(avgFreq(fd, lo, hi)) : 0;
+        const target = playing ? visEnergy(avgFreq(fd, lo, hi) * freqTilt(i, segs)) : 0;
         springChase(sAmp, sVel, i, target);
         const e = sAmp[i]!;
         if (e < 0.008) continue;
-        const half = Math.max(1, e * h * 0.47);
+        const half = Math.max(1.5, e * h * 0.47);
         const c = paletteColorAtIndex(palette, i, segs);
         const x = i * (bw + gapPx);
-        drawCBar(x, cy, bw, half, c, e, Math.min(1.5, bw * 0.4));
+        drawCBar(x, cy, bw, half, c, e, Math.min(2.5, bw * 0.4));
       }
     };
 
@@ -470,21 +427,16 @@ export default function SeekBarSpectrum({ analyser, active, variant }: Props) {
       }
       canvas.width = 0;
       canvas.height = 0;
-      historyAmpRef.current = null;
       ampRef.current = null;
       velRef.current = null;
       freqRef.current = null;
-      tdRef.current = null;
     };
   }, [active, variant, mediaKey]);
 
   if (!active) return null;
 
   return (
-    <div
-      ref={wrapRef}
-      className={tall ? 'relative w-full h-14 pointer-events-none' : 'relative w-full h-[22px] pointer-events-none'}
-    >
+    <div ref={wrapRef} className="relative w-full h-10 pointer-events-none">
       <canvas ref={canvasRef} className="absolute inset-0 block size-full" aria-hidden />
     </div>
   );

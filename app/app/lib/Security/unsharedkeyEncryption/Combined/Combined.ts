@@ -41,7 +41,14 @@ export const DecryptCombine = async (data: any, keys: any[], options?: object) =
         }
         
         const finalKey = keys[keys.length - 1];
-        const decoded: any = jwt.verify(encryptedData, finalKey, options || {});
+        // Pin the algorithm: every EncryptCombine call signs with HS512, so we
+        // must only accept HS512. Without this, a token could declare a weaker
+        // algorithm (or "none") and bypass signature verification.
+        const verifyOptions: jwt.VerifyOptions = {
+            ...(options || {}),
+            algorithms: ['HS512'],
+        };
+        const decoded: any = jwt.verify(encryptedData, finalKey, verifyOptions);
         
         let decryptedData = decoded?.data;
         

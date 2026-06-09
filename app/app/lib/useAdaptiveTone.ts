@@ -28,6 +28,14 @@ export interface UseAdaptiveToneOptions {
    * toward 0.5 to bias more controls toward white.
    */
   threshold?: number;
+  /**
+   * How the image is painted inside `imageRef`'s box. Default "contain" matches
+   * letterboxed image viewers: the rendered picture is centered and scaled to
+   * fit, leaving background-colored bars. We sample only the painted picture so
+   * controls over the bars don't read unrelated pixels. Use "fill" when the
+   * element box and the picture are the same rect (no letterboxing).
+   */
+  objectFit?: "contain" | "fill";
 }
 
 const sharedCanvas =
@@ -51,6 +59,7 @@ export function useAdaptiveTone(opts: UseAdaptiveToneOptions): Tone {
     trigger,
     sampleSize = 16,
     threshold = 0.18,
+    objectFit = "contain",
   } = opts;
 
   const [tone, setTone] = useState<Tone>(defaultTone);
@@ -64,23 +73,52 @@ export function useAdaptiveTone(opts: UseAdaptiveToneOptions): Tone {
     if (!img.complete || img.naturalWidth === 0 || img.naturalHeight === 0) return;
 
     const imgRect = img.getBoundingClientRect();
+    if (imgRect.width < 1 || imgRect.height < 1) return;
+
+    // Where the picture is ACTUALLY painted inside the element box. With
+    // `object-fit: contain` the image is centered and scaled to fit, leaving
+    // background-colored letterbox bars; the element rect is NOT the picture.
+    // Sampling the element rect makes controls over the bars (e.g. edge nav
+    // arrows) read picture pixels and flip to the wrong tone  the "black
+    // control on a black bar" bug.
+    let contentLeft = imgRect.left;
+    let contentTop = imgRect.top;
+    let contentWidth = imgRect.width;
+    let contentHeight = imgRect.height;
+    if (objectFit === "contain") {
+      const scale = Math.min(
+        imgRect.width / img.naturalWidth,
+        imgRect.height / img.naturalHeight,
+      );
+      contentWidth = img.naturalWidth * scale;
+      contentHeight = img.naturalHeight * scale;
+      contentLeft = imgRect.left + (imgRect.width - contentWidth) / 2;
+      contentTop = imgRect.top + (imgRect.height - contentHeight) / 2;
+    }
+    const contentRight = contentLeft + contentWidth;
+    const contentBottom = contentTop + contentHeight;
+
     const tgtRect = target.getBoundingClientRect();
 
-    // Intersect the control with the rendered image  if there's no overlap
-    // the control is over the page chrome, not the image. Keep current tone.
-    const ix1 = Math.max(imgRect.left, tgtRect.left);
-    const iy1 = Math.max(imgRect.top, tgtRect.top);
-    const ix2 = Math.min(imgRect.right, tgtRect.right);
-    const iy2 = Math.min(imgRect.bottom, tgtRect.bottom);
-    if (ix2 <= ix1 || iy2 <= iy1) return;
+    // Intersect the control with the painted picture. No overlap => the control
+    // sits over the letterbox / page background, so fall back to the caller's
+    // default tone (legible against that background) instead of guessing from
+    // unrelated pixels.
+    const ix1 = Math.max(contentLeft, tgtRect.left);
+    const iy1 = Math.max(contentTop, tgtRect.top);
+    const ix2 = Math.min(contentRight, tgtRect.right);
+    const iy2 = Math.min(contentBottom, tgtRect.bottom);
+    if (ix2 <= ix1 || iy2 <= iy1) {
+      setTone(defaultTone);
+      return;
+    }
 
-    // Map the intersection from rendered space to the image's natural pixels.
-    const sxScale = img.naturalWidth / imgRect.width;
-    const syScale = img.naturalHeight / imgRect.height;
-    const sx = (ix1 - imgRect.left) * sxScale;
-    const sy = (iy1 - imgRect.top) * syScale;
-    const sw = (ix2 - ix1) * sxScale;
-    const sh = (iy2 - iy1) * syScale;
+    // Map the intersection from painted space to the image's natural pixels.
+    const sScale = img.naturalWidth / contentWidth; // == naturalHeight / contentHeight
+    const sx = (ix1 - contentLeft) * sScale;
+    const sy = (iy1 - contentTop) * sScale;
+    const sw = (ix2 - ix1) * sScale;
+    const sh = (iy2 - iy1) * sScale;
     if (sw < 1 || sh < 1) return;
 
     sharedCanvas.width = sampleSize;
@@ -92,19 +130,25 @@ export function useAdaptiveTone(opts: UseAdaptiveToneOptions): Tone {
       ctx.drawImage(img, sx, sy, sw, sh, 0, 0, sampleSize, sampleSize);
       const { data } = ctx.getImageData(0, 0, sampleSize, sampleSize);
       let sum = 0;
-      const count = data.length / 4;
+      let counted = 0;
       for (let i = 0; i < data.length; i += 4) {
-        // Skip fully transparent pixels (the control could overlap a corner
-        // of a PNG with alpha).
+        // Average only opaque pixels; transparent ones (e.g. a clipped edge or
+        // a PNG with alpha) would otherwise drag the mean toward 0 and wrongly
+        // bias the tone to "light".
         if (data[i + 3] === 0) continue;
         sum += relLuminance(data[i], data[i + 1], data[i + 2]);
+        counted++;
       }
-      const avg = sum / count;
+      if (counted === 0) {
+        setTone(defaultTone);
+        return;
+      }
+      const avg = sum / counted;
       setTone(avg < threshold ? "light" : "dark");
     } catch {
       // Tainted canvas (cross-origin): keep current tone.
     }
-  }, [imageRef, targetRef, sampleSize, threshold]);
+  }, [imageRef, targetRef, sampleSize, threshold, objectFit, defaultTone]);
 
   useEffect(() => {
     const schedule = () => {

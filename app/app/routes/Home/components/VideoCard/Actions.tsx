@@ -1,9 +1,11 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { isMobile } from "react-device-detect";
 import { Link, useNavigate, useParams } from "react-router";
 import {
   ThumbsUp,
   ThumbsDown,
+  Heart,
+  Send,
   MessageCircle,
   Share2,
   Link2,
@@ -107,6 +109,18 @@ export interface ActionsProps {
    */
   layout?: "default" | "reel" | "tiktok" | "shortsShelf";
   howLikesDislikeComments?: boolean;
+  /**
+   * Instagram-style reel rail: drops the dislike, uses a heart for likes and a
+   * paper-plane for share, and (when `reelAudioArt` is set) shows an audio
+   * thumbnail at the bottom. Only affects `reel`/`tiktok` layouts.
+   */
+  instagramStyle?: boolean;
+  /**
+   * Audio/album art element for the bottom of the IG rail. Pass the shared
+   * thumbnail loader (e.g. `ImageLoad`) so it reuses the existing fail-safe /
+   * caching handling instead of a bare `<img>`.
+   */
+  reelAudioArt?: ReactNode;
 }
 
 type InteractionResponse = {
@@ -198,6 +212,8 @@ export default function Actions({
   onCommentsOpenChange,
   layout = "default",
   howLikesDislikeComments = true,
+  instagramStyle = false,
+  reelAudioArt,
 }: ActionsProps) {
   const navigate = useNavigate();
   const [likeBusy, setLikeBusy] = useState(false);
@@ -445,6 +461,12 @@ export default function Actions({
       setShareBusy(false);
     }
   }, [pagePathForShare, resolveShareSeconds, recordShare]);
+
+  /** Reel share: native share sheet when available, else the share modal. */
+  const openReelShare = useCallback(() => {
+    if (canWebShare) void onShareNative();
+    else setShareModalOpen(true);
+  }, [canWebShare, onShareNative]);
 
   const openComments = useCallback(() => {
     if (isOnThisFilePage && !isMobile) {
@@ -786,6 +808,76 @@ export default function Actions({
     </div>
   );
 
+  /** Instagram-style rail: heart (no dislike), comment, paper-plane share, more, spinning audio art. */
+  const instagramReelRow = (
+    <div className="flex flex-col items-center gap-5">
+      {howLikesDislikeComments ? (
+        <button
+          type="button"
+          className="flex flex-col items-center gap-1"
+          onClick={() => applyLikeDislike("like")}
+          disabled={likeBusy}
+          aria-pressed={liked}
+          aria-label={liked ? "Unlike" : "Like"}
+        >
+          <span className={reelIconBtn}>
+            {likeBusy ? (
+              <Loader2 className="h-[1.25rem] w-[1.25rem] shrink-0 animate-spin" aria-hidden />
+            ) : (
+              <Heart
+                className={cn("h-[1.25rem] w-[1.25rem] shrink-0", liked && "fill-rose-500 text-rose-500")}
+                aria-hidden
+              />
+            )}
+          </span>
+          <span className={reelLabel}>{formatNumber(likeCount)}</span>
+        </button>
+      ) : null}
+
+      {howLikesDislikeComments ? (
+        <button
+          type="button"
+          className="flex flex-col items-center gap-1"
+          onClick={openComments}
+          aria-label="View comments"
+        >
+          <span className={reelIconBtn}>
+            <MessageCircle className="h-[1.25rem] w-[1.25rem] shrink-0" aria-hidden />
+          </span>
+          <span className={reelLabel}>{formatNumber(commentCount)}</span>
+        </button>
+      ) : null}
+
+      <button
+        type="button"
+        className="flex flex-col items-center gap-1"
+        onClick={openReelShare}
+        disabled={shareBusy}
+        aria-label="Share"
+      >
+        <span className={reelIconBtn}>
+          {shareBusy ? (
+            <Loader2 className="h-[1.25rem] w-[1.25rem] shrink-0 animate-spin" aria-hidden />
+          ) : (
+            <Send className="h-[1.2rem] w-[1.2rem] shrink-0 -rotate-12" aria-hidden />
+          )}
+        </span>
+        <span className={reelLabel}>Share</span>
+      </button>
+
+      {moreDropdown}
+
+      {reelAudioArt ? (
+        <div
+          className="mt-1 h-9 w-9 shrink-0 overflow-hidden rounded-lg ring-2 ring-white/75 shadow-[0_2px_8px_rgba(0,0,0,0.6)]"
+          aria-hidden
+        >
+          {reelAudioArt}
+        </div>
+      ) : null}
+    </div>
+  );
+
   const reelRow = (
     <div className="flex flex-col items-center gap-5">
       {howLikesDislikeComments ? likeDislikeSegment : null}
@@ -821,7 +913,7 @@ export default function Actions({
 
   return (
     <>
-      {isShortsShelf ? moreDropdown : isReel ? reelRow : defaultRow}
+      {isShortsShelf ? moreDropdown : isReel ? (instagramStyle ? instagramReelRow : reelRow) : defaultRow}
 
       {currentUserId ? (
         <CreatePlaylistModal

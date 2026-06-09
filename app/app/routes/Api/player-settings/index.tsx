@@ -97,11 +97,11 @@ export function getPlayerSettingsFromCookies(cookieHeader: string | null) {
   const audioVisualizer =
     get(COOKIE_NAMES.audioVisualizer) === '1' || get(COOKIE_NAMES.audioVisualizer) === 'true';
   const styleRaw = get(COOKIE_NAMES.audioVisualizerStyle);
-  const validStyles = ['scroll', 'bars', 'mirror', 'ribbon', 'pulse'] as const;
+  const validStyles = ['bars', 'mirror', 'ribbon', 'pulse'] as const;
   const audioVisualizerStyle =
     styleRaw && (validStyles as readonly string[]).includes(styleRaw)
       ? (styleRaw as (typeof validStyles)[number])
-      : 'scroll';
+      : 'bars';
   const quality = get(COOKIE_NAMES.quality) ?? 'auto';
   const spatialAudio =
     get(COOKIE_NAMES.spatialAudio) === '1' || get(COOKIE_NAMES.spatialAudio) === 'true';
@@ -217,7 +217,7 @@ export const action = async ({ request }: { request: Request }) => {
     }
     if (typeof body.audioVisualizerStyle === 'string') {
       const trimmed = body.audioVisualizerStyle.trim();
-      const validStyles = ['scroll', 'bars', 'mirror', 'ribbon', 'pulse'] as const;
+      const validStyles = ['bars', 'mirror', 'ribbon', 'pulse'] as const;
       if ((validStyles as readonly string[]).includes(trimmed)) {
         setCookies.push(
           buildSetCookie(COOKIE_NAMES.audioVisualizerStyle, trimmed, secure)

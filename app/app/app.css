@@ -47,6 +47,15 @@
 }
 
 
+/* Layering scale  single source of truth for stacking order.
+   Page content uses high z-index in places, so chrome sits well above it. */
+:root {
+  --z-reel: 40;                   /* fullscreen reel overlay */
+  --z-app-chrome: 100000000;      /* sticky navbar + mobile tab bar */
+  --z-mini-player: 2147483646;    /* floating mini player */
+  --z-sidebar-sheet: 10000000000; /* mobile sidebar sheet (over chrome) */
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;
@@ -554,6 +563,28 @@ input[type="file"] {
   100% {
     opacity: 0;
     transform: translateY(-100px) translateX(var(--drift, 0px)) scale(0.7) rotate(var(--rotation, 0deg));
+  }
+}
+
+/* Gentle continuous bob for the reel "friends who liked" bubbles. */
+@keyframes reel-friend-floaty {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-6px);
+  }
+}
+
+.reel-friend-floaty {
+  animation: reel-friend-floaty 3.2s ease-in-out infinite;
+  will-change: transform;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .reel-friend-floaty {
+    animation: none;
   }
 }
 

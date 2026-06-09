@@ -18,6 +18,7 @@ import { Button } from '~/components/ui/button';
 import { DynamicHLSPlayerWithQueue } from '~/routes/Dynamic/components/DynamicHLSPlayerWithQueue';
 import { PlayQueueProvider } from '~/routes/Dynamic/components/PlayQueueContext';
 import Actions from '~/routes/Home/components/VideoCard/Actions';
+import ImageLoad from '~/routes/Home/components/ImageLoad/ImageLoad';
 import { ReelMetaPanel } from '~/routes/reel/components/ReelMetaPanel';
 import { useFileContext } from '~/lib/Context/Context';
 import { type FileType, fileWatchPath } from '~/lib/types';
@@ -53,6 +54,8 @@ export interface PipReelItemProps {
   /** `/reel` full-page only: poster-derived palette for the page backdrop (from the same thumbnail as the player). */
   onReelPosterColors?: (colors: string[]) => void;
 }
+
+const noopRetry = () => {};
 
 function isVideoLikeFile(f: FileType): boolean {
   const t = (f.file_type ?? '').toLowerCase();
@@ -473,9 +476,25 @@ function PipReelItemInner({
     }
   }, [file.unique_id, navigate]);
 
+  // Reuse the shared thumbnail loader (IndexedDB cache + fallbacks) for the
+  // reel's little audio-art tile instead of a bare <img>.
+  const reelAudioArt = (
+    <ImageLoad
+      link={getThumbnailUrl(file)}
+      imageID={`${file.unique_id}_reel_audio_art`}
+      index={0}
+      retry={noopRetry}
+      className="h-full w-full object-cover"
+      quality={10}
+      hasAdultTag={Boolean(file.is_adult)}
+    />
+  );
+
   const actionsEl = (
     <Actions
       layout="tiktok"
+      instagramStyle
+      reelAudioArt={reelAudioArt}
       fileId={fileId}
       uniqueId={uniqueId}
       sharePagePath={fileWatchPath(file)}
@@ -538,7 +557,10 @@ function PipReelItemInner({
             alt=""
             className="h-full w-full object-contain"
             decoding="async"
-            fetchPriority="low"
+            // Eager + default priority: Swiper only keeps a small window of
+            // slides mounted, so nearby reel posters load ahead and the
+            // thumbnail is already there the moment the user swipes to it.
+            loading="eager"
           />
         ) : (
           <div className="h-12 w-12 animate-pulse rounded-full bg-white/10" aria-hidden />
@@ -592,7 +614,9 @@ function PipReelItemInner({
                   className={cn(
                     "swiper-no-swiping pointer-events-auto absolute z-20 flex flex-col items-center lg:hidden",
                     "right-[max(0.5rem,env(safe-area-inset-right))]",
-                    "top-1/2 -translate-y-1/2",
+                    // Anchor to the bottom (above the caption / embedded info) like
+                    // Instagram, instead of vertically centered (which sat too high).
+                    "bottom-[calc(5rem+env(safe-area-inset-bottom,0px))]",
                   )}
                 >
                   {actionsEl}

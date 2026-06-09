@@ -98,6 +98,7 @@ export default [
         route(`pip-feed`, 'routes/Api/pip-feed/index.tsx'),
         route(`feed/clear-history`, 'routes/Api/feed/clear-history/index.tsx'),
         route(`reel-feed`, 'routes/Api/reel-feed/index.tsx'),
+        route(`reel-friend-likes`, 'routes/Api/reel-friend-likes/index.tsx'),
         route(`content/:id`, 'routes/Api/content/$id/index.tsx'),
         route(`tag/:tagname`, 'routes/Api/tag.$tagname/index.tsx'),
         route(`playlist`, 'routes/Api/playlist/index.tsx'),

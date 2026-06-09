@@ -19,7 +19,7 @@ export interface PlayerSettings {
   autoPlay: boolean;
   ambientMode: boolean;
   audioVisualizer: boolean;
-  audioVisualizerStyle: 'scroll' | 'bars' | 'mirror' | 'ribbon' | 'pulse';
+  audioVisualizerStyle: 'bars' | 'mirror' | 'ribbon' | 'pulse';
   quality: string;
   /** Preferred caption language (BCP-47). Empty string = captions off. */
   captionLanguage: string;

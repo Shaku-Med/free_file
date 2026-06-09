@@ -41,7 +41,8 @@ export const action = async ({ request }: { request: Request }) => {
     const { error: delErr } = await db
       .from("files")
       .delete()
-      .eq("id", (existing as { id: string }).id);
+      .eq("id", (existing as { id: string }).id)
+      .eq("owner_id", user.id);
     if (delErr) {
       console.error("[studio/post/delete] delete", delErr);
       return denyErr(500);

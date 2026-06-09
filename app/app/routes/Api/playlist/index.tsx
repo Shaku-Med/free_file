@@ -1,6 +1,7 @@
 import db from "~/lib/Database/supabase";
 import { isAuthenticated } from "~/lib/Security/Password";
 import { normalizeRpcFileRow } from "~/lib/profile/normalizeRpcFileRow";
+import { filterFilesByAccess } from "~/routes/Api/fun/accessControl";
 
 const PAGE_SIZE = 12;
 
@@ -108,6 +109,10 @@ export const action = async ({ request }: { request: Request }) => {
   } else {
     fileList = Array.isArray(rpcResult.data) ? rpcResult.data : [];
   }
+  // Access control: this endpoint returns metadata for arbitrary client-supplied
+  // file ids, so we MUST drop any file the requester isn't allowed to see
+  // (private / age-gated). Otherwise private files are enumerable by UUID.
+  fileList = await filterFilesByAccess(request, fileList as any[]);
   const ids = fileList.map((f: any) => f.id).filter(Boolean);
   const interactionsByFile = new Map<
     string,

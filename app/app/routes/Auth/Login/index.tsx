@@ -126,7 +126,9 @@ export const meta: MetaFunction = () =>
   });
 
 function safeClientRedirect(path: string | null): string {
-  if (!path || !path.startsWith('/') || path.startsWith('//')) return '/';
+  // Must be a same-origin absolute path. Reject protocol-relative ("//host")
+  // and backslash tricks ("/\\host") that browsers normalize to off-site URLs.
+  if (!path || !path.startsWith('/') || path.startsWith('//') || path.includes('\\')) return '/';
   return path.length > 500 ? '/' : path;
 }
 

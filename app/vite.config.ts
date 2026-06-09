@@ -53,6 +53,7 @@ export default defineConfig(({mode}) => {
             if (id.includes('hls.js')) return 'vendor-hls';
             if (id.includes('framer-motion')) return 'vendor-motion';
             if (id.includes('swiper')) return 'vendor-swiper';
+            if (id.includes('recharts') || id.includes('d3-')) return 'vendor-recharts';
           },
         },
       }

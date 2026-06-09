@@ -56,10 +56,17 @@ const VerifyB4Uploading = async (headers: Headers) => {
 
 const serverToServerUpload = async (request: Request): Promise<boolean> => {
   try {
+    const expected = process.env.VIDEO_TOKEN
+    if(!expected) return false
     let authorization = request.headers.get('server-to-server-token')
     if(!authorization) return false
     authorization = authorization.split(' ')[1]
-    if(process.env.VIDEO_TOKEN !== authorization) return false
+    if(!authorization) return false
+    // Constant-time compare so the secret can't be recovered by timing.
+    const a = Buffer.from(authorization)
+    const b = Buffer.from(expected)
+    if(a.length !== b.length) return false
+    if(!crypto.timingSafeEqual(a, b)) return false
     return true 
   }
   catch {
@@ -223,6 +230,25 @@ export const action = async ({ request }: { request: Request }) => {
 
     try {
       if (db) {
+        // IDOR guard: unique_id is client-supplied. Reject if it already
+        // belongs to someone else so an attacker can't hijack/overwrite
+        // another user's file row by reusing their unique_id.
+        const { data: existing } = await db
+          .from('files')
+          .select('owner_id')
+          .eq('unique_id', uniqueID)
+          .maybeSingle();
+        if (existing && (existing as { owner_id?: string }).owner_id && (existing as { owner_id?: string }).owner_id !== ownerId) {
+          if (quotaUploadId) {
+            await refundUploadQuota(quotaUploadId);
+            quotaUploadId = '';
+          }
+          return new Response(
+            JSON.stringify({ error: 'This upload identifier is already in use.' }),
+            { status: 409, headers: { 'Content-Type': 'application/json' } }
+          );
+        }
+
         const insertData: Record<string, any> = {
           created_at: new Date().toISOString(),
           endpoint: '',
@@ -290,7 +316,8 @@ export const action = async ({ request }: { request: Request }) => {
           await db
             .from('files')
             .delete()
-            .eq('unique_id', uniqueID);
+            .eq('unique_id', uniqueID)
+            .eq('owner_id', ownerId);
         } catch (error) {
           console.warn('Failed to cleanup queued upload record:', error);
         }

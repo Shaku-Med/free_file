@@ -1,6 +1,7 @@
 export const EnvValidator = (env: string) => {
     try {
-        console.log(import.meta.env[env])
+        // NEVER log env values here  this runs for secret keys (TOKEN1/2, etc.)
+        // and would leak them to stdout/log aggregators.
         if(!process.env[env]) return null;
         return process.env[env] || null;
     }

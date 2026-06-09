@@ -18,7 +18,7 @@ export type PlayerSettings = {
   ambientMode: boolean;
   /** Bars + seek strip stay visible when controls auto-hide */
   audioVisualizer: boolean;
-  audioVisualizerStyle: 'scroll' | 'bars' | 'mirror' | 'ribbon' | 'pulse';
+  audioVisualizerStyle: 'bars' | 'mirror' | 'ribbon' | 'pulse';
   quality: string;
   /** 8D / spatial audio master toggle. */
   spatialAudio: boolean;

@@ -63,7 +63,11 @@ export const action = async ({ request }: { request: Request }) => {
   }
   const next: CaptionEntry[] = [...without, { language, path }]
 
-  const { error: updErr } = await db.from("files").update({ captions: next }).eq("id", fileId)
+  const { error: updErr } = await db
+    .from("files")
+    .update({ captions: next })
+    .eq("id", fileId)
+    .eq("owner_id", userId)
   if (updErr) {
     console.error("[internal/captions/commit] update:", updErr)
     return ok({ error: "update failed" }, 500)

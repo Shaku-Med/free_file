@@ -6,12 +6,16 @@ import { EncryptCombine } from '~/lib/Security/unsharedkeyEncryption/Combined/Co
 import { getAllKeys } from '~/lib/Security/unsharedkeyEncryption/Combined/Verification/TokenKeys';
 import { validateSignupInputs, validateLoginInputs, normalizeIdentifier, constantTimeDelay } from './validation';
 
+/** Session lifetime, shared by the JWT `exp` and the cookie `Max-Age` so a
+ * stolen token can't outlive the cookie. */
+const SESSION_TTL_SECONDS = 30 * 24 * 60 * 60;
+
 /** Issue the same JWT used for password login (c_user cookie payload). */
 export async function issueCUserSessionToken(c_usr: string): Promise<string | null> {
   const keys = await getAllKeys(['token1', 'c_user']);
   if (!keys) return null;
   return EncryptCombine({ c_usr }, keys, {
-    expiresIn: '365d',
+    expiresIn: SESSION_TTL_SECONDS,
     algorithm: 'HS512',
   });
 }
@@ -21,7 +25,7 @@ export function appendSessionCookie(headers: Headers, token: string): void {
   const secure = process.env.NODE_ENV === 'production' ? 'Secure' : '';
   headers.append(
     'Set-Cookie',
-    `c_user=${token}; Path=/; Max-Age=${30 * 24 * 60 * 60}; HttpOnly; ${secure}; SameSite=Lax`
+    `c_user=${token}; Path=/; Max-Age=${SESSION_TTL_SECONDS}; HttpOnly; ${secure}; SameSite=Lax`
   );
 }
 

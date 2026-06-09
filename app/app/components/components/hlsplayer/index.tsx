@@ -302,6 +302,8 @@ function PlayerInner({
   );
 
   const showAudioVisualizer = audioVisualizer && !isMobile && authPlayback;
+  // Height of the persistent visualizer strip (SeekBarSpectrum h-10 + pb-2).
+  const visualizerStripPx = 48;
 
   const [isMobileView, setIsMobileView] = useState(isMobile);
   useEffect(() => {
@@ -581,31 +583,25 @@ function PlayerInner({
     return () => { if (onVideoRef) onVideoRef(null); };
   }, [onVideoRef]);
 
+  // Sprite-sheet URL derived from the file's thumbnail prefix. Used both to
+  // fetch the meta JSON and to render the hidden preload <img> below.
+  const spriteSheetUrl = useMemo(() => {
+    const prefix =
+      file?.default_thumbnail && typeof file.default_thumbnail === 'string'
+        ? file.default_thumbnail.replace(/[^/]+$/, '')
+        : '';
+    return prefix ? `/api/load/image/${prefix}thumbnail_preview.jpg` : null;
+  }, [file?.default_thumbnail]);
+
   useEffect(() => {
     const prefix =
       file?.default_thumbnail && typeof file.default_thumbnail === 'string'
         ? file.default_thumbnail.replace(/[^/]+$/, '')
         : '';
-    if (!prefix) return;
+    if (!prefix || !spriteSheetUrl) return;
 
     let cancelled = false;
     const metaUrl = `/api/load/image/${prefix}thumbnail_preview.json`;
-    const spriteImgUrl = `/api/load/image/${prefix}thumbnail_preview.jpg`;
-
-    // Warm the sprite sheet into the browser cache up-front, in parallel with
-    // the meta fetch. The seek preview paints the sprite via a CSS
-    // `background-image`, which the browser otherwise doesn't download until
-    // the very first hover  causing the slow/blank first scrub. Preloading
-    // here means the first preview paints instantly from cache. Low priority +
-    // async decode so it never competes with the actual video segments.
-    const preloadImg = new Image();
-    preloadImg.decoding = 'async';
-    try {
-      (preloadImg as HTMLImageElement & { fetchPriority?: string }).fetchPriority = 'low';
-    } catch {
-      /* fetchPriority unsupported  ignore */
-    }
-    preloadImg.src = spriteImgUrl;
 
     const loadSpriteMeta = async () => {
       try {
@@ -615,9 +611,7 @@ function PlayerInner({
         if (cancelled) return;
         if (meta?.cells?.length) {
           setSpriteMeta(meta);
-          setSpriteUrl(spriteImgUrl);
-          // Force a decode so the first hover has no decode hitch either.
-          preloadImg.decode?.().catch(() => {});
+          setSpriteUrl(spriteSheetUrl);
         }
       } catch {}
     };
@@ -625,10 +619,8 @@ function PlayerInner({
 
     return () => {
       cancelled = true;
-      // Abort the preload if the file changes before it finishes downloading.
-      preloadImg.src = '';
     };
-  }, [file?.default_thumbnail, setSpriteMeta, setSpriteUrl]);
+  }, [file?.default_thumbnail, spriteSheetUrl, setSpriteMeta, setSpriteUrl]);
 
   const triggerSeekFeedbackOverlay = useCallback(
     (direction: 'back' | 'forward', seconds: number) => {
@@ -981,6 +973,21 @@ function PlayerInner({
       onContextMenu={handleContextMenu}
     >
       {ambientMode && authPlayback && !isMiniPlayerPortalActive && <AmbientBackground />}
+      {/* Preload the seek-preview sprite sheet as a real (hidden) <img> as soon
+          as the player mounts. A rendered <img> is fetched + decoded + retained
+          by the browser, so the first scrub paints the preview instantly from
+          cache  unlike a detached new Image() which can be dropped or
+          deprioritized. */}
+      {spriteSheetUrl && (
+        <img
+          src={spriteSheetUrl}
+          alt=""
+          aria-hidden
+          decoding="async"
+          className="pointer-events-none absolute h-px w-px opacity-0"
+          style={{ left: -9999, top: -9999 }}
+        />
+      )}
       <PosterBackground
         onImageLoaded={handlePosterImageLoaded}
       />
@@ -1215,12 +1222,22 @@ function PlayerInner({
               theaterMode={theaterMode}
               onTheaterModeChange={isMobileView ? undefined : handleTheaterModeChange}
               hideControls={effectiveHideControls}
-              liftBottomPx={0}
+              liftBottomPx={showAudioVisualizer && !inPipForThisVideo ? visualizerStripPx : 0}
               isMobileLayout={isMobileView}
               onBack={onBack}
-              bottomSlot={showAudioVisualizer && !inPipForThisVideo ? <PersistentBottomVisualizer /> : undefined}
               tiltMode={tiltMode}
             />
+          </div>
+        )}
+
+        {/* Visualizer lives OUTSIDE the fading control overlay so it stays on
+            when the controls auto-hide. Controls are lifted above it via liftBottomPx. */}
+        {showAudioVisualizer && !inPipForThisVideo && !isMiniPlayerPortalActive && (!isReelCtx || embedReelControls) && (
+          // z-[32] keeps the bass-kick confetti ABOVE the control overlay (z-[31])
+          // and its dark gradient, otherwise the pops render behind it and stay
+          // invisible. The wrapper is pointer-events-none so taps still hit controls.
+          <div className="absolute bottom-0 left-0 right-0 z-[32] pointer-events-none">
+            <PersistentBottomVisualizer />
           </div>
         )}
 

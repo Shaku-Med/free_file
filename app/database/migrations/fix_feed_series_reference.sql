@@ -24,7 +24,31 @@
 -- ------------------------------------------------------------
 -- 1) get_feed (general feed; reels_only flag optional)
 -- ------------------------------------------------------------
-DROP FUNCTION IF EXISTS public.get_feed(uuid, int, text, boolean, text, int, uuid[]) CASCADE;
+-- Drop ALL get_feed overloads first. Older deploys shipped an 8-arg
+-- get_feed (…, p_session_cats text[]) whose body still referenced the
+-- non-existent public.series table. A static single-signature DROP left
+-- that stale overload in place, so /api/feed calls that include
+-- p_session_cats resolved to the broken function and 500'd (empty feed).
+DO $get_feed_drop$
+DECLARE
+  r RECORD;
+BEGIN
+  FOR r IN
+    SELECT n.nspname AS sch, p.proname AS nm, p.oid AS oid
+    FROM pg_proc p
+    JOIN pg_namespace n ON n.oid = p.pronamespace
+    WHERE p.proname = 'get_feed'
+      AND n.nspname = 'public'
+  LOOP
+    EXECUTE format(
+      'DROP FUNCTION IF EXISTS %I.%I(%s) CASCADE',
+      r.sch,
+      r.nm,
+      pg_get_function_identity_arguments(r.oid)
+    );
+  END LOOP;
+END;
+$get_feed_drop$;
 
 CREATE OR REPLACE FUNCTION public.get_feed(
   p_user_id       uuid    DEFAULT NULL,
@@ -33,7 +57,8 @@ CREATE OR REPLACE FUNCTION public.get_feed(
   p_reels_only    boolean DEFAULT false,
   p_seed          text    DEFAULT 'default',
   p_cursor_pos    int     DEFAULT 0,
-  p_exclude_ids   uuid[]  DEFAULT '{}'::uuid[]
+  p_exclude_ids   uuid[]  DEFAULT '{}'::uuid[],
+  p_session_cats  text[]  DEFAULT '{}'::text[]
 )
 RETURNS TABLE (
   id               uuid,
@@ -134,6 +159,17 @@ BEGIN
       (COALESCE(es.like_count, 0) + COALESCE(es.comment_count, 0) + f.share_count + f.view_count)::float
         AS _total_eng,
       EXTRACT(EPOCH FROM (now() - f.created_at)) / 3600.0 AS _hours_old,
+      -- Session boost: 1.0 when this file matches a category the viewer has
+      -- engaged with this session (passed from in-session likes by /api/feed).
+      CASE WHEN p_session_cats IS NOT NULL AND array_length(p_session_cats, 1) > 0
+           AND f.categories IS NOT NULL AND jsonb_typeof(f.categories) = 'array'
+           AND EXISTS (
+             SELECT 1
+             FROM jsonb_array_elements_text(COALESCE(f.categories, '[]'::jsonb)) AS fc(cat)
+             WHERE fc.cat = ANY(p_session_cats)
+           )
+      THEN 1.0
+      ELSE 0.0 END AS _session_boost,
       (((hashtext(f.id::text || p_seed) % 1000000)::float + 500000.0) / 1000000.0) AS _shuffle
     FROM files f
     LEFT JOIN file_engagement_stats es ON es.file_id = f.id
@@ -158,7 +194,7 @@ BEGIN
       ROW_NUMBER() OVER (
         ORDER BY
           (CASE WHEN b._is_seen THEN 1 ELSE 0 END) ASC,
-          b._shuffle * 0.3 + (1.0 - b._hours_old / 48.0) * 0.7 DESC
+          b._session_boost * 0.20 + b._shuffle * 0.3 + (1.0 - b._hours_old / 48.0) * 0.7 DESC
       ) AS _rn
     FROM base b
     WHERE b._hours_old <= 48
@@ -169,7 +205,7 @@ BEGIN
       ROW_NUMBER() OVER (
         ORDER BY
           (CASE WHEN b._is_seen THEN 1 ELSE 0 END) ASC,
-          b._eng_rate * 0.7 + b._shuffle * 0.3 DESC
+          b._session_boost * 0.20 + b._eng_rate * 0.7 + b._shuffle * 0.3 DESC
       ) AS _rn
     FROM base b
     WHERE b._total_eng >= 3
@@ -262,7 +298,7 @@ BEGIN
 END;
 $$;
 
-GRANT EXECUTE ON FUNCTION public.get_feed(uuid, int, text, boolean, text, int, uuid[]) TO anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.get_feed(uuid, int, text, boolean, text, int, uuid[], text[]) TO anon, authenticated;
 
 
 -- ------------------------------------------------------------
@@ -297,7 +333,9 @@ CREATE OR REPLACE FUNCTION public.get_reel_feed(
   p_seed          text    DEFAULT 'default',
   p_cursor_pos    int     DEFAULT 0,
   p_exclude_ids   uuid[]  DEFAULT '{}'::uuid[],
-  p_max_duration  numeric DEFAULT 600.0
+  p_max_duration  numeric DEFAULT 600.0,
+  p_session_cats  text[]  DEFAULT '{}'::text[],
+  p_watched_ids   uuid[]  DEFAULT '{}'::uuid[]
 )
 RETURNS TABLE (
   id               uuid,
@@ -398,6 +436,18 @@ BEGIN
       (COALESCE(es.like_count, 0) + COALESCE(es.comment_count, 0) + f.share_count + f.view_count)::float
         AS _total_eng,
       EXTRACT(EPOCH FROM (now() - f.created_at)) / 3600.0 AS _hours_old,
+      -- Session boost: matches a category the viewer engaged with this session.
+      CASE WHEN p_session_cats IS NOT NULL AND array_length(p_session_cats, 1) > 0
+           AND f.categories IS NOT NULL AND jsonb_typeof(f.categories) = 'array'
+           AND EXISTS (
+             SELECT 1
+             FROM jsonb_array_elements_text(COALESCE(f.categories, '[]'::jsonb)) AS fc(cat)
+             WHERE fc.cat = ANY(p_session_cats)
+           )
+      THEN 1.0
+      ELSE 0.0 END AS _session_boost,
+      -- Recently watched in this session  deprioritize so the reel feed keeps moving.
+      (f.id = ANY(p_watched_ids)) AS _recently_watched,
       (((hashtext(f.id::text || p_seed) % 1000000)::float + 500000.0) / 1000000.0) AS _shuffle
     FROM files f
     LEFT JOIN file_engagement_stats es ON es.file_id = f.id
@@ -413,6 +463,9 @@ BEGIN
         WHERE esi.file_id = f.unique_id
       )
       AND f.is_reel = true
+      -- Don't surface the viewer's OWN reels in their feed  people want to
+      -- discover other creators, not watch their own clips every time.
+      AND (p_user_id IS NULL OR f.owner_id IS DISTINCT FROM p_user_id)
       AND (p_max_duration IS NULL OR f.duration IS NULL OR f.duration <= p_max_duration)
       AND (p_category IS NULL OR f.categories @> to_jsonb(p_category)::jsonb)
       AND (p_user_id IS NULL OR ud.file_id IS NULL)
@@ -422,8 +475,8 @@ BEGIN
     SELECT b.*, 'fresh'::text AS _pool,
       ROW_NUMBER() OVER (
         ORDER BY
-          (CASE WHEN b._is_seen THEN 1 ELSE 0 END) ASC,
-          b._shuffle * 0.3 + (1.0 - b._hours_old / 48.0) * 0.7 DESC
+          (CASE WHEN b._is_seen OR b._recently_watched THEN 1 ELSE 0 END) ASC,
+          b._session_boost * 0.20 + b._shuffle * 0.3 + (1.0 - b._hours_old / 48.0) * 0.7 DESC
       ) AS _rn
     FROM base b
     WHERE b._hours_old <= 48
@@ -433,8 +486,8 @@ BEGIN
     SELECT b.*, 'trending'::text AS _pool,
       ROW_NUMBER() OVER (
         ORDER BY
-          (CASE WHEN b._is_seen THEN 1 ELSE 0 END) ASC,
-          b._eng_rate * 0.7 + b._shuffle * 0.3 DESC
+          (CASE WHEN b._is_seen OR b._recently_watched THEN 1 ELSE 0 END) ASC,
+          b._session_boost * 0.20 + b._eng_rate * 0.7 + b._shuffle * 0.3 DESC
       ) AS _rn
     FROM base b
     WHERE b._total_eng >= 2
@@ -527,7 +580,7 @@ BEGIN
 END;
 $$;
 
-GRANT EXECUTE ON FUNCTION public.get_reel_feed(uuid, int, text, text, int, uuid[], numeric) TO anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.get_reel_feed(uuid, int, text, text, int, uuid[], numeric, text[], uuid[]) TO anon, authenticated;
 
 -- ------------------------------------------------------------
 -- 3) Sanity checks (safe to run  they only SELECT)

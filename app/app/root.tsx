@@ -167,8 +167,6 @@ export const loader = async ({request}: {request: Request}) => {
     const sameSite = process.env.NODE_ENV === 'production' ? 'SameSite=None' : 'SameSite=Lax';
     const secure = process.env.NODE_ENV === 'production' ? 'Secure' : '';
 
-    let c_user = getCookie('c_user', request.headers);
-
     const uploadServerUrl =
       (typeof process !== 'undefined' &&
         (process.env?.UPLOAD_SERVER_URL || process.env?.GO_UPLOAD_URL)?.replace(/\/$/, '')) ||
@@ -192,7 +190,10 @@ export const loader = async ({request}: {request: Request}) => {
       profile_pic: pic ?? null,
     }));
 
-    return data({ st: sessionToken, user_agent: request.headers.get('user-agent'), userId, c_user, uploadServerUrl, userTheme, playerSettingsFromLoader, isMobileServer, isDevelopmentServer, requestURL, altAccounts }, {
+    // SECURITY: never return the c_user session JWT to the client. It is an
+    // HttpOnly auth cookie; serializing it into loader JSON would expose it to
+    // any XSS/devtools. No client code consumes it.
+    return data({ st: sessionToken, user_agent: request.headers.get('user-agent'), userId, uploadServerUrl, userTheme, playerSettingsFromLoader, isMobileServer, isDevelopmentServer, requestURL, altAccounts }, {
       status: 200,
       headers: (token) ? { // I left this part open for now. Fix will be done later.
         'Set-Cookie': `token=${token}; Path=/; HttpOnly; ${secure}; ${sameSite}`
@@ -240,7 +241,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
     )
   }
 
-  const { st, user_agent, userId, c_user, uploadServerUrl, userTheme, playerSettingsFromLoader, isMobileServer, isDevelopmentServer, requestURL, altAccounts } = data;
+  const { st, user_agent, userId, uploadServerUrl, userTheme, playerSettingsFromLoader, isMobileServer, isDevelopmentServer, requestURL, altAccounts } = data;
   const themeClass = userTheme?.theme ?? "system";
   const themeStyle = userTheme?.style ?? "default";
 
@@ -290,7 +291,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
         <ThemeApply userTheme={userTheme ?? null} />
         <RegisterServiceWorker />
         <ErrorBoundary>
-          <ContextProvider st={st} user_agent={user_agent || ''} userId={userId || null} c_user={c_user || null} uploadServerUrl={uploadServerUrl || ''} playerSettingsFromLoader={playerSettingsFromLoader ?? null} isMobileServer={isMobileServer ?? false} isDevelopment={isDevelopmentServer ?? false} altAccounts={altAccounts ?? []}>
+          <ContextProvider st={st} user_agent={user_agent || ''} userId={userId || null} c_user={null} uploadServerUrl={uploadServerUrl || ''} playerSettingsFromLoader={playerSettingsFromLoader ?? null} isMobileServer={isMobileServer ?? false} isDevelopment={isDevelopmentServer ?? false} altAccounts={altAccounts ?? []}>
             <LikeProvider>
               <WatchProgressProvider>
               <PictureInPictureProvider>

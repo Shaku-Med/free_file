@@ -147,6 +147,19 @@ function normalizeGithubImagePath(raw: string | undefined): string | undefined {
     while (p.length > 1 && p.endsWith('/')) {
         p = p.slice(0, -1);
     }
+    // Path-traversal guard: never allow `..` segments, leading slash, or
+    // backslashes to escape the intended storage prefix when this value is
+    // appended to a GitHub raw URL or used as an R2 object key.
+    if (
+        p.startsWith('/') ||
+        p.includes('\\') ||
+        p === '..' ||
+        p.startsWith('../') ||
+        p.endsWith('/..') ||
+        p.includes('/../')
+    ) {
+        return undefined;
+    }
     return p;
 }
 
