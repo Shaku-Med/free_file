@@ -26,6 +26,7 @@ import OwnerProfile from "~/components/OwnerProfile/OwnerProfile";
 import { getProfilePicUrl } from "~/lib/utils/profilePic";
 import { Avatar, AvatarFallback, AvatarImage } from "~/components/ui/avatar";
 import { Button } from "~/components/ui/button";
+import EmptyState from "~/components/EmptyState";
 import { cn } from "~/lib/utils";
 import { ChevronLeft, ChevronRight, Search, Users } from "lucide-react";
 
@@ -481,23 +482,19 @@ export default function SubscriptionsPage() {
   if (channels.length === 0) {
     return (
       <div className="mx-auto max-w-3xl px-4 py-16">
-        <div className="flex flex-col items-center gap-4 py-14 text-center">
-          <div className="flex h-16 w-16 items-center justify-center rounded-full bg-muted">
-            <Users className="h-8 w-8 text-muted-foreground" />
-          </div>
-          <p className="text-base font-medium text-foreground">
-            No subscriptions yet
-          </p>
-          <p className="text-sm text-muted-foreground max-w-xs">
-            Find creators you like and subscribe to see their latest uploads here.
-          </p>
-          <Button asChild variant="default" size="sm" className="mt-2 rounded-full">
-            <Link to="/search">
-              <Search className="mr-2 h-4 w-4" />
-              Discover channels
-            </Link>
-          </Button>
-        </div>
+        <EmptyState
+          icon={Users}
+          title="No subscriptions yet"
+          description="Find creators you like and subscribe to see their latest uploads here."
+          action={
+            <Button asChild variant="default" size="sm" className="rounded-full">
+              <Link to="/search">
+                <Search className="mr-2 h-4 w-4" />
+                Discover channels
+              </Link>
+            </Button>
+          }
+        />
       </div>
     );
   }

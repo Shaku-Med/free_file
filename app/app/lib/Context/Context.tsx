@@ -47,6 +47,8 @@ export const Context = createContext<ContextProps>({
     setIsModalOpen: () => {},
     isLoading: false,
     initialLoading: true,
+    feedError: false,
+    retryFeed: () => {},
     observerRef: { current: null },
     loadMoreVideos: () => {},
     clearFeedHistory: async () => {},
@@ -153,6 +155,7 @@ export const ContextProvider = ({ children, st, user_agent, userId, c_user, uplo
 
     const [isLoading, setIsLoading] = useState(false);
     const [initialLoading, setInitialLoading] = useState(true);
+    const [feedError, setFeedError] = useState(false);
     const [hasMore, setHasMore] = useState(true);
     const nextCursorRef = useRef<{ cursor_pos: number } | null>(null);
     const shownIdsRef = useRef<Set<string>>(new Set());
@@ -240,11 +243,20 @@ export const ContextProvider = ({ children, st, user_agent, userId, c_user, uplo
       }
 
       setIsLoading(true)
+      if (!append) setFeedError(false)
       try {
         let appendedAny = false
         for (let rotation = 0; rotation <= MAX_SEED_ROTATIONS; rotation++) {
           const result = await fetchFeedOnce(append || rotation > 0)
-          if (!result.ok) return
+          if (!result.ok) {
+            // Surface a retryable error only when we have nothing to show; if the
+            // feed is already populated, keep the current items and fail quietly.
+            setFiles(prev => {
+              if (!append && prev.length === 0) setFeedError(true)
+              return prev
+            })
+            return
+          }
           const data = result.data
 
           if (Array.isArray(data?.data) && data.data.length > 0) {
@@ -291,11 +303,21 @@ export const ContextProvider = ({ children, st, user_agent, userId, c_user, uplo
         }
       } catch (error) {
         console.log(`Error Found In fetchFeed: `, error)
+        setFiles(prev => {
+          if (!append && prev.length === 0) setFeedError(true)
+          return prev
+        })
       } finally {
         setIsLoading(false)
         setInitialLoading(false)
       }
     }, [isLoading])
+
+    const retryFeed = useCallback(() => {
+      setFeedError(false)
+      setInitialLoading(true)
+      fetchFeed(false)
+    }, [fetchFeed])
 
     useEffect(() => {
       fetchFeed(false)
@@ -519,6 +541,8 @@ export const ContextProvider = ({ children, st, user_agent, userId, c_user, uplo
             setIsModalOpen,
             isLoading,
             initialLoading,
+            feedError,
+            retryFeed,
             observerRef: observerRef as React.RefObject<HTMLDivElement>,
             loadMoreVideos,
             clearFeedHistory,
@@ -551,7 +575,7 @@ export const ContextProvider = ({ children, st, user_agent, userId, c_user, uplo
             getRelatedVideosPayloadCache,
             setRelatedVideosPayloadCache,
         }),
-        [files, isModalOpen, isLoading, initialLoading, loadMoreVideos, clearFeedHistory, user_agent, safeUserId, userActions, c_user, uploadServerUrl, userProfile, userProfileLoading, pageCache, scrollDataReady, theaterMode, playerSettings, savePlayerSettings, altAccountsProp, hideAppChrome, hlsBootstrap, hlsBootstrapRetry, getDynamicSeriesPayloadCache, setDynamicSeriesPayloadCache, getRelatedVideosPayloadCache, setRelatedVideosPayloadCache]
+        [files, isModalOpen, isLoading, initialLoading, feedError, retryFeed, loadMoreVideos, clearFeedHistory, user_agent, safeUserId, userActions, c_user, uploadServerUrl, userProfile, userProfileLoading, pageCache, scrollDataReady, theaterMode, playerSettings, savePlayerSettings, altAccountsProp, hideAppChrome, hlsBootstrap, hlsBootstrapRetry, getDynamicSeriesPayloadCache, setDynamicSeriesPayloadCache, getRelatedVideosPayloadCache, setRelatedVideosPayloadCache]
     );
     
     return (

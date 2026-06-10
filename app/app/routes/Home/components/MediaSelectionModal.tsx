@@ -49,6 +49,7 @@ import { SignInDialog } from "~/components/SignInWall"
 import { StorageQuotaMeter } from "~/components/StorageQuotaMeter"
 import { formatBytes as formatBytesShort } from "~/lib/formatBytes"
 import { cn } from "~/lib/utils"
+import { fetchUploadAuthContext, type UploadAuthContext } from "~/lib/uploadAuth.client"
 import { Tooltip, TooltipContent, TooltipTrigger } from "~/components/ui/tooltip"
 
 /**
@@ -450,7 +451,7 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
   initialFiles,
   onFilesConsumed,
 }) => {
-  const { userId, c_user, uploadServerUrl, userProfile } = useFileContext()
+  const { userId, uploadServerUrl, userProfile } = useFileContext()
   const navigate = useNavigate()
   const [items, setItems] = useState<MediaItem[]>([])
   const [activeId, setActiveId] = useState<string | null>(null)
@@ -965,10 +966,18 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
     }
   }, [isUploadingBatch])
 
+  // =============================================================================
+  // UPLOAD PIPELINE — GoUpload ONLY (see free_file/GoUpload)
+  // =============================================================================
+  // DO NOT add POST /api/upload fallbacks here. The app does not process uploads.
+  // Legacy /api/upload is server-to-server only (403 for browsers).
+  // Auth: fetchUploadAuthContext() → /api/upload/auth → GoUpload /health + chunked API.
+  // =============================================================================
+
   const GO_CHUNK_SIZE = 25 * 1024 * 1024
 
-  const authHeaders = (): Record<string, string> =>
-    c_user ? { Authorization: `Bearer ${c_user}` } : {}
+  const authHeaders = (bearer: string): Record<string, string> =>
+    bearer ? { Authorization: `Bearer ${bearer}` } : {}
 
   const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
@@ -993,15 +1002,18 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
     return fetch(url, init)
   }
 
-  const uploadToGo = async (item: MediaItem): Promise<{ jobId: string }> => {
-    const base = uploadServerUrl.replace(/\/$/, "")
+  const uploadToGo = async (
+    item: MediaItem,
+    ctx: UploadAuthContext,
+  ): Promise<{ jobId: string }> => {
+    const base = ctx.base
     const totalChunks = Math.ceil(item.file.size / GO_CHUNK_SIZE)
 
     let startRes = await fetchWith503Retry(
       `${base}/api/upload/start`,
       {
         method: "POST",
-        headers: { "Content-Type": "application/json", ...authHeaders() },
+        headers: { "Content-Type": "application/json", ...authHeaders(ctx.bearer) },
         body: JSON.stringify({
           file_name: item.file.name,
           file_size: item.file.size,
@@ -1031,7 +1043,7 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
           headers: {
             "X-Upload-ID": uploadId,
             "X-Chunk-Index": String(i),
-            ...authHeaders(),
+            ...authHeaders(ctx.bearer),
           },
           body: blob,
         },
@@ -1086,7 +1098,7 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
       `${base}/api/upload/${uploadId}/complete`,
       {
         method: "POST",
-        headers: { "Content-Type": "application/json", ...authHeaders() },
+        headers: { "Content-Type": "application/json", ...authHeaders(ctx.bearer) },
         body: JSON.stringify({
           is_public: item.isPublic,
           title: item.title.trim(),
@@ -1159,7 +1171,7 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
     return { jobId }
   }
 
-  const uploadFile = (item: MediaItem): Promise<any> => {
+  const uploadFile = (item: MediaItem, ctx: UploadAuthContext): Promise<{ jobId: string }> => {
     updateItem(item.id, (current) => ({
       ...current,
       status: "uploading",
@@ -1169,56 +1181,7 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
       jobId: null,
     }))
 
-    if (uploadServerUrl && c_user) {
-      return uploadToGo(item)
-    }
-
-    return new Promise<any>((resolve, reject) => {
-      const uniqueID = GenerateUniqueID()
-      const formData = new FormData()
-      formData.append("file", item.file)
-      formData.append("name", item.file.name)
-      formData.append("uniqueID", uniqueID)
-      if (item.title.trim().length > 0) formData.append("title", item.title.trim())
-      if (item.description.trim().length > 0) formData.append("description", item.description.trim())
-      formData.append("isPublic", String(item.isPublic))
-      formData.append("commentsEnabled", String(item.commentsEnabled))
-      const fallbackThumb = item.customThumbnail ?? item.autoThumbnail
-      if (fallbackThumb) formData.append("customThumbnail", fallbackThumb)
-      if (item.categories.length > 0) formData.append("categories", JSON.stringify(item.categories))
-      if (item.tags.length > 0) formData.append("tags", JSON.stringify(item.tags))
-
-      const xhr = new XMLHttpRequest()
-      xhr.open("POST", "/api/upload", true)
-
-      xhr.upload.onprogress = (event) => {
-        if (!event.lengthComputable) return
-        const percent = Math.min(95, Math.max(10, Math.round((event.loaded / event.total) * 100)))
-        updateItem(item.id, (current) => ({
-          ...current,
-          progress: percent,
-          statusText: "Uploading...",
-        }))
-      }
-
-      xhr.onreadystatechange = () => {
-        if (xhr.readyState !== XMLHttpRequest.DONE) return
-        if (xhr.status >= 200 && xhr.status < 300) {
-          try {
-            const text = xhr.responseText || ""
-            const parsed = text ? JSON.parse(text) : null
-            resolve(parsed)
-          } catch {
-            resolve(null)
-          }
-        } else {
-          reject(new Error("Upload failed"))
-        }
-      }
-
-      xhr.onerror = () => reject(new Error("Upload failed"))
-      xhr.send(formData)
-    })
+    return uploadToGo(item, ctx)
   }
 
   const handleUpload = async () => {
@@ -1226,9 +1189,24 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
       setError("Select files to upload.")
       return
     }
+    if (!uploadServerUrl) {
+      setError("Upload server is not configured. Set UPLOAD_SERVER_URL and start GoUpload.")
+      return
+    }
     setError(null)
     setIsUploadingBatch(true)
     setItems((prev) => prev.map((item) => ({ ...item, isLocked: true })))
+
+    let uploadCtx: UploadAuthContext
+    try {
+      uploadCtx = await fetchUploadAuthContext()
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Upload server unavailable."
+      setError(msg)
+      setIsUploadingBatch(false)
+      setItems((prev) => prev.map((item) => ({ ...item, isLocked: false })))
+      return
+    }
 
     const snapshot = [...itemsRef.current]
     let successfulUploads = 0
@@ -1246,7 +1224,7 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
       }
 
       try {
-        await uploadFile(item)
+        await uploadFile(item, uploadCtx)
         updateItem(item.id, (current) => ({
           ...current,
           status: "success",
@@ -1475,10 +1453,10 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
   return (
     <>
     <Dialog open={isOpen} onOpenChange={handleClose}>
-      <DialogContent className="w-[min(100%,calc(100vw-1rem))] max-w-[520px] sm:max-w-xl md:max-w-3xl lg:max-w-6xl h-full rounded-3xl p-0 overflow-hidden max-h-[min(92dvh,900px)] flex flex-col gap-0 shadow-2xl border-border/60">
+      <DialogContent className="w-[min(100%,calc(100vw-1rem))] max-w-[520px] sm:max-w-xl md:max-w-3xl lg:max-w-6xl h-full rounded-3xl p-0 overflow-hidden max-h-[min(92dvh,900px)] max-sm:max-h-[calc(100dvh-env(safe-area-inset-top)-env(safe-area-inset-bottom))] flex flex-col gap-0 shadow-2xl border-border/60">
 
         <div
-          className="relative flex-1 overflow-y-auto overflow-x-hidden min-h-0"
+          className="relative flex min-h-0 flex-1 flex-col overflow-hidden"
           ref={dropRef}
           onDragEnter={handleDragIn}
           onDragLeave={handleDragOut}
@@ -1495,7 +1473,7 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
           )}
 
           <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleMediaDragEnd}>
-          <div className="flex min-h-0 h-full flex-col">
+          <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
             <div className="flex shrink-0 flex-col gap-2 border-b border-border/60 bg-background/80 backdrop-blur-xl px-4 py-3 sm:flex-row sm:items-center sm:justify-between supports-[backdrop-filter]:bg-background/70">
               <div className="flex items-center gap-2">
                 <p className="text-[15px] font-semibold tracking-tight text-foreground">Upload</p>
@@ -1520,8 +1498,15 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
             <div className="shrink-0 border-b border-border/60 bg-background/60 px-4 py-2.5">
               <StorageQuotaMeter variant="compact" refreshKey={uploadResultBanner} />
             </div>
-            <div className="grid min-h-0 flex-1 grid-cols-1 md:grid-cols-[minmax(0,220px)_minmax(0,1fr)] lg:grid-cols-[minmax(0,240px)_minmax(0,1fr)]">
-            <div className="flex min-h-0 flex-col border-b border-border/60 p-2.5 max-md:min-h-[min(42vh,320px)] md:h-full md:border-b-0 md:border-r">
+            <div className="grid min-h-0 flex-1 grid-cols-1 overflow-hidden md:grid-cols-[minmax(0,220px)_minmax(0,1fr)] lg:grid-cols-[minmax(0,240px)_minmax(0,1fr)]">
+            <div
+              className={cn(
+                "flex min-h-0 flex-col border-b border-border/60 p-2.5 md:h-full md:max-h-none md:border-b-0 md:border-r",
+                seriesOrganizerOpen
+                  ? "max-md:max-h-[min(22vh,160px)] max-md:shrink-0"
+                  : "max-md:max-h-[min(30vh,200px)] max-md:shrink-0"
+              )}
+            >
               <div className="mb-2 shrink-0 px-1">
                 <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/80">Library</span>
               </div>
@@ -1566,11 +1551,11 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
               </div>
             </div>
 
-            <div className="min-w-0 space-y-4 overflow-y-auto overflow-x-hidden p-4 sm:p-5 pb-6 sm:pb-5">
+            <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto overflow-x-hidden overscroll-contain p-4 sm:p-5 pb-6 sm:pb-5">
               {seriesOrganizerOpen ? (
                 videoCount > 0 ? (
-                  <div className="space-y-3 text-card-foreground">
-                    <div className="rounded-2xl border border-border/60 bg-gradient-to-b from-card to-muted/30 p-4 shadow-[0_1px_2px_rgba(0,0,0,0.03)]">
+                  <div className="flex min-h-0 flex-1 flex-col gap-3 text-card-foreground">
+                    <div className="shrink-0 rounded-2xl border border-border/60 bg-gradient-to-b from-card to-muted/30 p-4 shadow-[0_1px_2px_rgba(0,0,0,0.03)]">
                       <div className="flex items-start gap-3">
                         <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl bg-primary/10 text-primary">
                           <Layers className="h-4 w-4" />
@@ -1594,7 +1579,7 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
                         New series group
                       </Button>
                     </div>
-                    <div className="space-y-3 max-h-[min(56vh,420px)] overflow-y-auto overscroll-contain pr-0.5 -mr-0.5">
+                    <div className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain pr-0.5 -mr-0.5 pb-1 md:max-h-[min(56vh,420px)]">
                       {seriesLanes.map((lane) => {
                         const assignedVideos = items.filter(
                           (i) => i.assignedSeriesLaneId === lane.id && i.file.type.startsWith("video/")

@@ -1,3 +1,28 @@
+/**
+ * =============================================================================
+ * ⚠️  AI AGENTS / MAINTAINERS — READ BEFORE EDITING
+ * =============================================================================
+ *
+ * THIS FILE IS **LEGACY**. DO NOT re-enable browser uploads here and DO NOT
+ * wire new upload flows to POST /api/upload.
+ *
+ * **All user file uploads go through GoUpload** (`free_file/GoUpload`), NOT
+ * this Remix app. The app only:
+ *   - Proxies auth (`/api/upload/auth`)
+ *   - Checks users for GoUpload (`/api/upload-server-check`)
+ *   - Receives webhooks (`/api/upload-job-status`)
+ *
+ * Client upload UI lives in:
+ *   - `app/routes/Home/components/MediaSelectionModal.tsx`  → GoUpload chunked API
+ *   - `app/lib/uploadAuth.client.ts`                        → auth + health check
+ *
+ * This route is kept **intentionally** for possible future server-to-server use
+ * (VIDEO_TOKEN / server-to-server-token only). Browser requests get 403.
+ *
+ * To change upload behavior, edit **GoUpload** — not this file.
+ * =============================================================================
+ */
+
 import { VerifyToken } from '~/lib/Security/unsharedkeyEncryption/Combined/Verification/VerifyToken';
 import { uploadQueue } from './processFunctions/queue';
 import { getCookie } from '~/lib/Security/Token';
@@ -80,35 +105,19 @@ export const action = async ({ request }: { request: Request }) => {
   let quotaUploadId = '';
   try {
 
-    let serverToServer = await serverToServerUpload(request)
-    if(!serverToServer) {
-      let keys = ['token1', 'token2']
-      let token = getCookie('token', request.headers)
-      if(!token) return new Response(JSON.stringify({ 
-          error: 'Something went wrong! Please try again later.' 
-      }), { 
-          status: 500,
-          headers: { 'Content-Type': 'application/json' }
-      });
-
-      let decoded = await VerifyToken({
-          token: token,
-          addedKeyNames: keys || []
-      }, request.headers)
-      if(!decoded) return new Response(JSON.stringify({ 
-          error: `Your request is not authorized!` 
-      }), { 
-          status: 401,
-          headers: { 'Content-Type': 'application/json' }
-      });
-
-      let verified = await VerifyB4Uploading(request.headers)
-      if(!verified) return new Response(JSON.stringify({ 
-          error: `Your file upload request was denied!`
-      }), { 
-          status: 401,
-          headers: { 'Content-Type': 'application/json' }
-      });
+    const serverToServer = await serverToServerUpload(request)
+    // Browser uploads must go through GoUpload (chunked). This endpoint is
+    // server-to-server only (legacy worker / internal hooks). See file header.
+    if (!serverToServer) {
+      return new Response(
+        JSON.stringify({
+          error: 'Direct app uploads are disabled. Start the Go upload server and upload through it.',
+        }),
+        {
+          status: 403,
+          headers: { 'Content-Type': 'application/json' },
+        },
+      );
     }
 
     const formData = await request.formData();

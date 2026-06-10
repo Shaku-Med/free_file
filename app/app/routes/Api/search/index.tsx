@@ -60,7 +60,9 @@ function dedupeSeriesByMainFiles(seriesRoots: ReturnType<typeof mapSearchFile>[]
 export const loader = async ({ request }: { request: Request }) => {
   try {
     const url = new URL(request.url);
-    const query = url.searchParams.get('q')?.trim();
+    let query = url.searchParams.get('q')?.trim();
+    // Cap the term so an oversized string can't drive an expensive RPC/DB scan.
+    if (query && query.length > 200) query = query.slice(0, 200);
     if (!query) {
       return new Response(JSON.stringify({ data: [], seriesRoots: [], users: [], userActions: { likedFileIds: [], dislikedFileIds: [] }, nextCursor: null }), {
         headers: { 'Content-Type': 'application/json' }

@@ -14,6 +14,8 @@ const LAST_REFRESH_KEY = 'ff_personalization_last_refresh';
 
 export class PersonalizationService {
   private sessionLikedCategories: Set<string> = new Set();
+  /** Files already counted toward session watch interest (one boost per file). */
+  private sessionWatchedFiles: Set<string> = new Set();
 
   /**
    * Check if personalization data needs refreshing and do it if so.
@@ -56,7 +58,19 @@ export class PersonalizationService {
   }
 
   /**
-   * Get categories liked in this session, for passing to the feed API.
+   * Track categories from a video the user watched past 50%  same
+   * in-session steering as a like, but implicit. Deduped per file so
+   * looping a reel doesn't multiply the signal.
+   */
+  trackSessionWatch(fileId: string | null | undefined, categories: string[] | null | undefined): void {
+    if (!fileId || this.sessionWatchedFiles.has(fileId)) return;
+    this.sessionWatchedFiles.add(fileId);
+    this.trackSessionLike(categories);
+  }
+
+  /**
+   * Get categories engaged with in this session (likes + >50% watches),
+   * for passing to the feed API.
    */
   getSessionCategories(): string[] {
     return Array.from(this.sessionLikedCategories);
@@ -67,6 +81,7 @@ export class PersonalizationService {
    */
   clearSessionCategories(): void {
     this.sessionLikedCategories.clear();
+    this.sessionWatchedFiles.clear();
   }
 
   /**

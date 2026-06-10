@@ -1,6 +1,7 @@
 import { isAuthenticated } from '~/lib/Security/Password';
 import db from '~/lib/Database/supabase';
 import { isValidUUID } from '~/lib/Security/inputValidation';
+import { filterFilesByAccess } from '~/routes/Api/fun/accessControl';
 import { checkSavesGetRateLimit, checkSavesPostRateLimit } from '~/routes/Api/fun/personalizationRateLimit';
 
 const toJson = (body: unknown, status = 200) =>
@@ -37,7 +38,8 @@ export const loader = async ({ request }: { request: Request }) => {
           files:file_id (
             id, unique_id, file_title, file_description, file_type,
             default_thumbnail, view_count, share_count, is_reel, duration,
-            categories, tags, owner_id, endpoint, filename, created_at
+            categories, tags, owner_id, endpoint, filename, created_at,
+            is_public, is_adult, upload_status
           )
         `)
         .eq('user_id', user.id)
@@ -49,7 +51,18 @@ export const loader = async ({ request }: { request: Request }) => {
         return toJson({ error: 'Failed to list saved files' }, 500);
       }
 
-      return toJson({ data: data || [], total: data?.length || 0 });
+      // A file may have been made private/age-gated after it was saved. Drop any
+      // row the viewer can no longer access so we don't leak storage metadata
+      // (endpoint/filename/owner) for content they're no longer allowed to see.
+      const rows = Array.isArray(data) ? data : [];
+      const accessibleFiles = await filterFilesByAccess(
+        request,
+        rows.map((r: any) => r.files).filter(Boolean) as any[],
+      );
+      const accessibleIds = new Set(accessibleFiles.map((f: any) => f?.id).filter(Boolean));
+      const filtered = rows.filter((r: any) => r.files && accessibleIds.has(r.files.id));
+
+      return toJson({ data: filtered, total: filtered.length });
     }
 
     // Check single file

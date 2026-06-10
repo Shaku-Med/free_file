@@ -201,6 +201,8 @@ BEGIN
     WHERE f.is_public = true
       AND f.is_adult = false
       AND f.upload_status = 'complete'
+      -- Never surface the viewer's OWN uploads (matches get_feed / reel feed)
+      AND (p_user_id IS NULL OR f.owner_id IS DISTINCT FROM p_user_id)
       AND (f.is_series_main OR COALESCE(f.is_files_series_item, false) IS NOT TRUE)
       AND (p_category IS NULL OR f.categories @> to_jsonb(p_category)::jsonb)
       AND (p_reels_only = false OR f.is_reel = true)

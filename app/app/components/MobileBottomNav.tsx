@@ -105,6 +105,7 @@ function NavTab({ item, active }: { item: Item; active: boolean }) {
     <li className="flex flex-1">
       <Link
         to={item.href}
+        aria-current={active ? "page" : undefined}
         className={cn(
           "flex flex-1 flex-col items-center justify-center gap-0.5 text-[10px] font-medium transition-colors",
           active ? "text-primary" : "text-muted-foreground",

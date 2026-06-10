@@ -1,6 +1,7 @@
-import { useEffect, type RefObject } from 'react';
+import { useEffect, useRef, type RefObject } from 'react';
 import { usePlayerContext } from '../PlayerContext';
 import { signedFetch } from '~/lib/Security/requestSigning.client';
+import { personalizationService } from '~/lib/Services/PersonalizationService';
 
 /** Spaced heartbeats; server rate limit headroom is generous with one-time playback tokens. */
 const HEARTBEAT_MS = 15_000;
@@ -15,10 +16,15 @@ export function useWatchTimeHeartbeat(videoRef: RefObject<HTMLVideoElement | nul
   const { file, authPlaybackFeatures } = usePlayerContext();
   const fileId = file?.id ?? null;
 
+  /** Ref so the effect can read the latest file without re-running on identity changes. */
+  const fileRef = useRef(file);
+  fileRef.current = file;
+
   useEffect(() => {
     if (!fileId || !authPlaybackFeatures) return undefined;
 
     let accumulatedWatchingSeconds = 0;
+    let sessionWatchTracked = false;
     let lastSampleWallMs = performance.now();
     let playbackToken: string | null = null;
     let tokenFetchInFlight = false;
@@ -42,6 +48,17 @@ export function useWatchTimeHeartbeat(videoRef: RefObject<HTMLVideoElement | nul
       lastSampleWallMs = now;
       if (deltaSec > 0 && deltaSec < ACCUMULATE_MS / 1000 + 2) {
         accumulatedWatchingSeconds += deltaSec;
+      }
+
+      // Session watch boost: once the user has genuinely watched >50% of
+      // this file, steer the in-session feed toward its categories  same
+      // signal as an in-session like, but implicit. Fires at most once.
+      if (!sessionWatchTracked && Number.isFinite(v.duration) && v.duration > 0) {
+        if (accumulatedWatchingSeconds >= v.duration * 0.5) {
+          sessionWatchTracked = true;
+          const cats = fileRef.current?.categories;
+          personalizationService.trackSessionWatch(fileId, Array.isArray(cats) ? cats : null);
+        }
       }
     };
 

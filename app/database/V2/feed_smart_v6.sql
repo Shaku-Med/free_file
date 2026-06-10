@@ -317,6 +317,9 @@ BEGIN
     WHERE f.is_public = true
       AND f.is_adult = false
       AND f.upload_status = 'complete'
+      -- Never surface the viewer's OWN uploads in their feed (they live on
+      -- profile/studio). Mirrors the reel feed rule.
+      AND (p_user_id IS NULL OR f.owner_id IS DISTINCT FROM p_user_id)
       AND (f.is_series_main OR COALESCE(f.is_files_series_item, false) IS NOT TRUE)
       AND (p_category IS NULL OR f.categories @> to_jsonb(p_category)::jsonb)
       AND (p_reels_only = false OR f.is_reel = true)
@@ -468,8 +471,27 @@ BEGIN
           + c._session_boost * 0.05
           + (((hashtext(c.id::text || p_seed || c._pool) % 1000000)::float + 500000.0) / 1000000.0) * 0.60
           DESC
-      ) AS _final_pos
+      ) AS _pre_pos
     FROM combined c
+  ),
+
+  -- v6.1: Per-creator cap (mirrors get_related's max-2/creator rule).
+  -- Soft cap: a creator's items beyond the cap aren't dropped, they're
+  -- spread into later page groups so one prolific uploader can't flood a
+  -- single page. Subscribed creators get a slightly higher allowance.
+  creator_capped AS (
+    SELECT sh.*,
+      ROW_NUMBER() OVER (PARTITION BY sh.owner_id ORDER BY sh._pre_pos) AS _creator_rn
+    FROM shuffled sh
+  ),
+  positioned AS (
+    SELECT cc.*,
+      ROW_NUMBER() OVER (
+        ORDER BY
+          ((cc._creator_rn - 1) / (CASE WHEN cc._is_subscribed THEN 3 ELSE 2 END)) ASC,
+          cc._pre_pos ASC
+      ) AS _final_pos
+    FROM creator_capped cc
   ),
 
   _feed_page AS (
@@ -523,7 +545,7 @@ BEGIN
       s._user_disliked,
       s._user_saved,
       s._final_pos
-    FROM shuffled s
+    FROM positioned s
     JOIN users u ON u.id = s.owner_id
     WHERE s._final_pos > p_cursor_pos
     ORDER BY s._final_pos ASC

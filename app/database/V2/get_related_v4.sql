@@ -203,6 +203,8 @@ BEGIN
       AND f.is_public = true
       AND f.is_adult = false
       AND f.upload_status = 'complete'
+      -- Don't recommend the viewer their own uploads
+      AND (p_user_id IS NULL OR f.owner_id IS DISTINCT FROM p_user_id)
       AND (f.is_series_main OR COALESCE(f.is_files_series_item, false) IS NOT TRUE)
       AND (p_user_id IS NULL OR ud.file_id IS NULL)
       AND (p_exclude_ids = '{}'::uuid[] OR f.id != ALL(p_exclude_ids))

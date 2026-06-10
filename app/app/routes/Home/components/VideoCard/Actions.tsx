@@ -54,6 +54,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "~/components/ui/tooltip
 import CommentSection from "~/routes/Dynamic/components/Comments/CommentSection";
 import { useLocalPlaylist, normalizeLocalPlaylistFileId } from "~/lib/hooks/useLocalPlaylist";
 import { useFileContext } from "~/lib/Context/Context";
+import { personalizationService } from "~/lib/Services/PersonalizationService";
 
 export interface ActionsProps {
   fileId: string;
@@ -373,6 +374,11 @@ export default function Actions({
       }
       const norm = normalizeInteraction(json);
       if (ok && norm) {
+        // Steer the in-session feed toward what the user just liked.
+        const cats = (json as { categories?: unknown } | null)?.categories;
+        if (kind === "like" && norm.liked && Array.isArray(cats)) {
+          personalizationService.trackSessionLike(cats as string[]);
+        }
         onUpdate(norm);
         return;
       }

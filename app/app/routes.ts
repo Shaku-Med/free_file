@@ -23,6 +23,7 @@ export default [
         route(`reports`, 'routes/Api/reports/index.tsx'),
         route(`feed-preferences`, 'routes/Api/feed-preferences/index.tsx'),
         route(`upload`, 'routes/Api/upload/index.tsx'),
+        route(`upload/auth`, 'routes/Api/upload/auth/index.tsx'),
         route(`upload/quota`, 'routes/Api/upload/quota/index.tsx'),
         route(`upload/profilepic`, 'routes/Api/upload/profilepic/index.tsx'),
         route(`upload/comment-image`, 'routes/Api/upload/comment-image/index.tsx'),

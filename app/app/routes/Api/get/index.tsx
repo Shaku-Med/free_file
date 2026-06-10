@@ -94,7 +94,9 @@ export const loader = async ({ request }: { request: Request }) => {
             .select('id, filename, unique_id, up_count, down_count, views, view_count, shares, share_count, file_size, file_type, endpoint, created_at, is_adult, is_public, owner_id, default_thumbnail, file_title, category', { count: 'exact' });
 
         if (fileType) {
-            query = query.like('file_type', `${fileType}%`);
+            // Escape LIKE wildcards so `%`/`_` can't broaden the scan / enumerate.
+            const fileTypeSafe = fileType.replace(/[\\%_]/g, (c) => `\\${c}`);
+            query = query.like('file_type', `${fileTypeSafe}%`);
         }
 
         const { data: allFiles, error: queryError, count } = await query

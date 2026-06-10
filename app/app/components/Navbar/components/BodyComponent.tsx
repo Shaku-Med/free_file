@@ -8,6 +8,7 @@ import { isPipChromeRoute } from "~/routes/pip/pipEnv";
 import { isReelRoute } from "~/lib/reelRoute";
 import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
 import PersistentHomeView from "~/routes/Home/PersistentHomeView";
+import BackToTop from "~/components/BackToTop";
 
 export interface ScrollState {
   state: boolean;
@@ -20,6 +21,8 @@ interface BodyComponentProps {
 
 const staticRoutes = ["/", "/privacy", "/terms", "/dmca", "/community-guidelines", "/features", "/auth", "/api", '/search', '/playlist', '/profile', '/subscriptions'];
 const SCROLL_THRESHOLD = 300;
+/** Show the back-to-top control once the user is a couple of screens down. */
+const BACK_TO_TOP_THRESHOLD = 900;
 
 // Easing function  starts slow, accelerates, then eases into full opacity.
 // Makes the transition feel natural instead of linear.
@@ -38,6 +41,7 @@ const BodyComponent = ({ children }: BodyComponentProps) => {
     state: false,
     opacityLevel: 0,
   });
+  const [showBackToTop, setShowBackToTop] = useState(false);
 
   const handleScroll = useCallback(() => {
     const el = scrollContainerRef.current;
@@ -50,6 +54,14 @@ const BodyComponent = ({ children }: BodyComponentProps) => {
       if (prev.state === next && prev.opacityLevel === opacityLevel) return prev;
       return { state: next, opacityLevel };
     });
+    setShowBackToTop(prev => {
+      const next = y > BACK_TO_TOP_THRESHOLD;
+      return prev === next ? prev : next;
+    });
+  }, []);
+
+  const scrollToTop = useCallback(() => {
+    scrollContainerRef.current?.scrollTo({ top: 0, behavior: "smooth" });
   }, []);
 
   const isStaticRoute = useMemo(() =>
@@ -133,6 +145,7 @@ const BodyComponent = ({ children }: BodyComponentProps) => {
         </div>
         {!onReelRoute ? <Footer /> : null}
       </div>
+      {!onReelRoute ? <BackToTop visible={showBackToTop} onClick={scrollToTop} /> : null}
     </div>
   )
 }

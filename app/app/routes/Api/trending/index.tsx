@@ -1,6 +1,6 @@
 import { data } from 'react-router';
 import { trendingContentService } from '~/lib/Services/TrendingContentService';
-import { isAuthenticated } from '~/lib/Security/Password';
+import { verifyWebhookSecret } from '~/lib/Security/webhookAuth.server';
 
 const toJson = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), {
@@ -16,8 +16,11 @@ export const loader = async ({ request }: { request: Request }) => {
   try {
     const url = new URL(request.url);
     const timeWindow = url.searchParams.get('timeWindow') || '24h';
-    const limit = parseInt(url.searchParams.get('limit') || '20');
-    const offset = parseInt(url.searchParams.get('offset') || '0');
+    // Clamp pagination so a caller can't request a huge page (DB/CPU DoS).
+    const rawLimit = parseInt(url.searchParams.get('limit') || '20', 10);
+    const rawOffset = parseInt(url.searchParams.get('offset') || '0', 10);
+    const limit = Math.min(50, Math.max(1, Number.isFinite(rawLimit) ? rawLimit : 20));
+    const offset = Math.min(10_000, Math.max(0, Number.isFinite(rawOffset) ? rawOffset : 0));
     const minScore = url.searchParams.get('minScore') 
       ? parseFloat(url.searchParams.get('minScore')!) 
       : undefined;
@@ -42,7 +45,9 @@ export const loader = async ({ request }: { request: Request }) => {
 
 /**
  * POST /api/trending
- * Compute/refresh trending content (should be protected in production)
+ * Compute/refresh trending content. This is an expensive maintenance job
+ * (full recompute), so it's restricted to trusted server-to-server callers
+ * (cron / internal) via the shared webhook secret  not any signed-in user.
  */
 export const action = async ({ request }: { request: Request }) => {
   try {
@@ -50,9 +55,7 @@ export const action = async ({ request }: { request: Request }) => {
       return toJson({ error: 'Method not allowed' }, 405);
     }
 
-    // Auth check  only authenticated users can trigger trending refresh
-    const user = await isAuthenticated(request, ['id']);
-    if (!user?.id) {
+    if (!verifyWebhookSecret(request)) {
       return toJson({ error: 'Unauthorized' }, 401);
     }
 

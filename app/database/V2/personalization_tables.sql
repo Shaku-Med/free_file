@@ -188,6 +188,9 @@ ALTER TABLE user_interest_scores ENABLE ROW LEVEL SECURITY;
 
 -- Recompute interest scores for a user from all their interactions.
 -- Weights: watch_time(5x) + saves(4x) + comments(4x) + likes(3x) + shares(3x) - dislikes(2x)
+-- Each signal decays with age (half-life 30 days, floored at 0.15) so the
+-- profile tracks what the user is into NOW instead of what they binged a
+-- year ago. Old interests fade but never fully vanish.
 CREATE OR REPLACE FUNCTION recompute_user_interests(p_user_id uuid)
 RETURNS void
 LANGUAGE plpgsql
@@ -204,33 +207,33 @@ BEGIN
     p_user_id,
     cat.value,
     SUM(
-      COALESCE(signals.like_w, 0)
-      + COALESCE(signals.dislike_w, 0)
-      + COALESCE(signals.watch_w, 0)
-      + COALESCE(signals.save_w, 0)
-      + COALESCE(signals.comment_w, 0)
+      signals.weight
+      * GREATEST(
+          POWER(0.5, EXTRACT(EPOCH FROM (now() - signals.ts)) / (86400.0 * 30.0)),
+          0.15
+        )
     )::real AS score,
     COUNT(DISTINCT signals.file_id)::int AS interaction_count,
     now()
   FROM (
     -- Likes: weight 3
-    SELECT l.file_id, 3.0 AS like_w, 0.0 AS dislike_w, 0.0 AS watch_w, 0.0 AS save_w, 0.0 AS comment_w
+    SELECT l.file_id, 3.0 AS weight, l.created_at AS ts
     FROM likes l WHERE l.user_id = p_user_id
     UNION ALL
     -- Dislikes: weight -2
-    SELECT d.file_id, 0.0, -2.0, 0.0, 0.0, 0.0
+    SELECT d.file_id, -2.0, d.created_at
     FROM dislike d WHERE d.user_id = p_user_id
     UNION ALL
     -- Watch time: weight based on percentage (0-5)
-    SELECT wt.file_id, 0.0, 0.0, LEAST(wt.watch_percentage * 5.0, 5.0), 0.0, 0.0
+    SELECT wt.file_id, LEAST(wt.watch_percentage * 5.0, 5.0), wt.created_at
     FROM file_watch_time wt WHERE wt.user_id = p_user_id
     UNION ALL
     -- Saves: weight 4
-    SELECT sf.file_id, 0.0, 0.0, 0.0, 4.0, 0.0
+    SELECT sf.file_id, 4.0, sf.created_at
     FROM saved_files sf WHERE sf.user_id = p_user_id
     UNION ALL
     -- Comments: weight 4
-    SELECT c.file_id, 0.0, 0.0, 0.0, 0.0, 4.0
+    SELECT c.file_id, 4.0, c.created_at
     FROM comments c WHERE c.user_id = p_user_id AND c.is_deleted = false
   ) signals
   JOIN files f ON f.id = signals.file_id
@@ -239,11 +242,11 @@ BEGIN
     AND jsonb_typeof(f.categories) = 'array'
   GROUP BY cat.value
   HAVING SUM(
-    COALESCE(signals.like_w, 0)
-    + COALESCE(signals.dislike_w, 0)
-    + COALESCE(signals.watch_w, 0)
-    + COALESCE(signals.save_w, 0)
-    + COALESCE(signals.comment_w, 0)
+    signals.weight
+    * GREATEST(
+        POWER(0.5, EXTRACT(EPOCH FROM (now() - signals.ts)) / (86400.0 * 30.0)),
+        0.15
+      )
   ) > 0;
 END;
 $$;
@@ -271,6 +274,9 @@ CREATE INDEX IF NOT EXISTS idx_user_creator_affinity_user_score
 ALTER TABLE user_creator_affinity ENABLE ROW LEVEL SECURITY;
 
 -- Recompute creator affinity from all interactions.
+-- Same recency decay as recompute_user_interests (half-life 30 days,
+-- floored at 0.15): creators you engaged with recently rank above ones
+-- you binged months ago.
 CREATE OR REPLACE FUNCTION recompute_creator_affinity(p_user_id uuid)
 RETURNS void
 LANGUAGE plpgsql
@@ -286,7 +292,13 @@ BEGIN
   SELECT
     p_user_id,
     f.owner_id,
-    SUM(signals.weight)::real AS affinity_score,
+    SUM(
+      signals.weight
+      * GREATEST(
+          POWER(0.5, EXTRACT(EPOCH FROM (now() - signals.ts)) / (86400.0 * 30.0)),
+          0.15
+        )
+    )::real AS affinity_score,
     COUNT(DISTINCT signals.file_id)::int AS interaction_count,
     MAX(signals.ts) AS last_interaction
   FROM (
@@ -305,7 +317,13 @@ BEGIN
   JOIN files f ON f.id = signals.file_id
   WHERE f.owner_id != p_user_id  -- Don't track affinity to yourself
   GROUP BY f.owner_id
-  HAVING SUM(signals.weight) > 0;
+  HAVING SUM(
+    signals.weight
+    * GREATEST(
+        POWER(0.5, EXTRACT(EPOCH FROM (now() - signals.ts)) / (86400.0 * 30.0)),
+        0.15
+      )
+  ) > 0;
 END;
 $$;
 

@@ -56,6 +56,72 @@ func SetUserStorageBackend(ctx context.Context, baseURL, serviceKey, userID, bac
 	return nil
 }
 
+// FileOwnership carries the access-relevant fields for a file looked up by
+// unique_id. Found is false when no row matched.
+type FileOwnership struct {
+	OwnerID         string
+	CommentsEnabled bool
+	Found           bool
+}
+
+// FetchFileOwnership returns ownership/policy info for a unique_id so storage
+// handlers can enforce that a caller may only write into a file's folder when
+// they own it (thumbnails) or comments are enabled (comment images). This is
+// defense-in-depth: the app proxy already checks, but clients can reach the
+// upload server directly with a valid bearer token.
+//
+// Returns ok=false from the bool result only on a hard lookup error; a
+// successful query for a missing row returns (FileOwnership{Found:false}, nil).
+func FetchFileOwnership(ctx context.Context, baseURL, serviceKey, uniqueID string) (FileOwnership, error) {
+	if baseURL == "" || serviceKey == "" {
+		return FileOwnership{}, fmt.Errorf("supabase not configured")
+	}
+	uniqueID = strings.TrimSpace(uniqueID)
+	if uniqueID == "" || len(uniqueID) > 128 {
+		return FileOwnership{}, fmt.Errorf("invalid unique id")
+	}
+	base := strings.TrimRight(baseURL, "/")
+	reqURL := fmt.Sprintf("%s/rest/v1/files?unique_id=eq.%s&select=owner_id,comments_enabled&limit=1", base, url.QueryEscape(uniqueID))
+
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
+	if err != nil {
+		return FileOwnership{}, err
+	}
+	req.Header.Set("apikey", serviceKey)
+	req.Header.Set("Authorization", "Bearer "+serviceKey)
+	req.Header.Set("Accept", "application/json")
+
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return FileOwnership{}, err
+	}
+	defer res.Body.Close()
+	b, _ := io.ReadAll(io.LimitReader(res.Body, 8<<10))
+	if res.StatusCode < 200 || res.StatusCode >= 300 {
+		return FileOwnership{}, fmt.Errorf("supabase GET files ownership %d", res.StatusCode)
+	}
+	var rows []struct {
+		OwnerID         *string `json:"owner_id"`
+		CommentsEnabled *bool   `json:"comments_enabled"`
+	}
+	if err := json.Unmarshal(b, &rows); err != nil {
+		return FileOwnership{}, err
+	}
+	if len(rows) == 0 {
+		return FileOwnership{Found: false}, nil
+	}
+	out := FileOwnership{Found: true, CommentsEnabled: true}
+	if rows[0].OwnerID != nil {
+		out.OwnerID = strings.TrimSpace(*rows[0].OwnerID)
+	}
+	if rows[0].CommentsEnabled != nil {
+		out.CommentsEnabled = *rows[0].CommentsEnabled
+	}
+	return out, nil
+}
+
 // FetchFileStorageBackend returns files.storage_backend for a unique_id, or
 // "github" when not found / unset (safe default).
 func FetchFileStorageBackend(ctx context.Context, baseURL, serviceKey, uniqueID string) (string, error) {

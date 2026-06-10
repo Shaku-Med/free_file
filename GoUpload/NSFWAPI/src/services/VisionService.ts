@@ -36,6 +36,10 @@ export interface DetectionResult {
     medical: string;
   } | null;
   labels: Array<{ name: string; score: number }>;
+  /** VLM-picked categories from the canonical taxonomy (feed personalization keys on these) */
+  suggestedCategories: string[];
+  /** VLM-picked searchable keywords */
+  suggestedTags: string[];
 }
 
 const NSFW_ADULT = new Set(['LIKELY', 'VERY_LIKELY']);
@@ -85,8 +89,8 @@ export class VisionService {
     return this.apiKeys[Math.floor(Math.random() * this.apiKeys.length)];
   }
 
-  async detect(imageBase64: string): Promise<DetectionResult> {
-    console.log(`[VisionService] detect() called | base64 length: ${imageBase64.length}`);
+  async detect(imageBase64: string, isGrid = false): Promise<DetectionResult> {
+    console.log(`[VisionService] detect() called | base64 length: ${imageBase64.length} | isGrid: ${isGrid}`);
     const maxAttempts = Math.min(3, this.apiKeys.length);
     const tried = new Set<number>();
     let lastError: Error | null = null;
@@ -104,8 +108,12 @@ export class VisionService {
         // Caption pass runs in parallel-friendly order: vision first (cheap, blocks
         // NSFW gate), then VLM. If VLM fails we keep the label-based fallback.
         if (this.captioner.isEnabled()) {
-          const caption = await this.captioner.caption(imageBase64);
-          if (caption) result.description = caption;
+          const caption = await this.captioner.caption(imageBase64, isGrid);
+          if (caption) {
+            if (caption.description) result.description = caption.description;
+            result.suggestedCategories = caption.categories;
+            result.suggestedTags = caption.tags;
+          }
         }
         console.log(`[VisionService] SUCCESS on attempt ${attempt + 1}`);
         return result;
@@ -241,6 +249,8 @@ export class VisionService {
           }
         : null,
       labels,
+      suggestedCategories: [],
+      suggestedTags: [],
     };
   }
 }

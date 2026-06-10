@@ -23,9 +23,9 @@ app.use(
 let visionService: VisionService;
 
 app.post('/api/nsfw/detect', async (req, res) => {
-  const { image } = req.body || {};
+  const { image, isGrid } = req.body || {};
 
-  console.log(`[detect] >>> Incoming request | image present: ${!!image} | image type: ${typeof image} | image length: ${typeof image === 'string' ? image.length : 0} chars`);
+  console.log(`[detect] >>> Incoming request | image present: ${!!image} | image type: ${typeof image} | image length: ${typeof image === 'string' ? image.length : 0} chars | isGrid: ${isGrid === true}`);
 
   if (!image || typeof image !== 'string') {
     console.log('[detect] >>> REJECTED: missing or invalid image field');
@@ -36,7 +36,7 @@ app.post('/api/nsfw/detect', async (req, res) => {
   try {
     console.log(`[detect] >>> Calling Vision API with ${image.length} chars of base64...`);
     const startTime = Date.now();
-    const result = await visionService.detect(image);
+    const result = await visionService.detect(image, isGrid === true);
     const elapsed = Date.now() - startTime;
     console.log(`[detect] >>> Vision API responded in ${elapsed}ms`);
     console.log(`[detect] >>> isNSFW: ${result.isNSFW}`);
@@ -50,6 +50,8 @@ app.post('/api/nsfw/detect', async (req, res) => {
       isNSFW: false,
       safeSearch: null,
       labels: [],
+      suggestedCategories: [],
+      suggestedTags: [],
     });
   }
 });

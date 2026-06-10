@@ -171,7 +171,7 @@ export const loader = async ({request}: {request: Request}) => {
     const uploadServerUrl =
       (typeof process !== 'undefined' &&
         (process.env?.UPLOAD_SERVER_URL || process.env?.GO_UPLOAD_URL)?.replace(/\/$/, '')) ||
-      (typeof process !== 'undefined' && process.env?.NODE_ENV === 'development' ? 'http://localhost:3003' : '');
+      '';
 
     let userTheme: UserTheme | null = null;
     if (userId && db) {

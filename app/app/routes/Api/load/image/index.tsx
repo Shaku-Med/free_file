@@ -588,9 +588,10 @@ export const loader = async ({ request }: { request: Request }) => {
         const textParam = url.searchParams.get('text');
         const isMetadata = url.searchParams.get('is_metadata') === 'true';
         
-        // Handle text-to-image generation
+        // Handle text-to-image generation. Cap the length so a huge `text`
+        // param can't drive unbounded server-side canvas work (CPU/memory DoS).
         if (textParam) {
-          return createTextImage(textParam);
+          return createTextImage(textParam.slice(0, 200));
         }
         
         let splitUrl = normalizeGithubImagePath(

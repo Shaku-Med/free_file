@@ -1,6 +1,7 @@
 import db from '~/lib/Database/supabase';
 import { isValidFileId, isValidUUID } from '~/lib/Security/inputValidation';
 import { isAuthenticated } from '~/lib/Security/Password';
+import { canAccessFile } from '~/routes/Api/fun/accessControl';
 import { rateLimiter, RateLimiter } from '~/routes/Auth/fun/rateLimit';
 import crypto from 'node:crypto';
 
@@ -75,11 +76,18 @@ export const action = async ({ request }: { request: Request }) => {
     if (fileId && !isValidUUID(fileId)) return toJson({ error: 'Invalid fileId format' }, 400);
     if (uniqueId && !isValidFileId(uniqueId)) return toJson({ error: 'Invalid uniqueId format' }, 400);
 
-    let fileQuery = db.from('files').select('id, views, view_count, duration, file_type');
+    let fileQuery = db
+      .from('files')
+      .select('id, views, view_count, duration, file_type, is_adult, is_public, owner_id, upload_status');
     if (fileId) fileQuery = fileQuery.eq('id', fileId);
     else fileQuery = fileQuery.eq('unique_id', uniqueId);
     const { data: file, error: fileError } = await fileQuery.single();
     if (fileError || !file) return toJson({ error: 'File not found' }, 404);
+
+    // Gate on access so view counts can't be inflated on private / age-gated
+    // files by anyone who knows the id or unique_id.
+    const allowed = await canAccessFile(request, file as any);
+    if (!allowed) return toJson({ error: 'File not found' }, 404);
 
     const user = await isAuthenticated(request, ['id']);
 

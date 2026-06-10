@@ -482,8 +482,19 @@ const CommentSection = ({
       )}
 
       {error && (
-        <div className="bg-destructive/10 text-destructive shrink-0 rounded-lg p-3 text-sm">
-          {error}
+        <div className="bg-destructive/10 text-destructive shrink-0 rounded-lg p-3 text-sm flex items-center justify-between gap-3">
+          <span className="min-w-0">{error}</span>
+          <Button
+            variant="outline"
+            size="sm"
+            className="shrink-0"
+            onClick={() => {
+              setError(null);
+              void fetchComments();
+            }}
+          >
+            Try again
+          </Button>
         </div>
       )}
 
@@ -497,11 +508,22 @@ const CommentSection = ({
           {isLoading ? (
             <div
               className={cn(
-                "flex min-h-[200px] items-center justify-center py-8",
+                "min-h-[200px] space-y-5 px-0.5 py-4",
                 fillHeight && "min-h-0 flex-1"
               )}
+              aria-busy="true"
+              aria-label="Loading comments"
             >
-              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+              {Array.from({ length: 5 }).map((_, i) => (
+                <div key={`comment-skeleton-${i}`} className="flex gap-3">
+                  <div className="h-9 w-9 shrink-0 rounded-full bg-muted animate-pulse" />
+                  <div className="min-w-0 flex-1 space-y-2">
+                    <div className="h-3 w-28 rounded bg-muted animate-pulse" />
+                    <div className="h-3 w-full max-w-[80%] rounded bg-muted animate-pulse" />
+                    <div className="h-3 w-1/2 rounded bg-muted animate-pulse" />
+                  </div>
+                </div>
+              ))}
             </div>
           ) : hasThread ? (
             showComposer ? (

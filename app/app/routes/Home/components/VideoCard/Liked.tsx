@@ -2,6 +2,7 @@ import { useState, useCallback, useEffect } from "react";
 import Like from "./Icons/Like";
 import { useSidebar } from "~/components/ui/sidebar";
 import { buildLoginHref } from "~/lib/loginRedirect";
+import { personalizationService } from "~/lib/Services/PersonalizationService";
 
 interface LikedProps {
   fileId: string;
@@ -44,6 +45,10 @@ const Liked = ({ fileId, likeCount, liked, onUpdate }: LikedProps) => {
         if (data.success) {
           setDisplayLiked(data.liked);
           setDisplayCount(Number(data.like_count ?? 0));
+          // Steer the in-session feed toward what the user just liked.
+          if (data.liked && Array.isArray(data.categories)) {
+            personalizationService.trackSessionLike(data.categories);
+          }
           onUpdate?.({
             liked: data.liked,
             disliked: data.disliked,

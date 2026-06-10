@@ -252,8 +252,25 @@ BEGIN
         ORDER BY
           (CASE WHEN c._is_seen THEN 1 ELSE 0 END) ASC,
           (((hashtext(c.id::text || p_seed || c._pool) % 1000000)::float + 500000.0) / 1000000.0) DESC
-      ) AS _final_pos
+      ) AS _pre_pos
     FROM combined c
+  ),
+  -- Per-creator cap (mirrors get_related's max-2/creator rule). Soft cap:
+  -- a creator's 3rd+ items aren't dropped, they're spread into later page
+  -- groups so one prolific uploader can't flood a single page.
+  creator_capped AS (
+    SELECT sh.*,
+      ROW_NUMBER() OVER (PARTITION BY sh.owner_id ORDER BY sh._pre_pos) AS _creator_rn
+    FROM shuffled sh
+  ),
+  positioned AS (
+    SELECT cc.*,
+      ROW_NUMBER() OVER (
+        ORDER BY
+          ((cc._creator_rn - 1) / 2) ASC,  -- creator items 1-2 in group 0, 3-4 in group 1, ...
+          cc._pre_pos ASC
+      ) AS _final_pos
+    FROM creator_capped cc
   )
   SELECT
     s.id,
@@ -290,7 +307,7 @@ BEGIN
     u.about,
     s._user_liked,
     s._user_disliked
-  FROM shuffled s
+  FROM positioned s
   JOIN users u ON u.id = s.owner_id
   WHERE s._final_pos > p_cursor_pos
   ORDER BY s._final_pos ASC

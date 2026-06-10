@@ -236,6 +236,26 @@ func (h *Handler) uploadDefaultThumbnail(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "thumbnail cannot be changed for image files"})
 	}
 
+	// IDOR guard: only the file's owner may overwrite its default thumbnail.
+	// The app proxy checks this, but a caller with a valid bearer can hit the
+	// upload server directly, so we re-verify ownership here. When Supabase
+	// isn't configured (local dev) we skip the check to keep dev working.
+	if h.supabaseURL != "" && h.supabaseKey != "" {
+		ownCtx, ownCancel := context.WithTimeout(context.Background(), 10*time.Second)
+		own, oerr := supabase.FetchFileOwnership(ownCtx, h.supabaseURL, h.supabaseKey, uniqueId)
+		ownCancel()
+		if oerr != nil {
+			h.log.Errorf("thumbnail ownership lookup: %v", oerr)
+			return c.Status(fiber.StatusBadGateway).JSON(fiber.Map{"error": "ownership check failed"})
+		}
+		if !own.Found {
+			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "file not found"})
+		}
+		if own.OwnerID == "" || own.OwnerID != uid {
+			return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"error": "forbidden"})
+		}
+	}
+
 	isAdultStr := c.FormValue("is_adult")
 	isAdult := isAdultStr == "true" || isAdultStr == "1"
 
@@ -263,9 +283,14 @@ func (h *Handler) uploadDefaultThumbnail(c *fiber.Ctx) error {
 	}
 	defer f.Close()
 
-	data, err := io.ReadAll(f)
+	// Bound the actual read; the multipart header size is client-supplied.
+	const maxThumbBytes = 10 << 20
+	data, err := io.ReadAll(io.LimitReader(f, maxThumbBytes+1))
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "failed to read file"})
+	}
+	if len(data) > maxThumbBytes {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "file exceeds 10MB limit"})
 	}
 
 	result, err := h.nsfw.Detect(data)

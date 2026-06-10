@@ -11,6 +11,8 @@ import {
 import DownloadButton from "~/routes/Dynamic/components/DownloadButton";
 import { ShareModal } from "~/components/ShareModal";
 import { BASE_URL } from "~/lib/URLS";
+import { toast } from "~/components/ui/sonner";
+import { personalizationService } from "~/lib/Services/PersonalizationService";
 
 function formatCompact(n: number): string {
   if (n >= 1e6) return (n / 1e6).toFixed(1).replace(/\.0$/, "") + "M";
@@ -66,17 +68,23 @@ const UserAction = ({ upCount = 0, downCount = 0, fileId, initialLiked = false, 
         setDisliked(result.disliked);
         setDisplayUpCount(result.like_count ?? 0);
         setDisplayDownCount(result.dislike_count ?? 0);
+        // Steer the in-session feed toward what the user just liked.
+        if (result.liked && Array.isArray(result.categories)) {
+          personalizationService.trackSessionLike(result.categories);
+        }
       } else {
         setLiked(wasLiked);
         setDisliked(wasDisliked);
         setDisplayUpCount(upCount);
         setDisplayDownCount(downCount);
+        toast.error("Couldn't update your like. Try again.");
       }
     } catch {
       setLiked(wasLiked);
       setDisliked(wasDisliked);
       setDisplayUpCount(upCount);
       setDisplayDownCount(downCount);
+      toast.error("Couldn't update your like. Try again.");
     } finally {
       setIsLoading(false);
     }
@@ -108,12 +116,14 @@ const UserAction = ({ upCount = 0, downCount = 0, fileId, initialLiked = false, 
         setDisliked(wasDisliked);
         setDisplayUpCount(upCount);
         setDisplayDownCount(downCount);
+        toast.error("Couldn't update your reaction. Try again.");
       }
     } catch {
       setLiked(wasLiked);
       setDisliked(wasDisliked);
       setDisplayUpCount(upCount);
       setDisplayDownCount(downCount);
+      toast.error("Couldn't update your reaction. Try again.");
     } finally {
       setIsLoading(false);
     }
@@ -132,6 +142,8 @@ const UserAction = ({ upCount = 0, downCount = 0, fileId, initialLiked = false, 
           type="button"
           onClick={handleLike}
           disabled={isLoading || !targetFileId}
+          aria-label={liked ? 'Remove like' : 'Like'}
+          aria-pressed={liked}
           className={`flex flex-col items-center gap-1 rounded-full p-1.5 transition ${
             liked ? 'text-primary' : 'text-white/90 hover:text-white'
           }`}
@@ -148,6 +160,8 @@ const UserAction = ({ upCount = 0, downCount = 0, fileId, initialLiked = false, 
           type="button"
           onClick={handleDislike}
           disabled={isLoading || !targetFileId}
+          aria-label={disliked ? 'Remove dislike' : 'Dislike'}
+          aria-pressed={disliked}
           className={`flex flex-col items-center gap-1 rounded-full p-1.5 transition ${
             disliked ? 'text-destructive' : 'text-white/90 hover:text-white'
           }`}
@@ -163,6 +177,7 @@ const UserAction = ({ upCount = 0, downCount = 0, fileId, initialLiked = false, 
         <button
           type="button"
           onClick={handleShare}
+          aria-label="Share"
           className="flex flex-col items-center gap-1 text-white/90 hover:text-white"
         >
           <div className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-black/60 shadow-md backdrop-blur-md sm:h-11 sm:w-11">

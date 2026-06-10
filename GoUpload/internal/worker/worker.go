@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -19,10 +20,17 @@ import (
 	"goupload/lib/nsfw"
 	"goupload/lib/queue"
 	"goupload/lib/r2"
+	"goupload/lib/security"
 	"goupload/lib/webhook"
 
 	"github.com/google/go-github/v62/github"
 )
+
+// workerUserIDPattern mirrors the HTTP ingress check (middleware.userIDPattern).
+// Jobs are read back from Redis; if an attacker can write to the queue, these
+// fields would otherwise flow straight into filesystem paths. We re-validate
+// before any disk operation as defense-in-depth.
+var workerUserIDPattern = regexp.MustCompile(`^[a-zA-Z0-9_-]{1,64}$`)
 
 type Config struct {
 	ChunksDir     string
@@ -315,6 +323,23 @@ func (w *Worker) processJob(job *queue.Job) {
 	_ = w.queue.SetJobStatus(context.Background(), job.ID, "running")
 	w.notifyRunningProgress(job, 10)
 	w.log.Infof("processing job=%s user=%s upload=%s file=%s", job.ID, job.UserID, job.UploadID, job.FileName)
+
+	// Re-validate identifiers before they reach the filesystem. The HTTP ingress
+	// already checks these, but jobs are read from Redis  if the queue is ever
+	// writable by an attacker, an unvalidated FileName/UserID/UploadID with
+	// "../" could let assembler.Assemble write outside the upload root.
+	if !workerUserIDPattern.MatchString(job.UserID) || !upload.ValidUploadID(job.UploadID) {
+		w.log.Errorf("rejecting job=%s: malformed user/upload id", job.ID)
+		_ = w.queue.SetJobStatus(context.Background(), job.ID, "failed")
+		webhook.NotifyJobStatus(webhook.Payload{JobID: job.ID, Status: "failed", UploadID: job.UploadID, UserID: job.UserID, FileName: job.FileName, FileSize: job.FileSize})
+		return
+	}
+	if _, err := security.SafeUploadFilename(job.FileName); err != nil {
+		w.log.Errorf("rejecting job=%s: invalid filename: %v", job.ID, err)
+		_ = w.queue.SetJobStatus(context.Background(), job.ID, "failed")
+		webhook.NotifyJobStatus(webhook.Payload{JobID: job.ID, Status: "failed", UploadID: job.UploadID, UserID: job.UserID, FileName: job.FileName, FileSize: job.FileSize})
+		return
+	}
 
 	// Storage backend for THIS upload. github_repo is only meaningful for the
 	// GitHub backend; R2 rows carry the bucket instead.
@@ -628,16 +653,26 @@ func (w *Worker) processJob(job *queue.Job) {
 			subset = append(subset, thumbResult.Thumbnails[count/2].Data)
 			subset = append(subset, thumbResult.Thumbnails[count-1].Data)
 		}
-		w.log.Infof("vision sampling %d of %d thumbnails job=%s", len(subset), count, job.ID)
+		// The preview grid holds EVERY sampled frame in one image, so the vision
+		// pass covers the whole video, not just the 3 full-size frames above.
+		var gridData []byte
+		if previewPath != "" {
+			if data, gerr := os.ReadFile(previewPath); gerr == nil && len(data) > 0 && len(data) <= maxVisionGridBytes {
+				gridData = data
+			} else if gerr != nil {
+				w.log.Errorf("read preview grid for vision failed job=%s err=%s (continuing with frames only)", job.ID, gerr.Error())
+			}
+		}
+		w.log.Infof("vision sampling %d of %d thumbnails (grid=%v) job=%s", len(subset), count, len(gridData) > 0, job.ID)
 
 		var visionResult *nsfw.Result
-		isAdult, visionResult, err = w.nsfw.DetectBatch(subset)
+		isAdult, visionResult, err = w.nsfw.DetectBatchWithGrid(gridData, subset)
 		if err != nil {
 			assembledDir := filepath.Dir(result.OutputPath)
 			w.failJob(job, "vision detection failed: "+err.Error(), result.OutputPath, assembledDir, filepath.Dir(assembledDir), thumbDir, filepath.Dir(thumbDir))
 			return
 		}
-		w.log.Infof("vision check job=%s adult=%v (checked %d frames)", job.ID, isAdult, len(subset))
+		w.log.Infof("vision check job=%s adult=%v (checked %d frames + grid=%v)", job.ID, isAdult, len(subset), len(gridData) > 0)
 		if visionResult != nil {
 			categories, tags, metadata = buildVisionData(visionResult, job.Title, job.Description, job.UserCategories, job.UserTags)
 		}
@@ -968,6 +1003,10 @@ func validateImageFile(path string) bool {
 	return false
 }
 
+// maxVisionGridBytes caps the preview grid sent to the vision API; the API's
+// JSON body limit must hold the ~1.33x base64 inflation.
+const maxVisionGridBytes = 6 * 1024 * 1024
+
 var categoryKeywords = map[string][]string{
 	"Gaming":        {"game", "gaming", "gameplay", "playthrough", "walkthrough", "fortnite", "minecraft", "valorant", "roblox", "gta", "cod", "apex", "league", "overwatch", "fps", "rpg", "mmorpg", "esports", "speedrun", "stream", "twitch"},
 	"Music":         {"music", "song", "beat", "remix", "cover", "acoustic", "instrumental", "rap", "hiphop", "hip-hop", "r&b", "pop", "rock", "edm", "lofi", "lo-fi", "playlist", "album", "lyric", "vocals", "dj", "producer"},
@@ -982,6 +1021,23 @@ var categoryKeywords = map[string][]string{
 	"Automotive":    {"car", "cars", "drift", "racing", "engine", "turbo", "exhaust", "jdm", "supercar", "hypercar", "motorcycle", "bike", "mod", "wrap"},
 	"Art":           {"art", "drawing", "painting", "sketch", "digital art", "illustration", "timelapse", "creative", "design", "animation", "3d", "blender"},
 	"Nature":        {"nature", "animal", "wildlife", "ocean", "mountain", "forest", "sunset", "landscape", "garden", "pet", "dog", "cat"},
+}
+
+// canonicalCategory maps a free-form category string to the canonical
+// taxonomy (the keys of categoryKeywords). Clean, stable category names are
+// what user_interest_scores keys on  random Vision labels like "Sky" or
+// "Smile" used to leak in here and fragment the feed personalization.
+func canonicalCategory(s string) (string, bool) {
+	needle := strings.ToLower(strings.TrimSpace(s))
+	if needle == "" {
+		return "", false
+	}
+	for category := range categoryKeywords {
+		if strings.ToLower(category) == needle {
+			return category, true
+		}
+	}
+	return "", false
 }
 
 func buildVisionData(vr *nsfw.Result, title, description string, userCategories, userTags []string) (categories []string, tags []string, metadata map[string]interface{}) {
@@ -1017,6 +1073,24 @@ func buildVisionData(vr *nsfw.Result, title, description string, userCategories,
 		}
 	}
 
+	// VLM-suggested categories: only accept canonical taxonomy names so the
+	// feed's interest profiles stay on a small, consistent category set.
+	hadCanonicalCategory := false
+	for _, sc := range vr.SuggestedCategories {
+		if canon, ok := canonicalCategory(sc); ok && !seen[canon] {
+			categories = append(categories, canon)
+			seen[canon] = true
+			hadCanonicalCategory = true
+		}
+	}
+	for _, st := range vr.SuggestedTags {
+		st = strings.TrimSpace(st)
+		if st != "" && !seen[st] {
+			tags = append(tags, st)
+			seen[st] = true
+		}
+	}
+
 	var labelNames []string
 	if len(vr.Labels) > 0 {
 		var rawLabels []map[string]interface{}
@@ -1026,10 +1100,6 @@ func buildVisionData(vr *nsfw.Result, title, description string, userCategories,
 				"score": l.Score,
 			})
 			labelNames = append(labelNames, strings.ToLower(l.Name))
-			if l.Score >= 0.80 && !seen[l.Name] {
-				categories = append(categories, l.Name)
-				seen[l.Name] = true
-			}
 			if l.Score >= 0.50 && !seen[l.Name] {
 				tags = append(tags, l.Name)
 				seen[l.Name] = true
@@ -1049,8 +1119,25 @@ func buildVisionData(vr *nsfw.Result, title, description string, userCategories,
 				if !seen[category] {
 					categories = append(categories, category)
 					seen[category] = true
+					hadCanonicalCategory = true
 				}
 				break
+			}
+		}
+	}
+
+	// Fallback: no canonical category from VLM, keywords, or the uploader
+	// promote the strongest vision labels so the file isn't category-less.
+	if !hadCanonicalCategory && len(categories) == 0 {
+		promoted := 0
+		for _, l := range vr.Labels {
+			if l.Score >= 0.85 && !seen[l.Name] {
+				categories = append(categories, l.Name)
+				seen[l.Name] = true
+				promoted++
+				if promoted >= 3 {
+					break
+				}
 			}
 		}
 	}
@@ -1060,6 +1147,12 @@ func buildVisionData(vr *nsfw.Result, title, description string, userCategories,
 			"title":             title,
 			"description":       description,
 			"matchedCategories": matchedCategories,
+		}
+	}
+	if len(vr.SuggestedCategories) > 0 || len(vr.SuggestedTags) > 0 {
+		metadata["visionSuggested"] = map[string]interface{}{
+			"categories": vr.SuggestedCategories,
+			"tags":       vr.SuggestedTags,
 		}
 	}
 

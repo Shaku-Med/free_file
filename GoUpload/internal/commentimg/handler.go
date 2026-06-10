@@ -131,9 +131,13 @@ func (h *Handler) upload(c *fiber.Ctx) error {
 	}
 	defer f.Close()
 
-	data, err := io.ReadAll(f)
+	// Bound the actual read; the multipart header size is client-supplied.
+	data, err := io.ReadAll(io.LimitReader(f, maxFileSize+1))
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "failed to read file"})
+	}
+	if int64(len(data)) > maxFileSize {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "file exceeds 10MB limit"})
 	}
 
 	var toScan [][]byte
@@ -195,6 +199,25 @@ func (h *Handler) upload(c *fiber.Ctx) error {
 	isVideoFolder := dateFolder != "" && uniqueID != "" &&
 		reDateFolder.MatchString(dateFolder) && isSafeUniqueIDSegment(uniqueID)
 	if isVideoFolder {
+		// Policy guard: writing into a video's comments/ folder is only allowed
+		// when that file exists and has comments enabled. The app proxy enforces
+		// this, but a bearer-authenticated client can call the upload server
+		// directly, so re-check here. Skipped when Supabase isn't configured (dev).
+		if h.supabaseURL != "" && h.supabaseKey != "" {
+			polCtx, polCancel := context.WithTimeout(context.Background(), 10*time.Second)
+			own, oerr := supabase.FetchFileOwnership(polCtx, h.supabaseURL, h.supabaseKey, uniqueID)
+			polCancel()
+			if oerr != nil {
+				h.log.Errorf("comment-image policy lookup: %v", oerr)
+				return c.Status(fiber.StatusBadGateway).JSON(fiber.Map{"error": "policy check failed"})
+			}
+			if !own.Found {
+				return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "file not found"})
+			}
+			if !own.CommentsEnabled {
+				return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"error": "comments are disabled for this file"})
+			}
+		}
 		ghPath = fmt.Sprintf("%s/%s/comments/%s%s", dateFolder, uniqueID, imageID, ext)
 	} else {
 		ghPath = fmt.Sprintf("comment-images/%s/%s%s", uid, imageID, ext)

@@ -29,11 +29,15 @@ export const loader = async ({ request }: { request: Request }) => {
     if (q.length < MIN_QUERY_LENGTH) {
       return new Response(null, { status: 200 });
     }
+    // Usernames are <=30 chars; cap the term so a huge string can't drive an
+    // expensive scan, then escape LIKE wildcards so a user can't inject `%`/`_`
+    // to widen the match (enumeration) or force costly pattern scans.
+    const term = q.slice(0, 64).replace(/[\\%_]/g, (c) => `\\${c}`);
 
     const { data, error } = await db
       .from("users")
       .select("id, username, profile_pic")
-      .ilike("username", `${q}%`)
+      .ilike("username", `${term}%`)
       .eq("is_memories", false)
       .limit(limit);
 

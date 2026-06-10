@@ -447,6 +447,7 @@ const SettingsPage = () => {
                 type="button"
                 role="switch"
                 aria-checked={showNsfw}
+                aria-label={showNsfw ? "Hide NSFW content" : "Show NSFW content"}
                 onClick={() => setShowNsfw((prev) => !prev)}
                 disabled={isLoading || isSaving}
                 className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full border border-input transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 ${

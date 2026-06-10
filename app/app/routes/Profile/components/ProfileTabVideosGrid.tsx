@@ -2,6 +2,7 @@ import { useState, useCallback, useRef, useEffect } from "react";
 import type { FileType } from "~/lib/types";
 import VideoCard from "~/routes/Home/components/VideoCard";
 import { SignInToSeeMore } from "~/components/SignInWall";
+import { Button } from "~/components/ui/button";
 import { groupConsecutiveReelClusters } from "~/lib/feed/groupConsecutiveReelClusters";
 import { Swiper, SwiperSlide } from "swiper/react";
 import { Navigation, A11y, Keyboard } from "swiper/modules";
@@ -46,6 +47,8 @@ const ProfileTabVideosGrid = ({
 }: ProfileTabVideosGridProps) => {
   const [files, setFiles] = useState<FileType[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
+  const [reloadNonce, setReloadNonce] = useState(0);
   const [hasMore, setHasMore] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const [userActions, setUserActions] = useState<
@@ -70,6 +73,7 @@ const ProfileTabVideosGrid = ({
     setHasMore(false);
     setUserActions(undefined);
     setIsLoading(true);
+    setLoadError(false);
     loadingRef.current = false;
 
     let cancelled = false;
@@ -79,8 +83,10 @@ const ProfileTabVideosGrid = ({
           `/api/profile-tab?userId=${encodeURIComponent(userId)}&tab=${tab}&page=1&limit=20`,
           { credentials: "include" }
         );
-        if (!response.ok || cancelled) {
-          if (!cancelled) setHasMore(false);
+        if (cancelled) return;
+        if (!response.ok) {
+          setHasMore(false);
+          setLoadError(true);
           return;
         }
         const result = await response.json();
@@ -94,7 +100,10 @@ const ProfileTabVideosGrid = ({
         mergeUserActions(likedFromPage, dislikedFromPage);
       } catch (e) {
         console.error("ProfileTabVideosGrid initial load:", e);
-        if (!cancelled) setHasMore(false);
+        if (!cancelled) {
+          setHasMore(false);
+          setLoadError(true);
+        }
       } finally {
         if (!cancelled) setIsLoading(false);
       }
@@ -103,7 +112,7 @@ const ProfileTabVideosGrid = ({
     return () => {
       cancelled = true;
     };
-  }, [userId, tab, mergeUserActions]);
+  }, [userId, tab, mergeUserActions, reloadNonce]);
 
   const loadMore = useCallback(async () => {
     if (loadingRef.current || !hasMore) return;
@@ -177,7 +186,16 @@ const ProfileTabVideosGrid = ({
     return (
       <div className="space-y-6" data-data-ready={dataReady}>
         <div className="text-center py-12">
-          <p className="text-muted-foreground text-lg">{emptyMessage}</p>
+          {loadError ? (
+            <>
+              <p className="text-muted-foreground text-lg mb-4">Couldn't load these.</p>
+              <Button variant="outline" size="sm" onClick={() => setReloadNonce((n) => n + 1)}>
+                Try again
+              </Button>
+            </>
+          ) : (
+            <p className="text-muted-foreground text-lg">{emptyMessage}</p>
+          )}
         </div>
       </div>
     );

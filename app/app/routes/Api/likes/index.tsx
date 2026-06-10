@@ -39,8 +39,12 @@ export const action = async ({ request }: { request: Request }) => {
     }
     const row = Array.isArray(data) ? data[0] : data;
     const liked = row?.liked ?? false;
+    let likedCategories: string[] = [];
     if (liked && db) {
-      const { data: fileRow } = await db.from('files').select('owner_id').eq('id', fileId).maybeSingle();
+      const { data: fileRow } = await db.from('files').select('owner_id, categories').eq('id', fileId).maybeSingle();
+      if (Array.isArray(fileRow?.categories)) {
+        likedCategories = fileRow.categories.filter((c: unknown): c is string => typeof c === 'string');
+      }
       if (fileRow?.owner_id) {
         await createNotification({
           userId: fileRow.owner_id,
@@ -56,7 +60,10 @@ export const action = async ({ request }: { request: Request }) => {
       liked,
       disliked: row?.disliked ?? false,
       like_count: Number(row?.like_count) ?? 0,
-      dislike_count: Number(row?.dislike_count) ?? 0
+      dislike_count: Number(row?.dislike_count) ?? 0,
+      // Categories of the liked file so the client can steer the
+      // in-session feed (session_cats) without an extra fetch.
+      categories: likedCategories
     });
   } catch (error) {
     console.error('Like action error:', error);

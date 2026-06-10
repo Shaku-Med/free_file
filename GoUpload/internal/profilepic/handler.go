@@ -135,9 +135,14 @@ func (h *Handler) upload(c *fiber.Ctx) error {
 	}
 	defer f.Close()
 
-	data, err := io.ReadAll(f)
+	// Don't trust the multipart header size: bound the actual read so a client
+	// can't claim a small size and stream up to the global BodyLimit.
+	data, err := io.ReadAll(io.LimitReader(f, maxFileSize+1))
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"success": false})
+	}
+	if int64(len(data)) > maxFileSize {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"success": false})
 	}
 
 	cfg, _, err := image.DecodeConfig(bytes.NewReader(data))

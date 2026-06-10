@@ -113,6 +113,28 @@ export const action = async ({ request }: { request: Request }) => {
         return toJson({ error: "Comment must have text, a GIF, or an image" }, 400);
       }
 
+      // image.url is client-supplied. The comment-image upload flow only ever
+      // produces one of two storage-key shapes (see GoUpload commentimg handler;
+      // date folders are DD_MM_YYYY per arrangeDateForThumbnail):
+      //   comment-images/<uid>/<imageId>.<ext>
+      //   <dd_mm_yyyy>/<uniqueId>/comments/<imageId>.<ext>
+      // Reject anything else so an attacker can't store an absolute URL,
+      // a javascript: payload, a traversal path, or someone else's private
+      // storage key that /api/load/image would then proxy.
+      if (hasImage) {
+        const u = image!.url.trim();
+        const COMMENT_IMAGE_KEY =
+          /^(comment-images\/[A-Za-z0-9_-]+\/[A-Za-z0-9_-]+\.[A-Za-z0-9]+|\d{2}_\d{2}_\d{4}\/[A-Za-z0-9_-]+\/comments\/[A-Za-z0-9_-]+\.[A-Za-z0-9]+)$/;
+        if (
+          u.length > 300 ||
+          u.includes('..') ||
+          u.includes('\\') ||
+          !COMMENT_IMAGE_KEY.test(u)
+        ) {
+          return toJson({ error: "Invalid image reference" }, 400);
+        }
+      }
+
       const sanitizedContent = hasText ? sanitizeCommentContent(content!) : '';
       if (hasText && (!sanitizedContent || sanitizedContent.length < 1)) {
         return toJson({ error: "Comment content is too short or invalid" }, 400);

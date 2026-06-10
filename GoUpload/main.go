@@ -253,6 +253,13 @@ func main() {
 		R2:           r2Client,
 	})
 
+	// Liveness/readiness probe. Public, no auth: Docker/compose healthchecks and
+	// load balancers hit GET /health. Without this the catch-all 404s the probe
+	// and the container is reported unhealthy.
+	app.Get("/health", func(c *fiber.Ctx) error {
+		return c.JSON(fiber.Map{"status": "ok"})
+	})
+
 	if env.IsDev() {
 		testpage.RegisterRoutes(app)
 	}

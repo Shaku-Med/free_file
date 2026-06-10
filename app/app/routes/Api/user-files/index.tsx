@@ -3,6 +3,7 @@ import { isAuthenticated } from "~/lib/Security/Password";
 import db from "~/lib/Database/supabase";
 import type { FileType } from "~/lib/types";
 import { normalizeRpcFileRow } from "~/lib/profile/normalizeRpcFileRow";
+import { isValidUUID } from "~/lib/Security/inputValidation";
 export const loader = async ({ request }: { request: Request }) => {
   try {
     const url = new URL(request.url);
@@ -10,8 +11,8 @@ export const loader = async ({ request }: { request: Request }) => {
     const page = parseInt(url.searchParams.get("page") || "1");
     const limit = parseInt(url.searchParams.get("limit") || "20");
 
-    if (!userId) {
-      return data({ error: "User ID is required" }, { status: 400 });
+    if (!userId || !isValidUUID(userId)) {
+      return data({ error: "Valid user ID is required" }, { status: 400 });
     }
 
     if (page < 1 || limit < 1 || limit > 100) {

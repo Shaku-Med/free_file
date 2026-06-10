@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router";
 import { useFileContext } from "~/lib/Context/Context";
 import { Button } from "~/components/ui/button";
@@ -82,31 +82,33 @@ export default function NotificationsPage() {
   const navigate = useNavigate();
   const [list, setList] = useState<NotificationRow[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [markingAll, setMarkingAll] = useState(false);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setLoadError(false);
+    try {
+      const res = await fetch("/api/notifications?limit=50&offset=0", {
+        credentials: "include",
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      setList(Array.isArray(data?.data) ? data.data : []);
+    } catch {
+      setLoadError(true);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
     if (!userId) {
       navigate("/auth/login");
       return;
     }
-
-    const load = async () => {
-      setLoading(true);
-      try {
-        const res = await fetch("/api/notifications?limit=50&offset=0", {
-          credentials: "include",
-        });
-        const data = await res.json();
-        if (data.data) setList(data.data);
-      } catch {
-        setList([]);
-      } finally {
-        setLoading(false);
-      }
-    };
-
     load();
-  }, [userId, navigate]);
+  }, [userId, navigate, load]);
 
   const markAllRead = async () => {
     setMarkingAll(true);
@@ -172,6 +174,13 @@ export default function NotificationsPage() {
             {[1, 2, 3].map((i) => (
               <div key={i} className="h-16 rounded-lg bg-muted/50 animate-pulse" />
             ))}
+          </div>
+        ) : loadError ? (
+          <div className="text-center py-12">
+            <p className="text-muted-foreground mb-4">Couldn't load notifications.</p>
+            <Button variant="outline" size="sm" onClick={() => load()}>
+              Try again
+            </Button>
           </div>
         ) : list.length === 0 ? (
           <p className="text-muted-foreground text-center py-12">No notifications yet.</p>

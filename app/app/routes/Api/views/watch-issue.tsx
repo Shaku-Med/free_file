@@ -1,6 +1,7 @@
 import db from '~/lib/Database/supabase';
 import { isValidUUID } from '~/lib/Security/inputValidation';
 import { isAuthenticated } from '~/lib/Security/Password';
+import { canAccessFile } from '~/routes/Api/fun/accessControl';
 import { assertSafeRequest } from '~/lib/Security/requestGuard.server';
 import { validateRequestSignature, readBodyForSigning } from '~/lib/Security/requestSignature.server';
 import { getCookie } from '~/lib/Security/Token';
@@ -65,8 +66,20 @@ export const loader = async ({ request }: { request: Request }) => {
       return toJson({ error: 'Invalid fileId' }, 400);
     }
 
-    const { data: row, error } = await db.from('files').select('id').eq('id', fileId).maybeSingle();
+    const { data: row, error } = await db
+      .from('files')
+      .select('id, is_adult, is_public, owner_id, upload_status')
+      .eq('id', fileId)
+      .maybeSingle();
     if (error || !row?.id) {
+      return toJson({ error: 'File not found' }, 404);
+    }
+
+    // Don't mint a playback token (which chains into watch-time analytics) for a
+    // file the caller can't actually watch. Otherwise any signed-in user could
+    // poison view/watch analytics on private or age-gated content by UUID.
+    const allowed = await canAccessFile(request, row as any);
+    if (!allowed) {
       return toJson({ error: 'File not found' }, 404);
     }
 

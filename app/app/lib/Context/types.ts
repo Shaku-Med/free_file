@@ -37,6 +37,10 @@ export interface ContextProps {
   setIsModalOpen: React.Dispatch<React.SetStateAction<boolean>>;
   isLoading: boolean;
   initialLoading: boolean;
+  /** True when the most recent feed fetch failed and we have nothing to show. */
+  feedError: boolean;
+  /** Re-attempt the initial feed load (clears feedError). */
+  retryFeed: () => void;
   observerRef: React.RefObject<HTMLDivElement | null>;
   loadMoreVideos: () => void;
   clearFeedHistory: () => Promise<void>;

@@ -22,6 +22,7 @@ import type { CaptionCue, CaptionEntry, CaptionTrack } from "~/lib/captions/vtt"
 export type { CaptionEntry } from "~/lib/captions/vtt"
 import { probeMediaDuration } from "~/lib/captions/duration"
 import { useFileContext } from "~/lib/Context/Context"
+import { fetchUploadAuthContext } from "~/lib/uploadAuth.client"
 import { CaptionEditor } from "./CaptionEditor"
 
 type View = "list" | "language" | "editor"
@@ -47,7 +48,7 @@ export function CaptionModal({
   disabled,
   onCaptionsChange,
 }: CaptionModalProps) {
-  const { c_user, uploadServerUrl } = useFileContext()
+  const { uploadServerUrl } = useFileContext()
   const [view, setView] = useState<View>("list")
   const [captions, setCaptions] = useState<CaptionEntry[]>(() => normalizeCaptionEntries(initialCaptions))
   const [draft, setDraft] = useState<CaptionTrack | null>(null)
@@ -204,13 +205,10 @@ export function CaptionModal({
       setError(err)
       return
     }
-    if (!c_user) {
-      setError("Sign in required")
-      return
-    }
     setError(null)
     setSaving(true)
     try {
+      const uploadAuth = await fetchUploadAuthContext()
       const prep = await prepareToken(draft.language, "upload")
       if ("error" in prep) {
         setError(prep.error)
@@ -225,7 +223,7 @@ export function CaptionModal({
 
       const res = await fetch(`${prep.uploadUrl}/api/captions/upload`, {
         method: "POST",
-        headers: { Authorization: `Bearer ${c_user}` },
+        headers: { Authorization: `Bearer ${uploadAuth.bearer}` },
         body: fd,
       })
       const json = (await res.json().catch(() => null)) as { error?: string } | null
@@ -240,21 +238,18 @@ export function CaptionModal({
       setView("list")
       setDraft(null)
       setDraftLanguageOriginal(null)
-    } catch {
-      setError("Save failed")
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Save failed")
     } finally {
       setSaving(false)
     }
   }
 
   const removeTrack = async (language: string) => {
-    if (!c_user) {
-      setError("Sign in required")
-      return
-    }
     setError(null)
     setDeleting(language)
     try {
+      const uploadAuth = await fetchUploadAuthContext()
       const prep = await prepareToken(language, "delete")
       if ("error" in prep) {
         setError(prep.error)
@@ -263,7 +258,7 @@ export function CaptionModal({
       const res = await fetch(`${prep.uploadUrl}/api/captions/delete`, {
         method: "POST",
         headers: {
-          Authorization: `Bearer ${c_user}`,
+          Authorization: `Bearer ${uploadAuth.bearer}`,
           "Content-Type": "application/json",
         },
         body: JSON.stringify({ token: prep.token, language }),
@@ -276,8 +271,8 @@ export function CaptionModal({
       const next = captions.filter((c) => c.language !== language)
       setCaptions(next)
       onCaptionsChange?.(next)
-    } catch {
-      setError("Delete failed")
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Delete failed")
     } finally {
       setDeleting(null)
     }
