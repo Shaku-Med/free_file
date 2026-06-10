@@ -9,7 +9,7 @@ import BassConfetti from './BassConfetti';
  * analyser node and feeds both the spectrum bars and instrument confetti.
  */
 export default function PersistentBottomVisualizer() {
-  const { videoRef, audioVisualizer, audioVisualizerStyle, state } = usePlayerContext();
+  const { videoRef, audioVisualizer, audioVisualizerStyle, visualizerConfetti, state } = usePlayerContext();
   const enabled = audioVisualizer && !isMobile;
   const analyser = useVideoAnalyser(videoRef, enabled, state.isLoaded);
 
@@ -17,8 +17,7 @@ export default function PersistentBottomVisualizer() {
 
   return (
     <>
-      {/* Confetti sits outside the dimmed strip so the pops read clearly. */}
-      <BassConfetti analyser={analyser} />
+      {visualizerConfetti ? <BassConfetti analyser={analyser} /> : null}
       <div className="w-full shrink-0 px-3 pb-2 pointer-events-none opacity-75">
         <SeekBarSpectrum analyser={analyser} active variant={audioVisualizerStyle} />
       </div>

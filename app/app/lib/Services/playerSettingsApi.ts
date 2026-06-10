@@ -6,6 +6,17 @@ import {
   parseAudioVisualizerStyle,
   DEFAULT_AUDIO_VISUALIZER_STYLE,
 } from '~/components/components/hlsplayer/audioVisualizerStyles';
+import {
+  parseConfettiAmount,
+  parseConfettiSpread,
+  parseConfettiStyle,
+  DEFAULT_CONFETTI_AMOUNT,
+  DEFAULT_CONFETTI_SPREAD,
+  DEFAULT_CONFETTI_STYLE,
+  type ConfettiAmount,
+  type ConfettiSpread,
+  type ConfettiStyle,
+} from '~/components/components/hlsplayer/confettiSettings';
 
 export interface PlayerSettings {
   theaterMode: boolean;
@@ -20,6 +31,10 @@ export interface PlayerSettings {
   ambientMode: boolean;
   audioVisualizer: boolean;
   audioVisualizerStyle: 'bars' | 'mirror' | 'ribbon' | 'pulse';
+  visualizerConfetti: boolean;
+  visualizerConfettiStyle: ConfettiStyle;
+  visualizerConfettiAmount: ConfettiAmount;
+  visualizerConfettiSpread: ConfettiSpread;
   quality: string;
   /** Preferred caption language (BCP-47). Empty string = captions off. */
   captionLanguage: string;
@@ -37,6 +52,10 @@ export interface PlayerSettingsPatch {
   ambientMode?: boolean;
   audioVisualizer?: boolean;
   audioVisualizerStyle?: string;
+  visualizerConfetti?: boolean;
+  visualizerConfettiStyle?: string;
+  visualizerConfettiAmount?: string;
+  visualizerConfettiSpread?: string;
   quality?: string;
   captionLanguage?: string;
 }
@@ -53,6 +72,10 @@ const DEFAULTS: PlayerSettings = {
   ambientMode: false,
   audioVisualizer: false,
   audioVisualizerStyle: DEFAULT_AUDIO_VISUALIZER_STYLE,
+  visualizerConfetti: true,
+  visualizerConfettiStyle: DEFAULT_CONFETTI_STYLE,
+  visualizerConfettiAmount: DEFAULT_CONFETTI_AMOUNT,
+  visualizerConfettiSpread: DEFAULT_CONFETTI_SPREAD,
   quality: 'auto',
   captionLanguage: '',
 };
@@ -74,6 +97,16 @@ export async function getPlayerSettings(): Promise<PlayerSettings> {
     audioVisualizer: data.audioVisualizer === true || data.audioVisualizer === '1',
     audioVisualizerStyle: parseAudioVisualizerStyle(
       typeof data.audioVisualizerStyle === 'string' ? data.audioVisualizerStyle : undefined
+    ),
+    visualizerConfetti: data.visualizerConfetti !== false && data.visualizerConfetti !== '0',
+    visualizerConfettiStyle: parseConfettiStyle(
+      typeof data.visualizerConfettiStyle === 'string' ? data.visualizerConfettiStyle : undefined
+    ),
+    visualizerConfettiAmount: parseConfettiAmount(
+      typeof data.visualizerConfettiAmount === 'string' ? data.visualizerConfettiAmount : undefined
+    ),
+    visualizerConfettiSpread: parseConfettiSpread(
+      typeof data.visualizerConfettiSpread === 'string' ? data.visualizerConfettiSpread : undefined
     ),
     quality: typeof data.quality === 'string' ? data.quality : DEFAULTS.quality,
     captionLanguage: typeof data.captionLanguage === 'string' ? data.captionLanguage : DEFAULTS.captionLanguage,

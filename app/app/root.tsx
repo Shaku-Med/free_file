@@ -23,6 +23,7 @@ import { WatchHlsSurfaceProvider } from "./lib/Context/WatchHlsSurfaceContext";
 import { WatchProgressProvider } from "./lib/Context/WatchProgressContext";
 import { RootPlayQueueProvider } from "./components/MainPlayer/RootPlayQueueProvider";
 import { GlobalAnchoredHLSPlayer } from "./components/MainPlayer/GlobalAnchoredHLSPlayer";
+import { SyncGlobalPlayerHost } from "./components/MainPlayer/SyncGlobalPlayerHost";
 import { GlobalPlayerLayoutProvider } from "./lib/Context/GlobalPlayerLayoutContext";
 import MiniPlayer from "./components/MiniPlayer/MiniPlayer";
 import { CloseMiniPlayerOnNavigateToVideo } from "./components/MiniPlayer/CloseMiniPlayerOnNavigateToVideo";
@@ -305,6 +306,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
                           <RootPlayQueueProvider>
                             <GlobalPlayerLayoutProvider>
                               <CloseMiniPlayerOnNavigateToVideo />
+                              <SyncGlobalPlayerHost />
                               <AppShell>{children}</AppShell>
                               <MiniPlayer />
                               <GlobalAnchoredHLSPlayer />

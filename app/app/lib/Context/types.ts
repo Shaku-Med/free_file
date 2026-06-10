@@ -19,6 +19,11 @@ export type PlayerSettings = {
   /** Bars + seek strip stay visible when controls auto-hide */
   audioVisualizer: boolean;
   audioVisualizerStyle: 'bars' | 'mirror' | 'ribbon' | 'pulse';
+  /** Pop confetti from the visualizer on beats (desktop). */
+  visualizerConfetti: boolean;
+  visualizerConfettiStyle: 'instruments' | 'classic' | 'sparkle' | 'streamers' | 'shapes' | 'bubbles';
+  visualizerConfettiAmount: 'light' | 'normal' | 'heavy';
+  visualizerConfettiSpread: 'subtle' | 'normal' | 'wide';
   quality: string;
   /** 8D / spatial audio master toggle. */
   spatialAudio: boolean;

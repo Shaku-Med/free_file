@@ -25,7 +25,7 @@ import { useWakeLock } from './hooks/useWakeLock';
 import { useSpatialAudio, isSpatialAudioUiSupported } from './hooks/useSpatialAudio';
 import ControlBar from './controls/ControlBar';
 import { ReelInfoOverlay } from './overlays/ReelInfoOverlay';
-// EndScreen was replaced by EndCardOverlay (single 4-corner end-of-video surface).
+// EndScreen was replaced by EndCardOverlay (centered 2-card end-of-video surface).
 import BufferingSpinner from './overlays/BufferingSpinner';
 import ErrorOverlay from './overlays/ErrorOverlay';
 import AutoplayPrompt from './overlays/AutoplayPrompt';
@@ -994,7 +994,7 @@ function PlayerInner({
 
       {statsForNerds && !isReelCtx && !inPipForThisVideo && <StatsForNerdsOverlay />}
 
-      <div className="relative z-10 w-full h-full" onTouchEnd={handleTouchEnd}>
+      <div className="relative z-10 w-full h-full overflow-hidden" onTouchEnd={handleTouchEnd}>
         {state.hasError && <ErrorOverlay />}
 
         {/* On mobile with controls visible, the spinner lives INSIDE the
@@ -1028,7 +1028,7 @@ function PlayerInner({
                 <CaptionOverlay containerRef={miniPlayerContainerRef} controlsVisible={false} compact />
                 {showAudioVisualizer && (
                   <div className="shrink-0 px-3 pb-1 pt-0 pointer-events-none">
-                    <AudioVisualizerBars />
+                    <AudioVisualizerBars anchorRef={miniPlayerContainerRef} />
                   </div>
                 )}
                 <div className="px-3 pb-2 pt-0 shrink-0">
@@ -1177,7 +1177,7 @@ function PlayerInner({
 
         {/* Single end-of-video overlay. Replaces both the legacy full-screen
             EndScreen and the old API-backed EndCardOverlay. Renders only on
-            `state.isEnded`, shows up to 4 corner suggestion cards adapted to
+            `state.isEnded`, shows 2 centered suggestion cards adapted to
             the player size, embeds the auto-next countdown on the featured
             card, and lets the user replay or dismiss. Reel surfaces opt out
             via `isReel` inside the component itself. */}
@@ -1233,9 +1233,8 @@ function PlayerInner({
         {/* Visualizer lives OUTSIDE the fading control overlay so it stays on
             when the controls auto-hide. Controls are lifted above it via liftBottomPx. */}
         {showAudioVisualizer && !inPipForThisVideo && !isMiniPlayerPortalActive && (!isReelCtx || embedReelControls) && (
-          // z-[32] keeps the bass-kick confetti ABOVE the control overlay (z-[31])
-          // and its dark gradient, otherwise the pops render behind it and stay
-          // invisible. The wrapper is pointer-events-none so taps still hit controls.
+          // z-[32] for the spectrum strip; confetti portals into the player at z-[35]
+          // so pops render in front of the video and controls.
           <div className="absolute bottom-0 left-0 right-0 z-[32] pointer-events-none">
             <PersistentBottomVisualizer />
           </div>

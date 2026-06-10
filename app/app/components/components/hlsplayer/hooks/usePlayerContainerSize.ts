@@ -37,27 +37,24 @@ export function usePlayerContainerSize(containerRef: RefObject<HTMLDivElement | 
 
 /**
  * Below this player width the end-card overlay switches to a YouTube-mobile
- * style vertical stack of full-width horizontal cards. Above it we keep the
- * four-corner desktop layout. This is independent from ControlBar's own
- * mobile breakpoint  controls and end-cards can change at different widths.
+ * style vertical stack of full-width horizontal cards. Above it we use a
+ * centered pair of horizontal cards side by side. Independent from ControlBar's
+ * mobile breakpoint.
  */
 export const END_CARD_MOBILE_BREAKPOINT = 640;
 /**
- * Above END_CARD_MOBILE_BREAKPOINT but with a player shorter than this, the
- * 4-corner desktop layout can't fit without clobbering the top control row
- * (HD badge / theater / PiP / settings). We switch to a side-by-side layout
- * centered vertically in the safe band  same call YouTube makes on
- * landscape phone.
+ * Above END_CARD_MOBILE_BREAKPOINT but with a player shorter than this, use
+ * the landscape flanking side-by-side layout instead of the centered pair.
  */
 export const END_CARD_LANDSCAPE_COMPACT_HEIGHT = 450;
 
-export type EndCardOverlayVariant = "stack" | "sideBySide" | "corners";
+export type EndCardOverlayVariant = "stack" | "sideBySide" | "centerPair";
 
 export type EndCardOverlayLayout = {
   /**
    *  stack       : portrait phone  vertical column of full-width horiz cards
    *  sideBySide  : landscape phone  2 horiz cards left/right of a center gap
-   *  corners     : tablet/desktop   4 tile cards in the player corners
+   *  centerPair  : tablet/desktop   2 horiz cards centered side by side
    */
   variant: EndCardOverlayVariant;
   /** Legacy boolean. Kept so existing checks (`layout.isMobile`) still work. */
@@ -165,44 +162,31 @@ export function endCardOverlayLayout(
     };
   }
 
-  // Tablet / desktop: 4 corner tiles. Sizes bumped vs the old layout so the
-  // cards have YouTube's chunky end-screen weight on large players.
-  const insetTopPx = Math.max(8, Math.round(h * 0.03));
-  const insetBottomPx = Math.max(76, Math.round(h * 0.16));
-
-  let pct: number;
-  let minPx: number;
-  let maxPx: number;
-  if (w < 800) {
-    pct = 0.34;
-    minPx = 184;
-    maxPx = 288;
-  } else if (w < 1100) {
-    pct = 0.3;
-    minPx = 216;
-    maxPx = 336;
-  } else if (w < 1600) {
-    pct = 0.26;
-    minPx = 248;
-    maxPx = 400;
-  } else {
-    pct = 0.22;
-    minPx = 272;
-    maxPx = 464;
-  }
-  const cardWidthPx = Math.round(
-    Math.min(maxPx, Math.max(minPx, w * pct)),
+  // Tablet / desktop: two horizontal cards centered side by side in the player.
+  const insetTopPx = Math.max(44, Math.round(h * 0.08));
+  const insetBottomPx = Math.max(72, Math.round(h * 0.14));
+  const cardGapPx = 14;
+  const horizontalPad = 24;
+  const perCardBudget = Math.max(
+    200,
+    Math.round((w - horizontalPad * 2 - cardGapPx) / 2),
+  );
+  const cardWidthPx = Math.min(400, perCardBudget);
+  const thumbWidth = cardWidthPx * 0.38;
+  const cardHeightPx = Math.max(
+    88,
+    Math.round((thumbWidth * 9) / 16) + 14,
   );
 
   return {
-    variant: "corners",
+    variant: "centerPair",
     isMobile: false,
-    maxCards: 4,
+    maxCards: 2,
     insetTopPx,
     insetBottomPx,
     cardWidthPx,
-    cardHeightPx: 0,
-    cardGapPx: 0,
+    cardHeightPx,
+    cardGapPx,
     centerReservePx: 0,
   };
 }

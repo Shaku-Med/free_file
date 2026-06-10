@@ -10,6 +10,7 @@ import { useWatchSurfaceVideoRef } from "~/lib/Context/WatchSurfaceVideoRefConte
 import { useGlobalPlayerLayoutContext } from "~/lib/Context/GlobalPlayerLayoutContext";
 import { useFileContext } from "~/lib/Context/Context";
 import { useAnchorBoundingRect } from "~/lib/hooks/useAnchorBoundingRect";
+import { isMiniHandoffPending, isPlayerAnchorLive } from "~/lib/hooks/playerAnchor";
 import { cn } from "~/lib/utils";
 import { usePlaybackUrl } from "~/lib/hooks/usePlaybackUrl";
 import { resolvePlaybackSrc, playbackUrlMatchesFile } from "~/lib/playbackUrlCache";
@@ -93,10 +94,13 @@ export function GlobalAnchoredHLSPlayer() {
   /** Mini takes over only after the watch surface is cleared  same global player, new anchor. */
   const inMiniLayout = Boolean(miniPlayer && !surface?.props);
   const anchorEl = inMiniLayout ? state.miniAnchorEl : state.anchorEl;
+  const anchorLive = isPlayerAnchorLive(anchorEl);
+  const miniHandoffPending = isMiniHandoffPending(miniPlayer, Boolean(surface?.props), state.miniAnchorEl);
   /** Theater + layoutId use transform animation; RO/scroll won't update  match parent every frame. */
   const syncPositionEachFrame =
-    Boolean(inMiniLayout && state.miniAnchorEl) ||
-    Boolean(surface?.props && state.anchorEl);
+    anchorLive &&
+    (Boolean(inMiniLayout && state.miniAnchorEl) ||
+      Boolean(surface?.props && state.anchorEl));
   // Imperative position updates  bypasses React's reconciler so scroll
   // and drag no longer re-render the entire portal'd player subtree on
   // every frame. The hook still hands us a state-backed rect for the
@@ -123,7 +127,7 @@ export function GlobalAnchoredHLSPlayer() {
     width: number;
     height: number;
   } | null>(null);
-  if (rawRect && rawRect.width > 0 && rawRect.height > 0) {
+  if (rawRect && rawRect.width > 0 && rawRect.height > 0 && anchorLive) {
     lastGoodRectRef.current = rawRect;
   }
   useLayoutEffect(() => {
@@ -133,10 +137,13 @@ export function GlobalAnchoredHLSPlayer() {
     }
   }, [miniPlayer, surface?.props]);
 
+  const canUseStickyRect = Boolean(
+    anchorLive || (miniHandoffPending && lastGoodRectRef.current),
+  );
   const rect =
     rawRect && rawRect.width > 0 && rawRect.height > 0
       ? rawRect
-      : (miniPlayer || surface?.props) && lastGoodRectRef.current
+      : canUseStickyRect && lastGoodRectRef.current
         ? lastGoodRectRef.current
         : null;
 
@@ -205,12 +212,14 @@ export function GlobalAnchoredHLSPlayer() {
       setCommittedResolved(resolved);
       return;
     }
+    // Mini handoff can clear the watch surface for a frame — keep the same React tree mounted.
+    if (miniPlayer) return;
     if (pendingNullRef.current != null) return;
     pendingNullRef.current = requestAnimationFrame(() => {
       pendingNullRef.current = null;
       setCommittedResolved(null);
     });
-  }, [resolved]);
+  }, [resolved, miniPlayer]);
   useEffect(() => {
     return () => {
       if (pendingNullRef.current != null) {

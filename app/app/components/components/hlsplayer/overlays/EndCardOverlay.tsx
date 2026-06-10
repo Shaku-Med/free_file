@@ -15,14 +15,12 @@ import type { FileType } from "~/lib/types";
  * the player reports `state.isEnded`. Suggestions come from props the
  * watch page already loads (related + series)  no extra API.
  *
- * Layout: on desktop, four corners inside control clearances; on mobile, two
- * cards in the side columns of a safe grid that reserves top / center /
- * bottom bands for the player's own controls. Sizes scale with the player
- * box via `endCardOverlayLayout` + VideoCard `cqi` units.
+ * Layout: on desktop, two centered horizontal cards side by side; on mobile,
+ * a vertical stack or flanking pair depending on player aspect.
  */
 
 const COUNTDOWN_SEC = 5;
-const MAX_CARDS = 4;
+const MAX_CARDS = 2;
 /** Show the corner cards once playback gets this close to the end. */
 const TRIGGER_REMAINING_SEC = 20;
 /** Skip the overlay on anything shorter than this (reels, snippets). */
@@ -98,15 +96,6 @@ function pruneList(videos: FileType[], currentVideoId: string | undefined): File
 const SAFE_LEFT = "left-[max(0.5rem,env(safe-area-inset-left,0px))]";
 const SAFE_RIGHT = "right-[max(0.5rem,env(safe-area-inset-right,0px))]";
 
-type DesktopCorner = { top: boolean; left: boolean };
-
-const DESKTOP_CORNERS: DesktopCorner[] = [
-  { top: true, left: true },
-  { top: true, left: false },
-  { top: false, left: true },
-  { top: false, left: false },
-];
-
 function EndCardSlot({
   card,
   index,
@@ -123,7 +112,7 @@ function EndCardSlot({
   index: number;
   className?: string;
   style?: CSSProperties;
-  /** `tile` = desktop corner card. `row` = mobile YT-style horizontal card. */
+  /** `tile` = legacy square tile. `row` = horizontal card (all layouts now). */
   variant?: "tile" | "row";
   countdownActive: boolean;
   countdown: number;
@@ -511,8 +500,31 @@ export default function EndCardOverlay({
         </>
       )}
 
-      {layout.variant === "corners" && (
-        <>
+      {layout.variant === "centerPair" && (
+        <div
+          className="pointer-events-none absolute left-1/2 top-1/2 z-[2] flex -translate-x-1/2 -translate-y-1/2 flex-col items-center"
+          style={{ gap: layout.cardGapPx + 8 }}
+        >
+          <div
+            className="flex items-stretch justify-center"
+            style={{ gap: layout.cardGapPx }}
+          >
+            {cards.slice(0, 2).map((card, i) => (
+              <EndCardSlot
+                key={card.id ?? card.unique_id}
+                card={card}
+                index={i}
+                variant="row"
+                className="pointer-events-auto shrink-0"
+                style={{
+                  width: layout.cardWidthPx,
+                  height: layout.cardHeightPx,
+                }}
+                {...cardProps}
+              />
+            ))}
+          </div>
+
           {state.isEnded && (
             <button
               type="button"
@@ -520,36 +532,14 @@ export default function EndCardOverlay({
                 cancelAutoplay();
                 replay();
               }}
-              className="pointer-events-auto absolute left-1/2 top-1/2 z-[4] flex -translate-x-1/2 -translate-y-1/2 items-center gap-2 rounded-full bg-black/65 px-4 py-2.5 text-sm font-medium text-white ring-1 ring-white/20 backdrop-blur-md transition-all hover:bg-black/80 hover:ring-white/40 focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
+              className="pointer-events-auto flex items-center gap-2 rounded-full bg-black/65 px-4 py-2.5 text-sm font-medium text-white ring-1 ring-white/20 backdrop-blur-md transition-all hover:bg-black/80 hover:ring-white/40 focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
               aria-label="Replay video"
             >
               <RotateCcw className="h-4 w-4" />
               Replay
             </button>
           )}
-
-          {cards.map((card, i) => {
-            const corner = DESKTOP_CORNERS[i] ?? DESKTOP_CORNERS[0];
-            return (
-              <EndCardSlot
-                key={card.id ?? card.unique_id}
-                card={card}
-                index={i}
-                className={cn(
-                  "absolute z-[2]",
-                  corner.left ? SAFE_LEFT : SAFE_RIGHT,
-                )}
-                style={{
-                  width: layout.cardWidthPx,
-                  ...(corner.top
-                    ? { top: layout.insetTopPx }
-                    : { bottom: layout.insetBottomPx }),
-                }}
-                {...cardProps}
-              />
-            );
-          })}
-        </>
+        </div>
       )}
     </div>
   );

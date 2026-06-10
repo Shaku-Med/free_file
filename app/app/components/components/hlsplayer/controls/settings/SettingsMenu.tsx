@@ -17,6 +17,7 @@ import {
   Headphones,
   Box,
   RotateCcw,
+  PartyPopper,
 } from 'lucide-react';
 import { usePlayerContext, SLEEP_TIMER_OPTIONS } from '../../PlayerContext';
 import { isSpatialAudioUiSupported } from '../../hooks/useSpatialAudio';
@@ -41,6 +42,14 @@ import {
   AUDIO_VISUALIZER_STYLE_LABELS,
   type AudioVisualizerStyle,
 } from '../../audioVisualizerStyles';
+import {
+  CONFETTI_AMOUNTS,
+  CONFETTI_AMOUNT_LABELS,
+  CONFETTI_SPREADS,
+  CONFETTI_SPREAD_LABELS,
+  type ConfettiAmount,
+  type ConfettiSpread,
+} from '../../confettiSettings';
 
 const SPEEDS = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2];
 
@@ -98,6 +107,12 @@ export function SettingsMenuBody() {
     setAudioVisualizer,
     audioVisualizerStyle,
     setAudioVisualizerStyle,
+    visualizerConfetti,
+    setVisualizerConfetti,
+    visualizerConfettiAmount,
+    setVisualizerConfettiAmount,
+    visualizerConfettiSpread,
+    setVisualizerConfettiSpread,
     statsForNerds,
     setStatsForNerds,
     sleepTimer,
@@ -315,6 +330,58 @@ export function SettingsMenuBody() {
                     </DropdownMenuRadioItem>
                   ))}
                 </DropdownMenuRadioGroup>
+              </DropdownMenuCollapsibleContent>
+            </DropdownMenuCollapsible>
+            <DropdownMenuCollapsible>
+              <DropdownMenuCollapsibleTrigger className="w-full min-w-0 gap-2 pr-1">
+                <span className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden">
+                  <PartyPopper className="size-4 shrink-0 text-muted-foreground" />
+                  <span className="min-w-0 truncate">Confetti</span>
+                </span>
+                <span className="shrink-0 pl-1 text-right text-xs font-normal text-muted-foreground">
+                  {visualizerConfetti
+                    ? `${CONFETTI_AMOUNT_LABELS[visualizerConfettiAmount]} · ${CONFETTI_SPREAD_LABELS[visualizerConfettiSpread]}`
+                    : 'Off'}
+                </span>
+              </DropdownMenuCollapsibleTrigger>
+              <DropdownMenuCollapsibleContent>
+                <DropdownMenuItem
+                  onSelect={(e) => e.preventDefault()}
+                  className={toggleRowClass}
+                >
+                  <span className="min-w-0 truncate pl-6 text-sm">Enable confetti</span>
+                  <Switch checked={visualizerConfetti} onChange={setVisualizerConfetti} />
+                </DropdownMenuItem>
+                {visualizerConfetti ? (
+                  <>
+                    <DropdownMenuLabel className="pl-6 text-[11px] font-medium text-muted-foreground">
+                      Amount
+                    </DropdownMenuLabel>
+                    <DropdownMenuRadioGroup
+                      value={visualizerConfettiAmount}
+                      onValueChange={(v) => setVisualizerConfettiAmount(v as ConfettiAmount)}
+                    >
+                      {CONFETTI_AMOUNTS.map((id) => (
+                        <DropdownMenuRadioItem key={id} value={id} className="pl-8">
+                          {CONFETTI_AMOUNT_LABELS[id]}
+                        </DropdownMenuRadioItem>
+                      ))}
+                    </DropdownMenuRadioGroup>
+                    <DropdownMenuLabel className="pl-6 text-[11px] font-medium text-muted-foreground">
+                      Spread
+                    </DropdownMenuLabel>
+                    <DropdownMenuRadioGroup
+                      value={visualizerConfettiSpread}
+                      onValueChange={(v) => setVisualizerConfettiSpread(v as ConfettiSpread)}
+                    >
+                      {CONFETTI_SPREADS.map((id) => (
+                        <DropdownMenuRadioItem key={id} value={id} className="pl-8">
+                          {CONFETTI_SPREAD_LABELS[id]}
+                        </DropdownMenuRadioItem>
+                      ))}
+                    </DropdownMenuRadioGroup>
+                  </>
+                ) : null}
               </DropdownMenuCollapsibleContent>
             </DropdownMenuCollapsible>
           </DropdownMenuGroup>
