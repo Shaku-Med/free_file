@@ -27,6 +27,7 @@ import { SyncGlobalPlayerHost } from "./components/MainPlayer/SyncGlobalPlayerHo
 import { GlobalPlayerLayoutProvider } from "./lib/Context/GlobalPlayerLayoutContext";
 import MiniPlayer from "./components/MiniPlayer/MiniPlayer";
 import { CloseMiniPlayerOnNavigateToVideo } from "./components/MiniPlayer/CloseMiniPlayerOnNavigateToVideo";
+import { RestoreMiniPlayerAfterReel } from "./components/MiniPlayer/RestoreMiniPlayerAfterReel";
 import db from "./lib/Database/supabase";
 import ErrorMessage from "./components/ErrorMessage";
 import { getCookie } from "./lib/Security/Token";
@@ -306,6 +307,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
                           <RootPlayQueueProvider>
                             <GlobalPlayerLayoutProvider>
                               <CloseMiniPlayerOnNavigateToVideo />
+                              <RestoreMiniPlayerAfterReel />
                               <SyncGlobalPlayerHost />
                               <AppShell>{children}</AppShell>
                               <MiniPlayer />

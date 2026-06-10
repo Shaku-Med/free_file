@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { createPortal } from 'react-dom';
-import { useNavigate } from 'react-router';
+import { useNavigate, useLocation } from 'react-router';
 import { useInView } from 'react-intersection-observer';
 import type { FileType, SeriesEpisodeGroup } from '~/lib/types';
 import { PlayerProvider, usePlayerContext, type ThumbnailSpriteMeta } from './PlayerContext';
@@ -51,6 +51,7 @@ import { useGuestWatchLimit } from './hooks/useGuestWatchLimit';
 import { usePictureInPictureContext } from '~/lib/Context/PictureInPictureContext';
 import { useFileContext } from '~/lib/Context/Context';
 import { useGlobalPlayerLayout } from '~/lib/Context/GlobalPlayerLayoutContext';
+import { isPipChromeRoute } from '~/routes/pip/pipEnv';
 import { useMiniPlayerContext } from '~/lib/Context/MiniPlayerContext';
 import { useWatchHlsSurface } from '~/lib/Context/WatchHlsSurfaceContext';
 import { isMobile } from 'react-device-detect';
@@ -193,6 +194,7 @@ function PlayerInner({
   const relatedPlayQueue = useMemo(() => withoutReels(suggestedVideos), [suggestedVideos]);
 
   const navigate = useNavigate();
+  const location = useLocation();
   const globalPlayerLayout = useGlobalPlayerLayout();
   const { surface: watchHlsSurface } = useWatchHlsSurface();
   const { theaterMode, setTheaterMode, setPlayerSettings, savePlayerSettings } = useFileContext();
@@ -301,7 +303,6 @@ function PlayerInner({
     guestLimitActive && !isReelCtx
   );
 
-  const showAudioVisualizer = audioVisualizer && !isMobile && authPlayback;
   // Height of the persistent visualizer strip (SeekBarSpectrum h-10 + pb-2).
   const visualizerStripPx = 48;
 
@@ -323,6 +324,7 @@ function PlayerInner({
     notifyBrowserDrivenWebKitPipEntered,
   } = usePictureInPictureContext();
   const inPipForThisVideo = isPipActive && isContentInPip(imageID);
+  const onPipChrome = isPipChromeRoute(location.pathname);
   /** Native / WebKit PiP uses this `<video>`  must not pause or block `play`. Document PiP uses a separate iframe. */
   const documentPipPausesMain = inPipForThisVideo && activePipKind === 'document';
   /** A different file is in PiP  pause this player so only one plays. */
@@ -334,6 +336,13 @@ function PlayerInner({
   const isMiniPlayerPortalActive = Boolean(
     miniPlayer && isPortalMode && file && miniPlayer.file?.unique_id === file.unique_id && containerReady && miniPlayerContainerRef.current
   );
+  const showAudioVisualizer =
+    audioVisualizer &&
+    !isMobile &&
+    authPlayback &&
+    !isReelCtx &&
+    !inPipForThisVideo &&
+    !onPipChrome;
   const callBackRef = useRef(callBack);
   callBackRef.current = callBack;
   const [mediaSessionImage, setMediaSessionImage] = useState<string | null>(null);
@@ -1222,7 +1231,7 @@ function PlayerInner({
               theaterMode={theaterMode}
               onTheaterModeChange={isMobileView ? undefined : handleTheaterModeChange}
               hideControls={effectiveHideControls}
-              liftBottomPx={showAudioVisualizer && !inPipForThisVideo ? visualizerStripPx : 0}
+              liftBottomPx={showAudioVisualizer ? visualizerStripPx : 0}
               isMobileLayout={isMobileView}
               onBack={onBack}
               tiltMode={tiltMode}
@@ -1232,7 +1241,7 @@ function PlayerInner({
 
         {/* Visualizer lives OUTSIDE the fading control overlay so it stays on
             when the controls auto-hide. Controls are lifted above it via liftBottomPx. */}
-        {showAudioVisualizer && !inPipForThisVideo && !isMiniPlayerPortalActive && (!isReelCtx || embedReelControls) && (
+        {showAudioVisualizer && !isMiniPlayerPortalActive && (
           // z-[32] for the spectrum strip; confetti portals into the player at z-[35]
           // so pops render in front of the video and controls.
           <div className="absolute bottom-0 left-0 right-0 z-[32] pointer-events-none">

@@ -26,6 +26,7 @@ function miniFallbackProps(
   userId: string | null,
   mintedUrl: string | null,
 ): DynamicHLSPlayerWithQueueProps {
+  const restore = Boolean(mini.sessionRestore);
   return {
     videoRef,
     src: resolvePlaybackSrc(mini.file, { preferredSrc: mini.src, mintedUrl }),
@@ -41,6 +42,9 @@ function miniFallbackProps(
     callBack: undefined,
     onAmbientModeChange: undefined,
     onVideoRef: undefined,
+    startTime: restore ? (mini.currentTime ?? 0) : undefined,
+    autoPlay: restore ? (mini.wasPlaying ?? false) : undefined,
+    muted: restore ? mini.muted : undefined,
   };
 }
 
@@ -51,7 +55,7 @@ function miniFallbackProps(
 export function GlobalAnchoredHLSPlayer() {
   const { setLayout } = useGlobalPlayerLayoutContext();
   const { state } = useMainPlayerSlot();
-  const { miniPlayer } = useMiniPlayerContext();
+  const { miniPlayer, clearMiniSessionRestore } = useMiniPlayerContext();
   const { surface } = useWatchHlsSurface();
   const videoRef = useWatchSurfaceVideoRef();
   const { userId } = useFileContext();
@@ -220,6 +224,18 @@ export function GlobalAnchoredHLSPlayer() {
       setCommittedResolved(null);
     });
   }, [resolved, miniPlayer]);
+  useEffect(() => {
+    if (!miniPlayer?.sessionRestore) return;
+    const video = videoRef.current;
+    if (!video) return;
+    const clear = () => clearMiniSessionRestore();
+    if (video.readyState >= 1 && video.duration > 0) {
+      const id = requestAnimationFrame(clear);
+      return () => cancelAnimationFrame(id);
+    }
+    video.addEventListener("loadedmetadata", clear, { once: true });
+    return () => video.removeEventListener("loadedmetadata", clear);
+  }, [miniPlayer?.sessionRestore, miniPlayer?.file.unique_id, clearMiniSessionRestore, videoRef]);
   useEffect(() => {
     return () => {
       if (pendingNullRef.current != null) {

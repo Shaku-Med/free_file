@@ -1,13 +1,8 @@
 import { useLayoutEffect } from "react";
 import { useLocation } from "react-router";
-import { isSingleSegmentWatchPath } from "~/lib/Context/MiniPlayerContext";
+import { isReelPath, isSingleSegmentWatchPath } from "~/lib/Context/MiniPlayerContext";
 import { useMainPlayerSlot } from "~/lib/Context/MainPlayerSlotContext";
 import { useWatchHlsSurface } from "~/lib/Context/WatchHlsSurfaceContext";
-
-function isReelPath(pathname: string): boolean {
-  const s = pathname.replace(/^\/+/, "");
-  return s === "reel" || s.startsWith("reel/");
-}
 
 /** Routes that mount the in-page watch player slot (`player_inner_*`). */
 export function isWatchPlayerHostPath(pathname: string): boolean {

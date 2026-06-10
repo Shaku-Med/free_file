@@ -384,36 +384,230 @@ export default function SeekBarSpectrum({ analyser, active, variant }: Props) {
         return;
       }
 
+      // ── Oscilloscope ── thin ribbon stroke, no fill
+      if (v === 'line') {
+        const pointCount = Math.max(80, Math.min(220, Math.floor(w / 2)));
+        const usable = Math.max(4, Math.floor(fdLen * 0.88));
+        const step = usable / pointCount;
+
+        let sAmp = ampRef.current;
+        let sVel = velRef.current;
+        if (!sAmp || sAmp.length !== pointCount + 1) {
+          sAmp = new Float32Array(pointCount + 1);
+          ampRef.current = sAmp;
+        }
+        if (!sVel || sVel.length !== pointCount + 1) {
+          sVel = new Float32Array(pointCount + 1);
+          velRef.current = sVel;
+        }
+
+        ctx.beginPath();
+        for (let i = 0; i <= pointCount; i++) {
+          const center = Math.min(usable - 1, i * step);
+          const lo = Math.max(0, Math.floor(center - step * 0.5));
+          const hi = Math.min(usable, Math.ceil(center + step * 0.5));
+          const target = playing ? visEnergy(avgFreq(fd, lo, hi) * freqTilt(i, pointCount)) : 0;
+          springChase(sAmp, sVel, i, target);
+          const x = (i / pointCount) * w;
+          const y = h * 0.5 - (sAmp[i]! - 0.5) * (h - 8);
+          if (i === 0) ctx.moveTo(x, y);
+          else ctx.lineTo(x, y);
+        }
+        const mc = palette[Math.floor(palette.length / 2)] ?? palette[0] ?? '#737373';
+        ctx.strokeStyle = applyAlphaToCssColor(mc, 0.92);
+        ctx.lineWidth = 1.5;
+        ctx.lineJoin = 'round';
+        ctx.lineCap = 'round';
+        ctx.stroke();
+        return;
+      }
+
+      // ── Block EQ ── sharp retro columns
+      if (v === 'blocks') {
+        const bars = autoBarCount(12, 64, 7);
+        const usable = Math.floor(fdLen * 0.88);
+        const step = Math.max(1, usable / bars);
+        const gapPx = 2;
+        const bw = Math.max(3, (w - gapPx * (bars - 1)) / bars);
+
+        let sAmp = ampRef.current;
+        let sVel = velRef.current;
+        if (!sAmp || sAmp.length !== bars) {
+          sAmp = new Float32Array(bars);
+          ampRef.current = sAmp;
+        }
+        if (!sVel || sVel.length !== bars) {
+          sVel = new Float32Array(bars);
+          velRef.current = sVel;
+        }
+
+        for (let i = 0; i < bars; i++) {
+          const lo = Math.floor(i * step);
+          const hi = Math.min(Math.ceil(lo + step), usable);
+          const target = playing ? visEnergy(avgFreq(fd, lo, hi) * freqTilt(i, bars)) : 0;
+          springChase(sAmp, sVel, i, target);
+          const amp = sAmp[i]!;
+          if (amp < 0.008) continue;
+          const bh = Math.max(2, amp * h * 0.92);
+          const c = paletteColorAtIndex(palette, i, bars);
+          ctx.fillStyle = applyAlphaToCssColor(c, 0.5 + amp * 0.45);
+          ctx.fillRect(i * (bw + gapPx), h - bh, bw, bh);
+        }
+        return;
+      }
+
+      // ── Dot matrix ── circles sized by band energy
+      if (v === 'dots') {
+        const cols = autoBarCount(18, 90, 5.5);
+        const usable = Math.floor(fdLen * 0.88);
+        const step = Math.max(1, usable / cols);
+        const gapPx = 2;
+        const cell = Math.max(3, (w - gapPx * (cols - 1)) / cols);
+        const rMax = cell * 0.48;
+
+        let sAmp = ampRef.current;
+        let sVel = velRef.current;
+        if (!sAmp || sAmp.length !== cols) {
+          sAmp = new Float32Array(cols);
+          ampRef.current = sAmp;
+        }
+        if (!sVel || sVel.length !== cols) {
+          sVel = new Float32Array(cols);
+          velRef.current = sVel;
+        }
+
+        for (let i = 0; i < cols; i++) {
+          const lo = Math.floor(i * step);
+          const hi = Math.min(Math.ceil(lo + step), usable);
+          const target = playing ? visEnergy(avgFreq(fd, lo, hi) * freqTilt(i, cols)) : 0;
+          springChase(sAmp, sVel, i, target);
+          const amp = sAmp[i]!;
+          if (amp < 0.01) continue;
+          const r = Math.max(1.2, amp * rMax);
+          const cx = i * (cell + gapPx) + cell / 2;
+          const cy = h - r - 2;
+          const c = paletteColorAtIndex(palette, i, cols);
+          ctx.beginPath();
+          ctx.arc(cx, cy, r, 0, Math.PI * 2);
+          ctx.fillStyle = applyAlphaToCssColor(c, 0.45 + amp * 0.5);
+          ctx.fill();
+        }
+        return;
+      }
+
+      // ── Aurora ── ribbon + soft mirrored echo
+      if (v === 'aurora') {
+        const pointCount = Math.max(64, Math.min(160, Math.floor(w / 2.2)));
+        const usable = Math.max(4, Math.floor(fdLen * 0.88));
+        const step = usable / pointCount;
+
+        let sAmp = ampRef.current;
+        let sVel = velRef.current;
+        if (!sAmp || sAmp.length !== pointCount + 1) {
+          sAmp = new Float32Array(pointCount + 1);
+          ampRef.current = sAmp;
+        }
+        if (!sVel || sVel.length !== pointCount + 1) {
+          sVel = new Float32Array(pointCount + 1);
+          velRef.current = sVel;
+        }
+
+        const pts: { x: number; y: number }[] = [];
+        for (let i = 0; i <= pointCount; i++) {
+          const center = Math.min(usable - 1, i * step);
+          const lo = Math.max(0, Math.floor(center - step * 0.6));
+          const hi = Math.min(usable, Math.ceil(center + step * 0.6));
+          const target = playing ? visEnergy(avgFreq(fd, lo, hi) * freqTilt(i, pointCount)) : 0;
+          springChase(sAmp, sVel, i, target);
+          const y = h - 3 - sAmp[i]! * (h - 6);
+          pts.push({ x: (i / pointCount) * w, y });
+        }
+
+        const drawSmoothPath = () => {
+          ctx.beginPath();
+          ctx.moveTo(pts[0]!.x, pts[0]!.y);
+          for (let i = 0; i < pts.length - 1; i++) {
+            const p0 = pts[Math.max(0, i - 1)]!;
+            const p1 = pts[i]!;
+            const p2 = pts[i + 1]!;
+            const p3 = pts[Math.min(pts.length - 1, i + 2)]!;
+            ctx.bezierCurveTo(
+              p1.x + (p2.x - p0.x) / 6,
+              p1.y + (p2.y - p0.y) / 6,
+              p2.x - (p3.x - p1.x) / 6,
+              p2.y - (p3.y - p1.y) / 6,
+              p2.x,
+              p2.y,
+            );
+          }
+        };
+
+        const cy = h / 2;
+        const mc = palette[Math.floor(palette.length / 2)] ?? palette[0] ?? '#737373';
+
+        ctx.save();
+        ctx.filter = 'blur(4px)';
+        ctx.strokeStyle = applyAlphaToCssColor(mc, 0.35);
+        ctx.lineWidth = 6;
+        drawSmoothPath();
+        ctx.stroke();
+        ctx.restore();
+
+        drawSmoothPath();
+        ctx.lineTo(w, cy);
+        ctx.lineTo(0, cy);
+        ctx.closePath();
+        ctx.fillStyle = applyAlphaToCssColor(mc, 0.12);
+        ctx.fill();
+
+        ctx.save();
+        ctx.scale(1, -1);
+        ctx.translate(0, -h);
+        drawSmoothPath();
+        ctx.strokeStyle = applyAlphaToCssColor(mc, 0.28);
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+        ctx.restore();
+
+        drawSmoothPath();
+        ctx.strokeStyle = applyAlphaToCssColor(mc, 0.88);
+        ctx.lineWidth = 2;
+        ctx.stroke();
+        return;
+      }
+
       // ── Pulse bands ── aggressive bounce
-      const segs = autoBarCount(14, 72, 6.5);
-      const usableP = Math.floor(fdLen * 0.88);
-      const stepP = Math.max(1, usableP / segs);
-      const gapPx = 1.8;
-      const bw = Math.max(2.5, (w - gapPx * (segs - 1)) / segs);
-      const cy = h / 2;
+      if (v === 'pulse') {
+        const segs = autoBarCount(14, 72, 6.5);
+        const usableP = Math.floor(fdLen * 0.88);
+        const stepP = Math.max(1, usableP / segs);
+        const gapPx = 1.8;
+        const bw = Math.max(2.5, (w - gapPx * (segs - 1)) / segs);
+        const cy = h / 2;
 
-      let sAmp = ampRef.current;
-      let sVel = velRef.current;
-      if (!sAmp || sAmp.length !== segs) {
-        sAmp = new Float32Array(segs);
-        ampRef.current = sAmp;
-      }
-      if (!sVel || sVel.length !== segs) {
-        sVel = new Float32Array(segs);
-        velRef.current = sVel;
-      }
+        let sAmp = ampRef.current;
+        let sVel = velRef.current;
+        if (!sAmp || sAmp.length !== segs) {
+          sAmp = new Float32Array(segs);
+          ampRef.current = sAmp;
+        }
+        if (!sVel || sVel.length !== segs) {
+          sVel = new Float32Array(segs);
+          velRef.current = sVel;
+        }
 
-      for (let i = 0; i < segs; i++) {
-        const lo = Math.floor(i * stepP);
-        const hi = Math.min(Math.ceil(lo + stepP), usableP);
-        const target = playing ? visEnergy(avgFreq(fd, lo, hi) * freqTilt(i, segs)) : 0;
-        springChase(sAmp, sVel, i, target);
-        const e = sAmp[i]!;
-        if (e < 0.008) continue;
-        const half = Math.max(1.5, e * h * 0.47);
-        const c = paletteColorAtIndex(palette, i, segs);
-        const x = i * (bw + gapPx);
-        drawCBar(x, cy, bw, half, c, e, Math.min(2.5, bw * 0.4));
+        for (let i = 0; i < segs; i++) {
+          const lo = Math.floor(i * stepP);
+          const hi = Math.min(Math.ceil(lo + stepP), usableP);
+          const target = playing ? visEnergy(avgFreq(fd, lo, hi) * freqTilt(i, segs)) : 0;
+          springChase(sAmp, sVel, i, target);
+          const e = sAmp[i]!;
+          if (e < 0.008) continue;
+          const half = Math.max(1.5, e * h * 0.47);
+          const c = paletteColorAtIndex(palette, i, segs);
+          const x = i * (bw + gapPx);
+          drawCBar(x, cy, bw, half, c, e, Math.min(2.5, bw * 0.4));
+        }
       }
     };
 

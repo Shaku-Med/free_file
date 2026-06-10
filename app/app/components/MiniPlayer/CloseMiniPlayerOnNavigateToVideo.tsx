@@ -14,7 +14,12 @@ import {
  * dismisses the mini chrome after the main slot is mounted (seamless handoff).
  */
 export function CloseMiniPlayerOnNavigateToVideo() {
-  const { miniPlayer, closeMiniPlayer, isExpanding } = useMiniPlayerContext();
+  const {
+    miniPlayer,
+    closeMiniPlayer,
+    clearSuspendedMiniForReel,
+    isExpanding,
+  } = useMiniPlayerContext();
   const location = useLocation();
   const prevPathnameRef = useRef(location.pathname);
 
@@ -24,15 +29,17 @@ export function CloseMiniPlayerOnNavigateToVideo() {
     prevPathnameRef.current = next;
 
     if (prev === next) return;
-    if (!miniPlayer) return;
-    const nextVideoId = getDynamicVideoIdFromPath(next);
-    // Same URL id + expanding from mini → watch page will dismiss chrome after slot mounts.
-    if (nextVideoId && miniPlayer.file.unique_id === nextVideoId && isExpanding) return;
-    if (isExpanding) return;
+
     if (isDynamicVideoPath(next)) {
+      clearSuspendedMiniForReel();
+      if (!miniPlayer) return;
+      const nextVideoId = getDynamicVideoIdFromPath(next);
+      // Same URL id + expanding from mini → watch page will dismiss chrome after slot mounts.
+      if (nextVideoId && miniPlayer.file.unique_id === nextVideoId && isExpanding) return;
+      if (isExpanding) return;
       closeMiniPlayer();
     }
-  }, [location.pathname, miniPlayer, closeMiniPlayer, isExpanding]);
+  }, [location.pathname, miniPlayer, closeMiniPlayer, clearSuspendedMiniForReel, isExpanding]);
 
   return null;
 }

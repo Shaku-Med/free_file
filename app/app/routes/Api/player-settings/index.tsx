@@ -4,6 +4,11 @@
  * No auth required (UI preferences only).
  */
 
+import {
+  parseAudioVisualizerStyle,
+  AUDIO_VISUALIZER_STYLES,
+} from '~/components/components/hlsplayer/audioVisualizerStyles';
+
 const COOKIE_NAMES = {
   theaterMode: 'player-theater-mode',
   sidebarOpen: 'player-sidebar-open',
@@ -17,9 +22,6 @@ const COOKIE_NAMES = {
   audioVisualizer: 'player-audio-visualizer',
   audioVisualizerStyle: 'player-audio-visualizer-style',
   visualizerConfetti: 'player-visualizer-confetti',
-  visualizerConfettiStyle: 'player-visualizer-confetti-style',
-  visualizerConfettiAmount: 'player-visualizer-confetti-amount',
-  visualizerConfettiSpread: 'player-visualizer-confetti-spread',
   quality: 'hls-quality-preference',
   spatialAudio: 'player-spatial-audio',
   spatialAudioConfig: 'player-spatial-audio-config',
@@ -71,9 +73,6 @@ export interface PlayerSettingsDto {
   audioVisualizer?: boolean;
   audioVisualizerStyle?: string;
   visualizerConfetti?: boolean;
-  visualizerConfettiStyle?: string;
-  visualizerConfettiAmount?: string;
-  visualizerConfettiSpread?: string;
   quality?: string;
   spatialAudio?: boolean;
   /** JSON-encoded SpatialAudioConfig from `useSpatialAudio`. Server validates length only  shape is checked on read. */
@@ -105,31 +104,9 @@ export function getPlayerSettingsFromCookies(cookieHeader: string | null) {
   const audioVisualizer =
     get(COOKIE_NAMES.audioVisualizer) === '1' || get(COOKIE_NAMES.audioVisualizer) === 'true';
   const styleRaw = get(COOKIE_NAMES.audioVisualizerStyle);
-  const validStyles = ['bars', 'mirror', 'ribbon', 'pulse'] as const;
-  const audioVisualizerStyle =
-    styleRaw && (validStyles as readonly string[]).includes(styleRaw)
-      ? (styleRaw as (typeof validStyles)[number])
-      : 'bars';
+  const audioVisualizerStyle = parseAudioVisualizerStyle(styleRaw);
   const confettiRaw = get(COOKIE_NAMES.visualizerConfetti);
   const visualizerConfetti = confettiRaw === '0' || confettiRaw === 'false' ? false : true;
-  const confettiStyleRaw = get(COOKIE_NAMES.visualizerConfettiStyle);
-  const validConfettiStyles = ['instruments', 'classic', 'sparkle', 'streamers', 'shapes', 'bubbles'] as const;
-  const visualizerConfettiStyle =
-    confettiStyleRaw && (validConfettiStyles as readonly string[]).includes(confettiStyleRaw)
-      ? (confettiStyleRaw as (typeof validConfettiStyles)[number])
-      : 'instruments';
-  const confettiAmountRaw = get(COOKIE_NAMES.visualizerConfettiAmount);
-  const validConfettiAmounts = ['light', 'normal', 'heavy'] as const;
-  const visualizerConfettiAmount =
-    confettiAmountRaw && (validConfettiAmounts as readonly string[]).includes(confettiAmountRaw)
-      ? (confettiAmountRaw as (typeof validConfettiAmounts)[number])
-      : 'normal';
-  const confettiSpreadRaw = get(COOKIE_NAMES.visualizerConfettiSpread);
-  const validConfettiSpreads = ['subtle', 'normal', 'wide'] as const;
-  const visualizerConfettiSpread =
-    confettiSpreadRaw && (validConfettiSpreads as readonly string[]).includes(confettiSpreadRaw)
-      ? (confettiSpreadRaw as (typeof validConfettiSpreads)[number])
-      : 'normal';
   const quality = get(COOKIE_NAMES.quality) ?? 'auto';
   const spatialAudio =
     get(COOKIE_NAMES.spatialAudio) === '1' || get(COOKIE_NAMES.spatialAudio) === 'true';
@@ -160,9 +137,6 @@ export function getPlayerSettingsFromCookies(cookieHeader: string | null) {
     audioVisualizer,
     audioVisualizerStyle,
     visualizerConfetti,
-    visualizerConfettiStyle,
-    visualizerConfettiAmount,
-    visualizerConfettiSpread,
     quality,
     spatialAudio,
     spatialAudioConfig,
@@ -249,8 +223,7 @@ export const action = async ({ request }: { request: Request }) => {
     }
     if (typeof body.audioVisualizerStyle === 'string') {
       const trimmed = body.audioVisualizerStyle.trim();
-      const validStyles = ['bars', 'mirror', 'ribbon', 'pulse'] as const;
-      if ((validStyles as readonly string[]).includes(trimmed)) {
+      if ((AUDIO_VISUALIZER_STYLES as readonly string[]).includes(trimmed)) {
         setCookies.push(
           buildSetCookie(COOKIE_NAMES.audioVisualizerStyle, trimmed, secure)
         );
@@ -261,30 +234,6 @@ export const action = async ({ request }: { request: Request }) => {
       const v = body.visualizerConfetti ? '1' : '0';
       setCookies.push(buildSetCookie(COOKIE_NAMES.visualizerConfetti, v, secure));
       result.visualizerConfetti = body.visualizerConfetti;
-    }
-    if (typeof body.visualizerConfettiStyle === 'string') {
-      const trimmed = body.visualizerConfettiStyle.trim();
-      const validConfettiStyles = ['instruments', 'classic', 'sparkle', 'streamers', 'shapes', 'bubbles'] as const;
-      if ((validConfettiStyles as readonly string[]).includes(trimmed)) {
-        setCookies.push(buildSetCookie(COOKIE_NAMES.visualizerConfettiStyle, trimmed, secure));
-        result.visualizerConfettiStyle = trimmed;
-      }
-    }
-    if (typeof body.visualizerConfettiAmount === 'string') {
-      const trimmed = body.visualizerConfettiAmount.trim();
-      const validAmounts = ['light', 'normal', 'heavy'] as const;
-      if ((validAmounts as readonly string[]).includes(trimmed)) {
-        setCookies.push(buildSetCookie(COOKIE_NAMES.visualizerConfettiAmount, trimmed, secure));
-        result.visualizerConfettiAmount = trimmed;
-      }
-    }
-    if (typeof body.visualizerConfettiSpread === 'string') {
-      const trimmed = body.visualizerConfettiSpread.trim();
-      const validSpreads = ['subtle', 'normal', 'wide'] as const;
-      if ((validSpreads as readonly string[]).includes(trimmed)) {
-        setCookies.push(buildSetCookie(COOKIE_NAMES.visualizerConfettiSpread, trimmed, secure));
-        result.visualizerConfettiSpread = trimmed;
-      }
     }
     if (typeof body.quality === 'string') {
       const v = body.quality.trim() || 'auto';

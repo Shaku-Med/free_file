@@ -2,19 +2,14 @@ import { useEffect, useRef, useState, type RefObject } from 'react';
 import { createPortal } from 'react-dom';
 import { usePlayerContext } from '../../PlayerContext';
 import { buildPrimaryVisualizerPalette } from '../../visualizerPalette';
-import {
-  CONFETTI_SPAWN_FROM_BOTTOM_PX,
-  confettiRuntimeConfig,
-  type ConfettiAmount,
-  type ConfettiSpread,
-} from '../../confettiSettings';
+import { CONFETTI_SPAWN_FROM_BOTTOM_PX, confettiRuntimeConfig } from '../../confettiSettings';
 
 /**
- * Subtle bass-kick confetti from the visualizer strip. Only fires on low-end
- * transients (kick), not snare/mids/vocals.
+ * Kick-triggered confetti from the visualizer strip (sub, body, punch, waveform
+ * transients). Burst size follows live audio tension — louder hits spawn more.
  */
 
-const KICK_COOLDOWN_MS = 200;
+const KICK_COOLDOWN_MS = 180;
 
 type Particle = {
   x: number;
@@ -39,15 +34,112 @@ type PlayerRect = {
 const MINI_PLAYER_Z = 2147483646;
 const CONFETTI_Z_ABOVE_MINI = MINI_PLAYER_Z + 1;
 
-function bassEnergy(freq: ArrayLike<number>): number {
-  let s = 0;
-  let c = 0;
-  const hi = Math.min(9, freq.length);
-  for (let i = 1; i < hi; i++) {
-    s += freq[i] ?? 0;
-    c++;
+/** Weighted mean over FFT bins (skips DC). `emphasisLow` > 1 boosts lower bins. */
+function bandEnergy(
+  freq: ArrayLike<number>,
+  binStart: number,
+  binEnd: number,
+  emphasisLow = 1,
+): number {
+  const start = Math.max(1, binStart);
+  const end = Math.min(freq.length - 1, binEnd);
+  if (end < start) return 0;
+  let weighted = 0;
+  let wSum = 0;
+  const span = end - start + 1;
+  for (let i = start; i <= end; i++) {
+    const t = span <= 1 ? 0 : (i - start) / (span - 1);
+    const w = 1 + (emphasisLow - 1) * (1 - t);
+    weighted += (freq[i] ?? 0) * w;
+    wSum += w;
   }
-  return c ? s / c / 255 : 0;
+  return wSum ? weighted / wSum / 255 : 0;
+}
+
+/** Sub + body: ~25–500 Hz at 44.1 kHz / 2048 FFT — 808s, thumps, most kick fundamentals. */
+function kickBodyEnergy(freq: ArrayLike<number>): number {
+  return bandEnergy(freq, 1, Math.min(24, freq.length - 1), 1.35);
+}
+
+/** Attack / beater click: ~120–850 Hz — tight kicks, acoustic transients, layered tops. */
+function kickPunchEnergy(freq: ArrayLike<number>): number {
+  return bandEnergy(freq, 6, Math.min(40, freq.length - 1), 0.85);
+}
+
+/** Waveform RMS (0–1) — catches any percussive strike regardless of EQ. */
+function waveformRms(time: ArrayLike<number>): number {
+  if (!time.length) return 0;
+  let sum = 0;
+  for (let i = 0; i < time.length; i++) {
+    const v = ((time[i] ?? 128) - 128) / 128;
+    sum += v * v;
+  }
+  return Math.sqrt(sum / time.length);
+}
+
+/** Overall mix intensity (0–1). */
+function spectralEnergy(freq: ArrayLike<number>): number {
+  let s = 0;
+  const start = 1;
+  const end = Math.min(freq.length, Math.floor(freq.length * 0.72));
+  if (end <= start) return 0;
+  for (let i = start; i < end; i++) s += freq[i] ?? 0;
+  return s / ((end - start) * 255);
+}
+
+/** Smoothed “how intense is the track right now” — drives particle budget. */
+function mixTension(freq: ArrayLike<number>, kickBody: number, prev: number): number {
+  const energy = spectralEnergy(freq);
+  const raw = Math.min(1, energy * 0.55 + kickBody * 0.45);
+  return prev * 0.9 + raw * 0.1;
+}
+
+type KickStrike = {
+  score: number;
+  tension: number;
+};
+
+/**
+ * Onset detector for any kick type: sub 808, punchy body, clicky attack, or
+ * waveform-only transients when the spectrum still moves a little.
+ */
+function detectKickStrike(
+  body: number,
+  punch: number,
+  wave: number,
+  bodyEnv: number,
+  punchEnv: number,
+  waveEnv: number,
+  mixTensionVal: number,
+): KickStrike | null {
+  const bodyStrike = body - bodyEnv;
+  const punchStrike = punch - punchEnv;
+  const waveStrike = wave - waveEnv;
+  const bandStrike = Math.max(bodyStrike, punchStrike);
+
+  const bodyFloor = 0.14 + mixTensionVal * 0.06;
+  const punchFloor = 0.18 + mixTensionVal * 0.08;
+  const bandTransient =
+    bandStrike > 0.055 &&
+    (body > bodyFloor || punch > punchFloor) &&
+    (bodyStrike > 0.045 || punchStrike > 0.04);
+
+  const waveFloor = 0.028 + mixTensionVal * 0.012;
+  const waveTransient =
+    waveStrike > 0.018 &&
+    wave > waveFloor &&
+    bandStrike > 0.028;
+
+  if (!bandTransient && !waveTransient) return null;
+
+  const normBand = Math.min(1, bandStrike / 0.14);
+  const normWave = Math.min(1, waveStrike / 0.055);
+  const score = Math.max(normBand, normWave * 0.92);
+  const tension = Math.min(
+    1,
+    mixTensionVal * 0.4 + score * 0.45 + Math.min(1, bodyStrike / 0.16) * 0.15,
+  );
+  return { score, tension };
 }
 
 function stackZAbovePlayer(root: HTMLElement): number {
@@ -99,19 +191,7 @@ export default function BassConfetti({ analyser, anchorRef: anchorRefProp }: Bas
   const analyserRef = useRef(analyser);
   analyserRef.current = analyser;
 
-  const amountRef = useRef<ConfettiAmount>('normal');
-  const spreadRef = useRef<ConfettiSpread>('normal');
-
-  const {
-    state,
-    containerRef,
-    visualizerConfetti,
-    visualizerConfettiAmount,
-    visualizerConfettiSpread,
-  } = usePlayerContext();
-
-  amountRef.current = visualizerConfettiAmount;
-  spreadRef.current = visualizerConfettiSpread;
+  const { state, containerRef, visualizerConfetti } = usePlayerContext();
 
   const anchorRefPropRef = useRef(anchorRefProp);
   anchorRefPropRef.current = anchorRefProp;
@@ -160,6 +240,7 @@ export default function BassConfetti({ analyser, anchorRef: anchorRefProp }: Bas
 
     let canvasW = 0;
     let canvasH = 0;
+    let tensionEnv = 0.25;
 
     const resizeCanvas = (rect: PlayerRect, rt: ReturnType<typeof confettiRuntimeConfig>) => {
       const dpr = Math.min(2, typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1);
@@ -172,31 +253,39 @@ export default function BassConfetti({ analyser, anchorRef: anchorRefProp }: Bas
 
     const particles: Particle[] = [];
     let freq: Uint8Array | null = null;
+    let time: Uint8Array | null = null;
     let rafId: number | null = null;
-    let bassEnv = 0;
+    let bodyEnv = 0;
+    let punchEnv = 0;
+    let waveEnv = 0;
     let lastKick = 0;
 
     const spawnKickBurst = (
       rect: PlayerRect,
       rt: ReturnType<typeof confettiRuntimeConfig>,
+      kickTension: number,
     ) => {
-      const count = Math.max(2, Math.round((3 + Math.floor(Math.random() * 3)) * rt.countMul));
+      const count = Math.max(
+        2,
+        Math.round((2 + Math.floor(Math.random() * 4)) * rt.countMul * (0.55 + kickTension * 0.75)),
+      );
       const spawnLineY = rt.spillTop + rect.height - spawnOffsetFromBottom(rect.height);
       const playerW = rect.width;
+      const sizeBoost = 0.85 + kickTension * 0.35;
 
       for (let i = 0; i < count && particles.length < rt.maxParticles; i++) {
         const x = rt.spillSide + playerW * (0.14 + Math.random() * 0.72);
         particles.push({
           x,
           y: spawnLineY + (Math.random() - 0.5) * 2,
-          vx: (Math.random() - 0.5) * 2.8,
-          vy: -(0.35 + Math.random() * 0.85),
-          size: 2.5 + Math.random() * 2.5,
+          vx: (Math.random() - 0.5) * (2.2 + kickTension * 1.4),
+          vy: -(0.3 + Math.random() * (0.55 + kickTension * 0.45)),
+          size: (2.2 + Math.random() * 2.2) * sizeBoost,
           rot: Math.random() * Math.PI,
           vrot: (Math.random() - 0.5) * 0.35,
           color: palette[Math.floor(Math.random() * palette.length)] ?? 'rgb(99, 102, 241)',
           life: 0,
-          maxLife: 36 + Math.random() * 28,
+          maxLife: 34 + Math.random() * (22 + kickTension * 18),
         });
       }
     };
@@ -214,7 +303,7 @@ export default function BassConfetti({ analyser, anchorRef: anchorRefProp }: Bas
         ? CONFETTI_Z_ABOVE_MINI
         : stackZAbovePlayer(anchor);
 
-      const rt = confettiRuntimeConfig(amountRef.current, spreadRef.current);
+      const rt = confettiRuntimeConfig(tensionEnv);
 
       const nextW = rect.width + rt.spillSide * 2;
       const nextH = rect.height + rt.spillTop + rt.spillBottom;
@@ -230,16 +319,34 @@ export default function BassConfetti({ analyser, anchorRef: anchorRefProp }: Bas
       if (an && playingRef.current && !hidden) {
         const len = an.frequencyBinCount;
         if (!freq || freq.length !== len) freq = new Uint8Array(len);
+        if (!time || time.length !== an.fftSize) time = new Uint8Array(an.fftSize);
         an.getByteFrequencyData(freq as Parameters<AnalyserNode['getByteFrequencyData']>[0]);
+        an.getByteTimeDomainData(time as Parameters<AnalyserNode['getByteTimeDomainData']>[0]);
 
-        const bass = bassEnergy(freq);
-        bassEnv = bassEnv * 0.94 + bass * 0.06;
+        const body = kickBodyEnergy(freq);
+        const punch = kickPunchEnergy(freq);
+        const wave = waveformRms(time);
+
+        bodyEnv = bodyEnv * 0.93 + body * 0.07;
+        punchEnv = punchEnv * 0.91 + punch * 0.09;
+        waveEnv = waveEnv * 0.88 + wave * 0.12;
+        tensionEnv = mixTension(freq, body, tensionEnv);
+
         const now = performance.now();
         const cooldown = KICK_COOLDOWN_MS * rt.cooldownMul;
+        const strike = detectKickStrike(
+          body,
+          punch,
+          wave,
+          bodyEnv,
+          punchEnv,
+          waveEnv,
+          tensionEnv,
+        );
 
-        if (bass > 0.38 && bass - bassEnv > 0.09 && now - lastKick > cooldown) {
+        if (strike && strike.score > 0.42 && now - lastKick > cooldown) {
           lastKick = now;
-          spawnKickBurst(rect, rt);
+          spawnKickBurst(rect, confettiRuntimeConfig(strike.tension), strike.tension);
         }
       }
 
@@ -271,7 +378,7 @@ export default function BassConfetti({ analyser, anchorRef: anchorRefProp }: Bas
 
     const initialAnchor = resolveAnchor();
     const initial = initialAnchor ? readAnchorRect(initialAnchor) : null;
-    if (initial) resizeCanvas(initial, confettiRuntimeConfig(amountRef.current, spreadRef.current));
+    if (initial) resizeCanvas(initial, confettiRuntimeConfig(tensionEnv));
     rafId = requestAnimationFrame(tick);
 
     return () => {
@@ -279,6 +386,7 @@ export default function BassConfetti({ analyser, anchorRef: anchorRefProp }: Bas
       mo?.disconnect();
       particles.length = 0;
       freq = null;
+      time = null;
       canvas.width = 0;
       canvas.height = 0;
     };

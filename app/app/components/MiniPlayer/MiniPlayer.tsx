@@ -1,12 +1,12 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useLayoutEffect, useState, useCallback } from "react";
 import { flushSync } from "react-dom";
 import { useLocation, useNavigate } from "react-router";
 import { createPortal } from "react-dom";
 import { motion } from "framer-motion";
 import { X, Maximize2, Loader2 } from "lucide-react";
-import { useMiniPlayerContext } from "~/lib/Context/MiniPlayerContext";
-import { useMainPlayerSlot } from "~/lib/Context/MainPlayerSlotContext";
+import { useMiniPlayerContext, isReelPath } from "~/lib/Context/MiniPlayerContext";
 import { useWatchSurfaceVideoRef } from "~/lib/Context/WatchSurfaceVideoRefContext";
+import { useMainPlayerSlot } from "~/lib/Context/MainPlayerSlotContext";
 import { ParseFilename } from "~/lib/utils";
 import { cn } from "~/lib/utils";
 import { useMiniPlayerDrag } from "./useMiniPlayerDrag";
@@ -243,20 +243,26 @@ function MiniPlayerContent() {
   );
 }
 
-/** Reel surface owns the global player while user is on `/reel*`  mini is closed, not just hidden. */
-function isReelPath(pathname: string): boolean {
-  const s = pathname.replace(/^\/+/, "");
-  return s === "reel" || s.startsWith("reel/");
-}
-
+/** Reel surface owns the global player while user is on `/reel*` — mini is suspended, not closed. */
 export default function MiniPlayer() {
-  const { miniPlayer, closeMiniPlayer } = useMiniPlayerContext();
+  const { miniPlayer, suspendMiniPlayerForReel } = useMiniPlayerContext();
+  const watchVideoRef = useWatchSurfaceVideoRef();
   const location = useLocation();
   const onReel = isReelPath(location.pathname);
 
-  useEffect(() => {
-    if (onReel && miniPlayer) closeMiniPlayer();
-  }, [onReel, miniPlayer, closeMiniPlayer]);
+  useLayoutEffect(() => {
+    if (!onReel || !miniPlayer) return;
+    const video = watchVideoRef.current;
+    suspendMiniPlayerForReel({
+      ...miniPlayer,
+      src: miniPlayer.src,
+      currentTime: video?.currentTime ?? miniPlayer.currentTime ?? 0,
+      wasPlaying: video ? !video.paused : (miniPlayer.wasPlaying ?? false),
+      volume: video?.volume ?? miniPlayer.volume ?? 1,
+      muted: video?.muted ?? miniPlayer.muted ?? false,
+      playbackRate: video?.playbackRate ?? miniPlayer.playbackRate ?? 1,
+    });
+  }, [onReel, miniPlayer, suspendMiniPlayerForReel, watchVideoRef]);
 
   if (!miniPlayer) return null;
   if (onReel) return null;

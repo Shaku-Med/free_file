@@ -14,14 +14,6 @@ import {
   DEFAULT_AUDIO_VISUALIZER_STYLE,
 } from './audioVisualizerStyles';
 import {
-  type ConfettiAmount,
-  type ConfettiSpread,
-  type ConfettiStyle,
-  DEFAULT_CONFETTI_AMOUNT,
-  DEFAULT_CONFETTI_SPREAD,
-  DEFAULT_CONFETTI_STYLE,
-} from './confettiSettings';
-import {
   DEFAULT_SPATIAL_CONFIG,
   type SpatialAudioConfig,
   type SpatialAudioMode,
@@ -232,12 +224,6 @@ interface PlayerContextValue {
   setAudioVisualizerStyle: (v: AudioVisualizerStyle) => void;
   visualizerConfetti: boolean;
   setVisualizerConfetti: (v: boolean) => void;
-  visualizerConfettiStyle: ConfettiStyle;
-  setVisualizerConfettiStyle: (v: ConfettiStyle) => void;
-  visualizerConfettiAmount: ConfettiAmount;
-  setVisualizerConfettiAmount: (v: ConfettiAmount) => void;
-  visualizerConfettiSpread: ConfettiSpread;
-  setVisualizerConfettiSpread: (v: ConfettiSpread) => void;
   /** Session-only debug overlay (not persisted). */
   statsForNerds: boolean;
   setStatsForNerds: (v: boolean) => void;
@@ -452,7 +438,7 @@ export function PlayerProvider({
   const audioVisualizerStyleRef = useRef<AudioVisualizerStyle>(DEFAULT_AUDIO_VISUALIZER_STYLE);
   const setAudioVisualizer = useCallback(
     (v: boolean) => {
-      if (!authPlaybackFeatures) return;
+      if (!authPlaybackFeatures || isReel) return;
       setAudioVisualizerState(v);
       setPlayerSettings(prev => (prev ? { ...prev, audioVisualizer: v } : prev));
       savePlayerSettings({
@@ -460,7 +446,7 @@ export function PlayerProvider({
         audioVisualizerStyle: audioVisualizerStyleRef.current,
       }).catch(() => {});
     },
-    [authPlaybackFeatures, setPlayerSettings, savePlayerSettings]
+    [authPlaybackFeatures, isReel, setPlayerSettings, savePlayerSettings]
   );
 
   const [audioVisualizerStyle, setAudioVisualizerStyleState] = useState<AudioVisualizerStyle>(
@@ -496,9 +482,6 @@ export function PlayerProvider({
   );
 
   const [visualizerConfetti, setVisualizerConfettiState] = useState(true);
-  const confettiStyleRef = useRef<ConfettiStyle>(DEFAULT_CONFETTI_STYLE);
-  const confettiAmountRef = useRef<ConfettiAmount>(DEFAULT_CONFETTI_AMOUNT);
-  const confettiSpreadRef = useRef<ConfettiSpread>(DEFAULT_CONFETTI_SPREAD);
 
   const setVisualizerConfetti = useCallback(
     (v: boolean) => {
@@ -506,45 +489,6 @@ export function PlayerProvider({
       setVisualizerConfettiState(v);
       setPlayerSettings(prev => (prev ? { ...prev, visualizerConfetti: v } : prev));
       savePlayerSettings({ visualizerConfetti: v }).catch(() => {});
-    },
-    [authPlaybackFeatures, setPlayerSettings, savePlayerSettings],
-  );
-
-  const [visualizerConfettiStyle, setVisualizerConfettiStyleState] =
-    useState<ConfettiStyle>(DEFAULT_CONFETTI_STYLE);
-  const setVisualizerConfettiStyle = useCallback(
-    (style: ConfettiStyle) => {
-      if (!authPlaybackFeatures) return;
-      confettiStyleRef.current = style;
-      setVisualizerConfettiStyleState(style);
-      setPlayerSettings(prev => (prev ? { ...prev, visualizerConfettiStyle: style } : prev));
-      savePlayerSettings({ visualizerConfettiStyle: style }).catch(() => {});
-    },
-    [authPlaybackFeatures, setPlayerSettings, savePlayerSettings],
-  );
-
-  const [visualizerConfettiAmount, setVisualizerConfettiAmountState] =
-    useState<ConfettiAmount>(DEFAULT_CONFETTI_AMOUNT);
-  const setVisualizerConfettiAmount = useCallback(
-    (amount: ConfettiAmount) => {
-      if (!authPlaybackFeatures) return;
-      confettiAmountRef.current = amount;
-      setVisualizerConfettiAmountState(amount);
-      setPlayerSettings(prev => (prev ? { ...prev, visualizerConfettiAmount: amount } : prev));
-      savePlayerSettings({ visualizerConfettiAmount: amount }).catch(() => {});
-    },
-    [authPlaybackFeatures, setPlayerSettings, savePlayerSettings],
-  );
-
-  const [visualizerConfettiSpread, setVisualizerConfettiSpreadState] =
-    useState<ConfettiSpread>(DEFAULT_CONFETTI_SPREAD);
-  const setVisualizerConfettiSpread = useCallback(
-    (spread: ConfettiSpread) => {
-      if (!authPlaybackFeatures) return;
-      confettiSpreadRef.current = spread;
-      setVisualizerConfettiSpreadState(spread);
-      setPlayerSettings(prev => (prev ? { ...prev, visualizerConfettiSpread: spread } : prev));
-      savePlayerSettings({ visualizerConfettiSpread: spread }).catch(() => {});
     },
     [authPlaybackFeatures, setPlayerSettings, savePlayerSettings],
   );
@@ -561,33 +505,18 @@ export function PlayerProvider({
     if (!isReel) setLoopState(playerSettings.loop);
     setAutoPlayState(playerSettings.autoPlay);
     setStableVolumeState(playerSettings.stableVolume);
-    if (authPlaybackFeatures) {
+    if (authPlaybackFeatures && !isReel) {
       setAudioVisualizerState(playerSettings.audioVisualizer ?? false);
       const style = playerSettings.audioVisualizerStyle ?? DEFAULT_AUDIO_VISUALIZER_STYLE;
       audioVisualizerStyleRef.current = style;
       setAudioVisualizerStyleState(style);
       setVisualizerConfettiState(playerSettings.visualizerConfetti !== false);
-      const cStyle = playerSettings.visualizerConfettiStyle ?? DEFAULT_CONFETTI_STYLE;
-      confettiStyleRef.current = cStyle;
-      setVisualizerConfettiStyleState(cStyle);
-      const cAmount = playerSettings.visualizerConfettiAmount ?? DEFAULT_CONFETTI_AMOUNT;
-      confettiAmountRef.current = cAmount;
-      setVisualizerConfettiAmountState(cAmount);
-      const cSpread = playerSettings.visualizerConfettiSpread ?? DEFAULT_CONFETTI_SPREAD;
-      confettiSpreadRef.current = cSpread;
-      setVisualizerConfettiSpreadState(cSpread);
       setAmbientModeState(playerSettings.ambientMode);
     } else {
       setAudioVisualizerState(false);
       audioVisualizerStyleRef.current = DEFAULT_AUDIO_VISUALIZER_STYLE;
       setAudioVisualizerStyleState(DEFAULT_AUDIO_VISUALIZER_STYLE);
       setVisualizerConfettiState(true);
-      confettiStyleRef.current = DEFAULT_CONFETTI_STYLE;
-      setVisualizerConfettiStyleState(DEFAULT_CONFETTI_STYLE);
-      confettiAmountRef.current = DEFAULT_CONFETTI_AMOUNT;
-      setVisualizerConfettiAmountState(DEFAULT_CONFETTI_AMOUNT);
-      confettiSpreadRef.current = DEFAULT_CONFETTI_SPREAD;
-      setVisualizerConfettiSpreadState(DEFAULT_CONFETTI_SPREAD);
       setAmbientModeState(false);
     }
 
@@ -653,7 +582,7 @@ export function PlayerProvider({
         v.playbackRate = playerSettings.playbackRate;
       }
     }
-  }, [playerSettings, videoRef, authPlaybackFeatures, unlockPipReelAudio]);
+  }, [playerSettings, videoRef, authPlaybackFeatures, unlockPipReelAudio, isReel]);
 
   useEffect(() => {
     if (authPlaybackFeatures) return;
@@ -1013,12 +942,6 @@ export function PlayerProvider({
     setAudioVisualizerStyle,
     visualizerConfetti,
     setVisualizerConfetti,
-    visualizerConfettiStyle,
-    setVisualizerConfettiStyle,
-    visualizerConfettiAmount,
-    setVisualizerConfettiAmount,
-    visualizerConfettiSpread,
-    setVisualizerConfettiSpread,
     statsForNerds,
     setStatsForNerds,
     sleepTimer,

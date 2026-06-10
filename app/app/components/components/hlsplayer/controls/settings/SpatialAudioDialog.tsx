@@ -170,7 +170,9 @@ export default function SpatialAudioDialog({
   const [draggingPad, setDraggingPad] = useState(false);
 
   const update = useCallback(
-    (patch: Partial<SpatialAudioConfig>) => {
+    (patch: Omit<Partial<SpatialAudioConfig>, 'position'> & {
+      position?: Partial<SpatialAudioConfig['position']>;
+    }) => {
       onChange({
         ...value,
         ...patch,

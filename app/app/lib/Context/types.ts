@@ -18,12 +18,9 @@ export type PlayerSettings = {
   ambientMode: boolean;
   /** Bars + seek strip stay visible when controls auto-hide */
   audioVisualizer: boolean;
-  audioVisualizerStyle: 'bars' | 'mirror' | 'ribbon' | 'pulse';
-  /** Pop confetti from the visualizer on beats (desktop). */
+  audioVisualizerStyle: 'bars' | 'mirror' | 'ribbon' | 'pulse' | 'line' | 'blocks' | 'dots' | 'aurora';
+  /** Pop confetti from the visualizer on bass kicks (desktop). Intensity follows the audio. */
   visualizerConfetti: boolean;
-  visualizerConfettiStyle: 'instruments' | 'classic' | 'sparkle' | 'streamers' | 'shapes' | 'bubbles';
-  visualizerConfettiAmount: 'light' | 'normal' | 'heavy';
-  visualizerConfettiSpread: 'subtle' | 'normal' | 'wide';
   quality: string;
   /** 8D / spatial audio master toggle. */
   spatialAudio: boolean;

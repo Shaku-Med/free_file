@@ -17,6 +17,8 @@ export interface MiniPlayerState {
   volume?: number;
   muted?: boolean;
   playbackRate?: number;
+  /** Global `<video>` was torn down; seek/autoplay from snapshot on next mount (reel suspend resume). */
+  sessionRestore?: boolean;
 }
 
 export interface ActivateMiniPlayerOptions {
@@ -59,6 +61,11 @@ export function isSingleSegmentWatchPath(pathname: string): boolean {
   return !STATIC_TOP_SEGMENTS.has(s);
 }
 
+export function isReelPath(pathname: string): boolean {
+  const s = pathname.replace(/^\/+/, "");
+  return s === "reel" || s.startsWith("reel/");
+}
+
 interface MiniPlayerContextType {
   miniPlayer: MiniPlayerState | null;
   isPortalMode: boolean;
@@ -66,6 +73,13 @@ interface MiniPlayerContextType {
   containerReady: boolean;
   setContainerReady: (ready: boolean) => void;
   activateMiniPlayer: (state: MiniPlayerState, options?: ActivateMiniPlayerOptions) => void;
+  /** Hide mini on `/reel*` while preserving state for restore on non-watch exit. */
+  suspendMiniPlayerForReel: (snapshot: MiniPlayerState) => void;
+  /** Re-show mini after leaving reel to a page that is not a watch URL. */
+  resumeSuspendedMiniPlayer: () => boolean;
+  clearSuspendedMiniForReel: () => void;
+  /** Clears one-shot reel resume seek/autoplay after the player has mounted. */
+  clearMiniSessionRestore: () => void;
   closeMiniPlayer: () => void;
   updateMiniPlayerTime: (time: number) => void;
   getNavigateBackTarget: () => string;
@@ -98,6 +112,7 @@ export function MiniPlayerProvider({ children }: { children: React.ReactNode }) 
   const [containerReady, setContainerReady] = useState(false);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const sourceVideoRef = useRef<HTMLVideoElement | null>(null);
+  const suspendedForReelRef = useRef<MiniPlayerState | null>(null);
 
   // Track navigation history for mini player back navigation
   const location = useLocation();
@@ -144,7 +159,46 @@ export function MiniPlayerProvider({ children }: { children: React.ReactNode }) 
   const [isExpanding, setIsExpanding] = useState(false);
   const [expandPlaybackState, setExpandPlaybackState] = useState<ExpandPlaybackState | null>(null);
 
+  const clearSuspendedMiniForReel = useCallback(() => {
+    suspendedForReelRef.current = null;
+  }, []);
+
+  const suspendMiniPlayerForReel = useCallback((snapshot: MiniPlayerState) => {
+    if (snapshot.src && snapshot.file.unique_id) {
+      setCachedPlaybackUrl(snapshot.file.unique_id, snapshot.src);
+    }
+    suspendedForReelRef.current = { ...snapshot, sessionRestore: true };
+    setMiniPlayer(null);
+    setIsPortalMode(false);
+    setContainerReady(false);
+    sourceVideoRef.current = null;
+  }, []);
+
+  const resumeSuspendedMiniPlayer = useCallback((): boolean => {
+    const snap = suspendedForReelRef.current;
+    if (!snap) return false;
+    suspendedForReelRef.current = null;
+    if (snap.src && snap.file.unique_id) {
+      setCachedPlaybackUrl(snap.file.unique_id, snap.src);
+    }
+    setMiniPlayer(snap);
+    setIsPortalMode(false);
+    setPendingNavigateTo(null);
+    setIsExpanding(false);
+    setExpandPlaybackState(null);
+    return true;
+  }, []);
+
+  const clearMiniSessionRestore = useCallback(() => {
+    setMiniPlayer(prev => {
+      if (!prev?.sessionRestore) return prev;
+      const { sessionRestore: _restore, ...rest } = prev;
+      return rest;
+    });
+  }, []);
+
   const closeMiniPlayer = useCallback(() => {
+    suspendedForReelRef.current = null;
     setMiniPlayer(null);
     setIsPortalMode(false);
     setContainerReady(false);
@@ -187,6 +241,10 @@ export function MiniPlayerProvider({ children }: { children: React.ReactNode }) 
         containerReady,
         setContainerReady,
         activateMiniPlayer,
+        suspendMiniPlayerForReel,
+        resumeSuspendedMiniPlayer,
+        clearSuspendedMiniForReel,
+        clearMiniSessionRestore,
         closeMiniPlayer,
         updateMiniPlayerTime,
         getNavigateBackTarget,
