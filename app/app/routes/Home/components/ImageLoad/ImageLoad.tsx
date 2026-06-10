@@ -36,6 +36,32 @@ interface ImageLoadProps {
 
 const MAX_FETCH_RECOVERY_ATTEMPTS = 3
 
+/** Adult / media-session loads must fetch (not <img src>) so auth cookies reach /api/load/image. */
+function buildImageRequestUrl(
+    path: string,
+    opts: {
+        forceSameOrigin: boolean
+        useRelativeApiUrl?: boolean
+        secondaryBaseUrl?: string | null
+    },
+): string {
+    const sameOrigin =
+        opts.forceSameOrigin ||
+        opts.useRelativeApiUrl ||
+        path.startsWith('/api/')
+    if (sameOrigin && path.startsWith('/') && typeof window !== 'undefined') {
+        return `${window.location.origin}${path}`
+    }
+    return `${opts.secondaryBaseUrl || IMAGE_BASE_URL}${path}`
+}
+
+function buildImageFetchInit(forceSameOrigin: boolean): RequestInit {
+    if (forceSameOrigin) {
+        return { method: 'GET', credentials: 'include' }
+    }
+    return { method: 'GET', mode: 'cors' }
+}
+
 function ImageLoadShimmer({
     overlay,
     className,
@@ -74,7 +100,7 @@ const ImageLoad = ({
     eagerLoad = false,
     useRelativeApiUrl = false,
 }: ImageLoadProps) => {
-    const { c_user, files, isDevelopment, hasFetchedImages, user_agent } = useFileContext()
+    const { files, isDevelopment, hasFetchedImages, user_agent } = useFileContext()
     const [src, setSrc] = useState<string | null | boolean>(null)
     const [error, setError] = useState<boolean>(false)
     const [loaded, setLoaded] = useState<boolean>(false)
@@ -135,14 +161,17 @@ const ImageLoad = ({
     const isSearchBot = useMemo(() => isSearchBotUserAgent(user_agent), [user_agent])
 
     /**
-     * Only adult (server-blurred blob) and media-session (needs a real blob
-     * URL) require a blocking fetch. Everything else renders the URL straight
-     * into <img src> and warms IndexedDB in the background  no waiting.
+     * Adult content MUST use fetch → blob (never bare <img src>): /api/load/image
+     * applies blur/access from session cookies, which only go with fetch +
+     * credentials on same-origin. Media-session posters use the same path.
      */
     const needsBlobFetch = useMemo(() => {
         if (isSearchBot) return false
         return hasAdultTag || getMediaSessionURL
     }, [isSearchBot, hasAdultTag, getMediaSessionURL])
+
+    /** Same-origin fetch so HttpOnly session cookies authenticate the image API. */
+    const useAuthenticatedFetch = needsBlobFetch || useRelativeApiUrl || hasAdultTag
 
     const hasFetchedRef = useRef(false)
 
@@ -218,21 +247,19 @@ const ImageLoad = ({
                 //    every thumbnail and starved the feed  the slowness).
                 if (!cancelled) setError(false)
                 if (resolvedImageID) {
-                    const bgUrl =
-                        useRelativeApiUrl && resolvedLink.startsWith('/') && typeof window !== 'undefined'
-                            ? `${window.location.origin}${resolvedLink}`
-                            : `${secondaryBaseUrl || IMAGE_BASE_URL}${resolvedLink}`
+                    const bgUrl = buildImageRequestUrl(resolvedLink, {
+                        forceSameOrigin: useRelativeApiUrl,
+                        useRelativeApiUrl,
+                        secondaryBaseUrl,
+                    })
                     const warmIndexedDb = () => {
                         if (cancelled) return
                         void (async () => {
                             try {
-                                const resp = await fetch(bgUrl, {
-                                    method: 'GET',
-                                    headers: { 'c-user': c_user ? `${c_user}` : '' },
-                                    mode: 'cors',
-                                    // Hint the browser to keep this off the critical path.
-                                    ...({ priority: 'low' } as RequestInit),
-                                })
+                                const resp = await fetch(
+                                    bgUrl,
+                                    buildImageFetchInit(useRelativeApiUrl),
+                                )
                                 if (!resp.ok || cancelled) return
                                 const blob = await resp.blob()
                                 if (!blob.size || cancelled) return
@@ -303,13 +330,12 @@ const ImageLoad = ({
             }
 
             try {
-                let response = await fetch(`${secondaryBaseUrl || IMAGE_BASE_URL}${resolvedLink}`, {
-                    method: 'GET',
-                    headers: {
-                        'c-user': c_user ? `${c_user}` : '',
-                    },
-                    mode: 'cors',
+                const fetchUrl = buildImageRequestUrl(resolvedLink, {
+                    forceSameOrigin: useAuthenticatedFetch,
+                    useRelativeApiUrl,
+                    secondaryBaseUrl,
                 })
+                let response = await fetch(fetchUrl, buildImageFetchInit(useAuthenticatedFetch))
                 if (!response.ok) {
                     if (!cancelled) setError(true)
                     return
@@ -367,10 +393,12 @@ const ImageLoad = ({
         resolvedImageID,
         needsBlobFetch,
         isSearchBot,
-        c_user,
         secondaryBaseUrl,
         shouldShowPreview,
         getMediaSessionURL,
+        useRelativeApiUrl,
+        useAuthenticatedFetch,
+        hasAdultTag,
     ])
 
     const absoluteImageUrl = useMemo(() => {
@@ -407,12 +435,12 @@ const ImageLoad = ({
     }, [])
 
     const fetchCtxRef = useRef({
-        c_user: null as string | null,
         secondaryBaseUrl: null as string | null,
         resolvedLink: null as string | null,
         useRelativeApiUrl: false,
+        useAuthenticatedFetch: false,
     })
-    fetchCtxRef.current = { c_user, secondaryBaseUrl, resolvedLink, useRelativeApiUrl }
+    fetchCtxRef.current = { secondaryBaseUrl, resolvedLink, useRelativeApiUrl, useAuthenticatedFetch }
 
     const handleImgError = useCallback(() => {
         if (recoveryInFlight.current) return
@@ -430,17 +458,12 @@ const ImageLoad = ({
                 while (fetchRecoveryRemaining.current > 0) {
                     fetchRecoveryRemaining.current -= 1
                     try {
-                        const recoveryUrl =
-                            ctx.useRelativeApiUrl &&
-                            path.startsWith('/') &&
-                            typeof window !== 'undefined'
-                                ? `${window.location.origin}${path}`
-                                : `${ctx.secondaryBaseUrl || IMAGE_BASE_URL}${path}`
-                        const res = await fetch(recoveryUrl, {
-                            method: 'GET',
-                            headers: { 'c-user': ctx.c_user ? `${ctx.c_user}` : '' },
-                            mode: 'cors',
+                        const recoveryUrl = buildImageRequestUrl(path, {
+                            forceSameOrigin: ctx.useAuthenticatedFetch,
+                            useRelativeApiUrl: ctx.useRelativeApiUrl,
+                            secondaryBaseUrl: ctx.secondaryBaseUrl,
                         })
+                        const res = await fetch(recoveryUrl, buildImageFetchInit(ctx.useAuthenticatedFetch))
                         if (!res.ok) continue
                         const blob = await res.blob()
                         if (!blob.size) continue
@@ -548,7 +571,7 @@ const ImageLoad = ({
     const imgDisplaySrc = preferFetchedBlob && hasBlobSrc
         ? (src as string)                                   // error-recovery blob
         : needsBlobFetch
-            ? (hasBlobSrc ? (src as string) : imgUrlForUrlMode)
+            ? (hasBlobSrc ? (src as string) : '')           // adult/media-session: blob only, never bare URL
             : imgUrlForUrlMode                              // default: straight URL, no blob swap
 
     // Note: for the normal (non-blob) path we deliberately keep showing the

@@ -6,7 +6,7 @@ import BassConfetti from './BassConfetti';
 
 /**
  * Visualizer strip stacked below the control buttons. Owns the single shared
- * analyser node and feeds both the spectrum bars and the bass-kick confetti.
+ * analyser node and feeds both the spectrum bars and instrument confetti.
  */
 export default function PersistentBottomVisualizer() {
   const { videoRef, audioVisualizer, audioVisualizerStyle, state } = usePlayerContext();

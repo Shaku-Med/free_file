@@ -45,8 +45,27 @@ function rgbaStopToString(s: { r: number; g: number; b: number; a: number }): st
 }
 
 /**
- * 6 string stops for horizontal lerp  all from primary (darker / base / lighter) so scroll stays smooth.
+ * 6 string stops for horizontal lerp — all from primary (darker / base / lighter).
  */
+/** Per-instrument confetti colors derived from the same primary shades as the bars. */
+export type InstrumentConfettiPalettes = {
+  /** Kick / sub-bass — darker primary stops (left). */
+  bass: string[];
+  /** Non-vocal mids — base primary (center). */
+  mid: string[];
+  /** Snare / hats / percussion — lighter primary stops (right). */
+  percussion: string[];
+};
+
+export function buildInstrumentConfettiPalettes(): InstrumentConfettiPalettes {
+  const palette = buildPrimaryVisualizerPalette();
+  return {
+    bass: [palette[0]!, palette[1]!, palette[4]!],
+    mid: [palette[2]!, palette[3]!],
+    percussion: [palette[5]!, palette[2]!, palette[3]!],
+  };
+}
+
 export function buildPrimaryVisualizerPalette(): string[] {
   const resolved = resolvePrimaryColorForCanvas();
   const c = cssColorToRgba(resolved) ?? { r: 99, g: 102, b: 241, a: 1 };
