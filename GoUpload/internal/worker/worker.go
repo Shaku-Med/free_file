@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -324,6 +325,40 @@ func (w *Worker) embedForFile(job *queue.Job, categories, tags []string, metadat
 	return vecs[0]
 }
 
+// musicScoreThreshold: tag "Music" at/above this stems music score.
+func musicScoreThreshold() float64 {
+	if raw := os.Getenv("MUSIC_SCORE_THRESHOLD"); raw != "" {
+		if v, err := strconv.ParseFloat(raw, 64); err == nil && v > 0 && v <= 1 {
+			return v
+		}
+	}
+	return 0.6
+}
+
+func appendCategoryIfMissing(categories []string, category string) []string {
+	for _, c := range categories {
+		if strings.EqualFold(strings.TrimSpace(c), category) {
+			return categories
+		}
+	}
+	return append(categories, category)
+}
+
+// splitFingerprints flattens fingerprints into the parallel arrays the
+// webhook payload carries (smaller JSON than an array of objects).
+func splitFingerprints(fps []ffmpeg.AudioFingerprint) ([]uint32, []int32) {
+	if len(fps) == 0 {
+		return nil, nil
+	}
+	hashes := make([]uint32, len(fps))
+	offsets := make([]int32, len(fps))
+	for i, fp := range fps {
+		hashes[i] = fp.Hash
+		offsets[i] = fp.Offset
+	}
+	return hashes, offsets
+}
+
 // sharedRootDirs are directories that hold *every* job's working files
 // failJob must NEVER RemoveAll one of these, or it'll wipe out siblings
 // that are still mid-pipeline. We accept some empty leftover dirs in
@@ -586,15 +621,18 @@ func (w *Worker) processJob(job *queue.Job) {
 		w.log.Infof("waveform job=%s path=%s has_audio=%v", job.ID, waveformResult.Path, hasAudio)
 	}
 
-	// Audio stems (kick/snare/hihat/bass onsets) for the visualizer confetti.
-	// Soft-fail like the waveform: the file lands in thumbDir so the early
-	// thumbnail batch upload ships it with zero extra storage plumbing.
-	stemsResult, serr := ffmpeg.ExtractAudioStems(result.OutputPath, thumbDir)
+	// Audio stems (visualizer) + fingerprints (duplicate detection) off ONE
+	// PCM decode. Soft-fail like the waveform: the stems file lands in
+	// thumbDir so the early thumbnail batch ships it; fingerprints ride the
+	// completion webhook.
+	stemsResult, audioFingerprints, serr := ffmpeg.ExtractAudioStemsAndFingerprints(result.OutputPath, thumbDir)
 	if serr != nil {
 		w.log.Infof("audio stems skipped job=%s reason=%s", job.ID, serr.Error())
 	} else if stemsResult != nil {
-		w.log.Infof("audio stems job=%s events=%d has_audio=%v", job.ID, stemsResult.EventCount, stemsResult.HasAudio)
+		w.log.Infof("audio stems job=%s events=%d has_audio=%v fingerprints=%d",
+			job.ID, stemsResult.EventCount, stemsResult.HasAudio, len(audioFingerprints))
 	}
+	fpHashes, fpOffsets := splitFingerprints(audioFingerprints)
 
 	if verr := ffmpeg.ValidateVideo(result.OutputPath); verr != nil {
 		assembledDir := filepath.Dir(result.OutputPath)
@@ -761,6 +799,18 @@ func (w *Worker) processJob(job *queue.Job) {
 	if metadata == nil {
 		metadata = make(map[string]interface{})
 	}
+
+	// Music auto-tag: beat-regularity score from the stems analysis. Above
+	// the threshold → the file is treated as music even when the uploader
+	// gave no tags (feeds search, the feed, and the future copyright gate).
+	if stemsResult != nil && stemsResult.HasAudio {
+		metadata["musicScore"] = stemsResult.MusicScore
+		if stemsResult.MusicScore >= musicScoreThreshold() {
+			categories = appendCategoryIfMissing(categories, "Music")
+			w.log.Infof("music detected job=%s score=%.2f", job.ID, stemsResult.MusicScore)
+		}
+	}
+
 	if videoInfo != nil {
 		metadata["video"] = map[string]interface{}{
 			"width":        videoInfo.Width,
@@ -928,8 +978,10 @@ func (w *Worker) processJob(job *queue.Job) {
 		StorageBucket:       storageBucket,
 		Overflow:            job.Overflow,
 		Embedding:           w.embedForFile(job, categories, tags, metadata),
+		FpHashes:            fpHashes,
+		FpOffsets:           fpOffsets,
 	})
-	w.log.Infof("job complete job=%s user=%s upload=%s duration=%s thumbnails=%d colors=%d tags=%d overflow=%v", job.ID, job.UserID, job.UploadID, time.Since(start), len(thumbnailPaths), len(vidColors), len(tags), job.Overflow)
+	w.log.Infof("job complete job=%s user=%s upload=%s duration=%s thumbnails=%d colors=%d tags=%d overflow=%v fingerprints=%d", job.ID, job.UserID, job.UploadID, time.Since(start), len(thumbnailPaths), len(vidColors), len(tags), job.Overflow, len(fpHashes))
 }
 
 // reelAspectMatch is true for portrait ~9:16 (typical Reels / Shorts / TikTok).
@@ -1179,7 +1231,9 @@ func buildVisionData(vr *nsfw.Result, title, description string, userCategories,
 		metadata["labelNames"] = labelNames
 	}
 
-	combined := strings.ToLower(title + " " + description)
+	// Keyword-match the user's text AND the AI caption: the VLM often says
+	// "a music video of ..." for untagged uploads  a free second witness.
+	combined := strings.ToLower(title + " " + description + " " + vr.Description)
 	var matchedCategories []string
 
 	for category, keywords := range categoryKeywords {

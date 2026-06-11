@@ -19,6 +19,27 @@ export function fileAccentColors(raw: unknown, max = 6): string[] {
   return out;
 }
 
+/**
+ * Hover tint from a file's dominant colors: ONE color picked "randomly" but
+ * stably (seed-hashed, so a grid shows varied hues without flickering on
+ * re-render), crushed onto the theme surface YouTube-style  the hue shows,
+ * the surface's luminance dominates, text contrast survives in any theme.
+ */
+export function fileHoverTint(
+  rawColors: unknown,
+  seed = '',
+  // NOTE: theme tokens are COMPLETE colors (oklch), so use them bare
+  // wrapping in hsl() produces an invalid color (renders black).
+  surface = 'var(--muted)',
+): string | null {
+  const colors = fileAccentColors(rawColors);
+  if (colors.length === 0) return null;
+  let h = 0;
+  for (let i = 0; i < seed.length; i++) h = (h * 31 + seed.charCodeAt(i)) | 0;
+  const pick = colors[Math.abs(h) % colors.length]!;
+  return `color-mix(in srgb, ${pick} 24%, ${surface})`;
+}
+
 /** Resolve any shadcn theme token (`--primary`, `--destructive`, `--chart-2`, …) to computed RGB. */
 export type ThemeColorToken =
   | 'primary'

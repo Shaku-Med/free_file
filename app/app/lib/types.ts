@@ -8,6 +8,8 @@ export interface FileType {
   unique_id: string;
   file_type: string;
   file_size: string | number;
+  /** Audio-fingerprint match: files.id of the ORIGINAL this sound came from. */
+  original_file_id?: string | null;
   is_adult?: boolean;
   up_count?: number;
   down_count?: number;

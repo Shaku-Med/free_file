@@ -1,4 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { Link } from "react-router";
+import { Music2 } from "lucide-react";
 import { FormattedText } from "~/components/FormattedText";
 import OwnerProfile from "~/components/OwnerProfile/OwnerProfile";
 import SubscribeButton from "~/components/SubscribeButton";
@@ -195,6 +197,22 @@ export function ReelMetaPanel({ file, item, views }: ReelMetaPanelProps) {
         {caption ? (
           <ReelCaptionPreview caption={caption} onSeeMore={() => setDescriptionOpen(true)} />
         ) : null}
+
+        {/* TikTok-style sound chip: links to the sound page (the original's
+            id when this reel's audio matched one, else this reel's own id). */}
+        {(file.original_file_id ||
+          (file.metadata as { audio?: { has_audio?: boolean } } | undefined)?.audio?.has_audio) && (
+          <Link
+            to={`/music/${encodeURIComponent(String(file.original_file_id ?? file.id))}`}
+            onClick={(e) => e.stopPropagation()}
+            className="swiper-no-swiping inline-flex max-w-full items-center gap-1.5 self-start rounded-full bg-black/45 px-2.5 py-1 text-xs font-medium text-white/95 backdrop-blur-sm transition-colors hover:bg-black/65"
+          >
+            <Music2 className="h-3.5 w-3.5 shrink-0" aria-hidden />
+            <span className="min-w-0 truncate">
+              {file.original_file_id ? "Original sound  see videos" : "Original sound"}
+            </span>
+          </Link>
+        )}
       </div>
 
       {caption ? (

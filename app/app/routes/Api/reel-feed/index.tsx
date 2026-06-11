@@ -168,6 +168,7 @@ export const loader = async ({ request }: { request: Request }) => {
         view_count: file.view_count,
         share_count: file.share_count,
         is_reel: file.is_reel,
+        original_file_id: file.original_file_id ?? null,
         duration: file.duration,
         categories: file.categories,
         tags: file.tags,

@@ -25,6 +25,9 @@ import Actions from "../Home/components/VideoCard/Actions";
 import { isAuthenticated } from "~/lib/Security/Password";
 import CommentSection from "./components/Comments/CommentSection";
 import { FormattedText } from "~/components/FormattedText";
+import OriginalSoundCard from "./components/OriginalSoundCard";
+import WatchLink from "~/components/WatchLink";
+import { fileHoverTint } from "~/components/components/hlsplayer/visualizerPalette";
 import OwnerProfile from "~/components/OwnerProfile/OwnerProfile";
 import SubscribeButton, { formatSubscriberCount } from "~/components/SubscribeButton";
 import { commentService } from "~/lib/Services/CommentService";
@@ -81,6 +84,27 @@ export type DynamicDeferredDetails = {
   channelStats: { subscriber_count: number; is_subscribed: boolean; notify: boolean } | null;
   commentsCount: number;
   relatedVideosUserActions: { likedFileIds: string[]; dislikedFileIds: string[] };
+  /** Audio-fingerprint match: the ORIGINAL this file's sound came from (YouTube-style attribution). */
+  originalSound: {
+    id: string;
+    unique_id: string;
+    file_title: string | null;
+    filename: string | null;
+    default_thumbnail: string | null;
+    thumbnails: string[] | null;
+    created_at: string | null;
+    ownerUsername: string | null;
+  } | null;
+  /** When THIS file is the original: public videos whose audio matched it. */
+  soundRemixes: Array<{
+    unique_id: string;
+    file_title: string | null;
+    filename: string | null;
+    default_thumbnail: string | null;
+    thumbnails: string[] | null;
+    created_at: string | null;
+    view_count: number;
+  }>;
 };
 
 async function loadDynamicPageDetails(
@@ -97,6 +121,8 @@ async function loadDynamicPageDetails(
       channelStats: null,
       commentsCount: 0,
       relatedVideosUserActions: { likedFileIds: [], dislikedFileIds: [] },
+      originalSound: null,
+      soundRemixes: [],
     };
   }
 
@@ -130,11 +156,67 @@ async function loadDynamicPageDetails(
       ? commentService.getCommentsCount(file.id, userId)
       : Promise.resolve({ data: 0 });
 
-  const [interactionsData, ownerChannel, commentsCountResult] = await Promise.all([
-    interactionsP,
-    ownerChannelP,
-    commentsP,
-  ]);
+  // Attribution: this file's audio matched an existing original (set by
+  // register_audio_fingerprints). Fetch the original's display info  but
+  // only when it's public, so a private original never leaks.
+  const originalFileId = (file as { original_file_id?: string | null }).original_file_id;
+  const originalSoundP: Promise<DynamicDeferredDetails['originalSound']> = originalFileId
+    ? (async () => {
+        const { data: orig } = await db
+          .from('files')
+          .select('id, unique_id, file_title, filename, default_thumbnail, thumbnails, created_at, owner_id, is_public, upload_status')
+          .eq('id', originalFileId)
+          .maybeSingle();
+        if (!orig || orig.is_public !== true || orig.upload_status !== 'complete') return null;
+        let ownerUsername: string | null = null;
+        if (orig.owner_id) {
+          const { data: u } = await db
+            .from('users')
+            .select('username')
+            .eq('id', orig.owner_id)
+            .maybeSingle();
+          ownerUsername = (u as { username?: string } | null)?.username ?? null;
+        }
+        return {
+          id: String(orig.id),
+          unique_id: String(orig.unique_id),
+          file_title: orig.file_title ?? null,
+          filename: orig.filename ?? null,
+          default_thumbnail: orig.default_thumbnail ?? null,
+          thumbnails: Array.isArray(orig.thumbnails) ? orig.thumbnails : null,
+          created_at: orig.created_at ?? null,
+          ownerUsername,
+        };
+      })().catch(() => null)
+    : Promise.resolve(null);
+
+  // This file as the ORIGINAL: the public videos that sampled its sound
+  // (YouTube's "shorts remixing this video" row).
+  const soundRemixesP: Promise<DynamicDeferredDetails['soundRemixes']> = file.id
+    ? (async () => {
+        const { data: remixes } = await db
+          .from('files')
+          .select('unique_id, file_title, filename, default_thumbnail, thumbnails, created_at, view_count')
+          .eq('original_file_id', file.id)
+          .eq('is_public', true)
+          .eq('is_adult', false)
+          .eq('upload_status', 'complete')
+          .order('view_count', { ascending: false })
+          .limit(12);
+        return (Array.isArray(remixes) ? remixes : []).map((r) => ({
+          unique_id: String(r.unique_id),
+          file_title: r.file_title ?? null,
+          filename: r.filename ?? null,
+          default_thumbnail: r.default_thumbnail ?? null,
+          thumbnails: Array.isArray(r.thumbnails) ? r.thumbnails : null,
+          created_at: r.created_at ?? null,
+          view_count: Number(r.view_count) || 0,
+        }));
+      })().catch(() => [] as DynamicDeferredDetails['soundRemixes'])
+    : Promise.resolve([] as DynamicDeferredDetails['soundRemixes']);
+
+  const [interactionsData, ownerChannel, commentsCountResult, originalSound, soundRemixes] =
+    await Promise.all([interactionsP, ownerChannelP, commentsP, originalSoundP, soundRemixesP]);
 
   let userLiked = false;
   let userDisliked = false;
@@ -186,6 +268,8 @@ async function loadDynamicPageDetails(
     channelStats,
     commentsCount,
     relatedVideosUserActions: { likedFileIds: [], dislikedFileIds: [] },
+    originalSound,
+    soundRemixes,
   };
 }
 
@@ -1597,6 +1681,18 @@ const DynamicPage = ({ is_modal }: DynamicPageProps) => {
   );
 
   const description = file_data.file_description?.trim() ?? "";
+  // Hover tint for the collapsed description card: the FILE's dominant
+  // color crushed onto the theme surface (YouTube's trick). color-mix keeps
+  // most of the surface's luminance, so the hue shows but text contrast
+  // survives in both light and dark themes.
+  const descriptionTint = useMemo(
+    () =>
+      fileHoverTint(
+        (file_data as { colors?: unknown }).colors,
+        String(file_data.unique_id ?? file_data.id ?? ""),
+      ),
+    [file_data],
+  );
   // Collapsed = 3 lines visible (matches YouTube). Overflow is measured
   // off the rendered DOM after layout  see the descRef + isOverflowing
   // pair below  because a 3-line clamp depends on font + width, not on
@@ -1718,125 +1814,172 @@ const DynamicPage = ({ is_modal }: DynamicPageProps) => {
       />
       </div>
 
-      {/* YouTube-style description card: stats inline at top, body below, "...more" toggle. */}
-      <div className="rounded-xl bg-muted/40 px-3 py-2.5 max-lg:rounded-lg">
+      {/* YouTube-style description card. Collapsed: stats + a couple of
+          description lines + inline "...more"  EVERYTHING else (hashtags,
+          Music, remix row) stays folded. No description? Everything folds
+          and "...more" sits inline on the stats row. Categories stay in the
+          data for SEO/meta + the feed  never rendered to viewers. */}
+      <div
+        className={cn(
+          "rounded-xl bg-muted/40 px-3 py-3 max-lg:rounded-lg",
+          !descriptionExpanded &&
+            (descriptionTint
+              ? "cursor-pointer transition-colors duration-300 hover:bg-[var(--desc-tint)]"
+              : "cursor-pointer transition-colors hover:bg-muted/55"),
+        )}
+        style={
+          !descriptionExpanded && descriptionTint
+            ? ({ "--desc-tint": descriptionTint } as React.CSSProperties)
+            : undefined
+        }
+        onClick={!descriptionExpanded ? () => setDescriptionExpanded(true) : undefined}
+      >
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-foreground">
           <span className="font-semibold tabular-nums">{formatNumber(views)} views</span>
           {file_data.created_at && (
             <span className="font-semibold">{formatTimeAgo(file_data.created_at)}</span>
           )}
+          {/* No description text: the expand affordance lives inline here. */}
+          {!descriptionExpanded &&
+            !description &&
+            (tagsList.length > 0 ||
+              !!resolvedPageDetails?.originalSound ||
+              (resolvedPageDetails?.soundRemixes?.length ?? 0) > 0) && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setDescriptionExpanded(true);
+                }}
+                className="text-sm font-semibold text-muted-foreground hover:text-foreground"
+              >
+                ...more
+              </button>
+            )}
         </div>
         {description && (
-          <div className="mt-1.5">
-            {/* Wrapper is positioned so the fade-out gradient at the
-                bottom of the clamp can layer on top of the last visible
-                line. The fade only renders when collapsed AND the text
-                actually overflows  short descriptions stay clean. */}
-            <div className="relative">
-              <div
-                ref={descRef}
-                className={cn(
-                  "text-sm text-foreground break-words whitespace-pre-wrap",
-                  !descriptionExpanded && "line-clamp-3",
-                )}
-              >
-                <FormattedText
-                  text={description}
-                  timestamps={
-                    typeof file_data.duration === "number" && file_data.duration > 0
-                      ? { maxSeconds: file_data.duration, fileId: file_data.id }
-                      : undefined
-                  }
-                />
-              </div>
-              {!descriptionExpanded && isOverflowing && (
-                <div
-                  aria-hidden
-                  className="pointer-events-none absolute inset-x-0 bottom-0 h-6 bg-gradient-to-t from-muted/40 to-transparent"
-                />
+          <div className="mt-2">
+            <div
+              ref={descRef}
+              className={cn(
+                "text-sm text-foreground break-words whitespace-pre-wrap",
+                !descriptionExpanded && "line-clamp-2",
               )}
+            >
+              <FormattedText
+                text={description}
+                timestamps={
+                  typeof file_data.duration === "number" && file_data.duration > 0
+                    ? { maxSeconds: file_data.duration, fileId: file_data.id }
+                    : undefined
+                }
+              />
             </div>
-
-            {/* Collapsed: simple inline "...more" link below the clamp.
-                Expanded: sticky bottom-of-viewport "Show less" so the
-                collapse affordance stays reachable even on very long
-                descriptions without scrolling all the way down. */}
-            {(isOverflowing || descriptionExpanded) && (
-              <>
-                {descriptionExpanded ? (
-                  <div className="sticky bottom-2 z-10 mt-2 flex justify-start">
-                    <button
-                      type="button"
-                      onClick={() => setDescriptionExpanded(false)}
-                      className="rounded-full bg-foreground text-background px-3.5 py-1.5 text-xs font-semibold shadow-md ring-1 ring-border hover:bg-foreground/90 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                    >
-                      Show less
-                    </button>
-                  </div>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={() => setDescriptionExpanded(true)}
-                    className="mt-1 text-sm font-semibold text-foreground hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm"
-                  >
-                    ...more
-                  </button>
-                )}
-              </>
-            )}
+            {!descriptionExpanded &&
+              (isOverflowing ||
+                tagsList.length > 0 ||
+                !!resolvedPageDetails?.originalSound ||
+                (resolvedPageDetails?.soundRemixes?.length ?? 0) > 0) && (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setDescriptionExpanded(true);
+                  }}
+                  className="mt-1 text-sm font-semibold text-foreground hover:underline"
+                >
+                  ...more
+                </button>
+              )}
           </div>
         )}
-        {(categoriesList.length > 0 || tagsList.length > 0) && (
-          <div className="pb-3 pt-2">
-            <details className="group rounded-lg border border-border/60 bg-muted/10 overflow-hidden">
-              <summary className="flex cursor-pointer list-none items-center justify-between gap-2 px-3 py-2.5 text-sm font-medium text-foreground hover:bg-muted/25 transition-colors [&::-webkit-details-marker]:hidden">
-                <span>Categories & tags</span>
-                <span className="flex items-center gap-2 shrink-0">
-                  <span className="text-xs font-normal text-muted-foreground tabular-nums">
-                    {categoriesList.length + tagsList.length}{" "}
-                    {categoriesList.length + tagsList.length === 1 ? "item" : "items"}
-                  </span>
-                  <ChevronDown className="h-4 w-4 text-muted-foreground transition-transform duration-200 group-open:rotate-180" />
-                </span>
-              </summary>
-              <div className="border-t border-border/50 px-3 py-3 space-y-4 bg-background/40">
-                {categoriesList.length > 0 && (
-                  <div>
-                    <p className="text-xs font-medium text-muted-foreground mb-2">Categories</p>
-                    <ul className="space-y-1.5 border-l-2 border-primary/25 pl-3">
-                      {categoriesList.map((c) => (
-                        <li key={c}>
-                          <Link
-                            to={`/tag/${encodeURIComponent(c)}`}
-                            className="text-sm text-primary hover:underline decoration-primary/40 underline-offset-2"
-                          >
-                            {c}
-                          </Link>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-                {tagsList.length > 0 && (
-                  <div>
-                    <p className="text-xs font-medium text-muted-foreground mb-2">Tags</p>
-                    <ul className="space-y-1.5 border-l-2 border-border pl-3">
-                      {tagsList.map((t) => (
-                        <li key={t}>
-                          <Link
-                            to={`/tag/${encodeURIComponent(t)}`}
-                            className="text-sm text-foreground hover:text-primary hover:underline underline-offset-2"
-                          >
-                            {t}
-                          </Link>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-              </div>
-            </details>
+
+        {/* Hashtags  YouTube-style blue #tags under the description. */}
+        {descriptionExpanded && tagsList.length > 0 && (
+          <div className="mt-3 flex flex-wrap gap-x-3 gap-y-1">
+            {tagsList.map((t) => (
+              <Link
+                key={t}
+                to={`/tag/${encodeURIComponent(t)}`}
+                className="text-sm text-primary hover:underline underline-offset-2"
+              >
+                #{t.replace(/\s+/g, "")}
+              </Link>
+            ))}
           </div>
+        )}
+
+        {/* Audio matched an existing upload  YouTube-style "Music" attribution. */}
+        {descriptionExpanded && resolvedPageDetails?.originalSound && (
+          <OriginalSoundCard originalSound={resolvedPageDetails.originalSound} />
+        )}
+
+        {/* This file IS the original: the videos that sampled its sound. */}
+        {descriptionExpanded && (resolvedPageDetails?.soundRemixes?.length ?? 0) > 0 && (
+          <div className="mt-4 border-t border-border/60 pt-4">
+            <div className="mb-3 flex items-baseline justify-between gap-2">
+              <div>
+                <h3 className="text-lg font-bold text-foreground">Videos using this sound</h3>
+                <p className="text-xs text-muted-foreground">
+                  {resolvedPageDetails!.soundRemixes.length}
+                  {resolvedPageDetails!.soundRemixes.length >= 12 ? "+" : ""} videos
+                </p>
+              </div>
+              <Link
+                to={`/music/${encodeURIComponent(String(file_data.id))}`}
+                className="shrink-0 text-sm font-medium text-primary hover:underline"
+              >
+                See all
+              </Link>
+            </div>
+            <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1 [scrollbar-width:thin]">
+              {resolvedPageDetails!.soundRemixes.map((remix) => (
+                <WatchLink
+                  key={remix.unique_id}
+                  to={`/${encodeURIComponent(remix.unique_id)}`}
+                  className="group w-36 shrink-0"
+                >
+                  <div className="aspect-[9/14] w-full overflow-hidden rounded-lg bg-muted">
+                    {remix.created_at ? (
+                      <img
+                        src={getThumbnailUrl(
+                          {
+                            default_thumbnail: remix.default_thumbnail,
+                            thumbnails: remix.thumbnails,
+                            created_at: remix.created_at,
+                            unique_id: remix.unique_id,
+                            filename: remix.filename || "",
+                          },
+                          { queryString: "?quality=40" },
+                        )}
+                        alt=""
+                        loading="lazy"
+                        className="h-full w-full object-cover transition-transform duration-200 group-hover:scale-105"
+                      />
+                    ) : null}
+                  </div>
+                  <p className="mt-1.5 line-clamp-2 text-xs font-medium leading-snug text-foreground">
+                    {remix.file_title?.trim() ||
+                      (remix.filename || "").replace(/\.[^./\\]+$/, "")}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    {formatNumber(remix.view_count)} views
+                  </p>
+                </WatchLink>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Fold everything back up. */}
+        {descriptionExpanded && (
+          <button
+            type="button"
+            onClick={() => setDescriptionExpanded(false)}
+            className="mt-4 text-sm font-semibold text-foreground hover:underline"
+          >
+            Show less
+          </button>
         )}
       </div>
 

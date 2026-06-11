@@ -19,6 +19,7 @@ const RESERVED_SEGMENTS = new Set([
   "notifications",
   "profile",
   "reel",
+  "music",
 ]);
 
 /** True on the Dynamic watch page (`/:id`) — a single-segment file id. */

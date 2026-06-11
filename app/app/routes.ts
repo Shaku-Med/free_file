@@ -102,6 +102,7 @@ export default [
         route(`reel-friend-likes`, 'routes/Api/reel-friend-likes/index.tsx'),
         route(`content/:id`, 'routes/Api/content/$id/index.tsx'),
         route(`tag/:tagname`, 'routes/Api/tag.$tagname/index.tsx'),
+        route(`music/:id`, 'routes/Api/music/$id/index.tsx'),
         route(`playlist`, 'routes/Api/playlist/index.tsx'),
         route(`playlists`, 'routes/Api/playlists/index.tsx'),
         route(`playlists/contains`, 'routes/Api/playlists/contains.tsx'),
@@ -138,6 +139,7 @@ export default [
     route(`playlist`, 'routes/Playlist/index.tsx'),
     route(`playlist/:playlistId`, 'routes/Playlist/view.tsx'),
     route(`tag/:tagname`, 'routes/tag.$tagname.tsx'),
+    route(`music/:id`, 'routes/Music/index.tsx'),
     route(`pip`, 'routes/pip/index.tsx'),
     route(`pip/:pipId`, 'routes/pip/$pipId.tsx'),
     route(`:id`, 'routes/Dynamic/layout.tsx', [

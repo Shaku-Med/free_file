@@ -77,7 +77,8 @@ RETURNS TABLE (
   owner_verified   boolean,
   owner_about      text,
   user_has_liked   boolean,
-  user_has_disliked boolean
+  user_has_disliked boolean,
+  original_file_id uuid
 )
 LANGUAGE plpgsql
 STABLE
@@ -179,6 +180,7 @@ BEGIN
       f.view_count,
       f.share_count,
       f.is_reel,
+      f.original_file_id,
       f.duration,
       f.categories,
       f.tags,
@@ -457,7 +459,8 @@ BEGIN
     u.verified,
     u.about,
     s._user_liked,
-    s._user_disliked
+    s._user_disliked,
+    s.original_file_id
   FROM positioned s
   JOIN users u ON u.id = s.owner_id
   WHERE s._final_pos > p_cursor_pos

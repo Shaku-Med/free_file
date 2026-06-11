@@ -10,7 +10,7 @@
   top: 0;
   width: var(--hls-confetti-w, 6px);
   height: var(--hls-confetti-h, 4px);
-  background: var(--hls-confetti-color, hsl(var(--primary)));
+  background: var(--hls-confetti-color, var(--primary));
   border-radius: 1px;
   opacity: 0;
   transform: translate3d(var(--hls-confetti-x, 0), var(--hls-confetti-y, 0), 0)

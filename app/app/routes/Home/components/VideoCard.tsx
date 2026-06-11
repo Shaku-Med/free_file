@@ -8,6 +8,7 @@ import { Button } from "~/components/ui/button";
 import { type FileType, fileWatchPath } from "~/lib/types";
 import ImageLoad from "./ImageLoad/ImageLoad";
 import { cn, getDefaultThumbnail, getThumbnailUrl } from "~/lib/utils";
+import { fileHoverTint } from "~/components/components/hlsplayer/visualizerPalette";
 import ParseFilenameInsert from "~/lib/utils/ShowFileName";
 import AdultContentBadge from "~/routes/Dynamic/components/AdultContentBadge";
 import OwnerProfile from "~/components/OwnerProfile/OwnerProfile";
@@ -146,6 +147,24 @@ const VideoCard = ({
   const isMobile = useIsMobile();
   const sidebarCtx = useSidebarOptional();
   const sidebarLayoutState = sidebarCtx?.state ?? "expanded";
+  // Hover tint from the FILE's dominant colors (random-but-stable pick per
+  // card, so a grid shows varied hues). YouTube-style surface blend keeps
+  // text readable; null when the file has no extracted colors.
+  const hoverTintSeed = String(data.unique_id ?? data.id ?? "");
+  const hoverTintOverlay = useMemo(
+    () =>
+      fileHoverTint(
+        (data as { colors?: unknown }).colors,
+        hoverTintSeed,
+        // Translucent surface for the overlay (token is a complete color).
+        "color-mix(in srgb, var(--muted) 85%, transparent)",
+      ),
+    [data, hoverTintSeed],
+  );
+  const hoverTintRow = useMemo(
+    () => fileHoverTint((data as { colors?: unknown }).colors, hoverTintSeed),
+    [data, hoverTintSeed],
+  );
   // 
   const [error, setError] = useState<boolean>(false);
   const [retryAttempt, setRetryAttempt] = useState<number>(0);
@@ -2678,7 +2697,13 @@ const VideoCard = ({
     const durationSec = typeof data.duration === "number" ? data.duration : 0;
     const durationStr = formatDuration(durationSec);
     return (
-      <div className="group flex items-center gap-2.5 rounded-lg px-2 py-1.5 transition-colors hover:bg-muted/50">
+      <div
+        className={cn(
+          "group flex items-center gap-2.5 rounded-lg px-2 py-1.5 transition-colors",
+          hoverTintRow ? "hover:bg-[var(--card-tint)]" : "hover:bg-muted/50",
+        )}
+        style={hoverTintRow ? ({ "--card-tint": hoverTintRow } as React.CSSProperties) : undefined}
+      >
         <Link
           onClick={(e) => {
             e.preventDefault();
@@ -2763,6 +2788,8 @@ const VideoCard = ({
             `bg-muted/80`
           )
         }
+        // File-color tint wins over the neutral fallback when available.
+        style={hoverTintOverlay ? { background: hoverTintOverlay } : undefined}
       />
 
       <div className="py-2 flex flex-col z-[1000000]">

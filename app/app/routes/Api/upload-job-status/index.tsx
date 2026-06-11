@@ -289,6 +289,9 @@ export const action = async ({ request }: { request: Request }) => {
     overflow?: boolean;
     /** Semantic-search vector (384 floats) from the Go worker, optional. */
     embedding?: number[];
+    /** Audio fingerprints (duplicate detection): parallel hash/offset arrays. */
+    fp_hashes?: number[];
+    fp_offsets?: number[];
     /** 0–100 from Go worker while processing */
     progress?: number;
   };
@@ -566,6 +569,39 @@ export const action = async ({ request }: { request: Request }) => {
       });
       if (embErr) {
         console.warn('[upload-job-status] set_file_embedding:', embErr.message ?? embErr);
+      }
+    }
+
+    // Audio fingerprints: store + match against the catalog + link this
+    // upload to its original when the audio is a duplicate/excerpt.
+    // Best-effort  fingerprinting never blocks the upload completing.
+    const fpHashes = body?.fp_hashes;
+    const fpOffsets = body?.fp_offsets;
+    if (
+      Array.isArray(fpHashes) &&
+      Array.isArray(fpOffsets) &&
+      fpHashes.length > 0 &&
+      fpHashes.length === fpOffsets.length &&
+      fpHashes.length <= 10000 &&
+      fpHashes.every((v) => typeof v === 'number' && Number.isInteger(v) && v >= 0) &&
+      fpOffsets.every((v) => typeof v === 'number' && Number.isInteger(v) && v >= 0)
+    ) {
+      const { data: fpRes, error: fpErr } = await db.rpc('register_audio_fingerprints', {
+        p_unique_id: upload_id,
+        p_hashes: fpHashes,
+        p_offsets: fpOffsets,
+      });
+      if (fpErr) {
+        console.warn('[upload-job-status] register_audio_fingerprints:', fpErr.message ?? fpErr);
+      } else if ((fpRes as { matched?: boolean } | null)?.matched) {
+        const r = fpRes as { original_file_id?: string; votes?: number };
+        console.log(
+          '[upload-job-status] audio matched existing original',
+          upload_id,
+          '->',
+          r.original_file_id,
+          `(${r.votes} votes)`,
+        );
       }
     }
   }

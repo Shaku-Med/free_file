@@ -73,6 +73,8 @@ type AudioStemsResult struct {
 	Path       string
 	HasAudio   bool
 	EventCount int
+	// MusicScore 0..1  how musical the audio is (see musicscore.go).
+	MusicScore float64
 }
 
 // ExtractAudioStems decodes mono PCM, runs band onset analysis, and writes
@@ -80,27 +82,44 @@ type AudioStemsResult struct {
 // file (empty doc on silent/no-audio inputs) so the client can rely on a
 // stable 200/404 split per upload folder.
 func ExtractAudioStems(videoPath, outputDir string) (*AudioStemsResult, error) {
+	res, _, err := ExtractAudioStemsAndFingerprints(videoPath, outputDir)
+	return res, err
+}
+
+// ExtractAudioStemsAndFingerprints runs BOTH audio analyses off a single PCM
+// decode: the visualizer stems doc (written to audio_stems.json) and the
+// Shazam-style duplicate-detection fingerprints (returned for the webhook).
+func ExtractAudioStemsAndFingerprints(videoPath, outputDir string) (*AudioStemsResult, []AudioFingerprint, error) {
 	if err := os.MkdirAll(outputDir, 0700); err != nil {
-		return nil, fmt.Errorf("create output dir: %w", err)
+		return nil, nil, fmt.Errorf("create output dir: %w", err)
 	}
 	outPath := filepath.Join(outputDir, "audio_stems.json")
 
 	samples, perr := extractStemsPCM(videoPath, outputDir)
 	var doc *AudioStemsFile
+	var fingerprints []AudioFingerprint
 	if perr != nil || len(samples) == 0 {
 		doc = emptyStemsDoc()
 	} else {
 		doc = analyzeStems(samples, stemsSampleRate)
+		if doc.HasAudio {
+			fingerprints = FingerprintPCM(samples, stemsSampleRate)
+		}
 	}
 
 	buf, merr := json.Marshal(doc)
 	if merr != nil {
-		return nil, fmt.Errorf("marshal stems: %w", merr)
+		return nil, nil, fmt.Errorf("marshal stems: %w", merr)
 	}
 	if werr := os.WriteFile(outPath, buf, 0644); werr != nil {
-		return nil, fmt.Errorf("write stems json: %w", werr)
+		return nil, nil, fmt.Errorf("write stems json: %w", werr)
 	}
-	return &AudioStemsResult{Path: outPath, HasAudio: doc.HasAudio, EventCount: len(doc.Events)}, perr
+	return &AudioStemsResult{
+		Path:       outPath,
+		HasAudio:   doc.HasAudio,
+		EventCount: len(doc.Events),
+		MusicScore: math.Round(MusicScore(doc)*100) / 100,
+	}, fingerprints, perr
 }
 
 func emptyStemsDoc() *AudioStemsFile {
