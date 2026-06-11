@@ -53,12 +53,13 @@ import { fetchUploadAuthContext, type UploadAuthContext } from "~/lib/uploadAuth
 import { Tooltip, TooltipContent, TooltipTrigger } from "~/components/ui/tooltip"
 
 /**
- * Captures a still from a video file. Returns both the blob URL (for inline preview)
- * and the underlying `File` (for using as the default thumbnail at upload time).
+ * Captures a still from a video file. Returns the blob URL (for inline preview),
+ * the underlying `File` (for using as the default thumbnail at upload time),
+ * and the clip duration (for the reel-eligibility check).
  */
 function extractVideoPoster(
   file: File,
-): Promise<{ url: string; file: File } | null> {
+): Promise<{ url: string; file: File; durationSeconds: number | null } | null> {
   return new Promise((resolve) => {
     const blobUrl = URL.createObjectURL(file)
     const video = document.createElement("video")
@@ -66,6 +67,7 @@ function extractVideoPoster(
     video.playsInline = true
     video.preload = "auto"
     let settled = false
+    let durationSeconds: number | null = null
     const finish = (result: { url: string; file: File } | null) => {
       if (settled) return
       settled = true
@@ -73,7 +75,7 @@ function extractVideoPoster(
       video.removeAttribute("src")
       video.load()
       video.remove()
-      resolve(result)
+      resolve(result ? { ...result, durationSeconds } : null)
     }
     const captureFrame = () => {
       try {
@@ -121,6 +123,7 @@ function extractVideoPoster(
           const d = video.duration
           let t = 0.1
           if (Number.isFinite(d) && d > 0) {
+            durationSeconds = d
             t = Math.min(Math.max(0.05, d * 0.05), Math.max(0.05, d - 0.01))
           }
           video.currentTime = t
@@ -201,6 +204,7 @@ interface MediaItem {
   previewUrl: string
   videoPosterUrl: string | null
   isExtractingVideoPoster: boolean
+  durationSeconds: number | null
   title: string
   description: string
   isPublic: boolean
@@ -576,6 +580,7 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
       previewUrl: isVideo ? "" : URL.createObjectURL(file),
       videoPosterUrl: null,
       isExtractingVideoPoster: isVideo,
+      durationSeconds: null,
       title: baseName.slice(0, 200),
       description: "",
       isPublic: true,
@@ -650,6 +655,7 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
                     ...i,
                     videoPosterUrl: poster.url,
                     autoThumbnail: poster.file,
+                    durationSeconds: poster.durationSeconds,
                     isExtractingVideoPoster: false,
                   }
                 : i,
@@ -1112,7 +1118,15 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
               : null,
           ...(defaultThumbnailB64 ? { default_thumbnail: defaultThumbnailB64 } : {}),
           // Only meaningful for videos; harmless for images (worker ignores it).
-          ...(item.file.type.startsWith("video/") ? { reel_mode: item.reelMode } : {}),
+          // Over the reel cap the option is hidden, so never send a stale "yes".
+          ...(item.file.type.startsWith("video/")
+            ? {
+                reel_mode:
+                  item.durationSeconds != null && item.durationSeconds > REEL_MAX_SECONDS
+                    ? "no"
+                    : item.reelMode,
+              }
+            : {}),
           ...seriesPayload,
         }),
       },
@@ -2366,8 +2380,14 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
 
                 {/* Reel mode videos only. Locked once the upload starts
                     (isFieldDisabled covers the whole post-submit lifecycle).
-                    Server hard-caps reels at REEL_MAX_SECONDS / 3 min. */}
-                {activeItem && activeItem.file.type.startsWith("video/") && (
+                    Hidden entirely past REEL_MAX_SECONDS the server
+                    hard-denies reels over the cap, so don't offer one. */}
+                {activeItem &&
+                  activeItem.file.type.startsWith("video/") &&
+                  !(
+                    activeItem.durationSeconds != null &&
+                    activeItem.durationSeconds > REEL_MAX_SECONDS
+                  ) && (
                   <div className="space-y-1.5">
                     <label className="text-xs font-medium text-muted-foreground">
                       Reel
@@ -2408,7 +2428,7 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
                       {activeItem.reelMode === "auto" &&
                         "Auto picks based on length and shape usually short or portrait clips."}
                       {activeItem.reelMode === "yes" &&
-                        `Forces this clip to appear as a reel. Skipped if longer than ${REEL_MAX_SECONDS / 60} min.`}
+                        "Forces this clip to appear as a reel."}
                       {activeItem.reelMode === "no" &&
                         "Keeps this video out of reel feeds even if short / portrait."}
                       {" Can't be changed after upload."}

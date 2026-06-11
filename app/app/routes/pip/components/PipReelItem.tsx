@@ -1,5 +1,5 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate } from 'react-router';
+import { Link, useNavigate } from 'react-router';
 import { isMobile } from 'react-device-detect';
 import { Maximize2 } from 'lucide-react';
 import { cn, getThumbnailUrl, getVideoSrc, ParseFilename } from '~/lib/utils';
@@ -521,18 +521,40 @@ function PipReelItemInner({
     }
   }, [file.unique_id, navigate]);
 
-  // Reuse the shared thumbnail loader (IndexedDB cache + fallbacks) for the
-  // reel's little audio-art tile instead of a bare <img>.
+  // Instagram-style audio-art tile in the action rail: the ORIGINAL's
+  // thumbnail when this reel's sound matched one (own thumbnail otherwise),
+  // clicking through to the sound page. Reuses the shared thumbnail loader
+  // (IndexedDB cache + fallbacks) instead of a bare <img>.
+  const originalSound = (file as FileType).original_sound;
   const reelAudioArt = (
-    <ImageLoad
-      link={getThumbnailUrl(file)}
-      imageID={`${file.unique_id}_reel_audio_art`}
-      index={0}
-      retry={noopRetry}
-      className="h-full w-full object-cover"
-      quality={10}
-      hasAdultTag={Boolean(file.is_adult)}
-    />
+    <Link
+      to={`/music/${encodeURIComponent(String(file.original_file_id ?? file.id))}`}
+      onClick={(e) => e.stopPropagation()}
+      className="block h-full w-full"
+      aria-label="See videos using this sound"
+    >
+      <ImageLoad
+        link={
+          originalSound?.created_at
+            ? getThumbnailUrl(
+                {
+                  default_thumbnail: originalSound.default_thumbnail,
+                  thumbnails: null,
+                  created_at: originalSound.created_at,
+                  unique_id: originalSound.unique_id,
+                  filename: originalSound.filename || '',
+                },
+              )
+            : getThumbnailUrl(file)
+        }
+        imageID={`${originalSound?.unique_id ?? file.unique_id}_reel_audio_art`}
+        index={0}
+        retry={noopRetry}
+        className="h-full w-full object-cover"
+        quality={10}
+        hasAdultTag={Boolean(file.is_adult)}
+      />
+    </Link>
   );
 
   const actionsEl = (

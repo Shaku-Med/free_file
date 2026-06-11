@@ -143,6 +143,21 @@ func validateFileSeriesComplete(b completeBody) error {
 	return nil
 }
 
+// Mirror the upload UI's input limits  the client enforces them with
+// maxLength, but a crafted request can skip the form entirely.
+const (
+	maxTitleLen       = 200
+	maxDescriptionLen = 1000
+)
+
+func clampRunes(s string, max int) string {
+	r := []rune(s)
+	if len(r) > max {
+		return string(r[:max])
+	}
+	return s
+}
+
 func (h *Handler) completeUpload(c *fiber.Ctx) error {
 	userID := userIDFromCtx(c)
 	if userID == "" {
@@ -179,10 +194,10 @@ func (h *Handler) completeUpload(c *fiber.Ctx) error {
 			commentsEnabled = *b.CommentsEnabled
 		}
 		if b.Title != "" {
-			title = b.Title
+			title = clampRunes(strings.TrimSpace(b.Title), maxTitleLen)
 		}
 		if b.Description != "" {
-			description = b.Description
+			description = clampRunes(strings.TrimSpace(b.Description), maxDescriptionLen)
 		}
 		userCategories = b.Categories
 		userTags = b.Tags

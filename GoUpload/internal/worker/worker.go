@@ -1003,11 +1003,10 @@ func reelAspectMatch(width, height int) bool {
 const reelMaxSeconds = 180
 
 // resolveReel decides the final is_reel flag from (a) the user's chosen
-// reelMode and (b) the inferred video shape. Order:
-//   "no"   → always false (only honored if duration is known)
-//   "yes"  → true, but only when duration <= reelMaxSeconds (we silently
-//            downgrade to auto when over the cap rather than refuse the
-//            upload  surface the cap in the UI instead)
+// reelMode and (b) the inferred video shape. Anything over reelMaxSeconds
+// is hard-denied  even an explicit "yes" and the auto portrait heuristic.
+//   "no"   → always false
+//   "yes"  → true (duration already known to be under the cap)
 //   "auto" → existing heuristic (short OR portrait-9:16)
 func resolveReel(reelMode string, seconds float64, width, height int) *bool {
 	hasDur := seconds > 0
@@ -1015,15 +1014,15 @@ func resolveReel(reelMode string, seconds float64, width, height int) *bool {
 	if !hasDur && !hasWH {
 		return nil
 	}
+	if hasDur && seconds > reelMaxSeconds {
+		f := false
+		return &f
+	}
 	switch reelMode {
 	case "no":
 		f := false
 		return &f
 	case "yes":
-		if hasDur && seconds > reelMaxSeconds {
-			// Too long to be a reel  fall through to auto.
-			break
-		}
 		t := true
 		return &t
 	}

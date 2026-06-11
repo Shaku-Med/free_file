@@ -874,10 +874,8 @@ export default function Actions({
       {moreDropdown}
 
       {reelAudioArt ? (
-        <div
-          className="mt-1 h-9 w-9 shrink-0 overflow-hidden rounded-lg ring-2 ring-white/75 shadow-[0_2px_8px_rgba(0,0,0,0.6)]"
-          aria-hidden
-        >
+        // Interactive: the art links to the sound page (no aria-hidden).
+        <div className="mt-1 h-9 w-9 shrink-0 overflow-hidden rounded-lg ring-2 ring-white/75 shadow-[0_2px_8px_rgba(0,0,0,0.6)]">
           {reelAudioArt}
         </div>
       ) : null}
