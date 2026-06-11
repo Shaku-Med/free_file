@@ -81,6 +81,53 @@ export function subscribePlaybackUrlRefresh(
   };
 }
 
+// Mirrors the mint endpoint's fileId rules so junk paths never hit the API.
+const VALID_FILE_ID = /^[A-Za-z0-9_-]{1,128}$/;
+
+const preflightPromises = new Map<string, Promise<string | null>>();
+
+/**
+ * Warm the mint cache BEFORE navigation lands (WatchLink fires this on
+ * pointerdown / hover intent). Same endpoint, same server-side access
+ * checks as usePlaybackUrl  just earlier, so the mint round-trip runs in
+ * parallel with the route loader instead of after it. Deduped per fileId.
+ */
+export function preflightPlayback(fileId: string): void {
+  if (typeof window === "undefined") return;
+  if (!VALID_FILE_ID.test(fileId)) return;
+  if (getCachedPlaybackUrl(fileId) || preflightPromises.has(fileId)) return;
+
+  const p = fetch("/api/play/mint", {
+    method: "POST",
+    credentials: "same-origin",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Requested-With": "fetch",
+    },
+    body: JSON.stringify({ fileId }),
+  })
+    .then(async (res) => {
+      if (!res.ok) return null;
+      const body = (await res.json().catch(() => null)) as { url?: string } | null;
+      return body?.url ?? null;
+    })
+    .then((url) => {
+      if (url) setCachedPlaybackUrl(fileId, url);
+      return url;
+    })
+    .catch(() => null)
+    .finally(() => {
+      preflightPromises.delete(fileId);
+    });
+
+  preflightPromises.set(fileId, p);
+}
+
+/** In-flight preflight for this file, so usePlaybackUrl can await it instead of double-minting. */
+export function waitForPreflight(fileId: string): Promise<string | null> | null {
+  return preflightPromises.get(fileId) ?? null;
+}
+
 /** Same manifest path (ignores rotating ?t= tokens). */
 export function playbackAssetPath(url: string): string | null {
   try {

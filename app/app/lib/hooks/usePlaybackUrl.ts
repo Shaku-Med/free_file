@@ -3,6 +3,7 @@ import {
   getCachedPlaybackUrl,
   setCachedPlaybackUrl,
   subscribePlaybackUrlRefresh,
+  waitForPreflight,
 } from "~/lib/playbackUrlCache";
 
 type MintState = { forFileId: string; url: string | null };
@@ -56,28 +57,45 @@ export function usePlaybackUrl(file: {
     setMintState({ forFileId: fileId, url: null });
 
     let cancelled = false;
-    fetch("/api/play/mint", {
-      method: "POST",
-      credentials: "same-origin",
-      headers: {
-        "Content-Type": "application/json",
-        "X-Requested-With": "fetch",
-      },
-      body: JSON.stringify({ fileId }),
-    })
-      .then(async (res) => {
-        if (!res.ok) return null;
-        const body = (await res.json().catch(() => null)) as { url?: string } | null;
-        return body?.url ?? null;
+    const mint = () =>
+      fetch("/api/play/mint", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Requested-With": "fetch",
+        },
+        body: JSON.stringify({ fileId }),
       })
-      .then((next) => {
-        if (cancelled || !next) return;
-        setCachedPlaybackUrl(fileId, next);
-        setMintState({ forFileId: fileId, url: next });
-      })
-      .catch(() => {
-        if (!cancelled) setMintState({ forFileId: fileId, url: null });
+        .then(async (res) => {
+          if (!res.ok) return null;
+          const body = (await res.json().catch(() => null)) as { url?: string } | null;
+          return body?.url ?? null;
+        })
+        .then((next) => {
+          if (cancelled || !next) return;
+          setCachedPlaybackUrl(fileId, next);
+          setMintState({ forFileId: fileId, url: next });
+        })
+        .catch(() => {
+          if (!cancelled) setMintState({ forFileId: fileId, url: null });
+        });
+
+    // A WatchLink preflight may already be minting this file  reuse it
+    // instead of issuing a second token; mint ourselves only if it failed.
+    const preflight = waitForPreflight(fileId);
+    if (preflight) {
+      preflight.then((next) => {
+        if (cancelled) return;
+        if (next) {
+          setMintState({ forFileId: fileId, url: next });
+          return;
+        }
+        void mint();
       });
+    } else {
+      void mint();
+    }
 
     return () => {
       cancelled = true;
