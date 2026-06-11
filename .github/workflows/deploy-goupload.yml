@@ -239,10 +239,25 @@ jobs:
           EMBED_API_SECRET: ${{ secrets.EMBED_API_SECRET }}
         run: |
           set -euo pipefail
+
+          # Compose `.env` needs EMBED_API_SECRET. Prefer the dedicated GitHub
+          # secret; fall back to VPS_ENV / existing VPS compose env if you already
+          # keep it in goupload.env (same as local GoUpload/.env).
           if [ -z "${EMBED_API_SECRET:-}" ]; then
-            echo "ERROR: GitHub secret EMBED_API_SECRET is empty. Add the same value as GoUpload/.env." >&2
+            EMBED_API_SECRET="$(printf '%s\n' "$GOUPLOAD_ENV" | sed -n 's/^EMBED_API_SECRET=//p' | head -n1 | tr -d '\r')"
+          fi
+          if [ -z "${EMBED_API_SECRET:-}" ] && [ -f /opt/goupload/.env ]; then
+            # shellcheck disable=SC1091
+            set -a
+            source /opt/goupload/.env
+            set +a
+          fi
+          if [ -z "${EMBED_API_SECRET:-}" ]; then
+            echo "ERROR: EMBED_API_SECRET is missing." >&2
+            echo "  Add GitHub Actions secret EMBED_API_SECRET, or include EMBED_API_SECRET=... in VPS_ENV (goupload.env)." >&2
             exit 1
           fi
+
           rm -rf "$STAGING"
           mkdir -p "$STAGING"
 
