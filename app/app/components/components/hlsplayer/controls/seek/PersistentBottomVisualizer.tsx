@@ -1,4 +1,3 @@
-import { isMobile } from 'react-device-detect';
 import { usePlayerContext } from '../../PlayerContext';
 import StemResonanceVisualizer from './StemResonanceVisualizer';
 
@@ -10,7 +9,7 @@ import StemResonanceVisualizer from './StemResonanceVisualizer';
  */
 export default function PersistentBottomVisualizer() {
   const { audioVisualizer, audioStems } = usePlayerContext();
-  const enabled = audioVisualizer && !isMobile && audioStems != null;
+  const enabled = audioVisualizer && audioStems != null;
 
   if (!enabled || !audioStems) return null;
 

@@ -261,7 +261,7 @@ export function SettingsMenuBody() {
             <span>Reset tilt</span>
           </DropdownMenuItem>
         )}
-        {!isMobile && !isReel && audioStemsAvailable && (
+        {!isReel && audioStemsAvailable && (
           <Tooltip>
             <TooltipTrigger asChild>
               <DropdownMenuItem
@@ -312,7 +312,7 @@ export function SettingsMenuBody() {
         )}
       </DropdownMenuGroup>
 
-      {!isMobile && !isReel && audioStemsAvailable && audioVisualizer && (
+      {!isReel && audioStemsAvailable && audioVisualizer && (
         <>
           <DropdownMenuSeparator />
           <DropdownMenuGroup>

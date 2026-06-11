@@ -346,7 +346,6 @@ function PlayerInner({
   const showAudioVisualizer =
     audioVisualizer &&
     audioStemsAvailable &&
-    !isMobile &&
     authPlayback &&
     !isReelCtx &&
     !inPipForThisVideo &&

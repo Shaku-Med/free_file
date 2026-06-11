@@ -463,9 +463,6 @@ export function PlayerProvider({
 
   const [audioVisualizer, setAudioVisualizerState] = useState(false);
   const audioVisualizerStyleRef = useRef<AudioVisualizerStyle>(DEFAULT_AUDIO_VISUALIZER_STYLE);
-  /** Read inside toggleFullscreen (stable callback) — mobile blocks fullscreen while the visualizer is on. */
-  const audioVisualizerFullscreenGuardRef = useRef(false);
-  audioVisualizerFullscreenGuardRef.current = audioVisualizer;
   const setAudioVisualizer = useCallback(
     (v: boolean) => {
       if (!authPlaybackFeatures || isReel) return;
@@ -860,9 +857,6 @@ export function PlayerProvider({
         return;
       }
       const is_mobile = isMobile
-      // Mobile + visualizer: the strip can't live inside native fullscreen,
-      // so fullscreen is disabled while the visualizer setting is on.
-      if (is_mobile && audioVisualizerFullscreenGuardRef.current) return;
       const el = is_mobile ? videoRef.current : containerRef.current;
       if (el) {
         if (is_mobile){
