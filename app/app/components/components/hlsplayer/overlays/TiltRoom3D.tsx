@@ -43,6 +43,27 @@ export function tiltScreenStyle(zoom: number, extraZ = 0): CSSProperties {
   };
 }
 
+/** Centered screen box sized to the video's object-contain rect (keeps aspect in 3D). */
+export function tiltScreenBoxStyle(
+  width: number,
+  height: number,
+  zoom: number,
+  extraZ = 0,
+): CSSProperties {
+  const hasSize = width > 0 && height > 0;
+  return {
+    position: 'absolute',
+    left: '50%',
+    top: '50%',
+    width: hasSize ? width : '100%',
+    height: hasSize ? height : '100%',
+    marginLeft: hasSize ? -width / 2 : '-50%',
+    marginTop: hasSize ? -height / 2 : '-50%',
+    transformStyle: 'preserve-3d',
+    ...tiltScreenStyle(zoom, extraZ),
+  };
+}
+
 const wallBase: CSSProperties = {
   position: 'absolute',
   backfaceVisibility: 'hidden',

@@ -12,8 +12,8 @@ import StemGlowLight from './overlays/StemGlowLight';
 import EndCardOverlay from './overlays/EndCardOverlay';
 import TiltRoomWalls, {
   TILT_ROOM_PERSPECTIVE_PX,
+  tiltScreenBoxStyle,
   tiltWorldStyle,
-  tiltScreenStyle,
 } from './overlays/TiltRoom3D';
 import { FEED_EMBED_HIDE_CONTROLS, MINI_PLAYER_HIDE_CONTROLS, type HideControls } from './types';
 import SeekBar from './controls/seek/SeekBar';
@@ -26,6 +26,7 @@ import { usePlaybackPosition } from './hooks/usePlaybackPosition';
 import { useWatchTimeHeartbeat } from './hooks/useWatchTimeHeartbeat';
 import { useAutoplay } from './hooks/useAutoplay';
 import { useControlsVisibility } from './hooks/useControlsVisibility';
+import { useVideoContainSize } from './hooks/useVideoContainSize';
 import { useFullscreen } from './hooks/useFullscreen';
 import { useWakeLock } from './hooks/useWakeLock';
 import { useSpatialAudio, isSpatialAudioUiSupported } from './hooks/useSpatialAudio';
@@ -350,6 +351,11 @@ function PlayerInner({
     !isReelCtx &&
     !inPipForThisVideo &&
     !onPipChrome;
+  const tiltScreenSize = useVideoContainSize(
+    containerRef,
+    videoRef,
+    tiltMode && !isMiniPlayerPortalActive && !isReelCtx,
+  );
   const callBackRef = useRef(callBack);
   callBackRef.current = callBack;
   const [mediaSessionImage, setMediaSessionImage] = useState<string | null>(null);
@@ -990,7 +996,7 @@ function PlayerInner({
     >
       {ambientMode && authPlayback && !isMiniPlayerPortalActive && <AmbientBackground />}
       {/* Beat glow light: behind the video like ambient, soft-masked, no hard edges */}
-      {authPlayback && !isMiniPlayerPortalActive && <StemGlowLight />}
+      {showAudioVisualizer && !isMiniPlayerPortalActive && <StemGlowLight />}
       {/* Preload the seek-preview sprite sheet as a real (hidden) <img> as soon
           as the player mounts. A rendered <img> is fetched + decoded + retained
           by the browser, so the first scrub paints the preview instantly from
@@ -1070,20 +1076,12 @@ function PlayerInner({
                 style={tiltMode ? tiltWorldStyle(tiltRotation) : undefined}
               >
               {tiltMode && <TiltRoomWalls zoom={tiltZoom} />}
-              <video
-                ref={assignVideoRef}
-                className={`w-full h-full object-contain ${isReelCtx && !embedReelControls ? 'pointer-events-none' : ''}`}
-                muted={muted}
-                loop={loopEnabled}
-                playsInline={playsInline}
-                preload="metadata"
-                onClick={handleVideoClick}
-                onDoubleClick={handleDoubleClick}
-                disableRemotePlayback={false}
+              <div
+                className={tiltMode ? undefined : 'h-full w-full'}
                 style={
                   tiltMode
                     ? {
-                        ...tiltScreenStyle(tiltZoom),
+                        ...tiltScreenBoxStyle(tiltScreenSize.width, tiltScreenSize.height, tiltZoom),
                         boxShadow: `
                           0 ${6 + Math.abs(tiltRotation.x) * 0.7}px ${16 + Math.abs(tiltRotation.x) * 1.2}px rgba(0,0,0,0.55),
                           inset 0 0 0 1px rgba(255,255,255,0.07)
@@ -1091,16 +1089,26 @@ function PlayerInner({
                       }
                     : undefined
                 }
-                {...({ 'x-webkit-airplay': 'allow' } as any)}
-                {...(isReelCtx ? { disablePictureInPicture: true, controlsList: 'nopictureinpicture noremoteplayback' } : {})}
-              />
-              {/* Specular reflection on the screen — angles with the world
-                  rotation so the highlight slides as you orbit. */}
+              >
+                <video
+                  ref={assignVideoRef}
+                  className={`${tiltMode ? 'block h-full w-full' : 'h-full w-full object-contain'} ${isReelCtx && !embedReelControls ? 'pointer-events-none' : ''}`}
+                  muted={muted}
+                  loop={loopEnabled}
+                  playsInline={playsInline}
+                  preload="metadata"
+                  onClick={handleVideoClick}
+                  onDoubleClick={handleDoubleClick}
+                  disableRemotePlayback={false}
+                  {...({ 'x-webkit-airplay': 'allow' } as any)}
+                  {...(isReelCtx ? { disablePictureInPicture: true, controlsList: 'nopictureinpicture noremoteplayback' } : {})}
+                />
+              </div>
               {tiltMode && (
                 <div
-                  className="absolute inset-0 pointer-events-none z-[2] overflow-hidden"
+                  className="pointer-events-none absolute z-[2] overflow-hidden"
                   style={{
-                    ...tiltScreenStyle(tiltZoom, 1),
+                    ...tiltScreenBoxStyle(tiltScreenSize.width, tiltScreenSize.height, tiltZoom, 1),
                     background: `linear-gradient(${135 + tiltRotation.y * 2.5}deg, rgba(255,255,255,${0.05 + Math.abs(tiltRotation.y) * 0.003}) 0%, transparent 45%), linear-gradient(to bottom, rgba(255,255,255,${0.02 + Math.abs(tiltRotation.x) * 0.001}) 0%, transparent 30%)`,
                   }}
                   aria-hidden

@@ -45,14 +45,14 @@ const BLOB_ANCHORS = [
 
 export default function StemGlowLight() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const { videoRef, audioStems, visualizerConfetti, state, file } = usePlayerContext();
+  const { videoRef, audioStems, audioVisualizer, visualizerConfetti, state, file } = usePlayerContext();
 
   const playingRef = useRef(false);
   playingRef.current = state.isPlaying && !state.isPaused;
   const stemsRef = useRef(audioStems);
   stemsRef.current = audioStems;
 
-  const enabled = visualizerConfetti && audioStems != null;
+  const enabled = audioVisualizer && visualizerConfetti && audioStems != null;
 
   const colors = useMemo(() => {
     const c = fileAccentColors(file?.colors);

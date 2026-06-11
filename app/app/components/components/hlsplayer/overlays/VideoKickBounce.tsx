@@ -67,6 +67,7 @@ export default function VideoKickBounce() {
     videoRef,
     containerRef,
     audioStems,
+    audioVisualizer,
     videoBounce,
     videoBounceIntensity,
     videoBounceInstruments,
@@ -85,7 +86,7 @@ export default function VideoKickBounce() {
   const instrumentsRef = useRef(videoBounceInstruments);
   instrumentsRef.current = videoBounceInstruments;
 
-  const enabled = videoBounce && audioStems != null;
+  const enabled = audioVisualizer && videoBounce && audioStems != null;
 
   useEffect(() => {
     if (!enabled) return;
