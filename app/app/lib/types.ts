@@ -10,6 +10,14 @@ export interface FileType {
   file_size: string | number;
   /** Audio-fingerprint match: files.id of the ORIGINAL this sound came from. */
   original_file_id?: string | null;
+  /** Display info of the matched original (Instagram-style sound chip). */
+  original_sound?: {
+    unique_id: string;
+    file_title: string | null;
+    filename: string | null;
+    default_thumbnail: string | null;
+    created_at: string | null;
+  } | null;
   is_adult?: boolean;
   up_count?: number;
   down_count?: number;

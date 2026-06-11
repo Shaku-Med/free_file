@@ -13,6 +13,7 @@ import {
   DrawerTitle,
 } from "~/components/ui/drawer";
 import { useFileContext } from "~/lib/Context/Context";
+import { getThumbnailUrl } from "~/lib/utils";
 import { formatTimeAgo } from "~/lib/formatTimeAgo";
 import { formatNumber } from "~/lib/utils/formatNumber";
 import ParseFilenameInsert from "~/lib/utils/ShowFileName";
@@ -198,18 +199,43 @@ export function ReelMetaPanel({ file, item, views }: ReelMetaPanelProps) {
           <ReelCaptionPreview caption={caption} onSeeMore={() => setDescriptionOpen(true)} />
         ) : null}
 
-        {/* TikTok-style sound chip: links to the sound page (the original's
-            id when this reel's audio matched one, else this reel's own id). */}
+        {/* Instagram-style sound chip: the ORIGINAL's thumbnail as a little
+            spinning disc + its file name. Links to the sound page (the
+            original's id when matched, else this reel's own id). */}
         {(file.original_file_id ||
           (file.metadata as { audio?: { has_audio?: boolean } } | undefined)?.audio?.has_audio) && (
           <Link
             to={`/music/${encodeURIComponent(String(file.original_file_id ?? file.id))}`}
             onClick={(e) => e.stopPropagation()}
-            className="swiper-no-swiping inline-flex max-w-full items-center gap-1.5 self-start rounded-full bg-black/45 px-2.5 py-1 text-xs font-medium text-white/95 backdrop-blur-sm transition-colors hover:bg-black/65"
+            className="swiper-no-swiping inline-flex max-w-[78%] items-center gap-2 self-start rounded-full bg-black/45 py-1 pl-1 pr-3 text-xs font-medium text-white/95 backdrop-blur-sm transition-colors hover:bg-black/65"
           >
-            <Music2 className="h-3.5 w-3.5 shrink-0" aria-hidden />
+            {file.original_sound?.created_at ? (
+              <img
+                src={getThumbnailUrl(
+                  {
+                    default_thumbnail: file.original_sound.default_thumbnail,
+                    thumbnails: null,
+                    created_at: file.original_sound.created_at,
+                    unique_id: file.original_sound.unique_id,
+                    filename: file.original_sound.filename || "",
+                  },
+                  { queryString: "?quality=30" },
+                )}
+                alt=""
+                loading="lazy"
+                className="h-6 w-6 shrink-0 rounded-full object-cover ring-1 ring-white/40 animate-[spin_6s_linear_infinite]"
+              />
+            ) : (
+              <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-white/15 ring-1 ring-white/30">
+                <Music2 className="h-3.5 w-3.5" aria-hidden />
+              </span>
+            )}
             <span className="min-w-0 truncate">
-              {file.original_file_id ? "Original sound  see videos" : "Original sound"}
+              {file.original_sound
+                ? file.original_sound.filename ||
+                  file.original_sound.file_title ||
+                  "Original sound"
+                : "Original sound"}
             </span>
           </Link>
         )}

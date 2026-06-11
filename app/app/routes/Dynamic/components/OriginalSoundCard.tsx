@@ -67,7 +67,11 @@ export default function OriginalSoundCard({
               {originalSound.ownerUsername}
             </p>
           )}
-          <p className="mt-0.5 truncate text-xs text-muted-foreground">Original content</p>
+          {originalSound.filename && (
+            <p className="mt-0.5 truncate text-xs text-muted-foreground">
+              {originalSound.filename}
+            </p>
+          )}
         </div>
       </WatchLink>
 

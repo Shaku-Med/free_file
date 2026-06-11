@@ -78,7 +78,12 @@ RETURNS TABLE (
   owner_about      text,
   user_has_liked   boolean,
   user_has_disliked boolean,
-  original_file_id uuid
+  original_file_id uuid,
+  original_unique_id text,
+  original_title   text,
+  original_filename text,
+  original_default_thumbnail text,
+  original_created_at timestamptz
 )
 LANGUAGE plpgsql
 STABLE
@@ -460,9 +465,19 @@ BEGIN
     u.about,
     s._user_liked,
     s._user_disliked,
-    s.original_file_id
+    s.original_file_id,
+    orig.unique_id,
+    orig.file_title,
+    orig.filename,
+    COALESCE(orig.default_thumbnail, (SELECT t #>> '{}' FROM unnest(orig.thumbnails) AS t WHERE (t #>> '{}') LIKE '%thumbnail_preview.jpg' LIMIT 1)),
+    orig.created_at
   FROM positioned s
   JOIN users u ON u.id = s.owner_id
+  -- Sound-chip display info: only a PUBLIC completed original is shown.
+  LEFT JOIN files orig ON orig.id = s.original_file_id
+    AND orig.is_public = true
+    AND orig.is_adult = false
+    AND orig.upload_status = 'complete'
   WHERE s._final_pos > p_cursor_pos
   ORDER BY s._final_pos ASC
   LIMIT p_limit;

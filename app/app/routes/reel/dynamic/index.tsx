@@ -83,6 +83,29 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
     const enrichedFiles = await ownerService.enrichFilesWithOwners([file]);
     let fileWithOwner = (enrichedFiles && enrichedFiles[0]) || file;
 
+    // Sound chip: attach the matched original's display info (public only),
+    // same shape the reel feed RPC returns.
+    const originalFileId = (file as { original_file_id?: string | null }).original_file_id;
+    if (originalFileId) {
+      const { data: orig } = await db
+        .from("files")
+        .select("unique_id, file_title, filename, default_thumbnail, thumbnails, created_at, is_public, is_adult, upload_status")
+        .eq("id", originalFileId)
+        .maybeSingle();
+      if (orig && orig.is_public === true && orig.is_adult !== true && orig.upload_status === "complete") {
+        const fallbackThumb = Array.isArray(orig.thumbnails)
+          ? (orig.thumbnails as string[]).find((t) => typeof t === "string" && t.endsWith("thumbnail_preview.jpg")) ?? null
+          : null;
+        (fileWithOwner as Record<string, unknown>).original_sound = {
+          unique_id: String(orig.unique_id),
+          file_title: orig.file_title ?? null,
+          filename: orig.filename ?? null,
+          default_thumbnail: orig.default_thumbnail ?? fallbackThumb,
+          created_at: orig.created_at ?? null,
+        };
+      }
+    }
+
     const user = await isAuthenticated(request, ["id"]);
     const userId = user?.id || undefined;
     let initialUserActions: { likedFileIds: string[]; dislikedFileIds: string[] } = {
