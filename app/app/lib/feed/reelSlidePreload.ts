@@ -10,25 +10,27 @@ export function swiperRealIndex(swiper: SwiperType): number {
  * Whether this slide should mount the HLS player vs poster-only (limits concurrent CDN / segment traffic).
  *
  * - **Always** the active slide.
- * - **Forward-only:** the next **two** reels in swipe-up / feed order (no symmetric “behind” preload → fewer 429s).
+ * - **Forward-only:** the next `lookahead` reels in swipe-up / feed order (no symmetric “behind” preload → fewer 429s).
  * - Combine with ReelSwiper’s “sticky” list for reels the user has **already** opened  those stay mounted without widening the lookahead window.
+ *
+ * `lookahead` is 2 by default; iOS passes 1  iPhone Safari has a tiny media
+ * decoder pool (~3-4 pipelines) and exhausting it is what kills reel autoplay
+ * after sustained scrolling.
  */
 export function reelShouldPreloadHls(
   slideIndex: number,
   activeIdx: number,
   total: number,
   rewindDeck: boolean,
+  lookahead = 2,
 ): boolean {
   if (total <= 0) return false;
   if (slideIndex === activeIdx) return true;
 
-  if (!rewindDeck) {
-    // Linear: next two higher indices only (no preload above the current slide).
-    return slideIndex === activeIdx + 1 || slideIndex === activeIdx + 2;
+  const ahead = Math.max(0, lookahead);
+  for (let step = 1; step <= ahead; step++) {
+    const next = rewindDeck ? (activeIdx + step) % total : activeIdx + step;
+    if (slideIndex === next) return true;
   }
-
-  // Rewind: next two slides in circular “forward” direction (same as Swiper slideNext).
-  const next1 = (activeIdx + 1) % total;
-  const next2 = (activeIdx + 2) % total;
-  return slideIndex === next1 || slideIndex === next2;
+  return false;
 }

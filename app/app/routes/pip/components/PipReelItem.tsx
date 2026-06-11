@@ -191,18 +191,23 @@ function PipReelItemInner({
     }
 
     // Robust autoplay for reels  the active slide must NEVER stay paused.
-    // Two things break naive autoplay on mobile:
+    // Things that break naive autoplay on mobile:
     //   1. Fast scrolling makes this slide's play() race the previous slide's
     //      pause() → AbortError.
     //   2. After a few slides the browser revokes audible-autoplay permission
-    //      → play() rejects with NotAllowedError. The old code then waited for
-    //      a tap/finger-lift to resume, which is why playback felt stuck and
-    //      "you had to put your hands down to play".
-    // Strategy (TikTok-style): retry transient aborts; if SOUND is blocked,
-    // fall back to a MUTED play so the reel keeps rolling, then restore sound
-    // on the viewer's next interaction instead of forcing a manual un-pause.
+    //      → play() rejects with NotAllowedError.
+    //   3. iPhone Safari: after sustained scrolling the media decoder pool is
+    //      starved  play() rejects (or the element just isn't ready) until a
+    //      retired pipeline frees up. A handful of fast retries is NOT enough
+    //      here; the old 3×120ms burned out and the slide stayed frozen.
+    // Strategy (TikTok-style): retry transient errors on a patient heartbeat
+    // until the FIRST successful start (never fighting a user pause after
+    // that), re-attempt the moment the media reports ready, and fall back to
+    // MUTED playback when sound is blocked  restoring sound on the next tap.
     let cancelled = false;
-    let retries = 3;
+    let started = false;
+    let heartbeatTries = 12;
+    let heartbeatId: number | null = null;
 
     const cleanupGesture = () => {
       document.removeEventListener('pointerdown', onUnmuteGesture);
@@ -224,6 +229,31 @@ function PipReelItemInner({
       document.addEventListener('touchend', onUnmuteGesture, { once: true, passive: true });
     };
 
+    const onPlaying = () => {
+      started = true;
+      stopHeartbeat();
+    };
+
+    const stopHeartbeat = () => {
+      if (heartbeatId != null) {
+        window.clearInterval(heartbeatId);
+        heartbeatId = null;
+      }
+    };
+    // Patient recovery: every 700ms until the reel has started once. Covers
+    // decoder starvation (iOS) and slow native-HLS readiness without ever
+    // overriding a deliberate user pause (started flips it off for good).
+    const startHeartbeat = () => {
+      if (heartbeatId != null) return;
+      heartbeatId = window.setInterval(() => {
+        if (cancelled || started || heartbeatTries-- <= 0) {
+          stopHeartbeat();
+          return;
+        }
+        if (v.paused) attempt();
+      }, 700);
+    };
+
     const playMutedFallback = () => {
       if (cancelled) return;
       v.muted = true;
@@ -233,7 +263,7 @@ function PipReelItemInner({
           armUnmuteGesture();
         })
         .catch(() => {
-          if (!cancelled && retries-- > 0) window.setTimeout(attempt, 150);
+          if (!cancelled && !started) startHeartbeat();
         });
     };
 
@@ -250,17 +280,32 @@ function PipReelItemInner({
           if (name === 'NotAllowedError') {
             // Audible autoplay blocked → keep playing muted instead of pausing.
             playMutedFallback();
-          } else if (retries-- > 0) {
-            window.setTimeout(attempt, 120); // transient abort  retry
+          } else if (!started) {
+            startHeartbeat();
           }
         });
       }
     };
+
+    // The instant the element becomes ready (decoder freed / segments landed),
+    // try again — much faster than waiting for the next heartbeat tick.
+    const onReady = () => {
+      if (!cancelled && !started && v.paused) attempt();
+    };
+    v.addEventListener('playing', onPlaying);
+    v.addEventListener('canplay', onReady);
+    v.addEventListener('loadeddata', onReady);
+
     attempt();
+    if (v.paused) startHeartbeat();
 
     return () => {
       cancelled = true;
+      stopHeartbeat();
       cleanupGesture();
+      v.removeEventListener('playing', onPlaying);
+      v.removeEventListener('canplay', onReady);
+      v.removeEventListener('loadeddata', onReady);
     };
   }, [isActive, isVideo, trackedVideoEl]);
 

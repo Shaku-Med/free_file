@@ -5,6 +5,8 @@ import type { Swiper as SwiperType } from "swiper";
 import { ChevronDown, ChevronUp, Loader2 } from "lucide-react";
 import "swiper/css";
 
+import { isIOS } from "react-device-detect";
+
 import { cn } from "~/lib/utils";
 import { reelShouldPreloadHls, swiperRealIndex } from "~/lib/feed/reelSlidePreload";
 import { PipReelItem } from "~/routes/pip/components/PipReelItem";
@@ -32,6 +34,15 @@ const PREFETCH_WHEN_SWIPES_REMAINING = 2;
  * scroll-back without that cost.
  */
 const MAX_STICKY_HLS_MOUNT = 8;
+/**
+ * iPhone Safari's media decoder pool only fits ~3-4 live pipelines. Active +
+ * lookahead + sticky must stay under that, or after enough scrolling every
+ * new slide's play() starves and "autoplay stops working". iOS therefore
+ * runs 1 sticky + 1 lookahead (+ active = 3 pipelines max).
+ */
+const MAX_STICKY_HLS_MOUNT_IOS = 1;
+const HLS_LOOKAHEAD_IOS = 1;
+const HLS_LOOKAHEAD_DEFAULT = 2;
 
 const POSITION_PILL_VISIBLE_MS = 2200;
 
@@ -105,10 +116,11 @@ export const ReelSwiper = ({
     const id = items[activeIdx]?.id;
     if (id == null || id === "") return;
     const s = String(id);
+    const cap = isIOS ? MAX_STICKY_HLS_MOUNT_IOS : MAX_STICKY_HLS_MOUNT;
     setStickyHlsIds((prev) => {
-      if (prev.includes(s)) return prev;
+      if (prev.includes(s)) return prev.length > cap ? prev.slice(-cap) : prev;
       const next = [...prev, s];
-      return next.length > MAX_STICKY_HLS_MOUNT ? next.slice(-MAX_STICKY_HLS_MOUNT) : next;
+      return next.length > cap ? next.slice(-cap) : next;
     });
   }, [activeIdx, items]);
 
@@ -339,8 +351,13 @@ export const ReelSwiper = ({
                   userActions={userActionsStable}
                   variant="page"
                   loadHlsPlayer={
-                    reelShouldPreloadHls(slideIndex, activeIdx, items.length, rewindDeck) ||
-                    stickyHlsSet.has(String(file.id))
+                    reelShouldPreloadHls(
+                      slideIndex,
+                      activeIdx,
+                      items.length,
+                      rewindDeck,
+                      isIOS ? HLS_LOOKAHEAD_IOS : HLS_LOOKAHEAD_DEFAULT,
+                    ) || stickyHlsSet.has(String(file.id))
                   }
                   onReelPosterColors={onReelPosterColors}
                   className="min-h-0 flex-1"
