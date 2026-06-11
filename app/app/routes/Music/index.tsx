@@ -97,9 +97,9 @@ export default function MusicPage() {
               </span>
             </WatchLink>
             <div className="min-w-0 flex-1">
-              <p className="flex min-w-0 items-center gap-1.5 text-xs font-semibold tracking-wide text-muted-foreground">
+              <p className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                 <Music2 className="h-3.5 w-3.5 shrink-0" aria-hidden />
-                <span className="truncate">{original.filename || "Original sound"}</span>
+                Original sound
               </p>
               <h1 className="mt-1 truncate text-xl font-bold text-foreground sm:text-2xl">
                 {originalTitle}

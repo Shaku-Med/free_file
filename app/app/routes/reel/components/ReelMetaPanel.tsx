@@ -232,8 +232,8 @@ export function ReelMetaPanel({ file, item, views }: ReelMetaPanelProps) {
             )}
             <span className="min-w-0 truncate">
               {file.original_sound
-                ? file.original_sound.filename ||
-                  file.original_sound.file_title ||
+                ? file.original_sound.file_title?.trim() ||
+                  (file.original_sound.filename || "").replace(/\.[^./\\]+$/, "") ||
                   "Original sound"
                 : "Original sound"}
             </span>
