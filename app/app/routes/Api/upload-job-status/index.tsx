@@ -285,6 +285,10 @@ export const action = async ({ request }: { request: Request }) => {
     /** 'github' (default) or 'r2' */
     storage_backend?: string;
     storage_bucket?: string;
+    /** True when the upload was accepted on the extra weekly allowance. */
+    overflow?: boolean;
+    /** Semantic-search vector (384 floats) from the Go worker, optional. */
+    embedding?: number[];
     /** 0–100 from Go worker while processing */
     progress?: number;
   };
@@ -390,9 +394,10 @@ export const action = async ({ request }: { request: Request }) => {
     } else {
       console.log('[upload-job-status] files created for', upload_id, 'with status queued');
     }
-    // Record weekly-quota usage now so it shows immediately. Idempotent by upload_id.
-    // Charge the authoritative owner, not whatever the body claimed.
-    await recordUploadUsage(ownerId, upload_id, file_size);
+    // Record quota usage now so it shows immediately. Idempotent by upload_id.
+    // Charge the authoritative owner, not whatever the body claimed. Overflow
+    // jobs (accepted on the extra weekly allowance) meter separately.
+    await recordUploadUsage(ownerId, upload_id, file_size, body?.overflow === true ? 'overflow' : 'monthly');
   }
 
   if (status === 'failed' && upload_id) {
@@ -544,7 +549,24 @@ export const action = async ({ request }: { request: Request }) => {
     const actualBytes =
       typeof body?.file_size === 'number' && body.file_size >= 0 ? body.file_size : 0;
     if (user_id) {
-      await recordUploadUsage(user_id, upload_id, actualBytes);
+      await recordUploadUsage(user_id, upload_id, actualBytes, body?.overflow === true ? 'overflow' : 'monthly');
+    }
+
+    // Semantic-search vector from the worker. Best-effort: a bad/missing
+    // vector just leaves this file lexical-only.
+    const embedding = body?.embedding;
+    if (
+      Array.isArray(embedding) &&
+      embedding.length === 384 &&
+      embedding.every((v) => typeof v === 'number' && Number.isFinite(v))
+    ) {
+      const { error: embErr } = await db.rpc('set_file_embedding', {
+        p_unique_id: upload_id,
+        p_embedding: `[${embedding.join(',')}]`,
+      });
+      if (embErr) {
+        console.warn('[upload-job-status] set_file_embedding:', embErr.message ?? embErr);
+      }
     }
   }
 

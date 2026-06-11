@@ -36,7 +36,8 @@ function BufferSegments({ ranges, duration, className }: {
 
 function useVideoProgress(
   videoRef: React.RefObject<HTMLVideoElement | null>,
-  handleInsetPx: number
+  handleInsetPx: number,
+  useScaledInset = false,
 ) {
   const progressRef = useRef(0);
   const durationRef = useRef(0);
@@ -50,7 +51,9 @@ function useVideoProgress(
 
     let rafId = 0;
     let running = false;
-    const inset = handleInsetPx;
+    const insetExpr = useScaledInset
+      ? `var(--hls-ctrl-seek-handle-inset, ${handleInsetPx}px)`
+      : `${handleInsetPx}px`;
 
     const update = () => {
       if (!running) return;
@@ -60,7 +63,7 @@ function useVideoProgress(
         progressRef.current = pct;
         durationRef.current = v.duration;
         if (barRef.current) barRef.current.style.width = `${pct}%`;
-        if (handleRef.current) handleRef.current.style.left = `calc(${pct}% - ${inset}px)`;
+        if (handleRef.current) handleRef.current.style.left = `calc(${pct}% - ${insetExpr})`;
         if (timeRef.current) timeRef.current.textContent = formatTime(v.currentTime);
       }
       rafId = requestAnimationFrame(update);
@@ -83,7 +86,7 @@ function useVideoProgress(
         const pct = (v.currentTime / v.duration) * 100;
         progressRef.current = pct;
         if (barRef.current) barRef.current.style.width = `${pct}%`;
-        if (handleRef.current) handleRef.current.style.left = `calc(${pct}% - ${inset}px)`;
+        if (handleRef.current) handleRef.current.style.left = `calc(${pct}% - ${insetExpr})`;
       }
     };
 
@@ -93,7 +96,7 @@ function useVideoProgress(
         const pct = (v.currentTime / v.duration) * 100;
         progressRef.current = pct;
         if (barRef.current) barRef.current.style.width = `${pct}%`;
-        if (handleRef.current) handleRef.current.style.left = `calc(${pct}% - ${inset}px)`;
+        if (handleRef.current) handleRef.current.style.left = `calc(${pct}% - ${insetExpr})`;
       }
     };
 
@@ -112,7 +115,7 @@ function useVideoProgress(
       video.removeEventListener('ended', stop);
       video.removeEventListener('seeked', onSeeked);
     };
-  }, [videoRef, handleInsetPx]);
+  }, [videoRef, handleInsetPx, useScaledInset]);
 
   return { progressRef, durationRef, barRef, handleRef, timeRef };
 }
@@ -128,6 +131,7 @@ function ThinSeekTrack({
   handleRef,
   showHandle,
   mobileStyle,
+  scaledStyle,
   handleInsetPx,
   waveformUrl,
   trackWidth,
@@ -148,6 +152,7 @@ function ThinSeekTrack({
   handleRef: React.RefObject<HTMLDivElement | null>;
   showHandle: boolean;
   mobileStyle: boolean;
+  scaledStyle: boolean;
   handleInsetPx: number;
   waveformUrl?: string;
   trackWidth: number;
@@ -160,6 +165,13 @@ function ThinSeekTrack({
   onLostPointerCapture: () => void;
   onPointerCancel: () => void;
 }) {
+  const handleLeft = scaledStyle
+    ? `calc(${progress}% - var(--hls-ctrl-seek-handle-inset, ${handleInsetPx}px))`
+    : `calc(${progress}% - ${handleInsetPx}px)`;
+  const handleSizeClass = scaledStyle
+    ? 'h-[var(--hls-ctrl-seek-handle,1rem)] w-[var(--hls-ctrl-seek-handle,1rem)]'
+    : 'h-4 w-4';
+
   const rail = (
     <>
       <BufferSegments
@@ -175,11 +187,12 @@ function ThinSeekTrack({
       <div
         ref={handleRef}
         className={cn(
-          'absolute top-1/2 h-4 w-4 -translate-y-1/2 rounded-full border-2 border-primary bg-background shadow-md',
+          'absolute top-1/2 -translate-y-1/2 rounded-full border-2 border-primary bg-background shadow-md',
+          handleSizeClass,
           mobileStyle ? 'opacity-100' : 'opacity-0 transition-opacity duration-150 group-hover/seek:opacity-100',
           showHandle && 'opacity-100'
         )}
-        style={{ left: `calc(${progress}% - ${handleInsetPx}px)` }}
+        style={{ left: handleLeft }}
       />
     </>
   );
@@ -189,7 +202,7 @@ function ThinSeekTrack({
       <div
         ref={trackRef}
         tabIndex={-1}
-        className="group/seek relative flex min-h-9 w-full cursor-pointer select-none items-center justify-center overflow-visible rounded-full bg-transparent outline-none"
+        className="group/seek relative flex w-full cursor-pointer select-none items-center justify-center overflow-visible rounded-full bg-transparent outline-none min-h-[var(--hls-ctrl-seek-hit,2.25rem)]"
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
@@ -199,7 +212,7 @@ function ThinSeekTrack({
         onPointerCancel={onPointerCancel}
         onBlur={onMouseLeave}
       >
-        <div className="relative h-[3px] w-full shrink-0 overflow-visible rounded-full bg-secondary">
+        <div className="relative h-[var(--hls-ctrl-seek-track,3px)] w-full shrink-0 overflow-visible rounded-full bg-secondary">
           {rail}
         </div>
       </div>
@@ -291,13 +304,14 @@ function ThinSeekTrack({
             <div
               ref={handleRef}
               className={cn(
-                'absolute top-1/2 h-4 w-4 -translate-y-1/2 rounded-full border-2 border-primary bg-background shadow-md',
+                'absolute top-1/2 -translate-y-1/2 rounded-full border-2 border-primary bg-background shadow-md',
+                handleSizeClass,
                 mobileStyle
                   ? 'opacity-100'
                   : 'opacity-0 transition-opacity duration-150 group-hover/seek:opacity-100',
                 showHandle && 'opacity-100'
               )}
-              style={{ left: `calc(${progress}% - ${handleInsetPx}px)` }}
+              style={{ left: handleLeft }}
             />
 
             {/* Hairline + buffered ranges sit on top of everything else so
@@ -344,7 +358,12 @@ function ThinSeekTrack({
     <div
       ref={trackRef}
       tabIndex={-1}
-      className="group/seek relative flex h-5 w-full cursor-pointer select-none items-center overflow-visible bg-transparent outline-none"
+      className={cn(
+        'group/seek relative flex w-full cursor-pointer select-none items-center overflow-visible bg-transparent outline-none',
+        scaledStyle
+          ? 'min-h-[var(--hls-ctrl-seek-hit,1.25rem)]'
+          : 'h-5',
+      )}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
@@ -354,14 +373,27 @@ function ThinSeekTrack({
       onPointerCancel={onPointerCancel}
       onBlur={onMouseLeave}
     >
-      <div className="relative h-1 w-full overflow-visible rounded-full bg-secondary transition-[height] duration-150 group-hover/seek:h-2">
+      <div
+        className={cn(
+          'relative w-full overflow-visible rounded-full bg-secondary',
+          scaledStyle
+            ? 'h-[var(--hls-ctrl-seek-track,4px)] transition-[height] duration-150 group-hover/seek:h-[calc(var(--hls-ctrl-seek-track,4px)*1.5)]'
+            : 'h-1 transition-[height] duration-150 group-hover/seek:h-2',
+        )}
+      >
         {rail}
       </div>
     </div>
   );
 }
 
-export default function SeekBar({ mobileStyle = false }: { mobileStyle?: boolean }) {
+export default function SeekBar({
+  mobileStyle = false,
+  scaledStyle = false,
+}: {
+  mobileStyle?: boolean;
+  scaledStyle?: boolean;
+}) {
   const {
     videoRef,
     state,
@@ -526,8 +558,8 @@ export default function SeekBar({ mobileStyle = false }: { mobileStyle?: boolean
 
   const showWaveform = Boolean(waveformUrl);
 
-  const handleInsetPx = mobileStyle ? 8 : 8;
-  const { barRef, handleRef } = useVideoProgress(videoRef, handleInsetPx);
+  const handleInsetPx = 8;
+  const { barRef, handleRef } = useVideoProgress(videoRef, handleInsetPx, scaledStyle || mobileStyle);
 
   const progress = state.duration > 0 ? (state.currentTime / state.duration) * 100 : 0;
   const { bufferedRanges } = state;
@@ -671,6 +703,7 @@ export default function SeekBar({ mobileStyle = false }: { mobileStyle?: boolean
         handleRef={handleRef}
         showHandle={Boolean(hoverTime !== null || isDragging || mobileStyle)}
         mobileStyle={mobileStyle}
+        scaledStyle={scaledStyle || mobileStyle}
         handleInsetPx={handleInsetPx}
         waveformUrl={showWaveform ? (waveformUrl ?? undefined) : undefined}
         trackWidth={trackWidth}

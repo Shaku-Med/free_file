@@ -21,6 +21,14 @@ export type PlayerSettings = {
   audioVisualizerStyle: 'bars' | 'mirror' | 'ribbon' | 'pulse' | 'line' | 'blocks' | 'dots' | 'aurora';
   /** Pop confetti from the visualizer on bass kicks (desktop). Intensity follows the audio. */
   visualizerConfetti: boolean;
+  /** JSON map of stem type → enabled (kick/snare/hihat/bass/other). */
+  stemConfettiInstruments: string;
+  /** Video element scale-bounces on kick/bass hits (dance mode). */
+  videoBounce: boolean;
+  /** Bounce strength multiplier (0.25–2, 1 = default). */
+  videoBounceIntensity: number;
+  /** JSON map of stem type → the bounce reacts to it (kick/snare/hihat/bass/other). */
+  videoBounceInstruments: string;
   quality: string;
   /** 8D / spatial audio master toggle. */
   spatialAudio: boolean;

@@ -393,8 +393,26 @@ BEGIN
           + c._session_boost * 0.10
           + (((hashtext(c.id::text || p_seed || c._pool) % 1000000)::float + 500000.0) / 1000000.0) * 0.65
           DESC
-      ) AS _final_pos
+      ) AS _pre_pos
     FROM combined c
+  ),
+
+  -- Per-creator hard cap (~5% of the pool, min 1) + spread: one bulk
+  -- uploader can't turn the reel feed into their profile. Mirrors get_feed.
+  creator_capped AS (
+    SELECT sh.*,
+      ROW_NUMBER() OVER (PARTITION BY sh.owner_id ORDER BY sh._pre_pos) AS _creator_rn
+    FROM shuffled sh
+  ),
+  positioned AS (
+    SELECT cc.*,
+      ROW_NUMBER() OVER (
+        ORDER BY
+          ((cc._creator_rn - 1) / (CASE WHEN cc._is_subscribed THEN 3 ELSE 2 END)) ASC,
+          cc._pre_pos ASC
+      ) AS _final_pos
+    FROM creator_capped cc
+    WHERE cc._creator_rn <= GREATEST(1, CEIL(p_limit * v_page_mult * 0.05)::int)
   )
 
   SELECT
@@ -440,7 +458,7 @@ BEGIN
     u.about,
     s._user_liked,
     s._user_disliked
-  FROM shuffled s
+  FROM positioned s
   JOIN users u ON u.id = s.owner_id
   WHERE s._final_pos > p_cursor_pos
   ORDER BY s._final_pos ASC

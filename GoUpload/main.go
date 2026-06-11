@@ -10,12 +10,14 @@ import (
 
 	"goupload/internal/captions"
 	"goupload/internal/commentimg"
+	"goupload/internal/embedproxy"
 	"goupload/internal/middleware"
 	"goupload/internal/profilepic"
 	"goupload/internal/testpage"
 	"goupload/internal/thumbnail"
 	"goupload/internal/upload"
 	"goupload/internal/worker"
+	embedlib "goupload/lib/embed"
 	"goupload/lib/env"
 	ghlib "goupload/lib/github"
 	"goupload/lib/logger"
@@ -50,6 +52,13 @@ func main() {
 
 	nsfwAPI := env.Get("NSFW_API_URL", "http://localhost:3004/api/nsfw/detect")
 	webhookSecret := env.Get("UPLOAD_WEBHOOK_SECRET", "")
+
+	// Local embedding sidecar (semantic search). Optional: when EMBED_API_URL
+	// is unset everything degrades to lexical-only search.
+	embedClient := embedlib.NewClient(env.Get("EMBED_API_URL", ""), env.Get("EMBED_API_SECRET", ""))
+	if embedClient.Enabled() {
+		appLog.Infof("embed client ready url=%s", env.Get("EMBED_API_URL", ""))
+	}
 
 	ghToken := env.Get("GITHUB_TOKEN", "")
 	ghOwner := env.Get("GITHUB_OWNER", "")
@@ -88,6 +97,7 @@ func main() {
 		GitHubRepo:     ghRepo,
 		R2:             r2Client,
 		StorageBackend: storageBackend,
+		Embed:          embedClient,
 	}
 	if ghToken != "" && ghOwner != "" {
 		wcfg.GitHubClient = ghlib.NewClient(ghlib.Config{Token: ghToken, Owner: ghOwner, Repo: ghRepo})
@@ -209,6 +219,7 @@ func main() {
 		supabaseKey = env.EnvValidator("SUPABASE_ANON_KEY")
 	}
 	upload.RegisterRoutes(app, manager, q, appLog)
+	embedproxy.RegisterRoutes(app, appLog, embedClient, webhookSecret)
 	thumbnail.RegisterRoutes(app, appLog, thumbnail.Config{
 		GitHubClient:  wcfg.GitHubClient,
 		GitHubOwner:   ghOwner,

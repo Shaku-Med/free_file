@@ -44,6 +44,29 @@ services:
       timeout: 5s
       retries: 3
 
+  # Local text-embedding sidecar (semantic search). Private network only,
+  # never published; GoUpload is the sole caller (shared EMBED_API_SECRET).
+  embedapi:
+    image: ${EMBEDAPI_IMAGE:-ghcr.io/OWNER/REPO/embedapi:latest}
+    container_name: goupload-embedapi
+    restart: unless-stopped
+    environment:
+      EMBED_API_PORT: "3007"
+      EMBED_API_SECRET: ${EMBED_API_SECRET:?set EMBED_API_SECRET in .env}
+      EMBED_THREADS: "${EMBED_THREADS:-1}"
+    networks:
+      - goupload-net
+    deploy:
+      resources:
+        limits:
+          cpus: "${EMBEDAPI_CPUS:-0.75}"
+          memory: ${EMBEDAPI_MEM:-512M}
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request;urllib.request.urlopen('http://localhost:3007/health', timeout=3)\""]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
   goupload:
     image: ${GOUPLOAD_IMAGE:-ghcr.io/OWNER/REPO/goupload:latest}
     container_name: goupload
@@ -53,6 +76,8 @@ services:
     environment:
       REDIS_ADDR: redis:6379
       NSFW_API_URL: http://nsfwapi:3004/api/nsfw/detect
+      EMBED_API_URL: http://embedapi:3007/embed
+      EMBED_API_SECRET: ${EMBED_API_SECRET:?set EMBED_API_SECRET in .env}
       # Adaptive worker pool  see internal/worker/pool.go. These can also live
       # in goupload.env if you prefer.
       WORKER_MIN: ${WORKER_MIN:-1}
@@ -68,6 +93,8 @@ services:
       redis:
         condition: service_healthy
       nsfwapi:
+        condition: service_started
+      embedapi:
         condition: service_started
     deploy:
       resources:

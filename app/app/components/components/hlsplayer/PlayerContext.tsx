@@ -19,6 +19,15 @@ import {
   type SpatialAudioMode,
 } from './hooks/useSpatialAudio';
 import { useStableVolume } from './hooks/useStableVolume';
+import { fetchAudioStems, type AudioStems, type StemType } from './audioStems';
+import {
+  DEFAULT_STEM_CONFETTI_INSTRUMENTS,
+  DEFAULT_VIDEO_BOUNCE_INSTRUMENTS,
+  parseStemConfettiInstruments,
+  parseStemInstrumentMap,
+  serializeStemConfettiInstruments,
+  type StemConfettiInstruments,
+} from './stemConfettiSettings';
 
 export interface TiltRotation {
   /** rotateX in degrees  looking up (+) / down (−). */
@@ -211,6 +220,15 @@ interface PlayerContextValue {
   /** Legacy PNG waveform  used when the JSON doesn't exist. Rendered
    *  ABOVE the normal thin seekbar as decoration. */
   waveformPngUrl: string | null;
+  /** Server-analyzed kick/instrument onsets (audio_stems.json). May 404
+   *  for old uploads  consumers fall back to live analyser detection. */
+  audioStemsUrl: string | null;
+  /** Parsed stems when audio_stems.json exists for this file. */
+  audioStems: AudioStems | null;
+  audioStemsAvailable: boolean;
+  /** Per-instrument confetti toggles (only applies when audioStems is set). */
+  stemConfettiInstruments: StemConfettiInstruments;
+  setStemConfettiInstrument: (type: StemType, enabled: boolean) => void;
 
   ambientMode: boolean;
   setAmbientMode: (v: boolean) => void;
@@ -224,6 +242,15 @@ interface PlayerContextValue {
   setAudioVisualizerStyle: (v: AudioVisualizerStyle) => void;
   visualizerConfetti: boolean;
   setVisualizerConfetti: (v: boolean) => void;
+  /** Video element scale-bounces on kick/bass hits (dance mode). */
+  videoBounce: boolean;
+  setVideoBounce: (v: boolean) => void;
+  /** Bounce strength multiplier (0.25–2, 1 = default). */
+  videoBounceIntensity: number;
+  setVideoBounceIntensity: (v: number) => void;
+  /** Which stems the bounce reacts to. */
+  videoBounceInstruments: StemConfettiInstruments;
+  setVideoBounceInstrument: (type: StemType, enabled: boolean) => void;
   /** Session-only debug overlay (not persisted). */
   statsForNerds: boolean;
   setStatsForNerds: (v: boolean) => void;
@@ -436,6 +463,9 @@ export function PlayerProvider({
 
   const [audioVisualizer, setAudioVisualizerState] = useState(false);
   const audioVisualizerStyleRef = useRef<AudioVisualizerStyle>(DEFAULT_AUDIO_VISUALIZER_STYLE);
+  /** Read inside toggleFullscreen (stable callback) — mobile blocks fullscreen while the visualizer is on. */
+  const audioVisualizerFullscreenGuardRef = useRef(false);
+  audioVisualizerFullscreenGuardRef.current = audioVisualizer;
   const setAudioVisualizer = useCallback(
     (v: boolean) => {
       if (!authPlaybackFeatures || isReel) return;
@@ -493,6 +523,70 @@ export function PlayerProvider({
     [authPlaybackFeatures, setPlayerSettings, savePlayerSettings],
   );
 
+  const [videoBounce, setVideoBounceState] = useState(false);
+
+  const setVideoBounce = useCallback(
+    (v: boolean) => {
+      if (!authPlaybackFeatures) return;
+      setVideoBounceState(v);
+      setPlayerSettings(prev => (prev ? { ...prev, videoBounce: v } : prev));
+      savePlayerSettings({ videoBounce: v }).catch(() => {});
+    },
+    [authPlaybackFeatures, setPlayerSettings, savePlayerSettings],
+  );
+
+  const [videoBounceIntensity, setVideoBounceIntensityState] = useState(1);
+
+  const setVideoBounceIntensity = useCallback(
+    (v: number) => {
+      if (!authPlaybackFeatures) return;
+      const clamped = Math.max(0.25, Math.min(2, Number.isFinite(v) ? v : 1));
+      setVideoBounceIntensityState(clamped);
+      setPlayerSettings(prev => (prev ? { ...prev, videoBounceIntensity: clamped } : prev));
+      savePlayerSettings({ videoBounceIntensity: clamped }).catch(() => {});
+    },
+    [authPlaybackFeatures, setPlayerSettings, savePlayerSettings],
+  );
+
+  const [videoBounceInstruments, setVideoBounceInstrumentsState] = useState<StemConfettiInstruments>(
+    DEFAULT_VIDEO_BOUNCE_INSTRUMENTS,
+  );
+
+  const setVideoBounceInstrument = useCallback(
+    (type: StemType, enabled: boolean) => {
+      if (!authPlaybackFeatures) return;
+      setVideoBounceInstrumentsState((prev) => {
+        const next = { ...prev, [type]: enabled };
+        const serialized = serializeStemConfettiInstruments(next);
+        setPlayerSettings((p) => (p ? { ...p, videoBounceInstruments: serialized } : p));
+        savePlayerSettings({ videoBounceInstruments: serialized }).catch(() => {});
+        return next;
+      });
+    },
+    [authPlaybackFeatures, setPlayerSettings, savePlayerSettings],
+  );
+
+  const [stemConfettiInstruments, setStemConfettiInstrumentsState] = useState<StemConfettiInstruments>(
+    DEFAULT_STEM_CONFETTI_INSTRUMENTS,
+  );
+
+  const setStemConfettiInstrument = useCallback(
+    (type: StemType, enabled: boolean) => {
+      if (!authPlaybackFeatures) return;
+      setStemConfettiInstrumentsState((prev) => {
+        const next = { ...prev, [type]: enabled };
+        setPlayerSettings((p) =>
+          p ? { ...p, stemConfettiInstruments: serializeStemConfettiInstruments(next) } : p,
+        );
+        savePlayerSettings({ stemConfettiInstruments: serializeStemConfettiInstruments(next) }).catch(
+          () => {},
+        );
+        return next;
+      });
+    },
+    [authPlaybackFeatures, setPlayerSettings, savePlayerSettings],
+  );
+
   useEffect(() => {
     if (!playerSettings || appliedInitialRef.current) return;
     appliedInitialRef.current = true;
@@ -511,12 +605,25 @@ export function PlayerProvider({
       audioVisualizerStyleRef.current = style;
       setAudioVisualizerStyleState(style);
       setVisualizerConfettiState(playerSettings.visualizerConfetti !== false);
+      setStemConfettiInstrumentsState(
+        parseStemConfettiInstruments(playerSettings.stemConfettiInstruments),
+      );
+      setVideoBounceState(playerSettings.videoBounce === true);
+      setVideoBounceIntensityState(
+        Math.max(0.25, Math.min(2, playerSettings.videoBounceIntensity ?? 1)),
+      );
+      setVideoBounceInstrumentsState(
+        parseStemInstrumentMap(playerSettings.videoBounceInstruments, DEFAULT_VIDEO_BOUNCE_INSTRUMENTS),
+      );
       setAmbientModeState(playerSettings.ambientMode);
     } else {
       setAudioVisualizerState(false);
       audioVisualizerStyleRef.current = DEFAULT_AUDIO_VISUALIZER_STYLE;
       setAudioVisualizerStyleState(DEFAULT_AUDIO_VISUALIZER_STYLE);
       setVisualizerConfettiState(true);
+      setVideoBounceState(false);
+      setVideoBounceIntensityState(1);
+      setVideoBounceInstrumentsState(DEFAULT_VIDEO_BOUNCE_INSTRUMENTS);
       setAmbientModeState(false);
     }
 
@@ -641,6 +748,25 @@ export function PlayerProvider({
     () => (waveformPrefix ? `/api/load/image/${waveformPrefix}waveform.png` : null),
     [waveformPrefix],
   );
+  const audioStemsUrl = useMemo(
+    () => (waveformPrefix ? `/api/load/image/${waveformPrefix}audio_stems.json` : null),
+    [waveformPrefix],
+  );
+
+  const [audioStems, setAudioStems] = useState<AudioStems | null>(null);
+  useEffect(() => {
+    setAudioStems(null);
+    if (!audioStemsUrl) return;
+    let alive = true;
+    fetchAudioStems(audioStemsUrl).then((stems) => {
+      if (!alive) return;
+      setAudioStems(stems);
+    });
+    return () => {
+      alive = false;
+    };
+  }, [audioStemsUrl]);
+  const audioStemsAvailable = audioStems != null;
 
   const play = useCallback(() => {
     videoRef.current?.play().catch(() => {});
@@ -734,6 +860,9 @@ export function PlayerProvider({
         return;
       }
       const is_mobile = isMobile
+      // Mobile + visualizer: the strip can't live inside native fullscreen,
+      // so fullscreen is disabled while the visualizer setting is on.
+      if (is_mobile && audioVisualizerFullscreenGuardRef.current) return;
       const el = is_mobile ? videoRef.current : containerRef.current;
       if (el) {
         if (is_mobile){
@@ -750,6 +879,28 @@ export function PlayerProvider({
         }
       }
     } catch {}
+  }, []);
+
+  // Android fullscreen shows Chrome's NATIVE video controls — but our global
+  // CSS hides every ::-webkit-media-controls. Hand the native UI back while
+  // the VIDEO element itself is fullscreen (mobile path only; desktop
+  // fullscreens the container so our DOM controls keep working), and take it
+  // away again on exit. fullscreenchange covers enter, exit, and back-button.
+  useEffect(() => {
+    const onFullscreenChange = () => {
+      const v = videoRef.current;
+      if (!v) return;
+      const videoIsFullscreen = document.fullscreenElement === v;
+      if (videoIsFullscreen) {
+        v.classList.add('native-controls-allowed');
+        v.controls = true;
+      } else {
+        v.classList.remove('native-controls-allowed');
+        v.controls = false;
+      }
+    };
+    document.addEventListener('fullscreenchange', onFullscreenChange);
+    return () => document.removeEventListener('fullscreenchange', onFullscreenChange);
   }, []);
 
   const replay = useCallback(() => {
@@ -930,6 +1081,11 @@ export function PlayerProvider({
     setSpriteUrl,
     waveformUrl,
     waveformPngUrl,
+    audioStemsUrl,
+    audioStems,
+    audioStemsAvailable,
+    stemConfettiInstruments,
+    setStemConfettiInstrument,
     ambientMode: ambientModeState,
     setAmbientMode,
     ambientColors,
@@ -942,6 +1098,12 @@ export function PlayerProvider({
     setAudioVisualizerStyle,
     visualizerConfetti,
     setVisualizerConfetti,
+    videoBounce,
+    setVideoBounce,
+    videoBounceIntensity,
+    setVideoBounceIntensity,
+    videoBounceInstruments,
+    setVideoBounceInstrument,
     statsForNerds,
     setStatsForNerds,
     sleepTimer,

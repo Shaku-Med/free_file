@@ -527,19 +527,22 @@ input[type="file"] {
   }
 }
 
-* video::-webkit-media-controls {
+/* Native media controls stay hidden (we render our own) EXCEPT when the
+   player grants them back via `.native-controls-allowed` — Android needs
+   the native UI in fullscreen, where our DOM controls can't render. */
+video:not(.native-controls-allowed)::-webkit-media-controls {
   display: none !important;
 }
 
-* video::-webkit-media-controls-panel {
+video:not(.native-controls-allowed)::-webkit-media-controls-panel {
   display: none !important;
 }
 
-* video::-webkit-media-controls-enclosure {
+video:not(.native-controls-allowed)::-webkit-media-controls-enclosure {
   display: none !important;
 }
 
-* video::-webkit-media-controls-timeline {
+video:not(.native-controls-allowed)::-webkit-media-controls-timeline {
   display: none !important;
 }
 

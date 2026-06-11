@@ -3,6 +3,20 @@ import { createPortal } from 'react-dom';
 import { Play, Pause, SkipForward, MoreVertical, SkipBack, ChevronLeft, X, LoaderCircle } from 'lucide-react';
 import { usePlayerContext } from '../PlayerContext';
 import { useControlBarWidth } from '../hooks/useControlBarWidth';
+import {
+  mobileControlStyleVars,
+  mobileOverlayCircleBtn,
+  mobileOverlayIcon,
+  mobileOverlayMainIcon,
+  mobileVolumePillShell,
+  mobileTimePill,
+  mobileTimePillStyle,
+  mobileTimeSeparatorStyle,
+  mobilePillShellStyle,
+  mobileAutoplayToggleTrack,
+  mobileAutoplayToggleKnob,
+  mobileAutoplayToggleIcon,
+} from './mobileControlMetrics';
 import SeekBar from './seek/SeekBar';
 import VolumeControl from './volume/VolumeControl';
 import SettingsMenu from './settings/SettingsMenu';
@@ -208,7 +222,8 @@ export default function ControlBar({
     state.reelAuxiliaryChromeVisible,
     setReelChromeBottomReservePx,
   ]);
-  const { showTime, showRightInline, showVolumeSlider } = useControlBarWidth(containerRef);
+  const { showTime, showRightInline, showVolumeSlider, mobileMetrics } = useControlBarWidth(containerRef);
+  const mobileVars = mobileControlStyleVars(mobileMetrics);
   const [overflowOpen, setOverflowOpen] = useState(false);
   const overflowRef = useRef<HTMLDivElement>(null);
   const moreButtonRef = useRef<HTMLButtonElement>(null);
@@ -271,8 +286,10 @@ export default function ControlBar({
     onNext?.();
   };
 
-  const circleBtn =
-    'flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-black/50 text-white shadow-sm active:scale-95 transition-transform';
+  const circleBtn = cn(
+    mobileOverlayCircleBtn,
+    'bg-black/50 text-white shadow-sm active:scale-95 transition-transform',
+  );
 
   const desktopIconCircle =
     'flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-black/50 text-white shadow-sm backdrop-blur-sm transition-colors hover:bg-black/60';
@@ -280,20 +297,24 @@ export default function ControlBar({
   const desktopRightPill =
     'flex max-w-[min(100%,28rem)] items-center gap-0.5 overflow-x-auto rounded-full bg-black/50 px-1.5 py-1 shadow-sm backdrop-blur-sm [scrollbar-width:none] [&::-webkit-scrollbar]:hidden';
 
+  const autoplayKnobOffset = autoPlay
+    ? { right: 'calc((var(--hls-ctrl-toggle-h, 1.5rem) - var(--hls-ctrl-toggle-knob, 1.25rem)) / 2)' }
+    : { left: 'calc((var(--hls-ctrl-toggle-h, 1.5rem) - var(--hls-ctrl-toggle-knob, 1.25rem)) / 2)' };
+
   if (idleSeekOnly) {
     if (isMobileLayout) {
       return (
         <div
           ref={containerRef}
           className="pointer-events-none absolute inset-0 z-30 flex flex-col"
-          style={{ bottom: liftBottomPx }}
+          style={{ ...mobileVars, bottom: liftBottomPx }}
         >
           <div
             ref={bottomStripRef}
-            className="pointer-events-auto absolute bottom-0 left-0 right-0 z-40 flex flex-col px-3 pb-3 pt-2"
-            style={{ paddingBottom: 'max(0.75rem, env(safe-area-inset-bottom))' }}
+            className="pointer-events-auto absolute bottom-0 left-0 right-0 z-40 flex flex-col px-[var(--hls-ctrl-pad,0.75rem)] pb-[var(--hls-ctrl-pad,0.75rem)] pt-2"
+            style={{ paddingBottom: 'max(var(--hls-ctrl-pad, 0.75rem), env(safe-area-inset-bottom))' }}
           >
-            {!isHidden(hideControls, 'seek') && <SeekBar mobileStyle />}
+            {!isHidden(hideControls, 'seek') && <SeekBar mobileStyle scaledStyle />}
           </div>
         </div>
       );
@@ -321,10 +342,13 @@ export default function ControlBar({
       <div
         ref={containerRef}
         className="pointer-events-none absolute inset-0 z-30 flex flex-col"
-        style={{ bottom: liftBottomPx }}
+        style={{ ...mobileVars, bottom: liftBottomPx }}
       >
         {onBack && !isHidden(hideControls, 'back') && (
-          <div className="pointer-events-auto absolute left-3 top-3 z-40">
+          <div
+            className="pointer-events-auto absolute z-40"
+            style={{ left: 'var(--hls-ctrl-inset, 0.75rem)', top: 'var(--hls-ctrl-inset, 0.75rem)' }}
+          >
             <PlayerControlTooltip label="Back" side="bottom">
               <button
                 type="button"
@@ -332,23 +356,30 @@ export default function ControlBar({
                   e.stopPropagation();
                   onBack();
                 }}
-                className={desktopIconCircle}
+                className={cn(mobileOverlayCircleBtn, 'backdrop-blur-sm transition-colors hover:bg-black/60')}
                 aria-label="Back"
               >
-                <ChevronLeft className="h-5 w-5 text-white" />
+                <ChevronLeft className={cn(mobileOverlayIcon, 'text-white')} />
               </button>
             </PlayerControlTooltip>
           </div>
         )}
-        <div className="pointer-events-auto absolute right-3 top-3 z-40 flex items-center gap-2">
+        <div
+          className="pointer-events-auto absolute z-40 flex max-w-[min(100%,calc(100%-4.5rem))] flex-wrap items-center justify-end"
+          style={{
+            right: 'var(--hls-ctrl-inset, 0.75rem)',
+            top: 'var(--hls-ctrl-inset, 0.75rem)',
+            gap: 'var(--hls-ctrl-top-gap, 0.5rem)',
+          }}
+        >
           {showTiltReset && (
             <button
               type="button"
               onClick={(e) => { e.stopPropagation(); resetTiltRotation(); }}
-              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-black/50 text-white/80 shadow-sm backdrop-blur-sm active:scale-95 transition-transform"
+              className={cn(mobileOverlayCircleBtn, 'text-white/80 backdrop-blur-sm')}
               aria-label="Reset tilt"
             >
-              <X className="w-5 h-5" />
+              <X className={mobileOverlayIcon} />
             </button>
           )}
           {!isHidden(hideControls, 'settings') && (
@@ -371,25 +402,28 @@ export default function ControlBar({
                 }}
                 disabled={!authPlaybackFeatures}
                 className={cn(
-                  'flex h-9 items-center gap-2 rounded-full bg-black/50 px-2.5 py-1 backdrop-blur-sm',
-                  !authPlaybackFeatures && 'opacity-50'
+                  'flex shrink-0 items-center gap-1.5 rounded-full bg-black/50 py-1 backdrop-blur-sm',
+                  !authPlaybackFeatures && 'opacity-50',
                 )}
+                style={{
+                  height: 'var(--hls-ctrl-small-btn, 2.25rem)',
+                  paddingLeft: 'calc(var(--hls-ctrl-top-gap, 0.5rem) + 2px)',
+                  paddingRight: 'calc(var(--hls-ctrl-top-gap, 0.5rem) + 2px)',
+                }}
                 aria-label={autoPlay ? 'Autoplay on' : 'Autoplay off'}
                 aria-pressed={autoPlay}
               >
                 <span
                   className={cn(
-                    'relative inline-flex h-6 w-11 shrink-0 rounded-full transition-colors duration-200',
-                    autoPlay ? 'bg-white/30' : 'bg-white/15'
+                    mobileAutoplayToggleTrack,
+                    autoPlay ? 'bg-white/30' : 'bg-white/15',
                   )}
                 >
                   <span
-                    className={cn(
-                      'absolute top-0.5 flex h-5 w-5 items-center justify-center rounded-full bg-white shadow transition-all duration-200',
-                      autoPlay ? 'right-0.5' : 'left-0.5'
-                    )}
+                    className={mobileAutoplayToggleKnob}
+                    style={autoplayKnobOffset}
                   >
-                    <Play className="h-2.5 w-2.5 fill-neutral-900 text-neutral-900" />
+                    <Play className={mobileAutoplayToggleIcon} />
                   </span>
                 </span>
               </button>
@@ -405,8 +439,10 @@ export default function ControlBar({
           {!authPlaybackFeatures && <GuestPlaybackBenefitsDialog variant="mobileOverlay" />}
         </div>
 
-        <div className="pointer-events-auto absolute left-1/2 top-1/2 z-40 flex -translate-x-1/2 -translate-y-1/2 items-center gap-4">
-          {/* Reels swipe to navigate  no 10s skip-back/forward circles. */}
+        <div
+          className="pointer-events-auto absolute left-1/2 top-1/2 z-40 flex -translate-x-1/2 -translate-y-1/2 items-center"
+          style={{ gap: 'var(--hls-ctrl-gap, 1rem)' }}
+        >
           {!isReel && !isHidden(hideControls, 'seek') && (
             <PlayerControlTooltip label={`Rewind ${MOBILE_SKIP_SEC} seconds`}>
               <button
@@ -418,7 +454,7 @@ export default function ControlBar({
                 className={circleBtn}
                 aria-label={`Back ${MOBILE_SKIP_SEC} seconds`}
               >
-                <SkipBack className="h-5 w-5 fill-white" />
+                <SkipBack className={cn(mobileOverlayIcon, 'fill-white')} />
               </button>
             </PlayerControlTooltip>
           )}
@@ -430,11 +466,15 @@ export default function ControlBar({
             if (isPlayPauseLoading) {
               return (
                 <div
-                  className="flex h-[4.5rem] w-[4.5rem] shrink-0 items-center justify-center rounded-full bg-black/50 text-white shadow-md"
+                  className="flex shrink-0 items-center justify-center rounded-full bg-black/50 text-white shadow-md"
+                  style={{
+                    width: 'var(--hls-ctrl-main-btn, 4.5rem)',
+                    height: 'var(--hls-ctrl-main-btn, 4.5rem)',
+                  }}
                   aria-label="Loading"
                   role="status"
                 >
-                  <LoaderCircle className="h-9 w-9 animate-spin opacity-90" />
+                  <LoaderCircle className={cn(mobileOverlayMainIcon, 'animate-spin opacity-90')} />
                 </div>
               );
             }
@@ -447,13 +487,17 @@ export default function ControlBar({
                     togglePlay();
                     onPlayPauseClick?.();
                   }}
-                  className="flex h-[4.5rem] w-[4.5rem] shrink-0 items-center justify-center rounded-full bg-black/50 text-white shadow-md active:scale-95 transition-transform"
+                  className="flex shrink-0 items-center justify-center rounded-full bg-black/50 text-white shadow-md active:scale-95 transition-transform"
+                  style={{
+                    width: 'var(--hls-ctrl-main-btn, 4.5rem)',
+                    height: 'var(--hls-ctrl-main-btn, 4.5rem)',
+                  }}
                   aria-label={state.isPlaying ? 'Pause' : 'Play'}
                 >
                   {state.isPlaying ? (
-                    <Pause className="h-9 w-9 fill-white" />
+                    <Pause className={cn(mobileOverlayMainIcon, 'fill-white')} />
                   ) : (
-                    <Play className="ml-1 h-9 w-9 fill-white" />
+                    <Play className={cn(mobileOverlayMainIcon, 'ml-0.5 fill-white')} />
                   )}
                 </button>
               </PlayerControlTooltip>
@@ -469,7 +513,7 @@ export default function ControlBar({
               nextVideoCardUserActions={nextVideoCardUserActions}
               ariaLabel="Next video"
             >
-              <SkipForward className="h-5 w-5 fill-white" />
+              <SkipForward className={cn(mobileOverlayIcon, 'fill-white')} />
             </NextVideoTooltipButton>
           )}
           {!isReel && !isHidden(hideControls, 'next') && !onNext && !isHidden(hideControls, 'seek') && (
@@ -483,7 +527,7 @@ export default function ControlBar({
                 className={circleBtn}
                 aria-label={`Forward ${MOBILE_SKIP_SEC} seconds`}
               >
-                <SkipForward className="h-5 w-5 fill-white" />
+                <SkipForward className={cn(mobileOverlayIcon, 'fill-white')} />
               </button>
             </PlayerControlTooltip>
           )}
@@ -491,27 +535,31 @@ export default function ControlBar({
 
         <div
           ref={bottomStripRef}
-          className="pointer-events-auto absolute bottom-0 left-0 right-0 z-40 flex flex-col gap-2 px-3 pb-3 pt-2"
-          style={{ paddingBottom: 'max(0.75rem, env(safe-area-inset-bottom))' }}
+          className="pointer-events-auto absolute bottom-0 left-0 right-0 z-40 flex flex-col gap-[var(--hls-ctrl-top-gap,0.5rem)] px-[var(--hls-ctrl-pad,0.75rem)] pb-[var(--hls-ctrl-pad,0.75rem)] pt-2"
+          style={{ paddingBottom: 'max(var(--hls-ctrl-pad, 0.75rem), env(safe-area-inset-bottom))' }}
         >
-          <div className="flex items-center justify-between gap-2">
-            <div className="flex min-w-0 flex-1 items-center gap-2">
+          <div
+            className="flex items-center justify-between"
+            style={{ gap: 'var(--hls-ctrl-top-gap, 0.5rem)' }}
+          >
+            <div
+              className="flex min-w-0 flex-1 items-center"
+              style={{ gap: 'var(--hls-ctrl-top-gap, 0.5rem)' }}
+            >
               {!isHidden(hideControls, 'volume') && (
                 <div
-                  className={cn(
-                    'flex h-11 shrink-0 items-center justify-center rounded-full bg-black/50 shadow-sm backdrop-blur-sm',
-                    isMobile ? 'px-1.5' : 'min-w-0 pl-1 pr-1.5'
-                  )}
+                  className={cn(mobileVolumePillShell, isMobile ? 'px-[var(--hls-ctrl-pill-px,0.5rem)]' : 'min-w-0 pl-[var(--hls-ctrl-pill-px,0.5rem)] pr-[calc(var(--hls-ctrl-pill-px,0.5rem)*1.2)]')}
+                  style={mobilePillShellStyle()}
                   onClick={(e) => e.stopPropagation()}
                 >
-                  <VolumeControl showSlider={!isMobile} barPill />
+                  <VolumeControl showSlider={!isMobile} barPill mobileScaledIcons />
                 </div>
               )}
               {!isHidden(hideControls, 'time') && (
                 <PlayerControlTooltip label="Current time and total length" side="top">
-                  <div className="flex h-11 min-w-0 max-w-full shrink cursor-default items-center justify-center rounded-full bg-black/50 px-2.5 text-[11px] font-medium tabular-nums leading-none text-white shadow-sm backdrop-blur-sm sm:px-3 sm:text-xs">
+                  <div className={mobileTimePill} style={mobileTimePillStyle()}>
                     {formatTime(state.currentTime)}
-                    <span className="mx-0.5 text-white/50 sm:mx-1">/</span>
+                    <span className="text-white/50" style={mobileTimeSeparatorStyle()}>/</span>
                     {formatTime(state.duration)}
                   </div>
                 </PlayerControlTooltip>
@@ -519,13 +567,13 @@ export default function ControlBar({
             </div>
             {!isHidden(hideControls, 'fullscreen') && <FullscreenButton variant="mobileOverlay" />}
           </div>
-          {!isHidden(hideControls, 'seek') && <SeekBar mobileStyle />}
+          {!isHidden(hideControls, 'seek') && <SeekBar mobileStyle scaledStyle />}
         </div>
       </div>
     );
   }
 
-  const autoplayToggle = !isHidden(hideControls, 'settings') && (
+  const desktopAutoplayToggle = !isHidden(hideControls, 'settings') && (
     <PlayerControlTooltip
       label={
         authPlaybackFeatures
@@ -545,7 +593,7 @@ export default function ControlBar({
         disabled={!authPlaybackFeatures}
         className={cn(
           'flex shrink-0 items-center rounded-full px-2 py-1 transition-opacity',
-          !authPlaybackFeatures && 'opacity-50'
+          !authPlaybackFeatures && 'opacity-50',
         )}
         aria-label={autoPlay ? 'Autoplay on' : 'Autoplay off'}
         aria-pressed={autoPlay}
@@ -553,13 +601,13 @@ export default function ControlBar({
         <span
           className={cn(
             'relative inline-flex h-5 w-9 shrink-0 rounded-full transition-colors duration-200',
-            autoPlay ? 'bg-white/30' : 'bg-white/15'
+            autoPlay ? 'bg-white/30' : 'bg-white/15',
           )}
         >
           <span
             className={cn(
               'absolute top-px flex h-4 w-4 items-center justify-center rounded-full bg-white shadow transition-all duration-200',
-              autoPlay ? 'right-px' : 'left-px'
+              autoPlay ? 'right-px' : 'left-px',
             )}
           >
             <Play className="h-2 w-2 fill-neutral-900 text-neutral-900" />
@@ -666,7 +714,7 @@ export default function ControlBar({
                 </button>
               </PlayerControlTooltip>
             )}
-            {autoplayToggle}
+            {desktopAutoplayToggle}
             {!isHidden(hideControls, 'subtitles') && <SubtitleButton variant="desktopPill" />}
             {!authPlaybackFeatures && <GuestPlaybackBenefitsDialog variant="controlPill" />}
             {showRightInline &&
@@ -694,7 +742,6 @@ export default function ControlBar({
             const overflowMini = !isHidden(hideControls, 'miniPlayer') && authPlaybackFeatures;
             const overflowPip = !isHidden(hideControls, 'pip');
             const otherOverflow = overflowTheater || overflowCast || overflowMini || overflowPip;
-            // Settings-only overflow → render gear directly instead of a single-item kebab.
             if (overflowSettings && !otherOverflow) {
               return <SettingsMenu pillBarTrigger />;
             }
@@ -706,7 +753,7 @@ export default function ControlBar({
                     ref={moreButtonRef}
                     type="button"
                     onClick={() => setOverflowOpen((o) => !o)}
-                    className={`${desktopIconCircle}`}
+                    className={desktopIconCircle}
                     aria-label="More controls"
                   >
                     <MoreVertical className="h-5 w-5" />

@@ -19,6 +19,11 @@ export interface NavbarSearchBarProps {
   dropdownClassName?: string;
 }
 
+/**
+ * YouTube-style search bar: typing shows text completions only; Enter (or
+ * picking a suggestion) goes to the full /search page where the video cards
+ * — and the semantic vector ranking — live. Arrow keys walk the list.
+ */
 export function NavbarSearchBar({
   className,
   autoFocus,
@@ -28,29 +33,27 @@ export function NavbarSearchBar({
   const rootRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const [open, setOpen] = useState(false);
+  const [activeIndex, setActiveIndex] = useState(-1);
   const navigate = useNavigate();
 
-  const panel = useSearchPanel(open);
-  const {
-    inputValue,
-    setInputValue,
-    debouncedTerm,
-    files,
-    searchUsers,
-    seriesRoots,
-    suggestions,
-    localUserActions,
-    hasMore,
-    isLoading,
-    isLoadingMore,
-    loadMore,
-    userId,
-  } = panel;
+  const { inputValue, setInputValue, debouncedTerm, suggestions } = useSearchPanel(open);
 
   const closeDropdown = useCallback(() => {
     setOpen(false);
+    setActiveIndex(-1);
     onClose?.();
   }, [onClose]);
+
+  const goToSearch = useCallback(
+    (query: string) => {
+      const q = query.trim();
+      if (!q) return;
+      navigate(`/search/${encodeURIComponent(q)}`);
+      closeDropdown();
+      inputRef.current?.blur();
+    },
+    [navigate, closeDropdown],
+  );
 
   useEffect(() => {
     if (autoFocus) {
@@ -59,6 +62,11 @@ export function NavbarSearchBar({
     }
   }, [autoFocus]);
 
+  // Highlight resets whenever a new suggestion list lands.
+  useEffect(() => {
+    setActiveIndex(-1);
+  }, [suggestions]);
+
   useEffect(() => {
     if (!open) return;
 
@@ -66,12 +74,12 @@ export function NavbarSearchBar({
       const target = event.target as Node | null;
       if (target && rootRef.current?.contains(target)) return;
       setOpen(false);
+      setActiveIndex(-1);
     };
 
     const onKeyDown = (event: globalThis.KeyboardEvent) => {
       if (event.key === "Escape") {
-        setOpen(false);
-        onClose?.();
+        closeDropdown();
       }
     };
 
@@ -83,28 +91,43 @@ export function NavbarSearchBar({
       document.removeEventListener("touchstart", onPointerDown);
       document.removeEventListener("keydown", onKeyDown);
     };
-  }, [open, onClose]);
+  }, [open, closeDropdown]);
 
-  const handleSubmit = useCallback((event?: FormEvent) => {
-    event?.preventDefault();
-    const q = inputValue.trim();
-    if (q) {
-      navigate(`/search/${encodeURIComponent(q)}`);
-      closeDropdown();
-      inputRef.current?.blur();
-      return;
-    }
-    setOpen(true);
-    inputRef.current?.focus();
-  }, [inputValue, navigate, closeDropdown]);
-
-  const handleInputKeyDown = useCallback((event: KeyboardEvent<HTMLInputElement>) => {
-    if (event.key === "ArrowDown" || event.key === "Enter") {
+  const handleSubmit = useCallback(
+    (event?: FormEvent) => {
+      event?.preventDefault();
+      const picked = activeIndex >= 0 ? suggestions[activeIndex] : undefined;
+      const q = (picked ?? inputValue).trim();
+      if (q) {
+        goToSearch(q);
+        return;
+      }
       setOpen(true);
-    }
-  }, []);
+      inputRef.current?.focus();
+    },
+    [activeIndex, suggestions, inputValue, goToSearch],
+  );
 
-  const showDropdown = open;
+  const handleInputKeyDown = useCallback(
+    (event: KeyboardEvent<HTMLInputElement>) => {
+      if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+        if (!open) {
+          setOpen(true);
+          return;
+        }
+        if (suggestions.length === 0) return;
+        event.preventDefault();
+        setActiveIndex((prev) => {
+          const delta = event.key === "ArrowDown" ? 1 : -1;
+          const next = prev + delta;
+          if (next < -1) return suggestions.length - 1;
+          if (next >= suggestions.length) return -1;
+          return next;
+        });
+      }
+    },
+    [open, suggestions.length],
+  );
 
   return (
     <div ref={rootRef} className={cn("relative w-full min-w-0", className)}>
@@ -125,13 +148,14 @@ export function NavbarSearchBar({
             value={inputValue}
             onChange={(e) => {
               setInputValue(e.target.value);
+              setActiveIndex(-1);
               setOpen(true);
             }}
             onFocus={() => setOpen(true)}
             onKeyDown={handleInputKeyDown}
             placeholder="Search"
             aria-label="Search"
-            aria-expanded={showDropdown}
+            aria-expanded={open}
             aria-controls="navbar-search-dropdown"
             autoComplete="off"
             enterKeyHint="search"
@@ -147,7 +171,7 @@ export function NavbarSearchBar({
         </button>
       </form>
 
-      {showDropdown ? (
+      {open && inputValue.trim() && suggestions.length > 0 ? (
         <div
           id="navbar-search-dropdown"
           role="listbox"
@@ -157,24 +181,12 @@ export function NavbarSearchBar({
           )}
         >
           <div className="max-h-[min(70dvh,640px)] overflow-y-auto overscroll-contain">
-            {inputValue.trim() !== debouncedTerm && inputValue.trim() ? (
-              <p className="border-b border-border/50 px-4 py-2 text-xs text-muted-foreground">
-                Searching&hellip;
-              </p>
-            ) : null}
             <SearchPanel
-              activeTerm={debouncedTerm}
-              files={files}
-              searchUsers={searchUsers}
-              seriesRoots={seriesRoots}
+              term={debouncedTerm || inputValue.trim()}
               suggestions={suggestions}
-              localUserActions={localUserActions}
-              isLoading={isLoading}
-              isLoadingMore={isLoadingMore}
-              hasMore={hasMore}
-              userId={userId}
-              onLoadMore={loadMore}
-              onNavigate={closeDropdown}
+              activeIndex={activeIndex}
+              onPick={goToSearch}
+              onHover={setActiveIndex}
             />
           </div>
         </div>

@@ -1,5 +1,6 @@
 import db from '~/lib/Database/supabase';
 import { isAuthenticated } from '~/lib/Security/Password';
+import { embedSearchQuery } from '~/lib/Services/embedQuery.server';
 
 const SEARCH_LIMIT = 20;
 const SERIES_ROOTS_LIMIT = 8;
@@ -69,6 +70,28 @@ export const loader = async ({ request }: { request: Request }) => {
       });
     }
 
+    // Lightweight as-you-type completions (navbar dropdown). Text only —
+    // no embeddings, no video rows; the full vector search runs on Enter.
+    if (url.searchParams.get('suggest') === '1') {
+      const { data: sugg, error: suggErr } = await db.rpc('get_search_suggestions', {
+        p_query: query.slice(0, 80),
+        p_limit: 8,
+      });
+      if (suggErr) {
+        console.warn('[search] suggestions rpc:', suggErr.message ?? suggErr);
+        return new Response(JSON.stringify({ suggestions: [] }), {
+          headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' },
+        });
+      }
+      const suggestions = (Array.isArray(sugg) ? sugg : [])
+        .map((r: { suggestion?: unknown }) => (typeof r.suggestion === 'string' ? r.suggestion : ''))
+        .filter(Boolean)
+        .slice(0, 8);
+      return new Response(JSON.stringify({ suggestions }), {
+        headers: { 'Content-Type': 'application/json', 'Cache-Control': 'private, max-age=60' },
+      });
+    }
+
     const cursorScoreParam = url.searchParams.get('cursor_score');
     const cursorIdParam = url.searchParams.get('cursor_id');
     const sortBy = url.searchParams.get('sort_by') ?? 'relevance';
@@ -82,7 +105,11 @@ export const loader = async ({ request }: { request: Request }) => {
     const user = await isAuthenticated(request, ['id']);
     const userId: string | undefined = user?.id || undefined;
 
-    const searchPromise = db.rpc('search_files', {
+    // Semantic vector for the query (cached, ~10ms cold). Null when the
+    // embed sidecar is down/unconfigured  search degrades to lexical-only.
+    const queryEmbedding = await embedSearchQuery(query);
+
+    const baseSearchParams = {
       p_query: query,
       p_user_id: userId || null,
       p_limit: SEARCH_LIMIT,
@@ -91,7 +118,22 @@ export const loader = async ({ request }: { request: Request }) => {
       p_sort_by: sortBy,
       p_cursor_score: Number.isFinite(cursorScore) ? cursorScore : null,
       p_cursor_id: cursorId,
-    });
+    };
+
+    const searchPromise = (async () => {
+      if (queryEmbedding) {
+        const withVector = await db.rpc('search_files', {
+          ...baseSearchParams,
+          p_query_embedding: queryEmbedding,
+        });
+        // PGRST202 = the DB hasn't run search_files_v6.sql yet, so the
+        // function doesn't know p_query_embedding. Retry lexical-only
+        // search must keep working regardless of SQL deploy order.
+        if (withVector.error?.code !== 'PGRST202') return withVector;
+        console.warn('[search] search_files has no p_query_embedding yet (run search_files_v6.sql)  lexical-only fallback');
+      }
+      return db.rpc('search_files', baseSearchParams);
+    })();
 
     const seriesPromise =
       isInitialSearch && db

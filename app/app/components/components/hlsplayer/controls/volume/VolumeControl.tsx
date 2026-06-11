@@ -3,14 +3,22 @@ import { Volume2, Volume1, VolumeX } from 'lucide-react';
 import { usePlayerContext } from '../../PlayerContext';
 import { useVideoHasAudio } from '../../hooks/useVideoHasAudio';
 import { Tooltip, TooltipContent, TooltipTrigger } from '~/components/ui/tooltip';
+import { cn } from '~/lib/utils';
 
 interface VolumeControlProps {
   showSlider?: boolean;
   barPill?: boolean;
   expandWithTap?: boolean;
+  /** Use `--hls-ctrl-icon` from the mobile control bar. */
+  mobileScaledIcons?: boolean;
 }
 
-export default function VolumeControl({ showSlider = true, barPill = false, expandWithTap = false }: VolumeControlProps) {
+export default function VolumeControl({
+  showSlider = true,
+  barPill = false,
+  expandWithTap = false,
+  mobileScaledIcons = false,
+}: VolumeControlProps) {
   const { state, setVolume, toggleMute, videoRef, hlsRef, src, file } = usePlayerContext();
   // Read the upload-time has_audio flag (waveform analysis)  when the
   // server says the track is silent, the volume button has no purpose
@@ -68,6 +76,16 @@ export default function VolumeControl({ showSlider = true, barPill = false, expa
 
   const displayVol = state.isMuted ? 0 : state.volume;
 
+  const iconClass = mobileScaledIcons
+    ? 'h-[var(--hls-ctrl-icon,1.25rem)] w-[var(--hls-ctrl-icon,1.25rem)]'
+    : 'w-5 h-5';
+  const pillBtnStyle = mobileScaledIcons
+    ? {
+        padding: 'calc(var(--hls-ctrl-pill-px, 0.5rem) * 0.35)',
+      }
+    : undefined;
+  const pillBtnPad = mobileScaledIcons ? undefined : 'p-2';
+
   return (
     <div
       ref={rootRef}
@@ -92,12 +110,13 @@ export default function VolumeControl({ showSlider = true, barPill = false, expa
               onClick={() => toggleMute()}
               className={
                 barPill
-                  ? 'rounded-full p-2 text-white transition-colors hover:bg-white/10'
+                  ? cn('rounded-full text-white transition-colors hover:bg-white/10', pillBtnPad)
                   : 'p-1.5 rounded-md transition-colors text-white hover:bg-white/10'
               }
+              style={barPill ? pillBtnStyle : undefined}
               aria-label={state.isMuted ? 'Unmute' : 'Mute'}
             >
-              <VolumeIcon className="w-5 h-5" />
+              <VolumeIcon className={iconClass} />
             </button>
           </TooltipTrigger>
           <TooltipContent side="top">
@@ -114,12 +133,13 @@ export default function VolumeControl({ showSlider = true, barPill = false, expa
                 disabled
                 className={
                   barPill
-                    ? 'cursor-not-allowed rounded-full p-2 text-white opacity-40 transition-colors'
+                    ? cn('cursor-not-allowed rounded-full text-white opacity-40 transition-colors', pillBtnPad)
                     : 'p-1.5 rounded-md transition-colors text-white opacity-40 cursor-not-allowed'
                 }
+                style={barPill ? pillBtnStyle : undefined}
                 aria-label="No audio track"
               >
-                <VolumeIcon className="w-5 h-5" />
+                <VolumeIcon className={iconClass} />
               </button>
             </span>
           </TooltipTrigger>

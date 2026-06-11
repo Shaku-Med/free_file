@@ -1,5 +1,5 @@
 import db from "~/lib/Database/supabase";
-import { getMonthlyUploadLimitBytes } from "~/lib/uploadQuota.server";
+import { getMonthlyUploadLimitBytes, getOverflowWeeklyLimitBytes } from "~/lib/uploadQuota.server";
 import { isValidUUID } from "~/lib/Security/inputValidation";
 import { verifyWebhookSecret } from "~/lib/Security/webhookAuth.server";
 
@@ -50,9 +50,41 @@ export const action = async ({ request }: { request: Request }) => {
     console.warn("[api/internal/quota-check] threw:", e);
   }
 
+  // Extra weekly allowance: kicks in once the monthly budget is full. If the
+  // usage RPC fails we report it as unavailable (overflow_ok=false) — the
+  // safe failure mode is rejecting, never over-accepting.
+  const overflowLimit = getOverflowWeeklyLimitBytes();
+  let overflowUsed = 0;
+  let overflowAvailable = overflowLimit > 0;
+  try {
+    const { data, error } = await db.rpc("get_overflow_weekly_usage", { p_user_id: userId });
+    if (!error) {
+      const n = typeof data === "number" ? data : Number(data);
+      if (Number.isFinite(n) && n >= 0) overflowUsed = n;
+    } else {
+      console.warn("[api/internal/quota-check] overflow rpc:", error.message ?? error);
+      overflowAvailable = false;
+    }
+  } catch (e) {
+    console.warn("[api/internal/quota-check] overflow threw:", e);
+    overflowAvailable = false;
+  }
+
   const remaining = Math.max(limit - used, 0);
   const ok = used + predicted <= limit;
-  return json({ ok, used, limit, remaining, predicted });
+  const overflowRemaining = Math.max(overflowLimit - overflowUsed, 0);
+  const overflowOk = overflowAvailable && overflowUsed + predicted <= overflowLimit;
+  return json({
+    ok,
+    used,
+    limit,
+    remaining,
+    predicted,
+    overflow_ok: overflowOk,
+    overflow_used: overflowUsed,
+    overflow_limit: overflowLimit,
+    overflow_remaining: overflowRemaining,
+  });
 };
 
 export const loader = () => json({ error: "method not allowed" }, 405);

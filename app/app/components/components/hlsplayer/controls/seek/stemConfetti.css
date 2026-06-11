@@ -1,0 +1,61 @@
+.hls-stem-confetti-layer {
+  position: fixed;
+  pointer-events: none;
+  overflow: visible;
+}
+
+.hls-stem-confetti-piece {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: var(--hls-confetti-w, 6px);
+  height: var(--hls-confetti-h, 4px);
+  background: var(--hls-confetti-color, hsl(var(--primary)));
+  border-radius: 1px;
+  opacity: 0;
+  transform: translate3d(var(--hls-confetti-x, 0), var(--hls-confetti-y, 0), 0)
+    rotate(var(--hls-confetti-rot, 0deg)) scale(0.4);
+  animation: hls-stem-confetti-burst var(--hls-confetti-dur, 950ms)
+    cubic-bezier(0.16, 0.74, 0.36, 1) var(--hls-confetti-delay, 0ms) forwards;
+  will-change: transform, opacity;
+}
+
+/*
+ * Corner cannon: pieces explode outward from a player corner
+ * (--dx / --pop hold the outward x/y), then gravity (--fall) arcs them down.
+ * The fast pop happens in the first third, the fall eases out the rest.
+ */
+@keyframes hls-stem-confetti-burst {
+  0% {
+    opacity: 0;
+    transform: translate3d(var(--hls-confetti-x), var(--hls-confetti-y), 0)
+      rotate(var(--hls-confetti-rot)) scale(0.4);
+  }
+  8% {
+    opacity: 1;
+    transform: translate3d(
+        calc(var(--hls-confetti-x) + var(--hls-confetti-dx) * 0.18),
+        calc(var(--hls-confetti-y) + var(--hls-confetti-pop) * 0.18),
+        0
+      )
+      rotate(calc(var(--hls-confetti-rot) + var(--hls-confetti-spin, 90deg) * 0.08)) scale(1.05);
+  }
+  32% {
+    opacity: 0.95;
+    transform: translate3d(
+        calc(var(--hls-confetti-x) + var(--hls-confetti-dx) * 0.72),
+        calc(var(--hls-confetti-y) + var(--hls-confetti-pop) * 0.72 + var(--hls-confetti-fall) * 0.06),
+        0
+      )
+      rotate(calc(var(--hls-confetti-rot) + var(--hls-confetti-spin, 90deg) * 0.35)) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translate3d(
+        calc(var(--hls-confetti-x) + var(--hls-confetti-dx)),
+        calc(var(--hls-confetti-y) + var(--hls-confetti-pop) + var(--hls-confetti-fall)),
+        0
+      )
+      rotate(calc(var(--hls-confetti-rot) + var(--hls-confetti-spin, 240deg))) scale(0.85);
+  }
+}

@@ -21,6 +21,13 @@ export interface PlayerSettings {
   audioVisualizer: boolean;
   audioVisualizerStyle: 'ribbon' | 'bars' | 'mirror' | 'pulse' | 'line' | 'blocks' | 'dots' | 'aurora';
   visualizerConfetti: boolean;
+  stemConfettiInstruments: string;
+  /** Video element scale-bounces on kick/bass hits (dance mode). */
+  videoBounce: boolean;
+  /** Bounce strength multiplier (0.25–2, 1 = default). */
+  videoBounceIntensity: number;
+  /** JSON map of stem type → the bounce reacts to it. */
+  videoBounceInstruments: string;
   quality: string;
   /** Preferred caption language (BCP-47). Empty string = captions off. */
   captionLanguage: string;
@@ -39,6 +46,10 @@ export interface PlayerSettingsPatch {
   audioVisualizer?: boolean;
   audioVisualizerStyle?: string;
   visualizerConfetti?: boolean;
+  stemConfettiInstruments?: string;
+  videoBounce?: boolean;
+  videoBounceIntensity?: number;
+  videoBounceInstruments?: string;
   quality?: string;
   captionLanguage?: string;
 }
@@ -56,9 +67,19 @@ const DEFAULTS: PlayerSettings = {
   audioVisualizer: false,
   audioVisualizerStyle: DEFAULT_AUDIO_VISUALIZER_STYLE,
   visualizerConfetti: true,
+  stemConfettiInstruments: '{"kick":true,"snare":true,"hihat":true,"bass":true,"other":true}',
+  videoBounce: false,
+  videoBounceIntensity: 1,
+  videoBounceInstruments: '{"kick":true,"bass":true,"snare":false,"hihat":false,"other":false}',
   quality: 'auto',
   captionLanguage: '',
 };
+
+function clampIntensity(v: unknown): number {
+  const n = typeof v === 'number' ? v : Number(v);
+  if (!Number.isFinite(n)) return DEFAULTS.videoBounceIntensity;
+  return Math.max(0.25, Math.min(2, n));
+}
 
 export async function getPlayerSettings(): Promise<PlayerSettings> {
   const res = await fetch('/api/player-settings', { credentials: 'same-origin' });
@@ -79,6 +100,16 @@ export async function getPlayerSettings(): Promise<PlayerSettings> {
       typeof data.audioVisualizerStyle === 'string' ? data.audioVisualizerStyle : undefined
     ),
     visualizerConfetti: data.visualizerConfetti !== false && data.visualizerConfetti !== '0',
+    stemConfettiInstruments:
+      typeof data.stemConfettiInstruments === 'string'
+        ? data.stemConfettiInstruments
+        : DEFAULTS.stemConfettiInstruments,
+    videoBounce: data.videoBounce === true || data.videoBounce === '1',
+    videoBounceIntensity: clampIntensity(data.videoBounceIntensity),
+    videoBounceInstruments:
+      typeof data.videoBounceInstruments === 'string'
+        ? data.videoBounceInstruments
+        : DEFAULTS.videoBounceInstruments,
     quality: typeof data.quality === 'string' ? data.quality : DEFAULTS.quality,
     captionLanguage: typeof data.captionLanguage === 'string' ? data.captionLanguage : DEFAULTS.captionLanguage,
   };

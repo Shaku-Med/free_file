@@ -22,6 +22,10 @@ const COOKIE_NAMES = {
   audioVisualizer: 'player-audio-visualizer',
   audioVisualizerStyle: 'player-audio-visualizer-style',
   visualizerConfetti: 'player-visualizer-confetti',
+  stemConfettiInstruments: 'player-stem-confetti',
+  videoBounce: 'player-video-bounce',
+  videoBounceIntensity: 'player-video-bounce-intensity',
+  videoBounceInstruments: 'player-video-bounce-instruments',
   quality: 'hls-quality-preference',
   spatialAudio: 'player-spatial-audio',
   spatialAudioConfig: 'player-spatial-audio-config',
@@ -73,6 +77,13 @@ export interface PlayerSettingsDto {
   audioVisualizer?: boolean;
   audioVisualizerStyle?: string;
   visualizerConfetti?: boolean;
+  stemConfettiInstruments?: string;
+  /** Video element scale-bounces on kick/bass hits. */
+  videoBounce?: boolean;
+  /** Bounce strength multiplier (0.25–2). */
+  videoBounceIntensity?: number;
+  /** JSON map of stem type → bounce reacts to it. */
+  videoBounceInstruments?: string;
   quality?: string;
   spatialAudio?: boolean;
   /** JSON-encoded SpatialAudioConfig from `useSpatialAudio`. Server validates length only  shape is checked on read. */
@@ -107,6 +118,14 @@ export function getPlayerSettingsFromCookies(cookieHeader: string | null) {
   const audioVisualizerStyle = parseAudioVisualizerStyle(styleRaw);
   const confettiRaw = get(COOKIE_NAMES.visualizerConfetti);
   const visualizerConfetti = confettiRaw === '0' || confettiRaw === 'false' ? false : true;
+  const stemConfettiInstruments = get(COOKIE_NAMES.stemConfettiInstruments) ?? '';
+  const bounceRaw = get(COOKIE_NAMES.videoBounce);
+  const videoBounce = bounceRaw === '1' || bounceRaw === 'true';
+  const bounceIntensityRaw = parseFloat(get(COOKIE_NAMES.videoBounceIntensity) ?? '');
+  const videoBounceIntensity = Number.isFinite(bounceIntensityRaw)
+    ? Math.max(0.25, Math.min(2, bounceIntensityRaw))
+    : 1;
+  const videoBounceInstruments = get(COOKIE_NAMES.videoBounceInstruments) ?? '';
   const quality = get(COOKIE_NAMES.quality) ?? 'auto';
   const spatialAudio =
     get(COOKIE_NAMES.spatialAudio) === '1' || get(COOKIE_NAMES.spatialAudio) === 'true';
@@ -137,6 +156,10 @@ export function getPlayerSettingsFromCookies(cookieHeader: string | null) {
     audioVisualizer,
     audioVisualizerStyle,
     visualizerConfetti,
+    stemConfettiInstruments,
+    videoBounce,
+    videoBounceIntensity,
+    videoBounceInstruments,
     quality,
     spatialAudio,
     spatialAudioConfig,
@@ -234,6 +257,26 @@ export const action = async ({ request }: { request: Request }) => {
       const v = body.visualizerConfetti ? '1' : '0';
       setCookies.push(buildSetCookie(COOKIE_NAMES.visualizerConfetti, v, secure));
       result.visualizerConfetti = body.visualizerConfetti;
+    }
+    if (typeof body.stemConfettiInstruments === 'string') {
+      const trimmed = body.stemConfettiInstruments.slice(0, 512);
+      setCookies.push(buildSetCookie(COOKIE_NAMES.stemConfettiInstruments, trimmed, secure));
+      result.stemConfettiInstruments = trimmed;
+    }
+    if (typeof body.videoBounce === 'boolean') {
+      const v = body.videoBounce ? '1' : '0';
+      setCookies.push(buildSetCookie(COOKIE_NAMES.videoBounce, v, secure));
+      result.videoBounce = body.videoBounce;
+    }
+    if (typeof body.videoBounceIntensity === 'number' && Number.isFinite(body.videoBounceIntensity)) {
+      const v = Math.max(0.25, Math.min(2, body.videoBounceIntensity));
+      setCookies.push(buildSetCookie(COOKIE_NAMES.videoBounceIntensity, String(v), secure));
+      result.videoBounceIntensity = v;
+    }
+    if (typeof body.videoBounceInstruments === 'string') {
+      const trimmed = body.videoBounceInstruments.slice(0, 256);
+      setCookies.push(buildSetCookie(COOKIE_NAMES.videoBounceInstruments, trimmed, secure));
+      result.videoBounceInstruments = trimmed;
     }
     if (typeof body.quality === 'string') {
       const v = body.quality.trim() || 'auto';

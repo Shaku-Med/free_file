@@ -1,5 +1,6 @@
 import { CircleHelp } from 'lucide-react';
 import { useState } from 'react';
+import { mobileOverlayIcon, mobileOverlaySmallCircleBtn } from './mobileControlMetrics';
 import { Tooltip, TooltipContent, TooltipTrigger } from '~/components/ui/tooltip';
 import { GuestPlaybackSignInDialog } from './GuestPlaybackSignInDialog';
 
@@ -11,7 +12,7 @@ export default function GuestPlaybackBenefitsDialog({
   const [open, setOpen] = useState(false);
   const btnClass =
     variant === 'mobileOverlay'
-      ? 'flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-black/50 text-white shadow-sm backdrop-blur-sm active:scale-95 transition-transform'
+      ? mobileOverlaySmallCircleBtn
       : 'rounded-lg p-2 text-white transition-colors hover:bg-white/10';
 
   return (
@@ -27,7 +28,7 @@ export default function GuestPlaybackBenefitsDialog({
             className={btnClass}
             aria-label="What you get when you sign in"
           >
-            <CircleHelp className="h-5 w-5" />
+            <CircleHelp className={variant === 'mobileOverlay' ? mobileOverlayIcon : 'h-5 w-5'} />
           </button>
         </TooltipTrigger>
         <TooltipContent side="top">Sign in for the full player</TooltipContent>

@@ -2,10 +2,10 @@ import { PanelBottom } from 'lucide-react';
 import { useCallback } from 'react';
 import { flushSync } from 'react-dom';
 import { useNavigate } from 'react-router';
-import { cn } from '~/lib/utils';
+import { mobileOverlayIcon, mobileOverlaySquareBtn } from '../mobileControlMetrics';
 import { usePlayerContext } from '../../PlayerContext';
 import { useMiniPlayerContext } from '~/lib/Context/MiniPlayerContext';
-import { getVideoSrc } from '~/lib/utils';
+import { cn, getVideoSrc } from '~/lib/utils';
 import { Tooltip, TooltipContent, TooltipTrigger } from '~/components/ui/tooltip';
 
 export default function MiniPlayerButton({
@@ -56,8 +56,7 @@ export default function MiniPlayerButton({
           }}
           className={cn(
             'text-white transition-colors',
-            mobileOverlay &&
-              'flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-white/20 bg-black/50 shadow-sm backdrop-blur-sm active:bg-black/60',
+            mobileOverlay && mobileOverlaySquareBtn,
             !mobileOverlay &&
               cn(
                 controlPill ? 'rounded-lg p-2 hover:bg-white/10' : 'rounded-md p-1.5 hover:bg-white/10'
@@ -65,7 +64,7 @@ export default function MiniPlayerButton({
           )}
           aria-label="Mini player"
         >
-          <PanelBottom className="w-5 h-5" />
+          <PanelBottom className={mobileOverlay ? mobileOverlayIcon : 'w-5 h-5'} />
         </button>
       </TooltipTrigger>
       <TooltipContent side="top">Mini player</TooltipContent>

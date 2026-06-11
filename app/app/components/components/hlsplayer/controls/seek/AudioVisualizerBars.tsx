@@ -1,26 +1,18 @@
-import type { RefObject } from 'react';
 import { isMobile } from 'react-device-detect';
 import { usePlayerContext } from '../../PlayerContext';
-import { useVideoAnalyser } from '../../hooks/useVideoAnalyser';
-import SeekBarSpectrum from './SeekBarSpectrum';
-import BassConfetti from './BassConfetti';
+import StemResonanceVisualizer from './StemResonanceVisualizer';
 
 type Props = {
-  /** Mini player video shell — confetti tracks this while dragging/resizing. */
-  anchorRef?: RefObject<HTMLElement | null>;
+  /** Kept for call-site compatibility; confetti retired in favor of StemGlowBorder. */
+  anchorRef?: unknown;
 };
 
-/** Web Audio tap + scrolling bars; use inside persistent bottom strip or mini player column. */
-export default function AudioVisualizerBars({ anchorRef }: Props) {
-  const { videoRef, audioVisualizer, audioVisualizerStyle, visualizerConfetti, state } =
-    usePlayerContext();
-  const enabled = audioVisualizer && !isMobile;
-  const analyser = useVideoAnalyser(videoRef, enabled, state.isLoaded);
-  if (!enabled) return null;
-  return (
-    <>
-      {visualizerConfetti ? <BassConfetti analyser={analyser} anchorRef={anchorRef} /> : null}
-      <SeekBarSpectrum analyser={analyser} active variant={audioVisualizerStyle} />
-    </>
-  );
+/** Stem-synced SVG wave; mini player column or bottom strip. */
+export default function AudioVisualizerBars(_props: Props) {
+  const { audioVisualizer, audioStems } = usePlayerContext();
+  const enabled = audioVisualizer && !isMobile && audioStems != null;
+
+  if (!enabled || !audioStems) return null;
+
+  return <StemResonanceVisualizer stems={audioStems} />;
 }

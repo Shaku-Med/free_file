@@ -12,16 +12,17 @@ import {
   PlayCircle,
   Repeat,
   AudioWaveform,
-  Waves,
   Braces,
   Headphones,
   Box,
   RotateCcw,
   PartyPopper,
+  Activity,
 } from 'lucide-react';
 import { usePlayerContext, SLEEP_TIMER_OPTIONS } from '../../PlayerContext';
 import { isSpatialAudioUiSupported } from '../../hooks/useSpatialAudio';
 import { cn } from '~/lib/utils';
+import { mobileOverlayIcon, mobileOverlaySquareBtn } from '../mobileControlMetrics';
 import {
   DropdownMenu,
   DropdownMenuCollapsible,
@@ -37,11 +38,13 @@ import {
   DropdownMenuTrigger,
 } from '~/components/ui/dropdown-menu';
 import { Tooltip, TooltipContent, TooltipTrigger } from '~/components/ui/tooltip';
+import { STEM_TYPES } from '../../audioStems';
 import {
-  AUDIO_VISUALIZER_STYLES,
-  AUDIO_VISUALIZER_STYLE_LABELS,
-  type AudioVisualizerStyle,
-} from '../../audioVisualizerStyles';
+  buildStemConfettiThemePalettes,
+  STEM_CONFETTI_META,
+  stemConfettiSwatchColor,
+  type StemConfettiThemePalettes,
+} from '../../stemConfettiSettings';
 
 const SPEEDS = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2];
 
@@ -97,10 +100,17 @@ export function SettingsMenuBody() {
     setStableVolume,
     audioVisualizer,
     setAudioVisualizer,
-    audioVisualizerStyle,
-    setAudioVisualizerStyle,
     visualizerConfetti,
     setVisualizerConfetti,
+    videoBounce,
+    setVideoBounce,
+    videoBounceIntensity,
+    setVideoBounceIntensity,
+    videoBounceInstruments,
+    setVideoBounceInstrument,
+    audioStemsAvailable,
+    stemConfettiInstruments,
+    setStemConfettiInstrument,
     statsForNerds,
     setStatsForNerds,
     sleepTimer,
@@ -118,6 +128,17 @@ export function SettingsMenuBody() {
     isReel,
   } = usePlayerContext();
   const auth = authPlaybackFeatures;
+
+  const [stemPalettes, setStemPalettes] = useState<StemConfettiThemePalettes>(() =>
+    buildStemConfettiThemePalettes(),
+  );
+  useEffect(() => {
+    const sync = () => setStemPalettes(buildStemConfettiThemePalettes());
+    sync();
+    const mo = new MutationObserver(sync);
+    mo.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
+    return () => mo.disconnect();
+  }, []);
 
   const speedLabel = state.playbackRate === 1 ? 'Normal' : `${state.playbackRate}x`;
   const qualityLabel =
@@ -240,7 +261,7 @@ export function SettingsMenuBody() {
             <span>Reset tilt</span>
           </DropdownMenuItem>
         )}
-        {!isMobile && !isReel && (
+        {!isMobile && !isReel && audioStemsAvailable && (
           <Tooltip>
             <TooltipTrigger asChild>
               <DropdownMenuItem
@@ -291,11 +312,14 @@ export function SettingsMenuBody() {
         )}
       </DropdownMenuGroup>
 
-      {!isMobile && !isReel && audioVisualizer && (
+      {!isMobile && !isReel && audioStemsAvailable && audioVisualizer && (
         <>
           <DropdownMenuSeparator />
           <DropdownMenuGroup>
             <DropdownMenuLabel>Visualizer</DropdownMenuLabel>
+            {/*
+              MIGHT NEED LATER — DO NOT TOUCH.
+              Legacy canvas analyser style picker (bars / mirror / ribbon / pulse).
             <DropdownMenuCollapsible>
               <DropdownMenuCollapsibleTrigger className="w-full min-w-0 gap-2 pr-1">
                 <span className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden">
@@ -321,13 +345,14 @@ export function SettingsMenuBody() {
                 </DropdownMenuRadioGroup>
               </DropdownMenuCollapsibleContent>
             </DropdownMenuCollapsible>
+            */}
             <DropdownMenuItem
               onSelect={(e) => e.preventDefault()}
               className={cn(toggleRowClass, !auth && 'opacity-60')}
             >
               <span className="flex min-w-0 flex-1 items-center gap-2">
                 <PartyPopper className="size-4 shrink-0 text-muted-foreground" />
-                <span className="min-w-0 truncate">Confetti</span>
+                <span className="min-w-0 truncate">Border glow</span>
               </span>
               <Switch
                 checked={visualizerConfetti}
@@ -335,6 +360,81 @@ export function SettingsMenuBody() {
                 disabled={!auth}
               />
             </DropdownMenuItem>
+            <DropdownMenuItem
+              onSelect={(e) => e.preventDefault()}
+              className={cn(toggleRowClass, !auth && 'opacity-60')}
+            >
+              <span className="flex min-w-0 flex-1 items-center gap-2">
+                <Activity className="size-4 shrink-0 text-muted-foreground" />
+                <span className="min-w-0 truncate">Video bounce</span>
+              </span>
+              <Switch
+                checked={videoBounce}
+                onChange={setVideoBounce}
+                disabled={!auth}
+              />
+            </DropdownMenuItem>
+            {videoBounce && audioStemsAvailable && auth && (
+              <DropdownMenuCollapsible>
+                <DropdownMenuCollapsibleTrigger className="w-full min-w-0 gap-2 pr-1">
+                  <span className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden">
+                    <Activity className="size-4 shrink-0 text-muted-foreground" />
+                    <span className="min-w-0 truncate">Dance tuning</span>
+                  </span>
+                  <span className="shrink-0 pl-1 text-right text-xs font-normal text-muted-foreground">
+                    {Math.round(videoBounceIntensity * 100)}%
+                  </span>
+                </DropdownMenuCollapsibleTrigger>
+                <DropdownMenuCollapsibleContent>
+                  {/* Intensity: how hard hits shove the bounce/shake/vibration */}
+                  <DropdownMenuItem
+                    onSelect={(e) => e.preventDefault()}
+                    className="flex-col items-stretch gap-1.5"
+                  >
+                    <span className="flex items-center justify-between text-xs text-muted-foreground">
+                      <span>Intensity</span>
+                      <span className="tabular-nums">{Math.round(videoBounceIntensity * 100)}%</span>
+                    </span>
+                    <input
+                      type="range"
+                      min={25}
+                      max={200}
+                      step={5}
+                      value={Math.round(videoBounceIntensity * 100)}
+                      onChange={(e) => setVideoBounceIntensity(Number(e.target.value) / 100)}
+                      onKeyDown={(e) => e.stopPropagation()}
+                      className="w-full accent-primary"
+                      aria-label="Video bounce intensity"
+                    />
+                  </DropdownMenuItem>
+                  {/* What the bounce listens to */}
+                  {STEM_TYPES.map((type) => {
+                    const meta = STEM_CONFETTI_META[type];
+                    const swatch = stemConfettiSwatchColor(type, stemPalettes);
+                    return (
+                      <DropdownMenuItem
+                        key={type}
+                        onSelect={(e) => e.preventDefault()}
+                        className={toggleRowClass}
+                      >
+                        <span className="flex min-w-0 flex-1 items-center gap-2">
+                          <span
+                            className="size-3 shrink-0 rounded-full ring-1 ring-border/40"
+                            style={{ backgroundColor: swatch }}
+                            aria-hidden
+                          />
+                          <span className="min-w-0 truncate">{meta.label}</span>
+                        </span>
+                        <Switch
+                          checked={videoBounceInstruments[type]}
+                          onChange={(v) => setVideoBounceInstrument(type, v)}
+                        />
+                      </DropdownMenuItem>
+                    );
+                  })}
+                </DropdownMenuCollapsibleContent>
+              </DropdownMenuCollapsible>
+            )}
           </DropdownMenuGroup>
         </>
       )}
@@ -520,7 +620,10 @@ export default function SettingsMenu({ nested, panelRef, onOpenChange, overlayTr
               className={cn(
                 'relative',
                 overlayTrigger
-                  ? 'flex h-9 w-9 items-center justify-center rounded-lg border border-white/20 bg-black/50 text-white shadow-sm backdrop-blur-sm outline-none hover:bg-black/60 data-[state=open]:bg-black/60 data-[state=open]:[&_svg]:rotate-45'
+                  ? cn(
+                      mobileOverlaySquareBtn,
+                      'outline-none hover:bg-black/60 data-[state=open]:bg-black/60 data-[state=open]:[&_svg]:rotate-45',
+                    )
                   : pillBarTrigger
                     ? 'rounded-lg p-2 text-white outline-none transition-colors hover:bg-white/10 data-[state=open]:bg-white/15 data-[state=open]:[&_svg]:rotate-45'
                     : 'rounded-md p-1.5 text-foreground transition-colors hover:bg-accent data-[state=open]:[&_svg]:rotate-45',
@@ -529,9 +632,11 @@ export default function SettingsMenu({ nested, panelRef, onOpenChange, overlayTr
             >
               <Settings
                 className={
-                  overlayTrigger || pillBarTrigger
-                    ? 'h-5 w-5 text-white transition-transform duration-300'
-                    : 'h-5 w-5 transition-transform duration-300'
+                  overlayTrigger
+                    ? cn(mobileOverlayIcon, 'text-white transition-transform duration-300')
+                    : pillBarTrigger
+                      ? 'h-5 w-5 text-white transition-transform duration-300'
+                      : 'h-5 w-5 transition-transform duration-300'
                 }
               />
               {badge && <QualityBadge label={badge} />}

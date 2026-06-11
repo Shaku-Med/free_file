@@ -1,5 +1,6 @@
 import { Captions, CaptionsOff, Check, RotateCcw, Loader2, AlignLeft, AlignCenter, AlignRight } from "lucide-react"
 import { cn } from "~/lib/utils"
+import { mobileOverlayCircleBtn, mobileOverlayIcon } from "../mobileControlMetrics"
 import { Tooltip, TooltipContent, TooltipTrigger } from "~/components/ui/tooltip"
 import {
   DropdownMenu,
@@ -69,12 +70,16 @@ export default function SubtitleButton({
           type="button"
           onClick={(e) => e.stopPropagation()}
           className={cn(
-            "flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-black/50 text-white shadow-sm backdrop-blur-sm active:scale-95 transition-transform",
-            isActive && "text-primary",
+            mobileOverlayCircleBtn,
+            isActive && 'text-primary',
           )}
           aria-label={labelText}
         >
-          {isLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Icon className="w-5 h-5" />}
+          {isLoading ? (
+            <Loader2 className={cn(mobileOverlayIcon, 'animate-spin')} />
+          ) : (
+            <Icon className={mobileOverlayIcon} />
+          )}
         </button>
       )
     }

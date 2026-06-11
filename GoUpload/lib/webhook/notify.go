@@ -44,6 +44,13 @@ type Payload struct {
 	// Storage backend the worker wrote to ("github" or "r2"); bucket set for r2.
 	StorageBackend string `json:"storage_backend,omitempty"`
 	StorageBucket  string `json:"storage_bucket,omitempty"`
+	// True when this upload was accepted on the extra weekly allowance; the
+	// app meters it under the overflow scope instead of the monthly budget.
+	Overflow bool `json:"overflow,omitempty"`
+	// Semantic-search vector (bge-small, 384 dims) computed at processing
+	// time from title/description/tags/AI caption. The app stores it on the
+	// files row; omitted when the embed sidecar is disabled or failed.
+	Embedding []float32 `json:"embedding,omitempty"`
 	// 0–100 while status is running; omitted for queued/completed/failed unless set.
 	Progress *int `json:"progress,omitempty"`
 }

@@ -475,10 +475,12 @@ BEGIN
     FROM combined c
   ),
 
-  -- v6.1: Per-creator cap (mirrors get_related's max-2/creator rule).
-  -- Soft cap: a creator's items beyond the cap aren't dropped, they're
-  -- spread into later page groups so one prolific uploader can't flood a
-  -- single page. Subscribed creators get a slightly higher allowance.
+  -- v6.2: Per-creator HARD cap at ~5% of the candidate pool (min 1), plus
+  -- the v6.1 soft spread. The spread alone wasn't enough: a bulk uploader
+  -- with 100+ items just owned every later page group, so the feed turned
+  -- into their profile after a couple of load-mores. Now their best ~5%
+  -- stay (spread out, max 2 per group / 3 if subscribed) and the rest drop
+  -- out for this seed window  they rotate back in with the next seed.
   creator_capped AS (
     SELECT sh.*,
       ROW_NUMBER() OVER (PARTITION BY sh.owner_id ORDER BY sh._pre_pos) AS _creator_rn
@@ -492,6 +494,7 @@ BEGIN
           cc._pre_pos ASC
       ) AS _final_pos
     FROM creator_capped cc
+    WHERE cc._creator_rn <= GREATEST(1, CEIL(p_limit * v_page_mult * 0.05)::int)
   ),
 
   _feed_page AS (

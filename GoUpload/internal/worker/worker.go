@@ -14,6 +14,7 @@ import (
 	"goupload/internal/upload"
 	"goupload/lib/assembler"
 	"goupload/lib/colors"
+	"goupload/lib/embed"
 	"goupload/lib/ffmpeg"
 	ghlib "goupload/lib/github"
 	"goupload/lib/logger"
@@ -49,6 +50,8 @@ type Config struct {
 	// stored github_repo (dual-backend).
 	R2             *r2.Client
 	StorageBackend string
+	// Embed: optional local embedding sidecar client for semantic search.
+	Embed *embed.Client
 }
 
 type Worker struct {
@@ -275,7 +278,53 @@ func (w *Worker) notifyRunningProgress(job *queue.Job, pct int) {
 	})
 }
 
-// sharedRootDirs are directories that hold *every* job's working files 
+// embedForFile builds the document text (title + description + AI caption +
+// categories + tags) and asks the local sidecar for a semantic-search vector.
+// Soft-fail: nil on any error  search just stays lexical for this file.
+func (w *Worker) embedForFile(job *queue.Job, categories, tags []string, metadata map[string]interface{}) []float32 {
+	if w.cfg.Embed == nil || !w.cfg.Embed.Enabled() {
+		return nil
+	}
+	var parts []string
+	if t := strings.TrimSpace(job.Title); t != "" {
+		parts = append(parts, t)
+	}
+	if d := strings.TrimSpace(job.Description); d != "" {
+		parts = append(parts, d)
+	}
+	if metadata != nil {
+		if v, ok := metadata["description"].(string); ok && strings.TrimSpace(v) != "" {
+			parts = append(parts, strings.TrimSpace(v))
+		}
+	}
+	if len(categories) > 0 {
+		parts = append(parts, strings.Join(categories, " "))
+	}
+	if len(tags) > 0 {
+		parts = append(parts, strings.Join(tags, " "))
+	}
+	if len(parts) == 0 {
+		parts = append(parts, strings.TrimSpace(job.FileName))
+	}
+	text := strings.TrimSpace(strings.Join(parts, ". "))
+	if text == "" {
+		return nil
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	vecs, err := w.cfg.Embed.Embed(ctx, []string{text}, "passage")
+	if err != nil {
+		w.log.Errorf("embed failed job=%s err=%s (continuing without vector)", job.ID, err.Error())
+		return nil
+	}
+	if len(vecs) != 1 {
+		return nil
+	}
+	return vecs[0]
+}
+
+// sharedRootDirs are directories that hold *every* job's working files
 // failJob must NEVER RemoveAll one of these, or it'll wipe out siblings
 // that are still mid-pipeline. We accept some empty leftover dirs in
 // exchange for never trashing a healthy job.
@@ -342,14 +391,21 @@ func (w *Worker) processJob(job *queue.Job) {
 	}
 
 	// Storage backend for THIS upload. github_repo is only meaningful for the
-	// GitHub backend; R2 rows carry the bucket instead.
+	// GitHub backend; R2 rows carry the bucket instead. Overflow jobs (extra
+	// weekly allowance after the monthly quota filled) always take the GitHub
+	// path regardless of the global backend.
+	useR2 := w.useR2() && !job.Overflow
 	storageBackend := "github"
 	storageBucket := ""
 	repoForPayload := w.cfg.GitHubRepo
-	if w.useR2() {
+	if useR2 {
 		storageBackend = "r2"
 		storageBucket = w.cfg.R2.Bucket()
 		repoForPayload = ""
+	}
+	if job.Overflow && w.cfg.GitHubClient == nil {
+		w.failJob(job, "overflow upload but github backend not configured")
+		return
 	}
 
 	result, err := assembler.Assemble(assembler.Config{
@@ -407,7 +463,7 @@ func (w *Worker) processJob(job *queue.Job) {
 		// fixed name; the original filename stays in the files.filename column.
 		ghPath := dateFolder + "/" + job.UploadID + "/" + safeImageObjectName(job.FileName)
 		var upErr error
-		if w.useR2() {
+		if useR2 {
 			upErr = w.putLocalR2(context.Background(), ghPath, result.OutputPath)
 		} else {
 			upErr = ghlib.UploadLocalFile(context.Background(), w.cfg.GitHubClient, w.cfg.GitHubOwner, w.cfg.GitHubRepo, ghPath, result.OutputPath, "Upload "+job.FileName)
@@ -492,6 +548,8 @@ func (w *Worker) processJob(job *queue.Job) {
 			GitHubRepo:          repoForPayload,
 			StorageBackend:      storageBackend,
 			StorageBucket:       storageBucket,
+			Overflow:            job.Overflow,
+			Embedding:           w.embedForFile(job, categories, tags, metadata),
 		})
 		w.log.Infof("job complete job=%s duration=%s", job.ID, time.Since(start))
 		return
@@ -526,6 +584,16 @@ func (w *Worker) processJob(job *queue.Job) {
 		w.log.Infof("waveform fallback (flat) job=%s reason=%s has_audio=%v", job.ID, werr.Error(), hasAudio)
 	} else if waveformResult != nil {
 		w.log.Infof("waveform job=%s path=%s has_audio=%v", job.ID, waveformResult.Path, hasAudio)
+	}
+
+	// Audio stems (kick/snare/hihat/bass onsets) for the visualizer confetti.
+	// Soft-fail like the waveform: the file lands in thumbDir so the early
+	// thumbnail batch upload ships it with zero extra storage plumbing.
+	stemsResult, serr := ffmpeg.ExtractAudioStems(result.OutputPath, thumbDir)
+	if serr != nil {
+		w.log.Infof("audio stems skipped job=%s reason=%s", job.ID, serr.Error())
+	} else if stemsResult != nil {
+		w.log.Infof("audio stems job=%s events=%d has_audio=%v", job.ID, stemsResult.EventCount, stemsResult.HasAudio)
 	}
 
 	if verr := ffmpeg.ValidateVideo(result.OutputPath); verr != nil {
@@ -581,7 +649,7 @@ func (w *Worker) processJob(job *queue.Job) {
 			w.log.Errorf("collect thumbnail files (early) failed job=%s err=%s", job.ID, cerr.Error())
 		} else if len(thumbFiles) > 0 {
 			var thErr error
-			if w.useR2() {
+			if useR2 {
 				thErr = w.uploadBatchR2(context.Background(), thumbFiles)
 			} else {
 				ghBranch := os.Getenv("GITHUB_BRANCH")
@@ -758,7 +826,7 @@ func (w *Worker) processJob(job *queue.Job) {
 	if len(batchFiles) > 0 {
 		w.notifyRunningProgress(job, 85)
 		var buErr error
-		if w.useR2() {
+		if useR2 {
 			buErr = w.uploadBatchR2(context.Background(), batchFiles)
 		} else {
 			ghBranch := os.Getenv("GITHUB_BRANCH")
@@ -858,8 +926,10 @@ func (w *Worker) processJob(job *queue.Job) {
 		GitHubRepo:          repoForPayload,
 		StorageBackend:      storageBackend,
 		StorageBucket:       storageBucket,
+		Overflow:            job.Overflow,
+		Embedding:           w.embedForFile(job, categories, tags, metadata),
 	})
-	w.log.Infof("job complete job=%s user=%s upload=%s duration=%s thumbnails=%d colors=%d tags=%d", job.ID, job.UserID, job.UploadID, time.Since(start), len(thumbnailPaths), len(vidColors), len(tags))
+	w.log.Infof("job complete job=%s user=%s upload=%s duration=%s thumbnails=%d colors=%d tags=%d overflow=%v", job.ID, job.UserID, job.UploadID, time.Since(start), len(thumbnailPaths), len(vidColors), len(tags), job.Overflow)
 }
 
 // reelAspectMatch is true for portrait ~9:16 (typical Reels / Shorts / TikTok).

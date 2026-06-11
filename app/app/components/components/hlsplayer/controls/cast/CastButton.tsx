@@ -1,4 +1,5 @@
 import { cn } from '~/lib/utils';
+import { mobileOverlayIcon, mobileOverlaySquareBtn } from '../mobileControlMetrics';
 import { usePlayerContext } from '../../PlayerContext';
 import { useRemotePlayback } from '../../hooks/useRemotePlayback';
 import AirPlayIcon from './CastIcon';
@@ -31,8 +32,7 @@ export default function CastButton({
           }}
           className={cn(
             'relative transition-colors',
-            mobileOverlay &&
-              'flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-white/20 bg-black/50 text-white shadow-sm backdrop-blur-sm active:bg-black/60',
+            mobileOverlay && mobileOverlaySquareBtn,
             !mobileOverlay &&
               cn(
                 controlPill ? 'rounded-lg p-2' : 'rounded-md p-1.5',
@@ -46,7 +46,7 @@ export default function CastButton({
           )}
           aria-label={isCasting ? 'Connected to device' : 'Cast to device'}
         >
-          <AirPlayIcon className="w-5 h-5" />
+          <AirPlayIcon className={mobileOverlay ? mobileOverlayIcon : 'w-5 h-5'} />
           {isCasting && (
             <span className="absolute bottom-0.5 right-0.5 w-1.5 h-1.5 rounded-full bg-blue-400" />
           )}

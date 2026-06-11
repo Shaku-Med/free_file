@@ -7,8 +7,14 @@ import { PlayerProvider, usePlayerContext, type ThumbnailSpriteMeta } from './Pl
 import { CaptionProvider } from './CaptionContext';
 import CaptionOverlay from './overlays/CaptionOverlay';
 import TiltOverlay from './overlays/VRTiltOverlay';
+import VideoKickBounce from './overlays/VideoKickBounce';
+import StemGlowLight from './overlays/StemGlowLight';
 import EndCardOverlay from './overlays/EndCardOverlay';
-import { TILT_PERSPECTIVE_PX } from './PlayerContext';
+import TiltRoomWalls, {
+  TILT_ROOM_PERSPECTIVE_PX,
+  tiltWorldStyle,
+  tiltScreenStyle,
+} from './overlays/TiltRoom3D';
 import { FEED_EMBED_HIDE_CONTROLS, MINI_PLAYER_HIDE_CONTROLS, type HideControls } from './types';
 import SeekBar from './controls/seek/SeekBar';
 import PersistentBottomVisualizer from './controls/seek/PersistentBottomVisualizer';
@@ -212,6 +218,7 @@ function PlayerInner({
     setSpriteUrl,
     ambientMode,
     audioVisualizer,
+    audioStemsAvailable,
     statsForNerds,
     spatialAudio,
     setSpatialAudio,
@@ -338,6 +345,7 @@ function PlayerInner({
   );
   const showAudioVisualizer =
     audioVisualizer &&
+    audioStemsAvailable &&
     !isMobile &&
     authPlayback &&
     !isReelCtx &&
@@ -982,6 +990,8 @@ function PlayerInner({
       onContextMenu={handleContextMenu}
     >
       {ambientMode && authPlayback && !isMiniPlayerPortalActive && <AmbientBackground />}
+      {/* Beat glow light: behind the video like ambient, soft-masked, no hard edges */}
+      {authPlayback && !isMiniPlayerPortalActive && <StemGlowLight />}
       {/* Preload the seek-preview sprite sheet as a real (hidden) <img> as soon
           as the player mounts. A rendered <img> is fetched + decoded + retained
           by the browser, so the first scrub paints the preview instantly from
@@ -1050,18 +1060,17 @@ function PlayerInner({
             <div
               className="w-full h-full flex items-center justify-center overflow-hidden"
               style={tiltMode ? {
-                perspective: '350px',
+                perspective: `${TILT_ROOM_PERSPECTIVE_PX}px`,
                 perspectiveOrigin: `${50 + tiltRotation.y * 0.4}% ${50 - tiltRotation.x * 0.4}%`,
               } : undefined}
             >
+              {/* World group: drag rotates the whole room (walls + screen),
+                  so the parallax reads as looking around a room. */}
               <div
-                className="w-full h-full"
-                style={tiltMode ? {
-                  transformStyle: 'preserve-3d' as const,
-                  transform: 'translateZ(-40px) scale(0.88)',
-                  transition: 'transform 300ms ease-out',
-                } : undefined}
+                className="w-full h-full relative"
+                style={tiltMode ? tiltWorldStyle(tiltRotation) : undefined}
               >
+              {tiltMode && <TiltRoomWalls zoom={tiltZoom} />}
               <video
                 ref={assignVideoRef}
                 className={`w-full h-full object-contain ${isReelCtx && !embedReelControls ? 'pointer-events-none' : ''}`}
@@ -1075,12 +1084,7 @@ function PlayerInner({
                 style={
                   tiltMode
                     ? {
-                        transform: `rotateX(${tiltRotation.x}deg) rotateY(${tiltRotation.y}deg) rotateZ(${tiltRotation.z}deg) translateZ(${100 + tiltZoom * 40}px) scale(${tiltZoom})`,
-                        transformOrigin: '50% 50%',
-                        transition: 'transform 120ms ease-out, box-shadow 200ms ease',
-                        willChange: 'transform',
-                        backfaceVisibility: 'hidden',
-                        borderRadius: '8px',
+                        ...tiltScreenStyle(tiltZoom),
                         boxShadow: `
                           0 ${6 + Math.abs(tiltRotation.x) * 0.7}px ${16 + Math.abs(tiltRotation.x) * 1.2}px rgba(0,0,0,0.55),
                           inset 0 0 0 1px rgba(255,255,255,0.07)
@@ -1091,88 +1095,14 @@ function PlayerInner({
                 {...({ 'x-webkit-airplay': 'allow' } as any)}
                 {...(isReelCtx ? { disablePictureInPicture: true, controlsList: 'nopictureinpicture noremoteplayback' } : {})}
               />
-              {/* Specular reflection overlay */}
+              {/* Specular reflection on the screen — angles with the world
+                  rotation so the highlight slides as you orbit. */}
               {tiltMode && (
                 <div
                   className="absolute inset-0 pointer-events-none z-[2] overflow-hidden"
                   style={{
-                    transform: `rotateX(${tiltRotation.x}deg) rotateY(${tiltRotation.y}deg) rotateZ(${tiltRotation.z}deg) translateZ(${101 + tiltZoom * 40}px) scale(${tiltZoom})`,
-                    transformOrigin: '50% 50%',
-                    transition: 'transform 120ms ease-out',
-                    borderRadius: '8px',
+                    ...tiltScreenStyle(tiltZoom, 1),
                     background: `linear-gradient(${135 + tiltRotation.y * 2.5}deg, rgba(255,255,255,${0.05 + Math.abs(tiltRotation.y) * 0.003}) 0%, transparent 45%), linear-gradient(to bottom, rgba(255,255,255,${0.02 + Math.abs(tiltRotation.x) * 0.001}) 0%, transparent 30%)`,
-                  }}
-                  aria-hidden
-                />
-              )}
-              {/* Left edge wing */}
-              {tiltMode && (
-                <div
-                  className="absolute pointer-events-none z-[1]"
-                  style={{
-                    top: 0,
-                    bottom: 0,
-                    left: 0,
-                    width: '22%',
-                    transform: `rotateY(${38 + tiltRotation.y * 0.3}deg) rotateX(${tiltRotation.x * 0.4}deg) translateZ(${60 + tiltZoom * 25}px) scale(${tiltZoom})`,
-                    transformOrigin: 'right center',
-                    transition: 'transform 120ms ease-out',
-                    background: 'linear-gradient(to right, hsl(var(--background)) 0%, hsl(var(--muted) / 0.7) 35%, transparent 100%)',
-                    borderLeft: '1px solid hsl(var(--border) / 0.3)',
-                  }}
-                  aria-hidden
-                />
-              )}
-              {/* Right edge wing */}
-              {tiltMode && (
-                <div
-                  className="absolute pointer-events-none z-[1]"
-                  style={{
-                    top: 0,
-                    bottom: 0,
-                    right: 0,
-                    width: '22%',
-                    transform: `rotateY(${-38 + tiltRotation.y * 0.3}deg) rotateX(${tiltRotation.x * 0.4}deg) translateZ(${60 + tiltZoom * 25}px) scale(${tiltZoom})`,
-                    transformOrigin: 'left center',
-                    transition: 'transform 120ms ease-out',
-                    background: 'linear-gradient(to left, hsl(var(--background)) 0%, hsl(var(--muted) / 0.7) 35%, transparent 100%)',
-                    borderRight: '1px solid hsl(var(--border) / 0.3)',
-                  }}
-                  aria-hidden
-                />
-              )}
-              {/* Top edge wing */}
-              {tiltMode && (
-                <div
-                  className="absolute pointer-events-none z-[1]"
-                  style={{
-                    left: 0,
-                    right: 0,
-                    top: 0,
-                    height: '18%',
-                    transform: `rotateX(${-32 + tiltRotation.x * 0.3}deg) rotateY(${tiltRotation.y * 0.3}deg) translateZ(${60 + tiltZoom * 25}px) scale(${tiltZoom})`,
-                    transformOrigin: 'center bottom',
-                    transition: 'transform 120ms ease-out',
-                    background: 'linear-gradient(to bottom, hsl(var(--background)) 0%, hsl(var(--muted) / 0.7) 40%, transparent 100%)',
-                    borderTop: '1px solid hsl(var(--border) / 0.3)',
-                  }}
-                  aria-hidden
-                />
-              )}
-              {/* Bottom edge wing */}
-              {tiltMode && (
-                <div
-                  className="absolute pointer-events-none z-[1]"
-                  style={{
-                    left: 0,
-                    right: 0,
-                    bottom: 0,
-                    height: '18%',
-                    transform: `rotateX(${32 + tiltRotation.x * 0.3}deg) rotateY(${tiltRotation.y * 0.3}deg) translateZ(${60 + tiltZoom * 25}px) scale(${tiltZoom})`,
-                    transformOrigin: 'center top',
-                    transition: 'transform 120ms ease-out',
-                    background: 'linear-gradient(to top, hsl(var(--background)) 0%, hsl(var(--muted) / 0.7) 40%, transparent 100%)',
-                    borderBottom: '1px solid hsl(var(--border) / 0.3)',
                   }}
                   aria-hidden
                 />
@@ -1182,6 +1112,7 @@ function PlayerInner({
           )}
 
         <TiltOverlay />
+        <VideoKickBounce />
         <CaptionOverlay containerRef={containerRef} controlsVisible={showControls} />
 
         {/* Single end-of-video overlay. Replaces both the legacy full-screen
@@ -1205,7 +1136,9 @@ function PlayerInner({
 
         {(!isReelCtx || embedReelControls) && !isMiniPlayerPortalActive && (
           <div
-            className={`absolute inset-0 z-[31] pointer-events-none transition-opacity duration-300 ${showControls ? 'opacity-100' : 'opacity-0'}`}
+            // YouTube-style asymmetric fade: controls snap in fast (100ms) and
+            // leave a touch slower (200ms) — never the sluggish 300ms both ways.
+            className={`absolute inset-0 z-[31] pointer-events-none transition-opacity ${showControls ? 'opacity-100 duration-100' : 'opacity-0 duration-200'}`}
             // When hidden (e.g. while the Skip Intro / Next Episode buttons are showing)
             // we MUST disable hit-testing for everything inside. `opacity-0` and
             // `pointer-events-none` on the wrapper are not enough  `ControlBar` puts

@@ -161,6 +161,11 @@ export function StorageQuotaMeter({
             to upload every 30 days.
           </p>
           <p>
+            Filled up the monthly budget? You still get an{" "}
+            <span className="font-medium text-foreground">extra 10 GB per week</span> on top, so
+            you're never fully blocked.
+          </p>
+          <p>
             Rolling window. Space frees up as your old uploads age past 30 days. Nothing already
             posted gets removed.
           </p>

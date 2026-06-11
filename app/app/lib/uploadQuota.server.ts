@@ -30,6 +30,22 @@ export function getMonthlyUploadLimitBytes(): number {
  */
 export const getWeeklyUploadLimitBytes = getMonthlyUploadLimitBytes;
 
+// Extra allowance that opens up once the monthly limit is full: a rolling
+// 7-day budget (default 10 GiB). Uploads accepted on it are metered under
+// scope='overflow' in the same ledger.
+const DEFAULT_OVERFLOW_WEEKLY_LIMIT_BYTES = 10 * 1024 * 1024 * 1024;
+
+export function getOverflowWeeklyLimitBytes(): number {
+  const raw = typeof process !== 'undefined' ? process.env?.OVERFLOW_WEEKLY_LIMIT_BYTES : undefined;
+  if (raw) {
+    const n = Number(raw);
+    if (Number.isFinite(n) && n >= 0) return Math.floor(n);
+  }
+  return DEFAULT_OVERFLOW_WEEKLY_LIMIT_BYTES;
+}
+
+export type QuotaScope = 'monthly' | 'overflow';
+
 export interface QuotaResult {
   ok: boolean;
   reason?: 'limit' | 'invalid' | 'error';
@@ -85,7 +101,8 @@ export async function reserveUploadQuota(
 export async function recordUploadUsage(
   userId: string,
   uploadId: string,
-  bytes: number
+  bytes: number,
+  scope: QuotaScope = 'monthly'
 ): Promise<void> {
   if (!db) {
     console.warn('[uploadQuota] record skipped: db not configured');
@@ -104,6 +121,7 @@ export async function recordUploadUsage(
       p_user_id: userId,
       p_upload_id: uploadId,
       p_bytes: safe,
+      p_scope: scope === 'overflow' ? 'overflow' : 'monthly',
     });
     if (error) {
       // Most common: weekly_upload_quota_record.sql migration not applied yet.

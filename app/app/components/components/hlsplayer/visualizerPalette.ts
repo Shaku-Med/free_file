@@ -2,17 +2,72 @@
  * Visualizer colors: derived only from theme `var(--primary)` (resolved to computed RGB).
  */
 
-/** Resolve `var(--primary)` to `rgb(...)` / `rgba(...)` the browser understands on canvas. */
-export function resolvePrimaryColorForCanvas(): string {
+const HEX_COLOR = /^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i;
+
+/**
+ * Dominant colors GoUpload extracted from a file (files.colors), sanitized
+ * for direct CSS/SVG use. Returns [] when the file has none — callers pick
+ * their own theme fallback.
+ */
+export function fileAccentColors(raw: unknown, max = 6): string[] {
+  if (!Array.isArray(raw)) return [];
+  const out: string[] = [];
+  for (const c of raw) {
+    if (typeof c === 'string' && HEX_COLOR.test(c.trim())) out.push(c.trim());
+    if (out.length >= max) break;
+  }
+  return out;
+}
+
+/** Resolve any shadcn theme token (`--primary`, `--destructive`, `--chart-2`, …) to computed RGB. */
+export type ThemeColorToken =
+  | 'primary'
+  | 'destructive'
+  | 'accent'
+  | 'secondary'
+  | 'ring'
+  | 'chart-1'
+  | 'chart-2'
+  | 'chart-3'
+  | 'chart-4'
+  | 'chart-5'
+  | 'muted-foreground';
+
+export function resolveThemeColorToken(token: ThemeColorToken): string {
   if (typeof document === 'undefined') return 'rgb(99, 102, 241)';
   const probe = document.createElement('div');
   probe.setAttribute('aria-hidden', 'true');
-  probe.style.cssText = 'position:fixed;left:-9999px;top:0;color:var(--primary);visibility:hidden;pointer-events:none';
+  probe.style.cssText = `position:fixed;left:-9999px;top:0;color:var(--${token});visibility:hidden;pointer-events:none`;
   document.documentElement.appendChild(probe);
   const resolved = getComputedStyle(probe).color;
   document.documentElement.removeChild(probe);
   if (resolved && resolved !== 'rgba(0, 0, 0, 0)') return resolved;
-  return 'rgb(99, 102, 241)';
+  return 'rgb(128, 128, 128)';
+}
+
+/** Dark / base / light shades from a resolved theme color. */
+export function themeTokenShades(token: ThemeColorToken): [string, string, string] {
+  const resolved = resolveThemeColorToken(token);
+  const c = cssColorToRgba(resolved) ?? { r: 128, g: 128, b: 128, a: 1 };
+  const darker = {
+    r: Math.max(0, Math.round(c.r * 0.72)),
+    g: Math.max(0, Math.round(c.g * 0.72)),
+    b: Math.max(0, Math.round(c.b * 0.72)),
+    a: c.a,
+  };
+  const lighter = {
+    r: Math.min(255, Math.round(c.r + (255 - c.r) * 0.38)),
+    g: Math.min(255, Math.round(c.g + (255 - c.g) * 0.38)),
+    b: Math.min(255, Math.round(c.b + (255 - c.b) * 0.38)),
+    a: c.a,
+  };
+  const mid = { r: c.r, g: c.g, b: c.b, a: c.a };
+  return [rgbaStopToString(darker), rgbaStopToString(mid), rgbaStopToString(lighter)];
+}
+
+/** Resolve `var(--primary)` to `rgb(...)` / `rgba(...)` the browser understands on canvas. */
+export function resolvePrimaryColorForCanvas(): string {
+  return resolveThemeColorToken('primary');
 }
 
 /** Parse CSS colors (incl. oklch from theme) to RGBA for canvas. */

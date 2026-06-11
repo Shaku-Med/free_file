@@ -26,6 +26,13 @@ type CheckResult struct {
 	Limit     int64 `json:"limit"`
 	Remaining int64 `json:"remaining"`
 	Predicted int64 `json:"predicted"`
+	// Extra weekly allowance that opens once the monthly budget is full.
+	// When OK is false but OverflowOK is true the upload is still accepted
+	// and routed to the overflow storage backend.
+	OverflowOK        bool  `json:"overflow_ok"`
+	OverflowUsed      int64 `json:"overflow_used"`
+	OverflowLimit     int64 `json:"overflow_limit"`
+	OverflowRemaining int64 `json:"overflow_remaining"`
 }
 
 type checkRequest struct {
