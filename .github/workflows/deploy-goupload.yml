@@ -24,6 +24,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       goupload: ${{ steps.flags.outputs.goupload }}
+      embedapi: ${{ steps.flags.outputs.embedapi }}
       nsfwapi: ${{ steps.flags.outputs.nsfwapi }}
       loadplay: ${{ steps.flags.outputs.loadplay }}
       compose: ${{ steps.flags.outputs.compose }}
@@ -42,6 +43,7 @@ jobs:
               - '!GoUpload/loadplay/**'
               - '!GoUpload/LoadPlay/**'
               - '!GoUpload/NSFWAPI/**'
+              - '!GoUpload/EmbedAPI/**'
             loadplay:
               - 'GoUpload/loadplay/**'
               - 'GoUpload/LoadPlay/**'
@@ -52,6 +54,8 @@ jobs:
             nsfwapi:
               - 'NSFWAPI/**'
               - 'GoUpload/NSFWAPI/**'
+            embedapi:
+              - 'GoUpload/EmbedAPI/**'
             compose:
               - 'GoUpload/docker-compose.yml'
               - 'GoUpload/scripts/**'
@@ -63,6 +67,7 @@ jobs:
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             echo "goupload=true" >> "$GITHUB_OUTPUT"
+            echo "embedapi=true" >> "$GITHUB_OUTPUT"
             echo "nsfwapi=true" >> "$GITHUB_OUTPUT"
             echo "loadplay=true" >> "$GITHUB_OUTPUT"
             echo "compose=true" >> "$GITHUB_OUTPUT"
@@ -75,6 +80,7 @@ jobs:
           goupload="${{ steps.filter.outputs.goupload }}"
           loadplay="${{ steps.filter.outputs.loadplay }}"
           nsfwapi="${{ steps.filter.outputs.nsfwapi }}"
+          embedapi="${{ steps.filter.outputs.embedapi }}"
           compose="${{ steps.filter.outputs.compose }}"
 
           if [ "$shared" = "true" ]; then
@@ -83,23 +89,27 @@ jobs:
           fi
           if [ "$wf" = "true" ]; then
             goupload=true
+            embedapi=true
             nsfwapi=true
             loadplay=true
             compose=true
           fi
 
           deploy_goupload=false
+          deploy_embedapi=false
           deploy_nsfwapi=false
           deploy_loadplay=false
           deploy_compose=false
           any=false
 
           [ "$goupload" = "true" ] && deploy_goupload=true && any=true
+          [ "$embedapi" = "true" ] && deploy_embedapi=true && any=true
           [ "$loadplay" = "true" ] && deploy_loadplay=true && any=true
           [ "$nsfwapi" = "true" ] && deploy_nsfwapi=true && any=true
           [ "$compose" = "true" ] && deploy_compose=true && any=true
 
           echo "goupload=$deploy_goupload" >> "$GITHUB_OUTPUT"
+          echo "embedapi=$deploy_embedapi" >> "$GITHUB_OUTPUT"
           echo "nsfwapi=$deploy_nsfwapi" >> "$GITHUB_OUTPUT"
           echo "loadplay=$deploy_loadplay" >> "$GITHUB_OUTPUT"
           echo "compose=$deploy_compose" >> "$GITHUB_OUTPUT"
@@ -134,12 +144,15 @@ jobs:
           REPO_LC=$(echo "${REPO_SLUG}" | tr '[:upper:]' '[:lower:]')
           BASE_GO="${REGISTRY}/${OWNER_LC}/${REPO_LC}/goupload"
           BASE_NSFW="${REGISTRY}/${OWNER_LC}/${REPO_LC}/nsfwapi"
+          BASE_EMBED="${REGISTRY}/${OWNER_LC}/${REPO_LC}/embedapi"
           BASE_LP="${REGISTRY}/${OWNER_LC}/${REPO_LC}/loadplay"
           echo "goupload=${BASE_GO}:${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
           echo "nsfwapi=${BASE_NSFW}:${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+          echo "embedapi=${BASE_EMBED}:${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
           echo "loadplay=${BASE_LP}:${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
           echo "goupload_latest=${BASE_GO}:latest" >> "$GITHUB_OUTPUT"
           echo "nsfwapi_latest=${BASE_NSFW}:latest" >> "$GITHUB_OUTPUT"
+          echo "embedapi_latest=${BASE_EMBED}:latest" >> "$GITHUB_OUTPUT"
           echo "loadplay_latest=${BASE_LP}:latest" >> "$GITHUB_OUTPUT"
 
       - name: Build & push GoUpload
@@ -167,6 +180,19 @@ jobs:
             ${{ steps.tags.outputs.nsfwapi_latest }}
           cache-from: type=gha,scope=nsfwapi
           cache-to: type=gha,scope=nsfwapi,mode=max
+
+      - name: Build & push EmbedAPI
+        if: needs.changes.outputs.embedapi == 'true'
+        uses: docker/build-push-action@v6
+        with:
+          context: ./GoUpload/EmbedAPI
+          file: ./GoUpload/EmbedAPI/Dockerfile
+          push: true
+          tags: |
+            ${{ steps.tags.outputs.embedapi }}
+            ${{ steps.tags.outputs.embedapi_latest }}
+          cache-from: type=gha,scope=embedapi
+          cache-to: type=gha,scope=embedapi,mode=max
 
       - name: Build & push LoadPlay
         if: needs.changes.outputs.loadplay == 'true'
@@ -197,6 +223,7 @@ jobs:
     env:
       STAGING: /home/hoster/goupload-staging
       DEPLOY_GOUPLOAD: ${{ needs.changes.outputs.goupload }}
+      DEPLOY_EMBEDAPI: ${{ needs.changes.outputs.embedapi }}
       DEPLOY_NSFWAPI: ${{ needs.changes.outputs.nsfwapi }}
       DEPLOY_LOADPLAY: ${{ needs.changes.outputs.loadplay }}
       DEPLOY_COMPOSE: ${{ needs.changes.outputs.compose }}
@@ -209,8 +236,13 @@ jobs:
           GOUPLOAD_ENV: ${{ secrets.VPS_ENV }}
           NSFWAPI_ENV: ${{ secrets.NSFWAPI_ENV }}
           LOADPLAY_ENV: ${{ secrets.LOADPLAY_ENV }}
+          EMBED_API_SECRET: ${{ secrets.EMBED_API_SECRET }}
         run: |
           set -euo pipefail
+          if [ -z "${EMBED_API_SECRET:-}" ]; then
+            echo "ERROR: GitHub secret EMBED_API_SECRET is empty. Add the same value as GoUpload/.env." >&2
+            exit 1
+          fi
           rm -rf "$STAGING"
           mkdir -p "$STAGING"
 
@@ -226,28 +258,36 @@ jobs:
           # Keep running tags for services we did not rebuild this push.
           GOUPLOAD_TAG="latest"
           NSFWAPI_TAG="latest"
+          EMBEDAPI_TAG="latest"
           LOADPLAY_TAG="latest"
           if [ -f /opt/goupload/.env ]; then
             # shellcheck disable=SC1091
             source /opt/goupload/.env
             GOUPLOAD_TAG="${GOUPLOAD_IMAGE##*:}"
             NSFWAPI_TAG="${NSFWAPI_IMAGE##*:}"
+            EMBEDAPI_TAG="${EMBEDAPI_IMAGE##*:}"
             LOADPLAY_TAG="${LOADPLAY_IMAGE##*:}"
           fi
           if [ "$DEPLOY_GOUPLOAD" = "true" ]; then GOUPLOAD_TAG="${GITHUB_SHA}"; fi
           if [ "$DEPLOY_NSFWAPI" = "true" ]; then NSFWAPI_TAG="${GITHUB_SHA}"; fi
+          if [ "$DEPLOY_EMBEDAPI" = "true" ]; then EMBEDAPI_TAG="${GITHUB_SHA}"; fi
           if [ "$DEPLOY_LOADPLAY" = "true" ]; then LOADPLAY_TAG="${GITHUB_SHA}"; fi
 
           cat > "$STAGING/.env" <<EOF
           GOUPLOAD_IMAGE=${BASE}/goupload:${GOUPLOAD_TAG}
           NSFWAPI_IMAGE=${BASE}/nsfwapi:${NSFWAPI_TAG}
+          EMBEDAPI_IMAGE=${BASE}/embedapi:${EMBEDAPI_TAG}
           LOADPLAY_IMAGE=${BASE}/loadplay:${LOADPLAY_TAG}
+          EMBED_API_SECRET=${EMBED_API_SECRET}
           GOUPLOAD_PORT=3003
           LOADPLAY_PORT=3006
           GOUPLOAD_CPUS=1.2
           GOUPLOAD_MEM=2G
           NSFWAPI_CPUS=0.4
           NSFWAPI_MEM=512M
+          EMBEDAPI_CPUS=0.75
+          EMBEDAPI_MEM=512M
+          EMBED_THREADS=1
           LOADPLAY_CPUS=0.3
           LOADPLAY_MEM=256M
           WORKER_MIN=1
@@ -258,7 +298,7 @@ jobs:
           cp GoUpload/scripts/goupload-compose.sh "$STAGING/goupload-compose.sh"
           cp GoUpload/scripts/dangerous-guard.sh  "$STAGING/dangerous-guard.sh"
 
-          echo "Deploy targets: goupload=$DEPLOY_GOUPLOAD nsfwapi=$DEPLOY_NSFWAPI loadplay=$DEPLOY_LOADPLAY compose=$DEPLOY_COMPOSE"
+          echo "Deploy targets: goupload=$DEPLOY_GOUPLOAD embedapi=$DEPLOY_EMBEDAPI nsfwapi=$DEPLOY_NSFWAPI loadplay=$DEPLOY_LOADPLAY compose=$DEPLOY_COMPOSE"
 
       - name: Promote staged files into /opt/goupload
         run: |
@@ -274,12 +314,18 @@ jobs:
           printf '%s' "$GHCR_TOKEN" | sudo /usr/local/sbin/goupload-compose.sh login "$GHCR_USER"
 
           SERVICES=()
-          [ "$DEPLOY_GOUPLOAD" = "true" ] && SERVICES+=(goupload)
+          [ "$DEPLOY_GOUPLOAD" = "true" ] && SERVICES+=(goupload embedapi)
+          [ "$DEPLOY_EMBEDAPI" = "true" ] && SERVICES+=(embedapi)
           [ "$DEPLOY_NSFWAPI" = "true" ] && SERVICES+=(nsfwapi)
           [ "$DEPLOY_LOADPLAY" = "true" ] && SERVICES+=(loadplay)
 
           if [ ${#SERVICES[@]} -eq 0 ] && [ "$DEPLOY_COMPOSE" = "true" ]; then
-            SERVICES=(goupload nsfwapi loadplay)
+            SERVICES=(goupload embedapi nsfwapi loadplay)
+          fi
+
+          # Deduplicate service names (bash 4+).
+          if [ ${#SERVICES[@]} -gt 0 ]; then
+            mapfile -t SERVICES < <(printf '%s\n' "${SERVICES[@]}" | awk '!seen[$0]++')
           fi
 
           if [ ${#SERVICES[@]} -gt 0 ]; then
