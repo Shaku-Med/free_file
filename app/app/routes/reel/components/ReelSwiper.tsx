@@ -106,7 +106,10 @@ export const ReelSwiper = ({
   const [canGoPrev, setCanGoPrev] = useState(false);
   const [canGoNext, setCanGoNext] = useState(items.length > 1 || hasMore);
 
-  const rewindDeck = items.length > 1;
+  // Wrap last → first ONLY when the feed is exhausted. While more pages can
+  // load, wrapping would yank the user back to reel #1 right as the next
+  // page is fetching  which reads as "load more is broken".
+  const rewindDeck = items.length > 1 && !hasMore;
 
   /** File ids that have been the active slide  stay pre-mounted when user swipes away (FIFO cap). */
   const [stickyHlsIds, setStickyHlsIds] = useState<string[]>([]);

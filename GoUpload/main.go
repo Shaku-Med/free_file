@@ -13,6 +13,7 @@ import (
 	"goupload/internal/embedproxy"
 	"goupload/internal/middleware"
 	"goupload/internal/profilepic"
+	"goupload/internal/purge"
 	"goupload/internal/testpage"
 	"goupload/internal/thumbnail"
 	"goupload/internal/upload"
@@ -262,6 +263,13 @@ func main() {
 		AppBaseURL:   env.Get("APP_BASE_URL", "http://localhost:3000"),
 		AppSecret:    webhookSecret,
 		R2:           r2Client,
+	})
+	purge.RegisterRoutes(app, webhookSecret, purge.Config{
+		GitHubClient: wcfg.GitHubClient,
+		GitHubOwner:  ghOwner,
+		GitHubBranch: env.Get("GITHUB_BRANCH", "main"),
+		R2:           r2Client,
+		Log:          appLog,
 	})
 
 	// Liveness/readiness probe. Public, no auth: Docker/compose healthchecks and

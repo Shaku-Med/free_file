@@ -14,7 +14,6 @@ import {
 import { sortableKeyboardCoordinates } from "@dnd-kit/sortable"
 import { RelatedVideosProvider, useRelatedVideosContext } from "./RelatedVideosContext"
 import VideoCard from "~/routes/Home/components/VideoCard"
-import { Button } from "~/components/ui/button"
 import type { FileType } from "~/lib/types"
 import { SignInToSeeMore } from "~/components/SignInWall"
 import { PlayQueuePanel } from "./PlayQueuePanel"
@@ -65,18 +64,11 @@ function DraggableQueueVideoCard(props: ComponentProps<typeof VideoCard>) {
 
 const RelatedVideosContent = ({ currentUserId }: { currentUserId?: string }) => {
   const {
-    activeTab,
-    setActiveTab,
     displayVideos,
-    ownerVideos,
     isLoading,
-    isLoadingOwner,
     hasMore,
-    hasMoreOwner,
     observerRef,
     userActions,
-    loadMore,
-    loadOwnerVideos
   } = useRelatedVideosContext()
 
   const playQueue = usePlayQueueOptional()
@@ -153,8 +145,10 @@ const RelatedVideosContent = ({ currentUserId }: { currentUserId?: string }) => 
   const relatedGridClass =
     "grid min-w-0 grid-cols-1 gap-2 @min-[480px]/related-videos:grid-cols-2 @min-[900px]/related-videos:grid-cols-3"
 
-  const renderVideoCard = (video: FileType, index: number) =>
-    playQueue?.viewerCanCustomizeQueue ? (
+  // Reels never enter the play queue: no drag handle, no "add to queue".
+  const renderVideoCard = (video: FileType, index: number) => {
+    const queueable = !video.is_reel
+    return queueable && playQueue?.viewerCanCustomizeQueue ? (
       <DraggableQueueVideoCard
         related
         hideActions={{completely: false, halfway: true}}
@@ -176,11 +170,12 @@ const RelatedVideosContent = ({ currentUserId }: { currentUserId?: string }) => 
         index={index}
         currentUserId={currentUserId}
         userActions={userActions}
-        onAddToPlayQueue={addToPlayQueue}
-        inPlayQueue={isInPlayQueue(video.id)}
+        onAddToPlayQueue={queueable ? addToPlayQueue : undefined}
+        inPlayQueue={queueable ? isInPlayQueue(video.id) : false}
         layout={`horizontal`}
       />
     )
+  }
 
   const renderGroupedVideos = (videos: FileType[], keyPrefix: string) => {
     const groups = groupConsecutiveReelClusters(videos)
@@ -235,8 +230,6 @@ const RelatedVideosContent = ({ currentUserId }: { currentUserId?: string }) => 
                         index={index}
                         currentUserId={currentUserId}
                         userActions={userActions}
-                        onAddToPlayQueue={addToPlayQueue}
-                        inPlayQueue={isInPlayQueue(file.id)}
                         hideActions={{ completely: false, halfway: true }}
                       />
                     </SwiperSlide>
@@ -253,117 +246,34 @@ const RelatedVideosContent = ({ currentUserId }: { currentUserId?: string }) => 
   const inner = (
     <div className="@container/related-videos min-w-0 space-y-3 sm:space-y-4">
       <PlayQueuePanel currentUserId={currentUserId} userActions={userActions} />
-      <div
-        className="-mx-0.5 flex min-w-0 gap-1 overflow-x-auto border-b border-border pb-px sm:mx-0 sm:gap-2 sm:overflow-visible"
-        role="tablist"
-        aria-label="Related videos"
-      >
-        <button
-          type="button"
-          onClick={() => setActiveTab("upnext")}
-          className={cn(
-            "shrink-0 rounded-t-md px-2.5 py-2 text-xs font-medium transition-colors sm:px-3 sm:text-sm",
-            "border-b-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
-            activeTab === "upnext"
-              ? "border-primary text-primary"
-              : "border-transparent text-muted-foreground hover:text-foreground",
-          )}
-        >
-          Up next
-        </button>
-        {ownerVideos.length > 0 && (
-          <button
-            type="button"
-            onClick={() => setActiveTab("creator")}
-            className={cn(
-              "shrink-0 rounded-t-md px-2.5 py-2 text-xs font-medium transition-colors sm:px-3 sm:text-sm",
-              "border-b-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
-              activeTab === "creator"
-                ? "border-primary text-primary"
-                : "border-transparent text-muted-foreground hover:text-foreground",
+
+      <div className="space-y-4">
+        {displayVideos.length === 0 && !isLoading ? (
+          <div className="flex items-center justify-center p-8">
+            <div className="text-center">
+              <p className="text-sm text-muted-foreground">No related videos available</p>
+            </div>
+          </div>
+        ) : (
+          <>
+            {renderGroupedVideos(displayVideos, "upnext")}
+            {hasMore && (
+              currentUserId ? (
+                <div ref={observerRef} className="h-10 flex items-center justify-center">
+                  {isLoading && (
+                    <div className="flex items-center space-x-2">
+                      <div className="w-4 h-4 border-2 border-primary border-t-transparent rounded-full animate-spin"></div>
+                      <span className="text-sm text-muted-foreground">Loading more...</span>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <SignInToSeeMore />
+              )
             )}
-          >
-            <span className="sm:hidden">Creator</span>
-            <span className="hidden sm:inline">More from creator</span>
-          </button>
+          </>
         )}
       </div>
-
-      {activeTab === "upnext" && (
-        <div className="space-y-4">
-          {displayVideos.length === 0 && !isLoading ? (
-            <div className="flex items-center justify-center p-8">
-              <div className="text-center">
-                <p className="text-sm text-muted-foreground">No related videos available</p>
-              </div>
-            </div>
-          ) : (
-            <>
-              {renderGroupedVideos(displayVideos, "upnext")}
-              {hasMore && (
-                currentUserId ? (
-                  <div ref={observerRef} className="h-10 flex items-center justify-center">
-                    {isLoading && (
-                      <div className="flex items-center space-x-2">
-                        <div className="w-4 h-4 border-2 border-primary border-t-transparent rounded-full animate-spin"></div>
-                        <span className="text-sm text-muted-foreground">Loading more...</span>
-                      </div>
-                    )}
-                  </div>
-                ) : (
-                  <SignInToSeeMore />
-                )
-              )}
-            </>
-          )}
-        </div>
-      )}
-
-      {activeTab === "creator" && (
-        <div className="space-y-4">
-          {ownerVideos.length === 0 && isLoadingOwner ? (
-            <div className="flex items-center justify-center p-8">
-              <div className="flex items-center space-x-2">
-                <div className="w-4 h-4 border-2 border-primary border-t-transparent rounded-full animate-spin"></div>
-                <span className="text-sm text-muted-foreground">Loading...</span>
-              </div>
-            </div>
-          ) : ownerVideos.length === 0 ? (
-            <div className="flex items-center justify-center p-8">
-              <div className="text-center">
-                <p className="text-sm text-muted-foreground">No videos from this creator</p>
-              </div>
-            </div>
-          ) : (
-            <>
-              {renderGroupedVideos(ownerVideos, "creator")}
-              {hasMoreOwner && (
-                currentUserId ? (
-                  <div className="flex items-center justify-center pt-4">
-                    <Button
-                      onClick={loadOwnerVideos}
-                      disabled={isLoadingOwner}
-                      variant="outline"
-                      className="w-full sm:w-auto"
-                    >
-                      {isLoadingOwner ? (
-                        <>
-                          <div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin mr-2"></div>
-                          Loading...
-                        </>
-                      ) : (
-                        "Load More"
-                      )}
-                    </Button>
-                  </div>
-                ) : (
-                  <SignInToSeeMore />
-                )
-              )}
-            </>
-          )}
-        </div>
-      )}
     </div>
   )
 

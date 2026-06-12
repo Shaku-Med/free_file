@@ -19,6 +19,7 @@ const COOKIE_NAMES = {
   loop: 'player-loop',
   autoPlay: 'player-autoplay',
   ambientMode: 'player-ambient-mode',
+  playerBackground: 'player-background',
   audioVisualizer: 'player-audio-visualizer',
   audioVisualizerStyle: 'player-audio-visualizer-style',
   visualizerConfetti: 'player-visualizer-confetti',
@@ -74,6 +75,7 @@ export interface PlayerSettingsDto {
   loop?: boolean;
   autoPlay?: boolean;
   ambientMode?: boolean;
+  playerBackground?: boolean;
   audioVisualizer?: boolean;
   audioVisualizerStyle?: string;
   visualizerConfetti?: boolean;
@@ -112,6 +114,8 @@ export function getPlayerSettingsFromCookies(cookieHeader: string | null) {
   const loop = get(COOKIE_NAMES.loop) === 'true';
   const autoPlay = get(COOKIE_NAMES.autoPlay) === 'true';
   const ambientMode = get(COOKIE_NAMES.ambientMode) === '1' || get(COOKIE_NAMES.ambientMode) === 'true';
+  const playerBackgroundRaw = get(COOKIE_NAMES.playerBackground);
+  const playerBackground = playerBackgroundRaw === '0' || playerBackgroundRaw === 'false' ? false : true;
   const audioVisualizer =
     get(COOKIE_NAMES.audioVisualizer) === '1' || get(COOKIE_NAMES.audioVisualizer) === 'true';
   const styleRaw = get(COOKIE_NAMES.audioVisualizerStyle);
@@ -153,6 +157,7 @@ export function getPlayerSettingsFromCookies(cookieHeader: string | null) {
     loop,
     autoPlay,
     ambientMode,
+    playerBackground,
     audioVisualizer,
     audioVisualizerStyle,
     visualizerConfetti,
@@ -238,6 +243,11 @@ export const action = async ({ request }: { request: Request }) => {
       const v = body.ambientMode ? '1' : '0';
       setCookies.push(buildSetCookie(COOKIE_NAMES.ambientMode, v, secure));
       result.ambientMode = body.ambientMode;
+    }
+    if (typeof body.playerBackground === 'boolean') {
+      const v = body.playerBackground ? '1' : '0';
+      setCookies.push(buildSetCookie(COOKIE_NAMES.playerBackground, v, secure));
+      result.playerBackground = body.playerBackground;
     }
     if (typeof body.audioVisualizer === 'boolean') {
       const v = body.audioVisualizer ? '1' : '0';

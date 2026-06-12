@@ -152,8 +152,6 @@ interface ControlBarProps {
   onBack?: () => void;
   /** Rendered at the very bottom of the control bar flex-col (e.g. audio visualizer). */
   bottomSlot?: React.ReactNode;
-  /** When true, 3-D tilt chrome is active (reset control, etc.). Parent overlay is pointer-events-none; mobile uses inner pointer-events-auto regions; desktop bar root uses pointer-events-auto. */
-  tiltMode?: boolean;
 }
 
 export default function ControlBar({
@@ -170,7 +168,6 @@ export default function ControlBar({
   isMobileLayout = false,
   onBack,
   bottomSlot,
-  tiltMode = false,
 }: ControlBarProps) {
   const {
     state,
@@ -183,13 +180,9 @@ export default function ControlBar({
     isReel,
     reelEmbedAutoHide,
     setReelChromeBottomReservePx,
-    tiltRotation,
-    tiltZoom,
-    resetTiltRotation,
   } = usePlayerContext();
 
   const idleSeekOnly = reelEmbedAutoHide && !state.reelAuxiliaryChromeVisible;
-  const showTiltReset = tiltMode && (tiltRotation.x !== 0 || tiltRotation.y !== 0 || tiltRotation.z !== 0 || tiltZoom !== 1);
   const containerRef = useRef<HTMLDivElement>(null);
   const bottomStripRef = useRef<HTMLDivElement>(null);
 
@@ -372,16 +365,6 @@ export default function ControlBar({
             gap: 'var(--hls-ctrl-top-gap, 0.5rem)',
           }}
         >
-          {showTiltReset && (
-            <button
-              type="button"
-              onClick={(e) => { e.stopPropagation(); resetTiltRotation(); }}
-              className={cn(mobileOverlayCircleBtn, 'text-white/80 backdrop-blur-sm')}
-              aria-label="Reset tilt"
-            >
-              <X className={mobileOverlayIcon} />
-            </button>
-          )}
           {!isHidden(hideControls, 'settings') && (
             <PlayerControlTooltip
               label={
@@ -702,18 +685,6 @@ export default function ControlBar({
 
         <div className="flex min-w-0 shrink-0 items-center gap-2">
           <div className={desktopRightPill}>
-            {showTiltReset && (
-              <PlayerControlTooltip label="Reset tilt">
-                <button
-                  type="button"
-                  onClick={(e) => { e.stopPropagation(); resetTiltRotation(); }}
-                  className="rounded-lg p-2 transition-colors hover:bg-white/10 text-white/80 hover:text-white"
-                  aria-label="Reset tilt"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              </PlayerControlTooltip>
-            )}
             {desktopAutoplayToggle}
             {!isHidden(hideControls, 'subtitles') && <SubtitleButton variant="desktopPill" />}
             {!authPlaybackFeatures && <GuestPlaybackBenefitsDialog variant="controlPill" />}

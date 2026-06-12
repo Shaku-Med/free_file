@@ -572,7 +572,7 @@ export default function Actions({
                     Edit upload
                   </DropdownMenuItem>
                 )}
-                {/* {typeof onDelete === "function" && (
+                {typeof onDelete === "function" && (
                   <DropdownMenuItem
                     onSelect={() => onDelete()}
                     className="text-destructive focus:text-destructive"
@@ -580,7 +580,7 @@ export default function Actions({
                     <Trash2 className="size-4" aria-hidden />
                     Delete
                   </DropdownMenuItem>
-                )} */}
+                )}
               </DropdownMenuGroup>
               <DropdownMenuSeparator />
             </>
@@ -820,34 +820,43 @@ export default function Actions({
       {howLikesDislikeComments ? (
         <button
           type="button"
-          className="flex flex-col items-center gap-1"
+          className="group flex select-none flex-col items-center gap-1"
           onClick={() => applyLikeDislike("like")}
           disabled={likeBusy}
           aria-pressed={liked}
           aria-label={liked ? "Unlike" : "Like"}
         >
-          <span className={reelIconBtn}>
-            {likeBusy ? (
-              <Loader2 className="h-[1.25rem] w-[1.25rem] shrink-0 animate-spin" aria-hidden />
-            ) : (
-              <Heart
-                className={cn("h-[1.25rem] w-[1.25rem] shrink-0", liked && "fill-rose-500 text-rose-500")}
-                aria-hidden
-              />
+          <span
+            className={cn(
+              reelIconBtn,
+              "transition-all duration-200 group-active:scale-90",
+              liked && "border-rose-400/45 bg-rose-500/20 hover:border-rose-300/55 hover:bg-rose-500/30",
+              likeBusy && "opacity-70",
             )}
+          >
+            <Heart
+              key={liked ? "liked" : "unliked"}
+              className={cn(
+                "h-[1.25rem] w-[1.25rem] shrink-0 transition-colors duration-150",
+                liked && "action-heart-pop fill-rose-500 text-rose-500",
+              )}
+              aria-hidden
+            />
           </span>
-          <span className={reelLabel}>{formatNumber(likeCount)}</span>
+          <span key={likeCount} className={cn(reelLabel, "action-count-pop")}>
+            {formatNumber(likeCount)}
+          </span>
         </button>
       ) : null}
 
       {howLikesDislikeComments ? (
         <button
           type="button"
-          className="flex flex-col items-center gap-1"
+          className="group flex select-none flex-col items-center gap-1"
           onClick={openComments}
           aria-label="View comments"
         >
-          <span className={reelIconBtn}>
+          <span className={cn(reelIconBtn, "transition-all duration-200 group-active:scale-90")}>
             <MessageCircle className="h-[1.25rem] w-[1.25rem] shrink-0" aria-hidden />
           </span>
           <span className={reelLabel}>{formatNumber(commentCount)}</span>
@@ -856,16 +865,19 @@ export default function Actions({
 
       <button
         type="button"
-        className="flex flex-col items-center gap-1"
+        className="group flex select-none flex-col items-center gap-1"
         onClick={openReelShare}
         disabled={shareBusy}
         aria-label="Share"
       >
-        <span className={reelIconBtn}>
+        <span className={cn(reelIconBtn, "transition-all duration-200 group-active:scale-90")}>
           {shareBusy ? (
             <Loader2 className="h-[1.25rem] w-[1.25rem] shrink-0 animate-spin" aria-hidden />
           ) : (
-            <Send className="h-[1.2rem] w-[1.2rem] shrink-0 -rotate-12" aria-hidden />
+            <Send
+              className="h-[1.2rem] w-[1.2rem] shrink-0 -rotate-12 transition-transform duration-200 group-hover:-rotate-[24deg] group-hover:translate-x-0.5"
+              aria-hidden
+            />
           )}
         </span>
         <span className={reelLabel}>Share</span>

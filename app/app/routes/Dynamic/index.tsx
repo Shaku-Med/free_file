@@ -22,6 +22,7 @@ import { stripGithubRepoForClient } from "~/lib/githubStorage";
 import { checkFileAccess } from "./fun/accessControl";
 import AdultContentBadge from "./components/AdultContentBadge";
 import Actions from "../Home/components/VideoCard/Actions";
+import VideoCard from "../Home/components/VideoCard";
 import { isAuthenticated } from "~/lib/Security/Password";
 import CommentSection from "./components/Comments/CommentSection";
 import { FormattedText } from "~/components/FormattedText";
@@ -97,6 +98,7 @@ export type DynamicDeferredDetails = {
   } | null;
   /** When THIS file is the original: public videos whose audio matched it. */
   soundRemixes: Array<{
+    id: string;
     unique_id: string;
     file_title: string | null;
     filename: string | null;
@@ -104,8 +106,28 @@ export type DynamicDeferredDetails = {
     thumbnails: string[] | null;
     created_at: string | null;
     view_count: number;
+    is_reel?: boolean;
+    owner?: { id: string; username: string; profile_pic: string; verified?: boolean } | null;
   }>;
 };
+
+function soundRemixToFileType(remix: DynamicDeferredDetails["soundRemixes"][number]): FileType {
+  return {
+    id: remix.id,
+    unique_id: remix.unique_id,
+    file_title: remix.file_title ?? undefined,
+    filename: remix.filename ?? "",
+    default_thumbnail: remix.default_thumbnail,
+    thumbnails: remix.thumbnails ?? undefined,
+    created_at: remix.created_at ?? "",
+    view_count: remix.view_count,
+    is_reel: remix.is_reel,
+    owner: remix.owner ?? undefined,
+    endpoint: "",
+    file_type: "video",
+    file_size: 0,
+  };
+}
 
 async function loadDynamicPageDetails(
   file: Record<string, unknown> & { id?: string; owner_id?: string | null },
@@ -196,14 +218,34 @@ async function loadDynamicPageDetails(
     ? (async () => {
         const { data: remixes } = await db
           .from('files')
-          .select('unique_id, file_title, filename, default_thumbnail, thumbnails, created_at, view_count')
+          .select('id, unique_id, file_title, filename, default_thumbnail, thumbnails, created_at, view_count, owner_id, is_reel')
           .eq('original_file_id', file.id)
           .eq('is_public', true)
           .eq('is_adult', false)
           .eq('upload_status', 'complete')
           .order('view_count', { ascending: false })
           .limit(12);
-        return (Array.isArray(remixes) ? remixes : []).map((r) => ({
+        const rows = Array.isArray(remixes) ? remixes : [];
+        const ownerIds = Array.from(
+          new Set(rows.map((r) => (r.owner_id ? String(r.owner_id) : "")).filter(Boolean)),
+        );
+        const owners = new Map<string, { id: string; username: string; profile_pic: string; verified?: boolean }>();
+        if (ownerIds.length > 0) {
+          const { data: users } = await db
+            .from('users')
+            .select('id, username, profile_pic, verified')
+            .in('id', ownerIds);
+          for (const u of (users ?? []) as Array<{ id: string; username: string; profile_pic: string | null; verified: boolean | null }>) {
+            owners.set(String(u.id), {
+              id: String(u.id),
+              username: u.username,
+              profile_pic: u.profile_pic ?? "",
+              verified: u.verified === true,
+            });
+          }
+        }
+        return rows.map((r) => ({
+          id: String(r.id),
           unique_id: String(r.unique_id),
           file_title: r.file_title ?? null,
           filename: r.filename ?? null,
@@ -211,6 +253,8 @@ async function loadDynamicPageDetails(
           thumbnails: Array.isArray(r.thumbnails) ? r.thumbnails : null,
           created_at: r.created_at ?? null,
           view_count: Number(r.view_count) || 0,
+          is_reel: r.is_reel === true,
+          owner: r.owner_id ? owners.get(String(r.owner_id)) ?? null : null,
         }));
       })().catch(() => [] as DynamicDeferredDetails['soundRemixes'])
     : Promise.resolve([] as DynamicDeferredDetails['soundRemixes']);
@@ -596,12 +640,14 @@ const DynamicPage = ({ is_modal }: DynamicPageProps) => {
   const {
     theaterMode,
     setTheaterMode,
+    playerSettings,
     userId,
     getDynamicSeriesPayloadCache,
     setDynamicSeriesPayloadCache,
     getRelatedVideosPayloadCache,
     setRelatedVideosPayloadCache,
   } = useFileContext();
+  const playerBackground = playerSettings?.playerBackground !== false;
   const hasCachedRef = useRef<string | null>(null);
 
   const [playingVideos, setPlayingVideos] = useState<Set<number>>(new Set());
@@ -1583,7 +1629,7 @@ const DynamicPage = ({ is_modal }: DynamicPageProps) => {
     className={`
       relative z-10 w-full overflow-hidden
       ${isStandalone ? "pt-8" : ""}
-      ${theaterMode ? "bg-black" : "rounded-lg"}
+      ${theaterMode ? (playerBackground ? "bg-black" : "bg-transparent") : "rounded-lg"}
     `} 
     key={`video-wrapper-${file_data.unique_id}-${currentId}`}
     >
@@ -1933,39 +1979,18 @@ const DynamicPage = ({ is_modal }: DynamicPageProps) => {
               </Link>
             </div>
             <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1 [scrollbar-width:thin]">
-              {resolvedPageDetails!.soundRemixes.map((remix) => (
-                <WatchLink
-                  key={remix.unique_id}
-                  to={`/${encodeURIComponent(remix.unique_id)}`}
-                  className="group w-36 shrink-0"
-                >
-                  <div className="aspect-[9/14] w-full overflow-hidden rounded-lg bg-muted">
-                    {remix.created_at ? (
-                      <img
-                        src={getThumbnailUrl(
-                          {
-                            default_thumbnail: remix.default_thumbnail,
-                            thumbnails: remix.thumbnails,
-                            created_at: remix.created_at,
-                            unique_id: remix.unique_id,
-                            filename: remix.filename || "",
-                          },
-                          { queryString: "?quality=40" },
-                        )}
-                        alt=""
-                        loading="lazy"
-                        className="h-full w-full object-cover transition-transform duration-200 group-hover:scale-105"
-                      />
-                    ) : null}
-                  </div>
-                  <p className="mt-1.5 line-clamp-2 text-xs font-medium leading-snug text-foreground">
-                    {remix.file_title?.trim() ||
-                      (remix.filename || "").replace(/\.[^./\\]+$/, "")}
-                  </p>
-                  <p className="text-xs text-muted-foreground">
-                    {formatNumber(remix.view_count)} views
-                  </p>
-                </WatchLink>
+              {resolvedPageDetails!.soundRemixes.map((remix, index) => (
+                <div key={remix.unique_id} className="w-36 shrink-0">
+                  <VideoCard
+                    data={soundRemixToFileType(remix)}
+                    layout="reelStrip"
+                    related
+                    index={index}
+                    currentUserId={userId || undefined}
+                    userActions={mergedSidebarUserActions}
+                    hideActions={{ completely: true }}
+                  />
+                </div>
               ))}
             </div>
           </div>

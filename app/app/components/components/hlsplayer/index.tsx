@@ -6,15 +6,9 @@ import type { FileType, SeriesEpisodeGroup } from '~/lib/types';
 import { PlayerProvider, usePlayerContext, type ThumbnailSpriteMeta } from './PlayerContext';
 import { CaptionProvider } from './CaptionContext';
 import CaptionOverlay from './overlays/CaptionOverlay';
-import TiltOverlay from './overlays/VRTiltOverlay';
 import VideoKickBounce from './overlays/VideoKickBounce';
 import StemGlowLight from './overlays/StemGlowLight';
 import EndCardOverlay from './overlays/EndCardOverlay';
-import TiltRoomWalls, {
-  TILT_ROOM_PERSPECTIVE_PX,
-  tiltScreenBoxStyle,
-  tiltWorldStyle,
-} from './overlays/TiltRoom3D';
 import { FEED_EMBED_HIDE_CONTROLS, MINI_PLAYER_HIDE_CONTROLS, type HideControls } from './types';
 import SeekBar from './controls/seek/SeekBar';
 import PersistentBottomVisualizer from './controls/seek/PersistentBottomVisualizer';
@@ -26,7 +20,7 @@ import { usePlaybackPosition } from './hooks/usePlaybackPosition';
 import { useWatchTimeHeartbeat } from './hooks/useWatchTimeHeartbeat';
 import { useAutoplay } from './hooks/useAutoplay';
 import { useControlsVisibility } from './hooks/useControlsVisibility';
-import { useVideoContainSize } from './hooks/useVideoContainSize';
+import { enterPlayerFullscreen } from './fullscreenMode';
 import { useFullscreen } from './hooks/useFullscreen';
 import { useWakeLock } from './hooks/useWakeLock';
 import { useSpatialAudio, isSpatialAudioUiSupported } from './hooks/useSpatialAudio';
@@ -50,7 +44,6 @@ import {
   DropdownMenuContent,
   DropdownMenuTrigger,
 } from '~/components/ui/dropdown-menu';
-import AmbientBackground from '~/components/components/hlsplayer/overlays/AmbientBackground';
 import GuestPreviewWall from '~/components/components/hlsplayer/overlays/GuestPreviewWall';
 import GuestPreviewNudge from '~/components/components/hlsplayer/overlays/GuestPreviewNudge';
 import { GuestPlaybackSignInDialog } from './controls/GuestPlaybackSignInDialog';
@@ -62,7 +55,7 @@ import { isPipChromeRoute } from '~/routes/pip/pipEnv';
 import { useMiniPlayerContext } from '~/lib/Context/MiniPlayerContext';
 import { useWatchHlsSurface } from '~/lib/Context/WatchHlsSurfaceContext';
 import { isMobile } from 'react-device-detect';
-import { getVideoSrc } from '~/lib/utils';
+import { getVideoSrc, cn } from '~/lib/utils';
 import { getSeriesPreviousVideo } from '~/routes/Dynamic/fun/mapSeriesRpcRows';
 import { getSquareMediaSessionArtwork } from '~/lib/utils/mediaSessionSquareArtwork';
 
@@ -132,6 +125,12 @@ export interface HLSPlayerProps {
   disableKeyboardShortcuts?: boolean;
   /** Reel page: creator/title/caption rendered inside the player, above controls. */
   reelInfoSlot?: React.ReactNode;
+  /**
+   * Reels: double-tap LIKES (Instagram-style) instead of seeking. Receives the
+   * tap point (client coords) so the parent can pop a heart there. When set,
+   * single-tap play/pause is delayed ~300ms to disambiguate from double-taps.
+   */
+  onReelDoubleTapLike?: (point: { x: number; y: number }) => void;
 }
 
 const HLSPlayer: React.FC<HLSPlayerProps> = (props) => (
@@ -193,6 +192,7 @@ function PlayerInner({
   reelSwiperActive = false,
   disableKeyboardShortcuts = false,
   reelInfoSlot,
+  onReelDoubleTapLike,
 }: HLSPlayerProps) {
   const seriesPlayQueue = useMemo(
     () => withoutReels(seriesUpNextVideos),
@@ -218,6 +218,7 @@ function PlayerInner({
     setSpriteMeta,
     setSpriteUrl,
     ambientMode,
+    playerBackground,
     audioVisualizer,
     audioStemsAvailable,
     statsForNerds,
@@ -229,9 +230,6 @@ function PlayerInner({
     loop: loopEnabled,
     authPlaybackFeatures: authPlayback,
     unlockPipReelAudio,
-    tiltMode,
-    tiltRotation,
-    tiltZoom,
   } = usePlayerContext();
   /**
    * Skip-intro / next-episode markers come from the owner-edited `metadata.markers` jsonb on
@@ -314,13 +312,15 @@ function PlayerInner({
   // Height of the persistent visualizer strip (SeekBarSpectrum h-10 + pb-2).
   const visualizerStripPx = 48;
 
-  const [isMobileView, setIsMobileView] = useState(isMobile);
+  const [isMobileView, setIsMobileView] = useState(() =>
+    typeof window !== 'undefined' ? window.matchMedia('(max-width: 767px)').matches : isMobile,
+  );
   useEffect(() => {
-    const mql = window.matchMedia("(max-width: 767px)");
-    const update = () => setIsMobileView(isMobile || mql.matches);
+    const mql = window.matchMedia('(max-width: 767px)');
+    const update = () => setIsMobileView(mql.matches);
     update();
-    mql.addEventListener("change", update);
-    return () => mql.removeEventListener("change", update);
+    mql.addEventListener('change', update);
+    return () => mql.removeEventListener('change', update);
   }, []);
 
   const {
@@ -351,11 +351,7 @@ function PlayerInner({
     !isReelCtx &&
     !inPipForThisVideo &&
     !onPipChrome;
-  const tiltScreenSize = useVideoContainSize(
-    containerRef,
-    videoRef,
-    tiltMode && !isMiniPlayerPortalActive && !isReelCtx,
-  );
+
   const callBackRef = useRef(callBack);
   callBackRef.current = callBack;
   const [mediaSessionImage, setMediaSessionImage] = useState<string | null>(null);
@@ -714,6 +710,17 @@ function PlayerInner({
       setReelAuxiliaryChromeVisible(true);
       return;
     }
+    if (isReelCtx && onReelDoubleTapLike) {
+      // Double-tap likes on reels, so hold the single-tap toggle briefly
+      // if a second tap lands, this scheduled toggle steps aside.
+      const at = Date.now();
+      window.setTimeout(() => {
+        if (lastDoubleTapTimeRef.current >= at) return;
+        togglePlay();
+        triggerPlayPauseFeedback();
+      }, 300);
+      return;
+    }
     togglePlay();
     triggerPlayPauseFeedback();
   }, [
@@ -723,6 +730,7 @@ function PlayerInner({
     reelEmbedAutoHide,
     state.reelAuxiliaryChromeVisible,
     setReelAuxiliaryChromeVisible,
+    onReelDoubleTapLike,
     togglePlay,
     triggerPlayPauseFeedback,
   ]);
@@ -733,9 +741,13 @@ function PlayerInner({
       if (inPipForThisVideo) return;
       e.preventDefault();
       lastDoubleTapTimeRef.current = Date.now();
+      if (isReelCtx && onReelDoubleTapLike) {
+        onReelDoubleTapLike({ x: e.clientX, y: e.clientY });
+        return;
+      }
       performSeekByTap(e.clientX);
     },
-    [isReelCtx, embedReelControls, inPipForThisVideo, performSeekByTap]
+    [isReelCtx, embedReelControls, inPipForThisVideo, onReelDoubleTapLike, performSeekByTap]
   );
 
   /** Prefer series order, then related  matches end-screen autoplay when `onNext` is not supplied. */
@@ -815,6 +827,10 @@ function PlayerInner({
       lastTapRef.current = { time: now, x };
       if (isDoubleTap) {
         lastDoubleTapTimeRef.current = now;
+        if (isReelCtx && onReelDoubleTapLike) {
+          onReelDoubleTapLike({ x: touch.clientX, y: touch.clientY });
+          return;
+        }
         performSeekByTap(x);
       }
     },
@@ -823,6 +839,7 @@ function PlayerInner({
       embedReelControls,
       inPipForThisVideo,
       videoRef,
+      onReelDoubleTapLike,
       performSeekByTap,
     ],
   );
@@ -875,15 +892,7 @@ function PlayerInner({
           break;
         case 'f': {
           e.preventDefault();
-          if (document.fullscreenElement) {
-            document.exitFullscreen().catch(() => {});
-          } else {
-            const isMobile =
-              typeof window !== 'undefined' &&
-              (window.innerWidth < 768 || 'ontouchstart' in window);
-            const el = isMobile ? videoRef.current : containerRef.current;
-            el?.requestFullscreen().catch(() => {});
-          }
+          enterPlayerFullscreen(videoRef.current, containerRef.current).catch(() => {});
           break;
         }
         case 't':
@@ -990,12 +999,16 @@ function PlayerInner({
   return (
     <div
       ref={containerRef}
-      className={`relative bg-black overflow-hidden select-none ${isReelCtx ? 'z-[1]' : ''} ${className} player_inner`}
-      style={{ cursor: showControls ? 'default' : tiltMode ? 'grab' : 'none' }}
+      className={cn(
+        'relative overflow-hidden select-none player_inner',
+        playerBackground ? 'bg-black' : 'bg-transparent',
+        isReelCtx && 'z-[1]',
+        className,
+      )}
+      style={{ cursor: showControls ? 'default' : 'none' }}
       onContextMenu={handleContextMenu}
     >
-      {ambientMode && authPlayback && !isMiniPlayerPortalActive && <AmbientBackground />}
-      {/* Beat glow light: behind the video like ambient, soft-masked, no hard edges */}
+      {/* Beat glow light: soft-masked stem kick glow behind the video */}
       {showAudioVisualizer && !isMiniPlayerPortalActive && <StemGlowLight />}
       {/* Preload the seek-preview sprite sheet as a real (hidden) <img> as soon
           as the player mounts. A rendered <img> is fetched + decoded + retained
@@ -1012,13 +1025,14 @@ function PlayerInner({
           style={{ left: -9999, top: -9999 }}
         />
       )}
-      <PosterBackground
-        onImageLoaded={handlePosterImageLoaded}
-      />
+      <PosterBackground onImageLoaded={handlePosterImageLoaded} showBackdrop={playerBackground} />
 
       {statsForNerds && !isReelCtx && !inPipForThisVideo && <StatsForNerdsOverlay />}
 
-      <div className="relative z-10 w-full h-full overflow-hidden" onTouchEnd={handleTouchEnd}>
+      <div
+        className={`relative z-10 w-full h-full overflow-hidden`}
+        onTouchEnd={handleTouchEnd}
+      >
         {state.hasError && <ErrorOverlay />}
 
         {/* On mobile with controls visible, the spinner lives INSIDE the
@@ -1036,7 +1050,7 @@ function PlayerInner({
 
         {isMiniPlayerPortalActive && miniPlayerContainerRef.current
           ? createPortal(
-              <div className="w-full h-full flex flex-col bg-black relative">
+              <div className={cn('relative flex h-full w-full flex-col', playerBackground ? 'bg-black' : 'bg-transparent')}>
                 <video
                   ref={assignVideoRef}
                   className="w-full flex-1 object-contain"
@@ -1062,37 +1076,11 @@ function PlayerInner({
               miniPlayerContainerRef.current
             )
           : (
-            <div
-              className="w-full h-full flex items-center justify-center overflow-hidden"
-              style={tiltMode ? {
-                perspective: `${TILT_ROOM_PERSPECTIVE_PX}px`,
-                perspectiveOrigin: `${50 + tiltRotation.y * 0.4}% ${50 - tiltRotation.x * 0.4}%`,
-              } : undefined}
-            >
-              {/* World group: drag rotates the whole room (walls + screen),
-                  so the parallax reads as looking around a room. */}
-              <div
-                className="w-full h-full relative"
-                style={tiltMode ? tiltWorldStyle(tiltRotation) : undefined}
-              >
-              {tiltMode && <TiltRoomWalls zoom={tiltZoom} />}
-              <div
-                className={tiltMode ? undefined : 'h-full w-full'}
-                style={
-                  tiltMode
-                    ? {
-                        ...tiltScreenBoxStyle(tiltScreenSize.width, tiltScreenSize.height, tiltZoom),
-                        boxShadow: `
-                          0 ${6 + Math.abs(tiltRotation.x) * 0.7}px ${16 + Math.abs(tiltRotation.x) * 1.2}px rgba(0,0,0,0.55),
-                          inset 0 0 0 1px rgba(255,255,255,0.07)
-                        `,
-                      }
-                    : undefined
-                }
-              >
+            <div className="absolute inset-0 overflow-hidden">
+              <div className="relative h-full w-full">
                 <video
                   ref={assignVideoRef}
-                  className={`${tiltMode ? 'block h-full w-full' : 'h-full w-full object-contain'} ${isReelCtx && !embedReelControls ? 'pointer-events-none' : ''}`}
+                  className={`h-full w-full object-contain ${isReelCtx && !embedReelControls ? 'pointer-events-none' : ''}`}
                   muted={muted}
                   loop={loopEnabled}
                   playsInline={playsInline}
@@ -1101,25 +1089,15 @@ function PlayerInner({
                   onDoubleClick={handleDoubleClick}
                   disableRemotePlayback={false}
                   {...({ 'x-webkit-airplay': 'allow' } as any)}
-                  {...(isReelCtx ? { disablePictureInPicture: true, controlsList: 'nopictureinpicture noremoteplayback' } : {})}
+                  {...(isReelCtx
+                    ? { disablePictureInPicture: true, controlsList: 'nopictureinpicture noremoteplayback' }
+                    : {})}
                 />
-              </div>
-              {tiltMode && (
-                <div
-                  className="pointer-events-none absolute z-[2] overflow-hidden"
-                  style={{
-                    ...tiltScreenBoxStyle(tiltScreenSize.width, tiltScreenSize.height, tiltZoom, 1),
-                    background: `linear-gradient(${135 + tiltRotation.y * 2.5}deg, rgba(255,255,255,${0.05 + Math.abs(tiltRotation.y) * 0.003}) 0%, transparent 45%), linear-gradient(to bottom, rgba(255,255,255,${0.02 + Math.abs(tiltRotation.x) * 0.001}) 0%, transparent 30%)`,
-                  }}
-                  aria-hidden
-                />
-              )}
+                <VideoKickBounce />
               </div>
             </div>
           )}
 
-        <TiltOverlay />
-        <VideoKickBounce />
         <CaptionOverlay containerRef={containerRef} controlsVisible={showControls} />
 
         {/* Single end-of-video overlay. Replaces both the legacy full-screen
@@ -1145,7 +1123,7 @@ function PlayerInner({
           <div
             // YouTube-style asymmetric fade: controls snap in fast (100ms) and
             // leave a touch slower (200ms) — never the sluggish 300ms both ways.
-            className={`absolute inset-0 z-[31] pointer-events-none transition-opacity ${showControls ? 'opacity-100 duration-100' : 'opacity-0 duration-200'}`}
+            className={`absolute inset-0 z-[50] pointer-events-none transition-opacity ${showControls ? 'opacity-100 duration-100' : 'opacity-0 duration-200'}`}
             // When hidden (e.g. while the Skip Intro / Next Episode buttons are showing)
             // we MUST disable hit-testing for everything inside. `opacity-0` and
             // `pointer-events-none` on the wrapper are not enough  `ControlBar` puts
@@ -1174,7 +1152,6 @@ function PlayerInner({
               liftBottomPx={showAudioVisualizer ? visualizerStripPx : 0}
               isMobileLayout={isMobileView}
               onBack={onBack}
-              tiltMode={tiltMode}
             />
           </div>
         )}

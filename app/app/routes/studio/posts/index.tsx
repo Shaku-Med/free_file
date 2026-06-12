@@ -22,6 +22,14 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "~/components/ui/dropdown-menu";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "~/components/ui/dialog";
 import { useFileContext } from "~/lib/Context/Context";
 
 export const meta: MetaFunction = () =>
@@ -290,6 +298,59 @@ export default function StudioPostsPage() {
   const { userId } = useFileContext();
   const [pendingDelete, setPendingDelete] = useState<PostRow | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
+  // Email-code "sudo" step shown when the server asks for delete verification.
+  const [verifyStep, setVerifyStep] = useState<"sending" | "code" | null>(null);
+  const [verifyCodeInput, setVerifyCodeInput] = useState("");
+  const [verifyError, setVerifyError] = useState<string | null>(null);
+  const [verifyBusy, setVerifyBusy] = useState(false);
+  const [resendIn, setResendIn] = useState(0);
+
+  useEffect(() => {
+    if (verifyStep !== "code" || resendIn <= 0) return;
+    const id = window.setInterval(() => setResendIn((s) => Math.max(0, s - 1)), 1000);
+    return () => window.clearInterval(id);
+  }, [verifyStep, resendIn]);
+
+  const closeDeleteModal = () => {
+    setPendingDelete(null);
+    setVerifyStep(null);
+    setVerifyCodeInput("");
+    setVerifyError(null);
+    setVerifyBusy(false);
+    setResendIn(0);
+  };
+
+  const sendVerifyCode = async (): Promise<boolean> => {
+    setVerifyError(null);
+    try {
+      const res = await fetch("/api/studio/delete-verify", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ step: "send" }),
+      });
+      if (res.status === 429) {
+        setVerifyError("Too many codes requested. Try again later.");
+        return false;
+      }
+      if (!res.ok) {
+        setVerifyError("Couldn't send the code. Try again.");
+        return false;
+      }
+      setResendIn(60);
+      return true;
+    } catch {
+      setVerifyError("Couldn't send the code. Try again.");
+      return false;
+    }
+  };
+
+  const startVerification = async () => {
+    setVerifyStep("sending");
+    const ok = await sendVerifyCode();
+    setVerifyStep(ok ? "code" : null);
+    if (!ok) setVerifyError((e) => e ?? "Couldn't send the code. Try again.");
+  };
 
   const togglePrivacy = async (post: PostRow, nextIsPublic: boolean) => {
     if (post.is_public === nextIsPublic) return;
@@ -319,6 +380,7 @@ export default function StudioPostsPage() {
     const target = pendingDelete;
     if (!target) return;
     setBusyId(target.id);
+    setVerifyError(null);
     try {
       const res = await fetch("/api/studio/post/delete", {
         method: "POST",
@@ -330,12 +392,56 @@ export default function StudioPostsPage() {
         setRows((prev) => prev.filter((r) => r.id !== target.id));
         setTotal((t) => Math.max(0, t - 1));
         invalidateStudioCache("studio:");
+        closeDeleteModal();
+        return;
       }
+      if (res.status === 401) {
+        const data = (await res.json().catch(() => null)) as { error?: string } | null;
+        if (data?.error === "verification_required") {
+          // Keep the modal open and switch to the email-code step.
+          await startVerification();
+          return;
+        }
+      }
+      setVerifyError("Couldn't delete right now. Try again.");
     } catch {
-      /* ignore */
+      setVerifyError("Couldn't delete right now. Try again.");
     } finally {
       setBusyId(null);
-      setPendingDelete(null);
+    }
+  };
+
+  const submitVerifyCode = async () => {
+    const code = verifyCodeInput.trim();
+    if (!/^\d{6}$/.test(code)) {
+      setVerifyError("Enter the 6-digit code from your email.");
+      return;
+    }
+    setVerifyBusy(true);
+    setVerifyError(null);
+    try {
+      const res = await fetch("/api/studio/delete-verify", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ step: "verify", code }),
+      });
+      if (!res.ok) {
+        setVerifyError(
+          res.status === 429
+            ? "Too many tries. Wait a bit and try again."
+            : "Wrong or expired code. Check your email and try again.",
+        );
+        return;
+      }
+      // Verified  the sudo cookie is set; run the delete for real.
+      setVerifyStep(null);
+      setVerifyCodeInput("");
+      await confirmDelete();
+    } catch {
+      setVerifyError("Something went wrong. Try again.");
+    } finally {
+      setVerifyBusy(false);
     }
   };
 
@@ -435,41 +541,114 @@ export default function StudioPostsPage() {
         )}
       </div>
 
-      {pendingDelete && (
-        <div
-          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm"
-          onClick={() => setPendingDelete(null)}
-        >
-          <div
-            className="w-full max-w-sm rounded-xl border border-border/60 bg-background p-5 shadow-xl"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <h2 className="text-base font-semibold text-foreground">Delete this post?</h2>
-            <p className="mt-2 text-sm text-muted-foreground">
-              This cannot be undone. Likes, comments, and analytics for this post will also be removed.
-            </p>
-            <div className="mt-4 flex justify-end gap-2">
-              <button
-                type="button"
-                onClick={() => setPendingDelete(null)}
-                disabled={busyId === pendingDelete.id}
-                className="rounded-md border border-border/60 px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={confirmDelete}
-                disabled={busyId === pendingDelete.id}
-                className="inline-flex items-center gap-1.5 rounded-md bg-destructive px-3 py-1.5 text-sm font-medium text-destructive-foreground hover:bg-destructive/90 disabled:opacity-50"
-              >
-                {busyId === pendingDelete.id && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-                Delete
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <Dialog
+        open={!!pendingDelete}
+        onOpenChange={(open) => {
+          if (!open) closeDeleteModal();
+        }}
+      >
+        <DialogContent className="sm:max-w-sm">
+          {verifyStep === null ? (
+            <>
+              <DialogHeader>
+                <DialogTitle>Delete this post forever?</DialogTitle>
+                <DialogDescription>
+                  Everything will be gone: the video and its stored files, likes, comments, and
+                  analytics. There are{" "}
+                  <span className="font-semibold text-foreground">no backups</span>  this cannot
+                  be undone.
+                </DialogDescription>
+              </DialogHeader>
+              {verifyError && <p className="text-sm text-destructive">{verifyError}</p>}
+              <DialogFooter>
+                <button
+                  type="button"
+                  onClick={closeDeleteModal}
+                  disabled={busyId === pendingDelete?.id}
+                  className="rounded-md border border-border/60 px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={confirmDelete}
+                  disabled={busyId === pendingDelete?.id}
+                  className="inline-flex items-center justify-center gap-1.5 rounded-md bg-destructive px-3 py-1.5 text-sm font-medium text-destructive-foreground hover:bg-destructive/90 disabled:opacity-50"
+                >
+                  {pendingDelete && busyId === pendingDelete.id && (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  )}
+                  Yes, delete
+                </button>
+              </DialogFooter>
+            </>
+          ) : verifyStep === "sending" ? (
+            <>
+              <DialogHeader>
+                <DialogTitle>Verify it&apos;s you</DialogTitle>
+                <DialogDescription>Sending a code to your email…</DialogDescription>
+              </DialogHeader>
+              <div className="flex items-center justify-center py-4 text-muted-foreground">
+                <Loader2 className="h-5 w-5 animate-spin" />
+              </div>
+            </>
+          ) : (
+            <>
+              <DialogHeader>
+                <DialogTitle>Verify it&apos;s you</DialogTitle>
+                <DialogDescription>
+                  We emailed you a 6-digit code (expires in 20 minutes). Enter it to confirm the
+                  delete. You won&apos;t be asked again for a couple of hours.
+                </DialogDescription>
+              </DialogHeader>
+              <input
+                type="text"
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                maxLength={6}
+                value={verifyCodeInput}
+                onChange={(e) => setVerifyCodeInput(e.target.value.replace(/\D/g, ""))}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !verifyBusy) void submitVerifyCode();
+                }}
+                placeholder="000000"
+                className="w-full rounded-md border border-border/60 bg-card/40 px-3 py-2 text-center font-mono text-lg tracking-[0.4em] text-foreground outline-none focus:border-primary"
+                autoFocus
+              />
+              {verifyError && <p className="text-sm text-destructive">{verifyError}</p>}
+              <div className="flex items-center justify-between gap-2">
+                <button
+                  type="button"
+                  onClick={() => void sendVerifyCode()}
+                  disabled={resendIn > 0 || verifyBusy}
+                  className="text-xs text-muted-foreground hover:text-foreground disabled:opacity-50"
+                >
+                  {resendIn > 0 ? `Resend in ${resendIn}s` : "Resend code"}
+                </button>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={closeDeleteModal}
+                    disabled={verifyBusy}
+                    className="rounded-md border border-border/60 px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void submitVerifyCode()}
+                    disabled={verifyBusy || verifyCodeInput.length !== 6}
+                    className="inline-flex items-center justify-center gap-1.5 rounded-md bg-destructive px-3 py-1.5 text-sm font-medium text-destructive-foreground hover:bg-destructive/90 disabled:opacity-50"
+                  >
+                    {verifyBusy && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                    Verify &amp; delete
+                  </button>
+                </div>
+              </div>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
 
       {!loading && total > PAGE_SIZE && (
         <div className="flex flex-col gap-2 pt-2 text-xs text-muted-foreground sm:flex-row sm:items-center sm:justify-between">

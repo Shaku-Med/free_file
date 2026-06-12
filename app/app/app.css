@@ -395,6 +395,44 @@ input[type="file"] {
   50% { transform: translateY(-6px); }
 }
 
+/* Instagram-style double-tap heart: pop in at the tap point, settle, float away. */
+@keyframes reelHeartBurst {
+  0% { transform: scale(0) rotate(-10deg); opacity: 0; }
+  18% { transform: scale(1.2) rotate(4deg); opacity: 1; }
+  32% { transform: scale(0.95) rotate(0deg); opacity: 1; }
+  55% { transform: scale(1) translateY(0); opacity: 1; }
+  100% { transform: scale(0.85) translateY(-56px); opacity: 0; }
+}
+
+.reel-heart-burst {
+  animation: reelHeartBurst 0.85s cubic-bezier(0.18, 0.89, 0.32, 1.18) forwards;
+  filter: drop-shadow(0 6px 18px rgba(0, 0, 0, 0.45));
+}
+
+/* Action-rail like: bouncy heart pop when it turns liked. */
+@keyframes actionHeartPop {
+  0% { transform: scale(1); }
+  30% { transform: scale(1.45); }
+  55% { transform: scale(0.82); }
+  75% { transform: scale(1.12); }
+  100% { transform: scale(1); }
+}
+
+.action-heart-pop {
+  animation: actionHeartPop 0.45s ease-in-out;
+}
+
+/* Action-rail counts: slide up + fade when the number changes. */
+@keyframes actionCountPop {
+  0% { transform: translateY(40%); opacity: 0; }
+  100% { transform: translateY(0); opacity: 1; }
+}
+
+.action-count-pop {
+  display: inline-block;
+  animation: actionCountPop 0.3s ease-out;
+}
+
 .feed-container {
   max-width: 100%;
   padding: 0;

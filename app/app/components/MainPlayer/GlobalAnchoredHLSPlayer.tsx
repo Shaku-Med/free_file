@@ -58,7 +58,8 @@ export function GlobalAnchoredHLSPlayer() {
   const { miniPlayer, clearMiniSessionRestore } = useMiniPlayerContext();
   const { surface } = useWatchHlsSurface();
   const videoRef = useWatchSurfaceVideoRef();
-  const { userId } = useFileContext();
+  const { userId, playerSettings } = useFileContext();
+  const playerBackground = playerSettings?.playerBackground !== false;
   const navigate = useNavigate();
   // Mini-player gets its own JIT-minted, IP+UA-bound URL. The watch
   // surface already has one from Dynamic  when the surface clears and
@@ -258,7 +259,11 @@ export function GlobalAnchoredHLSPlayer() {
       ref={containerRef}
       className={cn(
         "pointer-events-auto overflow-hidden",
-        theaterMode ? "bg-black" : "rounded-lg",
+        theaterMode
+          ? playerBackground
+            ? "bg-black"
+            : "bg-transparent"
+          : "rounded-lg",
       )}
       style={{
         position: "fixed",

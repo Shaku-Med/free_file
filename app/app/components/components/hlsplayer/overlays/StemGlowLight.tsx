@@ -6,7 +6,7 @@ import { fileAccentColors } from '../visualizerPalette';
 /**
  * Beat-reactive glow LIGHT behind the player (confetti's replacement).
  *
- * Same recipe as AmbientBackground: a tiny canvas painted once with soft
+ * Tiny canvas painted once with soft radial color from the audio analyser.
  * color blobs from the FILE's own dominant colors, stretched way past the
  * player (150%) so bilinear upscaling melts everything into a smooth glow,
  * and a radial mask kills any sharp edges. Bass/kick hits shove a spring

@@ -1,7 +1,6 @@
 import { createContext, useContext, useRef, useState, useCallback, useMemo, useEffect, type ReactNode, type RefObject } from 'react';
 import type Hls from 'hls.js';
 import type { FileType } from '~/lib/types';
-import { isMobile } from 'react-device-detect';
 import { useFileContext } from '~/lib/Context/Context';
 import {
   usePictureInPictureContext,
@@ -19,6 +18,7 @@ import {
   type SpatialAudioMode,
 } from './hooks/useSpatialAudio';
 import { useStableVolume } from './hooks/useStableVolume';
+import { enterPlayerFullscreen, syncNativeVideoControls } from './fullscreenMode';
 import { fetchAudioStems, type AudioStems, type StemType } from './audioStems';
 import {
   DEFAULT_STEM_CONFETTI_INSTRUMENTS,
@@ -28,67 +28,6 @@ import {
   serializeStemConfettiInstruments,
   type StemConfettiInstruments,
 } from './stemConfettiSettings';
-
-export interface TiltRotation {
-  /** rotateX in degrees  looking up (+) / down (−). */
-  x: number;
-  /** rotateY in degrees  looking right (+) / left (−). */
-  y: number;
-  /** rotateZ in degrees  skew/tilt. */
-  z: number;
-}
-
-export const TILT_ROTATION_LIMIT = 45;
-export const TILT_Z_LIMIT = 20;
-export const TILT_DRAG_SENSITIVITY = 0.3;
-export const TILT_PERSPECTIVE_PX = 1200;
-export const TILT_ZOOM_MIN = 0.6;
-export const TILT_ZOOM_MAX = 2.5;
-const TILT_MODE_KEY = 'hls-vr-mode';
-const TILT_ROT_KEY = 'hls-vr-rotation';
-
-function readTiltMode(): boolean {
-  if (typeof window === 'undefined') return false;
-  try {
-    return window.localStorage.getItem(TILT_MODE_KEY) === '1';
-  } catch {
-    return false;
-  }
-}
-
-function readTiltRotation(): TiltRotation {
-  if (typeof window === 'undefined') return { x: 0, y: 0, z: 0 };
-  try {
-    const raw = window.localStorage.getItem(TILT_ROT_KEY);
-    if (!raw) return { x: 0, y: 0, z: 0 };
-    const parsed = JSON.parse(raw) as Partial<TiltRotation>;
-    return {
-      x: Number.isFinite(parsed.x) ? Math.max(-TILT_ROTATION_LIMIT, Math.min(TILT_ROTATION_LIMIT, Number(parsed.x))) : 0,
-      y: Number.isFinite(parsed.y) ? Math.max(-TILT_ROTATION_LIMIT, Math.min(TILT_ROTATION_LIMIT, Number(parsed.y))) : 0,
-      z: Number.isFinite(parsed.z) ? Math.max(-TILT_Z_LIMIT, Math.min(TILT_Z_LIMIT, Number(parsed.z))) : 0,
-    };
-  } catch {
-    return { x: 0, y: 0, z: 0 };
-  }
-}
-
-function writeTiltMode(value: boolean) {
-  if (typeof window === 'undefined') return;
-  try {
-    window.localStorage.setItem(TILT_MODE_KEY, value ? '1' : '0');
-  } catch {
-    /* ignore */
-  }
-}
-
-function writeTiltRotation(value: TiltRotation) {
-  if (typeof window === 'undefined') return;
-  try {
-    window.localStorage.setItem(TILT_ROT_KEY, JSON.stringify(value));
-  } catch {
-    /* ignore */
-  }
-}
 
 export const SLEEP_TIMER_OPTIONS = [
   'Off',
@@ -232,8 +171,9 @@ interface PlayerContextValue {
 
   ambientMode: boolean;
   setAmbientMode: (v: boolean) => void;
-  ambientColors: string[];
-  setAmbientColors: (v: string[]) => void;
+  /** Blurred poster + black letterbox behind the video. Off = transparent player shell. */
+  playerBackground: boolean;
+  setPlayerBackground: (v: boolean) => void;
   stableVolume: boolean;
   setStableVolume: (v: boolean) => void;
   audioVisualizer: boolean;
@@ -259,14 +199,6 @@ interface PlayerContextValue {
   setSleepTimer: (v: SleepTimerOption) => void;
   /** Epoch ms when the active timer will fire; null when off / 'End of video'. */
   sleepTimerEndsAt: number | null;
-  /** CSS-tilt mode: video transforms in 3D, drag to orbit. */
-  tiltMode: boolean;
-  setTiltMode: (v: boolean) => void;
-  tiltRotation: TiltRotation;
-  setTiltRotation: (v: TiltRotation) => void;
-  resetTiltRotation: () => void;
-  tiltZoom: number;
-  setTiltZoom: (v: number) => void;
   /** 8D / spatial audio config (live  drives the panner). */
   spatialAudio: SpatialAudioConfig;
   setSpatialAudio: (next: SpatialAudioConfig) => void;
@@ -402,7 +334,7 @@ export function PlayerProvider({
     setState((s) => ({ ...s, isEnded: false, hasError: false }));
   }, [fileSpriteKey]);
   const [ambientModeState, setAmbientModeState] = useState(false);
-  const [ambientColors, setAmbientColors] = useState<string[]>([]);
+  const [playerBackgroundState, setPlayerBackgroundState] = useState(true);
 
   const [stableVolume, setStableVolumeState] = useState(false);
   const setStableVolume = useCallback((v: boolean) => {
@@ -411,32 +343,6 @@ export function PlayerProvider({
     savePlayerSettings({ stableVolume: v }).catch(() => {});
   }, [setPlayerSettings, savePlayerSettings]);
   useStableVolume(videoRef, stableVolume);
-
-  const [tiltMode, setTiltModeState] = useState<boolean>(() => readTiltMode());
-  const [tiltRotation, setTiltRotationState] = useState<TiltRotation>(() => readTiltRotation());
-  const [tiltZoom, setTiltZoomState] = useState(1);
-  const setTiltMode = useCallback((v: boolean) => {
-    setTiltModeState(v);
-    writeTiltMode(v);
-  }, []);
-  const setTiltRotation = useCallback((v: TiltRotation) => {
-    const clamped: TiltRotation = {
-      x: Math.max(-TILT_ROTATION_LIMIT, Math.min(TILT_ROTATION_LIMIT, v.x)),
-      y: Math.max(-TILT_ROTATION_LIMIT, Math.min(TILT_ROTATION_LIMIT, v.y)),
-      z: Math.max(-TILT_Z_LIMIT, Math.min(TILT_Z_LIMIT, v.z ?? 0)),
-    };
-    setTiltRotationState(clamped);
-    writeTiltRotation(clamped);
-  }, []);
-  const resetTiltRotation = useCallback(() => {
-    const zero: TiltRotation = { x: 0, y: 0, z: 0 };
-    setTiltRotationState(zero);
-    writeTiltRotation(zero);
-    setTiltZoomState(1);
-  }, []);
-  const setTiltZoom = useCallback((v: number) => {
-    setTiltZoomState(Math.max(TILT_ZOOM_MIN, Math.min(TILT_ZOOM_MAX, v)));
-  }, []);
 
   const [sleepTimer, setSleepTimerState] = useState<SleepTimerOption>('Off');
   const [sleepTimerEndsAt, setSleepTimerEndsAt] = useState<number | null>(null);
@@ -596,6 +502,7 @@ export function PlayerProvider({
     if (!isReel) setLoopState(playerSettings.loop);
     setAutoPlayState(playerSettings.autoPlay);
     setStableVolumeState(playerSettings.stableVolume);
+    setPlayerBackgroundState(playerSettings.playerBackground !== false);
     if (authPlaybackFeatures && !isReel) {
       setAudioVisualizerState(playerSettings.audioVisualizer ?? false);
       const style = playerSettings.audioVisualizerStyle ?? DEFAULT_AUDIO_VISUALIZER_STYLE;
@@ -765,20 +672,31 @@ export function PlayerProvider({
   }, [audioStemsUrl]);
   const audioStemsAvailable = audioStems != null;
 
+  // `data-user-paused` marks DELIBERATE pauses (tap / control bar / keyboard).
+  // Reel auto-resume reads it to fix iOS system pauses (decoder reclaim during
+  // scroll) without ever fighting a pause the user actually asked for.
   const play = useCallback(() => {
-    videoRef.current?.play().catch(() => {});
+    const v = videoRef.current;
+    if (!v) return;
+    delete v.dataset.userPaused;
+    v.play().catch(() => {});
   }, []);
 
   const pause = useCallback(() => {
-    videoRef.current?.pause();
+    const v = videoRef.current;
+    if (!v) return;
+    v.dataset.userPaused = '1';
+    v.pause();
   }, []);
 
   const togglePlay = useCallback(() => {
     const v = videoRef.current;
     if (!v) return;
     if (v.paused || v.ended) {
+      delete v.dataset.userPaused;
       v.play().catch(() => {});
     } else {
+      v.dataset.userPaused = '1';
       v.pause();
     }
   }, []);
@@ -852,46 +770,19 @@ export function PlayerProvider({
 
   const toggleFullscreen = useCallback(async () => {
     try {
-      if (document.fullscreenElement) {
-        await document.exitFullscreen();
-        return;
-      }
-      const is_mobile = isMobile
-      const el = is_mobile ? videoRef.current : containerRef.current;
-      if (el) {
-        if (is_mobile){
-          const v = videoRef.current as HTMLVideoElement & { webkitEnterFullscreen?: () => void };
-          if (typeof v.webkitEnterFullscreen === 'function') {
-            v.webkitEnterFullscreen();
-          }
-          else {
-            el.requestFullscreen()
-          }
-        }
-        else {
-          await el.requestFullscreen()
-        }
-      }
-    } catch {}
+      await enterPlayerFullscreen(videoRef.current, containerRef.current);
+    } catch {
+      /* ignore */
+    }
   }, []);
 
   // Android fullscreen shows Chrome's NATIVE video controls — but our global
   // CSS hides every ::-webkit-media-controls. Hand the native UI back while
-  // the VIDEO element itself is fullscreen (mobile path only; desktop
-  // fullscreens the container so our DOM controls keep working), and take it
-  // away again on exit. fullscreenchange covers enter, exit, and back-button.
+  // the VIDEO element itself is fullscreen on Android only; desktop and iOS
+  // fullscreen the container (or iOS webkit video FS without native-controls class).
   useEffect(() => {
     const onFullscreenChange = () => {
-      const v = videoRef.current;
-      if (!v) return;
-      const videoIsFullscreen = document.fullscreenElement === v;
-      if (videoIsFullscreen) {
-        v.classList.add('native-controls-allowed');
-        v.controls = true;
-      } else {
-        v.classList.remove('native-controls-allowed');
-        v.controls = false;
-      }
+      syncNativeVideoControls(videoRef.current);
     };
     document.addEventListener('fullscreenchange', onFullscreenChange);
     return () => document.removeEventListener('fullscreenchange', onFullscreenChange);
@@ -1038,6 +929,15 @@ export function PlayerProvider({
     [authPlaybackFeatures, setPlayerSettings, savePlayerSettings]
   );
 
+  const setPlayerBackground = useCallback(
+    (v: boolean) => {
+      setPlayerBackgroundState(v);
+      setPlayerSettings(prev => (prev ? { ...prev, playerBackground: v } : prev));
+      savePlayerSettings({ playerBackground: v }).catch(() => {});
+    },
+    [setPlayerSettings, savePlayerSettings]
+  );
+
   const value: PlayerContextValue = {
     hlsRef,
     containerRef,
@@ -1082,8 +982,8 @@ export function PlayerProvider({
     setStemConfettiInstrument,
     ambientMode: ambientModeState,
     setAmbientMode,
-    ambientColors,
-    setAmbientColors,
+    playerBackground: playerBackgroundState,
+    setPlayerBackground,
     stableVolume,
     setStableVolume,
     audioVisualizer,
@@ -1103,13 +1003,6 @@ export function PlayerProvider({
     sleepTimer,
     setSleepTimer,
     sleepTimerEndsAt,
-    tiltMode,
-    setTiltMode,
-    tiltRotation,
-    setTiltRotation,
-    resetTiltRotation,
-    tiltZoom,
-    setTiltZoom,
     spatialAudio,
     setSpatialAudio,
     spatialAudioDialogOpen,

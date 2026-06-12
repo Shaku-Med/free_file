@@ -34,6 +34,11 @@ function dedupeById(videos: FileType[]): FileType[] {
   return out;
 }
 
+/** Reels never enter the play queue  they live in the reel feed only. */
+function isQueueable(video: FileType | null | undefined): boolean {
+  return Boolean(video) && !video!.is_reel;
+}
+
 type PlayQueueContextValue = {
   currentUniqueId: string;
   defaultQueue: FileType[];
@@ -82,7 +87,9 @@ export function PlayQueueProvider({
 }) {
   const defaultQueue = useMemo(() => {
     const merged = [...seriesUpNextVideos, ...suggestedVideos];
-    return dedupeById(merged.filter((v) => v.unique_id !== currentUniqueId));
+    return dedupeById(
+      merged.filter((v) => v.unique_id !== currentUniqueId && isQueueable(v)),
+    );
   }, [seriesUpNextVideos, suggestedVideos, currentUniqueId]);
 
   const [queue, setQueue] = useState<FileType[]>(defaultQueue);
@@ -170,7 +177,7 @@ export function PlayQueueProvider({
 
   const insertOrMoveAt = useCallback(
     (video: FileType, beforeIndex: number) => {
-      if (video.unique_id === currentUniqueId) return;
+      if (video.unique_id === currentUniqueId || !isQueueable(video)) return;
       applyQueue((base) => {
         const fi = base.findIndex((v) => v.id === video.id);
         const without = base.filter((v) => v.id !== video.id);
@@ -187,7 +194,7 @@ export function PlayQueueProvider({
 
   const addToQueue = useCallback(
     (video: FileType) => {
-      if (video.unique_id === currentUniqueId) return;
+      if (video.unique_id === currentUniqueId || !isQueueable(video)) return;
       applyQueue((base) => {
         if (base.some((v) => v.id === video.id)) return base;
         return [...base, video];
@@ -217,7 +224,9 @@ export function PlayQueueProvider({
   const replaceQueueWith = useCallback(
     (videos: FileType[]) => {
       if (!viewerCanCustomizeQueue) return;
-      const next = dedupeById(videos).filter((v) => v.unique_id !== currentUniqueId);
+      const next = dedupeById(videos).filter(
+        (v) => v.unique_id !== currentUniqueId && isQueueable(v),
+      );
       setQueue(next);
       setIsCustomized(true);
     },

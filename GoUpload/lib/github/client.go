@@ -478,6 +478,95 @@ func BatchCommit(ctx context.Context, client *github.Client, owner, repo, branch
 	return nil
 }
 
+// DeleteFolder removes every blob under prefix in ONE commit via the Git
+// Data API (a tree entry with a nil SHA deletes that path). Serialised per
+// repo through the same gate the uploaders use; retried when the branch
+// moves mid-flight. Returns how many blobs were deleted.
+func DeleteFolder(ctx context.Context, client *github.Client, owner, repo, branch, prefix, message string) (int, error) {
+	if client == nil || owner == "" || repo == "" || prefix == "" || !strings.HasSuffix(prefix, "/") {
+		return 0, errors.New("github: invalid delete args")
+	}
+	if branch == "" {
+		branch = "main"
+	}
+	if message == "" {
+		message = "Remove " + strings.TrimSuffix(prefix, "/")
+	}
+
+	gate := gateFor(owner, repo)
+	gate.Lock()
+	defer gate.Unlock()
+
+	const maxAttempts = 4
+	var lastErr error
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		ref, _, err := client.Git.GetRef(ctx, owner, repo, "refs/heads/"+branch)
+		if err != nil {
+			return 0, fmt.Errorf("get ref heads/%s: %w", branch, err)
+		}
+		baseCommitSHA := ref.GetObject().GetSHA()
+		baseCommit, _, err := client.Git.GetCommit(ctx, owner, repo, baseCommitSHA)
+		if err != nil {
+			return 0, fmt.Errorf("get base commit: %w", err)
+		}
+		baseTreeSHA := baseCommit.GetTree().GetSHA()
+
+		tree, _, err := client.Git.GetTree(ctx, owner, repo, baseTreeSHA, true)
+		if err != nil {
+			return 0, fmt.Errorf("get tree: %w", err)
+		}
+		if tree.GetTruncated() {
+			return 0, errors.New("github: tree truncated, cannot purge safely")
+		}
+
+		var entries []*github.TreeEntry
+		for _, e := range tree.Entries {
+			if e.GetType() != "blob" || !strings.HasPrefix(e.GetPath(), prefix) {
+				continue
+			}
+			p := e.GetPath()
+			m := "100644"
+			t := "blob"
+			// nil SHA + nil Content marshals as "sha": null = delete this path.
+			entries = append(entries, &github.TreeEntry{Path: &p, Mode: &m, Type: &t})
+		}
+		if len(entries) == 0 {
+			return 0, nil
+		}
+
+		newTree, _, err := client.Git.CreateTree(ctx, owner, repo, baseTreeSHA, entries)
+		if err != nil {
+			return 0, fmt.Errorf("create delete tree: %w", err)
+		}
+		commit, _, err := client.Git.CreateCommit(ctx, owner, repo, &github.Commit{
+			Message: &message,
+			Tree:    newTree,
+			Parents: []*github.Commit{{SHA: &baseCommitSHA}},
+		}, nil)
+		if err != nil {
+			return 0, fmt.Errorf("create delete commit: %w", err)
+		}
+
+		sha := commit.GetSHA()
+		ref.Object.SHA = &sha
+		_, _, err = client.Git.UpdateRef(ctx, owner, repo, ref, false)
+		if err == nil {
+			return len(entries), nil
+		}
+		lastErr = err
+		// Branch advanced while we built the commit  re-read and retry.
+		if !isRefNotFastForward(err) && !isContentsConflict(err) {
+			return 0, fmt.Errorf("update ref: %w", err)
+		}
+		select {
+		case <-time.After(time.Duration(300*attempt) * time.Millisecond):
+		case <-ctx.Done():
+			return 0, ctx.Err()
+		}
+	}
+	return 0, fmt.Errorf("github: delete exhausted retries: %w", lastErr)
+}
+
 // isRefNotFastForward reports GitHub's 422 when HEAD advanced and a non-force ref update is rejected.
 func isRefNotFastForward(err error) bool {
 	var ge *github.ErrorResponse

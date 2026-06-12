@@ -15,9 +15,9 @@ import { stemEventIndexAt, type StemType } from '../audioStems';
  * Springs everywhere = momentum: hits shove velocity, motion overshoots and
  * settles. The groove accumulator makes a driving beat hit harder over time.
  *
- * Bails (and restores the video) in tilt mode and when the video element is
- * portaled away to the mini player — the canvas only mirrors what lives in
- * this container.
+ * Bails (and restores the video) when the video element is portaled away to
+ * the mini player — the canvas only mirrors what lives in the same screen
+ * shell as the video.
  */
 
 const MAX_EXTRA_SCALE = 0.22;
@@ -62,16 +62,15 @@ function springStep(s: Spring, dt: number, stiffness: number, damping: number): 
 }
 
 export default function VideoKickBounce() {
+  const hostRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const {
     videoRef,
-    containerRef,
     audioStems,
     audioVisualizer,
     videoBounce,
     videoBounceIntensity,
     videoBounceInstruments,
-    tiltMode,
     state,
   } = usePlayerContext();
 
@@ -79,8 +78,6 @@ export default function VideoKickBounce() {
   playingRef.current = state.isPlaying && !state.isPaused;
   const stemsRef = useRef(audioStems);
   stemsRef.current = audioStems;
-  const tiltRef = useRef(tiltMode);
-  tiltRef.current = tiltMode;
   const intensityRef = useRef(videoBounceIntensity);
   intensityRef.current = videoBounceIntensity;
   const instrumentsRef = useRef(videoBounceInstruments);
@@ -149,11 +146,13 @@ export default function VideoKickBounce() {
       lastTime = t;
     };
 
+    const screenShell = () => hostRef.current?.parentElement;
+
     const drawFrame = (video: HTMLVideoElement) => {
-      const host = containerRef.current;
-      if (!host) return;
-      const w = host.clientWidth;
-      const h = host.clientHeight;
+      const shell = screenShell();
+      if (!shell) return;
+      const w = shell.clientWidth;
+      const h = shell.clientHeight;
       if (w < 8 || h < 8 || video.videoWidth === 0) return;
 
       const dpr = Math.min(MAX_DPR, window.devicePixelRatio || 1);
@@ -197,10 +196,10 @@ export default function VideoKickBounce() {
       if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
 
       const video = videoRef.current;
-      const host = containerRef.current;
-      // Tilt mode and the mini-player portal own the video's presentation —
-      // hand the pixels back and idle until the video is ours again.
-      if (!video || !host || tiltRef.current || !host.contains(video) || video.readyState < 2) {
+      const host = hostRef.current;
+      const shell = screenShell();
+      // Mini-player portal moves the video out of this shell — hand pixels back.
+      if (!video || !host || !shell?.contains(video) || video.readyState < 2) {
         restoreVideo();
         return;
       }
@@ -224,17 +223,14 @@ export default function VideoKickBounce() {
       canvas.width = 0;
       canvas.height = 0;
     };
-  }, [enabled, videoRef, containerRef, audioStems]);
+  }, [enabled, videoRef, audioStems]);
 
   if (!enabled) return null;
 
-  // pointer-events-none: clicks fall through to the invisible video, so
-  // tap-to-pause / double-tap keep working untouched.
+  // Lives in the same screen shell as <video>.
   return (
-    <canvas
-      ref={canvasRef}
-      aria-hidden
-      className="pointer-events-none absolute inset-0 z-[2] h-full w-full"
-    />
+    <div ref={hostRef} className="pointer-events-none absolute inset-0 z-[2]">
+      <canvas ref={canvasRef} aria-hidden className="h-full w-full" />
+    </div>
   );
 }

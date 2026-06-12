@@ -1,7 +1,7 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router';
 import { isMobile } from 'react-device-detect';
-import { Maximize2 } from 'lucide-react';
+import { Heart, Maximize2 } from 'lucide-react';
 import { cn, getThumbnailUrl, getVideoSrc, ParseFilename } from '~/lib/utils';
 import {
   REEL_FALLBACK_ASPECT,
@@ -77,7 +77,8 @@ function PipReelItemInner({
   loadHlsPlayer = true,
   onReelPosterColors,
 }: PipReelItemProps) {
-  const { userId } = useFileContext();
+  const { userId, playerSettings } = useFileContext();
+  const playerBackground = playerSettings?.playerBackground !== false;
   const navigate = useNavigate();
   const videoRef = useRef<HTMLVideoElement | null>(null);
   /** Drives `useWatchTracking` when the HLS `<video>` mounts (ref alone doesn’t re-render). */
@@ -187,6 +188,9 @@ function PipReelItemInner({
 
     if (!isActive) {
       if (!v.paused) v.pause();
+      // A fresh visit to this slide always autoplays, even if the user
+      // paused it last time (TikTok behavior).
+      delete v.dataset.userPaused;
       return;
     }
 
@@ -196,18 +200,24 @@ function PipReelItemInner({
     //      pause() → AbortError.
     //   2. After a few slides the browser revokes audible-autoplay permission
     //      → play() rejects with NotAllowedError.
-    //   3. iPhone Safari: after sustained scrolling the media decoder pool is
-    //      starved  play() rejects (or the element just isn't ready) until a
-    //      retired pipeline frees up. A handful of fast retries is NOT enough
-    //      here; the old 3×120ms burned out and the slide stayed frozen.
-    // Strategy (TikTok-style): retry transient errors on a patient heartbeat
-    // until the FIRST successful start (never fighting a user pause after
-    // that), re-attempt the moment the media reports ready, and fall back to
-    // MUTED playback when sound is blocked  restoring sound on the next tap.
+    //   3. iPhone Safari: the media decoder pool starves under sustained
+    //      scrolling  play() rejects (or the element isn't ready) until a
+    //      retired pipeline frees up.
+    //   4. iPhone Safari ALSO pauses an already-playing video mid-scroll
+    //      (decoder reclaim / GPU detach while Swiper transforms the slide).
+    //      Recovery must therefore last the slide's whole active life, not
+    //      just until the first successful start.
+    // Strategy (TikTok-style): resume ANY pause the user didn't ask for
+    // (deliberate pauses are flagged via `data-user-paused` by the player's
+    // togglePlay/pause), retry transient errors on a patient heartbeat, and
+    // fall back to MUTED playback when sound is blocked  restoring sound on
+    // the next tap.
     let cancelled = false;
-    let started = false;
     let heartbeatTries = 12;
     let heartbeatId: number | null = null;
+    let resumeTimer: number | null = null;
+
+    const userPaused = () => v.dataset.userPaused === '1';
 
     const cleanupGesture = () => {
       document.removeEventListener('pointerdown', onUnmuteGesture);
@@ -221,17 +231,12 @@ function PipReelItemInner({
       // The video is already playing (muted fallback) — a genuine interaction
       // lets us bring the sound back without interrupting playback.
       if (el.muted) el.muted = false;
-      if (el.paused) void el.play().catch(() => {});
+      if (el.paused && !userPaused()) void el.play().catch(() => {});
     };
     const armUnmuteGesture = () => {
       cleanupGesture();
       document.addEventListener('pointerdown', onUnmuteGesture, { once: true, passive: true });
       document.addEventListener('touchend', onUnmuteGesture, { once: true, passive: true });
-    };
-
-    const onPlaying = () => {
-      started = true;
-      stopHeartbeat();
     };
 
     const stopHeartbeat = () => {
@@ -240,18 +245,25 @@ function PipReelItemInner({
         heartbeatId = null;
       }
     };
-    // Patient recovery: every 700ms until the reel has started once. Covers
-    // decoder starvation (iOS) and slow native-HLS readiness without ever
-    // overriding a deliberate user pause (started flips it off for good).
+    // Patient recovery: every 700ms while the slide is paused against its
+    // will. Covers decoder starvation (iOS) and slow native-HLS readiness
+    // without ever overriding a deliberate user pause.
     const startHeartbeat = () => {
       if (heartbeatId != null) return;
       heartbeatId = window.setInterval(() => {
-        if (cancelled || started || heartbeatTries-- <= 0) {
+        if (cancelled || heartbeatTries-- <= 0 || userPaused()) {
           stopHeartbeat();
           return;
         }
         if (v.paused) attempt();
+        else stopHeartbeat();
       }, 700);
+    };
+
+    const onPlaying = () => {
+      stopHeartbeat();
+      // Refill the retry budget for the NEXT system pause.
+      heartbeatTries = 12;
     };
 
     const playMutedFallback = () => {
@@ -263,12 +275,12 @@ function PipReelItemInner({
           armUnmuteGesture();
         })
         .catch(() => {
-          if (!cancelled && !started) startHeartbeat();
+          if (!cancelled) startHeartbeat();
         });
     };
 
     const attempt = () => {
-      if (cancelled || !isActive) return;
+      if (cancelled || !isActive || userPaused()) return;
       const p = v.play();
       if (p && typeof p.then === 'function') {
         p.catch((err: unknown) => {
@@ -280,21 +292,43 @@ function PipReelItemInner({
           if (name === 'NotAllowedError') {
             // Audible autoplay blocked → keep playing muted instead of pausing.
             playMutedFallback();
-          } else if (!started) {
+          } else {
             startHeartbeat();
           }
         });
       }
     };
 
+    // iOS pauses the active slide mid-scroll. Give it a beat to settle (so we
+    // don't race a transient pause/play pair), then resume  unless the user
+    // tapped pause, the clip ended, or the tab went to the background.
+    const onPause = () => {
+      if (cancelled || userPaused() || v.ended || document.hidden) return;
+      if (resumeTimer != null) window.clearTimeout(resumeTimer);
+      resumeTimer = window.setTimeout(() => {
+        resumeTimer = null;
+        if (cancelled || userPaused() || !v.paused || v.ended || document.hidden) return;
+        attempt();
+        startHeartbeat();
+      }, 250);
+    };
+
+    // Coming back from the background: resume where the OS paused us.
+    const onVisibility = () => {
+      if (cancelled || document.hidden) return;
+      if (v.paused && !userPaused() && !v.ended) attempt();
+    };
+
     // The instant the element becomes ready (decoder freed / segments landed),
     // try again — much faster than waiting for the next heartbeat tick.
     const onReady = () => {
-      if (!cancelled && !started && v.paused) attempt();
+      if (!cancelled && v.paused && !userPaused()) attempt();
     };
     v.addEventListener('playing', onPlaying);
+    v.addEventListener('pause', onPause);
     v.addEventListener('canplay', onReady);
     v.addEventListener('loadeddata', onReady);
+    document.addEventListener('visibilitychange', onVisibility);
 
     attempt();
     if (v.paused) startHeartbeat();
@@ -303,9 +337,12 @@ function PipReelItemInner({
       cancelled = true;
       stopHeartbeat();
       cleanupGesture();
+      if (resumeTimer != null) window.clearTimeout(resumeTimer);
       v.removeEventListener('playing', onPlaying);
+      v.removeEventListener('pause', onPause);
       v.removeEventListener('canplay', onReady);
       v.removeEventListener('loadeddata', onReady);
+      document.removeEventListener('visibilitychange', onVisibility);
     };
   }, [isActive, isVideo, trackedVideoEl]);
 
@@ -466,6 +503,44 @@ function PipReelItemInner({
   const uniqueId = item.unique_id ?? item.id;
   const isOwner = Boolean(userId && item.ownerId && userId === item.ownerId);
 
+  /** Instagram-style double-tap: pop a heart at the tap point and like (never unlike). */
+  const playerBoxRef = useRef<HTMLDivElement | null>(null);
+  const [heartBursts, setHeartBursts] = useState<{ id: number; x: number; y: number }[]>([]);
+  const heartBurstSeqRef = useRef(0);
+
+  const handleReelDoubleTapLike = useCallback(
+    (point: { x: number; y: number }) => {
+      const rect = playerBoxRef.current?.getBoundingClientRect();
+      const x = rect ? point.x - rect.left : point.x;
+      const y = rect ? point.y - rect.top : point.y;
+      const id = ++heartBurstSeqRef.current;
+      setHeartBursts((prev) => [...prev.slice(-3), { id, x, y }]);
+      window.setTimeout(() => {
+        setHeartBursts((prev) => prev.filter((b) => b.id !== id));
+      }, 900);
+
+      // Already liked (or signed out): just the heart, no API churn.
+      if (liked || !userId) return;
+      setLiked(true);
+      setLikeCount((c) => c + 1);
+      void fetch('/api/likes', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ fileId }),
+      })
+        .then(async (res) => (res.ok ? ((await res.json().catch(() => null)) as Record<string, unknown> | null) : null))
+        .then((json) => {
+          if (!json) return;
+          setLiked(Boolean(json.liked ?? json.user_has_liked));
+          const count = Number(json.like_count);
+          if (Number.isFinite(count)) setLikeCount(count);
+        })
+        .catch(() => {});
+    },
+    [liked, userId, fileId],
+  );
+
   // Same JIT-mint flow as the main reel  see ~/lib/hooks/usePlaybackUrl.
   const playbackUrl = usePlaybackUrl(file);
   const videoSrc = isVideoLikeFile(file)
@@ -588,36 +663,50 @@ function PipReelItemInner({
 
   const videoPlayerEl =
     videoSrc && showHls ? (
-      <PlayQueueProvider
-        currentUniqueId={file.unique_id}
-        seriesUpNextVideos={[]}
-        suggestedVideos={[]}
-        viewerCanCustomizeQueue={Boolean(userId)}
-      >
-        <DynamicHLSPlayerWithQueue
-          key={file.unique_id ?? file.id}
-          src={videoSrc}
-          videoRef={videoRef}
-          className="h-full w-full"
-          autoPlay={isActive}
-          reelSwiperActive={isActive}
-          muted={false}
-          unlockPipReelAudio
-          playsInline
-          imageID={file.unique_id}
-          file={file}
-          showFeedPlayerControls
-          hideControls={PIP_REEL_HLS_HIDE_CONTROLS}
-          isReel
-          disableKeyboardShortcuts={variant === 'page'}
-          reelInfoSlot={reelInfoSlot}
-          onPlay={handleVideoPlay}
-          onVideoRef={handlePlayerVideoRef}
-          callBack={variant === 'page' ? handleReelPosterColorsFromPlayer : undefined}
-        />
-      </PlayQueueProvider>
+      <div ref={playerBoxRef} className="relative h-full w-full">
+        <PlayQueueProvider
+          currentUniqueId={file.unique_id}
+          seriesUpNextVideos={[]}
+          suggestedVideos={[]}
+          viewerCanCustomizeQueue={Boolean(userId)}
+        >
+          <DynamicHLSPlayerWithQueue
+            key={file.unique_id ?? file.id}
+            src={videoSrc}
+            videoRef={videoRef}
+            className="h-full w-full"
+            autoPlay={isActive}
+            reelSwiperActive={isActive}
+            muted={false}
+            unlockPipReelAudio
+            playsInline
+            imageID={file.unique_id}
+            file={file}
+            showFeedPlayerControls
+            hideControls={PIP_REEL_HLS_HIDE_CONTROLS}
+            isReel
+            disableKeyboardShortcuts={variant === 'page'}
+            reelInfoSlot={reelInfoSlot}
+            onReelDoubleTapLike={handleReelDoubleTapLike}
+            onPlay={handleVideoPlay}
+            onVideoRef={handlePlayerVideoRef}
+            callBack={variant === 'page' ? handleReelPosterColorsFromPlayer : undefined}
+          />
+        </PlayQueueProvider>
+        {heartBursts.length > 0 && (
+          <div className="pointer-events-none absolute inset-0 z-[30] overflow-hidden" aria-hidden>
+            {heartBursts.map((b) => (
+              <Heart
+                key={b.id}
+                className="reel-heart-burst absolute h-24 w-24 fill-rose-500 text-rose-500"
+                style={{ left: b.x - 48, top: b.y - 48 }}
+              />
+            ))}
+          </div>
+        )}
+      </div>
     ) : videoSrc && !showHls ? (
-      <div className="flex h-full w-full items-center justify-center bg-black">
+      <div className={cn('flex h-full w-full items-center justify-center', playerBackground ? 'bg-black' : 'bg-transparent')}>
         {posterUrl ? (
           <img
             src={posterUrl}
@@ -657,7 +746,8 @@ function PipReelItemInner({
           >
             <div
               className={cn(
-                "relative shrink-0 overflow-hidden bg-black",
+                "relative shrink-0 overflow-hidden",
+                playerBackground ? "bg-black" : "bg-transparent",
                 "max-lg:h-[100dvh] max-lg:min-h-[100dvh] max-lg:max-h-[100dvh] max-lg:w-full max-lg:max-w-full",
                 "lg:max-w-full lg:transition-[width,height] lg:duration-300 lg:ease-out",
                 "max-lg:rounded-none",
@@ -715,7 +805,7 @@ function PipReelItemInner({
       {/*
         PiP: actions over the video (bottom-right). Page variant uses the layout branch above.
       */}
-      <div className="relative min-h-0 min-w-0 flex-1 overflow-hidden bg-black">
+      <div className={cn('relative min-h-0 min-w-0 flex-1 overflow-hidden', playerBackground ? 'bg-black' : 'bg-transparent')}>
         {videoPlayerEl}
 
         <div

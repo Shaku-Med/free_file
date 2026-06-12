@@ -6,6 +6,7 @@ import 'swiper/css';
 import 'swiper/css/virtual';
 
 import { cn } from '~/lib/utils';
+import { useFileContext } from '~/lib/Context/Context';
 import { VerticalFeedItem } from './VerticalFeedItem';
 import type { VerticalFeedItemData } from './types';
 
@@ -22,6 +23,8 @@ export function VerticalFeedContainer({
   onActiveChange,
   className,
 }: VerticalFeedContainerProps) {
+  const { playerSettings } = useFileContext();
+  const playerBackground = playerSettings?.playerBackground !== false;
   const swiperRef = useRef<SwiperType | null>(null);
 
   const initialSlide = useMemo(() => {
@@ -44,7 +47,8 @@ export function VerticalFeedContainer({
   return (
     <div
       className={cn(
-        'relative w-full overflow-hidden bg-black',
+        'relative w-full overflow-hidden',
+        playerBackground ? 'bg-black' : 'bg-transparent',
         className,
         'h-[100dvh] max-h-[100dvh]',
       )}

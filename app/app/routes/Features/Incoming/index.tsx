@@ -27,12 +27,6 @@ const features: Feature[] = [
     status: "shipped",
   },
   {
-    title: "VR tilt mode",
-    description:
-      "Grab the video and orbit it in 3D. Pinch to zoom, shift-drag to skew. A bit of a toy, surprisingly useful.",
-    status: "shipped",
-  },
-  {
     title: "Ambient mode",
     description:
       "The colors of the playing frame glow behind the player. Falls back to a softer gradient when hardware acceleration is off, so it doesn't melt your laptop.",

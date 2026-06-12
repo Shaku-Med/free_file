@@ -16,13 +16,15 @@ interface SecurityInfo {
 export const sendVerificationEmail = async (
   email: string,
   code: string,
-  type: 'signup' | 'reset' | 'verify' = 'verify'
+  type: 'signup' | 'reset' | 'verify' | 'delete' = 'verify'
 ): Promise<boolean> => {
   try {
-    const subject = type === 'signup' 
+    const subject = type === 'signup'
       ? 'Verify Your Email - Signup'
       : type === 'reset'
       ? 'Password Reset Verification Code'
+      : type === 'delete'
+      ? 'Confirm Content Deletion'
       : 'Email Verification Code';
 
     const html = `
@@ -44,13 +46,17 @@ export const sendVerificationEmail = async (
                 ? 'Thank you for signing up. Use the code below to complete registration:'
                 : type === 'reset'
                 ? 'You requested a password reset. Use the code below to reset your password:'
+                : type === 'delete'
+                ? 'You asked to permanently delete content from your account. Deleted content cannot be recovered  there are no backups. Use the code below to confirm:'
                 : 'Use the code below to verify your email:'}
             </p>
             <div style="background: #fff; padding: 16px 24px; border-radius: 6px; text-align: center; margin: 24px 0; border: 1px solid #e5e7eb;">
               <p style="font-size: 28px; font-weight: 600; letter-spacing: 6px; color: #111827; margin: 0; font-family: ui-monospace, monospace;">${code}</p>
             </div>
             <p style="font-size: 14px; color: #6b7280; margin-top: 20px;">
-              This code will expire in 24 hours. If you didn't request this code, please ignore this email.
+              ${type === 'delete'
+                ? "This code will expire in 20 minutes. If you didn't request this, someone may have access to your account  change your password immediately."
+                : "This code will expire in 24 hours. If you didn't request this code, please ignore this email."}
             </p>
             <p style="font-size: 14px; color: #6b7280; margin-top: 20px;">
               Best regards,<br>

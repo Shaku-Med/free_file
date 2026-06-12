@@ -33,7 +33,8 @@ export function VerticalFeedItem({
   isActive,
   showChrome = true,
 }: VerticalFeedItemProps) {
-  const { userId } = useFileContext();
+  const { userId, playerSettings } = useFileContext();
+  const playerBackground = playerSettings?.playerBackground !== false;
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const file = item.file;
 
@@ -81,12 +82,13 @@ export function VerticalFeedItem({
   return (
     <div
       className={cn(
-        'relative flex h-[100dvh] min-h-[100dvh] w-full shrink-0 flex-col bg-black',
+        'relative flex h-[100dvh] min-h-[100dvh] w-full shrink-0 flex-col',
+        playerBackground ? 'bg-black' : 'bg-transparent',
         isActive && 'ring-1 ring-white/10'
       )}
       data-feed-item-id={item.id}
     >
-      <div className="relative flex min-h-0 flex-1 items-center justify-center bg-black">
+      <div className={cn('relative flex min-h-0 flex-1 items-center justify-center', playerBackground ? 'bg-black' : 'bg-transparent')}>
         <div className="absolute inset-0 z-[1] overflow-hidden">
           {videoSrc && file ? (
             <HLSPlayer

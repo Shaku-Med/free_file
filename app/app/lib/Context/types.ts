@@ -16,6 +16,8 @@ export type PlayerSettings = {
   loop: boolean;
   autoPlay: boolean;
   ambientMode: boolean;
+  /** Blurred poster + black letterbox behind the video. Off = transparent player shell. */
+  playerBackground: boolean;
   /** Bars + seek strip stay visible when controls auto-hide */
   audioVisualizer: boolean;
   audioVisualizerStyle: 'bars' | 'mirror' | 'ribbon' | 'pulse' | 'line' | 'blocks' | 'dots' | 'aurora';

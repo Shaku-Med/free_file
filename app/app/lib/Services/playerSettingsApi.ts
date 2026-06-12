@@ -18,6 +18,8 @@ export interface PlayerSettings {
   loop: boolean;
   autoPlay: boolean;
   ambientMode: boolean;
+  /** Blurred poster + black letterbox behind the video. Off = transparent player shell. */
+  playerBackground: boolean;
   audioVisualizer: boolean;
   audioVisualizerStyle: 'ribbon' | 'bars' | 'mirror' | 'pulse' | 'line' | 'blocks' | 'dots' | 'aurora';
   visualizerConfetti: boolean;
@@ -43,6 +45,7 @@ export interface PlayerSettingsPatch {
   loop?: boolean;
   autoPlay?: boolean;
   ambientMode?: boolean;
+  playerBackground?: boolean;
   audioVisualizer?: boolean;
   audioVisualizerStyle?: string;
   visualizerConfetti?: boolean;
@@ -64,6 +67,7 @@ const DEFAULTS: PlayerSettings = {
   loop: false,
   autoPlay: false,
   ambientMode: false,
+  playerBackground: true,
   audioVisualizer: false,
   audioVisualizerStyle: DEFAULT_AUDIO_VISUALIZER_STYLE,
   visualizerConfetti: true,
@@ -95,6 +99,7 @@ export async function getPlayerSettings(): Promise<PlayerSettings> {
     loop: data.loop === true,
     autoPlay: data.autoPlay === true,
     ambientMode: data.ambientMode === true || data.ambientMode === '1',
+    playerBackground: data.playerBackground !== false && data.playerBackground !== '0',
     audioVisualizer: data.audioVisualizer === true || data.audioVisualizer === '1',
     audioVisualizerStyle: parseAudioVisualizerStyle(
       typeof data.audioVisualizerStyle === 'string' ? data.audioVisualizerStyle : undefined

@@ -13,6 +13,7 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/xml"
 	"errors"
 	"fmt"
 	"io"
@@ -179,6 +180,99 @@ func (c *Client) DeleteObject(ctx context.Context, key string) error {
 		return nil
 	}
 	return fmt.Errorf("r2: delete %s status %d", key, res.StatusCode)
+}
+
+// listBucketResult is the subset of the ListObjectsV2 XML we consume.
+type listBucketResult struct {
+	IsTruncated           bool   `xml:"IsTruncated"`
+	NextContinuationToken string `xml:"NextContinuationToken"`
+	Contents              []struct {
+		Key string `xml:"Key"`
+	} `xml:"Contents"`
+}
+
+// ListKeys returns up to max object keys under prefix (ListObjectsV2,
+// paginated). Server-side use only  feeds the purge flow that deletes a
+// file's whole storage directory.
+func (c *Client) ListKeys(ctx context.Context, prefix string, max int) ([]string, error) {
+	if prefix == "" {
+		return nil, errors.New("r2: empty prefix")
+	}
+	if max <= 0 {
+		max = 10000
+	}
+	var keys []string
+	token := ""
+	for {
+		q := url.Values{}
+		q.Set("list-type", "2")
+		q.Set("prefix", prefix)
+		q.Set("max-keys", "1000")
+		if token != "" {
+			q.Set("continuation-token", token)
+		}
+		body, err := c.signedGet(ctx, q)
+		if err != nil {
+			return nil, err
+		}
+		var page listBucketResult
+		if err := xml.Unmarshal(body, &page); err != nil {
+			return nil, fmt.Errorf("r2: list parse: %w", err)
+		}
+		for _, o := range page.Contents {
+			if o.Key == "" {
+				continue
+			}
+			keys = append(keys, o.Key)
+			if len(keys) >= max {
+				return keys, nil
+			}
+		}
+		if !page.IsTruncated || page.NextContinuationToken == "" {
+			break
+		}
+		token = page.NextContinuationToken
+	}
+	return keys, nil
+}
+
+// signedGet performs a SigV4-signed GET against the bucket root with query
+// params (used for listings).
+func (c *Client) signedGet(ctx context.Context, q url.Values) ([]byte, error) {
+	now := time.Now().UTC()
+	amzDate := now.Format("20060102T150405Z")
+	dateStamp := now.Format("20060102")
+	payloadHash := sha256Hex(nil)
+	canonicalURI := "/" + uriEncode(c.cfg.Bucket, true)
+	canonicalQuery := encodeQuerySorted(q)
+
+	canonicalHeaders := "host:" + c.host + "\n" +
+		"x-amz-content-sha256:" + payloadHash + "\n" +
+		"x-amz-date:" + amzDate + "\n"
+	signedHeaders := "host;x-amz-content-sha256;x-amz-date"
+
+	canonicalRequest := "GET\n" + canonicalURI + "\n" + canonicalQuery + "\n" +
+		canonicalHeaders + "\n" + signedHeaders + "\n" + payloadHash
+	auth := c.authorization(dateStamp, amzDate, signedHeaders, canonicalRequest)
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.scheme+"://"+c.host+canonicalURI+"?"+canonicalQuery, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("X-Amz-Content-Sha256", payloadHash)
+	req.Header.Set("X-Amz-Date", amzDate)
+	req.Header.Set("Authorization", auth)
+
+	res, err := c.http.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer res.Body.Close()
+	data, readErr := io.ReadAll(io.LimitReader(res.Body, 8<<20))
+	if res.StatusCode != 200 {
+		return nil, fmt.Errorf("r2: list status %d", res.StatusCode)
+	}
+	return data, readErr
 }
 
 // PresignGet returns a short-lived signed GET URL. Server-side use only.

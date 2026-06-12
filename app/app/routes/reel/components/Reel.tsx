@@ -213,7 +213,10 @@ const Reel = ({ initialItems, initialUserActions }: ReelProps) => {
         if (append && appendedCount === 0) {
           setHasMore(false);
         } else {
-          setHasMore(Boolean(data.nextCursor) && Boolean(userId));
+          // Don't bake userId into the state: on a hard refresh the initial
+          // load can finish BEFORE the auth context hydrates, which would
+          // lock hasMore=false forever. The append guards check userId live.
+          setHasMore(Boolean(data.nextCursor));
         }
 
         if (data.userActions) {
