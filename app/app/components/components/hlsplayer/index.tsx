@@ -7,6 +7,7 @@ import { PlayerProvider, usePlayerContext, type ThumbnailSpriteMeta } from './Pl
 import { CaptionProvider } from './CaptionContext';
 import CaptionOverlay from './overlays/CaptionOverlay';
 import VideoKickBounce from './overlays/VideoKickBounce';
+import VRTheaterOverlay from './overlays/VRTheaterOverlay';
 import StemGlowLight from './overlays/StemGlowLight';
 import EndCardOverlay from './overlays/EndCardOverlay';
 import { FEED_EMBED_HIDE_CONTROLS, MINI_PLAYER_HIDE_CONTROLS, type HideControls } from './types';
@@ -1094,6 +1095,7 @@ function PlayerInner({
                     : {})}
                 />
                 <VideoKickBounce />
+                <VRTheaterOverlay />
               </div>
             </div>
           )}

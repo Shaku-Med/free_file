@@ -71,6 +71,8 @@ export default function VideoKickBounce() {
     videoBounce,
     videoBounceIntensity,
     videoBounceInstruments,
+    vrTheater,
+    isReel,
     state,
   } = usePlayerContext();
 
@@ -83,7 +85,10 @@ export default function VideoKickBounce() {
   const instrumentsRef = useRef(videoBounceInstruments);
   instrumentsRef.current = videoBounceInstruments;
 
-  const enabled = audioVisualizer && videoBounce && audioStems != null;
+  // VR theater owns the screen when active — the bounce moves the 3D screen
+  // inside the room instead of this 2D canvas (two canvases fighting over
+  // the hidden video was why VR "didn't work" with the visualizer on).
+  const enabled = audioVisualizer && videoBounce && audioStems != null && !(vrTheater && !isReel);
 
   useEffect(() => {
     if (!enabled) return;

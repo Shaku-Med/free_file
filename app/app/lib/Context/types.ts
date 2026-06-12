@@ -16,6 +16,10 @@ export type PlayerSettings = {
   loop: boolean;
   autoPlay: boolean;
   ambientMode: boolean;
+  /** Ambient glow follows the video live (no resample gap). */
+  ambientSync?: boolean;
+  /** Ambient glow size multiplier (1–2). */
+  ambientSize?: number;
   /** Blurred poster + black letterbox behind the video. Off = transparent player shell. */
   playerBackground: boolean;
   /** Bars + seek strip stay visible when controls auto-hide */

@@ -648,6 +648,8 @@ const DynamicPage = ({ is_modal }: DynamicPageProps) => {
     setRelatedVideosPayloadCache,
   } = useFileContext();
   const playerBackground = playerSettings?.playerBackground !== false;
+  const ambientSyncOn = playerSettings?.ambientSync === true;
+  const ambientSizeMul = Math.max(1, Math.min(2, playerSettings?.ambientSize ?? 2));
   const hasCachedRef = useRef<string | null>(null);
 
   const [playingVideos, setPlayingVideos] = useState<Set<number>>(new Set());
@@ -1003,6 +1005,21 @@ const DynamicPage = ({ is_modal }: DynamicPageProps) => {
   const [hasIncrementedView, setHasIncrementedView] = useState(false);
   const watchVideoRef = useWatchSurfaceVideoRef();
   const [videoRefReady, setVideoRefReady] = useState(false);
+  /** Intrinsic video aspect  used to hug the ambience glow to the visible video when the player background is off. */
+  const [ambienceVideoAspect, setAmbienceVideoAspect] = useState<number | null>(null);
+  useEffect(() => {
+    if (!videoRefReady) return;
+    const v = watchVideoRef.current;
+    if (!v) return;
+    const update = () => {
+      if (v.videoWidth > 0 && v.videoHeight > 0) {
+        setAmbienceVideoAspect(v.videoWidth / v.videoHeight);
+      }
+    };
+    update();
+    v.addEventListener("loadedmetadata", update);
+    return () => v.removeEventListener("loadedmetadata", update);
+  }, [videoRefReady, watchVideoRef, currentId]);
   const {
     activateMiniPlayer,
     miniPlayer: activeMiniPlayer,
@@ -2158,7 +2175,27 @@ const DynamicPage = ({ is_modal }: DynamicPageProps) => {
                   className="ambience-wrap pointer-events-none absolute -z-10"
                   aria-hidden
                   style={{
-                    inset: "-60% -40%",
+                    // Player background off = the video shows at its REAL aspect
+                    // inside the 16:9 box (pillar/letterboxed). Hug the glow to
+                    // that visible rect so the light matches the picture.
+                    inset: (() => {
+                      const box = 16 / 9;
+                      // User-tunable glow size: scales how far past the video the light reaches.
+                      const hm = 40 * ambientSizeMul;
+                      const vm = 60 * ambientSizeMul;
+                      let h = -hm;
+                      let v = -vm;
+                      if (!playerBackground && ambienceVideoAspect) {
+                        if (ambienceVideoAspect < box) {
+                          const frac = ambienceVideoAspect / box;
+                          h = ((1 - frac) / 2) * 100 - hm * frac;
+                        } else if (ambienceVideoAspect > box) {
+                          const frac = box / ambienceVideoAspect;
+                          v = ((1 - frac) / 2) * 100 - vm * frac;
+                        }
+                      }
+                      return `${v}% ${h}%`;
+                    })(),
                     overflow: "visible",
                   }}
                 >
@@ -2174,7 +2211,7 @@ const DynamicPage = ({ is_modal }: DynamicPageProps) => {
                         "radial-gradient(ellipse 60% 55% at 50% 50%, black 10%, rgba(0,0,0,0.5) 35%, rgba(0,0,0,0.15) 55%, transparent 70%)",
                     }}
                   >
-                    <Ambience colors={imageColors || []} videoRef={watchVideoRef} videoReady={videoRefReady} />
+                    <Ambience colors={imageColors || []} videoRef={watchVideoRef} videoReady={videoRefReady} sync={ambientSyncOn} />
                   </div>
                 </div>
               )}

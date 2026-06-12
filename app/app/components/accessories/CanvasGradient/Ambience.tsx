@@ -16,9 +16,11 @@ type AmbienceProps = {
   colors: string[];
   videoRef: React.RefObject<HTMLVideoElement | null>;
   videoReady?: boolean;
+  /** Live mode: repaint every frame (no resample gap / crossfade). Default = sampled. */
+  sync?: boolean;
 };
 
-const Ambience = ({ videoRef, videoReady }: AmbienceProps) => {
+const Ambience = ({ videoRef, videoReady, sync = false }: AmbienceProps) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
@@ -138,9 +140,38 @@ const Ambience = ({ videoRef, videoReady }: AmbienceProps) => {
       transRaf = requestAnimationFrame(step);
     };
 
+    /** Sync mode: paint every frame  the glow flows with the video, no gap. */
+    let syncRaf = 0;
+    const stopSyncLoop = () => {
+      if (syncRaf !== 0) {
+        cancelAnimationFrame(syncRaf);
+        syncRaf = 0;
+      }
+    };
+    const syncStep = () => {
+      if (cancelled || document.hidden) {
+        syncRaf = 0;
+        return;
+      }
+      const v = videoRef.current;
+      if (v && v.readyState >= 2 && !v.paused && !v.ended) {
+        try {
+          captureVideoToRaw();
+          ctx.drawImage(rawBuf, 0, 0);
+          hasDisplayState = true;
+        } catch {}
+      }
+      syncRaf = requestAnimationFrame(syncStep);
+    };
+
     const startSampleInterval = () => {
       clearSampleInterval();
+      stopSyncLoop();
       if (cancelled || !video || video.paused || video.ended || document.hidden) return;
+      if (sync) {
+        syncRaf = requestAnimationFrame(syncStep);
+        return;
+      }
       intervalId = window.setInterval(() => {
         if (cancelled || !video || video.paused || video.ended || document.hidden) {
           clearSampleInterval();
@@ -158,6 +189,7 @@ const Ambience = ({ videoRef, videoReady }: AmbienceProps) => {
     };
     const onPause = () => {
       clearSampleInterval();
+      stopSyncLoop();
       cancelTransition();
       snapVideoToDisplay();
     };
@@ -169,6 +201,7 @@ const Ambience = ({ videoRef, videoReady }: AmbienceProps) => {
     const onVisibility = () => {
       if (document.hidden) {
         clearSampleInterval();
+        stopSyncLoop();
         cancelTransition();
       } else if (!video.paused && !video.ended) {
         clearSampleInterval();
@@ -179,6 +212,7 @@ const Ambience = ({ videoRef, videoReady }: AmbienceProps) => {
 
     const onEnded = () => {
       clearSampleInterval();
+      stopSyncLoop();
       cancelTransition();
     };
 
@@ -195,6 +229,7 @@ const Ambience = ({ videoRef, videoReady }: AmbienceProps) => {
     return () => {
       cancelled = true;
       clearSampleInterval();
+      stopSyncLoop();
       cancelTransition();
       video.removeEventListener("play", onPlay);
       video.removeEventListener("pause", onPause);
@@ -203,7 +238,7 @@ const Ambience = ({ videoRef, videoReady }: AmbienceProps) => {
       video.removeEventListener("ended", onEnded);
       document.removeEventListener("visibilitychange", onVisibility);
     };
-  }, [videoRef, videoReady]);
+  }, [videoRef, videoReady, sync]);
 
   return (
     <canvas

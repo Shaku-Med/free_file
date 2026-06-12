@@ -19,6 +19,8 @@ const COOKIE_NAMES = {
   loop: 'player-loop',
   autoPlay: 'player-autoplay',
   ambientMode: 'player-ambient-mode',
+  ambientSync: 'player-ambient-sync',
+  ambientSize: 'player-ambient-size',
   playerBackground: 'player-background',
   audioVisualizer: 'player-audio-visualizer',
   audioVisualizerStyle: 'player-audio-visualizer-style',
@@ -75,6 +77,10 @@ export interface PlayerSettingsDto {
   loop?: boolean;
   autoPlay?: boolean;
   ambientMode?: boolean;
+  /** Ambient glow follows the video live (no resample gap). */
+  ambientSync?: boolean;
+  /** Ambient glow size multiplier (1–2). */
+  ambientSize?: number;
   playerBackground?: boolean;
   audioVisualizer?: boolean;
   audioVisualizerStyle?: string;
@@ -114,6 +120,11 @@ export function getPlayerSettingsFromCookies(cookieHeader: string | null) {
   const loop = get(COOKIE_NAMES.loop) === 'true';
   const autoPlay = get(COOKIE_NAMES.autoPlay) === 'true';
   const ambientMode = get(COOKIE_NAMES.ambientMode) === '1' || get(COOKIE_NAMES.ambientMode) === 'true';
+  const ambientSync = get(COOKIE_NAMES.ambientSync) === '1';
+  const ambientSizeRaw = parseFloat(get(COOKIE_NAMES.ambientSize) ?? '');
+  const ambientSize = Number.isFinite(ambientSizeRaw)
+    ? Math.max(1, Math.min(2, ambientSizeRaw))
+    : 2;
   const playerBackgroundRaw = get(COOKIE_NAMES.playerBackground);
   const playerBackground = playerBackgroundRaw === '0' || playerBackgroundRaw === 'false' ? false : true;
   const audioVisualizer =
@@ -157,6 +168,8 @@ export function getPlayerSettingsFromCookies(cookieHeader: string | null) {
     loop,
     autoPlay,
     ambientMode,
+    ambientSync,
+    ambientSize,
     playerBackground,
     audioVisualizer,
     audioVisualizerStyle,
@@ -243,6 +256,16 @@ export const action = async ({ request }: { request: Request }) => {
       const v = body.ambientMode ? '1' : '0';
       setCookies.push(buildSetCookie(COOKIE_NAMES.ambientMode, v, secure));
       result.ambientMode = body.ambientMode;
+    }
+    if (typeof body.ambientSync === 'boolean') {
+      const v = body.ambientSync ? '1' : '0';
+      setCookies.push(buildSetCookie(COOKIE_NAMES.ambientSync, v, secure));
+      result.ambientSync = body.ambientSync;
+    }
+    if (typeof body.ambientSize === 'number' && Number.isFinite(body.ambientSize)) {
+      const v = Math.max(1, Math.min(2, body.ambientSize));
+      setCookies.push(buildSetCookie(COOKIE_NAMES.ambientSize, String(v), secure));
+      result.ambientSize = v;
     }
     if (typeof body.playerBackground === 'boolean') {
       const v = body.playerBackground ? '1' : '0';

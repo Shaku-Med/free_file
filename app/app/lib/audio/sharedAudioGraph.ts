@@ -31,9 +31,21 @@ export interface SharedAudioGraph {
   compressor: DynamicsCompressorNode | null;
   /** Tiny makeup gain to offset the compressor's threshold reduction (~1.4x). */
   makeupGain: GainNode | null;
+  /**
+   * Created lazily for the VR theater "sound system": a synthetic room reverb
+   * (convolver) blended wet/dry. Sits right after the panner so the direct
+   * sound is seat-positioned and the reverb fills the room around it.
+   */
+  theater: {
+    convolver: ConvolverNode;
+    dryGain: GainNode;
+    wetGain: GainNode;
+    mixOut: GainNode;
+  } | null;
   pannerActive: boolean;
   analyserActive: boolean;
   compressorActive: boolean;
+  theaterActive: boolean;
 }
 
 const graphByVideo = new WeakMap<HTMLVideoElement, SharedAudioGraph>();
@@ -110,9 +122,11 @@ export function ensureSharedGraph(video: HTMLVideoElement): SharedAudioGraph | n
       analyser: null,
       compressor: null,
       makeupGain: null,
+      theater: null,
       pannerActive: false,
       analyserActive: false,
       compressorActive: false,
+      theaterActive: false,
     };
     rewireGraph(graph);
     graphByVideo.set(video, graph);
@@ -174,6 +188,58 @@ export function setCompressorActive(graph: SharedAudioGraph, active: boolean) {
   if (active) ensureCompressor(graph);
   graph.compressorActive = active;
   rewireGraph(graph);
+}
+
+/**
+ * Synthetic theater impulse response: ~12ms pre-delay (walls are far), then
+ * exponentially decaying stereo-decorrelated noise (~1.2s tail). Cheap to
+ * generate, no asset download, and reads convincingly as "big dark room".
+ */
+function buildTheaterImpulse(ctx: AudioContext): AudioBuffer {
+  const seconds = 1.2;
+  const rate = ctx.sampleRate;
+  const length = Math.max(1, Math.floor(seconds * rate));
+  const preDelay = Math.floor(0.012 * rate);
+  const buffer = ctx.createBuffer(2, length, rate);
+  for (let ch = 0; ch < 2; ch++) {
+    const data = buffer.getChannelData(ch);
+    for (let i = preDelay; i < length; i++) {
+      const decay = Math.pow(1 - (i - preDelay) / (length - preDelay), 2.6);
+      data[i] = (Math.random() * 2 - 1) * decay;
+    }
+  }
+  return buffer;
+}
+
+/** Lazily creates the theater reverb stage; idempotent thereafter. */
+export function ensureTheater(graph: SharedAudioGraph) {
+  if (graph.theater) return graph.theater;
+  const convolver = graph.ctx.createConvolver();
+  convolver.buffer = buildTheaterImpulse(graph.ctx);
+  const dryGain = graph.ctx.createGain();
+  dryGain.gain.value = 0.92;
+  const wetGain = graph.ctx.createGain();
+  wetGain.gain.value = 0.25;
+  const mixOut = graph.ctx.createGain();
+  mixOut.gain.value = 1;
+  graph.theater = { convolver, dryGain, wetGain, mixOut };
+  return graph.theater;
+}
+
+export function setTheaterActive(graph: SharedAudioGraph, active: boolean) {
+  if (graph.theaterActive === active) return;
+  if (active) ensureTheater(graph);
+  graph.theaterActive = active;
+  rewireGraph(graph);
+}
+
+/** Reverb amount  back rows get more room, front rows mostly direct sound. */
+export function setTheaterWet(graph: SharedAudioGraph, wet: number, rampSeconds = 0.25) {
+  const theater = ensureTheater(graph);
+  const t = graph.ctx.currentTime;
+  const clamped = Math.max(0, Math.min(0.6, wet));
+  theater.wetGain.gain.cancelScheduledValues(t);
+  theater.wetGain.gain.linearRampToValueAtTime(clamped, t + Math.max(0.01, rampSeconds));
 }
 
 /**
@@ -249,11 +315,27 @@ function rewireGraph(graph: SharedAudioGraph) {
       graph.makeupGain.disconnect();
     } catch {}
   }
+  if (graph.theater) {
+    try {
+      graph.theater.convolver.disconnect();
+      graph.theater.dryGain.disconnect();
+      graph.theater.wetGain.disconnect();
+      graph.theater.mixOut.disconnect();
+    } catch {}
+  }
 
   let head: AudioNode = graph.source;
   if (graph.pannerActive) {
     head.connect(graph.panner);
     head = graph.panner;
+  }
+  if (graph.theaterActive && graph.theater) {
+    head.connect(graph.theater.dryGain);
+    graph.theater.dryGain.connect(graph.theater.mixOut);
+    head.connect(graph.theater.convolver);
+    graph.theater.convolver.connect(graph.theater.wetGain);
+    graph.theater.wetGain.connect(graph.theater.mixOut);
+    head = graph.theater.mixOut;
   }
   if (graph.analyserActive && graph.analyser) {
     head.connect(graph.analyser);

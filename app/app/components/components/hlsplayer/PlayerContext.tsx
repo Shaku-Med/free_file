@@ -171,6 +171,12 @@ interface PlayerContextValue {
 
   ambientMode: boolean;
   setAmbientMode: (v: boolean) => void;
+  /** Ambient glow follows the video live (no resample gap). */
+  ambientSync: boolean;
+  setAmbientSync: (v: boolean) => void;
+  /** Ambient glow size multiplier (1–2). */
+  ambientSize: number;
+  setAmbientSize: (v: number) => void;
   /** Blurred poster + black letterbox behind the video. Off = transparent player shell. */
   playerBackground: boolean;
   setPlayerBackground: (v: boolean) => void;
@@ -194,6 +200,15 @@ interface PlayerContextValue {
   /** Session-only debug overlay (not persisted). */
   statsForNerds: boolean;
   setStatsForNerds: (v: boolean) => void;
+  /** VR theater (three.js room around the video). Session-only  WebGL is too heavy to silently resume. */
+  vrTheater: boolean;
+  setVrTheater: (v: boolean) => void;
+  /** Picked seat in the VR theater, "row-col" (rows front→back, cols left→right). */
+  vrSeat: string;
+  setVrSeat: (v: string) => void;
+  /** Theater sound system: seat-positioned audio + room reverb. */
+  vrSoundSystem: boolean;
+  setVrSoundSystem: (v: boolean) => void;
   /** Sleep timer  pause the video after a chosen duration. `'Off'` = disabled. */
   sleepTimer: SleepTimerOption;
   setSleepTimer: (v: SleepTimerOption) => void;
@@ -216,6 +231,9 @@ interface PlayerContextValue {
 }
 
 const PlayerContext = createContext<PlayerContextValue | null>(null);
+
+/** Session-scoped VR prefs  remembered across player remounts, gone on reload. */
+const vrSessionPrefs = { theater: false, seat: '1-2', sound: false };
 
 export function usePlayerContext() {
   const ctx = useContext(PlayerContext);
@@ -334,6 +352,8 @@ export function PlayerProvider({
     setState((s) => ({ ...s, isEnded: false, hasError: false }));
   }, [fileSpriteKey]);
   const [ambientModeState, setAmbientModeState] = useState(false);
+  const [ambientSyncState, setAmbientSyncState] = useState(false);
+  const [ambientSizeState, setAmbientSizeState] = useState(2);
   const [playerBackgroundState, setPlayerBackgroundState] = useState(true);
 
   const [stableVolume, setStableVolumeState] = useState(false);
@@ -386,6 +406,23 @@ export function PlayerProvider({
     DEFAULT_AUDIO_VISUALIZER_STYLE
   );
   const [statsForNerds, setStatsForNerds] = useState(false);
+  // VR prefs survive provider remounts (watch → watch navigation) via the
+  // module-level session store, but never persist across reloads.
+  const [vrTheater, setVrTheaterState] = useState(() => vrSessionPrefs.theater);
+  const [vrSeat, setVrSeatState] = useState(() => vrSessionPrefs.seat);
+  const [vrSoundSystem, setVrSoundSystemState] = useState(() => vrSessionPrefs.sound);
+  const setVrTheater = useCallback((v: boolean) => {
+    vrSessionPrefs.theater = v;
+    setVrTheaterState(v);
+  }, []);
+  const setVrSeat = useCallback((v: string) => {
+    vrSessionPrefs.seat = v;
+    setVrSeatState(v);
+  }, []);
+  const setVrSoundSystem = useCallback((v: boolean) => {
+    vrSessionPrefs.sound = v;
+    setVrSoundSystemState(v);
+  }, []);
   const [spatialAudio, setSpatialAudioState] = useState<SpatialAudioConfig>(DEFAULT_SPATIAL_CONFIG);
   const [spatialAudioDialogOpen, setSpatialAudioDialogOpen] = useState(false);
   const setSpatialAudio = useCallback(
@@ -520,6 +557,8 @@ export function PlayerProvider({
         parseStemInstrumentMap(playerSettings.videoBounceInstruments, DEFAULT_VIDEO_BOUNCE_INSTRUMENTS),
       );
       setAmbientModeState(playerSettings.ambientMode);
+      setAmbientSyncState(playerSettings.ambientSync === true);
+      setAmbientSizeState(Math.max(1, Math.min(2, playerSettings.ambientSize ?? 2)));
     } else {
       setAudioVisualizerState(false);
       audioVisualizerStyleRef.current = DEFAULT_AUDIO_VISUALIZER_STYLE;
@@ -938,6 +977,25 @@ export function PlayerProvider({
     [setPlayerSettings, savePlayerSettings]
   );
 
+  const setAmbientSync = useCallback(
+    (v: boolean) => {
+      setAmbientSyncState(v);
+      setPlayerSettings(prev => (prev ? { ...prev, ambientSync: v } : prev));
+      savePlayerSettings({ ambientSync: v }).catch(() => {});
+    },
+    [setPlayerSettings, savePlayerSettings]
+  );
+
+  const setAmbientSize = useCallback(
+    (v: number) => {
+      const clamped = Math.max(1, Math.min(2, v));
+      setAmbientSizeState(clamped);
+      setPlayerSettings(prev => (prev ? { ...prev, ambientSize: clamped } : prev));
+      savePlayerSettings({ ambientSize: clamped }).catch(() => {});
+    },
+    [setPlayerSettings, savePlayerSettings]
+  );
+
   const value: PlayerContextValue = {
     hlsRef,
     containerRef,
@@ -982,6 +1040,10 @@ export function PlayerProvider({
     setStemConfettiInstrument,
     ambientMode: ambientModeState,
     setAmbientMode,
+    ambientSync: ambientSyncState,
+    setAmbientSync,
+    ambientSize: ambientSizeState,
+    setAmbientSize,
     playerBackground: playerBackgroundState,
     setPlayerBackground,
     stableVolume,
@@ -1000,6 +1062,12 @@ export function PlayerProvider({
     setVideoBounceInstrument,
     statsForNerds,
     setStatsForNerds,
+    vrTheater,
+    setVrTheater,
+    vrSeat,
+    setVrSeat,
+    vrSoundSystem,
+    setVrSoundSystem,
     sleepTimer,
     setSleepTimer,
     sleepTimerEndsAt,

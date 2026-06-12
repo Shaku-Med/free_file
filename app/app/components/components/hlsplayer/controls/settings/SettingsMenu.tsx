@@ -1,4 +1,4 @@
-import { useEffect, useState, type RefObject } from 'react';
+﻿import { useEffect, useState, type RefObject } from 'react';
 import { Link } from 'react-router';
 import { useAuthHrefs } from '~/lib/loginRedirect';
 import { isMobile } from 'react-device-detect';
@@ -17,6 +17,8 @@ import {
   Headphones,
   PartyPopper,
   Activity,
+  Orbit,
+  Speaker,
 } from 'lucide-react';
 import { usePlayerContext, SLEEP_TIMER_OPTIONS } from '../../PlayerContext';
 import { isSpatialAudioUiSupported } from '../../hooks/useSpatialAudio';
@@ -68,15 +70,16 @@ function Switch({
         onChange(!checked);
       }}
       className={cn(
-        'relative inline-flex h-5 w-9 shrink-0 rounded-full transition-colors duration-200',
-        checked ? 'bg-primary' : 'bg-secondary',
+        'relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors duration-200 ease-out',
+        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-popover',
+        checked ? 'bg-primary' : 'bg-muted-foreground/25',
         disabled && 'cursor-not-allowed opacity-50'
       )}
     >
       <span
         className={cn(
-          'pointer-events-none inline-block h-4 w-3.5 translate-y-0.5 rounded-full border-2 border-primary bg-background shadow transition-transform duration-200',
-          checked ? 'translate-x-4' : 'translate-x-1'
+          'pointer-events-none inline-block size-3.5 rounded-full bg-white shadow-sm ring-1 ring-black/10 transition-transform duration-200 ease-out',
+          checked ? 'translate-x-[18px]' : 'translate-x-1'
         )}
       />
     </button>
@@ -91,6 +94,10 @@ export function SettingsMenuBody() {
     setQualityLevel,
     ambientMode,
     setAmbientMode,
+    ambientSync,
+    setAmbientSync,
+    ambientSize,
+    setAmbientSize,
     playerBackground,
     setPlayerBackground,
     autoPlay,
@@ -114,6 +121,10 @@ export function SettingsMenuBody() {
     setStemConfettiInstrument,
     statsForNerds,
     setStatsForNerds,
+    vrTheater,
+    setVrTheater,
+    vrSoundSystem,
+    setVrSoundSystem,
     sleepTimer,
     setSleepTimer,
     sleepTimerEndsAt,
@@ -160,20 +171,28 @@ export function SettingsMenuBody() {
   })();
 
   const toggleRowClass =
-    'flex w-full min-w-0 cursor-default items-center justify-between gap-3 rounded-lg py-0.5';
+    'flex w-full min-w-0 cursor-default items-center justify-between gap-3 rounded-lg py-1';
+
+  /** Tiny uppercase section headers  reads like one settings card per group. */
+  const sectionLabelClass =
+    'px-2 pb-0.5 pt-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground/70';
+
+  /** Right-side current-value chips (speed, quality, sleep, size, etc). */
+  const valueChipClass =
+    'shrink-0 rounded-full bg-muted/70 px-2 py-0.5 text-[11px] font-medium tabular-nums text-muted-foreground';
 
   return (
     <>
       {!auth && (
-        <div className="mx-1 mb-2 rounded-md border border-border/60 bg-muted/40 px-2.5 py-2 text-xs leading-snug text-muted-foreground sm:mx-2 sm:px-3">
-          <Link to={loginHref} className="font-medium text-primary hover:underline">
+        <div className="mx-1 mb-2 rounded-lg border border-primary/20 bg-gradient-to-br from-primary/10 to-transparent px-2.5 py-2 text-xs leading-snug text-muted-foreground sm:mx-2 sm:px-3">
+          <Link to={loginHref} className="font-semibold text-primary hover:underline">
             Sign in
           </Link>{' '}
           to use autoplay (up next), ambient mode, and the audio visualizer.
         </div>
       )}
       <DropdownMenuGroup>
-        <DropdownMenuLabel>Playback</DropdownMenuLabel>
+        <DropdownMenuLabel className={sectionLabelClass}>Playback</DropdownMenuLabel>
         <Tooltip>
           <TooltipTrigger asChild>
             <DropdownMenuItem
@@ -215,10 +234,10 @@ export function SettingsMenuBody() {
         </DropdownMenuItem>
       </DropdownMenuGroup>
 
-      <DropdownMenuSeparator />
+      <DropdownMenuSeparator className="my-1.5 bg-border/50" />
 
       <DropdownMenuGroup>
-        <DropdownMenuLabel>Display</DropdownMenuLabel>
+        <DropdownMenuLabel className={sectionLabelClass}>Display</DropdownMenuLabel>
         <Tooltip>
           <TooltipTrigger asChild>
             <DropdownMenuItem
@@ -238,6 +257,36 @@ export function SettingsMenuBody() {
             </TooltipContent>
           )}
         </Tooltip>
+        {ambientMode && auth && (
+          <>
+            <DropdownMenuItem
+              onSelect={(e) => e.preventDefault()}
+              className={cn(toggleRowClass, 'pl-7')}
+            >
+              <span className="flex min-w-0 flex-1 items-center gap-2">
+                <Activity className="size-4 shrink-0 text-muted-foreground" />
+                <span className="min-w-0 truncate">Ambient sync</span>
+              </span>
+              <Switch checked={ambientSync} onChange={setAmbientSync} />
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onSelect={(e) => {
+                e.preventDefault();
+                // Cycle 1x â†’ 1.25x â†’ 1.5x â†’ 2x â†’ 1x.
+                const steps = [1, 1.25, 1.5, 2];
+                const idx = steps.findIndex((s) => Math.abs(s - ambientSize) < 0.01);
+                setAmbientSize(steps[(idx + 1) % steps.length]);
+              }}
+              className={cn(toggleRowClass, 'cursor-pointer pl-7')}
+            >
+              <span className="flex min-w-0 flex-1 items-center gap-2">
+                <Monitor className="size-4 shrink-0 text-muted-foreground" />
+                <span className="min-w-0 truncate">Ambient size</span>
+              </span>
+              <span className={valueChipClass}>{ambientSize}x</span>
+            </DropdownMenuItem>
+          </>
+        )}
         <DropdownMenuItem
           onSelect={(e) => e.preventDefault()}
           className={toggleRowClass}
@@ -248,6 +297,39 @@ export function SettingsMenuBody() {
           </span>
           <Switch checked={playerBackground} onChange={setPlayerBackground} />
         </DropdownMenuItem>
+        {!isReel && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <DropdownMenuItem
+                onSelect={(e) => e.preventDefault()}
+                className={cn(toggleRowClass, !auth && 'opacity-60')}
+              >
+                <span className="flex min-w-0 flex-1 items-center gap-2">
+                  <Orbit className="size-4 shrink-0 text-muted-foreground" />
+                  <span className="min-w-0 truncate">VR theater</span>
+                </span>
+                <Switch checked={vrTheater} onChange={setVrTheater} disabled={!auth} />
+              </DropdownMenuItem>
+            </TooltipTrigger>
+            {!auth && (
+              <TooltipContent side={isMobile ? 'top' : 'left'} className="max-w-[220px]">
+                Sign in to watch inside the 3D theater room.
+              </TooltipContent>
+            )}
+          </Tooltip>
+        )}
+        {!isReel && vrTheater && (
+          <DropdownMenuItem
+            onSelect={(e) => e.preventDefault()}
+            className={cn(toggleRowClass, 'pl-7')}
+          >
+            <span className="flex min-w-0 flex-1 items-center gap-2">
+              <Speaker className="size-4 shrink-0 text-muted-foreground" />
+              <span className="min-w-0 truncate">Sound system</span>
+            </span>
+            <Switch checked={vrSoundSystem} onChange={setVrSoundSystem} disabled={!auth} />
+          </DropdownMenuItem>
+        )}
         {!isReel && audioStemsAvailable && (
           <Tooltip>
             <TooltipTrigger asChild>
@@ -292,7 +374,12 @@ export function SettingsMenuBody() {
               <Headphones className="size-4 shrink-0 text-muted-foreground" />
               <span className="min-w-0 truncate">8D / Spatial audio</span>
             </span>
-            <span className="shrink-0 text-xs text-muted-foreground">
+            <span
+              className={cn(
+                valueChipClass,
+                spatialAudio.enabled && 'bg-primary/15 text-primary',
+              )}
+            >
               {spatialAudio.enabled ? 'On' : 'Off'}
             </span>
           </DropdownMenuItem>
@@ -301,11 +388,11 @@ export function SettingsMenuBody() {
 
       {!isReel && audioStemsAvailable && audioVisualizer && (
         <>
-          <DropdownMenuSeparator />
+          <DropdownMenuSeparator className="my-1.5 bg-border/50" />
           <DropdownMenuGroup>
-            <DropdownMenuLabel>Visualizer</DropdownMenuLabel>
+            <DropdownMenuLabel className={sectionLabelClass}>Visualizer</DropdownMenuLabel>
             {/*
-              MIGHT NEED LATER — DO NOT TOUCH.
+              MIGHT NEED LATER - DO NOT TOUCH.
               Legacy canvas analyser style picker (bars / mirror / ribbon / pulse).
             <DropdownMenuCollapsible>
               <DropdownMenuCollapsibleTrigger className="w-full min-w-0 gap-2 pr-1">
@@ -313,7 +400,7 @@ export function SettingsMenuBody() {
                   <Waves className="size-4 shrink-0 text-muted-foreground" />
                   <span className="min-w-0 truncate">Style</span>
                 </span>
-                <span className="shrink-0 pl-1 text-right text-xs font-normal tabular-nums text-muted-foreground">
+                <span className={cn(valueChipClass, 'ml-1')}>
                   {AUDIO_VISUALIZER_STYLE_LABELS[audioVisualizerStyle]}
                 </span>
               </DropdownMenuCollapsibleTrigger>
@@ -368,7 +455,7 @@ export function SettingsMenuBody() {
                     <Activity className="size-4 shrink-0 text-muted-foreground" />
                     <span className="min-w-0 truncate">Dance tuning</span>
                   </span>
-                  <span className="shrink-0 pl-1 text-right text-xs font-normal text-muted-foreground">
+                  <span className={cn(valueChipClass, 'ml-1')}>
                     {Math.round(videoBounceIntensity * 100)}%
                   </span>
                 </DropdownMenuCollapsibleTrigger>
@@ -426,17 +513,17 @@ export function SettingsMenuBody() {
         </>
       )}
 
-      <DropdownMenuSeparator />
+      <DropdownMenuSeparator className="my-1.5 bg-border/50" />
 
       <DropdownMenuGroup>
-        <DropdownMenuLabel>Timers and media</DropdownMenuLabel>
+        <DropdownMenuLabel className={sectionLabelClass}>Timers and media</DropdownMenuLabel>
         <DropdownMenuCollapsible>
           <DropdownMenuCollapsibleTrigger className="w-full min-w-0 gap-2 pr-1">
             <span className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden">
               <Moon className="size-4 shrink-0 text-muted-foreground" />
               <span className="min-w-0 truncate">Sleep timer</span>
             </span>
-            <span className="shrink-0 pl-1 text-right text-xs font-normal tabular-nums text-muted-foreground">
+            <span className={cn(valueChipClass, 'ml-1')}>
               {sleepLabel}
             </span>
           </DropdownMenuCollapsibleTrigger>
@@ -459,7 +546,7 @@ export function SettingsMenuBody() {
               <Gauge className="size-4 shrink-0 text-muted-foreground" />
               <span className="min-w-0 truncate">Playback speed</span>
             </span>
-            <span className="shrink-0 pl-1 text-right text-xs font-normal tabular-nums text-muted-foreground">
+            <span className={cn(valueChipClass, 'ml-1')}>
               {speedLabel}
             </span>
           </DropdownMenuCollapsibleTrigger>
@@ -483,7 +570,7 @@ export function SettingsMenuBody() {
                 <Signal className="size-4 shrink-0 text-muted-foreground" />
                 <span className="min-w-0 truncate">Quality</span>
               </span>
-              <span className="shrink-0 pl-1 text-right text-xs font-normal tabular-nums text-muted-foreground">
+              <span className={cn(valueChipClass, 'ml-1')}>
                 {qualityLabel}
               </span>
             </DropdownMenuCollapsibleTrigger>
