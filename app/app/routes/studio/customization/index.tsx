@@ -46,6 +46,7 @@ import {
   DEFAULT_CHANNEL_LAYOUT,
   SECTION_LABELS,
   SECTION_DESCRIPTIONS,
+  CHANNEL_HOME_PREVIEW_LIMIT,
   CHANNEL_SECTION_TYPES,
   MAX_SECTIONS,
   type ChannelLayout,
@@ -95,7 +96,11 @@ export const loader = async ({ request }: { request: Request }) => {
 
   const [{ data: userRow }, { data: homeRows }, { data: plRows }] = await Promise.all([
     db.from("users").select("channel_layout").eq("id", user.id).maybeSingle(),
-    db.rpc("get_channel_home", { p_profile_user_id: user.id, p_viewer_id: user.id, p_limit: 6 }),
+    db.rpc("get_channel_home", {
+      p_profile_user_id: user.id,
+      p_viewer_id: user.id,
+      p_limit: CHANNEL_HOME_PREVIEW_LIMIT,
+    }),
     db.rpc("get_user_playlists", { p_user_id: user.id }),
   ]);
 

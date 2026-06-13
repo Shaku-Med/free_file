@@ -11,6 +11,9 @@ CREATE TABLE IF NOT EXISTS user_watch_history (
 CREATE INDEX IF NOT EXISTS idx_user_watch_history_user_viewed
   ON user_watch_history (user_id, last_viewed_at DESC);
 
+CREATE INDEX IF NOT EXISTS idx_likes_user_created
+  ON public.likes (user_id, created_at DESC);
+
 ALTER TABLE user_watch_history ENABLE ROW LEVEL SECURITY;
 
 -- Server calls with p_user_id from verified session only (same trust model as get_profile_files).
@@ -93,7 +96,7 @@ BEGIN
   base AS (
     SELECT
       f.id AS fid,
-      l.id AS like_id,
+      l.created_at AS liked_at,
       f.created_at,
       f.endpoint,
       f.filename,
@@ -140,7 +143,7 @@ BEGIN
   ranked AS (
     SELECT
       e.*,
-      ROW_NUMBER() OVER (ORDER BY e.like_id DESC) AS _rn
+      ROW_NUMBER() OVER (ORDER BY e.liked_at DESC NULLS LAST, e.fid DESC) AS _rn
     FROM enriched e
   )
   SELECT

@@ -7,8 +7,8 @@
 --     "featuredFileId": uuid|null }  -- shown to subscribers
 -- NULL = the app's default layout. Section types: shorts|videos|popular|playlists.
 --
--- Also adds get_channel_home(): one round trip returning the top N of each
--- content bucket (shorts / videos / popular) for a profile, in the SAME row
+-- Also adds get_channel_home(): one round trip returning the top N (default 6)
+-- of each content bucket (shorts / videos / popular) for a profile, in the SAME row
 -- shape as get_profile_files (so the existing client normalizer + VideoCard
 -- just work) plus a `section` discriminator column.
 -- Run in Supabase SQL Editor (idempotent).
@@ -21,7 +21,7 @@ DROP FUNCTION IF EXISTS get_channel_home(uuid, uuid, int);
 CREATE OR REPLACE FUNCTION get_channel_home(
   p_profile_user_id uuid,
   p_viewer_id       uuid DEFAULT NULL,
-  p_limit           int  DEFAULT 12
+  p_limit           int  DEFAULT 6
 )
 RETURNS TABLE (
   id               uuid,

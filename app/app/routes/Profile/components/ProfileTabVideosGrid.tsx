@@ -1,14 +1,13 @@
-import { useState, useCallback, useRef, useEffect } from "react";
+import { useState, useCallback, useRef, useEffect, useMemo } from "react";
 import type { FileType } from "~/lib/types";
 import VideoCard from "~/routes/Home/components/VideoCard";
 import { SignInToSeeMore } from "~/components/SignInWall";
 import { Button } from "~/components/ui/button";
-import { groupConsecutiveReelClusters } from "~/lib/feed/groupConsecutiveReelClusters";
-import { Swiper, SwiperSlide } from "swiper/react";
-import { Navigation, A11y, Keyboard } from "swiper/modules";
-import type { Swiper as SwiperType } from "swiper";
-import "swiper/css";
-import "swiper/css/navigation";
+import { cn } from "~/lib/utils";
+import {
+  groupProfileTabItems,
+  type ProfileTabRenderGroup,
+} from "~/lib/feed/groupProfileTabItems";
 
 function SkeletonCard() {
   return (
@@ -28,6 +27,13 @@ function SkeletonCard() {
 
 type ProfileVideoTab = "liked" | "history" | "adult" | "shorts" | "videos" | "popular";
 
+/** Channel "See all" grids — public content, paginate without sign-in. */
+const PUBLIC_SECTION_TABS = new Set<ProfileVideoTab>(["shorts", "videos", "popular"]);
+
+function getPageScrollRoot(): HTMLElement | null {
+  return document.getElementById("scroll_container");
+}
+
 interface ProfileTabVideosGridProps {
   tab: ProfileVideoTab;
   userId: string;
@@ -35,6 +41,13 @@ interface ProfileTabVideosGridProps {
   sectionTitle: string;
   emptyMessage: string;
   dataReady?: boolean;
+}
+
+function gridClassForGroup(group: ProfileTabRenderGroup): string {
+  if (group.variant === "shorts") {
+    return "grid w-full min-w-0 grid-cols-2 gap-4 sm:gap-5 md:grid-cols-3 lg:grid-cols-3 xl:grid-cols-4";
+  }
+  return "grid w-full min-w-0 grid-cols-1 gap-4 sm:grid-cols-2 sm:gap-5 xl:grid-cols-3";
 }
 
 const ProfileTabVideosGrid = ({
@@ -47,6 +60,7 @@ const ProfileTabVideosGrid = ({
 }: ProfileTabVideosGridProps) => {
   const [files, setFiles] = useState<FileType[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [loadError, setLoadError] = useState(false);
   const [reloadNonce, setReloadNonce] = useState(0);
   const [hasMore, setHasMore] = useState(false);
@@ -73,6 +87,7 @@ const ProfileTabVideosGrid = ({
     setHasMore(false);
     setUserActions(undefined);
     setIsLoading(true);
+    setIsLoadingMore(false);
     setLoadError(false);
     loadingRef.current = false;
 
@@ -114,10 +129,12 @@ const ProfileTabVideosGrid = ({
     };
   }, [userId, tab, mergeUserActions, reloadNonce]);
 
+  const allowPagination = !!currentUserId || PUBLIC_SECTION_TABS.has(tab);
+
   const loadMore = useCallback(async () => {
-    if (loadingRef.current || !hasMore) return;
+    if (loadingRef.current || !hasMore || !allowPagination) return;
     loadingRef.current = true;
-    setIsLoading(true);
+    setIsLoadingMore(true);
 
     try {
       const nextPage = currentPage + 1;
@@ -154,10 +171,10 @@ const ProfileTabVideosGrid = ({
       console.error("ProfileTabVideosGrid loadMore:", error);
       setHasMore(false);
     } finally {
-      setIsLoading(false);
+      setIsLoadingMore(false);
       loadingRef.current = false;
     }
-  }, [hasMore, currentPage, userId, tab, mergeUserActions]);
+  }, [hasMore, currentPage, userId, tab, mergeUserActions, allowPagination]);
 
   const handleFileUpdate = useCallback((fileId: string, updates: Partial<FileType>) => {
     setFiles((prev) =>
@@ -167,20 +184,33 @@ const ProfileTabVideosGrid = ({
 
   useEffect(() => {
     const el = observerRef.current;
-    if (!el || !hasMore) return;
+    if (!el || !hasMore || !allowPagination) return;
 
+    const scrollRoot = getPageScrollRoot();
     const observer = new IntersectionObserver(
       (entries) => {
         if (entries[0].isIntersecting && !loadingRef.current) {
           loadMore();
         }
       },
-      { threshold: 0.1, rootMargin: "200px" }
+      {
+        threshold: 0.1,
+        rootMargin: "200px",
+        ...(scrollRoot ? { root: scrollRoot } : {}),
+      }
     );
 
     observer.observe(el);
     return () => observer.disconnect();
-  }, [loadMore, hasMore]);
+  }, [loadMore, hasMore, allowPagination, files.length]);
+
+  const groups = useMemo(() => {
+    const raw = groupProfileTabItems(files);
+    if (PUBLIC_SECTION_TABS.has(tab) && raw.length === 1) {
+      return [{ ...raw[0], label: sectionTitle }];
+    }
+    return raw;
+  }, [files, tab, sectionTitle]);
 
   if (!isLoading && files.length === 0) {
     return (
@@ -203,96 +233,64 @@ const ProfileTabVideosGrid = ({
 
   return (
     <div className="space-y-6" data-data-ready={dataReady}>
-      <div data-data-ready={dataReady}>
-        {(() => {
-          const groups = groupConsecutiveReelClusters(files);
+      <div className="space-y-8 sm:space-y-10" data-data-ready={dataReady}>
+        {groups.map((group, groupIndex) => {
           let indexCounter = 0;
+          for (let g = 0; g < groupIndex; g++) {
+            indexCounter += groups[g].files.length;
+          }
+          const groupKey = `${group.variant}-${group.label}-${group.files[0]?.id ?? groupIndex}`;
+
           return (
-            <div className="grid w-full min-w-0 grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
-              {groups.map((g) => {
-                if (g.kind === "single") {
-                  const file = g.file;
-                  const index = indexCounter++;
+            <section key={groupKey} className="space-y-3">
+              <h2 className="text-base font-semibold tracking-tight text-foreground sm:text-lg">
+                {group.label}
+              </h2>
+              <div className={gridClassForGroup(group)}>
+                {group.files.map((file, i) => {
+                  const index = indexCounter + i;
                   return (
                     <VideoCard
                       key={file.id || file.unique_id || index}
                       data={file}
                       index={index}
+                      layout={group.variant === "shorts" ? "reelStrip" : undefined}
                       currentUserId={currentUserId}
                       userActions={userActions}
                       onUpdate={handleFileUpdate}
                       showOwnerControls={true}
-                      hideActions={{ completely: false }}
+                      hideActions={{
+                        completely: false,
+                        halfway: group.variant === "shorts",
+                      }}
                     />
                   );
-                }
-                const clusterKey =
-                  g.files[0]?.feed_reel_cluster_id ?? g.files[0]?.id ?? `profile-${tab}`;
-                return (
-                  <div
-                    key={`profile-${tab}-reel-${clusterKey}`}
-                    className="col-span-full w-full min-w-0 max-w-full overflow-hidden"
-                  >
-                    <Swiper
-                      modules={[Navigation, A11y, Keyboard]}
-                      slidesPerView={3.15}
-                      spaceBetween={10}
-                      speed={380}
-                      watchOverflow
-                      observer
-                      observeParents
-                      resizeObserver
-                      navigation
-                      keyboard={{ enabled: true, onlyInViewport: true }}
-                      breakpoints={{
-                        640: { slidesPerView: 2.5, spaceBetween: 12 },
-                        768: { slidesPerView: 3, spaceBetween: 12 },
-                        1024: { slidesPerView: 3.5, spaceBetween: 14 },
-                        1280: { slidesPerView: 4, spaceBetween: 14 },
-                        1536: { slidesPerView: 5, spaceBetween: 16 },
-                      }}
-                      className="feed-reel-swiper"
-                      onInit={(swiper: SwiperType) => swiper.update()}
-                    >
-                      {g.files.map((file, keyIndex) => {
-                        const index = indexCounter++;
-                        return (
-                          <SwiperSlide
-                            key={file.id || file.unique_id || keyIndex}
-                            className="!h-auto"
-                          >
-                            <VideoCard
-                              data={file}
-                              layout="reelStrip"
-                              index={index}
-                              currentUserId={currentUserId}
-                              userActions={userActions}
-                              onUpdate={handleFileUpdate}
-                              showOwnerControls={true}
-                              hideActions={{ completely: false, halfway: true }}
-                            />
-                          </SwiperSlide>
-                        );
-                      })}
-                    </Swiper>
-                  </div>
-                );
-              })}
-              {isLoading &&
-                Array.from({ length: files.length === 0 ? 6 : 4 }).map((_, i) => (
-                  <SkeletonCard key={`skel-${i}`} />
-                ))}
-            </div>
+                })}
+              </div>
+            </section>
           );
-        })()}
+        })}
+        {(isLoading || isLoadingMore) && (
+          <div
+            className={cn(
+              "grid w-full min-w-0 gap-4 sm:gap-5",
+              tab === "shorts"
+                ? "grid-cols-2 md:grid-cols-3 xl:grid-cols-4"
+                : "grid-cols-1 sm:grid-cols-2 xl:grid-cols-3",
+            )}
+          >
+            {Array.from({ length: files.length === 0 ? 6 : 4 }).map((_, i) => (
+              <SkeletonCard key={`skel-${i}`} />
+            ))}
+          </div>
+        )}
       </div>
-      {hasMore && (
-        currentUserId ? (
-          <div ref={observerRef} className="h-1" />
+      {hasMore &&
+        (allowPagination ? (
+          <div ref={observerRef} className="h-10 w-full shrink-0" aria-hidden />
         ) : (
           <SignInToSeeMore />
-        )
-      )}
+        ))}
     </div>
   );
 };

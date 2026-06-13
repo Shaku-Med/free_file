@@ -20,6 +20,7 @@ import { normalizeRpcFileRow } from "~/lib/profile/normalizeRpcFileRow";
 import {
   sanitizeChannelLayout,
   DEFAULT_CHANNEL_LAYOUT,
+  CHANNEL_HOME_PREVIEW_LIMIT,
   SECTION_LABELS,
   type ChannelLayout,
 } from "~/lib/channel/channelLayout";
@@ -154,7 +155,7 @@ export const loader = async ({ request, params }: { request: Request; params: { 
         db.rpc("get_channel_home", {
           p_profile_user_id: profileResult.data.id,
           p_viewer_id: currentUserId,
-          p_limit: 12,
+          p_limit: CHANNEL_HOME_PREVIEW_LIMIT,
         }),
       ]);
 

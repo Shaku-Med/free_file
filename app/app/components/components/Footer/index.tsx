@@ -1,7 +1,9 @@
 import { Link, useLocation } from "react-router";
 import Logo from "~/components/Navbar/Logo/Logo";
-import { cn } from "~/lib/utils";
 import { SITE_NAME } from "~/lib/seo";
+
+/** Match `BodyComponent` / `sidebar_body` horizontal padding. */
+const FOOTER_SHELL = "mx-auto w-full min-w-0 px-3 sm:px-5 lg:px-8 xl:px-4";
 
 const FOOTER_VISIBLE_PREFIXES = [
   "/privacy",
@@ -37,36 +39,18 @@ function shouldHideFooter(pathname: string): boolean {
 }
 
 const linkClass =
-  "inline-block rounded-md py-1 text-sm text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2";
+  "rounded-md text-sm text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2";
 
-function FooterLink({ to, children }: { to: string; children: React.ReactNode }) {
-  return (
-    <li>
-      <Link to={to} className={linkClass}>
-        {children}
-      </Link>
-    </li>
-  );
-}
-
-function FooterColumn({
-  title,
-  children,
-  className,
-}: {
-  title: string;
-  children: React.ReactNode;
-  className?: string;
-}) {
-  return (
-    <div className={cn("min-w-0", className)}>
-      <h3 className="text-xs font-semibold uppercase tracking-wide text-foreground">
-        {title}
-      </h3>
-      <ul className="mt-3 space-y-1.5">{children}</ul>
-    </div>
-  );
-}
+const FOOTER_LINKS = [
+  { to: "/", label: "Home" },
+  { to: "/playlist", label: "Playlists" },
+  { to: "/brozystudio", label: "Studio" },
+  { to: "/features/incoming", label: "Roadmap" },
+  { to: "/privacy", label: "Privacy" },
+  { to: "/terms", label: "Terms" },
+  { to: "/dmca", label: "DMCA" },
+  { to: "/community-guidelines", label: "Guidelines" },
+] as const;
 
 const Footer = () => {
   const { pathname } = useLocation();
@@ -75,9 +59,9 @@ const Footer = () => {
 
   return (
     <footer className="mt-auto border-t border-border/60 bg-background">
-      <div className="mx-auto w-full max-w-6xl px-3 py-8 sm:px-5 sm:py-10 lg:px-8">
-        <div className="grid gap-8 sm:grid-cols-2 lg:grid-cols-12 lg:gap-10">
-          <div className="min-w-0 sm:col-span-2 lg:col-span-5">
+      <div className={`${FOOTER_SHELL} py-10 sm:py-12`}>
+        <div className="flex flex-col gap-8 sm:gap-9">
+          <div className="max-w-lg">
             <Link
               to="/"
               className="inline-flex items-center gap-2.5 rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
@@ -87,54 +71,44 @@ const Footer = () => {
                 {SITE_NAME}
               </span>
             </Link>
-            <p className="mt-3 max-w-sm text-sm leading-relaxed text-muted-foreground">
-              Upload, share, and keep your photos and videos. Choose what stays
-              public or private.
-            </p>
-            <p className="mt-4 max-w-sm rounded-lg border border-border/50 bg-card/40 px-3 py-2.5 text-xs leading-relaxed text-muted-foreground">
-              Uploads are permanent. Only share content you&apos;re comfortable
-              keeping on the platform.
+            <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
+              Upload and share photos and videos your way. Keep things public,
+              private, or somewhere in between.
             </p>
           </div>
 
-          <FooterColumn title="Platform" className="lg:col-span-2">
-            <FooterLink to="/">Home</FooterLink>
-            <FooterLink to="/playlist">Playlists</FooterLink>
-            <FooterLink to="/brozystudio">Studio</FooterLink>
-            <FooterLink to="/features/incoming">Features</FooterLink>
-          </FooterColumn>
+          <nav
+            aria-label="Footer"
+            className="flex flex-wrap gap-x-4 gap-y-2 sm:gap-x-5"
+          >
+            {FOOTER_LINKS.map(({ to, label }) => (
+              <Link key={to} to={to} className={linkClass}>
+                {label}
+              </Link>
+            ))}
+          </nav>
 
-          <FooterColumn title="Legal" className="lg:col-span-2">
-            <FooterLink to="/privacy">Privacy</FooterLink>
-            <FooterLink to="/terms">Terms</FooterLink>
-            <FooterLink to="/dmca">DMCA</FooterLink>
-            <FooterLink to="/community-guidelines">Guidelines</FooterLink>
-          </FooterColumn>
+          <p className="max-w-lg text-xs leading-relaxed text-muted-foreground">
+            Uploads stay on the platform — only share what you&apos;re comfortable
+            keeping around.
+          </p>
 
-          <FooterColumn title="Support" className="lg:col-span-3">
-            <li>
+          <div className="flex flex-col gap-4 border-t border-border/50 pt-6 text-xs text-muted-foreground sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
+            <p>
+              © {new Date().getFullYear()} {SITE_NAME}
+            </p>
+            <div className="flex flex-wrap gap-x-4 gap-y-1">
               <a href="mailto:abuse@memories.brozy.org" className={linkClass}>
                 Report abuse
               </a>
-            </li>
-            <li>
               <a href="mailto:privacy@memories.brozy.org" className={linkClass}>
                 Privacy requests
               </a>
-            </li>
-            <li>
               <a href="mailto:dmca@memories.brozy.org" className={linkClass}>
-                Copyright (DMCA)
+                Copyright
               </a>
-            </li>
-          </FooterColumn>
-        </div>
-
-        <div className="mt-8 flex flex-col gap-2 border-t border-border/50 pt-6 text-xs text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
-          <p>
-            © {new Date().getFullYear()} {SITE_NAME}. All rights reserved.
-          </p>
-          <p className="sm:text-right">memories.brozy.org</p>
+            </div>
+          </div>
         </div>
       </div>
     </footer>

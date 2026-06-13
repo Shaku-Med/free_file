@@ -5,6 +5,7 @@ import VideoCard from "~/routes/Home/components/VideoCard";
 import { cn } from "~/lib/utils";
 import type { FileType } from "~/lib/types";
 import {
+  CHANNEL_HOME_PREVIEW_LIMIT,
   SECTION_LABELS,
   type ChannelSection,
   type ChannelSectionType,
@@ -48,7 +49,7 @@ function SectionRow({
           </Link>
         )}
       </div>
-      <div className="-mx-1 flex snap-x gap-3 overflow-x-auto px-1 pb-1 [scrollbar-width:thin] sm:gap-4">
+      <div className="-mx-1 flex snap-x gap-3 overflow-x-auto px-1 pb-1 [scrollbar-width:thin] sm:gap-4 md:gap-5">
         {children}
       </div>
     </section>
@@ -122,12 +123,20 @@ export default function ChannelHome({
 }: ChannelHomeProps) {
   const renderFileRow = (type: ChannelSectionType, files: FileType[], reel: boolean) => {
     if (files.length === 0) return null;
+    const preview = files.slice(0, CHANNEL_HOME_PREVIEW_LIMIT);
+    const seeAllTo =
+      files.length >= CHANNEL_HOME_PREVIEW_LIMIT ? (`?view=${type}` as const) : undefined;
     return (
-      <SectionRow key={type} title={SECTION_LABELS[type]} to={`?view=${type}`}>
-        {files.map((file, i) => (
+      <SectionRow key={type} title={SECTION_LABELS[type]} to={seeAllTo}>
+        {preview.map((file, i) => (
           <div
             key={file.id}
-            className={cn("shrink-0 snap-start", reel ? "w-36 sm:w-40" : "w-64 sm:w-72")}
+            className={cn(
+              "shrink-0 snap-start",
+              reel
+                ? "w-[46vw] max-w-[11.5rem] sm:w-44 md:w-48 lg:w-52"
+                : "w-[78vw] max-w-[18rem] sm:w-64 sm:max-w-none md:w-72",
+            )}
           >
             <VideoCard
               data={file}

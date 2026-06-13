@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, useLocation } from "react-router";
 import { ArrowLeft, Plus, Search } from "lucide-react";
 import Logo from "./Logo/Logo";
@@ -23,6 +23,16 @@ const iconBtn =
 const iconBtnReel =
   "text-white/95 hover:bg-white/12 focus-visible:ring-white/40";
 
+function getProfileUsernameFromPath(pathname: string): string | null {
+  const match = pathname.match(/^\/profile\/([^/]+)\/?$/);
+  if (!match) return null;
+  try {
+    return decodeURIComponent(match[1]);
+  } catch {
+    return match[1];
+  }
+}
+
 export default function Navbar({ hasScrolled = { state: false, opacityLevel: 0 } }: NavbarProps) {
   const { userId, setIsModalOpen } = useFileContext();
   const { isMobile, state, sheetOnly } = useSidebar();
@@ -37,6 +47,10 @@ export default function Navbar({ hasScrolled = { state: false, opacityLevel: 0 }
   const showMemoriesLabel = bodyContentWidthPx >= 420;
   const onReelRoute = isReelRoute(location.pathname);
   const isStandalone = useStandalone();
+  const profileUsername = useMemo(
+    () => getProfileUsernameFromPath(location.pathname),
+    [location.pathname],
+  );
 
   // On reels we never use the inline (desktop) search bar — it would cover the video.
   // Force the icon → expand flow at every screen size there.
@@ -107,23 +121,35 @@ export default function Navbar({ hasScrolled = { state: false, opacityLevel: 0 }
         ) : (
           <div className="flex min-w-0 shrink-0 items-center gap-1">
             <SidebarTrigger className={cn(iconBtn, onReelRoute && iconBtnReel, "[&_svg]:size-5")} />
-            {/* Logo lives in the sidebar on desktop  topbar carries it only on mobile (sheet nav). */}
+            {/* Logo lives in the sidebar on desktop; topbar carries it only on mobile (sheet nav). */}
             {isMobile && !onReelRoute ? (
-              <Link
-                to="/"
-                id="home_button"
-                className="group flex min-w-0 items-center gap-1 rounded-lg px-1 py-1 hover:bg-muted/60 sm:gap-1.5"
-              >
-                <Logo className="h-7 w-7 shrink-0 text-primary sm:h-8 sm:w-8" />
-                <span
-                  className={cn(
-                    "truncate text-base font-bold tracking-tight text-foreground sm:text-lg",
-                    !showMemoriesLabel && "sr-only",
-                  )}
+              profileUsername ? (
+                <Link
+                  to={`/profile/${encodeURIComponent(profileUsername)}`}
+                  className="group flex min-w-0 max-w-[min(52vw,11rem)] items-center rounded-lg px-1 py-1 hover:bg-muted/60 sm:max-w-[min(40vw,14rem)]"
+                  aria-label={`${profileUsername}'s profile`}
                 >
-                  Memories
-                </span>
-              </Link>
+                  <span className="truncate text-base font-bold tracking-tight text-foreground sm:text-lg">
+                    {profileUsername}
+                  </span>
+                </Link>
+              ) : (
+                <Link
+                  to="/"
+                  id="home_button"
+                  className="group flex min-w-0 items-center gap-1 rounded-lg px-1 py-1 hover:bg-muted/60 sm:gap-1.5"
+                >
+                  <Logo className="h-7 w-7 shrink-0 text-primary sm:h-8 sm:w-8" />
+                  <span
+                    className={cn(
+                      "truncate text-base font-bold tracking-tight text-foreground sm:text-lg",
+                      !showMemoriesLabel && "sr-only",
+                    )}
+                  >
+                    Memories
+                  </span>
+                </Link>
+              )
             ) : null}
           </div>
         )}

@@ -19,6 +19,9 @@ export interface ChannelLayout {
 /** Hard ceiling, mirrors YouTube's "up to 12 sections". */
 export const MAX_SECTIONS = 12;
 
+/** Items per bucket on profile channel home; full lists use See all. */
+export const CHANNEL_HOME_PREVIEW_LIMIT = 6;
+
 export const SECTION_LABELS: Record<ChannelSectionType, string> = {
   shorts: 'Shorts',
   videos: 'Videos',
