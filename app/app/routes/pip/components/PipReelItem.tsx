@@ -219,24 +219,29 @@ function PipReelItemInner({
 
     const userPaused = () => v.dataset.userPaused === '1';
 
+    let gestureArmed = false;
     const cleanupGesture = () => {
       document.removeEventListener('pointerdown', onUnmuteGesture);
       document.removeEventListener('touchend', onUnmuteGesture);
+      gestureArmed = false;
     };
+    // iOS drops a fresh <video>'s audible-autoplay permission after a couple
+    // of reels, so the muted fallback kicks in. EVERY swipe and tap is a new
+    // user gesture that can re-grant it, so we stay armed for the whole time
+    // this reel is active (not just once) — sound comes back on the next
+    // swipe instead of forcing a dedicated tap.
     const onUnmuteGesture = () => {
-      cleanupGesture();
       if (cancelled || !isActive) return;
       const el = trackedVideoEl ?? videoRef.current;
       if (!el) return;
-      // The video is already playing (muted fallback) — a genuine interaction
-      // lets us bring the sound back without interrupting playback.
       if (el.muted) el.muted = false;
       if (el.paused && !userPaused()) void el.play().catch(() => {});
     };
     const armUnmuteGesture = () => {
-      cleanupGesture();
-      document.addEventListener('pointerdown', onUnmuteGesture, { once: true, passive: true });
-      document.addEventListener('touchend', onUnmuteGesture, { once: true, passive: true });
+      if (gestureArmed) return;
+      gestureArmed = true;
+      document.addEventListener('pointerdown', onUnmuteGesture, { passive: true });
+      document.addEventListener('touchend', onUnmuteGesture, { passive: true });
     };
 
     const stopHeartbeat = () => {
@@ -330,6 +335,9 @@ function PipReelItemInner({
     v.addEventListener('loadeddata', onReady);
     document.addEventListener('visibilitychange', onVisibility);
 
+    // Listen for swipes/taps from the moment the reel goes active, so a lost
+    // audio permission is regained on the very next swipe.
+    armUnmuteGesture();
     attempt();
     if (v.paused) startHeartbeat();
 

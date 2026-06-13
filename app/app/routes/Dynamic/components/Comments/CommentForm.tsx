@@ -4,7 +4,7 @@ import { useLocation } from "react-router";
 import { Button } from "~/components/ui/button";
 import { Textarea } from "~/components/ui/textarea";
 import { Input } from "~/components/ui/input";
-import { Send, X, Loader2, Search, ImagePlus, Camera, ChevronDown } from "lucide-react";
+import { Send, X, Loader2, Search, ImagePlus, Camera } from "lucide-react";
 import { isMobile } from "react-device-detect";
 import { useFileContext } from "~/lib/Context/Context";
 import {
@@ -14,7 +14,6 @@ import {
 } from "~/components/ui/dialog";
 import { Avatar, AvatarImage, AvatarFallback } from "~/components/ui/avatar";
 import { getProfilePicUrl } from "~/lib/utils/profilePic";
-import { Tooltip, TooltipContent, TooltipTrigger } from "~/components/ui/tooltip";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -366,122 +365,138 @@ const CommentForm = ({
 
   const canSubmit = (content.trim().length > 0 || gif != null || pendingImageFile != null) && !isSubmitting;
 
+  useEffect(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+
+    const resize = () => {
+      el.style.height = "auto";
+      el.style.height = `${Math.min(el.scrollHeight, 120)}px`;
+    };
+
+    resize();
+
+    const ro = new ResizeObserver(resize);
+    ro.observe(el);
+    if (el.parentElement) ro.observe(el.parentElement);
+
+    window.addEventListener("resize", resize, { passive: true });
+    return () => {
+      ro.disconnect();
+      window.removeEventListener("resize", resize);
+    };
+  }, [content]);
+
+  const avatarEl = hasOtherAccounts ? (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          className="relative shrink-0 rounded-full outline-none ring-offset-background focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
+          aria-label="Switch account to comment as"
+          disabled={Boolean(switchingAccountId)}
+        >
+          <Avatar className="h-8 w-8 ring-1 ring-border/60">
+            <AvatarImage src={getProfilePicUrl(userProfile?.profile_pic)} alt={commentAsName} />
+            <AvatarFallback className="text-xs font-medium">
+              {commentAsName.charAt(0).toUpperCase()}
+            </AvatarFallback>
+          </Avatar>
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="w-56">
+        <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
+          Comment as another account
+        </DropdownMenuLabel>
+        <DropdownMenuSeparator />
+        {altAccounts.map((a) => (
+          <DropdownMenuItem
+            key={a.id}
+            className="flex cursor-pointer items-center gap-2.5"
+            disabled={switchingAccountId !== null}
+            onSelect={(e) => {
+              e.preventDefault();
+              void switchToAccount(a.id);
+            }}
+          >
+            <Avatar className="h-7 w-7 shrink-0 ring-1 ring-border">
+              <AvatarImage src={getProfilePicUrl(a.profile_pic ?? undefined)} alt="" />
+              <AvatarFallback className="text-[10px] font-medium">
+                {a.username.charAt(0).toUpperCase()}
+              </AvatarFallback>
+            </Avatar>
+            <span className="min-w-0 truncate">
+              {switchingAccountId === a.id ? "Switching…" : a.username}
+            </span>
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  ) : (
+    <Avatar className="h-8 w-8 shrink-0 ring-1 ring-border/60">
+      <AvatarImage src={getProfilePicUrl(userProfile?.profile_pic)} alt={commentAsName} />
+      <AvatarFallback className="text-xs font-medium">
+        {commentAsName.charAt(0).toUpperCase()}
+      </AvatarFallback>
+    </Avatar>
+  );
+
+  const attachmentBtn =
+    "inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-background/80 hover:text-foreground disabled:opacity-50";
+
   return (
     <>
-      <form onSubmit={handleSubmit} className="flex flex-col gap-2">
-        {gif && (
-          <div className="relative inline-flex w-fit rounded-lg overflow-hidden">
-            <img
-              src={gif.previewUrl}
-              alt="Selected GIF"
-              className="h-24 w-auto max-w-full object-contain rounded-lg"
-            />
+      <form onSubmit={handleSubmit} className="flex flex-col gap-1.5">
+        {gif ? (
+          <div className="relative ml-10 inline-flex w-fit overflow-hidden rounded-xl">
+            <img src={gif.previewUrl} alt="Selected GIF" className="h-16 max-w-[10rem] rounded-xl object-cover" />
             <Button
               type="button"
               variant="secondary"
               size="icon"
-              className="absolute right-1 top-1 h-6 w-6 rounded-full shadow-sm bg-black/60 hover:bg-black/80 text-white"
+              className="absolute right-1 top-1 h-5 w-5 rounded-full bg-black/60 text-white hover:bg-black/80"
               onClick={() => setGif(null)}
               aria-label="Remove GIF"
             >
               <X className="h-3 w-3" />
             </Button>
           </div>
-        )}
-        {imagePreview && (
-          <div className="relative inline-flex w-fit rounded-lg overflow-hidden">
-            <img
-              src={imagePreview}
-              alt="Selected image"
-              className="h-24 w-auto max-w-full object-contain rounded-lg"
-            />
-            {isUploadingImage && (
-              <div className="absolute inset-0 flex items-center justify-center bg-black/40 rounded-lg">
-                <Loader2 className="h-5 w-5 animate-spin text-white" />
+        ) : null}
+        {imagePreview ? (
+          <div className="relative ml-10 inline-flex w-fit overflow-hidden rounded-xl">
+            <img src={imagePreview} alt="Selected image" className="h-16 max-w-[10rem] rounded-xl object-cover" />
+            {isUploadingImage ? (
+              <div className="absolute inset-0 flex items-center justify-center rounded-xl bg-black/40">
+                <Loader2 className="h-4 w-4 animate-spin text-white" />
               </div>
-            )}
+            ) : null}
             <Button
               type="button"
               variant="secondary"
               size="icon"
-              className="absolute right-1 top-1 h-6 w-6 rounded-full shadow-sm bg-black/60 hover:bg-black/80 text-white"
-              onClick={() => { setImage(null); setPendingImageFile(null); setImagePreview(null); setImageError(null); }}
+              className="absolute right-1 top-1 h-5 w-5 rounded-full bg-black/60 text-white hover:bg-black/80"
+              onClick={() => {
+                setImage(null);
+                setPendingImageFile(null);
+                setImagePreview(null);
+                setImageError(null);
+              }}
               disabled={isUploadingImage}
               aria-label="Remove image"
             >
               <X className="h-3 w-3" />
             </Button>
           </div>
-        )}
-        {imageError && (
-          <p className="text-xs text-destructive">{imageError}</p>
-        )}
-        <div className="flex items-start gap-3">
-          <div className="relative shrink-0">
-            {hasOtherAccounts ? (
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <button
-                    type="button"
-                    className="relative rounded-full outline-none ring-offset-background transition-[box-shadow] focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
-                    aria-label="Switch account to comment as"
-                    disabled={Boolean(switchingAccountId)}
-                  >
-                    <Avatar className="h-10 w-10 ring-2 ring-background">
-                      <AvatarImage src={getProfilePicUrl(userProfile?.profile_pic)} alt={commentAsName} />
-                      <AvatarFallback className="text-sm font-medium">
-                        {commentAsName.charAt(0).toUpperCase()}
-                      </AvatarFallback>
-                    </Avatar>
-                    <span
-                      className="pointer-events-none absolute -bottom-0.5 -right-0.5 flex h-4 w-4 items-center justify-center rounded-full border border-border bg-muted text-muted-foreground shadow-sm"
-                      aria-hidden
-                    >
-                      <ChevronDown className="h-2.5 w-2.5" strokeWidth={2.5} />
-                    </span>
-                  </button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="start" className="w-56">
-                  <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
-                    Comment as another account
-                  </DropdownMenuLabel>
-                  <DropdownMenuSeparator />
-                  {altAccounts.map((a) => (
-                    <DropdownMenuItem
-                      key={a.id}
-                      className="flex cursor-pointer items-center gap-2.5"
-                      disabled={switchingAccountId !== null}
-                      onSelect={(e) => {
-                        e.preventDefault();
-                        void switchToAccount(a.id);
-                      }}
-                    >
-                      <Avatar className="h-7 w-7 shrink-0 ring-1 ring-border">
-                        <AvatarImage src={getProfilePicUrl(a.profile_pic ?? undefined)} alt="" />
-                        <AvatarFallback className="text-[10px] font-medium">
-                          {a.username.charAt(0).toUpperCase()}
-                        </AvatarFallback>
-                      </Avatar>
-                      <span className="min-w-0 truncate">
-                        {switchingAccountId === a.id ? "Switching…" : a.username}
-                      </span>
-                    </DropdownMenuItem>
-                  ))}
-                </DropdownMenuContent>
-              </DropdownMenu>
-            ) : (
-              <Avatar className="h-10 w-10 ring-2 ring-background">
-                <AvatarImage src={getProfilePicUrl(userProfile?.profile_pic)} alt={commentAsName} />
-                <AvatarFallback className="text-sm font-medium">
-                  {commentAsName.charAt(0).toUpperCase()}
-                </AvatarFallback>
-              </Avatar>
-            )}
-          </div>
-          <div className="min-w-0 flex-1 rounded-[22px] border border-border/60 bg-muted/60 shadow-inner dark:bg-muted/50">
-            <div className="relative px-4 pt-3 pb-1">
+        ) : null}
+        {imageError ? <p className="ml-10 text-[11px] text-destructive">{imageError}</p> : null}
+
+        <div className="flex items-end gap-2">
+          {avatarEl}
+          <div className="relative flex min-w-0 flex-1 items-end gap-1 rounded-[1.35rem] border border-border/55 bg-muted/45 px-2 py-1.5 shadow-sm dark:bg-muted/35">
+            <div className="relative min-w-0 flex-1">
               <Textarea
                 ref={textareaRef}
+                rows={1}
                 value={content}
                 onChange={(e) => {
                   setContent(e.target.value);
@@ -491,6 +506,13 @@ const CommentForm = ({
                   cursorRef.current = (e.target as HTMLTextAreaElement).selectionStart ?? 0;
                 }}
                 onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey && !suggestOpen) {
+                    if (canSubmit) {
+                      e.preventDefault();
+                      textareaRef.current?.form?.requestSubmit();
+                    }
+                    return;
+                  }
                   if (!suggestOpen) return;
                   const list = suggestType === "tag" ? tagSuggestions : mentionSuggestions;
                   if (e.key === "ArrowDown") {
@@ -514,28 +536,26 @@ const CommentForm = ({
                     }
                     return;
                   }
-                  if (e.key === "Escape") {
-                    setSuggestOpen(false);
-                  }
+                  if (e.key === "Escape") setSuggestOpen(false);
                 }}
                 placeholder={resolvedPlaceholder}
-                className="min-h-[44px] max-h-[160px] resize-none border-0 bg-transparent px-0 py-0 text-sm leading-snug text-foreground placeholder:text-muted-foreground/70 focus-visible:ring-0 focus-visible:ring-offset-0"
+                className="max-h-[7.5rem] min-h-[1.75rem] resize-none border-0 bg-transparent px-1 py-0.5 text-[13px] leading-snug text-foreground placeholder:text-muted-foreground/75 focus-visible:ring-0 focus-visible:ring-offset-0"
                 maxLength={2000}
                 disabled={isSubmitting}
               />
-              {suggestOpen && (
+              {suggestOpen ? (
                 <div
-                  className="absolute left-4 right-4 top-full z-50 mt-1 max-h-[220px] overflow-y-auto rounded-lg border border-border bg-popover shadow-lg"
+                  className="absolute bottom-full left-0 right-0 z-50 mb-1 max-h-[180px] overflow-y-auto rounded-xl border border-border bg-popover shadow-lg"
                   role="listbox"
                 >
                   {suggestLoading ? (
-                    <div className="flex items-center justify-center gap-2 py-4 text-sm text-muted-foreground">
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                      <span>Loading...</span>
+                    <div className="flex items-center justify-center gap-2 py-3 text-xs text-muted-foreground">
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      Loading…
                     </div>
                   ) : suggestType === "tag" ? (
                     tagSuggestions.length === 0 ? (
-                      <p className="py-3 px-3 text-sm text-muted-foreground">No tags found</p>
+                      <p className="px-3 py-2 text-xs text-muted-foreground">No tags found</p>
                     ) : (
                       tagSuggestions.map((item, i) => (
                         <button
@@ -543,21 +563,18 @@ const CommentForm = ({
                           type="button"
                           role="option"
                           aria-selected={i === suggestIndex}
-                          className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-accent ${i === suggestIndex ? "bg-accent" : ""}`}
+                          className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs hover:bg-accent ${i === suggestIndex ? "bg-accent" : ""}`}
                           onMouseDown={(e) => {
                             e.preventDefault();
                             applySuggestion(`#${item.tag}`);
                           }}
                         >
                           <span className="font-medium text-primary">#{item.tag}</span>
-                          {item.count != null && (
-                            <span className="text-xs text-muted-foreground">{item.count} uses</span>
-                          )}
                         </button>
                       ))
                     )
                   ) : mentionSuggestions.length === 0 ? (
-                    <p className="py-3 px-3 text-sm text-muted-foreground">No users found</p>
+                    <p className="px-3 py-2 text-xs text-muted-foreground">No users found</p>
                   ) : (
                     mentionSuggestions.map((item, i) => (
                       <button
@@ -565,129 +582,88 @@ const CommentForm = ({
                         type="button"
                         role="option"
                         aria-selected={i === suggestIndex}
-                        className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-accent ${i === suggestIndex ? "bg-accent" : ""}`}
+                        className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs hover:bg-accent ${i === suggestIndex ? "bg-accent" : ""}`}
                         onMouseDown={(e) => {
                           e.preventDefault();
                           applySuggestion(`@${item.username}`);
                         }}
                       >
-                        <Avatar className="h-6 w-6">
+                        <Avatar className="h-5 w-5">
                           <AvatarImage src={getProfilePicUrl(item.profile_pic)} alt={item.username} />
-                          <AvatarFallback className="text-xs">{item.username.charAt(0).toUpperCase()}</AvatarFallback>
+                          <AvatarFallback className="text-[9px]">{item.username.charAt(0).toUpperCase()}</AvatarFallback>
                         </Avatar>
-                        <span className="font-medium text-foreground">@{item.username}</span>
+                        <span className="font-medium">@{item.username}</span>
                       </button>
                     ))
                   )}
                 </div>
-              )}
+              ) : null}
             </div>
-            <div className="flex items-center justify-between gap-2 border-t border-border/50 px-2.5 pb-2.5 pt-2">
-              <div className="flex min-w-0 flex-1 items-center gap-0.5">
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <button
-                      type="button"
-                      className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-                      onClick={() => setGifOpen(true)}
-                      aria-label="Add GIF"
-                    >
-                      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" className="shrink-0">
-                        <rect x="2" y="4" width="20" height="16" rx="3" stroke="currentColor" strokeWidth="1.65" />
-                        <text x="12" y="15.5" textAnchor="middle" fill="currentColor" fontSize="8.5" fontWeight="700" fontFamily="system-ui, sans-serif">GIF</text>
-                      </svg>
-                    </button>
-                  </TooltipTrigger>
-                  <TooltipContent side="top">GIF</TooltipContent>
-                </Tooltip>
-                <input
-                  ref={imageInputRef}
-                  type="file"
-                  accept="image/jpeg,image/jpg,image/png,image/gif,image/webp"
-                  onChange={handleImageSelect}
-                  className="hidden"
-                />
-                {isMobile ? (
-                  <input
-                    ref={cameraInputRef}
-                    type="file"
-                    accept="image/*"
-                    capture="environment"
-                    onChange={handleImageSelect}
-                    className="hidden"
-                  />
-                ) : null}
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <span className="inline-flex">
-                      <button
-                        type="button"
-                        className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-50"
-                        onClick={() => imageInputRef.current?.click()}
-                        disabled={isUploadingImage}
-                        aria-label="Add photo from library"
-                      >
-                        <ImagePlus className="h-[22px] w-[22px]" strokeWidth={1.75} />
-                      </button>
-                    </span>
-                  </TooltipTrigger>
-                  <TooltipContent side="top">Photo library</TooltipContent>
-                </Tooltip>
-                {isMobile ? (
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <span className="inline-flex">
-                        <button
-                          type="button"
-                          className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-50"
-                          onClick={() => cameraInputRef.current?.click()}
-                          disabled={isUploadingImage}
-                          aria-label="Open camera"
-                        >
-                          <Camera className="h-[22px] w-[22px]" strokeWidth={1.75} />
-                        </button>
-                      </span>
-                    </TooltipTrigger>
-                    <TooltipContent side="top">Camera</TooltipContent>
-                  </Tooltip>
-                ) : null}
-                <span className="ml-1 hidden text-[11px] text-muted-foreground/60 tabular-nums sm:inline">
-                  {content.length}/2000
-                </span>
-              </div>
-              <div className="flex shrink-0 items-center gap-1.5">
-                {onCancel && (
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    className="h-8 rounded-full px-3 text-xs text-muted-foreground"
-                    onClick={onCancel}
-                    disabled={isSubmitting}
-                  >
-                    Cancel
-                  </Button>
-                )}
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      type="submit"
-                      size="icon"
-                      disabled={!canSubmit}
-                      className="h-9 w-9 shrink-0 rounded-full"
-                      aria-label={isSubmitting ? "Posting" : "Send"}
-                    >
-                      {isSubmitting ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                      ) : (
-                        <Send className="h-4 w-4" />
-                      )}
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent side="top">{isSubmitting ? "Posting…" : "Send"}</TooltipContent>
-                </Tooltip>
-              </div>
-            </div>
+            <input
+              ref={imageInputRef}
+              type="file"
+              accept="image/jpeg,image/jpg,image/png,image/gif,image/webp"
+              onChange={handleImageSelect}
+              className="hidden"
+            />
+            {isMobile ? (
+              <input
+                ref={cameraInputRef}
+                type="file"
+                accept="image/*"
+                capture="environment"
+                onChange={handleImageSelect}
+                className="hidden"
+              />
+            ) : null}
+            <button type="button" className={attachmentBtn} onClick={() => setGifOpen(true)} aria-label="Add GIF">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" className="shrink-0">
+                <rect x="2" y="4" width="20" height="16" rx="3" stroke="currentColor" strokeWidth="1.65" />
+                <text x="12" y="15.5" textAnchor="middle" fill="currentColor" fontSize="8.5" fontWeight="700" fontFamily="system-ui, sans-serif">
+                  GIF
+                </text>
+              </svg>
+            </button>
+            <button
+              type="button"
+              className={attachmentBtn}
+              onClick={() => imageInputRef.current?.click()}
+              disabled={isUploadingImage}
+              aria-label="Add photo"
+            >
+              <ImagePlus className="h-4 w-4" strokeWidth={1.75} />
+            </button>
+            {isMobile ? (
+              <button
+                type="button"
+                className={attachmentBtn}
+                onClick={() => cameraInputRef.current?.click()}
+                disabled={isUploadingImage}
+                aria-label="Open camera"
+              >
+                <Camera className="h-4 w-4" strokeWidth={1.75} />
+              </button>
+            ) : null}
+            {onCancel ? (
+              <button
+                type="button"
+                className={attachmentBtn}
+                onClick={onCancel}
+                disabled={isSubmitting}
+                aria-label="Cancel"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            ) : null}
+            <Button
+              type="submit"
+              size="icon"
+              disabled={!canSubmit}
+              className="h-8 w-8 shrink-0 rounded-full"
+              aria-label={isSubmitting ? "Posting" : "Send"}
+            >
+              {isSubmitting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
+            </Button>
           </div>
         </div>
       </form>

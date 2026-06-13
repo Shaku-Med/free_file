@@ -6,7 +6,9 @@ import { isValidUUID } from "~/lib/Security/inputValidation";
 import { normalizeRpcFileRow } from "~/lib/profile/normalizeRpcFileRow";
 import { mapPlaylistRpcToClientRow } from "~/lib/profile/normalizePlaylistRpcRow";
 
-const TABS = new Set(["liked", "history", "playlists"]);
+const TABS = new Set(["liked", "history", "playlists", "adult", "shorts", "videos", "popular"]);
+/** Public per-section "See all" views (channel home sections). NOT owner-gated. */
+const PUBLIC_SECTION_TABS = new Set(["shorts", "videos", "popular"]);
 
 function mapFileRows(rows: unknown[], currentUserId: string | null): {
   files: FileType[];
@@ -81,6 +83,38 @@ export const loader = async ({ request }: { request: Request }) => {
       return data({ playlists, tab }, { status: 200 });
     }
 
+    // Public "See all" section views. Visibility (public-only for non-owners,
+    // adult NEVER) is enforced inside get_profile_section_files, so these are
+    // safe to serve to anyone — handled BEFORE the owner gate below.
+    if (PUBLIC_SECTION_TABS.has(tab)) {
+      const cursorPos = (page - 1) * limit;
+      const { data: rows, error: rpcError } = await db.rpc("get_profile_section_files", {
+        p_profile_user_id: userId,
+        p_viewer_id: currentUserId,
+        p_section: tab,
+        p_limit: limit + 1,
+        p_cursor_pos: cursorPos,
+      });
+      if (rpcError) {
+        console.error("get_profile_section_files error:", rpcError);
+        return data({ error: "Failed to fetch", data: [] }, { status: 500 });
+      }
+      const rowArr = Array.isArray(rows) ? rows : [];
+      const hasMore = rowArr.length > limit;
+      const sliced = rowArr.slice(0, limit);
+      const { files, likedFileIds, dislikedFileIds } = mapFileRows(sliced, currentUserId);
+      return data(
+        {
+          data: files,
+          userActions: { likedFileIds, dislikedFileIds },
+          pagination: { page, limit, hasMore },
+          tab,
+        },
+        { status: 200 }
+      );
+    }
+
+    // Everything past this point (liked / history / adult) is OWNER-ONLY.
     if (!isOwner) {
       return data(
         {
@@ -94,7 +128,12 @@ export const loader = async ({ request }: { request: Request }) => {
     }
 
     const cursorPos = (page - 1) * limit;
-    const rpcName = tab === "liked" ? "get_profile_liked_files" : "get_profile_watch_history";
+    const rpcName =
+      tab === "liked"
+        ? "get_profile_liked_files"
+        : tab === "adult"
+          ? "get_profile_adult_files"
+          : "get_profile_watch_history";
     const { data: rows, error: rpcError } = await db.rpc(rpcName, {
       p_profile_user_id: userId,
       p_viewer_id: currentUserId,

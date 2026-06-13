@@ -50,6 +50,7 @@ export const loader = async ({ request }: { request: Request }) => {
     return toJson({
       data: result.data.data,
       totalCount: result.data.totalCount,
+      totalCommentCount: result.data.totalCommentCount,
       success: true,
     });
   } catch (error) {

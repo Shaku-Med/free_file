@@ -407,22 +407,23 @@ export function CaptionProvider({ children, file, videoRef }: CaptionProviderPro
       }
     }
 
-    // Sync mode to fullscreen state. Inside fullscreen → 'showing' so
-    // iOS renders the captions natively. Outside → 'hidden' so our
-    // React overlay is the sole renderer.
-    const isInFullscreen = () => {
-      if (typeof document === "undefined") return false
-      const fsEl = document.fullscreenElement ?? (document as Document & { webkitFullscreenElement?: Element | null }).webkitFullscreenElement
-      if (fsEl) return true
-      // iOS Safari sets `webkitDisplayingFullscreen` on the video element
-      // itself, separate from the document fullscreen API.
+    // Native captions are ONLY needed when our React overlay can't be seen
+    // i.e. iOS Safari's native video player (`webkitDisplayingFullscreen`),
+    // which replaces the page with Apple's own chrome and hides the overlay.
+    //
+    // Desktop (and Android) fullscreen the player CONTAINER via the W3C
+    // fullscreen API, so our overlay is still in the DOM and renders normally.
+    // Flipping the native track to 'showing' there made BOTH render at once
+    // the double-caption bug. So we key off native-video-fullscreen only and
+    // keep the track 'hidden' for document/element fullscreen.
+    const isNativeVideoFullscreen = () => {
       const v = video as HTMLVideoElement & { webkitDisplayingFullscreen?: boolean }
       return Boolean(v.webkitDisplayingFullscreen)
     }
 
     const syncMode = () => {
       if (!activeTrack) return
-      activeTrack.mode = isInFullscreen() ? "showing" : "hidden"
+      activeTrack.mode = isNativeVideoFullscreen() ? "showing" : "hidden"
     }
     syncMode()
 

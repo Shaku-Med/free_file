@@ -53,6 +53,8 @@ function normalizeProfileTabFiles(rows: FileType[]): FileType[] {
 export function ContinueWatchingSection({ userId, userActions, username }: Props) {
   const [items, setItems] = useState<FileType[]>([]);
   const [loading, setLoading] = useState(false);
+  /** True once the first fetch settles, so we can hide the whole rail when empty. */
+  const [loaded, setLoaded] = useState(false);
   /** Per-request liked/disliked ids from `/api/profile-tab` (same pattern as ProfileTabVideosGrid). */
   const [tabUserActions, setTabUserActions] = useState<{ liked: string[]; disliked: string[] }>({
     liked: [],
@@ -105,7 +107,10 @@ export function ContinueWatchingSection({ userId, userActions, username }: Props
         }
       })
       .finally(() => {
-        if (!cancelled) setLoading(false);
+        if (!cancelled) {
+          setLoading(false);
+          setLoaded(true);
+        }
       });
     return () => {
       cancelled = true;
@@ -113,6 +118,8 @@ export function ContinueWatchingSection({ userId, userActions, username }: Props
   }, [userId]);
 
   if (!userId) return null;
+  // Hide the whole rail (header + placeholder) once we know there's nothing.
+  if (loaded && !loading && items.length === 0) return null;
 
   return (
     <div id="home-continue-watching" className="min-w-0 scroll-mt-24" aria-label="Recently watched">
@@ -134,7 +141,7 @@ export function ContinueWatchingSection({ userId, userActions, username }: Props
           </div>
         ) : null}
 
-        {loading ? (
+        {loading || !loaded ? (
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4">
             {Array.from({ length: 4 }).map((_, i) => (
               <div key={i} className="animate-pulse space-y-2 rounded-xl border border-border/60 bg-background/40 p-2">
@@ -180,11 +187,7 @@ export function ContinueWatchingSection({ userId, userActions, username }: Props
               </SwiperSlide>
             ))}
           </Swiper>
-        ) : (
-          <p className="rounded-lg border border-dashed border-border/70 bg-background/40 px-4 py-6 text-center text-sm text-muted-foreground">
-            Nothing here yet.
-          </p>
-        )}
+        ) : null}
       </div>
 
     </div>

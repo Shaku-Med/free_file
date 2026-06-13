@@ -198,6 +198,7 @@ BEGIN
       (ul.file_id IS NOT NULL)      AS _user_liked,
       (ud.file_id IS NOT NULL)      AS _user_disliked,
       (us.file_id IS NOT NULL)      AS _is_seen,
+      (f.id = ANY(p_exclude_ids))   AS _session_excluded,
       (sc.channel_id IS NOT NULL)   AS _is_subscribed,
       (f.id = ANY(p_watched_ids))   AS _recently_watched,
 
@@ -268,7 +269,13 @@ BEGIN
       AND (p_max_duration IS NULL OR f.duration IS NULL OR f.duration <= p_max_duration)
       AND (p_category IS NULL OR f.categories @> to_jsonb(p_category)::jsonb)
       AND (p_user_id IS NULL OR ud.file_id IS NULL)
-      AND (p_exclude_ids = '{}'::uuid[] OR f.id != ALL(p_exclude_ids))
+      -- Logged-in viewers: session excludes are deprioritized (_session_excluded), not
+      -- hard-dropped, so the reel feed can scroll forever. Anonymous keeps hard excludes.
+      AND (
+        p_user_id IS NOT NULL
+        OR cardinality(p_exclude_ids) = 0
+        OR NOT (f.id = ANY(p_exclude_ids))
+      )
       -- Negative signal filtering
       AND f.id NOT IN (SELECT nf.file_id FROM neg_files nf)
       AND f.owner_id NOT IN (SELECT nc.creator_id FROM neg_creators nc)
@@ -288,7 +295,7 @@ BEGIN
     SELECT b.*, 'foryou'::text AS _pool,
       ROW_NUMBER() OVER (
         ORDER BY
-          (CASE WHEN b._is_seen OR b._recently_watched THEN 1 ELSE 0 END) ASC,
+          (CASE WHEN b._is_seen OR b._recently_watched OR b._session_excluded THEN 1 ELSE 0 END) ASC,
           LEAST(b._interest_score / 15.0, 0.30)
           + LEAST(b._creator_affinity / 15.0, 0.20)
           + (CASE WHEN b._is_subscribed THEN 0.15 ELSE 0.0 END)
@@ -307,7 +314,7 @@ BEGIN
     SELECT b.*, 'trending'::text AS _pool,
       ROW_NUMBER() OVER (
         ORDER BY
-          (CASE WHEN b._is_seen OR b._recently_watched THEN 1 ELSE 0 END) ASC,
+          (CASE WHEN b._is_seen OR b._recently_watched OR b._session_excluded THEN 1 ELSE 0 END) ASC,
           b._eng_rate * 0.30
           + b._like_ratio * 0.20
           + LEAST(b._interest_score / 20.0, 0.15)
@@ -326,7 +333,7 @@ BEGIN
     SELECT b.*, 'fresh'::text AS _pool,
       ROW_NUMBER() OVER (
         ORDER BY
-          (CASE WHEN b._is_seen OR b._recently_watched THEN 1 ELSE 0 END) ASC,
+          (CASE WHEN b._is_seen OR b._recently_watched OR b._session_excluded THEN 1 ELSE 0 END) ASC,
           (1.0 - LEAST(b._hours_old / 48.0, 1.0)) * 0.35
           + LEAST(b._interest_score / 20.0, 0.15)
           + b._session_boost * 0.10
@@ -345,7 +352,7 @@ BEGIN
     SELECT b.*, 'popular'::text AS _pool,
       ROW_NUMBER() OVER (
         ORDER BY
-          (CASE WHEN b._is_seen OR b._recently_watched THEN 1 ELSE 0 END) ASC,
+          (CASE WHEN b._is_seen OR b._recently_watched OR b._session_excluded THEN 1 ELSE 0 END) ASC,
           LN(GREATEST(b._total_eng, 1)) * 0.35
           + b._like_ratio * 0.20
           + LEAST(b._interest_score / 20.0, 0.10)
@@ -364,7 +371,7 @@ BEGIN
     SELECT b.*, 'discovery'::text AS _pool,
       ROW_NUMBER() OVER (
         ORDER BY
-          (CASE WHEN b._is_seen OR b._recently_watched THEN 1 ELSE 0 END) ASC,
+          (CASE WHEN b._is_seen OR b._recently_watched OR b._session_excluded THEN 1 ELSE 0 END) ASC,
           b._session_boost * 0.10
           + b._like_ratio * 0.10
           + b._shuffle * 0.80
@@ -394,7 +401,7 @@ BEGIN
     SELECT c.*,
       ROW_NUMBER() OVER (
         ORDER BY
-          (CASE WHEN c._is_seen OR c._recently_watched THEN 1 ELSE 0 END) ASC,
+          (CASE WHEN c._is_seen OR c._recently_watched OR c._session_excluded THEN 1 ELSE 0 END) ASC,
           LEAST(c._interest_score / 20.0, 0.15)
           + LEAST(c._creator_affinity / 20.0, 0.10)
           + c._session_boost * 0.10

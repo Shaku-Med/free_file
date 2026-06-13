@@ -200,8 +200,16 @@ export const loader = async ({ request }: { request: Request }) => {
     });
 
     const rawCount = (reelFeed || []).length;
-    /** Full page ⇒ more reels may exist; client uses exclude_ids + new seed (not cursor slice). */
-    const nextCursor = rawCount >= REEL_LIMIT ? { cursor_pos: 0 } : null;
+    const deliveredCount = data.length;
+    /** Logged-in: keep scrolling while any reels are returned; anonymous: one page unless full batch. */
+    const nextCursor =
+      userId != null
+        ? deliveredCount > 0
+          ? { cursor_pos: 0 }
+          : null
+        : rawCount >= REEL_LIMIT
+          ? { cursor_pos: 0 }
+          : null;
 
     const result = {
       data,

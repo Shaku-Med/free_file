@@ -44,9 +44,9 @@ const PITCH_MIN = -0.55;
 const PITCH_MAX = 0.75;
 const YAW_LIMIT = 1.25;
 const INERTIA_FRICTION = 4.5;
-/** Zoom bounds (fov degrees). 22° fills the viewport with screen and a bit more. */
-const FOV_MIN = 22;
-const FOV_MAX = 92;
+/** Zoom bounds (fov degrees). Low min = lean right into the picture, "inside the video". */
+const FOV_MIN = 9;
+const FOV_MAX = 95;
 const FOV_BASE = 68;
 /** Pixels of movement after which a gesture counts as a drag, not a tap. */
 const TAP_SLOP_PX = 8;
@@ -230,16 +230,18 @@ export default function VRTheaterOverlay() {
       videoTexture.magFilter = THREE.LinearFilter;
 
       // ── Curved screen ───────────────────────────────────────────────
-      // Cylinder segment facing the camera; wraps slightly around you.
-      const SCREEN_RADIUS = 7.5;
-      const SCREEN_ARC = Math.PI / 2.9;
-      const screenHeight = 3.4;
-      const screenY = 1.45;
+      // Wide cylinder segment that wraps the camera (which sits near the
+      // cylinder centre) — the picture bends around you into peripheral
+      // vision, VR-style, not a flat panel out front.
+      const SCREEN_RADIUS = 7.0;
+      const SCREEN_ARC = Math.PI / 1.5; // ~120° wrap, reaches the eye corners
+      const screenHeight = 4.0;
+      const screenY = 1.55;
       const screenGeo = new THREE.CylinderGeometry(
         SCREEN_RADIUS,
         SCREEN_RADIUS,
         screenHeight,
-        48,
+        96,
         1,
         true,
         Math.PI - SCREEN_ARC / 2,
@@ -252,25 +254,38 @@ export default function VRTheaterOverlay() {
       screen.position.set(0, screenY, SCREEN_RADIUS - 1.6);
       scene.add(screen);
 
-      // ── Stretchy reflection ─────────────────────────────────────────
-      // Same curve flipped upside down and stretched taller; its OWN alpha
-      // gradient fades it out, so no dark overlay is needed on the
-      // transparent background.
-      const reflGeo = screenGeo.clone();
+      // ── Floor reflection ────────────────────────────────────────────
+      // The screen stands ON the ground; a flat plane lies on the floor from
+      // the screen's base out toward you, mirroring the picture. It RIPPLES
+      // every frame (layered sines = squiggles, like a wet/glossy floor) and
+      // fades out into the distance via its own alpha gradient.
+      const screenFrontZ = screen.position.z - SCREEN_RADIUS; // visible surface
+      const floorY = screenY - screenHeight / 2 + 0.01;
+      const reflNearZ = camZ;
+      const REFL_DEPTH = reflNearZ - screenFrontZ + 1.5;
+      const reflWidth = 2 * SCREEN_RADIUS * Math.sin(SCREEN_ARC / 2) * 1.15;
+
+      const reflGeo = new THREE.PlaneGeometry(reflWidth, REFL_DEPTH, 48, 72);
+      const reflPos = reflGeo.attributes.position as InstanceType<typeof THREE.BufferAttribute>;
+      const reflBase = Float32Array.from(reflPos.array as ArrayLike<number>);
+
       const reflTexture = videoTexture.clone();
+      reflTexture.wrapS = THREE.ClampToEdgeWrapping;
       reflTexture.wrapT = THREE.ClampToEdgeWrapping;
+      reflTexture.repeat.set(1, -1); // vertical mirror = reflection
+      reflTexture.offset.set(0, 1);
 
       const alphaCanvas = document.createElement('canvas');
       alphaCanvas.width = 2;
       alphaCanvas.height = 128;
       const alphaCtx = alphaCanvas.getContext('2d');
       if (alphaCtx) {
-        // Canvas y=0 (texture v=1) is the reflection's far end after the
-        // mirror flip  fade from invisible there to brightest at the seam.
+        // Brightest at the screen base (far edge, v=1 → canvas top), melting
+        // away as the floor comes toward you.
         const g = alphaCtx.createLinearGradient(0, 0, 0, 128);
-        g.addColorStop(0, '#000');
-        g.addColorStop(0.45, '#1a1a1a');
-        g.addColorStop(1, '#fff');
+        g.addColorStop(0, '#fff');
+        g.addColorStop(0.55, '#1a1a1a');
+        g.addColorStop(1, '#000');
         alphaCtx.fillStyle = g;
         alphaCtx.fillRect(0, 0, 2, 128);
       }
@@ -280,18 +295,75 @@ export default function VRTheaterOverlay() {
         map: reflTexture,
         alphaMap: reflAlpha,
         transparent: true,
-        opacity: 0.22,
+        opacity: 0.32,
         toneMapped: false,
         depthWrite: false,
+        side: THREE.DoubleSide,
       });
       const reflection = new THREE.Mesh(reflGeo, reflMat);
-      reflection.scale.y = -1.85; // mirrored + stretched = the "stretchy shadow"
-      reflection.position.set(
-        0,
-        screenY - screenHeight / 2 - (screenHeight * 1.85) / 2,
-        SCREEN_RADIUS - 1.6,
-      );
+      reflection.rotation.x = -Math.PI / 2; // lie flat on the floor
+      reflection.position.set(0, floorY, (screenFrontZ + reflNearZ) / 2);
       scene.add(reflection);
+
+      // ── Ceiling (roof) reflection ───────────────────────────────────
+      // Same idea mirrored onto the roof above the screen, fainter, so the
+      // picture's light wraps top-and-bottom around you.
+      const ceilY = screenY + screenHeight / 2 - 0.01;
+      const ceilGeo = new THREE.PlaneGeometry(reflWidth, REFL_DEPTH, 48, 72);
+      const ceilPos = ceilGeo.attributes.position as InstanceType<typeof THREE.BufferAttribute>;
+      const ceilBase = Float32Array.from(ceilPos.array as ArrayLike<number>);
+      const ceilTexture = videoTexture.clone();
+      ceilTexture.wrapS = THREE.ClampToEdgeWrapping;
+      ceilTexture.wrapT = THREE.ClampToEdgeWrapping;
+      ceilTexture.repeat.set(1, -1);
+      ceilTexture.offset.set(0, 1);
+      // Reversed gradient vs the floor: the roof faces the other way, so its
+      // bright edge (toward the screen) lands at the opposite end.
+      const ceilAlphaCanvas = document.createElement('canvas');
+      ceilAlphaCanvas.width = 2;
+      ceilAlphaCanvas.height = 128;
+      const ceilAlphaCtx = ceilAlphaCanvas.getContext('2d');
+      if (ceilAlphaCtx) {
+        const g = ceilAlphaCtx.createLinearGradient(0, 0, 0, 128);
+        g.addColorStop(0, '#000');
+        g.addColorStop(0.45, '#1a1a1a');
+        g.addColorStop(1, '#fff');
+        ceilAlphaCtx.fillStyle = g;
+        ceilAlphaCtx.fillRect(0, 0, 2, 128);
+      }
+      const ceilAlpha = new THREE.CanvasTexture(ceilAlphaCanvas);
+      const ceilMat = new THREE.MeshBasicMaterial({
+        map: ceilTexture,
+        alphaMap: ceilAlpha,
+        transparent: true,
+        opacity: 0.2,
+        toneMapped: false,
+        depthWrite: false,
+        side: THREE.DoubleSide,
+      });
+      const ceiling = new THREE.Mesh(ceilGeo, ceilMat);
+      ceiling.rotation.x = Math.PI / 2; // face down from the roof
+      ceiling.position.set(0, ceilY, (screenFrontZ + reflNearZ) / 2);
+      scene.add(ceiling);
+
+      // Shared per-frame floor/roof ripple (wet-surface squiggles).
+      const ripplePlane = (
+        pos: InstanceType<typeof THREE.BufferAttribute>,
+        base: Float32Array,
+        amp: number,
+        rt: number,
+      ) => {
+        for (let i = 0; i < base.length; i += 3) {
+          const bx = base[i];
+          const by = base[i + 1];
+          const wob =
+            Math.sin(bx * 1.3 + rt * 1.4) * amp +
+            Math.cos(by * 1.1 - rt * 1.0) * (amp * 1.1) +
+            Math.sin((bx + by) * 0.7 + rt * 2.2) * (amp * 0.5);
+          pos.setZ(i / 3, base[i + 2] + wob);
+        }
+        pos.needsUpdate = true;
+      };
 
       // ── Look controls: hover parallax + DRAG to look (mouse & touch),
       //    fling inertia, and pinch / Ctrl+wheel / gesture zoom ─────────
@@ -523,9 +595,13 @@ export default function VRTheaterOverlay() {
         const rotZ = Math.max(-1, Math.min(1, bRot.disp)) * VR_MAX_ROT;
         screen.scale.set(1 + pop * VR_MAX_SCALE * 0.7, 1 + pop * VR_MAX_SCALE, 1 + pop * VR_MAX_SCALE * 0.7);
         screen.rotation.z = rotZ;
-        reflection.scale.x = screen.scale.x;
-        reflection.scale.y = -1.85 * (1 + pop * VR_MAX_SCALE);
-        reflection.rotation.z = -rotZ;
+
+        // Floor + roof ripple: nudge each vertex with layered sines so the
+        // reflections wobble like wet surfaces; beats pump the amplitude.
+        const rt = now / 1000;
+        const amp = 0.05 + pop * 0.06;
+        ripplePlane(reflPos, reflBase, amp, rt);
+        ripplePlane(ceilPos, ceilBase, amp * 0.8, rt + 1.7);
 
         // Smooth-damped parallax + a slow idle sway so it always breathes.
         const t = now / 1000;
@@ -629,6 +705,8 @@ export default function VRTheaterOverlay() {
         videoTexture.dispose();
         reflTexture.dispose();
         reflAlpha.dispose();
+        ceilTexture.dispose();
+        ceilAlpha.dispose();
         renderer.dispose();
         renderer.domElement.remove();
       };

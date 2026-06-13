@@ -41,10 +41,18 @@ export function VerticalFeed({
   const loadFeed = useCallback(
     async (append: boolean) => {
       if (loading) return;
+      if (append && !userId) return;
       if (!hasMore && append) return;
 
       setLoading(true);
       try {
+        if (append && seenIdsRef.current.size > 350) {
+          const recent = filesRef.current.slice(-150);
+          seenIdsRef.current = new Set(
+            recent.map((f) => (f.id ? String(f.id) : "")).filter(Boolean),
+          );
+        }
+
         seedRef.current = newReelFeedSeed();
         const params = new URLSearchParams();
         params.set('seed', seedRef.current);
@@ -77,14 +85,17 @@ export function VerticalFeed({
         });
 
         setFiles((prev) => {
-          const merged = append
-            ? [
-                ...prev,
-                ...incoming.filter(
-                  (f) => !prev.some((p) => p.id === f.id),
-                ),
-              ]
-            : incoming;
+          let merged: FileType[];
+          if (append) {
+            const existingIds = new Set(prev.map((p) => String(p.id)));
+            let newItems = incoming.filter((f) => !existingIds.has(String(f.id)));
+            if (newItems.length === 0 && userId && incoming.length > 0) {
+              newItems = incoming;
+            }
+            merged = [...prev, ...newItems];
+          } else {
+            merged = incoming;
+          }
           setItems(
             merged.map((f) => {
               const base = fileToFeedItem(f);
@@ -100,7 +111,11 @@ export function VerticalFeed({
         });
 
         setNextCursor(payload.nextCursor ?? null);
-        setHasMore(Boolean(payload.nextCursor) && Boolean(userId));
+        if (userId) {
+          setHasMore(incoming.length > 0 || Boolean(payload.nextCursor));
+        } else {
+          setHasMore(Boolean(payload.nextCursor));
+        }
       } catch {
         setHasMore(false);
       } finally {

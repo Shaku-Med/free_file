@@ -9,6 +9,7 @@ import UserProfileHeader from "./components/UserProfileHeader";
 import UserFilesGrid from "./components/UserFilesGrid";
 import ProfileTabVideosGrid from "./components/ProfileTabVideosGrid";
 import ProfilePlaylistsSection from "./components/ProfilePlaylistsSection";
+import ChannelHome, { type ChannelHomeBuckets } from "./components/ChannelHome";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "~/components/ui/tabs";
 import { getProfilePicUrl } from "~/lib/utils/profilePic";
 import { BASE_URL } from "~/lib/URLS";
@@ -16,6 +17,36 @@ import { buildPageMeta, buildErrorMeta, SITE_NAME, THEME_COLOR } from "~/lib/seo
 import { usePageCache } from "~/lib/hooks/usePageCache";
 import { useFileContext } from "~/lib/Context/Context";
 import { normalizeRpcFileRow } from "~/lib/profile/normalizeRpcFileRow";
+import {
+  sanitizeChannelLayout,
+  DEFAULT_CHANNEL_LAYOUT,
+  SECTION_LABELS,
+  type ChannelLayout,
+} from "~/lib/channel/channelLayout";
+import { Settings2, ChevronLeft } from "lucide-react";
+
+/** Per-section "See all" sub-views (channel home → full grid). */
+const PROFILE_SECTION_VIEWS = new Set(["shorts", "videos", "popular"]);
+
+/** Map a get_profile_files / get_channel_home RPC row to a client FileType. */
+function mapRpcRowToFile(row: unknown): FileType {
+  const r = normalizeRpcFileRow(row as Record<string, unknown>) as Record<string, unknown>;
+  return {
+    ...r,
+    like_count: Number(r["like_count"]) || 0,
+    dislike_count: Number(r["dislike_count"]) || 0,
+    comment_count: Number(r["comment_count"]) || 0,
+    owner: r["owner_username"]
+      ? {
+          id: r["owner_id"] as string,
+          username: r["owner_username"] as string,
+          profile_pic: (r["owner_profile_pic"] as string) || "",
+          verified: (r["owner_verified"] as boolean) || false,
+          about: (r["owner_about"] as string | null) ?? null,
+        }
+      : null,
+  } as unknown as FileType;
+}
 
 
 interface ChannelStats {
@@ -113,6 +144,36 @@ export const loader = async ({ request, params }: { request: Request; params: { 
       }
     }
 
+    // ── Channel home: layout + content buckets (one shared layout for all) ──
+    let channelLayout: ChannelLayout = DEFAULT_CHANNEL_LAYOUT;
+    const channelBuckets: ChannelHomeBuckets = { shorts: [], videos: [], popular: [] };
+
+    if (db) {
+      const [{ data: userRow }, { data: homeRows }] = await Promise.all([
+        db.from("users").select("channel_layout").eq("id", profileResult.data.id).maybeSingle(),
+        db.rpc("get_channel_home", {
+          p_profile_user_id: profileResult.data.id,
+          p_viewer_id: currentUserId,
+          p_limit: 12,
+        }),
+      ]);
+
+      if (userRow?.channel_layout) channelLayout = sanitizeChannelLayout(userRow.channel_layout);
+
+      if (Array.isArray(homeRows)) {
+        for (const row of homeRows) {
+          const section = (row as { section?: string }).section;
+          const mapped = mapRpcRowToFile(row);
+          const fid = String((mapped as { id?: string }).id ?? "");
+          if ((row as { user_has_liked?: boolean }).user_has_liked && fid) likedFileIds.push(fid);
+          if ((row as { user_has_disliked?: boolean }).user_has_disliked && fid) dislikedFileIds.push(fid);
+          if (section === "shorts") channelBuckets.shorts.push(mapped);
+          else if (section === "videos") channelBuckets.videos.push(mapped);
+          else if (section === "popular") channelBuckets.popular.push(mapped);
+        }
+      }
+    }
+
     const url = new URL(request.url);
     return data(
       {
@@ -130,6 +191,8 @@ export const loader = async ({ request, params }: { request: Request; params: { 
           dislikedFileIds
         },
         channelStats,
+        channelLayout,
+        channelBuckets,
         pageUrl: url.pathname
       },
       { status: 200 }
@@ -263,10 +326,21 @@ function blendFilesWithFresh(cachedFiles: FileType[], freshFiles: FileType[]): F
   return blended;
 }
 
-const PROFILE_TAB_VALUES = new Set(["uploads", "liked", "history", "playlists"]);
+const PROFILE_TAB_VALUES = new Set(["home", "uploads", "liked", "history", "playlists", "adult"]);
+/** Tabs only the profile owner may open. */
+const OWNER_ONLY_TABS = new Set(["liked", "history", "adult"]);
 
 const Profile = () => {
   const loaderData = useLoaderData<typeof loader>();
+  // Channel-home fields only exist on the success return; narrow explicitly so
+  // the error-shaped union members don't trip up the property access.
+  const channelData =
+    loaderData && "channelLayout" in loaderData
+      ? (loaderData as {
+          channelLayout: ChannelLayout;
+          channelBuckets: ChannelHomeBuckets;
+        })
+      : null;
   const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
   const pathname = location.pathname;
@@ -431,17 +505,32 @@ const Profile = () => {
 
   const isOwner = effectiveData.currentUserId === effectiveData.profile.id;
 
-  const rawTab = searchParams.get("tab") || "uploads";
-  const tabBase = PROFILE_TAB_VALUES.has(rawTab) ? rawTab : "uploads";
-  const activeTab =
-    !isOwner && (tabBase === "liked" || tabBase === "history") ? "uploads" : tabBase;
+  const rawTab = searchParams.get("tab") || "home";
+  const tabBase = PROFILE_TAB_VALUES.has(rawTab) ? rawTab : "home";
+  const activeTab = !isOwner && OWNER_ONLY_TABS.has(tabBase) ? "home" : tabBase;
+
+  const viewParam = searchParams.get("view");
+  const sectionView =
+    viewParam && PROFILE_SECTION_VIEWS.has(viewParam)
+      ? (viewParam as "shorts" | "videos" | "popular")
+      : null;
+  const clearSectionView = useCallback(() => {
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        next.delete("view");
+        return next;
+      },
+      { replace: true }
+    );
+  }, [setSearchParams]);
 
   const setProfileTab = useCallback(
     (value: string) => {
       setSearchParams(
         (prev) => {
           const next = new URLSearchParams(prev);
-          if (value === "uploads") next.delete("tab");
+          if (value === "home") next.delete("tab");
           else next.set("tab", value);
           return next;
         },
@@ -454,7 +543,7 @@ const Profile = () => {
   const tabParam = searchParams.get("tab");
   useEffect(() => {
     if (isOwner) return;
-    if (tabParam === "liked" || tabParam === "history") {
+    if (tabParam && OWNER_ONLY_TABS.has(tabParam)) {
       setSearchParams(
         (prev) => {
           const next = new URLSearchParams(prev);
@@ -475,8 +564,32 @@ const Profile = () => {
           currentUserId={effectiveData.currentUserId}
           channelStats={effectiveData.channelStats}
         />
+        {sectionView ? (
+          <div className="mt-6">
+            <button
+              type="button"
+              onClick={clearSectionView}
+              className="mb-4 inline-flex items-center gap-1 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
+            >
+              <ChevronLeft className="h-4 w-4" />
+              Back
+            </button>
+            <ProfileTabVideosGrid
+              key={sectionView}
+              tab={sectionView}
+              userId={effectiveData.profile.id}
+              currentUserId={effectiveData.currentUserId ?? undefined}
+              sectionTitle={SECTION_LABELS[sectionView]}
+              emptyMessage="Nothing here yet"
+              dataReady={true}
+            />
+          </div>
+        ) : (
         <Tabs value={activeTab} onValueChange={setProfileTab} className="mt-6">
-          <TabsList variant="line" className="w-full flex-wrap justify-start gap-1 h-auto min-h-9 mb-6">
+          <TabsList variant="line" className="w-full flex-wrap items-center justify-start gap-1 h-auto min-h-9 mb-6">
+            <TabsTrigger value="home" className="shrink-0">
+              Home
+            </TabsTrigger>
             <TabsTrigger value="uploads" className="shrink-0">
               Videos
             </TabsTrigger>
@@ -493,7 +606,34 @@ const Profile = () => {
             <TabsTrigger value="playlists" className="shrink-0">
               Playlists
             </TabsTrigger>
+            {isOwner && (
+              <TabsTrigger value="adult" className="shrink-0">
+                Flagged
+              </TabsTrigger>
+            )}
+            {isOwner && (
+              <Link
+                to="/brozystudio/customization"
+                className="ml-auto inline-flex shrink-0 items-center gap-1.5 rounded-full border border-border/60 px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+              >
+                <Settings2 className="h-3.5 w-3.5" />
+                Customize
+              </Link>
+            )}
           </TabsList>
+          <TabsContent value="home" className="mt-0">
+            <ChannelHome
+              sections={channelData?.channelLayout?.sections ?? DEFAULT_CHANNEL_LAYOUT.sections}
+              buckets={channelData?.channelBuckets ?? { shorts: [], videos: [], popular: [] }}
+              profileUserId={effectiveData.profile.id}
+              isOwner={isOwner}
+              currentUserId={effectiveData.currentUserId ?? undefined}
+              userActions={{
+                likedFileIds: new Set(effectiveData.userActions.likedFileIds ?? []),
+                dislikedFileIds: new Set(effectiveData.userActions.dislikedFileIds ?? []),
+              }}
+            />
+          </TabsContent>
           <TabsContent value="uploads" className="mt-0">
             <UserFilesGrid
               files={effectiveData.files}
@@ -542,7 +682,24 @@ const Profile = () => {
               dataReady={true}
             />
           </TabsContent>
+          {isOwner && (
+            <TabsContent value="adult" className="mt-0">
+              <p className="mb-4 -mt-2 text-sm text-muted-foreground">
+                Only you can see these. Flagged content never appears on your channel home or to
+                other people.
+              </p>
+              <ProfileTabVideosGrid
+                tab="adult"
+                userId={effectiveData.profile.id}
+                currentUserId={effectiveData.currentUserId ?? undefined}
+                sectionTitle="Flagged"
+                emptyMessage="No flagged content"
+                dataReady={true}
+              />
+            </TabsContent>
+          )}
         </Tabs>
+        )}
       </div>
     </div>
   );

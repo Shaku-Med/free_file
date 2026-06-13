@@ -103,7 +103,7 @@ export interface ActionsProps {
   onCommentsOpenChange?: (open: boolean) => void;
   /**
    * Visual layout.
-   * - `default`: horizontal pill row (watch page, cards).
+   * - `default`: horizontal pill row. Share/Save pills only on the watch page main row; feed cards use More.
    * - `reel`: vertical stack of circular icon buttons (reels shell).
    * - `tiktok`: same as `reel` (alias for PiP / vertical-feed).
    * - `shortsShelf`: only the ⋮ menu (YouTube Shorts–style shelf tile).
@@ -255,6 +255,8 @@ export default function Actions({
       (routeDynamicId === uniqueId || routeDynamicId === fileId)) ||
       (routeReelUniqueId && routeReelUniqueId === uniqueId),
   );
+  /** Watch page main actions row — not feed cards, sidebar, or related tiles. */
+  const shareSaveInRow = isOnThisFilePage && layout === "default";
   const { has: hasLocalSave, add: addLocalSave, remove: removeLocalSave } = useLocalPlaylist();
   const effectiveLocalFileId = normalizeLocalPlaylistFileId(fileId);
   const inLocalList = Boolean(effectiveLocalFileId && hasLocalSave(effectiveLocalFileId));
@@ -526,6 +528,136 @@ export default function Actions({
   const isShortsShelf = layout === "shortsShelf";
   const isReel = layout === "reel" || layout === "tiktok";
 
+  const playlistSaveMenuBody = (
+    <div
+      className={cn(
+        "max-h-[min(280px,var(--radix-dropdown-menu-content-available-height))] overflow-y-auto overscroll-contain p-1.5",
+        isReel && !isShortsShelf && "max-w-[calc(100vw-1.5rem)]",
+      )}
+    >
+      <DropdownMenuCheckboxItem
+        checked={inLocalList}
+        disabled={!effectiveLocalFileId}
+        onCheckedChange={(next) => {
+          if (!effectiveLocalFileId) return;
+          if (next) addLocalSave(effectiveLocalFileId);
+          else removeLocalSave(effectiveLocalFileId);
+        }}
+      >
+        <Bookmark className={cn("size-4", inLocalList && "fill-current")} aria-hidden />
+        Save locally on this device
+      </DropdownMenuCheckboxItem>
+      <DropdownMenuSeparator className="my-1" />
+      {!currentUserId ? (
+        <DropdownMenuItem onSelect={() => requireAuth()}>
+          <ListPlus className="size-4" aria-hidden />
+          Sign in to save to playlists
+        </DropdownMenuItem>
+      ) : playlistLoad === "loading" ? (
+        <DropdownMenuItem disabled>
+          <Loader2 className="size-4 animate-spin" aria-hidden />
+          Loading playlists…
+        </DropdownMenuItem>
+      ) : playlistLoad === "error" ? (
+        <>
+          <DropdownMenuItem disabled className="text-muted-foreground">
+            {playlistError}
+          </DropdownMenuItem>
+          <DropdownMenuItem onSelect={() => void loadPlaylistData()}>Retry</DropdownMenuItem>
+        </>
+      ) : (
+        <>
+          {playlists.length === 0 ? (
+            <DropdownMenuItem disabled className="text-muted-foreground">
+              No playlists yet
+            </DropdownMenuItem>
+          ) : (
+            playlists.map((pl) => {
+              const isAdded = addedTo.has(pl.id);
+              const busy = addingPlaylistId === pl.id;
+              return (
+                <DropdownMenuItem
+                  key={pl.id}
+                  disabled={addingPlaylistId !== null}
+                  onSelect={() => void handlePlaylistToggle(pl.id)}
+                  className="min-w-0 gap-2"
+                >
+                  {busy ? (
+                    <Loader2 className="size-4 shrink-0 animate-spin" aria-hidden />
+                  ) : isAdded ? (
+                    <Check className="size-4 shrink-0 text-primary" aria-hidden />
+                  ) : (
+                    <ListVideo className="size-4 shrink-0 opacity-70" aria-hidden />
+                  )}
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <span className="min-w-0 flex-1 truncate cursor-default">
+                        {pl.title}
+                      </span>
+                    </TooltipTrigger>
+                    <TooltipContent side="right" className="max-w-xs">
+                      {pl.title}
+                    </TooltipContent>
+                  </Tooltip>
+                  <span className="shrink-0 text-[11px] text-muted-foreground tabular-nums">
+                    {pl.item_count}
+                  </span>
+                </DropdownMenuItem>
+              );
+            })
+          )}
+          <DropdownMenuSeparator className="my-1" />
+          <DropdownMenuItem onSelect={() => setCreatePlaylistOpen(true)}>
+            <Plus className="size-4" aria-hidden />
+            New playlist…
+          </DropdownMenuItem>
+          <DropdownMenuItem asChild>
+            <Link to="/playlist" className="cursor-pointer">
+              <ListVideo className="size-4" aria-hidden />
+              Manage playlists
+            </Link>
+          </DropdownMenuItem>
+        </>
+      )}
+    </div>
+  );
+
+  const playlistSaveMenuCollapsible = (
+    <DropdownMenuCollapsible onOpenChange={onPlaylistSubOpenChange}>
+      <DropdownMenuCollapsibleTrigger className="min-w-[12rem]">
+        <ListPlus className="size-4" aria-hidden />
+        Add to playlist
+      </DropdownMenuCollapsibleTrigger>
+      <DropdownMenuCollapsibleContent flush>{playlistSaveMenuBody}</DropdownMenuCollapsibleContent>
+    </DropdownMenuCollapsible>
+  );
+
+  const saveRowDropdown = shareSaveInRow ? (
+    <DropdownMenu onOpenChange={onPlaylistSubOpenChange}>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          className={cn(moreTriggerClass, "max-md:hidden")}
+          aria-pressed={inLocalList}
+          aria-label={inLocalList ? "Saved" : "Save"}
+        >
+          <Bookmark
+            className={cn("h-[1.125rem] w-[1.125rem] shrink-0", inLocalList && "fill-current")}
+            aria-hidden
+          />
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent
+        align="end"
+        side="bottom"
+        sideOffset={4}
+        className="z-[200] min-w-[12rem] rounded-xl border-border/80 p-1 shadow-lg"
+      >
+        <DropdownMenuGroup>{playlistSaveMenuBody}</DropdownMenuGroup>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  ) : null;
+
   const moreDropdown = (
     <DropdownMenu modal={!isReel || isShortsShelf}>
       <DropdownMenuTrigger asChild>
@@ -586,9 +718,24 @@ export default function Actions({
             </>
           ) : null}
           <DropdownMenuGroup>
-            <DropdownMenuItem onSelect={() => setShareModalOpen(true)}>
+            <DropdownMenuItem
+              onSelect={() => setShareModalOpen(true)}
+              className={cn(shareSaveInRow && "max-md:hidden")}
+            >
               <Share2 className="size-4" aria-hidden />
               Share
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              disabled={!effectiveLocalFileId}
+              className={cn(shareSaveInRow && "md:hidden")}
+              onSelect={() => {
+                if (!effectiveLocalFileId) return;
+                if (inLocalList) removeLocalSave(effectiveLocalFileId);
+                else addLocalSave(effectiveLocalFileId);
+              }}
+            >
+              <Bookmark className={cn("size-4", inLocalList && "fill-current")} aria-hidden />
+              {inLocalList ? "Saved" : "Save"}
             </DropdownMenuItem>
             <DropdownMenuItem disabled={shareBusy} onSelect={() => void onCopyLink()}>
               <Link2 className="size-4" aria-hidden />
@@ -602,107 +749,7 @@ export default function Actions({
           </DropdownMenuGroup>
 
           <DropdownMenuSeparator />
-          <DropdownMenuGroup>
-            <DropdownMenuCollapsible onOpenChange={onPlaylistSubOpenChange}>
-              <DropdownMenuCollapsibleTrigger className="min-w-[12rem]">
-                <ListPlus className="size-4" aria-hidden />
-                Add to playlist
-              </DropdownMenuCollapsibleTrigger>
-              <DropdownMenuCollapsibleContent flush>
-                <div
-                  className={cn(
-                    "max-h-[min(280px,var(--radix-dropdown-menu-content-available-height))] overflow-y-auto overscroll-contain p-1.5",
-                    isReel && !isShortsShelf && "max-w-[calc(100vw-1.5rem)]",
-                  )}
-                >
-                  <DropdownMenuCheckboxItem
-                    checked={inLocalList}
-                    disabled={!effectiveLocalFileId}
-                    onCheckedChange={(next) => {
-                      if (!effectiveLocalFileId) return;
-                      if (next) addLocalSave(effectiveLocalFileId);
-                      else removeLocalSave(effectiveLocalFileId);
-                    }}
-                  >
-                    <Bookmark className={cn("size-4", inLocalList && "fill-current")} aria-hidden />
-                    Save locally on this device
-                  </DropdownMenuCheckboxItem>
-                  <DropdownMenuSeparator className="my-1" />
-                  {!currentUserId ? (
-                    <DropdownMenuItem onSelect={() => requireAuth()}>
-                      <ListPlus className="size-4" aria-hidden />
-                      Sign in to save to playlists
-                    </DropdownMenuItem>
-                  ) : playlistLoad === "loading" ? (
-                    <DropdownMenuItem disabled>
-                      <Loader2 className="size-4 animate-spin" aria-hidden />
-                      Loading playlists…
-                    </DropdownMenuItem>
-                  ) : playlistLoad === "error" ? (
-                    <>
-                      <DropdownMenuItem disabled className="text-muted-foreground">
-                        {playlistError}
-                      </DropdownMenuItem>
-                      <DropdownMenuItem onSelect={() => void loadPlaylistData()}>Retry</DropdownMenuItem>
-                    </>
-                  ) : (
-                    <>
-                      {playlists.length === 0 ? (
-                        <DropdownMenuItem disabled className="text-muted-foreground">
-                          No playlists yet
-                        </DropdownMenuItem>
-                      ) : (
-                        playlists.map((pl) => {
-                          const isAdded = addedTo.has(pl.id);
-                          const busy = addingPlaylistId === pl.id;
-                          return (
-                            <DropdownMenuItem
-                              key={pl.id}
-                              disabled={addingPlaylistId !== null}
-                              onSelect={() => void handlePlaylistToggle(pl.id)}
-                              className="min-w-0 gap-2"
-                            >
-                              {busy ? (
-                                <Loader2 className="size-4 shrink-0 animate-spin" aria-hidden />
-                              ) : isAdded ? (
-                                <Check className="size-4 shrink-0 text-primary" aria-hidden />
-                              ) : (
-                                <ListVideo className="size-4 shrink-0 opacity-70" aria-hidden />
-                              )}
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <span className="min-w-0 flex-1 truncate cursor-default">
-                                    {pl.title}
-                                  </span>
-                                </TooltipTrigger>
-                                <TooltipContent side="right" className="max-w-xs">
-                                  {pl.title}
-                                </TooltipContent>
-                              </Tooltip>
-                              <span className="shrink-0 text-[11px] text-muted-foreground tabular-nums">
-                                {pl.item_count}
-                              </span>
-                            </DropdownMenuItem>
-                          );
-                        })
-                      )}
-                      <DropdownMenuSeparator className="my-1" />
-                      <DropdownMenuItem onSelect={() => setCreatePlaylistOpen(true)}>
-                        <Plus className="size-4" aria-hidden />
-                        New playlist…
-                      </DropdownMenuItem>
-                      <DropdownMenuItem asChild>
-                        <Link to="/playlist" className="cursor-pointer">
-                          <ListVideo className="size-4" aria-hidden />
-                          Manage playlists 
-                        </Link>
-                      </DropdownMenuItem>
-                    </>
-                  )}
-                </div>
-              </DropdownMenuCollapsibleContent>
-            </DropdownMenuCollapsible>
-          </DropdownMenuGroup>
+          <DropdownMenuGroup>{playlistSaveMenuCollapsible}</DropdownMenuGroup>
           {!isOwner && currentUserId ? (
             <>
               <DropdownMenuSeparator />
@@ -800,7 +847,7 @@ export default function Actions({
   );
 
   const defaultRow = (
-    <div className="flex flex-wrap items-center gap-2">
+    <div className="flex flex-nowrap items-center gap-1.5 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
       {howLikesDislikeComments ? likeDislikeSegment : null}
 
       {howLikesDislikeComments && (
@@ -809,6 +856,25 @@ export default function Actions({
         <span className={countClass}>{formatNumber(commentCount)}</span>
       </button>
       )}
+
+      {shareSaveInRow ? (
+        <>
+          <button
+            type="button"
+            className={cn(moreTriggerClass, "max-md:hidden")}
+            onClick={openReelShare}
+            disabled={shareBusy}
+            aria-label="Share"
+          >
+            {shareBusy ? (
+              <Loader2 className="h-[1.125rem] w-[1.125rem] shrink-0 animate-spin" aria-hidden />
+            ) : (
+              <Share2 className="h-[1.125rem] w-[1.125rem] shrink-0" aria-hidden />
+            )}
+          </button>
+          {saveRowDropdown}
+        </>
+      ) : null}
 
       {moreDropdown}
     </div>
@@ -958,12 +1024,12 @@ export default function Actions({
           <DrawerOverlay className="bg-black/30" />
           <DrawerContent
             id="watch-comments-drawer"
-            className="flex flex-col gap-0 overflow-hidden p-0 data-[vaul-drawer-direction=bottom]:inset-x-0 data-[vaul-drawer-direction=bottom]:mx-auto data-[vaul-drawer-direction=bottom]:h-[85dvh] data-[vaul-drawer-direction=bottom]:max-h-[85dvh] data-[vaul-drawer-direction=bottom]:w-full data-[vaul-drawer-direction=bottom]:max-w-2xl data-[vaul-drawer-direction=bottom]:rounded-t-2xl data-[vaul-drawer-direction=bottom]:border-t data-[vaul-drawer-direction=bottom]:border-border data-[vaul-drawer-direction=bottom]:shadow-[0_-12px_40px_-8px_rgba(0,0,0,0.35)]"
+            className="flex flex-col gap-0 overflow-hidden p-0 pb-0 data-[vaul-drawer-direction=bottom]:inset-x-0 data-[vaul-drawer-direction=bottom]:mx-auto data-[vaul-drawer-direction=bottom]:h-[85dvh] data-[vaul-drawer-direction=bottom]:max-h-[85dvh] data-[vaul-drawer-direction=bottom]:w-full data-[vaul-drawer-direction=bottom]:max-w-2xl data-[vaul-drawer-direction=bottom]:rounded-t-2xl data-[vaul-drawer-direction=bottom]:border-t data-[vaul-drawer-direction=bottom]:border-border data-[vaul-drawer-direction=bottom]:pb-0 data-[vaul-drawer-direction=bottom]:shadow-[0_-12px_40px_-8px_rgba(0,0,0,0.35)]"
           >
             <DrawerHeader className="shrink-0 border-b px-3 py-2 text-left">
               <DrawerTitle className="text-base">Comments</DrawerTitle>
             </DrawerHeader>
-            <div className="flex min-h-0 flex-1 flex-col px-3 py-2">
+            <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
               {commentsPanelOpen ? (
                 <CommentSection
                   key={`${fileId}-${highlightCommentId ?? ""}`}

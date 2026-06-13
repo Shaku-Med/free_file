@@ -26,7 +26,7 @@ function SkeletonCard() {
   );
 }
 
-type ProfileVideoTab = "liked" | "history";
+type ProfileVideoTab = "liked" | "history" | "adult" | "shorts" | "videos" | "popular";
 
 interface ProfileTabVideosGridProps {
   tab: ProfileVideoTab;

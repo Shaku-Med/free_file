@@ -142,6 +142,12 @@ const Reel = ({ initialItems, initialUserActions }: ReelProps) => {
       try {
         if (append) {
           setIsLoadingMore(true);
+          if (shownIdsRef.current.size > 350) {
+            const recent = itemsRef.current.slice(-150);
+            shownIdsRef.current = new Set(
+              recent.map((f) => (f.id ? String(f.id) : "")).filter(Boolean),
+            );
+          }
         }
 
         feedSeedRef.current = newReelFeedSeed();
@@ -205,17 +211,19 @@ const Reel = ({ initialItems, initialUserActions }: ReelProps) => {
         } else {
           const prev = itemsRef.current;
           const existingIds = new Set(prev.map((f: FileType) => String(f.id)));
-          const newItems = incoming.filter((f: FileType) => !existingIds.has(String(f.id)));
+          let newItems = incoming.filter((f: FileType) => !existingIds.has(String(f.id)));
+          if (newItems.length === 0 && userId && incoming.length > 0) {
+            newItems = incoming;
+          }
           appendedCount = newItems.length;
           setItems([...prev, ...newItems]);
         }
 
-        if (append && appendedCount === 0) {
+        if (userId) {
+          setHasMore(incoming.length > 0 || Boolean(data.nextCursor));
+        } else if (append && appendedCount === 0) {
           setHasMore(false);
         } else {
-          // Don't bake userId into the state: on a hard refresh the initial
-          // load can finish BEFORE the auth context hydrates, which would
-          // lock hasMore=false forever. The append guards check userId live.
           setHasMore(Boolean(data.nextCursor));
         }
 

@@ -340,7 +340,10 @@ export const ReelSwiper = ({
         aria-label="Reels"
       >
         {items.map((file, slideIndex) => (
-          <SwiperSlide key={String(file.id)} className="!h-full !max-h-[100dvh] !w-full shrink-0">
+          <SwiperSlide
+            key={`${String(file.id)}-${slideIndex}`}
+            className="!h-full !max-h-[100dvh] !w-full shrink-0"
+          >
             {({ isActive }) => (
               <div
                 className="h-full max-h-[100dvh] w-full min-h-0 touch-pan-y"

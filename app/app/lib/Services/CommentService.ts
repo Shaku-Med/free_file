@@ -42,10 +42,13 @@ export interface CommentServiceResponse<T> {
   error: string | null;
 }
 
-/** Result of getCommentsByFileId when using tree: includes totalCount for display */
+/** Result of getCommentsTreeByFileId when using tree: includes totalCount for display */
 export interface CommentsTreeResult {
   data: Comment[];
+  /** Top-level threads only (pagination unit). */
   totalCount: number;
+  /** All visible comments including nested replies. */
+  totalCommentCount: number;
 }
 
 /** IDs of comments hidden by owner or under a hidden ancestor (for non-owner viewers). */
@@ -236,7 +239,6 @@ export class CommentService {
         list = rawList.filter((r) => !hiddenIds.has(r.id));
       }
 
-      const totalCount = list.length;
       const userIds = [...new Set(list.map((r) => r.user_id))];
       const userMap = new Map<string, { id: string; username: string; profile_pic: string }>();
       if (userIds.length > 0) {
@@ -315,6 +317,12 @@ export class CommentService {
         }
       }
 
+      // Pagination is over TOP-LEVEL comments only — replies live nested
+      // inside their root. Count roots (not the whole flat list) so the
+      // client's load-more matches what it actually paginates.
+      const totalCount = roots.length;
+      const totalCommentCount = list.length;
+
       roots.sort((a, b) => {
         const likesA = a.like_count ?? 0, likesB = b.like_count ?? 0;
         if (likesB !== likesA) return likesB - likesA;
@@ -348,7 +356,7 @@ export class CommentService {
         .map(stripCommentBranchForApi);
 
       return {
-        data: { data: paginatedRoots, totalCount },
+        data: { data: paginatedRoots, totalCount, totalCommentCount },
         error: null,
       };
     } catch (error) {

@@ -89,12 +89,42 @@ export function useHLS(videoRef: React.RefObject<HTMLVideoElement | null>) {
     mountedRef.current = true;
     return () => {
       mountedRef.current = false;
-      if (hlsRef.current) {
-        hlsRef.current.destroy();
-        hlsRef.current = null;
-      }
+      const hls = hlsRef.current;
+      hlsRef.current = null;
       lastEnginePathRef.current = null;
       lastAttachedVideoRef.current = null;
+      if (!hls) return;
+
+      // Navigation away tears down the player. `hls.destroy()` is heavy
+      // (aborts loaders, removes SourceBuffers, rips down ABR + listeners) and
+      // ran synchronously here  blocking the new route's first paint, which
+      // is the "player holds back the navigation" lag. Do the CHEAP part now
+      // (stop the decoder/loaders so nothing keeps running), then defer the
+      // expensive teardown until AFTER the navigation has painted.
+      try {
+        hls.stopLoad();
+      } catch {
+        /* instance already half-torn-down */
+      }
+      try {
+        hls.detachMedia();
+      } catch {
+        /* no media attached */
+      }
+      const finishDestroy = () => {
+        try {
+          hls.destroy();
+        } catch {
+          /* already destroyed */
+        }
+      };
+      // requestIdleCallback runs after paint when the main thread is free;
+      // the timeout caps the wait, and setTimeout(0) covers Safari.
+      if (typeof window !== 'undefined' && typeof window.requestIdleCallback === 'function') {
+        window.requestIdleCallback(finishDestroy, { timeout: 500 });
+      } else {
+        setTimeout(finishDestroy, 0);
+      }
     };
   }, []);
 
