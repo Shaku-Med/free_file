@@ -1,6 +1,7 @@
 import db from '~/lib/Database/supabase';
 import { isAuthenticated } from '~/lib/Security/Password';
 import { isValidUUID } from '~/lib/Security/inputValidation';
+import { stripThumbnailsForClient } from '~/lib/files/reelFilePayload';
 
 /**
  * GET /api/music/:id  the sound page data.
@@ -9,7 +10,7 @@ import { isValidUUID } from '~/lib/Security/inputValidation';
  */
 
 const FILE_COLUMNS =
-  'id, created_at, endpoint, filename, unique_id, file_size, file_type, is_adult, owner_id, is_public, upload_status, file_description, file_title, default_thumbnail, thumbnails, view_count, share_count, is_reel, duration, categories, tags, colors, metadata, original_file_id';
+  'id, created_at, endpoint, filename, unique_id, file_size, file_type, is_adult, owner_id, is_public, upload_status, file_title, default_thumbnail, views, view_count, share_count, up_count, down_count, is_reel, duration, colors, metadata, original_file_id, comments_enabled';
 
 const USES_LIMIT = 60;
 
@@ -19,16 +20,31 @@ const json = (body: unknown, status = 200) =>
     headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' },
   });
 
-type FileRow = Record<string, unknown> & { owner_id?: string | null };
+type FileRow = Record<string, unknown> & { owner_id?: string | null; id?: string };
+
+function fileIdKey(id: unknown): string {
+  return String(id ?? '').toLowerCase();
+}
+
+function mapFileForClient(row: FileRow): FileRow {
+  const stripped = stripThumbnailsForClient(row);
+  return {
+    ...stripped,
+    like_count: Number(stripped.like_count ?? stripped.up_count) || 0,
+    dislike_count: Number(stripped.dislike_count ?? stripped.down_count) || 0,
+  };
+}
 
 function attachOwners(
   rows: FileRow[],
   owners: Map<string, { id: string; username: string; profile_pic: string; verified: boolean }>,
 ) {
-  return rows.map((row) => ({
-    ...row,
-    owner: row.owner_id ? owners.get(String(row.owner_id)) ?? null : null,
-  }));
+  return rows.map((row) =>
+    mapFileForClient({
+      ...row,
+      owner: row.owner_id ? owners.get(String(row.owner_id)) ?? null : null,
+    }),
+  );
 }
 
 export const loader = async ({ request, params }: { request: Request; params: { id: string } }) => {
@@ -37,9 +53,8 @@ export const loader = async ({ request, params }: { request: Request; params: { 
     const id = params.id?.trim() ?? '';
     if (!isValidUUID(id)) return json({ error: 'Not found' }, 404);
 
-    // Auth only personalizes nothing here yet, but keeps parity with other
-    // feed endpoints if we later add like-state.
-    await isAuthenticated(request, ['id']).catch(() => null);
+    const user = await isAuthenticated(request, ['id']).catch(() => null);
+    const userId = user?.id ?? null;
 
     const [originalRes, usesRes] = await Promise.all([
       db.from('files').select(FILE_COLUMNS).eq('id', id).maybeSingle(),
@@ -63,7 +78,6 @@ export const loader = async ({ request, params }: { request: Request; params: { 
 
     const uses = Array.isArray(usesRes.data) ? (usesRes.data as FileRow[]) : [];
 
-    // One owners lookup for every row on the page.
     const ownerIds = Array.from(
       new Set(
         [...(originalVisible ? [originalRow] : []), ...uses]
@@ -87,9 +101,68 @@ export const loader = async ({ request, params }: { request: Request; params: { 
       }
     }
 
+    const original = originalVisible ? attachOwners([originalRow], owners)[0] : null;
+    const usesOut = attachOwners(uses, owners);
+
+    const likedFileIds: string[] = [];
+    const dislikedFileIds: string[] = [];
+    let originalInteractions: {
+      like_count: number;
+      dislike_count: number;
+      comment_count: number;
+    } | null = null;
+
+    const interactionIds = [
+      ...(original?.id ? [String(original.id)] : []),
+      ...usesOut.map((f) => (f.id ? String(f.id) : '')).filter(Boolean),
+    ];
+
+    if (interactionIds.length > 0) {
+      const { data: batch } = await db.rpc('get_batch_interactions', {
+        p_file_ids: interactionIds,
+        p_user_id: userId,
+      });
+      if (Array.isArray(batch)) {
+        const byId = new Map<string, (typeof batch)[0]>();
+        for (const row of batch) {
+          if (row?.file_id) byId.set(fileIdKey(row.file_id), row);
+        }
+
+        if (original?.id) {
+          const row = byId.get(fileIdKey(original.id));
+          const rpcLike = Number(original.like_count) || 0;
+          const rpcDislike = Number(original.dislike_count) || 0;
+          if (row) {
+            if (row.user_has_liked) likedFileIds.push(fileIdKey(original.id));
+            if (row.user_has_disliked) dislikedFileIds.push(fileIdKey(original.id));
+            originalInteractions = {
+              like_count: Math.max(Number(row.like_count) || 0, rpcLike),
+              dislike_count: Math.max(Number(row.dislike_count) || 0, rpcDislike),
+              comment_count: Number(row.comment_count) || 0,
+            };
+          } else {
+            originalInteractions = {
+              like_count: rpcLike,
+              dislike_count: rpcDislike,
+              comment_count: 0,
+            };
+          }
+        }
+
+        for (const file of usesOut) {
+          if (!file.id) continue;
+          const row = byId.get(fileIdKey(file.id));
+          if (row?.user_has_liked) likedFileIds.push(fileIdKey(file.id));
+          if (row?.user_has_disliked) dislikedFileIds.push(fileIdKey(file.id));
+        }
+      }
+    }
+
     return json({
-      original: originalVisible ? attachOwners([originalRow], owners)[0] : null,
-      uses: attachOwners(uses, owners),
+      original,
+      uses: usesOut,
+      userActions: { likedFileIds, dislikedFileIds },
+      originalInteractions,
     });
   } catch (error) {
     console.error('Music page API error:', error);

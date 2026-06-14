@@ -28,7 +28,7 @@ export default function PlaybackSpeed() {
       </button>
 
       {open && (
-        <div className="absolute bottom-full right-0 mb-2 py-1 min-w-[100px] bg-black/95 rounded-lg shadow-xl border border-white/10 z-50 backdrop-blur-md">
+        <div className="absolute bottom-full right-0 mb-2 py-1 min-w-[100px] bg-black/95 rounded-lg shadow-xl z-50">
           {SPEEDS.map(s => (
             <button
               key={s}

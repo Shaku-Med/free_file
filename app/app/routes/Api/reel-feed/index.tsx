@@ -1,8 +1,16 @@
 import { filterFilesByAccess } from '../fun/accessControl';
 import db from '~/lib/Database/supabase';
 import { isAuthenticated } from '~/lib/Security/Password';
+import {
+  mapRpcFileToReelFeedItem,
+  type ReelFeedInteraction,
+} from '~/lib/files/reelFilePayload';
 
 const REEL_LIMIT = 15;
+/** Related reels from the previous watch — prepended before the main feed batch. */
+const CONTEXT_RELATED_MAX = 5;
+/** Profile-channel mode: page through a creator's shorts before the global feed. */
+const PROFILE_REEL_FETCH_LIMIT = 20;
 
 /** UUID string compare-safe key (Supabase/JSON may vary in casing). */
 function fileIdKey(id: unknown): string {
@@ -37,6 +45,114 @@ function parseExcludeIds(url: URL): string[] {
   return parseIdsParam(raw);
 }
 
+function isReelRow(file: Record<string, unknown>): boolean {
+  const v = file.is_reel;
+  return v === true || v === 1 || v === 'true' || v === 't';
+}
+
+function mergeReelRows(
+  related: Record<string, unknown>[],
+  feed: Record<string, unknown>[],
+  maxTotal: number,
+): Record<string, unknown>[] {
+  const seen = new Set<string>();
+  const merged: Record<string, unknown>[] = [];
+
+  const push = (file: Record<string, unknown>) => {
+    if (merged.length >= maxTotal) return;
+    const id = file.id ? fileIdKey(file.id) : '';
+    if (!id || seen.has(id)) return;
+    seen.add(id);
+    merged.push(file);
+  };
+
+  for (const file of related.slice(0, CONTEXT_RELATED_MAX)) {
+    push(file);
+  }
+  for (const file of feed) {
+    push(file);
+  }
+
+  return merged;
+}
+
+async function fetchContextRelatedReels(
+  request: Request,
+  contextFileId: string,
+  userId: string | undefined,
+  excludeIds: string[],
+  sessionCats: string[],
+): Promise<Record<string, unknown>[]> {
+  const pExcludeIds =
+    excludeIds.length > 0
+      ? excludeIds.filter((id) => /^[0-9a-f-]{36}$/i.test(id))
+      : [];
+
+  const rpcParams: Record<string, unknown> = {
+    p_file_id: contextFileId,
+    p_user_id: userId || null,
+    p_limit: CONTEXT_RELATED_MAX + 4,
+    p_cursor_pos: 0,
+    ...(pExcludeIds.length > 0 ? { p_exclude_ids: pExcludeIds } : {}),
+    ...(sessionCats.length > 0 ? { p_session_cats: sessionCats } : {}),
+  };
+
+  const { data: related, error } = await db.rpc('get_related', rpcParams);
+  if (error) {
+    console.error('Reel feed context related RPC error:', error);
+    return [];
+  }
+
+  const accessible = await filterFilesByAccess(request, related || []);
+  return accessible.filter((file) => isReelRow(file as Record<string, unknown>)) as Record<string, unknown>[];
+}
+
+async function fetchProfileOwnerReels(
+  request: Request,
+  profileUserId: string,
+  viewerId: string | undefined,
+  excludeIds: string[],
+  cursorPos: number,
+  limit: number,
+): Promise<{ rows: Record<string, unknown>[]; hasMore: boolean; nextCursor: number }> {
+  const { data: rows, error } = await db.rpc("get_profile_section_files", {
+    p_profile_user_id: profileUserId,
+    p_viewer_id: viewerId || null,
+    p_section: "shorts",
+    p_limit: limit + 1,
+    p_cursor_pos: Math.max(0, cursorPos),
+  });
+
+  if (error) {
+    console.error("Reel feed profile owner RPC error:", error);
+    return { rows: [], hasMore: false, nextCursor: cursorPos };
+  }
+
+  const rowArr = Array.isArray(rows) ? rows : [];
+  const hasMore = rowArr.length > limit;
+  const sliced = rowArr.slice(0, limit);
+  const accessible = await filterFilesByAccess(
+    request,
+    sliced as import("../fun/accessControl").FileData[],
+  );
+  const reels = accessible.filter((file) => isReelRow(file as Record<string, unknown>)) as Record<
+    string,
+    unknown
+  >[];
+
+  const exclude = new Set(excludeIds.map(fileIdKey));
+  const filtered = reels.filter((file) => {
+    const id = file.id ? fileIdKey(file.id) : "";
+    return id && !exclude.has(id);
+  });
+
+  return {
+    rows: filtered,
+    hasMore,
+    nextCursor: cursorPos + sliced.length,
+  };
+}
+
 export const loader = async ({ request }: { request: Request }) => {
   try {
     const url = new URL(request.url);
@@ -44,6 +160,19 @@ export const loader = async ({ request }: { request: Request }) => {
     const seedParam = url.searchParams.get('seed') ?? 'default';
     const categoryParam = url.searchParams.get('category');
     const maxDurationParam = url.searchParams.get('max_duration');
+    const contextFileIdParam = url.searchParams.get('context_file_id');
+    const profileUserIdParam = url.searchParams.get('profile_user_id');
+    const profileExhaustedParam = url.searchParams.get('profile_exhausted') === '1';
+    const profileCursorPos = Math.max(
+      0,
+      parseInt(url.searchParams.get('profile_cursor_pos') ?? '0', 10) || 0,
+    );
+
+    const profileUserId =
+      profileUserIdParam && /^[0-9a-f-]{36}$/i.test(profileUserIdParam)
+        ? profileUserIdParam
+        : null;
+    const profileModeActive = profileUserId != null && !profileExhaustedParam;
 
     const pExcludeIds =
       excludeIds.length > 0
@@ -79,34 +208,91 @@ export const loader = async ({ request }: { request: Request }) => {
         })()
       : [];
 
-    const reelParams: Record<string, unknown> = {
-      p_user_id: userId || null,
-      p_limit: REEL_LIMIT,
-      p_category: categoryParam || null,
-      p_seed: seedParam,
-      p_cursor_pos: 0,
-      ...(pExcludeIds.length > 0 ? { p_exclude_ids: pExcludeIds } : {}),
-      ...(maxDuration != null && Number.isFinite(maxDuration) && maxDuration > 0 ? { p_max_duration: maxDuration } : {}),
-      ...(sessionCats.length > 0 ? { p_session_cats: sessionCats } : {}),
-      ...(watchedIds.length > 0 ? { p_watched_ids: watchedIds } : {}),
-    };
+    const contextFileId =
+      !profileModeActive &&
+      contextFileIdParam &&
+      /^[0-9a-f-]{36}$/i.test(contextFileIdParam)
+        ? contextFileIdParam
+        : null;
 
-    const { data: reelFeed, error } = await db.rpc('get_reel_feed', reelParams);
-    if (error) {
-      console.error('Reel feed RPC error:', error);
-      return new Response(JSON.stringify({ error: 'Failed to fetch reel feed' }), {
-        status: 500,
-        headers: { 'Content-Type': 'application/json' }
-      });
+    const relatedRows =
+      contextFileId != null
+        ? await fetchContextRelatedReels(request, contextFileId, userId, excludeIds, sessionCats)
+        : [];
+
+    let profileRows: Record<string, unknown>[] = [];
+    let profileHasMore = false;
+    let profileNextCursor = profileCursorPos;
+    let profileExhausted = profileExhaustedParam || !profileUserId;
+
+    if (profileModeActive && profileUserId) {
+      const profileBatch = await fetchProfileOwnerReels(
+        request,
+        profileUserId,
+        userId,
+        excludeIds,
+        profileCursorPos,
+        PROFILE_REEL_FETCH_LIMIT,
+      );
+      profileRows = profileBatch.rows;
+      profileHasMore = profileBatch.hasMore;
+      profileNextCursor = profileBatch.nextCursor;
+      if (!profileHasMore) {
+        profileExhausted = true;
+      } else if (profileRows.length === 0) {
+        // Accessible rows were all excluded — keep paging the profile RPC.
+        profileExhausted = false;
+      }
     }
 
-    let filtered = await filterFilesByAccess(request, reelFeed || []);
+    let feedRows: Record<string, unknown>[] = [];
+    let rawCount = 0;
+
+    if (profileModeActive && !profileExhausted) {
+      feedRows = profileRows;
+      rawCount = profileRows.length;
+    } else {
+      const reelParams: Record<string, unknown> = {
+        p_user_id: userId || null,
+        p_limit: REEL_LIMIT,
+        p_category: categoryParam || null,
+        p_seed: seedParam,
+        p_cursor_pos: 0,
+        ...(pExcludeIds.length > 0 ? { p_exclude_ids: pExcludeIds } : {}),
+        ...(maxDuration != null && Number.isFinite(maxDuration) && maxDuration > 0 ? { p_max_duration: maxDuration } : {}),
+        ...(sessionCats.length > 0 ? { p_session_cats: sessionCats } : {}),
+        ...(watchedIds.length > 0 ? { p_watched_ids: watchedIds } : {}),
+      };
+
+      const { data: reelFeed, error } = await db.rpc('get_reel_feed', reelParams);
+      if (error) {
+        console.error('Reel feed RPC error:', error);
+        return new Response(JSON.stringify({ error: 'Failed to fetch reel feed' }), {
+          status: 500,
+          headers: { 'Content-Type': 'application/json' }
+        });
+      }
+
+      feedRows = (await filterFilesByAccess(request, reelFeed || [])) as Record<string, unknown>[];
+      rawCount = (reelFeed || []).length;
+
+      if (profileUserId && profileExhausted && profileRows.length > 0) {
+        feedRows = mergeReelRows(profileRows, feedRows, REEL_LIMIT + CONTEXT_RELATED_MAX);
+        rawCount += profileRows.length;
+      }
+    }
+
+    const filtered =
+      profileModeActive && !profileExhausted
+        ? profileRows.slice(0, REEL_LIMIT + CONTEXT_RELATED_MAX)
+        : mergeReelRows(
+            relatedRows,
+            feedRows as Record<string, unknown>[],
+            REEL_LIMIT + CONTEXT_RELATED_MAX,
+          );
 
     const fileIds = filtered.map((f) => f.id as string | undefined).filter(Boolean);
-    const interactionsByFile = new Map<
-      string,
-      { like_count: number; dislike_count: number; comment_count: number; user_has_liked: boolean; user_has_disliked: boolean }
-    >();
+    const interactionsByFile = new Map<string, ReelFeedInteraction>();
     if (fileIds.length > 0) {
       const { data: batch } = await db.rpc("get_batch_interactions", {
         p_file_ids: fileIds,
@@ -134,80 +320,22 @@ export const loader = async ({ request }: { request: Request }) => {
     const data = filtered.map((file: Record<string, unknown>) => {
       const fid = file.id ? fileIdKey(file.id) : "";
       const interactions = fid ? interactionsByFile.get(fid) : undefined;
-      const rpcLike = Number(file.like_count) || 0;
-      const rpcDislike = Number(file.dislike_count) || 0;
-      const rpcComment = Number(file.comment_count) || 0;
-      const likeCount = interactions
-        ? Math.max(interactions.like_count, rpcLike)
-        : rpcLike;
-      const dislikeCount = interactions
-        ? Math.max(interactions.dislike_count, rpcDislike)
-        : rpcDislike;
-      const commentCount = interactions
-        ? Math.max(interactions.comment_count, rpcComment)
-        : rpcComment;
-      const userHasLiked = interactions ? interactions.user_has_liked : !!file.user_has_liked;
-      const userHasDisliked = interactions ? interactions.user_has_disliked : !!file.user_has_disliked;
-      if (userHasLiked && file.id) likedFileIds.push(fileIdKey(file.id));
-      if (userHasDisliked && file.id) dislikedFileIds.push(fileIdKey(file.id));
-
-      return {
-        id: file.id,
-        created_at: file.created_at,
-        endpoint: file.endpoint || '',
-        filename: file.filename,
-        unique_id: file.unique_id,
-        file_size: file.file_size,
-        file_type: file.file_type,
-        is_adult: file.is_adult,
-        owner_id: file.owner_id,
-        is_public: file.is_public,
-        file_description: file.file_description,
-        file_title: file.file_title || '',
-        default_thumbnail: file.default_thumbnail || null,
-        view_count: file.view_count,
-        share_count: file.share_count,
-        is_reel: file.is_reel,
-        original_file_id: file.original_file_id ?? null,
-        original_sound: file.original_unique_id
-          ? {
-              unique_id: file.original_unique_id,
-              file_title: file.original_title ?? null,
-              filename: file.original_filename ?? null,
-              default_thumbnail: file.original_default_thumbnail ?? null,
-              created_at: file.original_created_at ?? null,
-            }
-          : null,
-        duration: file.duration,
-        categories: file.categories,
-        tags: file.tags,
-        colors: file.colors,
-        metadata: file.metadata,
-        like_count: likeCount,
-        dislike_count: dislikeCount,
-        comment_count: commentCount,
-        engagement_score: file.engagement_score ?? 0,
-        owner: file.owner_username
-          ? {
-              id: file.owner_id,
-              username: file.owner_username,
-              profile_pic: file.owner_profile_pic || '',
-              verified: file.owner_verified ?? false,
-              about: file.owner_about ?? null,
-            }
-          : null,
-      };
+      const mapped = mapRpcFileToReelFeedItem(file, interactions);
+      if (mapped.user_has_liked && file.id) likedFileIds.push(fileIdKey(file.id));
+      if (mapped.user_has_disliked && file.id) dislikedFileIds.push(fileIdKey(file.id));
+      const { user_has_liked: _l, user_has_disliked: _d, ...clientRow } = mapped;
+      return clientRow;
     });
 
-    const rawCount = (reelFeed || []).length;
     const deliveredCount = data.length;
+    const rawCountForCursor = profileModeActive && !profileExhausted ? profileRows.length : rawCount;
     /** Logged-in: keep scrolling while any reels are returned; anonymous: one page unless full batch. */
     const nextCursor =
       userId != null
-        ? deliveredCount > 0
+        ? deliveredCount > 0 || (profileUserId && profileHasMore && !profileExhausted)
           ? { cursor_pos: 0 }
           : null
-        : rawCount >= REEL_LIMIT
+        : rawCountForCursor >= REEL_LIMIT
           ? { cursor_pos: 0 }
           : null;
 
@@ -215,13 +343,22 @@ export const loader = async ({ request }: { request: Request }) => {
       data,
       userActions: { likedFileIds, dislikedFileIds },
       nextCursor,
+      ...(profileUserId
+        ? {
+            profile_exhausted: profileExhausted,
+            profile_next_cursor: profileNextCursor,
+            profile_has_more: profileHasMore,
+          }
+        : {}),
     };
 
     return new Response(JSON.stringify(result), {
       headers: {
         'Content-Type': 'application/json',
         'Cache-Control': 'no-store',
-        'X-Reel-Feed-Count': String(rawCount),
+        'X-Reel-Feed-Count': String(rawCountForCursor),
+        ...(contextFileId ? { 'X-Reel-Context-File': contextFileId } : {}),
+        ...(profileUserId ? { 'X-Reel-Profile-User': profileUserId } : {}),
       },
     });
   } catch (error) {

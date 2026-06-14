@@ -1,7 +1,7 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router';
 import { isMobile } from 'react-device-detect';
-import { Heart, Maximize2 } from 'lucide-react';
+import { Maximize2 } from 'lucide-react';
 import { cn, getThumbnailUrl, getVideoSrc, ParseFilename } from '~/lib/utils';
 import {
   REEL_FALLBACK_ASPECT,
@@ -20,6 +20,11 @@ import { PlayQueueProvider } from '~/routes/Dynamic/components/PlayQueueContext'
 import Actions from '~/routes/Home/components/VideoCard/Actions';
 import ImageLoad from '~/routes/Home/components/ImageLoad/ImageLoad';
 import { ReelMetaPanel } from '~/routes/reel/components/ReelMetaPanel';
+import {
+  ReelDoubleTapLikeBurst,
+  type ReelLikeFlyBurst,
+} from '~/routes/reel/components/ReelDoubleTapLikeBurst';
+import { useReelActionRailDensity } from '~/routes/reel/lib/useReelActionRailDensity';
 import { useFileContext } from '~/lib/Context/Context';
 import { type FileType, fileWatchPath } from '~/lib/types';
 import { fileToFeedItem, type VerticalFeedItemData } from '~/components/vertical-feed';
@@ -29,6 +34,20 @@ import {
   requestPipClosingHandshake,
 } from '../pipEnv';
 import { PIP_REEL_HLS_HIDE_CONTROLS } from './pipPlayerChrome';
+
+/**
+ * Describes the active reel so the page can drive ONE shared ambience glow AND
+ * the ONE global comments panel (both follow whichever reel is playing).
+ */
+export interface ReelAmbienceInfo {
+  id: string;
+  el: HTMLVideoElement;
+  colors: string[];
+  aspect: number | null;
+  /** Identity the global comments panel loads (matches the action rail's). */
+  fileId: string;
+  ownerId?: string;
+}
 
 /** Same as reel feed / `/api/pip-feed` `userActions` (see `VerticalFeed`). */
 export type PipReelUserActions = {
@@ -53,6 +72,15 @@ export interface PipReelItemProps {
   loadHlsPlayer?: boolean;
   /** `/reel` full-page only: poster-derived palette for the page backdrop (from the same thumbnail as the player). */
   onReelPosterColors?: (colors: string[]) => void;
+  /** `/reel` full-page only: reports the active reel's live video so the page renders one shared ambience. */
+  onActiveAmbience?: (info: ReelAmbienceInfo) => void;
+  /**
+   * `/reel` page only: the page owns ONE global comments panel that follows the
+   * active reel. The action rail's comment button just toggles this shared state
+   * (Actions renders no UI of its own — `suppressCommentsUi`).
+   */
+  commentsOpen?: boolean;
+  onCommentsOpenChange?: (open: boolean) => void;
 }
 
 const noopRetry = () => {};
@@ -76,6 +104,9 @@ function PipReelItemInner({
   className,
   loadHlsPlayer = true,
   onReelPosterColors,
+  onActiveAmbience,
+  commentsOpen,
+  onCommentsOpenChange,
 }: PipReelItemProps) {
   const { userId, playerSettings } = useFileContext();
   const playerBackground = playerSettings?.playerBackground !== false;
@@ -86,6 +117,36 @@ function PipReelItemInner({
   /** Intrinsic W/H from the active `<video>` — sizes the reel frame on `/reel`. */
   const [videoAspect, setVideoAspect] = useState<number | null>(null);
   const [isReelMobileLayout, setIsReelMobileLayout] = useState(isMobile);
+  const reelActionRailDensity = useReelActionRailDensity();
+
+  // Comments for the /reel page now live at the PAGE level (one global panel
+  // that follows the active reel and pushes the whole stage). The action rail's
+  // comment button just toggles that shared state; Actions renders no UI here.
+  const reelSideComments = variant === 'page';
+
+  // Hand the active reel's live <video> + palette + aspect + identity up to the
+  // /reel page so it can drive ONE shared ambience AND the ONE global comments
+  // panel (no per-slide copies).
+  useEffect(() => {
+    if (variant !== 'page' || !isActive || !trackedVideoEl || !onActiveAmbience) return;
+    onActiveAmbience({
+      id: String(file.id),
+      el: trackedVideoEl,
+      colors: Array.isArray(file.colors) ? (file.colors as string[]) : [],
+      aspect: videoAspect,
+      fileId: String(file.id),
+      ownerId: file.owner_id ?? undefined,
+    });
+  }, [
+    variant,
+    isActive,
+    trackedVideoEl,
+    videoAspect,
+    file.id,
+    file.colors,
+    file.owner_id,
+    onActiveAmbience,
+  ]);
 
   const isHLS =
     file.file_type === 'application/vnd.apple.mpegurl' ||
@@ -511,43 +572,113 @@ function PipReelItemInner({
   const uniqueId = item.unique_id ?? item.id;
   const isOwner = Boolean(userId && item.ownerId && userId === item.ownerId);
 
-  /** Instagram-style double-tap: pop a heart at the tap point and like (never unlike). */
-  const playerBoxRef = useRef<HTMLDivElement | null>(null);
-  const [heartBursts, setHeartBursts] = useState<{ id: number; x: number; y: number }[]>([]);
-  const heartBurstSeqRef = useRef(0);
+  /** Double-tap like: thumbs-up pops at tap, flies into the action-rail like button. */
+  const likeBurstHostRef = useRef<HTMLDivElement | null>(null);
+  const likeIconRef = useRef<HTMLSpanElement>(null);
+  const [likeFlyBursts, setLikeFlyBursts] = useState<ReelLikeFlyBurst[]>([]);
+  const likeFlySeqRef = useRef(0);
+  const pendingLikeOnArriveRef = useRef<Map<number, boolean>>(new Map());
+  const likedRef = useRef(liked);
+  likedRef.current = liked;
+
+  const applyDoubleTapLike = useCallback(() => {
+    if (likedRef.current || !userId) return;
+    setLiked(true);
+    setLikeCount((c) => c + 1);
+    void fetch('/api/likes', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ fileId }),
+    })
+      .then(async (res) =>
+        res.ok
+          ? ((await res.json().catch(() => null)) as Record<string, unknown> | null)
+          : null,
+      )
+      .then((json) => {
+        if (!json) return;
+        setLiked(Boolean(json.liked ?? json.user_has_liked));
+        const count = Number(json.like_count);
+        if (Number.isFinite(count)) setLikeCount(count);
+      })
+      .catch(() => {});
+  }, [userId, fileId]);
+
+  const resolveLikeFlyTarget = useCallback(
+    (hostRect: DOMRect, startX: number, startY: number) => {
+      const host = likeBurstHostRef.current;
+      const targets = host?.querySelectorAll('[data-reel-like-target]') ?? [];
+      for (const el of targets) {
+        const targetRect = el.getBoundingClientRect();
+        if (targetRect.width < 4 || targetRect.height < 4) continue;
+        const style = window.getComputedStyle(el);
+        if (style.display === 'none' || style.visibility === 'hidden') continue;
+        return {
+          endX: targetRect.left + targetRect.width / 2 - hostRect.left,
+          endY: targetRect.top + targetRect.height / 2 - hostRect.top,
+        };
+      }
+      const refEl = likeIconRef.current;
+      if (refEl) {
+        const targetRect = refEl.getBoundingClientRect();
+        return {
+          endX: targetRect.left + targetRect.width / 2 - hostRect.left,
+          endY: targetRect.top + targetRect.height / 2 - hostRect.top,
+        };
+      }
+      return { endX: startX + 72, endY: startY - 100 };
+    },
+    [],
+  );
 
   const handleReelDoubleTapLike = useCallback(
     (point: { x: number; y: number }) => {
-      const rect = playerBoxRef.current?.getBoundingClientRect();
-      const x = rect ? point.x - rect.left : point.x;
-      const y = rect ? point.y - rect.top : point.y;
-      const id = ++heartBurstSeqRef.current;
-      setHeartBursts((prev) => [...prev.slice(-3), { id, x, y }]);
-      window.setTimeout(() => {
-        setHeartBursts((prev) => prev.filter((b) => b.id !== id));
-      }, 900);
-
-      // Already liked (or signed out): just the heart, no API churn.
-      if (liked || !userId) return;
-      setLiked(true);
-      setLikeCount((c) => c + 1);
-      void fetch('/api/likes', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ fileId }),
-      })
-        .then(async (res) => (res.ok ? ((await res.json().catch(() => null)) as Record<string, unknown> | null) : null))
-        .then((json) => {
-          if (!json) return;
-          setLiked(Boolean(json.liked ?? json.user_has_liked));
-          const count = Number(json.like_count);
-          if (Number.isFinite(count)) setLikeCount(count);
-        })
-        .catch(() => {});
+      const hostRect = likeBurstHostRef.current?.getBoundingClientRect();
+      if (!hostRect) return;
+      const startX = point.x - hostRect.left;
+      const startY = point.y - hostRect.top;
+      const { endX, endY } = resolveLikeFlyTarget(hostRect, startX, startY);
+      const id = ++likeFlySeqRef.current;
+      pendingLikeOnArriveRef.current.set(id, !likedRef.current && Boolean(userId));
+      setLikeFlyBursts((prev) => [
+        ...prev.slice(-2),
+        { id, startX, startY, endX, endY },
+      ]);
     },
-    [liked, userId, fileId],
+    [userId, resolveLikeFlyTarget],
   );
+
+  const handleLikeFlyComplete = useCallback((id: number) => {
+    setLikeFlyBursts((prev) => prev.filter((b) => b.id !== id));
+    pendingLikeOnArriveRef.current.delete(id);
+  }, []);
+
+  const handleLikeFlyArrive = useCallback(
+    (id: number) => {
+      if (pendingLikeOnArriveRef.current.get(id)) {
+        applyDoubleTapLike();
+      }
+    },
+    [applyDoubleTapLike],
+  );
+
+  const likeBurstOverlay =
+    likeFlyBursts.length > 0 ? (
+      <div
+        className="pointer-events-none absolute inset-0 z-[35] overflow-visible"
+        aria-hidden
+      >
+        {likeFlyBursts.map((burst) => (
+          <ReelDoubleTapLikeBurst
+            key={burst.id}
+            burst={burst}
+            onArrive={handleLikeFlyArrive}
+            onComplete={handleLikeFlyComplete}
+          />
+        ))}
+      </div>
+    ) : null;
 
   // Same JIT-mint flow as the main reel  see ~/lib/hooks/usePlaybackUrl.
   const playbackUrl = usePlaybackUrl(file);
@@ -568,7 +699,6 @@ function PipReelItemInner({
     file.created_at,
     file.unique_id,
     file.default_thumbnail,
-    file.thumbnails,
     file.file_type,
     file.endpoint,
     file.filename,
@@ -645,6 +775,7 @@ function PipReelItemInner({
       layout="tiktok"
       instagramStyle
       reelAudioArt={reelAudioArt}
+      reelDensity={reelActionRailDensity}
       fileId={fileId}
       uniqueId={uniqueId}
       sharePagePath={fileWatchPath(file)}
@@ -661,6 +792,16 @@ function PipReelItemInner({
       fileOwnerId={item.ownerId}
       getShareTimestamp={getShareTimestamp}
       onUpdate={handleUpdate}
+      reelLikeIconRef={likeIconRef}
+      {...(reelSideComments
+        ? {
+            commentsOpen: commentsOpen ?? false,
+            onCommentsOpenChange: onCommentsOpenChange ?? (() => {}),
+            // The /reel PAGE owns the comments UI (one global panel that follows
+            // the active reel); Actions only toggles the shared state.
+            suppressCommentsUi: true,
+          }
+        : {})}
     />
   );
 
@@ -671,7 +812,7 @@ function PipReelItemInner({
 
   const videoPlayerEl =
     videoSrc && showHls ? (
-      <div ref={playerBoxRef} className="relative h-full w-full">
+      <div className="relative h-full w-full">
         <PlayQueueProvider
           currentUniqueId={file.unique_id}
           seriesUpNextVideos={[]}
@@ -701,17 +842,6 @@ function PipReelItemInner({
             callBack={variant === 'page' ? handleReelPosterColorsFromPlayer : undefined}
           />
         </PlayQueueProvider>
-        {heartBursts.length > 0 && (
-          <div className="pointer-events-none absolute inset-0 z-[30] overflow-hidden" aria-hidden>
-            {heartBursts.map((b) => (
-              <Heart
-                key={b.id}
-                className="reel-heart-burst absolute h-24 w-24 fill-rose-500 text-rose-500"
-                style={{ left: b.x - 48, top: b.y - 48 }}
-              />
-            ))}
-          </div>
-        )}
       </div>
     ) : videoSrc && !showHls ? (
       <div className={cn('flex h-full w-full items-center justify-center', playerBackground ? 'bg-black' : 'bg-transparent')}>
@@ -747,6 +877,7 @@ function PipReelItemInner({
       >
         <div className="flex h-full min-h-0 w-full items-center justify-center max-lg:items-stretch max-lg:justify-stretch">
           <div
+            ref={likeBurstHostRef}
             className={cn(
               "relative flex h-full w-full max-w-full flex-row items-center justify-center gap-3 lg:gap-4 lg:px-6",
               "max-lg:gap-0 max-lg:px-0",
@@ -755,7 +886,9 @@ function PipReelItemInner({
             <div
               className={cn(
                 "relative shrink-0 overflow-hidden",
-                playerBackground ? "bg-black" : "bg-transparent",
+                // Reels intentionally have NO player background  the page-level
+                // ambience shows through the letterbox.
+                "bg-transparent",
                 "max-lg:h-[100dvh] max-lg:min-h-[100dvh] max-lg:max-h-[100dvh] max-lg:w-full max-lg:max-w-full",
                 "lg:max-w-full lg:transition-[width,height] lg:duration-300 lg:ease-out",
                 "max-lg:rounded-none",
@@ -777,23 +910,26 @@ function PipReelItemInner({
               {showChrome ? (
                 <div
                   className={cn(
-                    "swiper-no-swiping pointer-events-auto absolute z-20 flex flex-col items-center lg:hidden",
+                    "swiper-no-swiping pointer-events-auto absolute z-20 flex flex-col justify-end lg:hidden",
                     "right-[max(0.5rem,env(safe-area-inset-right))]",
-                    // Anchor to the bottom (above the caption / embedded info) like
-                    // Instagram, instead of vertically centered (which sat too high).
+                    // Pin between top nav and caption strip so short screens can scroll the rail.
+                    "top-[calc(var(--app-top-nav-h,3.5rem)+0.25rem)]",
                     "bottom-[calc(5rem+env(safe-area-inset-bottom,0px))]",
                   )}
                 >
-                  {actionsEl}
+                  <div className="min-h-0 max-h-full overflow-y-auto overscroll-contain touch-pan-y [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                    {actionsEl}
+                  </div>
                 </div>
               ) : null}
             </div>
 
             {showChrome ? (
-              <div className="swiper-no-swiping pointer-events-auto z-30 hidden shrink-0 flex-col items-center lg:flex">
+              <div className="swiper-no-swiping pointer-events-auto z-30 hidden max-h-[min(96dvh,calc(100dvh-1rem))] shrink-0 flex-col items-center overflow-y-auto overscroll-contain [scrollbar-width:none] lg:flex [&::-webkit-scrollbar]:hidden">
                 {actionsEl}
               </div>
             ) : null}
+            {likeBurstOverlay}
           </div>
         </div>
       </div>
@@ -813,7 +949,10 @@ function PipReelItemInner({
       {/*
         PiP: actions over the video (bottom-right). Page variant uses the layout branch above.
       */}
-      <div className={cn('relative min-h-0 min-w-0 flex-1 overflow-hidden', playerBackground ? 'bg-black' : 'bg-transparent')}>
+      <div
+        ref={likeBurstHostRef}
+        className={cn('relative min-h-0 min-w-0 flex-1 overflow-hidden', playerBackground ? 'bg-black' : 'bg-transparent')}
+      >
         {videoPlayerEl}
 
         <div
@@ -824,14 +963,17 @@ function PipReelItemInner({
 
         <div
           className={cn(
-            'swiper-no-swiping pointer-events-auto absolute right-0 z-20',
+            'swiper-no-swiping pointer-events-auto absolute right-0 z-20 flex flex-col justify-end',
+            'top-[calc(var(--app-top-nav-h,3.5rem)+0.25rem)]',
             'bottom-[calc(3.75rem+env(safe-area-inset-bottom,0px))]',
-            'flex flex-col items-end',
             'px-2 pt-2',
           )}
         >
-          {actionsEl}
+          <div className="min-h-0 max-h-full overflow-y-auto overscroll-contain touch-pan-y [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+            {actionsEl}
+          </div>
         </div>
+        {likeBurstOverlay}
       </div>
 
       {showChrome ? (

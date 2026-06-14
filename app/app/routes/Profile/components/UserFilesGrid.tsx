@@ -45,6 +45,7 @@ interface UserFilesGridProps {
   /** Section heading above the grid */
   sectionTitle?: string;
   emptyMessage?: string;
+  profileOwnerUsername?: string;
 }
 
 const UserFilesGrid = ({
@@ -58,6 +59,7 @@ const UserFilesGrid = ({
   dataReady = true,
   sectionTitle = "Uploads",
   emptyMessage = "No uploads yet",
+  profileOwnerUsername,
 }: UserFilesGridProps) => {
   const [files, setFiles] = useState<FileType[]>(initialFiles);
   const [isLoading, setIsLoading] = useState(false);
@@ -322,6 +324,9 @@ const UserFilesGrid = ({
                       onUpdate={handleFileUpdate}
                       showOwnerControls={true}
                       hideActions={{ completely: false }}
+                      profileOwnerUsername={
+                        file.is_reel && profileOwnerUsername ? profileOwnerUsername : undefined
+                      }
                     />
                   );
                 }
@@ -369,6 +374,7 @@ const UserFilesGrid = ({
                               onUpdate={handleFileUpdate}
                               showOwnerControls={true}
                               hideActions={{ completely: false, halfway: true }}
+                              profileOwnerUsername={profileOwnerUsername}
                             />
                           </SwiperSlide>
                         );

@@ -2,14 +2,14 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Swiper, SwiperSlide } from "swiper/react";
 import { Keyboard, Mousewheel } from "swiper/modules";
 import type { Swiper as SwiperType } from "swiper";
-import { ChevronDown, ChevronUp, Loader2 } from "lucide-react";
+import { ChevronDown, ChevronUp } from "lucide-react";
 import "swiper/css";
 
 import { isIOS } from "react-device-detect";
 
 import { cn } from "~/lib/utils";
 import { reelShouldPreloadHls, swiperRealIndex } from "~/lib/feed/reelSlidePreload";
-import { PipReelItem } from "~/routes/pip/components/PipReelItem";
+import { PipReelItem, type ReelAmbienceInfo } from "~/routes/pip/components/PipReelItem";
 import type { FileType } from "~/lib/types";
 
 interface ReelSwiperProps {
@@ -22,6 +22,22 @@ interface ReelSwiperProps {
   userActions?: { likedFileIds: string[]; dislikedFileIds: string[] };
   /** Full-page reel: poster palette from the active slide’s player (thumbnail colors). */
   onReelPosterColors?: (colors: string[]) => void;
+  /** Full-page reel: active slide's live video for the shared page ambience. */
+  onActiveAmbience?: (info: ReelAmbienceInfo) => void;
+  /** Full-page reel: the page owns one global comments panel; the rail toggles it. */
+  commentsOpen?: boolean;
+  onCommentsOpenChange?: (open: boolean) => void;
+  /**
+   * Full-page reel: reports the active reel's identity the INSTANT the slide
+   * changes (by index, not waiting on the video element) so the global comments
+   * panel follows swipes immediately and the page can steer the feed toward
+   * what was just watched.
+   */
+  onActiveItemChange?: (info: {
+    fileId: string;
+    ownerId?: string;
+    categories?: string[];
+  }) => void;
 }
 
 /** Prefetch the next API page when this many swipes from the last slide. */
@@ -80,6 +96,10 @@ export const ReelSwiper = ({
   isLoadingMore = false,
   userActions,
   onReelPosterColors,
+  onActiveAmbience,
+  commentsOpen,
+  onCommentsOpenChange,
+  onActiveItemChange,
 }: ReelSwiperProps) => {
   const likedKey = (userActions?.likedFileIds ?? [])
     .map((id) => String(id).toLowerCase())
@@ -114,6 +134,18 @@ export const ReelSwiper = ({
   /** File ids that have been the active slide  stay pre-mounted when user swipes away (FIFO cap). */
   const [stickyHlsIds, setStickyHlsIds] = useState<string[]>([]);
   const stickyHlsSet = useMemo(() => new Set(stickyHlsIds), [stickyHlsIds]);
+
+  // Tell the page which reel is active the moment the index changes, so the
+  // global comments panel switches reels without waiting on the video to mount.
+  useEffect(() => {
+    const f = items[activeIdx];
+    if (!f || f.id == null || f.id === "") return;
+    onActiveItemChange?.({
+      fileId: String(f.id),
+      ownerId: f.owner_id ?? undefined,
+      categories: Array.isArray(f.categories) ? (f.categories as string[]) : undefined,
+    });
+  }, [activeIdx, items, onActiveItemChange]);
 
   useEffect(() => {
     const id = items[activeIdx]?.id;
@@ -366,6 +398,9 @@ export const ReelSwiper = ({
                     ) || stickyHlsSet.has(String(file.id))
                   }
                   onReelPosterColors={onReelPosterColors}
+                  onActiveAmbience={onActiveAmbience}
+                  commentsOpen={commentsOpen}
+                  onCommentsOpenChange={onCommentsOpenChange}
                   className="min-h-0 flex-1"
                 />
               </div>
@@ -433,18 +468,6 @@ export const ReelSwiper = ({
         </div>
       )}
 
-      {isLoadingMore ? (
-        <div
-          className={cn(
-            "pointer-events-none absolute bottom-[max(5rem,calc(4rem+env(safe-area-inset-bottom,0px)))] left-1/2 z-30 flex -translate-x-1/2 items-center gap-2",
-            "rounded-full border border-white/20 bg-black/75 px-3 py-1.5 text-xs text-white/90 shadow-lg backdrop-blur-sm",
-          )}
-          aria-live="polite"
-        >
-          <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
-          <span>Loading more…</span>
-        </div>
-      ) : null}
     </div>
   );
 };

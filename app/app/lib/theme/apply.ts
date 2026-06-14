@@ -15,6 +15,7 @@ export const STYLE_IMPORTS: Record<string, () => Promise<unknown>> = {
   indigo: () => import("~/lib/styles/indigo.css"),
   teal: () => import("~/lib/styles/teal.css"),
   coral: () => import("~/lib/styles/coral.css"),
+  youtube: () => import("~/lib/styles/youtube.css"),
 };
 
 export function applyTheme(userTheme: UserTheme | null | undefined) {

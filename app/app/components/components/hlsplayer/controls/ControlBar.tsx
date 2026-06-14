@@ -281,14 +281,14 @@ export default function ControlBar({
 
   const circleBtn = cn(
     mobileOverlayCircleBtn,
-    'bg-black/50 text-white shadow-sm active:scale-95 transition-transform',
+    'bg-black/80 text-white shadow-sm active:scale-95 transition-transform',
   );
 
   const desktopIconCircle =
-    'flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-black/50 text-white shadow-sm backdrop-blur-sm transition-colors hover:bg-black/60';
+    'flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-black/80 text-white shadow-sm transition-colors hover:bg-black/90';
 
   const desktopRightPill =
-    'flex max-w-[min(100%,28rem)] items-center gap-0.5 overflow-x-auto rounded-full bg-black/50 px-1.5 py-1 shadow-sm backdrop-blur-sm [scrollbar-width:none] [&::-webkit-scrollbar]:hidden';
+    'flex max-w-[min(100%,28rem)] items-center gap-0.5 overflow-x-auto rounded-full bg-black/80 px-1.5 py-1 shadow-sm [scrollbar-width:none] [&::-webkit-scrollbar]:hidden';
 
   const autoplayKnobOffset = autoPlay
     ? { right: 'calc((var(--hls-ctrl-toggle-h, 1.5rem) - var(--hls-ctrl-toggle-knob, 1.25rem)) / 2)' }
@@ -349,7 +349,7 @@ export default function ControlBar({
                   e.stopPropagation();
                   onBack();
                 }}
-                className={cn(mobileOverlayCircleBtn, 'backdrop-blur-sm transition-colors hover:bg-black/60')}
+                className={cn(mobileOverlayCircleBtn, 'transition-colors hover:bg-black/90')}
                 aria-label="Back"
               >
                 <ChevronLeft className={cn(mobileOverlayIcon, 'text-white')} />
@@ -385,7 +385,7 @@ export default function ControlBar({
                 }}
                 disabled={!authPlaybackFeatures}
                 className={cn(
-                  'flex shrink-0 items-center gap-1.5 rounded-full bg-black/50 py-1 backdrop-blur-sm',
+                  'flex shrink-0 items-center gap-1.5 rounded-full bg-black/80 py-1',
                   !authPlaybackFeatures && 'opacity-50',
                 )}
                 style={{
@@ -667,14 +667,14 @@ export default function ControlBar({
           )}
 
           {!isHidden(hideControls, 'volume') && (
-            <div className="flex h-10 min-h-10 items-center rounded-full bg-black/50 py-0 pl-1 pr-1.5 shadow-sm backdrop-blur-sm">
+            <div className="flex h-10 min-h-10 items-center rounded-full bg-black/80 py-0 pl-1 pr-1.5 shadow-sm">
               <VolumeControl showSlider={showVolumeSlider && !isMobile} barPill />
             </div>
           )}
 
           {!isHidden(hideControls, 'time') && showTime && (
             <PlayerControlTooltip label="Current time and total length">
-              <div className="flex h-10 min-h-10 min-w-0 shrink cursor-default items-center justify-center rounded-full bg-black/50 px-2.5 text-[11px] font-medium tabular-nums leading-none text-white shadow-sm backdrop-blur-sm sm:px-3 sm:text-xs">
+              <div className="flex h-10 min-h-10 min-w-0 shrink cursor-default items-center justify-center rounded-full bg-black/80 px-2.5 text-[11px] font-medium tabular-nums leading-none text-white shadow-sm sm:px-3 sm:text-xs">
                 {formatTime(state.currentTime)}
                 <span className="mx-0.5 text-white/45 sm:mx-1">/</span>
                 {formatTime(state.duration)}
@@ -735,7 +735,7 @@ export default function ControlBar({
                   createPortal(
                     <div
                       ref={overflowRef}
-                      className="fixed z-[100000100] flex max-h-[55vh] min-w-[200px] max-w-[280px] flex-col overflow-y-auto rounded-xl border border-white/10 bg-zinc-900/95 py-1 shadow-xl backdrop-blur-md"
+                      className="fixed z-[100000100] flex max-h-[55vh] min-w-[200px] max-w-[280px] flex-col overflow-y-auto rounded-xl bg-zinc-900/95 py-1 shadow-xl"
                       style={{
                         position: 'fixed',
                         left: dropdownStyle.left,

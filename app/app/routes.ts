@@ -169,7 +169,8 @@ export default [
     route(`profile/:username`, 'routes/Profile/index.tsx'),
     route(`reel`, 'routes/reel/layout.tsx', [
         index('routes/reel/index.tsx'),
-        route(`:uniqueId`, 'routes/reel/dynamic/index.tsx')
+        route(`:uniqueId/:ownerUsername`, 'routes/reel/dynamic/profile.tsx'),
+        route(`:uniqueId`, 'routes/reel/dynamic/index.tsx'),
     ]),
     route(`*`, 'routes/NotFound.tsx'),
 ] satisfies RouteConfig;

@@ -579,6 +579,7 @@ const Profile = () => {
               key={sectionView}
               tab={sectionView}
               userId={effectiveData.profile.id}
+              profileOwnerUsername={effectiveData.profile.username}
               currentUserId={effectiveData.currentUserId ?? undefined}
               sectionTitle={SECTION_LABELS[sectionView]}
               emptyMessage="Nothing here yet"
@@ -627,6 +628,7 @@ const Profile = () => {
               sections={channelData?.channelLayout?.sections ?? DEFAULT_CHANNEL_LAYOUT.sections}
               buckets={channelData?.channelBuckets ?? { shorts: [], videos: [], popular: [] }}
               profileUserId={effectiveData.profile.id}
+              profileOwnerUsername={effectiveData.profile.username}
               isOwner={isOwner}
               currentUserId={effectiveData.currentUserId ?? undefined}
               userActions={{
@@ -639,6 +641,7 @@ const Profile = () => {
             <UserFilesGrid
               files={effectiveData.files}
               userId={effectiveData.profile.id}
+              profileOwnerUsername={effectiveData.profile.username}
               currentUserId={effectiveData.currentUserId ?? undefined}
               initialHasMore={effectiveData.pagination?.hasMore}
               initialPage={initialPage}
@@ -657,6 +660,7 @@ const Profile = () => {
               <ProfileTabVideosGrid
                 tab="liked"
                 userId={effectiveData.profile.id}
+                profileOwnerUsername={effectiveData.profile.username}
                 currentUserId={effectiveData.currentUserId ?? undefined}
                 sectionTitle="Liked"
                 emptyMessage="No liked videos yet"
@@ -669,6 +673,7 @@ const Profile = () => {
               <ProfileTabVideosGrid
                 tab="history"
                 userId={effectiveData.profile.id}
+                profileOwnerUsername={effectiveData.profile.username}
                 currentUserId={effectiveData.currentUserId ?? undefined}
                 sectionTitle="Watch history"
                 emptyMessage="No watch history yet  videos you finish watching will show up here"
@@ -692,6 +697,7 @@ const Profile = () => {
               <ProfileTabVideosGrid
                 tab="adult"
                 userId={effectiveData.profile.id}
+                profileOwnerUsername={effectiveData.profile.username}
                 currentUserId={effectiveData.currentUserId ?? undefined}
                 sectionTitle="Flagged"
                 emptyMessage="No flagged content"

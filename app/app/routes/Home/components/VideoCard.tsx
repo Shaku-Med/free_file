@@ -121,6 +121,8 @@ interface VideoCardProps {
   thumbnailProgress?: number;
   /** Owner-only delete callback. When set, the ⋯ menu shows a Delete item. */
   onDelete?: (file: FileType) => void;
+  /** Profile grids: reel links become `/reel/:uniqueId/:username` for creator-first swipes. */
+  profileOwnerUsername?: string | null;
 }
 
 const CATEGORIES = ["Gaming", "Music", "Entertainment", "Education", "Technology", "Sports", "News", "Lifestyle", "Anime", "Film", "Automotive", "Art", "Nature", "Other"];
@@ -143,6 +145,7 @@ const VideoCard = ({
   },
   thumbnailProgress,
   onDelete,
+  profileOwnerUsername,
 }: VideoCardProps) => {
   const isMobile = useIsMobile();
   const sidebarCtx = useSidebarOptional();
@@ -252,8 +255,12 @@ const VideoCard = ({
   const [editCreditsStart, setEditCreditsStart] = useState(formatMarker(initialMarkers?.creditsStart));
   const nav = useNavigate();
   const watchPath = useMemo(
-    () => fileWatchPath(data),
-    [data.is_reel, data.id, data.unique_id],
+    () =>
+      fileWatchPath(
+        data,
+        profileOwnerUsername ? { profileOwnerUsername } : undefined,
+      ),
+    [data.is_reel, data.id, data.unique_id, profileOwnerUsername],
   );
 
   /**

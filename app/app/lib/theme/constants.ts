@@ -16,6 +16,7 @@ export const THEME_STYLES = [
   "indigo",
   "teal",
   "coral",
+  "youtube",
 ] as const;
 export type ThemeStyle = (typeof THEME_STYLES)[number];
 

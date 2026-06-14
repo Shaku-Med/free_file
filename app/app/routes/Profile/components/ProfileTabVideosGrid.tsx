@@ -37,6 +37,7 @@ function getPageScrollRoot(): HTMLElement | null {
 interface ProfileTabVideosGridProps {
   tab: ProfileVideoTab;
   userId: string;
+  profileOwnerUsername: string;
   currentUserId?: string;
   sectionTitle: string;
   emptyMessage: string;
@@ -53,6 +54,7 @@ function gridClassForGroup(group: ProfileTabRenderGroup): string {
 const ProfileTabVideosGrid = ({
   tab,
   userId,
+  profileOwnerUsername,
   currentUserId,
   sectionTitle,
   emptyMessage,
@@ -263,6 +265,11 @@ const ProfileTabVideosGrid = ({
                         completely: false,
                         halfway: group.variant === "shorts",
                       }}
+                      profileOwnerUsername={
+                        tab === "shorts" && group.variant === "shorts"
+                          ? profileOwnerUsername
+                          : undefined
+                      }
                     />
                   );
                 })}

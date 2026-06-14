@@ -395,7 +395,82 @@ input[type="file"] {
   50% { transform: translateY(-6px); }
 }
 
-/* Instagram-style double-tap heart: pop in at the tap point, settle, float away. */
+/* Double-tap like: thumbs pop at tap, morph-fly into the action-rail like button. */
+@property --fly-dx {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
+}
+
+@property --fly-dy {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
+}
+
+@keyframes reelLikeFlyMorph {
+  0% {
+    transform: translate(-50%, -50%) scale(0) rotate(-14deg);
+    opacity: 0;
+  }
+  14% {
+    transform: translate(-50%, -50%) scale(1.22) rotate(2deg);
+    opacity: 1;
+  }
+  24% {
+    transform: translate(-50%, -50%) scale(1) rotate(0deg);
+    opacity: 1;
+  }
+  68% {
+    transform: translate(calc(-50% + var(--fly-dx)), calc(-50% + var(--fly-dy))) scale(0.52)
+      rotate(4deg);
+    opacity: 0.92;
+  }
+  82% {
+    transform: translate(calc(-50% + var(--fly-dx)), calc(-50% + var(--fly-dy))) scale(0.4)
+      rotate(0deg);
+    opacity: 0.55;
+  }
+  100% {
+    transform: translate(calc(-50% + var(--fly-dx)), calc(-50% + var(--fly-dy))) scale(0.34)
+      rotate(0deg);
+    opacity: 0;
+  }
+}
+
+@keyframes reelLikeFlyHalo {
+  0% {
+    transform: scale(0.4);
+    opacity: 0;
+  }
+  18% {
+    transform: scale(1.15);
+    opacity: 0.55;
+  }
+  100% {
+    transform: scale(0.35);
+    opacity: 0;
+  }
+}
+
+.reel-like-fly-burst {
+  animation: reelLikeFlyMorph 0.88s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  transform: translate(-50%, -50%);
+  margin-left: 0;
+  margin-top: 0;
+}
+
+.reel-like-fly-burst__icon {
+  filter: drop-shadow(0 8px 22px rgba(0, 0, 0, 0.5));
+}
+
+.reel-like-fly-burst__halo {
+  background: radial-gradient(circle, rgba(255, 255, 255, 0.38) 0%, rgba(255, 255, 255, 0) 68%);
+  animation: reelLikeFlyHalo 0.88s ease-out forwards;
+  transform-origin: center;
+}
+
+/* Legacy heart burst (unused) — keep briefly for cached builds. */
 @keyframes reelHeartBurst {
   0% { transform: scale(0) rotate(-10deg); opacity: 0; }
   18% { transform: scale(1.2) rotate(4deg); opacity: 1; }
@@ -409,7 +484,7 @@ input[type="file"] {
   filter: drop-shadow(0 6px 18px rgba(0, 0, 0, 0.45));
 }
 
-/* Action-rail like: bouncy heart pop when it turns liked. */
+/* Action-rail like: bouncy pop when liked (double-tap arrival or tap). */
 @keyframes actionHeartPop {
   0% { transform: scale(1); }
   30% { transform: scale(1.45); }
@@ -418,8 +493,22 @@ input[type="file"] {
   100% { transform: scale(1); }
 }
 
-.action-heart-pop {
+@keyframes actionLikeRing {
+  0% {
+    box-shadow: 0 0 0 0 rgba(255, 255, 255, 0.55);
+  }
+  100% {
+    box-shadow: 0 0 0 10px rgba(255, 255, 255, 0);
+  }
+}
+
+.action-heart-pop,
+.action-like-pop {
   animation: actionHeartPop 0.45s ease-in-out;
+}
+
+.reel-like-target-pop {
+  animation: actionHeartPop 0.45s ease-in-out, actionLikeRing 0.55s ease-out;
 }
 
 /* Action-rail counts: slide up + fade when the number changes. */

@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useCallback, useRef, useMemo } from 'react';
+import { Play, Pause, Volume2, VolumeX } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import { useNavigate, useLocation } from 'react-router';
 import { useInView } from 'react-intersection-observer';
@@ -26,6 +27,7 @@ import { useFullscreen } from './hooks/useFullscreen';
 import { useWakeLock } from './hooks/useWakeLock';
 import { useSpatialAudio, isSpatialAudioUiSupported } from './hooks/useSpatialAudio';
 import ControlBar from './controls/ControlBar';
+import { mobileOverlayCircleBtn } from './controls/mobileControlMetrics';
 import { ReelInfoOverlay } from './overlays/ReelInfoOverlay';
 // EndScreen was replaced by EndCardOverlay (centered 2-card end-of-video surface).
 import BufferingSpinner from './overlays/BufferingSpinner';
@@ -39,7 +41,7 @@ import ShortcutOverlay from './overlays/ShortcutOverlay';
 import StatsForNerdsOverlay from './overlays/StatsForNerdsOverlay';
 import SkipMarkerOverlay from './overlays/SkipMarkerOverlay';
 import SpatialAudioDialog from './controls/settings/SpatialAudioDialog';
-import { SettingsMenuBody } from './controls/settings/SettingsMenu';
+import SettingsMenu, { SettingsMenuBody } from './controls/settings/SettingsMenu';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -211,6 +213,7 @@ function PlayerInner({
     state,
     setState,
     togglePlay,
+    toggleMute,
     setPlaybackRate,
     setControlsVisible,
     setReelAuxiliaryChromeVisible,
@@ -1120,6 +1123,53 @@ function PlayerInner({
         {isReelCtx && reelInfoSlot ? (
           <ReelInfoOverlay>{reelInfoSlot}</ReelInfoOverlay>
         ) : null}
+
+        {/* Reel controls cluster, YouTube-Shorts style: play/pause + volume at
+            the TOP-LEFT, pushed below the app top bar (safe-area + navbar) so it
+            never tucks under it. Shows/hides WITH the rest of the reel chrome
+            (tap to reveal, auto-hide). Settings ride along at the end. */}
+        {isReelCtx && embedReelControls && !inPipForThisVideo && !isMiniPlayerPortalActive && (
+          <div
+            className={cn(
+              'swiper-no-swiping absolute z-[55] flex items-center gap-2 left-[max(0.5rem,env(safe-area-inset-left))] top-[calc(var(--app-top-nav-h,3.5rem)+0.5rem)] transition-opacity',
+              state.reelAuxiliaryChromeVisible
+                ? 'opacity-100 duration-100 pointer-events-auto'
+                : 'opacity-0 duration-200 pointer-events-none',
+            )}
+            inert={!state.reelAuxiliaryChromeVisible || undefined}
+            onClick={(e) => e.stopPropagation()}
+            onPointerDown={(e) => e.stopPropagation()}
+          >
+            <button
+              type="button"
+              onClick={() => {
+                togglePlay();
+                triggerPlayPauseFeedback();
+              }}
+              aria-label={state.isPlaying ? 'Pause' : 'Play'}
+              className={cn(mobileOverlayCircleBtn, 'hover:bg-black/90')}
+            >
+              {state.isPlaying ? (
+                <Pause className="h-5 w-5 fill-current" aria-hidden />
+              ) : (
+                <Play className="h-5 w-5 translate-x-0.5 fill-current" aria-hidden />
+              )}
+            </button>
+            <button
+              type="button"
+              onClick={() => toggleMute()}
+              aria-label={state.isMuted ? 'Unmute' : 'Mute'}
+              className={cn(mobileOverlayCircleBtn, 'hover:bg-black/90')}
+            >
+              {state.isMuted ? (
+                <VolumeX className="h-5 w-5" aria-hidden />
+              ) : (
+                <Volume2 className="h-5 w-5" aria-hidden />
+              )}
+            </button>
+            <SettingsMenu overlayTrigger />
+          </div>
+        )}
 
         {(!isReelCtx || embedReelControls) && !isMiniPlayerPortalActive && (
           <div

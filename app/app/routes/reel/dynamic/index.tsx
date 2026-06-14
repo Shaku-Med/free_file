@@ -1,6 +1,7 @@
 import {
   data,
   Link,
+  redirect,
   useLoaderData,
   type LoaderFunctionArgs,
   type MetaFunction,
@@ -23,6 +24,11 @@ import { ownerService } from "~/lib/Services/OwnerService";
 import { buildPageMeta } from "~/lib/seo";
 import { isAuthenticated } from "~/lib/Security/Password";
 import { sanitizeFileForPublicViewer } from "~/lib/files/sanitizeFileForViewer";
+import {
+  REEL_LOADER_FILE_COLUMNS,
+  stripThumbnailsForClient,
+} from "~/lib/files/reelFilePayload";
+import { buildReelWatchPath, usernamesMatch, type ReelProfileContext } from "~/lib/reel/reelProfileContext";
 import WatchModalShell from "~/components/WatchModalShell";
 
 function fileIdKey(id: unknown): string {
@@ -31,6 +37,7 @@ function fileIdKey(id: unknown): string {
 
 export const loader = async ({ request, params }: LoaderFunctionArgs) => {
   const routeUniqueId = params.uniqueId ?? "";
+  const routeOwnerUsername = params.ownerUsername ?? null;
   try {
     if (!db) {
       throw new Error("Database not initialized");
@@ -38,17 +45,36 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
 
     const { data: rawFile, error } = await db
       .from("files")
-      .select("*")
+      .select(REEL_LOADER_FILE_COLUMNS)
       .eq("unique_id", routeUniqueId)
       .maybeSingle();
 
     if (error) {
-      console.error("Error fetching reel file:", error);
-      throw new Error("Failed to fetch reel file");
+      console.error("Error fetching reel file:", error, { routeUniqueId });
+      return data(
+        {
+          file: null,
+          uniqueId: routeUniqueId,
+          accessDenied: false as const,
+          reason: undefined,
+          initialUserActions: { likedFileIds: [] as string[], dislikedFileIds: [] as string[] },
+          profileReelContext: null as ReelProfileContext | null,
+        },
+        { status: 404 },
+      );
     }
 
     const file = rawFile
-      ? (stripGithubRepoForClient(rawFile as Record<string, unknown>) as typeof rawFile)
+      ? (() => {
+          const stripped = stripThumbnailsForClient(
+            stripGithubRepoForClient(rawFile as Record<string, unknown>) as Record<string, unknown>,
+          );
+          return {
+            ...stripped,
+            like_count: Number(stripped.like_count ?? stripped.up_count) || 0,
+            dislike_count: Number(stripped.dislike_count ?? stripped.down_count) || 0,
+          } as typeof rawFile;
+        })()
       : null;
 
     if (!file) {
@@ -59,6 +85,7 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
           accessDenied: false as const,
           reason: undefined,
           initialUserActions: { likedFileIds: [] as string[], dislikedFileIds: [] as string[] },
+          profileReelContext: null as ReelProfileContext | null,
         },
         { status: 404 },
       );
@@ -74,6 +101,7 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
           accessDenied: true as const,
           reason: accessControl.reason,
           initialUserActions: { likedFileIds: [] as string[], dislikedFileIds: [] as string[] },
+          profileReelContext: null as ReelProfileContext | null,
         },
         { status: 403 },
       );
@@ -89,18 +117,15 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
     if (originalFileId) {
       const { data: orig } = await db
         .from("files")
-        .select("unique_id, file_title, filename, default_thumbnail, thumbnails, created_at, is_public, is_adult, upload_status")
+        .select("unique_id, file_title, filename, default_thumbnail, created_at, is_public, is_adult, upload_status")
         .eq("id", originalFileId)
         .maybeSingle();
       if (orig && orig.is_public === true && orig.is_adult !== true && orig.upload_status === "complete") {
-        const fallbackThumb = Array.isArray(orig.thumbnails)
-          ? (orig.thumbnails as string[]).find((t) => typeof t === "string" && t.endsWith("thumbnail_preview.jpg")) ?? null
-          : null;
         (fileWithOwner as Record<string, unknown>).original_sound = {
           unique_id: String(orig.unique_id),
           file_title: orig.file_title ?? null,
           filename: orig.filename ?? null,
-          default_thumbnail: orig.default_thumbnail ?? fallbackThumb,
+          default_thumbnail: orig.default_thumbnail ?? null,
           created_at: orig.created_at ?? null,
         };
       }
@@ -141,10 +166,26 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
       }
     }
 
-    const fileOut = sanitizeFileForPublicViewer(
-      fileWithOwner as unknown as Record<string, unknown>,
-      userId ?? null
+    const fileOut = stripThumbnailsForClient(
+      sanitizeFileForPublicViewer(
+        fileWithOwner as unknown as Record<string, unknown>,
+        userId ?? null,
+      ) as Record<string, unknown>,
     ) as typeof fileWithOwner;
+
+    let profileReelContext: ReelProfileContext | null = null;
+    if (routeOwnerUsername) {
+      const ownerUsername = fileWithOwner.owner?.username;
+      const ownerId = fileWithOwner.owner_id ?? fileWithOwner.owner?.id;
+      if (
+        !ownerUsername ||
+        !ownerId ||
+        !usernamesMatch(ownerUsername, decodeURIComponent(routeOwnerUsername))
+      ) {
+        throw redirect(buildReelWatchPath(routeUniqueId));
+      }
+      profileReelContext = { userId: String(ownerId), username: ownerUsername };
+    }
 
     return data(
       {
@@ -153,10 +194,12 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
         accessDenied: false as const,
         reason: undefined,
         initialUserActions,
+        profileReelContext,
       },
       { status: 200 },
     );
   } catch (error) {
+    if (error instanceof Response) throw error;
     console.error("Error in reel dynamic loader:", error);
     return data(
       {
@@ -165,6 +208,7 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
         accessDenied: false as const,
         reason: undefined,
         initialUserActions: { likedFileIds: [] as string[], dislikedFileIds: [] as string[] },
+        profileReelContext: null as ReelProfileContext | null,
       },
       { status: 500 },
     );
@@ -286,6 +330,7 @@ const index = () => {
   const { file } = loaderData;
 
   if (!file) {
+    const accessDenied = loaderData?.accessDenied === true;
     return (
       <WatchModalShell variant="sheet">
       <div className="flex items-center justify-center min-h-[70vh] py-20 px-4">
@@ -304,9 +349,13 @@ const index = () => {
           </div>
 
           <div className="err-enter space-y-1.5">
-            <h1 className="text-lg font-semibold text-foreground">Reel not found</h1>
+            <h1 className="text-lg font-semibold text-foreground">
+              {accessDenied ? "Access denied" : "Reel not found"}
+            </h1>
             <p className="text-[13px] text-muted-foreground leading-relaxed">
-              This clip may have been taken down or the link is broken.
+              {accessDenied
+                ? "You do not have permission to view this reel."
+                : "This clip may have been taken down or the link is broken."}
             </p>
           </div>
 
@@ -331,7 +380,11 @@ const index = () => {
 
   return (
     <WatchModalShell variant="sheet">
-      <Reel initialItems={[file as FileType]} initialUserActions={initialUserActions} />
+      <Reel
+        initialItems={[file as FileType]}
+        initialUserActions={initialUserActions}
+        profileReelContext={loaderData.profileReelContext ?? null}
+      />
     </WatchModalShell>
   );
 };

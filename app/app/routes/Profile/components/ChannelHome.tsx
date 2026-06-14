@@ -21,6 +21,7 @@ interface ChannelHomeProps {
   sections: ChannelSection[];
   buckets: ChannelHomeBuckets;
   profileUserId: string;
+  profileOwnerUsername: string;
   isOwner: boolean;
   currentUserId?: string | null;
   userActions?: { likedFileIds: Set<string>; dislikedFileIds: Set<string> };
@@ -117,6 +118,7 @@ export default function ChannelHome({
   sections,
   buckets,
   profileUserId,
+  profileOwnerUsername,
   isOwner,
   currentUserId,
   userActions,
@@ -146,6 +148,7 @@ export default function ChannelHome({
               currentUserId={currentUserId ?? undefined}
               userActions={userActions}
               hideActions={{ completely: true }}
+              profileOwnerUsername={reel ? profileOwnerUsername : undefined}
             />
           </div>
         ))}

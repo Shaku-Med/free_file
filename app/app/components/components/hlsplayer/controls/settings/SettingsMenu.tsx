@@ -23,7 +23,7 @@ import {
 import { usePlayerContext, SLEEP_TIMER_OPTIONS } from '../../PlayerContext';
 import { isSpatialAudioUiSupported } from '../../hooks/useSpatialAudio';
 import { cn } from '~/lib/utils';
-import { mobileOverlayIcon, mobileOverlaySquareBtn } from '../mobileControlMetrics';
+import { mobileOverlayIcon, mobileOverlayCircleBtn } from '../mobileControlMetrics';
 import {
   DropdownMenu,
   DropdownMenuCollapsible,
@@ -184,7 +184,7 @@ export function SettingsMenuBody() {
   return (
     <>
       {!auth && (
-        <div className="mx-1 mb-2 rounded-lg border border-primary/20 bg-gradient-to-br from-primary/10 to-transparent px-2.5 py-2 text-xs leading-snug text-muted-foreground sm:mx-2 sm:px-3">
+        <div className="mx-1 mb-2 rounded-lg bg-primary/10 px-2.5 py-2 text-xs leading-snug text-muted-foreground sm:mx-2 sm:px-3">
           <Link to={loginHref} className="font-semibold text-primary hover:underline">
             Sign in
           </Link>{' '}
@@ -193,25 +193,28 @@ export function SettingsMenuBody() {
       )}
       <DropdownMenuGroup>
         <DropdownMenuLabel className={sectionLabelClass}>Playback</DropdownMenuLabel>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <DropdownMenuItem
-              onSelect={(e) => e.preventDefault()}
-              className={cn(toggleRowClass, !auth && 'opacity-60')}
-            >
-              <span className="flex min-w-0 flex-1 items-center gap-2">
-                <PlayCircle className="size-4 shrink-0 text-muted-foreground" />
-                <span className="min-w-0 truncate">Autoplay</span>
-              </span>
-              <Switch checked={autoPlay} onChange={setAutoPlay} disabled={!auth} />
-            </DropdownMenuItem>
-          </TooltipTrigger>
-          {!auth && (
-            <TooltipContent side={isMobile ? 'top' : 'left'} className="max-w-[220px]">
-              Sign in to enable automatic playback of the next video.
-            </TooltipContent>
-          )}
-        </Tooltip>
+        {/* Autoplay = "up next", which reels don't have (the swiper handles it). */}
+        {!isReel && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <DropdownMenuItem
+                onSelect={(e) => e.preventDefault()}
+                className={cn(toggleRowClass, !auth && 'opacity-60')}
+              >
+                <span className="flex min-w-0 flex-1 items-center gap-2">
+                  <PlayCircle className="size-4 shrink-0 text-muted-foreground" />
+                  <span className="min-w-0 truncate">Autoplay</span>
+                </span>
+                <Switch checked={autoPlay} onChange={setAutoPlay} disabled={!auth} />
+              </DropdownMenuItem>
+            </TooltipTrigger>
+            {!auth && (
+              <TooltipContent side={isMobile ? 'top' : 'left'} className="max-w-[220px]">
+                Sign in to enable automatic playback of the next video.
+              </TooltipContent>
+            )}
+          </Tooltip>
+        )}
         <DropdownMenuItem
           onSelect={(e) => e.preventDefault()}
           className={toggleRowClass}
@@ -222,16 +225,18 @@ export function SettingsMenuBody() {
           </span>
           <Switch checked={loop} onChange={setLoop} />
         </DropdownMenuItem>
-        <DropdownMenuItem
-          onSelect={(e) => e.preventDefault()}
-          className={toggleRowClass}
-        >
-          <span className="flex min-w-0 flex-1 items-center gap-2">
-            <BarChart3 className="size-4 shrink-0 text-muted-foreground" />
-            <span className="min-w-0 truncate">Stable volume</span>
-          </span>
-          <Switch checked={stableVolume} onChange={setStableVolume} />
-        </DropdownMenuItem>
+        {!isReel && (
+          <DropdownMenuItem
+            onSelect={(e) => e.preventDefault()}
+            className={toggleRowClass}
+          >
+            <span className="flex min-w-0 flex-1 items-center gap-2">
+              <BarChart3 className="size-4 shrink-0 text-muted-foreground" />
+              <span className="min-w-0 truncate">Stable volume</span>
+            </span>
+            <Switch checked={stableVolume} onChange={setStableVolume} />
+          </DropdownMenuItem>
+        )}
       </DropdownMenuGroup>
 
       <DropdownMenuSeparator className="my-1.5 bg-border/50" />
@@ -287,16 +292,19 @@ export function SettingsMenuBody() {
             </DropdownMenuItem>
           </>
         )}
-        <DropdownMenuItem
-          onSelect={(e) => e.preventDefault()}
-          className={toggleRowClass}
-        >
-          <span className="flex min-w-0 flex-1 items-center gap-2">
-            <Square className="size-4 shrink-0 text-muted-foreground" />
-            <span className="min-w-0 truncate">Player background</span>
-          </span>
-          <Switch checked={playerBackground} onChange={setPlayerBackground} />
-        </DropdownMenuItem>
+        {/* Reels intentionally have no player background, so the toggle is moot. */}
+        {!isReel && (
+          <DropdownMenuItem
+            onSelect={(e) => e.preventDefault()}
+            className={toggleRowClass}
+          >
+            <span className="flex min-w-0 flex-1 items-center gap-2">
+              <Square className="size-4 shrink-0 text-muted-foreground" />
+              <span className="min-w-0 truncate">Player background</span>
+            </span>
+            <Switch checked={playerBackground} onChange={setPlayerBackground} />
+          </DropdownMenuItem>
+        )}
         {!isReel && (
           <Tooltip>
             <TooltipTrigger asChild>
@@ -365,7 +373,7 @@ export function SettingsMenuBody() {
           </span>
           <Switch checked={statsForNerds} onChange={setStatsForNerds} />
         </DropdownMenuItem>
-        {isSpatialAudioUiSupported() && (
+        {!isReel && isSpatialAudioUiSupported() && (
           <DropdownMenuItem
             onSelect={() => setSpatialAudioDialogOpen(true)}
             className={toggleRowClass}
@@ -516,29 +524,33 @@ export function SettingsMenuBody() {
       <DropdownMenuSeparator className="my-1.5 bg-border/50" />
 
       <DropdownMenuGroup>
-        <DropdownMenuLabel className={sectionLabelClass}>Timers and media</DropdownMenuLabel>
-        <DropdownMenuCollapsible>
-          <DropdownMenuCollapsibleTrigger className="w-full min-w-0 gap-2 pr-1">
-            <span className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden">
-              <Moon className="size-4 shrink-0 text-muted-foreground" />
-              <span className="min-w-0 truncate">Sleep timer</span>
-            </span>
-            <span className={cn(valueChipClass, 'ml-1')}>
-              {sleepLabel}
-            </span>
-          </DropdownMenuCollapsibleTrigger>
-          <DropdownMenuCollapsibleContent>
-            {SLEEP_TIMER_OPTIONS.map((opt) => (
-              <DropdownMenuItem
-                key={opt}
-                onClick={() => setSleepTimer(opt)}
-                className={cn(sleepTimer === opt ? 'font-medium text-primary' : undefined)}
-              >
-                {opt}
-              </DropdownMenuItem>
-            ))}
-          </DropdownMenuCollapsibleContent>
-        </DropdownMenuCollapsible>
+        <DropdownMenuLabel className={sectionLabelClass}>
+          {isReel ? 'Media' : 'Timers and media'}
+        </DropdownMenuLabel>
+        {!isReel && (
+          <DropdownMenuCollapsible>
+            <DropdownMenuCollapsibleTrigger className="w-full min-w-0 gap-2 pr-1">
+              <span className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden">
+                <Moon className="size-4 shrink-0 text-muted-foreground" />
+                <span className="min-w-0 truncate">Sleep timer</span>
+              </span>
+              <span className={cn(valueChipClass, 'ml-1')}>
+                {sleepLabel}
+              </span>
+            </DropdownMenuCollapsibleTrigger>
+            <DropdownMenuCollapsibleContent>
+              {SLEEP_TIMER_OPTIONS.map((opt) => (
+                <DropdownMenuItem
+                  key={opt}
+                  onClick={() => setSleepTimer(opt)}
+                  className={cn(sleepTimer === opt ? 'font-medium text-primary' : undefined)}
+                >
+                  {opt}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuCollapsibleContent>
+          </DropdownMenuCollapsible>
+        )}
 
         <DropdownMenuCollapsible>
           <DropdownMenuCollapsibleTrigger className="w-full min-w-0 gap-2 pr-1">
@@ -695,8 +707,8 @@ export default function SettingsMenu({ nested, panelRef, onOpenChange, overlayTr
                 'relative',
                 overlayTrigger
                   ? cn(
-                      mobileOverlaySquareBtn,
-                      'outline-none hover:bg-black/60 data-[state=open]:bg-black/60 data-[state=open]:[&_svg]:rotate-45',
+                      mobileOverlayCircleBtn,
+                      'outline-none hover:bg-black/90 data-[state=open]:bg-black/90 data-[state=open]:[&_svg]:rotate-45',
                     )
                   : pillBarTrigger
                     ? 'rounded-lg p-2 text-white outline-none transition-colors hover:bg-white/10 data-[state=open]:bg-white/15 data-[state=open]:[&_svg]:rotate-45'

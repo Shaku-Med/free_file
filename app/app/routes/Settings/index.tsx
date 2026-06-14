@@ -34,6 +34,7 @@ const STYLE_COLORS: Record<ThemeStyle, string> = {
   indigo: "#4f46e5",
   teal: "#0d9488",
   coral: "#f97316",
+  youtube: "#ff0000",
 };
 
 const THEME_MODE_LABELS: Record<ThemeMode, string> = {
@@ -271,7 +272,7 @@ const SettingsPage = () => {
               {THEME_STYLES.map((s) => {
                 const selected = theme.style === s;
                 const color = STYLE_COLORS[s];
-                const label = s.charAt(0).toUpperCase() + s.slice(1);
+                const label = s === "youtube" ? "YouTube" : s.charAt(0).toUpperCase() + s.slice(1);
                 return (
                   <button
                     key={s}

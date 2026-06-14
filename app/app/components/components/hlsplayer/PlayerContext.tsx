@@ -540,6 +540,19 @@ export function PlayerProvider({
     setAutoPlayState(playerSettings.autoPlay);
     setStableVolumeState(playerSettings.stableVolume);
     setPlayerBackgroundState(playerSettings.playerBackground !== false);
+
+    // Ambient mode (+ its sync/size sub-controls) is available on REELS too,
+    // so the reel settings can actually drive the page ambience. Only the
+    // auth gate applies  not the reel gate.
+    if (authPlaybackFeatures) {
+      setAmbientModeState(playerSettings.ambientMode);
+      setAmbientSyncState(playerSettings.ambientSync === true);
+      setAmbientSizeState(Math.max(1, Math.min(2, playerSettings.ambientSize ?? 2)));
+    } else {
+      setAmbientModeState(false);
+    }
+
+    // Heavy visualizer / dance-bounce stays watch-page only.
     if (authPlaybackFeatures && !isReel) {
       setAudioVisualizerState(playerSettings.audioVisualizer ?? false);
       const style = playerSettings.audioVisualizerStyle ?? DEFAULT_AUDIO_VISUALIZER_STYLE;
@@ -556,9 +569,6 @@ export function PlayerProvider({
       setVideoBounceInstrumentsState(
         parseStemInstrumentMap(playerSettings.videoBounceInstruments, DEFAULT_VIDEO_BOUNCE_INSTRUMENTS),
       );
-      setAmbientModeState(playerSettings.ambientMode);
-      setAmbientSyncState(playerSettings.ambientSync === true);
-      setAmbientSizeState(Math.max(1, Math.min(2, playerSettings.ambientSize ?? 2)));
     } else {
       setAudioVisualizerState(false);
       audioVisualizerStyleRef.current = DEFAULT_AUDIO_VISUALIZER_STYLE;
@@ -567,7 +577,6 @@ export function PlayerProvider({
       setVideoBounceState(false);
       setVideoBounceIntensityState(1);
       setVideoBounceInstrumentsState(DEFAULT_VIDEO_BOUNCE_INSTRUMENTS);
-      setAmbientModeState(false);
     }
 
     /** Spatial audio: parse stored config; fall back to defaults if cookie is empty/corrupt. */
@@ -639,6 +648,47 @@ export function PlayerProvider({
     setAmbientModeState(false);
     setAudioVisualizerState(false);
   }, [authPlaybackFeatures]);
+
+  // ── Live cross-player sync ──────────────────────────────────────────
+  // The initial load applies once per player. This re-applies the SHARED
+  // settings whenever `playerSettings` changes  i.e. when ANY other mounted
+  // player (mini player, neighbouring reel, watch page) toggles something, so
+  // every player updates in lockstep. Uses the raw state setters (no cookie /
+  // context write-back) so it can't loop.
+  useEffect(() => {
+    if (!playerSettings || !appliedInitialRef.current) return;
+    if (!isReel) setLoopState(playerSettings.loop);
+    setAutoPlayState(playerSettings.autoPlay);
+    setStableVolumeState(playerSettings.stableVolume);
+    setPlayerBackgroundState(playerSettings.playerBackground !== false);
+    if (authPlaybackFeatures) {
+      setAmbientModeState(playerSettings.ambientMode);
+      setAmbientSyncState(playerSettings.ambientSync === true);
+      setAmbientSizeState(Math.max(1, Math.min(2, playerSettings.ambientSize ?? 2)));
+    }
+    if (authPlaybackFeatures && !isReel) {
+      setAudioVisualizerState(playerSettings.audioVisualizer ?? false);
+      const style = playerSettings.audioVisualizerStyle ?? DEFAULT_AUDIO_VISUALIZER_STYLE;
+      audioVisualizerStyleRef.current = style;
+      setAudioVisualizerStyleState(style);
+      setVisualizerConfettiState(playerSettings.visualizerConfetti !== false);
+      setStemConfettiInstrumentsState(
+        parseStemConfettiInstruments(playerSettings.stemConfettiInstruments),
+      );
+      setVideoBounceState(playerSettings.videoBounce === true);
+      setVideoBounceIntensityState(
+        Math.max(0.25, Math.min(2, playerSettings.videoBounceIntensity ?? 1)),
+      );
+      setVideoBounceInstrumentsState(
+        parseStemInstrumentMap(playerSettings.videoBounceInstruments, DEFAULT_VIDEO_BOUNCE_INSTRUMENTS),
+      );
+    }
+    setState((s) =>
+      s.playbackRate === playerSettings.playbackRate
+        ? s
+        : { ...s, playbackRate: playerSettings.playbackRate },
+    );
+  }, [playerSettings, authPlaybackFeatures, isReel]);
 
   /** System PiP (especially iOS) can set `video.muted` after enter; keep element in sync with player UI. */
   useEffect(() => {

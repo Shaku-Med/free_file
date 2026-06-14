@@ -64,11 +64,16 @@ export interface FileType {
   captions?: (string | { language: string; path?: string })[];
 }
 
-/** In-app watch URL: reels use `/reel/:unique_id` (same slug as dynamic `/:unique_id`); other files use `/:unique_id`. */
-export function fileWatchPath(data: Pick<FileType, "is_reel" | "id" | "unique_id">): string {
+import { buildReelWatchPath, type ReelWatchPathOptions } from "~/lib/reel/reelProfileContext";
+
+/** In-app watch URL: reels use `/reel/:unique_id` (optional `/username` from profile); other files use `/:unique_id`. */
+export function fileWatchPath(
+  data: Pick<FileType, "is_reel" | "id" | "unique_id">,
+  options?: ReelWatchPathOptions,
+): string {
   if (data.is_reel) {
     const slug = data.unique_id ?? data.id;
-    if (slug) return `/reel/${encodeURIComponent(String(slug))}`;
+    if (slug) return buildReelWatchPath(String(slug), options?.profileOwnerUsername);
   }
   return `/${data.unique_id}`;
 }

@@ -90,8 +90,24 @@ export default function Navbar({ hasScrolled = { state: false, opacityLevel: 0 }
     };
   }, [userId, location.pathname]);
 
+  // Drop the published height when the navbar unmounts so stale offsets don't
+  // linger on routes that render no navbar.
+  useEffect(() => {
+    return () => {
+      document.documentElement.style.removeProperty("--app-top-nav-h");
+    };
+  }, []);
+
   return (
     <header
+      ref={(el) => {
+        // Publish the bar height so fullscreen overlays (e.g. the reel deck,
+        // which sits BELOW the navbar in z-order) can keep their chrome out
+        // from under it. Cleared on unmount by the effect above.
+        if (el) {
+          document.documentElement.style.setProperty("--app-top-nav-h", `${el.offsetHeight}px`);
+        }
+      }}
       className={cn(
         "sticky top-0 z-[var(--z-app-chrome)] w-full shrink-0",
         isStandalone && "pt-[env(safe-area-inset-top)]",

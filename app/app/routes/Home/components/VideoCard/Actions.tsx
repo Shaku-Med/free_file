@@ -23,6 +23,7 @@ import {
   Flag,
   EyeOff,
   UserMinus,
+  Repeat2,
 } from "lucide-react";
 import { ReportDialog } from "~/components/ReportDialog";
 import { hideFromFeed } from "~/lib/feedPreferences.client";
@@ -102,6 +103,13 @@ export interface ActionsProps {
   commentsOpen?: boolean;
   onCommentsOpenChange?: (open: boolean) => void;
   /**
+   * When true, the comment button still toggles `onCommentsOpenChange`, but
+   * Actions does NOT render its own drawer/dialog  the PARENT renders the
+   * comments UI (e.g. the desktop reel renders a side-by-side panel). Prevents
+   * double-rendering when the action rail is mounted more than once.
+   */
+  suppressCommentsUi?: boolean;
+  /**
    * Visual layout.
    * - `default`: horizontal pill row. Share/Save pills only on the watch page main row; feed cards use More.
    * - `reel`: vertical stack of circular icon buttons (reels shell).
@@ -122,6 +130,10 @@ export interface ActionsProps {
    * caching handling instead of a bare `<img>`.
    */
   reelAudioArt?: ReactNode;
+  /** Shrinks spacing and labels on short viewports (reel / tiktok layouts only). */
+  reelDensity?: "comfortable" | "compact" | "minimal";
+  /** Ref to the reel like icon (for double-tap fly-to-target animation). */
+  reelLikeIconRef?: React.RefObject<HTMLSpanElement | null>;
 }
 
 type InteractionResponse = {
@@ -211,10 +223,13 @@ export default function Actions({
   highlightCommentId = null,
   commentsOpen: commentsOpenProp,
   onCommentsOpenChange,
+  suppressCommentsUi = false,
   layout = "default",
   howLikesDislikeComments = true,
   instagramStyle = false,
   reelAudioArt,
+  reelDensity = "comfortable",
+  reelLikeIconRef,
 }: ActionsProps) {
   const navigate = useNavigate();
   const [likeBusy, setLikeBusy] = useState(false);
@@ -231,6 +246,7 @@ export default function Actions({
   const [addingPlaylistId, setAddingPlaylistId] = useState<string | null>(null);
   const [createPlaylistOpen, setCreatePlaylistOpen] = useState(false);
   const [internalCommentsOpen, setInternalCommentsOpen] = useState(false);
+  const [likeButtonPop, setLikeButtonPop] = useState(false);
   const isCommentsControlled = typeof onCommentsOpenChange === "function";
   const commentsPanelOpen = isCommentsControlled ? Boolean(commentsOpenProp) : internalCommentsOpen;
   const setCommentsPanelOpen = useCallback(
@@ -261,6 +277,11 @@ export default function Actions({
   const effectiveLocalFileId = normalizeLocalPlaylistFileId(fileId);
   const inLocalList = Boolean(effectiveLocalFileId && hasLocalSave(effectiveLocalFileId));
 
+
+  const pulseLikeButton = useCallback(() => {
+    setLikeButtonPop(true);
+    window.setTimeout(() => setLikeButtonPop(false), 520);
+  }, []);
 
   useEffect(() => {
     setCanWebShare(typeof navigator !== "undefined" && typeof navigator.share === "function");
@@ -484,8 +505,8 @@ export default function Actions({
         return;
       }
     }
-    setCommentsPanelOpen(true);
-  }, [isOnThisFilePage, setCommentsPanelOpen]);
+    setCommentsPanelOpen(!commentsPanelOpen);
+  }, [isOnThisFilePage, isMobile, commentsPanelOpen, setCommentsPanelOpen]);
 
   const onPlaylistSubOpenChange = useCallback(
     (open: boolean) => {
@@ -508,22 +529,43 @@ export default function Actions({
   const segmentBtn =
     "inline-flex flex-1 min-w-0 items-center justify-center gap-1.5 px-3 py-2 text-sm font-medium transition hover:bg-accent/50 focus-visible:outline-none focus-visible:relative focus-visible:z-10 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset disabled:opacity-50";
 
-  /** Dark-overlay glass buttons on top of video (matches reel / PiP). */
-  const reelIconBtn =
-    "flex h-11 w-11 items-center justify-center rounded-full border border-white/18 bg-black/45 text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] backdrop-blur-md transition hover:border-white/28 hover:bg-black/55 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/45 disabled:opacity-50";
+  const reelDensityCompact = reelDensity === "compact" || reelDensity === "minimal";
+  const reelDensityMinimal = reelDensity === "minimal";
 
-  const reelIconBtnLiked =
-    "border-primary/45 bg-primary/35 text-white hover:border-primary/55 hover:bg-primary/45";
+  /** YouTube-Shorts-style: glassy dark circle, white icon  no border/blur. */
+  const reelIconBtn = cn(
+    "flex items-center justify-center rounded-full bg-black/35 text-white transition active:scale-90 hover:bg-black/45 focus-visible:outline-none disabled:opacity-50",
+    reelDensityMinimal ? "h-8 w-8" : reelDensityCompact ? "h-9 w-9" : "h-11 w-11",
+  );
 
-  const reelIconBtnDisliked =
-    "border-rose-400/40 bg-rose-500/25 text-white hover:border-rose-300/50 hover:bg-rose-500/35";
+  const reelIconSize = reelDensityMinimal
+    ? "h-[1.15rem] w-[1.15rem]"
+    : reelDensityCompact
+      ? "h-[1.25rem] w-[1.25rem]"
+      : "h-[1.4rem] w-[1.4rem]";
 
-  /** Same ellipse / pill language as `moreTriggerClass`, tuned for video backdrop. */
-  const reelMoreTriggerClass =
-    "inline-flex size-10 shrink-0 items-center justify-center rounded-full border border-white/18 bg-black/45 text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] backdrop-blur-md transition hover:border-white/28 hover:bg-black/55 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/45 disabled:opacity-50 data-[state=open]:border-white/30 data-[state=open]:bg-black/60";
+  // Liked / disliked state is carried by the ICON (fill), not a button chrome.
+  const reelIconBtnLiked = "text-white";
+  const reelIconBtnDisliked = "text-white";
+
+  const reelMoreTriggerClass = cn(
+    "inline-flex shrink-0 items-center justify-center rounded-full bg-black/35 text-white transition active:scale-90 hover:bg-black/45 focus-visible:outline-none disabled:opacity-50 data-[state=open]:bg-black/55",
+    reelDensityMinimal ? "size-8" : reelDensityCompact ? "size-9" : "size-11",
+  );
 
   const reelLabel =
-    "text-[11px] font-semibold tabular-nums tracking-tight text-white/95 [text-shadow:0_1px_2px_rgba(0,0,0,0.85)]";
+    "font-semibold tabular-nums tracking-tight text-white [text-shadow:0_1px_3px_rgba(0,0,0,0.9)]";
+
+  const reelLabelClass = cn(
+    reelLabel,
+    reelDensityMinimal ? "text-[9px]" : reelDensityCompact ? "text-[10px]" : "text-[11px]",
+  );
+
+  const reelRowGapClass = reelDensityMinimal ? "gap-1.5" : reelDensityCompact ? "gap-2" : "gap-3";
+
+  /** Hide non-essential text labels on very short screens; counts stay for like/comment. */
+  const reelAuxLabel = (text: string) =>
+    reelDensityMinimal ? null : <span className={reelLabelClass}>{text}</span>;
 
   const isShortsShelf = layout === "shortsShelf";
   const isReel = layout === "reel" || layout === "tiktok";
@@ -880,36 +922,51 @@ export default function Actions({
     </div>
   );
 
-  /** Instagram-style rail: heart (no dislike), comment, paper-plane share, more, spinning audio art. */
+  /** YouTube-Shorts-style rail: like + count, dislike, comment + count, share,
+      remix (→ sound page), more, and the sound art tile at the bottom. */
   const instagramReelRow = (
-    <div className="flex flex-col items-center gap-5">
+    <div className={cn("flex flex-col items-center", reelRowGapClass)}>
       {howLikesDislikeComments ? (
         <button
           type="button"
-          className="group flex select-none flex-col items-center gap-1"
-          onClick={() => applyLikeDislike("like")}
+          className={cn(
+            "group flex select-none flex-col items-center",
+            reelDensityMinimal ? "gap-0.5" : "gap-1",
+          )}
+          onClick={() => {
+            pulseLikeButton();
+            applyLikeDislike("like");
+          }}
           disabled={likeBusy}
           aria-pressed={liked}
           aria-label={liked ? "Unlike" : "Like"}
         >
           <span
+            ref={reelLikeIconRef}
+            data-reel-like-target=""
             className={cn(
               reelIconBtn,
-              "transition-all duration-200 group-active:scale-90",
-              liked && "border-rose-400/45 bg-rose-500/20 hover:border-rose-300/55 hover:bg-rose-500/30",
+              "group-active:scale-90",
               likeBusy && "opacity-70",
+              likeButtonPop && "reel-like-target-pop",
             )}
           >
-            <Heart
-              key={liked ? "liked" : "unliked"}
-              className={cn(
-                "h-[1.25rem] w-[1.25rem] shrink-0 transition-colors duration-150",
-                liked && "action-heart-pop fill-rose-500 text-rose-500",
-              )}
-              aria-hidden
-            />
+            {likeBusy ? (
+              <Loader2 className={cn(reelIconSize, "shrink-0 animate-spin")} aria-hidden />
+            ) : (
+              <ThumbsUp
+                key={liked ? "liked" : "unliked"}
+                className={cn(
+                  reelIconSize,
+                  "shrink-0 transition-colors duration-150",
+                  liked && "fill-current",
+                  likeButtonPop && "action-like-pop",
+                )}
+                aria-hidden
+              />
+            )}
           </span>
-          <span key={likeCount} className={cn(reelLabel, "action-count-pop")}>
+          <span key={likeCount} className={cn(reelLabelClass, "action-count-pop")}>
             {formatNumber(likeCount)}
           </span>
         </button>
@@ -918,42 +975,91 @@ export default function Actions({
       {howLikesDislikeComments ? (
         <button
           type="button"
-          className="group flex select-none flex-col items-center gap-1"
+          className={cn(
+            "group flex select-none flex-col items-center",
+            reelDensityMinimal ? "gap-0.5" : "gap-1",
+          )}
+          onClick={() => applyLikeDislike("dislike")}
+          disabled={dislikeBusy}
+          aria-pressed={disliked}
+          aria-label={disliked ? "Remove dislike" : "Dislike"}
+        >
+          <span className={cn(reelIconBtn, "group-active:scale-90", dislikeBusy && "opacity-70")}>
+            {dislikeBusy ? (
+              <Loader2 className={cn(reelIconSize, "shrink-0 animate-spin")} aria-hidden />
+            ) : (
+              <ThumbsDown
+                className={cn(reelIconSize, "shrink-0", disliked && "fill-current")}
+                aria-hidden
+              />
+            )}
+          </span>
+          {reelAuxLabel("Dislike")}
+        </button>
+      ) : null}
+
+      {howLikesDislikeComments ? (
+        <button
+          type="button"
+          className={cn(
+            "group flex select-none flex-col items-center",
+            reelDensityMinimal ? "gap-0.5" : "gap-1",
+          )}
           onClick={openComments}
           aria-label="View comments"
         >
-          <span className={cn(reelIconBtn, "transition-all duration-200 group-active:scale-90")}>
-            <MessageCircle className="h-[1.25rem] w-[1.25rem] shrink-0" aria-hidden />
+          <span className={cn(reelIconBtn, "group-active:scale-90")}>
+            <MessageCircle className={cn(reelIconSize, "shrink-0")} aria-hidden />
           </span>
-          <span className={reelLabel}>{formatNumber(commentCount)}</span>
+          <span className={reelLabelClass}>{formatNumber(commentCount)}</span>
         </button>
       ) : null}
 
       <button
         type="button"
-        className="group flex select-none flex-col items-center gap-1"
+        className={cn(
+          "group flex select-none flex-col items-center",
+          reelDensityMinimal ? "gap-0.5" : "gap-1.5",
+        )}
         onClick={openReelShare}
         disabled={shareBusy}
         aria-label="Share"
       >
-        <span className={cn(reelIconBtn, "transition-all duration-200 group-active:scale-90")}>
+        <span className={cn(reelIconBtn, "group-active:scale-90")}>
           {shareBusy ? (
-            <Loader2 className="h-[1.25rem] w-[1.25rem] shrink-0 animate-spin" aria-hidden />
+            <Loader2 className={cn(reelIconSize, "shrink-0 animate-spin")} aria-hidden />
           ) : (
-            <Send
-              className="h-[1.2rem] w-[1.2rem] shrink-0 -rotate-12 transition-transform duration-200 group-hover:-rotate-[24deg] group-hover:translate-x-0.5"
-              aria-hidden
-            />
+            <Share2 className={cn(reelIconSize, "shrink-0")} aria-hidden />
           )}
         </span>
-        <span className={reelLabel}>Share</span>
+        {reelAuxLabel("Share")}
       </button>
+
+      <Link
+        to={`/music/${encodeURIComponent(String(fileId))}`}
+        onClick={(e) => e.stopPropagation()}
+        className={cn(
+          "group flex select-none flex-col items-center",
+          reelDensityMinimal ? "gap-0.5" : "gap-1.5",
+        )}
+        aria-label="Remix this sound"
+      >
+        <span className={cn(reelIconBtn, "group-active:scale-90")}>
+          <Repeat2 className={cn(reelIconSize, "shrink-0")} aria-hidden />
+        </span>
+        {reelAuxLabel("Remix")}
+      </Link>
 
       {moreDropdown}
 
       {reelAudioArt ? (
         // Interactive: the art links to the sound page (no aria-hidden).
-        <div className="mt-1 h-9 w-9 shrink-0 overflow-hidden rounded-lg ring-2 ring-white/75 shadow-[0_2px_8px_rgba(0,0,0,0.6)]">
+        <div
+          className={cn(
+            "mt-0.5 shrink-0 overflow-hidden rounded-lg ring-1 ring-white/40 shadow-[0_2px_8px_rgba(0,0,0,0.6)]",
+            reelDensityMinimal ? "h-7 w-7" : reelDensityCompact ? "h-8 w-8" : "h-9 w-9",
+          )}
+        >
           {reelAudioArt}
         </div>
       ) : null}
@@ -978,7 +1084,7 @@ export default function Actions({
             <span className={reelIconBtn}>
               <MessageCircle className="h-[1.125rem] w-[1.125rem] shrink-0" aria-hidden />
             </span>
-            <span className={reelLabel}>{formatNumber(commentCount)}</span>
+            <span className={reelLabelClass}>{formatNumber(commentCount)}</span>
           </>
         ) : (
           <>
@@ -1007,7 +1113,7 @@ export default function Actions({
         />
       ) : null}
 
-      {isMobile ? (
+      {suppressCommentsUi ? null : isMobile ? (
         /**
          * YouTube-style comments bottom sheet:
          *  - Full width, anchored flush to the bottom edge (no centered card insets).

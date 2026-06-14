@@ -32,7 +32,7 @@ export default function QualityMenu() {
       </button>
 
       {open && (
-        <div className="absolute bottom-full right-0 mb-2 py-1 min-w-[120px] bg-black/95 rounded-lg shadow-xl border border-white/10 z-50 backdrop-blur-md">
+        <div className="absolute bottom-full right-0 mb-2 py-1 min-w-[120px] bg-black/95 rounded-lg shadow-xl z-50">
           <button
             onClick={() => { setQualityLevel(-1); setOpen(false); }}
             className={`w-full text-left px-3 py-1.5 text-sm hover:bg-white/10 transition-colors ${

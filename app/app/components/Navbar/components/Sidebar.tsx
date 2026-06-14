@@ -12,6 +12,7 @@ import {
   Users,
   Sparkles,
   Home,
+  Film,
 } from "lucide-react"
 import {
   Sidebar,
@@ -73,6 +74,11 @@ const mainNavItems = [
     title: "Subscriptions",
     icon: Users,
     href: "/subscriptions",
+  },
+  {
+    title: "Reel",
+    icon: Film,
+    href: "/reel",
   },
   {
     title: "Playlist",

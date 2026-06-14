@@ -1,10 +1,22 @@
 import { useEffect, useState, useCallback, useLayoutEffect, useRef } from "react";
+import { X } from "lucide-react";
 import { useFileContext } from "~/lib/Context/Context";
 import { ReelSwiper } from "~/routes/reel/components/ReelSwiper";
+import type { ReelAmbienceInfo } from "~/routes/pip/components/PipReelItem";
+import Ambience from "~/components/accessories/CanvasGradient/Ambience";
+import CommentSection from "~/routes/Dynamic/components/Comments/CommentSection";
+import {
+  Drawer,
+  DrawerContent,
+  DrawerHeader,
+  DrawerOverlay,
+  DrawerTitle,
+} from "~/components/ui/drawer";
 import type { FileType } from "~/lib/types";
 import { newReelFeedSeed } from "~/lib/feed/reelFeedSeed";
 import { personalizationService } from "~/lib/Services/PersonalizationService";
 import { cn } from "~/lib/utils";
+import type { ReelProfileContext } from "~/lib/reel/reelProfileContext";
 
 /**
  * Poster/thumbnail palette → soft radial washes (same hex source as `ImageLoad` / player poster).
@@ -71,10 +83,12 @@ interface ReelProps {
   initialItems?: FileType[];
   /** SSR / `/reel/:uniqueId` loader: viewer like & dislike ids (lowercased UUID strings). */
   initialUserActions?: { likedFileIds: string[]; dislikedFileIds: string[] };
+  /** From `/reel/:uniqueId/:ownerUsername` — queue that creator's reels before the global feed. */
+  profileReelContext?: ReelProfileContext | null;
 }
 
-const Reel = ({ initialItems, initialUserActions }: ReelProps) => {
-  const { userId } = useFileContext();
+const Reel = ({ initialItems, initialUserActions, profileReelContext = null }: ReelProps) => {
+  const { userId, playerSettings } = useFileContext();
   const [items, setItems] = useState<FileType[]>(initialItems || []);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(true);
@@ -85,17 +99,29 @@ const Reel = ({ initialItems, initialUserActions }: ReelProps) => {
   }));
   const shownIdsRef = useRef<Set<string>>(new Set());
   const feedSeedRef = useRef<string>(newReelFeedSeed());
+  /** Reels the viewer has scrolled through this session (last = most recently left). */
+  const watchedReelIdsRef = useRef<string[]>([]);
+  /** Active reel + categories; updated on each swipe for session steering. */
+  const prevReelRef = useRef<{ fileId: string; categories?: string[] } | null>(null);
   /** Skip duplicate `loadFeed(false)` for the same `initialItems` snapshot (loadFeed identity changes often). */
   const initialFeedKeyRef = useRef<string | null>(null);
   /** Invalidate in-flight fetches after navigation / reset so stale responses cannot clobber state. */
   const feedGenerationRef = useRef(0);
   const itemsRef = useRef<FileType[]>(initialItems || []);
   itemsRef.current = items;
+  const profileReelContextRef = useRef<ReelProfileContext | null>(profileReelContext);
+  const profileCursorRef = useRef(0);
+  const profileExhaustedRef = useRef(!profileReelContext);
+
+  const profileContextKey = profileReelContext
+    ? `${profileReelContext.userId}:${profileReelContext.username}`
+    : "__none__";
 
   const initialItemsKey =
-    (initialItems ?? [])
+    `${profileContextKey}|` +
+    ((initialItems ?? [])
       .map((f) => (f.id ? String(f.id) : f.unique_id ?? ""))
-      .join("|") || "__empty__";
+      .join("|") || "__empty__");
 
   useLayoutEffect(() => {
     feedGenerationRef.current += 1;
@@ -107,6 +133,9 @@ const Reel = ({ initialItems, initialUserActions }: ReelProps) => {
     setIsLoadingMore(false);
     shownIdsRef.current.clear();
     initialFeedKeyRef.current = null;
+    profileReelContextRef.current = profileReelContext;
+    profileCursorRef.current = 0;
+    profileExhaustedRef.current = !profileReelContext;
     for (const f of seed) {
       if (f.id) shownIdsRef.current.add(String(f.id));
     }
@@ -160,6 +189,35 @@ const Reel = ({ initialItems, initialUserActions }: ReelProps) => {
         if (sessionCats.length > 0) {
           params.set("session_cats", JSON.stringify(sessionCats));
         }
+        const watchedReelIds = watchedReelIdsRef.current;
+        if (watchedReelIds.length > 0) {
+          params.set("watched_ids", JSON.stringify(watchedReelIds.slice(-50)));
+        }
+
+        const profileCtx = profileReelContextRef.current;
+        if (profileCtx && !profileExhaustedRef.current) {
+          params.set("profile_user_id", profileCtx.userId);
+          params.set("profile_cursor_pos", String(profileCursorRef.current));
+        } else if (profileCtx && profileExhaustedRef.current) {
+          params.set("profile_user_id", profileCtx.userId);
+          params.set("profile_exhausted", "1");
+        }
+
+        const contextFileId = (() => {
+          if (profileCtx && !profileExhaustedRef.current) return null;
+          if (append) {
+            const current = itemsRef.current[itemsRef.current.length - 1];
+            if (current?.id) return String(current.id).toLowerCase();
+          }
+          const seed = initialItems?.[0];
+          if (seed?.id) return String(seed.id).toLowerCase();
+          const lastWatched = watchedReelIdsRef.current;
+          if (lastWatched.length > 0) return lastWatched[lastWatched.length - 1];
+          return null;
+        })();
+        if (contextFileId && /^[0-9a-f-]{36}$/i.test(contextFileId)) {
+          params.set("context_file_id", contextFileId);
+        }
 
         const response = await fetch(`/api/reel-feed?${params}`, {
           headers: { Accept: "application/json" },
@@ -176,6 +234,13 @@ const Reel = ({ initialItems, initialUserActions }: ReelProps) => {
         const data = await response.json();
         if (generation !== feedGenerationRef.current) return;
         const incoming: FileType[] = Array.isArray(data.data) ? data.data : [];
+
+        if (data.profile_exhausted === true) {
+          profileExhaustedRef.current = true;
+        }
+        if (typeof data.profile_next_cursor === "number" && Number.isFinite(data.profile_next_cursor)) {
+          profileCursorRef.current = data.profile_next_cursor;
+        }
 
         if (incoming.length > 0) {
           incoming.forEach((f) => {
@@ -220,7 +285,11 @@ const Reel = ({ initialItems, initialUserActions }: ReelProps) => {
         }
 
         if (userId) {
-          setHasMore(incoming.length > 0 || Boolean(data.nextCursor));
+          setHasMore(
+            incoming.length > 0 ||
+              Boolean(data.nextCursor) ||
+              Boolean(data.profile_has_more && !data.profile_exhausted),
+          );
         } else if (append && appendedCount === 0) {
           setHasMore(false);
         } else {
@@ -268,8 +337,93 @@ const Reel = ({ initialItems, initialUserActions }: ReelProps) => {
 
   const posterBackdropImage = reelPosterBackdropImage(reelPosterColors);
 
+  // ONE shared, fixed ambience driven by whichever reel is active. The ref
+  // always points at the active reel's <video>; the descriptor (id) remounts
+  // the single Ambience so it re-samples the new element on each swipe.
+  const ambientEnabled = playerSettings?.ambientMode === true;
+  // Follow the same ambient controls as the watch page: sync mode + size.
+  const ambientSync = playerSettings?.ambientSync === true;
+  const ambientSize = Math.max(1, Math.min(2, playerSettings?.ambientSize ?? 2));
+  const activeVideoElRef = useRef<HTMLVideoElement | null>(null);
+  const [ambienceDesc, setAmbienceDesc] = useState<{
+    id: string;
+    colors: string[];
+    aspect: number | null;
+    fileId: string;
+    ownerId?: string;
+  } | null>(null);
+  const onActiveAmbience = useCallback((info: ReelAmbienceInfo) => {
+    activeVideoElRef.current = info.el;
+    setAmbienceDesc((prev) =>
+      prev && prev.id === info.id && prev.aspect === info.aspect
+        ? prev
+        : { id: info.id, colors: info.colors, aspect: info.aspect, fileId: info.fileId, ownerId: info.ownerId },
+    );
+  }, []);
+
+  // ONE global comments panel for the whole /reel page: it follows whichever
+  // reel is playing (keyed by the active reel's fileId) and, on large screens,
+  // docks beside the reel — pushing the stage (ambience + player) left so the
+  // player still fits. Small screens fall back to the shared bottom drawer.
+  const [commentsOpen, setCommentsOpen] = useState(false);
+  const [isLargeScreen, setIsLargeScreen] = useState(false);
+  useEffect(() => {
+    if (typeof window === "undefined" || !window.matchMedia) return;
+    const mq = window.matchMedia("(min-width: 1024px)");
+    const update = () => setIsLargeScreen(mq.matches);
+    update();
+    mq.addEventListener?.("change", update);
+    return () => mq.removeEventListener?.("change", update);
+  }, []);
+
+  // The comments panel follows the active reel by INDEX (reported the instant
+  // the slide changes), not the ambience callback — that one waits for the video
+  // element, so it lagged/blanked the panel on swipe.
+  const [activeReel, setActiveReel] = useState<{ fileId: string; ownerId?: string } | null>(null);
+  const onActiveItemChange = useCallback(
+    (info: { fileId: string; ownerId?: string; categories?: string[] }) => {
+      setActiveReel((prev) =>
+        prev && prev.fileId === info.fileId && prev.ownerId === info.ownerId
+          ? prev
+          : { fileId: info.fileId, ownerId: info.ownerId },
+      );
+
+      const prev = prevReelRef.current;
+      if (prev && prev.fileId !== info.fileId) {
+        // Left the previous reel → treat it as watched: bias the session toward
+        // its categories and remember it so we don't keep re-serving it.
+        personalizationService.trackSessionWatch(prev.fileId, prev.categories ?? null);
+        const idLower = prev.fileId.toLowerCase();
+        const without = watchedReelIdsRef.current.filter((x) => x !== idLower);
+        without.push(idLower);
+        watchedReelIdsRef.current = without.slice(-50);
+      }
+      prevReelRef.current = { fileId: info.fileId, categories: info.categories };
+    },
+    [],
+  );
+
+  const activeCommentFileId = activeReel?.fileId ?? null;
+  const activeCommentOwnerId = activeReel?.ownerId;
+  const commentsBody =
+    commentsOpen && activeCommentFileId ? (
+      <CommentSection
+        key={activeCommentFileId}
+        fileId={activeCommentFileId}
+        currentUserId={userId ?? undefined}
+        fileOwnerId={activeCommentOwnerId}
+        isReel
+        fillHeight
+        className="min-h-0 flex-1"
+      />
+    ) : null;
+
   return (
-    <div className="fixed inset-0 z-[var(--z-reel)] reel_p">
+    <div className="fixed inset-0 z-[var(--z-reel)] reel_p flex">
+      {/* STAGE: ambience + reel deck. Shrinks (flex-1) when the comments dock
+          opens on large screens, so the whole stage — ambience included — is
+          pushed left and the player still fits beside the panel. */}
+      <div className="relative h-full min-h-0 min-w-0 flex-1">
       {/*
         Ambient plate ~600px wide (centered): solid zinc-950 + poster palette from the active slide’s thumbnail.
       */}
@@ -301,6 +455,42 @@ const Reel = ({ initialItems, initialUserActions }: ReelProps) => {
             />
           </div>
         </div>
+
+        {/* The live, shared ambience  one Ambience instance, fixed behind the
+            deck, sized to the active reel's aspect ratio, re-sampling the new
+            video on each swipe (keyed by id). */}
+        {ambientEnabled && ambienceDesc && (
+          <div className="absolute inset-0 flex items-center justify-center">
+            <div
+              className="relative h-full max-h-[100dvh] origin-center overflow-visible blur-3xl opacity-80 lg:h-[min(96dvh,calc(100dvh-1rem))]"
+              style={{
+                // Size follows the ambient-size control (1×2×).
+                transform: `scale(${ambientSize})`,
+                aspectRatio:
+                  ambienceDesc.aspect && ambienceDesc.aspect > 0
+                    ? String(ambienceDesc.aspect)
+                    : "9 / 16",
+                WebkitMaskImage: `${REEL_AMB_MASKRadial}, ${REEL_AMB_MASKHorizontal}`,
+                WebkitMaskSize: "100% 100%, 100% 100%",
+                WebkitMaskRepeat: "no-repeat, no-repeat",
+                WebkitMaskPosition: "center, center",
+                maskImage: `${REEL_AMB_MASKRadial}, ${REEL_AMB_MASKHorizontal}`,
+                maskSize: "100% 100%, 100% 100%",
+                maskRepeat: "no-repeat, no-repeat",
+                maskPosition: "center, center",
+                maskComposite: "intersect",
+              }}
+            >
+              <Ambience
+                key={ambienceDesc.id}
+                colors={ambienceDesc.colors}
+                videoRef={activeVideoElRef}
+                videoReady
+                sync={ambientSync}
+              />
+            </div>
+          </div>
+        )}
       </div>
 
       <div className="relative z-[1] flex h-full min-h-0 flex-col">
@@ -312,6 +502,10 @@ const Reel = ({ initialItems, initialUserActions }: ReelProps) => {
           isLoadingMore={isLoadingMore}
           userActions={userActions}
           onReelPosterColors={onReelPosterColors}
+          onActiveAmbience={onActiveAmbience}
+          commentsOpen={commentsOpen}
+          onCommentsOpenChange={setCommentsOpen}
+          onActiveItemChange={onActiveItemChange}
         />
       ) : initialLoadDone ? (
         <div className="flex h-full w-full flex-col items-center justify-center gap-4 px-4 text-white/80">
@@ -324,6 +518,48 @@ const Reel = ({ initialItems, initialUserActions }: ReelProps) => {
         </div>
       )}
       </div>
+      </div>
+
+      {/* Desktop book-form comments dock: docks on the right and pushes the
+          stage left (its animated width drives the flex-1 stage). */}
+      <div
+        className={cn(
+          "hidden shrink-0 overflow-hidden transition-[width] duration-300 ease-out lg:block",
+          commentsOpen ? "lg:w-[26rem]" : "lg:w-0",
+        )}
+      >
+        {commentsOpen && activeCommentFileId ? (
+          <div className="flex h-full w-[26rem] flex-col overflow-hidden border-l border-border bg-background pt-[var(--app-top-nav-h,0px)]">
+            <div className="flex shrink-0 items-center justify-between border-b px-4 py-3">
+              <h2 className="text-base font-semibold text-foreground">Comments</h2>
+              <button
+                type="button"
+                onClick={() => setCommentsOpen(false)}
+                aria-label="Close comments"
+                className="rounded-full p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="flex min-h-0 flex-1 flex-col overflow-hidden px-3 py-2">
+              {commentsBody}
+            </div>
+          </div>
+        ) : null}
+      </div>
+
+      {/* Small screens: the shared bottom drawer (no push). */}
+      {!isLargeScreen ? (
+        <Drawer open={commentsOpen} onOpenChange={setCommentsOpen} direction="bottom">
+          <DrawerOverlay className="bg-black/30" />
+          <DrawerContent className="flex flex-col gap-0 overflow-hidden p-0 data-[vaul-drawer-direction=bottom]:inset-x-0 data-[vaul-drawer-direction=bottom]:mx-auto data-[vaul-drawer-direction=bottom]:h-[85dvh] data-[vaul-drawer-direction=bottom]:max-h-[85dvh] data-[vaul-drawer-direction=bottom]:w-full data-[vaul-drawer-direction=bottom]:max-w-2xl data-[vaul-drawer-direction=bottom]:rounded-t-2xl data-[vaul-drawer-direction=bottom]:border-t data-[vaul-drawer-direction=bottom]:border-border">
+            <DrawerHeader className="shrink-0 border-b px-3 py-2 text-left">
+              <DrawerTitle className="text-base">Comments</DrawerTitle>
+            </DrawerHeader>
+            <div className="flex min-h-0 flex-1 flex-col overflow-hidden">{commentsBody}</div>
+          </DrawerContent>
+        </Drawer>
+      ) : null}
     </div>
   );
 };

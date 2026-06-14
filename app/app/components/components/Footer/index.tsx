@@ -88,10 +88,6 @@ const Footer = () => {
             ))}
           </nav>
 
-          <p className="max-w-lg text-xs leading-relaxed text-muted-foreground">
-            Uploads stay on the platform — only share what you&apos;re comfortable
-            keeping around.
-          </p>
 
           <div className="flex flex-col gap-4 border-t border-border/50 pt-6 text-xs text-muted-foreground sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
             <p>

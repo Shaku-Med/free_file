@@ -88,13 +88,15 @@ export function mobileControlStyleVars(m: MobileControlMetrics): CSSProperties {
 }
 
 export const mobileOverlayCircleBtn =
-  'flex h-[var(--hls-ctrl-btn,2.75rem)] w-[var(--hls-ctrl-btn,2.75rem)] shrink-0 items-center justify-center rounded-full bg-black/50 text-white shadow-sm backdrop-blur-sm active:scale-95 transition-transform';
+  'flex h-[var(--hls-ctrl-btn,2.75rem)] w-[var(--hls-ctrl-btn,2.75rem)] shrink-0 items-center justify-center rounded-full bg-black/80 text-white shadow-sm active:scale-95 transition-transform';
 
 export const mobileOverlaySmallCircleBtn =
-  'flex h-[var(--hls-ctrl-small-btn,2.25rem)] w-[var(--hls-ctrl-small-btn,2.25rem)] shrink-0 items-center justify-center rounded-full bg-black/50 text-white shadow-sm backdrop-blur-sm active:scale-95 transition-transform';
+  'flex h-[var(--hls-ctrl-small-btn,2.25rem)] w-[var(--hls-ctrl-small-btn,2.25rem)] shrink-0 items-center justify-center rounded-full bg-black/80 text-white shadow-sm active:scale-95 transition-transform';
 
+// Kept for back-compat, but now a CIRCLE so every overlay control shares the
+// same roundedness + bg (cast / pip / mini / settings match play-pause & co.).
 export const mobileOverlaySquareBtn =
-  'flex h-[var(--hls-ctrl-small-btn,2.25rem)] w-[var(--hls-ctrl-small-btn,2.25rem)] shrink-0 items-center justify-center rounded-lg border border-white/20 bg-black/50 text-white shadow-sm backdrop-blur-sm active:bg-black/60';
+  'flex h-[var(--hls-ctrl-small-btn,2.25rem)] w-[var(--hls-ctrl-small-btn,2.25rem)] shrink-0 items-center justify-center rounded-full bg-black/80 text-white shadow-sm active:scale-95 transition-transform';
 
 export const mobileOverlayIcon =
   'h-[var(--hls-ctrl-icon,1.25rem)] w-[var(--hls-ctrl-icon,1.25rem)]';
@@ -103,10 +105,10 @@ export const mobileOverlayMainIcon =
   'h-[var(--hls-ctrl-main-icon,2.25rem)] w-[var(--hls-ctrl-main-icon,2.25rem)]';
 
 export const mobileVolumePillShell =
-  'flex shrink-0 items-center justify-center rounded-full bg-black/50 shadow-sm backdrop-blur-sm';
+  'flex shrink-0 items-center justify-center rounded-full bg-black/80 shadow-sm';
 
 export const mobileTimePill =
-  'flex min-w-0 max-w-full shrink cursor-default items-center justify-center rounded-full bg-black/50 font-medium tabular-nums leading-none text-white shadow-sm backdrop-blur-sm';
+  'flex min-w-0 max-w-full shrink cursor-default items-center justify-center rounded-full bg-black/80 font-medium tabular-nums leading-none text-white shadow-sm';
 
 export const mobileAutoplayToggleTrack =
   'relative inline-flex shrink-0 rounded-full transition-colors duration-200 h-[var(--hls-ctrl-toggle-h,1.5rem)] w-[var(--hls-ctrl-toggle-w,2.75rem)]';
