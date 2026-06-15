@@ -167,14 +167,14 @@ export function AppSidebar() {
   return (
     <Sidebar variant="sidebar" collapsible={collapsibleMode} className="bg-background border-none">
       {/* Header  Logo. Matches the navbar's h-14 row so the mark lines up. */}
-      <SidebarHeader className={cn("p-0 ml-[-40px]", isStandalone && "pt-[env(safe-area-inset-top)]")}>
+      <SidebarHeader className={cn("p-0 ml-[-10px]", isStandalone && "pt-[env(safe-area-inset-top)]")}>
         <div
           className={cn(
             "flex h-14 items-center px-4 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-2",
             expandedDesktop && "mt-2",
           )}
         >
-          <Link to="/" id="home_button" className="flex items-center gap-2 group w-fit group-data-[collapsible=icon]:w-full group-data-[collapsible=icon]:justify-center ml-[-40px]">
+          <Link to="/" id="home_button" className="flex items-center gap-2 group w-fit group-data-[collapsible=icon]:w-full group-data-[collapsible=icon]:justify-center ml-[-10px]">
             <Logo className="relative h-8 w-8 text-primary transition-transform duration-200 group-hover:scale-110 group-data-[collapsible=icon]:h-7 group-data-[collapsible=icon]:w-7" />
             <span className="text-lg font-bold bg-gradient-to-r from-primary to-primary/60 bg-clip-text text-transparent group-data-[collapsible=icon]:hidden">
               Memories
