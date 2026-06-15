@@ -28,6 +28,7 @@ import {
 import { ReportDialog } from "~/components/ReportDialog";
 import { hideFromFeed } from "~/lib/feedPreferences.client";
 import { formatNumber } from "~/lib/utils/formatNumber";
+import { useRateLimit } from "~/lib/hooks/useRateLimit";
 import { ShareModal } from "~/components/ShareModal";
 import {
   DropdownMenu,
@@ -380,12 +381,18 @@ export default function Actions({
     [addedTo, currentUserId, fileId, requireAuth],
   );
 
+  // One shared bounce limit for the like/dislike pair, so rapidly toggling (or
+  // flipping like↔dislike) can't flood /api/likes. ~600ms is below human
+  // intentional-tap speed but kills mashing.
+  const { attempt: attemptInteraction } = useRateLimit(600);
+
   const applyLikeDislike = useCallback(
     async (kind: "like" | "dislike") => {
       if (!onUpdate) {
         requireAuth();
         return;
       }
+      if (!attemptInteraction()) return;
       const setBusy = kind === "like" ? setLikeBusy : setDislikeBusy;
       setBusy(true);
       const url = kind === "like" ? "/api/likes" : "/api/dislikes";
@@ -412,7 +419,7 @@ export default function Actions({
       const normAlt = normalizeInteraction(alt.json);
       if (alt.ok && normAlt) onUpdate(normAlt);
     },
-    [fileId, onUpdate, requireAuth],
+    [fileId, onUpdate, requireAuth, attemptInteraction],
   );
 
   const recordShare = useCallback(async () => {

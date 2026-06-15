@@ -15,6 +15,7 @@ import {
 import type { FileType } from "~/lib/types";
 import { newReelFeedSeed } from "~/lib/feed/reelFeedSeed";
 import { personalizationService } from "~/lib/Services/PersonalizationService";
+import { useRateLimit } from "~/lib/hooks/useRateLimit";
 import { cn } from "~/lib/utils";
 import type { ReelProfileContext } from "~/lib/reel/reelProfileContext";
 
@@ -368,6 +369,11 @@ const Reel = ({ initialItems, initialUserActions, profileReelContext = null }: R
   const [commentsOpen, setCommentsOpen] = useState(false);
   const [commentsReloadToken, setCommentsReloadToken] = useState(0);
   const [isLargeScreen, setIsLargeScreen] = useState(false);
+  // Bounce limit on the comments reload so it can't be mashed to flood the API.
+  const { attempt: attemptCommentsReload, coolingDown: reloadCoolingDown } = useRateLimit(3000);
+  const reloadComments = useCallback(() => {
+    if (attemptCommentsReload()) setCommentsReloadToken((t) => t + 1);
+  }, [attemptCommentsReload]);
   useEffect(() => {
     if (typeof window === "undefined" || !window.matchMedia) return;
     const mq = window.matchMedia("(min-width: 1024px)");
@@ -537,11 +543,12 @@ const Reel = ({ initialItems, initialUserActions, profileReelContext = null }: R
               <div className="flex items-center gap-1">
                 <button
                   type="button"
-                  onClick={() => setCommentsReloadToken((t) => t + 1)}
+                  onClick={reloadComments}
+                  disabled={reloadCoolingDown}
                   aria-label="Reload comments"
-                  className="rounded-full p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                  className="rounded-full p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:opacity-40 disabled:hover:bg-transparent"
                 >
-                  <RotateCw className="h-4 w-4" />
+                  <RotateCw className={cn("h-4 w-4", reloadCoolingDown && "animate-spin")} />
                 </button>
                 <button
                   type="button"
@@ -569,11 +576,12 @@ const Reel = ({ initialItems, initialUserActions, profileReelContext = null }: R
               <DrawerTitle className="text-base">Comments</DrawerTitle>
               <button
                 type="button"
-                onClick={() => setCommentsReloadToken((t) => t + 1)}
+                onClick={reloadComments}
+                disabled={reloadCoolingDown}
                 aria-label="Reload comments"
-                className="rounded-full p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                className="rounded-full p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:opacity-40 disabled:hover:bg-transparent"
               >
-                <RotateCw className="h-4 w-4" />
+                <RotateCw className={cn("h-4 w-4", reloadCoolingDown && "animate-spin")} />
               </button>
             </DrawerHeader>
             <div className="flex min-h-0 flex-1 flex-col overflow-hidden">{commentsBody}</div>
