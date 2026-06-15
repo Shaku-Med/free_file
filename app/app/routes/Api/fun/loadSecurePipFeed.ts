@@ -4,6 +4,7 @@ import { stripGithubRepoForClient } from '~/lib/githubStorage';
 import { checkFileAccess } from '~/routes/Dynamic/fun/accessControl';
 import { filterFilesByAccess, type FileData } from '~/routes/Api/fun/accessControl';
 import { enrichFeedFilesWithInteractions } from '~/routes/Api/fun/enrichFeedFiles';
+import { attachOriginalSounds } from '~/lib/files/attachOriginalSound';
 
 const PIP_FEED_LIMIT = 20;
 
@@ -236,6 +237,10 @@ export async function loadSecurePipFeed(
     rows as Record<string, unknown>[],
     userId,
   );
+
+  // The PiP feed RPC doesn't carry the matched original sound — attach it so the
+  // reel audio tile / sound chip show the ORIGINAL sound, not the reel's own.
+  await attachOriginalSounds(db, data as unknown as Record<string, unknown>[]);
 
   const rawCount = (feedRows || []).length;
   const nextCursor =

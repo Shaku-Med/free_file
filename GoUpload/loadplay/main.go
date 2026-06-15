@@ -142,7 +142,10 @@ func main() {
 			R2:     r2Client,
 			R2TTL:  time.Duration(env.GetInt64("R2_PRESIGN_TTL_SECONDS", 300)) * time.Second,
 		},
-		Guard:       guard.NewConfig(env.Get("ALLOWED_ORIGINS", ""), blockedOrigins, env.Get("BLOCK_TOOL_UA", "1") == "1"),
+		// Dev only: accept LAN/loopback origins (e.g. a phone hitting
+		// http://192.168.1.169:3000) so you don't have to hardcode the IP.
+		// Hard-gated to non-production; never widens to routable hosts.
+		Guard:       guard.NewConfig(env.Get("ALLOWED_ORIGINS", ""), blockedOrigins, env.Get("BLOCK_TOOL_UA", "1") == "1", appEnv != "production"),
 		HTTPClient:  &http.Client{Timeout: 20 * time.Second},
 		PublicHost:  env.Get("PUBLIC_HOST", ""),
 		RequireBind: env.Get("REQUIRE_FINGERPRINT", "0") == "1",

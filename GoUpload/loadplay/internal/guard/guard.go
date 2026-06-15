@@ -1,6 +1,7 @@
 package guard
 
 import (
+	"net"
 	"net/url"
 	"strings"
 )
@@ -10,13 +11,21 @@ type Config struct {
 	AllowedOrigins []string
 	BlockedOrigins []string
 	BlockToolUA    bool
+	// DevAllowPrivateHosts, when true (DEVELOPMENT ONLY), additionally accepts
+	// origins/referers whose host is a loopback / RFC1918 private / link-local
+	// IP (or "localhost"). Lets you open the app from a phone on the LAN
+	// (e.g. http://192.168.1.169:3000) without hardcoding the IP, which changes.
+	// It is gated to APP_ENV != "production" in main.go and only ever widens to
+	// non-routable addresses, so it is inert and harmless if it ever ships on.
+	DevAllowPrivateHosts bool
 }
 
-func NewConfig(originsCSV, blockedCSV string, blockToolUA bool) Config {
+func NewConfig(originsCSV, blockedCSV string, blockToolUA bool, devAllowPrivateHosts bool) Config {
 	return Config{
-		AllowedOrigins: splitCSV(originsCSV),
-		BlockedOrigins: splitCSV(blockedCSV),
-		BlockToolUA:    blockToolUA,
+		AllowedOrigins:       splitCSV(originsCSV),
+		BlockedOrigins:       splitCSV(blockedCSV),
+		BlockToolUA:          blockToolUA,
+		DevAllowPrivateHosts: devAllowPrivateHosts,
 	}
 }
 
@@ -80,6 +89,9 @@ func (c Config) Diagnose(raw string) HostVerdict {
 	if c.IsBlockedHost(raw) {
 		return HostVerdict{Reason: "blocked_cdn", Parsed: prefix}
 	}
+	if c.DevAllowPrivateHosts && isPrivateOrLoopbackHost(raw) {
+		return HostVerdict{OK: true, Reason: "dev_private_host", Parsed: prefix}
+	}
 	if len(c.AllowedOrigins) == 0 {
 		return HostVerdict{Reason: "not_in_allowlist", Parsed: prefix}
 	}
@@ -106,6 +118,9 @@ func (c Config) AllowsOrigin(raw string) bool {
 	if c.IsBlockedHost(raw) {
 		return false
 	}
+	if c.DevAllowPrivateHosts && isPrivateOrLoopbackHost(raw) {
+		return true
+	}
 	if len(c.AllowedOrigins) == 0 {
 		return false
 	}
@@ -127,6 +142,9 @@ func (c Config) IsBlockedHost(raw string) bool {
 }
 
 func (c Config) isAllowedHost(raw string) bool {
+	if c.DevAllowPrivateHosts && isPrivateOrLoopbackHost(raw) {
+		return true
+	}
 	prefix, ok := hostPrefix(raw)
 	if !ok {
 		return false
@@ -158,6 +176,33 @@ func hostPrefix(raw string) (string, bool) {
 		host = host + ":" + port
 	}
 	return scheme + "://" + host, true
+}
+
+// isPrivateOrLoopbackHost reports whether raw's host is "localhost" or a
+// loopback / RFC1918 private / link-local IP LITERAL. It parses the URL and runs
+// net.ParseIP on the hostname — never a substring/contains check — so a public
+// DNS name like "192.168.1.169.attacker.com" (not an IP) returns false, and an
+// attacker cannot smuggle a public host past the gate. Only non-routable
+// addresses qualify, so even if enabled in production it cannot expose anything
+// reachable from the internet.
+func isPrivateOrLoopbackHost(raw string) bool {
+	u, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil || u.Host == "" || u.User != nil {
+		return false
+	}
+	scheme := strings.ToLower(u.Scheme)
+	if scheme != "http" && scheme != "https" {
+		return false
+	}
+	host := strings.ToLower(u.Hostname())
+	if host == "localhost" {
+		return true
+	}
+	ip := net.ParseIP(host)
+	if ip == nil {
+		return false
+	}
+	return ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast()
 }
 
 func looksLikeTool(ua string) bool {

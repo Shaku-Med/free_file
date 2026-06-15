@@ -90,27 +90,53 @@ export function useHLS(videoRef: React.RefObject<HTMLVideoElement | null>) {
     return () => {
       mountedRef.current = false;
       const hls = hlsRef.current;
+      // Capture the element BEFORE nulling refs so we can free its decoder even
+      // if React has already detached `videoRef`.
+      const video = lastAttachedVideoRef.current ?? videoRef.current;
       hlsRef.current = null;
       lastEnginePathRef.current = null;
       lastAttachedVideoRef.current = null;
+
+      // CHEAP, synchronous: stop hls.js loaders + detach media so the decoder
+      // stops immediately (the expensive destroy is deferred below).
+      if (hls) {
+        try {
+          hls.stopLoad();
+        } catch {
+          /* instance already half-torn-down */
+        }
+        try {
+          hls.detachMedia();
+        } catch {
+          /* no media attached */
+        }
+      }
+
+      // Release the native media decoder NOW. On iOS, reels play via native HLS
+      // (so `hls` is null and the old code returned here, leaking), and the
+      // hardware decoder pool is tiny (~3-4). A `<video>` left with `src`
+      // attached after its slide unmounts keeps holding a decoder, so after a
+      // few swipes new reels can't get one and Safari crashes the tab.
+      // Detaching src + load() forces the decoder + buffers to free at once.
+      if (video) {
+        try {
+          video.pause();
+          video.removeAttribute('src');
+          while (video.firstChild) video.removeChild(video.firstChild);
+          video.load();
+        } catch {
+          /* element already gone */
+        }
+      }
+
       if (!hls) return;
 
       // Navigation away tears down the player. `hls.destroy()` is heavy
       // (aborts loaders, removes SourceBuffers, rips down ABR + listeners) and
       // ran synchronously here  blocking the new route's first paint, which
-      // is the "player holds back the navigation" lag. Do the CHEAP part now
-      // (stop the decoder/loaders so nothing keeps running), then defer the
-      // expensive teardown until AFTER the navigation has painted.
-      try {
-        hls.stopLoad();
-      } catch {
-        /* instance already half-torn-down */
-      }
-      try {
-        hls.detachMedia();
-      } catch {
-        /* no media attached */
-      }
+      // is the "player holds back the navigation" lag. Defer the expensive
+      // teardown until AFTER the navigation has painted (media is already
+      // detached above, so nothing keeps decoding in the meantime).
       const finishDestroy = () => {
         try {
           hls.destroy();

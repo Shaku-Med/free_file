@@ -14,6 +14,7 @@ func testGuard() guard.Config {
 		"http://localhost:3000,http://127.0.0.1:3000,https://memories.brozy.org,https://uploads.memories.brozy.org",
 		"http://localhost:3006,https://cdn.memories.brozy.org",
 		false,
+		false,
 	)
 }
 
