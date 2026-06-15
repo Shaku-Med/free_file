@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useLayoutEffect, useRef } from "react";
-import { X } from "lucide-react";
+import { RotateCw, X } from "lucide-react";
 import { useFileContext } from "~/lib/Context/Context";
 import { ReelSwiper } from "~/routes/reel/components/ReelSwiper";
 import type { ReelAmbienceInfo } from "~/routes/pip/components/PipReelItem";
@@ -366,6 +366,7 @@ const Reel = ({ initialItems, initialUserActions, profileReelContext = null }: R
   // docks beside the reel — pushing the stage (ambience + player) left so the
   // player still fits. Small screens fall back to the shared bottom drawer.
   const [commentsOpen, setCommentsOpen] = useState(false);
+  const [commentsReloadToken, setCommentsReloadToken] = useState(0);
   const [isLargeScreen, setIsLargeScreen] = useState(false);
   useEffect(() => {
     if (typeof window === "undefined" || !window.matchMedia) return;
@@ -414,6 +415,7 @@ const Reel = ({ initialItems, initialUserActions, profileReelContext = null }: R
         fileOwnerId={activeCommentOwnerId}
         isReel
         fillHeight
+        reloadToken={commentsReloadToken}
         className="min-h-0 flex-1"
       />
     ) : null;
@@ -532,14 +534,24 @@ const Reel = ({ initialItems, initialUserActions, profileReelContext = null }: R
           <div className="flex h-full w-[26rem] flex-col overflow-hidden border-l border-border bg-background pt-[var(--app-top-nav-h,0px)]">
             <div className="flex shrink-0 items-center justify-between border-b px-4 py-3">
               <h2 className="text-base font-semibold text-foreground">Comments</h2>
-              <button
-                type="button"
-                onClick={() => setCommentsOpen(false)}
-                aria-label="Close comments"
-                className="rounded-full p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-              >
-                <X className="h-4 w-4" />
-              </button>
+              <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={() => setCommentsReloadToken((t) => t + 1)}
+                  aria-label="Reload comments"
+                  className="rounded-full p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                >
+                  <RotateCw className="h-4 w-4" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setCommentsOpen(false)}
+                  aria-label="Close comments"
+                  className="rounded-full p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
             </div>
             <div className="flex min-h-0 flex-1 flex-col overflow-hidden px-3 py-2">
               {commentsBody}
@@ -553,8 +565,16 @@ const Reel = ({ initialItems, initialUserActions, profileReelContext = null }: R
         <Drawer open={commentsOpen} onOpenChange={setCommentsOpen} direction="bottom">
           <DrawerOverlay className="bg-black/30" />
           <DrawerContent className="flex flex-col gap-0 overflow-hidden p-0 data-[vaul-drawer-direction=bottom]:inset-x-0 data-[vaul-drawer-direction=bottom]:mx-auto data-[vaul-drawer-direction=bottom]:h-[85dvh] data-[vaul-drawer-direction=bottom]:max-h-[85dvh] data-[vaul-drawer-direction=bottom]:w-full data-[vaul-drawer-direction=bottom]:max-w-2xl data-[vaul-drawer-direction=bottom]:rounded-t-2xl data-[vaul-drawer-direction=bottom]:border-t data-[vaul-drawer-direction=bottom]:border-border">
-            <DrawerHeader className="shrink-0 border-b px-3 py-2 text-left">
+            <DrawerHeader className="shrink-0 flex-row items-center justify-between border-b px-3 py-2 text-left">
               <DrawerTitle className="text-base">Comments</DrawerTitle>
+              <button
+                type="button"
+                onClick={() => setCommentsReloadToken((t) => t + 1)}
+                aria-label="Reload comments"
+                className="rounded-full p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+              >
+                <RotateCw className="h-4 w-4" />
+              </button>
             </DrawerHeader>
             <div className="flex min-h-0 flex-1 flex-col overflow-hidden">{commentsBody}</div>
           </DrawerContent>

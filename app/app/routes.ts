@@ -106,6 +106,7 @@ export default [
         route(`content/:id`, 'routes/Api/content/$id/index.tsx'),
         route(`tag/:tagname`, 'routes/Api/tag.$tagname/index.tsx'),
         route(`music/:id`, 'routes/Api/music/$id/index.tsx'),
+        route(`music-mix`, 'routes/Api/music-mix/index.tsx'),
         route(`playlist`, 'routes/Api/playlist/index.tsx'),
         route(`playlists`, 'routes/Api/playlists/index.tsx'),
         route(`playlists/contains`, 'routes/Api/playlists/contains.tsx'),

@@ -67,6 +67,11 @@ interface CommentSectionProps {
    * Omit on non-video pages.
    */
   fileDurationSec?: number;
+  /**
+   * Bump this to force a fresh fetch (bypassing the session cache) — e.g. a
+   * manual "reload comments" button. Changing it refetches page 0.
+   */
+  reloadToken?: number;
 }
 
 /** Normalize API comment to full Comment shape (replies, counts, etc.) */
@@ -130,6 +135,7 @@ const CommentSection = ({
   className,
   fillHeight = false,
   fileDurationSec,
+  reloadToken = 0,
 }: CommentSectionProps) => {
   const [comments, setComments] = useState<Comment[]>(
     () => commentCache.get(fileId)?.comments ?? [],
@@ -259,6 +265,14 @@ const CommentSection = ({
     void fetchComments();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fileId]);
+
+  // Manual reload: refetch page 0, bypassing the cache seed. Skipped on mount
+  // (token starts at 0) so it only fires on an explicit bump.
+  useEffect(() => {
+    if (!reloadToken) return;
+    void fetchComments();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reloadToken]);
 
   // Keep the cache in lockstep with what's on screen (initial load, load-more,
   // posts, edits, deletes) so the next remount restores the exact same view.

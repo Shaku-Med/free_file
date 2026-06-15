@@ -24,6 +24,14 @@ type VideoInfo struct {
 	AudioSampleRate int     `json:"audio_sample_rate"`
 	AudioChannels   int     `json:"audio_channels"`
 	Duration        float64 `json:"duration"`
+
+	// Embedded song metadata (ID3 / Vorbis comments / MP4 atoms), read straight
+	// from the container tags ffprobe already returns. Empty when the file has
+	// no tags (common for AI-generated or freshly-rendered clips).
+	Genre  string `json:"genre,omitempty"`
+	Artist string `json:"artist,omitempty"`
+	Title  string `json:"title,omitempty"`
+	Album  string `json:"album,omitempty"`
 }
 
 type LoudnessInfo struct {
@@ -58,19 +66,21 @@ func ProbeVideo(path string) (*VideoInfo, error) {
 
 	var result struct {
 		Streams []struct {
-			CodecType      string `json:"codec_type"`
-			CodecName      string `json:"codec_name"`
-			Width          int    `json:"width"`
-			Height         int    `json:"height"`
-			DisplayAR      string `json:"display_aspect_ratio"`
-			RFrameRate     string `json:"r_frame_rate"`
-			BitRate        string `json:"bit_rate"`
-			SampleRate     string `json:"sample_rate"`
-			Channels       int    `json:"channels"`
+			CodecType      string            `json:"codec_type"`
+			CodecName      string            `json:"codec_name"`
+			Width          int               `json:"width"`
+			Height         int               `json:"height"`
+			DisplayAR      string            `json:"display_aspect_ratio"`
+			RFrameRate     string            `json:"r_frame_rate"`
+			BitRate        string            `json:"bit_rate"`
+			SampleRate     string            `json:"sample_rate"`
+			Channels       int               `json:"channels"`
+			Tags           map[string]string `json:"tags"`
 		} `json:"streams"`
 		Format struct {
-			Duration string `json:"duration"`
-			BitRate  string `json:"bit_rate"`
+			Duration string            `json:"duration"`
+			BitRate  string            `json:"bit_rate"`
+			Tags     map[string]string `json:"tags"`
 		} `json:"format"`
 	}
 
@@ -119,7 +129,42 @@ func ProbeVideo(path string) (*VideoInfo, error) {
 		info.Duration, _ = strconv.ParseFloat(result.Format.Duration, 64)
 	}
 
+	// Song metadata: container/format tags first, then the audio stream's tags
+	// as a fallback (some MP4/MKV files carry them per-stream). Tag keys vary in
+	// case across formats (GENRE / genre / Genre), so match case-insensitively.
+	streamTags := map[string]string{}
+	for _, s := range result.Streams {
+		if s.CodecType == "audio" && len(s.Tags) > 0 {
+			streamTags = s.Tags
+			break
+		}
+	}
+	info.Genre = firstTag(result.Format.Tags, streamTags, "genre")
+	info.Artist = firstTag(result.Format.Tags, streamTags, "artist", "album_artist", "author", "composer")
+	info.Title = firstTag(result.Format.Tags, streamTags, "title")
+	info.Album = firstTag(result.Format.Tags, streamTags, "album")
+
 	return info, nil
+}
+
+// firstTag returns the first non-empty tag value for any of `keys`, searching
+// format tags then stream tags, case-insensitively.
+func firstTag(formatTags, streamTags map[string]string, keys ...string) string {
+	for _, src := range []map[string]string{formatTags, streamTags} {
+		if len(src) == 0 {
+			continue
+		}
+		for _, k := range keys {
+			for tagKey, tagVal := range src {
+				if strings.EqualFold(tagKey, k) {
+					if v := strings.TrimSpace(tagVal); v != "" {
+						return v
+					}
+				}
+			}
+		}
+	}
+	return ""
 }
 
 func ProbeLoudness(path string) (*LoudnessInfo, error) {

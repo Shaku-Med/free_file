@@ -811,6 +811,30 @@ func (w *Worker) processJob(job *queue.Job) {
 		}
 	}
 
+	// Embedded song tags (genre / artist / title / album) read by the probe.
+	// Genre becomes a CATEGORY so it feeds search + the Mix generator (which
+	// scores candidates on shared categories); the rest is kept under
+	// metadata["music"] for display and auto playlist titles.
+	if videoInfo != nil {
+		music := map[string]interface{}{}
+		if g := strings.TrimSpace(videoInfo.Genre); g != "" {
+			categories = appendCategoryIfMissing(categories, g)
+			music["genre"] = g
+		}
+		if a := strings.TrimSpace(videoInfo.Artist); a != "" {
+			music["artist"] = a
+		}
+		if t := strings.TrimSpace(videoInfo.Title); t != "" {
+			music["title"] = t
+		}
+		if al := strings.TrimSpace(videoInfo.Album); al != "" {
+			music["album"] = al
+		}
+		if len(music) > 0 {
+			metadata["music"] = music
+		}
+	}
+
 	if videoInfo != nil {
 		metadata["video"] = map[string]interface{}{
 			"width":        videoInfo.Width,

@@ -66,7 +66,7 @@ const layout = () => {
 
       <aside className="relative z-10 hidden lg:flex lg:w-[46%] xl:w-1/2 flex-col justify-between p-12 xl:p-20">
         <div className="flex items-center gap-3">
-          <Logo className="h-9 w-9 text-primary" />
+          <Logo className="h-9 w-9 text-primary ml-[-40px]" />
           <span className="text-xl font-semibold tracking-tight text-foreground">Memories</span>
         </div>
 
@@ -98,7 +98,7 @@ const layout = () => {
 
       <main className="relative z-10 flex flex-1 flex-col items-center justify-center px-5 py-10 sm:px-8">
         <div className="lg:hidden mb-8 flex items-center gap-2.5">
-          <Logo className="h-8 w-8 text-primary" />
+          <Logo className="h-8 w-8 text-primary ml-[-40px]" />
           <span className="text-lg font-semibold tracking-tight text-foreground">Memories</span>
         </div>
         <div className="w-full max-w-[400px]">

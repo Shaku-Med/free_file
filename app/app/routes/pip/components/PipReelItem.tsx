@@ -277,13 +277,22 @@ function PipReelItemInner({
     let heartbeatTries = 12;
     let heartbeatId: number | null = null;
     let resumeTimer: number | null = null;
+    // Once the user has touched the screen (a real gesture), iOS GRANTS audible
+    // playback. After that we must NEVER fall back to muted again — otherwise a
+    // transient mid-scroll pause re-mutes and fights the unmute (the "it keeps
+    // going back to muted on Apple" bug). This latches that intent.
+    let audioUnlocked = false;
 
     const userPaused = () => v.dataset.userPaused === '1';
 
+    // Capture phase + touchstart so the swipe's gesture reaches us even when
+    // Swiper handles/stops the touch on the slide itself.
+    const gestureOpts = { passive: true, capture: true } as const;
     let gestureArmed = false;
     const cleanupGesture = () => {
-      document.removeEventListener('pointerdown', onUnmuteGesture);
-      document.removeEventListener('touchend', onUnmuteGesture);
+      document.removeEventListener('pointerdown', onUnmuteGesture, gestureOpts);
+      document.removeEventListener('touchstart', onUnmuteGesture, gestureOpts);
+      document.removeEventListener('touchend', onUnmuteGesture, gestureOpts);
       gestureArmed = false;
     };
     // iOS drops a fresh <video>'s audible-autoplay permission after a couple
@@ -295,14 +304,20 @@ function PipReelItemInner({
       if (cancelled || !isActive) return;
       const el = trackedVideoEl ?? videoRef.current;
       if (!el) return;
+      // The touch IS the gesture iOS waits for: unmute now and remember it so
+      // playback never silently re-mutes itself afterwards.
+      audioUnlocked = true;
       if (el.muted) el.muted = false;
-      if (el.paused && !userPaused()) void el.play().catch(() => {});
+      // Re-issue play() inside the gesture so iOS commits the audible track,
+      // whether it was paused or already running muted.
+      if (!userPaused()) void el.play().catch(() => {});
     };
     const armUnmuteGesture = () => {
       if (gestureArmed) return;
       gestureArmed = true;
-      document.addEventListener('pointerdown', onUnmuteGesture, { passive: true });
-      document.addEventListener('touchend', onUnmuteGesture, { passive: true });
+      document.addEventListener('pointerdown', onUnmuteGesture, gestureOpts);
+      document.addEventListener('touchstart', onUnmuteGesture, gestureOpts);
+      document.addEventListener('touchend', onUnmuteGesture, gestureOpts);
     };
 
     const stopHeartbeat = () => {
@@ -334,6 +349,15 @@ function PipReelItemInner({
 
     const playMutedFallback = () => {
       if (cancelled) return;
+      // After the user has unlocked audio, never silently re-mute — just keep
+      // retrying audible playback (iOS allows it now); muting here is what made
+      // the sound drop back out on Apple after a scroll.
+      if (audioUnlocked) {
+        v.play().catch(() => {
+          if (!cancelled) startHeartbeat();
+        });
+        return;
+      }
       v.muted = true;
       v.play()
         .then(() => {
@@ -355,10 +379,12 @@ function PipReelItemInner({
             err && typeof err === 'object' && 'name' in err
               ? String((err as { name: string }).name)
               : '';
-          if (name === 'NotAllowedError') {
-            // Audible autoplay blocked → keep playing muted instead of pausing.
+          if (name === 'NotAllowedError' && !audioUnlocked) {
+            // Audible autoplay blocked AND the user hasn't interacted yet →
+            // keep playing muted instead of pausing (TikTok-style).
             playMutedFallback();
           } else {
+            // Post-gesture, or a transient decoder error → retry audible.
             startHeartbeat();
           }
         });
