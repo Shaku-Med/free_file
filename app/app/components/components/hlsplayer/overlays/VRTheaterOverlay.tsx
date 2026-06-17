@@ -48,18 +48,63 @@ const INERTIA_FRICTION = 4.5;
 const FOV_MIN = 9;
 const FOV_MAX = 95;
 const FOV_BASE = 68;
-/** Immersive: the flat video is wrapped onto a SPHERE SEGMENT (curls both ways —
- *  top/bottom + sides bend toward you, "bent paper"), you sit dead-centre, and it
- *  fills the screen height. Whatever you face is sharp; edges curve as you drag. */
-const IMMERSE_PHI = (180 * Math.PI) / 180; // horizontal arc (left/right edges curl)
-const IMMERSE_THETA = (120 * Math.PI) / 180; // vertical arc (top/bottom curl together)
-// FOV sits comfortably INSIDE the arcs so the bent picture OVERFLOWS the viewport
-// (fills the screen, no black gaps) while the visible fold stays gentle, not tight.
-const IMMERSE_FOV = 85;
-/** Immersive lets you zoom OUT much further than the theater, so you can pull
- *  back and see the whole bent patch — both the vertical AND horizontal curl. */
-const IMMERSE_FOV_MAX = 140;
-const IMMERSE_ARC = Math.PI * 1.15; // legacy cylinder fallback (unused in sphere mode)
+/** Immersive: horizontal-axis cylinder — top/bottom paper fold.
+ *  Theater: vertical-axis cylinder — left/right cinema curl. */
+const IMMERSE_RADIUS = 6.2;
+const THEATER_RADIUS = 6.5;
+const PAPER_FOLD_FILL = 0.97;
+const IMMERSE_FOV_MAX = 120;
+const PAPER_FOLD_ARC = Math.min((128 * Math.PI) / 180, (Math.PI / 2) * 1.05);
+
+function computeImmersivePaperFold(
+  viewportAspect: number,
+  videoAspect: number,
+  radius: number,
+) {
+  const vidAsp = Math.max(0.5, videoAspect);
+  const vpAsp = Math.max(0.5, viewportAspect);
+  const verticalArc = PAPER_FOLD_ARC;
+  const vFovRad = verticalArc * PAPER_FOLD_FILL;
+  const vFovDeg = (vFovRad * 180) / Math.PI;
+  const arcHeight = radius * verticalArc;
+  const screenWidth = arcHeight * vidAsp;
+  const pitchHalf = verticalArc * 0.45;
+  const yawHalf = Math.min(
+    Math.atan((screenWidth * 0.48) / radius),
+    2 * Math.atan(Math.tan(vFovRad / 2) * vpAsp) * 0.55,
+  );
+  return { vFovDeg, verticalArc, screenWidth, pitchHalf, yawHalf };
+}
+
+function computeTheaterPaperFold(videoAspect: number, radius: number) {
+  const vidAsp = Math.max(0.5, videoAspect);
+  const horizontalArc = PAPER_FOLD_ARC;
+  const arcWidth = radius * horizontalArc;
+  const screenHeight = arcWidth / vidAsp;
+  return { horizontalArc, screenHeight, arcWidth };
+}
+
+/** Fix immersive cylinder UVs after rotateZ (upright, not sideways/upside-down). */
+function remapImmersiveCylinderUVs(geo: {
+  attributes: {
+    uv?: {
+      count: number;
+      getX(i: number): number;
+      getY(i: number): number;
+      setXY(i: number, x: number, y: number): void;
+      needsUpdate: boolean;
+    };
+  };
+}) {
+  const uvAttr = geo.attributes.uv;
+  if (!uvAttr) return;
+  for (let i = 0; i < uvAttr.count; i++) {
+    const u = uvAttr.getX(i);
+    const v = uvAttr.getY(i);
+    uvAttr.setXY(i, 1 - v, u);
+  }
+  uvAttr.needsUpdate = true;
+}
 /** Pixels of movement after which a gesture counts as a drag, not a tap. */
 const TAP_SLOP_PX = 8;
 
@@ -220,10 +265,31 @@ export default function VRTheaterOverlay() {
       const video = videoRef.current;
       if (!video) return;
 
-      // Immersive: wrap the screen all the way around you, sit dead-centre, zoom
-      // in a touch. Captured at build time (the effect rebuilds on toggle).
+      // Immersive: wrap the screen all the way around you, sit dead-centre, fill
+      // the viewport height by default (FOV tracks player aspect on resize).
       const immersive = vrImmersive;
-      const fovBase = immersive ? IMMERSE_FOV : FOV_BASE;
+      const hostW = Math.max(host.clientWidth, 320);
+      const hostH = Math.max(host.clientHeight, 180);
+      const initAspect = hostW / hostH;
+      const videoAspect =
+        video.videoWidth > 0 && video.videoHeight > 0
+          ? video.videoWidth / video.videoHeight
+          : initAspect;
+      const immerseRadius = IMMERSE_RADIUS;
+      const immerseView = immersive
+        ? computeImmersivePaperFold(initAspect, videoAspect, immerseRadius)
+        : null;
+      const theaterView = !immersive
+        ? computeTheaterPaperFold(videoAspect, THEATER_RADIUS)
+        : null;
+      const fovBase = immersive && immerseView ? immerseView.vFovDeg : FOV_BASE;
+      const immerseVerticalArc = immerseView?.verticalArc ?? PAPER_FOLD_ARC;
+      const immerseScreenWidth = immerseView?.screenWidth ?? 4.0;
+      const immersePitchHalf = immerseView?.pitchHalf ?? 0.45;
+      const immerseYawHalf = immerseView?.yawHalf ?? YAW_LIMIT;
+      const theaterHorizontalArc = theaterView?.horizontalArc ?? Math.PI / 1.5;
+      const theaterScreenHeight = theaterView?.screenHeight ?? 4.0;
+      const screenY = 1.55;
 
       // Transparent canvas: the page's own ambience shows through around the screen.
       const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
@@ -235,9 +301,7 @@ export default function VRTheaterOverlay() {
 
       const scene = new THREE.Scene();
       const camera = new THREE.PerspectiveCamera(fovBase, 1, 0.1, 60);
-      // Camera lives at the picked seat (or dead-centre in immersive); eased
-      // per-frame so seat changes glide. Immersive centre = (0, screenY,
-      // SCREEN_RADIUS−1.6) — the cylinder axis, matching the consts below.
+      // Camera lives at the picked seat (or dead-centre in immersive).
       const startSeat = immersive ? { x: 0, y: 1.55, z: 5.4 } : seatCameraPos(seatRef.current);
       let camX = startSeat.x;
       let camY = startSeat.y;
@@ -250,41 +314,42 @@ export default function VRTheaterOverlay() {
       videoTexture.magFilter = THREE.LinearFilter;
 
       // ── Curved screen ───────────────────────────────────────────────
-      // Wide cylinder segment that wraps the camera (which sits near the
-      // cylinder centre) — the picture bends around you into peripheral
-      // vision, VR-style, not a flat panel out front.
-      const SCREEN_RADIUS = 7.0;
-      // Immersive wraps further around the head; default is the ~120° theater screen.
-      const SCREEN_ARC = immersive ? IMMERSE_ARC : Math.PI / 1.5;
-      const screenHeight = 4.0;
-      const screenY = 1.55;
-      const screenGeo = immersive
-        ? // Sphere SEGMENT centred on -Z (forward): the flat video curls both
-          // ways around you, videosphere-style, with you at the centre.
-          new THREE.SphereGeometry(
-            SCREEN_RADIUS,
-            96,
-            72,
-            -Math.PI / 2 - IMMERSE_PHI / 2, // centre the patch on -Z (forward)
-            IMMERSE_PHI,
-            Math.PI / 2 - IMMERSE_THETA / 2, // centre vertically on the equator
-            IMMERSE_THETA,
-          )
-        : new THREE.CylinderGeometry(
-            SCREEN_RADIUS,
-            SCREEN_RADIUS,
-            screenHeight,
-            96,
-            1,
-            true,
-            Math.PI - SCREEN_ARC / 2,
-            SCREEN_ARC,
-          );
-      // Inside face + un-mirror the texture.
+      const SCREEN_RADIUS = immersive ? immerseRadius : THEATER_RADIUS;
+      const SCREEN_ARC = immersive ? immerseVerticalArc : theaterHorizontalArc;
+      const screenHeight = immersive ? immerseScreenWidth : theaterScreenHeight;
+
+      let screenGeo;
+      if (immersive) {
+        screenGeo = new THREE.CylinderGeometry(
+          SCREEN_RADIUS,
+          SCREEN_RADIUS,
+          immerseScreenWidth,
+          96,
+          1,
+          true,
+          Math.PI - immerseVerticalArc / 2,
+          immerseVerticalArc,
+        );
+        screenGeo.rotateZ(Math.PI / 2);
+      } else {
+        screenGeo = new THREE.CylinderGeometry(
+          SCREEN_RADIUS,
+          SCREEN_RADIUS,
+          screenHeight,
+          96,
+          1,
+          true,
+          Math.PI - SCREEN_ARC / 2,
+          SCREEN_ARC,
+        );
+      }
       screenGeo.scale(-1, 1, 1);
+      if (immersive) {
+        remapImmersiveCylinderUVs(screenGeo);
+      }
       const screenMat = new THREE.MeshBasicMaterial({ map: videoTexture, toneMapped: false });
       const screen = new THREE.Mesh(screenGeo, screenMat);
-      screen.position.set(0, screenY, SCREEN_RADIUS - 1.6);
+      screen.position.set(0, screenY, immersive ? 5.4 : SCREEN_RADIUS - 1.6);
       scene.add(screen);
 
       // ── Floor reflection ────────────────────────────────────────────
@@ -292,11 +357,15 @@ export default function VRTheaterOverlay() {
       // the screen's base out toward you, mirroring the picture. It RIPPLES
       // every frame (layered sines = squiggles, like a wet/glossy floor) and
       // fades out into the distance via its own alpha gradient.
-      const screenFrontZ = screen.position.z - SCREEN_RADIUS; // visible surface
-      const floorY = screenY - screenHeight / 2 + 0.01;
+      const screenFrontZ = screen.position.z - (immersive ? 0 : SCREEN_RADIUS);
+      const floorY = immersive
+        ? screenY - immerseRadius * Math.sin(immerseVerticalArc / 2) + 0.01
+        : screenY - theaterScreenHeight / 2 + 0.01;
       const reflNearZ = camZ;
       const REFL_DEPTH = reflNearZ - screenFrontZ + 1.5;
-      const reflWidth = 2 * SCREEN_RADIUS * Math.sin(SCREEN_ARC / 2) * 1.15;
+      const reflWidth = immersive
+        ? immerseScreenWidth * 1.08
+        : 2 * SCREEN_RADIUS * Math.sin(SCREEN_ARC / 2) * 1.15;
 
       const reflGeo = new THREE.PlaneGeometry(reflWidth, REFL_DEPTH, 48, 72);
       const reflPos = reflGeo.attributes.position as InstanceType<typeof THREE.BufferAttribute>;
@@ -341,7 +410,9 @@ export default function VRTheaterOverlay() {
       // ── Ceiling (roof) reflection ───────────────────────────────────
       // Same idea mirrored onto the roof above the screen, fainter, so the
       // picture's light wraps top-and-bottom around you.
-      const ceilY = screenY + screenHeight / 2 - 0.01;
+      const ceilY = immersive
+        ? screenY + immerseRadius * Math.sin(immerseVerticalArc / 2) - 0.01
+        : screenY + theaterScreenHeight / 2 - 0.01;
       const ceilGeo = new THREE.PlaneGeometry(reflWidth, REFL_DEPTH, 48, 72);
       const ceilPos = ceilGeo.attributes.position as InstanceType<typeof THREE.BufferAttribute>;
       const ceilBase = Float32Array.from(ceilPos.array as ArrayLike<number>);
@@ -410,6 +481,18 @@ export default function VRTheaterOverlay() {
       let yawVel = 0;
       let pitchVel = 0;
       let targetFov = fovBase;
+      let userAdjustedFov = false;
+      let pinchStartFov = fovBase;
+
+      // Immersive lets you drag across the whole bent patch (≈ half each arc).
+      const yawLimit = immersive ? immerseYawHalf : YAW_LIMIT;
+      const pitchLo = immersive ? -immersePitchHalf : PITCH_MIN;
+      const pitchHi = immersive ? immersePitchHalf : PITCH_MAX;
+      const clampPitch = (v: number) => Math.max(pitchLo, Math.min(pitchHi, v));
+      const clampYaw = (v: number) => Math.max(-yawLimit, Math.min(yawLimit, v));
+      // Immersive can zoom out further (to see the whole bent patch + both folds).
+      const fovMax = immersive ? IMMERSE_FOV_MAX : FOV_MAX;
+      const clampFov = (v: number) => Math.max(FOV_MIN, Math.min(fovMax, v));
 
       // Active pointers (id → last position) — 1 = drag-look, 2 = pinch.
       const pointers = new Map<number, { x: number; y: number }>();
@@ -418,17 +501,6 @@ export default function VRTheaterOverlay() {
       let suppressTimer: number | null = null;
       let lastMoveTs = 0;
       let pinchStartDist = 0;
-      let pinchStartFov = FOV_BASE;
-
-      // Immersive lets you drag across the whole bent patch (≈ half each arc).
-      const yawLimit = immersive ? IMMERSE_PHI / 2 : YAW_LIMIT;
-      const pitchLo = immersive ? -IMMERSE_THETA / 2 : PITCH_MIN;
-      const pitchHi = immersive ? IMMERSE_THETA / 2 : PITCH_MAX;
-      const clampPitch = (v: number) => Math.max(pitchLo, Math.min(pitchHi, v));
-      const clampYaw = (v: number) => Math.max(-yawLimit, Math.min(yawLimit, v));
-      // Immersive can zoom out further (to see the whole bent patch + both folds).
-      const fovMax = immersive ? IMMERSE_FOV_MAX : FOV_MAX;
-      const clampFov = (v: number) => Math.max(FOV_MIN, Math.min(fovMax, v));
 
       const pinchDist = () => {
         const pts = [...pointers.values()];
@@ -465,6 +537,7 @@ export default function VRTheaterOverlay() {
         if (pointers.size >= 2) {
           const d = pinchDist();
           if (pinchStartDist > 0 && d > 0) {
+            userAdjustedFov = true;
             targetFov = clampFov(pinchStartFov * (pinchStartDist / d));
           }
           return;
@@ -509,12 +582,13 @@ export default function VRTheaterOverlay() {
       const onWheel = (e: WheelEvent) => {
         if (!e.ctrlKey) return;
         e.preventDefault();
+        userAdjustedFov = true;
         const step = e.deltaMode === 1 ? e.deltaY * 1.6 : e.deltaY * 0.045;
         targetFov = clampFov(targetFov + step);
       };
 
       // Safari (desktop + iPad trackpad) reports pinches via gesture events.
-      let gestureBaseFov = FOV_BASE;
+      let gestureBaseFov = fovBase;
       const onGestureStart = (e: Event) => {
         e.preventDefault();
         gestureBaseFov = targetFov;
@@ -523,6 +597,7 @@ export default function VRTheaterOverlay() {
         const scale = (e as Event & { scale?: number }).scale;
         if (typeof scale !== 'number' || scale <= 0) return;
         e.preventDefault();
+        userAdjustedFov = true;
         targetFov = clampFov(gestureBaseFov / scale);
       };
 
@@ -556,6 +631,15 @@ export default function VRTheaterOverlay() {
         renderer.setPixelRatio(Math.min(MAX_DPR, window.devicePixelRatio || 1));
         renderer.setSize(w, h, false);
         camera.aspect = w / h;
+        if (immersive && !userAdjustedFov) {
+          const vidAsp =
+            video.videoWidth > 0 && video.videoHeight > 0
+              ? video.videoWidth / video.videoHeight
+              : w / h;
+          const fillFov = computeImmersivePaperFold(w / h, vidAsp, immerseRadius).vFovDeg;
+          targetFov = fillFov;
+          camera.fov = fillFov;
+        }
         camera.updateProjectionMatrix();
       };
       resize();

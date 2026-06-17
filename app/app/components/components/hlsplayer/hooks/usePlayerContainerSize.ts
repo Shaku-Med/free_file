@@ -90,19 +90,14 @@ export function endCardOverlayLayout(
   const isShort = playerH > 0 && playerH < END_CARD_LANDSCAPE_COMPACT_HEIGHT;
 
   if (isNarrow) {
-    // YouTube portrait-phone end screen: full-width horizontal cards stacked
-    // vertically against the bottom of the player. Much bigger tap target
-    // than tiny side-by-side tiles and they can never overlap each other.
-    const sideInsetPx = 10;
-    const cardWidthPx = Math.max(220, Math.round(w - 2 * sideInsetPx));
-    const thumbWidth = cardWidthPx * 0.38;
-    const cardHeightPx = Math.max(74, Math.round((thumbWidth * 9) / 16) + 12);
-    const cardGapPx = 10;
-    const insetTopPx = Math.max(44, Math.round(h * 0.1));
-    const insetBottomPx = Math.max(72, Math.round(h * 0.17));
-    // Mobile shows AT MOST 2 cards  keeps the overlay simple and matches
-    // what the user asked for. We still clamp by whatever vertically fits so
-    // a very short portrait window doesn't render a card behind the controls.
+    const sideInsetPx = 8;
+    const cardWidthPx = Math.max(240, Math.round(w - 2 * sideInsetPx));
+    const thumbWidth = cardWidthPx * 0.36;
+    const idealHeight = Math.round((thumbWidth * 9) / 16) + 14;
+    const cardHeightPx = Math.max(88, Math.min(Math.round(h * 0.2), idealHeight));
+    const cardGapPx = 8;
+    const insetTopPx = Math.max(48, Math.round(h * 0.11));
+    const insetBottomPx = Math.max(76, Math.round(h * 0.16));
     const availablePx = Math.max(0, h - insetTopPx - insetBottomPx);
     const fits = Math.floor(
       (availablePx + cardGapPx) / (cardHeightPx + cardGapPx),
@@ -123,36 +118,27 @@ export function endCardOverlayLayout(
   }
 
   if (isShort) {
-    // YouTube landscape-phone end screen: 2 horizontal cards flanking a
-    // center column reserved for the replay button. Cards are vertically
-    // centered in the player so they NEVER collide with the top control row
-    // (HD badge, PiP, theater, settings) or the bottom progress bar.
-    const sideInsetPx = 8;
-    const centerReservePx = 120;
+    const sideInsetPx = 6;
+    const centerReservePx = Math.max(108, Math.round(w * 0.22));
     const sideBudget = Math.max(
-      180,
-      Math.round((w - centerReservePx - 2 * sideInsetPx - 16) / 2),
+      200,
+      Math.round((w - centerReservePx - 2 * sideInsetPx - 12) / 2),
     );
-    const cardWidthPx = Math.min(380, sideBudget);
-    // Allow a slightly chunkier thumb here since vertical room is tight.
-    const thumbWidth = cardWidthPx * 0.42;
+    const cardWidthPx = Math.min(420, sideBudget);
+    const thumbWidth = cardWidthPx * 0.4;
     const thumbHeight = Math.round((thumbWidth * 9) / 16);
-    // Card height capped by the safe vertical band so we never bleed into
-    // the controls even on extreme short players.
-    const topReservePx = 52;
-    const bottomReservePx = 80;
-    const verticalRoom = Math.max(80, h - topReservePx - bottomReservePx);
+    const topReservePx = 56;
+    const bottomReservePx = 84;
+    const verticalRoom = Math.max(88, h - topReservePx - bottomReservePx);
     const cardHeightPx = Math.max(
-      80,
-      Math.min(verticalRoom, thumbHeight + 16),
+      88,
+      Math.min(verticalRoom, thumbHeight + 18),
     );
 
     return {
       variant: "sideBySide",
       isMobile: true,
       maxCards: 2,
-      // Used by the dismiss + "Up next" pill so they clear the top control
-      // row instead of stacking on top of the HD / settings icons.
       insetTopPx: topReservePx,
       insetBottomPx: bottomReservePx,
       cardWidthPx,
@@ -162,20 +148,20 @@ export function endCardOverlayLayout(
     };
   }
 
-  // Tablet / desktop: two horizontal cards centered side by side in the player.
-  const insetTopPx = Math.max(44, Math.round(h * 0.08));
-  const insetBottomPx = Math.max(72, Math.round(h * 0.14));
-  const cardGapPx = 14;
-  const horizontalPad = 24;
+  const insetTopPx = Math.max(48, Math.round(h * 0.1));
+  const insetBottomPx = Math.max(68, Math.round(h * 0.12));
+  const cardGapPx = 16;
+  const horizontalPad = 20;
   const perCardBudget = Math.max(
-    200,
+    220,
     Math.round((w - horizontalPad * 2 - cardGapPx) / 2),
   );
-  const cardWidthPx = Math.min(400, perCardBudget);
-  const thumbWidth = cardWidthPx * 0.38;
+  const cardWidthPx = Math.min(460, Math.max(240, perCardBudget));
+  const thumbWidth = cardWidthPx * 0.36;
+  const idealHeight = Math.round((thumbWidth * 9) / 16) + 16;
   const cardHeightPx = Math.max(
-    88,
-    Math.round((thumbWidth * 9) / 16) + 14,
+    96,
+    Math.min(Math.round(h * 0.34), idealHeight),
   );
 
   return {

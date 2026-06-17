@@ -340,7 +340,12 @@ export default function EndCardOverlay({
   const nearEnd =
     durationOk && remaining > 0 && remaining <= TRIGGER_REMAINING_SEC;
   const shouldShow =
-    !isReel && !dismissed && merged.length > 0 && (state.isEnded || nearEnd);
+    !isReel &&
+    !dismissed &&
+    merged.length > 0 &&
+    playerW > 48 &&
+    playerH > 48 &&
+    (state.isEnded || nearEnd);
 
   if (!shouldShow) {
     return null;
@@ -367,74 +372,54 @@ export default function EndCardOverlay({
 
   return (
     <div
-      className="pointer-events-none absolute inset-0 z-30"
+      className="pointer-events-none absolute inset-0 z-30 flex flex-col overflow-hidden"
       aria-label="Up next"
     >
-      {/* Backdrop: near-end shows nothing (video still playing). After end,
-          a soft dim so cards stand out against the paused last frame. */}
       {state.isEnded && (
-        <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-black/30 via-black/15 to-black/45" />
+        <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-black/35 via-black/20 to-black/50" />
       )}
 
-      {/* Dismiss  top-right, inside the reserved top control band. */}
-      <button
-        type="button"
-        onClick={() => {
-          cancelAutoplay();
-          setDismissed(true);
-        }}
-        className={cn(
-          "pointer-events-auto absolute z-[5] flex h-9 w-9 items-center justify-center rounded-full bg-black/55 text-white/85 ring-1 ring-white/15 backdrop-blur-sm transition-colors hover:bg-black/75 hover:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-white/60",
-          SAFE_RIGHT,
-        )}
-        style={{ top: dismissTopPx }}
-        aria-label="Dismiss suggestions"
+      {/* Top bar: dismiss + optional autoplay cancel */}
+      <div
+        className="pointer-events-none relative z-[5] flex shrink-0 items-start justify-between gap-2 px-2 sm:px-3"
+        style={{ paddingTop: Math.max(8, layout.insetTopPx - 36) }}
       >
-        <X className="h-4 w-4" />
-      </button>
+        {countdownActive && nextVideo ? (
+          <button
+            type="button"
+            onClick={cancelAutoplay}
+            className="pointer-events-auto flex min-w-0 max-w-[min(70%,18rem)] items-center gap-2 rounded-full bg-black/70 px-3 py-1.5 text-xs font-medium text-white ring-1 ring-white/20 backdrop-blur-md transition-colors hover:bg-black/85 hover:ring-white/35 focus:outline-none focus-visible:ring-2 focus-visible:ring-white sm:px-4 sm:py-2 sm:text-sm"
+            aria-label="Cancel autoplay"
+          >
+            <span className="truncate text-white/90">
+              Up next in {Math.max(0, countdown)}s
+            </span>
+            <span className="shrink-0 rounded-full bg-white/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white sm:text-[11px]">
+              Cancel
+            </span>
+          </button>
+        ) : (
+          <span aria-hidden className="h-9 w-9 shrink-0" />
+        )}
 
-      {/* Cancel autoplay  visible while the redirect countdown is running. */}
-      {countdownActive && nextVideo && (
         <button
           type="button"
-          onClick={cancelAutoplay}
-          className="pointer-events-auto absolute left-1/2 z-[5] flex max-w-[min(92%,20rem)] -translate-x-1/2 items-center gap-2 rounded-full bg-black/70 px-3 py-1.5 text-xs font-medium text-white ring-1 ring-white/20 backdrop-blur-md transition-colors hover:bg-black/85 hover:ring-white/35 focus:outline-none focus-visible:ring-2 focus-visible:ring-white sm:px-4 sm:py-2 sm:text-sm"
-          style={{ top: dismissTopPx + (layout.isMobile ? 44 : 48) }}
-          aria-label="Cancel autoplay"
+          onClick={() => {
+            cancelAutoplay();
+            setDismissed(true);
+          }}
+          className="pointer-events-auto flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-black/55 text-white/85 ring-1 ring-white/15 backdrop-blur-sm transition-colors hover:bg-black/75 hover:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-white/60"
+          aria-label="Dismiss suggestions"
         >
-          <span className="truncate text-white/90">
-            Up next in {Math.max(0, countdown)}s
-          </span>
-          <span className="shrink-0 rounded-full bg-white/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white sm:text-[11px]">
-            Cancel
-          </span>
+          <X className="h-4 w-4" />
         </button>
-      )}
+      </div>
 
       {layout.variant === "stack" && (
-        <>
-          {/* YouTube portrait-phone end screen  vertical stack of
-              full-width horizontal cards anchored to the bottom of the
-              player. Cards stack from bottom upward: index 0 (featured /
-              autoplay target) sits closest to the controls. */}
-          {cards.map((card, i) => (
-            <EndCardSlot
-              key={card.id ?? card.unique_id}
-              card={card}
-              index={i}
-              variant="row"
-              className="absolute left-1/2 z-[2] -translate-x-1/2"
-              style={{
-                bottom:
-                  layout.insetBottomPx +
-                  i * (layout.cardHeightPx + layout.cardGapPx),
-                width: layout.cardWidthPx,
-                height: layout.cardHeightPx,
-              }}
-              {...cardProps}
-            />
-          ))}
-
+        <div
+          className="pointer-events-none relative z-[2] flex min-h-0 flex-1 flex-col items-center justify-end gap-2 px-2"
+          style={{ paddingBottom: layout.insetBottomPx }}
+        >
           {state.isEnded && (
             <button
               type="button"
@@ -442,20 +427,30 @@ export default function EndCardOverlay({
                 cancelAutoplay();
                 replay();
               }}
-              className="pointer-events-auto absolute left-1/2 z-[4] flex -translate-x-1/2 items-center gap-1.5 rounded-full bg-black/65 px-3 py-2 text-xs font-medium text-white ring-1 ring-white/20 backdrop-blur-md transition-all hover:bg-black/80 hover:ring-white/40 focus:outline-none focus-visible:ring-2 focus-visible:ring-white sm:gap-2 sm:px-4 sm:py-2.5 sm:text-sm"
-              style={{
-                bottom:
-                  layout.insetBottomPx +
-                  cards.length * (layout.cardHeightPx + layout.cardGapPx) +
-                  8,
-              }}
+              className="pointer-events-auto mb-1 flex items-center gap-1.5 rounded-full bg-black/65 px-3 py-2 text-xs font-medium text-white ring-1 ring-white/20 backdrop-blur-md transition-all hover:bg-black/80 hover:ring-white/40 focus:outline-none focus-visible:ring-2 focus-visible:ring-white sm:gap-2 sm:px-4 sm:py-2.5 sm:text-sm"
               aria-label="Replay video"
             >
               <RotateCcw className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
               Replay
             </button>
           )}
-        </>
+
+          {[...cards].reverse().map((card, i) => (
+            <EndCardSlot
+              key={card.id ?? card.unique_id}
+              card={card}
+              index={cards.length - 1 - i}
+              variant="row"
+              className="pointer-events-auto w-full max-w-full shrink-0"
+              style={{
+                width: layout.cardWidthPx,
+                height: layout.cardHeightPx,
+                maxWidth: "100%",
+              }}
+              {...cardProps}
+            />
+          ))}
+        </div>
       )}
 
       {layout.variant === "sideBySide" && (
@@ -502,11 +497,14 @@ export default function EndCardOverlay({
 
       {layout.variant === "centerPair" && (
         <div
-          className="pointer-events-none absolute left-1/2 top-1/2 z-[2] flex -translate-x-1/2 -translate-y-1/2 flex-col items-center"
-          style={{ gap: layout.cardGapPx + 8 }}
+          className="pointer-events-none relative z-[2] flex min-h-0 flex-1 flex-col items-center justify-center px-3"
+          style={{
+            paddingBottom: layout.insetBottomPx,
+            gap: layout.cardGapPx + 10,
+          }}
         >
           <div
-            className="flex items-stretch justify-center"
+            className="flex w-full max-w-full flex-wrap items-stretch justify-center"
             style={{ gap: layout.cardGapPx }}
           >
             {cards.slice(0, 2).map((card, i) => (
@@ -515,10 +513,12 @@ export default function EndCardOverlay({
                 card={card}
                 index={i}
                 variant="row"
-                className="pointer-events-auto shrink-0"
+                className="pointer-events-auto min-w-0 shrink-0"
                 style={{
                   width: layout.cardWidthPx,
                   height: layout.cardHeightPx,
+                  maxWidth: `calc(50% - ${layout.cardGapPx / 2}px)`,
+                  flex: "1 1 240px",
                 }}
                 {...cardProps}
               />

@@ -209,7 +209,7 @@ interface PlayerContextValue {
   /** Theater sound system: seat-positioned audio + room reverb. */
   vrSoundSystem: boolean;
   setVrSoundSystem: (v: boolean) => void;
-  /** Immersive: wrap the screen around you (camera at the centre), drag to look. */
+  /** Immersive: top/bottom paper fold; camera at centre, drag to look. */
   vrImmersive: boolean;
   setVrImmersive: (v: boolean) => void;
   /** Sleep timer  pause the video after a chosen duration. `'Off'` = disabled. */

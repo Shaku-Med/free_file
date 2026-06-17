@@ -23,7 +23,7 @@ import {
 import { usePlayerContext, SLEEP_TIMER_OPTIONS } from '../../PlayerContext';
 import { isSpatialAudioUiSupported } from '../../hooks/useSpatialAudio';
 import { cn } from '~/lib/utils';
-import { mobileOverlayIcon, mobileOverlayCircleBtn } from '../mobileControlMetrics';
+import { mobileOverlayIcon, mobileOverlaySquareBtn } from '../mobileControlMetrics';
 import {
   DropdownMenu,
   DropdownMenuCollapsible,
@@ -721,7 +721,7 @@ export default function SettingsMenu({ nested, panelRef, onOpenChange, overlayTr
                 'relative',
                 overlayTrigger
                   ? cn(
-                      mobileOverlayCircleBtn,
+                      mobileOverlaySquareBtn,
                       'outline-none hover:bg-black/90 data-[state=open]:bg-black/90 data-[state=open]:[&_svg]:rotate-45',
                     )
                   : pillBarTrigger
@@ -739,7 +739,16 @@ export default function SettingsMenu({ nested, panelRef, onOpenChange, overlayTr
                       : 'h-5 w-5 transition-transform duration-300'
                 }
               />
-              {badge && <QualityBadge label={badge} />}
+              {badge && (
+                <QualityBadge
+                  label={badge}
+                  className={
+                    overlayTrigger
+                      ? 'right-0 top-0 h-2.5 min-w-[0.7rem] translate-x-1/4 -translate-y-1/4 px-px text-[6px]'
+                      : undefined
+                  }
+                />
+              )}
             </button>
           </DropdownMenuTrigger>
         </TooltipTrigger>
