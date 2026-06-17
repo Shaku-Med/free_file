@@ -40,6 +40,68 @@ type FileRow = {
   file_series_episode_id: string | null;
 };
 
+/**
+ * Next ordering slot for a new episode in a series: max(episode_number) + 1, so
+ * fresh episodes append at the END instead of being interleaved by upload time.
+ * Owners reorder later via the "reorder" action (the viewer RPC already sorts by
+ * episode_number).
+ */
+async function nextEpisodeNumber(fileSeriesId: string, userId: string): Promise<number> {
+  if (!db) return 1;
+  const { data: top } = await db
+    .from("files_series_episodes")
+    .select("episode_number")
+    .eq("feed_series_id", fileSeriesId)
+    .eq("owner_id", userId)
+    .order("episode_number", { ascending: false, nullsFirst: false })
+    .limit(1)
+    .maybeSingle();
+  const cur = Number((top as { episode_number?: unknown } | null)?.episode_number);
+  return Number.isFinite(cur) && cur > 0 ? Math.floor(cur) + 1 : 1;
+}
+
+/** Next slot for a new FILE within an episode (max(position) + 1). */
+async function nextItemPosition(episodeId: string, userId: string): Promise<number> {
+  if (!db) return 1;
+  const { data: top } = await db
+    .from("files_series_episode_items")
+    .select("position")
+    .eq("file_episode_id", episodeId)
+    .eq("owner_id", userId)
+    .order("position", { ascending: false, nullsFirst: false })
+    .limit(1)
+    .maybeSingle();
+  const cur = Number((top as { position?: unknown } | null)?.position);
+  return Number.isFinite(cur) && cur > 0 ? Math.floor(cur) + 1 : 1;
+}
+
+/**
+ * Best-effort: stamp an ordering slot on a freshly-added item. Kept SEPARATE
+ * from the insert so adding a file NEVER fails just because the `position`
+ * column migration hasn't run yet — it silently no-ops, and the viewer RPC
+ * falls back to upload order until the column exists.
+ */
+async function applyItemPosition(
+  fileSeriesId: string,
+  episodeId: string,
+  fileUniqueId: string,
+  userId: string,
+): Promise<void> {
+  if (!db) return;
+  try {
+    const pos = await nextItemPosition(episodeId, userId);
+    await db
+      .from("files_series_episode_items")
+      .update({ position: pos })
+      .eq("file_series_id", fileSeriesId)
+      .eq("file_episode_id", episodeId)
+      .eq("file_id", fileUniqueId)
+      .eq("owner_id", userId);
+  } catch {
+    /* position column not migrated yet — ordering falls back to upload time */
+  }
+}
+
 async function loadOwnedFile(fileId: string, userId: string): Promise<FileRow | null> {
   if (!db) return null;
   const lookupField = isValidUUID(fileId) ? "id" : "unique_id";
@@ -147,6 +209,16 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   }
 
   const op = typeof body.action === "string" ? body.action.trim() : "";
+
+  // Reorder operations work on a series/episode, not a single file, so they're
+  // dispatched before the per-file ownership lookup below.
+  if (op === "reorder") {
+    return handleReorderEpisodes(user.id, body);
+  }
+  if (op === "reorder_items") {
+    return handleReorderItems(user.id, body);
+  }
+
   const fileId = typeof body.fileId === "string" ? body.fileId.trim() : "";
 
   if (!fileId || !isValidFileId(fileId)) {
@@ -163,6 +235,167 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     return handleUnassign(row, user.id);
   }
   return toJson({ error: "Invalid action" }, 400);
+}
+
+/**
+ * Reorder a series' episodes. Body: { action:"reorder", fileSeriesId, episodeIds }
+ * where `episodeIds` is the FULL ordered list of sibling episodes. Each episode's
+ * `episode_number` is rewritten to its 1-based slot; the viewer RPC already sorts
+ * by it. Every row is re-checked against the caller's ownership.
+ */
+async function handleReorderEpisodes(userId: string, body: Record<string, unknown>) {
+  if (!db) return toJson({ error: "Database not initialized" }, 500);
+
+  const fileSeriesId = typeof body.fileSeriesId === "string" ? body.fileSeriesId.trim() : "";
+  if (!fileSeriesId || !isValidUUID(fileSeriesId)) {
+    return toJson({ error: "Invalid file_series_id" }, 400);
+  }
+
+  const rawIds = Array.isArray(body.episodeIds) ? body.episodeIds : [];
+  const seen = new Set<string>();
+  const episodeIds: string[] = [];
+  for (const x of rawIds) {
+    if (typeof x === "string" && isValidUUID(x) && !seen.has(x)) {
+      seen.add(x);
+      episodeIds.push(x);
+    }
+  }
+  if (episodeIds.length === 0) {
+    return toJson({ error: "episodeIds is required" }, 400);
+  }
+  if (episodeIds.length > 500) {
+    return toJson({ error: "Too many episodes" }, 400);
+  }
+
+  // Verify series ownership.
+  const { data: seriesRow } = await db
+    .from("file_series")
+    .select("id")
+    .eq("id", fileSeriesId)
+    .eq("owner_id", userId)
+    .maybeSingle();
+  if (!seriesRow) return toJson({ error: "Series not found" }, 404);
+
+  // Verify every id is an episode of THIS series owned by the caller — never
+  // trust the client's list to be in-scope.
+  const { data: ownedEps, error: epsErr } = await db
+    .from("files_series_episodes")
+    .select("id")
+    .eq("feed_series_id", fileSeriesId)
+    .eq("owner_id", userId);
+  if (epsErr) {
+    console.error("[api/file-series] reorder load:", epsErr.message);
+    return toJson({ error: "Failed to reorder" }, 500);
+  }
+  const owned = new Set((ownedEps ?? []).map((e: { id: unknown }) => String(e.id)));
+  for (const id of episodeIds) {
+    if (!owned.has(id)) {
+      return toJson({ error: "Episode not in this series" }, 404);
+    }
+  }
+
+  // Apply the new 1-based order. Each update stays scoped to the owner + series.
+  for (let i = 0; i < episodeIds.length; i++) {
+    const { error } = await db
+      .from("files_series_episodes")
+      .update({ episode_number: i + 1 })
+      .eq("id", episodeIds[i])
+      .eq("feed_series_id", fileSeriesId)
+      .eq("owner_id", userId);
+    if (error) {
+      console.error("[api/file-series] reorder update:", error.message);
+      return toJson({ error: "Failed to reorder" }, 500);
+    }
+  }
+
+  return toJson({ success: true, order: episodeIds }, 200);
+}
+
+/**
+ * Reorder the FILES within one episode. Body:
+ *   { action:"reorder_items", fileSeriesId, episodeId, fileIds }
+ * `fileIds` is the FULL ordered list of the episode's item file ids (unique_ids).
+ * Each item's `position` is rewritten to its 1-based slot. Ownership of the
+ * series, the episode, AND every referenced item is re-verified server-side.
+ */
+async function handleReorderItems(userId: string, body: Record<string, unknown>) {
+  if (!db) return toJson({ error: "Database not initialized" }, 500);
+
+  const fileSeriesId = typeof body.fileSeriesId === "string" ? body.fileSeriesId.trim() : "";
+  if (!fileSeriesId || !isValidUUID(fileSeriesId)) {
+    return toJson({ error: "Invalid file_series_id" }, 400);
+  }
+  const episodeId = typeof body.episodeId === "string" ? body.episodeId.trim() : "";
+  if (!episodeId || !isValidUUID(episodeId)) {
+    return toJson({ error: "Invalid episode id" }, 400);
+  }
+
+  const rawIds = Array.isArray(body.fileIds) ? body.fileIds : [];
+  const seen = new Set<string>();
+  const fileIds: string[] = [];
+  for (const x of rawIds) {
+    if (typeof x === "string" && isValidFileId(x) && !seen.has(x)) {
+      seen.add(x);
+      fileIds.push(x);
+    }
+  }
+  if (fileIds.length === 0) return toJson({ error: "fileIds is required" }, 400);
+  if (fileIds.length > 1000) return toJson({ error: "Too many files" }, 400);
+
+  // Verify series ownership.
+  const { data: seriesRow } = await db
+    .from("file_series")
+    .select("id")
+    .eq("id", fileSeriesId)
+    .eq("owner_id", userId)
+    .maybeSingle();
+  if (!seriesRow) return toJson({ error: "Series not found" }, 404);
+
+  // Verify the episode is in THIS series and owned by the caller.
+  const { data: epRow } = await db
+    .from("files_series_episodes")
+    .select("id")
+    .eq("id", episodeId)
+    .eq("feed_series_id", fileSeriesId)
+    .eq("owner_id", userId)
+    .maybeSingle();
+  if (!epRow) return toJson({ error: "Episode not found" }, 404);
+
+  // Verify every fileId is actually an item of that episode (owner-scoped) —
+  // never trust the client's list.
+  const { data: items, error: itErr } = await db
+    .from("files_series_episode_items")
+    .select("file_id")
+    .eq("file_episode_id", episodeId)
+    .eq("file_series_id", fileSeriesId)
+    .eq("owner_id", userId);
+  if (itErr) {
+    console.error("[api/file-series] reorder_items load:", itErr.message);
+    return toJson({ error: "Failed to reorder" }, 500);
+  }
+  const owned = new Set((items ?? []).map((r: { file_id: unknown }) => String(r.file_id)));
+  for (const id of fileIds) {
+    if (!owned.has(id)) {
+      return toJson({ error: "File not in this episode" }, 404);
+    }
+  }
+
+  // Apply the new 1-based order; every update stays scoped to owner + series + episode.
+  for (let i = 0; i < fileIds.length; i++) {
+    const { error } = await db
+      .from("files_series_episode_items")
+      .update({ position: i + 1 })
+      .eq("file_id", fileIds[i])
+      .eq("file_episode_id", episodeId)
+      .eq("file_series_id", fileSeriesId)
+      .eq("owner_id", userId);
+    if (error) {
+      console.error("[api/file-series] reorder_items update:", error.message);
+      return toJson({ error: "Failed to reorder" }, 500);
+    }
+  }
+
+  return toJson({ success: true, order: fileIds }, 200);
 };
 
 async function handleAssign(
@@ -257,6 +490,7 @@ async function handleAssign(
       feed_series_id: fileSeriesId,
       owner_id: userId,
       episode_name: newEpisodeName,
+      episode_number: await nextEpisodeNumber(fileSeriesId, userId),
     };
     if (resolvedParentEpisodeId) {
       insertEp.parent_episode_id = resolvedParentEpisodeId;
@@ -295,6 +529,9 @@ async function handleAssign(
     owner_id: userId,
     file_id: row.unique_id,
   });
+  if (!itemErr) {
+    await applyItemPosition(fileSeriesId, resolvedEpisodeId, row.unique_id, userId);
+  }
   if (itemErr) {
     console.error("[api/file-series] item insert:", itemErr.message);
     // Best-effort rollback on the file row so we don't leave an orphan pointer
@@ -345,6 +582,7 @@ async function assignAsNewSeries(row: FileRow, userId: string, episodeName: stri
       feed_series_id: newSeriesId,
       owner_id: userId,
       episode_name: episodeName,
+      episode_number: 1,
     })
     .select("id")
     .single();
@@ -384,6 +622,9 @@ async function assignAsNewSeries(row: FileRow, userId: string, episodeName: stri
     owner_id: userId,
     file_id: row.unique_id,
   });
+  if (!itemErr) {
+    await applyItemPosition(newSeriesId, newEpisodeId, row.unique_id, userId);
+  }
   if (itemErr) {
     console.error("[api/file-series] item insert (new series):", itemErr.message);
     // Best-effort rollback

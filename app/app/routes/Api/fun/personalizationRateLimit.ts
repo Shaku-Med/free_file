@@ -71,6 +71,24 @@ export function checkFeedSignalsGetRateLimit(request: Request, userId: string) {
   );
 }
 
+// Owner video list/search (powers the series "add video" picker). Each fetch is
+// a DB read, so cap per user/IP to stop a held key or scripted client from
+// flooding it. Generous enough for debounced typing + browsing.
+const OWNER_VIDEOS_MAX = 60;
+const OWNER_VIDEOS_WINDOW_MS = 60 * 1000;
+const OWNER_VIDEOS_BLOCK_MS = 5 * 60 * 1000;
+
+export function checkOwnerVideosRateLimit(request: Request, userId?: string | null) {
+  const key = userId || `ip:${RateLimiter.getClientIP(request)}`;
+  return rateLimiter.checkLimit(
+    key,
+    'api-owner-videos',
+    OWNER_VIDEOS_MAX,
+    OWNER_VIDEOS_WINDOW_MS,
+    OWNER_VIDEOS_BLOCK_MS,
+  );
+}
+
 export function checkPersonalizationRateLimit(request: Request, userId: string) {
   const key = userId || `ip:${RateLimiter.getClientIP(request)}`;
   return rateLimiter.checkLimit(

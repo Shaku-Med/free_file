@@ -126,6 +126,7 @@ export const action = async ({ request }: { request: Request }) => {
       ipHash: hashFingerprint(ipPrefix(ip)),
       uaHash: hashFingerprint(ua),
     },
+    request, // dev: build the loadplay URL on the LAN host so phones can reach it
   );
   if (!url) return jsonError(503);
 

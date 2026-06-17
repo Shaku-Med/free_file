@@ -3,10 +3,17 @@ import { isAuthenticated } from "~/lib/Security/Password"
 import { filterFilesByAccess } from "../fun/accessControl"
 import { ownerService } from "~/lib/Services/OwnerService"
 import { stripGithubRepoForClient } from "~/lib/githubStorage"
+import { checkOwnerVideosRateLimit } from "../fun/personalizationRateLimit"
 import db from "~/lib/Database/supabase"
 
 export const loader = async ({ request }: { request: Request }) => {
   try {
+    // Per user/IP cap so the list/search can't be hammered into the DB.
+    const rl = checkOwnerVideosRateLimit(request)
+    if (!rl.allowed) {
+      return data({ error: "Too many requests", data: [] }, { status: 429 })
+    }
+
     const url = new URL(request.url)
     const ownerId = url.searchParams.get("ownerId")
     const excludeId = url.searchParams.get("excludeId")
@@ -40,6 +47,29 @@ export const loader = async ({ request }: { request: Request }) => {
 
     if (excludeId) {
       query = query.neq("id", excludeId)
+    }
+
+    // Optional advanced search across title + filename + description. The term is
+    // stripped of wildcard / PostgREST-filter metacharacters (`% , ( ) * \`)
+    // FIRST, so it can't break out of the `.or()` grammar or the parameterized
+    // ilike value — no filter-string injection possible.
+    const rawQ = url.searchParams.get("q")
+    const safeQ = (rawQ ?? "").replace(/[%,()*\\]/g, "").trim().slice(0, 100)
+    if (safeQ) {
+      query = query.or(
+        `file_title.ilike.%${safeQ}%,filename.ilike.%${safeQ}%,file_description.ilike.%${safeQ}%`,
+      )
+    }
+
+    // Opt-in filters (used by the series picker, so other callers are unchanged):
+    // drop reels and anything shorter than `minDuration` seconds — series are
+    // for long-form videos, not shorts.
+    if (url.searchParams.get("excludeReels") === "1") {
+      query = query.not("is_reel", "is", true) // keeps is_reel = false OR null
+    }
+    const minDuration = parseInt(url.searchParams.get("minDuration") || "0", 10)
+    if (Number.isFinite(minDuration) && minDuration > 0) {
+      query = query.gte("duration", minDuration)
     }
 
     const { data: files, error } = await query.range(offset, offset + limit - 1)

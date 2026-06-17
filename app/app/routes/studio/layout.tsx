@@ -26,6 +26,7 @@ interface NavItem {
 const STUDIO_NAV: NavItem[] = [
   { to: "/brozystudio", label: "Home", exact: true },
   { to: "/brozystudio/posts", label: "Posts" },
+  { to: "/brozystudio/series", label: "Series" },
   { to: "/brozystudio/customization", label: "Customize", shortLabel: "Profile" },
   { to: "/brozystudio/analytics", label: "Analytics", shortLabel: "Stats" },
   { to: "/brozystudio/comments", label: "Comments", shortLabel: "Comments" },
@@ -78,7 +79,7 @@ export default function StudioLayout() {
         <div className="mx-auto w-full border-b border-border/50">
 
           <nav
-            className="grid grid-cols-6 border-t border-border/40"
+            className="grid grid-cols-7 border-t border-border/40"
             aria-label="Studio sections"
           >
             {navItems.map(({ item, current }) => (

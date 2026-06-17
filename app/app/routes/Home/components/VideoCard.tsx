@@ -96,7 +96,7 @@ function isSeriesFile(f: FileType): boolean {
   return t(f.is_series_main) || t(f.is_series_episode) || t(f.is_files_series_item);
 }
 
-type LayoutType = "default" | "horizontal" | "compact" | "reelStrip" | "shelf" | "endCard" | "endCardHorizontal" | "continueWatch" | "notificationThumb" | "studioRow";
+type LayoutType = "default" | "horizontal" | "compact" | "reelStrip" | "shelf" | "endCard" | "endCardHorizontal" | "continueWatch" | "notificationThumb" | "studioRow" | "seriesRow";
 
 interface VideoCardProps {
   data: FileType;
@@ -2206,6 +2206,7 @@ const VideoCard = ({
       fileSeriesId={data.file_series_id != null ? String(data.file_series_id) : null}
       currentUserId={currentUserId}
       userActions={userActions}
+      isOwner={Boolean(currentUserId && data.owner_id && currentUserId === data.owner_id)}
     />
   ) : null;
 
@@ -2676,6 +2677,39 @@ const VideoCard = ({
               <p className="mt-1 text-xs text-muted-foreground">{postedAt}</p>
             )}
           </div>
+        </Link>
+        {renderEditDialog()}
+      </>
+    );
+  }
+
+  if (layout === "seriesRow") {
+    // Compact row used ONLY by the Studio series manager — a smaller thumbnail
+    // than `studioRow` so the drag-reorder list stays tight. Reuses the same
+    // renderThumbnail + edit dialog; does NOT affect any other layout.
+    const durationSec = typeof data.duration === "number" ? data.duration : 0;
+    const durationStr = formatDuration(durationSec);
+    return (
+      <>
+        <Link
+          to={watchPath}
+          onClick={(e) => {
+            e.preventDefault();
+            void handleWatchNav();
+          }}
+          className="flex min-w-0 items-center gap-2.5"
+        >
+          <div className="relative aspect-video h-10 shrink-0 overflow-hidden rounded-md bg-card ring-1 ring-border/30 sm:h-11">
+            {renderThumbnail("h-full w-full")}
+            {durationStr && (
+              <span className="absolute right-0.5 bottom-0.5 rounded bg-black/80 px-1 py-px text-[9px] font-semibold tabular-nums leading-none text-white">
+                {durationStr}
+              </span>
+            )}
+          </div>
+          <p className="line-clamp-2 min-w-0 flex-1 text-[13px] font-medium leading-snug text-foreground">
+            <ParseFilenameInsert filename={data.file_title || data.filename} showLimit={100} />
+          </p>
         </Link>
         {renderEditDialog()}
       </>

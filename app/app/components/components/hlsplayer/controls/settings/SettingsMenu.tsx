@@ -125,6 +125,8 @@ export function SettingsMenuBody() {
     setVrTheater,
     vrSoundSystem,
     setVrSoundSystem,
+    vrImmersive,
+    setVrImmersive,
     sleepTimer,
     setSleepTimer,
     sleepTimerEndsAt,
@@ -336,6 +338,18 @@ export function SettingsMenuBody() {
               <span className="min-w-0 truncate">Sound system</span>
             </span>
             <Switch checked={vrSoundSystem} onChange={setVrSoundSystem} disabled={!auth} />
+          </DropdownMenuItem>
+        )}
+        {!isReel && vrTheater && (
+          <DropdownMenuItem
+            onSelect={(e) => e.preventDefault()}
+            className={cn(toggleRowClass, 'pl-7')}
+          >
+            <span className="flex min-w-0 flex-1 items-center gap-2">
+              <Orbit className="size-4 shrink-0 text-muted-foreground" />
+              <span className="min-w-0 truncate">Immersive</span>
+            </span>
+            <Switch checked={vrImmersive} onChange={setVrImmersive} disabled={!auth} />
           </DropdownMenuItem>
         )}
         {!isReel && audioStemsAvailable && (

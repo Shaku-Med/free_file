@@ -24,15 +24,57 @@ const SIGNED_IN_PLAYBACK_TTL_MS = 15 * 60_000;
 export const LOADPLAY_DEV_ORIGIN = "http://localhost:3006";
 export const LOADPLAY_PROD_ORIGIN = "https://cdn.memories.brozy.org";
 
-/** Public LoadPlay origin for the current environment. */
-export function getLoadplayBaseUrl(): string {
+/** Strict private-IPv4 LITERAL check — never matches a DNS name, so a forged
+ * Host like "192.168.1.9.evil.com" can't slip through (no host-header injection). */
+function isPrivateIPv4(host: string): boolean {
+  const m = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(host);
+  if (!m) return false;
+  const o = m.slice(1).map(Number);
+  if (o.some((n) => n > 255)) return false;
+  const [a, b] = o;
+  return (
+    a === 10 ||
+    (a === 172 && b >= 16 && b <= 31) ||
+    (a === 192 && b === 168) ||
+    a === 127
+  );
+}
+
+/**
+ * DEV ONLY: when the app is opened over the LAN (e.g. a phone at
+ * 192.168.1.169:3000), `localhost` would point the phone at ITSELF. Rewrite the
+ * loadplay origin to that same private IP on loadplay's dev port so the phone
+ * reaches the dev machine.
+ *
+ * Hardened: accepts only a private-IPv4 *literal* Host, and always uses OUR
+ * configured dev port (never a port from the client), so even a spoofed Host
+ * header can at most point playback at another private IP on our dev port —
+ * never an external/arbitrary server. Returns null (→ localhost) otherwise.
+ */
+function devLanLoadplayOrigin(request: Request | undefined): string | null {
+  if (!request) return null;
+  try {
+    const host = request.headers.get("host") ?? new URL(request.url).host;
+    const hostname = host.split(":")[0].trim().toLowerCase();
+    if (!isPrivateIPv4(hostname) || hostname === "127.0.0.1") return null;
+    const devPort = new URL(LOADPLAY_DEV_ORIGIN).port || "3006";
+    return `http://${hostname}:${devPort}`;
+  } catch {
+    return null;
+  }
+}
+
+/** Public LoadPlay origin for the current environment (request-aware in dev). */
+export function getLoadplayBaseUrl(request?: Request): string {
   const override = process.env.LOADPLAY_BASE_URL?.trim();
   if (override) return override.replace(/\/+$/, "");
   const isProd =
     process.env.APP_ENV === "production" ||
     process.env.NODE_ENV === "production";
   if (isProd) return LOADPLAY_PROD_ORIGIN;
-  return LOADPLAY_DEV_ORIGIN;
+  // Dev: prefer the LAN IP the request arrived on (so phones reach loadplay),
+  // else fall back to localhost.
+  return devLanLoadplayOrigin(request) ?? LOADPLAY_DEV_ORIGIN;
 }
 
 function getSecret(): Buffer {
@@ -112,8 +154,8 @@ export function resolveHlsManifestPath(
   return `${clean.replace(/\/?$/, "")}/master.m3u8`;
 }
 
-function loadplayBaseUrl(): string {
-  return getLoadplayBaseUrl();
+function loadplayBaseUrl(request?: Request): string {
+  return getLoadplayBaseUrl(request);
 }
 
 /** Mint a signed LoadPlay master URL. All HLS playback goes through the CDN. */
@@ -126,8 +168,10 @@ export function buildPlaybackUrlForFile(
   },
   userId?: string | null,
   bind?: { ipHash?: string; uaHash?: string },
+  /** Dev: lets the base URL follow the LAN host the request came in on. */
+  request?: Request,
 ): string | null {
-  const baseUrl = loadplayBaseUrl();
+  const baseUrl = loadplayBaseUrl(request);
   if (!file.unique_id) return null;
   const path = resolveHlsManifestPath(file.endpoint ?? "", file.file_type);
   if (!path) return null;

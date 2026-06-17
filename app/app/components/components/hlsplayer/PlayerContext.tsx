@@ -209,6 +209,9 @@ interface PlayerContextValue {
   /** Theater sound system: seat-positioned audio + room reverb. */
   vrSoundSystem: boolean;
   setVrSoundSystem: (v: boolean) => void;
+  /** Immersive: wrap the screen around you (camera at the centre), drag to look. */
+  vrImmersive: boolean;
+  setVrImmersive: (v: boolean) => void;
   /** Sleep timer  pause the video after a chosen duration. `'Off'` = disabled. */
   sleepTimer: SleepTimerOption;
   setSleepTimer: (v: SleepTimerOption) => void;
@@ -233,7 +236,7 @@ interface PlayerContextValue {
 const PlayerContext = createContext<PlayerContextValue | null>(null);
 
 /** Session-scoped VR prefs  remembered across player remounts, gone on reload. */
-const vrSessionPrefs = { theater: false, seat: '1-2', sound: false };
+const vrSessionPrefs = { theater: false, seat: '1-2', sound: false, immersive: false };
 
 export function usePlayerContext() {
   const ctx = useContext(PlayerContext);
@@ -411,6 +414,11 @@ export function PlayerProvider({
   const [vrTheater, setVrTheaterState] = useState(() => vrSessionPrefs.theater);
   const [vrSeat, setVrSeatState] = useState(() => vrSessionPrefs.seat);
   const [vrSoundSystem, setVrSoundSystemState] = useState(() => vrSessionPrefs.sound);
+  const [vrImmersive, setVrImmersiveState] = useState(() => vrSessionPrefs.immersive);
+  const setVrImmersive = useCallback((v: boolean) => {
+    vrSessionPrefs.immersive = v;
+    setVrImmersiveState(v);
+  }, []);
   const setVrTheater = useCallback((v: boolean) => {
     vrSessionPrefs.theater = v;
     setVrTheaterState(v);
@@ -1118,6 +1126,8 @@ export function PlayerProvider({
     setVrSeat,
     vrSoundSystem,
     setVrSoundSystem,
+    vrImmersive,
+    setVrImmersive,
     sleepTimer,
     setSleepTimer,
     sleepTimerEndsAt,

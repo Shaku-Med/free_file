@@ -4,6 +4,13 @@
 -- (or full access if viewer is the file owner).
 -- Nested episodes: parent_episode_id + depth-first order via sort_path.
 
+-- Per-item ordering column this function sorts by. Created here too (idempotent)
+-- so deploying the function alone never fails on a fresh DB; the dedicated
+-- migration also backfills existing rows. Run `NOTIFY pgrst, 'reload schema';`
+-- after if PostgREST's schema cache lags.
+ALTER TABLE public.files_series_episode_items
+  ADD COLUMN IF NOT EXISTS "position" integer;
+
 DROP FUNCTION IF EXISTS get_series_episodes_with_items_for_viewer(uuid, uuid, uuid);
 
 CREATE OR REPLACE FUNCTION get_series_episodes_with_items_for_viewer(
@@ -152,6 +159,7 @@ AS $$
    AND i.file_id IS NOT NULL
   JOIN files fi ON fi.unique_id = i.file_id
   JOIN users u ON u.id = fi.owner_id
+  -- (i."position" drives the within-episode file order; see ORDER BY below)
   WHERE
     COALESCE(fi.is_adult, false) = false
     AND (
@@ -164,7 +172,7 @@ AS $$
         AND (fi.upload_status = 'complete' OR fi.upload_status = 'completed')
       )
     )
-  ORDER BY ep.sort_path ASC, fi.created_at ASC;
+  ORDER BY ep.sort_path ASC, i."position" ASC NULLS LAST, fi.created_at ASC;
 $$;
 
 GRANT EXECUTE ON FUNCTION get_series_episodes_with_items_for_viewer(uuid, uuid, uuid) TO anon, authenticated;
