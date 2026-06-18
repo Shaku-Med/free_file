@@ -1,55 +1,47 @@
-version: '3.8'
+# Memories app server.
+#
+# Bring it up:    docker compose up -d
+# Tail logs:      docker compose logs -f app
+# Restart app:    docker compose restart app
+# Stop:           docker compose down
+#
+# No Redis: the app is fully in-memory (rate limiting, CSRF). The host's
+# redis-server belongs to GoUpload and the app never touches it.
+#
+# The port is published on 127.0.0.1 only, so nothing but nginx (which proxies
+# memories.brozy.org → localhost:3000) can reach the container. Secrets
+# (.env / .env.notification) live on the host and are mounted read-only; they
+# are never baked into the image.
 
 services:
-  redis:
-    image: redis:7-alpine
-    container_name: redis-upload-queue
-    ports:
-      - "6379:6379"
-    volumes:
-      - redis-data:/data
-    command: redis-server --appendonly yes
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 3s
-      retries: 3
-    networks:
-      - app-network
-
   app:
+    # In CI the image is built and pushed to GHCR, and the server just pulls it
+    # (APP_IMAGE is supplied via --env-file .env.deploy on the box). The build:
+    # block is the local-dev fallback — `docker compose up --build` builds it.
+    image: ${APP_IMAGE:-ghcr.io/shaku-med/free_file/memories:latest}
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: free-file-app
+    container_name: memories-app
+    init: true # tini reaps zombies and forwards SIGTERM/SIGINT for clean shutdown
     ports:
-      - "3000:3000"
+      # Host loopback only → reachable just by nginx, never from the internet.
+      - "127.0.0.1:3000:3000"
     environment:
-      - REDIS_HOST=redis
-      - REDIS_PORT=6379
-      # Add other environment variables from your .env file
-      # Or use env_file to load from .env
-    env_file:
-      - .env  # Make sure .env file exists
-    depends_on:
-      redis:
-        condition: service_healthy
+      - NODE_ENV=production
+      - PORT=3000
+      # 0.0.0.0 *inside* the container so Docker's port mapping can reach it;
+      # the mapping above still only exposes it on the host's loopback.
+      - HOST=0.0.0.0
+    volumes:
+      # Real secrets live on the host; mounted read-only at the paths the
+      # start script (dotenv -e .env -e .env.notification) expects.
+      - ./.env:/app/.env:ro
+      - ./.env.notification:/app/.env.notification:ro
     restart: unless-stopped
-    networks:
-      - app-network
     healthcheck:
-      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3000/"]
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://127.0.0.1:3000/"]
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 40s
-
-volumes:
-  redis-data:
-    driver: local
-
-networks:
-  app-network:
-    driver: bridge
-
+      start_period: 60s

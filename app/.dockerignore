@@ -1,4 +1,22 @@
-.react-router
-build
+# Regenerated inside the image
 node_modules
+build
+.react-router
+dist
+
+# Secrets — never bake these into the image. They are mounted read-only at
+# runtime by docker-compose instead.
+.env
+.env.*
+!.env.example
+
+# Local / VCS / editor junk
+.git
+.gitignore
+*.log
+dump.rdb
+dumb.rdb
+.claude
+.cursor
+.vscode
 README.md
