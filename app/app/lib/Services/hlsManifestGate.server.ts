@@ -1,6 +1,7 @@
 import { createHmac, randomBytes, timingSafeEqual } from "crypto";
 import type { HlsPlaybackKind } from "~/lib/Security/Server/hlsBootstrap.server";
 import { sessionScope } from "~/lib/Services/SegmentTokenService";
+import { requireSecret } from "~/lib/Security/secretEnv.server";
 
 /**
  * Pending `_mk` lifetime (client must fetch the first manifest within this window).
@@ -35,11 +36,12 @@ function compositeLookupKey(
 }
 
 function getGateSecret(): string {
-  return (
-    process.env.HLS_MANIFEST_GATE_SECRET ||
-    process.env.SEGMENT_TOKEN_SECRET ||
-    process.env.VAPID_PRIVATE_KEY ||
-    ""
+  // Fail closed: never sign/verify manifest keys with an empty key.
+  return requireSecret(
+    "HLS_MANIFEST_GATE_SECRET",
+    process.env.HLS_MANIFEST_GATE_SECRET,
+    process.env.SEGMENT_TOKEN_SECRET,
+    process.env.VAPID_PRIVATE_KEY,
   );
 }
 

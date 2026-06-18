@@ -6,6 +6,8 @@ import { isValidUUID } from "~/lib/Security/inputValidation";
 
 import { sessionScope } from "~/lib/Services/SegmentTokenService";
 
+import { requireSecret } from "~/lib/Security/secretEnv.server";
+
 
 
 /**
@@ -58,18 +60,13 @@ const playbackProgress = new Map<string, ProgressEntry>();
 
 function getPlaybackSecret(): string {
 
-  return (
-
-    process.env.WATCH_PLAYBACK_TOKEN_SECRET ||
-
-    process.env.SEGMENT_TOKEN_SECRET ||
-
-    process.env.HLS_MANIFEST_GATE_SECRET ||
-
-    process.env.VAPID_PRIVATE_KEY ||
-
-    ""
-
+  // Fail closed: never sign/verify playback tokens with an empty key.
+  return requireSecret(
+    "WATCH_PLAYBACK_TOKEN_SECRET",
+    process.env.WATCH_PLAYBACK_TOKEN_SECRET,
+    process.env.SEGMENT_TOKEN_SECRET,
+    process.env.HLS_MANIFEST_GATE_SECRET,
+    process.env.VAPID_PRIVATE_KEY,
   );
 
 }

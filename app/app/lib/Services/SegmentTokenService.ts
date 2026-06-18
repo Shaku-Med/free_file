@@ -1,6 +1,7 @@
 import { createHmac, timingSafeEqual } from "crypto";
 import { getCookie } from "~/lib/Security/Token";
 import { sanitizeFilePath } from "~/lib/Security/inputValidation";
+import { requireSecret } from "~/lib/Security/secretEnv.server";
 
 /**
  * Guest preview: keep short so leaked segment URLs die quickly.
@@ -14,7 +15,12 @@ export const GUEST_SEGMENT_TOKEN_TTL_SEC = 300;
 export const SIGNED_IN_SEGMENT_TOKEN_TTL_SEC = 3600;
 
 function getSecret(): string {
-  return process.env.SEGMENT_TOKEN_SECRET || process.env.VAPID_PRIVATE_KEY || "";
+  // Fail closed: never sign/verify segment tokens with an empty key.
+  return requireSecret(
+    "SEGMENT_TOKEN_SECRET",
+    process.env.SEGMENT_TOKEN_SECRET,
+    process.env.VAPID_PRIVATE_KEY,
+  );
 }
 
 function extractIp(headers: Headers): string {
