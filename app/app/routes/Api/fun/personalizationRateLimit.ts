@@ -89,6 +89,40 @@ export function checkOwnerVideosRateLimit(request: Request, userId?: string | nu
   );
 }
 
+// Interactions (like / dislike toggles): cheap but write to the DB and can be
+// scripted to manipulate counts or storm writes. Generous for normal use.
+const INTERACTION_MAX = 100;
+const INTERACTION_WINDOW_MS = 60 * 1000;
+const INTERACTION_BLOCK_MS = 5 * 60 * 1000;
+
+export function checkInteractionRateLimit(request: Request, userId: string) {
+  const key = userId || `ip:${RateLimiter.getClientIP(request)}`;
+  return rateLimiter.checkLimit(
+    key,
+    'api-interaction',
+    INTERACTION_MAX,
+    INTERACTION_WINDOW_MS,
+    INTERACTION_BLOCK_MS,
+  );
+}
+
+// Posting comments: each is a stored write + notifications/push. Cap to stop
+// comment-flooding / spam.
+const COMMENT_POST_MAX = 20;
+const COMMENT_POST_WINDOW_MS = 60 * 1000;
+const COMMENT_POST_BLOCK_MS = 10 * 60 * 1000;
+
+export function checkCommentPostRateLimit(request: Request, userId: string) {
+  const key = userId || `ip:${RateLimiter.getClientIP(request)}`;
+  return rateLimiter.checkLimit(
+    key,
+    'api-comment-post',
+    COMMENT_POST_MAX,
+    COMMENT_POST_WINDOW_MS,
+    COMMENT_POST_BLOCK_MS,
+  );
+}
+
 export function checkPersonalizationRateLimit(request: Request, userId: string) {
   const key = userId || `ip:${RateLimiter.getClientIP(request)}`;
   return rateLimiter.checkLimit(

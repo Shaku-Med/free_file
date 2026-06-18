@@ -3,6 +3,7 @@ import db from "~/lib/Database/supabase";
 import { isValidFileId } from "~/lib/Security/inputValidation";
 import { createNotification } from "~/lib/Services/NotificationService";
 import { sendPushForNotification } from "~/lib/Services/PushService";
+import { checkInteractionRateLimit } from "~/routes/Api/fun/personalizationRateLimit";
 
 const toJson = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), {
@@ -29,6 +30,9 @@ export const action = async ({ request }: { request: Request }) => {
     const user = await isAuthenticated(request, ['id']);
     if (!user?.id) return toJson({ error: "Unauthorized" }, 401);
     if (!db) return toJson({ error: "Database not initialized" }, 500);
+    if (!checkInteractionRateLimit(request, user.id).allowed) {
+      return toJson({ error: "Too many requests" }, 429);
+    }
     const body = await request.json();
     const fileId = body?.fileId;
     if (!fileId || !isValidFileId(fileId)) return toJson({ error: "Invalid fileId" }, 400);

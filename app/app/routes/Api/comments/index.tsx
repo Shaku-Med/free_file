@@ -1,4 +1,5 @@
 import { isAuthenticated } from "~/lib/Security/Password";
+import { checkCommentPostRateLimit } from "~/routes/Api/fun/personalizationRateLimit";
 import db from "~/lib/Database/supabase";
 import { commentService, type CreateCommentInput } from "~/lib/Services/CommentService";
 import { createNotification } from "~/lib/Services/NotificationService";
@@ -67,6 +68,9 @@ export const action = async ({ request }: { request: Request }) => {
     }
 
     if (request.method === "POST") {
+      if (!checkCommentPostRateLimit(request, user.id).allowed) {
+        return toJson({ error: "Too many requests" }, 429);
+      }
       const body = await request.json();
       const { fileId, content, parentId, gif, image }: CreateCommentInput & {
         fileId: string;

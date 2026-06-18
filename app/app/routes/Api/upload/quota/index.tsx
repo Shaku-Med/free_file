@@ -1,6 +1,9 @@
 import { isAuthenticated } from "~/lib/Security/Password";
 import db from "~/lib/Database/supabase";
-import { getMonthlyUploadLimitBytes } from "~/lib/uploadQuota.server";
+import {
+  getMonthlyUploadLimitBytes,
+  getOverflowWeeklyLimitBytes,
+} from "~/lib/uploadQuota.server";
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), {
@@ -30,5 +33,36 @@ export const loader = async ({ request }: { request: Request }) => {
   }
 
   const remaining = Math.max(limit - used, 0);
-  return json({ used, limit, remaining, windowDays: 30 });
+
+  // Extra (overflow) allowance — the rolling 7-day budget that opens once the
+  // monthly limit is full. Surfaced so the user can see how much is left.
+  const overflowLimit = getOverflowWeeklyLimitBytes();
+  let overflowUsed = 0;
+  try {
+    const { data: ov, error: ovErr } = await db.rpc("get_overflow_weekly_usage", {
+      p_user_id: userId,
+    });
+    if (!ovErr) {
+      const n = typeof ov === "number" ? ov : Number(ov);
+      if (Number.isFinite(n) && n >= 0) overflowUsed = n;
+    } else {
+      console.warn("[api/upload/quota] overflow rpc:", ovErr.message ?? ovErr);
+    }
+  } catch (e) {
+    console.warn("[api/upload/quota] overflow threw:", e);
+  }
+  const overflowRemaining = Math.max(overflowLimit - overflowUsed, 0);
+
+  return json({
+    used,
+    limit,
+    remaining,
+    windowDays: 30,
+    overflow: {
+      used: overflowUsed,
+      limit: overflowLimit,
+      remaining: overflowRemaining,
+      windowDays: 7,
+    },
+  });
 };
