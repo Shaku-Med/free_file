@@ -310,7 +310,9 @@ function PlayerInner({
   } = useGuestWatchLimit(
     videoRef,
     guestWatchLimitSeconds,
-    guestLimitActive && !isReelCtx
+    // Enabled for reels too: loadplay truncates the guest HLS, so when the
+    // preview runs out we surface the "sign in for the full reel" wall.
+    guestLimitActive
   );
 
   // Height of the persistent visualizer strip (SeekBarSpectrum h-10 + pb-2).
@@ -803,6 +805,9 @@ function PlayerInner({
         }
       : null,
     mediaSessionPosterHttp,
+    // Reels: only the active swiper slide owns the lock-screen metadata. The
+    // single watch-page player always owns it.
+    isReelCtx ? reelSwiperActive : true,
   );
 
   const handleTouchEnd = useCallback(
@@ -1167,7 +1172,9 @@ function PlayerInner({
                 <Volume2 className="h-5 w-5" aria-hidden />
               )}
             </button>
-            <SettingsMenu overlayTrigger />
+            {/* Settings is a signed-in-only surface (ambient mode, etc.); guests
+                don't get the gear on reels. */}
+            {authPlayback && <SettingsMenu overlayTrigger />}
           </div>
         )}
 
@@ -1254,7 +1261,7 @@ function PlayerInner({
           />
         )}
 
-        {guestLimitActive && !isReelCtx && guestWatchLimitSeconds != null && (
+        {guestLimitActive && guestWatchLimitSeconds != null && (
           <>
             <GuestPreviewNudge
               visible={nudgeVisible && !wallOpen}
@@ -1265,6 +1272,7 @@ function PlayerInner({
               open={wallOpen}
               limitSeconds={guestWatchLimitSeconds}
               onDismiss={dismissWall}
+              mediaNoun={isReelCtx ? 'reel' : 'video'}
             />
           </>
         )}

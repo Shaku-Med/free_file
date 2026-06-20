@@ -22,6 +22,13 @@ export function useMediaSession(
    * array for the OS notification UI which renders best at 512×512.
    */
   posterHttpUrl: string | null = null,
+  /**
+   * Whether THIS player currently owns the (singleton) Media Session. In the
+   * reel swiper several players are mounted at once; only the active slide may
+   * publish, otherwise a neighbor finishing its load overwrites the lock-screen
+   * metadata with the wrong video. Always true for the single watch-page player.
+   */
+  active: boolean = true,
 ) {
   const { file, isReel } = usePlayerContext();
   const imageRef = useRef(mediaSessionImage);
@@ -32,6 +39,8 @@ export function useMediaSession(
   fileRef.current = file;
   const playlistRef = useRef<MediaSessionPlaylistHandlers | null>(playlist);
   playlistRef.current = playlist;
+  const activeRef = useRef(active);
+  activeRef.current = active;
   const mountedRef = useRef(true);
 
   useEffect(() => {
@@ -41,6 +50,8 @@ export function useMediaSession(
 
   const updateMetadata = useCallback(() => {
     if (!('mediaSession' in navigator) || !mountedRef.current) return;
+    // Only the active slide owns the lock-screen / OS media controls.
+    if (!activeRef.current) return;
     const currentFile = fileRef.current;
     const video = videoRef.current;
     if (!currentFile || !video) return;
@@ -102,7 +113,9 @@ export function useMediaSession(
   }, [mediaSessionImage, posterHttpUrl, updateMetadata]);
 
   useEffect(() => {
-    if (!('mediaSession' in navigator) || !file) return;
+    // Inactive reel slides must not touch the singleton Media Session at all —
+    // no metadata, no action handlers — or they fight the active slide.
+    if (!('mediaSession' in navigator) || !file || !active) return;
 
     const video = videoRef.current;
     if (!video) return;
@@ -185,6 +198,7 @@ export function useMediaSession(
   }, [
     file,
     isReel,
+    active,
     videoRef,
     updateMetadata,
     playlist?.canNext,

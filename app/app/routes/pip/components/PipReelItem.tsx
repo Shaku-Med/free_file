@@ -27,6 +27,7 @@ import {
 import { useReelActionRailDensity } from '~/routes/reel/lib/useReelActionRailDensity';
 import { useFileContext } from '~/lib/Context/Context';
 import { type FileType, fileWatchPath } from '~/lib/types';
+import { computeGuestPreviewSeconds } from '~/lib/guestPreviewLimit';
 import { fileToFeedItem, type VerticalFeedItemData } from '~/components/vertical-feed';
 import OwnerProfile from '~/components/OwnerProfile/OwnerProfile';
 import {
@@ -835,6 +836,17 @@ function PipReelItemInner({
             src={videoSrc}
             videoRef={videoRef}
             className="h-full w-full"
+            // Signed-in-only player features (settings, ambient, etc.). Without
+            // this the reel player defaults to true and shows them to guests.
+            authPlaybackFeatures={Boolean(userId)}
+            // loadplay already truncates the HLS for guests; mirror that cap so
+            // the player can show the "sign in for the full reel" wall when the
+            // preview runs out. Same formula the watch page uses (duration / 4).
+            guestWatchLimitSeconds={
+              !userId && typeof file.duration === 'number' && file.duration > 0
+                ? computeGuestPreviewSeconds(file.duration)
+                : null
+            }
             autoPlay={isActive}
             reelSwiperActive={isActive}
             muted={false}

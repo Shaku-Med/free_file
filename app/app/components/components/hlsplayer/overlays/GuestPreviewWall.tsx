@@ -7,6 +7,8 @@ type Props = {
   open: boolean;
   limitSeconds: number;
   onDismiss: () => void;
+  /** What the media is called in the copy ("video" on watch, "reel" on reels). */
+  mediaNoun?: string;
 };
 
 function formatClock(sec: number) {
@@ -16,7 +18,7 @@ function formatClock(sec: number) {
   return m > 0 ? `${m}:${String(r).padStart(2, "0")}` : `${r}s`;
 }
 
-export default function GuestPreviewWall({ open, limitSeconds, onDismiss }: Props) {
+export default function GuestPreviewWall({ open, limitSeconds, onDismiss, mediaNoun = "video" }: Props) {
   const { loginHref } = useAuthHrefs();
   if (!open) return null;
 
@@ -32,8 +34,8 @@ export default function GuestPreviewWall({ open, limitSeconds, onDismiss }: Prop
           Preview ended
         </h2>
         <p className="mt-2 text-sm text-muted-foreground">
-          Signed-out viewers can watch up to {formatClock(limitSeconds)} of this video. Sign in for the
-          full video.
+          Signed-out viewers can watch up to {formatClock(limitSeconds)} of this {mediaNoun}. Sign in for the
+          full {mediaNoun}.
         </p>
         <div className="mt-5 flex flex-col gap-2 sm:flex-row sm:justify-center">
           <Button asChild className="gap-2">

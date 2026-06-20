@@ -341,7 +341,9 @@ const Reel = ({ initialItems, initialUserActions, profileReelContext = null }: R
   // ONE shared, fixed ambience driven by whichever reel is active. The ref
   // always points at the active reel's <video>; the descriptor (id) remounts
   // the single Ambience so it re-samples the new element on each swipe.
-  const ambientEnabled = playerSettings?.ambientMode === true;
+  // Ambient mode is a signed-in-only feature — never run it for guests, even
+  // if a stale/default setting says ambientMode=true.
+  const ambientEnabled = Boolean(userId) && playerSettings?.ambientMode === true;
   // Follow the same ambient controls as the watch page: sync mode + size.
   const ambientSync = playerSettings?.ambientSync === true;
   const ambientSize = Math.max(1, Math.min(2, playerSettings?.ambientSize ?? 2));
