@@ -164,30 +164,73 @@ export function StorageQuotaMeter({
   const usedLabel = quota ? formatBytes(quota.used) : "";
   const remainingLabel = quota ? formatBytes(quota.remaining) : "";
 
-  // Bar wrapped in a tooltip that always shows the MB form (precise), since
-  // the visible label auto-scales (B / KB / MB / GB / TB).
-  const Bar = quota ? (
+  // Extra (overflow) allowance is folded into the SAME bar instead of a second
+  // block, so the whole meter stays one compact line.
+  const ov = quota?.overflow;
+  const hasOverflow = Boolean(ov && ov.limit > 0);
+  const totalLimit = quota ? quota.limit + (hasOverflow ? ov!.limit : 0) : 0;
+  const totalUsed = quota ? quota.used + (hasOverflow ? ov!.used : 0) : 0;
+
+  // Right-aligned header value + the single caption under the bar.
+  const headerValue = !quota
+    ? "…"
+    : hasOverflow
+      ? `${formatBytes(totalUsed)} / ${formatBytes(totalLimit)}`
+      : `${usedLabel} / ${limitLabel}`;
+  const caption = !quota
+    ? ""
+    : hasOverflow
+      ? `${remainingLabel} left this month + ${formatBytes(ov!.remaining)} extra`
+      : `${remainingLabel} left this month`;
+
+  // One bar. With overflow it becomes a two-zone gauge — monthly | extra —
+  // split by a hairline; the extra zone uses a lighter track so it reads as a
+  // bonus bucket. The tooltip carries the precise per-bucket breakdown.
+  const StorageBar = !quota ? (
+    <div className="h-2 w-full overflow-hidden rounded-full bg-muted" />
+  ) : !hasOverflow ? (
     barFor(quota.used, quota.limit)
   ) : (
-    <div className="h-2 w-full overflow-hidden rounded-full bg-muted" />
+    (() => {
+      const total = quota.limit + ov!.limit;
+      const monthlyZone = (quota.limit / total) * 100;
+      const extraZone = (ov!.limit / total) * 100;
+      const monthlyFill = quota.limit > 0 ? Math.min(100, (quota.used / quota.limit) * 100) : 0;
+      const extraFill = ov!.limit > 0 ? Math.min(100, (ov!.used / ov!.limit) * 100) : 0;
+      return (
+        <Tooltip delayDuration={150}>
+          <TooltipTrigger asChild>
+            <div
+              className="flex h-2 w-full cursor-help items-stretch overflow-hidden rounded-full"
+              aria-label={`${formatBytes(totalUsed)} used of ${formatBytes(total)} including extra storage`}
+            >
+              <div className="relative h-full bg-muted" style={{ width: `${monthlyZone}%` }}>
+                <div
+                  className={cn("h-full transition-[width] duration-500", barColor(monthlyFill))}
+                  style={{ width: `${monthlyFill}%` }}
+                />
+              </div>
+              <div className="h-full w-px shrink-0 bg-background/80" aria-hidden />
+              <div className="relative h-full bg-muted/50" style={{ width: `${extraZone}%` }}>
+                <div
+                  className="h-full bg-primary/60 transition-[width] duration-500"
+                  style={{ width: `${extraFill}%` }}
+                />
+              </div>
+            </div>
+          </TooltipTrigger>
+          <TooltipContent side="top" className="text-xs">
+            <div className="space-y-1 font-mono tabular-nums">
+              <div>Monthly: {formatMB(quota.used)} / {formatMB(quota.limit)}</div>
+              <div>
+                Extra: {formatMB(ov!.used)} / {formatMB(ov!.limit)} · {formatBytes(ov!.remaining)} left this week
+              </div>
+            </div>
+          </TooltipContent>
+        </Tooltip>
+      );
+    })()
   );
-
-  // The extra (overflow) allowance block, when the user has any.
-  const hasOverflow = Boolean(quota?.overflow && quota.overflow.limit > 0);
-  const ExtraStorage = hasOverflow ? (
-    <div className="mt-3 border-t border-border/40 pt-3">
-      <div className="mb-1.5 flex items-center justify-between gap-2">
-        <span className="text-xs font-medium text-foreground">Extra storage</span>
-        <span className="text-xs text-muted-foreground tabular-nums">
-          {formatBytes(quota!.overflow!.used)} / {formatBytes(quota!.overflow!.limit)}
-        </span>
-      </div>
-      {barFor(quota!.overflow!.used, quota!.overflow!.limit)}
-      <p className="mt-1.5 text-xs text-muted-foreground">
-        {formatBytes(quota!.overflow!.remaining)} left this week
-      </p>
-    </div>
-  ) : null;
 
   const Explainer = (
     <Dialog open={helpOpen} onOpenChange={setHelpOpen}>
@@ -221,15 +264,17 @@ export function StorageQuotaMeter({
       <div className={cn("w-full", className)}>
         <div className="mb-1 flex items-center justify-between gap-2">
           <div className="flex items-center gap-1.5">
-            <span className="text-xs font-medium text-foreground">Monthly upload budget</span>
+            <span className="text-xs font-medium text-foreground">Upload storage</span>
             {HelpButton}
           </div>
-          <span className="text-xs text-muted-foreground">
-            {loading || !quota ? "…" : `${usedLabel} / ${limitLabel}`}
+          <span className="text-xs text-muted-foreground tabular-nums">
+            {loading || !quota ? "…" : headerValue}
           </span>
         </div>
-        {Bar}
-        {ExtraStorage}
+        {StorageBar}
+        {quota && caption && (
+          <p className="mt-1.5 text-xs text-muted-foreground">{caption}</p>
+        )}
         {Explainer}
       </div>
     );
@@ -243,14 +288,13 @@ export function StorageQuotaMeter({
           {HelpButton}
         </h2>
         <span className="text-xs text-muted-foreground tabular-nums">
-          {loading || !quota ? "…" : `${usedLabel} / ${limitLabel}`}
+          {loading || !quota ? "…" : headerValue}
         </span>
       </div>
-      {Bar}
-      {quota && (
-        <p className="mt-2 text-xs text-muted-foreground">{remainingLabel} left this month</p>
+      {StorageBar}
+      {quota && caption && (
+        <p className="mt-2 text-xs text-muted-foreground">{caption}</p>
       )}
-      {ExtraStorage}
       {Explainer}
     </div>
   );
