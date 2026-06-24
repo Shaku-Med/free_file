@@ -14,6 +14,7 @@ import (
 	"github.com/gofiber/fiber/v2"
 
 	"goupload/loadplay/internal/cache"
+	"goupload/loadplay/internal/diskcache"
 	"goupload/loadplay/internal/fetchgate"
 	"goupload/loadplay/internal/fingerprint"
 	"goupload/loadplay/internal/guard"
@@ -43,6 +44,7 @@ type ManifestDeps struct {
 	Allowlist     *guest.Allowlist
 	NonceStore    *noncestore.Store
 	ManifestCache *manifestcache.Cache
+	SegmentCache  *diskcache.Cache
 	FetchGate       *fetchgate.Gate
 	PlaybackDebug   bool
 }

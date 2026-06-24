@@ -15,6 +15,7 @@ import (
 	"github.com/gofiber/fiber/v2/middleware/recover"
 
 	"goupload/loadplay/internal/cache"
+	"goupload/loadplay/internal/diskcache"
 	"goupload/loadplay/internal/fetchgate"
 	"goupload/loadplay/internal/guard"
 	"goupload/loadplay/internal/guest"
@@ -132,6 +133,23 @@ func main() {
 		lg.Infof("r2 fetch backend ready bucket=%s", r2Client.Bucket())
 	}
 
+	// On-disk segment cache. Opt-in: set SEGMENT_CACHE_DIR to a writable path
+	// (a real disk, not tmpfs). Caps total footprint and evicts entries older
+	// than the TTL on a timer, so we stop hitting R2/GitHub for hot videos.
+	var segmentCache *diskcache.Cache
+	if dir := strings.TrimSpace(env.Get("SEGMENT_CACHE_DIR", "")); dir != "" {
+		maxBytes := env.GetInt64("SEGMENT_CACHE_MAX_BYTES", 20<<30)
+		ttl := parseDurationEnv("SEGMENT_CACHE_TTL", time.Hour)
+		sc, err := diskcache.New(dir, maxBytes, ttl)
+		if err != nil {
+			lg.Errorf("segment cache disabled: %s", err.Error())
+		} else {
+			segmentCache = sc
+			sc.StartJanitor(parseDurationEnv("SEGMENT_CACHE_SWEEP", time.Hour))
+			lg.Infof("segment cache ready dir=%s cap=%dGiB ttl=%s", dir, maxBytes>>30, ttl)
+		}
+	}
+
 	deps := handler.ManifestDeps{
 		Log:    lg,
 		Secret: []byte(secret),
@@ -159,6 +177,7 @@ func main() {
 		// have immutable manifests, so hot videos serve from RAM and
 		// avoid hammering GitHub.
 		ManifestCache: manifestcache.New(60*time.Second, 2000),
+		SegmentCache:  segmentCache,
 		// Upstream concurrency cap. If GitHub slows, in-flight fetches
 		// queue up to 2s then 503 with Retry-After so we shed load
 		// instead of growing memory.

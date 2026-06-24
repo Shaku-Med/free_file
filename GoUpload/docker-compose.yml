@@ -116,8 +116,18 @@ services:
     restart: unless-stopped
     env_file:
       - ./loadplay.env
+    environment:
+      # On-disk segment cache. loadplay caps it at SEGMENT_CACHE_MAX_BYTES and
+      # sweeps entries older than SEGMENT_CACHE_TTL every SEGMENT_CACHE_SWEEP,
+      # so the volume below never grows past ~20 GiB.
+      - SEGMENT_CACHE_DIR=/cache
+      - SEGMENT_CACHE_MAX_BYTES=${LOADPLAY_CACHE_BYTES:-21474836480}
+      - SEGMENT_CACHE_TTL=${LOADPLAY_CACHE_TTL:-1h}
+      - SEGMENT_CACHE_SWEEP=${LOADPLAY_CACHE_SWEEP:-1h}
     ports:
       - "127.0.0.1:${LOADPLAY_PORT:-3006}:3006"
+    volumes:
+      - loadplay-cache:/cache
     networks:
       - goupload-net
     deploy:
@@ -138,3 +148,4 @@ networks:
 volumes:
   redis-data:
   upload-data:
+  loadplay-cache:

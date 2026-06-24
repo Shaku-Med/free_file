@@ -89,7 +89,7 @@ export class VisionService {
     return this.apiKeys[Math.floor(Math.random() * this.apiKeys.length)];
   }
 
-  async detect(imageBase64: string, isGrid = false): Promise<DetectionResult> {
+  async detect(imageBase64: string, isGrid = false, gateOnly = false): Promise<DetectionResult> {
     console.log(`[VisionService] detect() called | base64 length: ${imageBase64.length} | isGrid: ${isGrid}`);
     const maxAttempts = Math.min(3, this.apiKeys.length);
     const tried = new Set<number>();
@@ -104,10 +104,10 @@ export class VisionService {
 
       try {
         console.log(`[VisionService] Attempt ${attempt + 1}/${maxAttempts} using key #${idx} (${this.apiKeys[idx].slice(0, 10)}...)`);
-        const result = await this.callVisionAPI(this.apiKeys[idx], imageBase64);
-        // Caption pass runs in parallel-friendly order: vision first (cheap, blocks
-        // NSFW gate), then VLM. If VLM fails we keep the label-based fallback.
-        if (this.captioner.isEnabled()) {
+        const result = await this.callVisionAPI(this.apiKeys[idx], imageBase64, gateOnly);
+        // Gate-only frame checks skip the VLM caption (and Label Detection) to
+        // save cost and latency; the full grid pass supplies description/tags.
+        if (!gateOnly && this.captioner.isEnabled()) {
           const caption = await this.captioner.caption(imageBase64, isGrid);
           if (caption) {
             if (caption.description) result.description = caption.description;
@@ -128,18 +128,22 @@ export class VisionService {
 
   private async callVisionAPI(
     apiKey: string,
-    imageBase64: string
+    imageBase64: string,
+    gateOnly = false
   ): Promise<DetectionResult> {
     const url = `https://vision.googleapis.com/v1/images:annotate?key=${apiKey}`;
+
+    // Gate-only: SafeSearch alone (one billed unit). Full: also Label Detection
+    // (two units) for the safe-context and harmful-label checks below.
+    const features = gateOnly
+      ? [{ type: 'SAFE_SEARCH_DETECTION' }]
+      : [{ type: 'SAFE_SEARCH_DETECTION' }, { type: 'LABEL_DETECTION', maxResults: 20 }];
 
     const body = {
       requests: [
         {
           image: { content: imageBase64 },
-          features: [
-            { type: 'SAFE_SEARCH_DETECTION' },
-            { type: 'LABEL_DETECTION', maxResults: 20 },
-          ],
+          features,
         },
       ],
     };
@@ -203,8 +207,10 @@ export class VisionService {
         flagReason = 'adult content';
       }
 
-      // 2. Racy content  only flag if there's NO safe context (fixes bikini false positives)
-      if (!isNSFW && NSFW_HIGH.has(ss.racy) && !hasSafeContext) {
+      // 2. Racy content  only flag if there's NO safe context (fixes bikini
+      // false positives). Skipped in gate-only mode: without labels we cannot
+      // tell beach/fashion from explicit, so racy is left to the full grid pass.
+      if (!gateOnly && !isNSFW && NSFW_HIGH.has(ss.racy) && !hasSafeContext) {
         isNSFW = true;
         flagReason = 'racy content without safe context';
       }
@@ -222,8 +228,9 @@ export class VisionService {
       }
     }
 
-    // 5. Label-based harmful content detection (catches gore/blood even if SafeSearch misses it)
-    if (!isNSFW && hasHarmfulLabels) {
+    // 5. Label-based harmful content detection (gore/blood). Needs labels, so
+    // it only runs in the full (non gate-only) pass.
+    if (!gateOnly && !isNSFW && hasHarmfulLabels) {
       const matched = relevantLabels.filter((l) => HARMFUL_LABELS.has(l));
       isNSFW = true;
       flagReason = `harmful labels: ${matched.join(', ')}`;

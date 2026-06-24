@@ -335,6 +335,53 @@ func musicScoreThreshold() float64 {
 	return 0.6
 }
 
+// visionFrameSamples is how many full-resolution frames are SafeSearch'd
+// individually for the adult gate. Each is one Google Vision call, so this
+// trades cost against coverage. Per-frame scoring avoids the mosaic dilution
+// that weakens a grid-only check.
+func visionFrameSamples() int {
+	n := 6
+	if raw := strings.TrimSpace(os.Getenv("VISION_FRAME_SAMPLES")); raw != "" {
+		if v, err := strconv.Atoi(raw); err == nil && v > 0 {
+			n = v
+		}
+	}
+	if n > 30 {
+		n = 30
+	}
+	return n
+}
+
+// sampleFrameData picks up to n frames evenly spread across the video
+// (first and last included), returning their raw bytes for per-frame scoring.
+func sampleFrameData(thumbs []ffmpeg.Thumbnail, n int) [][]byte {
+	count := len(thumbs)
+	if count == 0 || n <= 0 {
+		return nil
+	}
+	if n == 1 {
+		return [][]byte{thumbs[count/2].Data}
+	}
+	if n >= count {
+		out := make([][]byte, 0, count)
+		for i := range thumbs {
+			out = append(out, thumbs[i].Data)
+		}
+		return out
+	}
+	out := make([][]byte, 0, n)
+	seen := make(map[int]struct{}, n)
+	for i := 0; i < n; i++ {
+		idx := i * (count - 1) / (n - 1)
+		if _, dup := seen[idx]; dup {
+			continue
+		}
+		seen[idx] = struct{}{}
+		out = append(out, thumbs[idx].Data)
+	}
+	return out
+}
+
 func appendCategoryIfMissing(categories []string, category string) []string {
 	for _, c := range categories {
 		if strings.EqualFold(strings.TrimSpace(c), category) {
@@ -607,6 +654,18 @@ func (w *Worker) processJob(job *queue.Job) {
 		w.log.Infof("thumbnail_preview job=%s preview=%s meta=%s", job.ID, previewPath, metaPath)
 	}
 
+	// One full-quality grid replaces the per-frame thumb_*.jpg files. On
+	// success the individual frames are dropped so they are neither uploaded
+	// nor listed; cells map back to timestamps via thumbnail_grid.json.
+	gridOK := false
+	if gridPath, gridMetaPath, gerr := ffmpeg.BuildThumbnailGrid(thumbDir, thumbResult); gerr != nil {
+		w.log.Errorf("thumbnail grid failed job=%s err=%s", job.ID, gerr.Error())
+	} else {
+		gridOK = true
+		ffmpeg.CleanupThumbnails(thumbResult.Thumbnails)
+		w.log.Infof("thumbnail_grid job=%s grid=%s meta=%s", job.ID, gridPath, gridMetaPath)
+	}
+
 	// ExtractWaveform always writes a file now  peaks if extraction
 	// succeeded, zeros otherwise (silent/no-audio videos). werr is purely
 	// informational; the file ships either way.
@@ -680,6 +739,24 @@ func (w *Worker) processJob(job *queue.Job) {
 					defaultThumbPath = "default_thumbnail.jpg"
 				}
 			}
+
+			// No user-chosen cover: auto-pick the middle frame as the default
+			// poster. Now that the per-frame thumb_*.jpg files are gone, this is
+			// what gives every video a single-frame poster (the app reads
+			// default_thumbnail everywhere; falling back to the grid sprite would
+			// show a mosaic).
+			if defaultThumbPath == "" && len(thumbResult.Thumbnails) > 0 {
+				mid := thumbResult.Thumbnails[len(thumbResult.Thumbnails)/2].Data
+				if len(mid) > 0 {
+					dtPath := filepath.Join(thumbDir, "default_thumbnail.jpg")
+					if werr := os.WriteFile(dtPath, mid, 0644); werr != nil {
+						w.log.Errorf("auto default thumbnail write failed job=%s err=%s", job.ID, werr.Error())
+					} else {
+						defaultThumbPath = "default_thumbnail.jpg"
+						w.log.Infof("auto default thumbnail (middle frame) job=%s bytes=%d", job.ID, len(mid))
+					}
+				}
+			}
 		}
 
 		thumbFiles, cerr := ghlib.CollectDirFlat(thumbDir, ghPrefix)
@@ -706,8 +783,14 @@ func (w *Worker) processJob(job *queue.Job) {
 		if defaultThumbPath != "" {
 			thumbnailPaths = append(thumbnailPaths, ghPrefix+defaultThumbPath)
 		}
-		for i := range thumbResult.Thumbnails {
-			thumbnailPaths = append(thumbnailPaths, ghPrefix+filepath.Base(thumbResult.Thumbnails[i].Path))
+		if gridOK {
+			thumbnailPaths = append(thumbnailPaths, ghPrefix+"thumbnail_grid.jpg")
+			thumbnailPaths = append(thumbnailPaths, ghPrefix+"thumbnail_grid.json")
+		} else {
+			// Grid build failed: fall back to listing the individual frames.
+			for i := range thumbResult.Thumbnails {
+				thumbnailPaths = append(thumbnailPaths, ghPrefix+filepath.Base(thumbResult.Thumbnails[i].Path))
+			}
 		}
 		thumbnailPaths = append(thumbnailPaths, ghPrefix+"thumbnail_preview.jpg")
 		thumbnailPaths = append(thumbnailPaths, ghPrefix+"thumbnail_preview.json")
@@ -749,24 +832,32 @@ func (w *Worker) processJob(job *queue.Job) {
 
 	if thumbResult != nil && len(thumbResult.Thumbnails) > 0 {
 		count := len(thumbResult.Thumbnails)
-		var subset [][]byte
-		if count <= 3 {
-			for _, t := range thumbResult.Thumbnails {
-				subset = append(subset, t.Data)
-			}
-		} else {
-			subset = append(subset, thumbResult.Thumbnails[0].Data)
-			subset = append(subset, thumbResult.Thumbnails[count/2].Data)
-			subset = append(subset, thumbResult.Thumbnails[count-1].Data)
-		}
-		// The preview grid holds EVERY sampled frame in one image, so the vision
-		// pass covers the whole video, not just the 3 full-size frames above.
+		// Adult gate: SafeSearch several full-resolution frames individually,
+		// evenly spread across the video. Per-frame scoring is undiluted (unlike
+		// a grid), so this is what actually catches an isolated explicit frame.
+		subset := sampleFrameData(thumbResult.Thumbnails, visionFrameSamples())
+		// A frame grid holds EVERY sampled frame in one image, so the vision pass
+		// covers the whole video, not just the 3 full-size frames above. Prefer
+		// the full-quality thumbnail_grid (sharper cells = better adult
+		// detection); fall back to the lighter preview sprite when the grid is
+		// missing or over the vision API size cap.
 		var gridData []byte
+		gridCandidates := make([]string, 0, 2)
+		if gridOK {
+			gridCandidates = append(gridCandidates, filepath.Join(thumbDir, "thumbnail_grid.jpg"))
+		}
 		if previewPath != "" {
-			if data, gerr := os.ReadFile(previewPath); gerr == nil && len(data) > 0 && len(data) <= maxVisionGridBytes {
+			gridCandidates = append(gridCandidates, previewPath)
+		}
+		for _, p := range gridCandidates {
+			data, gerr := os.ReadFile(p)
+			if gerr != nil {
+				w.log.Errorf("read vision grid %s failed job=%s err=%s", filepath.Base(p), job.ID, gerr.Error())
+				continue
+			}
+			if len(data) > 0 && len(data) <= maxVisionGridBytes {
 				gridData = data
-			} else if gerr != nil {
-				w.log.Errorf("read preview grid for vision failed job=%s err=%s (continuing with frames only)", job.ID, gerr.Error())
+				break
 			}
 		}
 		w.log.Infof("vision sampling %d of %d thumbnails (grid=%v) job=%s", len(subset), count, len(gridData) > 0, job.ID)

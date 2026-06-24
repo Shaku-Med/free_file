@@ -53,27 +53,36 @@ func NewDetector(apiURL, apiSecret string) *Detector {
 }
 
 func (d *Detector) Detect(imageData []byte) (Result, error) {
-	return d.detect(imageData, false)
+	return d.detect(imageData, false, false)
 }
 
-// DetectGrid scans a thumbnail_preview-style frame grid. The isGrid flag lets
-// the vision API caption it as "frames sampled across a video" instead of a
-// single photo.
+// DetectGate runs the cheap adult gate: SafeSearch only (one Vision unit, no
+// labels or caption). Catches explicit adult/violence; racy-with-context and
+// tagging are left to the full grid pass. Used for the many sampled frames.
+func (d *Detector) DetectGate(imageData []byte) (Result, error) {
+	return d.detect(imageData, false, true)
+}
+
+// DetectGrid scans a thumbnail-grid-style frame sheet. The isGrid flag lets the
+// vision API caption it as "frames sampled across a video" instead of a single
+// photo.
 func (d *Detector) DetectGrid(imageData []byte) (Result, error) {
-	return d.detect(imageData, true)
+	return d.detect(imageData, true, false)
 }
 
-func (d *Detector) detect(imageData []byte, isGrid bool) (Result, error) {
+func (d *Detector) detect(imageData []byte, isGrid, gateOnly bool) (Result, error) {
 	if d.apiURL == "" || d.apiURL == "disabled" {
 		return Result{IsNSFW: false}, nil
 	}
 
 	payload := struct {
-		Image  string `json:"image"`
-		IsGrid bool   `json:"isGrid,omitempty"`
+		Image    string `json:"image"`
+		IsGrid   bool   `json:"isGrid,omitempty"`
+		GateOnly bool   `json:"gateOnly,omitempty"`
 	}{
-		Image:  base64.StdEncoding.EncodeToString(imageData),
-		IsGrid: isGrid,
+		Image:    base64.StdEncoding.EncodeToString(imageData),
+		IsGrid:   isGrid,
+		GateOnly: gateOnly,
 	}
 
 	jsonBody, err := json.Marshal(payload)
@@ -160,7 +169,9 @@ func (d *Detector) DetectBatchWithGrid(grid []byte, frames [][]byte) (bool, *Res
 		wg.Add(1)
 		go func(idx int, data []byte) {
 			defer wg.Done()
-			res, err := d.Detect(data)
+			// Frames use the cheap gate (SafeSearch only); the grid pass above
+			// carries the labels + caption for racy context and tagging.
+			res, err := d.DetectGate(data)
 			results[idx] = batchResult{result: res, err: err}
 		}(offset+i, img)
 	}
