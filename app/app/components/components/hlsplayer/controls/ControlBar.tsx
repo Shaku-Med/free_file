@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { Play, Pause, SkipForward, MoreVertical, SkipBack, ChevronLeft, X, LoaderCircle } from 'lucide-react';
 import { usePlayerContext } from '../PlayerContext';
 import { useControlBarWidth } from '../hooks/useControlBarWidth';
+import { useFullscreenContainer } from '../hooks/useFullscreenContainer';
 import {
   mobileControlStyleVars,
   mobileOverlayCircleBtn,
@@ -185,6 +186,9 @@ export default function ControlBar({
   const idleSeekOnly = reelEmbedAutoHide && !state.reelAuxiliaryChromeVisible;
   const containerRef = useRef<HTMLDivElement>(null);
   const bottomStripRef = useRef<HTMLDivElement>(null);
+  // In fullscreen, portal the overflow menu into the fullscreen element so it's
+  // visible (a portal to document.body hides behind the fullscreen view).
+  const fullscreenContainer = useFullscreenContainer();
 
   /** Report bottom chrome height so ReelInfoOverlay can sit above volume/time/seek. */
   useLayoutEffect(() => {
@@ -765,7 +769,7 @@ export default function ControlBar({
                         </div>
                       )}
                     </div>,
-                    document.body
+                    fullscreenContainer ?? document.body
                   )}
               </>
             );

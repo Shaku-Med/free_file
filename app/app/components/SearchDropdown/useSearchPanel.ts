@@ -2,37 +2,52 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useDebouncedValue } from "~/lib/hooks/useDebouncedValue";
 
 /**
- * YouTube-style navbar search: typing fetches TEXT suggestions only
- * (/api/search?suggest=1 — no embeddings, no video rows). The full result
- * page with video cards is reached by pressing Enter / picking a suggestion.
+ * YouTube-style navbar search:
+ *   - empty box (on focus)  shows the user's recent searches + popular queries
+ *   - typing               shows popularity-ranked query matches + content completions
+ * The full result page with video cards is reached on Enter / picking a row.
  */
 
 const SUGGEST_DEBOUNCE_MS = 180;
 const CACHE_MAX = 100;
 
-/** Session-lived completion cache: backspacing through a query costs nothing. */
-const suggestionCache = new Map<string, string[]>();
+export type SearchSuggestion = { text: string; kind: "recent" | "popular" | "match" };
 
-function cachePut(term: string, suggestions: string[]) {
+/** Session cache for TYPED terms only; the empty box always refetches so recent
+ *  searches stay fresh after a new search or a removal. */
+const suggestionCache = new Map<string, SearchSuggestion[]>();
+
+function cachePut(term: string, items: SearchSuggestion[]) {
+  if (!term) return;
   if (suggestionCache.size >= CACHE_MAX) {
     const oldest = suggestionCache.keys().next().value;
     if (oldest !== undefined) suggestionCache.delete(oldest);
   }
-  suggestionCache.set(term, suggestions);
+  suggestionCache.set(term, items);
+}
+
+function isSuggestion(v: unknown): v is SearchSuggestion {
+  if (!v || typeof v !== "object") return false;
+  const o = v as { text?: unknown; kind?: unknown };
+  return (
+    typeof o.text === "string" &&
+    o.text.length > 0 &&
+    (o.kind === "recent" || o.kind === "popular" || o.kind === "match")
+  );
 }
 
 export function useSearchPanel(open: boolean) {
   const [inputValue, setInputValue] = useState("");
   const debouncedTerm = useDebouncedValue(inputValue.trim(), SUGGEST_DEBOUNCE_MS);
 
-  const [suggestions, setSuggestions] = useState<string[]>([]);
+  const [items, setItems] = useState<SearchSuggestion[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
 
   const fetchSuggestions = useCallback(async (term: string) => {
-    const cached = suggestionCache.get(term);
+    const cached = term ? suggestionCache.get(term) : undefined;
     if (cached) {
-      setSuggestions(cached);
+      setItems(cached);
       return;
     }
 
@@ -42,18 +57,17 @@ export function useSearchPanel(open: boolean) {
     setIsLoading(true);
 
     try {
-      const params = new URLSearchParams({ q: term, suggest: "1" });
+      const params = new URLSearchParams({ suggest: "1" });
+      if (term) params.set("q", term);
       const response = await fetch(`/api/search?${params}`, { signal: controller.signal });
       if (controller.signal.aborted || !response.ok) return;
-      const result = (await response.json()) as { suggestions?: unknown };
-      const list = Array.isArray(result.suggestions)
-        ? result.suggestions.filter((s): s is string => typeof s === "string" && s.length > 0)
-        : [];
+      const result = (await response.json()) as { items?: unknown };
+      const list = Array.isArray(result.items) ? result.items.filter(isSuggestion) : [];
       cachePut(term, list);
-      setSuggestions(list);
+      setItems(list);
     } catch (error) {
       if (error instanceof DOMException && error.name === "AbortError") return;
-      setSuggestions([]);
+      setItems([]);
     } finally {
       if (!controller.signal.aborted) setIsLoading(false);
     }
@@ -64,11 +78,6 @@ export function useSearchPanel(open: boolean) {
       abortRef.current?.abort();
       return;
     }
-    if (!debouncedTerm) {
-      setSuggestions([]);
-      setIsLoading(false);
-      return;
-    }
     void fetchSuggestions(debouncedTerm);
   }, [open, debouncedTerm, fetchSuggestions]);
 
@@ -76,16 +85,28 @@ export function useSearchPanel(open: boolean) {
 
   const reset = useCallback(() => {
     setInputValue("");
-    setSuggestions([]);
+    setItems([]);
     setIsLoading(false);
+  }, []);
+
+  /** Remove one of the user's recent searches (the dropdown "x"). */
+  const removeRecent = useCallback((query: string) => {
+    setItems((prev) => prev.filter((i) => !(i.kind === "recent" && i.text === query)));
+    suggestionCache.clear();
+    void fetch("/api/search/recent", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Requested-With": "fetch" },
+      body: JSON.stringify({ query }),
+    }).catch(() => {});
   }, []);
 
   return {
     inputValue,
     setInputValue,
     debouncedTerm,
-    suggestions,
+    items,
     isLoading,
     reset,
+    removeRecent,
   };
 }

@@ -27,14 +27,17 @@ interface ChannelHomeProps {
   userActions?: { likedFileIds: Set<string>; dislikedFileIds: Set<string> };
 }
 
-/** Horizontal scroll row of cards. */
+/** Section with a responsive grid of cards (no horizontal overflow). */
 function SectionRow({
   title,
   to,
+  bodyClassName,
   children,
 }: {
   title: string;
   to?: string;
+  /** Grid column/gap classes for the body (appended after `grid w-full min-w-0`). */
+  bodyClassName?: string;
   children: React.ReactNode;
 }) {
   return (
@@ -50,9 +53,7 @@ function SectionRow({
           </Link>
         )}
       </div>
-      <div className="-mx-1 flex snap-x gap-3 overflow-x-auto px-1 pb-1 [scrollbar-width:thin] sm:gap-4 md:gap-5">
-        {children}
-      </div>
+      <div className={cn("grid w-full min-w-0", bodyClassName)}>{children}</div>
     </section>
   );
 }
@@ -88,12 +89,15 @@ function PlaylistsRow({ profileUserId, isOwner }: { profileUserId: string; isOwn
   if (loaded && playlists.length === 0) return null;
 
   return (
-    <SectionRow title={SECTION_LABELS.playlists}>
+    <SectionRow
+      title={SECTION_LABELS.playlists}
+      bodyClassName="grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3"
+    >
       {playlists.map((pl) => (
         <Link
           key={pl.id}
           to={`/playlist/${pl.id}`}
-          className="group flex w-60 shrink-0 snap-start items-center gap-3 rounded-xl border border-border/60 bg-card/40 p-3 transition-colors hover:bg-accent/50"
+          className="group flex min-w-0 items-center gap-3 rounded-xl border border-border/60 bg-card/40 p-3 transition-colors hover:bg-accent/50"
         >
           <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
             <Music className="h-5 w-5" />
@@ -129,22 +133,23 @@ export default function ChannelHome({
     const seeAllTo =
       files.length >= CHANNEL_HOME_PREVIEW_LIMIT ? (`?view=${type}` as const) : undefined;
     return (
-      <SectionRow key={type} title={SECTION_LABELS[type]} to={seeAllTo}>
+      <SectionRow
+        key={type}
+        title={SECTION_LABELS[type]}
+        to={seeAllTo}
+        bodyClassName={cn(
+          "gap-x-3 gap-y-5 sm:gap-x-4",
+          reel
+            ? "grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6"
+            : "grid-cols-2 sm:grid-cols-3 lg:grid-cols-4",
+        )}
+      >
         {preview.map((file, i) => (
-          <div
-            key={file.id}
-            className={cn(
-              "shrink-0 snap-start",
-              reel
-                ? "w-[46vw] max-w-[11.5rem] sm:w-44 md:w-48 lg:w-52"
-                : "w-[78vw] max-w-[18rem] sm:w-64 sm:max-w-none md:w-72",
-            )}
-          >
+          <div key={file.id} className="min-w-0">
             <VideoCard
               data={file}
               index={i}
-              related
-              layout={reel ? "reelStrip" : "shelf"}
+              layout={reel ? "reelStrip" : "default"}
               currentUserId={currentUserId ?? undefined}
               userActions={userActions}
               hideActions={{ completely: true }}

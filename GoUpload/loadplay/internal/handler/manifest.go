@@ -204,9 +204,15 @@ func softGuardOrFingerprint(c *fiber.Ctx, deps ManifestDeps, tok *token.Playback
 	// Cast/TV devices fetch the stream directly: they send no browser
 	// Origin/Referer and a non-browser UA, so the origin guard would always
 	// reject them. A cast token is minted server-side, IP-bound, and
-	// fresh-nonce, so it's trusted to skip the origin guard while IP scope +
-	// nonce + expiry (below + in security.go) still lock it to the TV.
-	if !tok.IsCast() {
+	// fresh-nonce, so it skips the origin/referer gate  but it STILL blocks
+	// tool/scraper UAs so a plain `curl <cast-url>` can't pull the stream.
+	// IP scope + nonce + expiry (below + in security.go) lock it to the TV.
+	if tok.IsCast() {
+		if deps.Guard.ToolUARejected(c.Get("User-Agent")) {
+			deps.Log.Errorf("cast guard reject tool-ua unique_id=%s ua=%q", tok.FileID, c.Get("User-Agent"))
+			return deny(c, fiber.StatusForbidden)
+		}
+	} else {
 		origin := c.Get("Origin")
 		referer := c.Get("Referer")
 		if reason := deps.Guard.Check(origin, referer, c.Get("User-Agent")); reason != "" {

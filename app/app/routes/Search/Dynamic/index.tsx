@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { data, useLoaderData, Link } from "react-router";
-import { User, Layers } from "lucide-react";
+import { User, Layers, Clapperboard } from "lucide-react";
 
 import { useFileContext } from "~/lib/Context/Context";
 import type { FileType } from "~/lib/types";
@@ -11,7 +11,6 @@ import { SignInToSeeMore } from "~/components/SignInWall";
 import db from "~/lib/Database/supabase";
 import { isAuthenticated } from "~/lib/Security/Password";
 import { sanitizeSearchQuery } from "~/lib/Security/inputValidation";
-import { groupConsecutiveReelClusters } from "~/lib/feed/groupConsecutiveReelClusters";
 import { Swiper, SwiperSlide } from "swiper/react";
 import { Navigation, A11y, Keyboard } from "swiper/modules";
 import type { Swiper as SwiperType } from "swiper";
@@ -336,13 +335,61 @@ const Search = () => {
     activeTerm && files.length === 0 && searchUsers.length === 0 && seriesRoots.length === 0;
 
   const renderFileGroups = (items: FileType[], keyPrefix: string) => {
-    const groups = groupConsecutiveReelClusters(items);
+    // Shorts get pulled into ONE labelled shelf; everything else renders as the
+    // YouTube-style horizontal list (thumbnail left, meta right; vertical on mobile).
+    const reels = items.filter((f) => f.is_reel);
+    const videos = items.filter((f) => !f.is_reel);
     let indexCounter = 0;
     return (
-      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-2">
-        {groups.map((g) => {
-          if (g.kind === "single") {
-            const file = g.file;
+      <div className="flex w-full flex-col gap-4 sm:gap-5">
+        {reels.length > 0 && (
+          <div className="w-full min-w-0 max-w-full overflow-hidden">
+            <div className="mb-2 flex items-center gap-1.5">
+              <Clapperboard className="h-5 w-5 text-foreground" aria-hidden />
+              <h2 className="text-base font-semibold tracking-tight sm:text-lg">Shorts</h2>
+            </div>
+            <Swiper
+              modules={[Navigation, A11y, Keyboard]}
+              slidesPerView={3.15}
+              spaceBetween={10}
+              speed={380}
+              watchOverflow
+              observer
+              observeParents
+              resizeObserver
+              navigation
+              keyboard={{ enabled: true, onlyInViewport: true }}
+              breakpoints={{
+                640: { slidesPerView: 2.5, spaceBetween: 12 },
+                768: { slidesPerView: 3, spaceBetween: 12 },
+                1024: { slidesPerView: 3.5, spaceBetween: 14 },
+                1280: { slidesPerView: 4, spaceBetween: 14 },
+                1536: { slidesPerView: 5, spaceBetween: 16 },
+              }}
+              className="feed-reel-swiper"
+              onInit={(swiper: SwiperType) => swiper.update()}
+            >
+              {reels.map((file, keyIndex) => {
+                const index = indexCounter++;
+                return (
+                  <SwiperSlide key={file.id || file.unique_id || keyIndex} className="!h-auto">
+                    <VideoCard
+                      data={file}
+                      layout="reelStrip"
+                      index={index}
+                      userActions={localUserActions}
+                      currentUserId={userId || undefined}
+                      hideActions={{ completely: true, halfway: false }}
+                    />
+                  </SwiperSlide>
+                );
+              })}
+            </Swiper>
+          </div>
+        )}
+
+        <div className="flex w-full flex-col gap-3 sm:gap-4">
+          {videos.map((file) => {
             const index = indexCounter++;
             return (
               <VideoCard
@@ -351,63 +398,22 @@ const Search = () => {
                 index={index}
                 userActions={localUserActions}
                 currentUserId={userId || undefined}
-                hideActions={{ completely: false,  }}
-                layout={`shelf`}
+                // Search cards: no inline like/share row  just the "more" (⋮)
+                // menu in the top-right, YouTube-style.
+                hideActions={{ completely: false, halfway: true }}
+                actionsLayout="shortsShelf"
+                layout={`horizontal`}
               />
             );
-          }
-          const clusterKey = g.files[0]?.feed_reel_cluster_id ?? g.files[0]?.id ?? keyPrefix;
-          return (
-            <div
-              key={`${keyPrefix}-reel-${clusterKey}`}
-              className="col-span-full w-full min-w-0 max-w-full overflow-hidden"
-            >
-              <Swiper
-                modules={[Navigation, A11y, Keyboard]}
-                slidesPerView={3.15}
-                spaceBetween={10}
-                speed={380}
-                watchOverflow
-                observer
-                observeParents
-                resizeObserver
-                navigation
-                keyboard={{ enabled: true, onlyInViewport: true }}
-                breakpoints={{
-                  640: { slidesPerView: 2.5, spaceBetween: 12 },
-                  768: { slidesPerView: 3, spaceBetween: 12 },
-                  1024: { slidesPerView: 3.5, spaceBetween: 14 },
-                  1280: { slidesPerView: 4, spaceBetween: 14 },
-                  1536: { slidesPerView: 5, spaceBetween: 16 },
-                }}
-                className="feed-reel-swiper"
-                onInit={(swiper: SwiperType) => swiper.update()}
-              >
-                {g.files.map((file, keyIndex) => {
-                  const index = indexCounter++;
-                  return (
-                    <SwiperSlide key={file.id || file.unique_id || keyIndex} className="!h-auto">
-                      <VideoCard
-                        data={file}
-                        layout="reelStrip"
-                        index={index}
-                        userActions={localUserActions}
-                        currentUserId={userId || undefined}
-                        hideActions={{ completely: true, halfway: false }}
-                      />
-                    </SwiperSlide>
-                  );
-                })}
-              </Swiper>
-            </div>
-          );
-        })}
+          })}
+        </div>
       </div>
     );
   };
 
   return (
-    <div className="mx-auto w-full py-10">
+    // YouTube search keeps everything in one constrained, padded column.
+    <div className="mx-auto w-full max-w-5xl px-3 py-6 sm:px-4">
       <div className="space-y-8">
         {activeTerm ? (
           files.length > 0 || searchUsers.length > 0 || seriesRoots.length > 0 ? (

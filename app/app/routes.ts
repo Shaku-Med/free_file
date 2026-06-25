@@ -114,6 +114,7 @@ export default [
         route(`playlists/contains`, 'routes/Api/playlists/contains.tsx'),
         route(`playlists/:id`, 'routes/Api/playlists/$id/index.tsx'),
         route(`search`, 'routes/Api/search/index.tsx'),
+        route(`search/recent`, 'routes/Api/search/recent/index.tsx'),
         route(`mentions`, 'routes/Api/mentions/index.tsx'),
         route(`tags`, 'routes/Api/tags/index.tsx'),
         route(`subscriptions`, 'routes/Api/subscriptions/index.tsx'),

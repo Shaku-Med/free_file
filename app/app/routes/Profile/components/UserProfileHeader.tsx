@@ -1,6 +1,6 @@
 import { Avatar, AvatarFallback, AvatarImage } from "~/components/ui/avatar";
 import { Button } from "~/components/ui/button";
-import { Calendar, Edit2, Camera, Upload, X, Users } from "lucide-react";
+import { Calendar, Edit2, Camera, Upload, X } from "lucide-react";
 import type { UserProfile } from "~/lib/Services/UserProfileService";
 import { formatDistanceToNow } from "date-fns";
 import { useState, useRef, useEffect } from "react";
@@ -36,18 +36,6 @@ interface UserProfileHeaderProps {
 const UPLOAD_MSG_TRY_AGAIN = "Something went wrong. Please try again.";
 const UPLOAD_MSG_NSFW = "That image can't be used as a profile photo.";
 const UPLOAD_MSG_PICK_IMAGE = "Please choose a different image.";
-
-function StatItem({ value, label, icon }: { value: string | number; label: string; icon?: React.ReactNode }) {
-  return (
-    <div className="flex flex-col items-center gap-0.5 px-3 sm:px-5">
-      <div className="flex items-center gap-1.5">
-        {icon}
-        <span className="text-lg sm:text-xl font-bold text-foreground tabular-nums">{value}</span>
-      </div>
-      <span className="text-[11px] sm:text-xs text-muted-foreground font-medium">{label}</span>
-    </div>
-  );
-}
 
 const UserProfileHeader = ({
   profile,
@@ -227,16 +215,16 @@ const UserProfileHeader = ({
   };
 
   const subscriberCount = channelStats?.subscriber_count ?? 0;
-  const subscriptionCount = channelStats?.subscription_count ?? 0;
 
   return (
     <div className="mb-8">
-      {/* Profile card */}
-      <div className="flex flex-col items-center pt-8 pb-6 px-4">
+      {/* Channel header  YouTube-style: avatar left, info right; stacks and
+          centers on mobile. */}
+      <div className="flex w-full flex-col items-center gap-4 px-4 pt-6 pb-4 sm:flex-row sm:items-center sm:gap-6 sm:pt-8">
         {/* Avatar */}
-        <div className="relative group mb-5">
+        <div className="relative group shrink-0">
           <Avatar
-            className={`h-28 w-28 sm:h-36 sm:w-36 ring-4 ring-background shadow-xl cursor-pointer hover:opacity-90 transition-all duration-200 ${
+            className={`h-24 w-24 sm:h-40 sm:w-40 ring-4 ring-background shadow-xl cursor-pointer hover:opacity-90 transition-all duration-200 ${
               profilePic ? '' : 'pointer-events-none'
             }`}
             onClick={handleAvatarClick}
@@ -246,7 +234,7 @@ const UserProfileHeader = ({
               alt={profile.username}
               className="object-cover"
             />
-            <AvatarFallback className="text-3xl sm:text-4xl font-bold bg-primary/10 text-primary">
+            <AvatarFallback className="text-3xl sm:text-5xl font-bold bg-primary/10 text-primary">
               {profile.username.charAt(0).toUpperCase()}
             </AvatarFallback>
           </Avatar>
@@ -266,51 +254,49 @@ const UserProfileHeader = ({
           )}
         </div>
 
-        {/* Name + bio */}
-        <div className="text-center max-w-xl space-y-2 mb-5">
-          <h1 className="text-2xl sm:text-3xl font-bold text-foreground tracking-tight">
+        {/* Channel info */}
+        <div className="flex min-w-0 flex-1 flex-col items-center text-center sm:items-start sm:text-left">
+          <h1 className="text-2xl font-bold tracking-tight text-foreground sm:text-4xl">
             {profile.username}
           </h1>
-          <div className="flex items-center justify-center gap-1.5 text-xs text-muted-foreground">
+          <div className="mt-1.5 flex flex-wrap items-center justify-center gap-x-1.5 gap-y-0.5 text-sm text-muted-foreground sm:justify-start">
+            <span className="font-medium text-foreground/80">@{profile.username}</span>
+            <span aria-hidden>·</span>
+            <span>{formatSubscriberCount(subscriberCount)} subscribers</span>
+            <span aria-hidden>·</span>
+            <span>{profile.file_count || 0} videos</span>
+          </div>
+          <div className="mt-1 flex items-center justify-center gap-1.5 text-xs text-muted-foreground sm:justify-start">
             <Calendar className="h-3 w-3" />
             <span>Joined {formatDistanceToNow(new Date(profile.created_at), { addSuffix: true })}</span>
           </div>
           {profile.about && (
-            <p className="text-sm text-muted-foreground leading-relaxed pt-1 max-w-md mx-auto">
+            <p className="mt-2 line-clamp-1 max-w-xl text-sm text-muted-foreground">
               {profile.about}
             </p>
           )}
-        </div>
-
-        {/* Stats row */}
-        <div className="flex items-center justify-center divide-x divide-border mb-5">
-          <StatItem value={formatSubscriberCount(subscriberCount)} label="Subscribers" />
-          <StatItem value={formatSubscriberCount(subscriptionCount)} label="Subscriptions" />
-          <StatItem value={profile.file_count || 0} label="Uploads" />
-        </div>
-
-        {/* Action buttons */}
-        <div className="flex items-center gap-2.5">
-          {!isOwner && (
-            <SubscribeButton
-              channelId={profile.id}
-              currentUserId={currentUserId ?? null}
-              initialSubscribed={channelStats?.is_subscribed ?? false}
-              initialNotify={channelStats?.notify ?? false}
-              initialCount={subscriberCount}
-            />
-          )}
-          {isOwner && (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setIsEditOpen(true)}
-              className="gap-2 rounded-full px-4 h-9"
-            >
-              <Edit2 className="h-3.5 w-3.5" />
-              Edit Profile
-            </Button>
-          )}
+          <div className="mt-4 flex items-center gap-2.5">
+            {!isOwner && (
+              <SubscribeButton
+                channelId={profile.id}
+                currentUserId={currentUserId ?? null}
+                initialSubscribed={channelStats?.is_subscribed ?? false}
+                initialNotify={channelStats?.notify ?? false}
+                initialCount={subscriberCount}
+              />
+            )}
+            {isOwner && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setIsEditOpen(true)}
+                className="gap-2 rounded-full px-4 h-9"
+              >
+                <Edit2 className="h-3.5 w-3.5" />
+                Edit profile
+              </Button>
+            )}
+          </div>
         </div>
       </div>
 

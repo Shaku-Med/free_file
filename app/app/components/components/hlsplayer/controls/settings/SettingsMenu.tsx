@@ -22,6 +22,7 @@ import {
 } from 'lucide-react';
 import { usePlayerContext, SLEEP_TIMER_OPTIONS } from '../../PlayerContext';
 import { isSpatialAudioUiSupported } from '../../hooks/useSpatialAudio';
+import { useFullscreenContainer } from '../../hooks/useFullscreenContainer';
 import { cn } from '~/lib/utils';
 import { mobileOverlayIcon, mobileOverlaySquareBtn } from '../mobileControlMetrics';
 import {
@@ -669,6 +670,9 @@ export default function SettingsMenu({ nested, panelRef, onOpenChange, overlayTr
     isMobile ? 'min-w-0 w-[calc(100vw-1.25rem)]' : 'min-w-[260px] max-w-[min(320px,calc(100vw-2rem))]',
   );
   const badge = useResolutionBadge();
+  // In fullscreen, portal the menu INTO the fullscreen element  a portal to
+  // document.body would be invisible until the user exits fullscreen.
+  const fullscreenContainer = useFullscreenContainer();
 
   if (nested) {
     return (
@@ -700,6 +704,7 @@ export default function SettingsMenu({ nested, panelRef, onOpenChange, overlayTr
           sideOffset={isMobile ? 8 : 10}
           collisionPadding={12}
           className={menuWidthClass}
+          portalContainer={fullscreenContainer}
         >
           <SettingsMenuBody />
         </DropdownMenuContent>
@@ -761,6 +766,7 @@ export default function SettingsMenu({ nested, panelRef, onOpenChange, overlayTr
         sideOffset={8}
         collisionPadding={12}
         className={menuWidthClass}
+        portalContainer={fullscreenContainer}
       >
         <SettingsMenuBody />
       </DropdownMenuContent>

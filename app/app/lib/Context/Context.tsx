@@ -52,6 +52,8 @@ export const Context = createContext<ContextProps>({
     observerRef: { current: null },
     loadMoreVideos: () => {},
     clearFeedHistory: async () => {},
+    feedCategory: null,
+    setFeedCategory: () => {},
     user_agent: '',
     userId: null,
     userActions: { likedFileIds: new Set(), dislikedFileIds: new Set(), savedFileIds: new Set() },
@@ -160,6 +162,10 @@ export const ContextProvider = ({ children, st, user_agent, userId, c_user, uplo
     const nextCursorRef = useRef<{ cursor_pos: number } | null>(null);
     const shownIdsRef = useRef<Set<string>>(new Set());
     const feedSeedRef = useRef<string>(Date.now().toString());
+    // Home filter-chip category (null = personalized "All"). Ref mirrors state so
+    // fetchFeedOnce reads the live value without a stale closure.
+    const [feedCategory, setFeedCategoryState] = useState<string | null>(null);
+    const feedCategoryRef = useRef<string | null>(null);
     const observerRef = useRef<HTMLDivElement | null>(null)
     const nav = useNavigation()
     
@@ -227,6 +233,10 @@ export const ContextProvider = ({ children, st, user_agent, userId, c_user, uplo
       const sessionCats = personalizationService.getSessionCategories()
       if (sessionCats.length > 0) {
         params.set("session_cats", JSON.stringify(sessionCats))
+      }
+      // Home filter chip: restrict the feed to one category.
+      if (feedCategoryRef.current) {
+        params.set("category", feedCategoryRef.current)
       }
 
       const response = await fetch(`/api/feed?${params}`)
@@ -316,6 +326,20 @@ export const ContextProvider = ({ children, st, user_agent, userId, c_user, uplo
     const retryFeed = useCallback(() => {
       setFeedError(false)
       setInitialLoading(true)
+      fetchFeed(false)
+    }, [fetchFeed])
+
+    const setFeedCategory = useCallback((cat: string | null) => {
+      const next = cat && cat.trim() && cat.trim().toLowerCase() !== 'all' ? cat.trim() : null
+      if (next === feedCategoryRef.current) return
+      feedCategoryRef.current = next
+      setFeedCategoryState(next)
+      // Fresh feed for the new filter: clear dedupe set, cursor, and items.
+      shownIdsRef.current = new Set()
+      nextCursorRef.current = null
+      feedSeedRef.current = Date.now().toString()
+      setFiles([])
+      setHasMore(true)
       fetchFeed(false)
     }, [fetchFeed])
 
@@ -546,6 +570,8 @@ export const ContextProvider = ({ children, st, user_agent, userId, c_user, uplo
             observerRef: observerRef as React.RefObject<HTMLDivElement>,
             loadMoreVideos,
             clearFeedHistory,
+            feedCategory,
+            setFeedCategory,
             user_agent,
             userId: safeUserId,
             userActions,
@@ -575,7 +601,7 @@ export const ContextProvider = ({ children, st, user_agent, userId, c_user, uplo
             getRelatedVideosPayloadCache,
             setRelatedVideosPayloadCache,
         }),
-        [files, isModalOpen, isLoading, initialLoading, feedError, retryFeed, loadMoreVideos, clearFeedHistory, user_agent, safeUserId, userActions, c_user, uploadServerUrl, userProfile, userProfileLoading, pageCache, scrollDataReady, theaterMode, playerSettings, savePlayerSettings, altAccountsProp, hideAppChrome, hlsBootstrap, hlsBootstrapRetry, getDynamicSeriesPayloadCache, setDynamicSeriesPayloadCache, getRelatedVideosPayloadCache, setRelatedVideosPayloadCache]
+        [files, isModalOpen, isLoading, initialLoading, feedError, retryFeed, loadMoreVideos, clearFeedHistory, feedCategory, setFeedCategory, user_agent, safeUserId, userActions, c_user, uploadServerUrl, userProfile, userProfileLoading, pageCache, scrollDataReady, theaterMode, playerSettings, savePlayerSettings, altAccountsProp, hideAppChrome, hlsBootstrap, hlsBootstrapRetry, getDynamicSeriesPayloadCache, setDynamicSeriesPayloadCache, getRelatedVideosPayloadCache, setRelatedVideosPayloadCache]
     );
     
     return (

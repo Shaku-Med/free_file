@@ -83,8 +83,13 @@ function DropdownMenuContent({
   collisionPadding,
   align,
   children,
+  portalContainer,
   ...props
-}: React.ComponentProps<typeof DropdownMenuPrimitive.Content>) {
+}: React.ComponentProps<typeof DropdownMenuPrimitive.Content> & {
+  /** Render the menu inside this element instead of document.body. Needed in
+   *  fullscreen: a portal to body is invisible while an element is fullscreen. */
+  portalContainer?: HTMLElement | null
+}) {
   const isNarrow = useIsNarrowViewport()
   // On narrow viewports we bias toward `end` alignment so the menu hugs the right
   // edge of a trigger that's already near the right side of the screen  Radix will
@@ -93,7 +98,7 @@ function DropdownMenuContent({
   const resolvedCollisionPadding =
     collisionPadding ?? (isNarrow ? COLLISION_PADDING_NARROW : COLLISION_PADDING_WIDE)
   return (
-    <DropdownMenuPrimitive.Portal>
+    <DropdownMenuPrimitive.Portal container={portalContainer ?? undefined}>
       <DropdownMenuPrimitive.Content
         data-slot="dropdown-menu-content"
         sideOffset={sideOffset}

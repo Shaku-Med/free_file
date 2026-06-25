@@ -36,6 +36,14 @@ import "swiper/css/navigation";
 import "swiper/css/pagination";
 
 import { useFileContext } from "~/lib/Context/Context";
+import { cn } from "~/lib/utils";
+
+// YouTube-style home filter chips. Values must match the category strings stored
+// on files (feed RPC matches f.categories @> the chip value exactly).
+const HOME_CHIPS = [
+  "Music", "Gaming", "Entertainment", "Education", "Technology", "Sports",
+  "News", "Lifestyle", "Anime", "Film", "Automotive", "Art", "Nature",
+] as const;
 import SuggestedCreatorsRow, {
   type SuggestedCreator,
 } from "./components/SuggestedCreatorsRow";
@@ -44,7 +52,7 @@ import { ContinueWatchingSection } from "./components/ContinueWatchingSection";
 import type { FileType } from "~/lib/types";
 import { groupConsecutiveReelClusters } from "~/lib/feed/groupConsecutiveReelClusters";
 import { Button } from "~/components/ui/button";
-import { Plus } from "lucide-react";
+import { Plus, Clapperboard } from "lucide-react";
 import { SignInToSeeMore } from "~/components/SignInWall";
 import { Separator } from "~/components/ui/separator";
 
@@ -87,7 +95,7 @@ function SkeletonCard() {
 
 function FeedSkeleton() {
   return (
-    <div className="grid w-full min-w-0 grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+    <div className="grid w-full min-w-0 grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
       {Array.from({ length: 12 }).map((_, i) => (
         <SkeletonCard key={i} />
       ))}
@@ -109,6 +117,8 @@ export default function PersistentHomeView() {
     userActions,
     clearFeedHistory,
     userProfile,
+    feedCategory,
+    setFeedCategory,
   } = useFileContext();
 
   const handleFileUpdate = useCallback((fileId: string, updates: Partial<FileType>) => {
@@ -157,7 +167,7 @@ export default function PersistentHomeView() {
   }
 
   const gridClass =
-    "grid w-full min-w-0 grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3";
+    "grid w-full min-w-0 grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4";
 
   const splitForHistory =
     userId && files.length > 0
@@ -216,6 +226,10 @@ export default function PersistentHomeView() {
           key={`${keyPrefix}-reel-${clusterKey}`}
           className="col-span-full w-full min-w-0 max-w-full overflow-hidden"
         >
+          <div className="mb-2 flex items-center gap-1.5">
+            <Clapperboard className="h-5 w-5 text-foreground" aria-hidden />
+            <h2 className="text-base font-semibold tracking-tight sm:text-lg">Shorts</h2>
+          </div>
           <Swiper
             modules={[Navigation, A11y, Keyboard]}
             slidesPerView={3.15}
@@ -265,6 +279,28 @@ export default function PersistentHomeView() {
 
   return (
     <div className="w-full min-w-0">
+      {/* YouTube-style filter chips: All + categories. Functional  drives the feed. */}
+      <div className="mb-4 -mx-1 flex gap-2 overflow-x-auto px-1 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+        {[null, ...HOME_CHIPS].map((value) => {
+          const label = value ?? "All";
+          const active = (feedCategory ?? null) === value;
+          return (
+            <button
+              key={label}
+              type="button"
+              onClick={() => setFeedCategory(value)}
+              className={cn(
+                "shrink-0 whitespace-nowrap rounded-lg px-3 py-1.5 text-sm font-medium transition-colors",
+                active
+                  ? "bg-foreground text-background"
+                  : "bg-muted text-foreground hover:bg-muted-foreground/20",
+              )}
+            >
+              {label}
+            </button>
+          );
+        })}
+      </div>
       {files.length > 0 ? (
         <>
           {userId ? (
@@ -282,7 +318,7 @@ export default function PersistentHomeView() {
             renderFeedGroups(files as FileType[], "feed")
           )}
           {isLoading && (
-            <div className="mt-2 grid w-full min-w-0 grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+            <div className="mt-2 grid w-full min-w-0 grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
               {Array.from({ length: 4 }).map((_, i) => (
                 <SkeletonCard key={`skeleton-${i}`} />
               ))}
@@ -294,6 +330,8 @@ export default function PersistentHomeView() {
             <SignInToSeeMore />
           )}
         </>
+      ) : isLoading ? (
+        <FeedSkeleton />
       ) : feedError ? (
         <div className="flex items-center flex-col justify-center min-h-full bg-background">
           <div className="text-center">

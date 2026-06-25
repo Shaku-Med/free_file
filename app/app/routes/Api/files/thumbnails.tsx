@@ -47,7 +47,10 @@ export const loader = async ({ request }: { request: Request }) => {
           .filter(
             (t: string) =>
               t &&
+              // Seek-preview sprite and the full-quality cover grid are NOT
+              // real frames  never offer them as a selectable thumbnail.
               !t.includes("thumbnail_preview") &&
+              !t.includes("thumbnail_grid") &&
               !t.endsWith(".json") &&
               !t.includes("waveform")
           )

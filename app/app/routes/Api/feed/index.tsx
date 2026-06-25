@@ -40,6 +40,12 @@ export const loader = async ({ request }: { request: Request }) => {
     const excludeIds = parseExcludeIds(url);
     const cursorPosParam = url.searchParams.get('cursor_pos');
     const seedParam = url.searchParams.get('seed') ?? 'default';
+    // Home filter-chip category. "all"/empty => personalized feed (null).
+    const categoryParam = url.searchParams.get('category');
+    const category =
+      categoryParam && categoryParam.trim() && categoryParam.trim().toLowerCase() !== 'all'
+        ? categoryParam.trim().slice(0, 40)
+        : null;
 
     const cursorPos = cursorPosParam ? Math.max(0, parseInt(cursorPosParam, 10)) : 0;
     const pExcludeIds =
@@ -66,7 +72,7 @@ export const loader = async ({ request }: { request: Request }) => {
     const feedParams: Record<string, unknown> = {
       p_user_id: userId || null,
       p_limit: FEED_LIMIT,
-      p_category: null,
+      p_category: category,
       p_reels_only: false,
       p_seed: seedParam,
       p_cursor_pos: Number.isFinite(cursorPos) ? cursorPos : 0,

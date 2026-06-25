@@ -36,7 +36,7 @@ export function NavbarSearchBar({
   const [activeIndex, setActiveIndex] = useState(-1);
   const navigate = useNavigate();
 
-  const { inputValue, setInputValue, debouncedTerm, suggestions } = useSearchPanel(open);
+  const { inputValue, setInputValue, debouncedTerm, items, removeRecent } = useSearchPanel(open);
 
   const closeDropdown = useCallback(() => {
     setOpen(false);
@@ -65,7 +65,7 @@ export function NavbarSearchBar({
   // Highlight resets whenever a new suggestion list lands.
   useEffect(() => {
     setActiveIndex(-1);
-  }, [suggestions]);
+  }, [items]);
 
   useEffect(() => {
     if (!open) return;
@@ -96,7 +96,7 @@ export function NavbarSearchBar({
   const handleSubmit = useCallback(
     (event?: FormEvent) => {
       event?.preventDefault();
-      const picked = activeIndex >= 0 ? suggestions[activeIndex] : undefined;
+      const picked = activeIndex >= 0 ? items[activeIndex]?.text : undefined;
       const q = (picked ?? inputValue).trim();
       if (q) {
         goToSearch(q);
@@ -105,7 +105,7 @@ export function NavbarSearchBar({
       setOpen(true);
       inputRef.current?.focus();
     },
-    [activeIndex, suggestions, inputValue, goToSearch],
+    [activeIndex, items, inputValue, goToSearch],
   );
 
   const handleInputKeyDown = useCallback(
@@ -115,18 +115,18 @@ export function NavbarSearchBar({
           setOpen(true);
           return;
         }
-        if (suggestions.length === 0) return;
+        if (items.length === 0) return;
         event.preventDefault();
         setActiveIndex((prev) => {
           const delta = event.key === "ArrowDown" ? 1 : -1;
           const next = prev + delta;
-          if (next < -1) return suggestions.length - 1;
-          if (next >= suggestions.length) return -1;
+          if (next < -1) return items.length - 1;
+          if (next >= items.length) return -1;
           return next;
         });
       }
     },
-    [open, suggestions.length],
+    [open, items.length],
   );
 
   return (
@@ -171,7 +171,7 @@ export function NavbarSearchBar({
         </button>
       </form>
 
-      {open && inputValue.trim() && suggestions.length > 0 ? (
+      {open && items.length > 0 ? (
         <div
           id="navbar-search-dropdown"
           role="listbox"
@@ -183,10 +183,11 @@ export function NavbarSearchBar({
           <div className="max-h-[min(70dvh,640px)] overflow-y-auto overscroll-contain">
             <SearchPanel
               term={debouncedTerm || inputValue.trim()}
-              suggestions={suggestions}
+              items={items}
               activeIndex={activeIndex}
               onPick={goToSearch}
               onHover={setActiveIndex}
+              onRemoveRecent={removeRecent}
             />
           </div>
         </div>

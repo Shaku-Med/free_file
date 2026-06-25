@@ -588,7 +588,7 @@ const Profile = () => {
           </div>
         ) : (
         <Tabs value={activeTab} onValueChange={setProfileTab} className="mt-6">
-          <TabsList variant="line" className="w-full flex-wrap items-center justify-start gap-1 h-auto min-h-9 mb-6">
+          <TabsList variant="line" className="w-full flex-wrap items-center justify-start gap-1 h-auto min-h-9 mb-6 border-b border-border">
             <TabsTrigger value="home" className="shrink-0">
               Home
             </TabsTrigger>

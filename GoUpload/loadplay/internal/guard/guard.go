@@ -205,6 +205,14 @@ func isPrivateOrLoopbackHost(raw string) bool {
 	return ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast()
 }
 
+// ToolUARejected reports whether the UA looks like a scripting/download tool
+// (curl, wget, python-requests, empty UA, ...). The cast path skips the
+// origin/referer gate (a TV has neither) but still runs this so a plain
+// `curl <cast-url>` is blocked  the Chromecast UA ("CrKey/...") is not a tool.
+func (c Config) ToolUARejected(userAgent string) bool {
+	return c.BlockToolUA && looksLikeTool(userAgent)
+}
+
 func looksLikeTool(ua string) bool {
 	if len(ua) < 8 {
 		return true

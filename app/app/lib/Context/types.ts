@@ -60,6 +60,9 @@ export interface ContextProps {
   observerRef: React.RefObject<HTMLDivElement | null>;
   loadMoreVideos: () => void;
   clearFeedHistory: () => Promise<void>;
+  /** Home filter-chip category; null = personalized "All" feed. */
+  feedCategory: string | null;
+  setFeedCategory: (category: string | null) => void;
   user_agent: string;
   userId: string | null;
   userActions: { likedFileIds: Set<string>; dislikedFileIds: Set<string>; savedFileIds: Set<string> };

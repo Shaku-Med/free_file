@@ -17,6 +17,8 @@ import { Separator } from "~/components/ui/separator";
 import { Progress } from "~/components/ui/progress";
 import CategoryBadges from "~/components/CategoryBadges";
 import { Info, MoreVertical, ChevronDown, X, Check, AlertTriangle, Send, Loader2, ImagePlus, MessageSquare, MessageSquareOff, ListVideo, Layers, ListPlus, ListChecks, Captions, Clapperboard, Music2 } from "lucide-react";
+import { Avatar, AvatarFallback, AvatarImage } from "~/components/ui/avatar";
+import { getProfilePicUrl } from "~/lib/utils/profilePic";
 import { CaptionModal, type CaptionEntry } from "~/components/captions/CaptionModal";
 import { findLanguageLabel } from "~/lib/captions/vtt";
 import { Tooltip, TooltipContent, TooltipTrigger } from "~/components/ui/tooltip";
@@ -2323,7 +2325,9 @@ const VideoCard = ({
       <div
         className={cn(
           "group flex w-full transition-colors",
-          !hideActions && "hover:bg-muted/50",
+          // Same dominant-color hover tint as the default card (falls back to a
+          // neutral hover when the file has no extracted colors).
+          hoverTintRow ? "hover:bg-[var(--card-tint)]" : "hover:bg-muted/50",
           hideActions ? "gap-3 rounded-lg" : "",
           sidebarLayoutState === "expanded" && "fl_break_layout text-sm gap-3 rounded-lg p-2",
           // On mobile the related card goes VERTICAL (thumbnail on top, info
@@ -2331,9 +2335,11 @@ const VideoCard = ({
           // row. Desktop keeps the horizontal sidebar row.
           sidebarLayoutState !== "expanded" && related && isMobile && "flex-col gap-2 rounded-lg p-1.5",
           sidebarLayoutState !== "expanded" && related && !isMobile && "flex-row items-start gap-3 rounded-lg p-2",
-          sidebarLayoutState !== "expanded" && !related && "flex-col flex-wrap gap-3 rounded-lg p-2 md:flex-row",
-          hideActions && related && "p-0 hover:bg-transparent",
+          // Search card stays horizontal at every width (no mobile stacking).
+          sidebarLayoutState !== "expanded" && !related && "flex-row items-start gap-3 rounded-lg p-2",
+          hideActions && related && "p-0",
         )}
+        style={hoverTintRow ? ({ "--card-tint": hoverTintRow } as React.CSSProperties) : undefined}
       >
         <Link
           onClick={(e) => {
@@ -2349,91 +2355,135 @@ const VideoCard = ({
                 // wide layouts, never cramped in a 2-3 col grid), capped so the
                 // title keeps room.
                 : "relative aspect-video w-[46%] min-w-40 max-w-80 shrink-0 overflow-hidden rounded-lg bg-card ring-1 ring-border/30 dark:ring-white/10"
-              : "relative aspect-video w-full min-w-60 max-w-full shrink-0 overflow-hidden rounded-lg bg-card md:max-w-64 md:flex-1"
+              // Search results: big YouTube-style thumbnail on the left at every
+              // width (the card never stacks). Width is a % of the card so it
+              // grows with the body/column on large screens, with a loose cap.
+              : "relative aspect-video w-[44%] min-w-[128px] max-w-[520px] shrink-0 overflow-hidden rounded-xl bg-card"
           }
         >
           {renderThumbnail("aspect-video h-full w-full")}
         </Link>
 
-        <div className="flex min-w-0 flex-1 flex-col justify-center py-0.5">
-          <div className="flex items-start justify-between gap-2">
-            <Link
-              to={watchPath}
-              onClick={(e) => {
-                e.preventDefault();
-                void handleWatchNav();
-              }}
-              className="min-w-0 flex-1 transition-colors hover:text-primary"
-            >
-              <h3 className="line-clamp-2 text-sm font-semibold leading-snug">
-                <ParseFilenameInsert filename={data.file_title || data.filename} showLimit={60} />
-              </h3>
-            </Link>
+        {related ? (
+          <div className="flex min-w-0 flex-1 flex-col justify-center py-0.5">
+            <div className="flex items-start justify-between gap-2">
+              <Link
+                to={watchPath}
+                onClick={(e) => {
+                  e.preventDefault();
+                  void handleWatchNav();
+                }}
+                className="min-w-0 flex-1 transition-colors hover:text-primary"
+              >
+                <h3 className="line-clamp-2 text-sm font-semibold leading-snug">
+                  <ParseFilenameInsert filename={data.file_title || data.filename} showLimit={60} />
+                </h3>
+              </Link>
 
-            <div className={`max-h-[1.5rem]`}>
-            {
-              (hideActions.halfway) && (
-                <>
-                  {renderActions()}
-                </>
-              )
-            }
+              <div className="max-h-[1.5rem]">
+                {hideActions.halfway && <>{renderActions()}</>}
+              </div>
+
+              {onAddToPlayQueue ? (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8 shrink-0 text-muted-foreground hover:text-foreground"
+                      disabled={inPlayQueue}
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        onAddToPlayQueue(data);
+                      }}
+                      aria-label={inPlayQueue ? "Already in play queue" : "Add to play queue"}
+                    >
+                      {inPlayQueue ? (
+                        <ListChecks className="h-4 w-4 text-primary" />
+                      ) : (
+                        <ListPlus className="h-4 w-4" />
+                      )}
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent side="left">
+                    {inPlayQueue ? "In play queue" : "Add to play queue"}
+                  </TooltipContent>
+                </Tooltip>
+              ) : null}
+            </div>
+
+            {data.owner && (
+              <Link
+                to={`/profile/${data.owner.username}`}
+                className="block w-fit text-xs text-muted-foreground transition-colors hover:text-foreground"
+              >
+                @{data.owner.username}
+              </Link>
+            )}
+
+            <div className="mt-0.5 flex flex-wrap items-center gap-x-1 gap-y-0.5 text-xs text-muted-foreground">
+              {viewCount > 0 && <span>{formatViews(viewCount)} views</span>}
+              {viewCount > 0 && data.created_at && <span className="text-muted-foreground/50">·</span>}
+              {data.created_at && <span>{formatTimeAgo(data.created_at)}</span>}
+            </div>
+
+            <div className="z-[1000000]">
+              {!hideActions?.halfway && <>{renderActions()}</>}
+            </div>
           </div>
+        ) : (
+          // Search card: title  views/date  channel (avatar + verified)  description.
+          <div className="flex min-w-0 flex-1 flex-col justify-start gap-1 py-0.5">
+            <div className="flex items-start justify-between gap-2">
+              <Link
+                to={watchPath}
+                onClick={(e) => {
+                  e.preventDefault();
+                  void handleWatchNav();
+                }}
+                className="min-w-0 flex-1 transition-colors hover:text-primary"
+              >
+                <h3 className="line-clamp-2 text-base font-semibold leading-snug sm:text-lg lg:text-xl">
+                  <ParseFilenameInsert filename={data.file_title || data.filename} showLimit={90} />
+                </h3>
+              </Link>
+              <div className="shrink-0">{hideActions.halfway && <>{renderActions()}</>}</div>
+            </div>
 
-            {onAddToPlayQueue ? (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    className="h-8 w-8 shrink-0 text-muted-foreground hover:text-foreground"
-                    disabled={inPlayQueue}
-                    onClick={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      onAddToPlayQueue(data);
-                    }}
-                    aria-label={inPlayQueue ? "Already in play queue" : "Add to play queue"}
-                  >
-                    {inPlayQueue ? (
-                      <ListChecks className="h-4 w-4 text-primary" />
-                    ) : (
-                      <ListPlus className="h-4 w-4" />
-                    )}
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent side="left">
-                  {inPlayQueue ? "In play queue" : "Add to play queue"}
-                </TooltipContent>
-              </Tooltip>
-            ) : null}
-            
+            <div className="flex flex-wrap items-center gap-x-1 text-sm text-muted-foreground">
+              {viewCount > 0 && <span>{formatViews(viewCount)} views</span>}
+              {viewCount > 0 && data.created_at && <span className="text-muted-foreground/50">·</span>}
+              {data.created_at && <span>{formatTimeAgo(data.created_at)}</span>}
+            </div>
+
+            {data.owner && (
+              <Link
+                to={`/profile/${data.owner.username}`}
+                className="mt-1 flex w-fit items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground"
+              >
+                <Avatar className="h-6 w-6 shrink-0">
+                  <AvatarImage
+                    src={getProfilePicUrl(data.owner.profile_pic)}
+                    alt={data.owner.username}
+                    className="object-cover"
+                  />
+                  <AvatarFallback className="text-[10px]">
+                    {data.owner.username.charAt(0).toUpperCase()}
+                  </AvatarFallback>
+                </Avatar>
+                <span className="truncate">{data.owner.username}</span>
+              </Link>
+            )}
+
+            {data.file_description && (
+              <p className="mt-1 line-clamp-2 text-sm leading-snug text-muted-foreground">
+                {data.file_description}
+              </p>
+            )}
           </div>
-
-          {data.owner && (
-            <Link
-              to={`/profile/${data.owner.username}`}
-              className=" block w-fit text-xs text-muted-foreground transition-colors hover:text-foreground"
-            >
-              @{data.owner.username}
-            </Link>
-          )}
-
-          <div className="mt-0.5 flex flex-wrap items-center gap-x-1 gap-y-0.5 text-xs text-muted-foreground">
-            {viewCount > 0 && <span>{formatViews(viewCount)} views</span>}
-            {viewCount > 0 && data.created_at && <span className="text-muted-foreground/50">·</span>}
-            {data.created_at && <span>{formatTimeAgo(data.created_at)}</span>}
-          </div>
-
-          <div className="z-[1000000]">
-            {
-              (!hideActions?.halfway) && (
-                <>{renderActions()}</>
-              )
-            }
-          </div>
-        </div>
+        )}
 
         {renderEditDialog()}
         {renderInfoDialog()}
@@ -2451,9 +2501,8 @@ const VideoCard = ({
             void handleWatchNav();
           }}
           to={watchPath}
-          // Shorter portrait card for the feed strip (cover-crops the reel) so
-          // it doesn't eat as much vertical space as a full 9:16.
-          className="relative block aspect-[3/4] w-full shrink-0 overflow-hidden rounded-lg bg-muted outline-none ring-0 transition-opacity hover:opacity-95"
+          // Taller portrait card (closer to a real Short) for the strip.
+          className="relative block aspect-[9/16] w-full shrink-0 overflow-hidden rounded-lg bg-muted outline-none ring-0 transition-opacity hover:opacity-95"
         >
           {renderThumbnail("h-full w-full")}
         </Link>

@@ -5,6 +5,18 @@ import { embedSearchQuery } from '~/lib/Services/embedQuery.server';
 const SEARCH_LIMIT = 20;
 const SERIES_ROOTS_LIMIT = 8;
 
+/** Search cards only show a 2-line snippet, so trim long descriptions to a
+ *  word boundary (~160 chars) here  keeps the payload light too. */
+function shortDescription(desc: unknown): string {
+  if (typeof desc !== 'string') return '';
+  const trimmed = desc.replace(/\s+/g, ' ').trim();
+  const MAX = 160;
+  if (trimmed.length <= MAX) return trimmed;
+  const slice = trimmed.slice(0, MAX);
+  const lastSpace = slice.lastIndexOf(' ');
+  return (lastSpace > 80 ? slice.slice(0, lastSpace) : slice).trimEnd() + '…';
+}
+
 function mapSearchFile(file: any) {
   return {
     id: file.id,
@@ -17,7 +29,7 @@ function mapSearchFile(file: any) {
     is_adult: file.is_adult,
     owner_id: file.owner_id,
     is_public: file.is_public,
-    file_description: file.file_description,
+    file_description: shortDescription(file.file_description),
     file_title: file.file_title || '',
     default_thumbnail: file.default_thumbnail || null,
     view_count: file.view_count,
@@ -58,37 +70,75 @@ function dedupeSeriesByMainFiles(seriesRoots: ReturnType<typeof mapSearchFile>[]
   return seriesRoots.filter((s) => s.id && !seen.has(s.id));
 }
 
+type SuggestItem = { text: string; kind: 'recent' | 'popular' | 'match' };
+
+/**
+ * Navbar dropdown completions. Empty query => the user's recent searches +
+ * globally popular queries. Typed query => popularity-ranked query matches,
+ * then content-title completions  all deduped, frequent matches first.
+ */
+async function buildSuggestItems(userId: string | null, rawQuery: string): Promise<SuggestItem[]> {
+  const q = rawQuery.trim().slice(0, 80);
+  const items: SuggestItem[] = [];
+  const seen = new Set<string>();
+  const push = (text: unknown, kind: SuggestItem['kind']) => {
+    if (typeof text !== 'string') return;
+    const t = text.trim();
+    const key = t.toLowerCase();
+    if (!t || seen.has(key)) return;
+    seen.add(key);
+    items.push({ text: t, kind });
+  };
+
+  const { data: comps } = await db.rpc('get_search_completions', {
+    p_user_id: userId,
+    p_query: q,
+    p_limit: 10,
+  });
+  if (Array.isArray(comps)) {
+    for (const c of comps) {
+      const kind = (c as { kind?: unknown })?.kind;
+      if (kind === 'recent' || kind === 'popular' || kind === 'match') {
+        push((c as { query?: unknown }).query, kind);
+      }
+    }
+  }
+
+  // Content-title completions only while typing, appended after frequent matches.
+  if (q.length >= 1) {
+    const { data: sugg } = await db.rpc('get_search_suggestions', { p_query: q, p_limit: 8 });
+    if (Array.isArray(sugg)) {
+      for (const r of sugg) push((r as { suggestion?: unknown }).suggestion, 'match');
+    }
+  }
+
+  return items.slice(0, 12);
+}
+
 export const loader = async ({ request }: { request: Request }) => {
   try {
     const url = new URL(request.url);
     let query = url.searchParams.get('q')?.trim();
     // Cap the term so an oversized string can't drive an expensive RPC/DB scan.
     if (query && query.length > 200) query = query.slice(0, 200);
-    if (!query) {
-      return new Response(JSON.stringify({ data: [], seriesRoots: [], users: [], userActions: { likedFileIds: [], dislikedFileIds: [] }, nextCursor: null }), {
-        headers: { 'Content-Type': 'application/json' }
+    // Navbar dropdown completions. Handled BEFORE the empty-query guard so an
+    // empty box still returns recent + popular searches (YouTube-style).
+    if (url.searchParams.get('suggest') === '1') {
+      const sugUser = await isAuthenticated(request, ['id']).catch(() => null);
+      let items: SuggestItem[] = [];
+      try {
+        items = await buildSuggestItems(sugUser?.id || null, query ?? '');
+      } catch (e) {
+        console.warn('[search] completions:', e instanceof Error ? e.message : e);
+      }
+      return new Response(JSON.stringify({ items }), {
+        headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' },
       });
     }
 
-    // Lightweight as-you-type completions (navbar dropdown). Text only —
-    // no embeddings, no video rows; the full vector search runs on Enter.
-    if (url.searchParams.get('suggest') === '1') {
-      const { data: sugg, error: suggErr } = await db.rpc('get_search_suggestions', {
-        p_query: query.slice(0, 80),
-        p_limit: 8,
-      });
-      if (suggErr) {
-        console.warn('[search] suggestions rpc:', suggErr.message ?? suggErr);
-        return new Response(JSON.stringify({ suggestions: [] }), {
-          headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' },
-        });
-      }
-      const suggestions = (Array.isArray(sugg) ? sugg : [])
-        .map((r: { suggestion?: unknown }) => (typeof r.suggestion === 'string' ? r.suggestion : ''))
-        .filter(Boolean)
-        .slice(0, 8);
-      return new Response(JSON.stringify({ suggestions }), {
-        headers: { 'Content-Type': 'application/json', 'Cache-Control': 'private, max-age=60' },
+    if (!query) {
+      return new Response(JSON.stringify({ data: [], seriesRoots: [], users: [], userActions: { likedFileIds: [], dislikedFileIds: [] }, nextCursor: null }), {
+        headers: { 'Content-Type': 'application/json' }
       });
     }
 
@@ -104,6 +154,14 @@ export const loader = async ({ request }: { request: Request }) => {
 
     const user = await isAuthenticated(request, ['id']);
     const userId: string | undefined = user?.id || undefined;
+
+    // Log the search once per submission (first page only) to power frequent /
+    // recent suggestions. Best-effort  never blocks or fails the search.
+    if (isInitialSearch) {
+      void db
+        .rpc('log_search_query', { p_user_id: userId || null, p_query: query })
+        .then(() => {}, () => {});
+    }
 
     // Semantic vector for the query (cached, ~10ms cold). Null when the
     // embed sidecar is down/unconfigured  search degrades to lexical-only.

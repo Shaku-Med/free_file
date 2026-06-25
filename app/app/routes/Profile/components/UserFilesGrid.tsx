@@ -309,7 +309,7 @@ const UserFilesGrid = ({
           const groups = groupConsecutiveReelClusters(files);
           let indexCounter = 0;
           return (
-            <div className="grid w-full min-w-0 grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+            <div className="grid w-full min-w-0 grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
               {groups.map((g) => {
                 if (g.kind === "single") {
                   const file = g.file;
