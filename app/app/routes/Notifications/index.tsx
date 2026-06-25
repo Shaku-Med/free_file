@@ -1,12 +1,13 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router";
 import { useFileContext } from "~/lib/Context/Context";
 import { Button } from "~/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "~/components/ui/avatar";
 import { getProfilePicUrl } from "~/lib/utils/profilePic";
-import { Heart, MessageCircle, Reply, ThumbsUp, AtSign, UserPlus } from "lucide-react";
+import { Heart, MessageCircle, Reply, ThumbsUp, AtSign, UserPlus, ChevronDown } from "lucide-react";
 import VideoCard from "~/routes/Home/components/VideoCard";
 import type { FileType } from "~/lib/types";
+import { groupNotifications, type NotificationGroup } from "~/lib/notifications/groupNotifications";
 
 type NotificationType =
   | "file_like"
@@ -84,6 +85,7 @@ export default function NotificationsPage() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
   const [markingAll, setMarkingAll] = useState(false);
+  const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -151,6 +153,101 @@ export default function NotificationsPage() {
   };
 
   const unreadCount = list.filter((n) => !n.read_at).length;
+  const sections = useMemo(() => groupNotifications(list), [list]);
+
+  const markGroupRead = (g: NotificationGroup<NotificationRow>) => {
+    const unread = g.items.filter((i) => !i.read_at);
+    if (!unread.length) return;
+    const ids = new Set(unread.map((i) => i.id));
+    setList((prev) => prev.map((n) => (ids.has(n.id) ? { ...n, read_at: new Date().toISOString() } : n)));
+    unread.forEach((i) => {
+      fetch("/api/notifications", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ notificationId: i.id }),
+      }).catch(() => {});
+    });
+  };
+
+  const toggleGroup = (g: NotificationGroup<NotificationRow>) => {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(g.key)) {
+        next.delete(g.key);
+      } else {
+        next.add(g.key);
+        markGroupRead(g);
+      }
+      return next;
+    });
+  };
+
+  const groupHeadline = (g: NotificationGroup<NotificationRow>) => {
+    const first = g.actors[0]?.username ?? "Someone";
+    const others = Math.max(0, g.actors.length - 1);
+    return others > 0 ? `${first} and ${others} other${others === 1 ? "" : "s"}` : first;
+  };
+
+  /** One notification as a clickable row (used for singles + expanded items). */
+  const renderSingle = (n: NotificationRow, nested = false) => {
+    const actor = n.users;
+    const username = actor?.username ?? "Someone";
+    const href = linkTo(n);
+    const fileForThumb: FileType | null = n.files
+      ? ({
+          id: n.file_id ?? n.files.unique_id,
+          unique_id: n.files.unique_id,
+          filename: n.files.filename,
+          default_thumbnail: n.files.default_thumbnail,
+          thumbnails: n.files.thumbnails ?? undefined,
+          file_type: n.files.file_type ?? undefined,
+          endpoint: n.files.endpoint ?? undefined,
+          created_at: n.files.created_at,
+          is_adult: Boolean(n.files.is_adult),
+        } as FileType)
+      : null;
+    return (
+      <Link
+        to={href}
+        onClick={() => {
+          if (!n.read_at) markOneAsRead(n.id);
+        }}
+        className={`flex items-center gap-3 rounded-lg p-3 transition-colors hover:bg-muted/50 ${nested ? "pl-12" : ""} ${!n.read_at ? "bg-primary/5" : ""}`}
+      >
+        <Avatar className="h-10 w-10 flex-shrink-0">
+          <AvatarImage src={actor?.profile_pic ? getProfilePicUrl(actor.profile_pic) : undefined} />
+          <AvatarFallback>{username.charAt(0).toUpperCase()}</AvatarFallback>
+        </Avatar>
+        <div className="min-w-0 flex-1">
+          <p className="text-sm text-foreground">
+            <span className="font-medium">{username}</span>{" "}
+            <span className="text-muted-foreground">{getNotificationLabel(n.type)}</span>
+          </p>
+          <p className="text-xs text-muted-foreground">
+            {new Date(n.created_at).toLocaleDateString(undefined, {
+              month: "short",
+              day: "numeric",
+              hour: "2-digit",
+              minute: "2-digit",
+            })}
+          </p>
+        </div>
+        {fileForThumb ? (
+          <div className="relative h-12 w-[4.25rem] flex-shrink-0">
+            <VideoCard data={fileForThumb} layout="notificationThumb" />
+            {getNotificationIcon(n.type) && (
+              <div className="pointer-events-none absolute bottom-0.5 right-0.5 flex h-5 w-5 items-center justify-center rounded-full bg-background/90 shadow-sm ring-1 ring-border">
+                {getNotificationIcon(n.type)}
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className="flex-shrink-0">{getNotificationIcon(n.type)}</div>
+        )}
+      </Link>
+    );
+  };
 
   if (!userId) return null;
 
@@ -185,83 +282,62 @@ export default function NotificationsPage() {
         ) : list.length === 0 ? (
           <p className="text-muted-foreground text-center py-12">No notifications yet.</p>
         ) : (
-          <ul className="space-y-1">
-            {list.map((n) => {
-              const actor = n.users;
-              const username = actor?.username ?? "Someone";
-              const href = linkTo(n);
-              // Resolve the file's thumbnail URL only when this row is
-              // about a file (likes, comments, replies, mentions).
-              // Subscribe events have no file → no thumbnail, the row
-              // keeps its existing avatar-only shape.
-              // Shape the joined `files` row into the minimum that
-              // VideoCard / renderThumbnail need. Everything thumbnail-
-              // related (default vs frames[] vs legacy path, NSFW blur,
-              // retry-on-error, lazy loading) is already handled inside
-              // VideoCard  we don't re-implement it here.
-              const fileForThumb: FileType | null = n.files
-                ? ({
-                    id: n.file_id ?? n.files.unique_id,
-                    unique_id: n.files.unique_id,
-                    filename: n.files.filename,
-                    default_thumbnail: n.files.default_thumbnail,
-                    thumbnails: n.files.thumbnails ?? undefined,
-                    file_type: n.files.file_type ?? undefined,
-                    endpoint: n.files.endpoint ?? undefined,
-                    created_at: n.files.created_at,
-                    is_adult: Boolean(n.files.is_adult),
-                  } as FileType)
-                : null;
-              return (
-                <li key={n.id}>
-                  <Link
-                    to={href}
-                    onClick={() => {
-                      if (!n.read_at) markOneAsRead(n.id);
-                    }}
-                    className={`flex items-center gap-3 rounded-lg p-3 transition-colors hover:bg-muted/50 ${!n.read_at ? "bg-primary/5" : ""}`}
-                  >
-                    <Avatar className="h-10 w-10 flex-shrink-0">
-                      <AvatarImage src={actor?.profile_pic ? getProfilePicUrl(actor.profile_pic) : undefined} />
-                      <AvatarFallback>{username.charAt(0).toUpperCase()}</AvatarFallback>
-                    </Avatar>
-                    <div className="min-w-0 flex-1">
-                      <p className="text-sm text-foreground">
-                        <span className="font-medium">{username}</span>{" "}
-                        <span className="text-muted-foreground">{getNotificationLabel(n.type)}</span>
-                      </p>
-                      <p className="text-xs text-muted-foreground">
-                        {new Date(n.created_at).toLocaleDateString(undefined, {
-                          month: "short",
-                          day: "numeric",
-                          hour: "2-digit",
-                          minute: "2-digit",
-                        })}
-                      </p>
-                    </div>
-                    {/* File preview  instagram-style right-side thumb.
-                        Reuses VideoCard's `notificationThumb` layout so
-                        we inherit all the thumbnail resolution + NSFW
-                        handling already shipped in the rest of the app.
-                        The type-icon corner badge is overlaid here at
-                        the row level (notification-specific UI). */}
-                    {fileForThumb ? (
-                      <div className="relative h-12 w-[4.25rem] flex-shrink-0">
-                        <VideoCard data={fileForThumb} layout="notificationThumb" />
-                        {getNotificationIcon(n.type) && (
-                          <div className="pointer-events-none absolute bottom-0.5 right-0.5 flex h-5 w-5 items-center justify-center rounded-full bg-background/90 shadow-sm ring-1 ring-border">
-                            {getNotificationIcon(n.type)}
+          <div className="space-y-5">
+            {sections.map((section) => (
+              <div key={section.label}>
+                <h2 className="mb-1.5 px-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  {section.label}
+                </h2>
+                <ul className="space-y-1">
+                  {section.groups.map((g) => {
+                    if (g.count === 1) return <li key={g.key}>{renderSingle(g.latest)}</li>;
+                    const isOpen = expanded.has(g.key);
+                    const first = g.actors[0];
+                    return (
+                      <li key={g.key}>
+                        <button
+                          type="button"
+                          onClick={() => toggleGroup(g)}
+                          className={`flex w-full items-center gap-3 rounded-lg p-3 text-left transition-colors hover:bg-muted/50 ${g.unread ? "bg-primary/5" : ""}`}
+                          aria-expanded={isOpen}
+                        >
+                          <Avatar className="h-10 w-10 flex-shrink-0">
+                            <AvatarImage src={first?.profile_pic ? getProfilePicUrl(first.profile_pic) : undefined} />
+                            <AvatarFallback>{(first?.username ?? "?").charAt(0).toUpperCase()}</AvatarFallback>
+                          </Avatar>
+                          <div className="min-w-0 flex-1">
+                            <p className="text-sm text-foreground">
+                              <span className="font-medium">{groupHeadline(g)}</span>{" "}
+                              <span className="text-muted-foreground">{getNotificationLabel(g.type as NotificationType)}</span>
+                            </p>
+                            <p className="text-xs text-muted-foreground">
+                              {g.count} notifications ·{" "}
+                              {new Date(g.latest.created_at).toLocaleDateString(undefined, {
+                                month: "short",
+                                day: "numeric",
+                                hour: "2-digit",
+                                minute: "2-digit",
+                              })}
+                            </p>
                           </div>
+                          <ChevronDown
+                            className={`h-4 w-4 shrink-0 text-muted-foreground transition-transform ${isOpen ? "rotate-180" : ""}`}
+                          />
+                        </button>
+                        {isOpen && (
+                          <ul className="ml-5 mt-0.5 space-y-0.5 border-l border-border/60">
+                            {g.items.map((n) => (
+                              <li key={n.id}>{renderSingle(n, true)}</li>
+                            ))}
+                          </ul>
                         )}
-                      </div>
-                    ) : (
-                      <div className="flex-shrink-0">{getNotificationIcon(n.type)}</div>
-                    )}
-                  </Link>
-                </li>
-              );
-            })}
-          </ul>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
+            ))}
+          </div>
         )}
       </div>
     </div>

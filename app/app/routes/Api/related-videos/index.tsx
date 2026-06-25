@@ -1,4 +1,5 @@
 import db from '~/lib/Database/supabase';
+import { attachIsMusic } from '~/lib/files/attachIsMusic.server';
 import { isAuthenticated } from '~/lib/Security/Password';
 import { filterFilesByAccess } from '../fun/accessControl';
 
@@ -134,6 +135,9 @@ export const loader = async ({ request }: { request: Request }) => {
           : null,
       };
     });
+
+    // get_related doesn't return is_music; add it for the card music icon.
+    await attachIsMusic(db, data);
 
     const rawCount = (related || []).length;
     const nextCursor =

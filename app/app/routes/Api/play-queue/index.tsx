@@ -1,6 +1,7 @@
 import { data } from "react-router";
 import type { LoaderFunctionArgs } from "react-router";
 import db from "~/lib/Database/supabase";
+import { attachIsMusic } from "~/lib/files/attachIsMusic.server";
 import { isAuthenticated } from "~/lib/Security/Password";
 import { stripGithubRepoForClient } from "~/lib/githubStorage";
 import { checkFileAccess } from "~/routes/Dynamic/fun/accessControl";
@@ -221,6 +222,10 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   const suggested = relatedVideos
     .filter((v) => v.unique_id !== uniqueId && !seriesMemberIds.has(v.unique_id))
     .slice(0, SUGGESTED_LIMIT);
+
+  // Queue/end-card cards: get_related has no is_music, so attach it.
+  await attachIsMusic(db, suggested);
+  if (Array.isArray(seriesUpNext) && seriesUpNext.length > 0) await attachIsMusic(db, seriesUpNext);
 
   return data(
     {

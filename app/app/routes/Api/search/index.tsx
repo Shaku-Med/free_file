@@ -1,4 +1,5 @@
 import db from '~/lib/Database/supabase';
+import { attachIsMusic } from '~/lib/files/attachIsMusic.server';
 import { isAuthenticated } from '~/lib/Security/Password';
 import { embedSearchQuery } from '~/lib/Services/embedQuery.server';
 
@@ -237,6 +238,10 @@ export const loader = async ({ request }: { request: Request }) => {
         seriesRootsMapped = dedupeSeriesByMainFiles(seriesRootsMapped, data);
       }
     }
+
+    // RPC rows don't carry is_music; add it so the card music icon shows.
+    await attachIsMusic(db, data);
+    if (seriesRootsMapped.length > 0) await attachIsMusic(db, seriesRootsMapped);
 
     const lastItem = data[data.length - 1];
     const nextCursor =

@@ -2,7 +2,7 @@ import { isAuthenticated } from "~/lib/Security/Password";
 import db from "~/lib/Database/supabase";
 import { isValidFileId } from "~/lib/Security/inputValidation";
 import { createNotification } from "~/lib/Services/NotificationService";
-import { sendPushForNotification } from "~/lib/Services/PushService";
+import { enqueuePush, cancelPush } from "~/lib/Services/PushQueue.server";
 
 const toJson = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), {
@@ -163,6 +163,15 @@ export const action = async ({ request }: { request: Request }) => {
 
     if (existing) {
       await db.from("comment_likes").delete().eq("id", existing.id);
+      // Cancel any pending push from a just-undone comment like.
+      const { data: ownerRow } = await db
+        .from("comments")
+        .select("user_id, file_id")
+        .eq("id", commentId)
+        .maybeSingle();
+      if (ownerRow?.user_id) {
+        void cancelPush(ownerRow.user_id, "comment_like", user.id, ownerRow.file_id ?? undefined, commentId);
+      }
       return toJson({ liked: false, success: true });
     }
 
@@ -182,12 +191,7 @@ export const action = async ({ request }: { request: Request }) => {
         fileId: commentRow.file_id ?? undefined,
         commentId,
       });
-      sendPushForNotification(
-        commentRow.user_id,
-        "comment_like",
-        user.id,
-        commentRow.file_id ?? undefined
-      ).catch((e) => console.error("[Push] comment_like failed:", e));
+      void enqueuePush(commentRow.user_id, "comment_like", user.id, commentRow.file_id ?? undefined, commentId);
     }
 
     return toJson({ liked: true, success: true });

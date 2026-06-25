@@ -1,6 +1,7 @@
 import { data } from "react-router";
 import { isAuthenticated } from "~/lib/Security/Password";
 import db from "~/lib/Database/supabase";
+import { attachIsMusic } from "~/lib/files/attachIsMusic.server";
 import type { FileType } from "~/lib/types";
 import { normalizeRpcFileRow } from "~/lib/profile/normalizeRpcFileRow";
 import { isValidUUID } from "~/lib/Security/inputValidation";
@@ -68,6 +69,8 @@ export const loader = async ({ request }: { request: Request }) => {
           : null,
       } as FileType;
     });
+
+    await attachIsMusic(db, files);
 
     return data(
       {

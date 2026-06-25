@@ -4,6 +4,7 @@ import { Button } from "~/components/ui/button";
 import { userProfileService, type UserProfile } from "~/lib/Services/UserProfileService";
 import { isAuthenticated } from "~/lib/Security/Password";
 import db from "~/lib/Database/supabase";
+import { attachIsMusic } from "~/lib/files/attachIsMusic.server";
 import type { FileType } from "~/lib/types";
 import UserProfileHeader from "./components/UserProfileHeader";
 import UserFilesGrid from "./components/UserFilesGrid";
@@ -174,6 +175,15 @@ export const loader = async ({ request, params }: { request: Request; params: { 
         }
       }
     }
+
+    // Profile RPCs don't return is_music; attach it for the card music icon
+    // (works on the same object refs the buckets hold).
+    await attachIsMusic(db, files);
+    await attachIsMusic(db, [
+      ...channelBuckets.shorts,
+      ...channelBuckets.videos,
+      ...channelBuckets.popular,
+    ]);
 
     const url = new URL(request.url);
     return data(

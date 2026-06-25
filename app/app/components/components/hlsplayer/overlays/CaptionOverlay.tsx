@@ -6,6 +6,7 @@ import {
   useCaptionContext,
 } from "../CaptionContext"
 import type { CaptionFontSize, CaptionTextAlign } from "../CaptionContext"
+import { usePlayerContext } from "../PlayerContext"
 
 interface CaptionOverlayProps {
   containerRef: React.RefObject<HTMLDivElement | null>
@@ -58,6 +59,9 @@ export default function CaptionOverlay({ containerRef, controlsVisible, compact 
     textAlign,
     backgroundOpacity,
   } = useCaptionContext()
+  // The audio visualizer adds a taller waveform/seekbar cluster, so captions
+  // need a bigger floor to stay above it.
+  const { audioVisualizer } = usePlayerContext()
 
   const captionRef = useRef<HTMLDivElement>(null)
   const dragRef = useRef<{
@@ -111,8 +115,10 @@ export default function CaptionOverlay({ containerRef, controlsVisible, compact 
     let floor = 0
     if (controlsVisible) {
       const h = containerSize.h
+      // Visualizer chrome (waveform above the seekbar) is taller, so reserve more.
+      const controlAreaPx = audioVisualizer ? CONTROL_AREA_PX + 70 : CONTROL_AREA_PX
       const pxFloor =
-        h > 0 ? ((CONTROL_AREA_PX + CONTROL_AREA_MARGIN_PX) / h) * 100 : CAPTION_CONTROLS_FLOOR_PCT
+        h > 0 ? ((controlAreaPx + CONTROL_AREA_MARGIN_PX) / h) * 100 : CAPTION_CONTROLS_FLOOR_PCT
       floor = Math.min(Y_MAX, Math.max(CAPTION_CONTROLS_FLOOR_PCT, pxFloor))
     }
     let yBottom = base.yBottomPct
@@ -123,7 +129,7 @@ export default function CaptionOverlay({ containerRef, controlsVisible, compact 
       xPct: Math.min(X_MAX, Math.max(X_MIN, base.xPct)),
       yBottomPct: Math.min(Y_MAX, Math.max(floor, yBottom)),
     }
-  }, [livePosition, position, controlsVisible, compact, containerSize.h])
+  }, [livePosition, position, controlsVisible, compact, containerSize.h, audioVisualizer])
 
   const onPointerDown = useCallback(
     (e: React.PointerEvent<HTMLDivElement>) => {

@@ -3,7 +3,7 @@ import { checkCommentPostRateLimit } from "~/routes/Api/fun/personalizationRateL
 import db from "~/lib/Database/supabase";
 import { commentService, type CreateCommentInput } from "~/lib/Services/CommentService";
 import { createNotification } from "~/lib/Services/NotificationService";
-import { sendPushForNotification } from "~/lib/Services/PushService";
+import { enqueuePush } from "~/lib/Services/PushQueue.server";
 import { validatePagination, isValidFileId, sanitizeCommentContent, validateInteger } from "~/lib/Security/inputValidation";
 
 const toJson = (body: unknown, status = 200) =>
@@ -176,7 +176,7 @@ export const action = async ({ request }: { request: Request }) => {
               fileId,
               commentId: comment.id,
             });
-            sendPushForNotification(parentRow.user_id, 'comment_reply', user.id, fileId, comment.id).catch((e) => console.error("[Push] comment_reply failed:", e));
+            void enqueuePush(parentRow.user_id, 'comment_reply', user.id, fileId, null);
           }
         } else {
           const { data: fileRow } = await db.from('files').select('owner_id').eq('id', fileId).maybeSingle();
@@ -188,7 +188,7 @@ export const action = async ({ request }: { request: Request }) => {
               fileId,
               commentId: comment.id,
             });
-            sendPushForNotification(fileRow.owner_id, 'file_comment', user.id, fileId, comment.id).catch((e) => console.error("[Push] file_comment failed:", e));
+            void enqueuePush(fileRow.owner_id, 'file_comment', user.id, fileId, null);
           }
         }
         // Notify mentioned users (only if they exist and are not the commenter)
@@ -211,7 +211,7 @@ export const action = async ({ request }: { request: Request }) => {
                   fileId,
                   commentId: comment.id,
                 });
-                sendPushForNotification(row.id, 'comment_mention', user.id, fileId, comment.id).catch((e) => console.error("[Push] comment_mention failed:", e));
+                void enqueuePush(row.id, 'comment_mention', user.id, fileId, null);
               }
             }
           }

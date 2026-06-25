@@ -107,6 +107,16 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
       );
     }
 
+    // The reel page only plays REELS. A direct /reel/:id pointing at a normal
+    // video (e.g. someone hand-editing a watch URL into a reel URL) must never
+    // open inside the vertical reel deck  send it to its proper watch page.
+    const isReelFile =
+      (file as { is_reel?: unknown }).is_reel === true ||
+      (file as { is_reel?: unknown }).is_reel === 1;
+    if (!isReelFile) {
+      throw redirect(`/${encodeURIComponent(routeUniqueId)}`);
+    }
+
     // Enrich file with owner information (matching feed items shape)
     const enrichedFiles = await ownerService.enrichFilesWithOwners([file]);
     let fileWithOwner = (enrichedFiles && enrichedFiles[0]) || file;

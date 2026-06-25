@@ -819,7 +819,11 @@ function PipReelItemInner({
 
   const reelInfoSlot =
     variant === 'page' && showChrome ? (
-      <ReelMetaPanel file={file} item={item} views={views} />
+      // Overlaid on the video on mobile; desktop shows it OUTSIDE the frame
+      // (bottom-left, Instagram-web style) via the separate block below.
+      <div className="lg:hidden">
+        <ReelMetaPanel file={file} item={item} views={views} />
+      </div>
     ) : undefined;
 
   const videoPlayerEl =
@@ -898,6 +902,14 @@ function PipReelItemInner({
         )}
         data-pip-reel-item-id={item.id}
       >
+        {/* Desktop: author + caption OUTSIDE the video frame, bottom-left
+            (Instagram-web layout). On mobile this is overlaid on the video
+            instead, via reelInfoSlot above. */}
+        {showChrome ? (
+          <div className="pointer-events-auto absolute bottom-8 left-8 z-30 hidden max-w-[min(24rem,26vw)] lg:block">
+            <ReelMetaPanel file={file} item={item} views={views} />
+          </div>
+        ) : null}
         <div className="flex h-full min-h-0 w-full items-center justify-center max-lg:items-stretch max-lg:justify-stretch">
           <div
             ref={likeBurstHostRef}

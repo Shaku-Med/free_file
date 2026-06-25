@@ -187,6 +187,14 @@ function StudioPostRow({
 }) {
   const fileData = { ...post, owner_id: userId ?? undefined } as unknown as FileType;
 
+  // A still-processing upload can't be deleted (the worker may be mid-write).
+  // Hide the delete action; the server also blocks it as the real safeguard.
+  const isProcessing =
+    typeof post.upload_status === "string" &&
+    ["queued", "running", "processing", "pending", "uploading"].includes(
+      post.upload_status.toLowerCase(),
+    );
+
   const renderActions = () => (
     <Actions
       fileId={post.id}
@@ -204,7 +212,7 @@ function StudioPostRow({
       commentsEnabled={true}
       layout="shortsShelf"
       onEdit={onEdit}
-      onDelete={onDelete}
+      onDelete={isProcessing ? undefined : onDelete}
     />
   );
 
@@ -402,6 +410,12 @@ export default function StudioPostsPage() {
           await startVerification();
           return;
         }
+      }
+      if (res.status === 409) {
+        // Still processing  the worker may be mid-write; surface why.
+        const data = (await res.json().catch(() => null)) as { message?: string } | null;
+        setVerifyError(data?.message ?? "This video is still processing. You can delete it once it finishes.");
+        return;
       }
       setVerifyError("Couldn't delete right now. Try again.");
     } catch {

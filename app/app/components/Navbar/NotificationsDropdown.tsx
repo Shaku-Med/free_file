@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type Dispatch, type SetStateAction } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from "react";
 import { Link } from "react-router";
 import {
   DropdownMenu,
@@ -13,6 +13,7 @@ import { getProfilePicUrl } from "~/lib/utils/profilePic";
 import { Bell, Heart, MessageCircle, Reply, ThumbsUp, AtSign, RefreshCw, UserPlus } from "lucide-react";
 import { cn } from "~/lib/utils";
 import { Tooltip, TooltipContent, TooltipTrigger } from "~/components/ui/tooltip";
+import { groupNotifications, type NotificationGroup } from "~/lib/notifications/groupNotifications";
 
 type NotificationType =
   | "file_like"
@@ -184,6 +185,68 @@ export function NotificationsDropdown({ userId, unreadCount, setUnreadCount, ico
   };
 
   const listUnread = list.filter((n) => !n.read_at).length;
+  const sections = useMemo(() => groupNotifications(list), [list]);
+
+  const markGroupRead = (g: NotificationGroup<NotificationRow>) => {
+    const unread = g.items.filter((i) => !i.read_at);
+    if (!unread.length) return;
+    const ids = new Set(unread.map((i) => i.id));
+    setList((prev) => prev.map((n) => (ids.has(n.id) ? { ...n, read_at: new Date().toISOString() } : n)));
+    unread.forEach((i) => {
+      fetch("/api/notifications", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ notificationId: i.id }),
+      }).catch(() => {});
+    });
+    syncUnread();
+  };
+
+  const groupHeadline = (g: NotificationGroup<NotificationRow>) => {
+    const first = g.actors[0]?.username ?? "Someone";
+    const others = Math.max(0, g.actors.length - 1);
+    return others > 0 ? `${first} and ${others} other${others === 1 ? "" : "s"}` : first;
+  };
+
+  const renderRow = (n: NotificationRow) => {
+    const actor = n.users;
+    const username = actor?.username ?? "Someone";
+    return (
+      <DropdownMenuItem key={n.id} asChild className="cursor-pointer p-0 focus:bg-transparent">
+        <Link
+          to={linkTo(n)}
+          className={cn(
+            "flex w-full items-center gap-2.5 rounded-lg px-2 py-2 text-left outline-none hover:bg-accent focus-visible:bg-accent",
+            !n.read_at && "bg-primary/5",
+          )}
+          onClick={() => {
+            if (!n.read_at) markOneAsRead(n.id);
+          }}
+        >
+          <Avatar className="h-8 w-8 shrink-0">
+            <AvatarImage src={actor?.profile_pic ? getProfilePicUrl(actor.profile_pic) : undefined} />
+            <AvatarFallback className="text-xs">{username.charAt(0).toUpperCase()}</AvatarFallback>
+          </Avatar>
+          <div className="min-w-0 flex-1">
+            <p className="text-xs leading-snug text-foreground">
+              <span className="font-medium">{username}</span>{" "}
+              <span className="text-muted-foreground">{getNotificationLabel(n.type)}</span>
+            </p>
+            <p className="text-[10px] text-muted-foreground">
+              {new Date(n.created_at).toLocaleDateString(undefined, {
+                month: "short",
+                day: "numeric",
+                hour: "2-digit",
+                minute: "2-digit",
+              })}
+            </p>
+          </div>
+          <div className="shrink-0">{getNotificationIcon(n.type)}</div>
+        </Link>
+      </DropdownMenuItem>
+    );
+  };
 
   if (!userId) return null;
 
@@ -258,45 +321,42 @@ export function NotificationsDropdown({ userId, unreadCount, setUnreadCount, ico
           ) : list.length === 0 ? (
             <p className="px-3 py-6 text-center text-sm text-muted-foreground">No notifications yet.</p>
           ) : (
-            list.map((n) => {
-              const actor = n.users;
-              const username = actor?.username ?? "Someone";
-              const href = linkTo(n);
-              return (
-                <DropdownMenuItem key={n.id} asChild className="cursor-pointer p-0 focus:bg-transparent">
-                  <Link
-                    to={href}
-                    className={cn(
-                      "flex w-full items-center gap-2.5 rounded-lg px-2 py-2 text-left outline-none hover:bg-accent focus-visible:bg-accent",
-                      !n.read_at && "bg-primary/5"
-                    )}
-                    onClick={() => {
-                      if (!n.read_at) markOneAsRead(n.id);
-                    }}
-                  >
-                    <Avatar className="h-8 w-8 shrink-0">
-                      <AvatarImage src={actor?.profile_pic ? getProfilePicUrl(actor.profile_pic) : undefined} />
-                      <AvatarFallback className="text-xs">{username.charAt(0).toUpperCase()}</AvatarFallback>
-                    </Avatar>
-                    <div className="min-w-0 flex-1">
-                      <p className="text-xs leading-snug text-foreground">
-                        <span className="font-medium">{username}</span>{" "}
-                        <span className="text-muted-foreground">{getNotificationLabel(n.type)}</span>
-                      </p>
-                      <p className="text-[10px] text-muted-foreground">
-                        {new Date(n.created_at).toLocaleDateString(undefined, {
-                          month: "short",
-                          day: "numeric",
-                          hour: "2-digit",
-                          minute: "2-digit",
-                        })}
-                      </p>
-                    </div>
-                    <div className="shrink-0">{getNotificationIcon(n.type)}</div>
-                  </Link>
-                </DropdownMenuItem>
-              );
-            })
+            sections.map((section) => (
+              <div key={section.label}>
+                <p className="px-3 pb-0.5 pt-2 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                  {section.label}
+                </p>
+                {section.groups.map((g) => {
+                  if (g.count === 1) return renderRow(g.latest);
+                  const first = g.actors[0];
+                  return (
+                    <DropdownMenuItem key={g.key} asChild className="cursor-pointer p-0 focus:bg-transparent">
+                      <Link
+                        to={linkTo(g.latest)}
+                        className={cn(
+                          "flex w-full items-center gap-2.5 rounded-lg px-2 py-2 text-left outline-none hover:bg-accent focus-visible:bg-accent",
+                          g.unread && "bg-primary/5",
+                        )}
+                        onClick={() => markGroupRead(g)}
+                      >
+                        <Avatar className="h-8 w-8 shrink-0">
+                          <AvatarImage src={first?.profile_pic ? getProfilePicUrl(first.profile_pic) : undefined} />
+                          <AvatarFallback className="text-xs">{(first?.username ?? "?").charAt(0).toUpperCase()}</AvatarFallback>
+                        </Avatar>
+                        <div className="min-w-0 flex-1">
+                          <p className="text-xs leading-snug text-foreground">
+                            <span className="font-medium">{groupHeadline(g)}</span>{" "}
+                            <span className="text-muted-foreground">{getNotificationLabel(g.type as NotificationType)}</span>
+                          </p>
+                          <p className="text-[10px] text-muted-foreground">{g.count} notifications</p>
+                        </div>
+                        <div className="shrink-0">{getNotificationIcon(g.type as NotificationType)}</div>
+                      </Link>
+                    </DropdownMenuItem>
+                  );
+                })}
+              </div>
+            ))
           )}
         </div>
         <DropdownMenuSeparator className="my-0" />

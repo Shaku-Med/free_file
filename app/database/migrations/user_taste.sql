@@ -63,3 +63,16 @@ as $$
   order by weight desc
   limit greatest(1, least(coalesce(p_limit, 20), 200));
 $$;
+
+-- ─── Row Level Security ───────────────────────────────────────────────────
+-- The app reads/writes this table ONLY with the service-role key, which
+-- bypasses RLS, so enabling RLS doesn't affect server code. It locks the table
+-- to the public/anon key: a leaked anon key (or an accidental client query)
+-- can't read anyone's taste profile. The owner-scoped read policy is a safety
+-- net + future-proofing for a Supabase-Auth client.
+alter table public.user_taste enable row level security;
+
+drop policy if exists user_taste_owner_read on public.user_taste;
+create policy user_taste_owner_read on public.user_taste
+  for select to authenticated
+  using (user_id = auth.uid());

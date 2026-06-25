@@ -1,5 +1,6 @@
 import { filterFilesByAccess } from '../fun/accessControl';
 import db from '~/lib/Database/supabase';
+import { attachIsMusic } from '~/lib/files/attachIsMusic.server';
 import { isAuthenticated } from '~/lib/Security/Password';
 
 const TAG_LIMIT = 20;
@@ -120,6 +121,8 @@ export const loader = async ({ request, params }: { request: Request; params: { 
           : null,
       };
     });
+
+    await attachIsMusic(db, data);
 
     const lastItem = data[data.length - 1];
     const nextCursor =

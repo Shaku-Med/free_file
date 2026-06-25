@@ -115,3 +115,26 @@ as $$
   delete from public.user_recent_searches
   where user_id = p_user_id and query = lower(btrim(coalesce(p_query, '')));
 $$;
+
+-- ─── Row Level Security ───────────────────────────────────────────────────
+-- Both tables are written/read ONLY through the service-role key (which
+-- bypasses RLS) via the search endpoints. Enabling RLS locks them to the
+-- public/anon key.
+
+-- Global popularity counter: no per-user data, but no reason to expose the raw
+-- table to the anon key  it's surfaced only through the suggest endpoint.
+-- RLS on with no policy = anon/public fully denied; service-role still works.
+alter table public.search_query_stats enable row level security;
+
+-- Per-user recent searches: a user may read or remove only their OWN rows.
+alter table public.user_recent_searches enable row level security;
+
+drop policy if exists user_recent_searches_owner_read on public.user_recent_searches;
+create policy user_recent_searches_owner_read on public.user_recent_searches
+  for select to authenticated
+  using (user_id = auth.uid());
+
+drop policy if exists user_recent_searches_owner_delete on public.user_recent_searches;
+create policy user_recent_searches_owner_delete on public.user_recent_searches
+  for delete to authenticated
+  using (user_id = auth.uid());

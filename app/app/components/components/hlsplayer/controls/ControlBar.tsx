@@ -689,8 +689,10 @@ export default function ControlBar({
 
         <div className="flex min-w-0 shrink-0 items-center gap-2">
           <div className={desktopRightPill}>
-            {desktopAutoplayToggle}
-            {!isHidden(hideControls, 'subtitles') && <SubtitleButton variant="desktopPill" />}
+            {/* On a narrow player (e.g. portrait video) autoplay + subtitles
+                collapse into the "..." menu too, so the bar never overflows. */}
+            {showRightInline && desktopAutoplayToggle}
+            {showRightInline && !isHidden(hideControls, 'subtitles') && <SubtitleButton variant="desktopPill" />}
             {!authPlaybackFeatures && <GuestPlaybackBenefitsDialog variant="controlPill" />}
             {showRightInline &&
               authPlaybackFeatures &&
@@ -711,16 +713,17 @@ export default function ControlBar({
 
           {(() => {
             if (showRightInline) return null;
+            const overflowSubtitles = !isHidden(hideControls, 'subtitles');
             const overflowSettings = !isHidden(hideControls, 'settings') && authPlaybackFeatures;
             const overflowTheater = !isHidden(hideControls, 'theater') && onTheaterModeChange && authPlaybackFeatures;
             const overflowCast = !isHidden(hideControls, 'cast');
             const overflowMini = !isHidden(hideControls, 'miniPlayer') && authPlaybackFeatures;
             const overflowPip = !isHidden(hideControls, 'pip');
-            const otherOverflow = overflowTheater || overflowCast || overflowMini || overflowPip;
-            if (overflowSettings && !otherOverflow) {
-              return <SettingsMenu pillBarTrigger />;
-            }
-            if (!overflowSettings && !otherOverflow) return null;
+            // autoplay + subtitles now collapse here too on narrow players.
+            const hasOverflow =
+              overflowSubtitles || Boolean(desktopAutoplayToggle) || overflowSettings ||
+              overflowTheater || overflowCast || overflowMini || overflowPip;
+            if (!hasOverflow) return null;
             return (
               <>
                 <PlayerControlTooltip label="More controls">
@@ -747,6 +750,12 @@ export default function ControlBar({
                         maxHeight: dropdownStyle.maxHeight,
                       }}
                     >
+                      {desktopAutoplayToggle && <div className="px-2 py-1">{desktopAutoplayToggle}</div>}
+                      {!isHidden(hideControls, 'subtitles') && (
+                        <div className="px-2 py-1" onClick={() => setOverflowOpen(false)}>
+                          <SubtitleButton variant="desktopPill" />
+                        </div>
+                      )}
                       {authPlaybackFeatures && !isHidden(hideControls, 'settings') && <SettingsMenu nested />}
                       {authPlaybackFeatures && !isHidden(hideControls, 'theater') && onTheaterModeChange && (
                         <div className="px-2 py-1" onClick={() => setOverflowOpen(false)}>

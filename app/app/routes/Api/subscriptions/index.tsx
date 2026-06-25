@@ -2,7 +2,7 @@ import { data } from "react-router";
 import { isAuthenticated } from "~/lib/Security/Password";
 import db from "~/lib/Database/supabase";
 import { createNotification } from "~/lib/Services/NotificationService";
-import { sendPushForNotification } from "~/lib/Services/PushService";
+import { enqueuePush, cancelPush } from "~/lib/Services/PushQueue.server";
 
 function shouldNotifyNewSubscription(
   actionType: string,
@@ -24,9 +24,7 @@ function fireNewSubscriberNotifications(channelId: string, subscriberId: string)
       actorId: subscriberId,
     });
     if (error) console.error("new_subscriber notification:", error);
-    sendPushForNotification(channelId, "new_subscriber", subscriberId, null, null).catch((e) =>
-      console.error("[Push] new_subscriber failed:", e)
-    );
+    void enqueuePush(channelId, "new_subscriber", subscriberId, null, null);
   })();
 }
 
@@ -110,6 +108,9 @@ export const action = async ({ request }: { request: Request }) => {
       const obj = parsed as Record<string, unknown>;
       if (shouldNotifyNewSubscription("toggle", obj)) {
         fireNewSubscriberNotifications(channel_id, user.id);
+      } else if (obj.success === true && obj.subscribed === false) {
+        // Unsubscribed: cancel any pending new-subscriber push.
+        void cancelPush(channel_id, "new_subscriber", user.id);
       }
       return data(parsed, { status: 200 });
     }
@@ -157,6 +158,8 @@ export const action = async ({ request }: { request: Request }) => {
         return data({ success: false, error: "Failed to unsubscribe" }, { status: 500 });
       }
 
+      // Cancel any pending new-subscriber push from a just-undone subscribe.
+      void cancelPush(channel_id, "new_subscriber", user.id);
       const parsed = typeof result === "string" ? JSON.parse(result) : result;
       return data(parsed, { status: 200 });
     }

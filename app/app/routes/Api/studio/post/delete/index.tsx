@@ -24,6 +24,9 @@ const toJson = (body: unknown, status = 200) =>
 
 const denyErr = (status = 500) => toJson({ error: "Something's wrong." }, status);
 
+/** Upload states where the worker may still be writing  deletion is blocked. */
+const PROCESSING_STATES = new Set(["queued", "running", "processing", "pending", "uploading"]);
+
 /** The only storage-directory shape the purge endpoint accepts. */
 const PREFIX_PATTERN = /^\d{2}_\d{2}_\d{4}\/[a-f0-9]{32}\//;
 
@@ -110,7 +113,7 @@ export const action = async ({ request }: { request: Request }) => {
 
     const { data: existing, error: lookupErr } = await db
       .from("files")
-      .select("id, owner_id, endpoint, thumbnails, default_thumbnail, storage_backend, github_repo")
+      .select("id, owner_id, endpoint, thumbnails, default_thumbnail, storage_backend, github_repo, upload_status")
       .eq("unique_id", uniqueId)
       .maybeSingle();
     if (lookupErr) {
@@ -119,6 +122,18 @@ export const action = async ({ request }: { request: Request }) => {
     }
     if (!existing) return denyErr(404);
     if ((existing as { owner_id: string }).owner_id !== user.id) return denyErr(403);
+
+    // Never delete a file the upload worker is still writing to: purging its
+    // storage mid-process races the worker and can orphan the directory (which
+    // we pay for) or strand a half-processed row. Only complete / failed
+    // (terminal) uploads are deletable. Legacy rows with no status are allowed.
+    const status = (existing as { upload_status?: string | null }).upload_status;
+    if (typeof status === "string" && PROCESSING_STATES.has(status.toLowerCase())) {
+      return toJson(
+        { error: "processing", message: "This video is still processing. You can delete it once it finishes." },
+        409,
+      );
+    }
 
     // Sudo gate AFTER ownership: an attacker probing other people's ids gets
     // 403 and never learns whether their own sudo state matters.

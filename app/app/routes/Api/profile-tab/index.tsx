@@ -1,6 +1,7 @@
 import { data } from "react-router";
 import { isAuthenticated } from "~/lib/Security/Password";
 import db from "~/lib/Database/supabase";
+import { attachIsMusic } from "~/lib/files/attachIsMusic.server";
 import type { FileType } from "~/lib/types";
 import { isValidUUID } from "~/lib/Security/inputValidation";
 import { normalizeRpcFileRow } from "~/lib/profile/normalizeRpcFileRow";
@@ -103,6 +104,7 @@ export const loader = async ({ request }: { request: Request }) => {
       const hasMore = rowArr.length > limit;
       const sliced = rowArr.slice(0, limit);
       const { files, likedFileIds, dislikedFileIds } = mapFileRows(sliced, currentUserId);
+      await attachIsMusic(db, files);
       return data(
         {
           data: files,
@@ -150,6 +152,7 @@ export const loader = async ({ request }: { request: Request }) => {
     const hasMore = rowArr.length > limit;
     const sliced = rowArr.slice(0, limit);
     const { files, likedFileIds, dislikedFileIds } = mapFileRows(sliced, currentUserId);
+    await attachIsMusic(db, files);
 
     return data(
       {

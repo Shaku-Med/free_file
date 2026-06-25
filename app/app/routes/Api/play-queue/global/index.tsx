@@ -2,6 +2,7 @@ import { data } from "react-router";
 import type { ActionFunctionArgs } from "react-router";
 import crypto from "node:crypto";
 import db from "~/lib/Database/supabase";
+import { attachIsMusic } from "~/lib/files/attachIsMusic.server";
 import { isAuthenticated } from "~/lib/Security/Password";
 import { stripGithubRepoForClient } from "~/lib/githubStorage";
 import { filterFilesByAccess } from "~/routes/Api/fun/accessControl";
@@ -378,6 +379,11 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     if (mapped.liked) likedFileIds.push(String(rawRow.id));
     if (mapped.disliked) dislikedFileIds.push(String(rawRow.id));
   }
+
+  // get_related has no is_music; attach it for the card music icon.
+  await attachIsMusic(db, head);
+  await attachIsMusic(db, tail);
+  if (seriesUpNext.length > 0) await attachIsMusic(db, seriesUpNext);
 
   return data(
     {

@@ -2,7 +2,7 @@ import { isAuthenticated } from "~/lib/Security/Password";
 import db from "~/lib/Database/supabase";
 import { isValidFileId } from "~/lib/Security/inputValidation";
 import { createNotification } from "~/lib/Services/NotificationService";
-import { sendPushForNotification } from "~/lib/Services/PushService";
+import { enqueuePush, cancelPush } from "~/lib/Services/PushQueue.server";
 import { checkInteractionRateLimit } from "~/routes/Api/fun/personalizationRateLimit";
 import { recordFileTaste } from "~/lib/Services/taste.server";
 
@@ -60,8 +60,12 @@ export const action = async ({ request }: { request: Request }) => {
           actorId: user.id,
           fileId,
         });
-        sendPushForNotification(fileRow.owner_id, 'file_like', user.id, fileId).catch((e) => console.error("[Push] file_like failed:", e));
+        void enqueuePush(fileRow.owner_id, 'file_like', user.id, fileId);
       }
+    } else if (!liked && db) {
+      // Unlike within the debounce window cancels the not-yet-sent push.
+      const { data: fileRow } = await db.from('files').select('owner_id').eq('id', fileId).maybeSingle();
+      if (fileRow?.owner_id) void cancelPush(fileRow.owner_id, 'file_like', user.id, fileId);
     }
     return toJson({
       success: true,
