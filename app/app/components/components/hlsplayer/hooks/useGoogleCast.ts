@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 
 /**
  * Google Cast (Chromecast) sender integration.
@@ -8,13 +8,16 @@ import { useCallback, useEffect, useRef, useState } from 'react';
  * the Google Cast SDK with the default media receiver, which plays HLS
  * natively. The TV fetches the stream itself, so we mint a cast-scoped URL
  * (/api/play/cast-mint) it's actually allowed to load.
+ *
+ * The SDK + context are a single global singleton initialised ONCE here; every
+ * mounted button just subscribes to state. (Per-component init clobbered the
+ * one global __onGCastApiAvailable callback, so only one button ever worked.)
  */
 
 const CAST_SDK_SRC =
   'https://www.gstatic.com/cv/js/sender/v1/cast_sender.js?loadCastFramework=1';
 
-// Minimal shapes for the globals the SDK injects (no official types bundled).
-type CastGlobals = {
+type AnyWin = typeof window & {
   cast?: any;
   chrome?: any;
   __onGCastApiAvailable?: (available: boolean) => void;
@@ -30,15 +33,83 @@ export interface CastMediaPayload {
   currentTime?: number;
 }
 
-let sdkInjected = false;
+interface CastState {
+  available: boolean;
+  casting: boolean;
+}
 
-function injectCastSdk() {
-  if (sdkInjected || typeof document === 'undefined') return;
-  sdkInjected = true;
-  const s = document.createElement('script');
-  s.src = CAST_SDK_SRC;
-  s.async = true;
-  document.head.appendChild(s);
+let sdkInjected = false;
+let contextReady = false;
+let castContext: any = null;
+let current: CastState = { available: false, casting: false };
+const listeners = new Set<(s: CastState) => void>();
+
+function emit() {
+  for (const l of listeners) l(current);
+}
+
+function initCastSingleton() {
+  if (typeof window === 'undefined' || contextReady) return;
+  const w = window as AnyWin;
+
+  const doInit = () => {
+    if (contextReady) return;
+    if (!w.cast?.framework || !w.chrome?.cast) return;
+    contextReady = true;
+    try {
+      castContext = w.cast.framework.CastContext.getInstance();
+      castContext.setOptions({
+        receiverApplicationId: w.chrome.cast.media.DEFAULT_MEDIA_RECEIVER_APP_ID,
+        autoJoinPolicy: w.chrome.cast.AutoJoinPolicy.ORIGIN_SCOPED,
+      });
+      const CS = w.cast.framework.CastState;
+      const sync = () => {
+        const st = castContext.getCastState();
+        current = {
+          available: st !== CS.NO_DEVICES_AVAILABLE,
+          casting: st === CS.CONNECTED,
+        };
+        emit();
+      };
+      castContext.addEventListener(
+        w.cast.framework.CastContextEventType.CAST_STATE_CHANGED,
+        sync,
+      );
+      sync();
+    } catch (e) {
+      console.warn('[cast] init failed', e);
+      contextReady = false;
+    }
+  };
+
+  // SDK already loaded (e.g. a remount): init straight away.
+  if (w.cast?.framework && w.chrome?.cast) {
+    doInit();
+    return;
+  }
+
+  // Chain (don't clobber) any pre-existing callback, then inject the SDK once.
+  const prev = w.__onGCastApiAvailable;
+  w.__onGCastApiAvailable = (isAvailable: boolean) => {
+    if (typeof prev === 'function') {
+      try {
+        prev(isAvailable);
+      } catch {
+        /* ignore */
+      }
+    }
+    if (isAvailable) doInit();
+    else console.warn('[cast] SDK reported unavailable (needs HTTPS / supported browser)');
+  };
+
+  if (!sdkInjected && typeof document !== 'undefined') {
+    sdkInjected = true;
+    const s = document.createElement('script');
+    s.src = CAST_SDK_SRC;
+    s.async = true;
+    s.onerror = () => console.warn('[cast] failed to load cast_sender.js');
+    document.head.appendChild(s);
+  }
 }
 
 async function mintCastUrl(fileId: string): Promise<string | null> {
@@ -48,113 +119,79 @@ async function mintCastUrl(fileId: string): Promise<string | null> {
       headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'fetch' },
       body: JSON.stringify({ fileId }),
     });
-    if (!res.ok) return null;
+    if (!res.ok) {
+      console.warn('[cast] cast-mint failed', res.status);
+      return null;
+    }
     const data = (await res.json()) as { url?: string };
     return typeof data.url === 'string' ? data.url : null;
-  } catch {
+  } catch (e) {
+    console.warn('[cast] cast-mint error', e);
     return null;
   }
 }
 
 export function useGoogleCast() {
-  const [castAvailable, setCastAvailable] = useState(false);
-  const [isCasting, setIsCasting] = useState(false);
-  const readyRef = useRef(false);
+  const [state, setState] = useState<CastState>(current);
 
   useEffect(() => {
-    if (typeof window === 'undefined') return;
-    const w = window as unknown as CastGlobals;
-
-    const setup = () => {
-      const cast = w.cast;
-      const chrome = w.chrome;
-      if (!cast?.framework || !chrome?.cast) return;
-      if (readyRef.current) return;
-      readyRef.current = true;
-
-      const context = cast.framework.CastContext.getInstance();
-      context.setOptions({
-        receiverApplicationId: chrome.cast.media.DEFAULT_MEDIA_RECEIVER_APP_ID,
-        autoJoinPolicy: chrome.cast.AutoJoinPolicy.ORIGIN_SCOPED,
-      });
-
-      const CastState = cast.framework.CastState;
-      const syncState = () => {
-        const state = context.getCastState();
-        setCastAvailable(state !== CastState.NO_DEVICES_AVAILABLE);
-        setIsCasting(state === CastState.CONNECTED);
-      };
-      syncState();
-
-      context.addEventListener(
-        cast.framework.CastContextEventType.CAST_STATE_CHANGED,
-        syncState,
-      );
-    };
-
-    // The SDK calls this once it's loaded; also try immediately in case it
-    // was already present from a prior mount.
-    w.__onGCastApiAvailable = (available: boolean) => {
-      if (available) setup();
-    };
-    if (w.cast?.framework && w.chrome?.cast) setup();
-    else injectCastSdk();
-
+    initCastSingleton();
+    listeners.add(setState);
+    setState(current);
     return () => {
-      // Leave the context listener  the SDK is a singleton and we re-sync on
-      // remount. Clearing __onGCastApiAvailable would break other players.
+      listeners.delete(setState);
     };
   }, []);
 
   /** Open the device picker (if needed) and load the file onto the receiver. */
   const startCast = useCallback(async (payload: CastMediaPayload) => {
     if (typeof window === 'undefined') return;
-    const w = window as unknown as CastGlobals;
-    const cast = w.cast;
-    const chrome = w.chrome;
-    if (!cast?.framework || !chrome?.cast || !payload.fileId) return;
-
-    const context = cast.framework.CastContext.getInstance();
+    const w = window as AnyWin;
+    const ctx = castContext ?? w.cast?.framework?.CastContext?.getInstance?.();
+    if (!ctx || !w.chrome?.cast || !payload.fileId) {
+      console.warn('[cast] not ready to cast', { ready: contextReady, fileId: payload.fileId });
+      return;
+    }
     try {
-      // Ensure a session (prompts the device picker when not connected).
-      if (!context.getCurrentSession()) {
-        await context.requestSession();
+      // requestSession opens the device picker (must run during the click).
+      if (!ctx.getCurrentSession()) {
+        await ctx.requestSession();
       }
-      const session = context.getCurrentSession();
+      const session = ctx.getCurrentSession();
       if (!session) return;
 
       const url = await mintCastUrl(payload.fileId);
       if (!url) return;
 
-      const mediaInfo = new chrome.cast.media.MediaInfo(url, 'application/x-mpegurl');
-      mediaInfo.streamType = chrome.cast.media.StreamType.BUFFERED;
-      mediaInfo.metadata = new chrome.cast.media.GenericMediaMetadata();
+      const mediaInfo = new w.chrome.cast.media.MediaInfo(url, 'application/x-mpegurl');
+      mediaInfo.streamType = w.chrome.cast.media.StreamType.BUFFERED;
+      mediaInfo.metadata = new w.chrome.cast.media.GenericMediaMetadata();
       if (payload.title) mediaInfo.metadata.title = payload.title;
       if (payload.poster) {
-        mediaInfo.metadata.images = [new chrome.cast.Image(payload.poster)];
+        mediaInfo.metadata.images = [new w.chrome.cast.Image(payload.poster)];
       }
 
-      const request = new chrome.cast.media.LoadRequest(mediaInfo);
+      const request = new w.chrome.cast.media.LoadRequest(mediaInfo);
       if (payload.currentTime && Number.isFinite(payload.currentTime)) {
         request.currentTime = Math.max(0, Math.floor(payload.currentTime));
       }
       await session.loadMedia(request);
-    } catch {
-      // User dismissed the picker, or load failed  nothing to do.
+    } catch (e) {
+      // Cancelled picker is a string code ('cancel'); real failures are worth logging.
+      if (e && e !== 'cancel') console.warn('[cast] startCast failed', e);
     }
   }, []);
 
   const stopCast = useCallback(() => {
     if (typeof window === 'undefined') return;
-    const w = window as unknown as CastGlobals;
-    const cast = w.cast;
-    if (!cast?.framework) return;
+    const w = window as AnyWin;
+    const ctx = castContext ?? w.cast?.framework?.CastContext?.getInstance?.();
     try {
-      cast.framework.CastContext.getInstance().endCurrentSession(true);
+      ctx?.endCurrentSession(true);
     } catch {
-      // no active session
+      /* no active session */
     }
   }, []);
 
-  return { castAvailable, isCasting, startCast, stopCast };
+  return { castAvailable: state.available, isCasting: state.casting, startCast, stopCast };
 }

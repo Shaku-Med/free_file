@@ -23,6 +23,7 @@ import (
 	"goupload/loadplay/internal/manifestcache"
 	"goupload/loadplay/internal/noncestore"
 	"goupload/loadplay/internal/ratelimit"
+	"goupload/loadplay/internal/token"
 	"goupload/loadplay/lib/storage"
 	"goupload/loadplay/lib/supabase"
 	"goupload/lib/env"
@@ -207,6 +208,29 @@ func main() {
 		},
 	})
 	app.Use(recover.New())
+
+	// Cast/TV devices fetch the stream with a cast token from a non-app origin
+	// (the Chromecast receiver). CORS is not the access gate here  the token
+	// is  so allow cast-token requests through CORS and answer their preflight.
+	// Runs BEFORE the strict app CORS below.
+	app.Use(func(c *fiber.Ctx) error {
+		if rawTok := c.Query("t"); rawTok != "" {
+			if tok, err := token.Verify(rawTok, deps.Secret); err == nil && tok.IsCast() {
+				origin := c.Get("Origin")
+				if origin == "" {
+					origin = "*"
+				}
+				c.Set("Access-Control-Allow-Origin", origin)
+				c.Set("Access-Control-Allow-Methods", "GET,HEAD,OPTIONS")
+				c.Set("Access-Control-Allow-Headers", "Origin,Accept,Range,Content-Type")
+				c.Set("Vary", "Origin")
+				if c.Method() == fiber.MethodOptions {
+					return c.SendStatus(fiber.StatusNoContent)
+				}
+			}
+		}
+		return c.Next()
+	})
 
 	// Browser playback from the main app (different origin/port) is
 	// credentialess  auth rides in ?t= only. CORS must allow the app

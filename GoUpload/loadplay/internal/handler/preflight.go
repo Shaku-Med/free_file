@@ -4,6 +4,8 @@ import (
 	"strings"
 
 	"github.com/gofiber/fiber/v2"
+
+	"goupload/loadplay/internal/token"
 )
 
 // playbackPreflight is the HARDEST gate on the playback surface.
@@ -23,6 +25,16 @@ import (
 // Called as the FIRST line of every playback handler. If a path skips
 // this, that path is broken  fix the path, not this function.
 func playbackPreflight(c *fiber.Ctx, deps ManifestDeps) error {
+	// Cast/TV devices have no browser Origin/Referer, so they'd always die here.
+	// A valid cast token is trusted to skip this gate  its own IP + nonce +
+	// expiry + tool-UA checks run downstream. (Token is re-verified there; the
+	// extra HMAC check is cheap.)
+	if rawTok := c.Query("t"); rawTok != "" {
+		if tok, err := token.Verify(rawTok, deps.Secret); err == nil && tok.IsCast() {
+			return nil
+		}
+	}
+
 	origin := strings.TrimSpace(c.Get("Origin"))
 	referer := strings.TrimSpace(c.Get("Referer"))
 
