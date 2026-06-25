@@ -66,12 +66,17 @@ func enforcePlaybackSecurity(
 	tok *token.Playback,
 	isManifest bool,
 ) error {
-	ctx := checkPlaybackContext(c, deps)
-	if !ctx.OK {
+	// Cast/TV tokens skip the browser-context gate (the TV sends no
+	// Origin/Referer). IP scope (manifest.go), nonce binding (below), guest
+	// caps and rate limits still apply.
+	if !tok.IsCast() {
+		ctx := checkPlaybackContext(c, deps)
+		if !ctx.OK {
+			logPlaybackContext(deps.Log, deps.PlaybackDebug, "playback_context", tok.FileID, c, deps, ctx)
+			return deny(c, fiber.StatusForbidden)
+		}
 		logPlaybackContext(deps.Log, deps.PlaybackDebug, "playback_context", tok.FileID, c, deps, ctx)
-		return deny(c, fiber.StatusForbidden)
 	}
-	logPlaybackContext(deps.Log, deps.PlaybackDebug, "playback_context", tok.FileID, c, deps, ctx)
 	// Nonce binding: a token's nonce is locked to the first fingerprint
 	// that uses it. A copy of the URL pasted into another browser /
 	// network gets rejected even if the HMAC + expiry are still valid.

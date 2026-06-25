@@ -6,10 +6,12 @@ export function WatchPlayBootstrapSync({
   currentUniqueId,
   fileId,
   viewerCanCustomizeQueue,
+  currentIsImage,
 }: {
   currentUniqueId: string;
   fileId?: string;
   viewerCanCustomizeQueue: boolean;
+  currentIsImage?: boolean;
 }) {
   const { setBootstrap } = useWatchPlayBootstrap();
   useEffect(() => {
@@ -17,8 +19,9 @@ export function WatchPlayBootstrapSync({
       currentUniqueId,
       fileId,
       viewerCanCustomizeQueue,
+      currentIsImage,
     });
     return () => setBootstrap(null);
-  }, [currentUniqueId, fileId, viewerCanCustomizeQueue, setBootstrap]);
+  }, [currentUniqueId, fileId, viewerCanCustomizeQueue, currentIsImage, setBootstrap]);
   return null;
 }

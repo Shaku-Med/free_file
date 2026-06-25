@@ -30,6 +30,12 @@ const X_MIN = 5
 const X_MAX = 95
 const Y_MAX = 95
 const AUTO_BOTTOM_ZONE_PCT = 25
+/** Approx height (px) of the bottom control cluster (seek bar + button row +
+ *  padding) the captions must clear, plus a little breathing room. A flat
+ *  percentage floor is too small on short players because the bar is a roughly
+ *  fixed pixel height, so we convert this to % of the live container instead. */
+const CONTROL_AREA_PX = 96
+const CONTROL_AREA_MARGIN_PX = 10
 /** Inner padding (each side, in % of container width) the caption box
  *  refuses to cross. Keeps the box from straddling the player edge while
  *  dragging  which previously caused the text to wrap into a thin tower. */
@@ -99,7 +105,16 @@ export default function CaptionOverlay({ containerRef, controlsVisible, compact 
       return { xPct: 50, yBottomPct: 8 }
     }
     const base = livePosition ?? position
-    const floor = controlsVisible ? CAPTION_CONTROLS_FLOOR_PCT : 0
+    // Keep captions above the controls. Derive the floor from the bar's pixel
+    // height relative to the current player height, so it clears the bar on
+    // short players too (where a flat 14% was too few pixels).
+    let floor = 0
+    if (controlsVisible) {
+      const h = containerSize.h
+      const pxFloor =
+        h > 0 ? ((CONTROL_AREA_PX + CONTROL_AREA_MARGIN_PX) / h) * 100 : CAPTION_CONTROLS_FLOOR_PCT
+      floor = Math.min(Y_MAX, Math.max(CAPTION_CONTROLS_FLOOR_PCT, pxFloor))
+    }
     let yBottom = base.yBottomPct
     if (!controlsVisible && yBottom <= AUTO_BOTTOM_ZONE_PCT) {
       yBottom = CAPTION_DEFAULT_Y_PCT
@@ -108,7 +123,7 @@ export default function CaptionOverlay({ containerRef, controlsVisible, compact 
       xPct: Math.min(X_MAX, Math.max(X_MIN, base.xPct)),
       yBottomPct: Math.min(Y_MAX, Math.max(floor, yBottom)),
     }
-  }, [livePosition, position, controlsVisible, compact])
+  }, [livePosition, position, controlsVisible, compact, containerSize.h])
 
   const onPointerDown = useCallback(
     (e: React.PointerEvent<HTMLDivElement>) => {

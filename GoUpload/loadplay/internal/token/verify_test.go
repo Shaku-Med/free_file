@@ -32,6 +32,25 @@ func TestRoundTrip(t *testing.T) {
 	}
 }
 
+func TestCastClaimRoundTrips(t *testing.T) {
+	p := validPayload()
+	if p.IsCast() {
+		t.Fatal("default token should not be cast")
+	}
+	p.Cast = 1
+	raw, err := Encode(p, testSecret)
+	if err != nil {
+		t.Fatalf("encode: %v", err)
+	}
+	got, err := Verify(raw, testSecret)
+	if err != nil {
+		t.Fatalf("verify: %v", err)
+	}
+	if !got.IsCast() {
+		t.Fatal("expected IsCast() true for cast token")
+	}
+}
+
 func TestWrongSecretRejected(t *testing.T) {
 	raw, _ := Encode(validPayload(), testSecret)
 	if _, err := Verify(raw, []byte("different-secret")); err != ErrBadSignature {

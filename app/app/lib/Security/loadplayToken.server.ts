@@ -96,6 +96,10 @@ export interface MintInput {
   uaHash?: string;
   nonce?: string;
   guestLimitSeconds?: number;
+  /** Cast token: a TV/Cast device (no browser Origin/Referer, different UA)
+   *  fetches the stream itself. loadplay skips the origin/referer guard + UA
+   *  bind for these, but still enforces IP scope + fresh nonce + expiry. */
+  cast?: boolean;
 }
 
 export interface MintResult {
@@ -126,6 +130,7 @@ export function mintLoadplayToken(input: MintInput): MintResult | null {
   }
   if (input.ipHash) payload.i = input.ipHash;
   if (input.uaHash) payload.a = input.uaHash;
+  if (input.cast) payload.c = 1;
   // Always emit a nonce. LoadPlay binds the first fingerprint to use it
   // and rejects copies pasted into a different browser / network 
   // even if the HMAC + expiry still check out.
@@ -194,6 +199,43 @@ export function buildPlaybackUrlForFile(
   return built?.url ?? null;
 }
 
+// Casting plays a whole movie on a TV, so the token must outlive a short
+// playback window. IP scope + fresh nonce (the TV is the first user) keep it
+// from being usable off the caster's network.
+const CAST_PLAYBACK_TTL_MS = 6 * 60 * 60_000;
+
+/**
+ * Mint a cast-scoped LoadPlay master URL for a signed-in user. IP-bound (the
+ * TV shares the caster's NAT public IP), NO UA bind (the TV's UA differs), and
+ * flagged `cast` so loadplay skips its browser-origin guard for this request.
+ */
+export function buildCastUrlForFile(
+  file: {
+    unique_id: string;
+    endpoint?: string | null;
+    file_type?: string | null;
+  },
+  userId: string,
+  ipHash: string,
+  request?: Request,
+): string | null {
+  const baseUrl = loadplayBaseUrl(request);
+  if (!file.unique_id || !userId) return null;
+  const path = resolveHlsManifestPath(file.endpoint ?? "", file.file_type);
+  if (!path) return null;
+
+  const built = buildLoadplayUrl({
+    baseUrl,
+    fileId: file.unique_id,
+    path,
+    userId,
+    ipHash: ipHash || undefined,
+    ttlMs: CAST_PLAYBACK_TTL_MS,
+    cast: true,
+  });
+  return built?.url ?? null;
+}
+
 export function buildLoadplayUrl(opts: {
   baseUrl: string;
   fileId: string;
@@ -203,6 +245,7 @@ export function buildLoadplayUrl(opts: {
   guestLimitSeconds?: number;
   ipHash?: string;
   uaHash?: string;
+  cast?: boolean;
 }): { url: string; exp: number } | null {
   const minted = mintLoadplayToken({
     fileId: opts.fileId,
@@ -212,6 +255,7 @@ export function buildLoadplayUrl(opts: {
     guestLimitSeconds: opts.guestLimitSeconds,
     ipHash: opts.ipHash,
     uaHash: opts.uaHash,
+    cast: opts.cast,
   });
   if (!minted) return null;
   const base = opts.baseUrl.replace(/\/+$/, "");

@@ -1,7 +1,10 @@
-import { cn } from '~/lib/utils';
+import { useEffect } from 'react';
+import { cn, getThumbnailUrl } from '~/lib/utils';
+import { BASE_URL } from '~/lib/URLS';
 import { mobileOverlayIcon, mobileOverlaySquareBtn } from '../mobileControlMetrics';
 import { usePlayerContext } from '../../PlayerContext';
 import { useRemotePlayback } from '../../hooks/useRemotePlayback';
+import { useGoogleCast } from '../../hooks/useGoogleCast';
 import AirPlayIcon from './CastIcon';
 import { Tooltip, TooltipContent, TooltipTrigger } from '~/components/ui/tooltip';
 
@@ -12,13 +15,43 @@ export default function CastButton({
   controlPill?: boolean;
   mobileOverlay?: boolean;
 }) {
-  const { videoRef } = usePlayerContext();
-  const { isAvailable, isCasting, prompt } = useRemotePlayback(videoRef);
+  const { videoRef, file, state } = usePlayerContext();
+  const remote = useRemotePlayback(videoRef);
+  const gcast = useGoogleCast();
+
+  // Google Cast (Chrome / Android desktop) when devices are around, else
+  // AirPlay / Remote Playback (Safari, iOS).
+  const isAvailable = gcast.castAvailable || remote.isAvailable;
+  const isCasting = gcast.isCasting || remote.isCasting;
+
+  // Pause local playback while a Google Cast session is live so the TV and the
+  // browser don't play the same audio at once.
+  useEffect(() => {
+    if (gcast.isCasting && videoRef.current && !videoRef.current.paused) {
+      videoRef.current.pause();
+    }
+  }, [gcast.isCasting, videoRef]);
 
   if (!isAvailable) return null;
 
   const runPrompt = () => {
-    void prompt();
+    if (gcast.castAvailable && file?.unique_id) {
+      if (gcast.isCasting) {
+        gcast.stopCast();
+        return;
+      }
+      void gcast.startCast({
+        fileId: file.unique_id,
+        title: file.file_title || file.filename || undefined,
+        poster: getThumbnailUrl(file, {
+          baseUrl: BASE_URL,
+          queryString: '?quality=60&is_metadata=true',
+        }),
+        currentTime: state?.currentTime,
+      });
+      return;
+    }
+    void remote.prompt();
   };
 
   return (

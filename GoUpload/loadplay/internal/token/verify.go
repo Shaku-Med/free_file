@@ -21,6 +21,14 @@ type Playback struct {
 	UAHash      string `json:"a,omitempty"`
 	Nonce       string `json:"n,omitempty"`
 	GuestLimit  int64  `json:"g,omitempty"` // guest preview cap (seconds); app-minted only
+	Cast        int    `json:"c,omitempty"` // 1 = cast device token (no browser origin/UA)
+}
+
+// IsCast reports whether this token was minted for a Cast/TV device, which has
+// no browser Origin/Referer and a different UA. Such tokens skip the origin
+// guard + UA bind but still enforce IP scope + nonce + expiry.
+func (p *Playback) IsCast() bool {
+	return p.Cast != 0
 }
 
 const maxGuestPreviewSec = 600

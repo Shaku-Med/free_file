@@ -40,6 +40,27 @@ export async function enrichFeedFilesWithInteractions(
     }
   }
 
+  // is_music isn't returned by the feed RPCs, so fetch it for these files and
+  // merge it in (drives the card music icon). Wrapped so it no-ops cleanly
+  // until the add_is_music migration has run.
+  const musicFileIds = new Set<string>();
+  if (fileIds.length > 0) {
+    try {
+      const { data: musicRows } = await dbClient
+        .from('files')
+        .select('id, is_music')
+        .in('id', fileIds);
+      if (Array.isArray(musicRows)) {
+        for (const r of musicRows) {
+          const row = r as { id?: unknown; is_music?: unknown };
+          if (row.is_music === true && typeof row.id === 'string') musicFileIds.add(row.id);
+        }
+      }
+    } catch {
+      // column may not exist yet; cards just won't show the icon
+    }
+  }
+
   const likedFileIds: string[] = [];
   const dislikedFileIds: string[] = [];
   const savedFileIds: string[] = [];
@@ -98,6 +119,7 @@ export async function enrichFeedFilesWithInteractions(
       duration: f.duration,
       upload_status: f.upload_status,
       processing_progress: f.processing_progress,
+      is_music: id ? musicFileIds.has(id) : false,
       categories: f.categories,
       tags: f.tags,
       colors: f.colors,

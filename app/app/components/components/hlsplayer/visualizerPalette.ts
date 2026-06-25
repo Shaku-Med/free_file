@@ -19,25 +19,56 @@ export function fileAccentColors(raw: unknown, max = 6): string[] {
   return out;
 }
 
+function hexToRgb(hex: string): { r: number; g: number; b: number } | null {
+  let h = hex.replace('#', '').trim();
+  if (h.length === 3) h = h.split('').map((c) => c + c).join('');
+  if (h.length !== 6) return null;
+  const n = parseInt(h, 16);
+  if (Number.isNaN(n)) return null;
+  return { r: (n >> 16) & 255, g: (n >> 8) & 255, b: n & 255 };
+}
+
 /**
- * Hover tint from a file's dominant colors: ONE color picked "randomly" but
- * stably (seed-hashed, so a grid shows varied hues without flickering on
- * re-render), crushed onto the theme surface YouTube-style  the hue shows,
- * the surface's luminance dominates, text contrast survives in any theme.
+ * "Vividness" of a hex color: chroma (how far from gray) nudged toward brighter
+ * hues, so a loud red beats a muddy dark one and both beat a gray. This is the
+ * color that reads loudest to the eye.
+ */
+function colorVividness(hex: string): number {
+  const rgb = hexToRgb(hex);
+  if (!rgb) return -1;
+  const r = rgb.r / 255, g = rgb.g / 255, b = rgb.b / 255;
+  const max = Math.max(r, g, b);
+  const chroma = max - Math.min(r, g, b); // 0 = gray, 1 = pure hue
+  return chroma * (0.4 + 0.6 * max);
+}
+
+/**
+ * Hover tint from a file's dominant colors: the MOST concentrated (vivid) hue
+ * in the palette  the one most known to the eye  crushed onto the theme
+ * surface YouTube-style. The hue shows, the surface's luminance dominates, and
+ * text contrast survives in any theme. (Stable: no random per-render pick.)
  */
 export function fileHoverTint(
   rawColors: unknown,
-  seed = '',
+  _seed = '',
   // NOTE: theme tokens are COMPLETE colors (oklch), so use them bare
   // wrapping in hsl() produces an invalid color (renders black).
   surface = 'var(--muted)',
 ): string | null {
   const colors = fileAccentColors(rawColors);
   if (colors.length === 0) return null;
-  let h = 0;
-  for (let i = 0; i < seed.length; i++) h = (h * 31 + seed.charCodeAt(i)) | 0;
-  const pick = colors[Math.abs(h) % colors.length]!;
-  return `color-mix(in srgb, ${pick} 24%, ${surface})`;
+  let pick = colors[0]!;
+  let best = colorVividness(pick);
+  for (let i = 1; i < colors.length; i++) {
+    const v = colorVividness(colors[i]!);
+    if (v > best) {
+      best = v;
+      pick = colors[i]!;
+    }
+  }
+  // 34% lets the hue read brighter than the old 24% while the theme surface
+  // still carries the luminance, so foreground text stays readable in any theme.
+  return `color-mix(in srgb, ${pick} 34%, ${surface})`;
 }
 
 /** Resolve any shadcn theme token (`--primary`, `--destructive`, `--chart-2`, …) to computed RGB. */

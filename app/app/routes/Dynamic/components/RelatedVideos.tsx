@@ -142,6 +142,12 @@ const RelatedVideosContent = ({ currentUserId }: { currentUserId?: string }) => 
 
   const onDragCancel = () => setOverlayVideo(null)
 
+  // Keep the related list DIFFERENT from the play queue (YouTube-style): drop
+  // anything already sitting in the queue so the two sections never show the
+  // same video twice.
+  const queuedIds = new Set((playQueue?.queue ?? []).map((v) => v.id))
+  const relatedToShow = displayVideos.filter((v) => !queuedIds.has(v.id))
+
   const relatedGridClass =
     "grid min-w-0 grid-cols-1 gap-2 @min-[480px]/related-videos:grid-cols-2 @min-[900px]/related-videos:grid-cols-3"
 
@@ -248,7 +254,7 @@ const RelatedVideosContent = ({ currentUserId }: { currentUserId?: string }) => 
       <PlayQueuePanel currentUserId={currentUserId} userActions={userActions} />
 
       <div className="space-y-4">
-        {displayVideos.length === 0 && !isLoading ? (
+        {relatedToShow.length === 0 && !isLoading ? (
           <div className="flex items-center justify-center p-8">
             <div className="text-center">
               <p className="text-sm text-muted-foreground">No related videos available</p>
@@ -256,7 +262,7 @@ const RelatedVideosContent = ({ currentUserId }: { currentUserId?: string }) => 
           </div>
         ) : (
           <>
-            {renderGroupedVideos(displayVideos, "upnext")}
+            {renderGroupedVideos(relatedToShow, "upnext")}
             {hasMore && (
               currentUserId ? (
                 <div ref={observerRef} className="h-10 flex items-center justify-center">

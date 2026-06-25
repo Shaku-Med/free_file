@@ -519,6 +519,11 @@ export const action = async ({ request }: { request: Request }) => {
     if (categories.length > 0) {
       updateData.categories = categories;
     }
+    // is_music: trust the worker's flag, but also catch a "music" category as a
+    // fallback (matches the backfill). Always set so re-processing keeps it fresh.
+    const bodyIsMusic = (body as { is_music?: unknown })?.is_music === true;
+    const categoryIsMusic = categories.some((c) => c.toLowerCase().includes('music'));
+    updateData.is_music = bodyIsMusic || categoryIsMusic;
     if (tags.length > 0) {
       updateData.tags = tags;
     }

@@ -12,6 +12,7 @@ export default defineConfig(({mode}) => {
   const serverOnlyModules = [
     'bullmq',
     'ioredis',
+    'geoip-lite',
     'web-push',
     'worker_threads',
     'child_process',

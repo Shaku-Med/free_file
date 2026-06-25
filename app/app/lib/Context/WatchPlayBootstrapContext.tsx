@@ -15,6 +15,8 @@ export type WatchPlayBootstrap = {
   currentUniqueId: string;
   fileId?: string;
   viewerCanCustomizeQueue: boolean;
+  /** The current file is a picture  the play queue is disabled for it. */
+  currentIsImage?: boolean;
 };
 
 export type PlayQueuePayload = {

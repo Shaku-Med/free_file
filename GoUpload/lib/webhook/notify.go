@@ -51,9 +51,13 @@ type Payload struct {
 	// time from title/description/tags/AI caption. The app stores it on the
 	// files row; omitted when the embed sidecar is disabled or failed.
 	Embedding []float32 `json:"embedding,omitempty"`
+	// True when the file is detected as music (beat-regularity score or a
+	// "music" category). Drives the card music icon and on-theme recommends.
+	IsMusic bool `json:"is_music,omitempty"`
 	// Audio fingerprints (Shazam-style duplicate detection): parallel arrays
 	// of pair hashes + STFT frame offsets. The app feeds them to
 	// register_audio_fingerprints which stores + matches + links originals.
+	// Sent only for music files now (fingerprinting is music-only).
 	FpHashes  []uint32 `json:"fp_hashes,omitempty"`
 	FpOffsets []int32  `json:"fp_offsets,omitempty"`
 	// 0–100 while status is running; omitted for queued/completed/failed unless set.

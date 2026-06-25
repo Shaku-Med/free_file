@@ -902,6 +902,21 @@ func (w *Worker) processJob(job *queue.Job) {
 		}
 	}
 
+	// is_music = any category mentions "music" (covers the auto-tag above plus
+	// user/vision categories). Audio fingerprinting (original-sound detection)
+	// only makes sense for music, so non-music files send no prints  this both
+	// keeps the index music-only and cuts false matches on talking-head videos.
+	isMusic := false
+	for _, c := range categories {
+		if strings.Contains(strings.ToLower(c), "music") {
+			isMusic = true
+			break
+		}
+	}
+	if !isMusic {
+		fpHashes, fpOffsets = nil, nil
+	}
+
 	// Embedded song tags (genre / artist / title / album) read by the probe.
 	// Genre becomes a CATEGORY so it feeds search + the Mix generator (which
 	// scores candidates on shared categories); the rest is kept under
@@ -1093,6 +1108,7 @@ func (w *Worker) processJob(job *queue.Job) {
 		StorageBucket:       storageBucket,
 		Overflow:            job.Overflow,
 		Embedding:           w.embedForFile(job, categories, tags, metadata),
+		IsMusic:             isMusic,
 		FpHashes:            fpHashes,
 		FpOffsets:           fpOffsets,
 	})

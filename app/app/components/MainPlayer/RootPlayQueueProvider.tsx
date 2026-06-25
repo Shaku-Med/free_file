@@ -22,6 +22,19 @@ export function RootPlayQueueProvider({ children }: { children: ReactNode }) {
 
   const effective = useMemo(() => {
     if (bootstrap) {
+      // A picture has nothing to play  disable the queue entirely (no items,
+      // not customizable) so it never shows up-next or auto-advance for images.
+      if (bootstrap.currentIsImage) {
+        return {
+          currentUniqueId: bootstrap.currentUniqueId,
+          seriesUpNextVideos: [] as const,
+          suggestedVideos: [] as const,
+          viewerCanCustomizeQueue: false,
+          queueFetchKey,
+          queueLoading: false,
+          refreshQueue,
+        };
+      }
       return {
         currentUniqueId: bootstrap.currentUniqueId,
         seriesUpNextVideos: queueData?.seriesUpNextVideos ?? [],

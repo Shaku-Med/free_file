@@ -16,7 +16,7 @@ import Actions from "./VideoCard/Actions";
 import { Separator } from "~/components/ui/separator";
 import { Progress } from "~/components/ui/progress";
 import CategoryBadges from "~/components/CategoryBadges";
-import { Info, MoreVertical, ChevronDown, X, Check, AlertTriangle, Send, Loader2, ImagePlus, MessageSquare, MessageSquareOff, ListVideo, Layers, ListPlus, ListChecks, Captions, Clapperboard } from "lucide-react";
+import { Info, MoreVertical, ChevronDown, X, Check, AlertTriangle, Send, Loader2, ImagePlus, MessageSquare, MessageSquareOff, ListVideo, Layers, ListPlus, ListChecks, Captions, Clapperboard, Music2 } from "lucide-react";
 import { CaptionModal, type CaptionEntry } from "~/components/captions/CaptionModal";
 import { findLanguageLabel } from "~/lib/captions/vtt";
 import { Tooltip, TooltipContent, TooltipTrigger } from "~/components/ui/tooltip";
@@ -1209,9 +1209,10 @@ const VideoCard = ({
         {layout === "default" && <CategoryBadges categories={data.categories} />}
         {durationSec > 0 && (
           <div
-            className="file_duration pointer-events-none absolute right-2 bottom-2 z-20 flex min-h-[1.375rem] items-center rounded-md border border-white/10 bg-black/75 px-1.5 py-0.5 text-[11px] font-semibold tabular-nums leading-none text-white shadow-sm backdrop-blur-sm"
-            aria-label={`Duration ${formatDuration(durationSec)}`}
+            className="file_duration pointer-events-none absolute right-2 bottom-2 z-20 flex min-h-[1.375rem] items-center gap-1 rounded-md border border-white/10 bg-black/75 px-1.5 py-0.5 text-[11px] font-semibold tabular-nums leading-none text-white shadow-sm backdrop-blur-sm"
+            aria-label={`${data.is_music ? "Music " : ""}Duration ${formatDuration(durationSec)}`}
           >
+            {data.is_music && <Music2 className="h-3 w-3 shrink-0" aria-hidden />}
             {formatDuration(durationSec)}
           </div>
         )}
@@ -2325,7 +2326,11 @@ const VideoCard = ({
           !hideActions && "hover:bg-muted/50",
           hideActions ? "gap-3 rounded-lg" : "",
           sidebarLayoutState === "expanded" && "fl_break_layout text-sm gap-3 rounded-lg p-2",
-          sidebarLayoutState !== "expanded" && related && "flex-row items-start gap-3 rounded-lg p-2",
+          // On mobile the related card goes VERTICAL (thumbnail on top, info
+          // below) so it reads like a feed card in a grid instead of a cramped
+          // row. Desktop keeps the horizontal sidebar row.
+          sidebarLayoutState !== "expanded" && related && isMobile && "flex-col gap-2 rounded-lg p-1.5",
+          sidebarLayoutState !== "expanded" && related && !isMobile && "flex-row items-start gap-3 rounded-lg p-2",
           sidebarLayoutState !== "expanded" && !related && "flex-col flex-wrap gap-3 rounded-lg p-2 md:flex-row",
           hideActions && related && "p-0 hover:bg-transparent",
         )}
@@ -2338,7 +2343,12 @@ const VideoCard = ({
           to={watchPath}
           className={
             related
-              ? "relative aspect-video w-38 max-w-[62%] shrink-0 overflow-hidden rounded-lg bg-card ring-1 ring-border/30 dark:ring-white/10 sm:w-42 sm:max-w-[60%]"
+              ? isMobile
+                ? "relative aspect-video w-full shrink-0 overflow-hidden rounded-xl bg-card ring-1 ring-border/30 dark:ring-white/10"
+                // Desktop: thumbnail scales with the card/body width (bigger on
+                // wide layouts, never cramped in a 2-3 col grid), capped so the
+                // title keeps room.
+                : "relative aspect-video w-[46%] min-w-40 max-w-80 shrink-0 overflow-hidden rounded-lg bg-card ring-1 ring-border/30 dark:ring-white/10"
               : "relative aspect-video w-full min-w-60 max-w-full shrink-0 overflow-hidden rounded-lg bg-card md:max-w-64 md:flex-1"
           }
         >

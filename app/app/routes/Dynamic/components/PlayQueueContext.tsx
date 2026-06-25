@@ -34,9 +34,12 @@ function dedupeById(videos: FileType[]): FileType[] {
   return out;
 }
 
-/** Reels never enter the play queue  they live in the reel feed only. */
+/** Reels and pictures never enter the play queue  reels live in the reel feed
+ *  only, and an image has nothing to play. */
 function isQueueable(video: FileType | null | undefined): boolean {
-  return Boolean(video) && !video!.is_reel;
+  if (!video || video.is_reel) return false;
+  if (typeof video.file_type === "string" && video.file_type.startsWith("image/")) return false;
+  return true;
 }
 
 type PlayQueueContextValue = {

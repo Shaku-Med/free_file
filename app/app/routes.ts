@@ -82,6 +82,7 @@ export default [
         route(`play-queue`, 'routes/Api/play-queue/index.tsx'),
         route(`play-queue/global`, 'routes/Api/play-queue/global/index.tsx'),
         route(`play/mint`, 'routes/Api/play/mint/index.tsx'),
+        route(`play/cast-mint`, 'routes/Api/play/cast-mint/index.tsx'),
         route(`studio/overview`, 'routes/Api/studio/overview/index.tsx'),
         route(`studio/posts`, 'routes/Api/studio/posts/index.tsx'),
         route(`studio/series`, 'routes/Api/studio/series/index.tsx'),

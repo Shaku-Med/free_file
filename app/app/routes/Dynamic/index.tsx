@@ -1007,6 +1007,10 @@ const DynamicPage = ({ is_modal }: DynamicPageProps) => {
   const [videoRefReady, setVideoRefReady] = useState(false);
   /** Intrinsic video aspect  used to hug the ambience glow to the visible video when the player background is off. */
   const [ambienceVideoAspect, setAmbienceVideoAspect] = useState<number | null>(null);
+  // The frame matches the video's real aspect (no black bars), clamped so a
+  // portrait or ultrawide clip can't blow up the layout. ~16:9 is unchanged.
+  // Falls back to 16:9 until the video's dimensions are known.
+  const playerFrameAspect = Math.min(2.4, Math.max(0.56, ambienceVideoAspect ?? 16 / 9));
   useEffect(() => {
     if (!videoRefReady) return;
     const v = watchVideoRef.current;
@@ -1660,13 +1664,14 @@ const DynamicPage = ({ is_modal }: DynamicPageProps) => {
       }
       <div
         ref={mainPlayerAnchorRef}
-        className={cn(
-          "relative w-full",
-          theaterMode
-            ? "max-h-[calc(100vh-64px)] aspect-video mx-auto"
-            : "aspect-video",
-          isHLS && `player_inner_${file_data.unique_id}`,
-        )}
+        className={cn("relative mx-auto", isHLS && `player_inner_${file_data.unique_id}`)}
+        style={{
+          // Match the video's aspect (clamped above); cap the height so portrait
+          // clips stay within the viewport and width shrinks instead of the
+          // frame towering. Width fills the column for normal ~16:9 videos.
+          aspectRatio: String(playerFrameAspect),
+          width: `min(100%, calc(${theaterMode ? 90 : 82}vh * ${playerFrameAspect}))`,
+        }}
       >
         {isHLS ? null : showVideoProcessingPlaceholder ? (
           <div className="relative aspect-video w-full overflow-hidden rounded-lg bg-black">
@@ -2135,6 +2140,7 @@ const DynamicPage = ({ is_modal }: DynamicPageProps) => {
         currentUniqueId={file_data.unique_id}
         fileId={file_data.id}
         viewerCanCustomizeQueue={Boolean(userId)}
+        currentIsImage={typeof file_data.file_type === "string" && file_data.file_type.startsWith("image/")}
       />
     <div className="relative min-h-screen reel_p" key={`dynamic-${currentId}`}>
       <script

@@ -201,16 +201,23 @@ func manifestPathAllowed(asked, allowed string) bool {
 }
 
 func softGuardOrFingerprint(c *fiber.Ctx, deps ManifestDeps, tok *token.Playback) error {
-	origin := c.Get("Origin")
-	referer := c.Get("Referer")
-	if reason := deps.Guard.Check(origin, referer, c.Get("User-Agent")); reason != "" {
-		od := deps.Guard.Diagnose(origin)
-		rd := deps.Guard.Diagnose(referer)
-		deps.Log.Errorf(
-			"guard reject reason=%s unique_id=%s origin_raw=%q origin_verdict=%s referer_raw=%q referer_verdict=%s allowed=%v ua=%q",
-			reason, tok.FileID, origin, od.Reason, referer, rd.Reason, deps.Guard.AllowedList(), c.Get("User-Agent"),
-		)
-		return deny(c, fiber.StatusForbidden)
+	// Cast/TV devices fetch the stream directly: they send no browser
+	// Origin/Referer and a non-browser UA, so the origin guard would always
+	// reject them. A cast token is minted server-side, IP-bound, and
+	// fresh-nonce, so it's trusted to skip the origin guard while IP scope +
+	// nonce + expiry (below + in security.go) still lock it to the TV.
+	if !tok.IsCast() {
+		origin := c.Get("Origin")
+		referer := c.Get("Referer")
+		if reason := deps.Guard.Check(origin, referer, c.Get("User-Agent")); reason != "" {
+			od := deps.Guard.Diagnose(origin)
+			rd := deps.Guard.Diagnose(referer)
+			deps.Log.Errorf(
+				"guard reject reason=%s unique_id=%s origin_raw=%q origin_verdict=%s referer_raw=%q referer_verdict=%s allowed=%v ua=%q",
+				reason, tok.FileID, origin, od.Reason, referer, rd.Reason, deps.Guard.AllowedList(), c.Get("User-Agent"),
+			)
+			return deny(c, fiber.StatusForbidden)
+		}
 	}
 	if !deps.RequireBind {
 		return nil

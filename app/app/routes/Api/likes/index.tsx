@@ -4,6 +4,7 @@ import { isValidFileId } from "~/lib/Security/inputValidation";
 import { createNotification } from "~/lib/Services/NotificationService";
 import { sendPushForNotification } from "~/lib/Services/PushService";
 import { checkInteractionRateLimit } from "~/routes/Api/fun/personalizationRateLimit";
+import { recordFileTaste } from "~/lib/Services/taste.server";
 
 const toJson = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), {
@@ -45,6 +46,9 @@ export const action = async ({ request }: { request: Request }) => {
     const liked = row?.liked ?? false;
     let likedCategories: string[] = [];
     if (liked && db) {
+      // A like is a strong taste signal: bump the user's affinity for this
+      // file's categories + upload region. Fire-and-forget, never blocks.
+      void recordFileTaste(user.id, fileId, 1).catch(() => {});
       const { data: fileRow } = await db.from('files').select('owner_id, categories').eq('id', fileId).maybeSingle();
       if (Array.isArray(fileRow?.categories)) {
         likedCategories = fileRow.categories.filter((c: unknown): c is string => typeof c === 'string');

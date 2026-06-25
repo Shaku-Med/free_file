@@ -34,6 +34,7 @@ import { getCookie } from "./lib/Security/Token";
 import { VerifyToken } from "./lib/Security/unsharedkeyEncryption/Combined/Verification/VerifyToken";
 import SetToken from "./lib/Security/unsharedkeyEncryption/Combined/Verification/SetToken";
 import { isAuthenticated } from "./lib/Security/Password";
+import { maybeUpdateUserGeo } from "./lib/Security/geo.server";
 import AppShell from "./components/AppShell";
 import RegisterServiceWorker from "./components/RegisterServiceWorker";
 import OrientationLock from "./components/OrientationLock";
@@ -153,6 +154,12 @@ export const loader = async ({request}: {request: Request}) => {
 
     const user = await isAuthenticated(request, ['id']);
     const userId = user?.id || null;
+
+    // Refresh the signed-in user's IP/geo (throttled in the helper so app opens
+    // don't flood the table). Fire-and-forget: never block the page on it.
+    if (userId) {
+      void maybeUpdateUserGeo(request, userId).catch(() => {});
+    }
 
     let token: string | null = null;
     if (!verified) {
