@@ -7,6 +7,7 @@ import {
   type SetStateAction,
 } from "react";
 import type { FileType, SeriesEpisodeGroup } from "~/lib/types";
+import { usePersistentToggle } from "~/lib/hooks/usePersistentToggle";
 import { Link } from "react-router";
 import VideoCard from "~/routes/Home/components/VideoCard";
 import { Button } from "~/components/ui/button";
@@ -256,6 +257,7 @@ function EpisodeBlock({
                   <div className="min-w-0 flex-1 space-y-1">
                     <VideoCard
                       layout={`compact`}
+                      dense
                       related
                       hideActions={{ completely: false, halfway: true }}
                       data={video}
@@ -412,7 +414,9 @@ export default function SeriesEpisodesSection({
     }
   }, [fileSeriesId, currentVideoUniqueId, episodes]);
 
-  const [seriesOpen, setSeriesOpen] = useState(true);
+  // Persist the fold so navigating to another video in the series doesn't
+  // re-expand it (and bounce the scroll position).
+  const [seriesOpen, setSeriesOpen] = usePersistentToggle("memories:series-open", true);
   const [episodeOpen, setEpisodeOpen] = useState<Record<string, boolean>>(() =>
     buildEpisodeOpenInitial(episodes, currentVideoUniqueId)
   );

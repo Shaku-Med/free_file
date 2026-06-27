@@ -432,7 +432,7 @@ function PlayerInner({
     if (seekFeedbackTimeoutRef.current) clearTimeout(seekFeedbackTimeoutRef.current);
   }, []);
 
-  useHLS(videoRef);
+  const { retryPlayback } = useHLS(videoRef);
   useVideoEvents(videoRef, { onPlay, onPause, onEnded, onError });
   usePlaybackPosition(videoRef);
   useWatchTimeHeartbeat(videoRef);
@@ -1042,7 +1042,7 @@ function PlayerInner({
         className={`relative z-10 w-full h-full overflow-hidden`}
         onTouchEnd={handleTouchEnd}
       >
-        {state.hasError && <ErrorOverlay />}
+        {state.hasError && <ErrorOverlay onRetry={retryPlayback} />}
 
         {/* On mobile with controls visible, the spinner lives INSIDE the
             center play/pause circle (ControlBar)  hide the full-screen one
@@ -1182,7 +1182,13 @@ function PlayerInner({
           <div
             // YouTube-style asymmetric fade: controls snap in fast (100ms) and
             // leave a touch slower (200ms) — never the sluggish 300ms both ways.
-            className={`absolute inset-0 z-[50] pointer-events-none transition-opacity ${showControls ? 'opacity-100 duration-100' : 'opacity-0 duration-200'}`}
+            // When hidden, force EVERY descendant non-interactive (not just the
+            // wrapper). inert alone isn't honored on some mobile browsers, so the
+            // invisible ControlBar strips (which set pointer-events:auto) would
+            // still swallow the tap  the user would skip/next instead of just
+            // revealing the controls. `[&_*]:!pointer-events-none` is the
+            // cross-browser backstop; the tap then bubbles to the reveal handler.
+            className={`absolute inset-0 z-[50] pointer-events-none transition-opacity ${showControls ? 'opacity-100 duration-100' : 'opacity-0 duration-200 [&_*]:!pointer-events-none'}`}
             // When hidden (e.g. while the Skip Intro / Next Episode buttons are showing)
             // we MUST disable hit-testing for everything inside. `opacity-0` and
             // `pointer-events-none` on the wrapper are not enough  `ControlBar` puts

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { usePersistentToggle } from "~/lib/hooks/usePersistentToggle";
 import { useDroppable } from "@dnd-kit/core";
 import { SortableContext, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
@@ -195,7 +195,7 @@ function GuestPlayQueueLocked({
   currentUserId?: string;
   userActions?: { likedFileIds: Set<string>; dislikedFileIds: Set<string> };
 }) {
-  const [collapsed, setCollapsed] = useState(false);
+  const [collapsed, setCollapsed] = usePersistentToggle("memories:playqueue-collapsed", false);
   const { loginHref } = useAuthHrefs();
 
   return (
@@ -306,7 +306,7 @@ export function PlayQueuePanel({ currentUserId: currentUserIdProp, userActions }
   const q = usePlayQueueOptional();
   const { userId: fileUserId } = useFileContext();
   const currentUserId = currentUserIdProp ?? fileUserId ?? undefined;
-  const [collapsed, setCollapsed] = useState(false);
+  const [collapsed, setCollapsed] = usePersistentToggle("memories:playqueue-collapsed", false);
 
   if (!q) return null;
 

@@ -125,6 +125,9 @@ interface VideoCardProps {
   onDelete?: (file: FileType) => void;
   /** Profile grids: reel links become `/reel/:uniqueId/:username` for creator-first swipes. */
   profileOwnerUsername?: string | null;
+  /** Tighter `compact` layout (smaller thumb + text) for nested lists like the
+   *  series episode tree, where the normal compact card is too chunky. */
+  dense?: boolean;
 }
 
 const CATEGORIES = ["Gaming", "Music", "Entertainment", "Education", "Technology", "Sports", "News", "Lifestyle", "Anime", "Film", "Automotive", "Art", "Nature", "Other"];
@@ -148,6 +151,7 @@ const VideoCard = ({
   thumbnailProgress,
   onDelete,
   profileOwnerUsername,
+  dense,
 }: VideoCardProps) => {
   const isMobile = useIsMobile();
   const sidebarCtx = useSidebarOptional();
@@ -2799,7 +2803,8 @@ const VideoCard = ({
     return (
       <div
         className={cn(
-          "group flex items-center gap-2.5 rounded-lg px-2 py-1.5 transition-colors",
+          "group flex items-center rounded-lg transition-colors",
+          dense ? "gap-2 px-1.5 py-1" : "gap-2.5 px-2 py-1.5",
           hoverTintRow ? "hover:bg-[var(--card-tint)]" : "hover:bg-muted/50",
         )}
         style={hoverTintRow ? ({ "--card-tint": hoverTintRow } as React.CSSProperties) : undefined}
@@ -2810,7 +2815,10 @@ const VideoCard = ({
             void handleWatchNav();
           }}
           to={watchPath}
-          className="relative aspect-video w-[7rem] shrink-0 overflow-hidden rounded-md bg-card ring-1 ring-border/20 dark:ring-white/10"
+          className={cn(
+            "relative aspect-video shrink-0 overflow-hidden rounded-md bg-card ring-1 ring-border/20 dark:ring-white/10",
+            dense ? "w-[5.25rem]" : "w-[7rem]",
+          )}
         >
           {renderThumbnail("h-full w-full")}
           {durationStr && (
@@ -2830,7 +2838,7 @@ const VideoCard = ({
               }}
               className="hover:text-primary transition-colors"
             >
-              <h3 className="line-clamp-2 text-[13px] font-medium leading-snug">
+              <h3 className={cn("line-clamp-2 font-medium leading-snug", dense ? "text-xs" : "text-[13px]")}>
                 <ParseFilenameInsert filename={data.file_title || data.filename} showLimit={50} />
               </h3>
             </Link>

@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import Hls from 'hls.js';
 import { usePlayerContext } from '../PlayerContext';
 import { useFileContext } from '~/lib/Context/Context';
@@ -68,6 +68,10 @@ function applyVideoCrossOrigin(video: HTMLVideoElement, playbackSrc: string) {
   }
 }
 
+/** Max re-mint attempts on repeated fatal network errors before giving up and
+ *  showing the user a failure (instead of looping mint→fetch→fail forever). */
+const MAX_MANIFEST_REMINTS = 4;
+
 export function useHLS(videoRef: React.RefObject<HTMLVideoElement | null>) {
   const { hlsRef, setState, src, autoPlay, file, isReel } = usePlayerContext();
   const { playerSettings } = useFileContext();
@@ -81,6 +85,29 @@ export function useHLS(videoRef: React.RefObject<HTMLVideoElement | null>) {
   const lastEnginePathRef = useRef<'hlsjs' | 'native' | 'direct' | null>(null);
   const lastAttachedVideoRef = useRef<HTMLVideoElement | null>(null);
   const lastKnownGoodTimeRef = useRef<number>(0);
+  // Cap re-mint attempts on repeated fatal network errors so a permanently
+  // failing manifest doesn't loop mint -> fetch -> fail -> mint forever. Reset
+  // on a successful manifest parse (a real recovery earns fresh attempts).
+  const remintAttemptsRef = useRef(0);
+  const lastRemintAtRef = useRef(0);
+
+  /** Manual retry from the error overlay: clear the failure, reset the re-mint
+   *  budget, and force a fresh manifest load. */
+  const retryPlayback = useCallback(() => {
+    remintAttemptsRef.current = 0;
+    lastRemintAtRef.current = 0;
+    setState((s) => ({ ...s, hasError: false, isLoaded: false, isBuffering: true }));
+    const fileId = file?.unique_id;
+    if (fileId && typeof src === 'string' && isLoadplayPlaybackUrl(src)) {
+      requestPlaybackUrlRefresh(fileId);
+    } else if (hlsRef.current) {
+      try {
+        hlsRef.current.startLoad();
+      } catch {
+        /* ignore */
+      }
+    }
+  }, [setState, file, src, hlsRef]);
   // Tracks the previous src path (no ?t=) so we can detect a token only
   // refresh vs a true video change and preserve currentTime in the former.
   const lastSrcPathRef = useRef<string | null>(null);
@@ -540,6 +567,9 @@ export function useHLS(videoRef: React.RefObject<HTMLVideoElement | null>) {
 
         hls.on(Hls.Events.MANIFEST_PARSED, () => {
           if (!mountedRef.current) return;
+          // Manifest loaded fine  the player recovered, so clear the re-mint
+          // budget. A later transient error gets a fresh set of attempts.
+          remintAttemptsRef.current = 0;
           applyPendingResume();
           const onceLevel = () => {
             applyPendingResume();
@@ -593,6 +623,17 @@ export function useHLS(videoRef: React.RefObject<HTMLVideoElement | null>) {
               const isLoadplayUrl =
                 typeof src === 'string' && isLoadplayPlaybackUrl(src);
               if (isLoadplayUrl && file?.unique_id) {
+                const now = Date.now();
+                // Fresh problem (gap since the last failure) → fresh budget,
+                // so a long-later hiccup isn't penalised by old attempts.
+                if (now - lastRemintAtRef.current > 30_000) remintAttemptsRef.current = 0;
+                lastRemintAtRef.current = now;
+                if (remintAttemptsRef.current >= MAX_MANIFEST_REMINTS) {
+                  // Stop the mint→fetch→fail loop and tell the user it failed.
+                  setState((s) => ({ ...s, hasError: true, isLoaded: false, isBuffering: false }));
+                  break;
+                }
+                remintAttemptsRef.current += 1;
                 requestPlaybackUrlRefresh(file.unique_id);
                 break;
               }
@@ -693,4 +734,6 @@ export function useHLS(videoRef: React.RefObject<HTMLVideoElement | null>) {
       timeUpdateCleanup?.();
     };
   }, [src]);
+
+  return { retryPlayback };
 }
