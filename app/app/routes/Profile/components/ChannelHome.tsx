@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router";
 import { ChevronRight, ListVideo, Globe, Lock, Music } from "lucide-react";
 import VideoCard from "~/routes/Home/components/VideoCard";
+import { FEED_HIDE_ACTIONS } from "~/lib/feed/feedVideoCardLayout";
 import { cn } from "~/lib/utils";
 import type { FileType } from "~/lib/types";
 import {
@@ -152,7 +153,7 @@ export default function ChannelHome({
               layout={reel ? "reelStrip" : "default"}
               currentUserId={currentUserId ?? undefined}
               userActions={userActions}
-              hideActions={{ completely: true }}
+              hideActions={FEED_HIDE_ACTIONS}
               profileOwnerUsername={reel ? profileOwnerUsername : undefined}
             />
           </div>

@@ -5,12 +5,16 @@
 -- ============================================================
 
 DROP FUNCTION IF EXISTS get_profile_files(uuid, uuid, int, int);
+DROP FUNCTION IF EXISTS get_profile_files(uuid, uuid, int, int, text);
 
 CREATE OR REPLACE FUNCTION get_profile_files(
   p_profile_user_id  uuid,
   p_viewer_id        uuid    DEFAULT NULL,
   p_limit            int     DEFAULT 20,
-  p_cursor_pos       int     DEFAULT 0
+  p_cursor_pos       int     DEFAULT 0,
+  -- NULL = every file (back-compat). 'image' = pictures only, 'video' = everything
+  -- that isn't a picture (clips, audio, HLS). Lets the profile split Videos/Images.
+  p_file_type        text    DEFAULT NULL
 )
 RETURNS TABLE (
   id               uuid,
@@ -109,6 +113,14 @@ BEGIN
           AND (f.upload_status = 'complete' OR f.upload_status = 'completed')
         )
       )
+      -- Optional kind filter for the Videos / Images tabs. Pictures are matched on
+      -- their image/* MIME; anything else (video, audio, HLS, or a null type) is a
+      -- "video". NULL keeps the old behaviour of returning everything.
+      AND (
+        p_file_type IS NULL
+        OR (lower(p_file_type) = 'image' AND f.file_type ILIKE 'image/%')
+        OR (lower(p_file_type) = 'video' AND (f.file_type IS NULL OR f.file_type NOT ILIKE 'image/%'))
+      )
   ),
   counted AS (
     SELECT COUNT(*)::bigint AS cnt FROM filtered
@@ -172,4 +184,4 @@ BEGIN
 END;
 $$;
 
-GRANT EXECUTE ON FUNCTION get_profile_files(uuid, uuid, int, int) TO anon, authenticated;
+GRANT EXECUTE ON FUNCTION get_profile_files(uuid, uuid, int, int, text) TO anon, authenticated;

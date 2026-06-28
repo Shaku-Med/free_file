@@ -51,13 +51,11 @@ import VideoCard from "./components/VideoCard";
 import { ContinueWatchingSection } from "./components/ContinueWatchingSection";
 import type { FileType } from "~/lib/types";
 import { groupConsecutiveReelClusters } from "~/lib/feed/groupConsecutiveReelClusters";
+import { FEED_HIDE_ACTIONS } from "~/lib/feed/feedVideoCardLayout";
 import { Button } from "~/components/ui/button";
 import { Plus, Clapperboard } from "lucide-react";
 import { SignInToSeeMore } from "~/components/SignInWall";
 import { Separator } from "~/components/ui/separator";
-
-// Stable object reference so VideoCard's memo isn't broken by a fresh literal.
-const FEED_HIDE_ACTIONS = { completely: false, halfway: true } as const;
 
 // Inject a "People you may know" row after roughly this many feed cards.
 // Capped at SUGGESTION_MAX_ROWS so the feed isn't flooded as the user scrolls /

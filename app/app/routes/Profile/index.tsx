@@ -99,6 +99,7 @@ export const loader = async ({ request, params }: { request: Request; params: { 
         p_viewer_id: currentUserId,
         p_limit: limit + 1,  // fetch one extra to detect hasMore
         p_cursor_pos: 0,
+        p_file_type: 'video',  // Videos tab; pictures live under the Images tab
       });
 
       if (!rpcError && Array.isArray(rows)) {
@@ -337,7 +338,7 @@ function blendFilesWithFresh(cachedFiles: FileType[], freshFiles: FileType[]): F
   return blended;
 }
 
-const PROFILE_TAB_VALUES = new Set(["home", "uploads", "liked", "history", "playlists", "adult"]);
+const PROFILE_TAB_VALUES = new Set(["home", "uploads", "images", "liked", "history", "playlists", "adult"]);
 /** Tabs only the profile owner may open. */
 const OWNER_ONLY_TABS = new Set(["liked", "history", "adult"]);
 
@@ -605,6 +606,9 @@ const Profile = () => {
             <TabsTrigger value="uploads" className="shrink-0">
               Videos
             </TabsTrigger>
+            <TabsTrigger value="images" className="shrink-0">
+              Images
+            </TabsTrigger>
             {isOwner && (
               <TabsTrigger value="liked" className="shrink-0">
                 Liked
@@ -655,6 +659,7 @@ const Profile = () => {
               currentUserId={effectiveData.currentUserId ?? undefined}
               initialHasMore={effectiveData.pagination?.hasMore}
               initialPage={initialPage}
+              fileType="video"
               sectionTitle="Videos"
               emptyMessage="No videos yet"
               userActions={{
@@ -662,6 +667,19 @@ const Profile = () => {
                 dislikedFileIds: new Set(effectiveData.userActions.dislikedFileIds ?? []),
               }}
               onCacheUpdate={handleCacheUpdate}
+              dataReady={true}
+            />
+          </TabsContent>
+          <TabsContent value="images" className="mt-0">
+            <UserFilesGrid
+              files={[]}
+              userId={effectiveData.profile.id}
+              profileOwnerUsername={effectiveData.profile.username}
+              currentUserId={effectiveData.currentUserId ?? undefined}
+              fileType="image"
+              autoLoad
+              sectionTitle="Images"
+              emptyMessage="No images yet"
               dataReady={true}
             />
           </TabsContent>

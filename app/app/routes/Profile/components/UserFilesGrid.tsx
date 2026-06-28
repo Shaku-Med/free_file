@@ -2,6 +2,7 @@ import { useState, useCallback, useRef, useEffect, useMemo } from "react";
 import type { FileType } from "~/lib/types";
 import VideoCard from "~/routes/Home/components/VideoCard";
 import { SignInToSeeMore } from "~/components/SignInWall";
+import { FEED_HIDE_ACTIONS } from "~/lib/feed/feedVideoCardLayout";
 import { groupConsecutiveReelClusters } from "~/lib/feed/groupConsecutiveReelClusters";
 import { Swiper, SwiperSlide } from "swiper/react";
 import { Navigation, A11y, Keyboard } from "swiper/modules";
@@ -46,6 +47,11 @@ interface UserFilesGridProps {
   sectionTitle?: string;
   emptyMessage?: string;
   profileOwnerUsername?: string;
+  /** Restrict the grid to one kind of file. Drives both the first page and load-more. */
+  fileType?: "video" | "image";
+  /** Fetch the first page on mount instead of expecting it from the loader. Used by the
+   *  Images tab, which is lazy and never seeded server-side. */
+  autoLoad?: boolean;
 }
 
 const UserFilesGrid = ({
@@ -60,9 +66,15 @@ const UserFilesGrid = ({
   sectionTitle = "Uploads",
   emptyMessage = "No uploads yet",
   profileOwnerUsername,
+  fileType,
+  autoLoad = false,
 }: UserFilesGridProps) => {
+  const typeParam = fileType ? `&type=${fileType}` : "";
   const [files, setFiles] = useState<FileType[]>(initialFiles);
   const [isLoading, setIsLoading] = useState(false);
+  // Only meaningful when autoLoad is on: true while the first page is in flight so the
+  // empty state doesn't flash before the fetch resolves.
+  const [initialLoading, setInitialLoading] = useState(autoLoad && initialFiles.length === 0);
   const [hasMore, setHasMore] = useState(initialHasMore ?? initialFiles.length >= 20);
   const [currentPage, setCurrentPage] = useState(initialPage);
   const observerRef = useRef<HTMLDivElement | null>(null);
@@ -94,6 +106,48 @@ const UserFilesGrid = ({
         : undefined
     );
   }, [userId, initialFiles, initialHasMore, initialPage, initialUserActions]);
+
+  // Lazy first page for tabs that aren't seeded by the loader (e.g. Images). Runs once per
+  // profile; re-fires if the user navigates to a different channel.
+  const autoLoadedForRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!autoLoad || initialFiles.length > 0) return;
+    if (autoLoadedForRef.current === userId) return;
+    autoLoadedForRef.current = userId;
+
+    let cancelled = false;
+    setInitialLoading(true);
+    (async () => {
+      try {
+        const res = await fetch(
+          `/api/user-files?userId=${encodeURIComponent(userId)}&page=1&limit=20${typeParam}`,
+          { credentials: "include" },
+        );
+        if (!res.ok) {
+          if (!cancelled) setHasMore(false);
+          return;
+        }
+        const result = await res.json();
+        if (cancelled) return;
+        const fetched: FileType[] = result.data ?? [];
+        setFiles(fetched);
+        setCurrentPage(1);
+        setHasMore(result.pagination?.hasMore ?? false);
+        setUserActions({
+          likedFileIds: new Set((result.userActions?.likedFileIds ?? []) as string[]),
+          dislikedFileIds: new Set((result.userActions?.dislikedFileIds ?? []) as string[]),
+        });
+      } catch {
+        if (!cancelled) setHasMore(false);
+      } finally {
+        if (!cancelled) setInitialLoading(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [autoLoad, userId, typeParam, initialFiles.length]);
 
   const anyUploadProcessing = useMemo(
     () =>
@@ -138,7 +192,7 @@ const UserFilesGrid = ({
       inFlight = true;
       try {
         const res = await fetch(
-          `/api/user-files?userId=${encodeURIComponent(userId)}&page=1&limit=40`,
+          `/api/user-files?userId=${encodeURIComponent(userId)}&page=1&limit=40${typeParam}`,
           { credentials: 'include' },
         );
         if (!res.ok) return;
@@ -205,7 +259,7 @@ const UserFilesGrid = ({
 
     try {
       const nextPage = currentPage + 1;
-      const response = await fetch(`/api/user-files?userId=${userId}&page=${nextPage}&limit=20`, {
+      const response = await fetch(`/api/user-files?userId=${userId}&page=${nextPage}&limit=20${typeParam}`, {
         credentials: 'include',
       });
 
@@ -266,7 +320,7 @@ const UserFilesGrid = ({
       setIsLoading(false);
       loadingRef.current = false;
     }
-  }, [hasMore, currentPage, userId, onCacheUpdate]);
+  }, [hasMore, currentPage, userId, onCacheUpdate, typeParam]);
 
   const handleFileUpdate = useCallback((fileId: string, updates: Partial<FileType>) => {
     setFiles((prev) =>
@@ -293,6 +347,15 @@ const UserFilesGrid = ({
   }, [loadMore, hasMore]);
 
   if (files.length === 0) {
+    if (autoLoad && initialLoading) {
+      return (
+        <div className="space-y-6" data-data-ready={dataReady}>
+          <div className="flex justify-center py-12">
+            <div className="h-7 w-7 animate-spin rounded-full border-2 border-muted-foreground/30 border-t-muted-foreground" />
+          </div>
+        </div>
+      );
+    }
     return (
       <div className="space-y-6" data-data-ready={dataReady}>
         <div className="text-center py-12">
@@ -323,7 +386,7 @@ const UserFilesGrid = ({
                       userActions={userActions}
                       onUpdate={handleFileUpdate}
                       showOwnerControls={true}
-                      hideActions={{ completely: false }}
+                      hideActions={FEED_HIDE_ACTIONS}
                       profileOwnerUsername={
                         file.is_reel && profileOwnerUsername ? profileOwnerUsername : undefined
                       }
@@ -373,7 +436,7 @@ const UserFilesGrid = ({
                               userActions={userActions}
                               onUpdate={handleFileUpdate}
                               showOwnerControls={true}
-                              hideActions={{ completely: false, halfway: true }}
+                              hideActions={FEED_HIDE_ACTIONS}
                               profileOwnerUsername={profileOwnerUsername}
                             />
                           </SwiperSlide>

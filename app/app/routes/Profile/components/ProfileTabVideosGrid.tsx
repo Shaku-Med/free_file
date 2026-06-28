@@ -1,6 +1,7 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from "react";
 import type { FileType } from "~/lib/types";
 import VideoCard from "~/routes/Home/components/VideoCard";
+import { FEED_HIDE_ACTIONS } from "~/lib/feed/feedVideoCardLayout";
 import { SignInToSeeMore } from "~/components/SignInWall";
 import { Button } from "~/components/ui/button";
 import { cn } from "~/lib/utils";
@@ -261,10 +262,7 @@ const ProfileTabVideosGrid = ({
                       userActions={userActions}
                       onUpdate={handleFileUpdate}
                       showOwnerControls={true}
-                      hideActions={{
-                        completely: false,
-                        halfway: group.variant === "shorts",
-                      }}
+                      hideActions={FEED_HIDE_ACTIONS}
                       profileOwnerUsername={
                         tab === "shorts" && group.variant === "shorts"
                           ? profileOwnerUsername

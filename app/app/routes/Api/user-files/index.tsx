@@ -11,6 +11,10 @@ export const loader = async ({ request }: { request: Request }) => {
     const userId = url.searchParams.get("userId");
     const page = parseInt(url.searchParams.get("page") || "1");
     const limit = parseInt(url.searchParams.get("limit") || "20");
+    // Optional kind filter so the profile can split Videos / Images. Anything else
+    // (or absent) means "all files", matching the old behaviour.
+    const rawType = url.searchParams.get("type");
+    const fileType = rawType === "video" || rawType === "image" ? rawType : null;
 
     if (!userId || !isValidUUID(userId)) {
       return data({ error: "Valid user ID is required" }, { status: 400 });
@@ -35,6 +39,7 @@ export const loader = async ({ request }: { request: Request }) => {
       p_viewer_id: currentUserId,
       p_limit: limit + 1,  // fetch one extra to detect hasMore
       p_cursor_pos: cursorPos,
+      p_file_type: fileType,
     });
 
     if (rpcError) {
