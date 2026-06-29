@@ -1,6 +1,8 @@
 name: Deploy GoUpload (Docker)
 
 # VPS / Go stack only  never runs for app-only pushes.
+# Redeploy trigger: roll out the MusicDetector sidecar + the goupload music gate
+# now that protect-env.sh promotes musicdetector.env on the VPS.
 on:
   push:
     branches: [main]
