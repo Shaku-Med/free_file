@@ -31,7 +31,7 @@ fi
 DEPLOY_USER="${SUDO_USER:-}"
 DEPLOY_DIR=/opt/goupload
 
-FILES=(.env goupload.env nsfwapi.env loadplay.env docker-compose.yml)
+FILES=(.env goupload.env nsfwapi.env loadplay.env musicdetector.env docker-compose.yml)
 
 # Ensure /opt/goupload exists + safe perms.
 install -d -m 0750 -o root -g root "$DEPLOY_DIR"
