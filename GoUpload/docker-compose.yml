@@ -67,6 +67,35 @@ services:
       timeout: 5s
       retries: 3
 
+  # Music/speech classifier sidecar (gates files.is_music). Private network
+  # only, never published; GoUpload is the sole caller (shared MUSIC_API_SECRET).
+  musicdetector:
+    image: ${MUSICDETECTOR_IMAGE:-ghcr.io/OWNER/REPO/musicdetector:latest}
+    container_name: goupload-musicdetector
+    restart: unless-stopped
+    # MUSIC_API_SECRET + the MUSIC_* tunables live here (like nsfwapi.env /
+    # loadplay.env). On the VPS this file is written from the GitHub secret
+    # MUSICDETECTOR_ENV; locally copy musicdetector.env.example.
+    env_file:
+      - ./musicdetector.env
+    environment:
+      # Forced here (not from the env file) so prod can't accidentally run in
+      # fake-results mode and the port can't drift.
+      MUSIC_API_PORT: "3008"
+      MUSIC_ALLOW_STUB: "0"
+    networks:
+      - goupload-net
+    deploy:
+      resources:
+        limits:
+          cpus: "${MUSICDETECTOR_CPUS:-1.0}"
+          memory: ${MUSICDETECTOR_MEM:-1536M}
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request;urllib.request.urlopen('http://localhost:3008/health', timeout=3)\""]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
   goupload:
     image: ${GOUPLOAD_IMAGE:-ghcr.io/OWNER/REPO/goupload:latest}
     container_name: goupload
@@ -78,6 +107,8 @@ services:
       NSFW_API_URL: http://nsfwapi:3004/api/nsfw/detect
       EMBED_API_URL: http://embedapi:3007/embed
       EMBED_API_SECRET: ${EMBED_API_SECRET:?set EMBED_API_SECRET in .env}
+      MUSIC_API_URL: http://musicdetector:3008/analyze
+      MUSIC_API_SECRET: ${MUSIC_API_SECRET:?set MUSIC_API_SECRET in .env}
       # Adaptive worker pool  see internal/worker/pool.go. These can also live
       # in goupload.env if you prefer.
       WORKER_MIN: ${WORKER_MIN:-1}
@@ -95,6 +126,8 @@ services:
       nsfwapi:
         condition: service_started
       embedapi:
+        condition: service_started
+      musicdetector:
         condition: service_started
     deploy:
       resources:

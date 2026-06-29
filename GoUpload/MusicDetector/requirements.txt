@@ -1,0 +1,7 @@
+# Service (API) dependencies - install anywhere, including local dev / Python 3.13.
+# The heavy ML stack (TensorFlow + inaSpeechSegmenter) lives in requirements-ml.txt
+# and is installed only inside the Docker image, where Python is 3.11.
+fastapi==0.115.*
+uvicorn==0.34.*
+pydantic==2.*
+python-multipart==0.0.*

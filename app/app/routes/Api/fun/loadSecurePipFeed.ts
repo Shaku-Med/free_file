@@ -1,6 +1,7 @@
 import db from '~/lib/Database/supabase';
 import { isAuthenticated } from '~/lib/Security/Password';
 import { stripGithubRepoForClient } from '~/lib/githubStorage';
+import { stripServerOnlyFileFields } from '~/lib/files/sanitizeFileForViewer';
 import { checkFileAccess } from '~/routes/Dynamic/fun/accessControl';
 import { filterFilesByAccess, type FileData } from '~/routes/Api/fun/accessControl';
 import { enrichFeedFilesWithInteractions } from '~/routes/Api/fun/enrichFeedFiles';
@@ -246,10 +247,16 @@ export async function loadSecurePipFeed(
   const nextCursor =
     rawCount > 0 ? { cursor_pos: (Number.isFinite(cursorPos) ? cursorPos : 0) + rawCount } : null;
 
+  // The center row is spread from the raw `select('*')` file, and feed rows may carry
+  // server-only columns too  scrub IP/geo/embedding/etc. before any of it hits the client.
+  const safeData = (data as Record<string, unknown>[]).map((r) =>
+    stripServerOnlyFileFields(r),
+  ) as typeof data;
+
   return {
     ok: true,
     centerUniqueId: uniqueId,
-    data,
+    data: safeData,
     likedFileIds,
     dislikedFileIds,
     nextCursor,

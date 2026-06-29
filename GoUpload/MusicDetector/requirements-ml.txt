@@ -1,0 +1,7 @@
+# Heavy ML stack for the running service - installed only inside the Docker image.
+# TF 2.15 is the last release defaulting to Keras 2 (which inaSpeechSegmenter needs)
+# and it pins numpy<2. It ships cp311 Linux wheels, hence python:3.11-slim in the
+# Dockerfile. NOT installable on Python 3.13 or Windows - and not needed for local
+# tests, which only touch the pure-logic helpers in analyzer.py.
+tensorflow==2.15.*
+inaSpeechSegmenter==0.7.7

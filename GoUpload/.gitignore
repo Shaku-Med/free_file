@@ -4,10 +4,15 @@ goupload
 goupload.exe
 *.exe
 
-# Env (use VPS_ENV in CI; do not commit secrets)
+# Env (use VPS_ENV / *_ENV secrets in CI; do not commit secrets)
 .env
 .env.*
 !.env.example
+# Per-service compose env files (generated from CI secrets; never commit)
+goupload.env
+nsfwapi.env
+loadplay.env
+musicdetector.env
 
 # Upload and temp dirs
 /upload/

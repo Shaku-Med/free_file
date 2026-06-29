@@ -19,6 +19,7 @@ import (
 	"goupload/lib/ffmpeg"
 	ghlib "goupload/lib/github"
 	"goupload/lib/logger"
+	"goupload/lib/musicdetect"
 	"goupload/lib/nsfw"
 	"goupload/lib/queue"
 	"goupload/lib/r2"
@@ -53,6 +54,9 @@ type Config struct {
 	StorageBackend string
 	// Embed: optional local embedding sidecar client for semantic search.
 	Embed *embed.Client
+	// Music: optional local MusicDetector sidecar; the source of truth for
+	// is_music when set. Falls back to the stems heuristic when nil/unreachable.
+	Music *musicdetect.Client
 }
 
 type Worker struct {
@@ -333,6 +337,65 @@ func musicScoreThreshold() float64 {
 		}
 	}
 	return 0.6
+}
+
+// musicProbeSeconds: how much audio to send the MusicDetector sidecar. Matches
+// its own analysis cap so we don't ship more than it looks at.
+func musicProbeSeconds() int {
+	if raw := os.Getenv("MUSIC_PROBE_SECONDS"); raw != "" {
+		if v, err := strconv.Atoi(raw); err == nil && v > 0 {
+			return v
+		}
+	}
+	return 180
+}
+
+// heuristicIsMusic is the pre-sidecar signal, used as the fallback: a high stems
+// beat-score, or any category that already mentions music (user/vision tags).
+func heuristicIsMusic(stems *ffmpeg.AudioStemsResult, categories []string) bool {
+	if stems != nil && stems.HasAudio && stems.MusicScore >= musicScoreThreshold() {
+		return true
+	}
+	for _, c := range categories {
+		if strings.Contains(strings.ToLower(c), "music") {
+			return true
+		}
+	}
+	return false
+}
+
+// classifyMusic asks the MusicDetector sidecar whether a file is actually music
+// (by the music fraction of its audio). Soft-fail: ok=false on any problem so the
+// caller falls back to the stems heuristic. A compact mono clip is sent, not the
+// whole video.
+func (w *Worker) classifyMusic(job *queue.Job, videoPath string) (isMusic bool, ratio float64, ok bool) {
+	if w.cfg.Music == nil || !w.cfg.Music.Enabled() {
+		return false, 0, false
+	}
+	// Probe clip goes to an ephemeral temp dir, NOT thumbDir (which is uploaded to
+	// storage) or the upload volume. The whole dir is removed when we're done, so
+	// nothing lingers on disk even if a step below fails.
+	probeDir, err := os.MkdirTemp("", "musicprobe-")
+	if err != nil {
+		w.log.Infof("music probe tempdir failed job=%s reason=%s", job.ID, err.Error())
+		return false, 0, false
+	}
+	defer os.RemoveAll(probeDir)
+
+	clip, err := ffmpeg.ExtractAudioClip(videoPath, probeDir, musicProbeSeconds())
+	if err != nil {
+		w.log.Infof("music probe extract failed job=%s reason=%s", job.ID, err.Error())
+		return false, 0, false
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 150*time.Second)
+	defer cancel()
+	res, err := w.cfg.Music.Classify(ctx, clip)
+	if err != nil || res == nil {
+		w.log.Infof("music detector unavailable job=%s reason=%v (using heuristic)", job.ID, err)
+		return false, 0, false
+	}
+	return res.IsMusic, res.MusicRatio, true
 }
 
 // visionFrameSamples is how many full-resolution frames are SafeSearch'd
@@ -891,29 +954,34 @@ func (w *Worker) processJob(job *queue.Job) {
 		metadata = make(map[string]interface{})
 	}
 
-	// Music auto-tag: beat-regularity score from the stems analysis. Above
-	// the threshold → the file is treated as music even when the uploader
-	// gave no tags (feeds search, the feed, and the future copyright gate).
+	// musicScore (stems beat-regularity) is recorded as metadata regardless; it's
+	// the fallback signal when the MusicDetector sidecar is off or unreachable.
 	if stemsResult != nil && stemsResult.HasAudio {
 		metadata["musicScore"] = stemsResult.MusicScore
-		if stemsResult.MusicScore >= musicScoreThreshold() {
-			categories = appendCategoryIfMissing(categories, "Music")
-			w.log.Infof("music detected job=%s score=%.2f", job.ID, stemsResult.MusicScore)
+	}
+
+	// is_music: the MusicDetector sidecar is the source of truth when configured
+	// and the file has audio. It gates on the music FRACTION of the track, so
+	// clips with only background music under speech are not flagged. Falls back to
+	// the stems beat-score + category heuristic when the sidecar is off or
+	// unreachable; files with no audio are never music.
+	isMusic := false
+	if stemsResult != nil && stemsResult.HasAudio {
+		if dm, ratio, ok := w.classifyMusic(job, result.OutputPath); ok {
+			isMusic = dm
+			metadata["musicRatio"] = ratio
+			w.log.Infof("music detector job=%s is_music=%v ratio=%.2f", job.ID, dm, ratio)
+		} else {
+			isMusic = heuristicIsMusic(stemsResult, categories)
 		}
 	}
 
-	// is_music = any category mentions "music" (covers the auto-tag above plus
-	// user/vision categories). Audio fingerprinting (original-sound detection)
-	// only makes sense for music, so non-music files send no prints  this both
-	// keeps the index music-only and cuts false matches on talking-head videos.
-	isMusic := false
-	for _, c := range categories {
-		if strings.Contains(strings.ToLower(c), "music") {
-			isMusic = true
-			break
-		}
-	}
-	if !isMusic {
+	if isMusic {
+		categories = appendCategoryIfMissing(categories, "Music")
+	} else {
+		// Audio fingerprinting (original-sound detection) is music-only, so
+		// non-music files send no prints  keeps the index music-only and cuts
+		// false matches on talking-head videos.
 		fpHashes, fpOffsets = nil, nil
 	}
 
@@ -1136,9 +1204,10 @@ const reelMaxSeconds = 180
 // resolveReel decides the final is_reel flag from (a) the user's chosen
 // reelMode and (b) the inferred video shape. Anything over reelMaxSeconds
 // is hard-denied  even an explicit "yes" and the auto portrait heuristic.
-//   "no"   → always false
-//   "yes"  → true (duration already known to be under the cap)
-//   "auto" → existing heuristic (short OR portrait-9:16)
+//
+//	"no"   → always false
+//	"yes"  → true (duration already known to be under the cap)
+//	"auto" → existing heuristic (short OR portrait-9:16)
 func resolveReel(reelMode string, seconds float64, width, height int) *bool {
 	hasDur := seconds > 0
 	hasWH := width > 0 && height > 0

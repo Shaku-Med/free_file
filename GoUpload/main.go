@@ -8,6 +8,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v2/middleware/limiter"
 	"goupload/internal/captions"
 	"goupload/internal/commentimg"
 	"goupload/internal/embedproxy"
@@ -22,11 +24,10 @@ import (
 	"goupload/lib/env"
 	ghlib "goupload/lib/github"
 	"goupload/lib/logger"
+	musiclib "goupload/lib/musicdetect"
 	"goupload/lib/nsfwstrikes"
 	"goupload/lib/queue"
 	"goupload/lib/r2"
-	"github.com/gofiber/fiber/v2"
-	"github.com/gofiber/fiber/v2/middleware/limiter"
 )
 
 func main() {
@@ -59,6 +60,13 @@ func main() {
 	embedClient := embedlib.NewClient(env.Get("EMBED_API_URL", ""), env.Get("EMBED_API_SECRET", ""))
 	if embedClient.Enabled() {
 		appLog.Infof("embed client ready url=%s", env.Get("EMBED_API_URL", ""))
+	}
+
+	// Local MusicDetector sidecar: the source of truth for is_music. Optional:
+	// when MUSIC_API_URL is unset, is_music falls back to the stems heuristic.
+	musicClient := musiclib.NewClient(env.Get("MUSIC_API_URL", ""), env.Get("MUSIC_API_SECRET", ""))
+	if musicClient.Enabled() {
+		appLog.Infof("music detector client ready url=%s", env.Get("MUSIC_API_URL", ""))
 	}
 
 	ghToken := env.Get("GITHUB_TOKEN", "")
@@ -99,6 +107,7 @@ func main() {
 		R2:             r2Client,
 		StorageBackend: storageBackend,
 		Embed:          embedClient,
+		Music:          musicClient,
 	}
 	if ghToken != "" && ghOwner != "" {
 		wcfg.GitHubClient = ghlib.NewClient(ghlib.Config{Token: ghToken, Owner: ghOwner, Repo: ghRepo})
