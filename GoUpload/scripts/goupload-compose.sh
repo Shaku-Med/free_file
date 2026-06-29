@@ -30,7 +30,7 @@ case "$ACTION" in
   *)
     echo "goupload-compose: unsupported action '${ACTION}'" >&2
     echo "  allowed: pull | up | down | restart | ps | logs | prune | login | logout" >&2
-    echo "  optional service list after pull/up: goupload | embedapi | nsfwapi | loadplay | redis" >&2
+    echo "  optional service list after pull/up: goupload | embedapi | musicdetector | nsfwapi | loadplay | redis" >&2
     exit 2
     ;;
 esac
@@ -38,7 +38,7 @@ esac
 # Optional service list after the action  whitelisted names only.
 SERVICES=()
 if [[ $# -gt 0 && "$ACTION" != "login" ]]; then
-  allowed=" goupload embedapi nsfwapi loadplay redis "
+  allowed=" goupload embedapi musicdetector nsfwapi loadplay redis "
   for svc in "$@"; do
     if [[ "$allowed" != *" ${svc} "* ]]; then
       echo "goupload-compose: unsupported service '${svc}'" >&2
