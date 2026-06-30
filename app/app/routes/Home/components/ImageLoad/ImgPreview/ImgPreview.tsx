@@ -83,6 +83,11 @@ export default function ImgPreview({
   const lastPinchDist = useRef(0);
   const lastPinchMid = useRef({ x: 0, y: 0 });
   const pinching = useRef(false);
+  // True for the whole gesture once a second finger touches down. Releasing a
+  // pinch fires two touchends <300ms apart, which the double-tap detector would
+  // otherwise read as a double-tap (and reset the zoom). This flag suppresses
+  // tap handling for any gesture that involved two fingers.
+  const gestureWasMultiTouch = useRef(false);
 
   // Swipe
   const swipeStart = useRef<{ x: number; y: number; t: number } | null>(null);
@@ -325,11 +330,15 @@ export default function ImgPreview({
 
     if (e.touches.length === 2) {
       pinching.current = true;
+      gestureWasMultiTouch.current = true;
       swipeStart.current = null;
       const info = getPinchInfo(e.touches);
       lastPinchDist.current = info.dist;
       lastPinchMid.current = { x: info.midX, y: info.midY };
     } else if (e.touches.length === 1) {
+      // Fresh single-finger gesture  clear the multi-touch flag so genuine
+      // double-taps still work.
+      gestureWasMultiTouch.current = false;
       swipeStart.current = {
         x: e.touches[0].clientX,
         y: e.touches[0].clientY,
@@ -430,8 +439,9 @@ export default function ImgPreview({
   // Double-tap for touch
   const lastTouch = useRef(0);
   const handleTouchEndTap = (e: React.TouchEvent) => {
-    // Only count single-finger taps that didn't swipe
-    if (e.changedTouches.length !== 1 || pinching.current) return;
+    // Only count single-finger taps that didn't swipe and weren't part of a pinch
+    // (releasing a pinch must never register as a double-tap that resets zoom).
+    if (e.changedTouches.length !== 1 || pinching.current || gestureWasMultiTouch.current) return;
 
     const now = Date.now();
     const touch = e.changedTouches[0];

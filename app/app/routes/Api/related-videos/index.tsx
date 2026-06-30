@@ -58,6 +58,10 @@ export const loader = async ({ request }: { request: Request }) => {
         })()
       : [];
 
+    // Mode lock: the image carousel passes kind=image so related stays images.
+    const kindParam = url.searchParams.get('kind');
+    const kind = kindParam === 'image' || kindParam === 'video' ? kindParam : null;
+
     const rpcParams: Record<string, unknown> = {
       p_file_id: fileIdParam,
       p_user_id: userId || null,
@@ -65,6 +69,7 @@ export const loader = async ({ request }: { request: Request }) => {
       p_cursor_pos: Number.isFinite(cursorPos) ? cursorPos : 0,
       ...(pExcludeIds.length > 0 ? { p_exclude_ids: pExcludeIds } : {}),
       ...(sessionCats.length > 0 ? { p_session_cats: sessionCats } : {}),
+      ...(kind ? { p_kind: kind } : {}),
     };
 
     const { data: related, error } = await db.rpc('get_related', rpcParams);

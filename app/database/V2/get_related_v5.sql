@@ -26,7 +26,11 @@ CREATE OR REPLACE FUNCTION get_related(
   p_exclude_ids        uuid[]  DEFAULT '{}'::uuid[],
   p_session_cats       text[]  DEFAULT '{}'::text[],
   p_session_seed       text    DEFAULT NULL,
-  p_seen_creator_ids   uuid[]  DEFAULT '{}'::uuid[]
+  p_seen_creator_ids   uuid[]  DEFAULT '{}'::uuid[],
+  -- Mode lock: 'image' = recommend only images (the image carousel), 'video' =
+  -- only non-image media, NULL = the old mixed behaviour. Ranking is unchanged;
+  -- this only narrows the candidate pool, so the algorithm still learns globally.
+  p_kind               text    DEFAULT NULL
 )
 RETURNS TABLE (
   id               uuid,
@@ -250,6 +254,11 @@ BEGIN
       AND (p_exclude_ids = '{}'::uuid[] OR f.id != ALL(p_exclude_ids))
       AND f.id NOT IN (SELECT nf.file_id FROM neg_files nf)
       AND f.owner_id NOT IN (SELECT nc.creator_id FROM neg_creators nc)
+      AND (
+        p_kind IS NULL
+        OR (p_kind = 'image' AND f.file_type ILIKE 'image/%')
+        OR (p_kind = 'video' AND (f.file_type IS NULL OR f.file_type NOT ILIKE 'image/%'))
+      )
   ),
 
   scored AS (

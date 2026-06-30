@@ -5,6 +5,7 @@ import { WatchPlayBootstrapSync } from "./components/WatchPlayBootstrapSync";
 import { useCallback, useEffect, useLayoutEffect, useState, useRef, useMemo } from "react";
 import RelatedVideos from "./components/RelatedVideos";
 import SeriesEpisodesSection from "./components/SeriesEpisodesSection";
+import ImageWatchCarousel from "./components/ImageWatchCarousel";
 import SeriesSignInGate from "./components/SeriesSignInGate";
 import { type FileType, type SeriesEpisodeGroup, fileWatchPath } from "~/lib/types";
 import { BASE_URL } from "~/lib/URLS";
@@ -1726,23 +1727,11 @@ const DynamicPage = ({ is_modal }: DynamicPageProps) => {
             </div>
           </div>
         ) : (
-          <motion.div
-            transition={{ duration: 0.1 }}
-            layoutId={`image_id_${file_data.unique_id}`}
-            className="relative aspect-video w-full cursor-zoom-in"
-          >
-            <ImageLoad
-              link={`/api/load/image/${file_data.endpoint}`}
-              retry={retry}
-              className="w-full h-full object-contain"
-              imageID={file_data.unique_id}
-              index={0}
-              hasAdultTag={Boolean(file_data.is_adult)}
-              callBack={imageLoadCallBack}
-              key={file_data.unique_id}
-              shouldShowPreview={true}
-            />
-          </motion.div>
+          <ImageWatchCarousel
+            key={file_data.unique_id}
+            seed={file_data}
+            onColors={imageLoadCallBack}
+          />
         )}
       </div>
     </motion.div>
