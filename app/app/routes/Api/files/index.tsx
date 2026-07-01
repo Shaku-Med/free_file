@@ -105,7 +105,7 @@ export const action = async ({ request }: { request: Request }) => {
     }
 
     const body = await request.json();
-    const { fileId, title, description, isPublic, categories, tags, defaultThumbnail, commentsEnabled, commentLimit, markers } = body || {};
+    const { fileId, title, description, isPublic, categories, tags, defaultThumbnail, commentsEnabled, commentLimit, markers, isMusic } = body || {};
 
     /**
      * Skip-intro / next-episode markers  owner-edited, baked into `metadata.markers` so
@@ -230,6 +230,11 @@ export const action = async ({ request }: { request: Request }) => {
     if (typeof commentsEnabled === "boolean") {
       updateData.comments_enabled = commentsEnabled;
     }
+    // Owner override for the auto-detected music flag. Images can't be music, so
+    // the toggle is ignored for them.
+    if (typeof isMusic === "boolean" && !fileRow.file_type?.startsWith("image/")) {
+      updateData.is_music = isMusic;
+    }
     if (commentLimit !== undefined) {
       // null = unlimited, 0 = disabled, positive integer = limit
       if (commentLimit === null) {
@@ -277,7 +282,7 @@ export const action = async ({ request }: { request: Request }) => {
       .update(updateData)
       .eq(lookupField, fileId)
       .eq("owner_id", user.id)
-      .select("id, file_title, file_description, is_public, categories, tags, comments_enabled, comment_limit, default_thumbnail, metadata")
+      .select("id, file_title, file_description, is_public, categories, tags, comments_enabled, comment_limit, default_thumbnail, metadata, is_music")
       .single();
 
     if (updateError) {

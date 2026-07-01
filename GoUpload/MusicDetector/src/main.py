@@ -47,7 +47,7 @@ _load_env_files()
 
 PORT = int(os.environ.get("MUSIC_API_PORT", "3008"))
 SECRET = os.environ.get("MUSIC_API_SECRET", "")
-RATIO_THRESHOLD = float(os.environ.get("MUSIC_RATIO_THRESHOLD", "0.5"))
+RATIO_THRESHOLD = float(os.environ.get("MUSIC_RATIO_THRESHOLD", "0.8"))
 MIN_MUSIC_SECONDS = float(os.environ.get("MUSIC_MIN_SECONDS", "15"))
 ANALYZE_MAX_SECONDS = float(os.environ.get("MUSIC_ANALYZE_MAX_SECONDS", "180"))
 MAX_CONCURRENCY = max(1, int(os.environ.get("MUSIC_CONCURRENCY", "1")))

@@ -197,6 +197,7 @@ const VideoCard = ({
   const [editTitle, setEditTitle] = useState(data.file_title || "");
   const [editDescription, setEditDescription] = useState(data.file_description || "");
   const [editIsPublic, setEditIsPublic] = useState(Boolean(data.is_public));
+  const [editIsMusic, setEditIsMusic] = useState(Boolean(data.is_music));
   const [editCategories, setEditCategories] = useState<string[]>(() => {
     if (Array.isArray(data.categories)) return data.categories.filter((c): c is string => typeof c === "string");
     return [];
@@ -401,6 +402,7 @@ const VideoCard = ({
     setEditTitle(data.file_title || "");
     setEditDescription(data.file_description || "");
     setEditIsPublic(Boolean(data.is_public));
+    setEditIsMusic(Boolean(data.is_music));
     setEditCategories(Array.isArray(data.categories) ? data.categories.filter((c): c is string => typeof c === "string") : []);
     setEditTags(Array.isArray(data.tags) ? data.tags.filter((t): t is string => typeof t === "string") : []);
     setEditCommentsEnabled(data.comments_enabled !== false);
@@ -895,6 +897,7 @@ const VideoCard = ({
           ...(editCommentsEnabled ? { commentLimit } : {}),
           ...(newDefaultThumbnail !== undefined ? { defaultThumbnail: newDefaultThumbnail } : {}),
           markers: markersPayload,
+          ...(data.file_type?.startsWith("image/") ? {} : { isMusic: editIsMusic }),
         }),
       });
 
@@ -921,6 +924,7 @@ const VideoCard = ({
           tags: payload.file.tags ?? editTags,
           comments_enabled: payload.file.comments_enabled,
           comment_limit: payload.file.comment_limit,
+          is_music: payload.file.is_music ?? editIsMusic,
           ...(nextDefaultThumb !== undefined ? { default_thumbnail: nextDefaultThumb } : {}),
           /** Push the merged metadata back so the player picks up the new markers without a refresh. */
           ...(payload.file.metadata !== undefined ? { metadata: payload.file.metadata } : {}),
@@ -1593,6 +1597,39 @@ const VideoCard = ({
               </Button>
             </div>
           </div>
+
+          {typeof data.file_type === "string" && !data.file_type.startsWith("image/") && (
+            <div className="space-y-2">
+              <div className="flex items-center gap-2">
+                <Music2 className="h-3.5 w-3.5 text-muted-foreground" />
+                <label className="text-xs font-medium text-muted-foreground">Music</label>
+              </div>
+              <div className="flex items-center gap-2">
+                <Button
+                  type="button"
+                  variant={editIsMusic ? "default" : "outline"}
+                  className="rounded-full px-4"
+                  onClick={() => setEditIsMusic(true)}
+                  disabled={isSaving}
+                >
+                  Music
+                </Button>
+                <Button
+                  type="button"
+                  variant={!editIsMusic ? "default" : "outline"}
+                  className="rounded-full px-4"
+                  onClick={() => setEditIsMusic(false)}
+                  disabled={isSaving}
+                >
+                  Not music
+                </Button>
+              </div>
+              <p className="text-[11px] leading-snug text-muted-foreground/80">
+                Auto-detected from the audio, but you decide. Music files get the music
+                icon and feed the music recommendations.
+              </p>
+            </div>
+          )}
           <div className="space-y-2">
             <label className="text-xs font-medium text-muted-foreground">Comments</label>
             <div className="flex rounded-lg border border-border/50 overflow-hidden bg-muted/30">
