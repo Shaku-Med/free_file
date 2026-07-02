@@ -725,6 +725,7 @@ export default function VRTheaterOverlay() {
       let rafId: number | null = null;
       let lastNow = 0;
       let lastAudioSync = 0;
+      let lastReverbSync = 0;
       const screenInCamSpace = new THREE.Vector3();
       const tick = (now: number) => {
         rafId = requestAnimationFrame(tick);
@@ -840,25 +841,40 @@ export default function VRTheaterOverlay() {
           camera.position.z + dirZ,
         );
 
-        // Sound system follows your head: the screen's position in CAMERA
-        // space maps straight onto the WebAudio listener (both face -Z), so
-        // turning away pans the sound, zooming pulls it closer, and distance
-        // feeds the room reverb. Throttled — audio params don't need 60fps.
-        if (soundOnRef.current && now - lastAudioSync > 120) {
+        // Head-tracked sound. We take the screen's direction in CAMERA space
+        // (both the camera and the WebAudio listener face -Z) and pin the
+        // source at a steady arm's length along that direction. So only the
+        // ANGLE moves as you look around — screen ahead = sound ahead, look
+        // away = it slides to your side and then behind — while loudness holds
+        // steady, which is what actually reads as "you're in the room with it."
+        // Updated at ~30fps with a ramp matched to the frame gap so it glides
+        // with your gaze; the old 8fps step felt detached and laggy.
+        if (soundOnRef.current && now - lastAudioSync >= 32) {
+          const dtAudio = (now - lastAudioSync) / 1000;
           lastAudioSync = now;
           const graph = ensureSharedGraph(video);
           if (graph && graph.ctx.state === 'running' && graph.pannerActive) {
             camera.updateMatrixWorld();
             screenInCamSpace.set(0, SCREEN_CENTER_Y, SCREEN_FACE_Z);
             camera.worldToLocal(screenInCamSpace);
-            // Zoomed in (small fov) = sitting closer = sound nearer + drier.
+            const dist = screenInCamSpace.length();
+            // A touch closer when you zoom in (small fov = leaning toward it).
             const zoomScale = camera.fov / FOV_BASE;
-            const px = screenInCamSpace.x * 0.4 * zoomScale;
-            const py = screenInCamSpace.y * 0.3 * zoomScale;
-            const pz = screenInCamSpace.z * 0.4 * zoomScale;
-            setPannerPosition(graph, px, py, pz, 0.12);
-            const dist = Math.hypot(px, py, pz);
-            setTheaterWet(graph, 0.1 + Math.min(0.32, dist * 0.075), 0.15);
+            const radius = 1.15 * (0.75 + 0.25 * Math.min(1.4, zoomScale));
+            const inv = dist > 1e-4 ? radius / dist : 0;
+            setPannerPosition(
+              graph,
+              screenInCamSpace.x * inv,
+              screenInCamSpace.y * inv * 0.7,
+              screenInCamSpace.z * inv,
+              Math.min(0.08, dtAudio * 1.5),
+            );
+            // Reverb follows your REAL distance to the screen (dolly in/out),
+            // not the fixed audio radius, and can lag — rooms don't snap.
+            if (now - lastReverbSync > 140) {
+              lastReverbSync = now;
+              setTheaterWet(graph, 0.1 + Math.min(0.34, dist * 0.09), 0.16);
+            }
           }
         }
 
