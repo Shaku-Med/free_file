@@ -65,6 +65,9 @@ COPY --from=build /app/build ./build
 COPY package.json package-lock.json .npmrc ./
 COPY server ./server
 COPY public ./public
+# Operator scripts (backfills / one time migrations) so they can run with
+# `docker exec` inside the container, where the env is already loaded.
+COPY scripts ./scripts
 
 # Drop privileges to the unprivileged "node" user that ships with the image.
 RUN chown -R node:node /app

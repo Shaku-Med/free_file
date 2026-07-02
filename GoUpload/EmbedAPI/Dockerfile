@@ -1,4 +1,6 @@
-# EmbedAPI - local embedding sidecar. ~300MB image, no torch, CPU-only.
+# EmbedAPI - local embedding sidecar. No torch, CPU-only. The multilingual
+# MiniLM model (~500MB baked) replaced bge-small-en: 50+ languages, same 384
+# dims, so DB columns and RPCs are untouched.
 FROM python:3.12-slim
 
 ENV PYTHONUNBUFFERED=1 \
@@ -14,7 +16,7 @@ COPY requirements.txt .
 RUN pip install -r requirements.txt
 
 # Bake the model into the image at BUILD time.
-RUN python -c "from fastembed import TextEmbedding; TextEmbedding('BAAI/bge-small-en-v1.5')"
+RUN python -c "from fastembed import TextEmbedding; TextEmbedding('sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2')"
 
 COPY main.py .
 

@@ -60,7 +60,8 @@ services:
       resources:
         limits:
           cpus: "${EMBEDAPI_CPUS:-0.75}"
-          memory: ${EMBEDAPI_MEM:-512M}
+          # The multilingual model needs more headroom than the old bge-small.
+          memory: ${EMBEDAPI_MEM:-1G}
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request;urllib.request.urlopen('http://localhost:3007/health', timeout=3)\""]
       interval: 30s

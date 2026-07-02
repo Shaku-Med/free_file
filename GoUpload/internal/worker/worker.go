@@ -18,6 +18,7 @@ import (
 	"goupload/lib/embed"
 	"goupload/lib/ffmpeg"
 	ghlib "goupload/lib/github"
+	"goupload/lib/langdetect"
 	"goupload/lib/logger"
 	"goupload/lib/musicdetect"
 	"goupload/lib/nsfw"
@@ -695,6 +696,9 @@ func (w *Worker) processJob(job *queue.Job) {
 			StorageBucket:       storageBucket,
 			Overflow:            job.Overflow,
 			Embedding:           w.embedForFile(job, categories, tags, metadata),
+			// Detected from the uploader's own words only - the AI caption is
+			// always English and would mislabel non-English uploads.
+			ContentLanguage: langdetect.Detect(job.Title, job.Description),
 		})
 		w.log.Infof("job complete job=%s duration=%s", job.ID, time.Since(start))
 		return
@@ -1179,6 +1183,8 @@ func (w *Worker) processJob(job *queue.Job) {
 		IsMusic:             isMusic,
 		FpHashes:            fpHashes,
 		FpOffsets:           fpOffsets,
+		// Uploader's own words only - the AI caption is always English.
+		ContentLanguage: langdetect.Detect(job.Title, job.Description),
 	})
 	w.log.Infof("job complete job=%s user=%s upload=%s duration=%s thumbnails=%d colors=%d tags=%d overflow=%v fingerprints=%d", job.ID, job.UserID, job.UploadID, time.Since(start), len(thumbnailPaths), len(vidColors), len(tags), job.Overflow, len(fpHashes))
 }
@@ -1415,15 +1421,22 @@ func buildVisionData(vr *nsfw.Result, title, description string, userCategories,
 	var labelNames []string
 	if len(vr.Labels) > 0 {
 		var rawLabels []map[string]interface{}
+		// Only confident labels become visible tags: at 0.50 Vision's coin-flip
+		// guesses ("Surfboard", "Dancing mouse") were landing as hashtags on
+		// unrelated videos. All labels still go to metadata/search regardless.
+		const labelTagMinScore = 0.75
+		const labelTagMax = 8
+		labelTags := 0
 		for _, l := range vr.Labels {
 			rawLabels = append(rawLabels, map[string]interface{}{
 				"name":  l.Name,
 				"score": l.Score,
 			})
 			labelNames = append(labelNames, strings.ToLower(l.Name))
-			if l.Score >= 0.50 && !seen[l.Name] {
+			if l.Score >= labelTagMinScore && labelTags < labelTagMax && !seen[l.Name] {
 				tags = append(tags, l.Name)
 				seen[l.Name] = true
+				labelTags++
 			}
 		}
 		metadata["labels"] = rawLabels

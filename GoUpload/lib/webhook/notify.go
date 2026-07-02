@@ -15,32 +15,32 @@ import (
 // Payload is sent to the app's /api/upload-job-status. The app upserts upload_jobs
 // and creates/updates files in Supabase so the user sees progress on their page.
 type Payload struct {
-	JobID            string                 `json:"job_id"`
-	Status           string                 `json:"status"`
-	UploadID         string                 `json:"upload_id"`
-	UserID           string                 `json:"user_id"`
-	FileName         string                 `json:"file_name,omitempty"`
-	FileSize         int64                  `json:"file_size,omitempty"`
-	IsPublic         *bool                  `json:"is_public,omitempty"`
-	Title            string                 `json:"title,omitempty"`
-	Description      string                 `json:"description,omitempty"`
-	Endpoint         string                 `json:"endpoint,omitempty"`
-	Thumbnails       []string               `json:"thumbnails,omitempty"`
-	Duration         float64                `json:"duration,omitempty"`
-	IsReel           *bool                  `json:"is_reel,omitempty"`
-	IsAdult          *bool                  `json:"is_adult,omitempty"`
-	Colors           []string               `json:"colors,omitempty"`
-	Categories       []string               `json:"categories,omitempty"`
-	Tags             []string               `json:"tags,omitempty"`
-	Metadata         map[string]interface{} `json:"metadata,omitempty"`
-	CommentsEnabled  *bool                  `json:"comments_enabled,omitempty"`
-	DefaultThumbnail string                 `json:"default_thumbnail,omitempty"`
-	FileSeriesID        string `json:"file_series_id,omitempty"`
-	FileSeriesEpisodeID string `json:"file_series_episode_id,omitempty"`
-	IsNewSeries         bool   `json:"is_new_series,omitempty"`
-	NewEpisodeName      string `json:"new_episode_name,omitempty"`
-	ParentEpisodeID     string `json:"parent_episode_id,omitempty"`
-	GitHubRepo          string `json:"github_repo,omitempty"`
+	JobID               string                 `json:"job_id"`
+	Status              string                 `json:"status"`
+	UploadID            string                 `json:"upload_id"`
+	UserID              string                 `json:"user_id"`
+	FileName            string                 `json:"file_name,omitempty"`
+	FileSize            int64                  `json:"file_size,omitempty"`
+	IsPublic            *bool                  `json:"is_public,omitempty"`
+	Title               string                 `json:"title,omitempty"`
+	Description         string                 `json:"description,omitempty"`
+	Endpoint            string                 `json:"endpoint,omitempty"`
+	Thumbnails          []string               `json:"thumbnails,omitempty"`
+	Duration            float64                `json:"duration,omitempty"`
+	IsReel              *bool                  `json:"is_reel,omitempty"`
+	IsAdult             *bool                  `json:"is_adult,omitempty"`
+	Colors              []string               `json:"colors,omitempty"`
+	Categories          []string               `json:"categories,omitempty"`
+	Tags                []string               `json:"tags,omitempty"`
+	Metadata            map[string]interface{} `json:"metadata,omitempty"`
+	CommentsEnabled     *bool                  `json:"comments_enabled,omitempty"`
+	DefaultThumbnail    string                 `json:"default_thumbnail,omitempty"`
+	FileSeriesID        string                 `json:"file_series_id,omitempty"`
+	FileSeriesEpisodeID string                 `json:"file_series_episode_id,omitempty"`
+	IsNewSeries         bool                   `json:"is_new_series,omitempty"`
+	NewEpisodeName      string                 `json:"new_episode_name,omitempty"`
+	ParentEpisodeID     string                 `json:"parent_episode_id,omitempty"`
+	GitHubRepo          string                 `json:"github_repo,omitempty"`
 	// Storage backend the worker wrote to ("github" or "r2"); bucket set for r2.
 	StorageBackend string `json:"storage_backend,omitempty"`
 	StorageBucket  string `json:"storage_bucket,omitempty"`
@@ -54,6 +54,9 @@ type Payload struct {
 	// True when the file is detected as music (beat-regularity score or a
 	// "music" category). Drives the card music icon and on-theme recommends.
 	IsMusic bool `json:"is_music,omitempty"`
+	// ISO 639-3 code of the title/description language (e.g. "eng", "cmn"),
+	// detected at processing time. Feeds same-language recommendations.
+	ContentLanguage string `json:"content_language,omitempty"`
 	// Audio fingerprints (Shazam-style duplicate detection): parallel arrays
 	// of pair hashes + STFT frame offsets. The app feeds them to
 	// register_audio_fingerprints which stores + matches + links originals.

@@ -223,10 +223,10 @@ export class VisionService {
 
     console.log(`[VisionService] isNSFW decision: ${isNSFW} (reason=${flagReason || 'none'}, adult=${ss?.adult}, racy=${ss?.racy}, violence=${ss?.violence}, medical=${ss?.medical}, safeContext=${hasSafeContext}, harmfulLabels=${hasHarmfulLabels})`);
 
-    const description = relevantLabels.length > 0
-      ? `Content featuring ${relevantLabels.join(', ')}`
-      : '';
-    console.log(`[VisionService] Generated description: "${description}"`);
+    // No label-soup fallback: "Content featuring hair, black, cloth" is worse than
+    // nothing. The real description comes from the VLM captioner (overrides this
+    // when enabled); labels still reach search via the labels array either way.
+    const description = '';
 
     return {
       isNSFW,

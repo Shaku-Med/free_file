@@ -16,7 +16,7 @@ dotenv.config();
 
 const DEFAULT_MODEL = 'meta-llama/llama-4-scout-17b-16e-instruct';
 const PROMPT =
-  'Describe this image in one short, specific sentence. Focus on the main subject and what is happening. Be concrete (e.g. "a cat sitting on a table") not abstract ("a photo of an animal"). 25 words maximum. Return only the sentence.';
+  'Describe this image naturally, like you are telling a friend what you see. One or two sentences: the main subject, what they are doing, and the setting (e.g. "A woman standing on an outdoor staircase, holding the railing and posing for a photo"). Be concrete and specific, never a list of words, never abstract. 40 words maximum. Return only the description.';
 
 const MAX_BASE64_BYTES = 8 * 1024 * 1024;
 const MAX_CAPTION_LEN = 300;

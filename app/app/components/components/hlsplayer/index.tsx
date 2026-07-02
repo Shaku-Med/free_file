@@ -329,6 +329,35 @@ function PlayerInner({
     return () => mql.removeEventListener('change', update);
   }, []);
 
+  // Portrait / narrow-aspect videos shrink the player to their real aspect even
+  // on big screens, and the desktop control roster can't fit in that width
+  // without squishing. The layout choice must follow the PLAYER's width, not
+  // the viewport: below this width the bar switches to the mobile layout, which
+  // scales itself to the container. Fullscreen widens the container, so the
+  // desktop roster comes back automatically there.
+  const NARROW_PLAYER_PX = 480;
+  const [isNarrowPlayer, setIsNarrowPlayer] = useState(false);
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    let raf = 0;
+    const measure = () => {
+      cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(() => {
+        const w = el.getBoundingClientRect().width;
+        // width 0 = hidden/detached; keep the last real decision.
+        setIsNarrowPlayer((prev) => (w > 0 ? w < NARROW_PLAYER_PX : prev));
+      });
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => {
+      cancelAnimationFrame(raf);
+      ro.disconnect();
+    };
+  }, [containerRef]);
+
   const {
     isPipActive,
     isContentInPip,
@@ -1215,7 +1244,7 @@ function PlayerInner({
               onTheaterModeChange={isMobileView ? undefined : handleTheaterModeChange}
               hideControls={effectiveHideControls}
               liftBottomPx={showAudioVisualizer ? visualizerStripPx : 0}
-              isMobileLayout={isMobileView}
+              isMobileLayout={isMobileView || isNarrowPlayer}
               onBack={onBack}
             />
           </div>

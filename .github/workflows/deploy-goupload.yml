@@ -355,7 +355,7 @@ jobs:
           NSFWAPI_CPUS=0.4
           NSFWAPI_MEM=512M
           EMBEDAPI_CPUS=0.75
-          EMBEDAPI_MEM=512M
+          EMBEDAPI_MEM=1G
           EMBED_THREADS=1
           MUSICDETECTOR_CPUS=1.0
           MUSICDETECTOR_MEM=1536M

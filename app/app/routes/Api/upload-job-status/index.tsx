@@ -289,6 +289,10 @@ export const action = async ({ request }: { request: Request }) => {
     overflow?: boolean;
     /** Semantic-search vector (384 floats) from the Go worker, optional. */
     embedding?: number[];
+    /** Worker's music verdict (MusicDetector sidecar / heuristic). Absent = not music. */
+    is_music?: boolean;
+    /** ISO 639-3 language of title+description, detected by the Go worker. */
+    content_language?: string;
     /** Audio fingerprints (duplicate detection): parallel hash/offset arrays. */
     fp_hashes?: number[];
     fp_offsets?: number[];
@@ -519,11 +523,15 @@ export const action = async ({ request }: { request: Request }) => {
     if (categories.length > 0) {
       updateData.categories = categories;
     }
-    // is_music: trust the worker's flag, but also catch a "music" category as a
-    // fallback (matches the backfill). Always set so re-processing keeps it fresh.
-    const bodyIsMusic = (body as { is_music?: unknown })?.is_music === true;
-    const categoryIsMusic = categories.some((c) => c.toLowerCase().includes('music'));
-    updateData.is_music = bodyIsMusic || categoryIsMusic;
+    // is_music: the worker's verdict is authoritative (MusicDetector gates on the
+    // music FRACTION of the audio; a "Music" category alone must not flip this,
+    // otherwise the 80% gate and the owner's manual override get re-broken here).
+    updateData.is_music = body?.is_music === true;
+    // content_language: ISO 639-3 code detected by the worker (e.g. "eng", "cmn").
+    const contentLang = typeof body?.content_language === 'string' ? body.content_language.trim().toLowerCase() : '';
+    if (/^[a-z]{2,3}$/.test(contentLang)) {
+      updateData.content_language = contentLang;
+    }
     if (tags.length > 0) {
       updateData.tags = tags;
     }

@@ -80,11 +80,12 @@ DECLARE
   v_categories jsonb;
   v_file_type  text;
   v_embedding  vector(384);
+  v_lang       text;
   v_has_lane   boolean;
   v_seed       text;
 BEGIN
-  SELECT f.owner_id, f.tags, f.categories, f.file_type, f.embedding
-  INTO v_owner_id, v_tags, v_categories, v_file_type, v_embedding
+  SELECT f.owner_id, f.tags, f.categories, f.file_type, f.embedding, f.content_language
+  INTO v_owner_id, v_tags, v_categories, v_file_type, v_embedding, v_lang
   FROM files f
   WHERE f.id = p_file_id AND f.is_public = true;
 
@@ -195,6 +196,11 @@ BEGIN
             WHEN v_file_type IS NOT NULL AND f.file_type IS NOT NULL
                  AND split_part(f.file_type, '/', 1) = split_part(v_file_type, '/', 1)
             THEN 20.0 ELSE 0.0 END
+        -- Same-language soft boost: a Chinese-titled video ranks its related
+        -- Chinese content up without ever excluding other languages.
+        + CASE
+            WHEN v_lang IS NOT NULL AND f.content_language = v_lang
+            THEN 15.0 ELSE 0.0 END
       )::float AS _rel_score,
 
       COALESCE(

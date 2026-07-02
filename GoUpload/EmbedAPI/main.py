@@ -1,9 +1,14 @@
 """
-EmbedAPI - local text-embedding sidecar (BAAI/bge-small-en-v1.5 via fastembed).
+EmbedAPI - local text-embedding sidecar (multilingual MiniLM via fastembed).
 
 Same trust model as NSFWAPI: lives on the private docker network, never
 published to the internet. Every request must carry X-Internal-Secret;
 GoUpload is the only caller. Stateless text -> 384-dim vector, no DB access.
+
+Model note: paraphrase-multilingual-MiniLM-L12-v2 covers 50+ languages at the
+SAME 384 dimensions as the old bge-small-en-v1.5, so vector(384) columns and
+every RPC stay untouched. Vectors from the two models are NOT comparable -
+after switching, re-embed every stored vector (scripts/reembed-files).
 """
 
 import hmac
@@ -41,7 +46,7 @@ def _load_env_files() -> None:
 
 _load_env_files()
 
-MODEL_NAME = os.environ.get("EMBED_MODEL", "BAAI/bge-small-en-v1.5")
+MODEL_NAME = os.environ.get("EMBED_MODEL", "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2")
 PORT = int(os.environ.get("EMBED_API_PORT", "3007"))
 SECRET = os.environ.get("EMBED_API_SECRET", "")
 # Keep ONNX polite on shared vCPUs; a single short sentence embeds in ~10ms anyway.
@@ -68,8 +73,9 @@ app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
 
 class EmbedRequest(BaseModel):
     texts: list[str] = Field(min_length=1, max_length=MAX_TEXTS)
-    # "query" applies the bge query prefix (user searches); "passage" is for
-    # documents (titles/descriptions at upload time).
+    # "query" = user searches, "passage" = documents (titles/descriptions at
+    # upload). fastembed applies whatever prefixing the active model needs; for
+    # the multilingual MiniLM both paths embed plain text.
     kind: str = "passage"
 
 
