@@ -68,8 +68,14 @@ func RegisterRoutes(app *fiber.App, log *logger.Logger, client *embed.Client, we
 		texts := make([]string, 0, len(body.Texts))
 		for _, t := range body.Texts {
 			t = strings.TrimSpace(t)
-			if t == "" || len(t) > maxTextChars {
+			if t == "" {
 				return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid_request"})
+			}
+			// Truncate long text instead of rejecting, and count RUNES like the
+			// sidecar does - len() counts bytes, so a 2000-char Chinese
+			// description (up to 4 bytes per char) was 400ing its whole batch.
+			if runes := []rune(t); len(runes) > maxTextChars {
+				t = string(runes[:maxTextChars])
 			}
 			texts = append(texts, t)
 		}
