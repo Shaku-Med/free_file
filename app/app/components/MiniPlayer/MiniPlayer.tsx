@@ -11,6 +11,7 @@ import { ParseFilename } from "~/lib/utils";
 import { cn } from "~/lib/utils";
 import { useMiniPlayerDrag } from "./useMiniPlayerDrag";
 import { Tooltip, TooltipContent, TooltipTrigger } from "~/components/ui/tooltip";
+import Ambience from "~/components/accessories/CanvasGradient/Ambience";
 
 function MiniPlayerContent() {
   const {
@@ -39,6 +40,62 @@ function MiniPlayerContent() {
     handleResizePointerUp,
   } = useMiniPlayerDrag(sessionKey);
   const [closing, setClosing] = useState(false);
+
+  // Follow the video's real shape: seed from the upload metadata (instant, no
+  // 16:9 flash) and refine from the element once it knows its dimensions.
+  const [videoAspect, setVideoAspect] = useState<number | null>(null);
+  useEffect(() => {
+    setVideoAspect(null);
+    const meta = (miniPlayer?.file as { metadata?: { video?: { width?: unknown; height?: unknown } } } | undefined)
+      ?.metadata?.video;
+    const mw = Number(meta?.width);
+    const mh = Number(meta?.height);
+    if (mw > 0 && mh > 0) setVideoAspect(mw / mh);
+    const v = watchVideoRef.current;
+    if (!v) return;
+    const apply = () => {
+      if (v.videoWidth > 0 && v.videoHeight > 0) setVideoAspect(v.videoWidth / v.videoHeight);
+    };
+    apply();
+    v.addEventListener("loadedmetadata", apply);
+    return () => v.removeEventListener("loadedmetadata", apply);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessionKey, watchVideoRef]);
+  // Clamp so a portrait mini stays hand-sized (height <= 1.6x width) and an
+  // ultra-wide one doesn't collapse into a sliver.
+  const shellAspect = Math.min(Math.max(videoAspect ?? 16 / 9, 0.625), 2.4);
+
+  // Viewport height cap: the whole mini (chrome included) may never exceed
+  // ~52% of the screen. Without this a 9:16 video at phone width becomes a
+  // near-fullscreen "mini" player. The width shrinks to satisfy the cap, so
+  // portrait videos render as a slim column, like YouTube's portrait mini.
+  const MINI_CHROME_H = 88; // drag header (36) + title footer (~52)
+  const [viewportH, setViewportH] = useState<number>(() =>
+    typeof window === "undefined" ? 800 : window.innerHeight,
+  );
+  useEffect(() => {
+    const onResize = () => setViewportH(window.innerHeight);
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+  const maxShellH = Math.max(160, Math.floor(viewportH * 0.52) - MINI_CHROME_H);
+  const displayWidth = Math.min(frameWidth, Math.max(180, Math.floor(maxShellH * shellAspect)));
+
+  // Ambient glow around the mini, honoring the SAME player setting as the watch
+  // page (player-ambient-mode cookie). Re-read per mini session.
+  const [ambientOn, setAmbientOn] = useState(false);
+  useEffect(() => {
+    try {
+      let on = false;
+      for (const cookie of document.cookie ? document.cookie.split("; ") : []) {
+        const [key, value] = cookie.split("=");
+        if (key === "player-ambient-mode") on = decodeURIComponent(value ?? "") === "1";
+      }
+      setAmbientOn(on);
+    } catch {
+      setAmbientOn(false);
+    }
+  }, [sessionKey]);
 
   const bindVideoShellRef = useCallback(
     (el: HTMLDivElement | null) => {
@@ -89,7 +146,7 @@ function MiniPlayerContent() {
       ref={elementRef}
       data-mini-player
       initial={false}
-      animate={{ width: frameWidth }}
+      animate={{ width: displayWidth }}
       transition={
         isDragging ? { duration: 0 }
           : { type: "tween", duration: isSnapping ? 0.2 : 0.15, ease: "easeOut" }
@@ -103,7 +160,7 @@ function MiniPlayerContent() {
       style={{
         left: position.x,
         top: position.y,
-        width: frameWidth,
+        width: displayWidth,
         isolation: "isolate",
         transition: isDragging
           ? "none"
@@ -144,6 +201,20 @@ function MiniPlayerContent() {
           style={{ isolation: "isolate" }}
           onPointerDown={handlePointerDown}
         />
+      )}
+
+      {/* Ambient glow: the live video palette feathering out past the card. Only
+          when the player's ambient setting is on, and never while tucked away at
+          a screen edge (a colorful smear poking out looks broken). The blur
+          itself feathers the edges - tiny canvas, sampled at 1fps, so it costs
+          next to nothing even on phones. */}
+      {ambientOn && !tuck && !closing && (
+        <div
+          aria-hidden
+          className="pointer-events-none absolute -inset-[14%] -z-[1] rounded-[2.5rem] opacity-75 blur-2xl saturate-150"
+        >
+          <Ambience key={sessionKey} colors={[]} videoRef={watchVideoRef} videoReady sync={false} />
+        </div>
       )}
 
       <div
@@ -215,9 +286,12 @@ function MiniPlayerContent() {
       <div
         ref={bindVideoShellRef}
         className={cn(
-          "relative aspect-video w-full overflow-hidden bg-black",
+          "relative w-full overflow-hidden bg-black",
           `mini_player_inner_${miniPlayer.imageID}`,
         )}
+        // Follows the video's real aspect (portrait mini for portrait videos)
+        // instead of forcing everything into a 16:9 box.
+        style={{ aspectRatio: String(shellAspect) }}
       />
 
       <div className="bg-zinc-900/95 px-3 py-2.5">

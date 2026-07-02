@@ -235,6 +235,26 @@ export function useMiniPlayerDrag(sessionKey: string) {
     setPosition((p) => visPosition(p.x, p.y, width, height, tuck));
   }, [frameWidth, mounted, measureAndCacheSize, tuck, visPosition]);
 
+  // The shell height can change AFTER placement (aspect-ratio arrives from
+  // video metadata, title wraps, ...). Re-clamp whenever the element's real
+  // size changes so a grown mini never hangs past the viewport edge.
+  useEffect(() => {
+    const el = elementRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(() => {
+      const prev = elSizeRef.current;
+      measureAndCacheSize();
+      const { width, height } = elSizeRef.current;
+      if (Math.abs(width - prev.width) < 1 && Math.abs(height - prev.height) < 1) return;
+      setPosition((p) => {
+        const next = visPosition(p.x, p.y, width, height, tuckRef.current);
+        return next.x === p.x && next.y === p.y ? p : next;
+      });
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [measureAndCacheSize, visPosition]);
+
   useEffect(() => {
     const onResize = () => {
       if (isDragging.current || isResizing.current) return;

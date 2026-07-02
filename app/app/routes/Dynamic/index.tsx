@@ -1085,19 +1085,27 @@ const DynamicPage = ({ is_modal }: DynamicPageProps) => {
   const closeMiniPlayerRef = useRef(closeMiniPlayer);
   closeMiniPlayerRef.current = closeMiniPlayer;
 
+  // THE mini player close decision for watch pages. It lives here - after the
+  // loader - because only the loaded file says what the destination IS. Closing
+  // on the URL alone (the old CloseMiniPlayerOnNavigateToVideo behavior) killed
+  // the mini for image posts too, which never claim the shared <video> at all.
+  //  - image  -> keep the mini playing while the viewer looks at pictures
+  //  - video  -> the in-page player takes over, close the mini (unless this IS
+  //              the mini expanding into the page; that handoff dismisses chrome)
+  //  - other  -> close, nothing should fight over playback
   useEffect(() => {
     if (!file_data?.unique_id) return;
     const fd = file_data;
-    const hls = fd.file_type === 'application/vnd.apple.mpegurl' || !!fd.endpoint?.includes('.m3u8');
-    const isVideoFile = hls || !!fd.file_type?.includes('video');
-    if (isVideoFile) return;
+    if (fd.file_type?.startsWith('image/')) return;
     if (!activeMiniPlayer) return;
+    if (isExpanding) return;
     closeMiniPlayer();
   }, [
     file_data?.unique_id,
     file_data?.file_type,
     file_data?.endpoint,
     activeMiniPlayer,
+    isExpanding,
     closeMiniPlayer,
   ]);
 
