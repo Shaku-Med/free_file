@@ -128,6 +128,7 @@ export default [
         route(`views/watch-time`, 'routes/Api/views/watch-time.tsx'),
         route(`saves`, 'routes/Api/saves/index.tsx'),
         route(`feed-signals`, 'routes/Api/feed-signals/index.tsx'),
+        route(`watch-signals`, 'routes/Api/watch-signals/index.tsx'),
         route(`personalization`, 'routes/Api/personalization/index.tsx'),
         route(`watch-progress`, 'routes/Api/watch-progress/index.tsx'),
         route(`series/resume`, 'routes/Api/series/resume.tsx'),

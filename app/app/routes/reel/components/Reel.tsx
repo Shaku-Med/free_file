@@ -103,7 +103,16 @@ const Reel = ({ initialItems, initialUserActions, profileReelContext = null }: R
   /** Reels the viewer has scrolled through this session (last = most recently left). */
   const watchedReelIdsRef = useRef<string[]>([]);
   /** Active reel + categories; updated on each swipe for session steering. */
-  const prevReelRef = useRef<{ fileId: string; categories?: string[] } | null>(null);
+  const prevReelRef = useRef<{
+    fileId: string;
+    categories?: string[];
+    ownerId?: string;
+    enteredAt: number;
+  } | null>(null);
+  /** Watch signals waiting to be flushed to /api/watch-signals (signed-in only). */
+  const pendingSignalsRef = useRef<
+    Array<{ fileId: string; ownerId?: string; categories?: string[]; dwellMs: number }>
+  >([]);
   /** Skip duplicate `loadFeed(false)` for the same `initialItems` snapshot (loadFeed identity changes often). */
   const initialFeedKeyRef = useRef<string | null>(null);
   /** Invalidate in-flight fetches after navigation / reset so stale responses cannot clobber state. */
@@ -343,7 +352,14 @@ const Reel = ({ initialItems, initialUserActions, profileReelContext = null }: R
   // the single Ambience so it re-samples the new element on each swipe.
   // Ambient mode is a signed-in-only feature — never run it for guests, even
   // if a stale/default setting says ambientMode=true.
-  const ambientEnabled = Boolean(userId) && playerSettings?.ambientMode === true;
+  // Live video sampled ambience is DESKTOP ONLY, like YouTube's ambient mode.
+  // On phones the glow sits under a full screen CSS blur that recomposites on
+  // every canvas update - that combination overheats mobile Safari and drains
+  // the battery, so touch devices keep the cheap static palette backdrop instead.
+  const [finePointer] = useState(() =>
+    typeof window !== "undefined" ? window.matchMedia("(pointer: fine)").matches : false,
+  );
+  const ambientEnabled = Boolean(userId) && playerSettings?.ambientMode === true && finePointer;
   // Follow the same ambient controls as the watch page: sync mode + size.
   const ambientSync = playerSettings?.ambientSync === true;
   const ambientSize = Math.max(1, Math.min(2, playerSettings?.ambientSize ?? 2));
@@ -389,6 +405,25 @@ const Reel = ({ initialItems, initialUserActions, profileReelContext = null }: R
   // the slide changes), not the ambience callback — that one waits for the video
   // element, so it lagged/blanked the panel on swipe.
   const [activeReel, setActiveReel] = useState<{ fileId: string; ownerId?: string } | null>(null);
+
+  /** Fire-and-forget flush; keepalive lets it survive navigation. */
+  const flushWatchSignals = useCallback(() => {
+    const items = pendingSignalsRef.current;
+    if (items.length === 0) return;
+    pendingSignalsRef.current = [];
+    try {
+      void fetch("/api/watch-signals", {
+        method: "POST",
+        credentials: "include",
+        keepalive: true,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ items }),
+      }).catch(() => {});
+    } catch {
+      /* never break playback over analytics */
+    }
+  }, []);
+
   const onActiveItemChange = useCallback(
     (info: { fileId: string; ownerId?: string; categories?: string[] }) => {
       setActiveReel((prev) =>
@@ -406,11 +441,58 @@ const Reel = ({ initialItems, initialUserActions, profileReelContext = null }: R
         const without = watchedReelIdsRef.current.filter((x) => x !== idLower);
         without.push(idLower);
         watchedReelIdsRef.current = without.slice(-50);
+
+        // Long-term taste: queue the watch for /api/watch-signals (writes the
+        // impressions + interest + creator-affinity tables the feed ranks on).
+        // Dwell time separates a real watch from a fast skip server-side.
+        if (userId) {
+          pendingSignalsRef.current.push({
+            fileId: prev.fileId,
+            ownerId: prev.ownerId,
+            categories: prev.categories,
+            dwellMs: Math.max(0, Date.now() - prev.enteredAt),
+          });
+          if (pendingSignalsRef.current.length >= 8) flushWatchSignals();
+        }
       }
-      prevReelRef.current = { fileId: info.fileId, categories: info.categories };
+      prevReelRef.current = {
+        fileId: info.fileId,
+        categories: info.categories,
+        ownerId: info.ownerId,
+        enteredAt: Date.now(),
+      };
     },
-    [],
+    [userId, flushWatchSignals],
   );
+
+  // Flush whatever is queued when the tab hides or the deck unmounts, counting
+  // the reel currently on screen too (its dwell ends now).
+  useEffect(() => {
+    if (!userId) return;
+    const flushWithCurrent = () => {
+      const cur = prevReelRef.current;
+      if (cur) {
+        pendingSignalsRef.current.push({
+          fileId: cur.fileId,
+          ownerId: cur.ownerId,
+          categories: cur.categories,
+          dwellMs: Math.max(0, Date.now() - cur.enteredAt),
+        });
+        prevReelRef.current = { ...cur, enteredAt: Date.now() };
+      }
+      flushWatchSignals();
+    };
+    const onVisibility = () => {
+      if (document.hidden) flushWithCurrent();
+    };
+    window.addEventListener("pagehide", flushWithCurrent);
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      window.removeEventListener("pagehide", flushWithCurrent);
+      document.removeEventListener("visibilitychange", onVisibility);
+      flushWithCurrent();
+    };
+  }, [userId, flushWatchSignals]);
 
   const activeCommentFileId = activeReel?.fileId ?? null;
   const activeCommentOwnerId = activeReel?.ownerId;

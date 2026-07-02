@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useLocation } from "react-router";
-import { ArrowLeft, Plus, Search } from "lucide-react";
+import { ArrowLeft, Home, Plus, Search } from "lucide-react";
 import Logo from "./Logo/Logo";
 import { useFileContext } from "~/lib/Context/Context";
 import { SidebarTrigger, useSidebar } from "../ui/sidebar";
@@ -137,6 +137,17 @@ export default function Navbar({ hasScrolled = { state: false, opacityLevel: 0 }
         ) : (
           <div className="flex min-w-0 shrink-0 items-center gap-1">
             <SidebarTrigger className={cn(iconBtn, onReelRoute && iconBtnReel, "[&_svg]:size-5")} />
+            {/* Desktop: quick Home next to the sidebar toggle (logo lives in the sidebar). */}
+            {!isMobile && (
+              <Link
+                to="/"
+                id="home_button"
+                aria-label="Home"
+                className={cn(iconBtn, onReelRoute && iconBtnReel)}
+              >
+                <Home className="h-5 w-5" />
+              </Link>
+            )}
             {/* Logo lives in the sidebar on desktop; topbar carries it only on mobile (sheet nav). */}
             {isMobile && !onReelRoute ? (
               profileUsername ? (

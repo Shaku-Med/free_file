@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Swiper, SwiperSlide } from "swiper/react";
-import { Keyboard, Mousewheel } from "swiper/modules";
+import { Keyboard, Mousewheel, Virtual } from "swiper/modules";
 import type { Swiper as SwiperType } from "swiper";
 import { ChevronDown, ChevronUp } from "lucide-react";
 import "swiper/css";
@@ -341,11 +341,21 @@ export const ReelSwiper = ({
         onTouchStart={() => {
           if (showHint) dismissHint();
         }}
-        modules={[Keyboard, Mousewheel]}
+        modules={[Keyboard, Mousewheel, Virtual]}
         direction="vertical"
         slidesPerView={1}
         spaceBetween={0}
         rewind={rewindDeck}
+        // Virtual slides: only the active reel and a couple of neighbors exist in
+        // the DOM. Without this every reel ever scrolled stays mounted (slide +
+        // chrome + decoded poster), and long sessions blow past mobile Safari's
+        // memory ceiling - the "reels crash my iPhone" bug. iOS keeps the window
+        // tightest; desktop gets one extra so the sticky hls cache stays useful.
+        virtual={{
+          enabled: true,
+          addSlidesBefore: isIOS ? 1 : 2,
+          addSlidesAfter: isIOS ? 1 : 2,
+        }}
         watchSlidesProgress
         speed={300}
         // Gesture tuning  feels like TikTok, not like a desktop carousel.
@@ -374,6 +384,7 @@ export const ReelSwiper = ({
         {items.map((file, slideIndex) => (
           <SwiperSlide
             key={`${String(file.id)}-${slideIndex}`}
+            virtualIndex={slideIndex}
             className="!h-full !max-h-[100dvh] !w-full shrink-0"
           >
             {({ isActive }) => (

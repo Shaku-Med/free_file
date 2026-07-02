@@ -157,7 +157,10 @@ export const loader = async ({ request }: { request: Request }) => {
   try {
     const url = new URL(request.url);
     const excludeIds = parseExcludeIds(url);
-    const seedParam = url.searchParams.get('seed') ?? 'default';
+    // No seed = fresh random order per request, NOT a frozen 'default' hash -
+    // otherwise every caller that omits the param serves the identical feed forever.
+    const seedParam =
+      url.searchParams.get('seed') ?? `r-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
     const categoryParam = url.searchParams.get('category');
     const maxDurationParam = url.searchParams.get('max_duration');
     const contextFileIdParam = url.searchParams.get('context_file_id');

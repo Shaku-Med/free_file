@@ -130,8 +130,12 @@ BEGIN
     WHERE d.user_id = p_user_id AND p_user_id IS NOT NULL
   ),
   user_seen AS (
+    -- Only recent impressions count as "seen": a 14 day window lets older reels
+    -- resurface naturally instead of the catalog going permanently stale for
+    -- heavy users (small catalogs exhaust a forever-seen set in days).
     SELECT fi.file_id FROM feed_impressions fi
     WHERE fi.user_id = p_user_id AND p_user_id IS NOT NULL
+      AND fi.seen_at > now() - interval '14 days'
   ),
   user_interests AS (
     SELECT uis.category, uis.score AS interest_score
@@ -296,12 +300,14 @@ BEGIN
       ROW_NUMBER() OVER (
         ORDER BY
           (CASE WHEN b._is_seen OR b._recently_watched OR b._session_excluded THEN 1 ELSE 0 END) ASC,
-          LEAST(b._interest_score / 15.0, 0.30)
-          + LEAST(b._creator_affinity / 15.0, 0.20)
-          + (CASE WHEN b._is_subscribed THEN 0.15 ELSE 0.0 END)
-          + b._session_boost * 0.15
-          + b._like_ratio * 0.10
-          + b._shuffle * 0.10
+          -- Shuffle carries real weight (0.22) so the SAME top-taste reels don't
+          -- lead every single session - taste guides, the seed rotates the order.
+          LEAST(b._interest_score / 15.0, 0.26)
+          + LEAST(b._creator_affinity / 15.0, 0.18)
+          + (CASE WHEN b._is_subscribed THEN 0.12 ELSE 0.0 END)
+          + b._session_boost * 0.14
+          + b._like_ratio * 0.08
+          + b._shuffle * 0.22
           DESC
       ) AS _rn
     FROM base b
@@ -315,11 +321,11 @@ BEGIN
       ROW_NUMBER() OVER (
         ORDER BY
           (CASE WHEN b._is_seen OR b._recently_watched OR b._session_excluded THEN 1 ELSE 0 END) ASC,
-          b._eng_rate * 0.30
-          + b._like_ratio * 0.20
-          + LEAST(b._interest_score / 20.0, 0.15)
+          b._eng_rate * 0.25
+          + b._like_ratio * 0.17
+          + LEAST(b._interest_score / 20.0, 0.13)
           + b._session_boost * 0.10
-          + b._shuffle * 0.25
+          + b._shuffle * 0.35
           DESC
       ) AS _rn
     FROM base b
