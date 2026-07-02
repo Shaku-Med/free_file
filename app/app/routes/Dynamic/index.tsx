@@ -48,7 +48,6 @@ import { useMainPlayerSlot } from "~/lib/Context/MainPlayerSlotContext";
 import { useWatchHlsSurface } from "~/lib/Context/WatchHlsSurfaceContext";
 import { useWatchSurfaceVideoRef } from "~/lib/Context/WatchSurfaceVideoRefContext";
 import { formatTimeAgo } from "~/lib/formatTimeAgo";
-import LiquidAmbientGradient from "./components/LiquidAmbientGradient";
 import { computeGuestPreviewSeconds } from "~/lib/guestPreviewLimit";
 import { sanitizeFileForPublicViewer } from "~/lib/files/sanitizeFileForViewer";
 import { personalizationService } from "~/lib/Services/PersonalizationService";
@@ -2197,16 +2196,33 @@ const DynamicPage = ({ is_modal }: DynamicPageProps) => {
                   {isSidebarMobile && (
                     <div className="mobile_blur_overlay absolute inset-x-0 bottom-0 h-full z-[10] bg-gradient-to-t from-background/95 via-background/60 to-transparent" />
                   )}
+                  {/*
+                    Rectangular ambient falloff (YouTube style): two crossed linear
+                    fades on nested layers multiply into a soft-edged RECTANGLE that
+                    follows the video's shape - full strength behind the picture,
+                    feathering out toward the wrap edges. The old elliptical radial
+                    mask read as a round blob that ignored the video's corners.
+                  */}
                   <div
                     className="absolute inset-0 opacity-80"
                     style={{
                       WebkitMaskImage:
-                        "radial-gradient(ellipse 60% 55% at 50% 50%, black 10%, rgba(0,0,0,0.5) 35%, rgba(0,0,0,0.15) 55%, transparent 70%)",
+                        "linear-gradient(to bottom, transparent 0%, rgba(0,0,0,0.55) 14%, black 30%, black 70%, rgba(0,0,0,0.55) 86%, transparent 100%)",
                       maskImage:
-                        "radial-gradient(ellipse 60% 55% at 50% 50%, black 10%, rgba(0,0,0,0.5) 35%, rgba(0,0,0,0.15) 55%, transparent 70%)",
+                        "linear-gradient(to bottom, transparent 0%, rgba(0,0,0,0.55) 14%, black 30%, black 70%, rgba(0,0,0,0.55) 86%, transparent 100%)",
                     }}
                   >
-                    <Ambience colors={imageColors || []} videoRef={watchVideoRef} videoReady={videoRefReady} sync={ambientSyncOn} />
+                    <div
+                      className="absolute inset-0"
+                      style={{
+                        WebkitMaskImage:
+                          "linear-gradient(to right, transparent 0%, rgba(0,0,0,0.55) 12%, black 26%, black 74%, rgba(0,0,0,0.55) 88%, transparent 100%)",
+                        maskImage:
+                          "linear-gradient(to right, transparent 0%, rgba(0,0,0,0.55) 12%, black 26%, black 74%, rgba(0,0,0,0.55) 88%, transparent 100%)",
+                      }}
+                    >
+                      <Ambience colors={imageColors || []} videoRef={watchVideoRef} videoReady={videoRefReady} sync={ambientSyncOn} />
+                    </div>
                   </div>
                 </div>
               )}
