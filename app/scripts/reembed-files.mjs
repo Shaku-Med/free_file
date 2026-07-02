@@ -16,7 +16,10 @@ import { createClient } from '@supabase/supabase-js';
 import { franc } from 'franc-min';
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
-const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+// SUPABASE_ANON_KEY is the app's legacy env name for its SERVER key (see
+// lib/Database/supabase.tsx) - accepted here so the script runs with the
+// container's own .env untouched.
+const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY;
 const UPLOAD_BASE = (process.env.UPLOAD_SERVER_URL || process.env.GO_UPLOAD_URL || '').replace(/\/$/, '');
 const SECRET = process.env.UPLOAD_WEBHOOK_SECRET;
 
@@ -25,7 +28,7 @@ const BATCH_SIZE = 16;
 const BATCH_PAUSE_MS = 250;
 
 if (!SUPABASE_URL || !SUPABASE_KEY || !UPLOAD_BASE || !SECRET) {
-  console.error('Missing env: need SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, UPLOAD_SERVER_URL, UPLOAD_WEBHOOK_SECRET');
+  console.error('Missing env: need SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY (or SUPABASE_ANON_KEY), UPLOAD_SERVER_URL (or GO_UPLOAD_URL), UPLOAD_WEBHOOK_SECRET');
   process.exit(1);
 }
 
