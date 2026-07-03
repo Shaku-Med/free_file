@@ -133,13 +133,16 @@ export function useSpatialAudio(
     const video = videoRef.current;
     if (!video) return;
 
-    /** Keep spatial panner out of the chain on mobile (native element audio only). */
+    /**
+     * Keep spatial panner out of the chain on mobile (native element audio only).
+     * Never while the VR theater holds it  its sound system owns the panner then.
+     */
     const forcePannerOffMobile = () => {
       if (!isMobile) return;
       const v = videoRef.current;
       if (!v) return;
       const graph = ensureSharedGraph(v);
-      if (graph) setPannerActive(graph, false);
+      if (graph && !graph.theaterActive) setPannerActive(graph, false);
     };
 
     if (isMobile) {
@@ -181,7 +184,11 @@ export function useSpatialAudio(
       if (!graph) return;
 
       if (!configRef.current.enabled) {
-        setPannerActive(graph, false);
+        // 8D is off  release the panner, but ONLY if we own it. This handler
+        // also fires from document-level gesture listeners, so without the
+        // theater check every click on the page (like closing the settings
+        // menu) would silently kill the VR theater's head tracked sound.
+        if (!graph.theaterActive) setPannerActive(graph, false);
         stopAnimation();
         return;
       }

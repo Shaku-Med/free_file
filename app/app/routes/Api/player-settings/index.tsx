@@ -25,6 +25,7 @@ const COOKIE_NAMES = {
   audioVisualizer: 'player-audio-visualizer',
   audioVisualizerStyle: 'player-audio-visualizer-style',
   visualizerConfetti: 'player-visualizer-confetti',
+  visualizerWave: 'player-visualizer-wave',
   stemConfettiInstruments: 'player-stem-confetti',
   videoBounce: 'player-video-bounce',
   videoBounceIntensity: 'player-video-bounce-intensity',
@@ -85,6 +86,8 @@ export interface PlayerSettingsDto {
   audioVisualizer?: boolean;
   audioVisualizerStyle?: string;
   visualizerConfetti?: boolean;
+  /** The standing wave ribbon; off = bounce-only visualizer. */
+  visualizerWave?: boolean;
   stemConfettiInstruments?: string;
   /** Video element scale-bounces on kick/bass hits. */
   videoBounce?: boolean;
@@ -133,6 +136,8 @@ export function getPlayerSettingsFromCookies(cookieHeader: string | null) {
   const audioVisualizerStyle = parseAudioVisualizerStyle(styleRaw);
   const confettiRaw = get(COOKIE_NAMES.visualizerConfetti);
   const visualizerConfetti = confettiRaw === '0' || confettiRaw === 'false' ? false : true;
+  const waveRaw = get(COOKIE_NAMES.visualizerWave);
+  const visualizerWave = waveRaw === '0' || waveRaw === 'false' ? false : true;
   const stemConfettiInstruments = get(COOKIE_NAMES.stemConfettiInstruments) ?? '';
   const bounceRaw = get(COOKIE_NAMES.videoBounce);
   const videoBounce = bounceRaw === '1' || bounceRaw === 'true';
@@ -174,6 +179,7 @@ export function getPlayerSettingsFromCookies(cookieHeader: string | null) {
     audioVisualizer,
     audioVisualizerStyle,
     visualizerConfetti,
+    visualizerWave,
     stemConfettiInstruments,
     videoBounce,
     videoBounceIntensity,
@@ -290,6 +296,11 @@ export const action = async ({ request }: { request: Request }) => {
       const v = body.visualizerConfetti ? '1' : '0';
       setCookies.push(buildSetCookie(COOKIE_NAMES.visualizerConfetti, v, secure));
       result.visualizerConfetti = body.visualizerConfetti;
+    }
+    if (typeof body.visualizerWave === 'boolean') {
+      const v = body.visualizerWave ? '1' : '0';
+      setCookies.push(buildSetCookie(COOKIE_NAMES.visualizerWave, v, secure));
+      result.visualizerWave = body.visualizerWave;
     }
     if (typeof body.stemConfettiInstruments === 'string') {
       const trimmed = body.stemConfettiInstruments.slice(0, 512);

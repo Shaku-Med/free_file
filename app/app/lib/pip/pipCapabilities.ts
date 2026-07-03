@@ -11,6 +11,27 @@ function hasDocumentPictureInPicture(): boolean {
   return typeof window !== 'undefined' && 'documentPictureInPicture' in window;
 }
 
+/**
+ * iOS home-screen web app (standalone). WebKit claims presentation-mode PiP is
+ * supported there, but actually entering it silently fails without Safari's
+ * chrome — so we treat PiP as unavailable and hide the control entirely.
+ */
+export function isIosStandaloneApp(): boolean {
+  if (typeof window === 'undefined' || typeof navigator === 'undefined') return false;
+  const nav = navigator as Navigator & { standalone?: boolean };
+  // `navigator.standalone` is only ever defined (and true) on iOS home-screen apps.
+  if (nav.standalone === true) return true;
+  try {
+    const displayStandalone = window.matchMedia('(display-mode: standalone)').matches;
+    const iosDevice =
+      /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+      (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    return displayStandalone && iosDevice;
+  } catch {
+    return false;
+  }
+}
+
 /** Standard Video PiP API (Chrome/Android, Firefox, Safari desktop in many cases). */
 export function hasNativeVideoPictureInPicture(): boolean {
   if (typeof document === 'undefined' || typeof HTMLVideoElement === 'undefined') return false;
@@ -52,6 +73,7 @@ export function isMobileStyleViewport(): boolean {
  */
 export function getPipImplementationForDevice(video: HTMLVideoElement | null): PipImplementationKind {
   if (typeof window === 'undefined') return 'none';
+  if (isIosStandaloneApp()) return 'none';
 
   if (isMobileStyleViewport()) {
     if (videoSupportsWebKitPresentationPiP(video)) return 'webkit-presentation';
@@ -74,6 +96,7 @@ export function anyPipSupported(video?: HTMLVideoElement | null): boolean {
  */
 export function probeAnyPipSupported(): boolean {
   if (typeof window === 'undefined' || typeof document === 'undefined') return false;
+  if (isIosStandaloneApp()) return false;
   if (hasDocumentPictureInPicture() && !isMobileStyleViewport()) return true;
   if (hasNativeVideoPictureInPicture()) return true;
   try {

@@ -200,14 +200,19 @@ export function buildPlaybackUrlForFile(
 }
 
 // Casting plays a whole movie on a TV, so the token must outlive a short
-// playback window. IP scope + fresh nonce (the TV is the first user) keep it
-// from being usable off the caster's network.
+// playback window. The fresh nonce is the real lock: it binds to the FIRST
+// device fingerprint that uses it (the TV), so a copied URL is dead on any
+// other network after that.
 const CAST_PLAYBACK_TTL_MS = 6 * 60 * 60_000;
 
 /**
- * Mint a cast-scoped LoadPlay master URL for a signed-in user. IP-bound (the
- * TV shares the caster's NAT public IP), NO UA bind (the TV's UA differs), and
- * flagged `cast` so loadplay skips its browser-origin guard for this request.
+ * Mint a cast-scoped LoadPlay master URL for a signed-in user. Flagged `cast`
+ * so loadplay skips its browser-origin guard for this request. Deliberately
+ * NOT IP-bound: on dual-stack home networks the browser reaches us over IPv6
+ * while the Chromecast fetches over IPv4, so an IP bind minted from the
+ * browser's address 401s the TV's first request and casting never starts.
+ * No UA bind either (the TV's UA differs). The nonce first-user lock, expiry,
+ * signed-in-only mint, and tool-UA guard carry the protection instead.
  */
 export function buildCastUrlForFile(
   file: {
@@ -216,7 +221,6 @@ export function buildCastUrlForFile(
     file_type?: string | null;
   },
   userId: string,
-  ipHash: string,
   request?: Request,
 ): string | null {
   const baseUrl = loadplayBaseUrl(request);
@@ -229,7 +233,6 @@ export function buildCastUrlForFile(
     fileId: file.unique_id,
     path,
     userId,
-    ipHash: ipHash || undefined,
     ttlMs: CAST_PLAYBACK_TTL_MS,
     cast: true,
   });

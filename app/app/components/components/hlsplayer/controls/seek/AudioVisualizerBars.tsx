@@ -8,8 +8,9 @@ type Props = {
 
 /** Stem-synced SVG wave; mini player column or bottom strip. */
 export default function AudioVisualizerBars(_props: Props) {
-  const { audioVisualizer, audioStems } = usePlayerContext();
-  const enabled = audioVisualizer && audioStems != null;
+  const { audioVisualizer, visualizerWave, audioStems } = usePlayerContext();
+  // The wave has its own toggle — some users keep only the video bounce.
+  const enabled = audioVisualizer && visualizerWave && audioStems != null;
 
   if (!enabled || !audioStems) return null;
 

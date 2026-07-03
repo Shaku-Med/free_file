@@ -15,7 +15,12 @@ import {
 import { fileAccentColors } from '../../visualizerPalette';
 
 /**
- * Standing single-line audio wave (SVG, no canvas, no AnalyserNode).
+ * Standing layered audio ribbon (SVG, no canvas, no AnalyserNode).
+ *
+ * Four stacked layers built from ONE geometry pass: a faint back ribbon
+ * (tighter cycles, counter-drift = parallax), a glassy gradient-filled body
+ * between the crest and its reflection, the mirrored echo line, and the main
+ * wave whose glow thickens and brightens on hard hits.
  *
  * The wave does NOT scroll: it stands in place and pulses with the music at
  * the playhead. Hit hardness drives BOTH height and peak sharpness — a hard
@@ -135,6 +140,26 @@ function buildSmoothLinePath(xs: Float32Array, ys: Float32Array, n: number): str
   return d;
 }
 
+/**
+ * Closed "liquid body" between the wave crest and its reflection: smooth
+ * top edge, straight-segment return along the bottom (96 samples reads as
+ * smooth), closed for a gradient fill. This is what gives the ribbon its
+ * glassy volume instead of being a bare line.
+ */
+function buildRibbonBodyPath(
+  xs: Float32Array,
+  ysTop: Float32Array,
+  ysBot: Float32Array,
+  n: number,
+): string {
+  if (n < 2) return '';
+  let d = buildSmoothLinePath(xs, ysTop, n);
+  for (let i = n - 1; i >= 0; i--) {
+    d += ` L ${xs[i]!.toFixed(1)} ${ysBot[i]!.toFixed(1)}`;
+  }
+  return d + ' Z';
+}
+
 type Props = {
   stems: AudioStems;
 };
@@ -144,6 +169,8 @@ export default function StemResonanceVisualizer({ stems }: Props) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const wavePathRef = useRef<SVGPathElement>(null);
   const echoPathRef = useRef<SVGPathElement>(null);
+  const bodyPathRef = useRef<SVGPathElement>(null);
+  const ribbonPathRef = useRef<SVGPathElement>(null);
   const [size, setSize] = useState({ w: 320, h: 40 });
   const [palettes, setPalettes] = useState<StemConfettiThemePalettes>(() =>
     buildStemConfettiThemePalettes(),
@@ -204,6 +231,7 @@ export default function StemResonanceVisualizer({ stems }: Props) {
     const xs = new Float32Array(SAMPLE_COUNT + 1);
     const ys = new Float32Array(SAMPLE_COUNT + 1);
     const echoYs = new Float32Array(SAMPLE_COUNT + 1);
+    const ribbonYs = new Float32Array(SAMPLE_COUNT + 1);
     const bands = Object.fromEntries(STEM_TYPES.map((t) => [t, 0])) as BandAmps;
 
     const tick = (now: number) => {
@@ -284,11 +312,25 @@ export default function StemResonanceVisualizer({ stems }: Props) {
         xs[i] = u * w;
         ys[i] = centerY - y;
         echoYs[i] = centerY + y * 0.55;
+        // Back ribbon: tighter cycles drifting the OTHER way — parallax depth.
+        const back = Math.sin(2 * Math.PI * (BASE_CYCLES + 2) * u - m.drift * 0.8);
+        ribbonYs[i] = centerY - m.amp * half * 0.55 * window * back;
       }
 
       wavePath.setAttribute('d', buildSmoothLinePath(xs, ys, SAMPLE_COUNT + 1));
+      // Glow breathes with hit hardness: kicks briefly thicken + brighten the line.
+      const punch = Math.min(1, (m.sharp - 1) / 2.4);
+      wavePath.setAttribute('stroke-width', (1.5 + punch * 1.1).toFixed(2));
+      wavePath.setAttribute('stroke-opacity', (0.85 + punch * 0.15).toFixed(2));
       const echo = echoPathRef.current;
       if (echo) echo.setAttribute('d', buildSmoothLinePath(xs, echoYs, SAMPLE_COUNT + 1));
+      const ribbon = ribbonPathRef.current;
+      if (ribbon) ribbon.setAttribute('d', buildSmoothLinePath(xs, ribbonYs, SAMPLE_COUNT + 1));
+      const body = bodyPathRef.current;
+      if (body) {
+        body.setAttribute('d', buildRibbonBodyPath(xs, ys, echoYs, SAMPLE_COUNT + 1));
+        body.setAttribute('fill-opacity', (0.1 + punch * 0.1).toFixed(2));
+      }
     };
 
     rafId = requestAnimationFrame(tick);
@@ -335,6 +377,25 @@ export default function StemResonanceVisualizer({ stems }: Props) {
           </filter>
         </defs>
 
+        {/* Back ribbon: tighter harmonic drifting the other way (parallax) */}
+        <path
+          ref={ribbonPathRef}
+          fill="none"
+          stroke={`url(#${gradientId})`}
+          strokeWidth={1}
+          strokeOpacity={0.3}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+
+        {/* Liquid body: glassy fill between the crest and its reflection */}
+        <path
+          ref={bodyPathRef}
+          fill={`url(#${gradientId})`}
+          fillOpacity={0.1}
+          stroke="none"
+        />
+
         {/* Soft mirrored echo below the centerline for depth */}
         <path
           ref={echoPathRef}
@@ -346,7 +407,7 @@ export default function StemResonanceVisualizer({ stems }: Props) {
           strokeLinejoin="round"
         />
 
-        {/* The wave */}
+        {/* The wave — width/opacity pulse with hit hardness in the rAF */}
         <path
           ref={wavePathRef}
           fill="none"

@@ -2182,9 +2182,10 @@ const DynamicPage = ({ is_modal }: DynamicPageProps) => {
                     // that visible rect so the light matches the picture.
                     inset: (() => {
                       const box = 16 / 9;
-                      // User-tunable glow size: scales how far past the video the light reaches.
-                      const hm = 40 * ambientSizeMul;
-                      const vm = 60 * ambientSizeMul;
+                      // User-tunable glow size. 1x is a tight halo hugging the
+                      // video; only the top step (2x = Full) floods the screen.
+                      const hm = 10 + 70 * (ambientSizeMul - 1);
+                      const vm = 14 + 106 * (ambientSizeMul - 1);
                       let h = -hm;
                       let v = -vm;
                       if (!playerBackground && ambienceVideoAspect) {

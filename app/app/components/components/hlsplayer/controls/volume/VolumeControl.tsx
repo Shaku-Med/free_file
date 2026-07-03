@@ -154,17 +154,17 @@ export default function VolumeControl({
       >
         <div
           ref={sliderRef}
-          className="relative h-2 w-full cursor-pointer select-none rounded-full overflow-hidden bg-secondary"
+          className="relative h-2 w-full cursor-pointer select-none rounded-full overflow-hidden bg-white/20"
           onPointerDown={hasAudioTrack ? handlePointerDown : undefined}
           onPointerMove={hasAudioTrack ? handlePointerMove : undefined}
           onPointerUp={hasAudioTrack ? handlePointerUp : undefined}
         >
           <div
-            className="absolute top-0 left-0 h-full bg-primary rounded-full"
+            className="absolute top-0 left-0 h-full bg-white rounded-full"
             style={{ width: `${displayVol * 100}%` }}
           />
           <div
-            className="absolute top-1/2 -translate-y-1/2 w-4 h-4 rounded-full border-2 border-primary bg-background shadow-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+            className="absolute top-1/2 -translate-y-1/2 w-4 h-4 rounded-full bg-white shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
             style={{ left: `calc(${displayVol * 100}% - 8px)` }}
           />
         </div>

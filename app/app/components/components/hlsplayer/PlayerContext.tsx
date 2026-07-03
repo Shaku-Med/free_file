@@ -188,6 +188,9 @@ interface PlayerContextValue {
   setAudioVisualizerStyle: (v: AudioVisualizerStyle) => void;
   visualizerConfetti: boolean;
   setVisualizerConfetti: (v: boolean) => void;
+  /** The standing wave ribbon under the player. Off = bounce-only visualizer. */
+  visualizerWave: boolean;
+  setVisualizerWave: (v: boolean) => void;
   /** Video element scale-bounces on kick/bass hits (dance mode). */
   videoBounce: boolean;
   setVideoBounce: (v: boolean) => void;
@@ -471,6 +474,18 @@ export function PlayerProvider({
     [authPlaybackFeatures, setPlayerSettings, savePlayerSettings],
   );
 
+  const [visualizerWave, setVisualizerWaveState] = useState(true);
+
+  const setVisualizerWave = useCallback(
+    (v: boolean) => {
+      if (!authPlaybackFeatures) return;
+      setVisualizerWaveState(v);
+      setPlayerSettings(prev => (prev ? { ...prev, visualizerWave: v } : prev));
+      savePlayerSettings({ visualizerWave: v }).catch(() => {});
+    },
+    [authPlaybackFeatures, setPlayerSettings, savePlayerSettings],
+  );
+
   const [videoBounce, setVideoBounceState] = useState(false);
 
   const setVideoBounce = useCallback(
@@ -570,6 +585,7 @@ export function PlayerProvider({
       setStemConfettiInstrumentsState(
         parseStemConfettiInstruments(playerSettings.stemConfettiInstruments),
       );
+      setVisualizerWaveState(playerSettings.visualizerWave !== false);
       setVideoBounceState(playerSettings.videoBounce === true);
       setVideoBounceIntensityState(
         Math.max(0.25, Math.min(2, playerSettings.videoBounceIntensity ?? 1)),
@@ -582,6 +598,7 @@ export function PlayerProvider({
       audioVisualizerStyleRef.current = DEFAULT_AUDIO_VISUALIZER_STYLE;
       setAudioVisualizerStyleState(DEFAULT_AUDIO_VISUALIZER_STYLE);
       setVisualizerConfettiState(true);
+      setVisualizerWaveState(true);
       setVideoBounceState(false);
       setVideoBounceIntensityState(1);
       setVideoBounceInstrumentsState(DEFAULT_VIDEO_BOUNCE_INSTRUMENTS);
@@ -683,6 +700,7 @@ export function PlayerProvider({
       setStemConfettiInstrumentsState(
         parseStemConfettiInstruments(playerSettings.stemConfettiInstruments),
       );
+      setVisualizerWaveState(playerSettings.visualizerWave !== false);
       setVideoBounceState(playerSettings.videoBounce === true);
       setVideoBounceIntensityState(
         Math.max(0.25, Math.min(2, playerSettings.videoBounceIntensity ?? 1)),
@@ -1112,6 +1130,8 @@ export function PlayerProvider({
     setAudioVisualizerStyle,
     visualizerConfetti,
     setVisualizerConfetti,
+    visualizerWave,
+    setVisualizerWave,
     videoBounce,
     setVideoBounce,
     videoBounceIntensity,

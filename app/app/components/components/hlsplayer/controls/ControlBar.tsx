@@ -1,6 +1,6 @@
 import { useRef, useState, useEffect, useLayoutEffect, type ReactElement } from 'react';
 import { createPortal } from 'react-dom';
-import { Play, Pause, SkipForward, MoreVertical, SkipBack, ChevronLeft, X, LoaderCircle } from 'lucide-react';
+import { Play, Pause, SkipForward, MoreVertical, SkipBack, ChevronLeft, LoaderCircle } from 'lucide-react';
 import { usePlayerContext } from '../PlayerContext';
 import { useControlBarWidth } from '../hooks/useControlBarWidth';
 import { useFullscreenContainer } from '../hooks/useFullscreenContainer';
@@ -31,10 +31,10 @@ import PipButton from './pip/PipButton';
 import { formatTime } from './seek/functions/formatTime';
 import type { HideControls } from '../types';
 import { isMobile } from 'react-device-detect';
-import { cn } from '~/lib/utils';
+import { cn, getThumbnailUrl } from '~/lib/utils';
+import { BASE_URL } from '~/lib/URLS';
 import { Tooltip, TooltipContent, TooltipTrigger } from '~/components/ui/tooltip';
 import type { FileType } from '~/lib/types';
-import VideoCard from '~/routes/Home/components/VideoCard';
 
 const isHidden = (hide?: HideControls, key?: keyof NonNullable<HideControls>) =>
   !!(hide && key && hide[key]);
@@ -63,14 +63,18 @@ function PlayerControlTooltip({
   );
 }
 
+const compactViews = new Intl.NumberFormat('en', { notation: 'compact', maximumFractionDigits: 1 });
+
+/**
+ * "Up next" hover preview — a compact card, not a full VideoCard: thumbnail
+ * with duration chip, badge in the corner, and a tight title/creator block.
+ */
 function NextVideoTooltipButton({
   onClick,
   className,
   children,
   nextVideo,
   nextVideoBadge,
-  nextVideoCardCurrentUserId,
-  nextVideoCardUserActions,
   ariaLabel,
 }: {
   onClick: (e: React.MouseEvent) => void;
@@ -78,8 +82,6 @@ function NextVideoTooltipButton({
   children: React.ReactNode;
   nextVideo?: FileType;
   nextVideoBadge?: string;
-  nextVideoCardCurrentUserId?: string;
-  nextVideoCardUserActions?: { likedFileIds: Set<string>; dislikedFileIds: Set<string> };
   ariaLabel: string;
 }) {
   const title = nextVideo?.file_title?.trim() || nextVideo?.filename;
@@ -106,30 +108,42 @@ function NextVideoTooltipButton({
     );
   }
 
+  const thumb = getThumbnailUrl(nextVideo, {
+    baseUrl: BASE_URL,
+    queryString: '?quality=60&is_metadata=true',
+  });
+  const views = nextVideo.views ?? nextVideo.view_count;
+  const creator = nextVideo.owner?.username;
+  const meta = [creator, views != null ? `${compactViews.format(views)} views` : null]
+    .filter(Boolean)
+    .join(' · ');
+
   return (
     <Tooltip delayDuration={220}>
       <TooltipTrigger asChild>{button}</TooltipTrigger>
-      <TooltipContent
-        side="top"
-        sideOffset={10}
-        className="max-h-[min(72vh,440px)] w-[min(94vw,26rem)] max-w-[min(94vw,26rem)] overflow-x-hidden overflow-y-auto p-0"
-      >
-        {nextVideoBadge ? (
-          <div className="border-b border-border/50 bg-muted/25 px-3 py-1.5">
-            <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+      <TooltipContent side="top" sideOffset={10} className="w-60 overflow-hidden rounded-xl p-0">
+        <div className="relative aspect-video w-full overflow-hidden bg-muted">
+          {thumb ? (
+            <img src={thumb} alt="" loading="lazy" className="h-full w-full object-cover" />
+          ) : (
+            <div className="flex h-full w-full items-center justify-center">
+              <Play className="h-7 w-7 text-muted-foreground/60" />
+            </div>
+          )}
+          {nextVideoBadge ? (
+            <span className="absolute left-1.5 top-1.5 rounded-md bg-black/70 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-white">
               {nextVideoBadge}
-            </p>
-          </div>
-        ) : null}
-        <div className="min-w-0" onClick={(e) => e.stopPropagation()}>
-          <VideoCard
-            data={nextVideo}
-            layout="horizontal"
-            related
-            hideActions={{completely: true}}
-            currentUserId={nextVideoCardCurrentUserId}
-            userActions={nextVideoCardUserActions}
-          />
+            </span>
+          ) : null}
+          {nextVideo.duration ? (
+            <span className="absolute bottom-1.5 right-1.5 rounded-md bg-black/80 px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-white">
+              {formatTime(nextVideo.duration)}
+            </span>
+          ) : null}
+        </div>
+        <div className="space-y-0.5 px-2.5 py-2">
+          <p className="line-clamp-2 text-xs font-semibold leading-snug">{title}</p>
+          {meta ? <p className="truncate text-[11px] text-muted-foreground">{meta}</p> : null}
         </div>
       </TooltipContent>
     </Tooltip>
@@ -138,9 +152,10 @@ function NextVideoTooltipButton({
 
 interface ControlBarProps {
   onNext?: () => void;
-  /** Real `VideoCard` (horizontal) in the next control tooltip when the target is known. */
+  /** Compact preview card in the next control tooltip when the target is known. */
   nextVideo?: FileType;
   nextVideoBadge?: string;
+  /** Accepted for call-site compat; the compact preview no longer needs them. */
   nextVideoCardCurrentUserId?: string;
   nextVideoCardUserActions?: { likedFileIds: Set<string>; dislikedFileIds: Set<string> };
   theaterMode?: boolean;
@@ -159,8 +174,6 @@ export default function ControlBar({
   onNext,
   nextVideo,
   nextVideoBadge,
-  nextVideoCardCurrentUserId,
-  nextVideoCardUserActions,
   theaterMode = false,
   onTheaterModeChange,
   onPlayPauseClick,
@@ -496,8 +509,6 @@ export default function ControlBar({
               className={circleBtn}
               nextVideo={nextVideo}
               nextVideoBadge={nextVideoBadge}
-              nextVideoCardCurrentUserId={nextVideoCardCurrentUserId}
-              nextVideoCardUserActions={nextVideoCardUserActions}
               ariaLabel="Next video"
             >
               <SkipForward className={cn(mobileOverlayIcon, 'fill-white')} />
@@ -662,8 +673,6 @@ export default function ControlBar({
               className={desktopIconCircle}
               nextVideo={nextVideo}
               nextVideoBadge={nextVideoBadge}
-              nextVideoCardCurrentUserId={nextVideoCardCurrentUserId}
-              nextVideoCardUserActions={nextVideoCardUserActions}
               ariaLabel="Next"
             >
               <SkipForward className="h-5 w-5 fill-white" />
@@ -742,7 +751,7 @@ export default function ControlBar({
                   createPortal(
                     <div
                       ref={overflowRef}
-                      className="fixed z-[100000100] flex max-h-[55vh] min-w-[200px] max-w-[280px] flex-col overflow-y-auto rounded-xl bg-zinc-900/95 py-1 shadow-xl"
+                      className="dark fixed z-[100000100] flex max-h-[55vh] min-w-[200px] max-w-[280px] flex-col overflow-y-auto rounded-xl border border-border bg-popover/95 py-1 text-popover-foreground shadow-xl backdrop-blur-md"
                       style={{
                         position: 'fixed',
                         left: dropdownStyle.left,

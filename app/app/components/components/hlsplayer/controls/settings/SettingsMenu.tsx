@@ -111,6 +111,8 @@ export function SettingsMenuBody() {
     setAudioVisualizer,
     visualizerConfetti,
     setVisualizerConfetti,
+    visualizerWave,
+    setVisualizerWave,
     videoBounce,
     setVideoBounce,
     videoBounceIntensity,
@@ -291,7 +293,7 @@ export function SettingsMenuBody() {
                 <Monitor className="size-4 shrink-0 text-muted-foreground" />
                 <span className="min-w-0 truncate">Ambient size</span>
               </span>
-              <span className={valueChipClass}>{ambientSize}x</span>
+              <span className={valueChipClass}>{ambientSize >= 2 ? 'Full' : `${ambientSize}x`}</span>
             </DropdownMenuItem>
           </>
         )}
@@ -366,7 +368,12 @@ export function SettingsMenuBody() {
                 </span>
                 <Switch
                   checked={audioVisualizer}
-                  onChange={setAudioVisualizer}
+                  onChange={(v) => {
+                    setAudioVisualizer(v);
+                    // Turning the feature on with nothing to show would be a
+                    // dead switch — bring the wave back as the default view.
+                    if (v && !visualizerWave && !videoBounce) setVisualizerWave(true);
+                  }}
                   disabled={!auth}
                 />
               </DropdownMenuItem>
@@ -400,7 +407,7 @@ export function SettingsMenuBody() {
             <span
               className={cn(
                 valueChipClass,
-                spatialAudio.enabled && 'bg-primary/15 text-primary',
+                spatialAudio.enabled && 'bg-accent text-accent-foreground',
               )}
             >
               {spatialAudio.enabled ? 'On' : 'Off'}
@@ -443,6 +450,25 @@ export function SettingsMenuBody() {
               </DropdownMenuCollapsibleContent>
             </DropdownMenuCollapsible>
             */}
+            {/* Wave + bounce are the two visual outputs. At least one stays
+                on — turning off the last one deactivates the whole feature. */}
+            <DropdownMenuItem
+              onSelect={(e) => e.preventDefault()}
+              className={cn(toggleRowClass, !auth && 'opacity-60')}
+            >
+              <span className="flex min-w-0 flex-1 items-center gap-2">
+                <AudioWaveform className="size-4 shrink-0 text-muted-foreground" />
+                <span className="min-w-0 truncate">Wave</span>
+              </span>
+              <Switch
+                checked={visualizerWave}
+                onChange={(v) => {
+                  setVisualizerWave(v);
+                  if (!v && !videoBounce) setAudioVisualizer(false);
+                }}
+                disabled={!auth}
+              />
+            </DropdownMenuItem>
             <DropdownMenuItem
               onSelect={(e) => e.preventDefault()}
               className={cn(toggleRowClass, !auth && 'opacity-60')}
@@ -467,7 +493,10 @@ export function SettingsMenuBody() {
               </span>
               <Switch
                 checked={videoBounce}
-                onChange={setVideoBounce}
+                onChange={(v) => {
+                  setVideoBounce(v);
+                  if (!v && !visualizerWave) setAudioVisualizer(false);
+                }}
                 disabled={!auth}
               />
             </DropdownMenuItem>
@@ -558,7 +587,7 @@ export function SettingsMenuBody() {
                 <DropdownMenuItem
                   key={opt}
                   onClick={() => setSleepTimer(opt)}
-                  className={cn(sleepTimer === opt ? 'font-medium text-primary' : undefined)}
+                  className={cn(sleepTimer === opt ? 'bg-accent font-medium text-accent-foreground' : undefined)}
                 >
                   {opt}
                 </DropdownMenuItem>
@@ -582,7 +611,7 @@ export function SettingsMenuBody() {
               <DropdownMenuItem
                 key={s}
                 onClick={() => setPlaybackRate(s)}
-                className={cn(state.playbackRate === s ? 'font-medium text-primary' : undefined)}
+                className={cn(state.playbackRate === s ? 'bg-accent font-medium text-accent-foreground' : undefined)}
               >
                 {s === 1 ? 'Normal' : `${s}x`}
               </DropdownMenuItem>
@@ -604,7 +633,7 @@ export function SettingsMenuBody() {
             <DropdownMenuCollapsibleContent>
               <DropdownMenuItem
                 onClick={() => setQualityLevel(-1)}
-                className={cn(state.currentLevel === -1 ? 'font-medium text-primary' : undefined)}
+                className={cn(state.currentLevel === -1 ? 'bg-accent font-medium text-accent-foreground' : undefined)}
               >
                 Auto
               </DropdownMenuItem>
@@ -615,7 +644,7 @@ export function SettingsMenuBody() {
                   <DropdownMenuItem
                     key={`${height}-${i}`}
                     onClick={() => setQualityLevel(i)}
-                    className={cn(state.currentLevel === i ? 'font-medium text-primary' : undefined)}
+                    className={cn(state.currentLevel === i ? 'bg-accent font-medium text-accent-foreground' : undefined)}
                   >
                     {height}p
                   </DropdownMenuItem>
@@ -652,10 +681,7 @@ function QualityBadge({ label, className }: { label: string; className?: string 
   return (
     <span
       className={cn(
-        'absolute -right-1 -top-1 z-10 flex h-3.5 min-w-[1.1rem] items-center justify-center rounded px-0.5 text-[8px] font-bold uppercase leading-none tracking-wide shadow-sm',
-        label === '4K'
-          ? 'bg-amber-400 text-black'
-          : 'bg-blue-500 text-white',
+        'absolute -right-1 -top-1 z-10 flex h-3.5 min-w-[1.1rem] items-center justify-center rounded bg-white px-0.5 text-[8px] font-bold uppercase leading-none tracking-wide text-black shadow-sm',
         className,
       )}
     >
@@ -730,7 +756,7 @@ export default function SettingsMenu({ nested, panelRef, onOpenChange, overlayTr
                       'outline-none hover:bg-black/90 data-[state=open]:bg-black/90 data-[state=open]:[&_svg]:rotate-45',
                     )
                   : pillBarTrigger
-                    ? 'rounded-lg p-2 text-white outline-none transition-colors hover:bg-white/10 data-[state=open]:bg-white/15 data-[state=open]:[&_svg]:rotate-45'
+                    ? 'rounded-full p-2 text-white outline-none transition-colors hover:bg-white/10 data-[state=open]:bg-white/15 data-[state=open]:[&_svg]:rotate-45'
                     : 'rounded-md p-1.5 text-foreground transition-colors hover:bg-accent data-[state=open]:[&_svg]:rotate-45',
               )}
               aria-label="Settings"

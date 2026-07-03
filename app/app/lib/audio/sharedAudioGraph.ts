@@ -92,7 +92,7 @@ export function ensureSharedGraph(video: HTMLVideoElement): SharedAudioGraph | n
     panner.distanceModel = 'linear';
     panner.refDistance = 1;
     panner.maxDistance = 12;
-    panner.rolloffFactor = 0.25;
+    panner.rolloffFactor = DEFAULT_ROLLOFF;
     // Omnidirectional source: every direction is "inside" the inner cone.
     panner.coneInnerAngle = 360;
     panner.coneOuterAngle = 360;
@@ -226,10 +226,20 @@ export function ensureTheater(graph: SharedAudioGraph) {
   return graph.theater;
 }
 
+/** Gentle default so the 8D orbits stay near native loudness even at radius 3+. */
+const DEFAULT_ROLLOFF = 0.25;
+/**
+ * Steeper rolloff while the VR theater drives the panner: moving toward the
+ * screen should be clearly louder and backing away clearly quieter, like
+ * walking around a real room. Restored on exit so 8D keeps its subtle curve.
+ */
+const THEATER_ROLLOFF = 0.85;
+
 export function setTheaterActive(graph: SharedAudioGraph, active: boolean) {
   if (graph.theaterActive === active) return;
   if (active) ensureTheater(graph);
   graph.theaterActive = active;
+  graph.panner.rolloffFactor = active ? THEATER_ROLLOFF : DEFAULT_ROLLOFF;
   rewireGraph(graph);
 }
 

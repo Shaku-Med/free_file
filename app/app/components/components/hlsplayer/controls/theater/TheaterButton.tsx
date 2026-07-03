@@ -1,4 +1,5 @@
 import { RectangleHorizontal, RectangleVertical } from 'lucide-react';
+import { cn } from '~/lib/utils';
 import { Tooltip, TooltipContent, TooltipTrigger } from '~/components/ui/tooltip';
 
 interface TheaterButtonProps {
@@ -15,11 +16,11 @@ export default function TheaterButton({ theaterMode, onTheaterModeChange, contro
         <button
           type="button"
           onClick={() => onTheaterModeChange(!theaterMode)}
-          className={
-            controlPill
-              ? 'rounded-lg p-2 text-white transition-colors hover:bg-white/10'
-              : 'rounded-md p-1.5 text-white transition-colors hover:bg-white/10'
-          }
+          className={cn(
+            controlPill ? 'rounded-full p-2' : 'rounded-md p-1.5',
+            'text-white transition-colors',
+            theaterMode ? 'bg-white/20 hover:bg-white/25' : 'hover:bg-white/10',
+          )}
           aria-label={label}
         >
           {theaterMode ? (

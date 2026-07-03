@@ -5,7 +5,8 @@
  * stream itself. Unlike /api/play/mint (bound to the browser's IP+UA+nonce),
  * the TV has no browser Origin/Referer and a different UA, so a normal playback
  * URL gets rejected by loadplay. This endpoint mints a token that is:
- *   - IP-bound to the caster's network (the TV shares the NAT public IP)
+ *   - NOT IP-bound: dual-stack networks route the browser over IPv6 and the
+ *     Chromecast over IPv4, so a browser-IP bind 401s the TV's first fetch
  *   - NOT UA-bound (the TV's user-agent differs)
  *   - flagged `cast` so loadplay skips its browser-origin guard for it
  *   - fresh-nonce + longer TTL (a whole movie), so it locks to the TV on first
@@ -19,10 +20,7 @@
 import { isAuthenticated } from "~/lib/Security/Password";
 import db from "~/lib/Database/supabase";
 import { checkFileAccess } from "~/routes/Dynamic/fun/accessControl";
-import {
-  buildCastUrlForFile,
-  hashFingerprint,
-} from "~/lib/Security/loadplayToken.server";
+import { buildCastUrlForFile } from "~/lib/Security/loadplayToken.server";
 
 const jsonError = (status: number) =>
   new Response(JSON.stringify({ error: "Something's wrong." }), {
@@ -63,25 +61,6 @@ function isSameOrigin(request: Request): boolean {
   return true;
 }
 
-function clientIp(request: Request): string {
-  const xff = request.headers.get("X-Forwarded-For") ?? "";
-  if (xff) return xff.split(",")[0].trim();
-  return request.headers.get("X-Real-IP") ?? "";
-}
-
-// Coarse IP bucket  must match LoadPlay's fingerprint.IPPrefix (/24 v4, /64 v6).
-function ipPrefix(ip: string): string {
-  const clean = ip.trim();
-  if (!clean) return "";
-  if (clean.includes(":")) {
-    const groups = clean.split(":");
-    return groups.slice(0, 4).join(":") + "::";
-  }
-  const parts = clean.split(".");
-  if (parts.length !== 4) return "";
-  return `${parts[0]}.${parts[1]}.${parts[2]}.0`;
-}
-
 export const action = async ({ request }: { request: Request }) => {
   if (request.method !== "POST") return jsonError(405);
   if (request.headers.get("X-Requested-With") !== "fetch") return jsonError(403);
@@ -116,7 +95,6 @@ export const action = async ({ request }: { request: Request }) => {
   );
   if (!access.allowed) return jsonError(403);
 
-  const ip = clientIp(request);
   const url = buildCastUrlForFile(
     {
       unique_id: rawFile.unique_id,
@@ -124,7 +102,6 @@ export const action = async ({ request }: { request: Request }) => {
       file_type: rawFile.file_type,
     },
     userId,
-    hashFingerprint(ipPrefix(ip)),
     request,
   );
   if (!url) return jsonError(503);

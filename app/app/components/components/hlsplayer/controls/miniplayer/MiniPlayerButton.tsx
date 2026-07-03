@@ -59,7 +59,7 @@ export default function MiniPlayerButton({
             mobileOverlay && mobileOverlaySquareBtn,
             !mobileOverlay &&
               cn(
-                controlPill ? 'rounded-lg p-2 hover:bg-white/10' : 'rounded-md p-1.5 hover:bg-white/10'
+                controlPill ? 'rounded-full p-2 hover:bg-white/10' : 'rounded-md p-1.5 hover:bg-white/10'
               )
           )}
           aria-label="Mini player"

@@ -27,6 +27,8 @@ export type PlayerSettings = {
   audioVisualizerStyle: 'bars' | 'mirror' | 'ribbon' | 'pulse' | 'line' | 'blocks' | 'dots' | 'aurora';
   /** Pop confetti from the visualizer on bass kicks (desktop). Intensity follows the audio. */
   visualizerConfetti: boolean;
+  /** The standing wave ribbon under the player; off = bounce-only visualizer. */
+  visualizerWave?: boolean;
   /** JSON map of stem type → enabled (kick/snare/hihat/bass/other). */
   stemConfettiInstruments: string;
   /** Video element scale-bounces on kick/bass hits (dance mode). */

@@ -68,20 +68,17 @@ export default function CastButton({
             mobileOverlay && mobileOverlaySquareBtn,
             !mobileOverlay &&
               cn(
-                controlPill ? 'rounded-lg p-2' : 'rounded-md p-1.5',
-                isCasting
-                  ? 'bg-blue-400/10 text-blue-400 hover:bg-blue-400/20'
-                  : 'text-white hover:bg-white/10'
+                controlPill ? 'rounded-full p-2' : 'rounded-md p-1.5',
+                'text-white',
+                isCasting ? 'bg-white/20 hover:bg-white/25' : 'hover:bg-white/10'
               ),
-            mobileOverlay &&
-              isCasting &&
-              'border-blue-400/40 bg-black/60 text-blue-400'
+            mobileOverlay && isCasting && 'bg-white/25 text-white'
           )}
           aria-label={isCasting ? 'Connected to device' : 'Cast to device'}
         >
           <AirPlayIcon className={mobileOverlay ? mobileOverlayIcon : 'w-5 h-5'} />
           {isCasting && (
-            <span className="absolute bottom-0.5 right-0.5 w-1.5 h-1.5 rounded-full bg-blue-400" />
+            <span className="absolute bottom-0.5 right-0.5 w-1.5 h-1.5 rounded-full bg-white" />
           )}
         </button>
       </TooltipTrigger>

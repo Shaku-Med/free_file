@@ -1,6 +1,6 @@
 import { Captions, CaptionsOff, Check, RotateCcw, Loader2, AlignLeft, AlignCenter, AlignRight } from "lucide-react"
 import { cn } from "~/lib/utils"
-import { mobileOverlayCircleBtn, mobileOverlayIcon } from "../mobileControlMetrics"
+import { mobileOverlayIcon, mobileOverlaySquareBtn } from "../mobileControlMetrics"
 import { Tooltip, TooltipContent, TooltipTrigger } from "~/components/ui/tooltip"
 import {
   DropdownMenu,
@@ -70,8 +70,8 @@ export default function SubtitleButton({
           type="button"
           onClick={(e) => e.stopPropagation()}
           className={cn(
-            mobileOverlayCircleBtn,
-            isActive && 'text-primary',
+            mobileOverlaySquareBtn,
+            isActive && 'bg-white/25',
           )}
           aria-label={labelText}
         >
@@ -89,8 +89,8 @@ export default function SubtitleButton({
           type="button"
           onClick={(e) => e.stopPropagation()}
           className={cn(
-            "rounded-lg p-2 transition-colors hover:bg-white/10",
-            isActive ? "text-primary" : "text-white",
+            "rounded-full p-2 text-white transition-colors",
+            isActive ? "bg-white/20 hover:bg-white/25" : "hover:bg-white/10",
           )}
           aria-label={labelText}
         >
@@ -103,8 +103,8 @@ export default function SubtitleButton({
         type="button"
         onClick={(e) => e.stopPropagation()}
         className={cn(
-          "rounded-md p-1.5 transition-colors hover:bg-white/10",
-          isActive ? "text-primary" : "text-white",
+          "rounded-md p-1.5 text-white transition-colors",
+          isActive ? "bg-white/20 hover:bg-white/25" : "hover:bg-white/10",
         )}
         aria-label={labelText}
       >
@@ -137,7 +137,7 @@ export default function SubtitleButton({
           onSelect={() => setCurrentLanguage(null)}
           className={cn(
             "flex items-center justify-between",
-            !isActive && "text-primary focus:text-primary",
+            !isActive && "bg-accent text-accent-foreground",
           )}
         >
           <span>Off</span>
@@ -151,7 +151,7 @@ export default function SubtitleButton({
               onSelect={() => setCurrentLanguage(lang.code)}
               className={cn(
                 "flex items-center justify-between gap-2",
-                selected && "text-primary focus:text-primary",
+                selected && "bg-accent text-accent-foreground",
               )}
             >
               <span className="truncate">{lang.label}</span>
@@ -179,10 +179,10 @@ export default function SubtitleButton({
               type="button"
               onClick={() => setFontSize(opt.value)}
               className={cn(
-                "flex-1 h-7 rounded-md text-xs font-semibold border transition-colors",
+                "flex-1 h-7 rounded-md text-xs font-semibold border border-border transition-colors",
                 fontSize === opt.value
-                  ? "border-primary bg-primary/10 text-primary"
-                  : "border-border hover:bg-accent hover:text-accent-foreground",
+                  ? "bg-accent text-accent-foreground"
+                  : "hover:bg-accent/50 hover:text-accent-foreground",
               )}
             >
               {opt.label}
@@ -204,10 +204,10 @@ export default function SubtitleButton({
               type="button"
               onClick={() => setTextAlign(opt.value)}
               className={cn(
-                "flex-1 h-7 rounded-md text-xs font-semibold border transition-colors flex items-center justify-center gap-1",
+                "flex-1 h-7 rounded-md text-xs font-semibold border border-border transition-colors flex items-center justify-center gap-1",
                 textAlign === opt.value
-                  ? "border-primary bg-primary/10 text-primary"
-                  : "border-border hover:bg-accent hover:text-accent-foreground",
+                  ? "bg-accent text-accent-foreground"
+                  : "hover:bg-accent/50 hover:text-accent-foreground",
               )}
               aria-label={opt.label}
             >
@@ -231,7 +231,7 @@ export default function SubtitleButton({
             step={0.05}
             value={backgroundOpacity}
             onChange={(e) => setBackgroundOpacity(Number(e.target.value))}
-            className="w-full accent-primary"
+            className="w-full accent-foreground"
             aria-label="Caption background opacity"
           />
           <div className="flex items-center justify-between text-[10px] text-muted-foreground mt-0.5 tabular-nums">

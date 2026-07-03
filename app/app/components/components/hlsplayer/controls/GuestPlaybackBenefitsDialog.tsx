@@ -13,7 +13,7 @@ export default function GuestPlaybackBenefitsDialog({
   const btnClass =
     variant === 'mobileOverlay'
       ? mobileOverlaySmallCircleBtn
-      : 'rounded-lg p-2 text-white transition-colors hover:bg-white/10';
+      : 'rounded-full p-2 text-white transition-colors hover:bg-white/10';
 
   return (
     <>

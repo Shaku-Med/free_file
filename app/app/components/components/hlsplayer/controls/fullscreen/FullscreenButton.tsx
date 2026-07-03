@@ -20,7 +20,7 @@ export default function FullscreenButton({ variant }: { variant?: 'mobileOverlay
             variant === 'mobileOverlay'
               ? mobileOverlayCircleBtn
               : variant === 'controlPill'
-                ? 'rounded-lg p-2 text-white transition-colors hover:bg-white/10'
+                ? 'rounded-full p-2 text-white transition-colors hover:bg-white/10'
                 : 'p-1.5 rounded-md hover:bg-white/10 transition-colors text-white',
           )}
           aria-label={label}

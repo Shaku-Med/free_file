@@ -853,14 +853,22 @@ export default function VRTheaterOverlay() {
           const dtAudio = (now - lastAudioSync) / 1000;
           lastAudioSync = now;
           const graph = ensureSharedGraph(video);
-          if (graph && graph.ctx.state === 'running' && graph.pannerActive) {
+          if (graph && graph.ctx.state === 'running' && graph.theaterActive) {
+            // Re-assert ownership every tick (no-op when already active) so a
+            // stray toggle elsewhere can't silently drop the head tracking.
+            setPannerActive(graph, true);
             camera.updateMatrixWorld();
             screenInCamSpace.set(0, SCREEN_CENTER_Y, SCREEN_FACE_Z);
             camera.worldToLocal(screenInCamSpace);
             const dist = screenInCamSpace.length();
-            // A touch closer when you zoom in (small fov = leaning toward it).
+            // How far you FEEL from the screen: real distance (dolly) folded
+            // with fov zoom (leaning in). Zoomed in = closer, zoomed out = far.
             const zoomScale = camera.fov / FOV_BASE;
-            const radius = 1.15 * (0.75 + 0.25 * Math.min(1.4, zoomScale));
+            const effDist = dist * Math.max(0.5, Math.min(1.6, zoomScale));
+            // Map onto the panner's rolloff curve: ~unity loudness at the
+            // default seat, clearly louder pressed up close, clearly quieter
+            // and roomier from the back of the room.
+            const radius = Math.min(8, Math.max(0.85, 0.85 + (effDist - 1.1) * 1.5));
             const inv = dist > 1e-4 ? radius / dist : 0;
             setPannerPosition(
               graph,
@@ -869,11 +877,11 @@ export default function VRTheaterOverlay() {
               screenInCamSpace.z * inv,
               Math.min(0.08, dtAudio * 1.5),
             );
-            // Reverb follows your REAL distance to the screen (dolly in/out),
-            // not the fixed audio radius, and can lag — rooms don't snap.
+            // Reverb rises with the same felt distance — far seats hear more
+            // room than screen — and lags a touch, rooms don't snap.
             if (now - lastReverbSync > 140) {
               lastReverbSync = now;
-              setTheaterWet(graph, 0.1 + Math.min(0.34, dist * 0.09), 0.16);
+              setTheaterWet(graph, 0.08 + Math.min(0.38, Math.max(0, effDist - 1.1) * 0.09), 0.16);
             }
           }
         }

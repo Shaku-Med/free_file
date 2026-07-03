@@ -8,8 +8,9 @@ import StemResonanceVisualizer from './StemResonanceVisualizer';
  * confetti retired.
  */
 export default function PersistentBottomVisualizer() {
-  const { audioVisualizer, audioStems } = usePlayerContext();
-  const enabled = audioVisualizer && audioStems != null;
+  const { audioVisualizer, visualizerWave, audioStems } = usePlayerContext();
+  // Wave has its own toggle so bounce-only users get a clean strip.
+  const enabled = audioVisualizer && visualizerWave && audioStems != null;
 
   if (!enabled || !audioStems) return null;
 
