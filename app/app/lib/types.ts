@@ -104,6 +104,34 @@ export type RelatedVideosPayloadCache = {
   userActions: { likedFileIds: string[]; dislikedFileIds: string[] };
 };
 
+/**
+ * Persistent strip for the image watch carousel. Lives in the root context so
+ * swiping + the per-image router refresh never lose the images already loaded
+ * — the viewer can always swipe back, and new images only ever append.
+ */
+export type ImageCarouselCache = {
+  items: Array<Record<string, unknown>>;
+  cursor: number;
+  hasMore: boolean;
+  /** unique_ids already in `items` (dedup + "is this image part of the strip?"). */
+  seen: string[];
+};
+
+/**
+ * Per-image content fetched from GET /api/content/:id (reel-style light load).
+ * Cached by unique_id in the root context so swiping back to an image never
+ * re-fetches its title / likes / owner / counts.
+ */
+export type ImageContentPayload = {
+  file: FileType;
+  owner: { id: string; username: string; profile_pic: string; verified: boolean } | null;
+  likeCount: number;
+  dislikeCount: number;
+  commentCount: number;
+  userLiked: boolean;
+  userDisliked: boolean;
+};
+
 export interface PageCacheData {
   data: unknown;
   currentPageNumber: number;

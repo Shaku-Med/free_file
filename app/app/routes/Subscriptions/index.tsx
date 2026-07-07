@@ -28,6 +28,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "~/components/ui/avatar";
 import { Button } from "~/components/ui/button";
 import EmptyState from "~/components/EmptyState";
 import { cn } from "~/lib/utils";
+import { FEED_HIDE_ACTIONS } from "~/lib/feed/feedVideoCardLayout";
 import { ChevronLeft, ChevronRight, Search, Users } from "lucide-react";
 
 export const meta: MetaFunction = () =>
@@ -547,7 +548,7 @@ export default function SubscriptionsPage() {
                         index={idx}
                         currentUserId={userId || undefined}
                         userActions={userActions}
-                        hideActions={{completely: false}}
+                        hideActions={FEED_HIDE_ACTIONS}
                       />
                     </div>
                   );
@@ -583,7 +584,7 @@ export default function SubscriptionsPage() {
                           index={index}
                           currentUserId={userId || undefined}
                           userActions={userActions}
-                          hideActions={{completely: false}}
+                          hideActions={FEED_HIDE_ACTIONS}
                         />
                       </div>
                     );
@@ -631,7 +632,7 @@ export default function SubscriptionsPage() {
                                 index={index}
                                 currentUserId={userId || undefined}
                                 userActions={userActions}
-                                hideActions={{completely: false}}
+                                hideActions={FEED_HIDE_ACTIONS}
                               />
                             </SwiperSlide>
                           );

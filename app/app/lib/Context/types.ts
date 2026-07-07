@@ -2,6 +2,8 @@ import type React from "react";
 import type {
   DynamicSeriesPayloadCache,
   FileType,
+  ImageCarouselCache,
+  ImageContentPayload,
   PageCacheEntry,
   RelatedVideosPayloadCache,
 } from "../types";
@@ -101,4 +103,10 @@ export interface ContextProps {
   setDynamicSeriesPayloadCache: (fileSeriesId: string, entry: DynamicSeriesPayloadCache) => void;
   getRelatedVideosPayloadCache: (fileId: string) => RelatedVideosPayloadCache | null;
   setRelatedVideosPayloadCache: (fileId: string, entry: RelatedVideosPayloadCache) => void;
+  /** Persistent image-carousel strip (see {@link ImageCarouselCache}). */
+  getImageCarouselCache: () => ImageCarouselCache | null;
+  setImageCarouselCache: (entry: ImageCarouselCache | null) => void;
+  /** Per-image content cache keyed by unique_id (see {@link ImageContentPayload}). */
+  getImageContent: (uniqueId: string) => ImageContentPayload | null;
+  setImageContent: (uniqueId: string, entry: ImageContentPayload) => void;
 }

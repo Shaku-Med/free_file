@@ -13,6 +13,7 @@ import {
   Sparkles,
   Home,
   Film,
+  LibraryBig,
 } from "lucide-react"
 import {
   Sidebar,
@@ -79,6 +80,11 @@ const mainNavItems = [
     title: "Reel",
     icon: Film,
     href: "/reel",
+  },
+  {
+    title: "Library",
+    icon: LibraryBig,
+    href: "/library",
   },
   {
     title: "Playlist",

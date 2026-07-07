@@ -9,12 +9,14 @@ interface ThumbnailPreviewProps {
   time: number;
   parentWidth: number;
   cursorX: number;
+  /** Chapter title for the hovered position, shown above the timestamp. */
+  caption?: string;
 }
 
 const PREVIEW_MAX_W = 160;
 const PREVIEW_MAX_H = 120;
 
-export default function ThumbnailPreview({ meta, spriteUrl, time, parentWidth, cursorX }: ThumbnailPreviewProps) {
+export default function ThumbnailPreview({ meta, spriteUrl, time, parentWidth, cursorX, caption }: ThumbnailPreviewProps) {
   const frame = useMemo(() => getFrameAtTime(meta, time), [meta, time]);
   if (!frame) return null;
 
@@ -55,7 +57,12 @@ export default function ThumbnailPreview({ meta, spriteUrl, time, parentWidth, c
           }}
         />
       </div>
-      <div className="text-center mt-1">
+      <div className="mt-1 flex flex-col items-center gap-1">
+        {caption && (
+          <span className="max-w-full truncate rounded-md bg-black/85 px-1.5 py-0.5 text-[11px] font-medium text-white">
+            {caption}
+          </span>
+        )}
         <span className="text-[11px] font-medium text-white bg-secondary px-1.5 py-0.5 rounded-md">
           {formatTime(time)}
         </span>

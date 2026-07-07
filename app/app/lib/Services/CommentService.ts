@@ -607,19 +607,29 @@ export class CommentService {
         return { data: null, error: 'Unauthorized' };
       }
 
-      // Before deleting, grab every R2 image attached to this comment + its
-      // reply tree so we can purge them from storage afterwards. Best-effort
-      // (failure to fetch the list never blocks the delete).
-      let r2KeysToDelete: string[] = [];
+      // Before deleting, grab every image attached to this comment + its reply
+      // tree so we can purge them from storage afterwards. R2 keys are deleted
+      // in-app; GitHub images go through GoUpload (the app holds no GitHub
+      // token). Best-effort  a purge failure never blocks the delete.
+      const r2KeysToDelete: string[] = [];
+      const githubImagesToDelete: { path: string; repo: string }[] = [];
       try {
         const { data: imgRows } = await db.rpc('get_comment_tree_images', {
           p_comment_id: commentId,
         });
         if (Array.isArray(imgRows)) {
           for (const row of imgRows) {
-            const r = row as { image_url?: string | null; storage_backend?: string | null };
-            if (r.storage_backend === 'r2' && typeof r.image_url === 'string' && r.image_url) {
+            const r = row as {
+              image_url?: string | null;
+              storage_backend?: string | null;
+              image_github_repo?: string | null;
+            };
+            if (typeof r.image_url !== 'string' || !r.image_url) continue;
+            if (r.storage_backend === 'r2') {
               r2KeysToDelete.push(r.image_url);
+            } else {
+              const repo = typeof r.image_github_repo === 'string' ? r.image_github_repo.trim() : '';
+              if (repo) githubImagesToDelete.push({ path: r.image_url, repo });
             }
           }
         }
@@ -649,8 +659,8 @@ export class CommentService {
         }
       }
 
-      // Fire-and-forget R2 cleanup. We don't await it  the user already got
-      // a success response and the soft-delete already hides the rows.
+      // Fire-and-forget storage cleanup. We don't await it  the user already
+      // got a success response and the soft-delete already hides the rows.
       if (r2KeysToDelete.length > 0) {
         const keys = r2KeysToDelete;
         void (async () => {
@@ -663,6 +673,30 @@ export class CommentService {
               }),
             ),
           );
+        })();
+      }
+
+      if (githubImagesToDelete.length > 0) {
+        const images = githubImagesToDelete;
+        void (async () => {
+          const { deleteCommentImageFromStorage } = await import('~/lib/Services/commentImageStorage.server');
+          await Promise.all(
+            images.map((img) =>
+              deleteCommentImageFromStorage(img.path, img.repo, 'github').catch((e) => {
+                console.warn('[comments] github image delete failed', img.path, e);
+                return false;
+              }),
+            ),
+          );
+          // Drop any leftover pre-post staging rows for these paths.
+          try {
+            await db!
+              .from('comment_image_upload_repos')
+              .delete()
+              .in('storage_path', images.map((i) => i.path));
+          } catch (e) {
+            console.warn('[comments] staging cleanup failed', e);
+          }
         })();
       }
 

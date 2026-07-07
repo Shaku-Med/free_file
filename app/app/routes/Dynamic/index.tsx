@@ -7,7 +7,7 @@ import RelatedVideos from "./components/RelatedVideos";
 import SeriesEpisodesSection from "./components/SeriesEpisodesSection";
 import ImageWatchCarousel from "./components/ImageWatchCarousel";
 import SeriesSignInGate from "./components/SeriesSignInGate";
-import { type FileType, type SeriesEpisodeGroup, fileWatchPath } from "~/lib/types";
+import { type FileType, type SeriesEpisodeGroup, type ImageContentPayload, fileWatchPath } from "~/lib/types";
 import { BASE_URL } from "~/lib/URLS";
 import { buildPageMeta } from "~/lib/seo";
 import ImageLoad from "../Home/components/ImageLoad/ImageLoad";
@@ -646,6 +646,8 @@ const DynamicPage = ({ is_modal }: DynamicPageProps) => {
     setDynamicSeriesPayloadCache,
     getRelatedVideosPayloadCache,
     setRelatedVideosPayloadCache,
+    getImageContent,
+    setImageContent,
   } = useFileContext();
   const playerBackground = playerSettings?.playerBackground !== false;
   const ambientSyncOn = playerSettings?.ambientSync === true;
@@ -673,6 +675,23 @@ const DynamicPage = ({ is_modal }: DynamicPageProps) => {
   }, [loaderData, revalidator]);
 
   const [resolvedPageDetails, setResolvedPageDetails] = useState<DynamicDeferredDetails | null>(null);
+
+  // Reel-style image swiping: the carousel changes the URL with replaceState
+  // (no loader re-run) and hands us the active image here. We swap the page's
+  // per-image fields from the strip item instantly, then refine from a cached
+  // GET /api/content/:id. Null = not overriding (videos, or the seed image).
+  type ImageOverride = {
+    id: string;
+    file: FileType;
+    owner: { id: string; username: string; profile_pic: string; verified: boolean } | null;
+    likeCount: number;
+    dislikeCount: number;
+    commentsCount: number;
+    userLiked: boolean;
+    userDisliked: boolean;
+  };
+  const [imageOverride, setImageOverride] = useState<ImageOverride | null>(null);
+  const imageContentReqRef = useRef(0);
 
   useEffect(() => {
     setResolvedPageDetails(null);
@@ -812,8 +831,100 @@ const DynamicPage = ({ is_modal }: DynamicPageProps) => {
     });
   }, [pathname, effectiveData, addToCache]);
 
-  const file_data = effectiveData?.file;
-  const data = effectiveData;
+  // When the image carousel is driving (imageOverride set), swap only the
+  // per-image fields onto effectiveData; related videos / series stay intact.
+  const displayData = useMemo((): DynamicCachePayload | null => {
+    if (!effectiveData) return effectiveData;
+    if (!imageOverride || !imageOverride.file?.id) return effectiveData;
+    return {
+      ...effectiveData,
+      file: imageOverride.file,
+      id: imageOverride.id,
+      owner: imageOverride.owner as DynamicCachePayload["owner"],
+      likeCount: imageOverride.likeCount,
+      dislikeCount: imageOverride.dislikeCount,
+      userLiked: imageOverride.userLiked,
+      userDisliked: imageOverride.userDisliked,
+      commentsCount: imageOverride.commentsCount,
+    };
+  }, [effectiveData, imageOverride]);
+
+  const file_data = displayData?.file;
+  const data = displayData;
+
+  // A real navigation (fresh load, related-image link) resets the override so
+  // the new page shows its own loader data. Carousel swipes use replaceState,
+  // which does not change currentId, so they don't trip this.
+  useEffect(() => {
+    setImageOverride(null);
+  }, [currentId]);
+
+  // Called by ImageWatchCarousel on each settled slide. Instant swap from the
+  // strip item, then refine from the per-image content cache / a light GET.
+  const handleCarouselActive = useCallback(
+    (img: Record<string, unknown> & { unique_id?: string | null; id?: string | number | null }) => {
+      const uid = String(img.unique_id ?? img.id ?? "");
+      if (!uid) return;
+
+      const cached = getImageContent(uid);
+      const num = (v: unknown) => (Number.isFinite(Number(v)) ? Number(v) : 0);
+      setImageOverride({
+        id: uid,
+        file: (cached?.file ?? (img as unknown as FileType)),
+        owner: cached?.owner ?? null,
+        likeCount: cached?.likeCount ?? num(img.like_count),
+        dislikeCount: cached?.dislikeCount ?? num(img.dislike_count),
+        commentsCount: cached?.commentCount ?? num(img.comment_count),
+        userLiked: cached?.userLiked ?? false,
+        userDisliked: cached?.userDisliked ?? false,
+      });
+
+      const title = (img.file_title as string) || (img.filename as string) || "";
+      if (typeof document !== "undefined" && title) document.title = `${title} | Memories`;
+
+      if (cached) return;
+      const reqId = ++imageContentReqRef.current;
+      void (async () => {
+        try {
+          const res = await fetch(`/api/content/${encodeURIComponent(uid)}`, {
+            credentials: "include",
+          });
+          if (!res.ok) return;
+          const json = (await res.json()) as Partial<ImageContentPayload> & { file?: FileType };
+          if (!json?.file) return;
+          const payload: ImageContentPayload = {
+            file: json.file,
+            owner: json.owner ?? null,
+            likeCount: num(json.likeCount),
+            dislikeCount: num(json.dislikeCount),
+            commentCount: num(json.commentCount),
+            userLiked: !!json.userLiked,
+            userDisliked: !!json.userDisliked,
+          };
+          setImageContent(uid, payload);
+          // Ignore if the viewer has since swiped to a different image.
+          if (reqId !== imageContentReqRef.current) return;
+          setImageOverride((prev) =>
+            prev && prev.id === uid
+              ? {
+                  id: uid,
+                  file: payload.file,
+                  owner: payload.owner,
+                  likeCount: payload.likeCount,
+                  dislikeCount: payload.dislikeCount,
+                  commentsCount: payload.commentCount,
+                  userLiked: payload.userLiked,
+                  userDisliked: payload.userDisliked,
+                }
+              : prev,
+          );
+        } catch {
+          /* keep the instant override */
+        }
+      })();
+    },
+    [getImageContent, setImageContent],
+  );
 
   // JIT signed URL  see ~/lib/hooks/usePlaybackUrl. URL is NEVER in
   // HTML / loader JSON, so view-source / scrapers can't lift it.
@@ -1315,6 +1426,32 @@ const DynamicPage = ({ is_modal }: DynamicPageProps) => {
     setDisliked(updates.disliked);
     setLikeCount(updates.like_count);
     setDislikeCount(updates.dislike_count);
+    // Carousel image: keep the per-image cache + override in sync so swiping
+    // back to a just-liked image shows the like instead of a stale cached value.
+    if (imageOverride) {
+      const uid = imageOverride.id;
+      const existing = getImageContent(uid);
+      if (existing) {
+        setImageContent(uid, {
+          ...existing,
+          userLiked: updates.liked,
+          userDisliked: updates.disliked,
+          likeCount: updates.like_count,
+          dislikeCount: updates.dislike_count,
+        });
+      }
+      setImageOverride((prev) =>
+        prev && prev.id === uid
+          ? {
+              ...prev,
+              userLiked: updates.liked,
+              userDisliked: updates.disliked,
+              likeCount: updates.like_count,
+              dislikeCount: updates.dislike_count,
+            }
+          : prev,
+      );
+    }
   }
 
   const commentsCount = data.commentsCount || 0;
@@ -1735,9 +1872,9 @@ const DynamicPage = ({ is_modal }: DynamicPageProps) => {
           </div>
         ) : (
           <ImageWatchCarousel
-            key={file_data.unique_id}
             seed={file_data}
             onColors={imageLoadCallBack}
+            onActiveChange={handleCarouselActive}
           />
         )}
       </div>

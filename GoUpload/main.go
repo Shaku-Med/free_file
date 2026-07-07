@@ -253,6 +253,7 @@ func main() {
 		StorageBackend: storageBackend,
 		SupabaseURL:    supabaseURL,
 		SupabaseKey:    supabaseKey,
+		WebhookSecret:  webhookSecret,
 	})
 	profilepic.RegisterRoutes(app, appLog, profilepic.Config{
 		GitHubClient:   wcfg.GitHubClient,

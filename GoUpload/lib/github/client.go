@@ -478,6 +478,35 @@ func BatchCommit(ctx context.Context, client *github.Client, owner, repo, branch
 	return nil
 }
 
+// DeleteFile removes a single blob at path. Treats a missing file as success
+// (delete is idempotent), so callers can retry safely. Used to purge a comment
+// image when its comment is deleted.
+func DeleteFile(ctx context.Context, client *github.Client, owner, repo, path, message string) error {
+	if client == nil || owner == "" || repo == "" || path == "" {
+		return errors.New("github: invalid delete args")
+	}
+	if message == "" {
+		message = "Remove " + path
+	}
+	fc, _, _, err := client.Repositories.GetContents(ctx, owner, repo, path, nil)
+	if err != nil {
+		var ge *github.ErrorResponse
+		if errors.As(err, &ge) && ge.Response != nil && ge.Response.StatusCode == 404 {
+			return nil
+		}
+		return err
+	}
+	if fc == nil || fc.GetSHA() == "" {
+		return nil
+	}
+	sha := fc.GetSHA()
+	_, _, err = client.Repositories.DeleteFile(ctx, owner, repo, path, &github.RepositoryContentFileOptions{
+		Message: &message,
+		SHA:     &sha,
+	})
+	return err
+}
+
 // DeleteFolder removes every blob under prefix in ONE commit via the Git
 // Data API (a tree entry with a nil SHA deletes that path). Serialised per
 // repo through the same gate the uploaders use; retried when the branch

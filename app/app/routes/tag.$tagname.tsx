@@ -3,6 +3,7 @@ import { useParams, Link, type MetaFunction } from "react-router";
 import VideoCard from "~/routes/Home/components/VideoCard";
 import type { FileType } from "~/lib/types";
 import { useFileContext } from "~/lib/Context/Context";
+import { FEED_HIDE_ACTIONS } from "~/lib/feed/feedVideoCardLayout";
 import { buildPageMeta } from "~/lib/seo";
 import { SignInToSeeMore } from "~/components/SignInWall";
 
@@ -149,7 +150,7 @@ export default function TagPage() {
                 index={index}
                 currentUserId={userId ?? undefined}
                 userActions={userActions}
-                hideActions={{completely: false}}
+                hideActions={FEED_HIDE_ACTIONS}
               />
             ))}
           </div>

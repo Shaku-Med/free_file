@@ -581,6 +581,39 @@ async function lookupCommentImageGithubRepo(storagePath: string): Promise<string
   }
 }
 
+/**
+ * Resolve the repo a standalone comment image (comment-images/...) actually
+ * landed in: the posted comment row first, then the pre-post staging table
+ * (comment_image_upload_repos, written by the storage webhook). The Go server
+ * uploads to its OWN active repo, which may differ from the app's shared-assets
+ * default — without this the image 404s. Returns [] when nothing is recorded so
+ * the caller falls back to the shared-assets repo.
+ */
+async function lookupStandaloneCommentImageRepos(storagePath: string): Promise<string[]> {
+  if (!db) return [];
+  const repos: string[] = [];
+  try {
+    const { data: c } = await db
+      .from("comments")
+      .select("image_github_repo")
+      .eq("image_url", storagePath)
+      .maybeSingle();
+    const cRepo = (c as { image_github_repo?: string | null } | null)?.image_github_repo;
+    if (typeof cRepo === "string" && cRepo.trim()) repos.push(cRepo.trim());
+
+    const { data: pending } = await db
+      .from("comment_image_upload_repos")
+      .select("github_repo")
+      .eq("storage_path", storagePath)
+      .maybeSingle();
+    const pRepo = (pending as { github_repo?: string | null } | null)?.github_repo;
+    if (typeof pRepo === "string" && pRepo.trim()) repos.push(pRepo.trim());
+  } catch {
+    /* fall through to shared-assets default */
+  }
+  return repos;
+}
+
 export const loader = async ({ request }: { request: Request }) => {
     try {
         const url = new URL(request.url);
@@ -613,14 +646,30 @@ export const loader = async ({ request }: { request: Request }) => {
                 };
                 return await loadImageWithRetry(splitUrl, qualityParam, false, isMetadata, '', '', r2Resolver);
             }
-            return await loadImageWithRetry(
-                splitUrl,
-                qualityParam,
-                false,
-                isMetadata,
-                defaultGithubRepoForSharedAssets(),
-                defaultGithubBranch(),
+            // Try the repo the image was actually stored in (comment row →
+            // staging table), then the shared-assets default. The Go server's
+            // active repo can differ from the default, so a single hardcoded
+            // repo 404s.
+            const branch = defaultGithubBranch();
+            const candidates = Array.from(
+                new Set(
+                    [
+                        ...(await lookupStandaloneCommentImageRepos(splitUrl)),
+                        defaultGithubRepoForSharedAssets(),
+                    ].filter((r): r is string => Boolean(r)),
+                ),
             );
+            let lastExhausted: ImageLoadExhaustedError | null = null;
+            for (const repo of candidates) {
+                try {
+                    return await loadImageWithRetry(splitUrl, qualityParam, false, isMetadata, repo, branch);
+                } catch (e) {
+                    if (e instanceof ImageLoadExhaustedError) lastExhausted = e;
+                    else throw e;
+                }
+            }
+            if (lastExhausted) throw lastExhausted;
+            return new Response(null, { status: 404 });
         }
 
         // SECURITY: CRITICAL - Check access BEFORE fetching image from GitHub

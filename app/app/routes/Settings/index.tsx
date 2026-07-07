@@ -61,6 +61,10 @@ const SettingsPage = () => {
   // iPhone/iPad: push only works once added to the Home Screen.
   const needsInstall = !push.supported && isIos && !isStandalone;
   const [showNsfw, setShowNsfw] = useState(false);
+  const [historyPaused, setHistoryPaused] = useState(false);
+  const [clearArmed, setClearArmed] = useState(false);
+  const [clearBusy, setClearBusy] = useState(false);
+  const [clearNotice, setClearNotice] = useState<string | null>(null);
   const [theme, setTheme] = useState<UserTheme>(DEFAULT_THEME);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
@@ -91,6 +95,7 @@ const SettingsPage = () => {
         }
         const payload = await response.json();
         setShowNsfw(Boolean(payload?.showNsfw));
+        setHistoryPaused(Boolean(payload?.historyPaused));
         if (payload?.theme && typeof payload.theme.theme === "string" && typeof payload.theme.style === "string") {
           setTheme({ theme: payload.theme.theme, style: payload.theme.style });
         }
@@ -209,7 +214,7 @@ const SettingsPage = () => {
       const response = await fetch("/api/settings", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ showNsfw, theme }),
+        body: JSON.stringify({ showNsfw, historyPaused, theme }),
       });
       if (!response.ok) {
         const payload = await response.json().catch(() => null);
@@ -221,6 +226,33 @@ const SettingsPage = () => {
       setError(err instanceof Error ? err.message : "Failed to update settings");
     } finally {
       setIsSaving(false);
+    }
+  };
+
+  const handleClearHistory = async () => {
+    // First click arms, second click within the window actually clears.
+    if (!clearArmed) {
+      setClearArmed(true);
+      setClearNotice(null);
+      return;
+    }
+    setClearBusy(true);
+    setClearNotice(null);
+    try {
+      const res = await fetch("/api/views/watch-history", {
+        method: "DELETE",
+        credentials: "include",
+      });
+      const payload = await res.json().catch(() => null);
+      if (!res.ok || !payload?.cleared) {
+        throw new Error(payload?.error || "Failed to clear history");
+      }
+      setClearNotice("Watch history cleared.");
+    } catch (err) {
+      setClearNotice(err instanceof Error ? err.message : "Failed to clear history");
+    } finally {
+      setClearBusy(false);
+      setClearArmed(false);
     }
   };
 
@@ -462,6 +494,69 @@ const SettingsPage = () => {
                 />
               </button>
             </div>
+          </section>
+
+          <Separator />
+
+          <section>
+            <h2 className="text-sm font-medium text-foreground mb-2">Privacy</h2>
+            <div className="flex items-center justify-between gap-4 py-1">
+              <div>
+                <p className="text-sm font-medium text-foreground">Pause watch history</p>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Stop saving what you watch. Recommendations get less personal.
+                </p>
+              </div>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={historyPaused}
+                aria-label={historyPaused ? "Resume watch history" : "Pause watch history"}
+                onClick={() => setHistoryPaused((prev) => !prev)}
+                disabled={isLoading || isSaving}
+                className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full border border-input transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 ${
+                  historyPaused ? "bg-primary border-primary" : "bg-muted"
+                }`}
+              >
+                <span
+                  className={`pointer-events-none block h-5 w-5 rounded-full bg-background shadow ring-0 transition-transform ${
+                    historyPaused ? "translate-x-5" : "translate-x-0.5"
+                  }`}
+                />
+              </button>
+            </div>
+
+            <div className="mt-3 flex items-center justify-between gap-4 py-1">
+              <div>
+                <p className="text-sm font-medium text-foreground">Clear watch history</p>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Removes your history and playback positions. This can't be undone.
+                </p>
+              </div>
+              <Button
+                type="button"
+                variant={clearArmed ? "destructive" : "outline"}
+                onClick={handleClearHistory}
+                disabled={clearBusy}
+                className="shrink-0"
+              >
+                {clearBusy ? "Clearing…" : clearArmed ? "Tap to confirm" : "Clear"}
+              </Button>
+            </div>
+            {clearArmed && !clearBusy && (
+              <button
+                type="button"
+                onClick={() => setClearArmed(false)}
+                className="mt-1 text-xs text-muted-foreground hover:text-foreground"
+              >
+                Cancel
+              </button>
+            )}
+            {clearNotice && (
+              <p className="mt-2 text-xs text-muted-foreground" role="status">
+                {clearNotice}
+              </p>
+            )}
           </section>
 
           {error && (

@@ -1,8 +1,9 @@
-import { useRef, useState, useCallback, useEffect, useLayoutEffect } from 'react';
+import { useRef, useState, useCallback, useEffect, useLayoutEffect, useMemo } from 'react';
 import { usePlayerContext } from '../../PlayerContext';
 import type { BufferedRange } from '../../PlayerContext';
 import ThumbnailPreview from './ThumbnailPreview';
 import { formatTime } from './functions/formatTime';
+import { parseChapters, activeChapterIndex, type Chapter } from './functions/parseChapters';
 import WaveformCanvas, {
   isWaveformJson,
   fetchPeaks,
@@ -27,6 +28,27 @@ function BufferSegments({ ranges, duration, className }: {
             key={i}
             className={`absolute top-0 h-full transition-[width,left] duration-300 ease-out ${className ?? 'bg-white/25 rounded-full'}`}
             style={{ left: `${left}%`, width: `${width}%` }}
+          />
+        );
+      })}
+    </>
+  );
+}
+
+/** YouTube-style gap markers at each chapter boundary (skips the 0:00 start). */
+function ChapterTicks({ chapters, duration }: { chapters: Chapter[]; duration: number }) {
+  if (duration <= 0 || chapters.length < 2) return null;
+  return (
+    <>
+      {chapters.map((ch, i) => {
+        if (i === 0 || ch.start <= 0 || ch.start >= duration) return null;
+        const left = (ch.start / duration) * 100;
+        return (
+          <div
+            key={ch.start}
+            className="absolute top-1/2 z-[1] h-[140%] w-[2px] -translate-y-1/2 rounded-full bg-background/80"
+            style={{ left: `${left}%` }}
+            aria-hidden
           />
         );
       })}
@@ -127,6 +149,7 @@ function ThinSeekTrack({
   progress,
   bufferedRanges,
   duration,
+  chapters,
   barRef,
   handleRef,
   showHandle,
@@ -148,6 +171,7 @@ function ThinSeekTrack({
   progress: number;
   bufferedRanges: BufferedRange[];
   duration: number;
+  chapters: Chapter[];
   barRef: React.RefObject<HTMLDivElement | null>;
   handleRef: React.RefObject<HTMLDivElement | null>;
   showHandle: boolean;
@@ -184,6 +208,7 @@ function ThinSeekTrack({
         className="absolute top-0 left-0 h-full rounded-full bg-primary"
         style={{ width: `${progress}%` }}
       />
+      <ChapterTicks chapters={chapters} duration={duration} />
       <div
         ref={handleRef}
         className={cn(
@@ -407,11 +432,21 @@ export default function SeekBar({
     startInteraction,
     endInteraction,
     isReel,
+    file,
   } = usePlayerContext();
   const trackRef = useRef<HTMLDivElement>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [hoverTime, setHoverTime] = useState<number | null>(null);
   const [hoverX, setHoverX] = useState(0);
+  // Chapters parsed from the description (0:00-style lines). Reels never have them.
+  const chapters = useMemo(
+    () => (isReel ? [] : parseChapters(file?.file_description, state.duration)),
+    [isReel, file?.file_description, state.duration],
+  );
+  const hoverChapterTitle =
+    hoverTime != null && chapters.length > 0
+      ? chapters[activeChapterIndex(chapters, hoverTime)]?.title ?? null
+      : null;
   const [trackWidth, setTrackWidth] = useState(0);
   // Two separate error flags  the JSON path failing should not poison
   // the PNG fallback attempt, and vice versa.
@@ -691,7 +726,15 @@ export default function SeekBar({
             time={hoverTime}
             parentWidth={trackWidth}
             cursorX={hoverX}
+            caption={hoverChapterTitle ?? undefined}
           />
+        </div>
+      )}
+      {hoverTime !== null && hoverChapterTitle && !(spriteMeta && spriteUrl) && (
+        <div className="pointer-events-none absolute bottom-full left-0 right-0 z-20 mb-2 flex justify-center">
+          <span className="max-w-[70%] truncate rounded-md bg-black/85 px-2 py-1 text-[11px] font-medium text-white shadow-md">
+            {hoverChapterTitle}
+          </span>
         </div>
       )}
       <ThinSeekTrack
@@ -699,6 +742,7 @@ export default function SeekBar({
         progress={progress}
         bufferedRanges={bufferedRanges}
         duration={state.duration}
+        chapters={chapters}
         barRef={barRef}
         handleRef={handleRef}
         showHandle={Boolean(hoverTime !== null || isDragging || mobileStyle)}

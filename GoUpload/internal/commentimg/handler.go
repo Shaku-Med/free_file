@@ -2,6 +2,7 @@ package commentimg
 
 import (
 	"context"
+	"crypto/subtle"
 	"fmt"
 	"io"
 	"path/filepath"
@@ -28,6 +29,12 @@ const maxFileSize = 10 << 20
 const nsfwGifFrameSamples = 5
 
 var reDateFolder = regexp.MustCompile(`^\d{2}_\d{2}_\d{4}$`)
+
+// The only two comment-image path shapes we ever store, so the internal delete
+// can never be pointed at anything else even if the shared secret leaked.
+var reStandaloneCommentPath = regexp.MustCompile(`^comment-images/[A-Za-z0-9_-]{1,128}/[A-Za-z0-9_-]{1,128}\.[A-Za-z0-9]{1,8}$`)
+var reVideoCommentPath = regexp.MustCompile(`^\d{2}_\d{2}_\d{4}/[A-Za-z0-9_-]{1,128}/comments/[A-Za-z0-9_-]{1,128}\.[A-Za-z0-9]{1,8}$`)
+var reDeleteRepo = regexp.MustCompile(`^[A-Za-z0-9._-]{1,100}$`)
 
 func isSafeUniqueIDSegment(s string) bool {
 	const max = 128
@@ -64,6 +71,7 @@ type Handler struct {
 	storageBackend string
 	supabaseURL    string
 	supabaseKey    string
+	webhookSecret  string
 }
 
 type Config struct {
@@ -79,6 +87,8 @@ type Config struct {
 	StorageBackend string
 	SupabaseURL    string
 	SupabaseKey    string
+	// Shared server-to-server secret for the internal delete route.
+	WebhookSecret string
 }
 
 func RegisterRoutes(app *fiber.App, log *logger.Logger, cfg Config) {
@@ -93,8 +103,69 @@ func RegisterRoutes(app *fiber.App, log *logger.Logger, cfg Config) {
 		storageBackend: cfg.StorageBackend,
 		supabaseURL:    strings.TrimSpace(cfg.SupabaseURL),
 		supabaseKey:    strings.TrimSpace(cfg.SupabaseKey),
+		webhookSecret:  strings.TrimSpace(cfg.WebhookSecret),
 	}
 	app.Post("/api/comment-image/upload", h.upload)
+	// Server-to-server only (X-Webhook-Secret): purge one comment image when its
+	// comment is deleted. NOT under the /api/comment-image bearer-auth prefix.
+	app.Post("/internal/comment-image/delete", h.deleteInternal)
+}
+
+func (h *Handler) deleteInternal(c *fiber.Ctx) error {
+	if h.webhookSecret == "" {
+		return c.Status(fiber.StatusServiceUnavailable).JSON(fiber.Map{"error": "unavailable"})
+	}
+	if subtle.ConstantTimeCompare([]byte(c.Get("X-Webhook-Secret")), []byte(h.webhookSecret)) != 1 {
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "unauthorized"})
+	}
+
+	var body struct {
+		Path    string `json:"path"`
+		Repo    string `json:"repo"`
+		Backend string `json:"backend"`
+	}
+	if err := c.BodyParser(&body); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid_request"})
+	}
+	path := strings.TrimSpace(body.Path)
+	if strings.Contains(path, "..") ||
+		(!reStandaloneCommentPath.MatchString(path) && !reVideoCommentPath.MatchString(path)) {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid_request"})
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	if body.Backend == "r2" {
+		if h.r2 == nil {
+			return c.Status(fiber.StatusServiceUnavailable).JSON(fiber.Map{"error": "unavailable"})
+		}
+		if err := h.r2.DeleteObject(ctx, path); err != nil {
+			h.log.Errorf("comment-image r2 delete failed path=%s: %v", path, err)
+			return c.Status(fiber.StatusBadGateway).JSON(fiber.Map{"error": "delete_failed"})
+		}
+		return c.JSON(fiber.Map{"ok": true})
+	}
+
+	if h.ghCli == nil || h.ghOwner == "" {
+		return c.Status(fiber.StatusServiceUnavailable).JSON(fiber.Map{"error": "unavailable"})
+	}
+	repo := strings.TrimSpace(body.Repo)
+	if !reDeleteRepo.MatchString(repo) {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid_request"})
+	}
+	if err := ghlib.DeleteFile(ctx, h.ghCli, h.ghOwner, repo, path, "Remove deleted comment image"); err != nil {
+		// Keep the storage location out of logs, same rule as /internal/purge.
+		msg := err.Error()
+		msg = strings.ReplaceAll(msg, h.ghOwner+"/"+repo, "archive")
+		msg = strings.ReplaceAll(msg, repo, "archive")
+		if h.ghOwner != "" {
+			msg = strings.ReplaceAll(msg, h.ghOwner, "archive")
+		}
+		h.log.Errorf("comment-image github delete failed path=%s: %s", path, msg)
+		return c.Status(fiber.StatusBadGateway).JSON(fiber.Map{"error": "delete_failed"})
+	}
+	return c.JSON(fiber.Map{"ok": true})
 }
 
 func (h *Handler) upload(c *fiber.Ctx) error {

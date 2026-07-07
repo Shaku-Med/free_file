@@ -158,6 +158,7 @@ export default [
         route('*', 'routes/Search/Dynamic/index.tsx'),
     ]),
     route(`subscriptions`, 'routes/Subscriptions/index.tsx'),
+    route(`library`, 'routes/Library/index.tsx'),
     route(`features`, 'routes/Features/layout.tsx', [
         route(`incoming`, 'routes/Features/Incoming/index.tsx'),
     ]),

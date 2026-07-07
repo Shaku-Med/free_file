@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { ContextProps } from "~/lib/Context/types";
-import type { FileType, PageCacheEntry, DynamicSeriesPayloadCache, RelatedVideosPayloadCache } from "../types";
+import type { FileType, PageCacheEntry, DynamicSeriesPayloadCache, RelatedVideosPayloadCache, ImageCarouselCache, ImageContentPayload } from "../types";
 import { isMobile } from "react-device-detect";
 import { MAX_UPLOAD_FILE_BYTES } from "~/lib/uploadLimits";
 import { isSearchBotUserAgent } from "~/lib/utils";
@@ -82,6 +82,10 @@ export const Context = createContext<ContextProps>({
     setDynamicSeriesPayloadCache: () => {},
     getRelatedVideosPayloadCache: () => null,
     setRelatedVideosPayloadCache: () => {},
+    getImageCarouselCache: () => null,
+    setImageCarouselCache: () => {},
+    getImageContent: () => null,
+    setImageContent: () => {},
 })
 
 interface ContextProviderProps {
@@ -529,6 +533,8 @@ export const ContextProvider = ({ children, st, user_agent, userId, c_user, uplo
     const relatedVideosPayloadCacheRef = useRef(
         new Map<string, RelatedVideosPayloadCache>()
     );
+    const imageCarouselCacheRef = useRef<ImageCarouselCache | null>(null);
+    const imageContentCacheRef = useRef(new Map<string, ImageContentPayload>());
 
     const getDynamicSeriesPayloadCache = useCallback((fileSeriesId: string) => {
         return dynamicSeriesPayloadCacheRef.current.get(fileSeriesId) ?? null;
@@ -552,9 +558,25 @@ export const ContextProvider = ({ children, st, user_agent, userId, c_user, uplo
         []
     );
 
+    const getImageCarouselCache = useCallback(() => imageCarouselCacheRef.current, []);
+
+    const setImageCarouselCache = useCallback((entry: ImageCarouselCache | null) => {
+        imageCarouselCacheRef.current = entry;
+    }, []);
+
+    const getImageContent = useCallback((uniqueId: string) => {
+        return imageContentCacheRef.current.get(uniqueId) ?? null;
+    }, []);
+
+    const setImageContent = useCallback((uniqueId: string, entry: ImageContentPayload) => {
+        imageContentCacheRef.current.set(uniqueId, entry);
+    }, []);
+
     useEffect(() => {
         dynamicSeriesPayloadCacheRef.current.clear();
         relatedVideosPayloadCacheRef.current.clear();
+        imageCarouselCacheRef.current = null;
+        imageContentCacheRef.current.clear();
     }, [safeUserId]);
 
     const value = useMemo(
@@ -600,8 +622,12 @@ export const ContextProvider = ({ children, st, user_agent, userId, c_user, uplo
             setDynamicSeriesPayloadCache,
             getRelatedVideosPayloadCache,
             setRelatedVideosPayloadCache,
+            getImageCarouselCache,
+            setImageCarouselCache,
+            getImageContent,
+            setImageContent,
         }),
-        [files, isModalOpen, isLoading, initialLoading, feedError, retryFeed, loadMoreVideos, clearFeedHistory, feedCategory, setFeedCategory, user_agent, safeUserId, userActions, c_user, uploadServerUrl, userProfile, userProfileLoading, pageCache, scrollDataReady, theaterMode, playerSettings, savePlayerSettings, altAccountsProp, hideAppChrome, hlsBootstrap, hlsBootstrapRetry, getDynamicSeriesPayloadCache, setDynamicSeriesPayloadCache, getRelatedVideosPayloadCache, setRelatedVideosPayloadCache]
+        [files, isModalOpen, isLoading, initialLoading, feedError, retryFeed, loadMoreVideos, clearFeedHistory, feedCategory, setFeedCategory, user_agent, safeUserId, userActions, c_user, uploadServerUrl, userProfile, userProfileLoading, pageCache, scrollDataReady, theaterMode, playerSettings, savePlayerSettings, altAccountsProp, hideAppChrome, hlsBootstrap, hlsBootstrapRetry, getDynamicSeriesPayloadCache, setDynamicSeriesPayloadCache, getRelatedVideosPayloadCache, setRelatedVideosPayloadCache, getImageCarouselCache, setImageCarouselCache, getImageContent, setImageContent]
     );
     
     return (

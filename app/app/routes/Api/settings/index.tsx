@@ -19,7 +19,7 @@ export const loader = async ({ request }: { request: Request }) => {
 
     const { data: settings, error } = await db
       .from("users")
-      .select("id, show_nsfw, theme")
+      .select("id, show_nsfw, theme, history_paused")
       .eq("id", user.id)
       .single();
 
@@ -31,6 +31,7 @@ export const loader = async ({ request }: { request: Request }) => {
     const theme = parseUserTheme(settings?.theme ?? null);
     return toJson({
       showNsfw: settings?.show_nsfw ?? false,
+      historyPaused: settings?.history_paused === true,
       theme: theme ?? { theme: "system", style: "default" },
     }, 200);
   } catch (error) {
@@ -55,12 +56,20 @@ export const action = async ({ request }: { request: Request }) => {
     }
 
     const body = await request.json();
-    const { showNsfw, theme: themePayload } = body || {};
+    const { showNsfw, historyPaused, theme: themePayload } = body || {};
 
-    const updates: { show_nsfw?: boolean; theme?: { theme: string; style: string } } = {};
+    const updates: {
+      show_nsfw?: boolean;
+      history_paused?: boolean;
+      theme?: { theme: string; style: string };
+    } = {};
 
     if (typeof showNsfw === "boolean") {
       updates.show_nsfw = showNsfw;
+    }
+
+    if (typeof historyPaused === "boolean") {
+      updates.history_paused = historyPaused;
     }
 
     if (themePayload != null) {
@@ -78,7 +87,7 @@ export const action = async ({ request }: { request: Request }) => {
       .from("users")
       .update(updates)
       .eq("id", user.id)
-      .select("show_nsfw, theme")
+      .select("show_nsfw, theme, history_paused")
       .single();
 
     if (error) {
@@ -86,7 +95,7 @@ export const action = async ({ request }: { request: Request }) => {
       return toJson({ error: "Failed to update settings" }, 500);
     }
 
-    // show_nsfw toggle changes access-control outcomes (adult content gated by it) 
+    // show_nsfw toggle changes access-control outcomes (adult content gated by it)
     // drop the cached user context so the next request revalidates.
     invalidateUserAccessContextById(user.id);
 
@@ -94,6 +103,7 @@ export const action = async ({ request }: { request: Request }) => {
     return toJson({
       success: true,
       showNsfw: updated?.show_nsfw,
+      historyPaused: updated?.history_paused === true,
       theme: theme ?? { theme: "system", style: "default" },
     }, 200);
   } catch (error) {
