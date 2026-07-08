@@ -3,7 +3,7 @@ import { flushSync } from "react-dom";
 import { useLocation, useNavigate } from "react-router";
 import { createPortal } from "react-dom";
 import { motion } from "framer-motion";
-import { X, Maximize2, Loader2 } from "lucide-react";
+import { X, Maximize2, Loader2, ChevronUp, ChevronDown } from "lucide-react";
 import { useMiniPlayerContext, isReelPath } from "~/lib/Context/MiniPlayerContext";
 import { useWatchSurfaceVideoRef } from "~/lib/Context/WatchSurfaceVideoRefContext";
 import { useMainPlayerSlot } from "~/lib/Context/MainPlayerSlotContext";
@@ -12,6 +12,8 @@ import { cn } from "~/lib/utils";
 import { useMiniPlayerDrag } from "./useMiniPlayerDrag";
 import { Tooltip, TooltipContent, TooltipTrigger } from "~/components/ui/tooltip";
 import Ambience from "~/components/accessories/CanvasGradient/Ambience";
+import MiniPlayerQueue from "./MiniPlayerQueue";
+import type { FileType } from "~/lib/types";
 
 function MiniPlayerContent() {
   const {
@@ -40,6 +42,9 @@ function MiniPlayerContent() {
     handleResizePointerUp,
   } = useMiniPlayerDrag(sessionKey);
   const [closing, setClosing] = useState(false);
+  const [expanded, setExpanded] = useState(false);
+  // Collapse the queue whenever a new mini session starts.
+  useEffect(() => setExpanded(false), [sessionKey]);
 
   // Follow the video's real shape: seed from the upload metadata (instant, no
   // 16:9 flash) and refine from the element once it knows its dimensions.
@@ -136,6 +141,15 @@ function MiniPlayerContent() {
     navigate(`/${miniPlayer.file.unique_id}`);
   }, [miniPlayer, isExpanding, startExpand, navigate, watchVideoRef]);
 
+  const handlePlayQueueItem = useCallback(
+    (f: FileType) => {
+      const uid = f.unique_id;
+      if (!uid) return;
+      navigate(`/${uid}`);
+    },
+    [navigate],
+  );
+
   if (!miniPlayer) return null;
 
   const title = miniPlayer.file.file_title || ParseFilename(miniPlayer.file.filename);
@@ -208,7 +222,7 @@ function MiniPlayerContent() {
           a screen edge (a colorful smear poking out looks broken). The blur
           itself feathers the edges - tiny canvas, sampled at 1fps, so it costs
           next to nothing even on phones. */}
-      {ambientOn && !tuck && !closing && (
+      {ambientOn && !tuck && !closing && !expanded && (
         <div
           aria-hidden
           className="pointer-events-none absolute -inset-[14%] -z-[1] rounded-[2.5rem] opacity-75 blur-2xl saturate-150"
@@ -294,24 +308,54 @@ function MiniPlayerContent() {
         style={{ aspectRatio: String(shellAspect) }}
       />
 
-      <div className="bg-zinc-900/95 px-3 py-2.5">
-        <p className="truncate text-xs font-medium leading-snug text-white/90">{titleStr}</p>
-        {miniPlayer.file.owner?.username && (
-          <p className="mt-0.5 truncate text-[11px] text-white/40">{miniPlayer.file.owner.username}</p>
-        )}
+      <div className="flex items-center gap-1.5 bg-zinc-900/95 px-3 py-2">
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-xs font-medium leading-snug text-white/90">{titleStr}</p>
+          {miniPlayer.file.owner?.username && (
+            <p className="mt-0.5 truncate text-[11px] text-white/40">{miniPlayer.file.owner.username}</p>
+          )}
+        </div>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={(e) => {
+                e.stopPropagation();
+                setExpanded((v) => !v);
+              }}
+              className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-white/70 transition-colors hover:bg-white/10 hover:text-white active:bg-white/20"
+              aria-label={expanded ? "Hide up next" : "Show up next"}
+              aria-expanded={expanded}
+            >
+              {expanded ? <ChevronDown className="h-4 w-4" /> : <ChevronUp className="h-4 w-4" />}
+            </button>
+          </TooltipTrigger>
+          <TooltipContent side="top">{expanded ? "Hide up next" : "Up next"}</TooltipContent>
+        </Tooltip>
       </div>
 
-      <div
-        className="absolute bottom-10 right-2 z-20 h-5 w-5 cursor-nwse-resize touch-none rounded-md border border-white/25 bg-black/70 shadow-sm hover:bg-black/85"
-        onPointerDown={handleResizePointerDown}
-        onPointerMove={handleResizePointerMove}
-        onPointerUp={handleResizePointerUp}
-        onPointerCancel={handleResizePointerUp}
-        aria-label="Resize mini player"
-        role="slider"
-        aria-valuemin={260}
-        aria-valuemax={520}
-      />
+      {expanded && (
+        <MiniPlayerQueue
+          current={miniPlayer.file as FileType}
+          onPlay={handlePlayQueueItem}
+          maxHeight={Math.min(340, Math.floor(viewportH * 0.4))}
+        />
+      )}
+
+      {!expanded && (
+        <div
+          className="absolute bottom-10 right-2 z-20 h-5 w-5 cursor-nwse-resize touch-none rounded-md border border-white/25 bg-black/70 shadow-sm hover:bg-black/85"
+          onPointerDown={handleResizePointerDown}
+          onPointerMove={handleResizePointerMove}
+          onPointerUp={handleResizePointerUp}
+          onPointerCancel={handleResizePointerUp}
+          aria-label="Resize mini player"
+          role="slider"
+          aria-valuemin={260}
+          aria-valuemax={520}
+        />
+      )}
       </div>
     </motion.div>
   );

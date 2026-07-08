@@ -233,6 +233,7 @@ export default function Actions({
   reelLikeIconRef,
 }: ActionsProps) {
   const navigate = useNavigate();
+  const { setFiles } = useFileContext();
   const [likeBusy, setLikeBusy] = useState(false);
   const [dislikeBusy, setDislikeBusy] = useState(false);
   const [shareBusy, setShareBusy] = useState(false);
@@ -805,9 +806,16 @@ export default function Actions({
               <DropdownMenuGroup>
                 <DropdownMenuItem
                   onSelect={() => {
+                    // notInterested() feeds feed_negative_signals, which the feed
+                    // ranking actually reads; hideFromFeed keeps the prefs list +
+                    // toast. Then drop the card from the current feed view.
+                    if (fileId) void personalizationService.notInterested(fileId);
                     void hideFromFeed("file", uniqueId, {
                       successText: "Got it. We'll show less like this.",
                     });
+                    setFiles?.((prev) =>
+                      prev.filter((f) => f.id !== fileId && f.unique_id !== uniqueId),
+                    );
                   }}
                 >
                   <EyeOff className="size-4" aria-hidden />
@@ -816,9 +824,11 @@ export default function Actions({
                 {fileOwnerId ? (
                   <DropdownMenuItem
                     onSelect={() => {
+                      void personalizationService.hideCreator(fileOwnerId);
                       void hideFromFeed("user", fileOwnerId, {
                         successText: "We won't recommend this creator.",
                       });
+                      setFiles?.((prev) => prev.filter((f) => f.owner_id !== fileOwnerId));
                     }}
                   >
                     <UserMinus className="size-4" aria-hidden />

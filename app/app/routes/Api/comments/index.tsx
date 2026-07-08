@@ -268,14 +268,26 @@ export const action = async ({ request }: { request: Request }) => {
     // HIDE/UNHIDE  file owner only
     if (request.method === "PUT") {
       const body = await request.json();
-      const { commentId, hidden } = body;
+      const { commentId, hidden, pinned } = body;
 
       if (!commentId || !isValidFileId(commentId)) {
         return toJson({ error: "Invalid commentId" }, 400);
       }
 
+      // Owner moderation: hide/unhide OR pin/unpin (mutually exclusive per call).
+      if (typeof pinned === 'boolean') {
+        const result = await commentService.setCommentPinned(user.id, commentId, pinned);
+        if (result.error) {
+          return toJson(
+            { error: result.error },
+            result.error === 'Only the file owner can pin comments' ? 403 : 400,
+          );
+        }
+        return toJson({ success: true, pinned });
+      }
+
       if (typeof hidden !== 'boolean') {
-        return toJson({ error: "hidden must be a boolean" }, 400);
+        return toJson({ error: "hidden or pinned must be a boolean" }, 400);
       }
 
       const result = await commentService.hideComment(user.id, commentId, hidden);

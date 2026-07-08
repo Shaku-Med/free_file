@@ -1,0 +1,16 @@
+User-agent: *
+Allow: /
+
+# Media proxies and internal endpoints: never index these. The public watch,
+# profile and tag pages that link to this media stay crawlable above.
+Disallow: /api/
+Allow: /api/sitemap
+
+# Account + private surfaces.
+Disallow: /auth/
+Disallow: /settings
+Disallow: /notifications
+Disallow: /logout
+Disallow: /brozystudio/
+
+Sitemap: https://memories.brozy.org/api/sitemap

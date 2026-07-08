@@ -459,6 +459,46 @@ const CommentSection = ({
     [currentUserId]
   );
 
+  const handlePin = useCallback(
+    async (commentId: string, pinned: boolean) => {
+      if (!currentUserId) return;
+      setError(null);
+      try {
+        const response = await fetch("/api/comments", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({ commentId, pinned }),
+        });
+        if (!response.ok) {
+          const errBody = await response.json();
+          throw new Error(errBody.error || "Failed to pin comment");
+        }
+        // Pins are top-level only and one per file: clear any existing pin,
+        // set the new state, and float the pinned comment to the top.
+        setComments((prev) => {
+          const next = prev.map((c) =>
+            c.id === commentId
+              ? { ...c, is_pinned: pinned }
+              : c.is_pinned
+                ? { ...c, is_pinned: false }
+                : c,
+          );
+          if (!pinned) return next;
+          const idx = next.findIndex((c) => c.id === commentId);
+          if (idx <= 0) return next;
+          const target = next[idx];
+          next.splice(idx, 1);
+          return [target, ...next];
+        });
+      } catch (err) {
+        console.error("Error pinning comment:", err);
+        setError("Failed to pin comment");
+      }
+    },
+    [currentUserId]
+  );
+
   const showComposer = Boolean(commentsEnabled && currentUserId);
   const hasThread = !isLoading && comments.length > 0;
   const isEmpty = !isLoading && (comments.length === 0 || totalRootCount === 0);
@@ -629,6 +669,7 @@ const CommentSection = ({
           onEdit={handleEdit}
           onDelete={handleDelete}
           onHide={handleHide}
+          onPin={handlePin}
           onLike={handleLike}
           highlightCommentId={highlightCommentId}
           fileDurationSec={fileDurationSec}

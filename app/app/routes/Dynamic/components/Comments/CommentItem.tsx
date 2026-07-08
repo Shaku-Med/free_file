@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { Link } from "react-router";
 import { Avatar, AvatarFallback, AvatarImage } from "~/components/ui/avatar";
 import { Button } from "~/components/ui/button";
-import { MoreVertical, Edit2, Trash2, ThumbsUp, Heart, EyeOff, Eye } from "lucide-react";
+import { MoreVertical, Edit2, Trash2, ThumbsUp, Heart, EyeOff, Eye, Pin, PinOff } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -35,6 +35,7 @@ interface CommentItemProps {
   onEdit: (commentId: string, content: string) => Promise<void>;
   onDelete: (commentId: string) => Promise<void>;
   onHide?: (commentId: string, hidden: boolean) => Promise<void>;
+  onPin?: (commentId: string, pinned: boolean) => Promise<void>;
   onLike?: (commentId: string) => Promise<void>;
   allowNewComments?: boolean;
   level?: number;
@@ -78,6 +79,7 @@ const CommentItem = ({
   onEdit,
   onDelete,
   onHide,
+  onPin,
   onLike,
   allowNewComments = true,
   level = 0,
@@ -368,6 +370,12 @@ const CommentItem = ({
                     {comment.is_edited && (
                       <span className="text-[11px] font-normal text-muted-foreground">(edited)</span>
                     )}
+                    {comment.is_pinned && (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                        <Pin className="h-2.5 w-2.5" />
+                        Pinned
+                      </span>
+                    )}
                     {isFileOwner && isHidden && (
                       <span className="text-[10px] font-semibold uppercase tracking-wide text-amber-600 dark:text-amber-400">
                         Hidden
@@ -390,6 +398,12 @@ const CommentItem = ({
                           <DropdownMenuItem onClick={() => setIsEditing(true)}>
                             <Edit2 className="mr-2 h-4 w-4" />
                             Edit
+                          </DropdownMenuItem>
+                        )}
+                        {isFileOwner && onPin && comment.parent_id == null && (
+                          <DropdownMenuItem onClick={() => onPin(comment.id, !comment.is_pinned)}>
+                            {comment.is_pinned ? <PinOff className="mr-2 h-4 w-4" /> : <Pin className="mr-2 h-4 w-4" />}
+                            {comment.is_pinned ? "Unpin" : "Pin to top"}
                           </DropdownMenuItem>
                         )}
                         {isFileOwner && onHide && (
@@ -591,6 +605,7 @@ const CommentItem = ({
               onEdit={onEdit}
               onDelete={onDelete}
               onHide={onHide}
+              onPin={onPin}
               onLike={onLike}
               level={level + 1}
               highlightCommentId={highlightCommentId}

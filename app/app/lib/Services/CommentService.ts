@@ -27,6 +27,8 @@ export interface Comment {
   image_type?: string | null;
   /** File owner moderation; only visible to the file owner in the API response */
   is_hidden?: boolean;
+  /** Creator pinned this comment to the top of the thread (one per file). */
+  is_pinned?: boolean;
 }
 
 export interface CreateCommentInput {
@@ -317,6 +319,25 @@ export class CommentService {
         }
       }
 
+      // The pinned comment (at most one per file) is fetched separately so the
+      // main comment select doesn't depend on the is_pinned column existing yet.
+      // Degrades silently to "no pin" if the migration hasn't run.
+      try {
+        const { data: pinnedRow, error: pinErr } = await db
+          .from('comments')
+          .select('id')
+          .eq('file_id', fileId)
+          .eq('is_pinned', true)
+          .eq('is_deleted', false)
+          .maybeSingle();
+        const pinnedId = !pinErr ? (pinnedRow as { id?: string } | null)?.id : undefined;
+        if (pinnedId && byId.has(pinnedId)) {
+          byId.get(pinnedId)!.is_pinned = true;
+        }
+      } catch {
+        /* is_pinned column not deployed  no pin */
+      }
+
       // Pagination is over TOP-LEVEL comments only — replies live nested
       // inside their root. Count roots (not the whole flat list) so the
       // client's load-more matches what it actually paginates.
@@ -324,6 +345,9 @@ export class CommentService {
       const totalCommentCount = list.length;
 
       roots.sort((a, b) => {
+        // Pinned root always leads.
+        const pinA = a.is_pinned ? 1 : 0, pinB = b.is_pinned ? 1 : 0;
+        if (pinB !== pinA) return pinB - pinA;
         const likesA = a.like_count ?? 0, likesB = b.like_count ?? 0;
         if (likesB !== likesA) return likesB - likesA;
         const repliesA = a.reply_count ?? 0, repliesB = b.reply_count ?? 0;
@@ -346,8 +370,12 @@ export class CommentService {
         }
         const rootNode = node;
         const ri = roots.findIndex((r) => r.id === rootNode.id);
-        if (ri > 0) {
-          orderedRoots = [roots[ri]!, ...roots.filter((_, i) => i !== ri)];
+        if (ri > 0 && !roots[ri]!.is_pinned) {
+          const rest = roots.filter((_, i) => i !== ri);
+          // Keep a pinned root at the very top; slot the focused thread right after.
+          orderedRoots = rest[0]?.is_pinned
+            ? [rest[0], roots[ri]!, ...rest.slice(1)]
+            : [roots[ri]!, ...rest];
         }
       }
 
@@ -750,6 +778,52 @@ export class CommentService {
       return { data: true, error: null };
     } catch (error) {
       console.error('Error in hideComment:', error);
+      return { data: null, error: 'Internal server error' };
+    }
+  }
+
+  /**
+   * Pin / unpin a top-level comment. File owner only, one pinned per file.
+   * Ownership + shape are re-checked inside the security-definer RPC, so this
+   * can't pin a comment on someone else's file even if the id is guessed.
+   */
+  async setCommentPinned(userId: string, commentId: string, pinned: boolean): Promise<CommentServiceResponse<boolean>> {
+    try {
+      if (!db) {
+        return { data: null, error: 'Database not initialized' };
+      }
+
+      const { data: existing } = await db
+        .from('comments')
+        .select('file_id, parent_id')
+        .eq('id', commentId)
+        .eq('is_deleted', false)
+        .single();
+
+      if (!existing) {
+        return { data: null, error: 'Comment not found' };
+      }
+      if (existing.parent_id != null) {
+        return { data: null, error: 'Only top-level comments can be pinned' };
+      }
+
+      const { data: ok, error } = await db.rpc('set_pinned_comment', {
+        p_file_id: existing.file_id,
+        p_comment_id: commentId,
+        p_user_id: userId,
+        p_pinned: pinned,
+      });
+
+      if (error) {
+        console.error('Error pinning comment:', error);
+        return { data: null, error: 'Failed to pin comment' };
+      }
+      if (ok !== true) {
+        return { data: null, error: 'Only the file owner can pin comments' };
+      }
+      return { data: true, error: null };
+    } catch (error) {
+      console.error('Error in setCommentPinned:', error);
       return { data: null, error: 'Internal server error' };
     }
   }
