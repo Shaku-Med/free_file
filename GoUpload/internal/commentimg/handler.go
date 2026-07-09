@@ -334,12 +334,16 @@ func (h *Handler) upload(c *fiber.Ctx) error {
 
 	h.log.Infof("comment-image uploaded backend=%s user=%s path=%s", backend, uid, ghPath)
 
+	// repo/backend let the app proxy record the storage row itself (reliable),
+	// instead of depending only on the async NotifyCommentImageStorage webhook.
 	return c.JSON(fiber.Map{
 		"success": true,
 		"image": fiber.Map{
-			"url":  ghPath,
-			"type": mime,
-			"size": file.Size,
+			"url":     ghPath,
+			"type":    mime,
+			"size":    file.Size,
+			"repo":    repoForWebhook,
+			"backend": backend,
 		},
 	})
 }

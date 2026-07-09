@@ -740,6 +740,13 @@ export const loader = async ({ request }: { request: Request }) => {
                 else throw e;
             }
         }
+        // Comment images that exhausted every repo: log the candidates so a repo
+        // mismatch is diagnosable from the server logs instead of a silent 404.
+        if (isVideoFolderCommentAttachmentPath(splitUrl)) {
+            console.error(
+                `comment-image load 404 path=${splitUrl} commentRepo=${commentImageRepo ?? "none"} triedRepos=${repos.join(",")}`,
+            );
+        }
         if (lastExhausted) throw lastExhausted;
         throw new Error('No GitHub repo candidates for path');
     } catch (error) {

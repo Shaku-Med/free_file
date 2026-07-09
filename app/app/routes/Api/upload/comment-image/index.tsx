@@ -101,6 +101,30 @@ export const action = async ({ request }: { request: Request }) => {
     });
 
     const json = await res.json();
+
+    // Record where the image actually landed, straight from the upload server's
+    // response  reliable, unlike the async storage webhook which can miss. The
+    // comment insert later reads this to stamp comments.image_github_repo, which
+    // is what /api/load/image uses to fetch the poster. Without it the image
+    // 404s when the app's default repo differs from the upload server's.
+    const img = res.ok && json && typeof json === "object" ? (json as { image?: Record<string, unknown> }).image : null;
+    if (img && typeof img.url === "string" && img.url) {
+      const backend = img.backend === "r2" ? "r2" : "github";
+      const repo = typeof img.repo === "string" ? img.repo.trim() : "";
+      if (backend === "r2" || repo) {
+        const { error: repoErr } = await db
+          .from("comment_image_upload_repos")
+          .upsert(
+            { storage_path: img.url, github_repo: repo, storage_backend: backend },
+            { onConflict: "storage_path" },
+          );
+        if (repoErr) console.error("[comment-image] record storage repo:", repoErr);
+      }
+      // Internal storage location never goes back to the browser.
+      delete img.repo;
+      delete img.backend;
+    }
+
     return data(json, { status: res.status });
   } catch (error: unknown) {
     console.error("[comment-image] Proxy to GoUpload failed:", error);
