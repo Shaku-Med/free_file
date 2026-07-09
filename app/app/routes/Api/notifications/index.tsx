@@ -10,10 +10,11 @@ const toJson = (body: unknown, status = 200) =>
 
 export const loader = async ({ request }: { request: Request }) => {
   try {
+    // Notifications are private to the viewer  reject anonymous callers
+    // outright instead of quietly returning an empty list.
     const user = await isAuthenticated(request, ["id"]).catch(() => null);
-    if (!user?.id || !db) {
-      return toJson({ data: [], unreadCount: 0, success: true });
-    }
+    if (!user?.id) return toJson({ error: "Unauthorized" }, 401);
+    if (!db) return toJson({ error: "Database not initialized" }, 500);
 
     const url = new URL(request.url);
     const countOnly = url.searchParams.get("count") === "1";
@@ -30,16 +31,17 @@ export const loader = async ({ request }: { request: Request }) => {
     const limit = validateInteger(url.searchParams.get("limit"), 1, 50) ?? 20;
     const offset = validateInteger(url.searchParams.get("offset"), 0, 10000) ?? 0;
 
-    // Thumbnail columns join: getThumbnailUrl needs default_thumbnail /
-    // thumbnails / file_type / endpoint / created_at / filename /
-    // unique_id to resolve a real poster URL on the client. is_adult is
-    // pulled too so the renderer can blur NSFW posters in the inbox.
+    // Only the poster the inbox actually shows: default_thumbnail for videos,
+    // endpoint for image posts (getThumbnailUrl uses it for image/* types).
+    // The full thumbnails[] sprite array is NEVER sent  it leaks the whole
+    // per-file frame/preview layout for nothing. is_adult stays so the renderer
+    // can blur NSFW posters.
     const { data: rows, error } = await db
       .from("notifications")
       .select(
         "id, type, actor_id, file_id, comment_id, created_at, read_at, " +
           "users!actor_id(username, profile_pic), " +
-          "files!file_id(unique_id, default_thumbnail, thumbnails, file_type, endpoint, created_at, filename, is_adult)",
+          "files!file_id(unique_id, default_thumbnail, file_type, endpoint, created_at, filename, is_adult)",
       )
       .eq("user_id", user.id)
       .order("created_at", { ascending: false })

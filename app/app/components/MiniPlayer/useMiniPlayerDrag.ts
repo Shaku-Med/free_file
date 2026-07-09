@@ -279,6 +279,21 @@ export function useMiniPlayerDrag(sessionKey: string) {
     return () => window.removeEventListener("resize", onResize);
   }, [measureAndCacheSize, visPosition]);
 
+  /**
+   * Force the mini back inside the viewport using its CURRENT measured size.
+   * Called when the queue expands/loads (which grows the shell downward) so a
+   * mini dragged near the bottom can never end up stranded off-screen.
+   */
+  const clampIntoView = useCallback(() => {
+    if (isDragging.current || isResizing.current) return;
+    measureAndCacheSize();
+    const { width, height } = elSizeRef.current;
+    setPosition((p) => {
+      const next = visPosition(p.x, p.y, width, height, tuckRef.current);
+      return next.x === p.x && next.y === p.y ? p : next;
+    });
+  }, [measureAndCacheSize, visPosition]);
+
   const endDragGesture = useCallback(
     (captureEl: HTMLElement | null, pointerId: number) => {
       if (!isDragging.current) return;
@@ -519,6 +534,7 @@ export function useMiniPlayerDrag(sessionKey: string) {
     handleResizePointerDown,
     handleResizePointerMove,
     handleResizePointerUp,
+    clampIntoView,
   };
 }
 

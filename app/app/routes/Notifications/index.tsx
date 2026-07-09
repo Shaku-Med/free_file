@@ -31,7 +31,6 @@ interface NotificationRow {
   files: {
     unique_id: string;
     default_thumbnail: string | null;
-    thumbnails: string[] | null;
     file_type: string | null;
     endpoint: string | null;
     created_at: string;
@@ -200,7 +199,6 @@ export default function NotificationsPage() {
           unique_id: n.files.unique_id,
           filename: n.files.filename,
           default_thumbnail: n.files.default_thumbnail,
-          thumbnails: n.files.thumbnails ?? undefined,
           file_type: n.files.file_type ?? undefined,
           endpoint: n.files.endpoint ?? undefined,
           created_at: n.files.created_at,

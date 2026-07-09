@@ -1,97 +1,72 @@
 import { useEffect, useRef, useState } from "react";
-import { Loader2, ListVideo, Play } from "lucide-react";
+import { Loader2, ListVideo } from "lucide-react";
 import type { FileType } from "~/lib/types";
-import { getThumbnailUrl, ParseFilename } from "~/lib/utils";
-import { BASE_URL } from "~/lib/URLS";
 import { cn } from "~/lib/utils";
+import VideoCard from "~/routes/Home/components/VideoCard";
 
 type QueueFile = FileType & { owner?: { username?: string } | null };
 
-function fmtDuration(sec: unknown): string | null {
-  const s = Number(sec);
-  if (!Number.isFinite(s) || s <= 0) return null;
-  const m = Math.floor(s / 60);
-  const r = Math.floor(s % 60);
-  return `${m}:${String(r).padStart(2, "0")}`;
-}
-
-function titleOf(f: QueueFile): string {
-  const t = f.file_title || ParseFilename(f.filename);
-  return typeof t === "string" ? t : (t as string[]).join("");
-}
-
-function thumbOf(f: QueueFile): string {
-  return getThumbnailUrl(
-    {
-      default_thumbnail: f.default_thumbnail,
-      thumbnails: f.thumbnails,
-      file_type: f.file_type,
-      endpoint: f.endpoint ?? "",
-      created_at: f.created_at ?? "",
-      unique_id: String(f.unique_id ?? ""),
-      filename: f.filename ?? "",
-    },
-    { baseUrl: BASE_URL, queryString: "?quality=50&is_metadata=true" },
-  );
-}
-
-function Row({
+/**
+ * One queue row: the app's VideoCard for the layout, but the click plays the
+ * video IN the mini instead of navigating. VideoCard has no click-override, so
+ * we intercept in the capture phase and stop its internal WatchLink from firing.
+ */
+function QueueRow({
   file,
   active,
+  busy,
   onPlay,
 }: {
   file: QueueFile;
   active?: boolean;
+  busy?: boolean;
   onPlay: (f: QueueFile) => void;
 }) {
-  const dur = fmtDuration(file.duration);
-  const channel = file.owner?.username;
   return (
-    <button
-      type="button"
-      onClick={() => onPlay(file)}
-      className={cn(
-        "flex w-full items-center gap-2 px-2 py-1.5 text-left transition-colors",
-        active ? "bg-white/15" : "hover:bg-white/10",
-      )}
+    <div
+      className={cn("dark relative cursor-pointer px-1.5 py-1", active && "bg-white/10")}
+      onClickCapture={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (!active) onPlay(file);
+      }}
+      aria-current={active ? "true" : undefined}
     >
-      <div className="relative aspect-video w-[68px] shrink-0 overflow-hidden rounded-md bg-white/5">
-        {thumbOf(file) ? (
-          <img src={thumbOf(file)} alt="" loading="lazy" className="h-full w-full object-cover" />
-        ) : null}
-        {active ? (
-          <span className="absolute inset-0 flex items-center justify-center bg-black/40">
-            <Play className="h-4 w-4 fill-white text-white" />
-          </span>
-        ) : null}
-        {dur ? (
-          <span className="absolute bottom-0.5 right-0.5 rounded bg-black/80 px-1 text-[9px] font-semibold tabular-nums text-white">
-            {dur}
-          </span>
-        ) : null}
-      </div>
-      <div className="min-w-0 flex-1">
-        <p className="line-clamp-2 text-[11px] font-medium leading-snug text-white/90">
-          {titleOf(file)}
-        </p>
-        {channel ? <p className="mt-0.5 truncate text-[10px] text-white/45">{channel}</p> : null}
-      </div>
-    </button>
+      <VideoCard
+        data={file}
+        layout="compact"
+        related
+        hideActions={{ completely: true }}
+      />
+      {(busy || active) && (
+        <span className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/40">
+          {busy ? (
+            <Loader2 className="h-4 w-4 animate-spin text-white" />
+          ) : (
+            <span className="rounded-full bg-white/20 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white">
+              Playing
+            </span>
+          )}
+        </span>
+      )}
+    </div>
   );
 }
 
 /**
- * Up-next list shown under the mini player when expanded. Sourced from
+ * Up-next list under the mini player when expanded. Sourced from
  * /api/related-videos for the current file (the root play queue is empty once
- * you navigate away from the watch page). Clicking a row plays that video.
+ * you leave the watch page). Clicking a row plays that video in the mini.
  */
 export default function MiniPlayerQueue({
   current,
   onPlay,
+  busyId,
   maxHeight,
 }: {
   current: QueueFile;
   onPlay: (f: QueueFile) => void;
+  busyId?: string | null;
   maxHeight: number;
 }) {
   const [items, setItems] = useState<QueueFile[]>([]);
@@ -132,7 +107,7 @@ export default function MiniPlayerQueue({
         <span className="text-[11px] font-semibold uppercase tracking-wide text-white/60">Up next</span>
       </div>
       <div className="overflow-y-auto overscroll-contain" style={{ maxHeight }}>
-        <Row file={current} active onPlay={onPlay} />
+        <QueueRow file={current} active onPlay={onPlay} />
         {loading ? (
           <div className="flex items-center justify-center py-4">
             <Loader2 className="h-4 w-4 animate-spin text-white/40" />
@@ -140,7 +115,14 @@ export default function MiniPlayerQueue({
         ) : items.length === 0 ? (
           <p className="px-3 py-3 text-center text-[11px] text-white/40">Nothing up next.</p>
         ) : (
-          items.map((f) => <Row key={String(f.unique_id)} file={f} onPlay={onPlay} />)
+          items.map((f) => (
+            <QueueRow
+              key={String(f.unique_id)}
+              file={f}
+              busy={busyId === f.unique_id}
+              onPlay={onPlay}
+            />
+          ))
         )}
       </div>
     </div>

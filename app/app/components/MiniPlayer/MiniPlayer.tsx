@@ -23,6 +23,7 @@ function MiniPlayerContent() {
     setContainerReady,
     isExpanding,
     startExpand,
+    activateMiniPlayer,
   } = useMiniPlayerContext();
   const { setMiniSlot } = useMainPlayerSlot();
   const watchVideoRef = useWatchSurfaceVideoRef();
@@ -40,11 +41,25 @@ function MiniPlayerContent() {
     handleResizePointerDown,
     handleResizePointerMove,
     handleResizePointerUp,
+    clampIntoView,
   } = useMiniPlayerDrag(sessionKey);
   const [closing, setClosing] = useState(false);
   const [expanded, setExpanded] = useState(false);
   // Collapse the queue whenever a new mini session starts.
   useEffect(() => setExpanded(false), [sessionKey]);
+  // Expanding grows the shell downward; the queue also loads async and grows
+  // again. Re-clamp on toggle + after the list settles so a mini dragged near
+  // the bottom is pulled back on-screen instead of "drowning" below it.
+  useEffect(() => {
+    if (!expanded) return;
+    clampIntoView();
+    const t1 = window.setTimeout(clampIntoView, 120);
+    const t2 = window.setTimeout(clampIntoView, 450);
+    return () => {
+      window.clearTimeout(t1);
+      window.clearTimeout(t2);
+    };
+  }, [expanded, clampIntoView]);
 
   // Follow the video's real shape: seed from the upload metadata (instant, no
   // 16:9 flash) and refine from the element once it knows its dimensions.
@@ -141,13 +156,34 @@ function MiniPlayerContent() {
     navigate(`/${miniPlayer.file.unique_id}`);
   }, [miniPlayer, isExpanding, startExpand, navigate, watchVideoRef]);
 
-  const handlePlayQueueItem = useCallback(
-    (f: FileType) => {
+  // Play a queue item IN the mini (no navigation). The playback URL is minted
+  // server-side by /api/play/mint  same-origin + X-Requested-With + access
+  // check + IP/UA/nonce binding  so the client never builds a URL and a
+  // guessed id can't mint a file the viewer can't see. Swapping miniPlayer.file
+  // makes GlobalAnchoredHLSPlayer re-mint + load it seamlessly.
+  const [queueBusyId, setQueueBusyId] = useState<string | null>(null);
+  const handlePlayInMini = useCallback(
+    async (f: FileType) => {
       const uid = f.unique_id;
-      if (!uid) return;
-      navigate(`/${uid}`);
+      if (!uid || queueBusyId) return;
+      setQueueBusyId(uid);
+      try {
+        const res = await fetch("/api/play/mint", {
+          method: "POST",
+          credentials: "same-origin",
+          headers: { "Content-Type": "application/json", "X-Requested-With": "fetch" },
+          body: JSON.stringify({ fileId: uid }),
+        });
+        const body = res.ok ? ((await res.json().catch(() => null)) as { url?: string } | null) : null;
+        const src = body?.url;
+        if (!src) return;
+        activateMiniPlayer({ src, file: f, imageID: uid });
+        setExpanded(false);
+      } finally {
+        setQueueBusyId(null);
+      }
     },
-    [navigate],
+    [activateMiniPlayer, queueBusyId],
   );
 
   if (!miniPlayer) return null;
@@ -338,7 +374,8 @@ function MiniPlayerContent() {
       {expanded && (
         <MiniPlayerQueue
           current={miniPlayer.file as FileType}
-          onPlay={handlePlayQueueItem}
+          onPlay={handlePlayInMini}
+          busyId={queueBusyId}
           maxHeight={Math.min(340, Math.floor(viewportH * 0.4))}
         />
       )}
