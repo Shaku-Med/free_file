@@ -13,9 +13,7 @@ import (
 	"github.com/gofiber/fiber/v2"
 )
 
-// userIDPattern matches the app's user identifiers (UUIDv4-shaped). Rejecting other
-// shapes prevents path-traversal or injection when userID is joined into filesystem
-// paths or external command arguments downstream.
+// userIDPattern rejects shapes that could inject into filesystem paths downstream.
 var userIDPattern = regexp.MustCompile(`^[a-zA-Z0-9_-]{1,64}$`)
 
 const authCheckTimeout = 12 * time.Second
@@ -30,10 +28,7 @@ type uploadServerCheckResponse struct {
 	Username string `json:"username"`
 }
 
-// AuthUpload verifies the user via the app's /api/upload-server-check.
-// Client must send: Authorization: Bearer <upload_token> (short-lived; from /api/upload/auth).
-// GoUpload adds X-Webhook-Secret when calling the check endpoint.
-// On success sets c.Locals(LocalsUserID, userId). On failure returns a generic error only (no internal details).
+// AuthUpload verifies the client's short-lived upload_token via /api/upload-server-check (with X-Webhook-Secret).
 func AuthUpload() fiber.Handler {
 	appBaseURL := env.Get("APP_BASE_URL", "http://localhost:3000")
 	appBaseURL = strings.TrimSuffix(appBaseURL, "/")

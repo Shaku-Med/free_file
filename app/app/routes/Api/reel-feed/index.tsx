@@ -153,6 +153,54 @@ async function fetchProfileOwnerReels(
   };
 }
 
+/**
+ * Some RPC paths (get_related, profile sections, pre-v2 get_reel_feed) don't return
+ * original_* columns — backfill them so every batch carries sound-chip data like SSR.
+ */
+async function backfillOriginalSound(rows: Record<string, unknown>[]): Promise<void> {
+  const missingLink = rows.filter((r) => r.id && r.original_file_id === undefined);
+  if (missingLink.length > 0) {
+    const { data: links } = await db
+      .from('files')
+      .select('id, original_file_id')
+      .in('id', missingLink.map((r) => String(r.id)));
+    const linkById = new Map(
+      (links ?? []).map((l: { id: unknown; original_file_id?: unknown }) => [
+        fileIdKey(l.id),
+        l.original_file_id ?? null,
+      ]),
+    );
+    for (const r of missingLink) {
+      r.original_file_id = linkById.get(fileIdKey(r.id)) ?? null;
+    }
+  }
+
+  const need = rows.filter((r) => r.original_file_id && !r.original_unique_id);
+  if (need.length === 0) return;
+
+  const origIds = [...new Set(need.map((r) => String(r.original_file_id)))];
+  const { data: origs } = await db
+    .from('files')
+    .select('id, unique_id, file_title, filename, default_thumbnail, created_at, is_public, is_adult, upload_status')
+    .in('id', origIds);
+
+  const byId = new Map<string, Record<string, unknown>>();
+  for (const o of origs ?? []) {
+    if (o.is_public === true && o.is_adult !== true && o.upload_status === 'complete') {
+      byId.set(fileIdKey(o.id), o as Record<string, unknown>);
+    }
+  }
+  for (const r of need) {
+    const o = byId.get(fileIdKey(r.original_file_id));
+    if (!o) continue;
+    r.original_unique_id = String(o.unique_id);
+    r.original_title = o.file_title ?? null;
+    r.original_filename = o.filename ?? null;
+    r.original_default_thumbnail = o.default_thumbnail ?? null;
+    r.original_created_at = o.created_at ?? null;
+  }
+}
+
 export const loader = async ({ request }: { request: Request }) => {
   try {
     const url = new URL(request.url);
@@ -293,6 +341,8 @@ export const loader = async ({ request }: { request: Request }) => {
             feedRows as Record<string, unknown>[],
             REEL_LIMIT + CONTEXT_RELATED_MAX,
           );
+
+    await backfillOriginalSound(filtered);
 
     const fileIds = filtered.map((f) => f.id as string | undefined).filter(Boolean);
     const interactionsByFile = new Map<string, ReelFeedInteraction>();

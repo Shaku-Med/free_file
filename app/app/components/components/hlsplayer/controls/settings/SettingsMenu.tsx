@@ -24,7 +24,7 @@ import { usePlayerContext, SLEEP_TIMER_OPTIONS } from '../../PlayerContext';
 import { isSpatialAudioUiSupported } from '../../hooks/useSpatialAudio';
 import { useFullscreenContainer } from '../../hooks/useFullscreenContainer';
 import { cn } from '~/lib/utils';
-import { mobileOverlayIcon, mobileOverlaySquareBtn } from '../mobileControlMetrics';
+import { mobileOverlayIcon, mobileOverlaySquareBtn, playerMenuSurface } from '../mobileControlMetrics';
 import {
   DropdownMenu,
   DropdownMenuCollapsible,
@@ -692,6 +692,7 @@ function QualityBadge({ label, className }: { label: string; className?: string 
 
 export default function SettingsMenu({ nested, panelRef, onOpenChange, overlayTrigger, pillBarTrigger }: SettingsMenuProps) {
   const menuWidthClass = cn(
+    playerMenuSurface,
     'max-h-[min(72dvh,var(--radix-dropdown-menu-content-available-height))]',
     isMobile ? 'min-w-0 w-[calc(100vw-1.25rem)]' : 'min-w-[260px] max-w-[min(320px,calc(100vw-2rem))]',
   );
@@ -753,7 +754,7 @@ export default function SettingsMenu({ nested, panelRef, onOpenChange, overlayTr
                 overlayTrigger
                   ? cn(
                       mobileOverlaySquareBtn,
-                      'outline-none hover:bg-black/90 data-[state=open]:bg-black/90 data-[state=open]:[&_svg]:rotate-45',
+                      'outline-none hover:bg-black/60 data-[state=open]:bg-black/60 data-[state=open]:[&_svg]:rotate-45',
                     )
                   : pillBarTrigger
                     ? 'rounded-full p-2 text-white outline-none transition-colors hover:bg-white/10 data-[state=open]:bg-white/15 data-[state=open]:[&_svg]:rotate-45'

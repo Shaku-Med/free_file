@@ -14,10 +14,11 @@
 -- ============================================================
 
 create table if not exists public.user_interest_scores (
-  user_id    uuid not null,
-  category   text not null,
-  score      double precision not null default 0,
-  updated_at timestamptz not null default now(),
+  user_id           uuid not null,
+  category          text not null,
+  score             real not null default 0,
+  interaction_count int not null default 0,
+  last_updated      timestamptz not null default now(),
   constraint user_interest_scores_pkey primary key (user_id, category),
   constraint user_interest_scores_user_fkey foreign key (user_id) references users (id) on delete cascade
 );
@@ -26,10 +27,11 @@ create index if not exists idx_user_interest_scores_user
   on public.user_interest_scores (user_id, score desc);
 
 create table if not exists public.user_creator_affinity (
-  user_id        uuid not null,
-  creator_id     uuid not null,
-  affinity_score double precision not null default 0,
-  updated_at     timestamptz not null default now(),
+  user_id           uuid not null,
+  creator_id        uuid not null,
+  affinity_score    real not null default 0,
+  interaction_count int not null default 0,
+  last_interaction  timestamptz not null default now(),
   constraint user_creator_affinity_pkey primary key (user_id, creator_id),
   constraint user_creator_affinity_user_fkey foreign key (user_id) references users (id) on delete cascade,
   constraint user_creator_affinity_creator_fkey foreign key (creator_id) references users (id) on delete cascade
@@ -92,11 +94,12 @@ begin
       if v_cat is null or length(trim(v_cat)) = 0 or length(v_cat) > 100 then
         continue;
       end if;
-      insert into user_interest_scores (user_id, category, score, updated_at)
-      values (p_user_id, trim(v_cat), v_weight, now())
+      insert into user_interest_scores (user_id, category, score, interaction_count, last_updated)
+      values (p_user_id, trim(v_cat), v_weight::real, 1, now())
       on conflict (user_id, category) do update
         set score = least(user_interest_scores.score + excluded.score, 100),
-            updated_at = now();
+            interaction_count = user_interest_scores.interaction_count + 1,
+            last_updated = now();
     end loop;
 
     begin
@@ -105,11 +108,12 @@ begin
       v_owner_id := null;
     end;
     if v_owner_id is not null and v_owner_id <> p_user_id then
-      insert into user_creator_affinity (user_id, creator_id, affinity_score, updated_at)
-      values (p_user_id, v_owner_id, v_weight, now())
+      insert into user_creator_affinity (user_id, creator_id, affinity_score, interaction_count, last_interaction)
+      values (p_user_id, v_owner_id, v_weight::real, 1, now())
       on conflict (user_id, creator_id) do update
         set affinity_score = least(user_creator_affinity.affinity_score + excluded.affinity_score, 100),
-            updated_at = now();
+            interaction_count = user_creator_affinity.interaction_count + 1,
+            last_interaction = now();
     end if;
   end loop;
 end;

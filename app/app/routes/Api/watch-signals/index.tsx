@@ -5,33 +5,33 @@ import db from "~/lib/Database/supabase";
 import { isValidUUID } from "~/lib/Security/inputValidation";
 
 /**
- * POST /api/watch-signals - batched positive watch signals from the reel deck
- * (the counterpart to /api/feed-signals, which records negative ones).
+ * POST /api/watch-signals — batched positive watch signals from the reel deck
+ * (counterpart to /api/feed-signals for negative ones).
  * Body: { items: [{ fileId, ownerId?, categories?, dwellMs? }, ...] }
  *
- * Feeds record_feed_signals, which writes the tables the recommenders read
- * (feed_impressions, user_interest_scores, user_creator_affinity). The user id
- * always comes from the session - a client can only ever train its OWN taste.
+ * Feeds record_feed_signals (feed_impressions, user_interest_scores,
+ * user_creator_affinity). User id always comes from the session.
  * Fire-and-forget on the client; errors here must never break playback.
  */
 
 const MAX_ITEMS = 50;
 const MAX_CATEGORIES = 8;
 
+// Write-only: stray GETs (prefetch, probe) get 405 — not the router "no loader" error.
+export const loader = async () => new Response(null, { status: 405 });
+
 export const action = async ({ request }: ActionFunctionArgs) => {
-  if (request.method !== "POST") {
-    return data({ error: "Method not allowed" }, { status: 405 });
-  }
+  if (request.method !== "POST") return new Response(null, { status: 405 });
 
   const user = await isAuthenticated(request, ["id"]);
-  if (!user?.id) return data({ error: "Unauthorized" }, { status: 401 });
-  if (!db) return data({ error: "Database not initialized" }, { status: 500 });
+  if (!user?.id) return new Response(null, { status: 401 });
+  if (!db) return new Response(null, { status: 500 });
 
   let body: { items?: unknown };
   try {
     body = (await request.json()) as { items?: unknown };
   } catch {
-    return data({ error: "Invalid JSON" }, { status: 400 });
+    return new Response(null, { status: 400 });
   }
 
   const rawItems = Array.isArray(body.items) ? body.items.slice(0, MAX_ITEMS) : [];
@@ -65,7 +65,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   });
   if (error) {
     console.error("[watch-signals] rpc:", error.message ?? error);
-    return data({ error: "Failed to record" }, { status: 500 });
+    return new Response(null, { status: 500 });
   }
 
   return data({ success: true, recorded: items.length }, { status: 200 });

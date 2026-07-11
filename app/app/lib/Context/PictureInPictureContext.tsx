@@ -24,6 +24,10 @@ interface PictureInPictureContextType {
   toggleDocumentPip: (src: string, videoRef: React.RefObject<HTMLVideoElement | null>, contentId: string, file?: any, loop?: boolean, updateMediaSession?: (isPlaying: boolean, currentTime: number, duration: number) => void) => Promise<void>;
   closePip: () => void;
   isContentInPip: (contentId: string) => boolean;
+  /** Live play/pause state of the document PiP player (null when unknown / inactive). */
+  pipPlaybackPaused: boolean | null;
+  /** Remote-control the document PiP player from the main window (Spotify-style). */
+  controlPipPlayback: (action: 'play' | 'pause' | 'toggle') => void;
   /** Browser UI opened native PiP (not our button)  sync session so custom overlay / state match. */
   notifyBrowserDrivenNativePipEntered: (video: HTMLVideoElement, contentId: string) => void;
   /** Browser / WebKit entered presentation-mode PiP  sync session (e.g. iOS Safari). */
@@ -90,6 +94,10 @@ export const PictureInPictureProvider: React.FC<PictureInPictureProviderProps> =
   const pipMainVideoRef = useRef<HTMLVideoElement | null>(null);
   const pipUpdateMediaSessionRef = useRef<((playing: boolean, time: number, duration: number) => void) | null>(null);
   const activePipKindRef = useRef<ActivePipKind | null>(null);
+  // Last state reported by the document PiP player. Stored only — the main video is untouched
+  // while PiP is open, then moved to this position/play-state on exit.
+  const pipLiveStateRef = useRef<{ time: number; paused: boolean; id: string | null } | null>(null);
+  const [pipPlaybackPaused, setPipPlaybackPaused] = useState<boolean | null>(null);
 
   const assignPipKind = useCallback((k: ActivePipKind | null) => {
     activePipKindRef.current = k;
@@ -116,6 +124,27 @@ export const PictureInPictureProvider: React.FC<PictureInPictureProviderProps> =
     assignPipKind(null);
 
     const mainVideo = pipMainVideoRef.current;
+
+    // Move the main player to where the PiP session left off (position + play state).
+    const st = pipLiveStateRef.current;
+    if (kind === 'document' && mainVideo && st) {
+      const apply = () => {
+        try {
+          if (Number.isFinite(st.time)) mainVideo.currentTime = st.time;
+          if (!st.paused) {
+            mainVideo.muted = false;
+            mainVideo.play().catch(() => {});
+          }
+        } catch {
+          /* video may be gone */
+        }
+      };
+      apply();
+      // Retry after the main player's keep-paused PiP listener detaches.
+      window.setTimeout(apply, 150);
+    }
+    pipLiveStateRef.current = null;
+    setPipPlaybackPaused(null);
 
     if (kind === 'native-video' && mainVideo && document.pictureInPictureElement === mainVideo) {
       document.exitPictureInPicture().catch(() => {});
@@ -258,7 +287,7 @@ export const PictureInPictureProvider: React.FC<PictureInPictureProviderProps> =
         return;
       }
 
-      if (e.data?.type !== 'pip-closing') return;
+      if (e.data?.type !== 'pip-closing' && e.data?.type !== 'pip-state') return;
       if (!shell) return;
       const fromShell = e.source === shell;
       let fromPipIframe = false;
@@ -276,25 +305,30 @@ export const PictureInPictureProvider: React.FC<PictureInPictureProviderProps> =
       } catch {}
       if (!fromShell && !fromPipIframe) return;
 
-      const payload = e.data as { time?: unknown; id?: unknown };
+      const payload = e.data as { time?: unknown; id?: unknown; paused?: unknown };
       const time = sanitizeSeekSeconds(payload.time);
+      const paused = payload.paused === true;
       const payloadId = typeof payload.id === 'string' ? payload.id : null;
-      if (
-        pipContentId !== null &&
-        payloadId !== null &&
-        payloadId !== pipContentId
-      ) {
+
+      const matchesMainContent =
+        pipContentId === null || payloadId === null || payloadId === pipContentId;
+
+      // Live report from the PiP player: store only, never touch the main video mid-session.
+      // Reports for a different reel (user swiped the PiP feed) update the UI but not the
+      // stored resume point for the main video.
+      if (e.data.type === 'pip-state') {
+        setPipPlaybackPaused(paused);
+        if (matchesMainContent) {
+          pipLiveStateRef.current = { time, paused, id: payloadId };
+        }
         return;
       }
 
-      const mainVideo = pipMainVideoRef.current;
-      if (mainVideo) {
-        mainVideo.currentTime = time;
-        mainVideo.muted = false;
-        mainVideo.play().catch(() => {});
-      }
+      if (!matchesMainContent) return;
+
+      pipLiveStateRef.current = { time, paused, id: payloadId };
       if (pipUpdateMediaSessionRef.current) {
-        pipUpdateMediaSessionRef.current(true, time, mainVideo?.duration ?? 0);
+        pipUpdateMediaSessionRef.current(!paused, time, pipMainVideoRef.current?.duration ?? 0);
       }
       closePip();
     };
@@ -464,7 +498,9 @@ export const PictureInPictureProvider: React.FC<PictureInPictureProviderProps> =
       if(d.command==="navigate"&&typeof d.href==="string"){
         window.opener.postMessage({type:"pip-navigate",href:d.href},O);
       }else if(d.command==="closing"){
-        window.opener.postMessage({type:"pip-closing",time:d.time,id:d.id},O);
+        window.opener.postMessage({type:"pip-closing",time:d.time,id:d.id,paused:d.paused},O);
+      }else if(d.command==="state"){
+        window.opener.postMessage({type:"pip-state",time:d.time,paused:d.paused,id:d.id},O);
       }
     }catch(_){}
   });
@@ -535,6 +571,9 @@ export const PictureInPictureProvider: React.FC<PictureInPictureProviderProps> =
       setPipWindow(pw);
       setIsPipActive(true);
       setPipContentId(contentId);
+      // Seed the resume point so closing PiP before the first state report still restores.
+      pipLiveStateRef.current = { time: currentTime, paused: false, id: contentId };
+      setPipPlaybackPaused(false);
 
       if (videoRef.current) {
         videoRef.current.pause();
@@ -558,6 +597,20 @@ export const PictureInPictureProvider: React.FC<PictureInPictureProviderProps> =
     return pipContentId === contentId;
   }, [pipContentId, isPipActive]);
 
+  /** Post a playback command into the PiP iframe (same-origin) so main controls drive the PiP player. */
+  const controlPipPlayback = useCallback((action: 'play' | 'pause' | 'toggle') => {
+    if (activePipKindRef.current !== 'document') return;
+    try {
+      const shell = (window as any).documentPictureInPicture?.window as Window | undefined;
+      if (!shell || shell.closed) return;
+      const iframe = shell.document?.querySelector('iframe') as HTMLIFrameElement | undefined;
+      if (!iframe || !isTrustedPipIframeSrc(iframe.src || iframe.getAttribute('src'))) return;
+      iframe.contentWindow?.postMessage({ type: 'pip-control', action }, window.location.origin);
+    } catch {
+      /* shell may be mid-close */
+    }
+  }, []);
+
   const value: PictureInPictureContextType = {
     isPipActive,
     setIsPipActive,
@@ -573,6 +626,8 @@ export const PictureInPictureProvider: React.FC<PictureInPictureProviderProps> =
     toggleDocumentPip,
     closePip,
     isContentInPip,
+    pipPlaybackPaused,
+    controlPipPlayback,
     notifyBrowserDrivenNativePipEntered,
     notifyBrowserDrivenWebKitPipEntered,
   };

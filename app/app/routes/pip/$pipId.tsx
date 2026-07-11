@@ -4,6 +4,7 @@ import db from '~/lib/Database/supabase';
 import { loadSecurePipFeed } from '~/routes/Api/fun/loadSecurePipFeed';
 import type { FileType } from '~/lib/types';
 import {
+  getLastPipPlaybackState,
   isPipSurfaceAllowed,
   requestNavigateFromPipToMain,
   requestPipClosingHandshake,
@@ -170,7 +171,9 @@ export default function PipByIdRoute() {
     if (!allowed || !pipId) return;
 
     const notifyClose = () => {
-      requestPipClosingHandshake(0, pipId);
+      // Hand the last known position/play-state back so the main player resumes there (not at 0).
+      const st = getLastPipPlaybackState();
+      requestPipClosingHandshake(st?.time ?? 0, st?.id ?? pipId, st?.paused ?? false);
     };
 
     window.addEventListener('beforeunload', notifyClose);

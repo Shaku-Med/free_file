@@ -96,6 +96,9 @@ export const action = async ({ request }: { request: Request }) => {
     const redirectTo = safeServerRedirect(request, url.searchParams.get('redirect'));
 
     let vault = readAltAccountsFromRequest(request.headers);
+    // Drop any stale parked session for the account that just logged in.
+    const hadStaleEntry = vault.some((a) => a.id === result.userId);
+    vault = vault.filter((a) => a.id !== result.userId);
     if (addAccount && oldToken && oldUser) {
       vault = parkCurrentInVault(vault, oldToken, {
         id: oldUser.id,
@@ -106,7 +109,7 @@ export const action = async ({ request }: { request: Request }) => {
 
     const headers = new Headers();
     appendSessionCookie(headers, result.token);
-    if (addAccount && oldToken && oldUser) {
+    if ((addAccount && oldToken && oldUser) || hadStaleEntry) {
       appendAltAccountsCookie(headers, vault);
     }
 
@@ -142,23 +145,41 @@ const Login = () => {
   const [passkeyError, setPasskeyError] = useState<string | null>(null);
   const [passkeyPending, setPasskeyPending] = useState(false);
   const [switchPending, setSwitchPending] = useState<string | null>(null);
+  const [identifierValue, setIdentifierValue] = useState('');
+  const [passwordPromptFor, setPasswordPromptFor] = useState<string | null>(null);
   const isSubmitting = navigation.state === 'submitting';
   const redirectAfterLogin = safeClientRedirect(searchParams.get('redirect'));
   const justVerified = searchParams.get('verified') === 'true';
   const justResetPassword = searchParams.get('passwordReset') === 'true';
   const addAccountParam = searchParams.get('addAccount') === '1';
 
-  const switchToAccount = async (uid: string) => {
-    setSwitchPending(uid);
+  // Prefill the username and focus the password field.
+  const promptPasswordFor = (username: string) => {
+    setIdentifierValue(username);
+    setPasswordPromptFor(username);
     setPasskeyError(null);
+    requestAnimationFrame(() => {
+      (document.getElementById('password') as HTMLInputElement | null)?.focus();
+    });
+  };
+
+  // Authenticated visitors get the token switch; otherwise (401/403) fall back to password login.
+  const switchToAccount = async (acc: { id: string; username: string }) => {
+    setSwitchPending(acc.id);
+    setPasskeyError(null);
+    setPasswordPromptFor(null);
     try {
       const res = await fetch('/api/auth/switch-account', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ userId: uid }),
+        body: JSON.stringify({ userId: acc.id }),
       });
       if (!res.ok) {
+        if (res.status === 401 || res.status === 403) {
+          promptPasswordFor(acc.username);
+          return;
+        }
         const payload = await res.json().catch(() => ({}));
         setPasskeyError(
           typeof payload?.error === 'string' ? payload.error : 'Could not switch account.'
@@ -270,7 +291,7 @@ const Login = () => {
                     variant="outline"
                     className="w-full justify-start h-auto py-2.5 px-3 gap-2.5"
                     disabled={!!switchPending}
-                    onClick={() => void switchToAccount(acc.id)}
+                    onClick={() => void switchToAccount(acc)}
                   >
                     {switchPending === acc.id ? (
                       <span className="flex items-center gap-2 text-sm">
@@ -296,6 +317,14 @@ const Login = () => {
 
           <form method="post" className="space-y-3.5">
             {addAccount && <input type="hidden" name="addAccount" value="1" />}
+            {passwordPromptFor && (
+              <div className="flex items-start gap-2.5 rounded-lg bg-primary/10 border border-primary/20 px-3.5 py-3 text-sm text-foreground">
+                <KeyRound className="h-4 w-4 mt-0.5 shrink-0" />
+                <span>
+                  Enter the password for <span className="font-medium">{passwordPromptFor}</span> to sign back in.
+                </span>
+              </div>
+            )}
             {actionData && 'error' in actionData && (
               <div className="flex items-start gap-2.5 rounded-lg bg-destructive/10 border border-destructive/20 px-3.5 py-3 text-sm text-destructive">
                 <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" />
@@ -316,6 +345,8 @@ const Login = () => {
                   placeholder="Enter your username or email"
                   autoComplete="username"
                   className="w-full h-11 pl-10"
+                  value={identifierValue}
+                  onChange={(e) => setIdentifierValue(e.target.value)}
                 />
                 <KeyRound className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground/50" />
               </div>

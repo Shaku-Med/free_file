@@ -181,11 +181,10 @@ const Reel = ({ initialItems, initialUserActions, profileReelContext = null }: R
       try {
         if (append) {
           setIsLoadingMore(true);
-          if (shownIdsRef.current.size > 350) {
-            const recent = itemsRef.current.slice(-150);
-            shownIdsRef.current = new Set(
-              recent.map((f) => (f.id ? String(f.id) : "")).filter(Boolean),
-            );
+          // Keep the exclude window at the server cap (500) — trimming further
+          // lets already-shown reels re-enter the feed.
+          if (shownIdsRef.current.size > 500) {
+            shownIdsRef.current = new Set(Array.from(shownIdsRef.current).slice(-500));
           }
         }
 
@@ -193,7 +192,8 @@ const Reel = ({ initialItems, initialUserActions, profileReelContext = null }: R
         const params = new URLSearchParams();
         params.set("seed", feedSeedRef.current);
         if (shownIdsRef.current.size > 0) {
-          params.set("exclude_ids", JSON.stringify(Array.from(shownIdsRef.current).slice(0, 500)));
+          // Most recent 500 shown ids — the server hard-excludes these.
+          params.set("exclude_ids", JSON.stringify(Array.from(shownIdsRef.current).slice(-500)));
         }
         const sessionCats = personalizationService.getSessionCategories();
         if (sessionCats.length > 0) {
@@ -286,12 +286,11 @@ const Reel = ({ initialItems, initialUserActions, profileReelContext = null }: R
         } else {
           const prev = itemsRef.current;
           const existingIds = new Set(prev.map((f: FileType) => String(f.id)));
-          let newItems = incoming.filter((f: FileType) => !existingIds.has(String(f.id)));
-          if (newItems.length === 0 && userId && incoming.length > 0) {
-            newItems = incoming;
-          }
+          // Never re-append a reel already in the deck — an empty batch just ends
+          // the session feed instead of stacking duplicates.
+          const newItems = incoming.filter((f: FileType) => !existingIds.has(String(f.id)));
           appendedCount = newItems.length;
-          setItems([...prev, ...newItems]);
+          if (newItems.length > 0) setItems([...prev, ...newItems]);
         }
 
         if (userId) {
@@ -554,12 +553,13 @@ const Reel = ({ initialItems, initialUserActions, profileReelContext = null }: R
         {ambientEnabled && ambienceDesc && (
           <div className="absolute inset-0 flex items-center justify-center">
             <div
-              className="relative h-full max-h-[100dvh] origin-center overflow-visible blur-3xl opacity-80 lg:h-[min(96dvh,calc(100dvh-1rem))]"
+              className="relative h-full max-h-[100dvh] origin-center overflow-visible blur-3xl opacity-80 lg:h-[min(calc(100dvh-3rem),820px)]"
               style={{
                 // Size follows the ambient-size control (1×2×).
                 transform: `scale(${ambientSize})`,
+                // Comments dock forces the portrait frame, so the glow follows it.
                 aspectRatio:
-                  ambienceDesc.aspect && ambienceDesc.aspect > 0
+                  !commentsOpen && ambienceDesc.aspect && ambienceDesc.aspect > 0
                     ? String(ambienceDesc.aspect)
                     : "9 / 16",
                 WebkitMaskImage: `${REEL_AMB_MASKRadial}, ${REEL_AMB_MASKHorizontal}`,

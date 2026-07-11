@@ -29,11 +29,11 @@ const MAX_BULK_FILE_IDS = 200;
  * Guests get an empty map (no error).
  */
 export const loader = async ({ request }: { request: Request }) => {
-  if (request.method !== 'GET') return toJson({ error: 'Method not allowed' }, 405);
-  if (!db) return toJson({ progress: {} }, 200);
+  if (request.method !== 'GET') return toJson({}, 405);
+  if (!db) return toJson({}, 500);
 
   const user = await isAuthenticated(request, ['id']);
-  if (!user?.id) return toJson({ progress: {} }, 200);
+  if (!user?.id) return toJson({}, 401);
 
   const url = new URL(request.url);
   const raw = url.searchParams.get('fileIds')?.trim();
@@ -123,16 +123,15 @@ export const loader = async ({ request }: { request: Request }) => {
  *
  * Upserts the signed-in viewer's playback position for one file. Throttled by the caller
  * (`usePlaybackPosition`)  the server does not rate-limit since each viewer touches one
- * row at a time. Guests receive `{ saved: false }` without an error so the hook can keep
- * its IndexedDB save path running unchanged.
+ * row at a time. Guests get 401 — the hook keeps its IndexedDB save path regardless.
  */
 export const action = async ({ request }: { request: Request }) => {
   try {
     if (request.method !== 'POST') return toJson({ error: 'Method not allowed' }, 405);
-    if (!db) return toJson({ saved: false }, 200);
+    if (!db) return toJson({}, 500);
 
     const user = await isAuthenticated(request, ['id']);
-    if (!user?.id) return toJson({ saved: false }, 200);
+    if (!user?.id) return toJson({}, 401);
 
     let body: {
       fileId?: string;

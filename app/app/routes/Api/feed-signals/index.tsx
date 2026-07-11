@@ -25,8 +25,8 @@ export const action = async ({ request }: { request: Request }) => {
     if (request.method !== 'POST') return toJson({ error: 'Method not allowed' }, 405);
 
     const user = await isAuthenticated(request, ['id']);
-    if (!user?.id) return toJson({ error: 'Unauthorized' }, 401);
-    if (!db) return toJson({ error: 'Database not initialized' }, 500);
+    if (!user?.id) return toJson({}, 401);
+    if (!db) return toJson({}, 500);
 
     const postLimit = checkFeedSignalsPostRateLimit(request, user.id);
     if (!postLimit.allowed) {
@@ -82,7 +82,8 @@ export const action = async ({ request }: { request: Request }) => {
 export const loader = async ({ request }: { request: Request }) => {
   try {
     const user = await isAuthenticated(request, ['id']);
-    if (!user?.id || !db) return toJson({ data: [] }, 200);
+    if (!user?.id) return toJson({}, 401);
+    if (!db) return toJson({}, 500);
 
     const getLimit = checkFeedSignalsGetRateLimit(request, user.id);
     if (!getLimit.allowed) {

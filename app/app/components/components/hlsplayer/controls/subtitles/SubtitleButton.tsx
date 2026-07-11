@@ -1,6 +1,6 @@
 import { Captions, CaptionsOff, Check, RotateCcw, Loader2, AlignLeft, AlignCenter, AlignRight } from "lucide-react"
 import { cn } from "~/lib/utils"
-import { mobileOverlayIcon, mobileOverlaySquareBtn } from "../mobileControlMetrics"
+import { mobileOverlayIcon, mobileOverlaySquareBtn, playerMenuSurface } from "../mobileControlMetrics"
 import { Tooltip, TooltipContent, TooltipTrigger } from "~/components/ui/tooltip"
 import {
   DropdownMenu,
@@ -128,7 +128,7 @@ export default function SubtitleButton({
         align="end"
         side="top"
         sideOffset={8}
-        className="w-60 z-[2147483647]"
+        className={cn(playerMenuSurface, "w-60 z-[2147483647]")}
       >
         <DropdownMenuLabel className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium">
           Subtitles

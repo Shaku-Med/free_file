@@ -15,14 +15,15 @@ const toJson = (body: unknown, status = 200) =>
 export const loader = async ({ request }: { request: Request }) => {
   try {
     const user = await isAuthenticated(request, ['id']);
-    if (!user?.id || !db) return toJson({ liked: false }, 200);
+    if (!user?.id) return toJson({}, 401);
+    if (!db) return toJson({}, 500);
     const url = new URL(request.url);
     const fileId = url.searchParams.get('fileId');
-    if (!fileId || !isValidFileId(fileId)) return toJson({ error: "Invalid fileId" }, 400);
+    if (!fileId || !isValidFileId(fileId)) return toJson({}, 400);
     const { data } = await db.from('likes').select('id').eq('user_id', user.id).eq('file_id', fileId).maybeSingle();
     return toJson({ liked: !!data }, 200);
   } catch {
-    return toJson({ liked: false }, 200);
+    return toJson({}, 500);
   }
 };
 

@@ -82,11 +82,7 @@ const VerifyB4Making = async (headers: Headers, keys: string[]) => {
 
 const userMiddleware: Route.MiddlewareFunction = async ({ context }, next) => {
   let response = await next();
-  // COEP/COOP removed: they block extension-injected resources and cause
-  // ERR_BLOCKED_BY_RESPONSE.NotSameOriginAfterDefaultedToSameOriginByCoep.
-  // Re-enable only if you need SharedArrayBuffer (e.g. require-corp + same-origin).
-  // Same-origin pages may embed each other (e.g. /pip iframes the watch page). Block third-party embeds.
-  // Conservative CSP: lock framing/base/plugins/forms without breaking ads/fonts/CDN scripts.
+  // No COEP/COOP (breaks extensions); CSP locks framing/base/plugins/forms only.
   response.headers.set(
     "Content-Security-Policy",
     "frame-ancestors 'self'; base-uri 'self'; object-src 'none'; form-action 'self'",
@@ -211,9 +207,7 @@ export const loader = async ({request}: {request: Request}) => {
       profile_pic: pic ?? null,
     }));
 
-    // SECURITY: never return the c_user session JWT to the client. It is an
-    // HttpOnly auth cookie; serializing it into loader JSON would expose it to
-    // any XSS/devtools. No client code consumes it.
+    // SECURITY: never serialize the HttpOnly c_user session JWT into loader JSON.
     return data({ st: sessionToken, user_agent: request.headers.get('user-agent'), userId, uploadServerUrl, userTheme, playerSettingsFromLoader, isMobileServer, isDevelopmentServer, requestURL, altAccounts }, {
       status: 200,
       headers: (token) ? { // I left this part open for now. Fix will be done later.

@@ -5,19 +5,7 @@ import { mintUploadToken } from "~/lib/Security/uploadToken.server";
 import { DecryptCombine } from "~/lib/Security/unsharedkeyEncryption/Combined/Combined";
 import { getAllKeys } from "~/lib/Security/unsharedkeyEncryption/Combined/Verification/TokenKeys";
 
-/**
- * GET /api/upload/auth
- *
- * =============================================================================
- * UPLOAD AUTH (GoUpload only)
- * =============================================================================
- * Mints a short-lived upload-scoped bearer (NOT the c_user session JWT).
- * Client uploads MUST go through GoUpload — never POST files to /api/upload
- * (legacy, server-to-server only; see routes/Api/upload/index.tsx).
- *
- * DO NOT re-expose c_user in root loader or add /api/upload browser fallbacks.
- * =============================================================================
- */
+// GET /api/upload/auth — mints a short-lived upload-scoped bearer for GoUpload; never expose c_user here.
 export const loader = async ({ request }: { request: Request }) => {
   try {
     const blocked = assertSafeRequest(request);

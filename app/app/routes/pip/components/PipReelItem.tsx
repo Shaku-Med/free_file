@@ -33,6 +33,7 @@ import OwnerProfile from '~/components/OwnerProfile/OwnerProfile';
 import {
   requestNavigateFromPipToMain,
   requestPipClosingHandshake,
+  reportPipStateToMain,
 } from '../pipEnv';
 import { PIP_REEL_HLS_HIDE_CONTROLS } from './pipPlayerChrome';
 
@@ -427,6 +428,52 @@ function PipReelItemInner({
     };
   }, [isActive, isVideo, trackedVideoEl]);
 
+  // Document PiP sync: report play/pause/time to the main window (stored there, applied when
+  // PiP exits) and accept remote play/pause commands from the main window's controls.
+  useEffect(() => {
+    if (variant !== 'pip' || !isActive || !isVideo) return;
+    const v = trackedVideoEl ?? videoRef.current;
+    const uid = file.unique_id;
+    if (!v || !uid) return;
+
+    let lastSent = 0;
+    const report = () => reportPipStateToMain(v.currentTime || 0, v.paused, uid);
+    const onTimeUpdate = () => {
+      const now = Date.now();
+      if (now - lastSent < 1000) return;
+      lastSent = now;
+      report();
+    };
+
+    const onMessage = (e: MessageEvent) => {
+      if (e.origin !== window.location.origin) return;
+      const d = e.data as { type?: unknown; action?: unknown } | null;
+      if (!d || d.type !== 'pip-control') return;
+      if (d.action === 'pause' || (d.action === 'toggle' && !v.paused)) {
+        v.dataset.userPaused = '1';
+        v.pause();
+      } else if (d.action === 'play' || d.action === 'toggle') {
+        delete v.dataset.userPaused;
+        void v.play().catch(() => {});
+      }
+    };
+
+    v.addEventListener('play', report);
+    v.addEventListener('pause', report);
+    v.addEventListener('seeked', report);
+    v.addEventListener('timeupdate', onTimeUpdate);
+    window.addEventListener('message', onMessage);
+    report();
+
+    return () => {
+      v.removeEventListener('play', report);
+      v.removeEventListener('pause', report);
+      v.removeEventListener('seeked', report);
+      v.removeEventListener('timeupdate', onTimeUpdate);
+      window.removeEventListener('message', onMessage);
+    };
+  }, [variant, isActive, isVideo, trackedVideoEl, file.unique_id]);
+
   useEffect(() => {
     if (variant !== 'page' || !isActive || !file.unique_id) return;
     const display =
@@ -555,11 +602,16 @@ function PipReelItemInner({
 
   const reelFrameStyle = useMemo(() => {
     if (variant !== 'page' || isReelMobileLayout) return undefined;
-    return reelVideoFrameStyle(videoAspect ?? REEL_FALLBACK_ASPECT, {
-      maxHeight: 'min(calc(100dvh - 0.5rem), 920px)',
-      maxWidth: 'min(100%, calc(100vw - 14rem))',
-    });
-  }, [variant, videoAspect, isReelMobileLayout]);
+    // With the comments dock open, force the mobile portrait aspect so the reel
+    // narrows beside the panel instead of squeezing a wide frame.
+    return reelVideoFrameStyle(
+      commentsOpen ? REEL_FALLBACK_ASPECT : (videoAspect ?? REEL_FALLBACK_ASPECT),
+      {
+        maxHeight: 'min(calc(100dvh - 3rem), 820px)',
+        maxWidth: 'min(100%, calc(100vw - 14rem))',
+      },
+    );
+  }, [variant, videoAspect, isReelMobileLayout, commentsOpen]);
 
   const handleReelPosterColorsFromPlayer = useCallback(
     (payload: { src: string; colors: string[] }) => {
@@ -733,7 +785,7 @@ function PipReelItemInner({
     const t = videoRef.current?.currentTime ?? 0;
     const href = `/${uid}`;
 
-    requestPipClosingHandshake(t, uid);
+    requestPipClosingHandshake(t, uid, videoRef.current?.paused ?? false);
     requestNavigateFromPipToMain(href);
 
     // If we're not inside a PiP iframe and have no opener, nothing heard those messages  go local.
@@ -902,14 +954,6 @@ function PipReelItemInner({
         )}
         data-pip-reel-item-id={item.id}
       >
-        {/* Desktop: author + caption OUTSIDE the video frame, bottom-left
-            (Instagram-web layout). On mobile this is overlaid on the video
-            instead, via reelInfoSlot above. */}
-        {showChrome ? (
-          <div className="pointer-events-auto absolute bottom-8 left-8 z-30 hidden max-w-[min(24rem,26vw)] lg:block">
-            <ReelMetaPanel file={file} item={item} views={views} />
-          </div>
-        ) : null}
         <div className="flex h-full min-h-0 w-full items-center justify-center max-lg:items-stretch max-lg:justify-stretch">
           <div
             ref={likeBurstHostRef}
@@ -918,6 +962,18 @@ function PipReelItemInner({
               "max-lg:gap-0 max-lg:px-0",
             )}
           >
+            {/* Desktop: author + caption in their own flex column LEFT of the video
+                frame (Instagram-web layout) — it shares the row, so it can never
+                overlap the player. On mobile this is overlaid via reelInfoSlot. */}
+            {showChrome ? (
+              <div className="pointer-events-auto z-30 hidden min-w-0 flex-1 basis-0 flex-col justify-end self-stretch pb-8 lg:flex">
+                <div className="w-full max-w-[24rem]">
+                  <ReelMetaPanel file={file} item={item} views={views} />
+                </div>
+              </div>
+            ) : (
+              <div aria-hidden className="hidden min-w-0 flex-1 basis-0 lg:block" />
+            )}
             <div
               className={cn(
                 "relative shrink-0 overflow-hidden",
@@ -945,25 +1001,31 @@ function PipReelItemInner({
               {showChrome ? (
                 <div
                   className={cn(
-                    "swiper-no-swiping pointer-events-auto absolute z-20 flex flex-col justify-end lg:hidden",
+                    // pointer-events-none on the shell so the tall right column
+                    // doesn't block the player's top chrome (CC / settings).
+                    "swiper-no-swiping absolute z-20 flex flex-col justify-end lg:hidden pointer-events-none",
                     "right-[max(0.5rem,env(safe-area-inset-right))]",
-                    // Pin between top nav and caption strip so short screens can scroll the rail.
-                    "top-[calc(var(--app-top-nav-h,3.5rem)+0.25rem)]",
+                    "top-[calc(var(--app-top-nav-h,3.5rem)+3.25rem)]",
                     "bottom-[calc(5rem+env(safe-area-inset-bottom,0px))]",
                   )}
                 >
-                  <div className="min-h-0 max-h-full overflow-y-auto overscroll-contain touch-pan-y [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                  <div className="pointer-events-auto min-h-0 max-h-full overflow-y-auto overscroll-contain touch-pan-y [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
                     {actionsEl}
                   </div>
                 </div>
               ) : null}
             </div>
 
+            {/* Right column mirrors the left one (flex-1 basis-0) so the frame stays centered. */}
             {showChrome ? (
-              <div className="swiper-no-swiping pointer-events-auto z-30 hidden max-h-[min(96dvh,calc(100dvh-1rem))] shrink-0 flex-col items-center overflow-y-auto overscroll-contain [scrollbar-width:none] lg:flex [&::-webkit-scrollbar]:hidden">
-                {actionsEl}
+              <div className="hidden min-w-0 flex-1 basis-0 items-center justify-start self-stretch lg:flex">
+                <div className="swiper-no-swiping pointer-events-auto z-30 flex max-h-[min(96dvh,calc(100dvh-1rem))] shrink-0 flex-col items-center overflow-y-auto overscroll-contain [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                  {actionsEl}
+                </div>
               </div>
-            ) : null}
+            ) : (
+              <div aria-hidden className="hidden min-w-0 flex-1 basis-0 lg:block" />
+            )}
             {likeBurstOverlay}
           </div>
         </div>
@@ -998,13 +1060,13 @@ function PipReelItemInner({
 
         <div
           className={cn(
-            'swiper-no-swiping pointer-events-auto absolute right-0 z-20 flex flex-col justify-end',
-            'top-[calc(var(--app-top-nav-h,3.5rem)+0.25rem)]',
+            'swiper-no-swiping absolute right-0 z-20 flex flex-col justify-end pointer-events-none',
+            'top-[calc(var(--app-top-nav-h,3.5rem)+3.25rem)]',
             'bottom-[calc(3.75rem+env(safe-area-inset-bottom,0px))]',
             'px-2 pt-2',
           )}
         >
-          <div className="min-h-0 max-h-full overflow-y-auto overscroll-contain touch-pan-y [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          <div className="pointer-events-auto min-h-0 max-h-full overflow-y-auto overscroll-contain touch-pan-y [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
             {actionsEl}
           </div>
         </div>

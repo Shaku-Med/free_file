@@ -12,7 +12,8 @@ function jsonRes(body: unknown, status = 200) {
 
 export const loader = async ({ request }: { request: Request }) => {
   const user = await isAuthenticated(request, ["id"]).catch(() => null);
-  if (!user?.id || !db) return jsonRes({ playlist_ids: [] });
+  if (!user?.id) return jsonRes({}, 401);
+  if (!db) return jsonRes({}, 500);
 
   const url = new URL(request.url);
   const fileId = url.searchParams.get("file_id");

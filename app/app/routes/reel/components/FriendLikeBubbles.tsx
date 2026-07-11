@@ -126,13 +126,12 @@ export function FriendLikeBubbles({
   const names = shown.map((f) => f.username).filter(Boolean).join(", ");
   const dragging = drag !== null;
 
+  // Each avatar floats on its own pattern (paused while dragging so the bobs
+  // don't fight the drag transform on the group).
+  const floatClasses = ["reel-friend-floaty-a", "reel-friend-floaty-b", "reel-friend-floaty-c"];
+
   return (
-    // Outer wrapper owns the gentle floating bob (paused while dragging so it
-    // doesn't fight the drag transform on the inner element).
-    <div
-      className="reel-friend-floaty pointer-events-none w-fit"
-      style={dragging ? { animationPlayState: "paused" } : undefined}
-    >
+    <div className="pointer-events-none w-fit">
       <div
         className="swiper-no-swiping pointer-events-auto inline-flex w-fit cursor-grab touch-none select-none items-center active:cursor-grabbing"
         style={{
@@ -150,8 +149,12 @@ export function FriendLikeBubbles({
         onPointerCancel={onPointerUp}
       >
         <div className="flex -space-x-2.5 drop-shadow-[0_4px_10px_rgba(0,0,0,0.55)]">
-          {shown.map((f) => (
-            <div key={f.id} className="relative">
+          {shown.map((f, i) => (
+            <div
+              key={f.id}
+              className={`relative ${floatClasses[i % floatClasses.length]}`}
+              style={dragging ? { animationPlayState: "paused" } : undefined}
+            >
               <Avatar className="h-8 w-8 border-2 border-black/60 shadow-[0_2px_6px_rgba(0,0,0,0.55)]">
                 <AvatarImage src={getProfilePicUrl(f.profile_pic)} alt={f.username} loading="lazy" />
                 <AvatarFallback className="text-[10px]">

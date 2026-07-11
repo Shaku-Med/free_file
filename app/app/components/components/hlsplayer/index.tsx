@@ -27,7 +27,7 @@ import { useFullscreen } from './hooks/useFullscreen';
 import { useWakeLock } from './hooks/useWakeLock';
 import { useSpatialAudio, isSpatialAudioUiSupported } from './hooks/useSpatialAudio';
 import ControlBar from './controls/ControlBar';
-import { mobileOverlayCircleBtn } from './controls/mobileControlMetrics';
+import { mobileOverlayCircleBtn, playerMenuSurface } from './controls/mobileControlMetrics';
 import { ReelInfoOverlay } from './overlays/ReelInfoOverlay';
 // EndScreen was replaced by EndCardOverlay (centered 2-card end-of-video surface).
 import BufferingSpinner from './overlays/BufferingSpinner';
@@ -42,6 +42,7 @@ import StatsForNerdsOverlay from './overlays/StatsForNerdsOverlay';
 import SkipMarkerOverlay from './overlays/SkipMarkerOverlay';
 import SpatialAudioDialog from './controls/settings/SpatialAudioDialog';
 import SettingsMenu, { SettingsMenuBody } from './controls/settings/SettingsMenu';
+import SubtitleButton from './controls/subtitles/SubtitleButton';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -224,6 +225,7 @@ function PlayerInner({
     ambientMode,
     playerBackground,
     audioVisualizer,
+    visualizerWave,
     audioStemsAvailable,
     statsForNerds,
     spatialAudio,
@@ -1158,52 +1160,58 @@ function PlayerInner({
           <ReelInfoOverlay>{reelInfoSlot}</ReelInfoOverlay>
         ) : null}
 
-        {/* Reel controls cluster, YouTube-Shorts style: play/pause + volume at
-            the TOP-LEFT, pushed below the app top bar (safe-area + navbar) so it
-            never tucks under it. Shows/hides WITH the rest of the reel chrome
-            (tap to reveal, auto-hide). Settings ride along at the end. */}
+        {/* Reel top chrome: playback (play/pause + volume) on the LEFT, CC + settings on the
+            RIGHT — same split layout as the main player. Uniform 2.25rem buttons via the
+            control vars. Shows/hides with the rest of the reel chrome. */}
         {isReelCtx && embedReelControls && !inPipForThisVideo && !isMiniPlayerPortalActive && (
           <div
             className={cn(
-              'swiper-no-swiping absolute z-[55] flex items-center gap-2 left-[max(0.5rem,env(safe-area-inset-left))] top-[calc(var(--app-top-nav-h,3.5rem)+0.5rem)] transition-opacity',
+              'swiper-no-swiping absolute z-[55] flex items-center justify-between left-[max(0.5rem,env(safe-area-inset-left))] right-[max(0.5rem,env(safe-area-inset-right))] top-[calc(var(--app-top-nav-h,3.5rem)+0.5rem)] transition-opacity',
               state.reelAuxiliaryChromeVisible
                 ? 'opacity-100 duration-100 pointer-events-auto'
                 : 'opacity-0 duration-200 pointer-events-none',
             )}
+            style={{ '--hls-ctrl-btn': '2.25rem', '--hls-ctrl-small-btn': '2.25rem', '--hls-ctrl-icon': '1.125rem' } as React.CSSProperties}
             inert={!state.reelAuxiliaryChromeVisible || undefined}
             onClick={(e) => e.stopPropagation()}
             onPointerDown={(e) => e.stopPropagation()}
           >
-            <button
-              type="button"
-              onClick={() => {
-                togglePlay();
-                triggerPlayPauseFeedback();
-              }}
-              aria-label={state.isPlaying ? 'Pause' : 'Play'}
-              className={cn(mobileOverlayCircleBtn, 'hover:bg-black/90')}
-            >
-              {state.isPlaying ? (
-                <Pause className="h-5 w-5 fill-current" aria-hidden />
-              ) : (
-                <Play className="h-5 w-5 translate-x-0.5 fill-current" aria-hidden />
-              )}
-            </button>
-            <button
-              type="button"
-              onClick={() => toggleMute()}
-              aria-label={state.isMuted ? 'Unmute' : 'Mute'}
-              className={cn(mobileOverlayCircleBtn, 'hover:bg-black/90')}
-            >
-              {state.isMuted ? (
-                <VolumeX className="h-5 w-5" aria-hidden />
-              ) : (
-                <Volume2 className="h-5 w-5" aria-hidden />
-              )}
-            </button>
-            {/* Settings is a signed-in-only surface (ambient mode, etc.); guests
-                don't get the gear on reels. */}
-            {authPlayback && <SettingsMenu overlayTrigger />}
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  togglePlay();
+                  triggerPlayPauseFeedback();
+                }}
+                aria-label={state.isPlaying ? 'Pause' : 'Play'}
+                className={cn(mobileOverlayCircleBtn, 'hover:bg-black/60')}
+              >
+                {state.isPlaying ? (
+                  <Pause className="h-[1.125rem] w-[1.125rem] fill-current" aria-hidden />
+                ) : (
+                  <Play className="h-[1.125rem] w-[1.125rem] translate-x-0.5 fill-current" aria-hidden />
+                )}
+              </button>
+              <button
+                type="button"
+                onClick={() => toggleMute()}
+                aria-label={state.isMuted ? 'Unmute' : 'Mute'}
+                className={cn(mobileOverlayCircleBtn, 'hover:bg-black/60')}
+              >
+                {state.isMuted ? (
+                  <VolumeX className="h-[1.125rem] w-[1.125rem]" aria-hidden />
+                ) : (
+                  <Volume2 className="h-[1.125rem] w-[1.125rem]" aria-hidden />
+                )}
+              </button>
+            </div>
+            {/* CC + settings are signed-in-only surfaces; guests get neither on reels. */}
+            {authPlayback && (
+              <div className="flex items-center gap-2">
+                <SubtitleButton variant="mobileOverlay" />
+                <SettingsMenu overlayTrigger />
+              </div>
+            )}
           </div>
         )}
 
@@ -1227,7 +1235,7 @@ function PlayerInner({
             // pointer, and a11y for the subtree.
             inert={!showControls || undefined}
           >
-            <div className="absolute bottom-0 left-0 right-0 h-32 bg-gradient-to-t from-black/80 to-transparent pointer-events-none" />
+            <div className="absolute bottom-0 left-0 right-0 h-32 bg-gradient-to-t from-black/50 to-transparent pointer-events-none" />
             {/*
               This shell stays pointer-events-none so wheel/trackpad scroll reaches the page
               scroll_container over the video. ControlBar uses pointer-events auto only on its
@@ -1243,18 +1251,15 @@ function PlayerInner({
               theaterMode={theaterMode}
               onTheaterModeChange={isMobileView ? undefined : handleTheaterModeChange}
               hideControls={effectiveHideControls}
-              liftBottomPx={showAudioVisualizer ? visualizerStripPx : 0}
+              liftBottomPx={showAudioVisualizer && visualizerWave ? visualizerStripPx : 0}
               isMobileLayout={isMobileView || isNarrowPlayer}
               onBack={onBack}
             />
           </div>
         )}
 
-        {/* Visualizer lives OUTSIDE the fading control overlay so it stays on
-            when the controls auto-hide. Controls are lifted above it via liftBottomPx. */}
-        {showAudioVisualizer && !isMiniPlayerPortalActive && (
-          // z-[32] for the spectrum strip; confetti portals into the player at z-[35]
-          // so pops render in front of the video and controls.
+        {/* Wave lives outside the fading control overlay; unmounts fully when off so controls drop back down. */}
+        {showAudioVisualizer && visualizerWave && !isMiniPlayerPortalActive && (
           <div className="absolute bottom-0 left-0 right-0 z-[32] pointer-events-none">
             <PersistentBottomVisualizer />
           </div>
@@ -1334,7 +1339,10 @@ function PlayerInner({
             align="start"
             sideOffset={4}
             collisionPadding={12}
-            className="max-h-[min(72dvh,var(--radix-dropdown-menu-content-available-height))] min-w-[260px] max-w-[min(320px,calc(100vw-2rem))] z-[2147483647]"
+            className={cn(
+              playerMenuSurface,
+              'max-h-[min(72dvh,var(--radix-dropdown-menu-content-available-height))] min-w-[260px] max-w-[min(320px,calc(100vw-2rem))] z-[2147483647]',
+            )}
           >
             <SettingsMenuBody />
           </DropdownMenuContent>

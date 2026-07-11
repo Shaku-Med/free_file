@@ -196,7 +196,9 @@ export default function ControlBar({
     setReelChromeBottomReservePx,
   } = usePlayerContext();
 
-  const idleSeekOnly = reelEmbedAutoHide && !state.reelAuxiliaryChromeVisible;
+  // Reel chrome (play/volume/CC/settings) lives in the top cluster, so reels
+  // only ever render the seek strip here — the info overlay never has to lift.
+  const reelSeekOnly = reelEmbedAutoHide;
   const containerRef = useRef<HTMLDivElement>(null);
   const bottomStripRef = useRef<HTMLDivElement>(null);
   // In fullscreen, portal the overflow menu into the fullscreen element so it's
@@ -226,10 +228,8 @@ export default function ControlBar({
     };
   }, [
     reelEmbedAutoHide,
-    idleSeekOnly,
     isMobileLayout,
     hideControls,
-    state.reelAuxiliaryChromeVisible,
     setReelChromeBottomReservePx,
   ]);
   const { showTime, showRightInline, showVolumeSlider, mobileMetrics } = useControlBarWidth(containerRef);
@@ -298,20 +298,20 @@ export default function ControlBar({
 
   const circleBtn = cn(
     mobileOverlayCircleBtn,
-    'bg-black/80 text-white shadow-sm active:scale-95 transition-transform',
+    'bg-black/40 text-white shadow-sm active:scale-95 transition-transform',
   );
 
   const desktopIconCircle =
-    'flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-black/80 text-white shadow-sm transition-colors hover:bg-black/90';
+    'flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-black/40 text-white shadow-sm transition-colors hover:bg-black/60';
 
   const desktopRightPill =
-    'flex max-w-[min(100%,28rem)] items-center gap-0.5 overflow-x-auto rounded-full bg-black/80 px-1.5 py-1 shadow-sm [scrollbar-width:none] [&::-webkit-scrollbar]:hidden';
+    'flex max-w-[min(100%,28rem)] items-center gap-0.5 overflow-x-auto rounded-full bg-black/40 px-1.5 py-1 shadow-sm [scrollbar-width:none] [&::-webkit-scrollbar]:hidden';
 
   const autoplayKnobOffset = autoPlay
     ? { right: 'calc((var(--hls-ctrl-toggle-h, 1.5rem) - var(--hls-ctrl-toggle-knob, 1.25rem)) / 2)' }
     : { left: 'calc((var(--hls-ctrl-toggle-h, 1.5rem) - var(--hls-ctrl-toggle-knob, 1.25rem)) / 2)' };
 
-  if (idleSeekOnly) {
+  if (reelSeekOnly) {
     if (isMobileLayout) {
       return (
         <div
@@ -354,89 +354,92 @@ export default function ControlBar({
         className="pointer-events-none absolute inset-0 z-30 flex flex-col"
         style={{ ...mobileVars, bottom: liftBottomPx }}
       >
-        {onBack && !isHidden(hideControls, 'back') && (
-          <div
-            className="pointer-events-auto absolute z-40"
-            style={{ left: 'var(--hls-ctrl-inset, 0.75rem)', top: 'var(--hls-ctrl-inset, 0.75rem)' }}
-          >
-            <PlayerControlTooltip label="Back" side="bottom">
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onBack();
-                }}
-                className={cn(mobileOverlayCircleBtn, 'transition-colors hover:bg-black/90')}
-                aria-label="Back"
-              >
-                <ChevronLeft className={cn(mobileOverlayIcon, 'text-white')} />
-              </button>
-            </PlayerControlTooltip>
-          </div>
-        )}
+        {/* Top chrome: back + autoplay on the left, utility icons on the right. */}
         <div
-          className="pointer-events-auto absolute z-40 flex max-w-[min(100%,calc(100%-4.5rem))] flex-wrap items-center justify-end"
+          className="pointer-events-none absolute left-0 right-0 z-40 flex items-start justify-between"
           style={{
-            right: 'var(--hls-ctrl-inset, 0.75rem)',
+            paddingLeft: 'var(--hls-ctrl-inset, 0.75rem)',
+            paddingRight: 'var(--hls-ctrl-inset, 0.75rem)',
             top: 'var(--hls-ctrl-inset, 0.75rem)',
-            gap: 'var(--hls-ctrl-top-gap, 0.5rem)',
           }}
         >
-          {!isHidden(hideControls, 'settings') && (
-            <PlayerControlTooltip
-              label={
-                authPlaybackFeatures
-                  ? autoPlay
-                    ? 'Autoplay on: plays next when this video ends'
-                    : 'Autoplay off'
-                  : 'Sign in to use autoplay'
-              }
-              side="bottom"
-            >
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  if (!authPlaybackFeatures) return;
-                  setAutoPlay(!autoPlay);
-                }}
-                disabled={!authPlaybackFeatures}
-                className={cn(
-                  'flex shrink-0 items-center gap-1.5 rounded-full bg-black/80 py-1',
-                  !authPlaybackFeatures && 'opacity-50',
-                )}
-                style={{
-                  height: 'var(--hls-ctrl-small-btn, 2.25rem)',
-                  paddingLeft: 'calc(var(--hls-ctrl-top-gap, 0.5rem) + 2px)',
-                  paddingRight: 'calc(var(--hls-ctrl-top-gap, 0.5rem) + 2px)',
-                }}
-                aria-label={autoPlay ? 'Autoplay on' : 'Autoplay off'}
-                aria-pressed={autoPlay}
+          <div
+            className="pointer-events-auto flex flex-wrap items-center"
+            style={{ gap: 'var(--hls-ctrl-top-gap, 0.5rem)' }}
+          >
+            {onBack && !isHidden(hideControls, 'back') && (
+              <PlayerControlTooltip label="Back" side="bottom">
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onBack();
+                  }}
+                  className={cn(mobileOverlayCircleBtn, 'transition-colors hover:bg-black/60')}
+                  aria-label="Back"
+                >
+                  <ChevronLeft className={cn(mobileOverlayIcon, 'text-white')} />
+                </button>
+              </PlayerControlTooltip>
+            )}
+            {!isHidden(hideControls, 'settings') && (
+              <PlayerControlTooltip
+                label={
+                  authPlaybackFeatures
+                    ? autoPlay
+                      ? 'Autoplay on: plays next when this video ends'
+                      : 'Autoplay off'
+                    : 'Sign in to use autoplay'
+                }
+                side="bottom"
               >
-                <span
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (!authPlaybackFeatures) return;
+                    setAutoPlay(!autoPlay);
+                  }}
+                  disabled={!authPlaybackFeatures}
                   className={cn(
-                    mobileAutoplayToggleTrack,
-                    autoPlay ? 'bg-white/30' : 'bg-white/15',
+                    'flex shrink-0 items-center gap-1.5 rounded-full bg-black/40 py-1',
+                    !authPlaybackFeatures && 'opacity-50',
                   )}
+                  style={{
+                    height: 'var(--hls-ctrl-small-btn, 2.25rem)',
+                    paddingLeft: 'calc(var(--hls-ctrl-top-gap, 0.5rem) + 2px)',
+                    paddingRight: 'calc(var(--hls-ctrl-top-gap, 0.5rem) + 2px)',
+                  }}
+                  aria-label={autoPlay ? 'Autoplay on' : 'Autoplay off'}
+                  aria-pressed={autoPlay}
                 >
                   <span
-                    className={mobileAutoplayToggleKnob}
-                    style={autoplayKnobOffset}
+                    className={cn(
+                      mobileAutoplayToggleTrack,
+                      autoPlay ? 'bg-white/30' : 'bg-white/15',
+                    )}
                   >
-                    <Play className={mobileAutoplayToggleIcon} />
+                    <span className={mobileAutoplayToggleKnob} style={autoplayKnobOffset}>
+                      <Play className={mobileAutoplayToggleIcon} />
+                    </span>
                   </span>
-                </span>
-              </button>
-            </PlayerControlTooltip>
-          )}
-          {!isHidden(hideControls, 'subtitles') && <SubtitleButton variant="mobileOverlay" />}
-          {!isHidden(hideControls, 'cast') && <CastButton mobileOverlay />}
-          {!isHidden(hideControls, 'miniPlayer') && authPlaybackFeatures && (
-            <MiniPlayerButton mobileOverlay />
-          )}
-          {!isHidden(hideControls, 'pip') && <PipButton mobileOverlay />}
-          {!isHidden(hideControls, 'settings') && authPlaybackFeatures && <SettingsMenu overlayTrigger />}
-          {!authPlaybackFeatures && <GuestPlaybackBenefitsDialog variant="mobileOverlay" />}
+                </button>
+              </PlayerControlTooltip>
+            )}
+          </div>
+          <div
+            className="pointer-events-auto flex max-w-[70%] flex-wrap items-center justify-end"
+            style={{ gap: 'var(--hls-ctrl-top-gap, 0.5rem)' }}
+          >
+            {!isHidden(hideControls, 'subtitles') && <SubtitleButton variant="mobileOverlay" />}
+            {!isHidden(hideControls, 'cast') && <CastButton mobileOverlay />}
+            {!isHidden(hideControls, 'miniPlayer') && authPlaybackFeatures && (
+              <MiniPlayerButton mobileOverlay />
+            )}
+            {!isHidden(hideControls, 'pip') && <PipButton mobileOverlay />}
+            {!isHidden(hideControls, 'settings') && authPlaybackFeatures && <SettingsMenu overlayTrigger />}
+            {!authPlaybackFeatures && <GuestPlaybackBenefitsDialog variant="mobileOverlay" />}
+          </div>
         </div>
 
         <div
@@ -680,14 +683,14 @@ export default function ControlBar({
           )}
 
           {!isHidden(hideControls, 'volume') && (
-            <div className="flex h-10 min-h-10 items-center rounded-full bg-black/80 py-0 pl-1 pr-1.5 shadow-sm">
+            <div className="flex h-10 min-h-10 items-center rounded-full bg-black/40 py-0 pl-1 pr-1.5 shadow-sm">
               <VolumeControl showSlider={showVolumeSlider && !isMobile} barPill />
             </div>
           )}
 
           {!isHidden(hideControls, 'time') && showTime && (
             <PlayerControlTooltip label="Current time and total length">
-              <div className="flex h-10 min-h-10 min-w-0 shrink cursor-default items-center justify-center rounded-full bg-black/80 px-2.5 text-[11px] font-medium tabular-nums leading-none text-white shadow-sm sm:px-3 sm:text-xs">
+              <div className="flex h-10 min-h-10 min-w-0 shrink cursor-default items-center justify-center rounded-full bg-black/40 px-2.5 text-[11px] font-medium tabular-nums leading-none text-white shadow-sm sm:px-3 sm:text-xs">
                 {formatTime(state.currentTime)}
                 <span className="mx-0.5 text-white/45 sm:mx-1">/</span>
                 {formatTime(state.duration)}
@@ -751,7 +754,7 @@ export default function ControlBar({
                   createPortal(
                     <div
                       ref={overflowRef}
-                      className="dark fixed z-[100000100] flex max-h-[55vh] min-w-[200px] max-w-[280px] flex-col overflow-y-auto rounded-xl border border-border bg-popover/95 py-1 text-popover-foreground shadow-xl backdrop-blur-md"
+                      className="dark fixed z-[100000100] flex max-h-[55vh] min-w-[200px] max-w-[280px] flex-col overflow-y-auto rounded-xl border border-white/10 bg-black/40 py-1 text-white shadow-xl backdrop-blur-xl"
                       style={{
                         position: 'fixed',
                         left: dropdownStyle.left,

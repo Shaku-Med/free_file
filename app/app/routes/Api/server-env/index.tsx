@@ -1,13 +1,11 @@
 import { getAllServerKeys } from '~/lib/Security/unsharedkeyEncryption/ServerToServer/ServerTokenKeys';
 import { EnvValidator } from '~/lib/Security/unsharedkeyEncryption/Combined/Verification/EnvValidator';
 
+// Least-privilege bundle for LoadNode — never ship password crypto keys or the full session keyring.
 const REQUIRED_ENV_KEYS = [
-    // LoadNode needs DB + GitHub + R2 to serve images/profile pics.
-    // Do NOT ship password crypto keys or full session keyring here.
     'SUPABASE_URL',
     'SUPABASE_ANON_KEY',
     'GITHUB_OWNER',
-    // LoadNode decrypts c_user / file tokens for access checks only.
     'TOKEN1',
     'TOKEN2',
     'C_USER',
@@ -15,8 +13,6 @@ const REQUIRED_ENV_KEYS = [
     'TEMP_TOKEN',
     'SESSION_ID',
     'VIDEO_TOKEN',
-    // R2 creds for LoadNodeServer: without these, getR2Client() returns null
-    // and every R2-backed image / profile pic silently falls back to GitHub.
     'R2_ACCOUNT_ID',
     'R2_ACCESS_KEY_ID',
     'R2_SECRET_ACCESS_KEY',
@@ -82,9 +78,7 @@ export const loader = async ({ request }: { request: Request }) => {
             });
         }
         const tokenAge = Date.now() - ts;
-        // Reject expired tokens AND future-dated ones (negative age): without
-        // the lower bound, a token minted with a far-future timestamp would
-        // pass the replay window forever. Allow a small clock-skew tolerance.
+        // Reject expired AND future-dated tokens; small skew tolerance for clock drift.
         const SKEW_MS = 5000;
         if (tokenAge > 60000 || tokenAge < -SKEW_MS) {
             return new Response(JSON.stringify({ error: 'Token expired' }), {

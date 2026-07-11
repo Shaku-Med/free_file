@@ -202,7 +202,6 @@ BEGIN
       (ul.file_id IS NOT NULL)      AS _user_liked,
       (ud.file_id IS NOT NULL)      AS _user_disliked,
       (us.file_id IS NOT NULL)      AS _is_seen,
-      (f.id = ANY(p_exclude_ids))   AS _session_excluded,
       (sc.channel_id IS NOT NULL)   AS _is_subscribed,
       (f.id = ANY(p_watched_ids))   AS _recently_watched,
 
@@ -249,7 +248,8 @@ BEGIN
       THEN 1.0
       ELSE 0.0 END AS _session_boost,
 
-      (((hashtext(f.id::text || p_seed) % 1000000)::float + 500000.0) / 1000000.0) AS _shuffle
+      -- Uniform 0..1 shuffle keyed by seed (abs via bigint so INT_MIN can't error).
+      ((abs(hashtext(f.id::text || p_seed)::bigint) % 1000000)::float / 1000000.0) AS _shuffle
 
     FROM files f
     LEFT JOIN file_engagement_stats es ON es.file_id = f.id
@@ -273,11 +273,11 @@ BEGIN
       AND (p_max_duration IS NULL OR f.duration IS NULL OR f.duration <= p_max_duration)
       AND (p_category IS NULL OR f.categories @> to_jsonb(p_category)::jsonb)
       AND (p_user_id IS NULL OR ud.file_id IS NULL)
-      -- Logged-in viewers: session excludes are deprioritized (_session_excluded), not
-      -- hard-dropped, so the reel feed can scroll forever. Anonymous keeps hard excludes.
+      -- Session excludes are HARD-dropped for everyone: a reel already shown this
+      -- session must never come back. Cross-session variety is handled by the
+      -- 14-day feed_impressions window, not by re-serving session duplicates.
       AND (
-        p_user_id IS NOT NULL
-        OR cardinality(p_exclude_ids) = 0
+        cardinality(p_exclude_ids) = 0
         OR NOT (f.id = ANY(p_exclude_ids))
       )
       -- Negative signal filtering
@@ -299,7 +299,7 @@ BEGIN
     SELECT b.*, 'foryou'::text AS _pool,
       ROW_NUMBER() OVER (
         ORDER BY
-          (CASE WHEN b._is_seen OR b._recently_watched OR b._session_excluded THEN 1 ELSE 0 END) ASC,
+          (CASE WHEN b._is_seen OR b._recently_watched THEN 1 ELSE 0 END) ASC,
           -- Shuffle carries real weight (0.22) so the SAME top-taste reels don't
           -- lead every single session - taste guides, the seed rotates the order.
           LEAST(b._interest_score / 15.0, 0.26)
@@ -320,7 +320,7 @@ BEGIN
     SELECT b.*, 'trending'::text AS _pool,
       ROW_NUMBER() OVER (
         ORDER BY
-          (CASE WHEN b._is_seen OR b._recently_watched OR b._session_excluded THEN 1 ELSE 0 END) ASC,
+          (CASE WHEN b._is_seen OR b._recently_watched THEN 1 ELSE 0 END) ASC,
           b._eng_rate * 0.25
           + b._like_ratio * 0.17
           + LEAST(b._interest_score / 20.0, 0.13)
@@ -339,7 +339,7 @@ BEGIN
     SELECT b.*, 'fresh'::text AS _pool,
       ROW_NUMBER() OVER (
         ORDER BY
-          (CASE WHEN b._is_seen OR b._recently_watched OR b._session_excluded THEN 1 ELSE 0 END) ASC,
+          (CASE WHEN b._is_seen OR b._recently_watched THEN 1 ELSE 0 END) ASC,
           (1.0 - LEAST(b._hours_old / 48.0, 1.0)) * 0.35
           + LEAST(b._interest_score / 20.0, 0.15)
           + b._session_boost * 0.10
@@ -358,7 +358,7 @@ BEGIN
     SELECT b.*, 'popular'::text AS _pool,
       ROW_NUMBER() OVER (
         ORDER BY
-          (CASE WHEN b._is_seen OR b._recently_watched OR b._session_excluded THEN 1 ELSE 0 END) ASC,
+          (CASE WHEN b._is_seen OR b._recently_watched THEN 1 ELSE 0 END) ASC,
           LN(GREATEST(b._total_eng, 1)) * 0.35
           + b._like_ratio * 0.20
           + LEAST(b._interest_score / 20.0, 0.10)
@@ -377,7 +377,7 @@ BEGIN
     SELECT b.*, 'discovery'::text AS _pool,
       ROW_NUMBER() OVER (
         ORDER BY
-          (CASE WHEN b._is_seen OR b._recently_watched OR b._session_excluded THEN 1 ELSE 0 END) ASC,
+          (CASE WHEN b._is_seen OR b._recently_watched THEN 1 ELSE 0 END) ASC,
           b._session_boost * 0.10
           + b._like_ratio * 0.10
           + b._shuffle * 0.80
@@ -407,11 +407,11 @@ BEGIN
     SELECT c.*,
       ROW_NUMBER() OVER (
         ORDER BY
-          (CASE WHEN c._is_seen OR c._recently_watched OR c._session_excluded THEN 1 ELSE 0 END) ASC,
+          (CASE WHEN c._is_seen OR c._recently_watched THEN 1 ELSE 0 END) ASC,
           LEAST(c._interest_score / 20.0, 0.15)
           + LEAST(c._creator_affinity / 20.0, 0.10)
           + c._session_boost * 0.10
-          + (((hashtext(c.id::text || p_seed || c._pool) % 1000000)::float + 500000.0) / 1000000.0) * 0.65
+          + ((abs(hashtext(c.id::text || p_seed || c._pool)::bigint) % 1000000)::float / 1000000.0) * 0.65
           DESC
       ) AS _pre_pos
     FROM combined c

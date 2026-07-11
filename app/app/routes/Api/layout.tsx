@@ -1,22 +1,24 @@
-import { Outlet } from "react-router";
+import { isRouteErrorResponse, Outlet } from "react-router";
 import { assertSafeRequest } from "~/lib/Security/requestGuard.server";
 import { verifyWebhookSecret } from "~/lib/Security/webhookAuth.server";
 
-/**
- * CSRF / cookie-replay guard for browser-facing /api/* mutations.
- *
- * Why: a logged-in victim visiting an attacker's page can be tricked into
- * firing credentialed requests at our origin. SameSite=Lax helps for many
- * cross-site POSTs, but Sec-Fetch + Origin checks (assertSafeRequest) close
- * remaining gaps and block Postman/curl cookie replay.
- *
- * Server-to-server routes authenticate with UPLOAD_WEBHOOK_SECRET (or their
- * own bearer) and skip this browser-shape guard.
- */
+// CSRF guard for browser-facing /api/* mutations; S2S routes use their own auth and skip it.
 
 const MUTATING = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 
-/** Paths that enforce their own S2S auth — never apply browser Sec-Fetch here. */
+const STATUS_LABELS: Record<number, string> = {
+  400: "Bad request",
+  404: "Not found",
+  405: "Method not allowed",
+};
+
+function apiErrorResponse(status: number): Response {
+  return new Response(
+    JSON.stringify({ error: STATUS_LABELS[status] ?? "Internal server error" }),
+    { status, headers: { "Content-Type": "application/json" } },
+  );
+}
+
 function isServerToServerPath(pathname: string): boolean {
   return (
     pathname === "/api/upload-server-check" ||
@@ -27,19 +29,33 @@ function isServerToServerPath(pathname: string): boolean {
   );
 }
 
-/** Sensitive GETs that must look like same-origin browser fetches. */
+// Sensitive GETs that must look like same-origin browser fetches.
 function isSensitiveGet(pathname: string): boolean {
   return pathname === "/api/upload/auth";
 }
 
 export const middleware = [
   async ({ request }: { request: Request }, next: () => Promise<Response>) => {
-    if (verifyWebhookSecret(request) || isServerToServerPath(new URL(request.url).pathname)) {
-      return next();
-    }
-
     const method = request.method.toUpperCase();
     const pathname = new URL(request.url).pathname;
+
+    // SECURITY: never let raw errors (message/stack) serialize into an API
+    // response — log server-side, return a bare status label to the client.
+    const run = async () => {
+      try {
+        return await next();
+      } catch (error) {
+        if (error instanceof Response) return error;
+        const status = isRouteErrorResponse(error) ? error.status : 500;
+        console.error(`[api] ${method} ${pathname} failed (${status}):`, error);
+        return apiErrorResponse(status);
+      }
+    };
+
+    if (verifyWebhookSecret(request) || isServerToServerPath(pathname)) {
+      return run();
+    }
+
     const needsGuard =
       MUTATING.has(method) || (method === "GET" && isSensitiveGet(pathname));
 
@@ -48,7 +64,7 @@ export const middleware = [
       if (blocked) return blocked;
     }
 
-    return next();
+    return run();
   },
 ];
 

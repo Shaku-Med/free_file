@@ -35,6 +35,7 @@ import SubscribeButton, { formatSubscriberCount } from "~/components/SubscribeBu
 import { commentService } from "~/lib/Services/CommentService";
 import DownloadButton from "./components/DownloadButton";
 import { formatNumber } from "~/lib/utils/formatNumber";
+import { formatExactDate } from "~/lib/utils/formatExactDate";
 import { useWatchTracking } from "~/lib/hooks/useWatchTracking";
 import { IMAGE_BASE_URL } from "~/lib/URLS";
 import ParseFilenameInsert from "~/lib/utils/ShowFileName";
@@ -1894,11 +1895,23 @@ const DynamicPage = ({ is_modal }: DynamicPageProps) => {
       ),
     [file_data],
   );
-  // Collapsed = 3 lines visible (matches YouTube). Overflow is measured
-  // off the rendered DOM after layout  see the descRef + isOverflowing
-  // pair below  because a 3-line clamp depends on font + width, not on
-  // raw character count.
   const descRef = useRef<HTMLDivElement>(null);
+  // After collapsing, snap the card back into view if its top scrolled past the viewport.
+  const descCardRef = useRef<HTMLDivElement>(null);
+  const descJustCollapsedRef = useRef(false);
+  const collapseDescription = useCallback(() => {
+    descJustCollapsedRef.current = true;
+    setDescriptionExpanded(false);
+  }, []);
+  useLayoutEffect(() => {
+    if (descriptionExpanded || !descJustCollapsedRef.current) return;
+    descJustCollapsedRef.current = false;
+    const el = descCardRef.current;
+    if (!el) return;
+    if (el.getBoundingClientRect().top < 0) {
+      el.scrollIntoView({ block: "start", behavior: "instant" as ScrollBehavior });
+    }
+  }, [descriptionExpanded]);
   const [isOverflowing, setIsOverflowing] = useState(false);
   useEffect(() => {
     const el = descRef.current;
@@ -1906,8 +1919,7 @@ const DynamicPage = ({ is_modal }: DynamicPageProps) => {
       setIsOverflowing(false);
       return;
     }
-    // Compare scrollHeight (full text height) against clientHeight (clamped
-    // visible height). +1 fudge avoids sub-pixel rounding false positives.
+    // +1 avoids sub-pixel rounding false positives.
     const check = () => setIsOverflowing(el.scrollHeight > el.clientHeight + 1);
     check();
     const ro = new ResizeObserver(check);
@@ -2021,8 +2033,9 @@ const DynamicPage = ({ is_modal }: DynamicPageProps) => {
           and "...more" sits inline on the stats row. Categories stay in the
           data for SEO/meta + the feed  never rendered to viewers. */}
       <div
+        ref={descCardRef}
         className={cn(
-          "rounded-xl bg-muted/40 px-3 py-3 max-lg:rounded-lg",
+          "rounded-xl bg-muted/40 px-3 py-3 max-lg:rounded-lg scroll-mt-20",
           !descriptionExpanded &&
             (descriptionTint
               ? "cursor-pointer transition-colors duration-300 hover:bg-[var(--desc-tint)]"
@@ -2035,10 +2048,17 @@ const DynamicPage = ({ is_modal }: DynamicPageProps) => {
         }
         onClick={!descriptionExpanded ? () => setDescriptionExpanded(true) : undefined}
       >
+        {/* Collapsed: compact stats (10k views, 2 days ago). Expanded: exact values (10,000 views, 2025-05-07 at 4:32 PM). */}
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-foreground">
-          <span className="font-semibold tabular-nums">{formatNumber(views)} views</span>
+          <span className="font-semibold tabular-nums">
+            {descriptionExpanded ? views.toLocaleString("en-US") : formatNumber(views)} views
+          </span>
           {file_data.created_at && (
-            <span className="font-semibold">{formatTimeAgo(file_data.created_at)}</span>
+            <span className="font-semibold">
+              {descriptionExpanded
+                ? formatExactDate(file_data.created_at)
+                : formatTimeAgo(file_data.created_at)}
+            </span>
           )}
           {/* No description text: the expand affordance lives inline here. */}
           {!descriptionExpanded &&
@@ -2155,7 +2175,7 @@ const DynamicPage = ({ is_modal }: DynamicPageProps) => {
         {descriptionExpanded && (
           <button
             type="button"
-            onClick={() => setDescriptionExpanded(false)}
+            onClick={collapseDescription}
             className="mt-4 text-sm font-semibold text-foreground hover:underline"
           >
             Show less
@@ -2279,10 +2299,7 @@ const DynamicPage = ({ is_modal }: DynamicPageProps) => {
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{
-          // Escape characters that could break out of the <script> tag or be
-          // mis-parsed (`</script>`, line/paragraph separators). User-input
-          // fields (title, description, author) flow through this string  the
-          // raw JSON.stringify would let `</script>` inside a title break out.
+          // Escape sequences that could break out of the <script> tag (user input flows through this).
           __html: JSON.stringify(jsonLd)
             .replace(/</g, "\\u003c")
             .replace(/>/g, "\\u003e")
@@ -2303,9 +2320,8 @@ const DynamicPage = ({ is_modal }: DynamicPageProps) => {
             <div
               className={cn(
                 "relative w-full overflow-visible",
-                isMobileDevice &&
-                  !theaterMode &&
-                  "sticky top-[calc(env(safe-area-inset-top,0px)+4rem)] z-[99999990] self-start bg-background",
+                !theaterMode &&
+                  "max-lg:sticky max-lg:top-[var(--app-top-nav-h,4rem)] max-lg:z-[99999990] max-lg:self-start max-lg:bg-background",
               )}
             >
               {videoBlock}

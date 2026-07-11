@@ -1,15 +1,8 @@
-/**
- * Short-lived upload-scoped tokens.
- *
- * Never hand the long-lived `c_user` session JWT to browser JS. Mint a
- * separate token (different key material + `typ: "upload"`) with a short TTL
- * so XSS / leaked bearer tokens cannot become full account sessions.
- */
+// Short-lived upload-scoped tokens so browser JS never sees the full c_user session JWT.
 
 import { EncryptCombine, DecryptCombine } from "~/lib/Security/unsharedkeyEncryption/Combined/Combined";
 import { getAllKeys } from "~/lib/Security/unsharedkeyEncryption/Combined/Verification/TokenKeys";
 
-/** Upload bearer lifetime — long enough for chunked uploads, short enough to limit blast radius. */
 export const UPLOAD_TOKEN_TTL_SECONDS = 15 * 60;
 
 const UPLOAD_KEY_NAMES = ["file_token", "temp_token"] as const;

@@ -2,17 +2,9 @@ import { verifyWebhookSecret } from "~/lib/Security/webhookAuth.server";
 import { verifyUploadToken } from "~/lib/Security/uploadToken.server";
 import db from "~/lib/Database/supabase";
 
-/**
- * GET /api/upload-server-check
- * Called by the Go upload server to verify the user. The Go server sends:
- *   Authorization: Bearer <upload_token>
- *   X-Webhook-Secret: <UPLOAD_WEBHOOK_SECRET>
- * where upload_token is a short-lived token from /api/upload/auth (not c_user).
- * Returns 200 { userId, username } if valid, 401 if not.
- */
+// GET /api/upload-server-check — GoUpload verifies its upload_token bearer here (webhook secret required).
 export const loader = async ({ request }: { request: Request }) => {
   try {
-    // Only GoUpload (shared secret) may call this — never browsers.
     if (!verifyWebhookSecret(request)) {
       return new Response(JSON.stringify({ error: "unauthorized" }), {
         status: 401,

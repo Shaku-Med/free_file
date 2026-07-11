@@ -24,20 +24,20 @@ type FriendLiker = {
  *   • a channel the viewer subscribes to, OR
  *   • a creator the viewer watches a lot (user_creator_affinity).
  * We then intersect that candidate set with the users who actually LIKED the file.
- * Logged-out viewers (or any error) get an empty list so the UI just renders nothing.
+ * Auth required: logged-out callers get 401 (the UI only calls this when signed in).
  */
 export const loader = async ({ request }: { request: Request }) => {
   try {
+    const user = await isAuthenticated(request, ["id"]);
+    if (!user?.id) return toJson({ success: false }, 401);
+    const me = String(user.id);
+
     const url = new URL(request.url);
     const fileId = url.searchParams.get("file_id");
     if (!fileId || !UUID_RE.test(fileId)) {
-      return toJson({ success: true, friends: [] });
+      return toJson({ success: false }, 400);
     }
-    if (!db) return toJson({ success: true, friends: [] });
-
-    const user = await isAuthenticated(request, ["id"]);
-    if (!user?.id) return toJson({ success: true, friends: [] });
-    const me = String(user.id);
+    if (!db) return toJson({ success: false }, 503);
 
     // Candidate friends: channels I subscribe to + creators I watch a lot.
     const [subsRes, affRes] = await Promise.all([
@@ -99,6 +99,6 @@ export const loader = async ({ request }: { request: Request }) => {
 
     return toJson({ success: true, friends });
   } catch {
-    return toJson({ success: true, friends: [] });
+    return toJson({ success: false }, 500);
   }
 };

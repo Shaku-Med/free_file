@@ -88,15 +88,14 @@ export function mobileControlStyleVars(m: MobileControlMetrics): CSSProperties {
 }
 
 export const mobileOverlayCircleBtn =
-  'flex h-[var(--hls-ctrl-btn,2.75rem)] w-[var(--hls-ctrl-btn,2.75rem)] shrink-0 items-center justify-center rounded-full bg-black/80 text-white shadow-sm active:scale-95 transition-transform';
+  'flex h-[var(--hls-ctrl-btn,2.75rem)] w-[var(--hls-ctrl-btn,2.75rem)] shrink-0 items-center justify-center rounded-full bg-black/40 text-white shadow-sm active:scale-95 transition-transform';
 
 export const mobileOverlaySmallCircleBtn =
-  'flex h-[var(--hls-ctrl-small-btn,2.25rem)] w-[var(--hls-ctrl-small-btn,2.25rem)] shrink-0 items-center justify-center rounded-full bg-black/80 text-white shadow-sm active:scale-95 transition-transform';
+  'flex h-[var(--hls-ctrl-small-btn,2.25rem)] w-[var(--hls-ctrl-small-btn,2.25rem)] shrink-0 items-center justify-center rounded-full bg-black/40 text-white shadow-sm active:scale-95 transition-transform';
 
-// Kept for back-compat, but now a CIRCLE so every overlay control shares the
-// same roundedness + bg (cast / pip / mini / settings match play-pause & co.).
+// Back-compat alias; a circle so every overlay control matches play-pause.
 export const mobileOverlaySquareBtn =
-  'flex h-[var(--hls-ctrl-small-btn,2.25rem)] w-[var(--hls-ctrl-small-btn,2.25rem)] shrink-0 items-center justify-center rounded-full bg-black/80 text-white shadow-sm active:scale-95 transition-transform';
+  'flex h-[var(--hls-ctrl-small-btn,2.25rem)] w-[var(--hls-ctrl-small-btn,2.25rem)] shrink-0 items-center justify-center rounded-full bg-black/40 text-white shadow-sm active:scale-95 transition-transform';
 
 export const mobileOverlayIcon =
   'h-[var(--hls-ctrl-icon,1.25rem)] w-[var(--hls-ctrl-icon,1.25rem)]';
@@ -105,10 +104,10 @@ export const mobileOverlayMainIcon =
   'h-[var(--hls-ctrl-main-icon,2.25rem)] w-[var(--hls-ctrl-main-icon,2.25rem)]';
 
 export const mobileVolumePillShell =
-  'flex shrink-0 items-center justify-center rounded-full bg-black/80 shadow-sm';
+  'flex shrink-0 items-center justify-center rounded-full bg-black/40 shadow-sm';
 
 export const mobileTimePill =
-  'flex min-w-0 max-w-full shrink cursor-default items-center justify-center rounded-full bg-black/80 font-medium tabular-nums leading-none text-white shadow-sm';
+  'flex min-w-0 max-w-full shrink cursor-default items-center justify-center rounded-full bg-black/40 font-medium tabular-nums leading-none text-white shadow-sm';
 
 export const mobileAutoplayToggleTrack =
   'relative inline-flex shrink-0 rounded-full transition-colors duration-200 h-[var(--hls-ctrl-toggle-h,1.5rem)] w-[var(--hls-ctrl-toggle-w,2.75rem)]';
@@ -119,8 +118,12 @@ export const mobileAutoplayToggleKnob =
 export const mobileAutoplayToggleIcon =
   'fill-neutral-900 text-neutral-900 h-[var(--hls-ctrl-toggle-icon,0.625rem)] w-[var(--hls-ctrl-toggle-icon,0.625rem)]';
 
+/** Translucent surface for player dropdowns/context menus — matches the control pills (bg-black/40). */
+export const playerMenuSurface =
+  'dark border-white/10 bg-black/40 text-white backdrop-blur-xl';
+
 export const mobilePillIconBtn =
-  'rounded-lg text-white transition-colors hover:bg-white/10 p-[calc(var(--hls-ctrl-pill-px,0.5rem)*0.35)]';
+  'flex aspect-square shrink-0 items-center justify-center rounded-full text-white transition-colors hover:bg-white/10 p-[calc(var(--hls-ctrl-pill-px,0.5rem)*0.35)]';
 
 export const mobilePillIcon =
   'h-[var(--hls-ctrl-icon,1.25rem)] w-[var(--hls-ctrl-icon,1.25rem)]';

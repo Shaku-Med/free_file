@@ -4,17 +4,11 @@ import { isMobile } from "react-device-detect";
 import { cn } from "~/lib/utils";
 import { usePlayerContext } from "../PlayerContext";
 
-/** Fallback when ControlBar hasn't measured yet (matches typical mobile full strip). */
-function fallbackReelInfoBottom(idleSeekOnly: boolean, mobileLayout: boolean): string {
-  if (idleSeekOnly) {
-    return mobileLayout
-      ? "calc(3rem + max(0.75rem, env(safe-area-inset-bottom, 0px)))"
-      : "3rem";
-  }
-
+/** Fallback when ControlBar hasn't measured yet (reels only have the seek strip below). */
+function fallbackReelInfoBottom(mobileLayout: boolean): string {
   return mobileLayout
-    ? "calc(7.5rem + max(0.75rem, env(safe-area-inset-bottom, 0px)))"
-    : "5.5rem";
+    ? "calc(3rem + max(0.75rem, env(safe-area-inset-bottom, 0px)))"
+    : "3rem";
 }
 
 function usePlayerMobileLayout(): boolean {
@@ -39,31 +33,27 @@ export interface ReelInfoOverlayProps {
 }
 
 /**
- * Reel metadata layer inside the player — stays above the video, below controls,
- * and shifts up when auxiliary chrome (play / volume / time) is visible.
+ * Reel metadata layer inside the player — sits just above the seek strip.
+ * Reel chrome lives at the top of the player now, so this never lifts.
  */
 export function ReelInfoOverlay({
   children,
   reserveActionRail = true,
   className,
 }: ReelInfoOverlayProps) {
-  const { reelEmbedAutoHide, reelChromeBottomReservePx, state } = usePlayerContext();
-  const idleSeekOnly = reelEmbedAutoHide && !state.reelAuxiliaryChromeVisible;
+  const { reelEmbedAutoHide, reelChromeBottomReservePx } = usePlayerContext();
   const mobileLayout = usePlayerMobileLayout();
 
   const bottom =
     reelEmbedAutoHide && reelChromeBottomReservePx > 0
       ? `${reelChromeBottomReservePx}px`
-      : fallbackReelInfoBottom(idleSeekOnly, mobileLayout);
+      : fallbackReelInfoBottom(mobileLayout);
 
   return (
     <>
       <div
         aria-hidden
-        className={cn(
-          "pointer-events-none absolute inset-x-0 bottom-0 z-[28] bg-gradient-to-t from-black/95 via-black/55 to-transparent transition-[height,opacity] duration-300",
-          idleSeekOnly ? "h-[min(38%,11rem)]" : "h-[min(52%,16rem)]",
-        )}
+        className="pointer-events-none absolute inset-x-0 bottom-0 z-[28] h-[min(38%,11rem)] bg-gradient-to-t from-black/95 via-black/55 to-transparent"
       />
       <div
         className={cn(

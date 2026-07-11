@@ -17,11 +17,11 @@ const toJson = (body: unknown, status = 200) =>
  * series main file's normal navigation.
  */
 export const loader = async ({ request }: { request: Request }) => {
-  if (request.method !== 'GET') return toJson({ error: 'Method not allowed' }, 405);
-  if (!db) return toJson({ resume: null }, 200);
+  if (request.method !== 'GET') return toJson({}, 405);
+  if (!db) return toJson({}, 500);
 
   const user = await isAuthenticated(request, ['id']);
-  if (!user?.id) return toJson({ resume: null }, 200);
+  if (!user?.id) return toJson({}, 401);
 
   const url = new URL(request.url);
   const seriesIdRaw = url.searchParams.get('seriesId')?.trim();

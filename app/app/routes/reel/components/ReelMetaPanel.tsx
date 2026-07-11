@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { Link } from "react-router";
 import { Music2 } from "lucide-react";
 import { FormattedText } from "~/components/FormattedText";
@@ -15,6 +15,7 @@ import {
 import { useFileContext } from "~/lib/Context/Context";
 import { formatTimeAgo } from "~/lib/formatTimeAgo";
 import { formatNumber } from "~/lib/utils/formatNumber";
+import { formatExactDate } from "~/lib/utils/formatExactDate";
 import ParseFilenameInsert from "~/lib/utils/ShowFileName";
 import type { FileType } from "~/lib/types";
 import type { VerticalFeedItemData } from "~/components/vertical-feed";
@@ -91,6 +92,9 @@ function useReelSubscribed(
   return subscribed;
 }
 
+const CAPTION_PREVIEW_CHARS = 90;
+
+/** Manually broken preview: we clip the text ourselves and append a clickable "…" that opens the drawer. */
 function ReelCaptionPreview({
   caption,
   onSeeMore,
@@ -98,37 +102,27 @@ function ReelCaptionPreview({
   caption: string;
   onSeeMore: () => void;
 }) {
-  const previewRef = useRef<HTMLDivElement>(null);
-  const [isTruncated, setIsTruncated] = useState(false);
-
-  useLayoutEffect(() => {
-    const el = previewRef.current;
-    if (!el) return;
-    const check = () => setIsTruncated(el.scrollHeight > el.clientHeight + 1);
-    check();
-    const ro = new ResizeObserver(check);
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, [caption]);
+  const firstLine = caption.split(/\r?\n/)[0] ?? "";
+  const clipped = firstLine.length > CAPTION_PREVIEW_CHARS;
+  const preview = clipped
+    ? firstLine.slice(0, CAPTION_PREVIEW_CHARS).replace(/\s+\S*$/, "").trimEnd()
+    : firstLine;
+  const hasMoreText = clipped || preview.length < caption.length;
 
   return (
-    <div className="flex min-w-0 items-end gap-1.5">
-      <div
-        ref={previewRef}
-        className="line-clamp-1 min-w-0 flex-1 text-sm leading-snug text-white/90 [text-shadow:0_1px_3px_rgba(0,0,0,0.85)]"
-      >
-        <FormattedText text={caption} className="text-white/90 [&_a]:text-white" />
-      </div>
-      {isTruncated ? (
+    <div className="min-w-0 text-sm leading-snug text-white/90 [text-shadow:0_1px_3px_rgba(0,0,0,0.85)]">
+      <FormattedText text={preview} className="text-white/90 [&_a]:text-white" />
+      {hasMoreText ? (
         <button
           type="button"
-          className="swiper-no-swiping shrink-0 text-sm font-semibold text-white/95 underline-offset-2 hover:underline"
+          aria-label="Show full description"
+          className="swiper-no-swiping ml-0.5 align-baseline text-sm font-semibold tracking-widest text-white hover:text-white/75"
           onClick={(e) => {
             e.stopPropagation();
             onSeeMore();
           }}
         >
-          See more
+          …
         </button>
       ) : null}
     </div>
@@ -198,6 +192,19 @@ export function ReelMetaPanel({ file, item, views }: ReelMetaPanelProps) {
           <ReelCaptionPreview caption={caption} onSeeMore={() => setDescriptionOpen(true)} />
         ) : null}
 
+        {/* Compact stats while folded; the drawer shows full numbers + exact date. */}
+        <div className="flex flex-wrap items-center gap-x-1.5 text-xs text-white/80 [text-shadow:0_1px_3px_rgba(0,0,0,0.85)]">
+          <span className="tabular-nums">{formatNumber(views)} views</span>
+          {file.created_at ? (
+            <>
+              <span className="opacity-60" aria-hidden>
+                ·
+              </span>
+              <span>{formatTimeAgo(file.created_at)}</span>
+            </>
+          ) : null}
+        </div>
+
         {/* Sound chip: music icon + the original's title (the action rail's
             audio-art tile carries the thumbnail, Instagram-style). */}
         {(file.original_file_id ||
@@ -238,15 +245,17 @@ export function ReelMetaPanel({ file, item, views }: ReelMetaPanelProps) {
                   <ParseFilenameInsert filename={title} />
                 </p>
               ) : null}
-              {/* Views + posted-time live here (in "See more") to keep the overlay uncluttered. */}
+              {/* Expanded view: full numbers + exact date (overlay stays uncluttered). */}
               <div className="mb-3 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted-foreground">
-                <span className="font-medium tabular-nums text-foreground">{formatNumber(views)} views</span>
+                <span className="font-medium tabular-nums text-foreground">
+                  {views.toLocaleString("en-US")} views
+                </span>
                 {file.created_at ? (
                   <>
                     <span className="opacity-50" aria-hidden>
                       ·
                     </span>
-                    <span>{formatTimeAgo(file.created_at)}</span>
+                    <span>{formatExactDate(file.created_at)}</span>
                   </>
                 ) : null}
               </div>

@@ -43,10 +43,10 @@ export const action = async ({ request }: { request: Request }) => {
   try {
     if (request.method === 'DELETE') return await clearHistory(request);
     if (request.method !== 'POST') return toJson({ error: 'Method not allowed' }, 405);
-    if (!db) return toJson({ recorded: false }, 200);
+    if (!db) return toJson({}, 500);
 
     const user = await isAuthenticated(request, ['id', 'history_paused']);
-    if (!user?.id) return toJson({ recorded: false }, 200);
+    if (!user?.id) return toJson({}, 401);
     if (user.history_paused === true) return toJson({ recorded: false, paused: true }, 200);
 
     let body: { fileId?: string; uniqueId?: string };

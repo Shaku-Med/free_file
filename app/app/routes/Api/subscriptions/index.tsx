@@ -39,16 +39,15 @@ export const loader = async ({ request }: { request: Request }) => {
     const url = new URL(request.url);
     const channelId = url.searchParams.get("channel_id");
     if (!channelId) {
-      return data({ success: false, error: "channel_id is required" }, { status: 400 });
+      return data({ success: false }, { status: 400 });
     }
     if (!db) {
-      return data({ success: false, error: "Database unavailable" }, { status: 500 });
+      return data({ success: false }, { status: 500 });
     }
 
     const user = await isAuthenticated(request, ["id"]);
-    // Logged-out viewers can't be subscribed to anything.
     if (!user?.id) {
-      return data({ success: true, subscribed: false }, { status: 200 });
+      return data({ success: false }, { status: 401 });
     }
 
     const { data: statsResult } = await db.rpc("get_channel_stats", {
