@@ -134,7 +134,7 @@ export const action = async ({ request }: { request: Request }) => {
   const newCounter = verification.authenticationInfo.newCounter;
   await db.from("user_passkeys").update({ counter: newCounter }).eq("id", row.id);
 
-  const token = await issueCUserSessionToken(account.c_usr);
+  const token = await issueCUserSessionToken(account.c_usr, request);
   if (!token) {
     return json({ error: PasskeyUserMessage.tryAgainLater }, 500);
   }

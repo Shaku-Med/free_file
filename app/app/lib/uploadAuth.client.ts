@@ -14,11 +14,14 @@ export type UploadAuthContext = {
  * UPLOAD_SERVER_URL / GO_UPLOAD_URL.
  * =============================================================================
  *
- * Mint GoUpload auth from the HttpOnly c_user cookie (server-side read).
- * Verifies the upload server is reachable before returning.
+ * Mints a short-lived upload-scoped bearer from the HttpOnly c_user cookie
+ * (server-side). Never receives the session JWT itself.
  */
 export async function fetchUploadAuthContext(): Promise<UploadAuthContext> {
-  const authRes = await fetch("/api/upload/auth", { credentials: "include" });
+  const authRes = await fetch("/api/upload/auth", {
+    credentials: "include",
+    headers: { "X-Requested-With": "fetch" },
+  });
   if (authRes.status === 401) {
     throw new Error("Please log in to upload.");
   }

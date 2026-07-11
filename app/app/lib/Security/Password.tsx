@@ -54,7 +54,29 @@ export const VerifyPassword = async (password: string, encryptedPassword: string
 }
 
 
+/** Columns callers may request from `users` via isAuthenticated. */
+const ALLOWED_USER_COLUMNS = new Set([
+    'id',
+    'username',
+    'email',
+    'profile_pic',
+    'verified',
+    'dob',
+    'history_paused',
+    'is_memories',
+    'theme',
+    'c_usr',
+    'show_nsfw',
+]);
+
 type ReturnUserSelect = string[] | undefined | null;
+
+function whitelistUserSelect(cols: string[] | undefined | null): string[] {
+    const requested = cols && cols.length > 0 ? cols : ['id'];
+    const safe = requested.filter((c) => typeof c === 'string' && ALLOWED_USER_COLUMNS.has(c));
+    return safe.length > 0 ? safe : ['id'];
+}
+
 export const isAuthenticated = async (request: Request, returnUser_Select?: ReturnUserSelect): Promise<any | boolean> => {
     try {
         if(!db) return null;
@@ -64,19 +86,17 @@ export const isAuthenticated = async (request: Request, returnUser_Select?: Retu
         if(!keys) return null;
 
         let decoded = await DecryptCombine(c_user, keys);
-        if(!decoded) return null;
+        if(!decoded || typeof decoded !== 'object' || !decoded.c_usr) return null;
 
-        let shouldReturnUser = returnUser_Select && returnUser_Select!.length > 0;
-        if(shouldReturnUser) {
-            returnUser_Select = returnUser_Select as string[];
-        }
-        else {
-            returnUser_Select = ['id'];
-        }
-        let returnUser_Select_String = returnUser_Select!.join(',');
+        // Soft device bind: reject sessions minted for a different User-Agent.
+        const { sessionUaMatches } = await import('./sessionFingerprint.server');
+        if (!sessionUaMatches(decoded, request.headers)) return null;
+
+        let shouldReturnUser = !!(returnUser_Select && returnUser_Select.length > 0);
+        const cols = whitelistUserSelect(returnUser_Select);
         const { data: user, error } = await db
           .from('users')
-          .select(returnUser_Select_String)
+          .select(cols.join(','))
           .eq('c_usr', decoded.c_usr).maybeSingle();
         if(error) return null;
         return shouldReturnUser ? user : true;

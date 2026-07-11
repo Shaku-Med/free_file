@@ -7,6 +7,7 @@ import {
   useLoaderData,
   type MetaFunction,
 } from "react-router";
+import { lazy, Suspense } from "react";
 
 import type { Route } from "./+types/root";
 import "./app.css";
@@ -22,10 +23,8 @@ import { WatchPlayBootstrapProvider } from "./lib/Context/WatchPlayBootstrapCont
 import { WatchHlsSurfaceProvider } from "./lib/Context/WatchHlsSurfaceContext";
 import { WatchProgressProvider } from "./lib/Context/WatchProgressContext";
 import { RootPlayQueueProvider } from "./components/MainPlayer/RootPlayQueueProvider";
-import { GlobalAnchoredHLSPlayer } from "./components/MainPlayer/GlobalAnchoredHLSPlayer";
 import { SyncGlobalPlayerHost } from "./components/MainPlayer/SyncGlobalPlayerHost";
 import { GlobalPlayerLayoutProvider } from "./lib/Context/GlobalPlayerLayoutContext";
-import MiniPlayer from "./components/MiniPlayer/MiniPlayer";
 import { CloseMiniPlayerOnNavigateToVideo } from "./components/MiniPlayer/CloseMiniPlayerOnNavigateToVideo";
 import { RestoreMiniPlayerAfterReel } from "./components/MiniPlayer/RestoreMiniPlayerAfterReel";
 import db from "./lib/Database/supabase";
@@ -49,6 +48,13 @@ import { getPlayerSettingsFromCookies } from "./routes/Api/player-settings";
 import { BASE_URL } from "./lib/URLS";
 import { isMobileUserAgent } from "./lib/device.server";
 import { readAltAccountsFromRequest } from "./lib/Security/accountVault";
+
+const GlobalAnchoredHLSPlayer = lazy(() =>
+  import("./components/MainPlayer/GlobalAnchoredHLSPlayer").then((m) => ({
+    default: m.GlobalAnchoredHLSPlayer,
+  })),
+);
+const MiniPlayer = lazy(() => import("./components/MiniPlayer/MiniPlayer"));
 
 export const links: Route.LinksFunction = () => [
   { rel: "preconnect", href: "https://fonts.googleapis.com" },
@@ -80,8 +86,13 @@ const userMiddleware: Route.MiddlewareFunction = async ({ context }, next) => {
   // ERR_BLOCKED_BY_RESPONSE.NotSameOriginAfterDefaultedToSameOriginByCoep.
   // Re-enable only if you need SharedArrayBuffer (e.g. require-corp + same-origin).
   // Same-origin pages may embed each other (e.g. /pip iframes the watch page). Block third-party embeds.
-  response.headers.set("Content-Security-Policy", "frame-ancestors 'self'");
-  // response.headers.set("X-Frame-Options", "DENY");
+  // Conservative CSP: lock framing/base/plugins/forms without breaking ads/fonts/CDN scripts.
+  response.headers.set(
+    "Content-Security-Policy",
+    "frame-ancestors 'self'; base-uri 'self'; object-src 'none'; form-action 'self'",
+  );
+  response.headers.set("X-Content-Type-Options", "nosniff");
+  response.headers.set("Referrer-Policy", "strict-origin-when-cross-origin");
   return response;
 };
 
@@ -152,7 +163,8 @@ export const loader = async ({request}: {request: Request}) => {
     let keys = ['token1', 'token2'];
     let verified = await VerifyB4Making(request.headers, keys);
 
-    const user = await isAuthenticated(request, ['id']);
+    // id + theme in one round-trip (avoids a second users query).
+    const user = await isAuthenticated(request, ['id', 'theme']);
     const userId = user?.id || null;
 
     // Refresh the signed-in user's IP/geo (throttled in the helper so app opens
@@ -183,9 +195,8 @@ export const loader = async ({request}: {request: Request}) => {
       '';
 
     let userTheme: UserTheme | null = null;
-    if (userId && db) {
-      const { data: row } = await db.from("users").select("theme").eq("id", userId).single();
-      const parsed = parseUserTheme(row?.theme ?? null);
+    if (userId) {
+      const parsed = parseUserTheme(user?.theme ?? null);
       if (parsed) userTheme = parsed;
     }
 
@@ -243,7 +254,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
           <ErrorMessage message={{
             title: 'Error',
             description: `Something went wrong!`,
-            action: `window.location.reload()`,
+            action: 'reload',
             actionText: 'Refresh Page',
           }}/>
         </body>
@@ -317,8 +328,12 @@ export function Layout({ children }: { children: React.ReactNode }) {
                               <RestoreMiniPlayerAfterReel />
                               <SyncGlobalPlayerHost />
                               <AppShell>{children}</AppShell>
-                              <MiniPlayer />
-                              <GlobalAnchoredHLSPlayer />
+                              <Suspense fallback={null}>
+                                <MiniPlayer />
+                              </Suspense>
+                              <Suspense fallback={null}>
+                                <GlobalAnchoredHLSPlayer />
+                              </Suspense>
                               <SignInPrompt />
                               <PushPromptOverlay />
                             </GlobalPlayerLayoutProvider>

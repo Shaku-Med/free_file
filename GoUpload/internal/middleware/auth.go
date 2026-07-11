@@ -31,7 +31,8 @@ type uploadServerCheckResponse struct {
 }
 
 // AuthUpload verifies the user via the app's /api/upload-server-check.
-// Client must send: Authorization: Bearer <c_user>
+// Client must send: Authorization: Bearer <upload_token> (short-lived; from /api/upload/auth).
+// GoUpload adds X-Webhook-Secret when calling the check endpoint.
 // On success sets c.Locals(LocalsUserID, userId). On failure returns a generic error only (no internal details).
 func AuthUpload() fiber.Handler {
 	appBaseURL := env.Get("APP_BASE_URL", "http://localhost:3000")
@@ -62,6 +63,11 @@ func AuthUpload() fiber.Handler {
 			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "auth_request_failed"})
 		}
 		req.Header.Set("Authorization", "Bearer "+cUser)
+		// Shared secret so only GoUpload can hit /api/upload-server-check
+		// (browser clients must never call that endpoint).
+		if secret := env.Get("UPLOAD_WEBHOOK_SECRET", ""); secret != "" {
+			req.Header.Set("X-Webhook-Secret", secret)
+		}
 
 		client := &http.Client{Timeout: authCheckTimeout}
 		resp, err := client.Do(req)

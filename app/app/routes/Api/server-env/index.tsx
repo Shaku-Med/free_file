@@ -2,19 +2,19 @@ import { getAllServerKeys } from '~/lib/Security/unsharedkeyEncryption/ServerToS
 import { EnvValidator } from '~/lib/Security/unsharedkeyEncryption/Combined/Verification/EnvValidator';
 
 const REQUIRED_ENV_KEYS = [
+    // LoadNode needs DB + GitHub + R2 to serve images/profile pics.
+    // Do NOT ship password crypto keys or full session keyring here.
     'SUPABASE_URL',
     'SUPABASE_ANON_KEY',
     'GITHUB_OWNER',
-    'AUTHORIZATION_KEY',
+    // LoadNode decrypts c_user / file tokens for access checks only.
     'TOKEN1',
     'TOKEN2',
     'C_USER',
-    'VIDEO_TOKEN',
     'FILE_TOKEN',
     'TEMP_TOKEN',
     'SESSION_ID',
-    'PASSWORDS',
-    'SERVER_AUTH',
+    'VIDEO_TOKEN',
     // R2 creds for LoadNodeServer: without these, getR2Client() returns null
     // and every R2-backed image / profile pic silently falls back to GitHub.
     'R2_ACCOUNT_ID',

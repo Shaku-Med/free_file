@@ -3,18 +3,32 @@ import { cn } from '~/lib/utils'
 import { Button } from './ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card'
 
+type ErrorAction = 'reload'
+
 interface ErrorMessageProps {
   message: {
     title?: string;
     description?: string;
-    action?: string;
+    /** Fixed action id — never arbitrary JS. */
+    action?: ErrorAction;
     actionText?: string;
   };
   children?: React.ReactNode;
   className?: string;
 }
 
+const ACTIONS: Record<ErrorAction, () => void> = {
+  reload: () => {
+    if (typeof window !== 'undefined') window.location.reload()
+  },
+}
+
 const ErrorMessage = ({ message, children, className }: ErrorMessageProps) => {
+  const onAction =
+    message.action && ACTIONS[message.action]
+      ? ACTIONS[message.action]
+      : undefined
+
   return (
     <div className={cn('flex items-center justify-center min-h-screen bg-background fixed inset-0 p-4', className)}>
       {children || (
@@ -43,30 +57,18 @@ const ErrorMessage = ({ message, children, className }: ErrorMessageProps) => {
               {message.description}
             </CardDescription>
           </CardHeader>
-          {
-            message.action && (
-                <CardContent>
-                    <Button 
-                    className="w-full"
-                    size="lg"
-                    type="button"
-                    id="error-message-action"
-                    >
-                    {message.actionText}
-                    </Button>
-                    <script>
-                        {`
-                        const errorMessageAction = document.getElementById('error-message-action');
-                        if (errorMessageAction) {
-                            errorMessageAction.addEventListener('click', () => {
-                            eval(${message.action});
-                            });
-                        }
-                        `}
-                    </script>
-                </CardContent>
-            )
-          }
+          {onAction && (
+            <CardContent>
+              <Button
+                className="w-full"
+                size="lg"
+                type="button"
+                onClick={onAction}
+              >
+                {message.actionText}
+              </Button>
+            </CardContent>
+          )}
         </Card>
       )}
     </div>

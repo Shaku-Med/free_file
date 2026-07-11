@@ -10,11 +10,23 @@ import { validateSignupInputs, validateLoginInputs, normalizeIdentifier, constan
  * stolen token can't outlive the cookie. */
 const SESSION_TTL_SECONDS = 30 * 24 * 60 * 60;
 
-/** Issue the same JWT used for password login (c_user cookie payload). */
-export async function issueCUserSessionToken(c_usr: string): Promise<string | null> {
+/** Issue the same JWT used for password login (c_user cookie payload).
+ *  When `request` is provided, binds the session to a User-Agent fingerprint
+ *  so a stolen cookie is harder to replay from another browser. */
+export async function issueCUserSessionToken(
+  c_usr: string,
+  request?: Request,
+): Promise<string | null> {
   const keys = await getAllKeys(['token1', 'c_user']);
   if (!keys) return null;
-  return EncryptCombine({ c_usr }, keys, {
+  const payload: { c_usr: string; ua?: string } = { c_usr };
+  if (request) {
+    const { sessionUaFingerprint } = await import(
+      '~/lib/Security/sessionFingerprint.server'
+    );
+    payload.ua = sessionUaFingerprint(request.headers);
+  }
+  return EncryptCombine(payload, keys, {
     expiresIn: SESSION_TTL_SECONDS,
     algorithm: 'HS512',
   });
@@ -267,7 +279,7 @@ export const loginUser = async (data: LoginData, request: Request): Promise<{ su
       return { success: false, error: 'Invalid username/email or password' };
     }
 
-    const token = await issueCUserSessionToken(userC_usr);
+    const token = await issueCUserSessionToken(userC_usr, request);
     if (!token) {
       return { success: false, error: 'Something went wrong. Please try again.' };
     }

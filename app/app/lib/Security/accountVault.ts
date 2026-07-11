@@ -140,24 +140,8 @@ export function readAltAccountsFromRequest(headers: Headers): AltAccount[] {
   return parseAltAccounts(raw);
 }
 
-/** Validate request origin matches the host (CSRF defense-in-depth for JSON endpoints). */
-export function isValidOrigin(request: Request): boolean {
-  const origin = request.headers.get("Origin");
-  const referer = request.headers.get("Referer");
-  const host = request.headers.get("Host");
-  if (!host) return false;
-  const check = (url: string | null): boolean => {
-    if (!url) return false;
-    try {
-      return new URL(url).host === host;
-    } catch {
-      return false;
-    }
-  };
-  if (origin) return check(origin);
-  if (referer) return check(referer);
-  return false;
-}
+/** Validate request origin (proxy-aware). Re-exports isSameOrigin for older call sites. */
+export { isSameOrigin as isValidOrigin } from "./sameOrigin.server";
 
 /** Server-side same-origin path validation for redirects. Prevents open-redirect attacks. */
 export function safeServerRedirect(request: Request, raw: string | null): string {

@@ -8,8 +8,9 @@ import {
   appendAltAccountsCookie,
   readAltAccountsFromRequest,
   revalidateParkedToken,
-  isValidOrigin,
 } from "~/lib/Security/accountVault";
+import { isSameOrigin } from "~/lib/Security/sameOrigin.server";
+import { assertSafeRequest } from "~/lib/Security/requestGuard.server";
 
 export const loader = () => data({ error: "Method Not Allowed" }, { status: 405 });
 
@@ -18,7 +19,9 @@ export const action = async ({ request }: { request: Request }) => {
     return data({ error: "Method Not Allowed" }, { status: 405 });
   }
 
-  if (!isValidOrigin(request)) {
+  const blocked = assertSafeRequest(request);
+  if (blocked) return blocked;
+  if (!isSameOrigin(request)) {
     return data({ error: "Forbidden" }, { status: 403 });
   }
 
