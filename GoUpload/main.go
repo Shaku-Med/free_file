@@ -128,6 +128,19 @@ func main() {
 		IdleTimeout:    60 * time.Second,
 	})
 
+	// Fiber's limiter middleware sets X-RateLimit-Limit/Remaining/Reset on every
+	// response and this version has no option to turn that off. Publishing the
+	// live budget lets an attacker map our throttle thresholds, so strip those
+	// headers on the way out. Registered first, so it unwinds LAST  after the
+	// limiter has set them.
+	app.Use(func(c *fiber.Ctx) error {
+		err := c.Next()
+		c.Response().Header.Del("X-RateLimit-Limit")
+		c.Response().Header.Del("X-RateLimit-Remaining")
+		c.Response().Header.Del("X-RateLimit-Reset")
+		return err
+	})
+
 	// CORS: allow app origin for browser uploads.
 	//
 	// SECURITY: Access-Control-Allow-Credentials: true MUST NEVER be combined with a
