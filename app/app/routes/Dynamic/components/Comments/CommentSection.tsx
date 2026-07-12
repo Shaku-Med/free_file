@@ -681,6 +681,7 @@ const CommentSection = ({
           currentUserId={currentUserId}
           fileOwnerId={fileOwnerId}
           fileId={fileId}
+          fileIsAdult={fileIsAdult}
           imageUploadContext={imageUploadContext}
           allowNewComments={Boolean(commentsEnabled && currentUserId)}
           onReply={handleReply}

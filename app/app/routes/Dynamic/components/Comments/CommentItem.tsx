@@ -31,6 +31,9 @@ interface CommentItemProps {
   currentUserId?: string;
   fileOwnerId?: string;
   fileId: string;
+  /** Parent file's adult flag  a comment image inherits it, so the image
+   *  loader sends the auth details the load server needs to blur/gate it. */
+  fileIsAdult?: boolean | null;
   imageUploadContext?: CommentImageUploadContext;
   onReply: (parentId: string, content: string, gif?: CommentGif | null, image?: CommentImage | null) => Promise<void>;
   onEdit: (commentId: string, content: string) => Promise<void>;
@@ -76,6 +79,7 @@ const CommentItem = ({
   currentUserId,
   fileOwnerId,
   fileId,
+  fileIsAdult,
   imageUploadContext,
   onReply,
   onEdit,
@@ -483,7 +487,7 @@ const CommentItem = ({
                         imageID={`comment-img-${comment.id}`}
                         retry={retryCommentImage}
                         className="max-h-48 max-w-full rounded-md border border-border/50 object-contain sm:max-h-60 sm:rounded-lg"
-                        hasAdultTag={false}
+                        hasAdultTag={Boolean(fileIsAdult)}
                         shouldShowPreview={true}
                       />
                     </div>
@@ -604,6 +608,7 @@ const CommentItem = ({
               currentUserId={currentUserId}
               fileOwnerId={fileOwnerId}
               fileId={fileId}
+              fileIsAdult={fileIsAdult}
               imageUploadContext={imageUploadContext}
               allowNewComments={allowNewComments}
               onReply={onReply}
