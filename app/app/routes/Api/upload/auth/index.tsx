@@ -1,9 +1,6 @@
-import { getCookie } from "~/lib/Security/Token";
 import { isAuthenticated } from "~/lib/Security/Password";
 import { assertSafeRequest } from "~/lib/Security/requestGuard.server";
-import { mintUploadToken } from "~/lib/Security/uploadToken.server";
-import { DecryptCombine } from "~/lib/Security/unsharedkeyEncryption/Combined/Combined";
-import { getAllKeys } from "~/lib/Security/unsharedkeyEncryption/Combined/Verification/TokenKeys";
+import { mintUploadBearerForRequest } from "~/lib/Security/uploadToken.server";
 
 // GET /api/upload/auth — mints a short-lived upload-scoped bearer for GoUpload; never expose c_user here.
 export const loader = async ({ request }: { request: Request }) => {
@@ -26,34 +23,7 @@ export const loader = async ({ request }: { request: Request }) => {
       });
     }
 
-    const c_user = getCookie("c_user", request.headers);
-    if (!c_user) {
-      return new Response(JSON.stringify({ error: "unauthorized" }), {
-        status: 401,
-        headers: { "Content-Type": "application/json" },
-      });
-    }
-
-    const keys = await getAllKeys(["token1", "c_user"]);
-    if (!keys) {
-      return new Response(JSON.stringify({ error: "unauthorized" }), {
-        status: 401,
-        headers: { "Content-Type": "application/json" },
-      });
-    }
-
-    const decoded = await DecryptCombine(c_user, keys);
-    if (!decoded || typeof decoded !== "object" || typeof decoded.c_usr !== "string") {
-      return new Response(JSON.stringify({ error: "unauthorized" }), {
-        status: 401,
-        headers: { "Content-Type": "application/json" },
-      });
-    }
-
-    const bearer = await mintUploadToken({
-      c_usr: decoded.c_usr,
-      userId: user.id,
-    });
+    const bearer = await mintUploadBearerForRequest(request, user.id);
     if (!bearer) {
       return new Response(JSON.stringify({ error: "unauthorized" }), {
         status: 401,

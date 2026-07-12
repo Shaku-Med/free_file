@@ -22,6 +22,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "~/components/ui/dropdown-menu";
+import { fetchUploadAuthContext } from "~/lib/uploadAuth.client";
 
 export interface CommentGif {
   id: string;
@@ -203,17 +204,21 @@ const CommentForm = ({
   }, []);
 
   const uploadImage = useCallback(async (file: File): Promise<CommentImage> => {
+    const { bearer, base } = await fetchUploadAuthContext();
     const formData = new FormData();
     formData.append("file", file);
     formData.append("file_id", fileId);
 
-    const res = await fetch("/api/upload/comment-image", {
+    const res = await fetch(`${base}/api/comment-image/upload`, {
       method: "POST",
-      credentials: "include",
+      headers: { Authorization: `Bearer ${bearer}` },
       body: formData,
     });
     const json = await res.json();
     if (!res.ok) {
+      if (res.status === 422 && json.nsfw) {
+        throw new Error("This image was detected as inappropriate and cannot be posted in comments");
+      }
       throw new Error(json.error || "Upload failed");
     }
     return { url: json.image.url, type: json.image.type };

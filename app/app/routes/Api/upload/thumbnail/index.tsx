@@ -1,6 +1,6 @@
 import { data } from "react-router";
 import { isAuthenticated } from "~/lib/Security/Password";
-import { getCookie } from "~/lib/Security/Token";
+import { mintUploadBearerForRequest } from "~/lib/Security/uploadToken.server";
 import db from "~/lib/Database/supabase";
 import { arrangeDateForThumbnail } from "~/lib/utils";
 import { isDbAdultFlag } from "~/lib/isDbAdultFlag.server";
@@ -20,8 +20,8 @@ export const action = async ({ request }: { request: Request }) => {
     return data({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const cUser = getCookie("c_user", request.headers);
-  if (!cUser) {
+  const uploadBearer = await mintUploadBearerForRequest(request, user.id);
+  if (!uploadBearer) {
     return data({ error: "Unauthorized" }, { status: 401 });
   }
 
@@ -101,7 +101,7 @@ export const action = async ({ request }: { request: Request }) => {
     const res = await fetch(`${uploadServerUrl}/api/thumbnail/upload`, {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${cUser}`,
+        Authorization: `Bearer ${uploadBearer}`,
       },
       body: proxyForm,
     });

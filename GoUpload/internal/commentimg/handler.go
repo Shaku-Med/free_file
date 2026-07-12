@@ -177,6 +177,38 @@ func (h *Handler) upload(c *fiber.Ctx) error {
 
 	isAdultStr := strings.TrimSpace(c.FormValue("is_adult"))
 	isAdult := isAdultStr == "true" || isAdultStr == "1"
+	dateFolder := strings.TrimSpace(c.FormValue("date_folder"))
+	uniqueID := strings.TrimSpace(c.FormValue("unique_id"))
+
+	// Browser uploads send file_id only; resolve folder metadata server-side.
+	fileID := strings.TrimSpace(c.FormValue("file_id"))
+	if fileID != "" {
+		if h.supabaseURL == "" || h.supabaseKey == "" {
+			return c.Status(fiber.StatusServiceUnavailable).JSON(fiber.Map{"error": "policy check unavailable"})
+		}
+		metaCtx, metaCancel := context.WithTimeout(context.Background(), 10*time.Second)
+		meta, merr := supabase.FetchFileCommentMeta(metaCtx, h.supabaseURL, h.supabaseKey, fileID)
+		metaCancel()
+		if merr != nil {
+			h.log.Errorf("comment-image file_id lookup: %v", merr)
+			return c.Status(fiber.StatusBadGateway).JSON(fiber.Map{"error": "policy check failed"})
+		}
+		if !meta.Found {
+			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "file not found"})
+		}
+		if !meta.CommentsEnabled {
+			return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"error": "comments are disabled for this file"})
+		}
+		if meta.UniqueID != "" {
+			uniqueID = meta.UniqueID
+		}
+		if meta.DateFolder != "" {
+			dateFolder = meta.DateFolder
+		}
+		if meta.IsAdult {
+			isAdult = true
+		}
+	}
 
 	if !isAdult && h.strikes != nil && h.strikes.RespondIfBlocked(c, uid) {
 		return nil
@@ -264,11 +296,9 @@ func (h *Handler) upload(c *fiber.Ctx) error {
 	}
 	imageID := uuid.New().String()
 
-	dateFolder := strings.TrimSpace(c.FormValue("date_folder"))
-	uniqueID := strings.TrimSpace(c.FormValue("unique_id"))
-	var ghPath string
 	isVideoFolder := dateFolder != "" && uniqueID != "" &&
 		reDateFolder.MatchString(dateFolder) && isSafeUniqueIDSegment(uniqueID)
+	var ghPath string
 	if isVideoFolder {
 		// Policy guard: writing into a video's comments/ folder is only allowed
 		// when that file exists and has comments enabled. The app proxy enforces
@@ -334,16 +364,14 @@ func (h *Handler) upload(c *fiber.Ctx) error {
 
 	h.log.Infof("comment-image uploaded backend=%s user=%s path=%s", backend, uid, ghPath)
 
-	// repo/backend let the app proxy record the storage row itself (reliable),
-	// instead of depending only on the async NotifyCommentImageStorage webhook.
+	// Storage repo/backend are recorded via NotifyCommentImageStorage webhook only
+	// — never returned to the browser.
 	return c.JSON(fiber.Map{
 		"success": true,
 		"image": fiber.Map{
-			"url":     ghPath,
-			"type":    mime,
-			"size":    file.Size,
-			"repo":    repoForWebhook,
-			"backend": backend,
+			"url":  ghPath,
+			"type": mime,
+			"size": file.Size,
 		},
 	})
 }

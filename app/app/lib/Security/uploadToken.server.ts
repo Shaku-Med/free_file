@@ -1,7 +1,10 @@
 // Short-lived upload-scoped tokens so browser JS never sees the full c_user session JWT.
 
+import { getCookie } from "~/lib/Security/Token";
 import { EncryptCombine, DecryptCombine } from "~/lib/Security/unsharedkeyEncryption/Combined/Combined";
 import { getAllKeys } from "~/lib/Security/unsharedkeyEncryption/Combined/Verification/TokenKeys";
+
+const SESSION_KEY_NAMES = ["token1", "c_user"] as const;
 
 export const UPLOAD_TOKEN_TTL_SECONDS = 15 * 60;
 
@@ -50,4 +53,26 @@ export async function verifyUploadToken(
     c_usr: decoded.c_usr,
     uid: decoded.uid,
   };
+}
+
+/** Mint a GoUpload bearer from the HttpOnly session cookie (server-side proxy routes). */
+export async function mintUploadBearerForRequest(
+  request: Request,
+  userId: string,
+): Promise<string | null> {
+  const c_user = getCookie("c_user", request.headers);
+  if (!c_user) return null;
+
+  const keys = await getAllKeys([...SESSION_KEY_NAMES]);
+  if (!keys) return null;
+
+  const decoded = await DecryptCombine(c_user, keys);
+  if (!decoded || typeof decoded !== "object" || typeof decoded.c_usr !== "string") {
+    return null;
+  }
+
+  return mintUploadToken({
+    c_usr: decoded.c_usr,
+    userId,
+  });
 }

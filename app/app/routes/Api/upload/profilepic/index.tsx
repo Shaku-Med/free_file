@@ -1,6 +1,6 @@
 import { data } from "react-router";
 import { isAuthenticated } from "~/lib/Security/Password";
-import { getCookie } from "~/lib/Security/Token";
+import { mintUploadBearerForRequest } from "~/lib/Security/uploadToken.server";
 import db from "~/lib/Database/supabase";
 import { GitHubClient } from "~/lib/Github/GitHubClient";
 import { config } from "~/lib/config";
@@ -21,8 +21,8 @@ export const action = async ({ request }: { request: Request }) => {
     return data({ success: false }, { status: 401 });
   }
 
-  const cUser = getCookie("c_user", request.headers);
-  if (!cUser) {
+  const uploadBearer = await mintUploadBearerForRequest(request, user.id);
+  if (!uploadBearer) {
     return data({ success: false }, { status: 401 });
   }
 
@@ -69,7 +69,7 @@ export const action = async ({ request }: { request: Request }) => {
   try {
     goRes = await fetch(`${uploadBase}/api/profilepic/upload`, {
       method: "POST",
-      headers: { Authorization: `Bearer ${cUser}` },
+      headers: { Authorization: `Bearer ${uploadBearer}` },
       body: forward,
     });
   } catch (e) {
