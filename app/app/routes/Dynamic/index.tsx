@@ -2207,6 +2207,9 @@ const DynamicPage = ({ is_modal }: DynamicPageProps) => {
           <CommentSection
             key={`comments-${file_data.id}-${currentId}-${highlightCommentId ?? ""}`}
             fileId={file_data.id}
+            fileUniqueId={file_data.unique_id}
+            fileCreatedAt={file_data.created_at}
+            fileIsAdult={file_data.is_adult}
             currentUserId={userId || undefined}
             fileOwnerId={file_data.owner_id || undefined}
             commentsEnabled={file_data.comments_enabled !== false}

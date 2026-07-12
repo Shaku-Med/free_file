@@ -37,6 +37,9 @@ interface ReelSwiperProps {
     fileId: string;
     ownerId?: string;
     categories?: string[];
+    uniqueId?: string;
+    createdAt?: string | null;
+    isAdult?: boolean;
   }) => void;
 }
 
@@ -144,6 +147,9 @@ export const ReelSwiper = ({
       fileId: String(f.id),
       ownerId: f.owner_id ?? undefined,
       categories: Array.isArray(f.categories) ? (f.categories as string[]) : undefined,
+      uniqueId: f.unique_id ?? undefined,
+      createdAt: f.created_at ?? null,
+      isAdult: Boolean(f.is_adult),
     });
   }, [activeIdx, items, onActiveItemChange]);
 

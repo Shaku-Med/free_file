@@ -2,9 +2,9 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { MessageSquare, Loader2 } from "lucide-react";
 import CommentItem from "./CommentItem";
 import CommentForm from "./CommentForm";
-import type { CommentGif, CommentImage } from "./CommentForm";
+import type { CommentGif, CommentImage, CommentImageUploadContext } from "./CommentForm";
 import type { Comment } from "~/lib/Services/CommentService";
-import { cn } from "~/lib/utils";
+import { arrangeDateForThumbnail, cn } from "~/lib/utils";
 import { buildLoginHref } from "~/lib/loginRedirect";
 import { useSidebarOptional } from "~/components/ui/sidebar";
 
@@ -48,6 +48,11 @@ function writeCommentCache(fileId: string, comments: Comment[], totalCount: numb
 }
 interface CommentSectionProps {
   fileId: string;
+  /** Parent video unique_id — required for GoUpload folder placement. */
+  fileUniqueId?: string | null;
+  /** Parent video created_at — builds the GitHub/R2 date folder. */
+  fileCreatedAt?: string | null;
+  fileIsAdult?: boolean | null;
   currentUserId?: string;
   fileOwnerId?: string;
   isReel?: boolean;
@@ -127,6 +132,9 @@ function updateCommentInTree(comments: Comment[], commentId: string, updates: Pa
 
 const CommentSection = ({
   fileId,
+  fileUniqueId,
+  fileCreatedAt,
+  fileIsAdult,
   currentUserId: initialUserId,
   fileOwnerId,
   isReel = false,
@@ -137,6 +145,14 @@ const CommentSection = ({
   fileDurationSec,
   reloadToken = 0,
 }: CommentSectionProps) => {
+  const imageUploadContext: CommentImageUploadContext | undefined = (() => {
+    const uniqueId = fileUniqueId?.trim();
+    if (!uniqueId || !fileCreatedAt) return undefined;
+    const dateFolder = arrangeDateForThumbnail(fileCreatedAt);
+    if (!dateFolder) return undefined;
+    return { uniqueId, dateFolder, isAdult: Boolean(fileIsAdult) };
+  })();
+
   const [comments, setComments] = useState<Comment[]>(
     () => commentCache.get(fileId)?.comments ?? [],
   );
@@ -615,6 +631,7 @@ const CommentSection = ({
     >
       <CommentForm
         fileId={fileId}
+        imageUploadContext={imageUploadContext}
         onSubmit={(content, gif, image) => handleSubmit(content, undefined, gif, image)}
       />
     </div>
@@ -664,6 +681,7 @@ const CommentSection = ({
           currentUserId={currentUserId}
           fileOwnerId={fileOwnerId}
           fileId={fileId}
+          imageUploadContext={imageUploadContext}
           allowNewComments={Boolean(commentsEnabled && currentUserId)}
           onReply={handleReply}
           onEdit={handleEdit}

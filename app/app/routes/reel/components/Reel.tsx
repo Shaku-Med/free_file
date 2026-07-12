@@ -403,7 +403,13 @@ const Reel = ({ initialItems, initialUserActions, profileReelContext = null }: R
   // The comments panel follows the active reel by INDEX (reported the instant
   // the slide changes), not the ambience callback — that one waits for the video
   // element, so it lagged/blanked the panel on swipe.
-  const [activeReel, setActiveReel] = useState<{ fileId: string; ownerId?: string } | null>(null);
+  const [activeReel, setActiveReel] = useState<{
+    fileId: string;
+    ownerId?: string;
+    uniqueId?: string;
+    createdAt?: string | null;
+    isAdult?: boolean;
+  } | null>(null);
 
   /** Fire-and-forget flush; keepalive lets it survive navigation. */
   const flushWatchSignals = useCallback(() => {
@@ -424,11 +430,24 @@ const Reel = ({ initialItems, initialUserActions, profileReelContext = null }: R
   }, []);
 
   const onActiveItemChange = useCallback(
-    (info: { fileId: string; ownerId?: string; categories?: string[] }) => {
+    (info: {
+      fileId: string;
+      ownerId?: string;
+      categories?: string[];
+      uniqueId?: string;
+      createdAt?: string | null;
+      isAdult?: boolean;
+    }) => {
       setActiveReel((prev) =>
         prev && prev.fileId === info.fileId && prev.ownerId === info.ownerId
           ? prev
-          : { fileId: info.fileId, ownerId: info.ownerId },
+          : {
+              fileId: info.fileId,
+              ownerId: info.ownerId,
+              uniqueId: info.uniqueId,
+              createdAt: info.createdAt,
+              isAdult: info.isAdult,
+            },
       );
 
       const prev = prevReelRef.current;
@@ -500,6 +519,9 @@ const Reel = ({ initialItems, initialUserActions, profileReelContext = null }: R
       <CommentSection
         key={activeCommentFileId}
         fileId={activeCommentFileId}
+        fileUniqueId={activeReel?.uniqueId}
+        fileCreatedAt={activeReel?.createdAt}
+        fileIsAdult={activeReel?.isAdult}
         currentUserId={userId ?? undefined}
         fileOwnerId={activeCommentOwnerId}
         isReel

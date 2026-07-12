@@ -36,6 +36,13 @@ export interface CommentImage {
   previewUrl?: string;
 }
 
+/** Paths comment images under the parent video folder on GoUpload. */
+export type CommentImageUploadContext = {
+  uniqueId: string;
+  dateFolder: string;
+  isAdult?: boolean;
+};
+
 interface TagSuggestion {
   tag: string;
   count: number;
@@ -51,6 +58,8 @@ const MAX_COMMENT_IMAGE_BYTES = 10 * 1024 * 1024;
 
 interface CommentFormProps {
   fileId: string;
+  /** When set, uploads go straight to GoUpload with folder metadata (no app proxy). */
+  imageUploadContext?: CommentImageUploadContext;
   parentId?: string | null;
   onSubmit: (content: string, gif?: CommentGif | null, image?: CommentImage | null) => Promise<void>;
   onCancel?: () => void;
@@ -81,6 +90,7 @@ function parseTrigger(text: string, cursor: number): { type: "tag" | "mention"; 
 
 const CommentForm = ({
   fileId,
+  imageUploadContext,
   parentId,
   onSubmit,
   onCancel,
@@ -207,7 +217,13 @@ const CommentForm = ({
     const { bearer, base } = await fetchUploadAuthContext();
     const formData = new FormData();
     formData.append("file", file);
-    formData.append("file_id", fileId);
+    if (imageUploadContext?.uniqueId && imageUploadContext.dateFolder) {
+      formData.append("unique_id", imageUploadContext.uniqueId);
+      formData.append("date_folder", imageUploadContext.dateFolder);
+      if (imageUploadContext.isAdult) formData.append("is_adult", "true");
+    } else {
+      formData.append("file_id", fileId);
+    }
 
     const res = await fetch(`${base}/api/comment-image/upload`, {
       method: "POST",
@@ -222,7 +238,7 @@ const CommentForm = ({
       throw new Error(json.error || "Upload failed");
     }
     return { url: json.image.url, type: json.image.type };
-  }, [fileId]);
+  }, [fileId, imageUploadContext]);
 
   const searchGifs = useCallback(() => {
     const trimmed = gifQuery.trim();

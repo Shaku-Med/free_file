@@ -61,6 +61,7 @@ func SetUserStorageBackend(ctx context.Context, baseURL, serviceKey, userID, bac
 type FileOwnership struct {
 	OwnerID         string
 	CommentsEnabled bool
+	IsAdult         bool
 	Found           bool
 }
 
@@ -81,7 +82,7 @@ func FetchFileOwnership(ctx context.Context, baseURL, serviceKey, uniqueID strin
 		return FileOwnership{}, fmt.Errorf("invalid unique id")
 	}
 	base := strings.TrimRight(baseURL, "/")
-	reqURL := fmt.Sprintf("%s/rest/v1/files?unique_id=eq.%s&select=owner_id,comments_enabled&limit=1", base, url.QueryEscape(uniqueID))
+	reqURL := fmt.Sprintf("%s/rest/v1/files?unique_id=eq.%s&select=owner_id,comments_enabled,is_adult&limit=1", base, url.QueryEscape(uniqueID))
 
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
@@ -103,8 +104,9 @@ func FetchFileOwnership(ctx context.Context, baseURL, serviceKey, uniqueID strin
 		return FileOwnership{}, fmt.Errorf("supabase GET files ownership %d", res.StatusCode)
 	}
 	var rows []struct {
-		OwnerID         *string `json:"owner_id"`
-		CommentsEnabled *bool   `json:"comments_enabled"`
+		OwnerID         *string         `json:"owner_id"`
+		CommentsEnabled *bool           `json:"comments_enabled"`
+		IsAdult         json.RawMessage `json:"is_adult"`
 	}
 	if err := json.Unmarshal(b, &rows); err != nil {
 		return FileOwnership{}, err
@@ -119,6 +121,7 @@ func FetchFileOwnership(ctx context.Context, baseURL, serviceKey, uniqueID strin
 	if rows[0].CommentsEnabled != nil {
 		out.CommentsEnabled = *rows[0].CommentsEnabled
 	}
+	out.IsAdult = parseIsAdult(rows[0].IsAdult)
 	return out, nil
 }
 

@@ -1157,6 +1157,9 @@ export default function Actions({
                 <CommentSection
                   key={`${fileId}-${highlightCommentId ?? ""}`}
                   fileId={fileId}
+                  fileUniqueId={uniqueId}
+                  fileCreatedAt={fileCreatedAt}
+                  fileIsAdult={isAdult}
                   currentUserId={currentUserId ?? undefined}
                   fileOwnerId={fileOwnerId}
                   commentsEnabled={commentsEnabled}
@@ -1179,6 +1182,9 @@ export default function Actions({
                 <CommentSection
                   key={`${fileId}-${highlightCommentId ?? ""}`}
                   fileId={fileId}
+                  fileUniqueId={uniqueId}
+                  fileCreatedAt={fileCreatedAt}
+                  fileIsAdult={isAdult}
                   currentUserId={currentUserId ?? undefined}
                   fileOwnerId={fileOwnerId}
                   commentsEnabled={commentsEnabled}

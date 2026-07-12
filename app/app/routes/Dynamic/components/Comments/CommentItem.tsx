@@ -11,7 +11,7 @@ import {
 } from "~/components/ui/dropdown-menu";
 import type { Comment as CommentType } from "~/lib/Services/CommentService";
 import CommentForm from "./CommentForm";
-import type { CommentGif, CommentImage } from "./CommentForm";
+import type { CommentGif, CommentImage, CommentImageUploadContext } from "./CommentForm";
 import { FormattedText } from "~/components/FormattedText";
 import { formatDistanceToNow } from "date-fns";
 import { getProfilePicUrl } from "~/lib/utils/profilePic";
@@ -31,6 +31,7 @@ interface CommentItemProps {
   currentUserId?: string;
   fileOwnerId?: string;
   fileId: string;
+  imageUploadContext?: CommentImageUploadContext;
   onReply: (parentId: string, content: string, gif?: CommentGif | null, image?: CommentImage | null) => Promise<void>;
   onEdit: (commentId: string, content: string) => Promise<void>;
   onDelete: (commentId: string) => Promise<void>;
@@ -75,6 +76,7 @@ const CommentItem = ({
   currentUserId,
   fileOwnerId,
   fileId,
+  imageUploadContext,
   onReply,
   onEdit,
   onDelete,
@@ -345,6 +347,7 @@ const CommentItem = ({
               <div className="w-full min-w-0">
                 <CommentForm
                   fileId={fileId}
+                  imageUploadContext={imageUploadContext}
                   onSubmit={handleEdit}
                   onCancel={() => setIsEditing(false)}
                   placeholder="Edit your comment..."
@@ -579,6 +582,7 @@ const CommentItem = ({
         >
           <CommentForm
             fileId={fileId}
+            imageUploadContext={imageUploadContext}
             parentId={comment.id}
             replyToUsername={comment.user?.username ?? null}
             onSubmit={(content, gif, image) => handleReply(content, gif, image)}
@@ -600,6 +604,7 @@ const CommentItem = ({
               currentUserId={currentUserId}
               fileOwnerId={fileOwnerId}
               fileId={fileId}
+              imageUploadContext={imageUploadContext}
               allowNewComments={allowNewComments}
               onReply={onReply}
               onEdit={onEdit}

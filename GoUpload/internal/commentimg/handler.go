@@ -180,34 +180,65 @@ func (h *Handler) upload(c *fiber.Ctx) error {
 	dateFolder := strings.TrimSpace(c.FormValue("date_folder"))
 	uniqueID := strings.TrimSpace(c.FormValue("unique_id"))
 
-	// Browser uploads send file_id only; resolve folder metadata server-side.
+	// Browser uploads may send file_id; resolve folder metadata when Supabase is wired.
 	fileID := strings.TrimSpace(c.FormValue("file_id"))
 	if fileID != "" {
 		if h.supabaseURL == "" || h.supabaseKey == "" {
+			if uniqueID == "" || dateFolder == "" {
+				return c.Status(fiber.StatusServiceUnavailable).JSON(fiber.Map{"error": "policy check unavailable"})
+			}
+		} else {
+			metaCtx, metaCancel := context.WithTimeout(context.Background(), 10*time.Second)
+			meta, merr := supabase.FetchFileCommentMeta(metaCtx, h.supabaseURL, h.supabaseKey, fileID)
+			metaCancel()
+			if merr != nil {
+				h.log.Errorf("comment-image file_id lookup: %v", merr)
+				return c.Status(fiber.StatusBadGateway).JSON(fiber.Map{"error": "policy check failed"})
+			}
+			if !meta.Found {
+				return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "file not found"})
+			}
+			if !meta.CommentsEnabled {
+				return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"error": "comments are disabled for this file"})
+			}
+			if meta.UniqueID != "" {
+				uniqueID = meta.UniqueID
+			}
+			if meta.DateFolder != "" {
+				dateFolder = meta.DateFolder
+			}
+			if meta.IsAdult {
+				isAdult = true
+			}
+		}
+	}
+
+	// Verify the target folder BEFORE the strike / NSFW gates so the REAL
+	// is_adult (from the DB, not the client's claim) drives them. Video-folder
+	// comment images must reference a real file with comments enabled; fail
+	// closed when we can't verify (Supabase not configured).
+	isVideoFolder := dateFolder != "" && uniqueID != "" &&
+		reDateFolder.MatchString(dateFolder) && isSafeUniqueIDSegment(uniqueID)
+	if isVideoFolder {
+		if h.supabaseURL == "" || h.supabaseKey == "" {
+			h.log.Errorf("comment-image policy check unavailable: Supabase not configured")
 			return c.Status(fiber.StatusServiceUnavailable).JSON(fiber.Map{"error": "policy check unavailable"})
 		}
-		metaCtx, metaCancel := context.WithTimeout(context.Background(), 10*time.Second)
-		meta, merr := supabase.FetchFileCommentMeta(metaCtx, h.supabaseURL, h.supabaseKey, fileID)
-		metaCancel()
-		if merr != nil {
-			h.log.Errorf("comment-image file_id lookup: %v", merr)
+		polCtx, polCancel := context.WithTimeout(context.Background(), 10*time.Second)
+		own, oerr := supabase.FetchFileOwnership(polCtx, h.supabaseURL, h.supabaseKey, uniqueID)
+		polCancel()
+		if oerr != nil {
+			h.log.Errorf("comment-image policy lookup: %v", oerr)
 			return c.Status(fiber.StatusBadGateway).JSON(fiber.Map{"error": "policy check failed"})
 		}
-		if !meta.Found {
+		if !own.Found {
 			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "file not found"})
 		}
-		if !meta.CommentsEnabled {
+		if !own.CommentsEnabled {
 			return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"error": "comments are disabled for this file"})
 		}
-		if meta.UniqueID != "" {
-			uniqueID = meta.UniqueID
-		}
-		if meta.DateFolder != "" {
-			dateFolder = meta.DateFolder
-		}
-		if meta.IsAdult {
-			isAdult = true
-		}
+		// Real adult flag wins over the client's claim.
+		isAdult = own.IsAdult
 	}
 
 	if !isAdult && h.strikes != nil && h.strikes.RespondIfBlocked(c, uid) {
@@ -296,29 +327,9 @@ func (h *Handler) upload(c *fiber.Ctx) error {
 	}
 	imageID := uuid.New().String()
 
-	isVideoFolder := dateFolder != "" && uniqueID != "" &&
-		reDateFolder.MatchString(dateFolder) && isSafeUniqueIDSegment(uniqueID)
+	// isVideoFolder was resolved + verified above, before the NSFW gate.
 	var ghPath string
 	if isVideoFolder {
-		// Policy guard: writing into a video's comments/ folder is only allowed
-		// when that file exists and has comments enabled. The app proxy enforces
-		// this, but a bearer-authenticated client can call the upload server
-		// directly, so re-check here. Skipped when Supabase isn't configured (dev).
-		if h.supabaseURL != "" && h.supabaseKey != "" {
-			polCtx, polCancel := context.WithTimeout(context.Background(), 10*time.Second)
-			own, oerr := supabase.FetchFileOwnership(polCtx, h.supabaseURL, h.supabaseKey, uniqueID)
-			polCancel()
-			if oerr != nil {
-				h.log.Errorf("comment-image policy lookup: %v", oerr)
-				return c.Status(fiber.StatusBadGateway).JSON(fiber.Map{"error": "policy check failed"})
-			}
-			if !own.Found {
-				return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "file not found"})
-			}
-			if !own.CommentsEnabled {
-				return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"error": "comments are disabled for this file"})
-			}
-		}
 		ghPath = fmt.Sprintf("%s/%s/comments/%s%s", dateFolder, uniqueID, imageID, ext)
 	} else {
 		ghPath = fmt.Sprintf("comment-images/%s/%s%s", uid, imageID, ext)
