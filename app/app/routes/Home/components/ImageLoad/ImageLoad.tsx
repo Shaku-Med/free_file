@@ -6,7 +6,7 @@ import { getImageColorsHEX } from './Canvas/Functions'
 import { IMAGE_BASE_URL } from '~/lib/URLS'
 import { useFileContext } from '~/lib/Context/Context'
 import { AnimatePresence } from 'motion/react'
-import ImgPreview from './ImgPreview/ImgPreview'
+import ImgPreview, { type MorphRect } from './ImgPreview/ImgPreview'
 
 interface CallBackProps {
     src: string
@@ -110,6 +110,7 @@ const ImageLoad = ({
         images: [],
         index: 0,
     })
+    const [originRect, setOriginRect] = useState<MorphRect | null>(null)
     const [colors, setColors] = useState<string[]>([])
     const [containerBox, setContainerBox] = useState({ w: 0, h: 0 })
     const [preferFetchedBlob, setPreferFetchedBlob] = useState(false)
@@ -544,10 +545,21 @@ const ImageLoad = ({
         }
     }, [])
 
+    // Screen box of the visible thumbnail, so the preview can grow from source.
+    const measureOrigin = useCallback((): MorphRect | null => {
+        const el = containerRef.current
+        if (!el) return null
+        const r = el.getBoundingClientRect()
+        if (r.width <= 0 || r.height <= 0) return null
+        const radius = parseFloat(getComputedStyle(el).borderTopLeftRadius) || 0
+        return { top: r.top, left: r.left, width: r.width, height: r.height, radius }
+    }, [])
+
     const handlePreviewOpen = (e: React.MouseEvent) => {
         if (!shouldShowPreview) return
         e.preventDefault()
         e.stopPropagation()
+        setOriginRect(measureOrigin())
         setIsPreviewOpen(true)
         const singlePreview =
             typeof cachedBlobSrc === 'string' && cachedBlobSrc
@@ -663,6 +675,9 @@ const ImageLoad = ({
                         isOpen={isPreviewOpen}
                         setIsOpen={setIsPreviewOpen}
                         colors={colors}
+                        originRect={originRect}
+                        getOriginRect={measureOrigin}
+                        originSrc={typeof imgDisplaySrc === 'string' ? imgDisplaySrc : undefined}
                     />
                 )}
             </AnimatePresence>

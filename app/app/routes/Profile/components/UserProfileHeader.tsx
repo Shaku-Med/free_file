@@ -14,7 +14,7 @@ import {
   DialogTitle,
 } from "~/components/ui/dialog";
 import { getProfilePicUrl } from "~/lib/utils/profilePic";
-import ImgPreview from "~/routes/Home/components/ImageLoad/ImgPreview/ImgPreview";
+import ImgPreview, { type MorphRect } from "~/routes/Home/components/ImageLoad/ImgPreview/ImgPreview";
 import { bumpProfilePicCache } from "~/lib/profilePicCache.client";
 import SubscribeButton, { formatSubscriberCount } from "~/components/SubscribeButton";
 
@@ -55,6 +55,17 @@ const UserProfileHeader = ({
   const [showCropper, setShowCropper] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const avatarWrapRef = useRef<HTMLDivElement>(null);
+  const [avatarOriginRect, setAvatarOriginRect] = useState<MorphRect | null>(null);
+
+  const measureAvatarOrigin = (): MorphRect | null => {
+    const el = avatarWrapRef.current;
+    if (!el) return null;
+    const r = el.getBoundingClientRect();
+    if (r.width <= 0 || r.height <= 0) return null;
+    // Avatar is a circle, so the morph starts fully rounded.
+    return { top: r.top, left: r.left, width: r.width, height: r.height, radius: r.width / 2 };
+  };
 
   useEffect(() => {
     if (!isUploading) {
@@ -187,6 +198,7 @@ const UserProfileHeader = ({
   // still change the pic via the camera button overlay on the avatar.
   const handleAvatarClick = () => {
     if (profilePic) {
+      setAvatarOriginRect(measureAvatarOrigin());
       setIsPreviewModalOpen(true);
     } else if (isOwner && !isUploading) {
       // No pic yet  go straight to upload.
@@ -222,7 +234,7 @@ const UserProfileHeader = ({
           centers on mobile. */}
       <div className="flex w-full flex-col items-center gap-4 px-4 pt-6 pb-4 sm:flex-row sm:items-center sm:gap-6 sm:pt-8">
         {/* Avatar */}
-        <div className="relative group shrink-0">
+        <div ref={avatarWrapRef} className="relative group shrink-0">
           <Avatar
             className={`h-24 w-24 sm:h-40 sm:w-40 ring-4 ring-background shadow-xl cursor-pointer hover:opacity-90 transition-all duration-200 ${
               profilePic ? '' : 'pointer-events-none'
@@ -395,6 +407,9 @@ const UserProfileHeader = ({
           index={0}
           isOpen={isPreviewModalOpen}
           setIsOpen={setIsPreviewModalOpen}
+          originRect={avatarOriginRect}
+          getOriginRect={measureAvatarOrigin}
+          originSrc={getProfilePicUrl(profilePic, avatarCacheKey) || undefined}
         />
       )}
     </div>

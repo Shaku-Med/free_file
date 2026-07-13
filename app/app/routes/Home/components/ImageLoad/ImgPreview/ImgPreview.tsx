@@ -20,7 +20,7 @@ import {
   Focus,
 } from "lucide-react";
 import { Dialog, DialogContent, DialogTitle } from "~/components/ui/dialog";
-import { motion } from "motion/react";
+import { motion, useAnimationControls, useReducedMotion } from "motion/react";
 import CanvasGradient from "~/components/accessories/CanvasGradient/CanvasGradient";
 import { useStandalone } from "~/lib/hooks/useStandalone";
 import { useAdaptiveTone, type Tone } from "~/lib/useAdaptiveTone";
@@ -46,12 +46,27 @@ function useControlTone(targetRef: RefObject<HTMLElement | null>): Tone {
   });
 }
 
+/** Screen-space box of the thumbnail we morph out of / back into. */
+export type MorphRect = {
+  top: number;
+  left: number;
+  width: number;
+  height: number;
+  radius?: number;
+};
+
 interface ImgPreviewProps {
   images: string[];
   index: number;
   isOpen: boolean;
   setIsOpen: (isOpen: boolean) => void;
   colors?: string[];
+  /** Thumbnail rect captured at open time, so the preview grows from source. */
+  originRect?: MorphRect | null;
+  /** Live re-measure of that thumbnail, used on close in case it moved. */
+  getOriginRect?: () => MorphRect | null;
+  /** The exact pixels already on screen in the thumbnail (blob/url) for a seamless morph. */
+  originSrc?: string;
 }
 
 export default function ImgPreview({
@@ -60,8 +75,12 @@ export default function ImgPreview({
   isOpen,
   setIsOpen,
   colors = [],
+  originRect = null,
+  getOriginRect,
+  originSrc,
 }: ImgPreviewProps) {
   const isStandalone = useStandalone();
+  const reduceMotion = useReducedMotion();
 
   const [current, setCurrent] = useState(initialIndex);
   const [zoom, setZoom] = useState(1);
@@ -92,8 +111,129 @@ export default function ImgPreview({
   // Swipe
   const swipeStart = useRef<{ x: number; y: number; t: number } | null>(null);
 
+  // ── Morph from source ──
+  // An overlay <img> that springs from the thumbnail's on-screen box to the
+  // preview's contained box (and back on close). It rides on top of the real
+  // interactive image, which stays hidden until the morph settles, so the
+  // zoom/pan machinery below never has to know this exists.
+  const canMorph = Boolean(originRect) && !reduceMotion;
+  const morphControls = useAnimationControls();
+  const [morphPhase, setMorphPhase] = useState<"in" | "idle" | "out">(
+    canMorph ? "in" : "idle",
+  );
+  const [natSize, setNatSize] = useState<{ w: number; h: number } | null>(null);
+  const closingRef = useRef(false);
+  const morphSrc = originSrc || images[initialIndex] || images[current] || "";
+
   zoomRef.current = zoom;
   panRef.current = pan;
+
+  const resolveOrigin = useCallback((): MorphRect | null => {
+    const live = getOriginRect?.();
+    if (live && live.width > 0 && live.height > 0) return live;
+    if (originRect && originRect.width > 0 && originRect.height > 0) return originRect;
+    return null;
+  }, [getOriginRect, originRect]);
+
+  // Where the image sits at rest: object-contain box centered in the viewport.
+  const getContainRect = useCallback((): MorphRect | null => {
+    if (!natSize || typeof window === "undefined") return null;
+    const vpW = window.innerWidth;
+    const vpH = window.innerHeight;
+    const s = Math.min(vpW / natSize.w, vpH / natSize.h);
+    const w = natSize.w * s;
+    const h = natSize.h * s;
+    return { left: (vpW - w) / 2, top: (vpH - h) / 2, width: w, height: h, radius: 0 };
+  }, [natSize]);
+
+  // Play the open morph once we know the natural size (needed for the target box).
+  useEffect(() => {
+    if (!isOpen || morphPhase !== "in") return;
+    const origin = resolveOrigin();
+    const target = getContainRect();
+    if (!origin || !target) return; // wait for onLoad → natSize
+    let cancelled = false;
+    morphControls.set({
+      top: origin.top,
+      left: origin.left,
+      width: origin.width,
+      height: origin.height,
+      borderRadius: origin.radius ?? 0,
+      opacity: 1,
+    });
+    morphControls
+      .start({
+        top: target.top,
+        left: target.left,
+        width: target.width,
+        height: target.height,
+        borderRadius: 0,
+        transition: { type: "spring", stiffness: 300, damping: 32, mass: 0.9 },
+      })
+      .then(() => {
+        if (cancelled) return;
+        // Hand the frame back to the real interactive image and park the
+        // overlay (still at the rest box) invisibly for a later close morph.
+        morphControls.set({ opacity: 0 });
+        setMorphPhase("idle");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, morphPhase, natSize, resolveOrigin, getContainRect, morphControls]);
+
+  // Safety net: never strand the real image behind the overlay if the morph
+  // can't be computed (image failed to load, no natural size, etc.).
+  useEffect(() => {
+    if (morphPhase !== "in") return;
+    const t = setTimeout(() => setMorphPhase("idle"), 450);
+    return () => clearTimeout(t);
+  }, [morphPhase]);
+
+  // Arm the open morph on every open. Needed for callers that keep ImgPreview
+  // permanently mounted (so the initial `morphPhase` was decided before the
+  // originRect existed) as well as for reopens.
+  const prevOpen = useRef(false);
+  useEffect(() => {
+    if (isOpen && !prevOpen.current && canMorph) setMorphPhase("in");
+    prevOpen.current = isOpen;
+  }, [isOpen, canMorph]);
+
+  // Reverse the morph, then actually close. Falls back to an instant close when
+  // there's nothing to morph to (reduced motion, thumbnail gone, mid-open).
+  const requestClose = useCallback(() => {
+    if (closingRef.current) return;
+    const origin = canMorph ? resolveOrigin() : null;
+    const from = getContainRect();
+    if (!origin || !from || morphPhase !== "idle") {
+      setIsOpen(false);
+      return;
+    }
+    closingRef.current = true;
+    setMorphPhase("out");
+    morphControls.set({
+      top: from.top,
+      left: from.left,
+      width: from.width,
+      height: from.height,
+      borderRadius: 0,
+      opacity: 1,
+    });
+    morphControls
+      .start({
+        top: origin.top,
+        left: origin.left,
+        width: origin.width,
+        height: origin.height,
+        borderRadius: origin.radius ?? 0,
+        opacity: 0,
+        transition: { type: "spring", stiffness: 340, damping: 36, mass: 0.85 },
+      })
+      .then(() => {
+        closingRef.current = false;
+        setIsOpen(false);
+      });
+  }, [canMorph, resolveOrigin, getContainRect, morphPhase, morphControls, setIsOpen]);
 
   useEffect(() => {
     setCurrent(initialIndex);
@@ -238,7 +378,7 @@ export default function ImgPreview({
           go(1);
           break;
         case "Escape":
-          setIsOpen(false);
+          requestClose();
           break;
         case "+":
         case "=":
@@ -257,7 +397,7 @@ export default function ImgPreview({
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [isOpen, go, setIsOpen, resetHideTimer]);
+  }, [isOpen, go, requestClose, resetHideTimer]);
 
   // ── Wheel zoom: Ctrl/Cmd+wheel anywhere while open, or scroll over the image without modifier ──
 
@@ -483,7 +623,13 @@ export default function ImgPreview({
   if (!imageSrc) return null;
 
   return (
-    <Dialog open={isOpen} onOpenChange={setIsOpen}>
+    <Dialog
+      open={isOpen}
+      onOpenChange={(open) => {
+        if (open) setIsOpen(true);
+        else requestClose();
+      }}
+    >
       <DialogContent
         showCloseButton={false}
         overlayClassName="bg-black/88 backdrop-blur-[3px] data-[state=open]:duration-300 data-[state=closed]:duration-200"
@@ -535,10 +681,47 @@ export default function ImgPreview({
                 loading="eager"
                 fetchPriority="high"
                 draggable={false}
+                style={{ opacity: morphPhase === "idle" ? 1 : 0 }}
             />
           </div>
           {!focusMode && <CanvasGradient colors={colors} />}
         </motion.div>
+
+        {/* ── Morph-from-source overlay ── rides above the interactive image
+            during the open/close transition, then parks invisibly. */}
+        {canMorph && morphSrc && (
+          <motion.img
+            src={images[current] || morphSrc}
+            alt=""
+            aria-hidden
+            draggable={false}
+            animate={morphControls}
+            initial={
+              originRect
+                ? {
+                    top: originRect.top,
+                    left: originRect.left,
+                    width: originRect.width,
+                    height: originRect.height,
+                    borderRadius: originRect.radius ?? 0,
+                    opacity: 1,
+                  }
+                : { opacity: 0 }
+            }
+            onLoad={(e) => {
+              const t = e.currentTarget;
+              if (t.naturalWidth > 0) {
+                setNatSize({ w: t.naturalWidth, h: t.naturalHeight });
+              }
+            }}
+            onError={() => setMorphPhase("idle")}
+            className="pointer-events-none fixed z-[100000] select-none object-cover"
+            style={{
+              overflow: "hidden",
+              willChange: "top, left, width, height, border-radius, opacity",
+            }}
+          />
+        )}
 
         {/* ── Floating top bar ── */}
         <div
@@ -598,7 +781,7 @@ export default function ImgPreview({
               type="button"
               onClick={(e) => {
                 e.stopPropagation();
-                setIsOpen(false);
+                requestClose();
               }}
               aria-label="Close"
               className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white/12 text-white shadow-sm ring-1 ring-white/10 transition-colors hover:bg-white/22 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/40"
