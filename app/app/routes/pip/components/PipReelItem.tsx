@@ -476,8 +476,7 @@ function PipReelItemInner({
 
   useEffect(() => {
     if (variant !== 'page' || !isActive || !file.unique_id) return;
-    const display =
-      (file.file_title?.trim() || ParseFilename(file.filename || '')) || 'Reel';
+    const display = ParseFilename(file.file_title || file.filename || '');
     window.history.replaceState(
       null,
       '',

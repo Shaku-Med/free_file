@@ -7,7 +7,7 @@ import { Textarea } from "~/components/ui/textarea";
 import { Button } from "~/components/ui/button";
 import { type FileType, fileWatchPath } from "~/lib/types";
 import ImageLoad from "./ImageLoad/ImageLoad";
-import { cn, getDefaultThumbnail, getThumbnailUrl } from "~/lib/utils";
+import { cn, getDefaultThumbnail, getThumbnailUrl, ParseFilename } from "~/lib/utils";
 import { fileHoverTint } from "~/components/components/hlsplayer/visualizerPalette";
 import ParseFilenameInsert from "~/lib/utils/ShowFileName";
 import AdultContentBadge from "~/routes/Dynamic/components/AdultContentBadge";
@@ -83,6 +83,12 @@ function formatViews(count: number): string {
   return String(count);
 }
 
+function viewsLabel(count: number): string {
+  if (count <= 0) return "No views";
+  if (count === 1) return "1 view";
+  return `${formatViews(count)} views`;
+}
+
 function formatDuration(seconds: number): string {
   if (!Number.isFinite(seconds) || seconds <= 0) return "";
   const sec = Math.floor(seconds);
@@ -98,7 +104,7 @@ function isSeriesFile(f: FileType): boolean {
   return t(f.is_series_main) || t(f.is_series_episode) || t(f.is_files_series_item);
 }
 
-type LayoutType = "default" | "horizontal" | "compact" | "reelStrip" | "shelf" | "endCard" | "endCardHorizontal" | "continueWatch" | "notificationThumb" | "studioRow" | "seriesRow";
+type LayoutType = "default" | "horizontal" | "compact" | "miniQueue" | "reelStrip" | "shelf" | "endCard" | "endCardHorizontal" | "continueWatch" | "notificationThumb" | "studioRow" | "seriesRow";
 
 interface VideoCardProps {
   data: FileType;
@@ -128,6 +134,10 @@ interface VideoCardProps {
   /** Tighter `compact` layout (smaller thumb + text) for nested lists like the
    *  series episode tree, where the normal compact card is too chunky. */
   dense?: boolean;
+  /** `miniQueue`: play-in-place (mini player) or sidebar queue row. */
+  onQueueSelect?: () => void;
+  queueActive?: boolean;
+  queueBusy?: boolean;
 }
 
 const CATEGORIES = ["Gaming", "Music", "Entertainment", "Education", "Technology", "Sports", "News", "Lifestyle", "Anime", "Film", "Automotive", "Art", "Nature", "Other"];
@@ -152,6 +162,9 @@ const VideoCard = ({
   onDelete,
   profileOwnerUsername,
   dense,
+  onQueueSelect,
+  queueActive,
+  queueBusy,
 }: VideoCardProps) => {
   const isMobile = useIsMobile();
   const sidebarCtx = useSidebarOptional();
@@ -2263,7 +2276,7 @@ const VideoCard = ({
             void handleWatchNav();
           }}
           to={watchPath}
-          aria-label={`Open ${(data.file_title || data.filename || "video").slice(0, 80)}`}
+          aria-label={`Open ${ParseFilename(data.file_title || data.filename || "").slice(0, 80)}`}
           className="relative aspect-video w-full shrink-0 overflow-hidden bg-muted/30 outline-none ring-0 transition-[filter] duration-200 hover:brightness-[1.03] focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-offset-0"
         >
           {renderThumbnail("aspect-video h-full w-full")}
@@ -2281,7 +2294,7 @@ const VideoCard = ({
                 className="min-w-0 flex-1 rounded-md hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
               >
                 <h3 className="line-clamp-2 text-[13px] font-semibold leading-snug tracking-tight text-foreground sm:text-sm">
-                  <ParseFilenameInsert filename={data.file_title || data.filename} showLimit={64} />
+                  <ParseFilenameInsert filename={ParseFilename(data.file_title || data.filename || "")} showLimit={64} />
                 </h3>
               </Link>
               {metadataWarning ? (
@@ -2316,11 +2329,11 @@ const VideoCard = ({
                   {data.owner.username}
                 </Link>
               )}
-              {data.owner && (viewCount > 0 || Boolean(data.created_at)) ? (
+              {data.owner ? (
                 <span className="select-none text-muted-foreground/40">·</span>
               ) : null}
-              {viewCount > 0 ? <span className="tabular-nums">{formatViews(viewCount)} views</span> : null}
-              {viewCount > 0 && data.created_at ? (
+              <span className="tabular-nums">{viewsLabel(viewCount)}</span>
+              {data.created_at ? (
                 <span className="select-none text-muted-foreground/40">·</span>
               ) : null}
               {data.created_at ? <span>{formatTimeAgo(data.created_at)}</span> : null}
@@ -2417,7 +2430,7 @@ const VideoCard = ({
                 className="min-w-0 flex-1 transition-colors hover:text-primary"
               >
                 <h3 className="line-clamp-2 text-sm font-semibold leading-snug">
-                  <ParseFilenameInsert filename={data.file_title || data.filename} showLimit={60} />
+                  <ParseFilenameInsert filename={ParseFilename(data.file_title || data.filename || "")} showLimit={60} />
                 </h3>
               </Link>
 
@@ -2465,7 +2478,7 @@ const VideoCard = ({
             )}
 
             <div className="mt-0.5 flex flex-wrap items-center gap-x-1 gap-y-0.5 text-xs text-muted-foreground">
-              {viewCount > 0 && <span>{formatViews(viewCount)} views</span>}
+              {viewCount > 0 && <span>{viewsLabel(viewCount)}</span>}
               {viewCount > 0 && data.created_at && <span className="text-muted-foreground/50">·</span>}
               {data.created_at && <span>{formatTimeAgo(data.created_at)}</span>}
             </div>
@@ -2487,14 +2500,14 @@ const VideoCard = ({
                 className="min-w-0 flex-1 transition-colors hover:text-primary"
               >
                 <h3 className="line-clamp-2 text-base font-semibold leading-snug sm:text-lg lg:text-xl">
-                  <ParseFilenameInsert filename={data.file_title || data.filename} showLimit={90} />
+                  <ParseFilenameInsert filename={ParseFilename(data.file_title || data.filename || "")} showLimit={90} />
                 </h3>
               </Link>
               <div className="shrink-0">{hideActions.halfway && <>{renderActions()}</>}</div>
             </div>
 
             <div className="flex flex-wrap items-center gap-x-1 text-sm text-muted-foreground">
-              {viewCount > 0 && <span>{formatViews(viewCount)} views</span>}
+              {viewCount > 0 && <span>{viewsLabel(viewCount)}</span>}
               {viewCount > 0 && data.created_at && <span className="text-muted-foreground/50">·</span>}
               {data.created_at && <span>{formatTimeAgo(data.created_at)}</span>}
             </div>
@@ -2549,17 +2562,21 @@ const VideoCard = ({
         </Link>
 
         <div className="mt-2 min-w-0 flex items-start justify-between gap-2">
-          <div className="flex items-start flex-col gap-1">
+          <div className="flex min-w-0 flex-1 flex-col gap-1">
             <Link
               onClick={(e) => {
                 e.preventDefault();
                 void handleWatchNav();
               }}
               to={watchPath}
-              className="min-w-0 flex-1 hover:opacity-90"
+              className="min-w-0 hover:opacity-90"
             >
-              <h3 className="line-clamp-2 text-left text-sm font-semibold leading-tight tracking-tight text-foreground">
-                <ParseFilenameInsert filename={data.file_title || data.filename} showLimit={30} characterSplit={true} className={`flex flex-wrap`}/>
+              <h3 className="truncate text-left text-sm font-semibold leading-tight tracking-tight text-foreground">
+                <ParseFilenameInsert
+                  filename={ParseFilename(data.file_title || data.filename || "")}
+                  showLimit={36}
+                  className="block truncate"
+                />
               </h3>
             </Link>
 
@@ -2574,7 +2591,7 @@ const VideoCard = ({
 
             {viewCount > 0 ? (
               <p className="mt-1 text-xs leading-snug text-muted-foreground">
-                {formatViews(viewCount)} views
+                {viewsLabel(viewCount)}
               </p>
             ) : null}
           </div>
@@ -2627,7 +2644,7 @@ const VideoCard = ({
         </div>
         <div className="flex min-w-0 flex-col gap-0.5 px-0.5">
           <h3 className="line-clamp-2 text-[clamp(10px,2.8cqi,15px)] font-medium leading-snug text-white">
-            <ParseFilenameInsert filename={data.file_title || data.filename} showLimit={60} />
+            <ParseFilenameInsert filename={ParseFilename(data.file_title || data.filename || "")} showLimit={60} />
           </h3>
           <div className="flex min-w-0 flex-wrap items-center gap-x-1 text-[clamp(9px,2.4cqi,12px)] leading-tight text-white/70">
             {data.owner && (
@@ -2637,7 +2654,7 @@ const VideoCard = ({
               <span className="text-white/40">·</span>
             )}
             {viewCount > 0 && (
-              <span className="tabular-nums">{formatViews(viewCount)} views</span>
+              <span className="tabular-nums">{viewsLabel(viewCount)}</span>
             )}
           </div>
         </div>
@@ -2672,12 +2689,12 @@ const VideoCard = ({
         </div>
         <div className="min-w-0 px-0.5">
           <h3 className="line-clamp-2 text-sm font-medium leading-snug text-foreground">
-            <ParseFilenameInsert filename={data.file_title || data.filename} showLimit={60} />
+            <ParseFilenameInsert filename={ParseFilename(data.file_title || data.filename || "")} showLimit={60} />
           </h3>
           <div className="mt-0.5 flex min-w-0 flex-wrap items-center gap-x-1 text-xs leading-tight text-muted-foreground">
             {data.owner && <span className="max-w-[10rem] truncate">{data.owner.username}</span>}
             {data.owner && viewCount > 0 && <span className="text-muted-foreground/50">·</span>}
-            {viewCount > 0 && <span className="tabular-nums">{formatViews(viewCount)} views</span>}
+            {viewCount > 0 && <span className="tabular-nums">{viewsLabel(viewCount)}</span>}
           </div>
         </div>
       </Link>
@@ -2715,7 +2732,7 @@ const VideoCard = ({
         </div>
         <div className="flex min-w-0 flex-1 flex-col justify-center gap-[clamp(0.125rem,0.7cqi,0.375rem)]">
           <h3 className="line-clamp-2 text-[clamp(12px,3cqi,16px)] font-semibold leading-snug text-white">
-            <ParseFilenameInsert filename={data.file_title || data.filename} showLimit={80} />
+            <ParseFilenameInsert filename={ParseFilename(data.file_title || data.filename || "")} showLimit={80} />
           </h3>
           <div className="flex min-w-0 flex-wrap items-center gap-x-1 text-[clamp(10px,2.4cqi,13px)] leading-tight text-white/70">
             {data.owner && (
@@ -2725,7 +2742,7 @@ const VideoCard = ({
               <span className="text-white/40">·</span>
             )}
             {viewCount > 0 && (
-              <span className="tabular-nums">{formatViews(viewCount)} views</span>
+              <span className="tabular-nums">{viewsLabel(viewCount)}</span>
             )}
           </div>
         </div>
@@ -2771,7 +2788,7 @@ const VideoCard = ({
           </div>
           <div className="min-w-0">
             <p className="line-clamp-2 text-sm font-semibold text-foreground">
-              <ParseFilenameInsert filename={data.file_title || data.filename} showLimit={120} />
+              <ParseFilenameInsert filename={ParseFilename(data.file_title || data.filename || "")} showLimit={120} />
             </p>
             {postedAt && (
               <p className="mt-1 text-xs text-muted-foreground">{postedAt}</p>
@@ -2808,7 +2825,7 @@ const VideoCard = ({
             )}
           </div>
           <p className="line-clamp-2 min-w-0 flex-1 text-[13px] font-medium leading-snug text-foreground">
-            <ParseFilenameInsert filename={data.file_title || data.filename} showLimit={100} />
+            <ParseFilenameInsert filename={ParseFilename(data.file_title || data.filename || "")} showLimit={100} />
           </p>
         </Link>
         {renderEditDialog()}
@@ -2830,6 +2847,73 @@ const VideoCard = ({
     return (
       <div className="relative h-full w-full overflow-hidden rounded-md bg-card ring-1 ring-border/40">
         {renderThumbnail("h-full w-full")}
+      </div>
+    );
+  }
+
+  if (layout === "miniQueue") {
+    const durationSec = typeof data.duration === "number" ? data.duration : 0;
+    const durationStr = formatDuration(durationSec);
+    const queueNavClick = (e: React.MouseEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (onQueueSelect) {
+        if (!queueActive && !queueBusy) onQueueSelect();
+        return;
+      }
+      void handleWatchNav();
+    };
+
+    return (
+      <div
+        className={cn(
+          "group flex min-w-0 items-center gap-2 rounded-lg px-2 py-1.5 transition-colors",
+          queueActive ? "bg-muted/60" : "hover:bg-muted/50",
+        )}
+      >
+        <Link
+          to={watchPath}
+          onClick={queueNavClick}
+          className="relative aspect-video w-[5.5rem] shrink-0 overflow-hidden rounded-md bg-card ring-1 ring-border/30"
+        >
+          {renderThumbnail("h-full w-full")}
+          {durationStr ? (
+            <span className="absolute right-1 bottom-1 rounded bg-black/80 px-1 py-px text-[9px] font-semibold tabular-nums leading-none text-white">
+              {durationStr}
+            </span>
+          ) : null}
+        </Link>
+
+        <div className="flex min-w-0 flex-1 items-center gap-2">
+          <div className="min-w-0 flex-1">
+            <Link to={watchPath} onClick={queueNavClick} className="min-w-0 transition-colors hover:text-primary">
+              <h3 className="truncate text-[13px] font-medium leading-snug text-foreground">
+                <ParseFilenameInsert
+                  filename={ParseFilename(data.file_title || data.filename || "")}
+                  showLimit={48}
+                  className="block truncate"
+                />
+              </h3>
+            </Link>
+            {data.owner ? (
+              <p className="mt-0.5 truncate text-[11px] text-muted-foreground">
+                {data.owner.username}
+              </p>
+            ) : null}
+          </div>
+
+          {queueBusy ? (
+            <Loader2 className="h-4 w-4 shrink-0 animate-spin text-muted-foreground" aria-label="Loading" />
+          ) : queueActive ? (
+            <span className="shrink-0 rounded-full bg-primary/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-primary">
+              Playing
+            </span>
+          ) : null}
+        </div>
+
+        {renderEditDialog()}
+        {renderInfoDialog()}
+        {seriesEpisodesPreviewDialogEl}
       </div>
     );
   }
@@ -2876,7 +2960,7 @@ const VideoCard = ({
               className="hover:text-primary transition-colors"
             >
               <h3 className={cn("line-clamp-2 font-medium leading-snug", dense ? "text-xs" : "text-[13px]")}>
-                <ParseFilenameInsert filename={data.file_title || data.filename} showLimit={50} />
+                <ParseFilenameInsert filename={ParseFilename(data.file_title || data.filename || "")} showLimit={50} />
               </h3>
             </Link>
 
@@ -2890,7 +2974,7 @@ const VideoCard = ({
                 <span className="text-muted-foreground/50">·</span>
               )}
               {viewCount > 0 && (
-                <span className="tabular-nums">{formatViews(viewCount)} views</span>
+                <span className="tabular-nums">{viewsLabel(viewCount)}</span>
               )}
               {viewCount > 0 && data.created_at && (
                 <span className="text-muted-foreground/50">·</span>
@@ -2959,7 +3043,7 @@ const VideoCard = ({
                   className="min-w-0 flex-1 hover:text-primary transition-colors"
                 >
                   <h3 className="line-clamp-2 text-sm font-semibold leading-tight md:text-base">
-                    <ParseFilenameInsert filename={data.file_title || data.filename} showLimit={50} characterSplit={true} className={`flex flex-wrap`}/>
+                    <ParseFilenameInsert filename={ParseFilename(data.file_title || data.filename || "")} showLimit={50} characterSplit={true} className={`flex flex-wrap`}/>
                   </h3>
                 </Link>
                 {metadataWarning && (
@@ -2994,7 +3078,7 @@ const VideoCard = ({
                   </Link>
                 )}
                 {data.owner && viewCount > 0 && <span className="text-muted-foreground/60">·</span>}
-                {viewCount > 0 && <span>{formatViews(viewCount)} views</span>}
+                {viewCount > 0 && <span>{viewsLabel(viewCount)}</span>}
               </div>
             </div>
             <div>

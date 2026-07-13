@@ -1,6 +1,6 @@
 import { useCallback, useRef, useState } from 'react';
 import { Music2 } from 'lucide-react';
-import { cn, getVideoSrc } from '~/lib/utils';
+import { cn, getVideoSrc, ParseFilename } from '~/lib/utils';
 import { usePlaybackUrl } from '~/lib/hooks/usePlaybackUrl';
 import ParseFilenameInsert from '~/lib/utils/ShowFileName';
 import { FormattedText } from '~/components/FormattedText';
@@ -37,6 +37,17 @@ export function VerticalFeedItem({
   const playerBackground = playerSettings?.playerBackground !== false;
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const file = item.file;
+
+  // Machine names (UUIDs, camera-roll dumps) parse to "Untitled" — the reel
+  // overlay just drops the line instead of showing that.
+  const cleanTitle = (raw: string) => {
+    const t = raw ? ParseFilename(raw) : '';
+    return t === 'Untitled' ? '' : t;
+  };
+  const overlayTitle = cleanTitle(file?.file_title || file?.filename || '');
+  const soundTitle = cleanTitle(
+    file?.file_title || file?.filename || item.title || ''
+  );
 
   const [likeCount, setLikeCount] = useState(item.likeCount ?? 0);
   const [dislikeCount, setDislikeCount] = useState(item.dislikeCount ?? 0);
@@ -133,10 +144,10 @@ export function VerticalFeedItem({
                       className="text-white/95 [&_a]:text-sky-300 [&_a]:hover:text-sky-200"
                     />
                   </p>
-                ) : file?.file_title?.trim() || file?.filename ? (
+                ) : overlayTitle ? (
                   <p className="mt-1 line-clamp-3 text-sm font-semibold leading-snug text-white/95 drop-shadow-[0_1px_2px_rgba(0,0,0,0.75)]">
                     <ParseFilenameInsert
-                      filename={file.file_title?.trim() || file.filename || ''}
+                      filename={overlayTitle}
                       className="text-white/95 [&_a]:text-sky-300 [&_a]:hover:text-sky-200"
                     />
                   </p>
@@ -144,13 +155,17 @@ export function VerticalFeedItem({
                 <div className="mt-3 flex items-center gap-2 text-xs text-white/75">
                   <Music2 className="h-4 w-4 shrink-0 opacity-90" aria-hidden />
                   <span className="truncate">
-                    Original sound {' '}
-                    <ParseFilenameInsert
-                      filename={
-                        file?.file_title?.trim() || file?.filename || item.title || ''
-                      }
-                      className="text-white/75 [&_a]:text-sky-300 [&_a]:hover:text-sky-200"
-                    />
+                    {soundTitle ? (
+                      <>
+                        Original sound {' '}
+                        <ParseFilenameInsert
+                          filename={soundTitle}
+                          className="text-white/75 [&_a]:text-sky-300 [&_a]:hover:text-sky-200"
+                        />
+                      </>
+                    ) : (
+                      'Original sound'
+                    )}
                   </span>
                 </div>
               </div>

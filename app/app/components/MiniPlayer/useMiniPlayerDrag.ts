@@ -106,6 +106,16 @@ export function getViewportMaxMiniPlayerWidth(): number {
   return Math.min(ABSOLUTE_MAX_W, Math.max(MIN_W, byViewport));
 }
 
+/** Wider shell when the up-next queue is open — full width on phones, adaptive on desktop. */
+export function getExpandedMiniPlayerWidth(viewportW: number): number {
+  if (typeof window === "undefined") return PREFERRED_DEFAULT_W;
+  const side = viewportSideMarginPx();
+  const padded = Math.max(MIN_W, Math.floor(viewportW - side));
+  if (viewportW < 640) return padded;
+  const target = Math.floor(viewportW * 0.36);
+  return Math.min(520, Math.max(360, target));
+}
+
 function loadStoredWidth(): number {
   if (typeof window === "undefined") return PREFERRED_DEFAULT_W;
   const cap = getViewportMaxMiniPlayerWidth();
@@ -173,6 +183,8 @@ export function useMiniPlayerDrag(sessionKey: string) {
   const elementRef = useRef<HTMLDivElement | null>(null);
   const frameWidthRef = useRef(frameWidth);
   frameWidthRef.current = frameWidth;
+  /** When true, height growth must not push the shell upward (queue open/close). */
+  const lockTopAnchorRef = useRef(false);
 
   useEffect(() => {
     const syncCap = () => {
@@ -247,6 +259,11 @@ export function useMiniPlayerDrag(sessionKey: string) {
       const { width, height } = elSizeRef.current;
       if (Math.abs(width - prev.width) < 1 && Math.abs(height - prev.height) < 1) return;
       setPosition((p) => {
+        if (lockTopAnchorRef.current) {
+          const maxX = window.innerWidth - width - PADDING;
+          const x = Math.max(PADDING, Math.min(maxX, p.x));
+          return x === p.x ? p : { x, y: p.y };
+        }
         const next = visPosition(p.x, p.y, width, height, tuckRef.current);
         return next.x === p.x && next.y === p.y ? p : next;
       });
@@ -521,6 +538,11 @@ export function useMiniPlayerDrag(sessionKey: string) {
     [measureAndCacheSize, visPosition],
   );
 
+  /** Keep top-left fixed while the queue panel opens/closes (height is pre-fit). */
+  const setLockTopAnchor = useCallback((locked: boolean) => {
+    lockTopAnchorRef.current = locked;
+  }, []);
+
   return {
     elementRef,
     position,
@@ -535,6 +557,7 @@ export function useMiniPlayerDrag(sessionKey: string) {
     handleResizePointerMove,
     handleResizePointerUp,
     clampIntoView,
+    setLockTopAnchor,
   };
 }
 

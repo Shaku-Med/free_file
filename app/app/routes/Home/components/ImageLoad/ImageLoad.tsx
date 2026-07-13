@@ -6,7 +6,7 @@ import { getImageColorsHEX } from './Canvas/Functions'
 import { IMAGE_BASE_URL } from '~/lib/URLS'
 import { useFileContext } from '~/lib/Context/Context'
 import { AnimatePresence } from 'motion/react'
-import ImgPreview, { type MorphRect } from './ImgPreview/ImgPreview'
+import ImgPreview, { measureContainedImageRect, type MorphRect } from './ImgPreview/ImgPreview'
 
 interface CallBackProps {
     src: string
@@ -65,9 +65,12 @@ function buildImageFetchInit(forceSameOrigin: boolean): RequestInit {
 function ImageLoadShimmer({
     overlay,
     className,
+    paused,
 }: {
     overlay?: boolean
     className?: string
+    /** Offscreen cards freeze their shimmer so a feed full of loaders doesn't keep the compositor busy forever. */
+    paused?: boolean
 }) {
     return (
         <div
@@ -79,7 +82,12 @@ function ImageLoadShimmer({
             )}
             aria-hidden
         >
-            <div className="image-load-shimmer-bg size-full min-h-0" />
+            <div
+                className={cn(
+                    'image-load-shimmer-bg size-full min-h-0',
+                    paused && 'shimmer-paused',
+                )}
+            />
         </div>
     )
 }
@@ -121,10 +129,16 @@ const ImageLoad = ({
     const recoveryBlobRef = useRef<string | null>(null)
     const fetchRecoveryRemaining = useRef(MAX_FETCH_RECOVERY_ATTEMPTS)
     const recoveryInFlight = useRef(false)
+    /** Once the visible <img> has decoded, never flash the shimmer again (resize IO flicker). */
+    const hasLoadedOnceRef = useRef(false)
+    /** Skip re-sampling palette when resize toggles intersection and the src is unchanged. */
+    const colorsSampledForRef = useRef<string | null>(null)
 
     const { ref: setInViewRef, inView } = useInView({
         threshold: 0,
-        triggerOnce: false,
+        // Stay "in view" after the first intersection so a window resize / layout
+        // reflow does not flip IO off→on and re-run fetch / shimmer / color work.
+        triggerOnce: true,
         rootMargin: '50px',
     })
     const inViewForLoad = eagerLoad || inView
@@ -178,6 +192,8 @@ const ImageLoad = ({
 
     useLayoutEffect(() => {
         hasFetchedRef.current = false
+        hasLoadedOnceRef.current = false
+        colorsSampledForRef.current = null
         if (recoveryBlobRef.current) {
             URL.revokeObjectURL(recoveryBlobRef.current)
             recoveryBlobRef.current = null
@@ -513,12 +529,14 @@ const ImageLoad = ({
         ) {
             return
         }
+        if (colorsSampledForRef.current === colorSampleSrc) return
 
         let cancelled = false
         ;(async () => {
             try {
                 const nextColors = shouldShowPreview ? await getImageColorsHEX({ src: colorSampleSrc }) : []
                 if (cancelled) return
+                colorsSampledForRef.current = colorSampleSrc
                 setColors(nextColors || [])
                 callBackRef.current?.({
                     src: colorSampleSrc,
@@ -545,14 +563,11 @@ const ImageLoad = ({
         }
     }, [])
 
-    // Screen box of the visible thumbnail, so the preview can grow from source.
+    // Visible image pixels (object-contain), not the full aspect-video box.
     const measureOrigin = useCallback((): MorphRect | null => {
         const el = containerRef.current
         if (!el) return null
-        const r = el.getBoundingClientRect()
-        if (r.width <= 0 || r.height <= 0) return null
-        const radius = parseFloat(getComputedStyle(el).borderTopLeftRadius) || 0
-        return { top: r.top, left: r.left, width: r.width, height: r.height, radius }
+        return measureContainedImageRect(el, imgRef.current)
     }, [])
 
     const handlePreviewOpen = (e: React.MouseEvent) => {
@@ -604,11 +619,24 @@ const ImageLoad = ({
         const el = imgRef.current
         if (!el) return
         if (el.complete && el.naturalWidth > 0) {
+            hasLoadedOnceRef.current = true
             setLoaded(true)
-        } else {
+        } else if (!hasLoadedOnceRef.current) {
             setLoaded(false)
         }
     }, [canShowImage, imgDisplaySrc])
+
+    /** Stall failsafe: a card visibly loading for 20s (stalled download, dead
+     *  image host) resolves to the error state instead of shimmering forever. */
+    useEffect(() => {
+        if (!inView || loaded || error) return
+        const t = setTimeout(() => {
+            const el = imgRef.current
+            if (el && el.complete && el.naturalWidth > 0) return
+            setError(true)
+        }, 20_000)
+        return () => clearTimeout(t)
+    }, [inView, loaded, error])
 
     return (
         <>
@@ -625,7 +653,7 @@ const ImageLoad = ({
             >
                 {canShowImage ? (
                     <>
-                        {!loaded && <ImageLoadShimmer overlay />}
+                        {!loaded && <ImageLoadShimmer overlay paused={!inView} />}
                         <img
                             ref={imgRef}
                             key={imgDisplaySrc}
@@ -638,7 +666,10 @@ const ImageLoad = ({
                             )}
                             loading={eagerLoad || index === 0 ? 'eager' : 'lazy'}
                             onError={handleImgError}
-                            onLoad={() => setLoaded(true)}
+                            onLoad={() => {
+                                hasLoadedOnceRef.current = true
+                                setLoaded(true)
+                            }}
                         />
                         {multipleImages.length > 1 && (
                             <div className="absolute top-2 right-2 z-[3] bg-black/60 text-white text-[10px] font-medium px-1.5 py-0.5 rounded">
@@ -653,7 +684,7 @@ const ImageLoad = ({
                         aria-live="polite"
                         aria-label="Loading thumbnail"
                     >
-                        <ImageLoadShimmer />
+                        <ImageLoadShimmer paused={!inView} />
                     </div>
                 ) : (
                     <div

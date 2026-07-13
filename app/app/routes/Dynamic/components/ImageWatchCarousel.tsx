@@ -273,6 +273,7 @@ export default function ImageWatchCarousel({
                 retry={() => {}}
                 hasAdultTag={Boolean(img.is_adult)}
                 shouldShowPreview
+                eagerLoad
                 callBack={(e) => handleImageLoaded(i, { src: e.src, colors: e.colors })}
               />
             </div>

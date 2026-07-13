@@ -17,13 +17,34 @@ export const arrangeDateForThumbnail = (created_at: string, retryAttempt: number
 
 
 
+const MEDIA_EXT_RE = /\.(m3u8|mp4|mov|webm|mkv|avi|m4v|ts|mp3|wav|m4a|flac|ogg|aac|jpe?g|png|webp|gif|avif|heic|heif|bmp|svg)$/i
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+/**
+ * Filename → human display title. Strips media extensions (including doubled
+ * ones like `.mp4.m3u8`), turns machine names (UUIDs, long hex ids) into
+ * "Untitled", and swaps underscores for spaces in word-ish names. User-set
+ * titles never pass through here — this is only the fallback path.
+ */
 export const ParseFilename = (filename: string, showLimit?: number) => {
-  const parts = filename.split('.')
-  if (parts.length >= 3 && parts[parts.length - 1] === 'm3u8') {
-    parts.splice(-2, 2)
-    return parts.join('.')
+  let name = (filename || '').trim()
+  for (let i = 0; i < 3 && MEDIA_EXT_RE.test(name); i++) {
+    name = name.replace(MEDIA_EXT_RE, '')
   }
-  return filename
+  if (!name) return 'Untitled'
+
+  // `copy_<uuid>` and similar prefixes shouldn't rescue a machine name.
+  const bare = name.replace(/^(copy|img|image|video|vid|file|download)[_\s-]*/i, '')
+  const machineName =
+    UUID_RE.test(bare) ||
+    /^[0-9a-f_-]{16,}$/i.test(bare) ||
+    /^[\d_\s.-]*$/.test(bare)
+  if (machineName) return 'Untitled'
+
+  // Only unglue separator-cased names; titles with real spaces stay as typed.
+  if (!name.includes(' ')) name = name.replace(/_+/g, ' ').trim()
+  return name || 'Untitled'
 }
 
 

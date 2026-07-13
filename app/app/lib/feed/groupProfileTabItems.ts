@@ -1,14 +1,11 @@
 import type { FileType } from "~/lib/types";
+import { REEL_STRIP_BATCH_SIZE } from "./groupConsecutiveReelClusters";
 
 export type ProfileTabRenderGroup = {
   label: string;
   files: FileType[];
   variant: "shorts" | "videos" | "series";
 };
-
-function hasNumericClusterId(cid: unknown): boolean {
-  return cid != null && Number.isFinite(Number(cid));
-}
 
 function isSeriesFile(f: FileType): boolean {
   return Boolean(f.is_series_main || f.is_files_series_item || f.is_series_episode);
@@ -56,38 +53,36 @@ function pushGroup(out: ProfileTabRenderGroup[], group: ProfileTabRenderGroup) {
  */
 export function groupProfileTabItems(files: FileType[]): ProfileTabRenderGroup[] {
   const out: ProfileTabRenderGroup[] = [];
+  const usedReelIdx = new Set<number>();
   let i = 0;
 
   while (i < files.length) {
     const f = files[i];
 
     if (f.is_reel) {
-      const cid = f.feed_reel_cluster_id;
-      const run: FileType[] = [f];
-      let j = i + 1;
+      if (usedReelIdx.has(i)) {
+        i++;
+        continue;
+      }
 
-      if (hasNumericClusterId(cid)) {
-        while (
-          j < files.length &&
-          files[j].is_reel &&
-          files[j].feed_reel_cluster_id === cid
-        ) {
-          run.push(files[j]);
+      const run: FileType[] = [f];
+      usedReelIdx.add(i);
+      let j = i + 1;
+      while (run.length < REEL_STRIP_BATCH_SIZE && j < files.length) {
+        if (usedReelIdx.has(j)) {
           j++;
+          continue;
         }
-      } else {
-        while (
-          j < files.length &&
-          files[j].is_reel &&
-          !hasNumericClusterId(files[j].feed_reel_cluster_id)
-        ) {
-          run.push(files[j]);
-          j++;
+        const next = files[j];
+        if (next.is_reel) {
+          run.push(next);
+          usedReelIdx.add(j);
         }
+        j++;
       }
 
       pushGroup(out, { label: "Shorts", files: run, variant: "shorts" });
-      i = j;
+      i++;
       continue;
     }
 

@@ -137,6 +137,11 @@
     background-size: 260% 100%;
     animation: image-load-shimmer 2.6s cubic-bezier(0.4, 0, 0.2, 1) infinite;
   }
+
+  /** Offscreen loaders freeze so a feed of pending thumbnails stays cheap to composite */
+  .image-load-shimmer-bg.shimmer-paused {
+    animation-play-state: paused;
+  }
 }
 
 @keyframes image-load-shimmer {

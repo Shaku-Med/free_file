@@ -161,9 +161,9 @@ function SortableQueueRow({
       </div>
       <div className="min-w-0 flex-1">
         <VideoCard
-          layout={`compact`}
+          layout="miniQueue"
           related
-          hideActions={{completely: false, halfway: true}}
+          hideActions={{ completely: true }}
           data={video}
           index={index}
           currentUserId={currentUserId}
@@ -264,9 +264,9 @@ function GuestPlayQueueLocked({
                 className="min-w-0 border-b border-border/35 py-1.5 last:border-b-0"
               >
                 <VideoCard
-                  layout={`compact`}
+                  layout="miniQueue"
                   related
-                  hideActions={{completely: false, halfway: true}}
+                  hideActions={{ completely: true }}
                   data={video}
                   index={index}
                   currentUserId={currentUserId}

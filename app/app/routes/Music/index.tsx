@@ -8,7 +8,7 @@ import OwnerProfile from "~/components/OwnerProfile/OwnerProfile";
 import EmptyState from "~/components/EmptyState";
 import { Button } from "~/components/ui/button";
 import { useFileContext } from "~/lib/Context/Context";
-import { cn } from "~/lib/utils";
+import { cn, ParseFilename } from "~/lib/utils";
 import ParseFilenameInsert from "~/lib/utils/ShowFileName";
 import { formatNumber } from "~/lib/utils/formatNumber";
 import { formatTimeAgo } from "~/lib/formatTimeAgo";
@@ -86,7 +86,7 @@ function SoundOriginalMeta({
       </p>
 
       <h1 className="text-xl font-bold leading-tight text-foreground sm:text-2xl">
-        <ParseFilenameInsert filename={file.file_title || file.filename || ""} />
+        <ParseFilenameInsert filename={ParseFilename(file.file_title || file.filename || "")} />
       </h1>
 
       {file.owner ? (

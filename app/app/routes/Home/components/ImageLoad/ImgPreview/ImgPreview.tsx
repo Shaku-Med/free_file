@@ -55,6 +55,31 @@ export type MorphRect = {
   radius?: number;
 };
 
+/** object-contain pixel bounds of an image inside its container (not the full box). */
+export function measureContainedImageRect(
+  container: HTMLElement,
+  img: HTMLImageElement | null,
+): MorphRect | null {
+  const cr = container.getBoundingClientRect();
+  if (cr.width <= 0 || cr.height <= 0) return null;
+  const radius = parseFloat(getComputedStyle(container).borderTopLeftRadius) || 0;
+
+  if (!img?.complete || img.naturalWidth <= 0 || img.naturalHeight <= 0) {
+    return { top: cr.top, left: cr.left, width: cr.width, height: cr.height, radius };
+  }
+
+  const scale = Math.min(cr.width / img.naturalWidth, cr.height / img.naturalHeight);
+  const w = img.naturalWidth * scale;
+  const h = img.naturalHeight * scale;
+  return {
+    top: cr.top + (cr.height - h) / 2,
+    left: cr.left + (cr.width - w) / 2,
+    width: w,
+    height: h,
+    radius,
+  };
+}
+
 interface ImgPreviewProps {
   images: string[];
   index: number;
@@ -186,9 +211,12 @@ export default function ImgPreview({
   // can't be computed (image failed to load, no natural size, etc.).
   useEffect(() => {
     if (morphPhase !== "in") return;
-    const t = setTimeout(() => setMorphPhase("idle"), 450);
+    const t = setTimeout(() => {
+      morphControls.set({ opacity: 0 });
+      setMorphPhase("idle");
+    }, 450);
     return () => clearTimeout(t);
-  }, [morphPhase]);
+  }, [morphPhase, morphControls]);
 
   // Arm the open morph on every open. Needed for callers that keep ImgPreview
   // permanently mounted (so the initial `morphPhase` was decided before the
@@ -252,8 +280,13 @@ export default function ImgPreview({
   }, [current]);
 
   useEffect(() => {
-    if (!isOpen) setFocusMode(false);
-  }, [isOpen]);
+    if (!isOpen) {
+      setFocusMode(false);
+      closingRef.current = false;
+      setMorphPhase(canMorph ? "in" : "idle");
+      setNatSize(null);
+    }
+  }, [isOpen, canMorph]);
 
   // ── Helpers ──
 
@@ -687,11 +720,10 @@ export default function ImgPreview({
           {!focusMode && <CanvasGradient colors={colors} />}
         </motion.div>
 
-        {/* ── Morph-from-source overlay ── rides above the interactive image
-            during the open/close transition, then parks invisibly. */}
-        {canMorph && morphSrc && (
+        {/* Morph overlay only during open/close — never left on screen idle. */}
+        {canMorph && morphSrc && morphPhase !== "idle" && (
           <motion.img
-            src={images[current] || morphSrc}
+            src={morphSrc}
             alt=""
             aria-hidden
             draggable={false}
@@ -714,8 +746,11 @@ export default function ImgPreview({
                 setNatSize({ w: t.naturalWidth, h: t.naturalHeight });
               }
             }}
-            onError={() => setMorphPhase("idle")}
-            className="pointer-events-none fixed z-[100000] select-none object-cover"
+            onError={() => {
+              morphControls.set({ opacity: 0 });
+              setMorphPhase("idle");
+            }}
+            className="pointer-events-none fixed z-[100000] select-none object-contain"
             style={{
               overflow: "hidden",
               willChange: "top, left, width, height, border-radius, opacity",

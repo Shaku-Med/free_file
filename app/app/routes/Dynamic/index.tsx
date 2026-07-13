@@ -1966,7 +1966,7 @@ const DynamicPage = ({ is_modal }: DynamicPageProps) => {
   const contentColumn = (
     <div className="relative space-y-4 max-lg:overflow-visible max-lg:rounded-none max-lg:px-2 max-lg:py-0 lg:overflow-hidden lg:rounded-lg lg:p-4">
       <h1 className="text-xl font-bold text-foreground leading-tight select-text">
-        <ParseFilenameInsert filename={file_data.file_title || file_data.filename}/>
+        <ParseFilenameInsert filename={ParseFilename(file_data.file_title || file_data.filename || "")}/>
       </h1>
 
       <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between lg:gap-4">

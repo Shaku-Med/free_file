@@ -24,7 +24,7 @@ import {
   relatedVideoDragId,
   usePlayQueueOptional,
 } from "./PlayQueueContext"
-import { cn, getThumbnailUrl } from "~/lib/utils"
+import { cn, getThumbnailUrl, ParseFilename } from "~/lib/utils"
 import { BASE_URL } from "~/lib/URLS"
 import ParseFilenameInsert from "~/lib/utils/ShowFileName"
 import { groupConsecutiveReelClusters } from "~/lib/feed/groupConsecutiveReelClusters"
@@ -307,7 +307,7 @@ const RelatedVideosContent = ({ currentUserId }: { currentUserId?: string }) => 
             />
             <span className="line-clamp-2 text-xs font-medium">
               <ParseFilenameInsert
-                filename={overlayVideo.file_title || overlayVideo.filename}
+                filename={ParseFilename(overlayVideo.file_title || overlayVideo.filename || "")}
                 showLimit={42}
               />
             </span>

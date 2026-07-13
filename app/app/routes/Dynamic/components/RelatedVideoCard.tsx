@@ -117,7 +117,7 @@ const RelatedVideoCard = ({ data, currentUserId, userActions }: RelatedVideoCard
             <div className="flex items-center gap-1.5">
               <Link to={watchPath} className="hover:text-primary transition-colors flex-1 min-w-0">
                 <p className="text-sm font-medium leading-tight line-clamp-2">
-                  {data.file_title || ParseFilename(data.filename)}
+                  {ParseFilename(data.file_title || data.filename || "")}
                 </p>
               </Link>
               {metadataWarning && (
