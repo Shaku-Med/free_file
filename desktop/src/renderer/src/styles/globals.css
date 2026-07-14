@@ -1,0 +1,82 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Instrument Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Sora", ui-sans-serif, system-ui, sans-serif;
+
+  --color-background: #0f1115;
+  --color-foreground: #f2f0ea;
+  --color-card: #171a21;
+  --color-card-elevated: #1d222c;
+  --color-muted: #242933;
+  --color-muted-foreground: #9aa3b2;
+  --color-border: #2a3140;
+  --color-primary: #e8a45a;
+  --color-primary-foreground: #1a1208;
+  --color-accent: #3d6bff;
+  --color-accent-soft: color-mix(in srgb, #3d6bff 18%, transparent);
+  --color-danger: #e35d5d;
+  --color-sidebar: #12151b;
+  --color-sidebar-hover: #1a1f29;
+  --color-sidebar-active: #222836;
+  --radius-xl: 1rem;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  width: 100%;
+  margin: 0;
+  overflow: hidden;
+  background: var(--color-background);
+  color: var(--color-foreground);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+button,
+input {
+  font: inherit;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--color-muted-foreground) 35%, transparent);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.app-drag {
+  -webkit-app-region: drag;
+}
+
+.app-no-drag {
+  -webkit-app-region: no-drag;
+}
+
+.feed-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 1.25rem;
+}
+
+.media-thumb {
+  background:
+    linear-gradient(145deg, rgba(61, 107, 255, 0.28), transparent 55%),
+    linear-gradient(320deg, rgba(232, 164, 90, 0.22), transparent 50%),
+    #1c2230;
+}
