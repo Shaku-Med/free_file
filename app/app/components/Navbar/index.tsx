@@ -13,6 +13,7 @@ import type { ScrollState } from "./components/BodyComponent";
 import { NotificationsDropdown } from "./NotificationsDropdown";
 import { WindappWindowControls } from "./WindappWindowControls";
 import { WindappNavButtons } from "./WindappNavButtons";
+import { DesktopUpdateHeaderButton } from "~/components/DesktopUpdateCta";
 import { cn } from "~/lib/utils";
 import { isReelRoute } from "~/lib/reelRoute";
 
@@ -261,6 +262,8 @@ export default function Navbar({ hasScrolled = { state: false, opacityLevel: 0 }
                 iconBtn={iconBtn}
               />
             ) : null}
+
+            {isWindapp ? <DesktopUpdateHeaderButton /> : null}
 
             {/* Profile / Sign in  desktop only; mobile uses the tab bar. */}
             {!isMobile ? <UserProfileDropdown variant="topbar" /> : null}

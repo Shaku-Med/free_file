@@ -8,7 +8,7 @@ const {
   attachPipWindow,
   closePipWindow,
 } = require('./pip-window');
-const { setupDesktopUpdater } = require('./updater');
+const { setupDesktopUpdater, checkForDesktopUpdate } = require('./updater');
 
 // Required on Windows so taskbar / SMTC media controls bind to this app.
 if (process.platform === 'win32') {
@@ -234,6 +234,21 @@ ipcMain.handle('window:close', (event) => {
 });
 
 ipcMain.handle('window:isMaximized', (event) => windowFromEvent(event)?.isMaximized() ?? false);
+
+ipcMain.handle('desktop:getVersion', () => app.getVersion());
+
+ipcMain.handle('desktop:installUpdate', async () => {
+  try {
+    return await checkForDesktopUpdate({
+      getMainWindow: () => mainWindow,
+      appUrl: APP_URL,
+      skipPrompt: true,
+    });
+  } catch (e) {
+    console.warn('[updater] installUpdate', e?.message || e);
+    return { updateAvailable: false, error: String(e?.message || e) };
+  }
+});
 
 ipcMain.handle('pip:close', () => {
   closePipWindow();

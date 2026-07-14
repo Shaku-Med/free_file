@@ -1,9 +1,10 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { useNavigate } from "react-router";
-import { BellRing, CircleHelp, Fingerprint, Monitor, Moon, Sun, Trash2 } from "lucide-react";
+import { BellRing, CircleHelp, Fingerprint, Monitor, Moon, Sun, Trash2, ArrowUpCircle } from "lucide-react";
 import { usePushNotifications } from "~/lib/hooks/usePushNotifications";
 import { useStandalone } from "~/lib/hooks/useStandalone";
 import { useWindapp } from "~/lib/hooks/useWindapp";
+import { useDesktopUpdate } from "~/lib/hooks/useDesktopUpdate";
 import { Button } from "~/components/ui/button";
 import { Input } from "~/components/ui/input";
 import {
@@ -90,6 +91,7 @@ const SettingsPage = () => {
   const push = usePushNotifications();
   const isStandalone = useStandalone();
   const isWindapp = useWindapp();
+  const desktopUpdate = useDesktopUpdate();
   const [isIos, setIsIos] = useState(false);
   useEffect(() => setIsIos(isIosDevice()), []);
   // iPhone/iPad: push only works once added to the Home Screen.
@@ -304,6 +306,44 @@ const SettingsPage = () => {
         </header>
 
         <div className="space-y-4">
+          {isWindapp ? (
+            <SettingsSection
+              title="Desktop app"
+              description="Version of the Memories app installed on this computer."
+            >
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div className="space-y-1 text-sm">
+                  <div className="flex items-baseline gap-2">
+                    <span className="text-muted-foreground">Current version</span>
+                    <span className="font-medium tabular-nums text-foreground">
+                      {desktopUpdate.current || (desktopUpdate.ready ? "—" : "…")}
+                    </span>
+                  </div>
+                  {desktopUpdate.updateAvailable && desktopUpdate.latest ? (
+                    <p className="text-xs text-muted-foreground">
+                      Update available:{" "}
+                      <span className="font-medium text-foreground">{desktopUpdate.latest}</span>
+                    </p>
+                  ) : desktopUpdate.ready && desktopUpdate.current ? (
+                    <p className="text-xs text-muted-foreground">You’re up to date.</p>
+                  ) : null}
+                </div>
+                {desktopUpdate.updateAvailable ? (
+                  <Button
+                    type="button"
+                    size="sm"
+                    className="shrink-0 gap-1.5"
+                    disabled={desktopUpdate.installing}
+                    onClick={() => void desktopUpdate.startUpdate()}
+                  >
+                    <ArrowUpCircle className="h-4 w-4" aria-hidden />
+                    {desktopUpdate.installing ? "Updating…" : "Upgrade now"}
+                  </Button>
+                ) : null}
+              </div>
+            </SettingsSection>
+          ) : null}
+
           <SettingsSection title="Theme" description="Light, dark, or match your device.">
             <div className="flex flex-wrap gap-2">
               {THEME_MODES.map((m) => {

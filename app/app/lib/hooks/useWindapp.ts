@@ -8,6 +8,8 @@ declare global {
       isDesktop?: boolean;
       /** Electron `process.platform` — `darwin` | `win32` | `linux`. */
       platform?: string;
+      getVersion?: () => Promise<string>;
+      installUpdate?: () => Promise<unknown>;
       minimize?: () => void | Promise<void>;
       maximize?: () => void | Promise<boolean>;
       close?: () => void | Promise<void>;

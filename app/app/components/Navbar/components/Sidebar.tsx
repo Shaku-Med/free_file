@@ -41,6 +41,7 @@ import ImageLoad from "~/routes/Home/components/ImageLoad/ImageLoad"
 import { useStandalone } from "~/lib/hooks/useStandalone"
 import { isWindappMac, useWindapp } from "~/lib/hooks/useWindapp"
 import { isWatchRoute } from "~/lib/watchRoute"
+import { DesktopUpdateSidebarCard } from "~/components/DesktopUpdateCta"
 
 const noopRetry = () => {}
 
@@ -432,8 +433,11 @@ export function AppSidebar() {
           sidebar variant adds the username + subscriber/upload counts when the
           rail is expanded (and in the mobile sheet), collapsing to the avatar
           in the icon rail. */}
-      <SidebarFooter className="border-t border-border/40">
-        <UserProfileDropdown variant="sidebar" />
+      <SidebarFooter className="border-t border-border/40 p-0">
+        <DesktopUpdateSidebarCard />
+        <div className="p-2">
+          <UserProfileDropdown variant="sidebar" />
+        </div>
       </SidebarFooter>
 
       {/* Grab handle at the edge  drag/click to reveal when collapsed. */}

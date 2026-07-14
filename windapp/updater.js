@@ -115,8 +115,8 @@ function setupDesktopUpdater({ getMainWindow, appUrl }) {
   });
 }
 
-async function checkForDesktopUpdate({ getMainWindow, appUrl }) {
-  if (process.platform !== 'win32' && process.platform !== 'darwin') return;
+async function checkForDesktopUpdate({ getMainWindow, appUrl, skipPrompt = false }) {
+  if (process.platform !== 'win32' && process.platform !== 'darwin') return { updateAvailable: false };
 
   const origin = originFromAppUrl(appUrl);
   const current = app.getVersion();
@@ -125,24 +125,25 @@ async function checkForDesktopUpdate({ getMainWindow, appUrl }) {
 
   const { status, json } = await fetchJson(checkUrl);
   if (status !== 200 || !json?.success || !json.updateAvailable || !json.latest) {
-    return;
+    return { updateAvailable: false, current };
   }
 
   const latest = json.latest.version;
   const downloadPath = json.latest.downloadPath || '/api/desktop/win/download';
   const win = getMainWindow();
 
-  const result = await dialog.showMessageBox(win && !win.isDestroyed() ? win : undefined, {
-    type: 'info',
-    buttons: ['Update now', 'Later'],
-    defaultId: 0,
-    cancelId: 1,
-    title: 'Update available',
-    message: `Memories ${latest} is ready`,
-    detail: `You are on ${current}. Download and install the update?`,
-  });
-
-  if (result.response !== 0) return;
+  if (!skipPrompt) {
+    const result = await dialog.showMessageBox(win && !win.isDestroyed() ? win : undefined, {
+      type: 'info',
+      buttons: ['Update now', 'Later'],
+      defaultId: 0,
+      cancelId: 1,
+      title: 'Update available',
+      message: `Memories ${latest} is ready`,
+      detail: `You are on ${current}. Download and install the update?`,
+    });
+    if (result.response !== 0) return { updateAvailable: true, current, latest, deferred: true };
+  }
 
   const dir = path.join(app.getPath('temp'), 'memories-desktop-update');
   await fsp.mkdir(dir, { recursive: true });
@@ -150,7 +151,6 @@ async function checkForDesktopUpdate({ getMainWindow, appUrl }) {
   const dest = path.join(dir, filename);
   const downloadUrl = `${origin}${downloadPath}`;
 
-  // Optional progress via BrowserWindow title while downloading.
   const target = getMainWindow();
   const setProgress = (ratio) => {
     if (target && !target.isDestroyed()) {
@@ -183,10 +183,11 @@ async function checkForDesktopUpdate({ getMainWindow, appUrl }) {
     detail: 'Memories will quit so the installer can finish.',
   });
 
-  if (confirm.response !== 0) return;
+  if (confirm.response !== 0) return { updateAvailable: true, current, latest, deferred: true };
 
   runInstaller(dest);
   app.quit();
+  return { updateAvailable: true, current, latest, installing: true };
 }
 
 module.exports = { setupDesktopUpdater, checkForDesktopUpdate };
