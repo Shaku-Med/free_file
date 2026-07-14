@@ -5,6 +5,7 @@
   "scripts": {
     "prevapid": "node scripts/generate-vapid-keys.mjs",
     "generate-icons": "node scripts/generate-web-icons.mjs",
+    "wv": "node scripts/wv.mjs",
     "build": "npm run prevapid && react-router build",
     "dev": "npm run prevapid && react-router dev",
     "start": "dotenv -e .env -e .env.notification -- node server/startWithPreload.mjs ./build/server/index.js",

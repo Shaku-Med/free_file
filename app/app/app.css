@@ -85,6 +85,38 @@
   }
 }
 
+/*
+  Windapp titlebar drag — outside @layer so Electron always sees these.
+  Do NOT wrap large flex-1 areas in no-drag (that kills window move).
+*/
+html.windapp .windapp-drag {
+  -webkit-app-region: drag;
+  app-region: drag;
+}
+
+html.windapp .windapp-no-drag,
+html.windapp .windapp-drag a,
+html.windapp .windapp-drag button,
+html.windapp .windapp-drag input,
+html.windapp .windapp-drag textarea,
+html.windapp .windapp-drag select,
+html.windapp .windapp-drag [role="button"],
+html.windapp .windapp-drag [role="combobox"],
+html.windapp .windapp-drag [data-radix-collection-item],
+html.windapp .windapp-drag [data-sidebar="trigger"] {
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+}
+
+/* Desktop app: no dragging links/images out of the window (URL ghost / OS drop). */
+html.windapp a,
+html.windapp img,
+html.windapp picture,
+html.windapp [href] {
+  -webkit-user-drag: none;
+  user-drag: none;
+}
+
 @layer utilities {
   .ios-glass {
     background: rgba(255, 255, 255, 0.1);

@@ -35,29 +35,39 @@ export function usePlaybackPosition(videoRef: React.RefObject<HTMLVideoElement |
   const seedProgressCache = useWatchProgressWriter();
 
   useEffect(() => {
-    /** Reels always start at 0  no resume from watch history / local DB. */
-    if (isReel) return;
     const video = videoRef.current;
     if (!video || !imageID) return;
     let cancelled = false;
 
     const restore = async () => {
       try {
+        // Explicit handoff (Document PiP / windapp open-at-time) wins even on reels.
         if (typeof startTime === 'number' && startTime > 0) {
           const apply = () => {
-            if (video.duration <= 0) return;
-            const target = Math.min(startTime, video.duration - 1);
-            // Global player may already be past this (e.g. stale prop / handoff); never seek backward.
+            if (cancelled) return;
+            if (!(video.duration > 0) && video.readyState < 1) return;
+            const dur = Number.isFinite(video.duration) && video.duration > 0 ? video.duration : null;
+            const target = dur != null ? Math.min(startTime, Math.max(0, dur - 0.25)) : startTime;
+            if (target <= 0) return;
+            // Don't yank backward if the player already progressed past the handoff.
             if (video.currentTime > target + 0.75) return;
-            video.currentTime = target;
+            try {
+              video.currentTime = target;
+            } catch {
+              /* ignore */
+            }
           };
-          if (video.readyState >= 1 && video.duration > 0) {
+          if (video.readyState >= 1) {
             apply();
           } else {
             video.addEventListener('loadedmetadata', apply, { once: true });
+            video.addEventListener('loadeddata', apply, { once: true });
           }
           return;
         }
+
+        /** Reels otherwise always start at 0  no resume from watch history / local DB. */
+        if (isReel) return;
 
         const [localSaved, serverSaved] = await Promise.all([
           videoPlaybackDB.getPosition(imageID).catch(() => null),

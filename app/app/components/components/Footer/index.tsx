@@ -11,6 +11,7 @@ const FOOTER_VISIBLE_PREFIXES = [
   "/dmca",
   "/community-guidelines",
   "/features",
+  "/download",
   "/auth",
   "/api",
   "/playlist",
@@ -43,6 +44,7 @@ const linkClass =
 
 const FOOTER_LINKS = [
   { to: "/", label: "Home" },
+  { to: "/download", label: "Download" },
   { to: "/playlist", label: "Playlists" },
   { to: "/brozystudio", label: "Studio" },
   { to: "/features/incoming", label: "Roadmap" },

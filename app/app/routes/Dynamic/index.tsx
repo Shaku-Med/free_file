@@ -2320,13 +2320,7 @@ const DynamicPage = ({ is_modal }: DynamicPageProps) => {
         */}
         <div className={!theaterMode ? "watch-grid" : ""}>
           <div className={!theaterMode ? "min-w-0 space-y-3 sm:space-y-4 lg:col-span-2 xl:col-span-1" : ""}>
-            <div
-              className={cn(
-                "relative w-full overflow-visible",
-                !theaterMode &&
-                  "max-lg:sticky max-lg:top-[var(--app-top-nav-h,4rem)] max-lg:z-[99999990] max-lg:self-start max-lg:bg-background",
-              )}
-            >
+            <div className="relative w-full overflow-visible">
               {videoBlock}
               {ambientEnabled && (
                 <div

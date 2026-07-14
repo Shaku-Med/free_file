@@ -83,6 +83,10 @@ export interface PipReelItemProps {
    */
   commentsOpen?: boolean;
   onCommentsOpenChange?: (open: boolean) => void;
+  /** Seek handoff from main player when opening PiP (`?t=`). */
+  startTime?: number;
+  /** Keep paused if the main player was paused when PiP opened. */
+  startPaused?: boolean;
 }
 
 const noopRetry = () => {};
@@ -109,6 +113,8 @@ function PipReelItemInner({
   onActiveAmbience,
   commentsOpen,
   onCommentsOpenChange,
+  startTime,
+  startPaused = false,
 }: PipReelItemProps) {
   const { userId, playerSettings } = useFileContext();
   const playerBackground = playerSettings?.playerBackground !== false;
@@ -458,11 +464,30 @@ function PipReelItemInner({
       }
     };
 
+    const onControl = (d: { type?: unknown; action?: unknown } | null) => {
+      if (!d || d.type !== 'pip-control') return;
+      if (d.action === 'pause' || (d.action === 'toggle' && !v.paused)) {
+        v.dataset.userPaused = '1';
+        v.pause();
+      } else if (d.action === 'play' || d.action === 'toggle') {
+        delete v.dataset.userPaused;
+        void v.play().catch(() => {});
+      }
+    };
+
     v.addEventListener('play', report);
     v.addEventListener('pause', report);
     v.addEventListener('seeked', report);
     v.addEventListener('timeupdate', onTimeUpdate);
     window.addEventListener('message', onMessage);
+
+    let bc: BroadcastChannel | null = null;
+    try {
+      bc = new BroadcastChannel('memories-pip');
+      bc.onmessage = (ev) => onControl(ev.data as { type?: unknown; action?: unknown } | null);
+    } catch {
+      /* ignore */
+    }
     report();
 
     return () => {
@@ -471,6 +496,11 @@ function PipReelItemInner({
       v.removeEventListener('seeked', report);
       v.removeEventListener('timeupdate', onTimeUpdate);
       window.removeEventListener('message', onMessage);
+      try {
+        bc?.close();
+      } catch {
+        /* ignore */
+      }
     };
   }, [variant, isActive, isVideo, trackedVideoEl, file.unique_id]);
 
@@ -902,13 +932,14 @@ function PipReelItemInner({
                 ? computeGuestPreviewSeconds(file.duration)
                 : null
             }
-            autoPlay={isActive}
+            autoPlay={isActive && !startPaused}
             reelSwiperActive={isActive}
             muted={false}
             unlockPipReelAudio
             playsInline
             imageID={file.unique_id}
             file={file}
+            startTime={typeof startTime === 'number' && startTime > 0 ? startTime : undefined}
             showFeedPlayerControls
             hideControls={PIP_REEL_HLS_HIDE_CONTROLS}
             isReel

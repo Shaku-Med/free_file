@@ -1,9 +1,12 @@
 /**
  * Picture-in-Picture capability probes.
  * - Document PiP: Chromium custom window + iframe (best for our /pip UI).
+ * - Windapp PiP: Electron always-on-top window loading /pip (same UI as Document PiP).
  * - Native video PiP: `HTMLVideoElement.requestPictureInPicture()` (default browser UI).
  * - WebKit presentation: iOS Safari `webkitSetPresentationMode('picture-in-picture')`.
  */
+
+import { detectWindapp } from '~/lib/hooks/useWindapp';
 
 export type PipImplementationKind = 'document' | 'native-video' | 'webkit-presentation' | 'none';
 
@@ -69,11 +72,15 @@ export function isMobileStyleViewport(): boolean {
 }
 
 /**
- * Pick implementation for this device. Mobile → native/WebKit only; desktop → Document PiP when available.
+ * Pick implementation for this device.
+ * Mobile → native/WebKit only; windapp / desktop Document PiP when available.
  */
 export function getPipImplementationForDevice(video: HTMLVideoElement | null): PipImplementationKind {
   if (typeof window === 'undefined') return 'none';
   if (isIosStandaloneApp()) return 'none';
+
+  // Desktop app: always use our /pip UI in a floating Electron window.
+  if (detectWindapp()) return 'document';
 
   if (isMobileStyleViewport()) {
     if (videoSupportsWebKitPresentationPiP(video)) return 'webkit-presentation';
@@ -97,6 +104,7 @@ export function anyPipSupported(video?: HTMLVideoElement | null): boolean {
 export function probeAnyPipSupported(): boolean {
   if (typeof window === 'undefined' || typeof document === 'undefined') return false;
   if (isIosStandaloneApp()) return false;
+  if (detectWindapp()) return true;
   if (hasDocumentPictureInPicture() && !isMobileStyleViewport()) return true;
   if (hasNativeVideoPictureInPicture()) return true;
   try {

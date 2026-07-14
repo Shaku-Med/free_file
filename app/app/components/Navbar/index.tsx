@@ -8,8 +8,11 @@ import { UserProfileDropdown } from "~/components/UserProfileDropdown";
 import { NavbarSearchBar } from "~/components/SearchDropdown/NavbarSearchBar";
 import { useNavInlineSearch, useBodyContentWidth } from "~/lib/Context/BodyContentWidthContext";
 import { useStandalone } from "~/lib/hooks/useStandalone";
+import { useWindapp, isWindappMac } from "~/lib/hooks/useWindapp";
 import type { ScrollState } from "./components/BodyComponent";
 import { NotificationsDropdown } from "./NotificationsDropdown";
+import { WindappWindowControls } from "./WindappWindowControls";
+import { WindappNavButtons } from "./WindappNavButtons";
 import { cn } from "~/lib/utils";
 import { isReelRoute } from "~/lib/reelRoute";
 
@@ -47,6 +50,8 @@ export default function Navbar({ hasScrolled = { state: false, opacityLevel: 0 }
   const showMemoriesLabel = bodyContentWidthPx >= 420;
   const onReelRoute = isReelRoute(location.pathname);
   const isStandalone = useStandalone();
+  const isWindapp = useWindapp();
+  const isMac = isWindappMac();
   const profileUsername = useMemo(
     () => getProfileUsernameFromPath(location.pathname),
     [location.pathname],
@@ -98,6 +103,11 @@ export default function Navbar({ hasScrolled = { state: false, opacityLevel: 0 }
     };
   }, []);
 
+  const onTitlebarDoubleClick = () => {
+    if (!isWindapp) return;
+    void window.memoriesWindapp?.maximize?.();
+  };
+
   return (
     <header
       ref={(el) => {
@@ -111,8 +121,11 @@ export default function Navbar({ hasScrolled = { state: false, opacityLevel: 0 }
       className={cn(
         "sticky top-0 z-[var(--z-app-chrome)] w-full shrink-0",
         isStandalone && "pt-[env(safe-area-inset-top)]",
+        // Whole bar is the Electron drag region; interactive kids are no-drag via CSS.
+        isWindapp && "windapp-drag",
       )}
       aria-label="Main"
+      onDoubleClick={onTitlebarDoubleClick}
     >
       <div
         aria-hidden
@@ -124,7 +137,13 @@ export default function Navbar({ hasScrolled = { state: false, opacityLevel: 0 }
         )}
         style={{ opacity: barOpacity }}
       />
-      <div className="relative z-10 mx-auto flex h-14 min-w-0 items-center gap-1 px-2 sm:px-4">
+      <div
+        className={cn(
+          "relative z-10 mx-auto flex h-14 min-w-0 items-center gap-1 px-2 sm:px-4",
+          // When the Mac traffic lights sit over the navbar (no desktop rail).
+          isWindapp && isMac && (isMobile || sheetOnly) && "pl-[72px]",
+        )}
+      >
         {searchExpanded ? (
           <button
             type="button"
@@ -137,6 +156,8 @@ export default function Navbar({ hasScrolled = { state: false, opacityLevel: 0 }
         ) : (
           <div className="flex min-w-0 shrink-0 items-center gap-1">
             <SidebarTrigger className={cn(iconBtn, onReelRoute && iconBtnReel, "[&_svg]:size-5")} />
+            {/* Windapp: browser-style back / forward / refresh */}
+            {isWindapp ? <WindappNavButtons /> : null}
             {/* Desktop: quick Home next to the sidebar toggle (logo lives in the sidebar). */}
             {!isMobile && (
               <Link
@@ -181,6 +202,11 @@ export default function Navbar({ hasScrolled = { state: false, opacityLevel: 0 }
           </div>
         )}
 
+        {/*
+          Drag gutter: empty flex space inherits .windapp-drag from the header.
+          Do NOT put windapp-no-drag on this flex-1 wrapper — that was killing window drag.
+          Search field itself is no-drag via CSS (input/button rules).
+        */}
         {showSearchBar ? (
           <div
             className={cn(
@@ -188,14 +214,16 @@ export default function Navbar({ hasScrolled = { state: false, opacityLevel: 0 }
               effectiveInlineSearch && "flex justify-center px-1 lg:px-6",
             )}
           >
-            <NavbarSearchBar
-              className={cn(effectiveInlineSearch ? "w-full max-w-[720px]" : "w-full")}
-              autoFocus={searchExpanded}
-              onClose={() => setMobileSearchOpen(false)}
-            />
+            <div className={cn("windapp-no-drag", effectiveInlineSearch ? "w-full max-w-[720px]" : "w-full")}>
+              <NavbarSearchBar
+                className="w-full"
+                autoFocus={searchExpanded}
+                onClose={() => setMobileSearchOpen(false)}
+              />
+            </div>
           </div>
         ) : (
-          <div className="min-w-0 flex-1" />
+          <div className="min-w-0 flex-1 self-stretch" aria-hidden />
         )}
 
         {!searchExpanded ? (
@@ -236,7 +264,12 @@ export default function Navbar({ hasScrolled = { state: false, opacityLevel: 0 }
 
             {/* Profile / Sign in  desktop only; mobile uses the tab bar. */}
             {!isMobile ? <UserProfileDropdown variant="topbar" /> : null}
+
+            {/* Windapp: min / max / close live in this same header row. */}
+            <WindappWindowControls />
           </div>
+        ) : isWindapp ? (
+          <WindappWindowControls />
         ) : null}
       </div>
     </header>

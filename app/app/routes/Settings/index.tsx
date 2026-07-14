@@ -1,11 +1,19 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { useNavigate } from "react-router";
-import { BellRing, Fingerprint, Monitor, Moon, Sun } from "lucide-react";
+import { BellRing, CircleHelp, Fingerprint, Monitor, Moon, Sun, Trash2 } from "lucide-react";
 import { usePushNotifications } from "~/lib/hooks/usePushNotifications";
 import { useStandalone } from "~/lib/hooks/useStandalone";
+import { useWindapp } from "~/lib/hooks/useWindapp";
 import { Button } from "~/components/ui/button";
 import { Input } from "~/components/ui/input";
-import { Separator } from "~/components/ui/separator";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "~/components/ui/dialog";
 import { useFileContext } from "~/lib/Context/Context";
 import {
   DEFAULT_THEME,
@@ -18,6 +26,31 @@ import {
 import { applyTheme } from "~/lib/theme/apply";
 import { PasskeyUserMessage, friendlyPasskeyClientError } from "~/lib/webauthn/userMessages";
 import { StorageQuotaMeter } from "~/components/StorageQuotaMeter";
+import { cn } from "~/lib/utils";
+
+function SettingsSection({
+  title,
+  description,
+  children,
+  className,
+}: {
+  title: string;
+  description?: string;
+  children: ReactNode;
+  className?: string;
+}) {
+  return (
+    <section className={cn("rounded-xl border border-border bg-card/40 p-4 sm:p-5", className)}>
+      <h2 className="text-sm font-semibold text-foreground">{title}</h2>
+      {description ? (
+        <p className="mt-0.5 mb-3 text-xs text-muted-foreground">{description}</p>
+      ) : (
+        <div className="mb-3" />
+      )}
+      {children}
+    </section>
+  );
+}
 
 const STYLE_COLORS: Record<ThemeStyle, string> = {
   default: "#00a85c",
@@ -56,6 +89,7 @@ const SettingsPage = () => {
   const navigate = useNavigate();
   const push = usePushNotifications();
   const isStandalone = useStandalone();
+  const isWindapp = useWindapp();
   const [isIos, setIsIos] = useState(false);
   useEffect(() => setIsIos(isIosDevice()), []);
   // iPhone/iPad: push only works once added to the Home Screen.
@@ -77,6 +111,7 @@ const SettingsPage = () => {
   const [passkeysError, setPasskeysError] = useState<string | null>(null);
   const [passkeyLabel, setPasskeyLabel] = useState("");
   const [passkeyBusy, setPasskeyBusy] = useState(false);
+  const [deleteInfoOpen, setDeleteInfoOpen] = useState(false);
 
   useEffect(() => {
     if (!userId) {
@@ -260,18 +295,16 @@ const SettingsPage = () => {
 
   return (
     <div className="min-h-screen w-full">
-      <div className="w-full px-3 py-4 sm:px-4">
-        <header className="mb-5">
-          <h1 className="text-lg font-semibold text-foreground tracking-tight">Settings</h1>
-          <p className="mt-0.5 text-sm text-muted-foreground">
-            Manage your account and preferences.
+      <div className="mx-auto w-full max-w-3xl px-3 py-5 sm:px-5 sm:py-6">
+        <header className="mb-6">
+          <h1 className="text-xl font-semibold tracking-tight text-foreground">Settings</h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Account, appearance, and preferences.
           </p>
         </header>
 
-        <div className="space-y-6">
-          <section>
-            <h2 className="text-sm font-medium text-foreground mb-2">Theme</h2>
-            <p className="text-xs text-muted-foreground mb-3">Light, dark, or follow system.</p>
+        <div className="space-y-4">
+          <SettingsSection title="Theme" description="Light, dark, or match your device.">
             <div className="flex flex-wrap gap-2">
               {THEME_MODES.map((m) => {
                 const selected = theme.theme === m;
@@ -295,12 +328,10 @@ const SettingsPage = () => {
                 );
               })}
             </div>
-          </section>
+          </SettingsSection>
 
-          <section>
-            <h2 className="text-sm font-medium text-foreground mb-2">Style</h2>
-            <p className="text-xs text-muted-foreground mb-3">Color palette for the app.</p>
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
+          <SettingsSection title="Style" description="Color palette for the app.">
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4">
               {THEME_STYLES.map((s) => {
                 const selected = theme.style === s;
                 const color = STYLE_COLORS[s];
@@ -323,29 +354,27 @@ const SettingsPage = () => {
                       style={{ backgroundColor: color }}
                       aria-hidden
                     />
-                    <span className="font-medium text-foreground truncate">{label}</span>
+                    <span className="truncate font-medium text-foreground">{label}</span>
                   </button>
                 );
               })}
             </div>
-          </section>
+          </SettingsSection>
 
-          <Separator />
-
-          <section>
-            <h2 className="text-sm font-medium text-foreground mb-2 flex items-center gap-2">
+          <SettingsSection
+            title="Passkeys"
+            description="Sign in without a password using Face ID, Touch ID, Windows Hello, or a security key."
+          >
+            <div className="mb-1 flex items-center gap-2 text-sm font-medium text-foreground">
               <Fingerprint className="h-4 w-4" aria-hidden />
-              Passkeys
-            </h2>
-            <p className="text-xs text-muted-foreground mb-3">
-              Sign in without a password using Face ID, Touch ID, Windows Hello, or a security key.
-            </p>
+              Devices
+            </div>
             {passkeysError && (
-              <p className="text-sm text-destructive mb-2" role="alert">
+              <p className="mb-2 text-sm text-destructive" role="alert">
                 {passkeysError}
               </p>
             )}
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-end mb-3">
+            <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-end">
               <div className="flex-1 space-y-1">
                 <label htmlFor="passkey-label" className="text-xs text-muted-foreground">
                   Label (optional)
@@ -377,7 +406,7 @@ const SettingsPage = () => {
                 {passkeys.map((pk) => (
                   <li
                     key={pk.id}
-                    className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border px-3 py-2"
+                    className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border bg-background/60 px-3 py-2"
                   >
                     <div>
                       <p className="text-sm font-medium text-foreground">
@@ -400,19 +429,17 @@ const SettingsPage = () => {
                 ))}
               </ul>
             )}
-          </section>
+          </SettingsSection>
 
-          <Separator />
-
-          <section>
-            <h2 className="text-sm font-medium text-foreground mb-2">Notifications</h2>
+          {!isWindapp ? (
+          <SettingsSection title="Notifications">
             {push.supported ? (
               <div className="flex items-start justify-between gap-4 py-1">
                 <div className="flex min-w-0 flex-1 items-start gap-3">
-                  <BellRing className="h-5 w-5 shrink-0 text-primary mt-0.5" />
+                  <BellRing className="mt-0.5 h-5 w-5 shrink-0 text-primary" />
                   <div className="min-w-0 flex-1">
                     <p className="text-sm font-medium text-foreground">Push notifications</p>
-                    <p className="text-xs text-muted-foreground mt-0.5">
+                    <p className="mt-0.5 text-xs text-muted-foreground">
                       {push.permission === "denied"
                         ? "Blocked in your browser settings. Allow notifications for this site to enable."
                         : push.isSubscribed
@@ -446,10 +473,10 @@ const SettingsPage = () => {
               </div>
             ) : (
               <div className="flex items-start gap-3 py-1">
-                <BellRing className="h-5 w-5 shrink-0 text-muted-foreground mt-0.5" />
+                <BellRing className="mt-0.5 h-5 w-5 shrink-0 text-muted-foreground" />
                 <div className="min-w-0 flex-1">
                   <p className="text-sm font-medium text-foreground">Push notifications</p>
-                  <p className="text-xs text-muted-foreground mt-0.5">
+                  <p className="mt-0.5 text-xs text-muted-foreground">
                     {needsInstall
                       ? "On iPhone & iPad, tap Share → Add to Home Screen, then open Memories from the Home Screen to turn notifications on."
                       : "This browser doesn't support push notifications. Try Chrome or Edge, or install the app to your Home Screen."}
@@ -457,22 +484,18 @@ const SettingsPage = () => {
                 </div>
               </div>
             )}
-          </section>
+          </SettingsSection>
+          ) : null}
 
-          <Separator />
-
-          <section>
+          <SettingsSection title="Storage">
             <StorageQuotaMeter variant="card" />
-          </section>
+          </SettingsSection>
 
-          <Separator />
-
-          <section>
-            <h2 className="text-sm font-medium text-foreground mb-2">Content</h2>
+          <SettingsSection title="Content" description="What shows up in your feed.">
             <div className="flex items-center justify-between gap-4 py-1">
               <div>
                 <p className="text-sm font-medium text-foreground">Show NSFW content</p>
-                <p className="text-xs text-muted-foreground mt-0.5">
+                <p className="mt-0.5 text-xs text-muted-foreground">
                   Include adult content in your feed.
                 </p>
               </div>
@@ -494,16 +517,13 @@ const SettingsPage = () => {
                 />
               </button>
             </div>
-          </section>
+          </SettingsSection>
 
-          <Separator />
-
-          <section>
-            <h2 className="text-sm font-medium text-foreground mb-2">Privacy</h2>
+          <SettingsSection title="Privacy">
             <div className="flex items-center justify-between gap-4 py-1">
               <div>
                 <p className="text-sm font-medium text-foreground">Pause watch history</p>
-                <p className="text-xs text-muted-foreground mt-0.5">
+                <p className="mt-0.5 text-xs text-muted-foreground">
                   Stop saving what you watch. Recommendations get less personal.
                 </p>
               </div>
@@ -526,11 +546,11 @@ const SettingsPage = () => {
               </button>
             </div>
 
-            <div className="mt-3 flex items-center justify-between gap-4 py-1">
+            <div className="mt-3 flex items-center justify-between gap-4 border-t border-border/60 py-3">
               <div>
                 <p className="text-sm font-medium text-foreground">Clear watch history</p>
-                <p className="text-xs text-muted-foreground mt-0.5">
-                  Removes your history and playback positions. This can't be undone.
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  Removes your history and playback positions. This cannot be undone.
                 </p>
               </div>
               <Button
@@ -547,7 +567,7 @@ const SettingsPage = () => {
               <button
                 type="button"
                 onClick={() => setClearArmed(false)}
-                className="mt-1 text-xs text-muted-foreground hover:text-foreground"
+                className="text-xs text-muted-foreground hover:text-foreground"
               >
                 Cancel
               </button>
@@ -557,7 +577,97 @@ const SettingsPage = () => {
                 {clearNotice}
               </p>
             )}
+          </SettingsSection>
+
+          <section className="rounded-xl border border-destructive/30 bg-destructive/5 p-4 sm:p-5">
+            <h2 className="text-sm font-semibold text-destructive">Danger zone</h2>
+            <p className="mt-0.5 mb-4 text-xs text-muted-foreground">
+              Serious account actions. Take a breath before you tap anything here.
+            </p>
+
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-medium text-foreground">Delete my account</p>
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  Permanently close your Memories account when you are ready.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setDeleteInfoOpen(true)}
+                  className="mt-2 inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:underline"
+                >
+                  <CircleHelp className="h-3.5 w-3.5" aria-hidden />
+                  What happens if I delete my account?
+                </button>
+              </div>
+              <Button
+                type="button"
+                variant="destructive"
+                disabled
+                className="shrink-0 gap-1.5"
+                title="Coming soon"
+              >
+                <Trash2 className="h-4 w-4" aria-hidden />
+                Coming soon
+              </Button>
+            </div>
           </section>
+
+          <Dialog open={deleteInfoOpen} onOpenChange={setDeleteInfoOpen}>
+            <DialogContent className="max-h-[85vh] max-w-lg overflow-y-auto">
+              <DialogHeader>
+                <DialogTitle>What happens if I delete my account?</DialogTitle>
+                <DialogDescription className="sr-only">
+                  How account deletion will work when this feature ships.
+                </DialogDescription>
+              </DialogHeader>
+
+              <div className="space-y-3 text-sm leading-relaxed text-foreground">
+                <p>
+                  If you decide to delete your account, the wait can take a few days
+                  depending on where you live. During that time your account and all
+                  of your data are put on hold. You will not be able to use Memories
+                  the normal way anywhere.
+                </p>
+                <p>
+                  You can still sign in while deletion is scheduled. Before anything
+                  is wiped for good, we ask whether you want an{" "}
+                  <span className="font-medium">I changed my mind</span> button when
+                  you come back. If you say yes, that cancel option stays with you.
+                  If you say no, signing in later only shows the countdown and a way
+                  to download a summary of your data.
+                </p>
+                <p>
+                  While your account is waiting to be removed, almost nothing loads.
+                  Your account is blocked from the rest of the app. You will mainly
+                  see the timer, the cancel button if you chose to keep it, and{" "}
+                  <span className="font-medium">Download my data</span>.
+                </p>
+                <p>
+                  That download is a summary only. It covers things like your profile
+                  name, comments, how many likes your uploads received, and your
+                  interaction history. The actual files you uploaded are not included
+                  in that export.
+                </p>
+                <p>
+                  You can also ask for immediate deletion. That purges everything we
+                  hold about you as soon as we can. It may wait in a short queue if
+                  many people request the same thing at once. When it runs, your
+                  files and everything else go right away.
+                </p>
+                <p className="text-muted-foreground">
+                  Thanks for reading. This is just so you know. The delete button is
+                  not live yet.
+                </p>
+              </div>
+
+              <DialogFooter>
+                <Button type="button" onClick={() => setDeleteInfoOpen(false)}>
+                  Got it
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
 
           {error && (
             <p className="text-sm text-destructive" role="alert">
@@ -570,14 +680,16 @@ const SettingsPage = () => {
             </p>
           )}
 
-          <div className="flex justify-end pt-1">
-            <Button
-              onClick={handleSave}
-              disabled={isLoading || isSaving}
-              className="min-w-[120px]"
-            >
-              {isSaving ? "Saving…" : "Save changes"}
-            </Button>
+          <div className="sticky bottom-0 z-10 -mx-3 border-t border-border/60 bg-background/95 px-3 py-3 backdrop-blur supports-[backdrop-filter]:bg-background/80 sm:-mx-5 sm:px-5">
+            <div className="flex justify-end">
+              <Button
+                onClick={handleSave}
+                disabled={isLoading || isSaving}
+                className="min-w-[120px]"
+              >
+                {isSaving ? "Saving…" : "Save changes"}
+              </Button>
+            </div>
           </div>
         </div>
       </div>

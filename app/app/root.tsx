@@ -38,6 +38,7 @@ import AppShell from "./components/AppShell";
 import RegisterServiceWorker from "./components/RegisterServiceWorker";
 import OrientationLock from "./components/OrientationLock";
 import { ThemeApply } from "./components/ThemeApply";
+import { WindappChrome } from "./components/WindappChrome";
 import SignInPrompt from "./components/SignInPrompt";
 import PushPromptOverlay from "./components/PushPromptOverlay";
 import { Toaster } from "./components/ui/sonner";
@@ -304,6 +305,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
       </head>
       <body className={`flex flex-col fixed top-0 left-0 w-full h-full`}>
         <ThemeApply userTheme={userTheme ?? null} />
+        <WindappChrome />
         <RegisterServiceWorker />
         <OrientationLock />
         <ErrorBoundary>

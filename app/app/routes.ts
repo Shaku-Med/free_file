@@ -7,6 +7,7 @@ export default [
     route(`terms`, 'routes/Terms/index.tsx'),
     route(`dmca`, 'routes/DMCA/index.tsx'),
     route(`community-guidelines`, 'routes/CommunityGuidelines/index.tsx'),
+    route(`download`, 'routes/Download/index.tsx'),
     route(`brozystudio`, 'routes/studio/layout.tsx', [
         index('routes/studio/home/index.tsx'),
         route(`posts`, 'routes/studio/posts/index.tsx'),
@@ -132,6 +133,9 @@ export default [
         route(`personalization`, 'routes/Api/personalization/index.tsx'),
         route(`watch-progress`, 'routes/Api/watch-progress/index.tsx'),
         route(`series/resume`, 'routes/Api/series/resume.tsx'),
+        route(`desktop/version`, 'routes/Api/desktop/version/index.tsx'),
+        route(`desktop/win/download`, 'routes/Api/desktop/win/download/index.tsx'),
+        route(`desktop/mac/download`, 'routes/Api/desktop/mac/download/index.tsx'),
         route(`webauthn/register-options`, 'routes/Api/webauthn/register-options.tsx'),
         route(`webauthn/register-verify`, 'routes/Api/webauthn/register-verify.tsx'),
         route(`webauthn/login-options`, 'routes/Api/webauthn/login-options.tsx'),

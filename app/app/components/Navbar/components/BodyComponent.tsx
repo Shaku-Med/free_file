@@ -19,7 +19,7 @@ interface BodyComponentProps {
   children: React.ReactNode
 }
 
-const staticRoutes = ["/", "/privacy", "/terms", "/dmca", "/community-guidelines", "/features", "/auth", "/api", '/search', '/playlist', '/profile', '/subscriptions'];
+const staticRoutes = ["/", "/privacy", "/terms", "/dmca", "/community-guidelines", "/features", "/download", "/auth", "/api", '/search', '/playlist', '/profile', '/subscriptions'];
 const SCROLL_THRESHOLD = 300;
 /** Show the back-to-top control once the user is a couple of screens down. */
 const BACK_TO_TOP_THRESHOLD = 900;

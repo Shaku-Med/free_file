@@ -1,16 +1,17 @@
 {
-  "name": "memories-brozy",
-  "version": "1.0.0",
-  "description": "Memories Brozy - Native Desktop App",
+  "name": "memories",
+  "version": "1.0.1",
+  "description": "Memories — Native Desktop App",
   "main": "main.js",
   "author": "You",
   "license": "MIT",
   "scripts": {
     "start": "electron .",
-    "build": "electron-builder --win portable",
+    "build": "electron-builder --win nsis portable",
+    "build:portable": "electron-builder --win portable",
+    "build:installer": "electron-builder --win nsis",
     "build:mac": "electron-builder --mac",
-    "build:all": "electron-builder --win portable --mac",
-    "build:installer": "electron-builder --win nsis"
+    "build:all": "electron-builder --win nsis portable --mac"
   },
   "devDependencies": {
     "electron": "^28.0.0",
@@ -19,34 +20,50 @@
   },
   "build": {
     "appId": "com.brozy.memories",
-    "productName": "Memories Brozy",
+    "productName": "Memories",
     "directories": {
       "output": "dist"
     },
     "win": {
       "target": [
         {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
           "target": "portable",
-          "arch": ["x64"]
+          "arch": [
+            "x64"
+          ]
         }
       ],
       "icon": "icons/icons/win/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "artifactName": "Memories-Setup-${version}.${ext}"
     },
     "mac": {
       "target": [
         {
           "target": "dmg",
-          "arch": ["x64", "arm64"]
+          "arch": [
+            "x64",
+            "arm64"
+          ]
         }
       ],
       "icon": "icons/icons/mac/icon.icns",
       "category": "public.app-category.social-networking"
     },
     "dmg": {
-      "artifactName": "MemoriesBrozy.dmg"
+      "artifactName": "Memories-${version}.${ext}"
     },
     "portable": {
-      "artifactName": "MemoriesBrozy.exe"
+      "artifactName": "Memories-${version}.${ext}"
     }
   }
 }

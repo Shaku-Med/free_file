@@ -23,7 +23,8 @@ import {
 import { useFileContext } from "~/lib/Context/Context";
 import { getProfilePicUrl } from "~/lib/utils/profilePic";
 import { cn } from "~/lib/utils";
-import { LogIn, User, Settings, LogOut, Heart, UserPlus, FileEdit } from "lucide-react";
+import { LogIn, User, Settings, LogOut, Heart, UserPlus, FileEdit, Download } from "lucide-react";
+import { detectWindapp } from "~/lib/hooks/useWindapp";
 
 type Variant = "topbar" | "bottombar" | "sidebar";
 
@@ -259,6 +260,14 @@ function ProfileMenuContent({ username }: { username: string | undefined }) {
           <span>Settings</span>
         </Link>
       </DropdownMenuItem>
+      {!detectWindapp() && (
+        <DropdownMenuItem asChild>
+          <Link to="/download" className="flex items-center gap-2">
+            <Download className="h-4 w-4" />
+            <span>Download app</span>
+          </Link>
+        </DropdownMenuItem>
+      )}
       {altAccounts.length > 0 && (
         <>
           <DropdownMenuSeparator />
@@ -337,18 +346,36 @@ export function UserProfileDropdown({ variant }: UserProfileDropdownProps) {
   if (variant === "sidebar") {
     if (!userId) {
       return (
-        <Button
-          asChild
-          variant="ghost"
-          className="h-auto w-full justify-start gap-2.5 px-2 py-2 group-data-[collapsible=icon]:w-9 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0"
-        >
-          <Link to="/auth/login" aria-label="Sign in">
-            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full ring-1 ring-border">
-              <LogIn className="h-4 w-4" />
-            </span>
-            <span className="text-sm font-medium group-data-[collapsible=icon]:hidden">Sign In</span>
-          </Link>
-        </Button>
+        <div className="flex w-full flex-col gap-0.5">
+          <Button
+            asChild
+            variant="ghost"
+            className="h-auto w-full justify-start gap-2.5 px-2 py-2 group-data-[collapsible=icon]:w-9 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0"
+          >
+            <Link to="/auth/login" aria-label="Sign in">
+              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full ring-1 ring-border">
+                <LogIn className="h-4 w-4" />
+              </span>
+              <span className="text-sm font-medium group-data-[collapsible=icon]:hidden">Sign In</span>
+            </Link>
+          </Button>
+          {!detectWindapp() && (
+            <Button
+              asChild
+              variant="ghost"
+              className="h-auto w-full justify-start gap-2.5 px-2 py-2 group-data-[collapsible=icon]:w-9 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0"
+            >
+              <Link to="/download" aria-label="Download app">
+                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full ring-1 ring-border">
+                  <Download className="h-4 w-4" />
+                </span>
+                <span className="text-sm font-medium group-data-[collapsible=icon]:hidden">
+                  Download app
+                </span>
+              </Link>
+            </Button>
+          )}
+        </div>
       );
     }
 
@@ -433,12 +460,22 @@ export function UserProfileDropdown({ variant }: UserProfileDropdownProps) {
   // topbar  show Sign In button when not logged in
   if (!userId) {
     return (
-      <Button asChild size="sm" className="h-8 gap-1.5 text-xs sm:text-sm">
-        <Link to="/auth/login">
-          <LogIn className="h-3.5 w-3.5" />
-          <span>Sign In</span>
-        </Link>
-      </Button>
+      <div className="flex items-center gap-1">
+        {!detectWindapp() && (
+          <Button asChild size="sm" variant="ghost" className="h-8 gap-1.5 text-xs sm:text-sm">
+            <Link to="/download" aria-label="Download app">
+              <Download className="h-3.5 w-3.5" />
+              <span className="hidden sm:inline">Download</span>
+            </Link>
+          </Button>
+        )}
+        <Button asChild size="sm" className="h-8 gap-1.5 text-xs sm:text-sm">
+          <Link to="/auth/login">
+            <LogIn className="h-3.5 w-3.5" />
+            <span>Sign In</span>
+          </Link>
+        </Button>
+      </div>
     );
   }
 

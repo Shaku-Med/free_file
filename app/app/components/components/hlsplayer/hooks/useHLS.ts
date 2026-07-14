@@ -73,7 +73,7 @@ function applyVideoCrossOrigin(video: HTMLVideoElement, playbackSrc: string) {
 const MAX_MANIFEST_REMINTS = 4;
 
 export function useHLS(videoRef: React.RefObject<HTMLVideoElement | null>) {
-  const { hlsRef, setState, src, autoPlay, file, isReel } = usePlayerContext();
+  const { hlsRef, setState, src, autoPlay, file, isReel, startTime } = usePlayerContext();
   const { playerSettings } = useFileContext();
   const mountedRef = useRef(true);
   // Reels always stream at adaptive `auto`  short, vertical, fast-scrolled
@@ -571,6 +571,11 @@ export function useHLS(videoRef: React.RefObject<HTMLVideoElement | null>) {
           // budget. A later transient error gets a fresh set of attempts.
           remintAttemptsRef.current = 0;
           applyPendingResume();
+          // PiP / watch handoff: jump to the opener's position instead of restarting at 0.
+          if (typeof startTime === 'number' && startTime > 0.1) {
+            startLoadResumingVoD(startTime);
+            applyPendingResume();
+          }
           const onceLevel = () => {
             applyPendingResume();
             hls.off(Hls.Events.LEVEL_LOADED, onceLevel);
@@ -684,6 +689,16 @@ export function useHLS(videoRef: React.RefObject<HTMLVideoElement | null>) {
 
         const handleLoaded = () => {
           if (!mountedRef.current) return;
+          if (typeof startTime === 'number' && startTime > 0.1) {
+            try {
+              const d = video.duration;
+              const target =
+                Number.isFinite(d) && d > 0 ? Math.min(startTime, Math.max(0, d - 0.25)) : startTime;
+              video.currentTime = target;
+            } catch {
+              /* ignore */
+            }
+          }
           const vTracks = (video as any).videoTracks;
           if (vTracks && vTracks.length >= 1) {
             const lvls = Array.from(vTracks).map((t: any) => ({

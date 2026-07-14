@@ -50,7 +50,7 @@ function renderSegments(segments: Segment[], keyPrefix: string): React.ReactNode
     const k = `${keyPrefix}-${i}`;
     if (seg.type === "text") {
       out.push(
-        <span key={k} className="whitespace-pre-wrap">
+        <span key={k}>
           {seg.value}
         </span>
       );

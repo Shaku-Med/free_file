@@ -39,6 +39,7 @@ import { getThumbnailUrl, ParseFilename, cn } from "~/lib/utils"
 import type { FileType } from "~/lib/types"
 import ImageLoad from "~/routes/Home/components/ImageLoad/ImageLoad"
 import { useStandalone } from "~/lib/hooks/useStandalone"
+import { isWindappMac, useWindapp } from "~/lib/hooks/useWindapp"
 import { isWatchRoute } from "~/lib/watchRoute"
 
 const noopRetry = () => {}
@@ -116,6 +117,8 @@ export function AppSidebar() {
   const { files } = useFileContext()
   const { isMobile, setOpenMobile, sheetOnly, state } = useSidebar()
   const isStandalone = useStandalone()
+  const isWindapp = useWindapp()
+  const isMac = isWindappMac()
   // Desktop rail (collapsed to icons): hide content-heavy sections so the
   // thumbnail lists unmount instead of clipping inside the 4rem rail.
   // On the watch page collapse fully (offcanvas) so the player goes full-width;
@@ -159,8 +162,9 @@ export function AppSidebar() {
   }, [])
 
   const isActiveRoute = useCallback((href: string) => {
-    if (href === "/") return location.pathname === "/"
-    return location.pathname === href || location.pathname.startsWith(`${href}/`)
+    const path = href.split("#")[0] || "/"
+    if (path === "/") return location.pathname === "/"
+    return location.pathname === path || location.pathname.startsWith(`${path}/`)
   }, [location.pathname])
 
   // Auto-expand "More" if user is on one of those pages
@@ -173,14 +177,28 @@ export function AppSidebar() {
   return (
     <Sidebar variant="sidebar" collapsible={collapsibleMode} className="bg-background border-none">
       {/* Header  Logo. Matches the navbar's h-14 row so the mark lines up. */}
-      <SidebarHeader className={cn("p-0 ml-[-5px]", isStandalone && "pt-[env(safe-area-inset-top)]")}>
+      <SidebarHeader
+        className={cn(
+          "p-0 ml-[-5px]",
+          isStandalone && "pt-[env(safe-area-inset-top)]",
+          isWindapp && "windapp-drag",
+          // Clear native Mac traffic lights (top-left).
+          isWindapp && isMac && "pl-[52px] group-data-[collapsible=icon]:pl-0",
+        )}
+      >
         <div
           className={cn(
             "flex h-14 items-center px-4 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-2",
             expandedDesktop && "mt-2",
+            // Collapsed icon rail: leave vertical room under the traffic lights.
+            isWindapp && isMac && "group-data-[collapsible=icon]:pt-6",
           )}
         >
-          <Link to="/" id="home_button" className="flex items-center gap-2 group w-fit group-data-[collapsible=icon]:w-full group-data-[collapsible=icon]:justify-center ml-[-5px]">
+          <Link
+            to="/"
+            id="home_button"
+            className="flex items-center gap-2 group w-fit group-data-[collapsible=icon]:w-full group-data-[collapsible=icon]:justify-center ml-[-5px]"
+          >
             <Logo className="relative h-8 w-8 text-primary transition-transform duration-200 group-hover:scale-110 group-data-[collapsible=icon]:h-7 group-data-[collapsible=icon]:w-7" />
             <span className="text-lg font-bold bg-gradient-to-r from-primary to-primary/60 bg-clip-text text-transparent group-data-[collapsible=icon]:hidden">
               Memories

@@ -2561,50 +2561,49 @@ const VideoCard = ({
           {renderThumbnail("h-full w-full")}
         </Link>
 
-        <div className="mt-2 min-w-0 flex items-start justify-between gap-2">
-          <div className="flex min-w-0 flex-1 flex-col gap-1">
+        <div className="mt-2 flex min-w-0 items-start gap-1">
+          <div className="min-w-0 flex-1">
             <Link
               onClick={(e) => {
                 e.preventDefault();
                 void handleWatchNav();
               }}
               to={watchPath}
-              className="min-w-0 hover:opacity-90"
+              className="block min-w-0 hover:opacity-90"
             >
-              <h3 className="truncate text-left text-sm font-semibold leading-tight tracking-tight text-foreground">
+              <h3 className="line-clamp-2 break-words text-left text-sm font-semibold leading-snug tracking-tight text-foreground">
                 <ParseFilenameInsert
                   filename={ParseFilename(data.file_title || data.filename || "")}
-                  showLimit={36}
-                  className="block truncate"
+                  showLimit={56}
                 />
               </h3>
             </Link>
 
-            {data.owner && (
-                  <Link
-                    to={`/profile/${data.owner.username}`}
-                    className="text-xs text-muted-foreground hover:text-foreground transition-colors"
-                  >
-                    @{data.owner.username}
-                  </Link>
-                )}
-
-            {viewCount > 0 ? (
-              <p className="mt-1 text-xs leading-snug text-muted-foreground">
-                {viewsLabel(viewCount)}
-              </p>
-            ) : null}
+            <div className="mt-0.5 flex min-w-0 items-center gap-1 text-xs leading-tight text-muted-foreground">
+              {data.owner ? (
+                <Link
+                  to={`/profile/${data.owner.username}`}
+                  className="min-w-0 truncate hover:text-foreground transition-colors"
+                >
+                  @{data.owner.username}
+                </Link>
+              ) : null}
+              {data.owner && viewCount > 0 ? (
+                <span className="shrink-0 text-muted-foreground/50" aria-hidden>
+                  ·
+                </span>
+              ) : null}
+              {viewCount > 0 ? (
+                <span className="shrink-0 tabular-nums">{viewsLabel(viewCount)}</span>
+              ) : null}
+            </div>
           </div>
 
-          <div>
-            {
-              (hideActions.halfway) && (
-                <>
-                  {renderActions()}
-                </>
-              )
-            }
-          </div>
+          {hideActions.halfway ? (
+            <div className="shrink-0 pt-0.5">
+              {renderActions()}
+            </div>
+          ) : null}
         </div>
 
         {renderEditDialog()}
@@ -3042,8 +3041,11 @@ const VideoCard = ({
                   }}
                   className="min-w-0 flex-1 hover:text-primary transition-colors"
                 >
-                  <h3 className="line-clamp-2 text-sm font-semibold leading-tight md:text-base">
-                    <ParseFilenameInsert filename={ParseFilename(data.file_title || data.filename || "")} showLimit={50} characterSplit={true} className={`flex flex-wrap`}/>
+                  <h3 className="line-clamp-2 break-words text-sm font-semibold leading-snug md:text-base">
+                    <ParseFilenameInsert
+                      filename={ParseFilename(data.file_title || data.filename || "")}
+                      showLimit={64}
+                    />
                   </h3>
                 </Link>
                 {metadataWarning && (

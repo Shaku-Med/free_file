@@ -1,9 +1,11 @@
 import { useState, useCallback, useEffect } from "react";
+import { detectWindapp } from "~/lib/hooks/useWindapp";
 
 /**
  * Web Push: browsers require a "secure context" for push.
  * Development: http://localhost is treated as secure, so push works on localhost without HTTPS.
  * Production: use HTTPS.
+ * Windapp (Electron): Web Push / PushManager is not available — use Chrome/Edge instead.
  */
 
 /** Decode base64url VAPID key to Uint8Array for PushManager.subscribe */
@@ -18,15 +20,20 @@ function urlBase64ToUint8Array(base64String: string): Uint8Array {
 
 export type PushPermissionState = "default" | "granted" | "denied" | "unsupported";
 
+const WINDAPP_PUSH_MSG =
+  "Push notifications aren't available in the desktop app. Open Memories in Chrome or Edge (or install the PWA) to turn them on.";
+
 export function usePushNotifications() {
   const [permission, setPermission] = useState<PushPermissionState>("default");
   const [isSubscribed, setIsSubscribed] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [isDesktopApp, setIsDesktopApp] = useState(false);
 
   const checkSupport = useCallback(() => {
+    if (typeof window === "undefined") return false;
+    if (detectWindapp()) return false;
     return (
-      typeof window !== "undefined" &&
       "serviceWorker" in navigator &&
       "PushManager" in window &&
       "Notification" in window
@@ -34,7 +41,7 @@ export function usePushNotifications() {
   }, []);
 
   const updatePermissionState = useCallback(() => {
-    if (!("Notification" in window)) {
+    if (detectWindapp() || !("Notification" in window)) {
       setPermission("unsupported");
       return;
     }
@@ -43,6 +50,11 @@ export function usePushNotifications() {
   }, []);
 
   const subscribe = useCallback(async (): Promise<boolean> => {
+    if (detectWindapp()) {
+      setError(WINDAPP_PUSH_MSG);
+      setPermission("unsupported");
+      return false;
+    }
     if (!checkSupport()) {
       setError("Push notifications are not supported in this browser.");
       setPermission("unsupported");
@@ -143,6 +155,12 @@ export function usePushNotifications() {
   }, [checkSupport]);
 
   useEffect(() => {
+    const desktop = detectWindapp();
+    setIsDesktopApp(desktop);
+    if (desktop) {
+      setPermission("unsupported");
+      return;
+    }
     if (!checkSupport()) return;
     updatePermissionState();
     navigator.serviceWorker.ready.then((reg) =>
@@ -183,6 +201,7 @@ export function usePushNotifications() {
     loading,
     error,
     supported: checkSupport(),
+    isDesktopApp,
     updatePermissionState,
     subscribe,
     unsubscribe,

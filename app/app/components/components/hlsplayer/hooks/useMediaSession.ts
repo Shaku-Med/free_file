@@ -9,6 +9,18 @@ export type MediaSessionPlaylistHandlers = {
   onPrevious: () => void;
 };
 
+function syncWindappThumbar(opts: {
+  playing: boolean;
+  canNext: boolean;
+  canPrevious: boolean;
+  progress?: number;
+  title?: string;
+}) {
+  const api = typeof window !== 'undefined' ? window.memoriesWindapp : undefined;
+  if (!api?.setMediaState) return;
+  void api.setMediaState(opts);
+}
+
 export function useMediaSession(
   mediaSessionImage: string | null,
   videoRef: React.RefObject<HTMLVideoElement | null>,
@@ -50,29 +62,17 @@ export function useMediaSession(
 
   const updateMetadata = useCallback(() => {
     if (!('mediaSession' in navigator) || !mountedRef.current) return;
-    // Only the active slide owns the lock-screen / OS media controls.
     if (!activeRef.current) return;
     const currentFile = fileRef.current;
     const video = videoRef.current;
     if (!currentFile || !video) return;
 
     const title = currentFile.file_title || ParseFilename(currentFile.filename);
-    // Artwork ladder for receivers to pick from:
-    //   1. Original HTTP poster URL  Cast / AirPlay can fetch this over
-    //      the network even when the HLS video stream is unreachable, so
-    //      the TV shows the cover image as a fallback. Listed FIRST and
-    //      with a larger size hint so receivers prefer it for the big-art
-    //      slot. Some receivers also reject blob: URLs entirely.
-    //   2. The square canvas-cropped blob URL  best for the OS
-    //      notification / lock-screen widget where a square 512 wins.
-    //
-    // Listing both is per-spec; receivers pick by sizes / capability.
+    const titleStr = typeof title === 'string' ? title : (title as string[]).join('');
     const artwork: MediaImage[] = [];
     if (posterHttpRef.current) {
       artwork.push({
         src: posterHttpRef.current,
-        // 1280×720 hint matches our default thumbnail size; receivers
-        // that ask for "largest" art pick this entry.
         sizes: '1280x720',
         type: 'image/jpeg',
       });
@@ -85,8 +85,9 @@ export function useMediaSession(
       });
     }
     navigator.mediaSession.metadata = new MediaMetadata({
-      title: typeof title === 'string' ? title : (title as string[]).join(''),
+      title: titleStr,
       artist: currentFile.owner?.username || 'Memories',
+      album: 'Memories',
       artwork,
     });
 
@@ -99,23 +100,36 @@ export function useMediaSession(
           position: Math.min(Math.max(video.currentTime || 0, 0), dur),
         });
       }
-    } catch {}
+    } catch { /* position unsupported */ }
 
-    navigator.mediaSession.playbackState = video.paused ? 'paused' : 'playing';
+    const playing = !video.paused && !video.ended;
+    navigator.mediaSession.playbackState = playing ? 'playing' : 'paused';
+
+    const pl = playlistRef.current;
+    const progress =
+      Number.isFinite(video.duration) && video.duration > 0
+        ? video.currentTime / video.duration
+        : 0;
+    syncWindappThumbar({
+      playing,
+      canNext: Boolean(pl?.canNext),
+      canPrevious: Boolean(pl?.canPrevious),
+      progress,
+      title: titleStr,
+    });
   }, [videoRef]);
 
   useEffect(() => {
-    // Re-publish metadata whenever EITHER artwork URL changes so the OS
-    // / cast receiver picks up the new entry. Previously we only fired
-    // on the blob URL changing, which meant a posterHttpUrl that landed
-    // first (or alone) never reached MediaSession.
     if (mediaSessionImage || posterHttpUrl) updateMetadata();
   }, [mediaSessionImage, posterHttpUrl, updateMetadata]);
 
   useEffect(() => {
-    // Inactive reel slides must not touch the singleton Media Session at all —
-    // no metadata, no action handlers — or they fight the active slide.
-    if (!('mediaSession' in navigator) || !file || !active) return;
+    if (!('mediaSession' in navigator) || !file || !active) {
+      if (!active) {
+        void window.memoriesWindapp?.clearMediaState?.();
+      }
+      return;
+    }
 
     const video = videoRef.current;
     if (!video) return;
@@ -146,9 +160,7 @@ export function useMediaSession(
       try {
         navigator.mediaSession.setActionHandler('nexttrack', null);
         navigator.mediaSession.setActionHandler('previoustrack', null);
-      } catch {
-        /* unsupported or read-only */
-      }
+      } catch { /* unsupported */ }
     }
 
     function registerMediaSessionTrackHandlers() {
@@ -161,9 +173,7 @@ export function useMediaSession(
         } else {
           navigator.mediaSession.setActionHandler('nexttrack', null);
         }
-      } catch {
-        /* noop */
-      }
+      } catch { /* noop */ }
       try {
         if (pl?.canPrevious) {
           navigator.mediaSession.setActionHandler('previoustrack', () => {
@@ -172,28 +182,46 @@ export function useMediaSession(
         } else {
           navigator.mediaSession.setActionHandler('previoustrack', null);
         }
-      } catch {
-        /* noop */
-      }
+      } catch { /* noop */ }
     }
 
     const handlePlayPause = () => updateMetadata();
     const handleLoadedMetadata = () => updateMetadata();
+    let lastPosSync = 0;
+    const handleTimeUpdate = () => {
+      const now = Date.now();
+      if (now - lastPosSync < 1000) return;
+      lastPosSync = now;
+      updateMetadata();
+    };
 
     video.addEventListener('play', handlePlayPause);
     video.addEventListener('pause', handlePlayPause);
+    video.addEventListener('ended', handlePlayPause);
     video.addEventListener('loadedmetadata', handleLoadedMetadata);
+    video.addEventListener('timeupdate', handleTimeUpdate);
+
+    // Taskbar thumbnail buttons (Electron / windapp) → same handlers as Media Session.
+    const unsubThumbar = window.memoriesWindapp?.onMediaAction?.((action) => {
+      if (!activeRef.current) return;
+      if (action === 'play') playHandler();
+      else if (action === 'pause') pauseHandler();
+      else if (action === 'nexttrack') playlistRef.current?.onNext();
+      else if (action === 'previoustrack') playlistRef.current?.onPrevious();
+    });
 
     return () => {
       video.removeEventListener('play', handlePlayPause);
       video.removeEventListener('pause', handlePlayPause);
+      video.removeEventListener('ended', handlePlayPause);
       video.removeEventListener('loadedmetadata', handleLoadedMetadata);
+      video.removeEventListener('timeupdate', handleTimeUpdate);
+      unsubThumbar?.();
       try {
         navigator.mediaSession.setActionHandler('nexttrack', null);
         navigator.mediaSession.setActionHandler('previoustrack', null);
-      } catch {
-        /* noop */
-      }
+      } catch { /* noop */ }
+      void window.memoriesWindapp?.clearMediaState?.();
     };
   }, [
     file,

@@ -49,6 +49,10 @@ export interface PipReelContainerProps {
    * correct even if `items[0]` ordering assumptions change.
    */
   centerUniqueId?: string;
+  /** Playback handoff from the main player (`?t=`), applied only to the opening slide. */
+  initialStartTime?: number;
+  /** When true, opening slide starts paused (`?paused=1`). */
+  initialPaused?: boolean;
 }
 
 /** Fetch one more page of reels relative to the seed + cursor the server gave us. */
@@ -99,6 +103,8 @@ export function PipReelContainer({
   seed,
   initialNextCursor = null,
   centerUniqueId: centerUniqueIdProp,
+  initialStartTime,
+  initialPaused = false,
 }: PipReelContainerProps) {
   const { userId } = useFileContext();
   const swiperRef = useRef<SwiperType | null>(null);
@@ -330,6 +336,19 @@ export function PipReelContainer({
                     items.length,
                     false,
                   )}
+                  startTime={
+                    (file.unique_id === centerUniqueId ||
+                      String(file.id) === String(initialActiveId)) &&
+                    typeof initialStartTime === 'number' &&
+                    initialStartTime > 0
+                      ? initialStartTime
+                      : undefined
+                  }
+                  startPaused={
+                    (file.unique_id === centerUniqueId ||
+                      String(file.id) === String(initialActiveId)) &&
+                    initialPaused
+                  }
                 />
               </div>
             )}

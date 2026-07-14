@@ -206,7 +206,7 @@ const RelatedVideosContent = ({ currentUserId }: { currentUserId?: string }) => 
               <Swiper
                 modules={[Navigation, A11y, Keyboard]}
                 slidesPerView={2.15}
-                spaceBetween={10}
+                spaceBetween={2}
                 speed={380}
                 watchOverflow
                 observer
@@ -215,10 +215,10 @@ const RelatedVideosContent = ({ currentUserId }: { currentUserId?: string }) => 
                 navigation
                 keyboard={{ enabled: true, onlyInViewport: true }}
                 breakpoints={{
-                  480: { slidesPerView: 2.2, spaceBetween: 10 },
-                  768: { slidesPerView: 2.5, spaceBetween: 12 },
-                  1024: { slidesPerView: 3, spaceBetween: 12 },
-                  1280: { slidesPerView: 3.5, spaceBetween: 14 },
+                  480: { slidesPerView: 2.2, spaceBetween: 2 },
+                  768: { slidesPerView: 2.5, spaceBetween: 3 },
+                  1024: { slidesPerView: 3, spaceBetween: 3 },
+                  1280: { slidesPerView: 3.5, spaceBetween: 3 },
                 }}
                 className="feed-reel-swiper"
                 onInit={(swiper: SwiperType) => {

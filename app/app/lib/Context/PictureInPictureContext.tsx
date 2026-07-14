@@ -4,6 +4,7 @@ import {
   probeAnyPipSupported,
   type PipImplementationKind,
 } from '~/lib/pip/pipCapabilities';
+import { detectWindapp } from '~/lib/hooks/useWindapp';
 
 /** Which PiP path is active  native/WebKit use the same `<video>` element (must keep playing). */
 export type ActivePipKind = Exclude<PipImplementationKind, 'none'>;
@@ -94,6 +95,8 @@ export const PictureInPictureProvider: React.FC<PictureInPictureProviderProps> =
   const pipMainVideoRef = useRef<HTMLVideoElement | null>(null);
   const pipUpdateMediaSessionRef = useRef<((playing: boolean, time: number, duration: number) => void) | null>(null);
   const activePipKindRef = useRef<ActivePipKind | null>(null);
+  /** Document PiP shell or windapp child window (kept in a ref for message handlers). */
+  const pipWindowRef = useRef<Window | null>(null);
   // Last state reported by the document PiP player. Stored only — the main video is untouched
   // while PiP is open, then moved to this position/play-state on exit.
   const pipLiveStateRef = useRef<{ time: number; paused: boolean; id: string | null } | null>(null);
@@ -171,6 +174,12 @@ export const PictureInPictureProvider: React.FC<PictureInPictureProviderProps> =
       if (pw && !pw.closed) pw.close();
       return null;
     });
+    pipWindowRef.current = null;
+    try {
+      window.memoriesWindapp?.closePip?.();
+    } catch {
+      /* ignore */
+    }
     pipVideoRef.current = null;
     pipMainVideoRef.current = null;
     pipUpdateMediaSessionRef.current = null;
@@ -180,8 +189,10 @@ export const PictureInPictureProvider: React.FC<PictureInPictureProviderProps> =
 
   const documentPipShellOpen = useCallback((): boolean => {
     try {
-      const w = (window as any).documentPictureInPicture?.window;
-      return Boolean(w && !w.closed);
+      const docPip = (window as any).documentPictureInPicture?.window;
+      if (docPip && !docPip.closed) return true;
+      const windappPip = pipWindowRef.current;
+      return Boolean(windappPip && !windappPip.closed);
     } catch {
       return false;
     }
@@ -265,25 +276,64 @@ export const PictureInPictureProvider: React.FC<PictureInPictureProviderProps> =
   }, [assignPipKind]);
 
   useEffect(() => {
-    const handleMessage = (e: MessageEvent) => {
-      if (e.origin !== window.location.origin) return;
-
-      const shell = (window as any).documentPictureInPicture?.window as Window | undefined;
-
-      /** In-app link from PiP iframe → shell relay → here: close PiP and navigate this window. */
-      if (e.data?.type === 'pip-navigate' && typeof e.data.href === 'string') {
-        if (!shell || e.source !== shell) return;
+    const applyPipPayload = (data: {
+      type?: string;
+      href?: string;
+      time?: unknown;
+      id?: unknown;
+      paused?: unknown;
+    }) => {
+      if (data?.type === 'pip-navigate' && typeof data.href === 'string') {
         closePip();
         try {
-          const next = new URL(e.data.href, window.location.origin);
-          // Only navigate to same-origin destinations; a protocol-relative or
-          // absolute off-site href must never trigger window.location.assign.
+          const next = new URL(data.href, window.location.origin);
           if (next.origin === window.location.origin) {
             window.location.assign(next.href);
           }
         } catch {
           /* malformed href: ignore */
         }
+        return;
+      }
+
+      if (data?.type !== 'pip-closing' && data?.type !== 'pip-state') return;
+
+      const time = sanitizeSeekSeconds(data.time);
+      const paused = data.paused === true;
+      const payloadId = typeof data.id === 'string' ? data.id : null;
+
+      const matchesMainContent =
+        pipContentId === null || payloadId === null || payloadId === pipContentId;
+
+      if (data.type === 'pip-state') {
+        setPipPlaybackPaused(paused);
+        if (matchesMainContent) {
+          pipLiveStateRef.current = { time, paused, id: payloadId };
+        }
+        return;
+      }
+
+      if (!matchesMainContent) return;
+
+      pipLiveStateRef.current = { time, paused, id: payloadId };
+      if (pipUpdateMediaSessionRef.current) {
+        pipUpdateMediaSessionRef.current(!paused, time, pipMainVideoRef.current?.duration ?? 0);
+      }
+      closePip();
+    };
+
+    const handleMessage = (e: MessageEvent) => {
+      if (e.origin !== window.location.origin) return;
+
+      const shell =
+        ((window as any).documentPictureInPicture?.window as Window | undefined) ||
+        pipWindowRef.current ||
+        undefined;
+
+      /** In-app link from PiP iframe → shell relay → here: close PiP and navigate this window. */
+      if (e.data?.type === 'pip-navigate' && typeof e.data.href === 'string') {
+        if (!shell || e.source !== shell) return;
+        applyPipPayload(e.data);
         return;
       }
 
@@ -305,41 +355,55 @@ export const PictureInPictureProvider: React.FC<PictureInPictureProviderProps> =
       } catch {}
       if (!fromShell && !fromPipIframe) return;
 
-      const payload = e.data as { time?: unknown; id?: unknown; paused?: unknown };
-      const time = sanitizeSeekSeconds(payload.time);
-      const paused = payload.paused === true;
-      const payloadId = typeof payload.id === 'string' ? payload.id : null;
-
-      const matchesMainContent =
-        pipContentId === null || payloadId === null || payloadId === pipContentId;
-
-      // Live report from the PiP player: store only, never touch the main video mid-session.
-      // Reports for a different reel (user swiped the PiP feed) update the UI but not the
-      // stored resume point for the main video.
-      if (e.data.type === 'pip-state') {
-        setPipPlaybackPaused(paused);
-        if (matchesMainContent) {
-          pipLiveStateRef.current = { time, paused, id: payloadId };
-        }
-        return;
-      }
-
-      if (!matchesMainContent) return;
-
-      pipLiveStateRef.current = { time, paused, id: payloadId };
-      if (pipUpdateMediaSessionRef.current) {
-        pipUpdateMediaSessionRef.current(!paused, time, pipMainVideoRef.current?.duration ?? 0);
-      }
-      closePip();
+      applyPipPayload(e.data);
     };
+
     window.addEventListener('message', handleMessage);
-    return () => window.removeEventListener('message', handleMessage);
+
+    let bc: BroadcastChannel | null = null;
+    try {
+      bc = new BroadcastChannel('memories-pip');
+      bc.onmessage = (ev) => {
+        const data = ev.data as {
+          type?: string;
+          href?: string;
+          time?: unknown;
+          id?: unknown;
+          paused?: unknown;
+        } | null;
+        if (!data?.type) return;
+        if (
+          data.type !== 'pip-navigate' &&
+          data.type !== 'pip-closing' &&
+          data.type !== 'pip-state'
+        ) {
+          return;
+        }
+        // Only the main window should consume these; ignore if we are the PiP surface.
+        if (detectWindapp() && new URLSearchParams(window.location.search).get('windapp_pip') === '1') {
+          return;
+        }
+        applyPipPayload(data);
+      };
+    } catch {
+      /* BroadcastChannel unsupported */
+    }
+
+    return () => {
+      window.removeEventListener('message', handleMessage);
+      try {
+        bc?.close();
+      } catch {
+        /* ignore */
+      }
+    };
   }, [closePip, pipContentId]);
 
   useEffect(() => {
     if (!pipWindow) return;
     const id = setInterval(() => {
-      const live = (window as any).documentPictureInPicture?.window;
+      const live =
+        (window as any).documentPictureInPicture?.window || pipWindowRef.current;
       if (!live || live.closed) closePip();
     }, 500);
     return () => clearInterval(id);
@@ -440,6 +504,59 @@ export const PictureInPictureProvider: React.FC<PictureInPictureProviderProps> =
       return;
     }
 
+    if (impl !== 'document') {
+      return;
+    }
+
+    const currentTime = video?.currentTime ?? 0;
+    const wasPaused = Boolean(video?.paused);
+    const origin = window.location.origin;
+    const params = new URLSearchParams({
+      src,
+      loop: String(Boolean(loop)),
+      t: String(currentTime),
+      embed: '1',
+    });
+    if (wasPaused) params.set('paused', '1');
+    if (detectWindapp()) {
+      params.set('windapp_pip', '1');
+    }
+    const pipUrl = `${origin}/pip/${encodeURIComponent(contentId)}?${params.toString()}`;
+
+    // Windapp: floating Electron window with our /pip UI (not OS native PiP chrome).
+    if (detectWindapp()) {
+      try {
+        const pw = window.open(
+          pipUrl,
+          'memories-pip',
+          `popup=yes,width=${PIP_PHONE_WIDTH},height=${PIP_PHONE_HEIGHT}`,
+        );
+        if (!pw) {
+          console.error('Windapp PiP: window.open was blocked');
+          return;
+        }
+
+        pipMainVideoRef.current = video ?? null;
+        pipUpdateMediaSessionRef.current = updateMediaSession ?? null;
+        pipWindowRef.current = pw;
+        assignPipKind('document');
+        setPipWindow(pw);
+        setIsPipActive(true);
+        setPipContentId(contentId);
+        pipLiveStateRef.current = { time: currentTime, paused: wasPaused, id: contentId };
+        setPipPlaybackPaused(wasPaused);
+
+        if (video) {
+          video.pause();
+        }
+      } catch (error) {
+        console.error('Error opening windapp PiP:', error);
+        pipWindowRef.current = null;
+        assignPipKind(null);
+      }
+      return;
+    }
+
     if (!(window as any).documentPictureInPicture) {
       return;
     }
@@ -453,16 +570,6 @@ export const PictureInPictureProvider: React.FC<PictureInPictureProviderProps> =
 
       pipMainVideoRef.current = videoRef.current ?? null;
       pipUpdateMediaSessionRef.current = updateMediaSession ?? null;
-
-      const currentTime = videoRef.current?.currentTime ?? 0;
-      const origin = window.location.origin;
-      const params = new URLSearchParams({
-        src,
-        loop: String(Boolean(loop)),
-        t: String(currentTime),
-        embed: '1',
-      });
-      const pipUrl = `${origin}/pip/${encodeURIComponent(contentId)}?${params.toString()}`;
 
       const doc = pw.document;
       doc.documentElement.style.height = '100%';
@@ -567,19 +674,21 @@ export const PictureInPictureProvider: React.FC<PictureInPictureProviderProps> =
       lockScript.textContent = lockSrc;
       doc.body.appendChild(lockScript);
 
+      pipWindowRef.current = pw;
       assignPipKind('document');
       setPipWindow(pw);
       setIsPipActive(true);
       setPipContentId(contentId);
       // Seed the resume point so closing PiP before the first state report still restores.
-      pipLiveStateRef.current = { time: currentTime, paused: false, id: contentId };
-      setPipPlaybackPaused(false);
+      pipLiveStateRef.current = { time: currentTime, paused: wasPaused, id: contentId };
+      setPipPlaybackPaused(wasPaused);
 
-      if (videoRef.current) {
-        videoRef.current.pause();
+      if (video) {
+        video.pause();
       }
     } catch (error) {
       console.error('Error opening Document PiP:', error);
+      pipWindowRef.current = null;
       assignPipKind(null);
     }
   }, [
@@ -597,17 +706,31 @@ export const PictureInPictureProvider: React.FC<PictureInPictureProviderProps> =
     return pipContentId === contentId;
   }, [pipContentId, isPipActive]);
 
-  /** Post a playback command into the PiP iframe (same-origin) so main controls drive the PiP player. */
+  /** Post a playback command into the PiP surface so main controls drive the PiP player. */
   const controlPipPlayback = useCallback((action: 'play' | 'pause' | 'toggle') => {
     if (activePipKindRef.current !== 'document') return;
     try {
-      const shell = (window as any).documentPictureInPicture?.window as Window | undefined;
-      if (!shell || shell.closed) return;
-      const iframe = shell.document?.querySelector('iframe') as HTMLIFrameElement | undefined;
-      if (!iframe || !isTrustedPipIframeSrc(iframe.src || iframe.getAttribute('src'))) return;
-      iframe.contentWindow?.postMessage({ type: 'pip-control', action }, window.location.origin);
+      const shell =
+        ((window as any).documentPictureInPicture?.window as Window | undefined) ||
+        pipWindowRef.current;
+      if (shell && !shell.closed) {
+        const iframe = shell.document?.querySelector('iframe') as HTMLIFrameElement | undefined;
+        if (iframe && isTrustedPipIframeSrc(iframe.src || iframe.getAttribute('src'))) {
+          iframe.contentWindow?.postMessage({ type: 'pip-control', action }, window.location.origin);
+          return;
+        }
+        // Windapp: /pip loaded directly in the child window (no iframe shell).
+        shell.postMessage({ type: 'pip-control', action }, window.location.origin);
+      }
     } catch {
       /* shell may be mid-close */
+    }
+    try {
+      const bc = new BroadcastChannel('memories-pip');
+      bc.postMessage({ type: 'pip-control', action });
+      bc.close();
+    } catch {
+      /* ignore */
     }
   }, []);
 

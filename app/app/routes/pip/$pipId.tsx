@@ -10,6 +10,7 @@ import {
   requestPipClosingHandshake,
 } from './pipEnv';
 import { PipReelContainer } from './components';
+import { WindappPipChrome } from './components/WindappPipChrome';
 
 /** Same shape as `/api/pip-feed` and reel feed: per-file like/dislike from `enrichFeedFilesWithInteractions`. */
 export type PipLoaderUserActions = {
@@ -151,6 +152,13 @@ export default function PipByIdRoute() {
   const { pipId } = useParams();
   const [searchParams] = useSearchParams();
   const embedParam = searchParams.get('embed') === '1';
+  const initialStartTime = useMemo(() => {
+    const raw = searchParams.get('t');
+    if (raw == null || raw === '') return undefined;
+    const n = Number(raw);
+    return Number.isFinite(n) && n > 0 ? n : undefined;
+  }, [searchParams]);
+  const initialPaused = searchParams.get('paused') === '1';
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
@@ -228,7 +236,8 @@ export default function PipByIdRoute() {
   }
 
   return (
-    <div className="pip-reel-root min-h-0 flex-1 bg-black" data-pip-route={pipId}>
+    <div className="pip-reel-root relative min-h-0 flex-1 bg-black" data-pip-route={pipId}>
+      <WindappPipChrome pipId={pipId} />
       <PipReelContainer
         items={loaderData.items}
         initialActiveId={pipId}
@@ -237,6 +246,8 @@ export default function PipByIdRoute() {
         userActions={loaderData.userActions}
         seed={loaderData.seed}
         initialNextCursor={loaderData.nextCursor}
+        initialStartTime={initialStartTime}
+        initialPaused={initialPaused}
       />
     </div>
   );

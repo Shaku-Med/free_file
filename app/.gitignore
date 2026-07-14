@@ -13,6 +13,9 @@ node_modules/
 build/
 dist/
 
+# Desktop installer cache (from GitHub → /api/desktop/*/download)
+.cache/
+
 # Logs
 *.log
 
