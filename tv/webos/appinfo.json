@@ -1,0 +1,16 @@
+{
+  "id": "org.brozy.memories.tv",
+  "version": "1.0.2",
+  "vendor": "Brozy",
+  "type": "web",
+  "main": "index.html",
+  "title": "Memories",
+  "icon": "icon.png",
+  "largeIcon": "largeIcon.png",
+  "bgColor": "#0f1115",
+  "iconColor": "#0f1115",
+  "resolution": "1920x1080",
+  "disableBackHistoryAPI": false,
+  "handlesRelaunch": true,
+  "inspectable": true
+}

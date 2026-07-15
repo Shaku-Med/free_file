@@ -17,7 +17,7 @@ import { formatTimeAgo } from "~/lib/formatTimeAgo";
 import { formatNumber } from "~/lib/utils/formatNumber";
 import { formatExactDate } from "~/lib/utils/formatExactDate";
 import ParseFilenameInsert from "~/lib/utils/ShowFileName";
-import { ParseFilename } from "~/lib/utils";
+import { displayMediaTitle } from "~/lib/utils";
 import type { FileType } from "~/lib/types";
 import type { VerticalFeedItemData } from "~/components/vertical-feed";
 
@@ -138,7 +138,7 @@ export function ReelMetaPanel({ file, item, views }: ReelMetaPanelProps) {
   const rawTitle = file.file_title?.trim() || file.filename || "";
   // Machine names (UUID dumps, IMG_1234) read as "Untitled" — hide those here
   // since the reel overlay already shows the creator and sound.
-  const parsedTitle = rawTitle ? ParseFilename(rawTitle) : "";
+  const parsedTitle = rawTitle ? displayMediaTitle(rawTitle) : "";
   const title = parsedTitle === "Untitled" ? "" : parsedTitle;
   const ownerId = file.owner?.id;
   const isOwner = Boolean(userId && ownerId && userId === ownerId);

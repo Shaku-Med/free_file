@@ -1,6 +1,6 @@
 import { useCallback, useRef, useState } from 'react';
 import { Music2 } from 'lucide-react';
-import { cn, getVideoSrc, ParseFilename } from '~/lib/utils';
+import { cn, getVideoSrc, displayMediaTitle } from '~/lib/utils';
 import { usePlaybackUrl } from '~/lib/hooks/usePlaybackUrl';
 import ParseFilenameInsert from '~/lib/utils/ShowFileName';
 import { FormattedText } from '~/components/FormattedText';
@@ -41,7 +41,7 @@ export function VerticalFeedItem({
   // Machine names (UUIDs, camera-roll dumps) parse to "Untitled" — the reel
   // overlay just drops the line instead of showing that.
   const cleanTitle = (raw: string) => {
-    const t = raw ? ParseFilename(raw) : '';
+    const t = raw ? displayMediaTitle(raw) : '';
     return t === 'Untitled' ? '' : t;
   };
   const overlayTitle = cleanTitle(file?.file_title || file?.filename || '');

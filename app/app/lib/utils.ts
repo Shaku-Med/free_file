@@ -22,13 +22,28 @@ const MEDIA_EXT_RE = /\.(m3u8|mp4|mov|webm|mkv|avi|m4v|ts|mp3|wav|m4a|flac|ogg|a
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 /**
- * Filename → human display title. Strips media extensions (including doubled
- * ones like `.mp4.m3u8`), turns machine names (UUIDs, long hex ids) into
- * "Untitled", and swaps underscores for spaces in word-ish names. User-set
- * titles never pass through here — this is only the fallback path.
+ * STORAGE semantics — do not humanize. Legacy uploads store thumbnails as
+ * `thumbnail_{ParseFilename(filename)}.jpg` in the date/uid folder, so this
+ * must keep returning the real base name (only the HLS `.mp4.m3u8` tail is
+ * stripped). For pretty titles use {@link displayMediaTitle} instead.
  */
 export const ParseFilename = (filename: string, showLimit?: number) => {
-  let name = (filename || '').trim()
+  const parts = filename.split('.')
+  if (parts.length >= 3 && parts[parts.length - 1] === 'm3u8') {
+    parts.splice(-2, 2)
+    return parts.join('.')
+  }
+  return filename
+}
+
+/**
+ * DISPLAY-only title for cards/players. Strips media extensions (including
+ * doubled ones like `.mp4.m3u8`), turns machine names (UUIDs, long hex ids)
+ * into "Untitled", and swaps underscores for spaces in word-ish names.
+ * Never use the result to build storage paths.
+ */
+export function displayMediaTitle(titleOrFilename: string, showLimit?: number): string {
+  let name = (titleOrFilename || '').trim()
   for (let i = 0; i < 3 && MEDIA_EXT_RE.test(name); i++) {
     name = name.replace(MEDIA_EXT_RE, '')
   }
@@ -58,9 +73,20 @@ export const getDefaultThumbnail = (defaultThumbnail?: string | null): string | 
 /** @deprecated Use getDefaultThumbnail instead */
 export const getRandomThumbnail = getDefaultThumbnail
 
+/** Directory prefix (with trailing slash) where media siblings live (thumbs, waveform, HLS). */
+function mediaPathDirPrefix(path: string): string | null {
+  const trimmed = path.trim()
+  if (!trimmed) return null
+  const lastSlash = trimmed.lastIndexOf('/')
+  if (lastSlash < 0) return null
+  return trimmed.slice(0, lastSlash + 1)
+}
+
 /**
- * Build the thumbnail image URL for a file.
- * Prefers default_thumbnail; falls back to the legacy thumbnail_{filename} path.
+ * Build the thumbnail image URL for a file, across every storage version:
+ * new uploads record default_thumbnail / thumb_*.jpg in the DB; legacy files
+ * have neither and store `thumbnail_{ParseFilename(filename)}.jpg` in their
+ * date/uid folder — that fallback must stay filename-based (storage key).
  */
 export function getThumbnailUrl(file: {
   default_thumbnail?: string | null
@@ -95,19 +121,17 @@ export function getThumbnailUrl(file: {
       (t) => t.endsWith('/thumbnail_preview.jpg') || t === 'thumbnail_preview.jpg',
     )
     if (preview) return `${base}/api/load/image/${preview}${qs}`
+    const storedDefault = file.thumbnails.find(
+      (t) =>
+        typeof t === 'string' &&
+        (t.endsWith('/default_thumbnail.jpg') || t === 'default_thumbnail.jpg'),
+    )
+    if (storedDefault) return `${base}/api/load/image/${storedDefault}${qs}`
   }
 
-  // Legacy fallback (old naming scheme)
+  // Legacy fallback (old naming scheme): these files carry no thumbnail data
+  // in the DB, the image lives at thumbnail_{filename}.jpg in their folder.
   return `${base}/api/load/image/${arrangeDateForThumbnail(file.created_at, retry)}/${file.unique_id}/thumbnail_${ParseFilename(file.filename)}.jpg${qs}`
-}
-
-/** Directory prefix (with trailing slash) where waveform.png lives alongside thumbnails / HLS output. */
-function mediaPathDirPrefix(path: string): string | null {
-  const trimmed = path.trim()
-  if (!trimmed) return null
-  const lastSlash = trimmed.lastIndexOf('/')
-  if (lastSlash < 0) return null
-  return trimmed.slice(0, lastSlash + 1)
 }
 
 /**

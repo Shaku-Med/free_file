@@ -25,7 +25,7 @@ func Segment(deps SegmentDeps) fiber.Handler {
 			return denyResp
 		}
 
-		askedPath := c.Params("*")
+		askedPath := requestAssetPath(c)
 		if strings.HasSuffix(strings.ToLower(askedPath), ".m3u8") {
 			// m3u8 always goes through Manifest, never here.
 			return Manifest(deps)(c)

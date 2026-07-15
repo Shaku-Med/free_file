@@ -2,7 +2,7 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router';
 import { isMobile } from 'react-device-detect';
 import { Maximize2 } from 'lucide-react';
-import { cn, getThumbnailUrl, getVideoSrc, ParseFilename } from '~/lib/utils';
+import { cn, getThumbnailUrl, getVideoSrc, displayMediaTitle } from '~/lib/utils';
 import {
   REEL_FALLBACK_ASPECT,
   readVideoAspectRatio,
@@ -506,7 +506,7 @@ function PipReelItemInner({
 
   useEffect(() => {
     if (variant !== 'page' || !isActive || !file.unique_id) return;
-    const display = ParseFilename(file.file_title || file.filename || '');
+    const display = displayMediaTitle(file.file_title || file.filename || '');
     window.history.replaceState(
       null,
       '',

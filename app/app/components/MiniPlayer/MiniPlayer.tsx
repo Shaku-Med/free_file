@@ -7,7 +7,7 @@ import { X, Maximize2, Loader2, ChevronUp, ChevronDown } from "lucide-react";
 import { useMiniPlayerContext, isReelPath } from "~/lib/Context/MiniPlayerContext";
 import { useWatchSurfaceVideoRef } from "~/lib/Context/WatchSurfaceVideoRefContext";
 import { useMainPlayerSlot } from "~/lib/Context/MainPlayerSlotContext";
-import { ParseFilename } from "~/lib/utils";
+import { displayMediaTitle } from "~/lib/utils";
 import { cn } from "~/lib/utils";
 import { useMiniPlayerDrag } from "./useMiniPlayerDrag";
 import { Tooltip, TooltipContent, TooltipTrigger } from "~/components/ui/tooltip";
@@ -343,7 +343,7 @@ function MiniPlayerContent() {
 
   if (!miniPlayer) return null;
 
-  const title = ParseFilename(miniPlayer.file.file_title || miniPlayer.file.filename || "");
+  const title = displayMediaTitle(miniPlayer.file.file_title || miniPlayer.file.filename || "");
   const titleStr = typeof title === "string" ? title : (title as string[]).join("");
 
   return (

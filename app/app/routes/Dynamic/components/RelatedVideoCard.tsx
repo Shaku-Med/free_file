@@ -2,7 +2,7 @@ import { useState, useCallback, useEffect } from "react";
 import { Link } from "react-router";
 import { type FileType, fileWatchPath } from "~/lib/types";
 import WatchProgressBar from "~/routes/Home/components/WatchProgressBar";
-import { getThumbnailUrl, ParseFilename } from "~/lib/utils";
+import { getThumbnailUrl, displayMediaTitle } from "~/lib/utils";
 import ImageLoad from "~/routes/Home/components/ImageLoad/ImageLoad";
 import AdultContentBadge from "./AdultContentBadge";
 import OwnerProfile from "~/components/OwnerProfile/OwnerProfile";
@@ -117,7 +117,7 @@ const RelatedVideoCard = ({ data, currentUserId, userActions }: RelatedVideoCard
             <div className="flex items-center gap-1.5">
               <Link to={watchPath} className="hover:text-primary transition-colors flex-1 min-w-0">
                 <p className="text-sm font-medium leading-tight line-clamp-2">
-                  {ParseFilename(data.file_title || data.filename || "")}
+                  {displayMediaTitle(data.file_title || data.filename || "")}
                 </p>
               </Link>
               {metadataWarning && (

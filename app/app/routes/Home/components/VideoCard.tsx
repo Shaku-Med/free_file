@@ -7,8 +7,8 @@ import { Textarea } from "~/components/ui/textarea";
 import { Button } from "~/components/ui/button";
 import { type FileType, fileWatchPath } from "~/lib/types";
 import ImageLoad from "./ImageLoad/ImageLoad";
-import { cn, getDefaultThumbnail, getThumbnailUrl, ParseFilename } from "~/lib/utils";
-import { fileHoverTint } from "~/components/components/hlsplayer/visualizerPalette";
+import { cn, getDefaultThumbnail, getThumbnailUrl, displayMediaTitle } from "~/lib/utils";
+import { VideoCardHoverOverlay } from "~/components/VideoCardHoverOverlay";
 import ParseFilenameInsert from "~/lib/utils/ShowFileName";
 import AdultContentBadge from "~/routes/Dynamic/components/AdultContentBadge";
 import OwnerProfile from "~/components/OwnerProfile/OwnerProfile";
@@ -169,25 +169,9 @@ const VideoCard = ({
   const isMobile = useIsMobile();
   const sidebarCtx = useSidebarOptional();
   const sidebarLayoutState = sidebarCtx?.state ?? "expanded";
-  // Hover tint from the FILE's dominant colors (random-but-stable pick per
-  // card, so a grid shows varied hues). YouTube-style surface blend keeps
-  // text readable; null when the file has no extracted colors.
+  // Seed for file-color hover overlay (stable per card).
   const hoverTintSeed = String(data.unique_id ?? data.id ?? "");
-  const hoverTintOverlay = useMemo(
-    () =>
-      fileHoverTint(
-        (data as { colors?: unknown }).colors,
-        hoverTintSeed,
-        // Translucent surface for the overlay (token is a complete color).
-        "color-mix(in srgb, var(--muted) 85%, transparent)",
-      ),
-    [data, hoverTintSeed],
-  );
-  const hoverTintRow = useMemo(
-    () => fileHoverTint((data as { colors?: unknown }).colors, hoverTintSeed),
-    [data, hoverTintSeed],
-  );
-  // 
+  const fileColors = (data as { colors?: unknown }).colors;
   const [error, setError] = useState<boolean>(false);
   const [retryAttempt, setRetryAttempt] = useState<number>(0);
   const [loaded, setLoaded] = useState<boolean>(false);
@@ -1061,7 +1045,15 @@ const VideoCard = ({
           (t.endsWith("/thumbnail_preview.jpg") || t === "thumbnail_preview.jpg"),
       );
       if (hasPreview) return true;
+      const hasDefault = data.thumbnails.some(
+        (t) =>
+          typeof t === "string" &&
+          (t.endsWith("/default_thumbnail.jpg") || t === "default_thumbnail.jpg"),
+      );
+      if (hasDefault) return true;
     }
+    // Modern uploads store thumbs next to the video/HLS endpoint.
+    if (typeof data.endpoint === "string" && data.endpoint.includes("/")) return true;
     return false;
   }, [data.file_type, data.endpoint, data.default_thumbnail, data.thumbnails]);
 
@@ -2276,7 +2268,7 @@ const VideoCard = ({
             void handleWatchNav();
           }}
           to={watchPath}
-          aria-label={`Open ${ParseFilename(data.file_title || data.filename || "").slice(0, 80)}`}
+          aria-label={`Open ${displayMediaTitle(data.file_title || data.filename || "").slice(0, 80)}`}
           className="relative aspect-video w-full shrink-0 overflow-hidden bg-muted/30 outline-none ring-0 transition-[filter] duration-200 hover:brightness-[1.03] focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-offset-0"
         >
           {renderThumbnail("aspect-video h-full w-full")}
@@ -2294,7 +2286,7 @@ const VideoCard = ({
                 className="min-w-0 flex-1 rounded-md hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
               >
                 <h3 className="line-clamp-2 text-[13px] font-semibold leading-snug tracking-tight text-foreground sm:text-sm">
-                  <ParseFilenameInsert filename={ParseFilename(data.file_title || data.filename || "")} showLimit={64} />
+                  <ParseFilenameInsert filename={displayMediaTitle(data.file_title || data.filename || "")} showLimit={64} />
                 </h3>
               </Link>
               {metadataWarning ? (
@@ -2378,48 +2370,41 @@ const VideoCard = ({
     return (
       <div
         className={cn(
-          "group flex w-full transition-colors",
-          // Same dominant-color hover tint as the default card (falls back to a
-          // neutral hover when the file has no extracted colors).
-          hoverTintRow ? "hover:bg-[var(--card-tint)]" : "hover:bg-muted/50",
+          "group relative flex w-full",
           hideActions ? "gap-3 rounded-lg" : "",
           sidebarLayoutState === "expanded" && "fl_break_layout text-sm gap-3 rounded-lg p-2",
-          // On mobile the related card goes VERTICAL (thumbnail on top, info
-          // below) so it reads like a feed card in a grid instead of a cramped
-          // row. Desktop keeps the horizontal sidebar row.
           sidebarLayoutState !== "expanded" && related && isMobile && "flex-col gap-2 rounded-lg p-1.5",
           sidebarLayoutState !== "expanded" && related && !isMobile && "flex-row items-start gap-3 rounded-lg p-2",
-          // Search card stays horizontal at every width (no mobile stacking).
           sidebarLayoutState !== "expanded" && !related && "flex-row items-start gap-3 rounded-lg p-2",
           hideActions && related && "p-0",
         )}
-        style={hoverTintRow ? ({ "--card-tint": hoverTintRow } as React.CSSProperties) : undefined}
       >
+        <VideoCardHoverOverlay
+          colors={fileColors}
+          seed={hoverTintSeed}
+          className="rounded-xl"
+        />
         <Link
           onClick={(e) => {
             e.preventDefault();
             void handleWatchNav();
           }}
           to={watchPath}
-          className={
+          className={cn(
+            // Stay above VideoCardHoverOverlay (z-10 → group-hover:z-100).
+            "relative z-[1000000]",
             related
               ? isMobile
-                ? "relative aspect-video w-full shrink-0 overflow-hidden rounded-xl bg-card ring-1 ring-border/30 dark:ring-white/10"
-                // Desktop: thumbnail scales with the card/body width (bigger on
-                // wide layouts, never cramped in a 2-3 col grid), capped so the
-                // title keeps room.
-                : "relative aspect-video w-[46%] min-w-40 max-w-80 shrink-0 overflow-hidden rounded-lg bg-card ring-1 ring-border/30 dark:ring-white/10"
-              // Search results: big YouTube-style thumbnail on the left at every
-              // width (the card never stacks). Width is a % of the card so it
-              // grows with the body/column on large screens, with a loose cap.
-              : "relative aspect-video w-[44%] min-w-[128px] max-w-[520px] shrink-0 overflow-hidden rounded-xl bg-card"
-          }
+                ? "aspect-video w-full shrink-0 overflow-hidden rounded-xl bg-card ring-1 ring-border/30 dark:ring-white/10"
+                : "aspect-video w-[46%] min-w-40 max-w-80 shrink-0 overflow-hidden rounded-lg bg-card ring-1 ring-border/30 dark:ring-white/10"
+              : "aspect-video w-[44%] min-w-[128px] max-w-[520px] shrink-0 overflow-hidden rounded-xl bg-card",
+          )}
         >
           {renderThumbnail("aspect-video h-full w-full")}
         </Link>
 
         {related ? (
-          <div className="flex min-w-0 flex-1 flex-col justify-center py-0.5">
+          <div className="relative z-[1000000] flex min-w-0 flex-1 flex-col justify-center py-0.5">
             <div className="flex items-start justify-between gap-2">
               <Link
                 to={watchPath}
@@ -2430,7 +2415,7 @@ const VideoCard = ({
                 className="min-w-0 flex-1 transition-colors hover:text-primary"
               >
                 <h3 className="line-clamp-2 text-sm font-semibold leading-snug">
-                  <ParseFilenameInsert filename={ParseFilename(data.file_title || data.filename || "")} showLimit={60} />
+                  <ParseFilenameInsert filename={displayMediaTitle(data.file_title || data.filename || "")} showLimit={60} />
                 </h3>
               </Link>
 
@@ -2489,7 +2474,7 @@ const VideoCard = ({
           </div>
         ) : (
           // Search card: title  views/date  channel (avatar + verified)  description.
-          <div className="flex min-w-0 flex-1 flex-col justify-start gap-1 py-0.5">
+          <div className="relative z-[1000000] flex min-w-0 flex-1 flex-col justify-start gap-1 py-0.5">
             <div className="flex items-start justify-between gap-2">
               <Link
                 to={watchPath}
@@ -2500,7 +2485,7 @@ const VideoCard = ({
                 className="min-w-0 flex-1 transition-colors hover:text-primary"
               >
                 <h3 className="line-clamp-2 text-base font-semibold leading-snug sm:text-lg lg:text-xl">
-                  <ParseFilenameInsert filename={ParseFilename(data.file_title || data.filename || "")} showLimit={90} />
+                  <ParseFilenameInsert filename={displayMediaTitle(data.file_title || data.filename || "")} showLimit={90} />
                 </h3>
               </Link>
               <div className="shrink-0">{hideActions.halfway && <>{renderActions()}</>}</div>
@@ -2573,7 +2558,7 @@ const VideoCard = ({
             >
               <h3 className="line-clamp-2 break-words text-left text-sm font-semibold leading-snug tracking-tight text-foreground">
                 <ParseFilenameInsert
-                  filename={ParseFilename(data.file_title || data.filename || "")}
+                  filename={displayMediaTitle(data.file_title || data.filename || "")}
                   showLimit={56}
                 />
               </h3>
@@ -2643,7 +2628,7 @@ const VideoCard = ({
         </div>
         <div className="flex min-w-0 flex-col gap-0.5 px-0.5">
           <h3 className="line-clamp-2 text-[clamp(10px,2.8cqi,15px)] font-medium leading-snug text-white">
-            <ParseFilenameInsert filename={ParseFilename(data.file_title || data.filename || "")} showLimit={60} />
+            <ParseFilenameInsert filename={displayMediaTitle(data.file_title || data.filename || "")} showLimit={60} />
           </h3>
           <div className="flex min-w-0 flex-wrap items-center gap-x-1 text-[clamp(9px,2.4cqi,12px)] leading-tight text-white/70">
             {data.owner && (
@@ -2688,7 +2673,7 @@ const VideoCard = ({
         </div>
         <div className="min-w-0 px-0.5">
           <h3 className="line-clamp-2 text-sm font-medium leading-snug text-foreground">
-            <ParseFilenameInsert filename={ParseFilename(data.file_title || data.filename || "")} showLimit={60} />
+            <ParseFilenameInsert filename={displayMediaTitle(data.file_title || data.filename || "")} showLimit={60} />
           </h3>
           <div className="mt-0.5 flex min-w-0 flex-wrap items-center gap-x-1 text-xs leading-tight text-muted-foreground">
             {data.owner && <span className="max-w-[10rem] truncate">{data.owner.username}</span>}
@@ -2731,7 +2716,7 @@ const VideoCard = ({
         </div>
         <div className="flex min-w-0 flex-1 flex-col justify-center gap-[clamp(0.125rem,0.7cqi,0.375rem)]">
           <h3 className="line-clamp-2 text-[clamp(12px,3cqi,16px)] font-semibold leading-snug text-white">
-            <ParseFilenameInsert filename={ParseFilename(data.file_title || data.filename || "")} showLimit={80} />
+            <ParseFilenameInsert filename={displayMediaTitle(data.file_title || data.filename || "")} showLimit={80} />
           </h3>
           <div className="flex min-w-0 flex-wrap items-center gap-x-1 text-[clamp(10px,2.4cqi,13px)] leading-tight text-white/70">
             {data.owner && (
@@ -2787,7 +2772,7 @@ const VideoCard = ({
           </div>
           <div className="min-w-0">
             <p className="line-clamp-2 text-sm font-semibold text-foreground">
-              <ParseFilenameInsert filename={ParseFilename(data.file_title || data.filename || "")} showLimit={120} />
+              <ParseFilenameInsert filename={displayMediaTitle(data.file_title || data.filename || "")} showLimit={120} />
             </p>
             {postedAt && (
               <p className="mt-1 text-xs text-muted-foreground">{postedAt}</p>
@@ -2824,7 +2809,7 @@ const VideoCard = ({
             )}
           </div>
           <p className="line-clamp-2 min-w-0 flex-1 text-[13px] font-medium leading-snug text-foreground">
-            <ParseFilenameInsert filename={ParseFilename(data.file_title || data.filename || "")} showLimit={100} />
+            <ParseFilenameInsert filename={displayMediaTitle(data.file_title || data.filename || "")} showLimit={100} />
           </p>
         </Link>
         {renderEditDialog()}
@@ -2888,7 +2873,7 @@ const VideoCard = ({
             <Link to={watchPath} onClick={queueNavClick} className="min-w-0 transition-colors hover:text-primary">
               <h3 className="truncate text-[13px] font-medium leading-snug text-foreground">
                 <ParseFilenameInsert
-                  filename={ParseFilename(data.file_title || data.filename || "")}
+                  filename={displayMediaTitle(data.file_title || data.filename || "")}
                   showLimit={48}
                   className="block truncate"
                 />
@@ -2923,12 +2908,15 @@ const VideoCard = ({
     return (
       <div
         className={cn(
-          "group flex items-center rounded-lg transition-colors",
+          "group relative flex items-center rounded-lg",
           dense ? "gap-2 px-1.5 py-1" : "gap-2.5 px-2 py-1.5",
-          hoverTintRow ? "hover:bg-[var(--card-tint)]" : "hover:bg-muted/50",
         )}
-        style={hoverTintRow ? ({ "--card-tint": hoverTintRow } as React.CSSProperties) : undefined}
       >
+        <VideoCardHoverOverlay
+          colors={fileColors}
+          seed={hoverTintSeed}
+          className="rounded-lg"
+        />
         <Link
           onClick={(e) => {
             e.preventDefault();
@@ -2936,7 +2924,7 @@ const VideoCard = ({
           }}
           to={watchPath}
           className={cn(
-            "relative aspect-video shrink-0 overflow-hidden rounded-md bg-card ring-1 ring-border/20 dark:ring-white/10",
+            "relative z-[1000000] aspect-video shrink-0 overflow-hidden rounded-md bg-card ring-1 ring-border/20 dark:ring-white/10",
             dense ? "w-[5.25rem]" : "w-[7rem]",
           )}
         >
@@ -2948,7 +2936,7 @@ const VideoCard = ({
           )}
         </Link>
 
-        <div className="flex min-w-0 flex-1 items-start justify-between gap-1.5">
+        <div className="relative z-[1000000] flex min-w-0 flex-1 items-start justify-between gap-1.5">
           <div className="flex min-w-0 flex-1 flex-col gap-0.5">
             <Link
               to={watchPath}
@@ -2959,7 +2947,7 @@ const VideoCard = ({
               className="hover:text-primary transition-colors"
             >
               <h3 className={cn("line-clamp-2 font-medium leading-snug", dense ? "text-xs" : "text-[13px]")}>
-                <ParseFilenameInsert filename={ParseFilename(data.file_title || data.filename || "")} showLimit={50} />
+                <ParseFilenameInsert filename={displayMediaTitle(data.file_title || data.filename || "")} showLimit={50} />
               </h3>
             </Link>
 
@@ -3009,16 +2997,7 @@ const VideoCard = ({
         {renderThumbnail("w-full h-full")}
       </Link>
 
-      <div
-        className={
-          cn(
-            'hover_overlay pointer-events-none absolute inset-0 z-[10] rounded-2xl  opacity-0 scale-100 group-hover:z-[100] group-hover:opacity-100 group-hover:scale-105 transition-all duration-300 ease-out',
-            `bg-muted/80`
-          )
-        }
-        // File-color tint wins over the neutral fallback when available.
-        style={hoverTintOverlay ? { background: hoverTintOverlay } : undefined}
-      />
+      <VideoCardHoverOverlay colors={fileColors} seed={hoverTintSeed} />
 
       <div className="py-2 flex flex-col z-[1000000]">
         <div className="pointer-events-auto mb-1 flex items-start gap-3">
@@ -3043,7 +3022,7 @@ const VideoCard = ({
                 >
                   <h3 className="line-clamp-2 break-words text-sm font-semibold leading-snug md:text-base">
                     <ParseFilenameInsert
-                      filename={ParseFilename(data.file_title || data.filename || "")}
+                      filename={displayMediaTitle(data.file_title || data.filename || "")}
                       showLimit={64}
                     />
                   </h3>

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"net/url"
 	"path"
 	"regexp"
 	"strings"
@@ -131,7 +132,7 @@ func Manifest(deps ManifestDeps) fiber.Handler {
 			return deny
 		}
 
-		askedPath := c.Params("*")
+		askedPath := requestAssetPath(c)
 		if !manifestPathAllowed(askedPath, tok.Path) {
 			deps.Log.Errorf("manifest path mismatch asked=%s allowed=%s", askedPath, tok.Path)
 			return deny(c, fiber.StatusForbidden)
@@ -182,6 +183,21 @@ func Manifest(deps ManifestDeps) fiber.Handler {
 		c.Set("Content-Type", "application/vnd.apple.mpegurl")
 		return c.SendString(rewritten)
 	}
+}
+
+// requestAssetPath returns the wildcard path decoded exactly once. Fiber
+// keeps the request path percent-encoded (UnescapePath is off), but token
+// paths and storage paths are stored raw — without this, legacy filenames
+// with spaces or non-ASCII characters get percent-encoded a SECOND time on
+// the upstream fetch and 404 (surfacing as 502). Decoding before the path
+// checks also means the token binding compares real paths, not encodings.
+// Path traversal stays covered: storage.PathFor rejects ".." after decode.
+func requestAssetPath(c *fiber.Ctx) string {
+	raw := c.Params("*")
+	if dec, err := url.PathUnescape(raw); err == nil {
+		return dec
+	}
+	return raw
 }
 
 // Permit the exact path the token bound, OR any other *.m3u8 under the

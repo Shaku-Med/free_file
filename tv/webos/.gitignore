@@ -1,0 +1,8 @@
+*.ipk
+.DS_Store
+Thumbs.db
+node_modules/
+.idea/
+*.log
+package/
+webostvjs-*.tgz
