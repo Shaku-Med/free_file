@@ -33,17 +33,18 @@ function fetchJson(url) {
         },
       },
       (res) => {
-      const chunks = [];
-      res.on('data', (c) => chunks.push(c));
-      res.on('end', () => {
-        try {
-          const text = Buffer.concat(chunks).toString('utf8');
-          resolve({ status: res.statusCode || 0, json: JSON.parse(text) });
-        } catch (e) {
-          reject(e);
-        }
-      });
-    });
+        const chunks = [];
+        res.on('data', (c) => chunks.push(c));
+        res.on('end', () => {
+          try {
+            const text = Buffer.concat(chunks).toString('utf8');
+            resolve({ status: res.statusCode || 0, json: JSON.parse(text) });
+          } catch (e) {
+            reject(e);
+          }
+        });
+      },
+    );
     req.on('error', reject);
     req.setTimeout(20000, () => {
       req.destroy();
@@ -88,13 +89,18 @@ function downloadToFile(url, dest, onProgress) {
   });
 }
 
-function runInstaller(installerPath) {
+/**
+ * Run the downloaded NSIS setup.
+ * For in-app upgrades over an existing install: silent (/S) — no wizard clicks.
+ * First-time installs from the website still use the interactive setup EXE.
+ */
+function runInstaller(installerPath, { silent = true } = {}) {
   if (process.platform === 'win32') {
-    // Launch NSIS / Setup EXE then quit so the installer can replace files.
-    spawn(installerPath, [], {
+    const args = silent ? ['/S'] : [];
+    spawn(installerPath, args, {
       detached: true,
       stdio: 'ignore',
-      shell: true,
+      windowsHide: silent,
     }).unref();
     return;
   }
@@ -106,7 +112,6 @@ function runInstaller(installerPath) {
  */
 function setupDesktopUpdater({ getMainWindow, appUrl }) {
   app.whenReady().then(() => {
-    // Delay so the window can show first.
     setTimeout(() => {
       void checkForDesktopUpdate({ getMainWindow, appUrl }).catch((e) => {
         console.warn('[updater]', e?.message || e);
@@ -116,11 +121,13 @@ function setupDesktopUpdater({ getMainWindow, appUrl }) {
 }
 
 async function checkForDesktopUpdate({ getMainWindow, appUrl, skipPrompt = false }) {
-  if (process.platform !== 'win32' && process.platform !== 'darwin') return { updateAvailable: false };
+  if (process.platform !== 'win32' && process.platform !== 'darwin') {
+    return { updateAvailable: false };
+  }
 
   const origin = originFromAppUrl(appUrl);
   const current = app.getVersion();
-  const platform = process.platform; // win32 | darwin
+  const platform = process.platform;
   const checkUrl = `${origin}/api/desktop/version?platform=${encodeURIComponent(platform)}&current=${encodeURIComponent(current)}`;
 
   const { status, json } = await fetchJson(checkUrl);
@@ -132,6 +139,7 @@ async function checkForDesktopUpdate({ getMainWindow, appUrl, skipPrompt = false
   const downloadPath = json.latest.downloadPath || '/api/desktop/win/download';
   const win = getMainWindow();
 
+  // Startup prompt only. In-app "Upgrade now" passes skipPrompt and goes straight to install.
   if (!skipPrompt) {
     const result = await dialog.showMessageBox(win && !win.isDestroyed() ? win : undefined, {
       type: 'info',
@@ -140,9 +148,11 @@ async function checkForDesktopUpdate({ getMainWindow, appUrl, skipPrompt = false
       cancelId: 1,
       title: 'Update available',
       message: `Memories ${latest} is ready`,
-      detail: `You are on ${current}. Download and install the update?`,
+      detail: `You are on ${current}. Download and install the update automatically?`,
     });
-    if (result.response !== 0) return { updateAvailable: true, current, latest, deferred: true };
+    if (result.response !== 0) {
+      return { updateAvailable: true, current, latest, deferred: true };
+    }
   }
 
   const dir = path.join(app.getPath('temp'), 'memories-desktop-update');
@@ -173,19 +183,16 @@ async function checkForDesktopUpdate({ getMainWindow, appUrl, skipPrompt = false
     }
   }
 
-  const confirm = await dialog.showMessageBox(target && !target.isDestroyed() ? target : undefined, {
-    type: 'question',
-    buttons: ['Install and restart', 'Cancel'],
-    defaultId: 0,
-    cancelId: 1,
-    title: 'Install update',
-    message: 'Installer downloaded',
-    detail: 'Memories will quit so the installer can finish.',
-  });
+  // No second "Install and restart" click — silent NSIS upgrade, then quit so files can replace.
+  if (target && !target.isDestroyed()) {
+    try {
+      target.setTitle('Installing update…');
+    } catch {
+      /* ignore */
+    }
+  }
 
-  if (confirm.response !== 0) return { updateAvailable: true, current, latest, deferred: true };
-
-  runInstaller(dest);
+  runInstaller(dest, { silent: true });
   app.quit();
   return { updateAvailable: true, current, latest, installing: true };
 }

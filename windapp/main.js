@@ -1,5 +1,10 @@
 const { app, BrowserWindow, Menu, shell, ipcMain, nativeTheme, session } = require('electron');
 const path = require('path');
+const { lockUserDataPath } = require('./userdata');
+
+// Before anything else reads userData (window-state, cookies, etc.).
+lockUserDataPath();
+
 const { getWindowOptions } = require('./window-state');
 const { setupThumbar } = require('./thumbar');
 const {

@@ -1,6 +1,6 @@
 {
   "name": "memories",
-  "version": "1.0.1",
+  "version": "1.0.3",
   "description": "Memories — Native Desktop App",
   "main": "main.js",
   "author": "You",
@@ -44,7 +44,10 @@
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
-      "artifactName": "Memories-Setup-${version}.${ext}"
+      "artifactName": "Memories-Setup-${version}.${ext}",
+      "deleteAppDataOnUninstall": false,
+      "runAfterFinish": true,
+      "allowElevation": true
     },
     "mac": {
       "target": [
