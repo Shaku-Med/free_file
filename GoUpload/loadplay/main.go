@@ -247,7 +247,11 @@ func main() {
 	}
 
 	app.Get("/health", func(c *fiber.Ctx) error {
-		if !handler.IsInternalPeer(c.IP()) {
+		// Gate on the TCP socket peer, NOT c.IP(): with ProxyHeader set, c.IP()
+		// is the raw X-Forwarded-For value — empty for the docker healthcheck
+		// (no header → 404 forever) and header-spoofable for outsiders. The
+		// socket address can't be faked and is what "internal" actually means.
+		if !handler.IsInternalPeer(c.Context().RemoteIP().String()) {
 			return handler.NotFound(c)
 		}
 		body := fiber.Map{"ok": true}
