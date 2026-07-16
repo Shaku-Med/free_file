@@ -25,7 +25,7 @@ export default function MiniPlayerQueue({
   maxHeight: number;
 }) {
   return (
-    <div className="flex flex-col border-t border-border/50 bg-card/95">
+    <div className="flex flex-col border-t border-border/40 bg-transparent">
       <div className="flex items-center gap-2 px-3 py-1.5">
         <ListVideo className="h-3.5 w-3.5 text-muted-foreground" />
         <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">

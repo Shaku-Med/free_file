@@ -12,6 +12,8 @@ interface CaptionOverlayProps {
   containerRef: React.RefObject<HTMLDivElement | null>
   controlsVisible: boolean
   compact?: boolean
+  /** Override the pixel height reserved for bottom controls (seek / chrome). */
+  controlReservePx?: number
 }
 
 const FONT_SCALE: Record<CaptionFontSize, number> = {
@@ -48,7 +50,7 @@ const ALIGN_STYLE: Record<CaptionTextAlign, { left: string; transform: string }>
   right: { left: "96%", transform: "translateX(-100%)" },
 }
 
-export default function CaptionOverlay({ containerRef, controlsVisible, compact }: CaptionOverlayProps) {
+export default function CaptionOverlay({ containerRef, controlsVisible, compact, controlReservePx }: CaptionOverlayProps) {
   const {
     currentCue,
     currentLanguage,
@@ -116,7 +118,9 @@ export default function CaptionOverlay({ containerRef, controlsVisible, compact 
     if (controlsVisible) {
       const h = containerSize.h
       // Visualizer chrome (waveform above the seekbar) is taller, so reserve more.
-      const controlAreaPx = audioVisualizer ? CONTROL_AREA_PX + 70 : CONTROL_AREA_PX
+      const controlAreaPx =
+        controlReservePx ??
+        (audioVisualizer ? CONTROL_AREA_PX + 70 : CONTROL_AREA_PX)
       const pxFloor =
         h > 0 ? ((controlAreaPx + CONTROL_AREA_MARGIN_PX) / h) * 100 : CAPTION_CONTROLS_FLOOR_PCT
       floor = Math.min(Y_MAX, Math.max(CAPTION_CONTROLS_FLOOR_PCT, pxFloor))
@@ -129,7 +133,7 @@ export default function CaptionOverlay({ containerRef, controlsVisible, compact 
       xPct: Math.min(X_MAX, Math.max(X_MIN, base.xPct)),
       yBottomPct: Math.min(Y_MAX, Math.max(floor, yBottom)),
     }
-  }, [livePosition, position, controlsVisible, compact, containerSize.h, audioVisualizer])
+  }, [livePosition, position, controlsVisible, compact, containerSize.h, audioVisualizer, controlReservePx])
 
   const onPointerDown = useCallback(
     (e: React.PointerEvent<HTMLDivElement>) => {

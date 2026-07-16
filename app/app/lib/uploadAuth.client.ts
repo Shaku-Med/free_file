@@ -28,9 +28,9 @@ export async function fetchUploadAuthContext(): Promise<UploadAuthContext> {
   if (!authRes.ok) {
     const j = (await authRes.json().catch(() => null)) as { error?: string } | null;
     if (j?.error === "upload_server_not_configured") {
-      throw new Error("Upload server is not configured. Set UPLOAD_SERVER_URL.");
+      throw new Error("Upload server is offline. Try again later.");
     }
-    throw new Error(j?.error || "Could not authorize upload.");
+    throw new Error("Upload server is offline. Try again later.");
   }
 
   const json = (await authRes.json()) as {
@@ -40,7 +40,7 @@ export async function fetchUploadAuthContext(): Promise<UploadAuthContext> {
   const bearer = json.bearer?.trim();
   const base = json.upload_server_url?.replace(/\/$/, "") ?? "";
   if (!bearer || !base) {
-    throw new Error("Upload authorization failed.");
+    throw new Error("Upload server is offline. Try again later.");
   }
 
   try {
@@ -48,13 +48,13 @@ export async function fetchUploadAuthContext(): Promise<UploadAuthContext> {
       signal: AbortSignal.timeout(5000),
     });
     if (!health.ok) {
-      throw new Error("Upload server is not running.");
+      throw new Error("Upload server is offline. Try again later.");
     }
   } catch (e) {
-    if (e instanceof Error && e.message === "Upload server is not running.") {
+    if (e instanceof Error && e.message === "Upload server is offline. Try again later.") {
       throw e;
     }
-    throw new Error("Upload server is offline. Start GoUpload and try again.");
+    throw new Error("Upload server is offline. Try again later.");
   }
 
   return { bearer, base };

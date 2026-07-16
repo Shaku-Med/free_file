@@ -155,6 +155,8 @@ function ThinSeekTrack({
   showHandle,
   mobileStyle,
   scaledStyle,
+  flushBottom,
+  flushTop = false,
   handleInsetPx,
   waveformUrl,
   trackWidth,
@@ -177,6 +179,10 @@ function ThinSeekTrack({
   showHandle: boolean;
   mobileStyle: boolean;
   scaledStyle: boolean;
+  /** Sit the visible track on the bottom edge (mini dock divider). */
+  flushBottom: boolean;
+  /** Sit the visible track on the top edge (mobile music bar). */
+  flushTop?: boolean;
   handleInsetPx: number;
   waveformUrl?: string;
   trackWidth: number;
@@ -227,7 +233,12 @@ function ThinSeekTrack({
       <div
         ref={trackRef}
         tabIndex={-1}
-        className="group/seek relative flex w-full cursor-pointer select-none items-center justify-center overflow-visible rounded-full bg-transparent outline-none min-h-[var(--hls-ctrl-seek-hit,2.25rem)]"
+        className={cn(
+          'group/seek relative flex w-full cursor-pointer select-none justify-center overflow-visible rounded-full bg-transparent outline-none min-h-[var(--hls-ctrl-seek-hit,2.25rem)]',
+          // Hit area still tall upward; visible rail sits on the bottom edge
+          // so mini dock aligns with the title/queue divider (no floating gap).
+          flushBottom ? 'items-end' : flushTop ? 'items-start' : 'items-center',
+        )}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
@@ -415,9 +426,18 @@ function ThinSeekTrack({
 export default function SeekBar({
   mobileStyle = false,
   scaledStyle = false,
+  flushBottom = false,
+  flushTop = false,
+  disablePreview = false,
 }: {
   mobileStyle?: boolean;
   scaledStyle?: boolean;
+  /** Align the rail to the bottom of the hit area (mini player divider). */
+  flushBottom?: boolean;
+  /** Align the rail to the top of the hit area (mobile music bar). */
+  flushTop?: boolean;
+  /** Skip scrub thumbnail hover (music bar — preview blocked shell taps). */
+  disablePreview?: boolean;
 }) {
   const {
     videoRef,
@@ -718,20 +738,32 @@ export default function SeekBar({
       {waveformUrl && !isWaveformJson(waveformUrl) && (
         <img src={waveformUrl} alt="" className="hidden" onError={handlePngError} />
       )}
-      {hoverTime !== null && spriteMeta && spriteUrl && (
-        <div className="pointer-events-none absolute bottom-full left-0 right-0 z-20 mb-2 flex justify-center">
-          <ThumbnailPreview
-            meta={spriteMeta}
-            spriteUrl={spriteUrl}
-            time={hoverTime}
-            parentWidth={trackWidth}
-            cursorX={hoverX}
-            caption={hoverChapterTitle ?? undefined}
-          />
-        </div>
+      {hoverTime !== null && !disablePreview && spriteMeta && spriteUrl && (
+        <ThumbnailPreview
+          meta={spriteMeta}
+          spriteUrl={spriteUrl}
+          time={hoverTime}
+          parentWidth={trackWidth}
+          cursorX={hoverX}
+          caption={hoverChapterTitle ?? undefined}
+          tight={mobileStyle}
+          flushBottom={flushBottom}
+          flushTop={flushTop}
+        />
       )}
-      {hoverTime !== null && hoverChapterTitle && !(spriteMeta && spriteUrl) && (
-        <div className="pointer-events-none absolute bottom-full left-0 right-0 z-20 mb-2 flex justify-center">
+      {hoverTime !== null && !disablePreview && hoverChapterTitle && !(spriteMeta && spriteUrl) && (
+        <div
+          className="pointer-events-none absolute left-0 right-0 z-20 flex justify-center"
+          style={
+            mobileStyle
+              ? {
+                  bottom: flushBottom
+                    ? 'calc(var(--hls-ctrl-seek-track, 3px) + 4px)'
+                    : 'calc((var(--hls-ctrl-seek-hit, 2.25rem) + var(--hls-ctrl-seek-track, 3px)) / 2 + 4px)',
+                }
+              : { bottom: '100%', marginBottom: 8 }
+          }
+        >
           <span className="max-w-[70%] truncate rounded-md bg-black/85 px-2 py-1 text-[11px] font-medium text-white shadow-md">
             {hoverChapterTitle}
           </span>
@@ -748,6 +780,8 @@ export default function SeekBar({
         showHandle={Boolean(hoverTime !== null || isDragging || mobileStyle)}
         mobileStyle={mobileStyle}
         scaledStyle={scaledStyle || mobileStyle}
+        flushBottom={flushBottom}
+        flushTop={flushTop}
         handleInsetPx={handleInsetPx}
         waveformUrl={showWaveform ? (waveformUrl ?? undefined) : undefined}
         trackWidth={trackWidth}

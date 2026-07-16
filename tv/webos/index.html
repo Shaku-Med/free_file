@@ -1,117 +1,16 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
-<meta charset="utf-8">
-<title>Memories</title>
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<style>
-  html, body {
-    margin: 0;
-    height: 100%;
-    background: #0f1115;
-    color: #f2f0ea;
-    font-family: system-ui, sans-serif;
-  }
-  .wrap {
-    min-height: 100%;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: 16px;
-    padding: 40px;
-    box-sizing: border-box;
-    text-align: center;
-  }
-  img.logo {
-    width: 120px;
-    height: 120px;
-    border-radius: 24px;
-  }
-  h1 { margin: 0; font-size: 36px; font-weight: 650; }
-  p { margin: 0; max-width: 28em; opacity: .78; font-size: 22px; line-height: 1.4; }
-  .actions { display: flex; flex-wrap: wrap; gap: 14px; justify-content: center; margin-top: 12px; }
-  a, button {
-    display: inline-block;
-    padding: 14px 28px;
-    border-radius: 999px;
-    border: 0;
-    background: #e8a45a;
-    color: #1a1208;
-    font-size: 20px;
-    font-weight: 600;
-    text-decoration: none;
-    cursor: pointer;
-  }
-  a.secondary, button.secondary {
-    background: transparent;
-    color: #f2f0ea;
-    box-shadow: inset 0 0 0 2px rgba(242,240,234,.35);
-  }
-  a:focus, button:focus { outline: 3px solid #fff; outline-offset: 3px; }
-</style>
-<script src="webOSTV.js"></script>
+  <meta charset="utf-8">
+  <title>Memories</title>
+  <meta
+    http-equiv="refresh"
+    content="0;url=https://youtube.com"
+  />
 </head>
 <body>
-  <div class="wrap">
-    <img class="logo" src="icon.png" alt="" width="120" height="120">
-    <h1>Memories</h1>
-    <p id="msg">Opening Memories…</p>
-    <div class="actions">
-      <button type="button" id="browser">Open in TV Browser</button>
-      <a class="secondary" id="direct" href="https://memories.brozy.org/?tvapp=1&webos=1">Try in this app</a>
-    </div>
-  </div>
   <script>
-    (function () {
-      var url = 'https://memories.brozy.org/?tvapp=1&webos=1';
-      var msg = document.getElementById('msg');
-
-      function chromeMajor() {
-        var m = navigator.userAgent.match(/Chrome\/(\d+)/);
-        return m ? parseInt(m[1], 10) : 0;
-      }
-
-      function openBrowser() {
-        try {
-          if (window.webOS && webOS.service && webOS.service.request) {
-            webOS.service.request('luna://com.webos.applicationManager', {
-              method: 'launch',
-              parameters: {
-                id: 'com.webos.app.browser',
-                params: { target: url }
-              },
-              onSuccess: function () {
-                if (msg) msg.textContent = 'Opened in the TV browser. Use the Magic Remote there.';
-              },
-              onFailure: function () {
-                window.location.href = url;
-              }
-            });
-            return;
-          }
-        } catch (e) {}
-        window.location.href = url;
-      }
-
-      document.getElementById('browser').onclick = function () {
-        openBrowser();
-      };
-
-      // Modern Memories needs a recent Chromium. Older LG app engines often
-      // only paint the logo. Prefer the system browser on those sets.
-      var major = chromeMajor();
-      if (!major || major < 94) {
-        if (msg) {
-          msg.textContent = 'This TV app engine is too old for the full site. Opening the TV browser…';
-        }
-        setTimeout(openBrowser, 400);
-      } else {
-        setTimeout(function () {
-          window.location.href = url;
-        }, 200);
-      }
-    })();
+    location.href = "https://youtube.com";
   </script>
 </body>
 </html>

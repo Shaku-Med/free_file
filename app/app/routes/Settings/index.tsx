@@ -27,6 +27,7 @@ import {
 import { applyTheme } from "~/lib/theme/apply";
 import { PasskeyUserMessage, friendlyPasskeyClientError } from "~/lib/webauthn/userMessages";
 import { StorageQuotaMeter } from "~/components/StorageQuotaMeter";
+import { writeSnapFloatsToCorners, readSnapFloatsToCorners } from "~/lib/uiFloatPrefs";
 import { cn } from "~/lib/utils";
 
 function SettingsSection({
@@ -98,6 +99,9 @@ const SettingsPage = () => {
   const needsInstall = !push.supported && isIos && !isStandalone;
   const [showNsfw, setShowNsfw] = useState(false);
   const [historyPaused, setHistoryPaused] = useState(false);
+  const [snapFloatsToCorners, setSnapFloatsToCorners] = useState(() =>
+    typeof window !== "undefined" ? readSnapFloatsToCorners() : false,
+  );
   const [clearArmed, setClearArmed] = useState(false);
   const [clearBusy, setClearBusy] = useState(false);
   const [clearNotice, setClearNotice] = useState<string | null>(null);
@@ -133,6 +137,14 @@ const SettingsPage = () => {
         const payload = await response.json();
         setShowNsfw(Boolean(payload?.showNsfw));
         setHistoryPaused(Boolean(payload?.historyPaused));
+        // Prefer the server value when the column exists; otherwise keep localStorage.
+        if (!payload?.snapColumnMissing) {
+          const snapOn = Boolean(payload?.snapFloatsToCorners);
+          setSnapFloatsToCorners(snapOn);
+          writeSnapFloatsToCorners(snapOn);
+        } else {
+          setSnapFloatsToCorners(readSnapFloatsToCorners());
+        }
         if (payload?.theme && typeof payload.theme.theme === "string" && typeof payload.theme.style === "string") {
           setTheme({ theme: payload.theme.theme, style: payload.theme.style });
         }
@@ -251,13 +263,14 @@ const SettingsPage = () => {
       const response = await fetch("/api/settings", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ showNsfw, historyPaused, theme }),
+        body: JSON.stringify({ showNsfw, historyPaused, snapFloatsToCorners, theme }),
       });
       if (!response.ok) {
         const payload = await response.json().catch(() => null);
         throw new Error(payload?.error || "Failed to update settings");
       }
       applyTheme(theme);
+      writeSnapFloatsToCorners(snapFloatsToCorners);
       setSaveSuccess(true);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to update settings");
@@ -529,6 +542,67 @@ const SettingsPage = () => {
 
           <SettingsSection title="Storage">
             <StorageQuotaMeter variant="card" />
+          </SettingsSection>
+
+          <SettingsSection title="Interface" description="How floating panels behave while you move them around.">
+            <div className="flex items-center justify-between gap-4 py-1">
+              <div>
+                <p className="text-sm font-medium text-foreground">Snap to corners</p>
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  When you let go, the mini player and upload button glide into the nearest corner so they stay out of the way.
+                </p>
+              </div>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={snapFloatsToCorners}
+                aria-label={
+                  snapFloatsToCorners
+                    ? "Turn off snap to corners"
+                    : "Turn on snap to corners"
+                }
+                onClick={() => {
+                  const next = !snapFloatsToCorners;
+                  setSnapFloatsToCorners(next);
+                  writeSnapFloatsToCorners(next);
+                  // Persist right away so the toggle survives a refresh.
+                  void (async () => {
+                    try {
+                      const response = await fetch("/api/settings", {
+                        method: "PATCH",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ snapFloatsToCorners: next }),
+                      });
+                      if (!response.ok) {
+                        const payload = await response.json().catch(() => null);
+                        // Column missing: localStorage still holds the choice.
+                        if (!payload?.snapColumnMissing) {
+                          console.warn("Failed to save snap preference", payload?.error);
+                        }
+                        return;
+                      }
+                      const payload = await response.json().catch(() => null);
+                      if (payload && typeof payload.snapFloatsToCorners === "boolean" && !payload.snapColumnMissing) {
+                        setSnapFloatsToCorners(payload.snapFloatsToCorners);
+                        writeSnapFloatsToCorners(payload.snapFloatsToCorners);
+                      }
+                    } catch {
+                      /* local preference already written */
+                    }
+                  })();
+                }}
+                disabled={isLoading || isSaving}
+                className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full border border-input transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 ${
+                  snapFloatsToCorners ? "bg-primary border-primary" : "bg-muted"
+                }`}
+              >
+                <span
+                  className={`pointer-events-none block h-5 w-5 rounded-full bg-background shadow ring-0 transition-transform ${
+                    snapFloatsToCorners ? "translate-x-5" : "translate-x-0.5"
+                  }`}
+                />
+              </button>
+            </div>
           </SettingsSection>
 
           <SettingsSection title="Content" description="What shows up in your feed.">

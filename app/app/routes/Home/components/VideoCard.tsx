@@ -2285,7 +2285,7 @@ const VideoCard = ({
                 to={watchPath}
                 className="min-w-0 flex-1 rounded-md hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
               >
-                <h3 className="line-clamp-2 text-[13px] font-semibold leading-snug tracking-tight text-foreground sm:text-sm">
+                <h3 className="line-clamp-2 break-all text-[13px] font-semibold leading-snug tracking-tight text-foreground sm:text-sm">
                   <ParseFilenameInsert filename={displayMediaTitle(data.file_title || data.filename || "")} showLimit={64} />
                 </h3>
               </Link>
@@ -3010,17 +3010,17 @@ const VideoCard = ({
             />
           )}
           <div className={`flex min-h-[2.5rem] min-w-0 flex-1 justify-between relative`}>
-            <div className="flex flex-1 flex-col justify-center">
-              <div className="flex items-start gap-1.5">
+            <div className="flex min-w-0 flex-1 flex-col justify-center">
+              <div className="flex min-w-0 items-start gap-1.5">
                 <Link
                   to={watchPath}
                   onClick={(e) => {
                     e.preventDefault();
                     void handleWatchNav();
                   }}
-                  className="min-w-0 flex-1 hover:text-primary transition-colors"
+                  className="min-w-0 flex-1 overflow-hidden hover:text-primary transition-colors"
                 >
-                  <h3 className="line-clamp-2 break-words text-sm font-semibold leading-snug md:text-base">
+                  <h3 className="line-clamp-2 break-all text-sm font-semibold leading-snug md:text-base">
                     <ParseFilenameInsert
                       filename={displayMediaTitle(data.file_title || data.filename || "")}
                       showLimit={64}

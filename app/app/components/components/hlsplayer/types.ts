@@ -23,7 +23,7 @@ export type HideControls = Partial<Record<ControlName, boolean>>;
  */
 export const MINI_PLAYER_HIDE_CONTROLS: HideControls = {
   next: true,
-  volume: true,
+  volume: false,
   time: true,
   subtitles: true,
   miniPlayer: true,
@@ -31,7 +31,8 @@ export const MINI_PLAYER_HIDE_CONTROLS: HideControls = {
   fullscreen: true,
   theater: true,
   cast: true,
-  back: true,
+  back: false,
+  settings: false,
 };
 
 /** Vertical PiP / feed embed: keep seek + playback chrome, drop theater / next / cast clutter. */

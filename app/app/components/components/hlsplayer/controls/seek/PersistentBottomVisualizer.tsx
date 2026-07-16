@@ -7,7 +7,12 @@ import StemResonanceVisualizer from './StemResonanceVisualizer';
  * Beat reaction is the border glow (StemGlowBorder, mounted by the player) —
  * confetti retired.
  */
-export default function PersistentBottomVisualizer() {
+export default function PersistentBottomVisualizer({
+  compact = false,
+}: {
+  /** Shorter wave + padding for the floating mini dock. */
+  compact?: boolean;
+}) {
   const { audioVisualizer, visualizerWave, audioStems } = usePlayerContext();
   // Wave has its own toggle so bounce-only users get a clean strip.
   const enabled = audioVisualizer && visualizerWave && audioStems != null;
@@ -15,8 +20,14 @@ export default function PersistentBottomVisualizer() {
   if (!enabled || !audioStems) return null;
 
   return (
-    <div className="w-full shrink-0 px-3 pb-2 pointer-events-none opacity-75">
-      <StemResonanceVisualizer stems={audioStems} />
+    <div
+      className={
+        compact
+          ? 'w-full shrink-0 px-2 pb-1 pointer-events-none opacity-75'
+          : 'w-full shrink-0 px-3 pb-2 pointer-events-none opacity-75'
+      }
+    >
+      <StemResonanceVisualizer stems={audioStems} compact={compact} />
     </div>
   );
 }

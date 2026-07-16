@@ -15,9 +15,7 @@ import { stemEventIndexAt, type StemType } from '../audioStems';
  * Springs everywhere = momentum: hits shove velocity, motion overshoots and
  * settles. The groove accumulator makes a driving beat hit harder over time.
  *
- * Bails (and restores the video) when the video element is portaled away to
- * the mini player — the canvas only mirrors what lives in the same screen
- * shell as the video.
+ * Works on watch and the floating mini dock (same player tree / video element).
  */
 
 const MAX_EXTRA_SCALE = 0.22;
@@ -203,7 +201,7 @@ export default function VideoKickBounce() {
       const video = videoRef.current;
       const host = hostRef.current;
       const shell = screenShell();
-      // Mini-player portal moves the video out of this shell — hand pixels back.
+      // Video must still live in this screen shell (same tree as the canvas).
       if (!video || !host || !shell?.contains(video) || video.readyState < 2) {
         restoreVideo();
         return;

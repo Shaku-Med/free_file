@@ -50,7 +50,7 @@ function renderSegments(segments: Segment[], keyPrefix: string): React.ReactNode
     const k = `${keyPrefix}-${i}`;
     if (seg.type === "text") {
       out.push(
-        <span key={k}>
+        <span key={k} className="break-all">
           {seg.value}
         </span>
       );

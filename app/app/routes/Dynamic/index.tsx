@@ -1741,6 +1741,8 @@ const DynamicPage = ({ is_modal }: DynamicPageProps) => {
 
   const fileDataRef = useRef(file_data);
   fileDataRef.current = file_data;
+  const ownerRef = useRef(data?.owner ?? null);
+  ownerRef.current = data?.owner ?? null;
   const playbackUrlRef = useRef<string | null>(playbackUrl);
   playbackUrlRef.current = playbackUrl;
   const isHLSRef = useRef(false);
@@ -1778,7 +1780,7 @@ const DynamicPage = ({ is_modal }: DynamicPageProps) => {
       if (video.paused || video.ended) return;
       activateMiniPlayer({
         src: resolvePlaybackSrc(fd, { mintedUrl: playbackUrlRef.current }),
-        file: fd,
+        file: { ...fd, owner: fd.owner ?? ownerRef.current ?? null },
         imageID: fd.unique_id,
       });
     };

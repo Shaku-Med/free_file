@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useCallback, useRef, useMemo } from 'react';
-import { Play, Pause, Volume2, VolumeX } from 'lucide-react';
-import { createPortal } from 'react-dom';
+import { Play, Pause, LoaderCircle, Volume2, VolumeX } from 'lucide-react';
+import { flushSync } from 'react-dom';
 import { useNavigate, useLocation } from 'react-router';
 import { useInView } from 'react-intersection-observer';
 import type { FileType, SeriesEpisodeGroup } from '~/lib/types';
@@ -12,9 +12,7 @@ import VRTheaterOverlay from './overlays/VRTheaterOverlay';
 import StemGlowLight from './overlays/StemGlowLight';
 import EndCardOverlay from './overlays/EndCardOverlay';
 import { FEED_EMBED_HIDE_CONTROLS, MINI_PLAYER_HIDE_CONTROLS, type HideControls } from './types';
-import SeekBar from './controls/seek/SeekBar';
 import PersistentBottomVisualizer from './controls/seek/PersistentBottomVisualizer';
-import AudioVisualizerBars from './controls/seek/AudioVisualizerBars';
 import { useHLS } from './hooks/useHLS';
 import { useVideoEvents } from './hooks/useVideoEvents';
 import { useMediaSession } from './hooks/useMediaSession';
@@ -57,6 +55,8 @@ import { useFileContext } from '~/lib/Context/Context';
 import { useGlobalPlayerLayout } from '~/lib/Context/GlobalPlayerLayoutContext';
 import { isPipChromeRoute } from '~/routes/pip/pipEnv';
 import { useMiniPlayerContext } from '~/lib/Context/MiniPlayerContext';
+import { setMiniPlayerVrDragLock } from '~/components/MiniPlayer/miniPlayerDragBridge';
+import { useMiniMobileBar } from '~/components/MiniPlayer/miniMobileBar';
 import { useWatchHlsSurface } from '~/lib/Context/WatchHlsSurfaceContext';
 import { isMobile } from 'react-device-detect';
 import { getVideoSrc, cn } from '~/lib/utils';
@@ -236,6 +236,7 @@ function PlayerInner({
     loop: loopEnabled,
     authPlaybackFeatures: authPlayback,
     unlockPipReelAudio,
+    vrTheater,
   } = usePlayerContext();
   /**
    * Skip-intro / next-episode markers come from the owner-edited `metadata.markers` jsonb on
@@ -317,9 +318,6 @@ function PlayerInner({
     guestLimitActive
   );
 
-  // Height of the persistent visualizer strip (SeekBarSpectrum h-10 + pb-2).
-  const visualizerStripPx = 48;
-
   const [isMobileView, setIsMobileView] = useState(() =>
     typeof window !== 'undefined' ? window.matchMedia('(max-width: 767px)').matches : isMobile,
   );
@@ -376,18 +374,31 @@ function PlayerInner({
   const otherVideoInPipBlocksThisPlayer =
     Boolean(isPipActive && pipContentId !== null && pipContentId !== imageID);
   const pipPauseMainPlayer = documentPipPausesMain || otherVideoInPipBlocksThisPlayer;
-  const { miniPlayer, activateMiniPlayer: triggerMiniPlayer, containerRef: miniPlayerContainerRef, isPortalMode, containerReady, getNavigateBackTarget } = useMiniPlayerContext();
+  const { miniPlayer, activateMiniPlayer: triggerMiniPlayer, getNavigateBackTarget, startExpand, isExpanding, closeMiniPlayer } = useMiniPlayerContext();
 
-  const isMiniPlayerPortalActive = Boolean(
-    miniPlayer && isPortalMode && file && miniPlayer.file?.unique_id === file.unique_id && containerReady && miniPlayerContainerRef.current
-  );
+  /** GlobalAnchored mini dock — compact ControlBar layout, always-visible seek. */
+  const isMiniDock =
+    globalPlayerLayout === 'mini' &&
+    !(watchHlsSurface?.props && file && watchHlsSurface.props.file?.unique_id === file.unique_id);
+  const isMiniMobileBar = useMiniMobileBar();
+  const miniSeekOnly = isMiniDock && isMiniMobileBar;
+  // Height of the persistent visualizer strip (wave + bottom padding).
+  const visualizerStripPx = isMiniDock ? (miniSeekOnly ? 0 : 28) : 48;
   const showAudioVisualizer =
     audioVisualizer &&
     audioStemsAvailable &&
     authPlayback &&
     !isReelCtx &&
     !inPipForThisVideo &&
-    !onPipChrome;
+    !onPipChrome &&
+    !miniSeekOnly;
+
+  // VR look/orbit owns pointer input on floating mini — don't steal it with drag.
+  // Mobile music-bar lock is owned by MiniPlayer (separate flag) so resize can't stick.
+  useEffect(() => {
+    setMiniPlayerVrDragLock(Boolean(isMiniDock && !miniSeekOnly && vrTheater));
+    return () => setMiniPlayerVrDragLock(false);
+  }, [isMiniDock, vrTheater, miniSeekOnly]);
 
   const callBackRef = useRef(callBack);
   callBackRef.current = callBack;
@@ -443,7 +454,9 @@ function PlayerInner({
 
   const triggerPlayPauseFeedback = useCallback(() => {
     if (isReelCtx) return;
-    if (isMobile) return;
+    // Center play/pause pop is desktop-watch only — skip phone, narrow/mobile
+    // chrome, and the floating mini dock.
+    if (isMobile || isMobileView || isNarrowPlayer || isMiniDock) return;
     setFeedbackIconPlaying(!state.isPlaying);
     setShowPlayPauseFeedback(true);
     setFeedbackFading(false);
@@ -456,7 +469,7 @@ function PlayerInner({
         feedbackTimeoutRef.current = null;
       }, 300);
     }, 600);
-  }, [isReelCtx, state.isPlaying]);
+  }, [isReelCtx, isMobileView, isNarrowPlayer, isMiniDock, state.isPlaying]);
 
   useEffect(() => () => {
     if (feedbackTimeoutRef.current) clearTimeout(feedbackTimeoutRef.current);
@@ -742,8 +755,8 @@ function PlayerInner({
     if (inPipForThisVideo) return;
     if (isMobile && !embedReelControls) return;
     if (Date.now() - lastDoubleTapTimeRef.current < 300) return;
-    // Reel chrome hidden: first tap just reveals controls (don't also pause).
-    if (reelEmbedAutoHide && !state.reelAuxiliaryChromeVisible) {
+    // Reel / mini chrome hidden: first tap just reveals controls (don't also pause).
+    if ((reelEmbedAutoHide || isMiniDock) && !state.reelAuxiliaryChromeVisible) {
       setReelAuxiliaryChromeVisible(true);
       return;
     }
@@ -764,6 +777,7 @@ function PlayerInner({
     isReelCtx,
     embedReelControls,
     inPipForThisVideo,
+    isMiniDock,
     reelEmbedAutoHide,
     state.reelAuxiliaryChromeVisible,
     setReelAuxiliaryChromeVisible,
@@ -1040,16 +1054,21 @@ function PlayerInner({
     <div
       ref={containerRef}
       className={cn(
-        'relative overflow-hidden select-none player_inner',
-        playerBackground ? 'bg-black' : 'bg-transparent',
+        'relative select-none player_inner',
+        // Mini seek sits on the title divider; allow the thumb to paint past the edge.
+        isMiniDock ? 'overflow-visible' : 'overflow-hidden',
+        // Music bar dock is full-width but only the thumb paints — keep the rest clear
+        // so title / queue / close in the shell remain visible underneath.
+        miniSeekOnly || !playerBackground ? 'bg-transparent' : 'bg-black',
+        miniSeekOnly && 'pointer-events-none',
         isReelCtx && 'z-[1]',
         className,
       )}
-      style={{ cursor: showControls ? 'default' : 'none' }}
-      onContextMenu={handleContextMenu}
+      style={{ cursor: showControls || isMiniDock ? 'default' : 'none' }}
+      onContextMenu={miniSeekOnly ? undefined : handleContextMenu}
     >
       {/* Beat glow light: soft-masked stem kick glow behind the video */}
-      {showAudioVisualizer && !isMiniPlayerPortalActive && <StemGlowLight />}
+      {showAudioVisualizer && <StemGlowLight />}
       {/* Preload the seek-preview sprite sheet as a real (hidden) <img> as soon
           as the player mounts. A rendered <img> is fetched + decoded + retained
           by the browser, so the first scrub paints the preview instantly from
@@ -1065,13 +1084,18 @@ function PlayerInner({
           style={{ left: -9999, top: -9999 }}
         />
       )}
-      <PosterBackground onImageLoaded={handlePosterImageLoaded} showBackdrop={playerBackground} />
+      {!miniSeekOnly && (
+        <PosterBackground onImageLoaded={handlePosterImageLoaded} showBackdrop={playerBackground} />
+      )}
 
-      {statsForNerds && !isReelCtx && !inPipForThisVideo && <StatsForNerdsOverlay />}
+      {statsForNerds && !isReelCtx && !inPipForThisVideo && !miniSeekOnly && <StatsForNerdsOverlay />}
 
       <div
-        className={`relative z-10 w-full h-full overflow-hidden`}
-        onTouchEnd={handleTouchEnd}
+        className={cn(
+          'relative z-10 w-full h-full',
+          isMiniDock ? 'overflow-visible' : 'overflow-hidden',
+        )}
+        onTouchEnd={miniSeekOnly ? undefined : handleTouchEnd}
       >
         {state.hasError && <ErrorOverlay onRetry={retryPlayback} />}
 
@@ -1080,7 +1104,14 @@ function PlayerInner({
             so we don't double-up. */}
         {showLoadingOverlay && !(isMobile && showControls) && <BufferingSpinner />}
 
-        {showPlayPauseFeedback && !showSeekFeedback && !isReelCtx && !isMobile && !inPipForThisVideo && (
+        {showPlayPauseFeedback &&
+          !showSeekFeedback &&
+          !isReelCtx &&
+          !isMobile &&
+          !isMobileView &&
+          !isNarrowPlayer &&
+          !isMiniDock &&
+          !inPipForThisVideo && (
           <PlayPauseFeedback isPlaying={feedbackIconPlaying} fading={feedbackFading} />
         )}
 
@@ -1088,58 +1119,56 @@ function PlayerInner({
           <SeekFeedback direction={seekFeedbackDirection} seconds={seekFeedbackSeconds} fading={seekFeedbackFading} />
         )}
 
-        {isMiniPlayerPortalActive && miniPlayerContainerRef.current
-          ? createPortal(
-              <div className={cn('relative flex h-full w-full flex-col', playerBackground ? 'bg-black' : 'bg-transparent')}>
-                <video
-                  ref={assignVideoRef}
-                  className="w-full flex-1 object-contain"
-                  muted={muted}
-                  loop={loopEnabled}
-                  playsInline={playsInline}
-                  preload="metadata"
-                  onClick={handleVideoClick}
-                  onDoubleClick={handleDoubleClick}
-                  disableRemotePlayback={false}
-                  {...({ 'x-webkit-airplay': 'allow' } as any)}
-                />
-                <CaptionOverlay containerRef={miniPlayerContainerRef} controlsVisible={false} compact />
-                {showAudioVisualizer && (
-                  <div className="shrink-0 px-3 pb-1 pt-0 pointer-events-none">
-                    <AudioVisualizerBars anchorRef={miniPlayerContainerRef} />
-                  </div>
-                )}
-                <div className="px-3 pb-2 pt-0 shrink-0">
-                  <SeekBar />
-                </div>
-              </div>,
-              miniPlayerContainerRef.current
-            )
-          : (
-            <div className="absolute inset-0 overflow-hidden">
+        {(
+            <div
+              className={cn(
+                'absolute overflow-hidden',
+                miniSeekOnly
+                  ? 'left-2.5 top-1/2 z-[5] h-14 w-[5.5rem] -translate-y-1/2 rounded-md'
+                  : isMiniDock
+                    ? 'inset-0 rounded-t-xl'
+                    : 'inset-0 rounded-none',
+              )}
+            >
               <div className="relative h-full w-full">
                 <video
                   ref={assignVideoRef}
-                  className={`h-full w-full object-contain ${isReelCtx && !embedReelControls ? 'pointer-events-none' : ''}`}
+                  className={cn(
+                    'h-full w-full',
+                    miniSeekOnly ? 'object-cover' : 'object-contain',
+                    isReelCtx && !embedReelControls ? 'pointer-events-none' : '',
+                  )}
                   muted={muted}
                   loop={loopEnabled}
                   playsInline={playsInline}
                   preload="metadata"
-                  onClick={handleVideoClick}
-                  onDoubleClick={handleDoubleClick}
+                  onClick={miniSeekOnly ? undefined : handleVideoClick}
+                  onDoubleClick={miniSeekOnly ? undefined : handleDoubleClick}
                   disableRemotePlayback={false}
                   {...({ 'x-webkit-airplay': 'allow' } as any)}
                   {...(isReelCtx
                     ? { disablePictureInPicture: true, controlsList: 'nopictureinpicture noremoteplayback' }
                     : {})}
                 />
-                <VideoKickBounce />
-                <VRTheaterOverlay />
+                {!miniSeekOnly && <VideoKickBounce />}
+                {!miniSeekOnly && <VRTheaterOverlay />}
               </div>
             </div>
           )}
 
-        <CaptionOverlay containerRef={containerRef} controlsVisible={showControls} />
+        {!miniSeekOnly && (
+          <CaptionOverlay
+            containerRef={containerRef}
+            controlsVisible={isMiniDock || showControls}
+            controlReservePx={
+              isMiniDock
+                ? showAudioVisualizer && visualizerWave
+                  ? 52 + visualizerStripPx
+                  : 52
+                : undefined
+            }
+          />
+        )}
 
         {/* Single end-of-video overlay. Replaces both the legacy full-screen
             EndScreen and the old API-backed EndCardOverlay. Renders only on
@@ -1147,7 +1176,7 @@ function PlayerInner({
             the player size, embeds the auto-next countdown on the featured
             card, and lets the user replay or dismiss. Reel surfaces opt out
             via `isReel` inside the component itself. */}
-        {!isReelCtx && !loopEnabled && (
+        {!isReelCtx && !loopEnabled && !isMiniDock && (
           <EndCardOverlay
             suggestedVideos={relatedPlayQueue}
             seriesUpNextVideos={seriesPlayQueue}
@@ -1163,7 +1192,7 @@ function PlayerInner({
         {/* Reel top chrome: playback (play/pause + volume) on the LEFT, CC + settings on the
             RIGHT — same split layout as the main player. Uniform 2.25rem buttons via the
             control vars. Shows/hides with the rest of the reel chrome. */}
-        {isReelCtx && embedReelControls && !inPipForThisVideo && !isMiniPlayerPortalActive && (
+        {isReelCtx && embedReelControls && !inPipForThisVideo && !isMiniDock && (
           <div
             className={cn(
               'swiper-no-swiping absolute z-[55] flex items-center justify-between left-[max(0.5rem,env(safe-area-inset-left))] right-[max(0.5rem,env(safe-area-inset-right))] top-[calc(var(--app-top-nav-h,3.5rem)+0.5rem)] transition-opacity',
@@ -1215,7 +1244,42 @@ function PlayerInner({
           </div>
         )}
 
-        {(!isReelCtx || embedReelControls) && !isMiniPlayerPortalActive && (
+        {isMiniDock && (
+          <div className={cn(
+            'absolute inset-0 z-[50]',
+            miniSeekOnly ? 'pointer-events-none' : 'pointer-events-none',
+          )}>
+            <ControlBar
+              miniLayout
+              miniSeekOnly={miniSeekOnly}
+              hideControls={effectiveHideControls}
+              onPlayPauseClick={miniSeekOnly ? undefined : triggerPlayPauseFeedback}
+              liftBottomPx={miniSeekOnly ? 0 : (showAudioVisualizer && visualizerWave ? visualizerStripPx : 0)}
+              onBack={
+                miniSeekOnly
+                  ? undefined
+                  : () => {
+                      if (!miniPlayer || isExpanding) return;
+                      const video = videoRef.current;
+                      flushSync(() => {
+                        startExpand({
+                          fileId: miniPlayer.file.unique_id,
+                          currentTime: video?.currentTime ?? miniPlayer.currentTime ?? 0,
+                          volume: video?.volume ?? miniPlayer.volume ?? 1,
+                          muted: video?.muted ?? miniPlayer.muted ?? false,
+                          playbackRate: video?.playbackRate ?? miniPlayer.playbackRate ?? 1,
+                          wasPlaying: video ? !video.paused : (miniPlayer.wasPlaying ?? false),
+                        });
+                      });
+                      navigate(`/${miniPlayer.file.unique_id}`);
+                    }
+              }
+              onClose={miniSeekOnly ? undefined : () => closeMiniPlayer()}
+            />
+          </div>
+        )}
+
+        {(!isReelCtx || embedReelControls) && !isMiniDock && (
           <div
             // YouTube-style asymmetric fade: controls snap in fast (100ms) and
             // leave a touch slower (200ms) — never the sluggish 300ms both ways.
@@ -1259,13 +1323,13 @@ function PlayerInner({
         )}
 
         {/* Wave lives outside the fading control overlay; unmounts fully when off so controls drop back down. */}
-        {showAudioVisualizer && visualizerWave && !isMiniPlayerPortalActive && (
+        {showAudioVisualizer && visualizerWave && (
           <div className="absolute bottom-0 left-0 right-0 z-[32] pointer-events-none">
-            <PersistentBottomVisualizer />
+            <PersistentBottomVisualizer compact={isMiniDock} />
           </div>
         )}
 
-        {!isReelCtx && !inPipForThisVideo && !isMiniPlayerPortalActive && skipMarkers && (
+        {!isReelCtx && !inPipForThisVideo && !isMiniDock && skipMarkers && (
           <SkipMarkerOverlay
             markers={skipMarkers}
             onSkipIntro={(t) => {

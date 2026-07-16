@@ -10,7 +10,7 @@ import {
 } from "@dnd-kit/core"
 import { arrayMove, SortableContext, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable"
 import { CSS } from "@dnd-kit/utilities"
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "~/components/ui/dialog"
+import { Dialog, DialogClose, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "~/components/ui/dialog"
 import { Button } from "~/components/ui/button"
 import { Progress } from "~/components/ui/progress"
 import { Input } from "~/components/ui/input"
@@ -39,11 +39,12 @@ import {
   Sparkles,
   Smartphone,
   Film,
+  Minimize2,
 } from "lucide-react"
 import { GenerateUniqueID } from "~/lib/GenerateUniqueID"
 import { useFileContext } from "~/lib/Context/Context"
 import { EpisodePicker } from "./EpisodePicker"
-import { Link, useNavigate } from "react-router"
+import { useNavigate } from "react-router"
 import { MAX_UPLOAD_FILE_BYTES } from "~/lib/uploadLimits"
 import { SignInDialog } from "~/components/SignInWall"
 import { StorageQuotaMeter } from "~/components/StorageQuotaMeter"
@@ -51,6 +52,9 @@ import { formatBytes as formatBytesShort } from "~/lib/formatBytes"
 import { cn } from "~/lib/utils"
 import { fetchUploadAuthContext, type UploadAuthContext } from "~/lib/uploadAuth.client"
 import { Tooltip, TooltipContent, TooltipTrigger } from "~/components/ui/tooltip"
+import { toast } from "~/components/ui/sonner"
+import { fileWithSanitizedUploadName, sanitizeUploadFilename } from "~/lib/sanitizeUploadFilename"
+import { UploadProgressFloat } from "./UploadProgressFloat"
 
 /**
  * Captures a still from a video file. Returns the blob URL (for inline preview),
@@ -102,7 +106,7 @@ function extractVideoPoster(
               finish(null)
               return
             }
-            const baseName = file.name.replace(/\.[^./\\]+$/, "") || "thumbnail"
+            const baseName = sanitizeUploadFilename(file.name).replace(/\.[^./\\]+$/, "") || "thumbnail"
             const posterFile = new File([blob], `${baseName}_thumb.jpg`, {
               type: "image/jpeg",
               lastModified: Date.now(),
@@ -479,10 +483,20 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
   const [seriesOrganizerOpen, setSeriesOrganizerOpen] = useState(false)
   const [seriesBrowseForLaneId, setSeriesBrowseForLaneId] = useState<string | null>(null)
   const [filePickerLaneId, setFilePickerLaneId] = useState<string | null>(null)
+  const [minimized, setMinimized] = useState(false)
+  const [completedOpen, setCompletedOpen] = useState(false)
+  const minimizedRef = useRef(false)
+  const uploadingBatchRef = useRef(false)
   const seriesLanesRef = useRef(seriesLanes)
   useEffect(() => {
     seriesLanesRef.current = seriesLanes
   }, [seriesLanes])
+  useEffect(() => {
+    minimizedRef.current = minimized
+  }, [minimized])
+  useEffect(() => {
+    uploadingBatchRef.current = isUploadingBatch
+  }, [isUploadingBatch])
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
@@ -497,10 +511,10 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
   }, [isOpen, userId, onClose])
 
   useEffect(() => {
-    if (!isOpen && items.length > 0) {
+    if (!isOpen && !minimized && items.length > 0) {
       resetState()
     }
-  }, [isOpen, items])
+  }, [isOpen, minimized])
 
   useEffect(() => {
     itemsRef.current = items
@@ -550,6 +564,10 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
     setSeriesOrganizerOpen(false)
     setSeriesBrowseForLaneId(null)
     setUploadResultBanner(null)
+    setMinimized(false)
+    setCompletedOpen(false)
+    minimizedRef.current = false
+    uploadingBatchRef.current = false
   }
 
   const formatBytes = (bytes: number) => {
@@ -571,7 +589,8 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
     return null
   }
 
-  const createMediaItem = (file: File): MediaItem => {
+  const createMediaItem = (rawFile: File): MediaItem => {
+    const file = fileWithSanitizedUploadName(rawFile)
     const baseName = file.name.replace(/\.[^./\\]+$/, "")
     const isVideo = file.type.startsWith("video/")
     return {
@@ -1205,31 +1224,69 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
   }
 
   const handleUpload = async () => {
-    if (items.length === 0) {
+    const pending = itemsRef.current.filter((i) => i.status !== "success")
+    if (pending.length === 0) {
       setError("Select files to upload.")
       return
     }
     if (!uploadServerUrl) {
-      setError("Upload server is not configured. Set UPLOAD_SERVER_URL and start GoUpload.")
+      const msg = "Upload server is offline. Try again later."
+      setError(msg)
+      toast.error("Upload failed", { description: msg })
+      setItems((prev) =>
+        prev.map((item) =>
+          item.status === "success"
+            ? item
+            : {
+                ...item,
+                status: "error" as const,
+                statusText: "Upload failed.",
+                error: msg,
+                isLocked: false,
+              }
+        )
+      )
       return
     }
     setError(null)
+    setUploadResultBanner(null)
     setIsUploadingBatch(true)
-    setItems((prev) => prev.map((item) => ({ ...item, isLocked: true })))
+    uploadingBatchRef.current = true
+    setItems((prev) =>
+      prev.map((item) =>
+        item.status === "success" ? item : { ...item, isLocked: true }
+      )
+    )
 
     let uploadCtx: UploadAuthContext
     try {
       uploadCtx = await fetchUploadAuthContext()
     } catch (e) {
-      const msg = e instanceof Error ? e.message : "Upload server unavailable."
+      const msg = e instanceof Error ? e.message : "Upload server is offline. Try again later."
       setError(msg)
+      toast.error("Upload failed", { description: msg })
       setIsUploadingBatch(false)
-      setItems((prev) => prev.map((item) => ({ ...item, isLocked: false })))
+      uploadingBatchRef.current = false
+      setItems((prev) =>
+        prev.map((item) =>
+          item.status === "success"
+            ? item
+            : {
+                ...item,
+                status: "error" as const,
+                statusText: "Upload failed.",
+                error: msg,
+                isLocked: false,
+              }
+        )
+      )
       return
     }
 
-    const snapshot = [...itemsRef.current]
+    const snapshot = itemsRef.current.filter((i) => i.status !== "success")
+    const priorOk = itemsRef.current.filter((i) => i.status === "success").length
     let successfulUploads = 0
+    const failedMessages: string[] = []
 
     for (const item of snapshot) {
       const validationError = validateFile(item.file)
@@ -1240,6 +1297,7 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
           statusText: "Validation failed.",
           error: validationError,
         }))
+        failedMessages.push(validationError)
         continue
       }
 
@@ -1261,13 +1319,53 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
           statusText: "Upload failed.",
           error: msg,
         }))
+        failedMessages.push(msg)
       }
     }
 
     setIsUploadingBatch(false)
+    uploadingBatchRef.current = false
     const failed = snapshot.length - successfulUploads
-    if (successfulUploads > 0) {
-      setUploadResultBanner({ ok: successfulUploads, fail: failed })
+
+    if (failed === 0 && successfulUploads > 0) {
+      const username = userProfile?.username
+      toast.success("Upload complete", {
+        description: "Now processing your files.",
+        action: username
+          ? {
+              label: "Your profile",
+              onClick: () => navigate(`/profile/${username}`),
+            }
+          : undefined,
+      })
+      minimizedRef.current = false
+      setMinimized(false)
+      onClose()
+      resetState()
+      return
+    }
+
+    if (failed > 0) {
+      const unique = [...new Set(failedMessages.filter(Boolean))]
+      const description =
+        failed === 1
+          ? unique[0] || "Upload failed. Try again later."
+          : `${failed} files failed${unique[0] ? `: ${unique[0]}` : ""}${unique.length > 1 ? "…" : ""}`
+      toast.error(failed === 1 ? "Upload failed" : "Some uploads failed", {
+        description,
+        action: {
+          label: "Open",
+          onClick: () => {
+            minimizedRef.current = false
+            setMinimized(false)
+          },
+        },
+      })
+    }
+
+    if (successfulUploads > 0 || failed > 0) {
+      setUploadResultBanner({ ok: priorOk + successfulUploads, fail: failed })
+      setCompletedOpen(true)
     }
   }
 
@@ -1290,14 +1388,50 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
   }
 
   const handleClose = () => {
-    if (isUploadingBatch) return
+    if (uploadingBatchRef.current) {
+      minimizedRef.current = true
+      setMinimized(true)
+      return
+    }
     setError(null)
     setUploadResultBanner(null)
     resetState()
     onClose()
   }
 
-  const activeItem = useMemo(() => items.find((item) => item.id === activeId) || items[0], [items, activeId])
+  const handleDialogOpenChange = (open: boolean) => {
+    if (open) return
+    if (minimizedRef.current || uploadingBatchRef.current) {
+      minimizedRef.current = true
+      setMinimized(true)
+      return
+    }
+    const hasUploadSession = itemsRef.current.some(
+      (i) => i.status === "uploading" || i.status === "error" || i.status === "success",
+    )
+    if (hasUploadSession) {
+      minimizedRef.current = true
+      setMinimized(true)
+      return
+    }
+    handleClose()
+  }
+
+  const hideToFloat = () => {
+    minimizedRef.current = true
+    setMinimized(true)
+  }
+
+  const restoreFromFloat = () => {
+    minimizedRef.current = false
+    setMinimized(false)
+  }
+
+  const activeItem = useMemo(() => {
+    const byId = items.find((item) => item.id === activeId)
+    if (byId && byId.status !== "success") return byId
+    return items.find((item) => item.status !== "success") || items[0]
+  }, [items, activeId])
 
   const videoCount = useMemo(
     () => items.filter((i) => i.file.type.startsWith("video/")).length,
@@ -1340,15 +1474,17 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
   )
 
   const allSeriesFieldsReady = useMemo(() => {
-    return items.every((item) => {
-      if (!item.file.type.startsWith("video/")) return true
-      if (item.seriesMode === "none") return true
-      if (item.seriesMode === "create") return item.seriesEpisodeName.trim().length > 0
-      if (!item.seriesSelected?.file_series_id) return false
-      if (item.seriesEpisodeSubmode === "existing") return !!item.seriesEpisodeId
-      if (item.seriesEpisodeSubmode === "new") return item.seriesEpisodeName.trim().length > 0
-      return false
-    })
+    return items
+      .filter((item) => item.status !== "success")
+      .every((item) => {
+        if (!item.file.type.startsWith("video/")) return true
+        if (item.seriesMode === "none") return true
+        if (item.seriesMode === "create") return item.seriesEpisodeName.trim().length > 0
+        if (!item.seriesSelected?.file_series_id) return false
+        if (item.seriesEpisodeSubmode === "existing") return !!item.seriesEpisodeId
+        if (item.seriesEpisodeSubmode === "new") return item.seriesEpisodeName.trim().length > 0
+        return false
+      })
   }, [items])
 
   useEffect(() => {
@@ -1399,7 +1535,29 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
     }
   }
 
-  const isFieldDisabled = !activeItem || isUploadingBatch || !!activeItem?.isLocked
+  const isFieldDisabled = !activeItem || isUploadingBatch || !!activeItem?.isLocked || activeItem?.status === "success"
+
+  const pendingItems = useMemo(() => items.filter((i) => i.status !== "success"), [items])
+  const completedItems = useMemo(() => items.filter((i) => i.status === "success"), [items])
+  const pendingUploadCount = pendingItems.length
+  const failCount = useMemo(() => items.filter((i) => i.status === "error").length, [items])
+  const floatProgress = useMemo(() => {
+    if (items.length === 0) return 0
+    const sum = items.reduce((acc, i) => {
+      if (i.status === "success" || i.status === "error") return acc + 100
+      return acc + Math.max(0, Math.min(100, i.progress || 0))
+    }, 0)
+    return Math.round(sum / items.length)
+  }, [items])
+  const showUploadFloat = minimized && items.length > 0
+
+  useEffect(() => {
+    if (!activeId) return
+    if (items.some((i) => i.id === activeId && i.status === "success")) {
+      const next = items.find((i) => i.status !== "success")
+      setActiveId(next?.id ?? null)
+    }
+  }, [items, activeId])
 
   const statusIcon = (status: UploadStatus) => {
     switch (status) {
@@ -1412,10 +1570,10 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
 
   if (items.length === 0) {
     return (
-      <Dialog open={isOpen} onOpenChange={handleClose}>
+      <>
+      <Dialog open={isOpen && !minimized} onOpenChange={handleDialogOpenChange}>
         <DialogContent
           className="w-[min(100%,calc(100vw-1.5rem))] max-w-2xl rounded-3xl p-0 overflow-hidden max-h-[min(92dvh,640px)] flex flex-col shadow-2xl border-border/60"
-          showCloseButton={true}
         >
           <div
             ref={dropRef}
@@ -1467,13 +1625,23 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
           </div>
         </DialogContent>
       </Dialog>
+      <SignInDialog
+        open={signInOpen}
+        onOpenChange={setSignInOpen}
+        title="Sign in to upload"
+        description="Create a free account or sign in to upload your photos, videos, and more."
+      />
+      </>
     )
   }
 
   return (
     <>
-    <Dialog open={isOpen} onOpenChange={handleClose}>
-      <DialogContent className="w-[min(100%,calc(100vw-1rem))] max-w-[520px] sm:max-w-xl md:max-w-3xl lg:max-w-6xl h-full rounded-3xl p-0 overflow-hidden max-h-[min(92dvh,900px)] max-sm:max-h-[calc(100dvh-env(safe-area-inset-top)-env(safe-area-inset-bottom))] flex flex-col gap-0 shadow-2xl border-border/60">
+    <Dialog open={isOpen && !minimized} onOpenChange={handleDialogOpenChange}>
+      <DialogContent
+        shouldClose
+        className="w-[min(100%,calc(100vw-1rem))] max-w-[520px] sm:max-w-xl md:max-w-3xl lg:max-w-6xl h-full rounded-3xl p-0 overflow-hidden max-h-[min(92dvh,900px)] max-sm:max-h-[calc(100dvh-env(safe-area-inset-top)-env(safe-area-inset-bottom))] flex flex-col gap-0 shadow-2xl border-border/60"
+      >
 
         <div
           className="relative flex min-h-0 flex-1 flex-col overflow-hidden"
@@ -1500,20 +1668,47 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
                 <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground tabular-nums">
                   {items.length}
                 </span>
+                {failCount > 0 ? (
+                  <span className="rounded-full bg-destructive px-2 py-0.5 text-[11px] font-semibold tabular-nums text-destructive-foreground">
+                    {failCount} failed
+                  </span>
+                ) : null}
               </div>
-              {videoCount > 0 ? (
-                <Button
+              <div className="flex items-center gap-1.5 sm:gap-2">
+                {(isUploadingBatch || completedItems.length > 0 || failCount > 0) && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-9 gap-1.5 rounded-full px-3"
+                    onClick={hideToFloat}
+                    aria-label="Hide upload dialog"
+                  >
+                    <Minimize2 className="h-3.5 w-3.5" />
+                    Hide
+                  </Button>
+                )}
+                {videoCount > 0 ? (
+                  <Button
+                    type="button"
+                    variant={seriesOrganizerOpen ? "default" : "outline"}
+                    size="sm"
+                    className="h-9 gap-1.5 rounded-full px-4"
+                    disabled={isUploadingBatch}
+                    onClick={() => setSeriesOrganizerOpen((o) => !o)}
+                  >
+                    <Layers className="h-3.5 w-3.5" />
+                    {seriesOrganizerOpen ? "Done" : "Series organizer"}
+                  </Button>
+                ) : null}
+                <DialogClose
                   type="button"
-                  variant={seriesOrganizerOpen ? "default" : "outline"}
-                  size="sm"
-                  className="h-9 gap-1.5 rounded-full px-4"
-                  disabled={isUploadingBatch}
-                  onClick={() => setSeriesOrganizerOpen((o) => !o)}
+                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                  aria-label="Close"
                 >
-                  <Layers className="h-3.5 w-3.5" />
-                  {seriesOrganizerOpen ? "Done" : "Series organizer"}
-                </Button>
-              ) : null}
+                  <X className="h-4 w-4" />
+                </DialogClose>
+              </div>
             </div>
             <div className="shrink-0 border-b border-border/60 bg-background/60 px-4 py-2.5">
               <StorageQuotaMeter variant="compact" refreshKey={uploadResultBanner} />
@@ -1531,10 +1726,10 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
                 <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/80">Library</span>
               </div>
 
-              <SortableContext items={items.map((i) => i.id)} strategy={verticalListSortingStrategy}>
+              <SortableContext items={pendingItems.map((i) => i.id)} strategy={verticalListSortingStrategy}>
                 <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain pr-0.5 -mr-0.5 [scrollbar-gutter:stable]">
                   <div className="space-y-0.5">
-                    {items.map((item) => {
+                    {pendingItems.map((item) => {
                       const isActive = activeId === item.id
                       const lane = item.assignedSeriesLaneId
                         ? seriesLanes.find((l) => l.id === item.assignedSeriesLaneId)
@@ -1555,6 +1750,63 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
                       )
                     })}
                   </div>
+
+                  {completedItems.length > 0 && (
+                    <div className="mt-2 border-t border-border/50 pt-2">
+                      <button
+                        type="button"
+                        onClick={() => setCompletedOpen((o) => !o)}
+                        className="flex w-full items-center justify-between gap-2 rounded-lg px-1.5 py-1.5 text-left hover:bg-accent/50"
+                      >
+                        <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/80">
+                          Completed ({completedItems.length})
+                        </span>
+                        <ChevronDown
+                          className={cn(
+                            "h-3.5 w-3.5 text-muted-foreground transition-transform",
+                            completedOpen && "rotate-180",
+                          )}
+                        />
+                      </button>
+                      {completedOpen && (
+                        <div className="mt-0.5 space-y-0.5">
+                          {completedItems.map((item) => {
+                            const isVideo = item.file.type.startsWith("video/")
+                            const videoStill = isVideo
+                              ? item.customThumbnailPreview ?? item.videoPosterUrl
+                              : null
+                            return (
+                              <div
+                                key={item.id}
+                                className="flex w-full items-center gap-2.5 rounded-lg px-1.5 py-1.5 opacity-80"
+                              >
+                                <div className="relative h-9 w-9 shrink-0 overflow-hidden rounded-md bg-muted">
+                                  {isVideo ? (
+                                    videoStill ? (
+                                      <img src={videoStill} alt="" className="h-full w-full object-cover" />
+                                    ) : (
+                                      <div className="flex h-full w-full items-center justify-center">
+                                        <FileVideo className="h-4 w-4 text-muted-foreground" />
+                                      </div>
+                                    )
+                                  ) : (
+                                    <img src={item.previewUrl} alt="" className="h-full w-full object-cover" />
+                                  )}
+                                  <div className="absolute inset-0 flex items-center justify-center bg-green-500/25">
+                                    <Check className="h-3 w-3 text-green-500" />
+                                  </div>
+                                </div>
+                                <div className="min-w-0 flex-1">
+                                  <p className="truncate text-[13px] font-medium text-foreground">{item.file.name}</p>
+                                  <p className="text-[11px] text-muted-foreground">Uploaded</p>
+                                </div>
+                              </div>
+                            )
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               </SortableContext>
 
@@ -2557,39 +2809,18 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
           </div>
         )}
 
-        {uploadResultBanner && (
+        {uploadResultBanner && uploadResultBanner.fail > 0 && (
           <div className="shrink-0 space-y-3 border-t border-border/60 bg-muted/20 px-4 py-3 sm:px-5">
             <p className="text-sm font-medium text-foreground">
-              {uploadResultBanner.fail === 0
-                ? `All ${uploadResultBanner.ok} upload(s) finished.`
-                : `${uploadResultBanner.ok} succeeded · ${uploadResultBanner.fail} failed`}
+              {uploadResultBanner.ok} succeeded · {uploadResultBanner.fail} failed
             </p>
             <p className="text-xs leading-relaxed text-muted-foreground">
-              Processing may continue in the background. New uploads appear on your profile when ready.
+              Fix failed files and retry. Completed uploads stay in the Completed section and will not be re-uploaded.
             </p>
             <div className="flex flex-wrap gap-2">
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="h-9"
-                onClick={() => {
-                  const origin = typeof window !== "undefined" ? window.location.origin : ""
-                  void navigator.clipboard?.writeText(origin).catch(() => {})
-                }}
-              >
-                Copy site link
+              <Button type="button" variant="secondary" size="sm" className="h-9" onClick={clearFailedForRetry}>
+                Fix &amp; retry failed
               </Button>
-              {userProfile?.username ? (
-                <Button type="button" variant="outline" size="sm" className="h-9" asChild>
-                  <Link to={`/profile/${userProfile.username}`}>Your profile</Link>
-                </Button>
-              ) : null}
-              {uploadResultBanner.fail > 0 ? (
-                <Button type="button" variant="secondary" size="sm" className="h-9" onClick={clearFailedForRetry}>
-                  Fix &amp; retry failed
-                </Button>
-              ) : null}
               <Button
                 type="button"
                 size="sm"
@@ -2613,16 +2844,15 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
             size="sm"
             className="text-muted-foreground hover:text-foreground h-11 sm:h-9 px-3 sm:px-4 w-full sm:w-auto touch-manipulation"
             onClick={handleClose}
-            disabled={isUploadingBatch}
           >
-            Cancel
+            {isUploadingBatch ? "Hide" : "Cancel"}
           </Button>
           <Button
             type="button"
             size="sm"
             className="h-11 sm:h-9 px-5 sm:px-6 gap-2 font-medium w-full sm:w-auto touch-manipulation rounded-full shadow-sm"
             onClick={handleUpload}
-            disabled={items.length === 0 || isUploadingBatch || !allSeriesFieldsReady || uploadResultBanner != null}
+            disabled={pendingUploadCount === 0 || isUploadingBatch || !allSeriesFieldsReady}
           >
             {isUploadingBatch ? (
               <>
@@ -2632,13 +2862,21 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
             ) : (
               <>
                 <Upload className="w-3.5 h-3.5" />
-                Upload {items.length > 1 ? `${items.length} files` : ""}
+                Upload {pendingUploadCount > 1 ? `${pendingUploadCount} files` : ""}
               </>
             )}
           </Button>
         </div>
       </DialogContent>
     </Dialog>
+
+    {showUploadFloat && (
+      <UploadProgressFloat
+        progress={floatProgress}
+        failCount={failCount}
+        onOpen={restoreFromFloat}
+      />
+    )}
 
     <Dialog
       open={seriesBrowseOpen}

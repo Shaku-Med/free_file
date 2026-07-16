@@ -11,6 +11,7 @@ create table public.users (
   c_usr uuid not null default gen_random_uuid (),
   unverified_expire timestamp with time zone null,
   show_nsfw boolean null default false,
+  snap_floats_to_corners boolean not null default false,
   theme jsonb null default '{}'::jsonb,
   constraint users_pkey primary key (id),
   constraint users_email_key unique (email),

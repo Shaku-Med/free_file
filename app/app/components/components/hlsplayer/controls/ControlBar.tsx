@@ -1,6 +1,6 @@
 import { useRef, useState, useEffect, useLayoutEffect, type ReactElement } from 'react';
 import { createPortal } from 'react-dom';
-import { Play, Pause, SkipForward, MoreVertical, SkipBack, ChevronLeft, LoaderCircle } from 'lucide-react';
+import { Play, Pause, SkipForward, MoreVertical, SkipBack, ChevronLeft, LoaderCircle, X } from 'lucide-react';
 import { usePlayerContext } from '../PlayerContext';
 import { useControlBarWidth } from '../hooks/useControlBarWidth';
 import { useFullscreenContainer } from '../hooks/useFullscreenContainer';
@@ -164,8 +164,17 @@ interface ControlBarProps {
   hideControls?: HideControls;
   liftBottomPx?: number;
   isMobileLayout?: boolean;
+  /** Compact always-on chrome for the floating mini player dock. */
+  miniLayout?: boolean;
+  /**
+   * Mobile music-bar mini: seek rail only — no back/volume/settings/play/close.
+   * Shell handles expand + dismiss.
+   */
+  miniSeekOnly?: boolean;
   /** Shown as a chevron back control when set, unless `hideControls.back`. */
   onBack?: () => void;
+  /** Mini layout only: close the floating player. */
+  onClose?: () => void;
   /** Rendered at the very bottom of the control bar flex-col (e.g. audio visualizer). */
   bottomSlot?: React.ReactNode;
 }
@@ -180,7 +189,10 @@ export default function ControlBar({
   hideControls,
   liftBottomPx = 0,
   isMobileLayout = false,
+  miniLayout = false,
+  miniSeekOnly = false,
   onBack,
+  onClose,
   bottomSlot,
 }: ControlBarProps) {
   const {
@@ -310,6 +322,164 @@ export default function ControlBar({
   const autoplayKnobOffset = autoPlay
     ? { right: 'calc((var(--hls-ctrl-toggle-h, 1.5rem) - var(--hls-ctrl-toggle-knob, 1.25rem)) / 2)' }
     : { left: 'calc((var(--hls-ctrl-toggle-h, 1.5rem) - var(--hls-ctrl-toggle-knob, 1.25rem)) / 2)' };
+
+  if (miniLayout && miniSeekOnly) {
+    // Full-width thin rail along the top. Shell chrome uses pt + pointer-events so
+    // queue/close stay clickable while scrub + hover preview sit above the bar.
+    return (
+      <div
+        ref={containerRef}
+        className="pointer-events-none absolute inset-0 z-30 overflow-visible"
+      >
+        {!isHidden(hideControls, 'seek') && (
+          <div
+            data-mini-no-drag
+            className="pointer-events-auto absolute inset-x-0 top-0 z-[60] overflow-visible"
+            style={{
+              // Tall hit target for hover scrub / thumbnail preview. Visible
+              // track stays flush to the top; shell chrome pads below this.
+              height: '1.75rem',
+              ['--hls-ctrl-seek-hit' as string]: '1.75rem',
+              ['--hls-ctrl-seek-track' as string]: '2px',
+            }}
+          >
+            <SeekBar mobileStyle flushTop />
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  if (miniLayout) {
+    const isPlayPauseLoading = !state.isLoaded || state.isBuffering;
+    // Seek stays mounted; only top/center chrome follows auxiliary visibility
+    // (same seek-always pattern as reel embeds — see useControlsVisibility).
+    const chromeOn = state.reelAuxiliaryChromeVisible;
+    return (
+      <div
+        ref={containerRef}
+        className="pointer-events-none absolute inset-0 z-30"
+        style={{ bottom: liftBottomPx }}
+      >
+        <div
+          className={cn(
+            'pointer-events-none absolute inset-x-0 top-0 z-40 flex items-start justify-between gap-1 p-1.5 transition-opacity',
+            chromeOn ? 'opacity-100 duration-100' : 'opacity-0 duration-200',
+          )}
+          inert={!chromeOn || undefined}
+        >
+          <div
+            data-mini-no-drag
+            className={cn(
+              'flex items-center gap-0.5',
+              chromeOn ? 'pointer-events-auto' : 'pointer-events-none',
+            )}
+          >
+            {onBack && !isHidden(hideControls, 'back') && (
+              <PlayerControlTooltip label="Back to video" side="bottom">
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onBack();
+                  }}
+                  className={cn(mobileOverlayCircleBtn, 'h-8 w-8 transition-colors hover:bg-black/60')}
+                  aria-label="Back to video"
+                >
+                  <ChevronLeft className="h-5 w-5 text-white" />
+                </button>
+              </PlayerControlTooltip>
+            )}
+            {!isHidden(hideControls, 'volume') && (
+              <div className="flex items-center text-white [&_button]:text-white [&_svg]:text-white">
+                <VolumeControl showSlider expandWithTap barPill />
+              </div>
+            )}
+          </div>
+          <div
+            data-mini-no-drag
+            className={cn(
+              'flex items-center gap-0.5',
+              chromeOn ? 'pointer-events-auto' : 'pointer-events-none',
+            )}
+          >
+            {!isHidden(hideControls, 'settings') && authPlaybackFeatures && (
+              <SettingsMenu overlayTrigger />
+            )}
+            {onClose && (
+              <PlayerControlTooltip label="Close" side="bottom">
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onClose();
+                  }}
+                  className={cn(mobileOverlayCircleBtn, 'h-8 w-8 transition-colors hover:bg-black/60')}
+                  aria-label="Close mini player"
+                >
+                  <X className="h-4 w-4 text-white" />
+                </button>
+              </PlayerControlTooltip>
+            )}
+          </div>
+        </div>
+
+        <div
+          className={cn(
+            'pointer-events-none absolute inset-0 z-40 flex items-center justify-center transition-opacity',
+            chromeOn ? 'opacity-100 duration-100' : 'opacity-0 duration-200',
+          )}
+          inert={!chromeOn || undefined}
+        >
+          {!isHidden(hideControls, 'playPause') && (
+            isPlayPauseLoading ? (
+              <div
+                data-mini-no-drag
+                className={cn(
+                  'flex h-12 w-12 items-center justify-center text-white',
+                  chromeOn ? 'pointer-events-auto' : 'pointer-events-none',
+                )}
+                aria-label="Loading"
+                role="status"
+              >
+                <LoaderCircle className="h-10 w-10 animate-spin opacity-90" />
+              </div>
+            ) : (
+              <button
+                type="button"
+                data-mini-no-drag
+                className={cn(
+                  'flex h-12 w-12 items-center justify-center text-white transition-transform active:scale-95',
+                  chromeOn ? 'pointer-events-auto' : 'pointer-events-none',
+                )}
+                aria-label={state.isPlaying ? 'Pause' : 'Play'}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  togglePlay();
+                  onPlayPauseClick?.();
+                }}
+              >
+                {state.isPlaying ? (
+                  <Pause className="h-10 w-10 fill-white drop-shadow-md" />
+                ) : (
+                  <Play className="h-10 w-10 fill-white drop-shadow-md ml-0.5" />
+                )}
+              </button>
+            )
+          )}
+        </div>
+
+        {!isHidden(hideControls, 'seek') && (
+          <div
+            data-mini-no-drag
+            className="pointer-events-auto absolute inset-x-0 bottom-0 z-40"
+          >
+            <SeekBar mobileStyle flushBottom />
+          </div>
+        )}
+      </div>
+    );
+  }
 
   if (reelSeekOnly) {
     if (isMobileLayout) {

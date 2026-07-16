@@ -1,4 +1,5 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
+import { cn } from '~/lib/utils';
 import { usePlayerContext } from '../../PlayerContext';
 import {
   STEM_TYPES,
@@ -162,9 +163,11 @@ function buildRibbonBodyPath(
 
 type Props = {
   stems: AudioStems;
+  /** Shorter strip for the floating mini dock. */
+  compact?: boolean;
 };
 
-export default function StemResonanceVisualizer({ stems }: Props) {
+export default function StemResonanceVisualizer({ stems, compact = false }: Props) {
   const filterId = useId().replace(/:/g, '');
   const wrapRef = useRef<HTMLDivElement>(null);
   const wavePathRef = useRef<SVGPathElement>(null);
@@ -355,7 +358,7 @@ export default function StemResonanceVisualizer({ stems }: Props) {
   }, [file?.colors, palettes]);
 
   return (
-    <div ref={wrapRef} className="relative h-10 w-full pointer-events-none">
+    <div ref={wrapRef} className={cn('relative w-full pointer-events-none', compact ? 'h-5' : 'h-10')}>
       <svg
         className="block h-full w-full"
         viewBox={`0 0 ${size.w} ${size.h}`}

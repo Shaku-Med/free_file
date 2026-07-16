@@ -1,6 +1,8 @@
 import { useCallback, useRef, useState, useLayoutEffect, useEffect } from "react";
+import { isMiniPlayerDragLocked, registerMiniPlayerDragHandler } from "./miniPlayerDragBridge";
+import { useSnapFloatsToCorners } from "~/lib/uiFloatPrefs";
 
-const PADDING = 12;
+const PADDING = 16;
 
 /** Space the mobile bottom nav reserves at the viewport bottom, if present. */
 function bottomReservedPx(): number {
@@ -10,8 +12,9 @@ function bottomReservedPx(): number {
   return Number.isFinite(n) ? n : 0;
 }
 const DRAG_THRESHOLD_PX = 4;
-/** Match CSS transitions after snap (~ease-out finish). */
-const SNAP_TRANSITION_MS = 220;
+/** Smooth corner-settle morph (keep in sync with MiniPlayer CSS). */
+export const SNAP_TRANSITION_MS = 420;
+export const SNAP_EASING = "cubic-bezier(0.22, 1, 0.36, 1)";
 const STORAGE_KEY = "mini-player-width-v1";
 const MIN_W = 260;
 /** Hard cap  never wider than this */
@@ -20,7 +23,7 @@ const ABSOLUTE_MAX_W = 400;
 const PREFERRED_DEFAULT_W = 340;
 /** Chrome + title block + 16:9 video (approx)  used until DOM measures. */
 function estimateShellHeight(width: number) {
-  return 36 + 52 + (width * 9) / 16;
+  return 56 + (width * 9) / 16;
 }
 
 /** Visible strip when tucked to screen edge (Apple PiP–style). */
@@ -53,40 +56,63 @@ function visibleAreaFraction(
   return total > 0 ? vis / total : 0;
 }
 
-/** Nearest anchored corner pose (within padded viewport). */
+/** Usable top-left range so the shell never leaves the padded viewport. */
+function viewportPoseBounds(elWidth: number, elHeight: number) {
+  const w = window.innerWidth;
+  const h = window.innerHeight;
+  const maxX = Math.max(PADDING, w - elWidth - PADDING);
+  const maxY = Math.max(PADDING, h - elHeight - PADDING - bottomReservedPx());
+  return { minX: PADDING, minY: PADDING, maxX, maxY };
+}
+
+function getCornerPositions(elWidth: number, elHeight: number) {
+  const { minX, minY, maxX, maxY } = viewportPoseBounds(elWidth, elHeight);
+  return {
+    br: { x: maxX, y: maxY },
+    bl: { x: minX, y: maxY },
+    tr: { x: maxX, y: minY },
+    tl: { x: minX, y: minY },
+  };
+}
+
+/** Nearest corner by element center — always returns an on-screen pose. */
 function nearestCornerPose(x: number, y: number, elWidth: number, elHeight: number) {
   const corners = Object.values(getCornerPositions(elWidth, elHeight));
-  let nearest = corners[0];
+  const cx = x + elWidth / 2;
+  const cy = y + elHeight / 2;
+  let nearest = corners[0]!;
   let nearestDist = Infinity;
   for (const c of corners) {
-    const d = Math.hypot(x - c.x, y - c.y);
+    const d = Math.hypot(cx - (c.x + elWidth / 2), cy - (c.y + elHeight / 2));
     if (d < nearestDist) {
       nearestDist = d;
       nearest = c;
     }
   }
-  return { x: nearest!.x, y: clampY(nearest!.y, elHeight) };
+  return { x: nearest.x, y: nearest.y };
 }
 
 function clampFreeInViewport(x: number, y: number, elWidth: number, elHeight: number) {
-  const maxX = window.innerWidth - elWidth - PADDING;
+  const { minX, minY, maxX, maxY } = viewportPoseBounds(elWidth, elHeight);
   return {
-    x: Math.max(PADDING, Math.min(maxX, x)),
-    y: clampY(y, elHeight),
+    x: Math.min(maxX, Math.max(minX, x)),
+    y: Math.min(maxY, Math.max(minY, y)),
   };
 }
 
 /**
- * Corner / edge settling only once ≥half the shell is outside the padded viewport (“halfway off bound”).
- * Otherwise clamp inside the viewport with no positional snap (no magnet-to-corner behavior).
+ * Corner settling once ≥half the shell is outside the padded viewport.
+ * When `forceCorners` is on (user setting), always snap to one of the four corners only.
  */
 function settlePositionAfterGesture(
   x: number,
   y: number,
   elWidth: number,
   elHeight: number,
+  forceCorners = false,
 ): { x: number; y: number } {
   if (typeof window === "undefined") return clampFreeInViewport(x, y, elWidth, elHeight);
+  if (forceCorners) return nearestCornerPose(x, y, elWidth, elHeight);
   const ratio = visibleAreaFraction(x, y, elWidth, elHeight);
   if (ratio > OFFSCREEN_RATIO_SNAP) return clampFreeInViewport(x, y, elWidth, elHeight);
   return nearestCornerPose(x, y, elWidth, elHeight);
@@ -128,22 +154,12 @@ function loadStoredWidth(): number {
 function initialBottomRightPosition(width: number): { x: number; y: number } {
   if (typeof window === "undefined") return { x: 0, y: 0 };
   const h = estimateShellHeight(width);
-  return {
-    x: window.innerWidth - width - PADDING,
-    y: window.innerHeight - h - PADDING - bottomReservedPx(),
-  };
-}
-
-function getCornerPositions(elWidth: number, elHeight: number) {
-  const w = window.innerWidth;
-  const h = window.innerHeight;
-  const bottomY = h - elHeight - PADDING - bottomReservedPx();
-  return {
-    br: { x: w - elWidth - PADDING, y: bottomY },
-    bl: { x: PADDING, y: bottomY },
-    tr: { x: w - elWidth - PADDING, y: PADDING },
-    tl: { x: PADDING, y: PADDING },
-  };
+  return clampFreeInViewport(
+    window.innerWidth - width - PADDING,
+    window.innerHeight - h - PADDING - bottomReservedPx(),
+    width,
+    h,
+  );
 }
 
 type TuckEdge = "none" | "left" | "right";
@@ -151,7 +167,10 @@ type TuckEdge = "none" | "left" | "right";
 /**
  * @param sessionKey e.g. mini `unique_id`  resets corner + tuck whenever mini session changes.
  */
-export function useMiniPlayerDrag(sessionKey: string) {
+export function useMiniPlayerDrag(sessionKey: string, enabled = true) {
+  const snapFloatsToCorners = useSnapFloatsToCorners();
+  const snapCornersRef = useRef(snapFloatsToCorners);
+  snapCornersRef.current = snapFloatsToCorners;
   const [frameWidthMax, setFrameWidthMax] = useState(() =>
     typeof window === "undefined" ? ABSOLUTE_MAX_W : getViewportMaxMiniPlayerWidth(),
   );
@@ -176,6 +195,10 @@ export function useMiniPlayerDrag(sessionKey: string) {
   positionRef.current = position;
   const tuckRef = useRef<TuckEdge>("none");
   tuckRef.current = tuck;
+  const vpRef = useRef({
+    w: typeof window !== "undefined" ? window.innerWidth : 1280,
+    h: typeof window !== "undefined" ? window.innerHeight : 800,
+  });
   const elSizeRef = useRef({
     width: typeof window === "undefined" ? PREFERRED_DEFAULT_W : loadStoredWidth(),
     height: estimateShellHeight(typeof window === "undefined" ? PREFERRED_DEFAULT_W : loadStoredWidth()),
@@ -202,26 +225,31 @@ export function useMiniPlayerDrag(sessionKey: string) {
   const measureAndCacheSize = useCallback(() => {
     const el = elementRef.current;
     if (!el) return;
-    const rect = el.getBoundingClientRect();
-    if (rect.width > 0 && rect.height > 0) {
-      elSizeRef.current = { width: rect.width, height: rect.height };
+    // offset* ignores drag transforms and overflowing ambient glow.
+    const width = el.offsetWidth;
+    const height = el.offsetHeight;
+    if (width > 0 && height > 0) {
+      elSizeRef.current = { width, height };
     }
   }, []);
 
   const visPosition = useCallback(
     (freeX: number, freeY: number, width: number, height: number, t: TuckEdge) => {
+      const { minY, maxY } = viewportPoseBounds(width, height);
+      const y = Math.min(maxY, Math.max(minY, freeY));
       if (t === "right") {
-        return { x: window.innerWidth - PEEK_PX, y: clampY(freeY, height) };
+        return { x: window.innerWidth - PEEK_PX, y };
       }
       if (t === "left") {
-        return { x: PEEK_PX - width, y: clampY(freeY, height) };
+        return { x: PEEK_PX - width, y };
       }
-      return { x: freeX, y: clampY(freeY, height) };
+      return clampFreeInViewport(freeX, freeY, width, height);
     },
     [],
   );
 
   useLayoutEffect(() => {
+    if (!enabled) return;
     setTuck("none");
     const w = frameWidthRef.current;
     const est = initialBottomRightPosition(w);
@@ -231,26 +259,27 @@ export function useMiniPlayerDrag(sessionKey: string) {
     measureAndCacheSize();
     const el = elementRef.current;
     if (el) {
-      const rect = el.getBoundingClientRect();
-      if (rect.width > 0 && rect.height > 0) {
-        const br = getCornerPositions(rect.width, rect.height).br;
-        setPosition({ x: br.x, y: clampY(br.y, rect.height) });
-        elSizeRef.current = { width: rect.width, height: rect.height };
+      const width = el.offsetWidth;
+      const height = el.offsetHeight;
+      if (width > 0 && height > 0) {
+        setPosition(getCornerPositions(width, height).br);
+        elSizeRef.current = { width, height };
       }
     }
-  }, [sessionKey, measureAndCacheSize]);
+  }, [sessionKey, enabled, measureAndCacheSize]);
 
   useEffect(() => {
-    if (!mounted) return;
+    if (!enabled || !mounted) return;
     measureAndCacheSize();
     const { width, height } = elSizeRef.current;
     setPosition((p) => visPosition(p.x, p.y, width, height, tuck));
-  }, [frameWidth, mounted, measureAndCacheSize, tuck, visPosition]);
+  }, [frameWidth, mounted, enabled, measureAndCacheSize, tuck, visPosition]);
 
   // The shell height can change AFTER placement (aspect-ratio arrives from
   // video metadata, title wraps, ...). Re-clamp whenever the element's real
   // size changes so a grown mini never hangs past the viewport edge.
   useEffect(() => {
+    if (!enabled) return;
     const el = elementRef.current;
     if (!el || typeof ResizeObserver === "undefined") return;
     const ro = new ResizeObserver(() => {
@@ -270,22 +299,41 @@ export function useMiniPlayerDrag(sessionKey: string) {
     });
     ro.observe(el);
     return () => ro.disconnect();
-  }, [measureAndCacheSize, visPosition]);
+  }, [enabled, measureAndCacheSize, visPosition]);
 
   useEffect(() => {
+    if (!enabled) return;
     const onResize = () => {
       if (isDragging.current || isResizing.current) return;
       measureAndCacheSize();
       const { width, height } = elSizeRef.current;
+      const nw = window.innerWidth;
+      const nh = window.innerHeight;
+      const old = vpRef.current;
+      vpRef.current = { w: nw, h: nh };
       setIsSnapping(true);
-      if (tuckRef.current !== "none") {
+      if (tuckRef.current !== "none" && !snapCornersRef.current) {
         setPosition(visPosition(0, positionRef.current.y, width, height, tuckRef.current));
       } else {
+        // Remap by viewport ratio so shrink→expand doesn’t leave the mini
+        // stranded at the old small-screen coordinates.
+        const bottomOld = PADDING + bottomReservedPx();
+        const maxOldX = Math.max(1, old.w - width - PADDING);
+        const maxOldY = Math.max(1, old.h - height - bottomOld);
+        const rx = (positionRef.current.x - PADDING) / maxOldX;
+        const ry = (positionRef.current.y - PADDING) / maxOldY;
+        const maxNewX = Math.max(PADDING, nw - width - PADDING);
+        const maxNewY = Math.max(PADDING, nh - height - PADDING - bottomReservedPx());
+        const mapped = {
+          x: PADDING + Math.min(1, Math.max(0, rx)) * (maxNewX - PADDING),
+          y: PADDING + Math.min(1, Math.max(0, ry)) * (maxNewY - PADDING),
+        };
         const snap = settlePositionAfterGesture(
-          positionRef.current.x,
-          positionRef.current.y,
+          mapped.x,
+          mapped.y,
           width,
           height,
+          snapCornersRef.current && !lockTopAnchorRef.current,
         );
         setTuck("none");
         setPosition(snap);
@@ -294,7 +342,26 @@ export function useMiniPlayerDrag(sessionKey: string) {
     };
     window.addEventListener("resize", onResize);
     return () => window.removeEventListener("resize", onResize);
-  }, [measureAndCacheSize, visPosition]);
+  }, [enabled, measureAndCacheSize, visPosition]);
+
+  // When corner-snap turns on, settle once after layout (avoid fighting mount/resize).
+  const prevSnapCornersRef = useRef(snapFloatsToCorners);
+  useEffect(() => {
+    const wasOn = prevSnapCornersRef.current;
+    prevSnapCornersRef.current = snapFloatsToCorners;
+    if (!enabled || !snapFloatsToCorners || wasOn) return;
+    if (isDragging.current || isResizing.current || lockTopAnchorRef.current) return;
+    const id = window.requestAnimationFrame(() => {
+      measureAndCacheSize();
+      const { width, height } = elSizeRef.current;
+      if (width < 8 || height < 8) return;
+      setTuck("none");
+      setIsSnapping(true);
+      setPosition((p) => nearestCornerPose(p.x, p.y, width, height));
+      window.setTimeout(() => setIsSnapping(false), SNAP_TRANSITION_MS);
+    });
+    return () => window.cancelAnimationFrame(id);
+  }, [enabled, snapFloatsToCorners, measureAndCacheSize]);
 
   /**
    * Force the mini back inside the viewport using its CURRENT measured size.
@@ -331,60 +398,56 @@ export function useMiniPlayerDrag(sessionKey: string) {
       const { dx, dy } = dragDeltaRef.current;
       const x = startRef.current.elX + dx;
       const y = startRef.current.elY + dy;
-      // Hand-off from transform → left/top WITHOUT a visual jump.
-      //
-      // Previously we cleared `transform` first and then queued a React
-      // setState for the new `position`. Between those two steps the
-      // element was effectively at `position-state + transform=0`, which
-      // is the *pre-drag* origin  so the user briefly saw the player
-      // teleport back to where they grabbed it, then transition to its
-      // final spot. That's the "snap" the user is complaining about.
-      //
-      // The fix: commit the live drag position to `left/top` IN THE SAME
-      // DOM batch as clearing `transform`. The browser paints the element
-      // exactly where the finger left it. React's subsequent setState
-      // updates left/top to the snap target  the CSS transition runs
-      // from the released position to the snap, smooth and direct.
-      const el = elementRef.current;
-      if (el) {
-        // Suspend transition during the swap so the element doesn't try
-        // to animate from old left/top to new left/top while we're
-        // simultaneously zeroing the transform.
-        const prevTransition = el.style.transition;
-        el.style.transition = "none";
-        el.style.left = `${x}px`;
-        el.style.top = `${y}px`;
-        el.style.transform = "";
-        // Restore so the React-driven snap below animates as intended.
-        // Read offsetWidth to flush the no-transition paint before
-        // re-enabling  without this the browser may coalesce and skip
-        // the transition entirely on the next frame.
-        void el.offsetWidth;
-        el.style.transition = prevTransition;
-      }
       dragDeltaRef.current = { dx: 0, dy: 0 };
-      positionRef.current = { x, y };
-      const rightEdge = x + width;
-      const distRight = window.innerWidth - rightEdge;
-      const distLeft = x;
-      const edgeThreshold = wasTuckedRef.current ? UNTUCK_RE_TUCK_PX : EDGE_TUCK_PX;
-      const offscreenEnough =
-        visibleAreaFraction(x, y, width, height) <= OFFSCREEN_RATIO_SNAP;
 
+      const forceCorners = snapCornersRef.current && !lockTopAnchorRef.current;
       let nextTuck: TuckEdge = "none";
       let snap: { x: number; y: number };
 
-      if (didDragRef.current && offscreenEnough && distRight <= edgeThreshold) {
-        nextTuck = "right";
-        snap = visPosition(x, y, width, height, "right");
-      } else if (didDragRef.current && offscreenEnough && distLeft <= edgeThreshold) {
-        nextTuck = "left";
-        snap = visPosition(x, y, width, height, "left");
+      if (forceCorners) {
+        // Setting on: only the four screen corners — never edge tuck / mid-edge.
+        snap = nearestCornerPose(x, y, width, height);
       } else {
-        snap = settlePositionAfterGesture(x, y, width, height);
+        const rightEdge = x + width;
+        const distRight = window.innerWidth - rightEdge;
+        const distLeft = x;
+        const edgeThreshold = wasTuckedRef.current ? UNTUCK_RE_TUCK_PX : EDGE_TUCK_PX;
+        const offscreenEnough =
+          visibleAreaFraction(x, y, width, height) <= OFFSCREEN_RATIO_SNAP;
+
+        if (didDragRef.current && offscreenEnough && distRight <= edgeThreshold) {
+          nextTuck = "right";
+          snap = visPosition(x, y, width, height, "right");
+        } else if (didDragRef.current && offscreenEnough && distLeft <= edgeThreshold) {
+          nextTuck = "left";
+          snap = visPosition(x, y, width, height, "left");
+        } else {
+          snap = settlePositionAfterGesture(x, y, width, height, false);
+        }
       }
 
       wasTuckedRef.current = false;
+
+      // Hand-off from transform → left/top at the release point, reflow to
+      // commit that FROM pose, then write the snap target + easing in the same
+      // task. The DOM write must NOT be left to React: when the shell settles
+      // back into the corner it started from, `position` state is unchanged and
+      // React skips the style write entirely — the shell would freeze at the
+      // release point. State follows with identical values, so whether React
+      // writes or skips, the DOM already agrees. One writer, one animation.
+      const el = elementRef.current;
+      if (el) {
+        el.style.transition = "none";
+        el.style.transform = "";
+        el.style.left = `${x}px`;
+        el.style.top = `${y}px`;
+        void el.offsetWidth;
+        el.style.transition = `left ${SNAP_TRANSITION_MS}ms ${SNAP_EASING}, top ${SNAP_TRANSITION_MS}ms ${SNAP_EASING}`;
+        el.style.left = `${snap.x}px`;
+        el.style.top = `${snap.y}px`;
+      }
+
+      positionRef.current = snap;
       setTuck(nextTuck);
       setIsSnapping(true);
       setPosition(snap);
@@ -396,11 +459,9 @@ export function useMiniPlayerDrag(sessionKey: string) {
     [measureAndCacheSize, visPosition],
   );
 
-  const handlePointerDown = useCallback(
-    (e: React.PointerEvent) => {
+  const beginDrag = useCallback(
+    (e: { button: number; clientX: number; clientY: number; pointerId: number }, captureEl: HTMLElement) => {
       if (e.button !== 0) return;
-      e.preventDefault();
-      e.stopPropagation();
       if (isDragging.current) return;
 
       removeDragWindowListenersRef.current?.();
@@ -412,7 +473,7 @@ export function useMiniPlayerDrag(sessionKey: string) {
       didDragRef.current = false;
       dragDeltaRef.current = { dx: 0, dy: 0 };
       measureAndCacheSize();
-      const { width, height } = elSizeRef.current;
+      const { width } = elSizeRef.current;
       let elX = positionRef.current.x;
       let elY = positionRef.current.y;
       if (tuckRef.current !== "none") {
@@ -427,13 +488,8 @@ export function useMiniPlayerDrag(sessionKey: string) {
         w: width,
       };
 
-      const captureEl = e.currentTarget as HTMLElement;
       const pointerId = e.pointerId;
-      try {
-        captureEl.setPointerCapture(pointerId);
-      } catch {
-        /* ignore */
-      }
+      let captured = false;
 
       let onWindowMove: (ev: PointerEvent) => void;
       const onWindowUp = (ev: PointerEvent) => {
@@ -457,9 +513,17 @@ export function useMiniPlayerDrag(sessionKey: string) {
         if (!didDragRef.current && Math.abs(dx) < DRAG_THRESHOLD_PX && Math.abs(dy) < DRAG_THRESHOLD_PX) {
           return;
         }
-        didDragRef.current = true;
-        // Write transform direct to DOM  no React state, no re-render, no transition fight.
-        // GPU-composited; tracks the cursor 1:1.
+        if (!didDragRef.current) {
+          didDragRef.current = true;
+          if (!captured) {
+            captured = true;
+            try {
+              captureEl.setPointerCapture(pointerId);
+            } catch {
+              /* ignore */
+            }
+          }
+        }
         const el = elementRef.current;
         if (el) {
           el.style.transform = `translate3d(${dx}px, ${dy}px, 0)`;
@@ -476,7 +540,60 @@ export function useMiniPlayerDrag(sessionKey: string) {
         window.removeEventListener("pointercancel", onWindowUp);
       };
     },
-    [measureAndCacheSize, visPosition, endDragGesture],
+    [measureAndCacheSize, endDragGesture],
+  );
+
+  // Native DOM listener so the title/footer chrome can drag. The docked video
+  // lives in a higher-z GlobalAnchored portal — that surface calls
+  // dispatchMiniPlayerDrag via the bridge below.
+  // `enabled` must be a dep: mobile bar ↔ desktop swap remounts the shell, and
+  // without it listeners never reattach after a viewport resize past 700px.
+  useLayoutEffect(() => {
+    if (!enabled) return;
+    const root = elementRef.current;
+    if (!root) return;
+    const onPointerDown = (e: PointerEvent) => {
+      if (isMiniPlayerDragLocked()) return;
+      if (e.button !== 0) return;
+      const target = e.target;
+      if (!(target instanceof Element)) return;
+      if (target.closest("[data-mini-no-drag]")) return;
+      if (target.closest("[data-mini-resize]")) return;
+      beginDrag(e, root);
+    };
+    root.addEventListener("pointerdown", onPointerDown);
+    return () => root.removeEventListener("pointerdown", onPointerDown);
+  }, [beginDrag, sessionKey, enabled]);
+
+  useLayoutEffect(() => {
+    if (!enabled) {
+      registerMiniPlayerDragHandler(null);
+      return;
+    }
+    const root = elementRef.current;
+    if (!root) {
+      registerMiniPlayerDragHandler(null);
+      return;
+    }
+    registerMiniPlayerDragHandler((e) => {
+      if (isMiniPlayerDragLocked()) return;
+      if (e.button !== 0) return;
+      const target = e.target;
+      if (!(target instanceof Element)) return;
+      if (target.closest("[data-mini-no-drag]")) return;
+      if (target.closest("[data-mini-resize]")) return;
+      beginDrag(e, root);
+    });
+    return () => registerMiniPlayerDragHandler(null);
+  }, [beginDrag, sessionKey, enabled]);
+
+  const handlePointerDown = useCallback(
+    (e: React.PointerEvent) => {
+      if (!enabled || isMiniPlayerDragLocked()) return;
+      e.stopPropagation();
+      beginDrag(e, (e.currentTarget as HTMLElement) || elementRef.current!);
+    },
+    [beginDrag, enabled],
   );
 
   const handleResizePointerDown = useCallback(
@@ -521,15 +638,17 @@ export function useMiniPlayerDrag(sessionKey: string) {
         /* ignore */
       }
       setIsSnapping(true);
-      if (tuckRef.current !== "none") {
+      if (tuckRef.current !== "none" && !snapCornersRef.current) {
         setPosition(visPosition(0, positionRef.current.y, width, height, tuckRef.current));
       } else {
+        setTuck("none");
         setPosition(
           settlePositionAfterGesture(
             positionRef.current.x,
             positionRef.current.y,
             width,
             height,
+            snapCornersRef.current && !lockTopAnchorRef.current,
           ),
         );
       }
@@ -559,9 +678,4 @@ export function useMiniPlayerDrag(sessionKey: string) {
     clampIntoView,
     setLockTopAnchor,
   };
-}
-
-function clampY(y: number, elHeight: number) {
-  const maxY = window.innerHeight - elHeight - PADDING - bottomReservedPx();
-  return Math.max(PADDING, Math.min(maxY, y));
 }

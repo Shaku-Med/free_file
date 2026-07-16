@@ -1,16 +1,16 @@
 {
-  "id": "org.brozy.memories.tv",
-  "version": "1.0.2",
-  "vendor": "Brozy",
-  "type": "web",
-  "main": "index.html",
+  "id": "com.brozy.memories",
   "title": "Memories",
+  "main": "index.html",
   "icon": "icon.png",
   "largeIcon": "largeIcon.png",
+  "type": "web",
+  "vendor": "Brozy",
+  "version": "1.0.0",
+  "appDescription": "Memories for LG webOS",
+  "resolution": "1920x1080",
   "bgColor": "#0f1115",
   "iconColor": "#0f1115",
-  "resolution": "1920x1080",
   "disableBackHistoryAPI": false,
-  "handlesRelaunch": true,
-  "inspectable": true
+  "handlesRelaunch": true
 }

@@ -1,29 +1,67 @@
 import { useEffect, useLayoutEffect, useState, useCallback, useRef } from "react";
-import { flushSync } from "react-dom";
+import { createPortal, flushSync } from "react-dom";
 import { useLocation, useNavigate } from "react-router";
-import { createPortal } from "react-dom";
 import { motion } from "framer-motion";
-import { X, Maximize2, Loader2, ChevronUp, ChevronDown } from "lucide-react";
+import { useFileContext } from "~/lib/Context/Context";
+import { fileAccentColors } from "~/components/components/hlsplayer/visualizerPalette";
+import { Switch } from "~/components/ui/switch";
+import { ListVideo, X, ChevronUp, ChevronDown } from "lucide-react";
 import { useMiniPlayerContext, isReelPath } from "~/lib/Context/MiniPlayerContext";
 import { useWatchSurfaceVideoRef } from "~/lib/Context/WatchSurfaceVideoRefContext";
 import { useMainPlayerSlot } from "~/lib/Context/MainPlayerSlotContext";
 import { displayMediaTitle } from "~/lib/utils";
 import { cn } from "~/lib/utils";
-import { useMiniPlayerDrag } from "./useMiniPlayerDrag";
+import { useMiniPlayerDrag, SNAP_TRANSITION_MS, SNAP_EASING } from "./useMiniPlayerDrag";
+import { useMiniMobileBar } from "./miniMobileBar";
+import { setMiniPlayerMobileBarDragLock } from "./miniPlayerDragBridge";
 import { Tooltip, TooltipContent, TooltipTrigger } from "~/components/ui/tooltip";
+import { Popover, PopoverContent, PopoverTrigger } from "~/components/ui/popover";
 import Ambience from "~/components/accessories/CanvasGradient/Ambience";
 import MiniPlayerQueue from "./MiniPlayerQueue";
 import type { FileType } from "~/lib/types";
 
 type QueueCacheEntry = { items: FileType[] };
 
-const MINI_HEADER_H = 36;
-const MINI_FOOTER_H = 52;
+const MINI_HEADER_H = 0;
+const MINI_FOOTER_H = 56;
+/** Auto-next row shown above the queue when expanded. */
+const MINI_AUTO_NEXT_H = 56;
 const MINI_QUEUE_HEADER_H = 30;
 const MINI_QUEUE_ROW_H = 72;
-const MINI_VIEWPORT_PAD = 12;
-/** Below this viewport height, opening the queue fills the screen. */
-const SHORT_VIEWPORT_H = 540;
+const MINI_VIEWPORT_PAD = 16;
+/** Fixed music-bar row height (seek sits on the top edge inside the docked player). */
+const MOBILE_BAR_H = 72;
+/**
+ * Seek hover/scrub target. Tall enough to grab for thumbnail preview; the
+ * visible track stays at the top while frost may cover the lower hit band
+ * (frost is pointer-events-none).
+ */
+const MOBILE_SEEK_HIT_H = 28;
+/** Clear band so the 2px track isn’t painted under the frosted wash. */
+const MOBILE_SEEK_TRACK_CLEAR = 8;
+/** Video thumb size inside the music bar. */
+const MOBILE_THUMB_W = 88;
+const MOBILE_THUMB_H = 56;
+const MINI_AUTO_NEXT_KEY = "mini-auto-next";
+
+function readMiniAutoNext(fallback: boolean): boolean {
+  try {
+    const v = localStorage.getItem(MINI_AUTO_NEXT_KEY);
+    if (v === "0") return false;
+    if (v === "1") return true;
+  } catch {
+    /* ignore */
+  }
+  return fallback;
+}
+
+function writeMiniAutoNext(v: boolean) {
+  try {
+    localStorage.setItem(MINI_AUTO_NEXT_KEY, v ? "1" : "0");
+  } catch {
+    /* ignore */
+  }
+}
 
 function bottomReservedPx(): number {
   if (typeof window === "undefined") return 0;
@@ -36,20 +74,42 @@ function filterMiniQueueItems(list: FileType[], currentUniqueId: string): FileTy
   return list.filter((f) => f && f.unique_id && f.unique_id !== currentUniqueId && !f.is_reel);
 }
 
+/** Owner label for mini chrome (nested owner or flat API fields). */
+function miniOwnerName(file: FileType): string | null {
+  const nested = file.owner?.username?.trim();
+  if (nested) return nested;
+  const flat = (file as { owner_username?: string | null }).owner_username?.trim();
+  return flat || null;
+}
+
+/** Soft music-bar accent (file palette hex). */
+function miniBarAccent(colors: unknown): string | undefined {
+  return fileAccentColors(colors)[0];
+}
+
 function MiniPlayerContent() {
   const {
     miniPlayer,
-    closeMiniPlayer,
     containerRef,
     setContainerReady,
-    isExpanding,
-    startExpand,
     activateMiniPlayer,
+    closeMiniPlayer,
+    startExpand,
+    isExpanding,
   } = useMiniPlayerContext();
   const { setMiniSlot } = useMainPlayerSlot();
   const watchVideoRef = useWatchSurfaceVideoRef();
   const navigate = useNavigate();
+  const isMobileBar = useMiniMobileBar();
+  const { playerSettings } = useFileContext();
+  const globalAutoPlay = playerSettings?.autoPlay ?? false;
+  const [miniAutoNext, setMiniAutoNextState] = useState(() => readMiniAutoNext(globalAutoPlay));
   const sessionKey = miniPlayer?.file.unique_id ?? "";
+
+  const setMiniAutoNext = useCallback((v: boolean) => {
+    setMiniAutoNextState(v);
+    writeMiniAutoNext(v);
+  }, []);
   const {
     elementRef,
     position,
@@ -64,14 +124,16 @@ function MiniPlayerContent() {
     handleResizePointerUp,
     clampIntoView,
     setLockTopAnchor,
-  } = useMiniPlayerDrag(sessionKey);
+  } = useMiniPlayerDrag(sessionKey, !isMobileBar);
   const [closing, setClosing] = useState(false);
   const [expanded, setExpanded] = useState(false);
+  const [queueOpen, setQueueOpen] = useState(false);
   const queueCacheRef = useRef<Map<string, QueueCacheEntry>>(new Map());
   const queueFetchGenRef = useRef(0);
   const [queueItems, setQueueItems] = useState<FileType[]>([]);
   const [queueLoading, setQueueLoading] = useState(false);
   const seedDbId = String(miniPlayer?.file.id ?? "");
+  const mobileBarRef = useRef<HTMLDivElement | null>(null);
 
   const loadMiniQueue = useCallback(async (fileDbId: string, uniqueId: string, force = false) => {
     if (!fileDbId) return;
@@ -104,7 +166,6 @@ function MiniPlayerContent() {
     }
   }, []);
 
-  // Show cached rows immediately when the mini session changes.
   useEffect(() => {
     if (!seedDbId) {
       setQueueItems([]);
@@ -116,17 +177,56 @@ function MiniPlayerContent() {
     setQueueLoading(false);
   }, [seedDbId]);
 
-  // Fetch once the first time the caret opens for this video (cached after that).
+  // Desktop caret expand OR mobile popover open → fetch queue.
   useEffect(() => {
-    if (!expanded || !seedDbId || !miniPlayer) return;
+    const needQueue = isMobileBar ? queueOpen : expanded;
+    if (!needQueue || !seedDbId || !miniPlayer) return;
     void loadMiniQueue(seedDbId, miniPlayer.file.unique_id);
-  }, [expanded, seedDbId, miniPlayer, loadMiniQueue]);
+  }, [expanded, queueOpen, isMobileBar, seedDbId, miniPlayer, loadMiniQueue]);
 
-  // Collapse the queue whenever a new mini session starts.
-  useEffect(() => setExpanded(false), [sessionKey]);
+  useEffect(() => {
+    setExpanded(false);
+    setQueueOpen(false);
+  }, [sessionKey]);
 
-  // Follow the video's real shape: seed from the upload metadata (instant, no
-  // 16:9 flash) and refine from the element once it knows its dimensions.
+  // Prefer explicit localStorage choice; otherwise follow global autoplay when a session starts.
+  useEffect(() => {
+    try {
+      if (localStorage.getItem(MINI_AUTO_NEXT_KEY) == null) {
+        setMiniAutoNextState(globalAutoPlay);
+      }
+    } catch {
+      setMiniAutoNextState(globalAutoPlay);
+    }
+  }, [sessionKey, globalAutoPlay]);
+
+  // Prefetch up-next so auto-next and the popover are ready.
+  useEffect(() => {
+    if (!seedDbId || !miniPlayer) return;
+    void loadMiniQueue(seedDbId, miniPlayer.file.unique_id);
+  }, [seedDbId, miniPlayer, loadMiniQueue]);
+
+  // Mobile bar never drags; unlock when leaving bar mode (separate flag from VR).
+  useEffect(() => {
+    setMiniPlayerMobileBarDragLock(isMobileBar);
+    return () => setMiniPlayerMobileBarDragLock(false);
+  }, [isMobileBar]);
+
+  // Publish bar height for toasts / floats stacked above nav + mini.
+  useEffect(() => {
+    const root = document.documentElement;
+    if (!isMobileBar || !miniPlayer) {
+      root.style.removeProperty("--app-mini-player-h");
+      return;
+    }
+    const el = mobileBarRef.current;
+    if (el) root.style.setProperty("--app-mini-player-h", `${el.offsetHeight}px`);
+    else root.style.setProperty("--app-mini-player-h", `${MOBILE_BAR_H}px`);
+    return () => {
+      root.style.removeProperty("--app-mini-player-h");
+    };
+  }, [isMobileBar, miniPlayer, queueOpen]);
+
   const [videoAspect, setVideoAspect] = useState<number | null>(null);
   useEffect(() => {
     setVideoAspect(null);
@@ -145,14 +245,8 @@ function MiniPlayerContent() {
     return () => v.removeEventListener("loadedmetadata", apply);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionKey, watchVideoRef]);
-  // Clamp so a portrait mini stays hand-sized (height <= 1.6x width) and an
-  // ultra-wide one doesn't collapse into a sliver.
   const shellAspect = Math.min(Math.max(videoAspect ?? 16 / 9, 0.625), 2.4);
 
-  // Viewport height cap: the whole mini (chrome included) may never exceed
-  // ~52% of the screen. Without this a 9:16 video at phone width becomes a
-  // near-fullscreen "mini" player. The width shrinks to satisfy the cap, so
-  // portrait videos render as a slim column, like YouTube's portrait mini.
   const MINI_CHROME_H = MINI_HEADER_H + MINI_FOOTER_H;
   const [viewportH, setViewportH] = useState<number>(() =>
     typeof window === "undefined" ? 800 : window.innerHeight,
@@ -171,90 +265,69 @@ function MiniPlayerContent() {
   const maxShellH = Math.max(160, Math.floor(viewportH * 0.52) - MINI_CHROME_H);
   const displayWidth = Math.min(frameWidth, Math.max(180, Math.floor(maxShellH * shellAspect)));
 
-  const estimatedQueueBody =
-    MINI_QUEUE_HEADER_H +
-    MINI_QUEUE_ROW_H +
-    queueItems.length * MINI_QUEUE_ROW_H +
-    (queueLoading ? 44 : queueItems.length === 0 ? 28 : 8);
-
-  const collapsedVideoH = Math.min(displayWidth / shellAspect, maxShellH);
-  const collapsedTotalH = MINI_CHROME_H + collapsedVideoH;
+  const expandedChromeH = MINI_CHROME_H + MINI_AUTO_NEXT_H;
+  /** Nearly full viewport — expanded queue always grows to this. */
   const fullPanelH = Math.max(
     280,
     viewportH - MINI_VIEWPORT_PAD * 2 - bottomReservedPx(),
   );
 
-  // Docked near the bottom (or short viewport): open queue → full HEIGHT, same WIDTH.
-  const nearBottom =
-    position.y + collapsedTotalH >= viewportH - bottomReservedPx() - MINI_VIEWPORT_PAD - 32;
-  const queueFullHeight = expanded && (nearBottom || viewportH < SHORT_VIEWPORT_H);
-
-  const growAvailableH = Math.max(
-    180,
-    viewportH - position.y - MINI_VIEWPORT_PAD - bottomReservedPx(),
-  );
-
   const layoutW = displayWidth;
   const naturalVideoH = Math.min(layoutW / shellAspect, maxShellH);
 
+  // Expanded = always fill viewport height (grow all the way up). Collapsed keeps natural size.
+  const queueExpanded = !isMobileBar && expanded;
   let queueMaxH = 0;
-  let videoH = Math.max(96, Math.min(naturalVideoH, growAvailableH - MINI_CHROME_H));
+  let videoH = Math.max(96, naturalVideoH);
   let shellLeft = position.x;
   let shellTop = position.y;
   const shellWidth = displayWidth;
+  let layoutAvailableH = fullPanelH;
 
-  if (expanded) {
-    if (queueFullHeight) {
-      const layoutAvailableH = fullPanelH;
-      videoH = Math.max(140, Math.min(naturalVideoH, Math.floor(fullPanelH * 0.42)));
-      queueMaxH = Math.max(120, layoutAvailableH - MINI_CHROME_H - videoH);
-      shellLeft = Math.max(
-        MINI_VIEWPORT_PAD,
-        Math.min(position.x, viewportW - displayWidth - MINI_VIEWPORT_PAD),
-      );
-      // Grow upward from the bottom edge — width unchanged.
-      shellTop = viewportH - layoutAvailableH - MINI_VIEWPORT_PAD - bottomReservedPx();
-    } else {
-      const layoutAvailableH = growAvailableH;
-      videoH = naturalVideoH;
-      queueMaxH = Math.min(
-        Math.max(120, estimatedQueueBody),
-        Math.max(108, layoutAvailableH - MINI_CHROME_H - videoH),
-      );
-      if (queueMaxH < 100) {
-        queueMaxH = Math.max(100, Math.floor(layoutAvailableH * 0.34));
-        videoH = Math.max(120, layoutAvailableH - MINI_CHROME_H - queueMaxH);
-      }
-    }
+  if (queueExpanded) {
+    layoutAvailableH = fullPanelH;
+    const minQueue = 180;
+    videoH = Math.max(
+      140,
+      Math.min(naturalVideoH, layoutAvailableH - expandedChromeH - minQueue),
+    );
+    queueMaxH = Math.max(minQueue, layoutAvailableH - expandedChromeH - videoH);
+    shellLeft = Math.max(
+      MINI_VIEWPORT_PAD,
+      Math.min(position.x, viewportW - displayWidth - MINI_VIEWPORT_PAD),
+    );
+    // Pin to top padding so the panel runs full height down to the bottom reserve.
+    shellTop = MINI_VIEWPORT_PAD;
+  } else if (tuck === "none" && !isDragging && !isSnapping) {
+    // Keep the floating shell fully on-screen. Skip while dragging (transform
+    // owns the pose) AND while snapping — the drag hook just computed a settle
+    // target from the element's MEASURED size; re-clamping it here with the
+    // estimate below redirects the animation mid-flight (flash) or lets the
+    // real box hang past the viewport when the estimate runs short.
+    const measuredH = elementRef.current?.offsetHeight ?? 0;
+    const shellH = Math.max(measuredH, videoH + MINI_CHROME_H);
+    const maxLeft = Math.max(MINI_VIEWPORT_PAD, viewportW - shellWidth - MINI_VIEWPORT_PAD);
+    const maxTop = Math.max(
+      MINI_VIEWPORT_PAD,
+      viewportH - shellH - MINI_VIEWPORT_PAD - bottomReservedPx(),
+    );
+    shellLeft = Math.min(maxLeft, Math.max(MINI_VIEWPORT_PAD, position.x));
+    shellTop = Math.min(maxTop, Math.max(MINI_VIEWPORT_PAD, position.y));
   }
 
-  const layoutAvailableH = expanded
-    ? queueFullHeight
-      ? fullPanelH
-      : growAvailableH
-    : growAvailableH;
-
   const toggleQueue = useCallback(() => {
-    const opening = !expanded;
-    const collapsedH = MINI_CHROME_H + Math.min(displayWidth / shellAspect, maxShellH);
-    const atBottom =
-      position.y + collapsedH >= viewportH - bottomReservedPx() - MINI_VIEWPORT_PAD - 32;
-    const willFullHeight = opening && (atBottom || viewportH < SHORT_VIEWPORT_H);
-    // Pin top only when growing downward in place (not full-height expand).
-    setLockTopAnchor(opening && !willFullHeight);
+    // Full-height expand repositions via shellTop — never lock the top edge
+    // (that was shrinking the video when the mini sat near the bottom).
+    setLockTopAnchor(false);
     setExpanded((v) => !v);
-    window.setTimeout(() => setLockTopAnchor(false), 450);
-  }, [expanded, viewportH, displayWidth, shellAspect, maxShellH, position.y, setLockTopAnchor]);
+  }, [setLockTopAnchor]);
 
-  // Grow-down mode only: nudge up if the taller shell clips off-screen.
   useEffect(() => {
-    if (!expanded || queueFullHeight) return;
+    if (isMobileBar || !expanded) return;
     const t = window.setTimeout(() => clampIntoView(), 150);
     return () => window.clearTimeout(t);
-  }, [expanded, queueFullHeight, viewportH, viewportW, queueItems.length, queueLoading, clampIntoView]);
+  }, [isMobileBar, expanded, viewportH, viewportW, queueItems.length, queueLoading, clampIntoView]);
 
-  // Ambient glow around the mini, honoring the SAME player setting as the watch
-  // page (player-ambient-mode cookie). Re-read per mini session.
   const [ambientOn, setAmbientOn] = useState(false);
   useEffect(() => {
     try {
@@ -284,35 +357,6 @@ function MiniPlayerContent() {
 
   useEffect(() => () => setMiniSlot(null), [setMiniSlot]);
 
-  const handleClose = useCallback(() => {
-    setClosing(true);
-    setTimeout(() => {
-      closeMiniPlayer();
-      setClosing(false);
-    }, 200);
-  }, [closeMiniPlayer]);
-
-  const handleExpand = useCallback(() => {
-    if (!miniPlayer || isExpanding) return;
-    const video = watchVideoRef.current;
-    flushSync(() => {
-      startExpand({
-        fileId: miniPlayer.file.unique_id,
-        currentTime: video?.currentTime ?? miniPlayer.currentTime ?? 0,
-        volume: video?.volume ?? miniPlayer.volume ?? 1,
-        muted: video?.muted ?? miniPlayer.muted ?? false,
-        playbackRate: video?.playbackRate ?? miniPlayer.playbackRate ?? 1,
-        wasPlaying: video ? !video.paused : (miniPlayer.wasPlaying ?? false),
-      });
-    });
-    navigate(`/${miniPlayer.file.unique_id}`);
-  }, [miniPlayer, isExpanding, startExpand, navigate, watchVideoRef]);
-
-  // Play a queue item IN the mini (no navigation). The playback URL is minted
-  // server-side by /api/play/mint  same-origin + X-Requested-With + access
-  // check + IP/UA/nonce binding  so the client never builds a URL and a
-  // guessed id can't mint a file the viewer can't see. Swapping miniPlayer.file
-  // makes GlobalAnchoredHLSPlayer re-mint + load it seamlessly.
   const [queueBusyId, setQueueBusyId] = useState<string | null>(null);
   const handlePlayInMini = useCallback(
     async (f: FileType) => {
@@ -330,10 +374,10 @@ function MiniPlayerContent() {
         const src = body?.url;
         if (!src) return;
         activateMiniPlayer({ src, file: f, imageID: uid });
-        // Fresh up-next for the newly playing video next time the caret opens.
         queueCacheRef.current.delete(String(f.id ?? ""));
         setQueueItems([]);
         setExpanded(false);
+        setQueueOpen(false);
       } finally {
         setQueueBusyId(null);
       }
@@ -341,11 +385,211 @@ function MiniPlayerContent() {
     [activateMiniPlayer, queueBusyId],
   );
 
+  // Auto-next inside mini (no navigation) when the toggle is on.
+  const handlePlayInMiniRef = useRef(handlePlayInMini);
+  handlePlayInMiniRef.current = handlePlayInMini;
+  const miniAutoNextRef = useRef(miniAutoNext);
+  miniAutoNextRef.current = miniAutoNext;
+  const queueItemsRef = useRef(queueItems);
+  queueItemsRef.current = queueItems;
+
+  useEffect(() => {
+    if (!miniPlayer) return;
+    const video = watchVideoRef.current;
+    if (!video) return;
+
+    const onEnded = () => {
+      if (!miniAutoNextRef.current) return;
+      const playNext = (items: FileType[]) => {
+        const next = items[0];
+        if (next) void handlePlayInMiniRef.current(next);
+      };
+      const cached = queueItemsRef.current;
+      if (cached.length > 0) {
+        playNext(cached);
+        return;
+      }
+      const dbId = String(miniPlayer.file.id ?? "");
+      const uid = miniPlayer.file.unique_id;
+      if (!dbId || !uid) return;
+      void loadMiniQueue(dbId, uid, true).then(() => {
+        const items = queueCacheRef.current.get(dbId)?.items ?? [];
+        playNext(items);
+      });
+    };
+
+    video.addEventListener("ended", onEnded);
+    return () => video.removeEventListener("ended", onEnded);
+  }, [miniPlayer, watchVideoRef, loadMiniQueue, sessionKey]);
+
+  const expandToWatch = useCallback(() => {
+    if (!miniPlayer || isExpanding) return;
+    const video = watchVideoRef.current;
+    flushSync(() => {
+      startExpand({
+        fileId: miniPlayer.file.unique_id,
+        currentTime: video?.currentTime ?? miniPlayer.currentTime ?? 0,
+        volume: video?.volume ?? miniPlayer.volume ?? 1,
+        muted: video?.muted ?? miniPlayer.muted ?? false,
+        playbackRate: video?.playbackRate ?? miniPlayer.playbackRate ?? 1,
+        wasPlaying: video ? !video.paused : (miniPlayer.wasPlaying ?? false),
+      });
+    });
+    navigate(`/${miniPlayer.file.unique_id}`);
+  }, [miniPlayer, isExpanding, watchVideoRef, startExpand, navigate]);
+
+  const handleClose = useCallback(() => {
+    setClosing(true);
+    window.setTimeout(() => closeMiniPlayer(), 180);
+  }, [closeMiniPlayer]);
+
   if (!miniPlayer) return null;
 
   const title = displayMediaTitle(miniPlayer.file.file_title || miniPlayer.file.filename || "");
   const titleStr = typeof title === "string" ? title : (title as string[]).join("");
+  const ownerName = miniOwnerName(miniPlayer.file);
+  const barAccent = miniBarAccent((miniPlayer.file as { colors?: unknown }).colors);
+  /** Mobile bar: translucent tint so page blur shows through. */
+  const mobileFrostBg = barAccent
+    ? `color-mix(in srgb, ${barAccent} 22%, transparent)`
+    : "color-mix(in srgb, var(--card) 42%, transparent)";
+  /** Desktop floating mini: solid tint (no translucent opacity). */
+  const desktopSolidBg = barAccent
+    ? `color-mix(in srgb, ${barAccent} 22%, var(--card))`
+    : undefined;
+  // Match hlsplayer miniSeekOnly thumb: left-2.5, h-14 w-[5.5rem], vertically centered.
+  const thumbLeft = 10;
+  const thumbTop = Math.round((MOBILE_BAR_H - MOBILE_THUMB_H) / 2);
+  // Frost starts just under the visible track; seek HIT extends lower for easy hover.
+  const frostTop = MOBILE_SEEK_TRACK_CLEAR;
+  const thumbTopRel = Math.max(0, thumbTop - frostTop);
+  const thumbBotRel = thumbTop + MOBILE_THUMB_H - frostTop;
+  const thumbClip = `polygon(evenodd, 0% 0%, 100% 0%, 100% 100%, 0% 100%, 0% 0%, ${thumbLeft}px ${thumbTopRel}px, ${thumbLeft + MOBILE_THUMB_W}px ${thumbTopRel}px, ${thumbLeft + MOBILE_THUMB_W}px ${thumbBotRel}px, ${thumbLeft}px ${thumbBotRel}px)`;
+  const contentH = MOBILE_BAR_H - MOBILE_SEEK_HIT_H;
+  const thumbBtnH = Math.min(MOBILE_THUMB_H, contentH - 4);
 
+  // ── Mobile music bar (≤700px) ──────────────────────────────────────────
+  if (isMobileBar) {
+    return (
+      <div
+        ref={mobileBarRef}
+        data-mini-player
+        data-mini-mobile-bar=""
+        className={cn(
+          // pointer-events-none so the docked seek hit-area can receive hover;
+          // queue/close/title re-enable pointer events. overflow-visible so
+          // scrub thumbnails aren’t clipped above the bar.
+          "fixed inset-x-0 z-[var(--z-mini-player)] overflow-visible border-t border-border/40 pointer-events-none",
+          closing && "opacity-0 translate-y-2 transition-all duration-200",
+        )}
+        style={{ bottom: "calc(var(--app-bottom-nav-h, 0px) - 1px)" }}
+      >
+        {/* Full-bar dock: player fills this; video thumb + seek laid out inside HLS. */}
+        <div
+          ref={bindVideoShellRef}
+          className={cn(
+            "absolute inset-0 overflow-visible bg-transparent",
+            `mini_player_inner_${miniPlayer.imageID}`,
+          )}
+        />
+
+        {/*
+          Frost under the visible track. Seek HIT is taller and continues under
+          this layer (pointer-events-none) so thumbnail hover is easy.
+        */}
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-x-0 bottom-0 backdrop-blur-xl"
+          style={{
+            top: frostTop,
+            backgroundColor: mobileFrostBg,
+            clipPath: thumbClip,
+          }}
+        />
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-x-0 bottom-0 bg-card/25"
+          style={{ top: frostTop, clipPath: thumbClip }}
+        />
+
+        {/* paddingTop = seek hit height so title/thumb buttons don’t steal hover */}
+        <div
+          className="relative z-10 flex items-center gap-2.5 px-2.5 pointer-events-none"
+          style={{ height: MOBILE_BAR_H, paddingTop: MOBILE_SEEK_HIT_H }}
+        >
+          <button
+            type="button"
+            className="pointer-events-auto shrink-0 rounded-md"
+            style={{ width: MOBILE_THUMB_W, height: thumbBtnH }}
+            aria-label="Open video"
+            onClick={expandToWatch}
+          />
+          <button
+            type="button"
+            className="pointer-events-auto min-w-0 flex-1 py-1 text-left"
+            onClick={expandToWatch}
+          >
+            <p className="truncate text-sm font-semibold leading-snug text-foreground">{titleStr}</p>
+            {ownerName ? (
+              <p className="mt-0.5 truncate text-xs text-muted-foreground">{ownerName}</p>
+            ) : null}
+          </button>
+
+          <Popover open={queueOpen} onOpenChange={setQueueOpen}>
+            <PopoverTrigger asChild>
+              <button
+                type="button"
+                className="pointer-events-auto relative z-20 flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:bg-muted/80"
+                aria-label="Up next"
+                aria-expanded={queueOpen}
+              >
+                <ListVideo className="h-4 w-4" />
+              </button>
+            </PopoverTrigger>
+            <PopoverContent
+              side="top"
+              align="end"
+              sideOffset={8}
+              className="w-[min(100vw-1.5rem,22rem)] max-h-[min(40vh,24rem)] overflow-hidden p-0"
+            >
+              <div className="flex items-center justify-between gap-3 border-b border-border/60 px-3 py-2.5">
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-foreground">Auto next</p>
+                  <p className="text-[11px] text-muted-foreground">
+                    Play the next video in mini without opening the page
+                  </p>
+                </div>
+                <Switch
+                  checked={miniAutoNext}
+                  onCheckedChange={setMiniAutoNext}
+                  aria-label="Auto next in mini player"
+                />
+              </div>
+              <MiniPlayerQueue
+                current={miniPlayer.file as FileType}
+                items={queueItems}
+                loading={queueLoading}
+                onPlay={handlePlayInMini}
+                busyId={queueBusyId}
+                maxHeight={Math.floor(viewportH * 0.4) - 72}
+              />
+            </PopoverContent>
+          </Popover>
+
+          <button
+            type="button"
+            className="pointer-events-auto relative z-20 flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:bg-muted/80"
+            aria-label="Close mini player"
+            onClick={handleClose}
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Desktop floating mini ──────────────────────────────────────────────
   return (
     <motion.div
       ref={elementRef}
@@ -353,8 +597,9 @@ function MiniPlayerContent() {
       initial={false}
       animate={{ width: shellWidth }}
       transition={
-        isDragging ? { duration: 0 }
-          : { type: "tween", duration: isSnapping ? 0.2 : 0.15, ease: "easeOut" }
+        isDragging
+          ? { duration: 0 }
+          : { type: "tween", duration: isSnapping ? SNAP_TRANSITION_MS / 1000 : 0.15, ease: [0.22, 1, 0.36, 1] }
       }
       className={cn(
         "fixed z-[var(--z-mini-player)] max-w-[calc(100vw-1.5rem)] overflow-visible",
@@ -370,11 +615,11 @@ function MiniPlayerContent() {
         transition: isDragging
           ? "none"
           : isSnapping
-            ? "left 200ms ease-out, top 200ms ease-out, opacity 200ms ease, transform 200ms ease"
+            ? `left ${SNAP_TRANSITION_MS}ms ${SNAP_EASING}, top ${SNAP_TRANSITION_MS}ms ${SNAP_EASING}, opacity ${SNAP_TRANSITION_MS}ms ${SNAP_EASING}`
             : mounted
-              ? "left 180ms ease-out, top 180ms ease-out, opacity 200ms ease, transform 200ms ease"
+              ? `left 220ms ${SNAP_EASING}, top 220ms ${SNAP_EASING}, opacity 200ms ease`
               : "none",
-        willChange: isDragging ? ("left, top") : ("opacity, transform"),
+        willChange: isDragging || isSnapping ? "left, top" : "opacity, transform",
       }}
     >
       {tuck === "right" && (
@@ -386,7 +631,7 @@ function MiniPlayerContent() {
             "absolute left-0 top-1/2 z-[50] -translate-x-[72%] -translate-y-1/2",
             "pointer-events-auto",
             "h-16 w-[15px] cursor-grab touch-none select-none rounded-full active:cursor-grabbing",
-            "border border-white/20 bg-black/55 shadow-md",
+            "border border-border/40 bg-card/90 shadow-md",
           )}
           style={{ isolation: "isolate" }}
           onPointerDown={handlePointerDown}
@@ -401,18 +646,13 @@ function MiniPlayerContent() {
             "absolute right-0 top-1/2 z-[50] translate-x-[72%] -translate-y-1/2",
             "pointer-events-auto",
             "h-16 w-[15px] cursor-grab touch-none select-none rounded-full active:cursor-grabbing",
-            "border border-white/20 bg-black/55 shadow-md",
+            "border border-border/40 bg-card/90 shadow-md",
           )}
           style={{ isolation: "isolate" }}
           onPointerDown={handlePointerDown}
         />
       )}
 
-      {/* Ambient glow: the live video palette feathering out past the card. Only
-          when the player's ambient setting is on, and never while tucked away at
-          a screen edge (a colorful smear poking out looks broken). The blur
-          itself feathers the edges - tiny canvas, sampled at 1fps, so it costs
-          next to nothing even on phones. */}
       {ambientOn && !tuck && !closing && !expanded && (
         <div
           aria-hidden
@@ -424,134 +664,97 @@ function MiniPlayerContent() {
 
       <div
         className={cn(
-          "flex max-h-[inherit] flex-col overflow-hidden rounded-xl border border-border bg-card shadow-lg",
-          queueFullHeight && expanded && "h-full",
-        )}
-        style={{ maxHeight: expanded ? layoutAvailableH : undefined }}
-      >
-        <div
-          className="flex h-9 cursor-grab touch-none select-none items-center border-b border-border/50 bg-card px-1.5 active:cursor-grabbing"
-          onPointerDown={handlePointerDown}
-          aria-label="Drag to move mini player"
-        >
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <span className="inline-flex shrink-0">
-              <button
-                type="button"
-                onPointerDown={(e) => e.stopPropagation()}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  handleExpand();
-                }}
-                disabled={isExpanding}
-                className={cn(
-                  "relative flex h-8 w-8 shrink-0 items-center justify-center rounded-full transition-colors touch-manipulation",
-                  isExpanding
-                    ? "cursor-wait text-muted-foreground"
-                    : "text-muted-foreground hover:bg-muted hover:text-foreground active:bg-muted/80",
-                )}
-                aria-label={isExpanding ? "Loading full player..." : "Expand to full player"}
-              >
-                {isExpanding ? (
-                  <Loader2 className="h-[15px] w-[15px] animate-spin" />
-                ) : (
-                  <Maximize2 className="h-[15px] w-[15px]" />
-                )}
-              </button>
-            </span>
-          </TooltipTrigger>
-          <TooltipContent side="top">
-            {isExpanding ? "Waiting for the full player to load…" : "Expand"}
-          </TooltipContent>
-        </Tooltip>
-
-        <div className="flex flex-1 justify-center">
-          <div className="h-[3px] w-8 rounded-full bg-border" />
-        </div>
-
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              type="button"
-              onPointerDown={(e) => e.stopPropagation()}
-              onClick={(e) => {
-                e.stopPropagation();
-                handleClose();
-              }}
-              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:bg-muted/80 touch-manipulation"
-              aria-label="Close mini player"
-            >
-              <X className="h-4 w-4" />
-            </button>
-          </TooltipTrigger>
-          <TooltipContent side="top">Close</TooltipContent>
-        </Tooltip>
-      </div>
-
-      <div
-        ref={bindVideoShellRef}
-        className={cn(
-          "relative w-full shrink-0 overflow-hidden bg-black",
-          `mini_player_inner_${miniPlayer.imageID}`,
+          "relative flex max-h-[inherit] cursor-grab select-none flex-col overflow-hidden rounded-xl border border-border bg-card shadow-lg active:cursor-grabbing",
+          queueExpanded && "h-full",
         )}
         style={{
-          aspectRatio: String(shellAspect),
-          width: "100%",
-          height: videoH,
-          maxHeight: videoH,
+          maxHeight: queueExpanded ? layoutAvailableH : undefined,
+          height: queueExpanded ? layoutAvailableH : undefined,
+          backgroundColor: desktopSolidBg,
         }}
-      />
-
-      <div className="flex shrink-0 items-center gap-1.5 border-t border-border/50 bg-card px-3 py-2">
-        <div className="min-w-0 flex-1">
-          <p className="truncate text-xs font-medium leading-snug text-foreground">{titleStr}</p>
-          {miniPlayer.file.owner?.username && (
-            <p className="mt-0.5 truncate text-[11px] text-muted-foreground">{miniPlayer.file.owner.username}</p>
+        aria-label="Drag to move mini player"
+      >
+        <div
+          ref={bindVideoShellRef}
+          className={cn(
+            "relative z-0 w-full shrink-0 overflow-hidden rounded-t-xl bg-black",
+            `mini_player_inner_${miniPlayer.imageID}`,
           )}
-        </div>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              type="button"
-              onPointerDown={(e) => e.stopPropagation()}
-              onClick={(e) => {
-                e.stopPropagation();
-                toggleQueue();
-              }}
-              className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:bg-muted/80"
-              aria-label={expanded ? "Hide up next" : "Show up next"}
-              aria-expanded={expanded}
-            >
-              {expanded ? <ChevronDown className="h-4 w-4" /> : <ChevronUp className="h-4 w-4" />}
-            </button>
-          </TooltipTrigger>
-          <TooltipContent side="top">{expanded ? "Hide up next" : "Up next"}</TooltipContent>
-        </Tooltip>
-      </div>
-
-      <div className={cn(!expanded && "hidden")}>
-        <MiniPlayerQueue
-          current={miniPlayer.file as FileType}
-          items={queueItems}
-          loading={queueLoading}
-          onPlay={handlePlayInMini}
-          busyId={queueBusyId}
-          maxHeight={queueMaxH}
+          style={{
+            aspectRatio: String(shellAspect),
+            width: "100%",
+            height: videoH,
+            maxHeight: videoH,
+          }}
         />
-      </div>
 
-      <div
-        className="absolute bottom-10 right-2 z-20 h-5 w-5 cursor-nwse-resize touch-none rounded-md border border-border bg-card shadow-sm hover:bg-muted"
-        onPointerDown={handleResizePointerDown}
-        onPointerMove={handleResizePointerMove}
-        onPointerUp={handleResizePointerUp}
-        onPointerCancel={handleResizePointerUp}
-        aria-label="Resize mini player"
-        role="slider"
-        aria-valuemin={260}
-        aria-valuemax={520}
-      />
+        <div className="relative z-10 flex shrink-0 items-center gap-2 px-3 py-2.5">
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-sm font-semibold leading-snug text-foreground">{titleStr}</p>
+            {ownerName ? (
+              <p className="mt-0.5 truncate text-xs text-muted-foreground">{ownerName}</p>
+            ) : null}
+          </div>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                data-mini-no-drag
+                onClick={(e) => {
+                  e.stopPropagation();
+                  toggleQueue();
+                }}
+                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:bg-muted/80"
+                aria-label={expanded ? "Hide up next" : "Show up next"}
+                aria-expanded={expanded}
+              >
+                {expanded ? <ChevronDown className="h-4 w-4" /> : <ChevronUp className="h-4 w-4" />}
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="top">{expanded ? "Hide up next" : "Up next"}</TooltipContent>
+          </Tooltip>
+        </div>
+
+        <div
+          className={cn("relative z-10 min-h-0 flex-1", !expanded && "hidden")}
+          data-mini-no-drag
+        >
+          <div className="flex items-center justify-between gap-3 border-t border-border/50 px-3 py-2">
+            <div className="min-w-0">
+              <p className="text-sm font-medium text-foreground">Auto next</p>
+              <p className="text-[11px] text-muted-foreground">Stay in mini when the video ends</p>
+            </div>
+            <Switch
+              checked={miniAutoNext}
+              onCheckedChange={setMiniAutoNext}
+              aria-label="Auto next in mini player"
+            />
+          </div>
+          <MiniPlayerQueue
+            current={miniPlayer.file as FileType}
+            items={queueItems}
+            loading={queueLoading}
+            onPlay={handlePlayInMini}
+            busyId={queueBusyId}
+            maxHeight={queueMaxH}
+          />
+        </div>
+
+        <div
+          data-mini-resize
+          className="absolute bottom-1 right-1 z-20 h-4 w-4 cursor-nwse-resize touch-none rounded-sm opacity-50 hover:opacity-100"
+          onPointerDown={(e) => {
+            e.stopPropagation();
+            handleResizePointerDown(e);
+          }}
+          onPointerMove={handleResizePointerMove}
+          onPointerUp={handleResizePointerUp}
+          onPointerCancel={handleResizePointerUp}
+          aria-label="Resize mini player"
+          role="slider"
+          aria-valuemin={260}
+          aria-valuemax={520}
+        />
       </div>
     </motion.div>
   );

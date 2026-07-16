@@ -15,6 +15,8 @@ import { cn } from "~/lib/utils";
 import { usePlaybackUrl } from "~/lib/hooks/usePlaybackUrl";
 import { resolvePlaybackSrc, playbackUrlMatchesFile } from "~/lib/playbackUrlCache";
 import type { FileType } from "~/lib/types";
+import { dispatchMiniPlayerDrag } from "~/components/MiniPlayer/miniPlayerDragBridge";
+import { useMiniMobileBar } from "~/components/MiniPlayer/miniMobileBar";
 
 const MAIN_ANCHOR_Z = 99_999_995;
 /** One step above mini chrome (`z-[2147483646]`) so video paints on top of the slot, not behind it. */
@@ -61,6 +63,7 @@ export function GlobalAnchoredHLSPlayer() {
   const { userId, playerSettings } = useFileContext();
   const playerBackground = playerSettings?.playerBackground !== false;
   const navigate = useNavigate();
+  const isMiniMobileBar = useMiniMobileBar();
   // Mini-player gets its own JIT-minted, IP+UA-bound URL. The watch
   // surface already has one from Dynamic  when the surface clears and
   // mini takes over, this hook re-mints for the same file so playback
@@ -253,17 +256,27 @@ export function GlobalAnchoredHLSPlayer() {
   }
 
   const { props, theaterMode, z } = committedResolved;
+  const miniBarDock = committedResolved.kind === "mini" && isMiniMobileBar;
 
   return createPortal(
     <div
       ref={containerRef}
+      data-mini-player-dock={committedResolved.kind === "mini" ? "" : undefined}
       className={cn(
-        "pointer-events-auto overflow-hidden",
+        // Music bar: let shell chrome receive taps; seek re-enables pointer events.
+        miniBarDock ? "pointer-events-none bg-transparent" : "pointer-events-auto",
+        // Mini seek handle sits on the title divider and must paint into the
+        // footer; watch keeps overflow-hidden for rounded clipping.
+        committedResolved.kind === "mini" ? "overflow-visible" : "overflow-hidden",
         theaterMode
           ? playerBackground
             ? "bg-black"
             : "bg-transparent"
-          : "rounded-lg",
+          : miniBarDock
+            ? "rounded-none"
+            : committedResolved.kind === "mini"
+              ? "rounded-t-xl"
+              : "rounded-lg",
       )}
       style={{
         position: "fixed",
@@ -271,11 +284,22 @@ export function GlobalAnchoredHLSPlayer() {
         left: rect.left,
         width: rect.width,
         height: rect.height,
-        zIndex: z,
-        // Promote to its own compositor layer  scroll won't repaint the
-        // video texture, just re-position the layer. Cheap to keep on.
+        // Music bar chrome sits at --z-mini-player; keep the dock just under it
+        // so queue/close stay clickable while seek still paints full-width on top.
+        zIndex: miniBarDock ? 2147483645 : z,
         willChange: "top, left, width, height",
       }}
+      onPointerDownCapture={
+        committedResolved.kind === "mini" && !miniBarDock
+          ? (e) => {
+              if (e.button !== 0) return;
+              const target = e.target;
+              if (!(target instanceof Element)) return;
+              if (target.closest("[data-mini-no-drag]")) return;
+              dispatchMiniPlayerDrag(e.nativeEvent);
+            }
+          : undefined
+      }
     >
       <DynamicHLSPlayerWithQueue
         key="global-hls-docked-singleton"
