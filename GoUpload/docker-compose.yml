@@ -136,10 +136,13 @@ services:
           cpus: "${GOUPLOAD_CPUS:-2.5}"
           memory: ${GOUPLOAD_MEM:-4G}
     healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3003/health"]
+      # 127.0.0.1, not localhost: Fiber binds IPv4 only and Alpine resolves
+      # localhost to ::1 first, so the probe was refused since day one.
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:3003/health"]
       interval: 30s
       timeout: 5s
       retries: 3
+      start_period: 30s
 
   # CDN-style playback service. Separate binary from `goupload` (same
   # `go.mod`, different `main` package), separate Dockerfile, separate
@@ -170,10 +173,13 @@ services:
           cpus: "${LOADPLAY_CPUS:-0.4}"
           memory: ${LOADPLAY_MEM:-256M}
     healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3006/health"]
+      # 127.0.0.1, not localhost: Fiber binds IPv4 only and Alpine resolves
+      # localhost to ::1 first, so the probe was refused since day one.
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:3006/health"]
       interval: 30s
       timeout: 5s
       retries: 3
+      start_period: 30s
 
 networks:
   goupload-net:
