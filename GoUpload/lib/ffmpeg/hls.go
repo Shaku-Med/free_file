@@ -2,10 +2,13 @@ package ffmpeg
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -246,21 +249,89 @@ func isRetriableTranscodeError(err error) bool {
 		strings.Contains(s, "i/o error")
 }
 
+// envUint64 shared by the mem governor (linux) and the retry gates here.
+func envUint64(key string, def uint64) uint64 {
+	s := os.Getenv(key)
+	if s == "" {
+		return def
+	}
+	n, err := strconv.ParseUint(s, 10, 64)
+	if err != nil {
+		return def
+	}
+	return n
+}
+
+// memoryTight reports whether MemAvailable sits under the governor's resume
+// threshold. Platforms without /proc/meminfo always report false.
+func memoryTight() bool {
+	avail, ok := MemAvailableMB()
+	return ok && avail < envUint64("GOUpload_HLS_MEM_RESUME_MB", 700)
+}
+
+// waitForMemoryMB blocks (up to maxWait) until MemAvailable reaches minMB, so
+// a retry starts on a box that actually recovered instead of a blind sleep.
+// No-op where meminfo is unavailable.
+func waitForMemoryMB(minMB uint64, maxWait time.Duration) {
+	if minMB == 0 {
+		return
+	}
+	deadline := time.Now().Add(maxWait)
+	for {
+		avail, ok := MemAvailableMB()
+		if !ok || avail >= minMB || time.Now().After(deadline) {
+			return
+		}
+		time.Sleep(5 * time.Second)
+	}
+}
+
+// isMemoryPressureExit treats process-level deaths as retriable when the box
+// is (or was just) short on memory: the OOM killer SIGKILLs ffmpeg outright,
+// and severe pressure poisons encodes into arbitrary nonzero exits (the
+// exit-254-at-91%-memory failures). Deterministic bad-input errors on a
+// healthy box still fail fast through the normal path.
+func isMemoryPressureExit(err error) bool {
+	if err == nil {
+		return false
+	}
+	s := strings.ToLower(err.Error())
+	if strings.Contains(s, "signal: killed") || strings.Contains(s, "exit status 137") {
+		return true
+	}
+	var exitErr *exec.ExitError
+	return errors.As(err, &exitErr) && memoryTight()
+}
+
 func runTierConversionWithRetries(inputPath, m3u8Path, segmentPattern string, opts HLSOptions, tier QualityTier, useGPU bool, hasAudio bool) (*HLSResult, error) {
 	const maxAttempts = 3
+	pauseMB := envUint64("GOUpload_HLS_MEM_PAUSE_MB", 400)
+	resumeMB := envUint64("GOUpload_HLS_MEM_RESUME_MB", 700)
+	retryWait := time.Duration(env.GetInt64("GOUpload_HLS_MEM_RETRY_WAIT_SEC", 240)) * time.Second
+	if retryWait < 30*time.Second {
+		retryWait = 30 * time.Second
+	}
+
 	var lastErr error
 	for attempt := 0; attempt < maxAttempts; attempt++ {
 		if attempt > 0 {
-			time.Sleep(45 * time.Second)
+			// Let the box breathe: wait for memory to actually recover before
+			// retrying, bounded so a permanently starved box still errors out.
+			time.Sleep(10 * time.Second)
+			waitForMemoryMB(resumeMB, retryWait)
+		} else {
+			// Don't start an encode that's doomed from the first frame.
+			waitForMemoryMB(pauseMB, 90*time.Second)
 		}
 		r, err := runTierConversion(inputPath, m3u8Path, segmentPattern, opts, tier, useGPU, hasAudio)
 		if err == nil {
 			return r, nil
 		}
 		lastErr = err
-		if !isRetriableTranscodeError(err) {
+		if !isRetriableTranscodeError(err) && !isMemoryPressureExit(err) {
 			return nil, err
 		}
+		log.Printf("[hls] tier %s attempt %d/%d failed under pressure, will retry: %v", tier.Name, attempt+1, maxAttempts, err)
 	}
 	return nil, lastErr
 }
