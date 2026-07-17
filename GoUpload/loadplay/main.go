@@ -64,6 +64,8 @@ func parseDurationEnv(key string, fallback time.Duration) time.Duration {
 //   REQUIRE_FINGERPRINT     "1" to enforce IP/UA binding (default off until app side starts emitting it)
 //   BLOCK_TOOL_UA           "1" to reject curl/Postman/etc by UA string
 //   PLAYBACK_DEBUG          "1" to log every successful origin/referer check too
+//   PLAYBACK_SEGMENT_MAX_AGE_SEC  browser-private cache TTL for media segments
+//                           (default 900; 0 = old always-no-store behavior)
 func main() {
 	lg := logger.New(2048)
 	handler.SetBuildVersion(buildVersion)

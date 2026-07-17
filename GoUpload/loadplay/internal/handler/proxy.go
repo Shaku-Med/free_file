@@ -107,7 +107,7 @@ func fetchStorageObject(
 // in-memory bytes. No Content-Disposition: a .ts opened in a standalone tab
 // triggers download, and those requests are already 403'd before reaching here.
 func sendStorageBytes(c *fiber.Ctx, deps ManifestDeps, relPath string, data []byte) error {
-	setPlaybackResponseHeaders(c, deps)
+	setSegmentResponseHeaders(c, deps)
 	c.Set("Content-Type", mediaContentType(relPath))
 	c.Set("Accept-Ranges", "bytes")
 

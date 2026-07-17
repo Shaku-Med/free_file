@@ -3,11 +3,13 @@ package handler
 import (
 	"fmt"
 	"strings"
+	"sync"
 
 	"github.com/gofiber/fiber/v2"
 
-	"goupload/loadplay/internal/guard"
+	"goupload/lib/env"
 	"goupload/lib/logger"
+	"goupload/loadplay/internal/guard"
 )
 
 type playbackContextResult struct {
@@ -110,15 +112,60 @@ func setPlaybackCORS(c *fiber.Ctx, deps ManifestDeps) {
 	}
 }
 
-// setPlaybackResponseHeaders prevents browsers from caching segments/manifests
-// for later standalone replay (paste URL in new tab). Without no-store the
-// player fetch caches bytes and a navigation load can replay them without
-// hitting our origin/referer gate.
+// setPlaybackResponseHeaders prevents browsers from caching MANIFESTS for
+// later standalone replay (paste URL in new tab). Manifests carry the token
+// plumbing and guest preview truncation, so they must revalidate every time.
 func setPlaybackResponseHeaders(c *fiber.Ctx, deps ManifestDeps) {
 	setPlaybackCORS(c, deps)
 	c.Set("Cache-Control", "private, no-store, no-cache, must-revalidate, max-age=0")
 	c.Set("Pragma", "no-cache")
 	c.Set("Expires", "0")
+	c.Set("CDN-Cache-Control", "no-store")
+	c.Set("Vary", "Origin, Referer, Sec-Fetch-Mode, Sec-Fetch-Dest, Sec-Fetch-Site")
+	c.Set("X-Content-Type-Options", "nosniff")
+	c.Set("X-Robots-Tag", "noindex, noarchive, nofollow")
+}
+
+var (
+	segmentMaxAgeOnce sync.Once
+	segmentMaxAgeSec  int64
+)
+
+// segmentMaxAge reads PLAYBACK_SEGMENT_MAX_AGE_SEC once (default 900 = the
+// signed-in token TTL, capped at a day). 0 disables segment caching entirely.
+func segmentMaxAge() int64 {
+	segmentMaxAgeOnce.Do(func() {
+		segmentMaxAgeSec = env.GetInt64("PLAYBACK_SEGMENT_MAX_AGE_SEC", 900)
+		if segmentMaxAgeSec < 0 {
+			segmentMaxAgeSec = 0
+		}
+		if segmentMaxAgeSec > 86400 {
+			segmentMaxAgeSec = 86400
+		}
+	})
+	return segmentMaxAgeSec
+}
+
+// setSegmentResponseHeaders: media segments are immutable per upload, so the
+// browser's own PRIVATE cache may hold them briefly. Swiping back through
+// reels then replays watched segments from local cache instead of
+// re-downloading every byte from us — the single biggest load reduction for
+// short-form scrubbing, and iOS page reloads stop costing full re-fetches.
+//
+// The standalone-replay threat that motivated no-store stays covered:
+//   - Vary includes Sec-Fetch-Dest/Mode/Site, so an address-bar navigation
+//     (dest=document) can never match a cache entry written by the player's
+//     fetch (dest=empty) — it must hit us and dies in the standalone guard.
+//   - `private` + CDN-Cache-Control keep shared caches out entirely; only
+//     the viewer's own browser holds the bytes it was already served.
+func setSegmentResponseHeaders(c *fiber.Ctx, deps ManifestDeps) {
+	maxAge := segmentMaxAge()
+	if maxAge <= 0 {
+		setPlaybackResponseHeaders(c, deps)
+		return
+	}
+	setPlaybackCORS(c, deps)
+	c.Set("Cache-Control", fmt.Sprintf("private, max-age=%d, immutable", maxAge))
 	c.Set("CDN-Cache-Control", "no-store")
 	c.Set("Vary", "Origin, Referer, Sec-Fetch-Mode, Sec-Fetch-Dest, Sec-Fetch-Site")
 	c.Set("X-Content-Type-Options", "nosniff")
