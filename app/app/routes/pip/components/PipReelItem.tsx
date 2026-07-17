@@ -87,6 +87,12 @@ export interface PipReelItemProps {
   startTime?: number;
   /** Keep paused if the main player was paused when PiP opened. */
   startPaused?: boolean;
+  /**
+   * `/reel` page on iOS: one page-owned <video> shared by every slide so
+   * Safari's per-element sound unlock survives swipes. Only the ACTIVE slide
+   * mounts HLS in this mode — two players must never adopt the same element.
+   */
+  sharedVideoEl?: HTMLVideoElement | null;
 }
 
 const noopRetry = () => {};
@@ -115,6 +121,7 @@ function PipReelItemInner({
   onCommentsOpenChange,
   startTime,
   startPaused = false,
+  sharedVideoEl = null,
 }: PipReelItemProps) {
   const { userId, playerSettings } = useFileContext();
   const playerBackground = playerSettings?.playerBackground !== false;
@@ -779,7 +786,11 @@ function PipReelItemInner({
     ? getVideoSrc(file.endpoint ?? '', file.file_type, playbackUrl)
     : undefined;
 
-  const showHls = Boolean(videoSrc) && (variant === 'pip' || loadHlsPlayer);
+  // Shared-element mode: only the active slide may hold the page's one video.
+  const showHls =
+    Boolean(videoSrc) &&
+    (variant === 'pip' || loadHlsPlayer) &&
+    (!sharedVideoEl || isActive);
 
   const posterUrl = useMemo(() => {
     if (!file.created_at || !file.unique_id) return '';
@@ -949,6 +960,7 @@ function PipReelItemInner({
             onPlay={handleVideoPlay}
             onVideoRef={handlePlayerVideoRef}
             callBack={variant === 'page' ? handleReelPosterColorsFromPlayer : undefined}
+            adoptVideoEl={sharedVideoEl ?? undefined}
           />
         </PlayQueueProvider>
       </div>

@@ -138,6 +138,35 @@ export const ReelSwiper = ({
   const [stickyHlsIds, setStickyHlsIds] = useState<string[]>([]);
   const stickyHlsSet = useMemo(() => new Set(stickyHlsIds), [stickyHlsIds]);
 
+  /**
+   * iOS: ONE page-owned <video> adopted by whichever slide is active. Safari
+   * pins its "may play with sound" unlock to the ELEMENT, and per-slide
+   * players remount on every swipe — so each swipe used to restart muted.
+   * With a single element the first tap unlocks sound for the whole session.
+   * Created post-mount (never during SSR/hydration), primed by the first
+   * touch so even the first reel can start with sound.
+   */
+  const [sharedReelVideoEl, setSharedReelVideoEl] = useState<HTMLVideoElement | null>(null);
+  useEffect(() => {
+    if (!isIOS || typeof document === "undefined") return;
+    const v = document.createElement("video");
+    v.playsInline = true;
+    v.setAttribute("playsinline", "");
+    setSharedReelVideoEl(v);
+    const prime = () => {
+      // play() inside a gesture stamps the element's activation even when it
+      // rejects for having no source yet. Harmless everywhere else.
+      const p = v.play();
+      if (p && typeof p.catch === "function") p.catch(() => {});
+      v.pause();
+    };
+    window.addEventListener("touchend", prime, { once: true, passive: true });
+    return () => {
+      window.removeEventListener("touchend", prime);
+      setSharedReelVideoEl(null);
+    };
+  }, []);
+
   // Tell the page which reel is active the moment the index changes, so the
   // global comments panel switches reels without waiting on the video to mount.
   useEffect(() => {
@@ -405,14 +434,20 @@ export const ReelSwiper = ({
                   showChrome={isActive}
                   userActions={userActionsStable}
                   variant="page"
+                  sharedVideoEl={sharedReelVideoEl}
                   loadHlsPlayer={
-                    reelShouldPreloadHls(
-                      slideIndex,
-                      activeIdx,
-                      items.length,
-                      rewindDeck,
-                      isIOS ? HLS_LOOKAHEAD_IOS : HLS_LOOKAHEAD_DEFAULT,
-                    ) || stickyHlsSet.has(String(file.id))
+                    // Shared-element mode: the item itself gates on isActive
+                    // (one element can't be adopted twice), so lookahead and
+                    // sticky mounts are meaningless — neighbors show posters.
+                    sharedReelVideoEl
+                      ? true
+                      : reelShouldPreloadHls(
+                          slideIndex,
+                          activeIdx,
+                          items.length,
+                          rewindDeck,
+                          isIOS ? HLS_LOOKAHEAD_IOS : HLS_LOOKAHEAD_DEFAULT,
+                        ) || stickyHlsSet.has(String(file.id))
                   }
                   onReelPosterColors={onReelPosterColors}
                   onActiveAmbience={onActiveAmbience}

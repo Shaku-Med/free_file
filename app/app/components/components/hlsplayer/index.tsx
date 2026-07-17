@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback, useRef, useMemo } from 'react';
+import React, { useEffect, useLayoutEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { Play, Pause, LoaderCircle, Volume2, VolumeX } from 'lucide-react';
 import { flushSync } from 'react-dom';
 import { useNavigate, useLocation } from 'react-router';
@@ -135,6 +135,16 @@ export interface HLSPlayerProps {
    * single-tap play/pause is delayed ~300ms to disambiguate from double-taps.
    */
   onReelDoubleTapLike?: (point: { x: number; y: number }) => void;
+  /**
+   * Reel single-element mode (iOS): adopt a PAGE-OWNED `<video>` instead of
+   * rendering our own. Safari grants "may play with sound" per ELEMENT on a
+   * user gesture; per-slide reel players remount on every swipe, so each swipe
+   * used to start over muted. Adopting one element across mounts keeps the
+   * unlock from the first tap for the whole session. Only one mounted player
+   * may adopt a given element at a time (the reel page gates on the active
+   * slide).
+   */
+  adoptVideoEl?: HTMLVideoElement | null;
 }
 
 const HLSPlayer: React.FC<HLSPlayerProps> = (props) => (
@@ -197,6 +207,7 @@ function PlayerInner({
   disableKeyboardShortcuts = false,
   reelInfoSlot,
   onReelDoubleTapLike,
+  adoptVideoEl = null,
 }: HLSPlayerProps) {
   const seriesPlayQueue = useMemo(
     () => withoutReels(seriesUpNextVideos),
@@ -285,6 +296,55 @@ function PlayerInner({
   );
 
   const embedReelControls = Boolean(showFeedPlayerControls && isReelCtx);
+
+  /** Host that receives the adopted (page-owned) video element, when provided. */
+  const adoptHostRef = useRef<HTMLDivElement | null>(null);
+
+  // Adopt the page-owned element: mirror the JSX <video> props imperatively,
+  // park it in our host, and hand it to videoRef so every hook downstream
+  // (useHLS, autoplay, captions, audio graph) works unchanged. On unmount the
+  // source is detached so the outgoing reel stops sounding/downloading, but
+  // the ELEMENT survives with its owner — that persistence is the whole point
+  // (Safari keeps its sound unlock on the element, not the component).
+  // Layout effect placed before all other effects so videoRef is set first.
+  useLayoutEffect(() => {
+    const el = adoptVideoEl;
+    const host = adoptHostRef.current;
+    if (!el || !host) return;
+    el.className = cn(
+      'h-full w-full object-contain',
+      isReelCtx && !embedReelControls ? 'pointer-events-none' : '',
+    );
+    el.playsInline = true;
+    el.setAttribute('playsinline', '');
+    el.preload = 'metadata';
+    el.disableRemotePlayback = false;
+    el.setAttribute('x-webkit-airplay', 'allow');
+    if (isReelCtx) {
+      el.disablePictureInPicture = true;
+      el.setAttribute('controlslist', 'nopictureinpicture noremoteplayback');
+    }
+    host.appendChild(el);
+    assignVideoRef(el);
+    return () => {
+      assignVideoRef(null);
+      el.pause();
+      el.removeAttribute('src');
+      try {
+        el.load();
+      } catch {
+        /* ignore */
+      }
+      if (el.parentNode === host) host.removeChild(el);
+    };
+  }, [adoptVideoEl, assignVideoRef, isReelCtx, embedReelControls]);
+
+  // Keep the adopted element's mute/loop in step with player state (the JSX
+  // <video> gets these as attributes; the adopted one needs them mirrored).
+  useLayoutEffect(() => {
+    if (!adoptVideoEl) return;
+    adoptVideoEl.loop = loopEnabled;
+  }, [adoptVideoEl, loopEnabled]);
 
   const effectiveHideControls = useMemo(() => {
     let merged: HideControls | undefined = hideControls;
@@ -1131,25 +1191,36 @@ function PlayerInner({
               )}
             >
               <div className="relative h-full w-full">
-                <video
-                  ref={assignVideoRef}
-                  className={cn(
-                    'h-full w-full',
-                    miniSeekOnly ? 'object-cover' : 'object-contain',
-                    isReelCtx && !embedReelControls ? 'pointer-events-none' : '',
-                  )}
-                  muted={muted}
-                  loop={loopEnabled}
-                  playsInline={playsInline}
-                  preload="metadata"
-                  onClick={miniSeekOnly ? undefined : handleVideoClick}
-                  onDoubleClick={miniSeekOnly ? undefined : handleDoubleClick}
-                  disableRemotePlayback={false}
-                  {...({ 'x-webkit-airplay': 'allow' } as any)}
-                  {...(isReelCtx
-                    ? { disablePictureInPicture: true, controlsList: 'nopictureinpicture noremoteplayback' }
-                    : {})}
-                />
+                {adoptVideoEl ? (
+                  // Adopted element mode: the page-owned <video> is appended
+                  // here by the adoption effect; its clicks bubble to this host.
+                  <div
+                    ref={adoptHostRef}
+                    className="h-full w-full"
+                    onClick={handleVideoClick}
+                    onDoubleClick={handleDoubleClick}
+                  />
+                ) : (
+                  <video
+                    ref={assignVideoRef}
+                    className={cn(
+                      'h-full w-full',
+                      miniSeekOnly ? 'object-cover' : 'object-contain',
+                      isReelCtx && !embedReelControls ? 'pointer-events-none' : '',
+                    )}
+                    muted={muted}
+                    loop={loopEnabled}
+                    playsInline={playsInline}
+                    preload="metadata"
+                    onClick={miniSeekOnly ? undefined : handleVideoClick}
+                    onDoubleClick={miniSeekOnly ? undefined : handleDoubleClick}
+                    disableRemotePlayback={false}
+                    {...({ 'x-webkit-airplay': 'allow' } as any)}
+                    {...(isReelCtx
+                      ? { disablePictureInPicture: true, controlsList: 'nopictureinpicture noremoteplayback' }
+                      : {})}
+                  />
+                )}
                 {!miniSeekOnly && <VideoKickBounce />}
                 {!miniSeekOnly && <VRTheaterOverlay />}
               </div>
