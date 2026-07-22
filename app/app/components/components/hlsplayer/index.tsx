@@ -60,6 +60,7 @@ import { useMiniMobileBar } from '~/components/MiniPlayer/miniMobileBar';
 import { useWatchHlsSurface } from '~/lib/Context/WatchHlsSurfaceContext';
 import { isMobile } from 'react-device-detect';
 import { getVideoSrc, cn } from '~/lib/utils';
+import { windappFullscreenBridge } from '~/lib/hooks/useWindapp';
 import { getSeriesPreviousVideo } from '~/routes/Dynamic/fun/mapSeriesRpcRows';
 import { getSquareMediaSessionArtwork } from '~/lib/utils/mediaSessionSquareArtwork';
 
@@ -1110,6 +1111,13 @@ function PlayerInner({
     [isReelCtx, authPlayback],
   );
 
+  // Desktop app fullscreen: the OS window goes fullscreen (native), and this
+  // container fills it. It's `position: fixed`, so it escapes the anchored
+  // portal wrapper (which has no transform) and covers the whole window —
+  // the browser path uses the HTML5 Fullscreen API instead and never hits this.
+  const inWindappFullscreen =
+    !miniSeekOnly && state.isFullscreen && windappFullscreenBridge() != null;
+
   return (
     <div
       ref={containerRef}
@@ -1122,6 +1130,7 @@ function PlayerInner({
         miniSeekOnly || !playerBackground ? 'bg-transparent' : 'bg-black',
         miniSeekOnly && 'pointer-events-none',
         isReelCtx && 'z-[1]',
+        inWindappFullscreen && 'fixed inset-0 z-[2147483647] !bg-black',
         className,
       )}
       style={{ cursor: showControls || isMiniDock ? 'default' : 'none' }}

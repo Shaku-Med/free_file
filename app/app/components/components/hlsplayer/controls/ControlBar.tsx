@@ -492,7 +492,13 @@ export default function ControlBar({
           <div
             ref={bottomStripRef}
             className="pointer-events-auto absolute bottom-0 left-0 right-0 z-40 flex flex-col px-[var(--hls-ctrl-pad,0.75rem)] pb-[var(--hls-ctrl-pad,0.75rem)] pt-2"
-            style={{ paddingBottom: 'max(var(--hls-ctrl-pad, 0.75rem), env(safe-area-inset-bottom))' }}
+            // Safe-area inset only in real fullscreen (viewport-relative); embedded
+            // players used to get phantom bottom padding that lifted the controls up.
+            style={{
+              paddingBottom: state.isFullscreen
+                ? 'max(var(--hls-ctrl-pad, 0.75rem), env(safe-area-inset-bottom))'
+                : 'var(--hls-ctrl-pad, 0.75rem)',
+            }}
           >
             {!isHidden(hideControls, 'seek') && <SeekBar mobileStyle scaledStyle />}
           </div>
@@ -707,7 +713,14 @@ export default function ControlBar({
         <div
           ref={bottomStripRef}
           className="pointer-events-auto absolute bottom-0 left-0 right-0 z-40 flex flex-col gap-[var(--hls-ctrl-top-gap,0.5rem)] px-[var(--hls-ctrl-pad,0.75rem)] pb-[var(--hls-ctrl-pad,0.75rem)] pt-2"
-          style={{ paddingBottom: 'max(var(--hls-ctrl-pad, 0.75rem), env(safe-area-inset-bottom))' }}
+          // Only honor the home-indicator inset in real fullscreen. env(safe-area-inset-bottom)
+          // is measured from the VIEWPORT, so on an embedded player it added phantom bottom
+          // padding that lifted the controls off the player's bottom edge.
+          style={{
+            paddingBottom: state.isFullscreen
+              ? 'max(var(--hls-ctrl-pad, 0.75rem), env(safe-area-inset-bottom))'
+              : 'var(--hls-ctrl-pad, 0.75rem)',
+          }}
         >
           <div
             className="flex items-center justify-between"

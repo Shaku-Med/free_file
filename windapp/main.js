@@ -214,6 +214,16 @@ function createWindow() {
     }
   });
 
+  // Tell the page whenever the OS window enters/leaves fullscreen so the
+  // player can drive its own chrome (the site uses native window fullscreen
+  // in the desktop app instead of the HTML5 Fullscreen API).
+  mainWindow.on('enter-full-screen', () => {
+    mainWindow?.webContents.send('window:fullscreen-changed', true);
+  });
+  mainWindow.on('leave-full-screen', () => {
+    mainWindow?.webContents.send('window:fullscreen-changed', false);
+  });
+
   mainWindow.on('closed', () => {
     closePipWindow();
     mainWindow = null;
@@ -239,6 +249,15 @@ ipcMain.handle('window:close', (event) => {
 });
 
 ipcMain.handle('window:isMaximized', (event) => windowFromEvent(event)?.isMaximized() ?? false);
+
+ipcMain.handle('window:setFullScreen', (event, on) => {
+  const win = windowFromEvent(event);
+  if (!win) return false;
+  win.setFullScreen(Boolean(on));
+  return win.isFullScreen();
+});
+
+ipcMain.handle('window:isFullScreen', (event) => windowFromEvent(event)?.isFullScreen() ?? false);
 
 ipcMain.handle('desktop:getVersion', () => app.getVersion());
 

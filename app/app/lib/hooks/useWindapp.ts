@@ -14,6 +14,11 @@ declare global {
       maximize?: () => void | Promise<boolean>;
       close?: () => void | Promise<void>;
       isMaximized?: () => Promise<boolean>;
+      /** Native OS window fullscreen (desktop app uses this, not HTML5 fullscreen). */
+      setFullScreen?: (on: boolean) => Promise<boolean>;
+      isFullScreen?: () => Promise<boolean>;
+      /** Fires with the live fullscreen state on enter/leave; returns an unsubscribe. */
+      onFullscreenChange?: (callback: (on: boolean) => void) => () => void;
       goBack?: () => Promise<boolean>;
       goForward?: () => Promise<boolean>;
       reload?: () => Promise<void>;
@@ -68,6 +73,22 @@ export function detectWindapp(): boolean {
   } catch {
     return false;
   }
+}
+
+/**
+ * The desktop app's native window-fullscreen bridge, or null when unavailable
+ * (browser, or an old windapp build without the API). The player uses this
+ * instead of the HTML5 Fullscreen API, which misbehaves in the frameless
+ * Electron window.
+ */
+export function windappFullscreenBridge(): {
+  setFullScreen: (on: boolean) => Promise<boolean>;
+  onFullscreenChange?: (callback: (on: boolean) => void) => () => void;
+} | null {
+  if (typeof window === "undefined") return null;
+  const wa = window.memoriesWindapp;
+  if (!wa?.isDesktop || typeof wa.setFullScreen !== "function") return null;
+  return { setFullScreen: wa.setFullScreen, onFullscreenChange: wa.onFullscreenChange };
 }
 
 /**

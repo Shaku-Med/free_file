@@ -13,6 +13,14 @@ contextBridge.exposeInMainWorld('memoriesWindapp', {
   maximize: () => ipcRenderer.invoke('window:maximize'),
   close: () => ipcRenderer.invoke('window:close'),
   isMaximized: () => ipcRenderer.invoke('window:isMaximized'),
+  setFullScreen: (on) => ipcRenderer.invoke('window:setFullScreen', on),
+  isFullScreen: () => ipcRenderer.invoke('window:isFullScreen'),
+  onFullscreenChange: (callback) => {
+    if (typeof callback !== 'function') return () => {};
+    const handler = (_event, on) => callback(Boolean(on));
+    ipcRenderer.on('window:fullscreen-changed', handler);
+    return () => ipcRenderer.removeListener('window:fullscreen-changed', handler);
+  },
   goBack: () => ipcRenderer.invoke('nav:goBack'),
   goForward: () => ipcRenderer.invoke('nav:goForward'),
   reload: () => ipcRenderer.invoke('nav:reload'),

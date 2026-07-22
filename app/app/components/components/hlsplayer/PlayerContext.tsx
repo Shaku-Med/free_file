@@ -19,6 +19,7 @@ import {
 } from './hooks/useSpatialAudio';
 import { useStableVolume } from './hooks/useStableVolume';
 import { enterPlayerFullscreen, syncNativeVideoControls } from './fullscreenMode';
+import { windappFullscreenBridge } from '~/lib/hooks/useWindapp';
 import { fetchAudioStems, type AudioStems, type StemType } from './audioStems';
 import {
   DEFAULT_STEM_CONFETTI_INSTRUMENTS,
@@ -883,8 +884,20 @@ export function PlayerProvider({
     savePlayerSettings({ quality }).catch(() => {});
   }, [setPlayerSettings, savePlayerSettings]);
 
+  // Mirror fullscreen state into a ref so the stable toggle can read it.
+  const isFullscreenRef = useRef(false);
+  isFullscreenRef.current = state.isFullscreen;
+
   const toggleFullscreen = useCallback(async () => {
     try {
+      // Desktop app: drive the native OS window fullscreen (the HTML5
+      // Fullscreen API misbehaves in the frameless Electron window). The
+      // container fills the window via CSS while the window is fullscreen.
+      const bridge = windappFullscreenBridge();
+      if (bridge) {
+        await bridge.setFullScreen(!isFullscreenRef.current);
+        return;
+      }
       await enterPlayerFullscreen(videoRef.current, containerRef.current);
     } catch {
       /* ignore */

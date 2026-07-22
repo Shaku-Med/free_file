@@ -111,6 +111,7 @@ export default function Navbar({ hasScrolled = { state: false, opacityLevel: 0 }
 
   return (
     <header
+      data-app-chrome=""
       ref={(el) => {
         // Publish the bar height so fullscreen overlays (e.g. the reel deck,
         // which sits BELOW the navbar in z-order) can keep their chrome out

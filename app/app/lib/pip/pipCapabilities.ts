@@ -7,6 +7,7 @@
  */
 
 import { detectWindapp } from '~/lib/hooks/useWindapp';
+import { readPipMode } from '~/lib/pip/pipModePref';
 
 export type PipImplementationKind = 'document' | 'native-video' | 'webkit-presentation' | 'none';
 
@@ -83,11 +84,17 @@ export function getPipImplementationForDevice(video: HTMLVideoElement | null): P
   if (detectWindapp()) return 'document';
 
   if (isMobileStyleViewport()) {
+    // Mobile always uses the platform default  the style preference never applies.
     if (videoSupportsWebKitPresentationPiP(video)) return 'webkit-presentation';
     if (hasNativeVideoPictureInPicture()) return 'native-video';
     return 'none';
   }
 
+  // Desktop web: the style preference chooses between our compact Document PiP
+  // window ("phone", default) and the browser's native PiP ("wide").
+  if (readPipMode() === 'wide' && hasNativeVideoPictureInPicture()) {
+    return 'native-video';
+  }
   if (hasDocumentPictureInPicture()) return 'document';
   if (hasNativeVideoPictureInPicture()) return 'native-video';
   if (videoSupportsWebKitPresentationPiP(video)) return 'webkit-presentation';

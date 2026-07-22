@@ -65,7 +65,7 @@ const COLLISION_PADDING_NARROW = { top: 12, right: 12, bottom: 28, left: 12 }
 const COLLISION_PADDING_WIDE = 16
 
 const panelFrame =
-  "flex min-h-0 flex-col max-w-[min(28rem,calc(100vw-1rem-env(safe-area-inset-left)-env(safe-area-inset-right)))] min-w-[min(100%,14rem)] overflow-hidden rounded-xl border border-border bg-background/95 p-1.5 text-popover-foreground shadow-xl shadow-black/20 ring-1 ring-black/5 backdrop-blur-md data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[state=closed]:duration-150 data-[state=open]:duration-200 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2"
+  "menu-frost flex min-h-0 flex-col max-w-[min(28rem,calc(100vw-1rem-env(safe-area-inset-left)-env(safe-area-inset-right)))] min-w-[min(100%,14rem)] overflow-hidden rounded-xl border border-border p-1.5 text-popover-foreground shadow-xl shadow-black/20 ring-1 ring-black/5 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[state=closed]:duration-150 data-[state=open]:duration-200 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2"
 
 /** Root dropdown: prefers menu viewport vars from Radix, falls back to Popper height. */
 const contentBase = cn(

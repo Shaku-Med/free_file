@@ -512,38 +512,49 @@ function MiniPlayerContent() {
           style={{ top: frostTop, clipPath: thumbClip }}
         />
 
-        {/* paddingTop = seek hit height so title/thumb buttons don’t steal hover */}
+        {/* Content row (below the seek strip). paddingTop reserves the seek hit
+            area for the docked player's scrubber. */}
         <div
-          className="relative z-10 flex items-center gap-2.5 px-2.5 pointer-events-none"
+          className="relative z-10 flex items-center gap-3 px-3 pointer-events-none"
           style={{ height: MOBILE_BAR_H, paddingTop: MOBILE_SEEK_HIT_H }}
         >
+          {/* One solid tap catcher over the whole content band → opens the
+              video AND blocks taps from leaking through to the feed behind the
+              bar (the old per element buttons left transparent gaps). Sits
+              below the seek strip (top) and below the queue/close buttons (z). */}
           <button
             type="button"
-            className="pointer-events-auto shrink-0 rounded-md"
-            style={{ width: MOBILE_THUMB_W, height: thumbBtnH }}
             aria-label="Open video"
             onClick={expandToWatch}
+            className="pointer-events-auto absolute inset-x-0 bottom-0 z-0"
+            style={{ top: MOBILE_SEEK_HIT_H }}
           />
-          <button
-            type="button"
-            className="pointer-events-auto min-w-0 flex-1 py-1 text-left"
-            onClick={expandToWatch}
-          >
+
+          {/* Thumb spacer: the docked video shows through the frost hole here. */}
+          <div
+            aria-hidden
+            className="pointer-events-none shrink-0"
+            style={{ width: MOBILE_THUMB_W, height: thumbBtnH }}
+          />
+
+          {/* Title + owner (visual only; the catcher takes the tap). */}
+          <div className="pointer-events-none relative z-10 min-w-0 flex-1">
             <p className="truncate text-sm font-semibold leading-snug text-foreground">{titleStr}</p>
             {ownerName ? (
               <p className="mt-0.5 truncate text-xs text-muted-foreground">{ownerName}</p>
             ) : null}
-          </button>
+          </div>
 
           <Popover open={queueOpen} onOpenChange={setQueueOpen}>
             <PopoverTrigger asChild>
               <button
                 type="button"
-                className="pointer-events-auto relative z-20 flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:bg-muted/80"
+                onClick={(e) => e.stopPropagation()}
+                className="pointer-events-auto relative z-20 flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:bg-muted/80"
                 aria-label="Up next"
                 aria-expanded={queueOpen}
               >
-                <ListVideo className="h-4 w-4" />
+                <ListVideo className="h-5 w-5" />
               </button>
             </PopoverTrigger>
             <PopoverContent
@@ -578,11 +589,14 @@ function MiniPlayerContent() {
 
           <button
             type="button"
-            className="pointer-events-auto relative z-20 flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:bg-muted/80"
+            className="pointer-events-auto relative z-20 flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:bg-muted/80"
             aria-label="Close mini player"
-            onClick={handleClose}
+            onClick={(e) => {
+              e.stopPropagation();
+              handleClose();
+            }}
           >
-            <X className="h-4 w-4" />
+            <X className="h-5 w-5" />
           </button>
         </div>
       </div>

@@ -67,6 +67,7 @@ export default function MobileBottomNav() {
   return (
     <nav
       aria-label="Primary"
+      data-app-chrome=""
       ref={(el) => {
         if (el) document.documentElement.style.setProperty("--app-bottom-nav-h", `${el.offsetHeight}px`);
       }}

@@ -19,12 +19,16 @@ import {
   Activity,
   Orbit,
   Speaker,
+  PictureInPicture2,
 } from 'lucide-react';
 import { usePlayerContext, SLEEP_TIMER_OPTIONS } from '../../PlayerContext';
 import { isSpatialAudioUiSupported } from '../../hooks/useSpatialAudio';
 import { useFullscreenContainer } from '../../hooks/useFullscreenContainer';
 import { cn } from '~/lib/utils';
 import { mobileOverlayIcon, mobileOverlaySquareBtn, playerMenuSurface } from '../mobileControlMetrics';
+import { usePipMode } from '~/lib/pip/pipModePref';
+import { probeAnyPipSupported, isMobileStyleViewport } from '~/lib/pip/pipCapabilities';
+import { detectWindapp } from '~/lib/hooks/useWindapp';
 import {
   DropdownMenu,
   DropdownMenuCollapsible,
@@ -150,6 +154,16 @@ export function SettingsMenuBody() {
     const mo = new MutationObserver(sync);
     mo.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
     return () => mo.disconnect();
+  }, []);
+
+  // Desktop web only: choose compact phone-style PiP vs browser native wide PiP.
+  // Hidden on mobile (always platform default) and windapp (wide variant not shipped yet).
+  const [pipMode, setPipMode] = usePipMode();
+  const [pipSettingVisible, setPipSettingVisible] = useState(false);
+  useEffect(() => {
+    setPipSettingVisible(
+      probeAnyPipSupported() && !isMobileStyleViewport() && !detectWindapp(),
+    );
   }, []);
 
   const speedLabel = state.playbackRate === 1 ? 'Normal' : `${state.playbackRate}x`;
@@ -309,6 +323,29 @@ export function SettingsMenuBody() {
             </span>
             <Switch checked={playerBackground} onChange={setPlayerBackground} />
           </DropdownMenuItem>
+        )}
+        {pipSettingVisible && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <DropdownMenuItem
+                onSelect={(e) => e.preventDefault()}
+                className={toggleRowClass}
+              >
+                <span className="flex min-w-0 flex-1 items-center gap-2">
+                  <PictureInPicture2 className="size-4 shrink-0 text-muted-foreground" />
+                  <span className="min-w-0 truncate">Wide picture-in-picture</span>
+                </span>
+                <Switch
+                  checked={pipMode === 'wide'}
+                  onChange={(v) => setPipMode(v ? 'wide' : 'phone')}
+                />
+              </DropdownMenuItem>
+            </TooltipTrigger>
+            <TooltipContent side={isMobile ? 'top' : 'left'} className="max-w-[240px]">
+              Off uses our compact phone-style window (default). On uses your browser&apos;s
+              built-in picture-in-picture — a wider, resizable video.
+            </TooltipContent>
+          </Tooltip>
         )}
         {!isReel && (
           <Tooltip>

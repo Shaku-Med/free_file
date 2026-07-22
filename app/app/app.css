@@ -176,6 +176,29 @@ html.windapp [href] {
   }
 }
 
+/* Desktop app native fullscreen: hide app chrome (navbar + bottom tab bar) so
+   the player fills the window. The player uses the OS window fullscreen, not
+   the HTML5 top-layer, so chrome above it in z-order must be hidden here. */
+html.windapp-fullscreen [data-app-chrome] {
+  display: none !important;
+}
+
+/* Frosted glass for menus/dropdowns that works in Firefox too. Tailwind's
+   backdrop-blur only shows through a translucent background, and both the
+   -webkit- and unprefixed properties are emitted here so Firefox applies it.
+   Where backdrop-filter is unsupported, the background falls back to opaque so
+   the menu stays readable. Uses the theme --popover token (light + dark). */
+.menu-frost {
+  background-color: color-mix(in oklch, var(--popover) 80%, transparent);
+  -webkit-backdrop-filter: blur(16px) saturate(1.4);
+  backdrop-filter: blur(16px) saturate(1.4);
+}
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .menu-frost {
+    background-color: var(--popover);
+  }
+}
+
 @keyframes image-load-shimmer {
   0% {
     background-position: 200% 50%;
