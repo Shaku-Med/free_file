@@ -17,6 +17,7 @@ import (
 	"goupload/lib/colors"
 	"goupload/lib/embed"
 	"goupload/lib/ffmpeg"
+	"goupload/lib/fingerprintdb"
 	ghlib "goupload/lib/github"
 	"goupload/lib/langdetect"
 	"goupload/lib/logger"
@@ -58,6 +59,10 @@ type Config struct {
 	// Music: optional local MusicDetector sidecar; the source of truth for
 	// is_music when set. Falls back to the stems heuristic when nil/unreachable.
 	Music *musicdetect.Client
+	// Fingerprints: on-VPS SQLite fingerprint store + matcher. When set, audio
+	// duplicate detection runs locally and only the resulting link is sent to
+	// the app (raw hashes never leave the box). Nil = fingerprinting disabled.
+	Fingerprints *fingerprintdb.DB
 }
 
 type Worker struct {
@@ -989,6 +994,37 @@ func (w *Worker) processJob(job *queue.Job) {
 		fpHashes, fpOffsets = nil, nil
 	}
 
+	// Reel status is needed both for the fingerprint matcher (reels can link
+	// to an original but never become one) and the payload below. videoInfo
+	// can be nil for audio-only music, so read dimensions defensively.
+	var vidW, vidH int
+	if videoInfo != nil {
+		vidW, vidH = videoInfo.Width, videoInfo.Height
+	}
+	isReel := resolveReel(job.ReelMode, videoDuration, vidW, vidH)
+	isReelBool := isReel != nil && *isReel
+
+	// Match fingerprints locally (SQLite on the VPS). The raw hashes never
+	// leave the box; only the resulting original link goes to the app.
+	var fpProcessed bool
+	var originalUniqueID string
+	if w.cfg.Fingerprints != nil && len(fpHashes) > 0 && len(fpHashes) == len(fpOffsets) {
+		fpProcessed = true
+		res, ferr := w.cfg.Fingerprints.Register(
+			context.Background(), job.UploadID, isReelBool, fpHashes, fpOffsets, fingerprintdb.DefaultMinVotes,
+		)
+		if ferr != nil {
+			// Non-fatal: never block an upload on dedupe. Leave the link
+			// untouched (fpProcessed=false) rather than clearing it on error.
+			w.log.Errorf("fingerprint register job=%s err=%s", job.ID, ferr.Error())
+			fpProcessed = false
+		} else if res.Matched {
+			originalUniqueID = res.OriginalUniqueID
+			w.log.Infof("audio matched job=%s upload=%s original=%s votes=%d",
+				job.ID, job.UploadID, res.OriginalUniqueID, res.Votes)
+		}
+	}
+
 	// Embedded song tags (genre / artist / title / album) read by the probe.
 	// Genre becomes a CATEGORY so it feeds search + the Mix generator (which
 	// scores candidates on shared categories); the rest is kept under
@@ -1163,7 +1199,7 @@ func (w *Worker) processJob(job *queue.Job) {
 		Endpoint:            videoEndpoint,
 		Thumbnails:          thumbnailPaths,
 		Duration:            videoDuration,
-		IsReel:              resolveReel(job.ReelMode, videoDuration, videoInfo.Width, videoInfo.Height),
+		IsReel:              isReel,
 		IsAdult:             &isAdult,
 		Colors:              vidColors,
 		Categories:          categories,
@@ -1181,8 +1217,8 @@ func (w *Worker) processJob(job *queue.Job) {
 		Overflow:            job.Overflow,
 		Embedding:           w.embedForFile(job, categories, tags, metadata),
 		IsMusic:             isMusic,
-		FpHashes:            fpHashes,
-		FpOffsets:           fpOffsets,
+		FpProcessed:         fpProcessed,
+		OriginalUniqueID:    originalUniqueID,
 		// Uploader's own words only - the AI caption is always English.
 		ContentLanguage: langdetect.Detect(job.Title, job.Description),
 	})

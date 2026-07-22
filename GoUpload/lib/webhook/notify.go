@@ -57,12 +57,14 @@ type Payload struct {
 	// ISO 639-3 code of the title/description language (e.g. "eng", "cmn"),
 	// detected at processing time. Feeds same-language recommendations.
 	ContentLanguage string `json:"content_language,omitempty"`
-	// Audio fingerprints (Shazam-style duplicate detection): parallel arrays
-	// of pair hashes + STFT frame offsets. The app feeds them to
-	// register_audio_fingerprints which stores + matches + links originals.
-	// Sent only for music files now (fingerprinting is music-only).
-	FpHashes  []uint32 `json:"fp_hashes,omitempty"`
-	FpOffsets []int32  `json:"fp_offsets,omitempty"`
+	// Audio fingerprint result. Matching now runs ON THE VPS (SQLite) so the
+	// raw hashes never leave the box; the app only records the resulting link.
+	// FpProcessed is true when fingerprint matching ran for this upload;
+	// OriginalUniqueID is the matched original's unique_id (empty = no match →
+	// the app clears original_file_id). When FpProcessed is false the app
+	// leaves original_file_id untouched.
+	FpProcessed      bool   `json:"fp_processed,omitempty"`
+	OriginalUniqueID string `json:"original_unique_id,omitempty"`
 	// 0–100 while status is running; omitted for queued/completed/failed unless set.
 	Progress *int `json:"progress,omitempty"`
 }

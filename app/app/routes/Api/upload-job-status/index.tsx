@@ -293,9 +293,11 @@ export const action = async ({ request }: { request: Request }) => {
     is_music?: boolean;
     /** ISO 639-3 language of title+description, detected by the Go worker. */
     content_language?: string;
-    /** Audio fingerprints (duplicate detection): parallel hash/offset arrays. */
-    fp_hashes?: number[];
-    fp_offsets?: number[];
+    /** Audio fingerprint result from the Go worker (matching runs on the VPS).
+     *  fp_processed = matching ran; original_unique_id = matched original
+     *  (empty ⇒ no match ⇒ clear any stale link). */
+    fp_processed?: boolean;
+    original_unique_id?: string;
     /** 0–100 from Go worker while processing */
     progress?: number;
   };
@@ -585,36 +587,45 @@ export const action = async ({ request }: { request: Request }) => {
       }
     }
 
-    // Audio fingerprints: store + match against the catalog + link this
-    // upload to its original when the audio is a duplicate/excerpt.
-    // Best-effort  fingerprinting never blocks the upload completing.
-    const fpHashes = body?.fp_hashes;
-    const fpOffsets = body?.fp_offsets;
-    if (
-      Array.isArray(fpHashes) &&
-      Array.isArray(fpOffsets) &&
-      fpHashes.length > 0 &&
-      fpHashes.length === fpOffsets.length &&
-      fpHashes.length <= 10000 &&
-      fpHashes.every((v) => typeof v === 'number' && Number.isInteger(v) && v >= 0) &&
-      fpOffsets.every((v) => typeof v === 'number' && Number.isInteger(v) && v >= 0)
-    ) {
-      const { data: fpRes, error: fpErr } = await db.rpc('register_audio_fingerprints', {
-        p_unique_id: upload_id,
-        p_hashes: fpHashes,
-        p_offsets: fpOffsets,
-      });
-      if (fpErr) {
-        console.warn('[upload-job-status] register_audio_fingerprints:', fpErr.message ?? fpErr);
-      } else if ((fpRes as { matched?: boolean } | null)?.matched) {
-        const r = fpRes as { original_file_id?: string; votes?: number };
-        console.log(
-          '[upload-job-status] audio matched existing original',
-          upload_id,
-          '->',
-          r.original_file_id,
-          `(${r.votes} votes)`,
-        );
+    // Audio fingerprints: matching now runs on the VPS (GoUpload SQLite), so
+    // the raw hashes never reach us. GoUpload sends only the RESULT: whether
+    // fingerprinting ran (fp_processed) and, if it matched, the original's
+    // unique_id. We just record the link. Best-effort; never blocks completion.
+    const fpProcessed = body?.fp_processed === true;
+    if (fpProcessed) {
+      const originalUniqueId =
+        typeof body?.original_unique_id === 'string' ? body.original_unique_id.trim() : '';
+      const SAFE_UNIQUE_ID = /^[A-Za-z0-9_-]{1,128}$/;
+
+      if (originalUniqueId && SAFE_UNIQUE_ID.test(originalUniqueId) && originalUniqueId !== upload_id) {
+        // Duplicate/excerpt: resolve the original's id and link this upload.
+        const { data: orig } = await db
+          .from('files')
+          .select('id')
+          .eq('unique_id', originalUniqueId)
+          .maybeSingle();
+        const originalId = (orig as { id?: string } | null)?.id;
+        if (originalId) {
+          const { error: linkErr } = await db
+            .from('files')
+            .update({ original_file_id: originalId })
+            .eq('unique_id', upload_id);
+          if (linkErr) {
+            console.warn('[upload-job-status] link original:', linkErr.message ?? linkErr);
+          } else {
+            console.log('[upload-job-status] audio matched', upload_id, '->', originalUniqueId);
+          }
+        }
+      } else {
+        // Fingerprinted, no match: make sure no stale link remains (retries).
+        const { error: clearErr } = await db
+          .from('files')
+          .update({ original_file_id: null })
+          .eq('unique_id', upload_id)
+          .not('original_file_id', 'is', null);
+        if (clearErr) {
+          console.warn('[upload-job-status] clear original link:', clearErr.message ?? clearErr);
+        }
       }
     }
   }

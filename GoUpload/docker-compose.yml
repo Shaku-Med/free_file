@@ -110,6 +110,10 @@ services:
       EMBED_API_SECRET: ${EMBED_API_SECRET:?set EMBED_API_SECRET in .env}
       MUSIC_API_URL: http://musicdetector:3008/analyze
       MUSIC_API_SECRET: ${MUSIC_API_SECRET:?set MUSIC_API_SECRET in .env}
+      # On-VPS audio fingerprint store (SQLite). Lives on its own volume so it
+      # survives container recreation and reboots; hard-capped at 10 GiB.
+      FINGERPRINT_DB_PATH: /data/fingerprints/fp.db
+      FINGERPRINT_DB_MAX_BYTES: ${FINGERPRINT_DB_MAX_BYTES:-10737418240}
       # Adaptive worker pool  see internal/worker/pool.go. These can also live
       # in goupload.env if you prefer.
       WORKER_MIN: ${WORKER_MIN:-1}
@@ -119,6 +123,7 @@ services:
       - "127.0.0.1:${GOUPLOAD_PORT:-3003}:3003"
     volumes:
       - upload-data:/app/upload
+      - fingerprint-data:/data/fingerprints
     networks:
       - goupload-net
     depends_on:
@@ -189,3 +194,4 @@ volumes:
   redis-data:
   upload-data:
   loadplay-cache:
+  fingerprint-data:

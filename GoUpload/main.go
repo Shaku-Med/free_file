@@ -1,9 +1,11 @@
 package main
 
 import (
+	"context"
 	"log"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
@@ -22,6 +24,7 @@ import (
 	"goupload/internal/worker"
 	embedlib "goupload/lib/embed"
 	"goupload/lib/env"
+	"goupload/lib/fingerprintdb"
 	ghlib "goupload/lib/github"
 	"goupload/lib/logger"
 	musiclib "goupload/lib/musicdetect"
@@ -30,9 +33,45 @@ import (
 	"goupload/lib/r2"
 )
 
+// fingerprintDBPath is the SQLite fingerprint file. In the container this is on
+// a docker volume (FINGERPRINT_DB_PATH=/data/fingerprints/fp.db) so it survives
+// restarts and reboots.
+func fingerprintDBPath() string {
+	return env.Get("FINGERPRINT_DB_PATH", "upload/fingerprints/fp.db")
+}
+
 func main() {
 	_ = env.Load(".env")
 	appLog := logger.New(2048)
+
+	// One-time migration: pull the Supabase audio_fingerprints table into the
+	// local SQLite store, then exit. Run once after deploying and before
+	// dropping the Supabase table:
+	//   docker exec -e SUPABASE_URL=... -e SUPABASE_SERVICE_KEY=... goupload \
+	//     /app/goupload -migrate-fingerprints
+	for _, a := range os.Args[1:] {
+		if a == "-migrate-fingerprints" || a == "--migrate-fingerprints" {
+			if err := runFingerprintMigration(fingerprintDBPath(), appLog); err != nil {
+				log.Fatalf("fingerprint migration failed: %v", err)
+			}
+			return
+		}
+	}
+
+	// Local SQLite fingerprint store + matcher (replaces the Supabase table).
+	fpDBPath := fingerprintDBPath()
+	if err := os.MkdirAll(filepath.Dir(fpDBPath), 0o755); err != nil {
+		log.Fatalf("fingerprint db dir: %v", err)
+	}
+	fpMaxBytes := env.GetInt64("FINGERPRINT_DB_MAX_BYTES", 10<<30)
+	fpDB, err := fingerprintdb.Open(fpDBPath, fpMaxBytes)
+	if err != nil {
+		log.Fatalf("fingerprint db open: %v", err)
+	}
+	defer fpDB.Close()
+	if n, cerr := fpDB.Count(context.Background()); cerr == nil {
+		appLog.Infof("fingerprint db ready path=%s cap=%d bytes rows=%d", fpDBPath, fpMaxBytes, n)
+	}
 
 	redisAddr := env.Get("REDIS_ADDR", "localhost:6379")
 	redisPass := env.Get("REDIS_PASSWORD", "")
@@ -108,6 +147,7 @@ func main() {
 		StorageBackend: storageBackend,
 		Embed:          embedClient,
 		Music:          musicClient,
+		Fingerprints:   fpDB,
 	}
 	if ghToken != "" && ghOwner != "" {
 		wcfg.GitHubClient = ghlib.NewClient(ghlib.Config{Token: ghToken, Owner: ghOwner, Repo: ghRepo})
