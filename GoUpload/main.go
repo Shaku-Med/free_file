@@ -59,18 +59,21 @@ func main() {
 	}
 
 	// Local SQLite fingerprint store + matcher (replaces the Supabase table).
+	// Best-effort infrastructure: if it can't open (e.g. volume permissions),
+	// the uploader MUST still run  duplicate detection just goes dark until
+	// it's fixed. Never crash the whole service on it.
+	var fpDB *fingerprintdb.DB
 	fpDBPath := fingerprintDBPath()
 	if err := os.MkdirAll(filepath.Dir(fpDBPath), 0o755); err != nil {
-		log.Fatalf("fingerprint db dir: %v", err)
-	}
-	fpMaxBytes := env.GetInt64("FINGERPRINT_DB_MAX_BYTES", 10<<30)
-	fpDB, err := fingerprintdb.Open(fpDBPath, fpMaxBytes)
-	if err != nil {
-		log.Fatalf("fingerprint db open: %v", err)
-	}
-	defer fpDB.Close()
-	if n, cerr := fpDB.Count(context.Background()); cerr == nil {
-		appLog.Infof("fingerprint db ready path=%s cap=%d bytes rows=%d", fpDBPath, fpMaxBytes, n)
+		appLog.Errorf("fingerprint db dir unavailable, dedup disabled: %v", err)
+	} else if opened, oerr := fingerprintdb.Open(fpDBPath, env.GetInt64("FINGERPRINT_DB_MAX_BYTES", 10<<30)); oerr != nil {
+		appLog.Errorf("fingerprint db open failed, dedup disabled: %v", oerr)
+	} else {
+		fpDB = opened
+		defer fpDB.Close()
+		if n, cerr := fpDB.Count(context.Background()); cerr == nil {
+			appLog.Infof("fingerprint db ready path=%s rows=%d", fpDBPath, n)
+		}
 	}
 
 	redisAddr := env.Get("REDIS_ADDR", "localhost:6379")

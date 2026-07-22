@@ -22,7 +22,8 @@ RUN apk add --no-cache ca-certificates tzdata ffmpeg \
  && addgroup -S app && adduser -S app -G app \
  && mkdir -p /app/upload /app/upload/temp /app/upload/assembled \
             /app/upload/hls /app/upload/thumbnails /app/upload/temp_processing \
- && chown -R app:app /app
+            /data/fingerprints \
+ && chown -R app:app /app /data
 WORKDIR /app
 COPY --from=build /out/goupload /app/goupload
 USER app
