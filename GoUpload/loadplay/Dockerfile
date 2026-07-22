@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.7
 # ── Build ─────────────────────────────────────────────
-FROM golang:1.24-alpine AS build
+FROM golang:1.25-alpine AS build
 WORKDIR /src
 # loadplay shares the goupload go.mod (parent dir), so the build context
 # must be the GoUpload root and the Dockerfile path is loadplay/Dockerfile.
