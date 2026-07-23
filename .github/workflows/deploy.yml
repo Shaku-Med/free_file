@@ -211,6 +211,11 @@ jobs:
             docker compose --env-file .env.deploy up -d --remove-orphans
 
             docker logout ghcr.io >/dev/null 2>&1 || true
-            docker image prune -f >/dev/null 2>&1 || true
+            # -a, not just dangling: every deploy ships a new SHA-tagged image, and
+            # the old one stays *tagged* (not <none>), so plain prune -f never touched
+            # it and they piled up to 40 images / 29GB. -af drops all images no running
+            # container references — i.e. the previous deploy's — while the one we just
+            # started with `up -d` is protected because it's in use.
+            docker image prune -af >/dev/null 2>&1 || true
             docker compose --env-file .env.deploy ps
             echo "✅ Memories deployed via GHCR image"
