@@ -9,7 +9,23 @@ function hlsUsesCredentials(url: string): boolean {
   return !isLoadplayPlaybackUrl(url);
 }
 
-function createHlsInstance(forLoadplay: boolean): Hls {
+/** Network Information API (Chromium only). Where it's unavailable — Safari,
+ *  Firefox, iOS — we simply treat the link as "not known slow" and let ABR
+ *  decide as usual. */
+function isSlowConnection(): boolean {
+  if (typeof navigator === 'undefined') return false;
+  const conn = (
+    navigator as Navigator & {
+      connection?: { effectiveType?: string; saveData?: boolean };
+    }
+  ).connection;
+  if (!conn) return false;
+  if (conn.saveData) return true;
+  const t = conn.effectiveType;
+  return t === 'slow-2g' || t === '2g' || t === '3g';
+}
+
+function createHlsInstance(forLoadplay: boolean, isReel: boolean): Hls {
   const appOrigin =
     typeof window !== 'undefined' ? window.location.origin : '';
   const pageUrl =
@@ -29,8 +45,30 @@ function createHlsInstance(forLoadplay: boolean): Hls {
     };
   };
 
+  const slow = isSlowConnection();
+
   return new Hls({
     enableWorker: !forLoadplay,
+    // Fast start on weak links: begin at the lowest rung and let ABR climb, so
+    // playback starts almost immediately instead of stalling while the player
+    // probes for a higher quality. Good/unknown connections keep the default
+    // auto pick (-1) so we don't needlessly downgrade them.
+    startLevel: slow ? 0 : -1,
+    abrEwmaDefaultEstimate: slow ? 250000 : 500000,
+    // Prefetch the first fragment during manifest parse for a quicker first frame.
+    startFragPrefetch: true,
+    // BACK buffer: keep already-played segments so seeking backwards (DJ-style
+    // scrubbing) replays from memory with no re-fetch. Retention only — it never
+    // issues new requests. Reels are swiped not scrubbed, so they keep less.
+    backBufferLength: isReel ? 30 : 180,
+    // FORWARD buffer: how far AHEAD we prefetch — this is what generates
+    // requests. hls.js's default max (600s) let it pull the ENTIRE video on a
+    // fast link, and with the separate audio track that's 2x the requests, which
+    // flooded the segment endpoint and tripped its rate limit (429 → retry storm
+    // → buffering). Cap it: 60s is plenty of resilience for slow links, bounded.
+    maxBufferLength: 30,
+    maxMaxBufferLength: 60,
+    maxBufferSize: (isReel ? 30 : 60) * 1000 * 1000,
     xhrSetup(xhr, url) {
       try {
         xhr.withCredentials = hlsUsesCredentials(url);
@@ -504,7 +542,7 @@ export function useHLS(videoRef: React.RefObject<HTMLVideoElement | null>) {
           hlsRef.current = null;
         }
 
-        const hls = createHlsInstance(isLoadplayPlaybackUrl(src));
+        const hls = createHlsInstance(isLoadplayPlaybackUrl(src), isReel);
         hlsRef.current = hls;
 
         let pendingResumeAt: number | null = null;
