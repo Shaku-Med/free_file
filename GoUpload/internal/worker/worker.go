@@ -1082,7 +1082,11 @@ func (w *Worker) processJob(job *queue.Job) {
 	hlsDir := filepath.Join(w.cfg.HLSDir, job.UserID, job.UploadID)
 	w.notifyRunningProgress(job, 58)
 	hlsAll, err := ffmpeg.ConvertToHLSAllQualities(result.OutputPath, hlsDir, ffmpeg.HLSOptions{
-		SegmentTime: 10,
+		// 6s segments (down from 10): the player must fetch a whole segment
+		// before it can start, so shorter segments mean a faster first frame —
+		// the biggest win for slow connections. Apple's recommended default.
+		SegmentTime: 6,
+		IsReel:      isReelBool,
 	})
 	if err != nil {
 		assembledDir := filepath.Dir(result.OutputPath)

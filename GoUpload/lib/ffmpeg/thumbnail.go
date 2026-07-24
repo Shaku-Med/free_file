@@ -92,6 +92,7 @@ func ExtractThumbnails(videoPath, outputDir string) (*ThumbnailResult, error) {
 			"-err_detect", "ignore_err",
 			"-i", videoPath,
 			"-map", "0:v:0",
+			"-map_metadata", "-1",
 			"-threads", "1",
 			"-vf", scaleVF,
 			"-vframes", "1",

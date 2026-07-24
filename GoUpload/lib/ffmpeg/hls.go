@@ -55,6 +55,8 @@ type HLSAllResult struct {
 type HLSOptions struct {
 	Quality     string
 	SegmentTime int
+	// IsReel switches to the compact reel ladder (capped at 720p, tighter CRF).
+	IsReel bool
 }
 
 func ConvertToHLS(inputPath, outputDir string, opts HLSOptions) (*HLSResult, error) {
@@ -67,7 +69,9 @@ func ConvertToHLS(inputPath, outputDir string, opts HLSOptions) (*HLSResult, err
 		return nil, fmt.Errorf("probe source: %w", err)
 	}
 	hasAudio := strings.TrimSpace(probe.AudioCodec) != ""
-	return convertTier(inputPath, outputDir, opts, tier, checkGPU(), hasAudio)
+	// Single-tier path keeps audio muxed: there are no sibling renditions to
+	// share a separate audio track with.
+	return convertTier(inputPath, outputDir, opts, tier, checkGPU(), hasAudio, false)
 }
 
 func selectTiers(srcWidth, srcHeight int) []QualityTier {
@@ -139,6 +143,123 @@ func selectTiers(srcWidth, srcHeight int) []QualityTier {
 	return selected
 }
 
+// selectReelTiers builds the compact ladder for reels: phone-first, so the
+// short side is capped at 720 (no 1080p/1440p/4K), CRF is a notch tighter than
+// the equivalent full tier, and at most two renditions are produced. Width here
+// is the target short-side pixel count, so it scales correctly for portrait
+// clips (720 → 720x1280) as well as the occasional landscape reel.
+func selectReelTiers(srcWidth, srcHeight int) []QualityTier {
+	short := srcHeight
+	if srcWidth < srcHeight {
+		short = srcWidth
+	}
+	if short <= 0 {
+		short = 720
+	}
+
+	mk := func(w int, crf, maxrate, buf string, bw int) QualityTier {
+		return QualityTier{
+			Name:      fmt.Sprintf("%dp", w),
+			Label:     fmt.Sprintf("%dp", w),
+			Width:     w,
+			Height:    w, // placeholder; real dims recomputed from source aspect
+			CRF:       crf,
+			MaxRate:   maxrate,
+			BufSize:   buf,
+			Bandwidth: bw,
+		}
+	}
+
+	// Cap at 720, never upscale past the source.
+	top := short
+	if top > 720 {
+		top = 720
+	}
+
+	if top <= 480 {
+		return []QualityTier{mk(top, "27", "1.2M", "2.4M", 900000)}
+	}
+	return []QualityTier{
+		mk(480, "27", "1.2M", "2.4M", 900000),
+		mk(top, "25", "2.2M", "4.4M", 1800000),
+	}
+}
+
+// scaledDims mirrors the ffmpeg `scale='min(width,iw)':-2` filter so the master
+// playlist advertises the resolution ffmpeg actually produced (aspect-correct,
+// no upscale, even dimensions) instead of the tier's nominal box.
+func scaledDims(tierWidth, srcW, srcH int) (int, int) {
+	if srcW <= 0 || srcH <= 0 {
+		return tierWidth, 0
+	}
+	w := tierWidth
+	if w > srcW {
+		w = srcW
+	}
+	h := (w*srcH + srcW/2) / srcW
+	if w%2 != 0 {
+		w++
+	}
+	if h%2 != 0 {
+		h++
+	}
+	return w, h
+}
+
+// audioRung is one shared audio track: a group id (also its folder name) and a
+// bitrate. A handful of rungs are shared across resolution bands so audio
+// quality tracks video quality without storing a separate copy per rendition.
+type audioRung struct {
+	id      string
+	bitrate string
+}
+
+// audioRungForShort maps a rendition's short side to its audio rung. Low video
+// pulls low audio; high video pulls high audio. The player switches audio group
+// automatically when ABR crosses a band boundary.
+func audioRungForShort(short int) audioRung {
+	switch {
+	case short <= 480:
+		return audioRung{"low", "64k"}
+	case short <= 1080:
+		return audioRung{"mid", "128k"}
+	default:
+		return audioRung{"high", "192k"}
+	}
+}
+
+// capAudioBitrate clamps a target like "128k" to the source bitrate so a
+// low-bitrate upload is never upsampled, with a 32k floor.
+func capAudioBitrate(target string, srcBitrate int) string {
+	kbps := audioBitrateBps(target) / 1000
+	if srcBitrate >= 1000 { // bits/sec from the probe
+		if srcK := srcBitrate / 1000; srcK < kbps {
+			kbps = srcK
+		}
+	}
+	if kbps < 32 {
+		kbps = 32
+	}
+	return fmt.Sprintf("%dk", kbps)
+}
+
+// audioBitrateBps parses "128k"/"1.5M" into bits/sec for the master BANDWIDTH.
+func audioBitrateBps(br string) int {
+	s := strings.ToLower(strings.TrimSpace(br))
+	mult := 1
+	switch {
+	case strings.HasSuffix(s, "k"):
+		mult, s = 1000, strings.TrimSuffix(s, "k")
+	case strings.HasSuffix(s, "m"):
+		mult, s = 1000000, strings.TrimSuffix(s, "m")
+	}
+	n, err := strconv.Atoi(strings.TrimSpace(s))
+	if err != nil {
+		return 128000
+	}
+	return n * mult
+}
+
 func ConvertToHLSAllQualities(inputPath, outputDir string, opts HLSOptions) (*HLSAllResult, error) {
 	if err := os.MkdirAll(outputDir, 0700); err != nil {
 		return nil, fmt.Errorf("create output dir: %w", err)
@@ -166,7 +287,12 @@ func ConvertToHLSAllQualities(inputPath, outputDir string, opts HLSOptions) (*HL
 		return nil, err
 	}
 
-	tiers := selectTiers(probe.Width, probe.Height)
+	var tiers []QualityTier
+	if opts.IsReel {
+		tiers = selectReelTiers(probe.Width, probe.Height)
+	} else {
+		tiers = selectTiers(probe.Width, probe.Height)
+	}
 	if len(tiers) == 0 {
 		return nil, fmt.Errorf("no quality tiers for %dx%d", probe.Width, probe.Height)
 	}
@@ -176,7 +302,7 @@ func ConvertToHLSAllQualities(inputPath, outputDir string, opts HLSOptions) (*HL
 	var results []*HLSResult
 
 	for i, tier := range tiers {
-		log.Printf("[hls] starting tier %d/%d: %s (%dx%d)", i+1, len(tiers), tier.Name, tier.Width, tier.Height)
+		log.Printf("[hls] starting tier %d/%d: %s (target width %d)", i+1, len(tiers), tier.Name, tier.Width)
 		tierStart := time.Now()
 		dir := filepath.Join(outputDir, tier.Name)
 		if err := os.MkdirAll(dir, 0700); err != nil {
@@ -189,22 +315,66 @@ func ConvertToHLSAllQualities(inputPath, outputDir string, opts HLSOptions) (*HL
 		if err := RequireMinFreeSpace(dir, minFreeTier); err != nil {
 			return nil, fmt.Errorf("hls %s: %w", tier.Name, err)
 		}
-		r, err := convertTier(inputPath, dir, opts, tier, hasGPU, hasAudio)
+		// Video renditions are always encoded without audio here; the shared
+		// audio track (below) carries it for every quality.
+		r, err := convertTier(inputPath, dir, opts, tier, hasGPU, hasAudio, true)
 		if err != nil {
 			return nil, fmt.Errorf("hls %s: %w", tier.Name, err)
 		}
 		r.TierName = tier.Name
+		r.Width, r.Height = scaledDims(tier.Width, probe.Width, probe.Height)
 		results = append(results, r)
-		log.Printf("[hls] finished tier %d/%d: %s (%d segments, took %s)", i+1, len(tiers), tier.Name, len(r.SegmentFiles), time.Since(tierStart).Round(time.Second))
+		log.Printf("[hls] finished tier %d/%d: %s %dx%d (%d segments, took %s)", i+1, len(tiers), tier.Name, r.Width, r.Height, len(r.SegmentFiles), time.Since(tierStart).Round(time.Second))
+	}
+
+	// Assign each variant an audio rung by its (actual) short side, then encode
+	// each DISTINCT rung once. Audio quality tracks video quality while a rung is
+	// still shared by every rendition in its band, so we store a couple of audio
+	// copies instead of one per tier.
+	variantRung := make([]audioRung, len(results))
+	var distinct []audioRung
+	seen := map[string]bool{}
+	rungBW := map[string]int{}
+	if hasAudio {
+		for i, r := range results {
+			short := r.Height
+			if r.Width < r.Height {
+				short = r.Width
+			}
+			rung := audioRungForShort(short)
+			variantRung[i] = rung
+			if !seen[rung.id] {
+				seen[rung.id] = true
+				distinct = append(distinct, rung)
+			}
+		}
+		for _, rung := range distinct {
+			br := capAudioBitrate(rung.bitrate, probe.AudioBitrate)
+			dir := filepath.Join(outputDir, "audio_"+rung.id)
+			log.Printf("[hls] starting audio rung %q (%s)", rung.id, br)
+			audioStart := time.Now()
+			if err := convertAudioTrack(inputPath, dir, opts, br); err != nil {
+				return nil, fmt.Errorf("hls audio %s: %w", rung.id, err)
+			}
+			rungBW[rung.id] = audioBitrateBps(br)
+			log.Printf("[hls] finished audio rung %q (took %s)", rung.id, time.Since(audioStart).Round(time.Second))
+		}
 	}
 
 	var masterLines []string
-	masterLines = append(masterLines, "#EXTM3U", "#EXT-X-VERSION:3")
-	for _, r := range results {
+	masterLines = append(masterLines, "#EXTM3U", "#EXT-X-VERSION:4")
+	for _, rung := range distinct {
 		masterLines = append(masterLines,
-			fmt.Sprintf("#EXT-X-STREAM-INF:BANDWIDTH=%d,RESOLUTION=%dx%d", r.Bandwidth, r.Width, r.Height),
-			r.TierName+"/playlist.m3u8",
+			fmt.Sprintf(`#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="aud-%s",NAME="Audio",DEFAULT=YES,AUTOSELECT=YES,CHANNELS="2",URI="audio_%s/audio.m3u8"`, rung.id, rung.id),
 		)
+	}
+	for i, r := range results {
+		bw := r.Bandwidth
+		inf := fmt.Sprintf("#EXT-X-STREAM-INF:BANDWIDTH=%d,RESOLUTION=%dx%d", bw+rungBW[variantRung[i].id], r.Width, r.Height)
+		if hasAudio {
+			inf += fmt.Sprintf(`,AUDIO="aud-%s"`, variantRung[i].id)
+		}
+		masterLines = append(masterLines, inf, r.TierName+"/playlist.m3u8")
 	}
 	masterLines = append(masterLines, "")
 
@@ -216,7 +386,7 @@ func ConvertToHLSAllQualities(inputPath, outputDir string, opts HLSOptions) (*HL
 	return &HLSAllResult{MasterPath: masterPath, Tiers: results}, nil
 }
 
-func convertTier(inputPath, outputDir string, opts HLSOptions, tier QualityTier, tryGPU bool, hasAudio bool) (*HLSResult, error) {
+func convertTier(inputPath, outputDir string, opts HLSOptions, tier QualityTier, tryGPU bool, hasAudio bool, videoOnly bool) (*HLSResult, error) {
 	if err := os.MkdirAll(outputDir, 0700); err != nil {
 		return nil, err
 	}
@@ -228,14 +398,14 @@ func convertTier(inputPath, outputDir string, opts HLSOptions, tier QualityTier,
 	segmentPattern := filepath.Join(outputDir, "segment_%03d.ts")
 
 	if tryGPU {
-		r, err := runTierConversionWithRetries(inputPath, m3u8Path, segmentPattern, opts, tier, true, hasAudio)
+		r, err := runTierConversionWithRetries(inputPath, m3u8Path, segmentPattern, opts, tier, true, hasAudio, videoOnly)
 		if err == nil {
 			return r, nil
 		}
 		log.Printf("[hls] GPU encode failed for %s, falling back to CPU: %v", tier.Name, err)
 	}
 
-	return runTierConversionWithRetries(inputPath, m3u8Path, segmentPattern, opts, tier, false, hasAudio)
+	return runTierConversionWithRetries(inputPath, m3u8Path, segmentPattern, opts, tier, false, hasAudio, videoOnly)
 }
 
 func isRetriableTranscodeError(err error) bool {
@@ -303,7 +473,10 @@ func isMemoryPressureExit(err error) bool {
 	return errors.As(err, &exitErr) && memoryTight()
 }
 
-func runTierConversionWithRetries(inputPath, m3u8Path, segmentPattern string, opts HLSOptions, tier QualityTier, useGPU bool, hasAudio bool) (*HLSResult, error) {
+// withMemoryRetries runs an encode up to maxAttempts times, waiting for memory
+// to recover between tries and giving up immediately on deterministic (non
+// memory-pressure) failures. Shared by the video tiers and the audio track.
+func withMemoryRetries(label string, run func() error) error {
 	const maxAttempts = 3
 	pauseMB := envUint64("GOUpload_HLS_MEM_PAUSE_MB", 400)
 	resumeMB := envUint64("GOUpload_HLS_MEM_RESUME_MB", 700)
@@ -323,17 +496,33 @@ func runTierConversionWithRetries(inputPath, m3u8Path, segmentPattern string, op
 			// Don't start an encode that's doomed from the first frame.
 			waitForMemoryMB(pauseMB, 90*time.Second)
 		}
-		r, err := runTierConversion(inputPath, m3u8Path, segmentPattern, opts, tier, useGPU, hasAudio)
+		err := run()
 		if err == nil {
-			return r, nil
+			return nil
 		}
 		lastErr = err
 		if !isRetriableTranscodeError(err) && !isMemoryPressureExit(err) {
-			return nil, err
+			return err
 		}
-		log.Printf("[hls] tier %s attempt %d/%d failed under pressure, will retry: %v", tier.Name, attempt+1, maxAttempts, err)
+		log.Printf("[hls] %s attempt %d/%d failed under pressure, will retry: %v", label, attempt+1, maxAttempts, err)
 	}
-	return nil, lastErr
+	return lastErr
+}
+
+func runTierConversionWithRetries(inputPath, m3u8Path, segmentPattern string, opts HLSOptions, tier QualityTier, useGPU bool, hasAudio bool, videoOnly bool) (*HLSResult, error) {
+	var result *HLSResult
+	err := withMemoryRetries("tier "+tier.Name, func() error {
+		r, e := runTierConversion(inputPath, m3u8Path, segmentPattern, opts, tier, useGPU, hasAudio, videoOnly)
+		if e != nil {
+			return e
+		}
+		result = r
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result, nil
 }
 
 func ffmpegPathArg(p string) string {
@@ -352,13 +541,10 @@ func ffmpegStderrTail(s string, max int) string {
 // segments, accept the partial output instead of failing the whole tier.
 const minSalvageableSegments = 10
 
-func runTierConversion(inputPath, m3u8Path, segmentPattern string, opts HLSOptions, tier QualityTier, useGPU bool, hasAudio bool) (*HLSResult, error) {
-	inputPath = ffmpegPathArg(inputPath)
-	m3u8Path = ffmpegPathArg(m3u8Path)
-	segmentPattern = ffmpegPathArg(segmentPattern)
-
-	args := buildTierArgs(inputPath, m3u8Path, segmentPattern, opts, tier, useGPU, hasAudio)
-
+// execEncode runs one ffmpeg invocation (with timeout + memory governor) and
+// salvages partial output when enough segments were already written. Returns
+// the segment list on success. Shared by the video and audio encoders.
+func execEncode(args []string, m3u8Path string) ([]string, error) {
 	h := env.GetInt64("GOUpload_HLS_FFMPEG_TIMEOUT_HOURS", 6)
 	if h < 1 {
 		h = 1
@@ -390,14 +576,29 @@ func runTierConversion(inputPath, m3u8Path, segmentPattern string, opts HLSOptio
 	if ffmpegErr != nil {
 		if m3u8Exists && segCount >= minSalvageableSegments {
 			// FFmpeg died (often corrupt input near end-of-file) but wrote enough
-			// usable output. Salvage what we have  the m3u8 references written segments
-			// and HLS players handle a truncated stream gracefully.
+			// usable output. Salvage what we have  the m3u8 references written
+			// segments and HLS players handle a truncated stream gracefully.
 			log.Printf("[ffmpeg] salvaging partial output: %d segments written despite error: %v", segCount, ffmpegErr)
 		} else {
 			return nil, fmt.Errorf("ffmpeg: %w, stderr: %s", ffmpegErr, ffmpegStderrTail(stderr.String(), 6000))
 		}
 	} else if !m3u8Exists {
 		return nil, fmt.Errorf("m3u8 not created")
+	}
+
+	return segments, nil
+}
+
+func runTierConversion(inputPath, m3u8Path, segmentPattern string, opts HLSOptions, tier QualityTier, useGPU bool, hasAudio bool, videoOnly bool) (*HLSResult, error) {
+	inputPath = ffmpegPathArg(inputPath)
+	m3u8Path = ffmpegPathArg(m3u8Path)
+	segmentPattern = ffmpegPathArg(segmentPattern)
+
+	args := buildTierArgs(inputPath, m3u8Path, segmentPattern, opts, tier, useGPU, hasAudio, videoOnly)
+
+	segments, err := execEncode(args, m3u8Path)
+	if err != nil {
+		return nil, err
 	}
 
 	return &HLSResult{
@@ -409,6 +610,23 @@ func runTierConversion(inputPath, m3u8Path, segmentPattern string, opts HLSOptio
 		Bandwidth:    tier.Bandwidth,
 		TierName:     tier.Name,
 	}, nil
+}
+
+// convertAudioTrack encodes the shared audio-only rendition (with the same
+// retry/salvage machinery as the video tiers) into outputDir/audio.m3u8.
+func convertAudioTrack(inputPath, outputDir string, opts HLSOptions, audioBR string) error {
+	if err := os.MkdirAll(outputDir, 0700); err != nil {
+		return err
+	}
+	in := ffmpegPathArg(inputPath)
+	m3u8Path := ffmpegPathArg(filepath.Join(outputDir, "audio.m3u8"))
+	segmentPattern := ffmpegPathArg(filepath.Join(outputDir, "segment_%03d.ts"))
+	args := buildAudioArgs(in, m3u8Path, segmentPattern, opts, audioBR)
+
+	return withMemoryRetries("audio", func() error {
+		_, err := execEncode(args, m3u8Path)
+		return err
+	})
 }
 
 func findSegments(dir string) ([]string, error) {
