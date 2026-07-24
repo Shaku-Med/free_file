@@ -9,13 +9,15 @@
 
 const SEGMENT_WINDOW_MS = 45_000;
 /** VoD seeks and ABR can burst many `.ts` requests in a few seconds; a low cap
- *  caused 429 → hls.js manifest reloads → playback death. Rippers still exceed
- *  this by orders of magnitude (full-speed parallel downloads). */
-const SEGMENT_MAX_PER_WINDOW = 70;
+ *  caused 429 → hls.js manifest reloads → playback death. Raised for the
+ *  separate audio track: video + audio segments share one per-file bucket, so a
+ *  normal viewer now pulls ~2x the segments (plus scrub bursts). Rippers still
+ *  exceed this by orders of magnitude (full-speed parallel downloads). */
+const SEGMENT_MAX_PER_WINDOW = 150;
 
 const MANIFEST_WINDOW_MS = 60_000;
-/** Master + variant playlists on recovery; keep headroom above error-retry storms. */
-const MANIFEST_MAX_PER_WINDOW = 22;
+/** Master + variant + audio playlists on recovery; headroom above retry storms. */
+const MANIFEST_MAX_PER_WINDOW = 30;
 
 const SWEEP_INTERVAL_MS = 60_000;
 

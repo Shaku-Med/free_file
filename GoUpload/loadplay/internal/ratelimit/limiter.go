@@ -6,12 +6,16 @@ import (
 )
 
 // Mirrors app SegmentRateLimiter  in-memory sliding windows per key.
+// Segment cap raised for separate audio: video + audio segments share one
+// per-file bucket, so a normal viewer now pulls ~2x the segments (plus bursts
+// on seek/scrub). 150/45s comfortably fits legit playback while still throttling
+// a full-speed ripper. Manifest cap nudged up for the extra audio child playlist.
 const (
-	segmentWindow    = 45 * time.Second
-	segmentMax       = 70
-	manifestWindow   = 60 * time.Second
-	manifestMax      = 22
-	sweepInterval    = 60 * time.Second
+	segmentWindow  = 45 * time.Second
+	segmentMax     = 150
+	manifestWindow = 60 * time.Second
+	manifestMax    = 30
+	sweepInterval  = 60 * time.Second
 )
 
 type Limiter struct {
