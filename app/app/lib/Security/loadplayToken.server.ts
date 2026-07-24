@@ -14,11 +14,28 @@ import { createHmac, createHash, randomBytes } from "crypto";
 import { computeGuestPreviewSeconds } from "~/lib/guestPreviewLimit";
 
 const SECRET_ENV = "SEGMENT_TOKEN_SECRET";
+// Floors only — the real lifetime covers the whole video (see playbackTtlMs).
+// A token that dies mid-video used to 403 a segment, forcing hls.js to reload
+// the manifest → a black spinner every few minutes on long videos and on every
+// seek past the expiry. The token is IP+UA bound, so a longer life doesn't open
+// up link sharing (a leaked URL still won't play on another network/device).
 const GUEST_PLAYBACK_TTL_MS = 5 * 60_000;
-// Short signed-in TTL keeps the replay window tight. The client
-// re-mints automatically via usePlaybackUrl on file change, and
-// usePlaybackUrl can be extended to refresh on token-near-expiry.
 const SIGNED_IN_PLAYBACK_TTL_MS = 15 * 60_000;
+// Hard cap so a token is never absurdly long-lived (matches the cast window).
+const MAX_PLAYBACK_TTL_MS = 6 * 60 * 60_000;
+// Headroom past the media length for pausing, seeking and DJ-style scrubbing.
+const PLAYBACK_TTL_MARGIN_MS = 15 * 60_000;
+
+/** Lifetime that outlives the actual watch: playable seconds + margin, clamped
+ *  between a floor and the 6h cap. Keeps the token valid for the entire video
+ *  so playback never reloads mid-stream. */
+function playbackTtlMs(playableSeconds: number, floorMs: number): number {
+  const span =
+    (Number.isFinite(playableSeconds) && playableSeconds > 0
+      ? playableSeconds * 1000
+      : 0) + PLAYBACK_TTL_MARGIN_MS;
+  return Math.min(MAX_PLAYBACK_TTL_MS, Math.max(floorMs, span));
+}
 
 /** LoadPlay CDN origin  override with `LOADPLAY_BASE_URL` in env. */
 export const LOADPLAY_DEV_ORIGIN = "http://localhost:3006";
@@ -194,7 +211,11 @@ export function buildPlaybackUrlForFile(
     guestLimitSeconds,
     ipHash: bind?.ipHash,
     uaHash: bind?.uaHash,
-    ttlMs: isGuest ? GUEST_PLAYBACK_TTL_MS : SIGNED_IN_PLAYBACK_TTL_MS,
+    // Cover the whole watch: signed-in tokens track the video's duration;
+    // guests only get a short preview, so theirs track the preview length.
+    ttlMs: isGuest
+      ? playbackTtlMs(guestLimitSeconds ?? 0, GUEST_PLAYBACK_TTL_MS)
+      : playbackTtlMs(Number(file.duration) || 0, SIGNED_IN_PLAYBACK_TTL_MS),
   });
   return built?.url ?? null;
 }
