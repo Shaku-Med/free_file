@@ -6,7 +6,11 @@ import db from '../Database/supabase';
 
 export const PasswordHash = async (password: string) => {
     try {
-        const salt = await bcrypt.genSalt(10);
+        // Cost 12 for passwords (was 10). bcrypt stores the cost inside each
+        // hash, so existing cost-10 hashes still verify — only new/changed
+        // passwords get the stronger factor. ~4x slower per hash, still well
+        // under the login timing budget.
+        const salt = await bcrypt.genSalt(12);
         const hash = await bcrypt.hash(password, salt);
         return hash;
     }

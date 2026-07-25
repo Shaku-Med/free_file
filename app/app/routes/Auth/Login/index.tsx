@@ -25,6 +25,7 @@ import {
 } from '~/lib/Security/accountVault';
 import { PasskeyUserMessage, friendlyPasskeyClientError } from '~/lib/webauthn/userMessages';
 import { checkAuthRateLimit, resetAuthRateLimit } from '../fun/rateLimit';
+import { isCrossOriginForgery } from '~/lib/Security/requestOrigin';
 import { issueVerifyContext, appendVerifyContextCookie } from '../fun/verification';
 import { getProfilePicUrl } from '~/lib/utils/profilePic';
 import { Eye, EyeOff, AlertCircle, Fingerprint, KeyRound, CheckCircle2, Users } from 'lucide-react';
@@ -49,6 +50,9 @@ export const loader = async ({ request }: { request: Request }) => {
 
 export const action = async ({ request }: { request: Request }) => {
   try {
+    if (isCrossOriginForgery(request)) {
+      return data({ error: 'Invalid request origin.' }, { status: 403 });
+    }
     const formData = await request.formData();
     const identifier = formData.get('identifier') as string;
     const password = formData.get('password') as string;

@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { data, redirect, useActionData, useNavigation, Link, type MetaFunction } from 'react-router';
 import { buildPageMeta } from '~/lib/seo';
+import { isCrossOriginForgery } from '~/lib/Security/requestOrigin';
 import { Button } from '~/components/ui/button';
 import { Input } from '~/components/ui/input';
 import { Card, CardContent, CardHeader } from '~/components/ui/card';
@@ -30,6 +31,9 @@ export const loader = async ({ request }: { request: Request }) => {
 
 export const action = async ({ request }: { request: Request }) => {
   try {
+    if (isCrossOriginForgery(request)) {
+      return data({ error: 'Invalid request origin.' }, { status: 403 });
+    }
     const formData = await request.formData();
     const identifier = formData.get('identifier') as string;
 
