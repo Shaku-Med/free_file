@@ -11,12 +11,18 @@ let db: any = null;
 
 try {
   if (!supabaseUrl || !supabaseKey) {
-    console.warn('Supabase credentials are missing. Using fallback client.');
+    console.error(
+      'FATAL: Supabase credentials missing (SUPABASE_URL / SUPABASE_ANON_KEY). Every query will fail.',
+    );
   } else {
     db = createClient(supabaseUrl, supabaseKey);
   }
 } catch (error) {
-  console.warn('Supabase client initialization failed. Using fallback client.');
+  // Surface the REAL cause. This used to log a generic line, which hid a
+  // genuine outage: supabase-js needs a global WebSocket (Node 22+), so on an
+  // older runtime createClient() throws here and every query then failed with
+  // the misleading "Supabase client not initialized" from the stub below.
+  console.error('FATAL: Supabase client initialization failed:', error);
 }
 
 if (!db) {
