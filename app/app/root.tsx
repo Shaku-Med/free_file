@@ -152,8 +152,13 @@ export const loader = async ({request}: {request: Request}) => {
     let sessionToken = await makeSessionToken(request.headers);
 
     if (!sessionToken) {
-      console.warn("[root] makeSessionToken failed; serving page without session.");
-      return data(null, { status: 400 });
+      // The anonymous file-access token couldn't be minted — e.g. a bare
+      // request with no cookies and no forwarded IP, which is exactly what the
+      // Docker healthcheck (wget --spider from 127.0.0.1) sends. Serve the page
+      // WITHOUT a session token instead of 400ing the whole app: that 400 was
+      // marking the container unhealthy and flooding the logs, and it never made
+      // sense to fail the page just because an anon token wasn't available.
+      sessionToken = null;
     }
 
     if (!db) return data(null, { status: 500 });
@@ -311,7 +316,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
         <RegisterServiceWorker />
         <OrientationLock />
         <ErrorBoundary>
-          <ContextProvider st={st} user_agent={user_agent || ''} userId={userId || null} c_user={null} uploadServerUrl={uploadServerUrl || ''} playerSettingsFromLoader={playerSettingsFromLoader ?? null} isMobileServer={isMobileServer ?? false} isDevelopment={isDevelopmentServer ?? false} altAccounts={altAccounts ?? []}>
+          <ContextProvider st={st || ''} user_agent={user_agent || ''} userId={userId || null} c_user={null} uploadServerUrl={uploadServerUrl || ''} playerSettingsFromLoader={playerSettingsFromLoader ?? null} isMobileServer={isMobileServer ?? false} isDevelopment={isDevelopmentServer ?? false} altAccounts={altAccounts ?? []}>
             <LikeProvider>
               <WatchProgressProvider>
               <PictureInPictureProvider>

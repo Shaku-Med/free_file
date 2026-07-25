@@ -69,7 +69,15 @@ export const DecryptCombine = async (data: any, keys: any[], options?: object) =
             return decryptedData;
         }
     } catch (e) {
+        // An expired token is a NORMAL event (a returning user whose 30-day
+        // session lapsed), not an error — logging a full stack trace for each
+        // one floods the logs and buries real failures. Signal it with
+        // `undefined` (callers treat that as "re-issue") and stay quiet.
+        const isExpired =
+            (e as { name?: string })?.name === 'TokenExpiredError' ||
+            e?.toString()?.includes('expired');
+        if (isExpired) return undefined;
         console.error("Decryption failed:", e);
-        return e?.toString()?.includes('expired') ? undefined : null;
+        return null;
     }
 };
