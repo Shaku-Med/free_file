@@ -28,6 +28,13 @@ export const action = async ({ request }: { request: Request }) => {
 
     const normalizedEmail = email?.toLowerCase() || '';
 
+    // Per-IP cap first: the per-email limit below can't stop one host from
+    // registering endlessly with fresh addresses.
+    const ipLimit = checkAuthRateLimit(request, 'signup_ip');
+    if (!ipLimit.allowed) {
+      return data({ error: ipLimit.error || 'Too many attempts. Please wait a bit and try again.' }, { status: 429 });
+    }
+
     const rateLimitCheck = checkAuthRateLimit(request, 'signup', normalizedEmail);
     if (!rateLimitCheck.allowed) {
       return data({ error: rateLimitCheck.error || 'Too many attempts. Please wait a bit and try again.' }, { status: 429 });
@@ -39,7 +46,10 @@ export const action = async ({ request }: { request: Request }) => {
       return data({ error: result.error || 'Something went wrong. Please try again.' }, { status: 400 });
     }
 
-    resetAuthRateLimit(request, 'signup', email.toLowerCase());
+    // Only the per-email counter is cleared on success (that address now has an
+    // account and can't re-register). The per-IP counter deliberately survives,
+    // otherwise a successful signup would reset the bulk-registration guard.
+    resetAuthRateLimit(request, 'signup', normalizedEmail);
 
     const ctxToken = await issueVerifyContext(result.userId!, 'signup');
     if (!ctxToken) {

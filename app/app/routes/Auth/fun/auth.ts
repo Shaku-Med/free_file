@@ -1,10 +1,41 @@
+import crypto from 'crypto';
+import bcrypt from 'bcrypt';
 import db from '~/lib/Database/supabase';
 import { PasswordHash, CreatePassword, VerifyPassword } from '~/lib/Security/Password';
 import { generateVerificationCode, hashVerificationCode, saveVerificationCode } from './verification';
 import { sendVerificationEmail as sendEmail } from './email';
 import { EncryptCombine } from '~/lib/Security/unsharedkeyEncryption/Combined/Combined';
 import { getAllKeys } from '~/lib/Security/unsharedkeyEncryption/Combined/Verification/TokenKeys';
-import { validateSignupInputs, validateLoginInputs, normalizeIdentifier, constantTimeDelay } from './validation';
+import {
+  validateSignupInputs,
+  validateLoginInputs,
+  normalizeIdentifier,
+  constantTimeDelay,
+  delayUntilDeadline,
+} from './validation';
+
+/**
+ * A REAL bcrypt hash (of a random throwaway secret) used purely as a decoy, so
+ * a login for a non-existent account still performs a full-cost comparison.
+ * Built once per process, lazily, and never compared against anything a caller
+ * could know.
+ */
+let decoyHashPromise: Promise<string> | null = null;
+function decoyHash(): Promise<string> {
+  if (!decoyHashPromise) {
+    decoyHashPromise = bcrypt.hash(crypto.randomBytes(24).toString('hex'), 10);
+  }
+  return decoyHashPromise;
+}
+
+/** Spend the same CPU a genuine password check would, then discard the result. */
+async function burnPasswordComparison(candidate: string): Promise<void> {
+  try {
+    await bcrypt.compare(candidate, await decoyHash());
+  } catch {
+    /* decoy only — never affects the outcome */
+  }
+}
 
 /** Session lifetime, shared by the JWT `exp` and the cookie `Max-Age` so a
  * stolen token can't outlive the cookie. */
@@ -62,6 +93,17 @@ export const createUser = async (data: SignupData): Promise<{ success: boolean; 
     }
 
     const sanitized = validation.sanitized!;
+
+    // Reject throwaway inboxes before touching the DB. Imported dynamically so
+    // the blocklist stays server-side only — it must never ship to the browser,
+    // where an attacker could read exactly which domains to avoid.
+    const { isDisposableEmail } = await import('~/lib/Security/disposableEmail.server');
+    if (isDisposableEmail(sanitized.email)) {
+      return {
+        success: false,
+        error: 'Disposable email addresses are not allowed. Please use a permanent email address.',
+      };
+    }
 
     if (!db) {
       return { success: false, error: 'An error occurred. Please try again later.' };
@@ -176,11 +218,14 @@ export const createUser = async (data: SignupData): Promise<{ success: boolean; 
 };
 
 export const loginUser = async (data: LoginData, request: Request): Promise<{ success: boolean; error?: string; token?: string; userId?: string; email?: string; needsVerification?: boolean }> => {
+  // Every failure path below pads to this deadline so response time can't
+  // distinguish "no such account" from "wrong password" (account enumeration).
+  const startedAt = Date.now();
   try {
     // Validate inputs
     const validation = validateLoginInputs(data);
     if (!validation.valid) {
-      await constantTimeDelay(); // Prevent timing attacks
+      await delayUntilDeadline(startedAt);
       return { success: false, error: 'Invalid username/email or password' };
     }
 
@@ -188,7 +233,7 @@ export const loginUser = async (data: LoginData, request: Request): Promise<{ su
     const normalizedIdentifier = normalizeIdentifier(sanitized.identifier);
 
     if (!db) {
-      await constantTimeDelay();
+      await delayUntilDeadline(startedAt);
       return { success: false, error: 'Invalid username/email or password' };
     }
 
@@ -246,18 +291,19 @@ export const loginUser = async (data: LoginData, request: Request): Promise<{ su
       }
     }
 
-    // Always verify password (even with dummy) to prevent timing attacks
+    // Always burn a real bcrypt round, even when the account doesn't exist.
+    // The old decoy ('$2b$10$dummy.hash.for.timing...') is not a parseable
+    // bcrypt hash, so it bailed out in ~0ms and made "no such user" measurably
+    // faster than "wrong password" — a clean account-enumeration oracle.
     let isValid = false;
     if (passwordHash) {
       isValid = await VerifyPassword(sanitized.password, passwordHash) || false;
     } else {
-      // Verify against dummy hash to maintain constant time
-      const dummyHash = '$2b$10$dummy.hash.for.timing.attack.protection';
-      await VerifyPassword('dummy', dummyHash);
+      await burnPasswordComparison(sanitized.password);
     }
 
-    // Add constant delay regardless of outcome
-    await constantTimeDelay(100);
+    // Pad to a common deadline so all outcomes take the same observable time.
+    await delayUntilDeadline(startedAt);
 
     if (!userId || !isValid || isMemories) {
       return { success: false, error: 'Invalid username/email or password' };

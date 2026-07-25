@@ -78,6 +78,35 @@ export const verifyCode = async (code: string, codeHash: string): Promise<boolea
   }
 };
 
+/**
+ * SHA-256 hex digest.
+ *
+ * Used for the reset token and the device fingerprint instead of bcrypt.
+ * bcrypt SILENTLY TRUNCATES its input at 72 bytes, and both of those values are
+ * far longer — a JWT, and `{"ip":...,"userAgent":...,"platform":...}` where a
+ * normal User-Agent alone blows the limit. The result was that the device bind
+ * only ever compared the first 72 characters (platform never compared at all),
+ * and the token bind covered the JWT header rather than its signature.
+ *
+ * These inputs are high-entropy and not user-chosen secrets, so a fast digest
+ * is the right primitive; bcrypt's work factor buys nothing here. Low-entropy
+ * 6-digit codes above still use bcrypt, which is correct for them.
+ */
+export const sha256Hex = (value: string): string =>
+  crypto.createHash('sha256').update(value, 'utf8').digest('hex');
+
+/** Length-checked constant-time compare for hex digests. */
+export const timingSafeHexEqual = (a: unknown, b: unknown): boolean => {
+  if (typeof a !== 'string' || typeof b !== 'string') return false;
+  if (a.length !== b.length || a.length === 0) return false;
+  try {
+    // timingSafeEqual throws on length mismatch, hence the guard above.
+    return crypto.timingSafeEqual(Buffer.from(a, 'hex'), Buffer.from(b, 'hex'));
+  } catch {
+    return false;
+  }
+};
+
 export const saveVerificationCode = async (
   userId: string,
   codeHash: string,
@@ -224,10 +253,7 @@ export const generateResetToken = async (userId: string, headers: Headers): Prom
       platform: deviceHeaders['sec-ch-ua-platform'] || ''
     };
 
-    const deviceFingerprintHash = await hashVerificationCode(JSON.stringify(deviceFingerprint));
-    if (!deviceFingerprintHash) {
-      return null;
-    }
+    const deviceFingerprintHash = sha256Hex(JSON.stringify(deviceFingerprint));
 
     const tokenData = {
       userId,
@@ -252,10 +278,7 @@ export const generateResetToken = async (userId: string, headers: Headers): Prom
       return null;
     }
 
-    const tokenHash = await hashVerificationCode(token);
-    if (!tokenHash) {
-      return null;
-    }
+    const tokenHash = sha256Hex(token);
 
     if (!db) return null;
 
@@ -350,9 +373,10 @@ export const validateResetToken = async (token: string, headers: Headers): Promi
     }
 
     const [storedTokenHash, storedDeviceFingerprintHash] = storedHash.split(':');
-    
-    const isValidToken = await verifyCode(token, storedTokenHash);
-    if (!isValidToken) {
+
+    // Constant-time compare of the FULL token digest. (Previously a bcrypt
+    // compare that only covered the first 72 bytes of the JWT.)
+    if (!timingSafeHexEqual(sha256Hex(token), storedTokenHash)) {
       return null;
     }
 
@@ -384,8 +408,14 @@ export const validateResetToken = async (token: string, headers: Headers): Promi
       platform: currentDeviceHeaders['sec-ch-ua-platform'] || ''
     };
 
-    const isValidDevice = await verifyCode(JSON.stringify(currentDeviceFingerprint), storedDeviceFingerprintHash);
-    if (!isValidDevice) {
+    // Full-fingerprint compare — ip + user-agent + platform all actually count
+    // now, instead of only the first 72 bytes of the JSON.
+    if (
+      !timingSafeHexEqual(
+        sha256Hex(JSON.stringify(currentDeviceFingerprint)),
+        storedDeviceFingerprintHash,
+      )
+    ) {
       return null;
     }
 

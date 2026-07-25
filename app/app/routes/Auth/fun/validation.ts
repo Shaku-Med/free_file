@@ -182,6 +182,33 @@ export function constantTimeDelay(ms: number = 100): Promise<void> {
 }
 
 /**
+ * Floor for a credential-checking response, in ms. Comfortably above a bcrypt
+ * cost-10 compare plus the DB round trips, so every branch lands on the same
+ * wall-clock budget.
+ */
+export const AUTH_MIN_RESPONSE_MS = 450;
+
+/**
+ * Hold the response until `startedAt + minMs` has elapsed.
+ *
+ * A FIXED extra delay (constantTimeDelay) does not hide a timing oracle: it
+ * shifts both branches equally, so "user exists" (full bcrypt) still returns
+ * measurably later than "no such user" (early bail). Padding to a common
+ * DEADLINE removes the difference, because the observable total is the same
+ * regardless of which path ran.
+ */
+export async function delayUntilDeadline(
+  startedAt: number,
+  minMs: number = AUTH_MIN_RESPONSE_MS,
+): Promise<void> {
+  const elapsed = Date.now() - startedAt;
+  const remaining = minMs - elapsed;
+  if (remaining > 0) {
+    await new Promise((resolve) => setTimeout(resolve, remaining));
+  }
+}
+
+/**
  * Normalize identifier (email or username) for consistent comparison
  */
 export function normalizeIdentifier(identifier: string): string {

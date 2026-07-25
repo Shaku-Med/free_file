@@ -99,6 +99,11 @@ export const isAuthenticated = async (request: Request, returnUser_Select?: Retu
           .select(cols.join(','))
           .eq('c_usr', decoded.c_usr).maybeSingle();
         if(error) return null;
+        // No matching row => the account was deleted, or c_usr was rotated to
+        // revoke sessions. The signed cookie still decodes fine, so without
+        // this the boolean form returned `true` and the dead session kept
+        // working — session revocation has to actually revoke.
+        if(!user) return null;
         return shouldReturnUser ? user : true;
     }
     catch (error) {

@@ -6,7 +6,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import sharp from "sharp";
-import toIco from "to-ico";
+import pngToIco from "png-to-ico";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.join(__dirname, "..");
@@ -34,7 +34,7 @@ await png(180).toFile(path.join(webIconsDir, "apple-touch-icon.png"));
 const buf16 = await png(16).toBuffer();
 const buf32 = await png(32).toBuffer();
 const buf48 = await png(48).toBuffer();
-const icoBuffer = await toIco([buf16, buf32, buf48]);
+const icoBuffer = await pngToIco([buf16, buf32, buf48]);
 fs.writeFileSync(path.join(publicDir, "favicon.ico"), icoBuffer);
 
 console.log("Wrote favicon.ico and icons/web/*.png from logo.svg");

@@ -44,6 +44,13 @@ export const action = async ({ request }: { request: Request }) => {
       return data({ error: 'Please enter a valid username or email.' }, { status: 400 });
     }
 
+    // Per-IP cap first, so one host can't spray reset mail across many accounts
+    // (the per-identifier limit below only rations a single target).
+    const ipLimit = checkAuthRateLimit(request, 'reset_ip');
+    if (!ipLimit.allowed) {
+      return data({ error: ipLimit.error || 'Too many attempts. Please wait a bit and try again.' }, { status: 429 });
+    }
+
     const rateLimitCheck = checkAuthRateLimit(request, 'reset', normalized);
     if (!rateLimitCheck.allowed) {
       return data({ error: rateLimitCheck.error || 'Too many attempts. Please wait a bit and try again.' }, { status: 429 });
@@ -99,8 +106,9 @@ export const action = async ({ request }: { request: Request }) => {
       return data({ error: 'Something went wrong. Please try again.' }, { status: 500 });
     }
 
-    resetAuthRateLimit(request, 'reset', identifier.toLowerCase());
-
+    // Deliberately NOT clearing the reset counter here. Sending the mail IS the
+    // rationed action — resetting on success made the 3/hour cap unreachable and
+    // allowed unlimited password-reset emails to any victim's inbox.
     return redirectToVerifyReset(user.id);
   } catch (error) {
     console.error('Error in reset action:', error);

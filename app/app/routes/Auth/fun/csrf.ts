@@ -50,28 +50,32 @@ export function createCSRFToken(sessionId: string): string {
  */
 export function validateCSRFToken(sessionId: string, token: string): boolean {
   const stored = tokenStore.get(sessionId);
-  
+
   if (!stored) {
     return false;
   }
-  
+
   // Check if expired
   if (stored.expiresAt < Date.now()) {
     tokenStore.delete(sessionId);
     return false;
   }
-  
-  // Constant-time comparison to prevent timing attacks
-  const isValid = crypto.timingSafeEqual(
-    Buffer.from(stored.token),
-    Buffer.from(token)
-  );
-  
-  if (!isValid) {
+
+  // timingSafeEqual THROWS on a length mismatch, so a wrong-length token used
+  // to surface as an uncaught 500 instead of a clean rejection. Compare lengths
+  // first (length is not secret — the token is fixed-width), then constant-time.
+  if (typeof token !== 'string' || token.length !== stored.token.length) {
     return false;
   }
-  
-  return true;
+
+  try {
+    return crypto.timingSafeEqual(
+      Buffer.from(stored.token, 'utf8'),
+      Buffer.from(token, 'utf8'),
+    );
+  } catch {
+    return false;
+  }
 }
 
 /**

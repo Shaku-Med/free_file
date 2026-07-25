@@ -3,6 +3,8 @@
  * Prevents spam and abuse by tracking requests per IP/identifier
  */
 
+import { clientIpBucket } from '~/lib/Security/clientIp';
+
 interface RateLimitEntry {
   count: number;
   resetAt: number;
@@ -105,22 +107,16 @@ export class RateLimiter {
   }
 
   /**
-   * Get client IP from request
+   * Rate-limit bucket for the caller's IP.
+   *
+   * Uses the trusted resolver, NOT the raw leftmost X-Forwarded-For entry: that
+   * header is client-supplied, so reading it naively let anyone mint a fresh
+   * bucket per request and bypass every IP-keyed limit here. Unresolvable IPs
+   * collapse to a single shared "unknown" bucket (fails closed / grouped rather
+   * than skipping the limit).
    */
   static getClientIP(request: Request): string {
-    // Check various headers for IP address
-    const forwarded = request.headers.get('x-forwarded-for');
-    if (forwarded) {
-      return forwarded.split(',')[0].trim();
-    }
-    
-    const realIP = request.headers.get('x-real-ip');
-    if (realIP) {
-      return realIP;
-    }
-
-    // Fallback to a default identifier if IP cannot be determined
-    return 'unknown';
+    return clientIpBucket(request);
   }
 }
 
@@ -132,8 +128,15 @@ export const RATE_LIMITS = {
   login: { maxRequests: 5, windowMs: 15 * 60 * 1000, blockDurationMs: 30 * 60 * 1000 }, // 5 attempts per 15 min, 30 min block (per identifier)
   login_ip: { maxRequests: 30, windowMs: 15 * 60 * 1000, blockDurationMs: 30 * 60 * 1000 }, // per-IP cap to stop password spraying across accounts (generous for shared NAT)
   passkey: { maxRequests: 15, windowMs: 15 * 60 * 1000, blockDurationMs: 30 * 60 * 1000 },
-  signup: { maxRequests: 3, windowMs: 60 * 60 * 1000, blockDurationMs: 60 * 60 * 1000 }, // 3 attempts per hour, 1 hour block
+  signup: { maxRequests: 3, windowMs: 60 * 60 * 1000, blockDurationMs: 60 * 60 * 1000 }, // 3 attempts per hour, 1 hour block (per email)
+  // Per-IP signup cap: the per-email limit above can't stop one host creating
+  // endless accounts by simply varying the address. Generous enough for shared
+  // NAT (a household/campus), tight enough to stop bulk registration.
+  signup_ip: { maxRequests: 10, windowMs: 60 * 60 * 1000, blockDurationMs: 60 * 60 * 1000 },
   reset: { maxRequests: 3, windowMs: 60 * 60 * 1000, blockDurationMs: 60 * 60 * 1000 }, // 3 attempts per hour, 1 hour block
+  // Per-IP reset cap for the same reason (per-identifier limit alone lets one
+  // host spray reset emails across many accounts).
+  reset_ip: { maxRequests: 10, windowMs: 60 * 60 * 1000, blockDurationMs: 60 * 60 * 1000 },
   verify: { maxRequests: 10, windowMs: 15 * 60 * 1000, blockDurationMs: 30 * 60 * 1000 }, // 10 attempts per 15 min, 30 min block
   resend: { maxRequests: 3, windowMs: 60 * 60 * 1000, blockDurationMs: 60 * 60 * 1000 }, // 3 resends per hour, 1 hour block
 } as const;

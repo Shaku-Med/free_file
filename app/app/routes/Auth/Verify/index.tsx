@@ -90,7 +90,10 @@ export const action = async ({ request }: { request: Request }) => {
         return data({ error: result.error || 'Something went wrong. Please try again.' }, { status: 400 });
       }
 
-      resetAuthRateLimit(request, 'resend', userId);
+      // Deliberately NOT resetting the resend limit here. A *successful* resend
+      // is the thing being rationed — clearing the counter on success made the
+      // 3/hour cap unreachable, allowing unlimited verification emails to a
+      // victim's inbox (and unlimited spend/reputation damage on our sender).
       return data({ success: true, message: 'A new code has been sent to your email.' });
     }
 
