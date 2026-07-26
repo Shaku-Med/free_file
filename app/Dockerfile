@@ -5,14 +5,17 @@
 # sharp and bcrypt. Secrets are NEVER copied in (see .dockerignore); the real
 # .env / .env.notification are mounted at runtime by docker-compose.
 #
-# Node 22, not 20: @supabase/supabase-js always builds a RealtimeClient, which
-# needs a global WebSocket. That only exists natively from Node 22 — on 20,
-# createClient() throws, supabase.tsx falls back to its stub client and every
-# query fails with "Supabase client not initialized". Do not downgrade.
+# Node 24 — do NOT downgrade. Two hard requirements:
+#   * >=22: @supabase/supabase-js always builds a RealtimeClient, which needs a
+#     global WebSocket. On Node 20 createClient() throws, supabase.tsx falls back
+#     to its stub and every query fails with "Supabase client not initialized".
+#   * >=24: geoip-lite@2.x declares engines.node >=24 (2.x is the line that
+#     carries the patched ip-address / brace-expansion transitives).
+# Keep this in lockstep with `node-version` in .github/workflows/deploy.yml.
 
 ############################  build toolchain  ############################
 # Shared base that has everything needed to COMPILE the native modules.
-FROM node:22-bookworm-slim AS build-base
+FROM node:24-bookworm-slim AS build-base
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \
       build-essential \
@@ -45,7 +48,7 @@ COPY . .
 RUN npm run build
 
 ############################  runtime image  ############################
-FROM node:22-bookworm-slim AS runtime
+FROM node:24-bookworm-slim AS runtime
 ENV NODE_ENV=production \
     PORT=3000 \
     HOST=0.0.0.0 \
