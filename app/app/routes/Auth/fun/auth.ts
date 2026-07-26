@@ -94,14 +94,16 @@ export const createUser = async (data: SignupData): Promise<{ success: boolean; 
 
     const sanitized = validation.sanitized!;
 
-    // Reject throwaway inboxes before touching the DB. Imported dynamically so
-    // the blocklist stays server-side only — it must never ship to the browser,
-    // where an attacker could read exactly which domains to avoid.
-    const { isDisposableEmail } = await import('~/lib/Security/disposableEmail.server');
-    if (isDisposableEmail(sanitized.email)) {
+    // Allowlist gate, before touching the DB. We accept known real providers and
+    // deny everything else, so a burner domain we've never heard of fails closed
+    // instead of slipping through a blocklist that's always out of date.
+    // Imported dynamically so the policy stays server-side only.
+    const { isAllowedEmail } = await import('~/lib/Security/emailPolicy.server');
+    if (!isAllowedEmail(sanitized.email)) {
       return {
         success: false,
-        error: 'Disposable email addresses are not allowed. Please use a permanent email address.',
+        error:
+          'Please sign up with a permanent email from a major provider (Gmail, Outlook, Yahoo, iCloud, Proton, and similar). Temporary and disposable addresses are not accepted.',
       };
     }
 
