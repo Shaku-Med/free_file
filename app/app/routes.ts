@@ -109,6 +109,9 @@ export default [
         route(`reel-friend-likes`, 'routes/Api/reel-friend-likes/index.tsx'),
         route(`content/:id`, 'routes/Api/content/$id/index.tsx'),
         route(`tag/:tagname`, 'routes/Api/tag.$tagname/index.tsx'),
+        // Static `music/mix` must be declared before the dynamic `music/:id`
+        // so the mix endpoint isn't swallowed as an id.
+        route(`music/mix`, 'routes/Api/music/mix/index.tsx'),
         route(`music/:id`, 'routes/Api/music/$id/index.tsx'),
         route(`playlist`, 'routes/Api/playlist/index.tsx'),
         route(`playlists`, 'routes/Api/playlists/index.tsx'),
