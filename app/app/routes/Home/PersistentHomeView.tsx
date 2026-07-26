@@ -93,7 +93,7 @@ function SkeletonCard() {
 
 function FeedSkeleton() {
   return (
-    <div className="grid w-full min-w-0 grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+    <div className="grid w-full min-w-0 grid-cols-1 gap-x-4 gap-y-6 sm:grid-cols-2 sm:gap-y-8 lg:grid-cols-3 lg:gap-y-10 xl:grid-cols-4">
       {Array.from({ length: 12 }).map((_, i) => (
         <SkeletonCard key={i} />
       ))}
@@ -165,7 +165,7 @@ export default function PersistentHomeView() {
   }
 
   const gridClass =
-    "grid w-full min-w-0 grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4";
+    "grid w-full min-w-0 grid-cols-1 gap-x-4 gap-y-6 sm:grid-cols-2 sm:gap-y-8 lg:grid-cols-3 lg:gap-y-10 xl:grid-cols-4";
 
   const splitForHistory =
     userId && files.length > 0
@@ -316,7 +316,7 @@ export default function PersistentHomeView() {
             renderFeedGroups(files as FileType[], "feed")
           )}
           {isLoading && (
-            <div className="mt-2 grid w-full min-w-0 grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+            <div className="mt-2 grid w-full min-w-0 grid-cols-1 gap-x-4 gap-y-6 sm:grid-cols-2 sm:gap-y-8 lg:grid-cols-3 lg:gap-y-10 xl:grid-cols-4">
               {Array.from({ length: 4 }).map((_, i) => (
                 <SkeletonCard key={`skeleton-${i}`} />
               ))}

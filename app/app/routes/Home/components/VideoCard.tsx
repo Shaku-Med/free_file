@@ -2985,22 +2985,26 @@ const VideoCard = ({
   }
 
   return (
-    <div className="item group rounded-2xl relative flex flex-col py-4 h-full">
+    // Spacing follows YouTube: the grid owns the vertical rhythm (row-gap), so
+    // the card itself carries no outer padding — padding here fought the gap and
+    // made the columns read tighter than the rows.
+    <div className="item group relative flex h-full flex-col">
       <Link
         onClick={(e) => {
           e.preventDefault();
           void handleWatchNav();
         }}
         to={watchPath}
-        className="w-full bg-card rounded-2xl overflow-hidden relative aspect-video group-hover:z-[1000000] z-[10]"
+        className="relative z-[10] aspect-video w-full overflow-hidden rounded-xl group-hover:z-[1000000]"
       >
         {renderThumbnail("w-full h-full")}
       </Link>
 
       <VideoCardHoverOverlay colors={fileColors} seed={hoverTintSeed} />
 
-      <div className="py-2 flex flex-col z-[1000000]">
-        <div className="pointer-events-auto mb-1 flex items-start gap-3">
+      {/* 12px thumbnail → meta gap, matching YouTube. */}
+      <div className="z-[1000000] mt-3 flex flex-col">
+        <div className="pointer-events-auto flex items-start gap-3">
           {data.owner && (
             <OwnerProfile
               showUsername={false}
@@ -3020,7 +3024,9 @@ const VideoCard = ({
                   }}
                   className="min-w-0 flex-1 overflow-hidden hover:text-primary transition-colors"
                 >
-                  <h3 className="line-clamp-2 break-all text-sm font-semibold leading-snug md:text-base">
+                  {/* break-words, NOT break-all: break-all split words mid-character
+                      (“vide\no”), which is why titles looked ragged next to YouTube's. */}
+                  <h3 className="line-clamp-2 break-words text-[0.9375rem] font-medium leading-[1.35] md:text-base">
                     <ParseFilenameInsert
                       filename={displayMediaTitle(data.file_title || data.filename || "")}
                       showLimit={64}
@@ -3049,11 +3055,13 @@ const VideoCard = ({
                   </Tooltip>
                 )}
               </div>
-              <div className="mt-0.5 flex min-h-[1.25rem] flex-wrap items-center gap-x-1 gap-y-0.5 text-xs text-muted-foreground">
+              {/* Secondary line sits 4px under the title and uses 13px, closer to
+                  YouTube's meta scale than the previous 12px. */}
+              <div className="mt-1 flex min-h-[1.25rem] flex-wrap items-center gap-x-1 gap-y-0.5 text-[0.8125rem] text-muted-foreground">
                 {data.owner && (
                   <Link
                     to={`/profile/${data.owner.username}`}
-                    className="max-w-[120px] truncate hover:text-foreground transition-colors"
+                    className="max-w-[140px] truncate hover:text-foreground transition-colors"
                   >
                     {data.owner.username}
                   </Link>

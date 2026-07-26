@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { useLocation, useNavigate, useParams } from "react-router";
-import { RotateCcw, X } from "lucide-react";
+import { EyeOff, RotateCcw } from "lucide-react";
 import { cn } from "~/lib/utils";
 import { usePlayerContext } from "../PlayerContext";
 import { usePlayerContainerSize, endCardOverlayLayout } from "../hooks/usePlayerContainerSize";
@@ -402,16 +402,19 @@ export default function EndCardOverlay({
           <span aria-hidden className="h-9 w-9 shrink-0" />
         )}
 
+        {/* YouTube-style "Hide" pill rather than a bare X — it reads as an
+            action and matches the end-screen reference. */}
         <button
           type="button"
           onClick={() => {
             cancelAutoplay();
             setDismissed(true);
           }}
-          className="pointer-events-auto flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-black/55 text-white/85 ring-1 ring-white/15 backdrop-blur-sm transition-colors hover:bg-black/75 hover:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-white/60"
-          aria-label="Dismiss suggestions"
+          className="pointer-events-auto flex shrink-0 items-center gap-1.5 rounded-full bg-white/95 px-3 py-1.5 text-[13px] font-medium text-black shadow-sm ring-1 ring-black/10 backdrop-blur-sm transition-colors hover:bg-white focus:outline-none focus-visible:ring-2 focus-visible:ring-white sm:px-3.5 sm:py-2"
+          aria-label="Hide suggestions"
         >
-          <X className="h-4 w-4" />
+          <EyeOff className="h-4 w-4" />
+          <span>Hide</span>
         </button>
       </div>
 
@@ -467,12 +470,16 @@ export default function EndCardOverlay({
               index={i}
               variant="row"
               className={cn(
-                "absolute top-1/2 z-[2] -translate-y-1/2",
+                // Top-anchored, matching the YouTube end screen, instead of
+                // vertically centered over the middle of the frame.
+                "absolute z-[2]",
                 i === 0 ? SAFE_LEFT : SAFE_RIGHT,
               )}
               style={{
                 width: layout.cardWidthPx,
                 height: layout.cardHeightPx,
+                // Sit just below the top control row rather than mid-frame.
+                top: layout.insetTopPx + 8,
               }}
               {...cardProps}
             />
@@ -496,8 +503,10 @@ export default function EndCardOverlay({
       )}
 
       {layout.variant === "centerPair" && (
+        // Cards ride at the TOP of the frame (YouTube's end screen), leaving the
+        // lower half of the video visible instead of covering it.
         <div
-          className="pointer-events-none relative z-[2] flex min-h-0 flex-1 flex-col items-center justify-center px-3"
+          className="pointer-events-none relative z-[2] flex min-h-0 flex-1 flex-col items-center justify-start px-3 pt-1"
           style={{
             paddingBottom: layout.insetBottomPx,
             gap: layout.cardGapPx + 10,
