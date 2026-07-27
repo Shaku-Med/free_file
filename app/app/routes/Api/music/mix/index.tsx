@@ -1,6 +1,12 @@
 import db from '~/lib/Database/supabase';
 import { isAuthenticated } from '~/lib/Security/Password';
 import { stripThumbnailsForClient } from '~/lib/files/reelFilePayload';
+import { mixGidFromSeed, seedFromMixGid } from '~/lib/music/mixId';
+import {
+  buildTasteProfile,
+  personalizationBonus,
+  explorationBonus,
+} from '~/lib/recommendations/tasteProfile.server';
 
 /**
  * GET /api/music/mix?seed=<unique_id>[&limit=25]
@@ -122,10 +128,17 @@ export const loader = async ({ request }: { request: Request }) => {
     if (!db) return json({ error: 'Service unavailable' }, 503);
 
     const url = new URL(request.url);
-    const seedParam = (url.searchParams.get('seed') ?? '').trim();
-    // unique_id shape is enforced elsewhere in the app; keep the same guard.
+
+    // Accept either ?list=<gid> (shareable, what the watch page sends) or
+    // ?seed=<unique_id> (direct). The gid IS the seed, so both resolve the same
+    // way — that's why a mix link works for signed-out viewers too.
+    const listParam = (url.searchParams.get('list') ?? '').trim();
+    const seedParam = listParam
+      ? seedFromMixGid(listParam)
+      : (url.searchParams.get('seed') ?? '').trim();
+
     if (!seedParam || seedParam.length > 128 || !/^[A-Za-z0-9_-]+$/.test(seedParam)) {
-      return json({ error: 'Invalid seed' }, 400);
+      return json({ error: 'Invalid mix' }, 400);
     }
 
     const limitRaw = Number(url.searchParams.get('limit'));
@@ -133,15 +146,21 @@ export const loader = async ({ request }: { request: Request }) => {
       ? Math.min(Math.max(Math.trunc(limitRaw), 1), MAX_LIMIT)
       : DEFAULT_LIMIT;
 
+    // Offset pagination over the ranked pool: the sidebar loads more as the
+    // viewer scrolls instead of shipping the whole mix up front.
+    const offsetRaw = Number(url.searchParams.get('offset'));
+    const offset = Number.isFinite(offsetRaw)
+      ? Math.min(Math.max(Math.trunc(offsetRaw), 0), 500)
+      : 0;
+
     const user = await isAuthenticated(request, ['id']).catch(() => null);
     const userId = user?.id ?? null;
 
-    // ---- seed -------------------------------------------------------------
-    const { data: seedRow } = await db
-      .from('files')
-      .select(FILE_COLUMNS)
-      .eq('unique_id', seedParam)
-      .maybeSingle();
+    // ---- seed + viewer taste (in parallel) --------------------------------
+    const [{ data: seedRow }, profile] = await Promise.all([
+      db.from('files').select(FILE_COLUMNS).eq('unique_id', seedParam).maybeSingle(),
+      buildTasteProfile(userId),
+    ]);
 
     const seed = seedRow as FileRow | null;
     if (
@@ -288,10 +307,19 @@ export const loader = async ({ request }: { request: Request }) => {
       if (!row) continue;
       if (row.is_music !== true || row.is_public !== true || row.is_adult === true) continue;
       if (String(row.upload_status ?? 'complete') !== 'complete') continue;
+      // Explicitly disliked → never resurface, regardless of similarity.
+      if (profile.suppressed.has(id)) continue;
       const canon = canonicalId(row);
       if (seenCanonical.has(canon) || seenCanonical.has(id)) continue;
       seenCanonical.add(canon);
-      pool.push({ row, score, source: sources.get(id) ?? 'popular' });
+
+      // Similarity says "this goes with the seed"; the taste profile says
+      // "and it's your kind of thing"; exploration keeps the mix from
+      // calcifying into the same handful of creators.
+      const personalized =
+        score + personalizationBonus(profile, row) + explorationBonus(profile, id);
+
+      pool.push({ row, score: personalized, source: sources.get(id) ?? 'popular' });
     }
 
     // Seeded shuffle inside score bands: keeps strong candidates near the top
@@ -310,9 +338,11 @@ export const loader = async ({ request }: { request: Request }) => {
       i = j;
     }
 
-    // Artist cap, applied after shuffling so it trims fairly.
+    // Artist cap, applied after shuffling so it trims fairly. Ordered over the
+    // WHOLE pool first, then sliced — otherwise page 2 would re-rank and could
+    // repeat items already shown on page 1.
     const perOwner = new Map<string, number>();
-    const picked: Scored[] = [];
+    const ordered: Scored[] = [];
     const overflow: Scored[] = [];
     for (const item of pool) {
       const owner = String(item.row.owner_id ?? '');
@@ -322,14 +352,14 @@ export const loader = async ({ request }: { request: Request }) => {
         continue;
       }
       perOwner.set(owner, used + 1);
-      picked.push(item);
-      if (picked.length >= limit) break;
+      ordered.push(item);
     }
-    // Backfill from the capped-out tracks rather than return a short mix.
-    for (const item of overflow) {
-      if (picked.length >= limit) break;
-      picked.push(item);
-    }
+    // Backfill from the capped-out tracks rather than return a short mix — on a
+    // small library there may not be enough distinct creators to honour the cap.
+    ordered.push(...overflow);
+
+    const total = ordered.length;
+    const picked = ordered.slice(offset, offset + limit);
 
     const ownerIds = Array.from(
       new Set(picked.map((p) => String(p.row.owner_id ?? '')).filter(Boolean)),
@@ -343,21 +373,30 @@ export const loader = async ({ request }: { request: Request }) => {
       for (const o of (ownerRows ?? []) as any[]) owners.set(String(o.id), o);
     }
 
+    const items = picked.map((p) => ({
+      ...mapForClient(p.row),
+      owner: owners.get(String(p.row.owner_id ?? '')) ?? null,
+    }));
+
     return json({
+      // The shareable list id. Derived from the seed, so this link resolves for
+      // anyone — including signed-out viewers.
+      gid: mixGidFromSeed(String(seed.unique_id ?? '')),
       seed: { unique_id: seed.unique_id, file_title: seed.file_title ?? null },
-      // How the mix was built — handy while tuning, and it tells the UI whether
-      // this is a real taste-based mix or mostly cold-start filler.
+      // How the mix was built — tells the UI whether this is a real taste-based
+      // mix or mostly cold-start filler, and makes tuning debuggable.
       basis: {
         related: [...sources.values()].filter((s) => s === 'related').length,
         category: [...sources.values()].filter((s) => s === 'category').length,
         artist: [...sources.values()].filter((s) => s === 'artist').length,
         popular: [...sources.values()].filter((s) => s === 'popular').length,
+        personalized: profile.hasSignal,
       },
-      count: picked.length,
-      items: picked.map((p) => ({
-        ...mapForClient(p.row),
-        owner: owners.get(String(p.row.owner_id ?? '')) ?? null,
-      })),
+      count: items.length,
+      total,
+      offset,
+      hasMore: offset + items.length < total,
+      items,
     });
   } catch (err) {
     console.error('music mix error:', err);
