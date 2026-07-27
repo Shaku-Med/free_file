@@ -42,7 +42,25 @@ export function isMixGid(gid: string | null | undefined): boolean {
  * Watch URL for a mix: the FIRST track's page carrying the list.
  * Mirrors YouTube (`/watch?v=<first>&list=<gid>`) — the card points at real
  * playable media, and the list param turns the sidebar into the queue.
+ *
+ * `startRadio` adds `&start_radio=1`, YouTube's marker for "this list is a
+ * radio/mix that should begin playing", as opposed to merely opening a video
+ * that happens to belong to a list. Entry points that mean "start the mix"
+ * (the feed card, a Mix button) set it; plain in-queue row links do not, so
+ * clicking track 7 doesn't re-trigger a fresh radio start.
  */
-export function mixWatchPath(firstItemUniqueId: string, gid: string): string {
-  return `/${encodeURIComponent(firstItemUniqueId)}?list=${encodeURIComponent(gid)}`;
+export function mixWatchPath(
+  firstItemUniqueId: string,
+  gid: string,
+  startRadio = false,
+): string {
+  const base = `/${encodeURIComponent(firstItemUniqueId)}?list=${encodeURIComponent(gid)}`;
+  return startRadio ? `${base}&start_radio=1` : base;
+}
+
+/** True when the URL asked for the mix to start playing immediately. */
+export function isStartRadio(search: URLSearchParams | string): boolean {
+  const params =
+    typeof search === "string" ? new URLSearchParams(search) : search;
+  return params.get("start_radio") === "1";
 }

@@ -196,7 +196,11 @@ export async function buildTasteProfile(userId: string | null): Promise<TastePro
     categories: normalize(categories),
     completion,
     suppressed,
-    hasSignal: signals >= 3,
+    // One signal is enough to start tilting the ordering. A higher bar meant
+    // most viewers never crossed it on a young platform, so every mix came out
+    // identical and felt canned. Personalisation should switch on the moment
+    // there is anything at all to personalise with.
+    hasSignal: signals >= 1,
   };
 }
 

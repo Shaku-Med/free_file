@@ -40,7 +40,9 @@ export default function MixCard({
   const { gid, firstItem, count } = mix;
   if (!gid || !firstItem?.unique_id) return null;
 
-  const href = mixWatchPath(String(firstItem.unique_id), gid);
+  // start_radio=1: opening a mix from the feed means "play this mix", which is
+  // exactly what YouTube marks with this param.
+  const href = mixWatchPath(String(firstItem.unique_id), gid, true);
   const thumb = getThumbnailUrl(firstItem as never, {});
   const baseTitle =
     mix.title ??
