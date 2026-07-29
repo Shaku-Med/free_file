@@ -93,9 +93,14 @@ export default function SearchSpotlight({ spotlight }: { spotlight: SpotlightDat
           <h3 className="mb-2 text-sm font-medium text-muted-foreground">
             {isArtist ? "Top tracks" : `Latest from ${channel.username}`}
           </h3>
-          <div className="grid grid-cols-2 gap-x-3 gap-y-5 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6">
+          <div className="grid grid-cols-2 gap-x-3 gap-y-5 sm:grid-cols-3 lg:grid-cols-2 xl:grid-cols-3">
             {items.map((file) => (
-              <VideoCard key={file.id ?? file.unique_id} data={file} />
+              <VideoCard
+               key={file.id ?? file.unique_id} 
+               data={file} 
+                hideActions={{ completely: false, halfway: true }}
+                layout={`shelf`}
+               />
             ))}
           </div>
         </div>

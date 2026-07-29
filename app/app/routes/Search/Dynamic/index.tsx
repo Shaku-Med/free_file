@@ -14,8 +14,11 @@ import { sanitizeSearchQuery } from "~/lib/Security/inputValidation";
 import { Swiper, SwiperSlide } from "swiper/react";
 import { Navigation, A11y, Keyboard } from "swiper/modules";
 import type { Swiper as SwiperType } from "swiper";
+import { buildSpotlight } from "~/lib/search/spotlight.server";
+import SearchSpotlight from "~/components/SearchSpotlight";
 import "swiper/css";
 import "swiper/css/navigation";
+import { Separator } from "~/components/ui/separator";
 
 const SEARCH_LIMIT = 20;
 const SERIES_ROOTS_LIMIT = 8;
@@ -174,11 +177,21 @@ export const loader = async ({ request }: { request: Request }) => {
       console.error("Server search failed:", e);
     }
 
+    // Entity spotlight (channel / music artist) for the top of the results.
+    // Shares one implementation with /api/search so the two can't drift.
+    let spotlight = null;
+    try {
+      spotlight = await buildSpotlight(db, sanitizedTerm, users);
+    } catch (e) {
+      console.error('spotlight failed:', e);
+    }
+
     return data({
       url: sanitizedTerm,
       results,
       seriesRoots,
       users,
+      spotlight,
       userActions: { likedFileIds, dislikedFileIds },
       nextCursor,
       hasMore: Boolean(nextCursor),
@@ -306,6 +319,13 @@ const Search = () => {
     return [];
   }, [loaderData]);
 
+  const spotlight = useMemo(() => {
+    if (loaderData && typeof loaderData === 'object' && 'spotlight' in loaderData) {
+      return (loaderData as any).spotlight ?? null;
+    }
+    return null;
+  }, [loaderData]);
+
   useEffect(() => {
     if (activeTerm) return;
     const fetchFeed = async () => {
@@ -342,6 +362,7 @@ const Search = () => {
     let indexCounter = 0;
     return (
       <div className="flex w-full flex-col gap-4 sm:gap-5">
+        <Separator/>
         {reels.length > 0 && (
           <div className="w-full min-w-0 max-w-full overflow-hidden">
             <div className="mb-2 flex items-center gap-1.5">
@@ -407,17 +428,19 @@ const Search = () => {
             );
           })}
         </div>
+        <Separator/>
       </div>
     );
   };
 
   return (
-    // YouTube search keeps everything in one constrained, padded column.
-    <div className="mx-auto w-full max-w-5xl px-3 py-6 sm:px-4">
+    <div className="mx-auto w-full max-w-5xl">
       <div className="space-y-8">
         {activeTerm ? (
           files.length > 0 || searchUsers.length > 0 || seriesRoots.length > 0 ? (
             <div className="space-y-6">
+              <SearchSpotlight spotlight={spotlight} />
+
               {searchUsers.length > 0 && (
                 <div className="space-y-4">
                   <h3 className="text-lg font-semibold text-foreground">Users</h3>
@@ -479,9 +502,6 @@ const Search = () => {
 
               {files.length > 0 && (
                 <div className="space-y-4">
-                  {(searchUsers.length > 0 || seriesRoots.length > 0) && (
-                    <h3 className="text-lg font-semibold text-foreground">Files</h3>
-                  )}
                   {renderFileGroups(files, "search")}
 
                   {isLoadingMore && (
