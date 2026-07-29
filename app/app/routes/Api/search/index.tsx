@@ -2,7 +2,7 @@ import db from '~/lib/Database/supabase';
 import { attachIsMusic } from '~/lib/files/attachIsMusic.server';
 import { isAuthenticated } from '~/lib/Security/Password';
 import { embedSearchQuery } from '~/lib/Services/embedQuery.server';
-import { mixGidFromSeed } from '~/lib/music/mixId';
+import { buildSpotlight } from '~/lib/search/spotlight.server';
 
 const SEARCH_LIMIT = 20;
 const SERIES_ROOTS_LIMIT = 8;
@@ -272,66 +272,9 @@ export const loader = async ({ request }: { request: Request }) => {
       }
     }
 
-    /**
-     * Channel spotlight — our version of what YouTube does when a query
-     * resolves to an ENTITY rather than to plain videos.
-     *
-     * YouTube picks a different renderer per entity type (verified in the saved
-     * pages): a plain creator match renders `ytd-channel-renderer` plus a
-     * "Latest from X" `ytd-shelf-renderer`, while a well-known entity gets a
-     * `ytd-universal-watch-card-renderer` panel, and a MUSIC artist gets that
-     * same card with music actions (Mix / YouTube Music).
-     *
-     * We can't do Knowledge Graph, but we can do the part that actually matters:
-     * decide whether the matched channel is a MUSIC ARTIST (their catalogue is
-     * mostly music) and hand the client a `kind` so it can render the artist
-     * variant — including a ready-made mix gid for the Mix button.
-     */
-    let spotlight: Record<string, unknown> | null = null;
-    if (db && isInitialSearch && users.length > 0) {
-      const q = query.trim().toLowerCase();
-      // Prefer an exact/prefix handle hit; a substring match is too weak to
-      // justify taking over the top of the results page.
-      const best =
-        users.find((u) => u.username.toLowerCase() === q) ??
-        users.find((u) => u.username.toLowerCase().startsWith(q)) ??
-        null;
-
-      if (best) {
-        const { data: ownerFiles } = await db
-          .from('files')
-          .select('id, unique_id, file_title, filename, file_type, endpoint, default_thumbnail, created_at, duration, view_count, is_music, is_reel')
-          .eq('owner_id', best.id)
-          .eq('is_public', true)
-          .eq('is_adult', false)
-          .eq('upload_status', 'complete')
-          .order('created_at', { ascending: false })
-          .limit(50);
-
-        const rows = Array.isArray(ownerFiles) ? ownerFiles : [];
-        const musicRows = rows.filter((r: any) => r.is_music === true);
-        // "Artist" = catalogue is mostly music, with enough of it to be sure.
-        const isArtist = musicRows.length >= 3 && musicRows.length / Math.max(rows.length, 1) >= 0.6;
-
-        // Artists lead with their biggest tracks; creators lead with newest.
-        const shelf = (isArtist
-          ? [...musicRows].sort((a: any, b: any) => (Number(b.view_count) || 0) - (Number(a.view_count) || 0))
-          : rows
-        ).slice(0, 12);
-
-        const topTrack = isArtist ? (shelf[0] as any) : null;
-
-        spotlight = {
-          kind: isArtist ? 'artist' : 'creator',
-          channel: best,
-          // Powers the "Latest from X" / top-tracks row.
-          shelf,
-          // Only artists get a Mix action, mirroring YouTube's music entity.
-          mixGid: topTrack?.unique_id ? mixGidFromSeed(String(topTrack.unique_id)) : null,
-          mixSeedUniqueId: topTrack?.unique_id ?? null,
-        };
-      }
-    }
+    const spotlight = (db && isInitialSearch)
+      ? await buildSpotlight(db, query, users)
+      : null;
 
     return new Response(JSON.stringify({
       data,
