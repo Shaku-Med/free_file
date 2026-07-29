@@ -52,10 +52,29 @@ export function isMixGid(gid: string | null | undefined): boolean {
 export function mixWatchPath(
   firstItemUniqueId: string,
   gid: string,
-  startRadio = false,
+  opts?: { startRadio?: boolean; index?: number } | boolean,
 ): string {
-  const base = `/${encodeURIComponent(firstItemUniqueId)}?list=${encodeURIComponent(gid)}`;
-  return startRadio ? `${base}&start_radio=1` : base;
+  // Historic call sites passed a bare boolean for startRadio.
+  const o = typeof opts === "boolean" ? { startRadio: opts } : (opts ?? {});
+  let url = `/${encodeURIComponent(firstItemUniqueId)}?list=${encodeURIComponent(gid)}`;
+  // `index` is 1-based, matching YouTube — it marks the position within the
+  // list so a shared/auto-advanced link says WHERE in the mix you are, not
+  // just which list.
+  if (typeof o.index === "number" && o.index > 0) {
+    url += `&index=${Math.floor(o.index)}`;
+  }
+  if (o.startRadio) url += "&start_radio=1";
+  return url;
+}
+
+/** 1-based position from the URL, or null. */
+export function mixIndexFromSearch(
+  search: URLSearchParams | string,
+): number | null {
+  const params =
+    typeof search === "string" ? new URLSearchParams(search) : search;
+  const n = Number(params.get("index"));
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : null;
 }
 
 /** True when the URL asked for the mix to start playing immediately. */

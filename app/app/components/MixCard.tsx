@@ -88,14 +88,10 @@ export default function MixCard({
             {baseTitle}
           </h3>
         </Link>
+        {/* No track count: it's noise, and a mix is meant to feel endless
+            rather than like a finite list you're being asked to commit to. */}
         <div className="mt-1 flex min-h-[1.25rem] flex-wrap items-center gap-x-1 text-[0.8125rem] text-muted-foreground">
           <span>Mix</span>
-          {typeof count === "number" && count > 0 && (
-            <>
-              <span className="text-muted-foreground/60">·</span>
-              <span>{count} tracks</span>
-            </>
-          )}
         </div>
       </div>
     </div>

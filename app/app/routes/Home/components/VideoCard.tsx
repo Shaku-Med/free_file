@@ -138,6 +138,8 @@ interface VideoCardProps {
   onQueueSelect?: () => void;
   queueActive?: boolean;
   queueBusy?: boolean;
+  /** Overrides the computed watch URL (mix rows append ?list=/&index=). */
+  watchHref?: string;
 }
 
 const CATEGORIES = ["Gaming", "Music", "Entertainment", "Education", "Technology", "Sports", "News", "Lifestyle", "Anime", "Film", "Automotive", "Art", "Nature", "Other"];
@@ -165,6 +167,7 @@ const VideoCard = ({
   onQueueSelect,
   queueActive,
   queueBusy,
+  watchHref,
 }: VideoCardProps) => {
   const isMobile = useIsMobile();
   const sidebarCtx = useSidebarOptional();
@@ -260,11 +263,15 @@ const VideoCard = ({
   const nav = useNavigate();
   const watchPath = useMemo(
     () =>
+      // `watchHref` lets a caller own the destination — the mix queue needs
+      // ?list=/&index= on the anchor itself so middle-click and "open in new
+      // tab" stay inside the mix, not just left-click.
+      watchHref ??
       fileWatchPath(
         data,
         profileOwnerUsername ? { profileOwnerUsername } : undefined,
       ),
-    [data.is_reel, data.id, data.unique_id, profileOwnerUsername],
+    [data.is_reel, data.id, data.unique_id, profileOwnerUsername, watchHref],
   );
 
   /**
