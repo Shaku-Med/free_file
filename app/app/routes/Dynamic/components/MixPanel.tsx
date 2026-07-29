@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import { useSearchParams, useParams, Link } from "react-router";
-import { ListVideo, Loader2 } from "lucide-react";
-import { cn, displayMediaTitle, getThumbnailUrl } from "~/lib/utils";
+import { useCallback, useEffect, useState } from "react";
+import { useSearchParams, useParams, useNavigate, Link } from "react-router";
+import { ListVideo, Loader2, Play } from "lucide-react";
 import { isMixGid, mixWatchPath } from "~/lib/music/mixId";
+import VideoCard from "~/routes/Home/components/VideoCard";
 import type { FileType } from "~/lib/types";
 
 /**
@@ -46,6 +46,7 @@ const inflight = new Map<string, Promise<void>>();
 export function MixPanel({ currentUserId }: { currentUserId?: string | null }) {
   const [searchParams] = useSearchParams();
   const params = useParams();
+  const navigate = useNavigate();
   const gid = searchParams.get("list") ?? "";
   const currentUniqueId = String(params.uniqueId ?? params.id ?? "");
 
@@ -134,49 +135,29 @@ export function MixPanel({ currentUserId }: { currentUserId?: string | null }) {
           {items.map((item, i) => {
             const uid = String(item.unique_id ?? "");
             const isCurrent = uid === currentUniqueId;
-            const title = displayMediaTitle(item.file_title || item.filename || "");
-            const thumb = getThumbnailUrl(item as never, {});
             return (
-              <li key={item.id ?? uid ?? i}>
-                <Link
-                  to={mixWatchPath(uid, gid)}
-                  className={cn(
-                    "flex items-center gap-2.5 px-2.5 py-2 transition-colors hover:bg-muted/50",
-                    isCurrent && "bg-muted/70",
-                  )}
-                  aria-current={isCurrent ? "true" : undefined}
+              <li key={item.id ?? uid ?? i} className="flex items-center gap-1 px-1.5 py-0.5">
+                <span
+                  className="w-5 shrink-0 text-center text-[11px] tabular-nums text-muted-foreground"
+                  aria-hidden={isCurrent ? undefined : true}
                 >
-                  <span className="w-5 shrink-0 text-center text-[11px] tabular-nums text-muted-foreground">
-                    {isCurrent ? (
-                      <span className="text-primary" aria-label="Now playing">
-                        ▶
-                      </span>
-                    ) : (
-                      i + 1
-                    )}
-                  </span>
-                  <span className="relative aspect-video w-[5.5rem] shrink-0 overflow-hidden rounded-md bg-muted">
-                    {thumb ? (
-                      <img
-                        src={thumb}
-                        alt=""
-                        loading="lazy"
-                        decoding="async"
-                        className="h-full w-full object-cover"
-                      />
-                    ) : null}
-                  </span>
-                  <span className="min-w-0 flex-1">
-                    <span
-                      className={cn(
-                        "line-clamp-2 break-words text-[0.8125rem] leading-snug",
-                        isCurrent ? "font-semibold text-foreground" : "text-foreground/90",
-                      )}
-                    >
-                      {title}
-                    </span>
-                  </span>
-                </Link>
+                  {isCurrent ? (
+                    <Play className="mx-auto h-3 w-3 fill-current text-primary" aria-label="Now playing" />
+                  ) : (
+                    i + 1
+                  )}
+                </span>
+                <div className="min-w-0 flex-1">
+                  {/* VideoCard owns thumbnail resolution (retries, legacy paths,
+                      duration badge) — that's what its layouts are for. */}
+                  <VideoCard
+                    data={item}
+                    layout="miniQueue"
+                    queueActive={isCurrent}
+                    onQueueSelect={() => navigate(mixWatchPath(uid, gid))}
+                    currentUserId={currentUserId || undefined}
+                  />
+                </div>
               </li>
             );
           })}

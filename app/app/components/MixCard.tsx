@@ -1,7 +1,8 @@
 import { Link } from "react-router";
 import { ListVideo } from "lucide-react";
-import { cn, getThumbnailUrl, displayMediaTitle } from "~/lib/utils";
+import { cn, displayMediaTitle } from "~/lib/utils";
 import { mixWatchPath } from "~/lib/music/mixId";
+import VideoCard from "~/routes/Home/components/VideoCard";
 import type { FileType } from "~/lib/types";
 
 /**
@@ -43,7 +44,6 @@ export default function MixCard({
   // start_radio=1: opening a mix from the feed means "play this mix", which is
   // exactly what YouTube marks with this param.
   const href = mixWatchPath(String(firstItem.unique_id), gid, true);
-  const thumb = getThumbnailUrl(firstItem as never, {});
   const baseTitle =
     mix.title ??
     `Mix - ${displayMediaTitle(firstItem.file_title || firstItem.filename || "")}`;
@@ -68,19 +68,10 @@ export default function MixCard({
         />
 
         <div className="relative z-[10] aspect-video w-full overflow-hidden rounded-xl bg-muted">
-          {thumb ? (
-            <img
-              src={thumb}
-              alt=""
-              loading="lazy"
-              decoding="async"
-              className="h-full w-full object-cover"
-            />
-          ) : (
-            <div className="flex h-full w-full items-center justify-center text-muted-foreground">
-              <ListVideo className="h-8 w-8" />
-            </div>
-          )}
+          {/* VideoCard's own thumbnail pipeline (retry + legacy fallbacks) via
+              the notificationThumb layout, which is a bare poster with no meta
+              — a mix supplies its own title row below and has no owner. */}
+          <VideoCard data={firstItem} layout="notificationThumb" />
 
           {/* Bottom-right "Mix" pill, matching where a duration badge sits. */}
           <span className="pointer-events-none absolute bottom-2 right-2 z-20 flex items-center gap-1.5 rounded-md border border-white/10 bg-black/75 px-1.5 py-0.5 text-[11px] font-semibold leading-none text-white shadow-sm backdrop-blur-sm">

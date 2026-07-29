@@ -2,11 +2,6 @@ import db from '~/lib/Database/supabase';
 import { isAuthenticated } from '~/lib/Security/Password';
 import { stripThumbnailsForClient } from '~/lib/files/reelFilePayload';
 import { mixGidFromSeed, seedFromMixGid } from '~/lib/music/mixId';
-import {
-  buildTasteProfile,
-  personalizationBonus,
-  explorationBonus,
-} from '~/lib/recommendations/tasteProfile.server';
 
 /**
  * GET /api/music/mix?seed=<unique_id>[&limit=25]
@@ -103,12 +98,34 @@ function mulberry32(seed: number): () => number {
   };
 }
 
-function mapForClient(row: FileRow): FileRow {
+/**
+ * Lean projection for a queue row.
+ *
+ * ALLOWLIST, not a blocklist: the full files row carries analysis payload the
+ * queue has no use for — vision labels, safeSearch verdicts, loudness, codec
+ * details, file_size, internal linkage. Shipping that made each item ~40x
+ * bigger than it needs to be and leaked internals. Only the fields VideoCard
+ * actually reads survive (getThumbnailUrl needs file_type/endpoint/
+ * default_thumbnail/thumbnails/created_at/unique_id/filename).
+ */
+function mapForClient(row: FileRow): Record<string, unknown> {
   const stripped = stripThumbnailsForClient(row) as FileRow;
-  // Never leak internal linkage / raw counters to the client.
-  const { original_file_id: _o, categories: _c, ...safe } = stripped;
   return {
-    ...safe,
+    id: stripped.id,
+    unique_id: stripped.unique_id,
+    created_at: stripped.created_at,
+    endpoint: stripped.endpoint,
+    filename: stripped.filename,
+    file_title: stripped.file_title,
+    file_type: stripped.file_type,
+    default_thumbnail: stripped.default_thumbnail,
+    thumbnails: (stripped as { thumbnails?: unknown }).thumbnails,
+    duration: stripped.duration,
+    view_count: Number(stripped.view_count ?? stripped.views) || 0,
+    is_reel: stripped.is_reel,
+    is_music: stripped.is_music,
+    is_adult: stripped.is_adult,
+    owner_id: stripped.owner_id,
     like_count: Number(stripped.like_count ?? stripped.up_count) || 0,
     dislike_count: Number(stripped.dislike_count ?? stripped.down_count) || 0,
   };
@@ -156,11 +173,12 @@ export const loader = async ({ request }: { request: Request }) => {
     const user = await isAuthenticated(request, ['id']).catch(() => null);
     const userId = user?.id ?? null;
 
-    // ---- seed + viewer taste (in parallel) --------------------------------
-    const [{ data: seedRow }, profile] = await Promise.all([
-      db.from('files').select(FILE_COLUMNS).eq('unique_id', seedParam).maybeSingle(),
-      buildTasteProfile(userId),
-    ]);
+    // ---- seed --------------------------------------------------------------
+    const { data: seedRow } = await db
+      .from('files')
+      .select(FILE_COLUMNS)
+      .eq('unique_id', seedParam)
+      .maybeSingle();
 
     const seed = seedRow as FileRow | null;
     if (
@@ -278,24 +296,9 @@ export const loader = async ({ request }: { request: Request }) => {
       }
     }
 
-    // Don't resurface what this listener already played.
-    if (userId) {
-      const { data: seen } = await db
-        .from('user_watch_history')
-        .select('file_id')
-        .eq('user_id', userId)
-        .order('last_viewed_at', { ascending: false })
-        .limit(300);
-      for (const s of (seen ?? []) as any[]) {
-        const row = rowsById.get(String(s.file_id).toLowerCase());
-        // Demote rather than delete: on a small library, dropping everything
-        // heard before can empty the mix entirely.
-        if (row) {
-          const key = String(row.id).toLowerCase();
-          scores.set(key, (scores.get(key) ?? 0) * 0.35);
-        }
-      }
-    }
+    // NOTE: no per-viewer adjustment here (no watch-history demotion, no taste
+    // weighting). Those would reorder a shared mix per person and break the
+    // "same positions as the original" guarantee.
 
     // ---- assemble ---------------------------------------------------------
     type Scored = { row: FileRow; score: number; source: string };
@@ -307,24 +310,23 @@ export const loader = async ({ request }: { request: Request }) => {
       if (!row) continue;
       if (row.is_music !== true || row.is_public !== true || row.is_adult === true) continue;
       if (String(row.upload_status ?? 'complete') !== 'complete') continue;
-      // Explicitly disliked → never resurface, regardless of similarity.
-      if (profile.suppressed.has(id)) continue;
       const canon = canonicalId(row);
       if (seenCanonical.has(canon) || seenCanonical.has(id)) continue;
       seenCanonical.add(canon);
 
-      // Similarity says "this goes with the seed"; the taste profile says
-      // "and it's your kind of thing"; exploration keeps the mix from
-      // calcifying into the same handful of creators.
-      const personalized =
-        score + personalizationBonus(profile, row) + explorationBonus(profile, id);
-
-      pool.push({ row, score: personalized, source: sources.get(id) ?? 'popular' });
+      // Score depends ONLY on the seed — never on who is asking. A mix is a
+      // shareable list: open RD<seed> and you must see the same tracks in the
+      // same positions as the person who sent it, exactly like YouTube. Any
+      // per-viewer term here (taste, watch history, exploration jitter) would
+      // silently reshuffle a shared link. Personalisation belongs to WHICH mix
+      // gets surfaced in the feed, not to the contents of one.
+      pool.push({ row, score, source: sources.get(id) ?? 'popular' });
     }
 
-    // Seeded shuffle inside score bands: keeps strong candidates near the top
-    // while making the order feel fresh per listener instead of a fixed chart.
-    const rng = mulberry32(hashString(`${seedParam}:${userId ?? 'anon'}`));
+    // Seeded shuffle inside score bands, keyed on the SEED ONLY (no viewer id)
+    // so the order is reproducible: the same gid yields the same list for
+    // everyone, which is what makes a mix shareable.
+    const rng = mulberry32(hashString(seedParam));
     pool.sort((a, b) => b.score - a.score);
     const BAND = 0.08;
     let i = 0;
@@ -390,7 +392,6 @@ export const loader = async ({ request }: { request: Request }) => {
         category: [...sources.values()].filter((s) => s === 'category').length,
         artist: [...sources.values()].filter((s) => s === 'artist').length,
         popular: [...sources.values()].filter((s) => s === 'popular').length,
-        personalized: profile.hasSignal,
       },
       count: items.length,
       total,
