@@ -1,3 +1,8 @@
+import {
+  sanitizeMetadataForClient,
+  stripServerOnlyFileFields,
+} from './sanitizeFileForViewer';
+
 /**
  * Reel loaders/APIs never need the heavy `thumbnails` JSON array — only `default_thumbnail`.
  */
@@ -39,55 +44,11 @@ export function stripThumbnailsForClient<T extends Record<string, unknown>>(row:
 }
 
 /**
- * Player-safe view of `files.metadata`.
- *
- * The stored blob is an INTERNAL analysis record — vision labels, safeSearch
- * moderation verdicts, loudness measurements, music scoring, text analysis. None
- * of it belongs in a client payload: it exposes how content is moderated and
- * classified, and it's dead weight on every reel in the feed.
- *
- * ALLOWLIST, so anything the pipeline adds later stays server-side by default.
- * What survives is only what the player genuinely needs:
- *   - video width/height/aspect_ratio → size the frame BEFORE any bytes load,
- *     which is what stops the layout jumping once the video reports its own
- *     dimensions
- *   - has_audio → whether to enable the volume control on a silent clip
- */
-export function sanitizeMetadataForClient(metadata: unknown): Record<string, unknown> | null {
-  if (!metadata || typeof metadata !== 'object') return null;
-  const m = metadata as Record<string, any>;
-  const out: Record<string, unknown> = {};
-
-  const v = m.video;
-  if (v && typeof v === 'object') {
-    const width = Number(v.width) || null;
-    const height = Number(v.height) || null;
-    out.video = {
-      width,
-      height,
-      // Prefer the stored ratio; derive it when absent so the player always has
-      // something to size with.
-      aspect_ratio:
-        typeof v.aspect_ratio === 'string' && v.aspect_ratio.includes(':')
-          ? v.aspect_ratio
-          : width && height
-            ? `${width}:${height}`
-            : null,
-    };
-  }
-
-  const a = m.audio;
-  if (a && typeof a === 'object') {
-    out.audio = { has_audio: a.has_audio !== false };
-  }
-
-  return Object.keys(out).length > 0 ? out : null;
-}
-
-/**
  * Strips internal columns from a file row before it reaches a client:
  * the storage backend name (`github_repo`) and the raw analysis `metadata`.
  */
+export { sanitizeMetadataForClient };
+
 export function sanitizeFileForClient<T extends Record<string, unknown>>(row: T): T {
   const { github_repo: _repo, ...rest } = row as Record<string, unknown>;
   if ('metadata' in rest) {

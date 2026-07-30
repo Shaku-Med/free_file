@@ -35,7 +35,62 @@ export function stripServerOnlyFileFields<T extends Record<string, unknown>>(fil
   for (const key of ALWAYS_PRIVATE_FILE_FIELDS) {
     delete clean[key];
   }
+  // `metadata` can't just be deleted (the player needs the video dimensions), so
+  // it's reduced to an allowlist instead. Done HERE rather than in each loader
+  // because this function is the single client boundary every file row passes
+  // through — watch page, related, series, PiP, feeds. Patching callers
+  // individually is how the watch page kept leaking after the reel path was
+  // fixed.
+  if ("metadata" in clean) {
+    clean.metadata = sanitizeMetadataForClient(clean.metadata);
+  }
   return clean as T;
+}
+
+/**
+ * Player-safe view of `files.metadata`.
+ *
+ * The stored blob is an INTERNAL analysis record: Google Vision labels and their
+ * confidence scores, safeSearch moderation verdicts (adult / racy / violence /
+ * medical), loudness measurements, music scoring, and derived text analysis.
+ * Serialising that into SSR JSON publishes how content is classified and
+ * moderated — visible in view-source — and bloats every page.
+ *
+ * ALLOWLIST, so anything the upload pipeline adds later stays server-side by
+ * default. Only what the client genuinely reads survives:
+ *   - video width / height / aspect_ratio → size the player frame before any
+ *     bytes load, which is what stops the layout jumping
+ *   - audio.has_audio → whether to enable the volume control on a silent clip
+ */
+export function sanitizeMetadataForClient(
+  metadata: unknown,
+): Record<string, unknown> | null {
+  if (!metadata || typeof metadata !== "object") return null;
+  const m = metadata as Record<string, any>;
+  const out: Record<string, unknown> = {};
+
+  const v = m.video;
+  if (v && typeof v === "object") {
+    const width = Number(v.width) || null;
+    const height = Number(v.height) || null;
+    out.video = {
+      width,
+      height,
+      aspect_ratio:
+        typeof v.aspect_ratio === "string" && v.aspect_ratio.includes(":")
+          ? v.aspect_ratio
+          : width && height
+            ? `${width}:${height}`
+            : null,
+    };
+  }
+
+  const a = m.audio;
+  if (a && typeof a === "object") {
+    out.audio = { has_audio: a.has_audio !== false };
+  }
+
+  return Object.keys(out).length > 0 ? out : null;
 }
 
 /**
