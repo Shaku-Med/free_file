@@ -16,7 +16,6 @@ import { RelatedVideosProvider, useRelatedVideosContext } from "./RelatedVideosC
 import VideoCard from "~/routes/Home/components/VideoCard"
 import type { FileType } from "~/lib/types"
 import { SignInToSeeMore } from "~/components/SignInWall"
-import { MixPanel } from "./MixPanel"
 import {
   PLAY_QUEUE_DROP_APPEND,
   PLAY_QUEUE_DROP_EMPTY,
@@ -251,12 +250,9 @@ const RelatedVideosContent = ({ currentUserId }: { currentUserId?: string }) => 
 
   const inner = (
     <div className="@container/related-videos min-w-0 space-y-3 sm:space-y-4">
-      {/* The drag-to-reorder "Play queue" panel is gone — YouTube has no such
-          sidebar feature. When the URL carries ?list=RD… this shows that mix
-          (and nothing otherwise, falling through to related videos). The queue
-          CONTEXT still exists behind the scenes: it drives auto-advance for the
-          player, series and PiP. */}
-      <MixPanel currentUserId={currentUserId} />
+{/* No sidebar queue panel: the drag-to-reorder "Play queue" was removed
+          (YouTube has no such feature), and Mix is deferred (docs/Mix.md). The
+          sidebar is related videos only. */}
 
       <div className="space-y-4">
         {relatedToShow.length === 0 && !isLoading ? (

@@ -80,8 +80,9 @@ export default [
         route(`channel/layout`, 'routes/Api/channel/layout/index.tsx'),
         route(`owner-videos`, 'routes/Api/owner-videos/index.tsx'),
         route(`related-videos`, 'routes/Api/related-videos/index.tsx'),
-        route(`play-queue`, 'routes/Api/play-queue/index.tsx'),
-        route(`play-queue/global`, 'routes/Api/play-queue/global/index.tsx'),
+        // play-queue: feature removed (no user-facing queue). Route is
+        // unregistered so the endpoint is unreachable; the handler files are
+        // kept on disk for reference only.
         route(`play/mint`, 'routes/Api/play/mint/index.tsx'),
         route(`play/cast-mint`, 'routes/Api/play/cast-mint/index.tsx'),
         route(`studio/overview`, 'routes/Api/studio/overview/index.tsx'),
@@ -109,9 +110,8 @@ export default [
         route(`reel-friend-likes`, 'routes/Api/reel-friend-likes/index.tsx'),
         route(`content/:id`, 'routes/Api/content/$id/index.tsx'),
         route(`tag/:tagname`, 'routes/Api/tag.$tagname/index.tsx'),
-        // Static `music/mix` must be declared before the dynamic `music/:id`
-        // so the mix endpoint isn't swallowed as an id.
-        route(`music/mix`, 'routes/Api/music/mix/index.tsx'),
+        // music/mix: Mix feature deferred — see docs/Mix.md. Unregistered so
+        // the endpoint is unreachable.
         route(`music/:id`, 'routes/Api/music/$id/index.tsx'),
         route(`playlist`, 'routes/Api/playlist/index.tsx'),
         route(`playlists`, 'routes/Api/playlists/index.tsx'),

@@ -9,14 +9,21 @@ import {
   type ReactNode,
 } from "react";
 import type { FileType } from "~/lib/types";
-import { personalizationService } from "~/lib/Services/PersonalizationService";
 
 export type WatchPlayBootstrap = {
   currentUniqueId: string;
   fileId?: string;
   viewerCanCustomizeQueue: boolean;
-  /** The current file is a picture  the play queue is disabled for it. */
+  /** The current file is a picture  up-next is disabled for it. */
   currentIsImage?: boolean;
+  /**
+   * Up-next content, supplied by the WATCH LOADER — there is no client fetch.
+   * Series episodes when the file is part of a series, otherwise a few similar
+   * videos prefetched on the server.
+   */
+  seriesUpNextVideos?: FileType[];
+  suggestedVideos?: FileType[];
+  userActions?: { likedFileIds: string[]; dislikedFileIds: string[] };
 };
 
 export type PlayQueuePayload = {
@@ -36,78 +43,44 @@ type Ctx = {
 
 const WatchPlayBootstrapContext = createContext<Ctx | null>(null);
 
-const EMPTY_QUEUE: PlayQueuePayload = {
-  seriesUpNextVideos: [],
-  suggestedVideos: [],
-  userActions: { likedFileIds: [], dislikedFileIds: [] },
-};
-
 export function WatchPlayBootstrapProvider({ children }: { children: ReactNode }) {
   const [bootstrap, setBootstrapState] = useState<WatchPlayBootstrap | null>(null);
-  const [queueData, setQueueData] = useState<PlayQueuePayload | null>(null);
-  const [queueLoading, setQueueLoading] = useState(false);
+  const queueLoading = false;
   const [queueFetchKey, setQueueFetchKey] = useState(0);
-  const fetchGenRef = useRef(0);
 
   const setBootstrap = useCallback((b: WatchPlayBootstrap | null) => {
     setBootstrapState(b);
   }, []);
 
+  /**
+   * Kept for API compatibility; there is nothing to refetch now that up-next
+   * arrives with the loader.
+   */
   const refreshQueue = useCallback(() => {
     setQueueFetchKey((k) => k + 1);
   }, []);
 
-  useEffect(() => {
-    const uid = bootstrap?.currentUniqueId;
-    if (!uid || uid === "__none__") {
-      setQueueData(null);
-      setQueueLoading(false);
-      return;
+  /**
+   * Up-next is DERIVED from the loader payload rather than fetched.
+   *
+   * This used to hit /api/play-queue on every watch navigation, which meant a
+   * spinner and a round trip for data the server could have sent with the page.
+   * That endpoint is now unregistered and the client makes no queue request at
+   * all.
+   */
+  const queueData = useMemo<PlayQueuePayload | null>(() => {
+    if (!bootstrap?.currentUniqueId || bootstrap.currentUniqueId === "__none__") {
+      return null;
     }
-
-    const gen = ++fetchGenRef.current;
-    const ac = new AbortController();
-    setQueueLoading(true);
-
-    const params = new URLSearchParams({ unique_id: uid });
-    if (bootstrap.fileId) params.set("fileId", bootstrap.fileId);
-    const sCats = personalizationService.getSessionCategories();
-    if (sCats.length > 0) params.set("session_cats", JSON.stringify(sCats));
-
-    fetch(`/api/play-queue?${params}`, { credentials: "include", signal: ac.signal })
-      .then(async (r) => {
-        const j = (await r.json().catch(() => ({}))) as {
-          seriesUpNext?: FileType[];
-          suggested?: FileType[];
-          userActions?: { likedFileIds?: string[]; dislikedFileIds?: string[] };
-        };
-        if (ac.signal.aborted || gen !== fetchGenRef.current) return;
-        if (!r.ok) {
-          setQueueData(EMPTY_QUEUE);
-          return;
-        }
-        setQueueData({
-          seriesUpNextVideos: Array.isArray(j.seriesUpNext) ? j.seriesUpNext : [],
-          suggestedVideos: Array.isArray(j.suggested) ? j.suggested : [],
-          userActions: {
-            likedFileIds: j.userActions?.likedFileIds ?? [],
-            dislikedFileIds: j.userActions?.dislikedFileIds ?? [],
-          },
-        });
-      })
-      .catch(() => {
-        if (!ac.signal.aborted && gen === fetchGenRef.current) {
-          setQueueData(EMPTY_QUEUE);
-        }
-      })
-      .finally(() => {
-        if (!ac.signal.aborted && gen === fetchGenRef.current) {
-          setQueueLoading(false);
-        }
-      });
-
-    return () => ac.abort();
-  }, [bootstrap?.currentUniqueId, bootstrap?.fileId, queueFetchKey]);
+    return {
+      seriesUpNextVideos: bootstrap.seriesUpNextVideos ?? [],
+      suggestedVideos: bootstrap.suggestedVideos ?? [],
+      userActions: {
+        likedFileIds: bootstrap.userActions?.likedFileIds ?? [],
+        dislikedFileIds: bootstrap.userActions?.dislikedFileIds ?? [],
+      },
+    };
+  }, [bootstrap]);
 
   const value = useMemo(
     () => ({

@@ -1,5 +1,3 @@
-import { mixGidFromSeed } from '~/lib/music/mixId';
-
 /**
  * Channel spotlight for search — our stand-in for what YouTube does when a
  * query resolves to an ENTITY instead of to plain videos.
@@ -7,12 +5,13 @@ import { mixGidFromSeed } from '~/lib/music/mixId';
  * Verified from saved YouTube result pages: a plain creator match renders
  * `ytd-channel-renderer` + a "Latest from X" `ytd-shelf-renderer`, while a
  * recognised entity gets `ytd-universal-watch-card-renderer`, and a MUSIC
- * ARTIST gets that card with music actions (Mix / YouTube Music). The layout
- * changes because the ENTITY TYPE changes, not because the words differ.
+ * ARTIST gets a music-flavoured variant. The layout changes because the ENTITY
+ * TYPE changes, not because the words differ.
  *
  * We can't do a Knowledge Graph, but we can do the part that matters: work out
- * whether the matched channel is a music artist and hand the UI a `kind`, plus
- * a ready-made mix gid so the artist variant can offer a Mix button.
+ * whether the matched channel is a music artist and hand the UI a `kind`, so it
+ * can lead with top tracks instead of latest uploads.
+ * (Mix actions are deferred with the Mix feature — see docs/Mix.md.)
  *
  * Shared by the /api/search route and the search page loader so the two can't
  * drift apart.
@@ -29,8 +28,6 @@ export interface Spotlight {
   kind: 'artist' | 'creator';
   channel: SpotlightChannel;
   shelf: Array<Record<string, unknown>>;
-  mixGid: string | null;
-  mixSeedUniqueId: string | null;
 }
 
 const SHELF_COLUMNS =
@@ -83,13 +80,9 @@ export async function buildSpotlight(
       : rows
   ).slice(0, 12);
 
-  const topTrack = isArtist ? shelf[0] : null;
-
   return {
     kind: isArtist ? 'artist' : 'creator',
     channel: best,
     shelf,
-    mixGid: topTrack?.unique_id ? mixGidFromSeed(String(topTrack.unique_id)) : null,
-    mixSeedUniqueId: topTrack?.unique_id ?? null,
   };
 }

@@ -5,8 +5,6 @@ import { cn } from "~/lib/utils";
 import { usePlayerContext } from "../PlayerContext";
 import { usePlayerContainerSize, endCardOverlayLayout } from "../hooks/usePlayerContainerSize";
 import VideoCard from "~/routes/Home/components/VideoCard";
-import { isMixGid, mixWatchPath } from "~/lib/music/mixId";
-import { nextInMix } from "~/lib/music/mixStore";
 import type { FileType } from "~/lib/types";
 
 /**
@@ -287,26 +285,12 @@ export default function EndCardOverlay({
       if (navigatingRef.current) return;
       navigatingRef.current = true;
       addVisitedVideo(video.unique_id);
-      if (location.pathname.startsWith("/reel/")) {
-        navigate(`/reel/${video.unique_id}`);
-        return;
-      }
-      // Staying inside a mix: carry the list id and advance the 1-based index,
-      // so auto-play doesn't silently drop the viewer out of the list they
-      // were in (and the URL still says where in the mix they are).
-      const gid = new URLSearchParams(location.search).get("list") ?? "";
-      if (isMixGid(gid)) {
-        const found = nextInMix(gid, String(file?.unique_id ?? ""));
-        const index =
-          found && String(found.item.unique_id) === String(video.unique_id)
-            ? found.index
-            : undefined;
-        navigate(mixWatchPath(String(video.unique_id), gid, { index }));
-        return;
-      }
-      navigate(`/${video.unique_id}`);
+      const path = location.pathname.startsWith("/reel/")
+        ? `/reel/${video.unique_id}`
+        : `/${video.unique_id}`;
+      navigate(path);
     },
-    [navigate, location.pathname, location.search, file?.unique_id],
+    [navigate, location.pathname],
   );
 
   const cancelAutoplay = useCallback(() => {

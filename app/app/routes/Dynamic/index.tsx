@@ -7,6 +7,7 @@ import RelatedVideos from "./components/RelatedVideos";
 import SeriesEpisodesSection from "./components/SeriesEpisodesSection";
 import ImageWatchCarousel from "./components/ImageWatchCarousel";
 import SeriesSignInGate from "./components/SeriesSignInGate";
+import { getSeriesUpNextVideos } from "./fun/mapSeriesRpcRows";
 import { type FileType, type SeriesEpisodeGroup, type ImageContentPayload, fileWatchPath } from "~/lib/types";
 import { BASE_URL } from "~/lib/URLS";
 import { buildPageMeta } from "~/lib/seo";
@@ -1517,6 +1518,52 @@ const DynamicPage = ({ is_modal }: DynamicPageProps) => {
       ? relatedBootstrap.videos
       : (data.relatedVideos ?? []);
 
+  /** Remaining episodes after the current one, when this file is in a series. */
+  const seriesUpNextVideos = useMemo(
+    () => getSeriesUpNextVideos(seriesEpisodesResolved, String(file_data?.unique_id ?? "")),
+    [seriesEpisodesResolved, file_data?.unique_id],
+  );
+
+  /**
+   * Up-next for auto-play, taken from data the loader ALREADY sent — no client
+   * queue request.
+   *
+   * Series episodes take over when the file belongs to a series. Otherwise we
+   * offer a few similar videos: reels are excluded (they have their own swiper
+   * at /reel and shouldn't hijack a watch session), images/audio are excluded
+   * because there's nothing to play, and the current file is excluded.
+   *
+   * Rotated by a seed derived from the current file so different visits surface
+   * different neighbours, while a single visit stays stable (no reshuffling
+   * under the viewer mid-watch).
+   */
+  const autoNextVideos = useMemo(() => {
+    const AUTO_NEXT_COUNT = 4;
+    const currentUid = String(file_data?.unique_id ?? "");
+    const playable = (relatedVideos as FileType[]).filter((v) => {
+      if (!v || v.is_reel) return false;
+      if (String(v.unique_id ?? "") === currentUid) return false;
+      const ft = String(v.file_type ?? "").toLowerCase();
+      const ep = String(v.endpoint ?? "").toLowerCase();
+      return (
+        ft.startsWith("video/") ||
+        ft === "application/vnd.apple.mpegurl" ||
+        ep.includes(".m3u8")
+      );
+    });
+    if (playable.length <= AUTO_NEXT_COUNT) return playable;
+    let h = 2166136261;
+    for (let i = 0; i < currentUid.length; i++) {
+      h ^= currentUid.charCodeAt(i);
+      h = Math.imul(h, 16777619);
+    }
+    const start = (h >>> 0) % playable.length;
+    return Array.from(
+      { length: AUTO_NEXT_COUNT },
+      (_, i) => playable[(start + i) % playable.length],
+    );
+  }, [relatedVideos, file_data?.unique_id]);
+
   const isNavigating =
     navigation.state === "loading" &&
     navigation.location != null &&
@@ -2299,6 +2346,9 @@ const DynamicPage = ({ is_modal }: DynamicPageProps) => {
         fileId={file_data.id}
         viewerCanCustomizeQueue={Boolean(userId)}
         currentIsImage={typeof file_data.file_type === "string" && file_data.file_type.startsWith("image/")}
+        seriesUpNextVideos={seriesUpNextVideos}
+        suggestedVideos={autoNextVideos}
+        userActions={data.relatedVideosUserActions}
       />
     <div className="relative min-h-screen reel_p" key={`dynamic-${currentId}`}>
       <script

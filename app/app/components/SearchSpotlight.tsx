@@ -1,8 +1,7 @@
 import { Link } from "react-router";
-import { Radio, User } from "lucide-react";
+import { User } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "~/components/ui/avatar";
 import { getProfilePicUrl } from "~/lib/utils/profilePic";
-import { mixWatchPath } from "~/lib/music/mixId";
 import VideoCard from "~/routes/Home/components/VideoCard";
 import type { FileType } from "~/lib/types";
 
@@ -11,23 +10,20 @@ import type { FileType } from "~/lib/types";
  *
  * Mirrors what YouTube does: the layout is chosen by ENTITY TYPE, not by the
  * words in the query. A plain creator gets a channel row plus a "Latest from"
- * shelf; a MUSIC ARTIST gets the same header with music actions — the Mix
- * button being the important one, since a mix is the natural entry point into
- * an artist's catalogue.
+ * shelf; a MUSIC ARTIST leads with top tracks instead. (Music actions such as
+ * Mix are deferred — see docs/Mix.md.)
  */
 
 export interface SpotlightData {
   kind: "artist" | "creator";
   channel: { id: string; username: string; profile_pic: string; file_count: number };
   shelf: FileType[];
-  mixGid: string | null;
-  mixSeedUniqueId: string | null;
 }
 
 export default function SearchSpotlight({ spotlight }: { spotlight: SpotlightData | null }) {
   if (!spotlight?.channel?.username) return null;
 
-  const { kind, channel, shelf, mixGid, mixSeedUniqueId } = spotlight;
+  const { kind, channel, shelf } = spotlight;
   const isArtist = kind === "artist";
   const profileHref = `/profile/${encodeURIComponent(channel.username)}`;
   const items = Array.isArray(shelf) ? shelf.slice(0, 6) : [];
@@ -65,20 +61,6 @@ export default function SearchSpotlight({ spotlight }: { spotlight: SpotlightDat
         </div>
 
         <div className="flex shrink-0 flex-wrap items-center gap-2">
-          {/* Music actions only for artists — this is the whole reason the
-              layout branches, exactly as YouTube's does. */}
-          {isArtist && mixGid && mixSeedUniqueId && (
-            <Link
-              to={mixWatchPath(String(mixSeedUniqueId), mixGid, {
-                startRadio: true,
-                index: 1,
-              })}
-              className="inline-flex items-center gap-1.5 rounded-full border border-border/70 px-3.5 py-2 text-sm font-medium text-foreground transition-colors hover:bg-muted/70"
-            >
-              <Radio className="h-4 w-4" />
-              Mix
-            </Link>
-          )}
           <Link
             to={profileHref}
             className="inline-flex items-center rounded-full bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-90"

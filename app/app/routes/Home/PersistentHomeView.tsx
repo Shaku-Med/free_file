@@ -52,8 +52,6 @@ import { ContinueWatchingSection } from "./components/ContinueWatchingSection";
 import type { FileType } from "~/lib/types";
 import { groupConsecutiveReelClusters } from "~/lib/feed/groupConsecutiveReelClusters";
 import { FEED_HIDE_ACTIONS } from "~/lib/feed/feedVideoCardLayout";
-import MixCard from "~/components/MixCard";
-import { useFeedMix } from "~/lib/feed/useFeedMix";
 import { Button } from "~/components/ui/button";
 import { Plus, Clapperboard } from "lucide-react";
 import { SignInToSeeMore } from "~/components/SignInWall";
@@ -158,12 +156,6 @@ export default function PersistentHomeView() {
   // (before any early return) to keep hook order stable.
   const suggestionRotation = useRef({ ordinal: 0 });
 
-  // One generated mix seeded from a music track already in this feed. Declared
-  // here with the other hooks — before the early return — so hook order stays
-  // stable across the loading/loaded branches.
-  const feedMix = useFeedMix(files as FileType[]);
-  const mixInjected = useRef(false);
-  mixInjected.current = false; // reset each full render pass
 
   if (initialLoading) {
     return (
@@ -191,16 +183,6 @@ export default function PersistentHomeView() {
     let indexCounter = 0;
     let cardsSinceSuggestion = 0;
     const nodes: React.ReactNode[] = [];
-
-    // Drop the mix in a few cards down — high enough to be seen, not so high
-    // it displaces the freshest content. Once per pass, like YouTube.
-    const MIX_AFTER_CARDS = 4;
-    const maybeInjectMix = () => {
-      if (!feedMix || mixInjected.current) return;
-      if (indexCounter < MIX_AFTER_CARDS) return;
-      mixInjected.current = true;
-      nodes.push(<MixCard key={`mix-${feedMix.gid}`} mix={feedMix} />);
-    };
 
     const maybeInjectSuggestions = (anchorKey: string) => {
       if (suggestions.length === 0 || cardsSinceSuggestion < SUGGESTION_EVERY) return;
@@ -233,7 +215,6 @@ export default function PersistentHomeView() {
           />,
         );
         cardsSinceSuggestion++;
-        maybeInjectMix();
         maybeInjectSuggestions(file.id || String(index));
         continue;
       }

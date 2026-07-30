@@ -18,6 +18,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "~/components/ui/tooltip
 import { Popover, PopoverContent, PopoverTrigger } from "~/components/ui/popover";
 import Ambience from "~/components/accessories/CanvasGradient/Ambience";
 import MiniPlayerQueue from "./MiniPlayerQueue";
+import { useWatchPlayBootstrap } from "~/lib/Context/WatchPlayBootstrapContext";
 import type { FileType } from "~/lib/types";
 
 type QueueCacheEntry = { items: FileType[] };
@@ -128,42 +129,35 @@ function MiniPlayerContent() {
   const [closing, setClosing] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const [queueOpen, setQueueOpen] = useState(false);
+  const { queueData } = useWatchPlayBootstrap();
+  const seriesUpNext = queueData?.seriesUpNextVideos ?? [];
+  /** Only a series gives the mini player something to queue. */
+  const hasQueue = seriesUpNext.length > 0;
   const queueCacheRef = useRef<Map<string, QueueCacheEntry>>(new Map());
   const queueFetchGenRef = useRef(0);
   const [queueItems, setQueueItems] = useState<FileType[]>([]);
+  // Mirror the loader-provided series list into queueItems so the existing
+  // rendering paths keep working without a fetch.
+  useEffect(() => {
+    setQueueItems(
+      filterMiniQueueItems(seriesUpNext, String(miniPlayer?.file?.unique_id ?? "")),
+    );
+  }, [seriesUpNext, miniPlayer?.file?.unique_id]);
   const [queueLoading, setQueueLoading] = useState(false);
   const seedDbId = String(miniPlayer?.file.id ?? "");
   const mobileBarRef = useRef<HTMLDivElement | null>(null);
 
-  const loadMiniQueue = useCallback(async (fileDbId: string, uniqueId: string, force = false) => {
-    if (!fileDbId) return;
-    if (!force) {
-      const cached = queueCacheRef.current.get(fileDbId);
-      if (cached) {
-        setQueueItems(cached.items);
-        setQueueLoading(false);
-        return;
-      }
-    }
-    const gen = ++queueFetchGenRef.current;
-    setQueueLoading(true);
-    try {
-      const params = new URLSearchParams({ fileId: fileDbId });
-      const res = await fetch(`/api/related-videos?${params.toString()}`, { credentials: "include" });
-      const json = res.ok ? ((await res.json().catch(() => null)) as { data?: FileType[] } | null) : null;
-      if (gen !== queueFetchGenRef.current) return;
-      const list = Array.isArray(json?.data) ? json.data : [];
-      const items = filterMiniQueueItems(list, uniqueId);
-      queueCacheRef.current.set(fileDbId, { items });
-      setQueueItems(items);
-    } catch {
-      if (gen === queueFetchGenRef.current) {
-        queueCacheRef.current.set(fileDbId, { items: [] });
-        setQueueItems([]);
-      }
-    } finally {
-      if (gen === queueFetchGenRef.current) setQueueLoading(false);
-    }
+  /**
+   * Up-next in the mini player comes from the SERIES episodes the watch loader
+   * already provided — there is no client request here any more (the old
+   * /api/related-videos call is gone, and /api/play-queue is unregistered).
+   *
+   * Consequence, and it is deliberate: when the file is NOT part of a series
+   * there is nothing to queue, so the dropdown / collapse affordance is hidden
+   * rather than opening onto an empty panel.
+   */
+  const loadMiniQueue = useCallback(async (_fileDbId: string, _uniqueId: string) => {
+    /* no-op: up-next is pushed from the watch loader */
   }, []);
 
   useEffect(() => {
@@ -412,7 +406,7 @@ function MiniPlayerContent() {
       const dbId = String(miniPlayer.file.id ?? "");
       const uid = miniPlayer.file.unique_id;
       if (!dbId || !uid) return;
-      void loadMiniQueue(dbId, uid, true).then(() => {
+      void loadMiniQueue(dbId, uid).then(() => {
         const items = queueCacheRef.current.get(dbId)?.items ?? [];
         playNext(items);
       });
@@ -550,7 +544,10 @@ function MiniPlayerContent() {
               <button
                 type="button"
                 onClick={(e) => e.stopPropagation()}
-                className="pointer-events-auto relative z-20 flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:bg-muted/80"
+                className={cn(
+                  "pointer-events-auto relative z-20 flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:bg-muted/80",
+                  !hasQueue && "hidden",
+                )}
                 aria-label="Up next"
                 aria-expanded={queueOpen}
               >
@@ -718,7 +715,10 @@ function MiniPlayerContent() {
                   e.stopPropagation();
                   toggleQueue();
                 }}
-                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:bg-muted/80"
+                className={cn(
+                  "flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:bg-muted/80",
+                  !hasQueue && "hidden",
+                )}
                 aria-label={expanded ? "Hide up next" : "Show up next"}
                 aria-expanded={expanded}
               >
