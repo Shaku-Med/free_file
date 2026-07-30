@@ -1123,7 +1123,33 @@ const DynamicPage = ({ is_modal }: DynamicPageProps) => {
   // The frame matches the video's real aspect (no black bars), clamped so a
   // portrait or ultrawide clip can't blow up the layout. ~16:9 is unchanged.
   // Falls back to 16:9 until the video's dimensions are known.
-  const playerFrameAspect = Math.min(2.4, Math.max(0.56, ambienceVideoAspect ?? 16 / 9));
+  /**
+   * Aspect ratio known BEFORE any video bytes load.
+   *
+   * The frame used to default to 16:9 and then snap once `loadedmetadata` fired,
+   * which is the visible jump on portrait/square uploads. The pipeline already
+   * stores real dimensions on the row, so use them for the first paint and let
+   * the video element merely confirm it — no reflow.
+   */
+  const dbVideoAspect = useMemo(() => {
+    const v = (file_data as { metadata?: { video?: { width?: unknown; height?: unknown; aspect_ratio?: unknown } } })
+      ?.metadata?.video;
+    if (!v) return null;
+    const w = Number(v.width) || 0;
+    const h = Number(v.height) || 0;
+    if (w > 0 && h > 0) return w / h;
+    // Fall back to the stored "W:H" string when explicit dimensions are absent.
+    if (typeof v.aspect_ratio === "string" && v.aspect_ratio.includes(":")) {
+      const [aw, ah] = v.aspect_ratio.split(":").map(Number);
+      if (aw > 0 && ah > 0) return aw / ah;
+    }
+    return null;
+  }, [file_data]);
+
+  const playerFrameAspect = Math.min(
+    2.4,
+    Math.max(0.56, ambienceVideoAspect ?? dbVideoAspect ?? 16 / 9),
+  );
   useEffect(() => {
     if (!videoRefReady) return;
     const v = watchVideoRef.current;

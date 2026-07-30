@@ -1,4 +1,5 @@
 import { FileUploader } from '../Github/FileUploader';
+import { stripServerOnlyFileFields } from '~/lib/files/sanitizeFileForViewer';
 import db from '../Database/supabase';
 
 export interface FileUploadData {
@@ -217,7 +218,9 @@ export class FileService {
       throw new Error('Failed to get file');
     }
 
-    return data;
+    // select('*') pulls upload_ip / upload_user_agent / embedding / search_text.
+    // Strip them here so no caller can leak PII by accident.
+    return data ? stripServerOnlyFileFields(data as Record<string, unknown>) as typeof data : data;
   }
 
   async getAllFiles(): Promise<FileRecord[]> {
@@ -235,7 +238,7 @@ export class FileService {
       throw new Error('Failed to get files');
     }
 
-    return data || [];
+    return (data || []).map((r: Record<string, unknown>) => stripServerOnlyFileFields(r)) as typeof data;
   }
 
   async getFilesByType(fileType: string): Promise<FileRecord[]> {

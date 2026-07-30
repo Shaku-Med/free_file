@@ -1,3 +1,4 @@
+import { stripServerOnlyFileFields } from '~/lib/files/sanitizeFileForViewer';
 import db from '../Database/supabase';
 import { stripGithubRepoForClient } from '../githubStorage';
 import type { FileType } from '../types';
@@ -115,8 +116,10 @@ export class UserProfileService {
         return { data: null, error: 'Failed to fetch user files' };
       }
 
+      // select('*') includes upload_ip / upload_user_agent / embedding — never
+      // let those out of this function.
       const rows = (data || []).map((r: Record<string, unknown>) =>
-        stripGithubRepoForClient(r),
+        stripGithubRepoForClient(stripServerOnlyFileFields(r)),
       ) as FileType[];
       return { data: rows, error: null };
     } catch (error) {
