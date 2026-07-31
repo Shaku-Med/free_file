@@ -23,7 +23,42 @@ type FileMeta struct {
 	OwnerID        string
 	IsPublic       bool
 	IsAdult        bool
-	Exists         bool
+	// OwnerStatus is the owner's account_status ("active", "strike",
+	// "restricted", "terminated"). Empty when the moderation migration hasn't
+	// run yet, which is treated as active — see accountBlocked().
+	OwnerStatus string
+	// OwnerStatusExpires is when a "restricted" status lapses (RFC3339, may be
+	// empty). Checked so enforcement doesn't linger past its expiry if the
+	// sweep hasn't run.
+	OwnerStatusExpires string
+	Exists             bool
+}
+
+// AccountBlocked reports whether this file must be withheld because of the
+// OWNER'S account standing, rather than the file's own flags.
+//
+// Enforced here, not just at token-mint time in the app: a playback token
+// minted BEFORE a ban stays valid until it expires (TTL tracks video length,
+// up to 6h), so mint-time checks alone would leave a multi-hour window in which
+// a banned account's media keeps streaming.
+//
+// Unknown/empty status means the moderation columns aren't deployed yet, which
+// must read as ALLOWED — failing closed on a missing column would blank every
+// video on the platform.
+func (m *FileMeta) AccountBlocked() bool {
+	switch m.OwnerStatus {
+	case "restricted":
+		if m.OwnerStatusExpires != "" {
+			if t, err := time.Parse(time.RFC3339, m.OwnerStatusExpires); err == nil && !t.After(time.Now()) {
+				return false // lapsed
+			}
+		}
+		return true
+	case "terminated":
+		return true
+	default:
+		return false
+	}
 }
 
 // ErrNotFound is returned (and cached) when the row is missing. The
@@ -120,7 +155,68 @@ func (c *Client) GetFileMeta(ctx context.Context, uniqueID string) (*FileMeta, e
 	if r.IsAdult != nil {
 		meta.IsAdult = *r.IsAdult
 	}
+	// Owner account standing. Deliberately a SECOND request rather than a
+	// PostgREST embed: files.owner_id has no FK to users, so `users(...)` is
+	// ambiguous (PGRST201 — it resolves to the saved_files / watch-history
+	// many-to-many joins instead) and would break every lookup.
+	//
+	// Cost is bounded: the caller caches FileMeta, so this runs once per file
+	// per cache window, not per segment.
+	if meta.OwnerID != "" {
+		if status, expires, err := c.getOwnerStatus(ctx, meta.OwnerID); err == nil {
+			meta.OwnerStatus = status
+			meta.OwnerStatusExpires = expires
+		}
+		// On error we leave the status empty, which AccountBlocked() reads as
+		// active. A moderation lookup failure must not take down playback.
+	}
+
 	return meta, nil
+}
+
+// getOwnerStatus reads the owner's moderation standing. Returns empty strings
+// when the moderation columns don't exist yet (migration not applied), which
+// callers treat as "active".
+func (c *Client) getOwnerStatus(ctx context.Context, ownerID string) (string, string, error) {
+	endpoint := fmt.Sprintf(
+		"%s/rest/v1/users?id=eq.%s&select=account_status,status_expires_at&limit=1",
+		strings.TrimRight(c.BaseURL, "/"), url.QueryEscape(ownerID),
+	)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return "", "", err
+	}
+	req.Header.Set("apikey", c.ServiceKey)
+	req.Header.Set("Authorization", "Bearer "+c.ServiceKey)
+
+	resp, err := c.HTTPClient.Do(req)
+	if err != nil {
+		return "", "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		// 400 here means the columns aren't deployed yet — not an outage.
+		return "", "", nil
+	}
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<16))
+	if err != nil {
+		return "", "", err
+	}
+	var rows []struct {
+		AccountStatus   *string `json:"account_status"`
+		StatusExpiresAt *string `json:"status_expires_at"`
+	}
+	if err := json.Unmarshal(body, &rows); err != nil || len(rows) == 0 {
+		return "", "", nil
+	}
+	var status, expires string
+	if rows[0].AccountStatus != nil {
+		status = strings.TrimSpace(*rows[0].AccountStatus)
+	}
+	if rows[0].StatusExpiresAt != nil {
+		expires = strings.TrimSpace(*rows[0].StatusExpiresAt)
+	}
+	return status, expires, nil
 }
 
 func isValidUniqueID(s string) bool {

@@ -21,6 +21,7 @@
  *     owner; deleted/missing files 404)
  */
 
+import { canServeOwnerContent } from "~/lib/Security/accountStatus.server";
 import { isAuthenticated } from "~/lib/Security/Password";
 import db from "~/lib/Database/supabase";
 import { checkFileAccess } from "~/routes/Dynamic/fun/accessControl";
@@ -110,6 +111,19 @@ export const action = async ({ request }: { request: Request }) => {
 
   const user = await isAuthenticated(request, ["id"]).catch(() => null);
   const userId = user?.id ?? undefined;
+
+  // Account enforcement (docs/Moderation.md): don't hand out a playback token
+  // for a restricted/terminated owner's media. This is the cheap layer —
+  // loadplay enforces independently, because a token minted BEFORE a ban stays
+  // valid until it expires (playback TTL tracks video length, up to 6h).
+  if (
+    !(await canServeOwnerContent(
+      rawFile.owner_id ? String(rawFile.owner_id) : null,
+      userId ?? null,
+    ))
+  ) {
+    return jsonError(403);
+  }
 
   const ip = clientIp(request);
   const ua = request.headers.get("User-Agent") ?? "";

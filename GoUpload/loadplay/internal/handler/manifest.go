@@ -14,6 +14,7 @@ import (
 
 	"github.com/gofiber/fiber/v2"
 
+	"goupload/lib/logger"
 	"goupload/loadplay/internal/cache"
 	"goupload/loadplay/internal/diskcache"
 	"goupload/loadplay/internal/fetchgate"
@@ -27,34 +28,33 @@ import (
 	"goupload/loadplay/internal/token"
 	"goupload/loadplay/lib/storage"
 	"goupload/loadplay/lib/supabase"
-	"goupload/lib/logger"
 )
 
 // ManifestDeps is everything a manifest handler needs from outside; passed
 // in so the handler stays test-friendly and doesn't reach for globals.
 type ManifestDeps struct {
-	Log         *logger.Logger
-	Secret      []byte
-	Storage     storage.Config
-	Guard       guard.Config
-	HTTPClient  *http.Client
-	PublicHost  string
-	RequireBind bool
+	Log           *logger.Logger
+	Secret        []byte
+	Storage       storage.Config
+	Guard         guard.Config
+	HTTPClient    *http.Client
+	PublicHost    string
+	RequireBind   bool
 	FileCache     *cache.FileCache
 	RateLimit     *ratelimit.Limiter
 	Allowlist     *guest.Allowlist
 	NonceStore    *noncestore.Store
 	ManifestCache *manifestcache.Cache
 	SegmentCache  *diskcache.Cache
-	FetchGate       *fetchgate.Gate
-	PlaybackDebug   bool
+	FetchGate     *fetchgate.Gate
+	PlaybackDebug bool
 }
 
 // ErrPlaybackDenied is the sentinel returned by deny() so callers'
 // `if err != nil { return err }` actually short-circuits the handler.
 //
 // CRITICAL: deny() must NOT return nil. c.Status(...).JSON(...) returns
-// nil on success, which would let the caller continue past the reject 
+// nil on success, which would let the caller continue past the reject
 // the handler would then keep running, generate the manifest, and
 // SendString it, overwriting the JSON body but leaving the 403 status.
 // Result: 403 response with the real manifest in the body. That's a
@@ -283,6 +283,18 @@ func resolveAccessAndStorage(ctx context.Context, deps ManifestDeps, tok *token.
 	if !meta.IsPublic {
 		if tok.UserID == "" || tok.UserID != meta.OwnerID {
 			deps.Log.Errorf("private access denied id=%s user=%s owner=%s", tok.FileID, tok.UserID, meta.OwnerID)
+			return cfg, fiber.StatusForbidden
+		}
+	}
+	// Account enforcement: a restricted/terminated owner's media stops serving
+	// for everyone but the owner. Checked HERE (shared by manifests and
+	// segments) rather than only at token-mint time in the app, because a token
+	// issued before the ban stays valid until it expires — playback TTL tracks
+	// video length, up to 6h. Without this, a ban wouldn't take effect for
+	// hours for anyone already holding a token.
+	if meta.AccountBlocked() {
+		if tok.UserID == "" || tok.UserID != meta.OwnerID {
+			deps.Log.Errorf("account restricted id=%s owner=%s status=%s", tok.FileID, meta.OwnerID, meta.OwnerStatus)
 			return cfg, fiber.StatusForbidden
 		}
 	}

@@ -14,6 +14,9 @@ import (
 	"github.com/gofiber/fiber/v2/middleware/cors"
 	"github.com/gofiber/fiber/v2/middleware/recover"
 
+	"goupload/lib/env"
+	"goupload/lib/logger"
+	"goupload/lib/r2"
 	"goupload/loadplay/internal/cache"
 	"goupload/loadplay/internal/diskcache"
 	"goupload/loadplay/internal/fetchgate"
@@ -26,9 +29,6 @@ import (
 	"goupload/loadplay/internal/token"
 	"goupload/loadplay/lib/storage"
 	"goupload/loadplay/lib/supabase"
-	"goupload/lib/env"
-	"goupload/lib/logger"
-	"goupload/lib/r2"
 )
 
 // Set at link time by Docker/CI (-ldflags). Verify prod via GET /live → "build" field.
@@ -81,7 +81,7 @@ func main() {
 		log.Fatal("GITHUB_OWNER and GITHUB_REPO are required")
 	}
 
-	// Optional Supabase wiring. Without these, LoadPlay still serves 
+	// Optional Supabase wiring. Without these, LoadPlay still serves
 	// it just trusts the token's user/file binding without DB checks
 	// and always uses the env GITHUB_REPO. Supplying both unlocks
 	// per-file github_repo override + private-file owner enforcement.
@@ -90,7 +90,12 @@ func main() {
 	var fileCache *cache.FileCache
 	if supaURL != "" && supaKey != "" {
 		client := supabase.New(supaURL, supaKey)
-		hitTTL := parseDurationEnv("FILE_CACHE_HIT_TTL", 15*time.Minute)
+		// SECURITY PARAMETER, not just a performance knob: this cache holds the
+		// owner's account_status, so its TTL is the maximum delay before a ban
+		// stops media from serving. 15m was fine when the cache only held repo
+		// /storage routing; with enforcement attached, keep it short. Raise it
+		// only if you accept a banned account streaming for that long.
+		hitTTL := parseDurationEnv("FILE_CACHE_HIT_TTL", 60*time.Second)
 		missTTL := parseDurationEnv("FILE_CACHE_MISS_TTL", 30*time.Second)
 		fileCache = cache.New(cache.Config{
 			Client:   client,
