@@ -8,7 +8,6 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger
 } from "~/components/ui/dropdown-menu";
-import DownloadButton from "~/routes/Dynamic/components/DownloadButton";
 import { ShareModal } from "~/components/ShareModal";
 import { BASE_URL } from "~/lib/URLS";
 import { toast } from "~/components/ui/sonner";
@@ -286,11 +285,9 @@ const UserAction = ({ upCount = 0, downCount = 0, fileId, initialLiked = false, 
           <span className="text-sm font-medium">Share</span>
         </Button>
 
-        {fileId && canDownload && (
-          <div className="w-32">
-            <DownloadButton fileId={fileId} />
-          </div>
-        )}
+        {/* Download UI removed with the download endpoints (downloadPolicy.server.ts).
+            The component and queue are kept for the future authenticated
+            download flow; nothing renders them today. */}
 
         <DropdownMenu>
           <DropdownMenuTrigger asChild>

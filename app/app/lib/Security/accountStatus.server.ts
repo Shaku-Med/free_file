@@ -1,7 +1,7 @@
 import db from '~/lib/Database/supabase';
 
 /**
- * Account enforcement — the single server-side authority.
+ * Account enforcement. The single server side authority.
  *
  * Every read path that serves someone else's content asks this module whether
  * the OWNER is allowed to be seen, and every write path asks whether the ACTOR
@@ -27,7 +27,7 @@ const BLOCKED_STATUSES: ReadonlySet<AccountStatus> = new Set([
 ]);
 
 /**
- * `strike` deliberately restricts NOTHING on its own — the offending file is
+ * `strike` deliberately restricts NOTHING on its own. The offending file is
  * removed and the counter increments, but the account keeps working. Escalation
  * to `restricted` is a separate decision, so a single false positive from an
  * unreliable classifier can't silently disable someone.
@@ -48,7 +48,7 @@ const ACTIVE: AccountState = { status: 'active', reason: null, expiresAt: null }
  * This case must fail OPEN, and it is the one exception to the fail-closed rule
  * below. Treating "the feature isn't installed yet" as "hide everything" would
  * blank the entire platform on the first deploy that lands ahead of the
- * migration — an outage caused by a safety feature that isn't even switched on.
+ * migration, an outage caused by a safety feature that isn't even switched on.
  * Real errors (timeouts, permissions) still fail closed.
  */
 const UNDEFINED_COLUMN = '42703';
@@ -62,7 +62,7 @@ function warnSchemaOnce() {
   if (warnedMissingSchema) return;
   warnedMissingSchema = true;
   console.warn(
-    '[moderation] users.account_status is missing — enforcement is INACTIVE. ' +
+    '[moderation] users.account_status is missing, enforcement is INACTIVE. ' +
       'Run app/database/migrations/moderation_account_status.sql.',
   );
 }
@@ -156,7 +156,7 @@ export async function getHiddenOwnerIds(
 
 /**
  * Filter a list of file rows down to what this viewer may see.
- * The owner always keeps sight of their own library — a restriction unlists
+ * The owner always keeps sight of their own library. A restriction unlists
  * content, it doesn't confiscate it.
  */
 export async function filterByOwnerStatus<T extends Record<string, unknown>>(

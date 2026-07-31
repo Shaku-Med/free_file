@@ -1,8 +1,12 @@
 import { data } from "react-router";
 import { isAuthenticated } from "~/lib/Security/Password";
 import { downloadQueue } from "~/lib/Services/DownloadQueue";
+import { refuseIfDownloadsDisabled } from "~/lib/Security/downloadPolicy.server";
 
 export const loader = async ({ request }: { request: Request }) => {
+  const refused = refuseIfDownloadsDisabled();
+  if (refused) return refused;
+
   try {
     const user = await isAuthenticated(request, ['id']);
     if (!user?.id) {

@@ -6,6 +6,7 @@ import db from "~/lib/Database/supabase";
 import { randomUUID } from "crypto";
 import { BASE_URL } from "~/lib/URLS";
 import { isValidUUID } from "~/lib/Security/inputValidation";
+import { refuseIfDownloadsDisabled } from "~/lib/Security/downloadPolicy.server";
 import {
   defaultGithubBranch,
   githubRawFileUrl,
@@ -13,6 +14,11 @@ import {
 } from "~/lib/githubStorage";
 
 export const action = async ({ request }: { request: Request }) => {
+  // Downloads are withdrawn for everyone, owners included. Refused before auth
+  // so the endpoint reveals nothing about who is asking or what exists.
+  const refused = refuseIfDownloadsDisabled();
+  if (refused) return refused;
+
   try {
     if (request.method !== "POST") {
       return data({ error: "Method not allowed" }, { status: 405 });

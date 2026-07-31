@@ -22,7 +22,7 @@ service that serves bytes:
 
 Duplicating the rule per-service guarantees drift, and drift means one of them
 keeps serving content after a ban. Hiding things in the UI alone is not
-enforcement — every read path is checked server-side.
+enforcement. Every read path is checked server side.
 
 ---
 
@@ -84,7 +84,7 @@ This is the part that must not be built like the rest.
   (18 U.S.C. §2258A). Confirm the obligations that apply where the service
   operates.
 
-Everything else in this document — the emails, the strike counter, the appeal —
+Everything else in this document (the emails, the strike counter, the appeal)
 must be skipped on this path.
 
 ---
@@ -102,7 +102,7 @@ So automation may **flag and restrict**, never **terminate**:
 - [ ] every action written to `moderation_actions` (who, what, why, when)
 - [ ] an appeal route for `strike` and `restricted`
 - [ ] `restricted` carries an expiry; permanent needs a human
-- [ ] **rate limit the enforcement action itself** — cap automated restrictions
+- [ ] **rate limit the enforcement action itself**: cap automated restrictions
       per hour, so a bad deploy degrades instead of mass-banning the userbase
       overnight
 

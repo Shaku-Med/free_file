@@ -34,7 +34,6 @@ import { fileHoverTint } from "~/components/components/hlsplayer/visualizerPalet
 import OwnerProfile from "~/components/OwnerProfile/OwnerProfile";
 import SubscribeButton, { formatSubscriberCount } from "~/components/SubscribeButton";
 import { commentService } from "~/lib/Services/CommentService";
-import DownloadButton from "./components/DownloadButton";
 import { formatNumber } from "~/lib/utils/formatNumber";
 import { formatExactDate } from "~/lib/utils/formatExactDate";
 import { useWatchTracking } from "~/lib/hooks/useWatchTracking";

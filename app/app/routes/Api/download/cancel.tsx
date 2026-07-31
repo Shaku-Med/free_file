@@ -1,8 +1,12 @@
 import { data } from "react-router";
 import { isAuthenticated } from "~/lib/Security/Password";
 import { downloadQueue } from "~/lib/Services/DownloadQueue";
+import { refuseIfDownloadsDisabled } from "~/lib/Security/downloadPolicy.server";
 
 export const action = async ({ request }: { request: Request }) => {
+  const refused = refuseIfDownloadsDisabled();
+  if (refused) return refused;
+
   try {
     if (request.method !== "POST") {
       return data({ error: "Method not allowed" }, { status: 405 });

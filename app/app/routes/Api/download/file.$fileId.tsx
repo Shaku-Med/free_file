@@ -1,8 +1,14 @@
 import { data } from "react-router";
 import { isAuthenticated } from "~/lib/Security/Password";
 import { downloadQueue } from "~/lib/Services/DownloadQueue";
+import { refuseIfDownloadsDisabled } from "~/lib/Security/downloadPolicy.server";
 
 export const loader = async ({ request, params }: { request: Request; params: { fileId: string } }) => {
+  // Sealed with the rest of the download surface. This is the route that
+  // actually streams bytes off disk, so it refuses before touching the fs.
+  const refused = refuseIfDownloadsDisabled();
+  if (refused) return refused;
+
   const { readFile, unlink } = await import('fs/promises');
   const { basename } = await import('path');
   let filePath: string | null = null;

@@ -1,4 +1,4 @@
-# Mix — deferred feature
+# Mix (deferred feature)
 
 Status: **removed from the product, kept as a target.**
 
@@ -27,14 +27,14 @@ trap:
 | **Named mixes** (My Mix, Discover Mix) | Per-viewer, persistent, shown on Home | Precomputed on a schedule |
 
 A radio mix cannot be precomputed: one exists for *every* track, so storing
-them is `tracks` rows — and per viewer it becomes `users × tracks`. Named mixes
+them is `tracks` rows, and per viewer it becomes `users × tracks`. Named mixes
 are the opposite: few per user, worth persisting.
 
 ---
 
 ## What was built (and works)
 
-- **`music_related`** — item-item co-occurrence over `user_watch_history`,
+- **`music_related`**: item-item co-occurrence over `user_watch_history`,
   scored with cosine normalisation `co / sqrt(plays_a * plays_b)` so globally
   popular tracks don't attach themselves to every seed. Rebuilt by
   `rebuild_music_related()` (see `app/database/migrations/music_mix_related.sql`),
@@ -46,7 +46,7 @@ are the opposite: few per user, worth persisting.
   then shared tags, then same artist, then popular.
 - Deterministic ordering keyed on the seed alone, so a shared link shows the
   same tracks in the same positions for everybody.
-- Shareable ids (`RD<unique_id>`) derived from the seed — no storage, works for
+- Shareable ids (`RD<unique_id>`) derived from the seed, so no storage, works for
   signed-out viewers.
 
 ## Why it was pulled
@@ -56,7 +56,7 @@ are the opposite: few per user, worth persisting.
    played everything), so the "algorithm" was mostly the popular-tracks
    fallback wearing a mix costume.
 2. **Genre signal doesn't exist.** `files.categories` holds `"Music"`,
-   `"Entertainment"` — not `"Amapiano"`. The tag layer can't tell genres apart,
+   `"Entertainment"`, not `"Amapiano"`. The tag layer can't tell genres apart,
    so similarity had no real semantic axis.
 3. **Half a product.** Feed card, sidebar queue and player auto-advance landed;
    persisted per-user mixes and user-similarity did not. Shipping the visible
@@ -66,10 +66,10 @@ are the opposite: few per user, worth persisting.
 
 ## Definition of done (before it returns)
 
-**Data thresholds — do not ship before these hold**
+**Data thresholds, do not ship before these hold**
 
 - [ ] A few hundred users with 2+ music plays (co-occurrence stops tying)
-- [ ] Real genre signal — either curated genre tags, or audio-derived features
+- [ ] Real genre signal: either curated genre tags, or audio-derived features
 
 **The genre problem is the real blocker.** The fix is audio, not metadata:
 extract tempo / key / MFCCs or a pretrained audio embedding in the existing
@@ -81,9 +81,9 @@ play history at all.
 
 **Tables to add**
 
-- [ ] `user_mix` — per-user "Your Mix", built nightly for ACTIVE users only,
+- [ ] `user_mix`: per-user "Your Mix", built nightly for ACTIVE users only,
       refreshed **weekly** (not monthly; a stale mix never surfaces new uploads)
-- [ ] `user_similarity` — nightly user-user cosine over played tracks. Powers
+- [ ] `user_similarity`: nightly user-user cosine over played tracks. Powers
       "someone with your taste listens to this". Needs a crowd to mean anything.
 - [ ] Keep `music_related` and keep radio mixes on demand
 
@@ -91,18 +91,18 @@ play history at all.
 
 - [ ] Feed / related / search surfaces agreed up front, not bolted on
 - [ ] Mini player + auto-advance behaviour defined for mix, series and neither
-- [ ] Shared links keep their order (already solved — keep it)
+- [ ] Shared links keep their order (already solved, keep it)
 
 ---
 
 ## Reference: what the removed version looked like
 
-- `GET /api/music/mix?list=RD<seed>&limit&offset` — layered candidates,
+- `GET /api/music/mix?list=RD<seed>&limit&offset`: layered candidates,
   deterministic order, lean payload, offset pagination
 - `?list=RD<seed>&index=N&start_radio=1` on watch URLs, mirroring YouTube
 - Feed card using the first track as poster, no owner (a mix has none)
 - Sidebar queue replacing the old play-queue panel
 
 `app/database/migrations/music_mix_related.sql` is intentionally **left in the
-repo** — the co-occurrence job is the reusable half. It is inert until something
+repo**. The co-occurrence job is the reusable half. It is inert until something
 reads `music_related` again.
