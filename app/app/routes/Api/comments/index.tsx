@@ -1,4 +1,5 @@
 import { isAuthenticated } from "~/lib/Security/Password";
+import { canAct } from "~/lib/Security/accountStatus.server";
 import { checkCommentPostRateLimit } from "~/routes/Api/fun/personalizationRateLimit";
 import db from "~/lib/Database/supabase";
 import { commentService, type CreateCommentInput } from "~/lib/Services/CommentService";
@@ -65,6 +66,12 @@ export const action = async ({ request }: { request: Request }) => {
     const user = await isAuthenticated(request, ['id']);
     if (!user || !user.id) {
       return toJson({ error: "Unauthorized" }, 401);
+    }
+
+    // Restricted/terminated accounts can still READ comments (the loader is
+    // untouched) but cannot post, edit or delete.
+    if (!(await canAct(user.id))) {
+      return toJson({ error: "account_restricted" }, 403);
     }
 
     if (request.method === "POST") {

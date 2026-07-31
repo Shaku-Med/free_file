@@ -1,4 +1,5 @@
 import { isAuthenticated } from "~/lib/Security/Password";
+import { canAct } from "~/lib/Security/accountStatus.server";
 import { assertSafeRequest } from "~/lib/Security/requestGuard.server";
 import { mintUploadBearerForRequest } from "~/lib/Security/uploadToken.server";
 
@@ -21,6 +22,17 @@ export const loader = async ({ request }: { request: Request }) => {
         status: 401,
         headers: { "Content-Type": "application/json" },
       });
+    }
+
+    // Account enforcement: a restricted/terminated account gets no upload
+    // bearer, so GoUpload can't be handed a token at all. Blocking here rather
+    // than inside GoUpload keeps the rule in one place — the upload server
+    // simply never receives credentials.
+    if (!(await canAct(user.id))) {
+      return new Response(
+        JSON.stringify({ error: "account_restricted" }),
+        { status: 403, headers: { "Content-Type": "application/json" } },
+      );
     }
 
     const bearer = await mintUploadBearerForRequest(request, user.id);

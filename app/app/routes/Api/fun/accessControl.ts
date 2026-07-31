@@ -1,5 +1,9 @@
 import { isAuthenticated } from "~/lib/Security/Password";
 import db from "~/lib/Database/supabase";
+import {
+  canServeOwnerContent,
+  getHiddenOwnerIds,
+} from "~/lib/Security/accountStatus.server";
 
 export interface FileData {
   is_adult: boolean;
@@ -118,23 +122,47 @@ export const canAccessFile = async (
   file: FileData
 ): Promise<boolean> => {
   const context = await getUserAccessContext(request);
-  return canAccessFileWithContext(file, context);
+  if (!canAccessFileWithContext(file, context)) return false;
+
+  // Account enforcement (docs/Moderation.md): a restricted/terminated owner's
+  // content is withheld from everyone but the owner, including via a direct
+  // link. Applied here rather than per-route so no read path can forget it.
+  const ownerId = (file as { owner_id?: unknown }).owner_id;
+  return canServeOwnerContent(
+    ownerId ? String(ownerId) : null,
+    context.user?.id ? String(context.user.id) : null,
+  );
 };
 
 export const filterFilesByAccess = async <T extends FileData>(
   request: Request,
   files: T[]
 ): Promise<T[]> => {
-  const filteredFiles: T[] = [];
   const context = await getUserAccessContext(request);
 
+  const allowed: T[] = [];
   for (const file of files) {
-    const hasAccess = canAccessFileWithContext(file, context);
-    if (hasAccess) {
-      filteredFiles.push(file);
-    }
+    if (canAccessFileWithContext(file, context)) allowed.push(file);
   }
+  if (allowed.length === 0) return allowed;
 
-  return filteredFiles;
+  // ONE batched status lookup for the whole page of rows — a per-row query here
+  // would add a round trip per feed item.
+  const hidden = await getHiddenOwnerIds(
+    allowed.map((f) => {
+      const owner = (f as { owner_id?: unknown }).owner_id;
+      return owner ? String(owner) : null;
+    }),
+  );
+  if (hidden.size === 0) return allowed;
+
+  const viewerId = context.user?.id ? String(context.user.id) : null;
+  return allowed.filter((f) => {
+    const owner = (f as { owner_id?: unknown }).owner_id;
+    const ownerId = owner ? String(owner) : '';
+    // The owner keeps seeing their own library; a restriction unlists content,
+    // it doesn't confiscate it.
+    return !hidden.has(ownerId) || (viewerId !== null && ownerId === viewerId);
+  });
 };
 
