@@ -1,4 +1,16 @@
 import { memo, useState, useEffect, useRef, useCallback, useMemo } from "react";
+import { visibilityOf, type FileVisibility } from "~/lib/Security/visibility";
+
+/** Same three states as the upload modal and the studio list. */
+const EDIT_VISIBILITY_CHOICES: ReadonlyArray<{
+  value: FileVisibility;
+  label: string;
+  hint: string;
+}> = [
+  { value: "public", label: "Public", hint: "Anyone can find and watch this." },
+  { value: "unlisted", label: "Unlisted", hint: "Not in feed or search, but the link works." },
+  { value: "private", label: "Private", hint: "Only you can watch this." },
+];
 import { motion } from "framer-motion";
 import { Link, useNavigate } from "react-router";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "~/components/ui/dialog";
@@ -16,7 +28,7 @@ import Actions from "./VideoCard/Actions";
 import { Separator } from "~/components/ui/separator";
 import { Progress } from "~/components/ui/progress";
 import CategoryBadges from "~/components/CategoryBadges";
-import { Info, MoreVertical, ChevronDown, X, Check, AlertTriangle, Send, Loader2, ImagePlus, MessageSquare, MessageSquareOff, ListVideo, Layers, ListPlus, ListChecks, Captions, Clapperboard, Music2 } from "lucide-react";
+import { Info, MoreVertical, ChevronDown, X, Check, AlertTriangle, Send, Loader2, ImagePlus, MessageSquare, MessageSquareOff, ListVideo, Layers, ListPlus, ListChecks, Captions, Clapperboard, Music2, ShieldAlert } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "~/components/ui/avatar";
 import { getProfilePicUrl } from "~/lib/utils/profilePic";
 import { CaptionModal, type CaptionEntry } from "~/components/captions/CaptionModal";
@@ -196,7 +208,11 @@ const VideoCard = ({
   const [isEditing, setIsEditing] = useState(false);
   const [editTitle, setEditTitle] = useState(data.file_title || "");
   const [editDescription, setEditDescription] = useState(data.file_description || "");
-  const [editIsPublic, setEditIsPublic] = useState(Boolean(data.is_public));
+  const [editVisibility, setEditVisibility] = useState<FileVisibility>(() => visibilityOf(data));
+  // Set by moderation. The server refuses the change regardless; this drives the
+  // UI so the owner is told why instead of being handed a control that fails.
+  const [editLocked, setEditLocked] = useState(false);
+  const [editLockFlag, setEditLockFlag] = useState<string | null>(null);
   const [editIsMusic, setEditIsMusic] = useState(Boolean(data.is_music));
   const [editCategories, setEditCategories] = useState<string[]>(() => {
     if (Array.isArray(data.categories)) return data.categories.filter((c): c is string => typeof c === "string");
@@ -263,7 +279,7 @@ const VideoCard = ({
   const nav = useNavigate();
   const watchPath = useMemo(
     () =>
-      // `watchHref` lets a caller own the destination — the mix queue needs
+      // `watchHref` lets a caller own the destination. The mix queue needs
       // ?list=/&index= on the anchor itself so middle-click and "open in new
       // tab" stay inside the mix, not just left-click.
       watchHref ??
@@ -405,7 +421,7 @@ const VideoCard = ({
     if (isEditing) return;
     setEditTitle(data.file_title || "");
     setEditDescription(data.file_description || "");
-    setEditIsPublic(Boolean(data.is_public));
+    setEditVisibility(visibilityOf(data));
     setEditIsMusic(Boolean(data.is_music));
     setEditCategories(Array.isArray(data.categories) ? data.categories.filter((c): c is string => typeof c === "string") : []);
     setEditTags(Array.isArray(data.tags) ? data.tags.filter((t): t is string => typeof t === "string") : []);
@@ -457,7 +473,9 @@ const VideoCard = ({
         const f = json.file;
         setEditTitle(typeof f.file_title === "string" ? f.file_title : "");
         setEditDescription(typeof f.file_description === "string" ? f.file_description : "");
-        setEditIsPublic(f.is_public !== false);
+        setEditVisibility(visibilityOf(f));
+        setEditLocked(f.visibility_locked === true);
+        setEditLockFlag(typeof f.moderation_flag === "string" ? f.moderation_flag : null);
         const cats = f.categories;
         setEditCategories(
           Array.isArray(cats) ? cats.filter((c): c is string => typeof c === "string") : []
@@ -894,7 +912,7 @@ const VideoCard = ({
           fileId: data.id || data.unique_id,
           title: editTitle,
           description: editDescription,
-          isPublic: editIsPublic,
+          visibility: editVisibility,
           categories: editCategories,
           tags: editTags,
           commentsEnabled: editCommentsEnabled,
@@ -923,7 +941,7 @@ const VideoCard = ({
         onUpdate(data.id, {
           file_title: payload.file.file_title ?? editTitle,
           file_description: payload.file.file_description ?? editDescription,
-          is_public: payload.file.is_public ?? editIsPublic,
+          is_public: payload.file.is_public ?? editVisibility === "public",
           categories: payload.file.categories ?? editCategories,
           tags: payload.file.tags ?? editTags,
           comments_enabled: payload.file.comments_enabled,
@@ -1588,26 +1606,37 @@ const VideoCard = ({
 
           <div className="space-y-2">
             <label className="text-xs font-medium text-muted-foreground">Visibility</label>
-            <div className="flex items-center gap-2">
-              <Button
-                type="button"
-                variant={editIsPublic ? "default" : "outline"}
-                className="rounded-full px-4"
-                onClick={() => setEditIsPublic(true)}
-                disabled={isSaving}
-              >
-                Public
-              </Button>
-              <Button
-                type="button"
-                variant={!editIsPublic ? "default" : "outline"}
-                className="rounded-full px-4"
-                onClick={() => setEditIsPublic(false)}
-                disabled={isSaving}
-              >
-                Private
-              </Button>
-            </div>
+            {editLocked ? (
+              <div className="flex items-start gap-2 rounded-lg border border-border/60 bg-muted/40 px-3 py-2">
+                <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+                <p className="text-xs leading-snug text-muted-foreground">
+                  {editLockFlag === "harmful"
+                    ? "This is locked while it gets reviewed, so it stays private for now. You can still edit the title, description and tags."
+                    : "This was flagged as adult, so it stays unlisted. The link still works, and you can still edit everything else."}
+                </p>
+              </div>
+            ) : (
+              <div className="flex flex-wrap items-center gap-2">
+                {EDIT_VISIBILITY_CHOICES.map((choice) => (
+                  <Button
+                    key={choice.value}
+                    type="button"
+                    variant={editVisibility === choice.value ? "default" : "outline"}
+                    className="rounded-full px-4"
+                    onClick={() => setEditVisibility(choice.value)}
+                    disabled={isSaving}
+                    title={choice.hint}
+                  >
+                    {choice.label}
+                  </Button>
+                ))}
+              </div>
+            )}
+            {!editLocked && (
+              <p className="text-[11px] leading-snug text-muted-foreground">
+                {EDIT_VISIBILITY_CHOICES.find((c) => c.value === editVisibility)?.hint}
+              </p>
+            )}
           </div>
 
           {typeof data.file_type === "string" && !data.file_type.startsWith("image/") && (
@@ -2745,7 +2774,7 @@ const VideoCard = ({
     // Studio table cell. Uses the same renderThumbnail + renderEditDialog
     // as every other layout so adult blur, retry, lazy load, and the edit
     // upload dialog (title / description / skip markers / series) stay
-    // identical to the rest of the app — no duplication.
+    // identical to the rest of the app, no duplication.
     const durationSec = typeof data.duration === "number" ? data.duration : 0;
     const durationStr = formatDuration(durationSec);
     const sameYear =
@@ -2792,7 +2821,7 @@ const VideoCard = ({
   }
 
   if (layout === "seriesRow") {
-    // Compact row used ONLY by the Studio series manager — a smaller thumbnail
+    // Compact row used ONLY by the Studio series manager: a smaller thumbnail
     // than `studioRow` so the drag-reorder list stays tight. Reuses the same
     // renderThumbnail + edit dialog; does NOT affect any other layout.
     const durationSec = typeof data.duration === "number" ? data.duration : 0;
@@ -2993,7 +3022,7 @@ const VideoCard = ({
 
   return (
     // Spacing follows YouTube: the grid owns the vertical rhythm (row-gap), so
-    // the card itself carries no outer padding — padding here fought the gap and
+    // the card itself carries no outer padding. Padding here fought the gap and
     // made the columns read tighter than the rows.
     <div className="item group relative flex h-full flex-col">
       <Link

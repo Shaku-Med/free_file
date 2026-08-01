@@ -104,7 +104,12 @@ func (h *Handler) uploadChunk(c *fiber.Ctx) error {
 }
 
 type completeBody struct {
-	IsPublic         *bool    `json:"is_public"`
+	IsPublic *bool `json:"is_public"`
+	// Three state visibility from the uploader: "public", "unlisted" or
+	// "private". Authoritative when present; is_public is only a fallback for
+	// older clients that do not send this yet. Validated below, because it is
+	// client input and lands in a Postgres enum.
+	Visibility       string   `json:"visibility"`
 	Title            string   `json:"title"`
 	Description      string   `json:"description"`
 	Categories       []string `json:"categories"`
@@ -172,6 +177,7 @@ func (h *Handler) completeUpload(c *fiber.Ctx) error {
 	}
 
 	isPublic := true
+	visibility := "" // empty means "not specified"; the app derives from isPublic
 	commentsEnabled := true
 	title, description := "", ""
 	defaultThumbnail := ""
@@ -189,6 +195,14 @@ func (h *Handler) completeUpload(c *fiber.Ctx) error {
 		seriesBody = b
 		if b.IsPublic != nil {
 			isPublic = *b.IsPublic
+		}
+		// Allowlist, never passed through raw. An unrecognised value is dropped
+		// rather than forwarded, so a malformed or hostile body cannot reach the
+		// enum, and the app falls back to the boolean.
+		switch b.Visibility {
+		case "public", "unlisted", "private":
+			visibility = b.Visibility
+			isPublic = b.Visibility == "public"
 		}
 		if b.CommentsEnabled != nil {
 			commentsEnabled = *b.CommentsEnabled
@@ -271,7 +285,7 @@ func (h *Handler) completeUpload(c *fiber.Ctx) error {
 
 	// Monthly budget full but the extra weekly allowance still fits: accept
 	// the upload and let the worker route it to the overflow backend. The
-	// client never learns where it landed — same response as a normal accept.
+	// client never learns where it landed, same response as a normal accept.
 	// Requires the GitHub backend to be configured (worker can't honor the
 	// overflow flag without it).
 	overflowUpload := false
@@ -320,12 +334,12 @@ func (h *Handler) completeUpload(c *fiber.Ctx) error {
 		// overflow_* lets the UI explain that the extra weekly allowance is
 		// ALSO used up (it never names the backing storage).
 		return c.Status(fiber.StatusRequestEntityTooLarge).JSON(fiber.Map{
-			"error":     "monthly_limit_exceeded",
-			"used":      qres.Used,
-			"limit":     qres.Limit,
-			"remaining": qres.Remaining,
-			"predicted": predicted,
-			"source_bytes": actualBytes,
+			"error":              "monthly_limit_exceeded",
+			"used":               qres.Used,
+			"limit":              qres.Limit,
+			"remaining":          qres.Remaining,
+			"predicted":          predicted,
+			"source_bytes":       actualBytes,
 			"overflow_used":      qres.OverflowUsed,
 			"overflow_limit":     qres.OverflowLimit,
 			"overflow_remaining": qres.OverflowRemaining,
@@ -350,6 +364,7 @@ func (h *Handler) completeUpload(c *fiber.Ctx) error {
 		FileSize:            meta.FileSize,
 		Progress:            &queuedPct,
 		IsPublic:            &isPublic,
+		Visibility:          visibility,
 		CommentsEnabled:     &commentsEnabled,
 		Title:               title,
 		Description:         description,

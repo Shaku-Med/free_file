@@ -1,3 +1,4 @@
+import type { FileVisibility } from '~/lib/Security/visibility';
 import type { OwnerInfo } from '~/components/OwnerProfile/OwnerProfile';
 
 export interface FileType {
@@ -30,7 +31,13 @@ export interface FileType {
   share_count?: number;
   owner_id?: string;
   owner?: OwnerInfo | null;
+  /** Legacy mirror of `visibility`, kept in sync by a database trigger. */
   is_public?: boolean;
+  /** Absent on payloads that only carry public rows, where the is_public
+   *  fallback is already correct. */
+  visibility?: FileVisibility;
+  /** Owner-facing only: moderation holds visibility and the owner cannot move it. */
+  visibility_locked?: boolean;
   file_description?: string;
   category?: string[];
   categories?: string[];
@@ -107,7 +114,7 @@ export type RelatedVideosPayloadCache = {
 /**
  * Persistent strip for the image watch carousel. Lives in the root context so
  * swiping + the per-image router refresh never lose the images already loaded
- * — the viewer can always swipe back, and new images only ever append.
+ * The viewer can always swipe back, and new images only ever append.
  */
 export type ImageCarouselCache = {
   items: Array<Record<string, unknown>>;

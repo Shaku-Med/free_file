@@ -22,6 +22,9 @@ interface PostRow {
   created_at: string;
   view_count?: number | null;
   is_public?: boolean | null;
+  visibility?: string | null;
+  visibility_locked?: boolean | null;
+  moderation_flag?: string | null;
   is_adult?: boolean | null;
   is_reel?: boolean | null;
   upload_status?: string | null;
@@ -56,7 +59,7 @@ export const loader = async ({ request }: { request: Request }) => {
       .from("files")
       .select(
         "id, unique_id, filename, file_title, file_type, endpoint, duration, " +
-          "created_at, view_count, is_public, is_adult, is_reel, " +
+          "created_at, view_count, is_public, visibility, visibility_locked, moderation_flag, is_adult, is_reel, " +
           "upload_status, processing_progress, default_thumbnail, thumbnails",
         { count: "exact" },
       )
@@ -64,8 +67,9 @@ export const loader = async ({ request }: { request: Request }) => {
       .order(sortField.column, { ascending: sortField.ascending })
       .range(offset, offset + limit - 1);
 
-    if (status === "public") q = q.eq("is_public", true);
-    else if (status === "private") q = q.eq("is_public", false);
+    if (status === "public") q = q.eq("visibility", "public");
+    else if (status === "unlisted") q = q.eq("visibility", "unlisted");
+    else if (status === "private") q = q.eq("visibility", "private");
     else if (status === "adult") q = q.eq("is_adult", true);
     else if (status === "processing") q = q.neq("upload_status", "complete");
 

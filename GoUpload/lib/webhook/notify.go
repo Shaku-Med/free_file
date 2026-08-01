@@ -15,13 +15,16 @@ import (
 // Payload is sent to the app's /api/upload-job-status. The app upserts upload_jobs
 // and creates/updates files in Supabase so the user sees progress on their page.
 type Payload struct {
-	JobID       string   `json:"job_id"`
-	Status      string   `json:"status"`
-	UploadID    string   `json:"upload_id"`
-	UserID      string   `json:"user_id"`
-	FileName    string   `json:"file_name,omitempty"`
-	FileSize    int64    `json:"file_size,omitempty"`
-	IsPublic    *bool    `json:"is_public,omitempty"`
+	JobID    string `json:"job_id"`
+	Status   string `json:"status"`
+	UploadID string `json:"upload_id"`
+	UserID   string `json:"user_id"`
+	FileName string `json:"file_name,omitempty"`
+	FileSize int64  `json:"file_size,omitempty"`
+	IsPublic *bool  `json:"is_public,omitempty"`
+	// Uploader's chosen visibility, already validated against the allowlist in
+	// the upload handler. Empty when the client did not send one.
+	Visibility  string   `json:"visibility,omitempty"`
 	Title       string   `json:"title,omitempty"`
 	Description string   `json:"description,omitempty"`
 	Endpoint    string   `json:"endpoint,omitempty"`

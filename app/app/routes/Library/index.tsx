@@ -24,7 +24,7 @@ const SECTION_LIMIT = 12;
 const FILE_COLUMNS =
   "id, unique_id, file_title, file_description, file_type, default_thumbnail, " +
   "view_count, share_count, is_reel, duration, categories, tags, owner_id, " +
-  "endpoint, filename, created_at, is_public, is_adult, upload_status";
+  "endpoint, filename, created_at, is_public, visibility, is_adult, upload_status";
 
 type LoaderData = {
   username: string;

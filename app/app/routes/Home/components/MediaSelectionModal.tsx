@@ -29,6 +29,7 @@ import {
   Loader2,
   Eye,
   EyeOff,
+  Link2,
   ImagePlus,
   MessageSquare,
   MessageSquareOff,
@@ -41,6 +42,30 @@ import {
   Film,
   Minimize2,
 } from "lucide-react"
+import type { FileVisibility } from "~/lib/Security/visibility"
+
+/**
+ * The three visibility states, in one place so the upload modal and the studio
+ * editor describe them identically. Order is widest to narrowest.
+ *
+ * Wording matters here: "unlisted" is the one people get wrong, so the hint
+ * says plainly that a link still works rather than implying it is hidden.
+ */
+const VISIBILITY_CHOICES: ReadonlyArray<{
+  value: FileVisibility
+  label: string
+  icon: typeof Eye
+  hint: string
+}> = [
+  { value: "public", label: "Public", icon: Eye, hint: "Anyone can find and watch this." },
+  {
+    value: "unlisted",
+    label: "Unlisted",
+    icon: Link2,
+    hint: "Not in feed or search, but anyone with the link can watch.",
+  },
+  { value: "private", label: "Private", icon: EyeOff, hint: "Only you can watch this." },
+]
 import { GenerateUniqueID } from "~/lib/GenerateUniqueID"
 import { useFileContext } from "~/lib/Context/Context"
 import { EpisodePicker } from "./EpisodePicker"
@@ -211,7 +236,7 @@ interface MediaItem {
   durationSeconds: number | null
   title: string
   description: string
-  isPublic: boolean
+  visibility: FileVisibility
   categories: string[]
   tags: string[]
   commentsEnabled: boolean
@@ -602,7 +627,7 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
       durationSeconds: null,
       title: baseName.slice(0, 200),
       description: "",
-      isPublic: true,
+      visibility: "public",
       categories: [],
       tags: [],
       commentsEnabled: true,
@@ -992,7 +1017,7 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
   }, [isUploadingBatch])
 
   // =============================================================================
-  // UPLOAD PIPELINE — GoUpload ONLY (see free_file/GoUpload)
+  // UPLOAD PIPELINE: GoUpload ONLY (see free_file/GoUpload)
   // =============================================================================
   // DO NOT add POST /api/upload fallbacks here. The app does not process uploads.
   // Legacy /api/upload is server-to-server only (403 for browsers).
@@ -1125,7 +1150,10 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
         method: "POST",
         headers: { "Content-Type": "application/json", ...authHeaders(ctx.bearer) },
         body: JSON.stringify({
-          is_public: item.isPublic,
+          visibility: item.visibility,
+          // Sent alongside so an older GoUpload that only knows the boolean
+          // still gets the right answer. Unlisted is not public.
+          is_public: item.visibility === "public",
           title: item.title.trim(),
           description: item.description.trim(),
           categories: item.categories,
@@ -1199,7 +1227,7 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
         throw new Error(
           extraLeft && j.overflow_remaining! > 0
             ? `Monthly upload limit reached, and this file doesn't fit in the ${extraLeft} left of your extra weekly allowance. Try a smaller file.`
-            : "Monthly upload limit reached and your extra 10 GB weekly allowance is used up too. It refills weekly — try again later.",
+            : "Monthly upload limit reached and your extra 10 GB weekly allowance is used up too. It refills weekly, so try again later.",
         )
       }
       throw new Error(j.error || "Complete upload failed")
@@ -2595,39 +2623,34 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
                 <div className="space-y-1.5">
                   <label className="text-xs font-medium text-muted-foreground">Visibility</label>
                   <div className="flex rounded-lg border border-border/50 overflow-hidden bg-muted/30">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (!activeItem) return
-                        updateItem(activeItem.id, (current) => ({ ...current, isPublic: true }))
-                      }}
-                      disabled={isFieldDisabled}
-                      className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 sm:py-2 min-h-[44px] sm:min-h-0 text-sm font-medium transition-all disabled:cursor-not-allowed touch-manipulation ${
-                        activeItem?.isPublic
-                          ? "bg-primary text-primary-foreground shadow-sm"
-                          : "text-muted-foreground hover:text-foreground"
-                      }`}
-                    >
-                      <Eye className="w-3.5 h-3.5" />
-                      Public
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (!activeItem) return
-                        updateItem(activeItem.id, (current) => ({ ...current, isPublic: false }))
-                      }}
-                      disabled={isFieldDisabled}
-                      className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 sm:py-2 min-h-[44px] sm:min-h-0 text-sm font-medium transition-all disabled:cursor-not-allowed touch-manipulation ${
-                        !activeItem?.isPublic
-                          ? "bg-primary text-primary-foreground shadow-sm"
-                          : "text-muted-foreground hover:text-foreground"
-                      }`}
-                    >
-                      <EyeOff className="w-3.5 h-3.5" />
-                      Private
-                    </button>
+                    {VISIBILITY_CHOICES.map((choice) => {
+                      const Icon = choice.icon
+                      const selected = (activeItem?.visibility ?? "public") === choice.value
+                      return (
+                        <button
+                          key={choice.value}
+                          type="button"
+                          onClick={() => {
+                            if (!activeItem) return
+                            updateItem(activeItem.id, (current) => ({ ...current, visibility: choice.value }))
+                          }}
+                          disabled={isFieldDisabled}
+                          title={choice.hint}
+                          className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 sm:py-2 min-h-[44px] sm:min-h-0 text-sm font-medium transition-all disabled:cursor-not-allowed touch-manipulation ${
+                            selected
+                              ? "bg-primary text-primary-foreground shadow-sm"
+                              : "text-muted-foreground hover:text-foreground"
+                          }`}
+                        >
+                          <Icon className="w-3.5 h-3.5" />
+                          {choice.label}
+                        </button>
+                      )
+                    })}
                   </div>
+                  <p className="text-[11px] leading-snug text-muted-foreground">
+                    {VISIBILITY_CHOICES.find((c) => c.value === (activeItem?.visibility ?? "public"))?.hint}
+                  </p>
                 </div>
 
                 {/* Reel mode videos only. Locked once the upload starts

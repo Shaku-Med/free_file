@@ -8,10 +8,13 @@ import VideoCard, { requestVideoCardEdit } from "~/routes/Home/components/VideoC
 import Actions from "~/routes/Home/components/VideoCard/Actions";
 import type { FileType } from "~/lib/types";
 import { invalidateStudioCache, useStudioData } from "~/lib/studio/studioCache";
+import { visibilityOf, type FileVisibility } from "~/lib/Security/visibility";
 import {
   ArrowUpDown,
   ChevronDown,
   Globe,
+  Link2 as LinkIcon,
+  ShieldAlert,
   Loader2,
   Lock,
   Search,
@@ -52,6 +55,10 @@ interface PostRow {
   like_count?: number | null;
   comment_count?: number | null;
   is_public?: boolean | null;
+  visibility?: string | null;
+  /** Set by moderation. While true the owner cannot change visibility. */
+  visibility_locked?: boolean | null;
+  moderation_flag?: string | null;
   is_adult?: boolean | null;
   is_reel?: boolean | null;
   upload_status?: string | null;
@@ -60,12 +67,13 @@ interface PostRow {
   thumbnails?: string[] | null;
 }
 
-type StatusFilter = "all" | "public" | "private" | "adult" | "processing";
+type StatusFilter = "all" | "public" | "unlisted" | "private" | "adult" | "processing";
 type SortKey = "newest" | "oldest" | "views";
 
 const STATUS_OPTIONS: { key: StatusFilter; label: string }[] = [
   { key: "all", label: "All" },
   { key: "public", label: "Public" },
+  { key: "unlisted", label: "Unlisted" },
   { key: "private", label: "Private" },
   { key: "adult", label: "Adult flagged" },
   { key: "processing", label: "Processing" },
@@ -73,14 +81,62 @@ const STATUS_OPTIONS: { key: StatusFilter; label: string }[] = [
 
 const PAGE_SIZE = 24;
 
+/**
+ * Visibility choices, widest first. The hint spells out what unlisted actually
+ * does, because "unlisted" is the one people read as "hidden".
+ */
+const VISIBILITY_ITEMS: ReadonlyArray<{
+  value: FileVisibility;
+  label: string;
+  chip: string;
+  icon: typeof Globe;
+  hint: string;
+}> = [
+  { value: "public", label: "Everyone", chip: "Everyone", icon: Globe, hint: "Anyone can find and watch this." },
+  {
+    value: "unlisted",
+    label: "Anyone with the link",
+    chip: "Unlisted",
+    icon: LinkIcon,
+    hint: "Not in feed or search, but the link works.",
+  },
+  { value: "private", label: "Only me", chip: "Private", icon: Lock, hint: "Only you can watch this." },
+];
+
+/** Why a file is held, in the owner's words rather than the classifier's. */
+function lockReason(flag?: string | null): string {
+  return flag === "harmful"
+    ? "Locked while this is reviewed. It stays private until then."
+    : "Flagged as adult, so it stays unlisted. The link still works.";
+}
+
 function PrivacyChip({
   post,
   onChange,
 }: {
   post: PostRow;
-  onChange: (isPublic: boolean) => void;
+  onChange: (visibility: FileVisibility) => void;
 }) {
-  const isPublic = post.is_public !== false;
+  const current = visibilityOf(post);
+  const active = VISIBILITY_ITEMS.find((v) => v.value === current) ?? VISIBILITY_ITEMS[0];
+  const ActiveIcon = active.icon;
+  const locked = post.visibility_locked === true;
+
+  // Locked files render the state as plain text, not a disabled menu. Showing a
+  // menu you cannot use invites people to keep clicking it.
+  if (locked) {
+    return (
+      <span
+        title={lockReason(post.moderation_flag)}
+        className="inline-flex items-center gap-1 rounded-full border border-border/60 bg-muted/40 px-2 py-1 text-xs text-muted-foreground"
+      >
+        <ShieldAlert className="h-3.5 w-3.5" />
+        <span>{active.chip}</span>
+        <Lock className="h-3 w-3" />
+      </span>
+    );
+  }
+
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -88,18 +144,28 @@ function PrivacyChip({
           type="button"
           className="inline-flex items-center gap-1 rounded-full border border-border/60 bg-background/60 px-2 py-1 text-xs text-foreground transition-colors hover:bg-muted/40"
         >
-          {isPublic ? <Globe className="h-3.5 w-3.5" /> : <Lock className="h-3.5 w-3.5" />}
-          <span>{isPublic ? "Everyone" : "Private"}</span>
+          <ActiveIcon className="h-3.5 w-3.5" />
+          <span>{active.chip}</span>
           <ChevronDown className="h-3 w-3 text-muted-foreground" />
         </button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="w-40">
-        <DropdownMenuItem onSelect={() => onChange(true)} className="gap-2">
-          <Globe className="h-3.5 w-3.5" /> Everyone
-        </DropdownMenuItem>
-        <DropdownMenuItem onSelect={() => onChange(false)} className="gap-2">
-          <Lock className="h-3.5 w-3.5" /> Only me
-        </DropdownMenuItem>
+      <DropdownMenuContent align="start" className="w-64">
+        {VISIBILITY_ITEMS.map((item) => {
+          const Icon = item.icon;
+          return (
+            <DropdownMenuItem
+              key={item.value}
+              onSelect={() => onChange(item.value)}
+              className="gap-2 items-start"
+            >
+              <Icon className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+              <span className="flex flex-col">
+                <span>{item.label}</span>
+                <span className="text-[11px] text-muted-foreground">{item.hint}</span>
+              </span>
+            </DropdownMenuItem>
+          );
+        })}
       </DropdownMenuContent>
     </DropdownMenu>
   );
@@ -180,7 +246,7 @@ function StudioPostRow({
 }: {
   post: PostRow;
   userId: string | null | undefined;
-  onPrivacyChange: (isPublic: boolean) => void;
+  onPrivacyChange: (visibility: FileVisibility) => void;
   onEdit: () => void;
   onDelete: () => void;
   onUpdate: (fileId: string, updates: Partial<FileType>) => void;
@@ -360,25 +426,52 @@ export default function StudioPostsPage() {
     if (!ok) setVerifyError((e) => e ?? "Couldn't send the code. Try again.");
   };
 
-  const togglePrivacy = async (post: PostRow, nextIsPublic: boolean) => {
-    if (post.is_public === nextIsPublic) return;
+  const togglePrivacy = async (post: PostRow, next: FileVisibility) => {
+    const current = visibilityOf(post);
+    if (current === next) return;
+    // The server refuses this anyway; bailing here just avoids a pointless
+    // request and an optimistic flicker on a file that cannot move.
+    if (post.visibility_locked === true) return;
+
     setBusyId(post.id);
-    setRows((prev) => prev.map((r) => (r.id === post.id ? { ...r, is_public: nextIsPublic } : r)));
+    const revert = () =>
+      setRows((prev) =>
+        prev.map((r) =>
+          r.id === post.id
+            ? { ...r, visibility: post.visibility ?? current, is_public: post.is_public }
+            : r,
+        ),
+      );
+    setRows((prev) =>
+      prev.map((r) =>
+        r.id === post.id ? { ...r, visibility: next, is_public: next === "public" } : r,
+      ),
+    );
     try {
       const res = await fetch("/api/studio/post/update", {
         method: "POST",
         credentials: "same-origin",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ unique_id: post.unique_id, is_public: nextIsPublic }),
+        body: JSON.stringify({ unique_id: post.unique_id, visibility: next }),
       });
       if (!res.ok) {
-        setRows((prev) => prev.map((r) => (r.id === post.id ? { ...r, is_public: post.is_public } : r)));
+        revert();
+        // 403 means moderation took the file while this page was open. Reflect
+        // that rather than leaving a control the server will keep refusing.
+        if (res.status === 403) {
+          const body = await res.json().catch(() => null);
+          if (body?.code === "visibility_locked") {
+            setRows((prev) =>
+              prev.map((r) => (r.id === post.id ? { ...r, visibility_locked: true } : r)),
+            );
+          }
+        }
       } else {
         invalidateStudioCache("studio:posts:");
         invalidateStudioCache("studio:overview");
       }
     } catch {
-      setRows((prev) => prev.map((r) => (r.id === post.id ? { ...r, is_public: post.is_public } : r)));
+      revert();
     } finally {
       setBusyId(null);
     }

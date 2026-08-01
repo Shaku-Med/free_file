@@ -3,6 +3,7 @@ import { textContainsNsfw, DEFAULT_METADATA_WARNING } from '~/lib/nsfwTextCheck'
 import { isValidUUID } from '~/lib/Security/inputValidation';
 import { recordUploadUsage, refundUploadQuota } from '~/lib/uploadQuota.server';
 import { verifyWebhookSecret } from '~/lib/Security/webhookAuth.server';
+import { isFileVisibility } from '~/lib/Security/visibility';
 
 function inferFileType(filename: string): string {
   if (!filename) return 'application/octet-stream';
@@ -268,6 +269,7 @@ export const action = async ({ request }: { request: Request }) => {
     /** Set by Go worker: true when video duration is under 2 minutes */
     is_reel?: boolean;
     is_adult?: boolean;
+    visibility?: unknown;
     /** Pipeline moderation verdict. See the handling below. */
     content_flag?: 'adult' | 'harmful' | null;
     moderation_evidence?: Record<string, unknown>;
@@ -341,6 +343,14 @@ export const action = async ({ request }: { request: Request }) => {
     const file_name = body.file_name.trim();
     const file_size = typeof body?.file_size === 'number' && body.file_size >= 0 ? body.file_size : 0;
     const is_public = typeof body?.is_public === 'boolean' ? body.is_public : true;
+    // Uploader's chosen visibility. Validated against the allowlist rather than
+    // trusted, since it lands in a Postgres enum. Falls back to the boolean for
+    // clients that predate the three state control.
+    const visibility = isFileVisibility(body?.visibility)
+      ? body.visibility
+      : is_public
+        ? 'public'
+        : 'private';
     const comments_enabled = typeof body?.comments_enabled === 'boolean' ? body.comments_enabled : true;
     let comment_limit: number | null = null;
     if (body?.comment_limit !== undefined && body?.comment_limit !== null) {
@@ -385,6 +395,7 @@ export const action = async ({ request }: { request: Request }) => {
       processing_progress: parseProcessingProgress(body.progress) ?? 0,
       owner_id: ownerId,
       is_public: is_public,
+      visibility,
       comments_enabled,
       comment_limit,
       file_title: title || file_name.replace(/\.[^./\\]+$/, ''),
