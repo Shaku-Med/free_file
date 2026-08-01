@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useLayoutEffect, useState, useCallback, useMemo, useRef } from "react";
 import { createPortal, flushSync } from "react-dom";
 import { useLocation, useNavigate } from "react-router";
 import { motion } from "framer-motion";
@@ -21,7 +21,12 @@ import MiniPlayerQueue from "./MiniPlayerQueue";
 import { useWatchPlayBootstrap } from "~/lib/Context/WatchPlayBootstrapContext";
 import type { FileType } from "~/lib/types";
 
-type QueueCacheEntry = { items: FileType[] };
+/**
+ * Shared empty list for "this file has no series up-next".
+ * Must be a single module level value: a fresh `[]` per render is a dependency
+ * that never compares equal, which is what caused the mini player's render loop.
+ */
+const NO_SERIES: FileType[] = [];
 
 const MINI_HEADER_H = 0;
 const MINI_FOOTER_H = 56;
@@ -130,20 +135,25 @@ function MiniPlayerContent() {
   const [expanded, setExpanded] = useState(false);
   const [queueOpen, setQueueOpen] = useState(false);
   const { queueData } = useWatchPlayBootstrap();
-  const seriesUpNext = queueData?.seriesUpNextVideos ?? [];
+  // Stable reference on purpose. Writing `?? []` inline mints a fresh array
+  // every render, and queueData is null whenever there is no watch context,
+  // which is exactly the case when you navigate away with the mini player open.
+  // As an effect dependency that array never compares equal, so the effect below
+  // used to re-run forever and pin the main thread (React #185, and the reason
+  // navigation felt dead rather than merely slow).
+  const seriesUpNext = queueData?.seriesUpNextVideos ?? NO_SERIES;
   /** Only a series gives the mini player something to queue. */
   const hasQueue = seriesUpNext.length > 0;
-  const queueCacheRef = useRef<Map<string, QueueCacheEntry>>(new Map());
-  const queueFetchGenRef = useRef(0);
-  const [queueItems, setQueueItems] = useState<FileType[]>([]);
-  // Mirror the loader-provided series list into queueItems so the existing
-  // rendering paths keep working without a fetch.
-  useEffect(() => {
-    setQueueItems(
-      filterMiniQueueItems(seriesUpNext, String(miniPlayer?.file?.unique_id ?? "")),
-    );
-  }, [seriesUpNext, miniPlayer?.file?.unique_id]);
-  const [queueLoading, setQueueLoading] = useState(false);
+
+  // Derived rather than mirrored into state. The currently playing file is
+  // filtered out, so starting an item in the mini player drops it from up-next
+  // on the next render with nobody having to clear the list by hand.
+  const queueItems = useMemo(
+    () => filterMiniQueueItems(seriesUpNext, String(miniPlayer?.file?.unique_id ?? "")),
+    [seriesUpNext, miniPlayer?.file?.unique_id],
+  );
+  // Up-next is pushed down by the watch loader, so a fetch is never in flight.
+  const queueLoading = false;
   const seedDbId = String(miniPlayer?.file.id ?? "");
   const mobileBarRef = useRef<HTMLDivElement | null>(null);
 
@@ -156,27 +166,13 @@ function MiniPlayerContent() {
    * there is nothing to queue, so the dropdown / collapse affordance is hidden
    * rather than opening onto an empty panel.
    */
-  const loadMiniQueue = useCallback(async (_fileDbId: string, _uniqueId: string) => {
-    /* no-op: up-next is pushed from the watch loader */
-  }, []);
+  // No client fetch remains: up-next arrives with the watch loader payload.
 
-  useEffect(() => {
-    if (!seedDbId) {
-      setQueueItems([]);
-      setQueueLoading(false);
-      return;
-    }
-    const cached = queueCacheRef.current.get(seedDbId);
-    setQueueItems(cached?.items ?? []);
-    setQueueLoading(false);
-  }, [seedDbId]);
-
-  // Desktop caret expand OR mobile popover open → fetch queue.
-  useEffect(() => {
-    const needQueue = isMobileBar ? queueOpen : expanded;
-    if (!needQueue || !seedDbId || !miniPlayer) return;
-    void loadMiniQueue(seedDbId, miniPlayer.file.unique_id);
-  }, [expanded, queueOpen, isMobileBar, seedDbId, miniPlayer, loadMiniQueue]);
+  // There used to be an effect here that read a queue cache on seedDbId change.
+  // Nothing ever wrote that cache once the fetch became a no-op, so it resolved
+  // to setQueueItems([]) and, running after the effect that populated the list,
+  // blanked series up-next every time the file changed. queueItems is derived
+  // now, so both the cache and this effect are gone.
 
   useEffect(() => {
     setExpanded(false);
@@ -193,12 +189,6 @@ function MiniPlayerContent() {
       setMiniAutoNextState(globalAutoPlay);
     }
   }, [sessionKey, globalAutoPlay]);
-
-  // Prefetch up-next so auto-next and the popover are ready.
-  useEffect(() => {
-    if (!seedDbId || !miniPlayer) return;
-    void loadMiniQueue(seedDbId, miniPlayer.file.unique_id);
-  }, [seedDbId, miniPlayer, loadMiniQueue]);
 
   // Mobile bar never drags; unlock when leaving bar mode (separate flag from VR).
   useEffect(() => {
@@ -368,8 +358,8 @@ function MiniPlayerContent() {
         const src = body?.url;
         if (!src) return;
         activateMiniPlayer({ src, file: f, imageID: uid });
-        queueCacheRef.current.delete(String(f.id ?? ""));
-        setQueueItems([]);
+        // No manual clear needed: queueItems is derived and filters out the file
+        // that is now playing.
         setExpanded(false);
         setQueueOpen(false);
       } finally {
@@ -392,29 +382,17 @@ function MiniPlayerContent() {
     const video = watchVideoRef.current;
     if (!video) return;
 
+    // Up-next is already in hand from the loader, so there is no fetch fallback
+    // to fall back to: an empty list simply means nothing follows this file.
     const onEnded = () => {
       if (!miniAutoNextRef.current) return;
-      const playNext = (items: FileType[]) => {
-        const next = items[0];
-        if (next) void handlePlayInMiniRef.current(next);
-      };
-      const cached = queueItemsRef.current;
-      if (cached.length > 0) {
-        playNext(cached);
-        return;
-      }
-      const dbId = String(miniPlayer.file.id ?? "");
-      const uid = miniPlayer.file.unique_id;
-      if (!dbId || !uid) return;
-      void loadMiniQueue(dbId, uid).then(() => {
-        const items = queueCacheRef.current.get(dbId)?.items ?? [];
-        playNext(items);
-      });
+      const next = queueItemsRef.current[0];
+      if (next) void handlePlayInMiniRef.current(next);
     };
 
     video.addEventListener("ended", onEnded);
     return () => video.removeEventListener("ended", onEnded);
-  }, [miniPlayer, watchVideoRef, loadMiniQueue, sessionKey]);
+  }, [miniPlayer, watchVideoRef, sessionKey]);
 
   const expandToWatch = useCallback(() => {
     if (!miniPlayer || isExpanding) return;
