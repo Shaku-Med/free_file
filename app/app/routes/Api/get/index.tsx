@@ -91,7 +91,7 @@ export const loader = async ({ request }: { request: Request }) => {
 
         let query = db
             .from('files')
-            .select('id, filename, unique_id, up_count, down_count, views, view_count, shares, share_count, file_size, file_type, endpoint, created_at, is_adult, is_public, owner_id, default_thumbnail, file_title, category', { count: 'exact' });
+            .select('id, filename, unique_id, up_count, down_count, views, view_count, shares, share_count, file_size, file_type, endpoint, created_at, is_adult, is_public, visibility, owner_id, default_thumbnail, file_title, category', { count: 'exact' });
 
         if (fileType) {
             // Escape LIKE wildcards so `%`/`_` can't broaden the scan / enumerate.

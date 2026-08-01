@@ -268,6 +268,9 @@ export const action = async ({ request }: { request: Request }) => {
     /** Set by Go worker: true when video duration is under 2 minutes */
     is_reel?: boolean;
     is_adult?: boolean;
+    /** Pipeline moderation verdict. See the handling below. */
+    content_flag?: 'adult' | 'harmful' | null;
+    moderation_evidence?: Record<string, unknown>;
     colors?: string[];
     categories?: string[];
     tags?: string[];
@@ -518,6 +521,36 @@ export const action = async ({ request }: { request: Request }) => {
     }
     if (is_adult !== null) {
       updateData.is_adult = is_adult;
+    }
+
+    /**
+     * Automated moderation verdict.
+     *
+     * Only reachable through verifyWebhookSecret above, so this is a decision
+     * made by the pipeline, never something a client can assert about its own
+     * upload. Both outcomes LOCK the file: the owner may keep editing title,
+     * description and tags, but cannot widen the audience.
+     *
+     *   harmful -> private,  owner only, until a human clears it
+     *   adult   -> unlisted, reachable by link, never listed
+     *
+     * A pipeline that only knows the old is_adult boolean still lands on the
+     * adult branch, so this works before and after GoUpload is redeployed.
+     */
+    const reportedFlag =
+      body?.content_flag === 'harmful' ? 'harmful'
+        : body?.content_flag === 'adult' ? 'adult'
+        : null;
+    const contentFlag = reportedFlag ?? (is_adult === true ? 'adult' : null);
+    if (contentFlag) {
+      updateData.visibility = contentFlag === 'harmful' ? 'private' : 'unlisted';
+      updateData.visibility_locked = true;
+      updateData.moderation_flag = contentFlag;
+      updateData.moderation_flagged_at = new Date().toISOString();
+      updateData.moderation_reviewed_at = null;
+      if (body?.moderation_evidence && typeof body.moderation_evidence === 'object') {
+        updateData.moderation_evidence = body.moderation_evidence;
+      }
     }
     if (colors.length > 0) {
       updateData.colors = colors;

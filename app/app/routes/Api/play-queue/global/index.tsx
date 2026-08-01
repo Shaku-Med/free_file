@@ -245,7 +245,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   if (currentUniqueId) {
     const { data: rawFile, error: fileErr } = await db
       .from("files")
-      .select("id, unique_id, owner_id, file_series_id, is_public, is_adult, upload_status, categories")
+      .select("id, unique_id, owner_id, file_series_id, is_public, visibility, is_adult, upload_status, categories")
       .eq("unique_id", currentUniqueId)
       .maybeSingle();
     if (fileErr) {

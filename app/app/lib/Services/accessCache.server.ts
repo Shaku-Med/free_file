@@ -115,7 +115,7 @@ export async function getCachedFileByUniqueId(
   try {
     const { data } = await db
       .from("files")
-      .select("id, unique_id, is_adult, is_public, owner_id, upload_status, github_repo, storage_backend, storage_bucket, duration")
+      .select("id, unique_id, is_adult, is_public, visibility, owner_id, upload_status, github_repo, storage_backend, storage_bucket, duration")
       .eq("unique_id", uniqueId)
       .maybeSingle();
     if (!data) return null;

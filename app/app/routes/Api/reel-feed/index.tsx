@@ -181,7 +181,7 @@ async function backfillOriginalSound(rows: Record<string, unknown>[]): Promise<v
   const origIds = [...new Set(need.map((r) => String(r.original_file_id)))];
   const { data: origs } = await db
     .from('files')
-    .select('id, unique_id, file_title, filename, default_thumbnail, created_at, is_public, is_adult, upload_status')
+    .select('id, unique_id, file_title, filename, default_thumbnail, created_at, is_public, visibility, is_adult, upload_status')
     .in('id', origIds);
 
   const byId = new Map<string, Record<string, unknown>>();

@@ -26,13 +26,37 @@ type SafeSearch struct {
 }
 
 type Result struct {
-	IsNSFW      bool          `json:"isNSFW"`
+	IsNSFW bool `json:"isNSFW"`
+	// Category says WHICH kind of problem, which decides how the file is
+	// handled downstream: "adult" is forced unlisted, "harmful" (gore,
+	// violence, graphic medical) is forced private until a human clears it.
+	// Empty means clean. A bare IsNSFW bool cannot express that difference.
+	Category    string        `json:"category"`
+	FlagReason  string        `json:"flagReason"`
 	Description string        `json:"description"`
 	SafeSearch  *SafeSearch   `json:"safeSearch"`
 	Labels      []VisionLabel `json:"labels"`
 	// VLM-suggested canonical categories/tags (optional, set by NSFWAPI captioner)
 	SuggestedCategories []string `json:"suggestedCategories,omitempty"`
 	SuggestedTags       []string `json:"suggestedTags,omitempty"`
+}
+
+// worseCategory ranks harmful above adult above clean.
+func worseCategory(a, b string) string {
+	rank := func(c string) int {
+		switch c {
+		case "harmful":
+			return 2
+		case "adult":
+			return 1
+		default:
+			return 0
+		}
+	}
+	if rank(b) > rank(a) {
+		return b
+	}
+	return a
 }
 
 type Detector struct {
@@ -260,6 +284,12 @@ func MergeResults(results []*Result) *Result {
 		}
 		if r.IsNSFW {
 			merged.IsNSFW = true
+		}
+		// Worst category across the sampled frames wins. One gory frame in an
+		// otherwise tame video still makes the whole file harmful.
+		merged.Category = worseCategory(merged.Category, r.Category)
+		if merged.FlagReason == "" && r.FlagReason != "" {
+			merged.FlagReason = r.FlagReason
 		}
 		if merged.Description == "" && r.Description != "" {
 			merged.Description = r.Description

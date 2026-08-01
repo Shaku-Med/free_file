@@ -23,6 +23,14 @@ const ALWAYS_PRIVATE_FILE_FIELDS = [
   "report_status",
   "storage_backend",
   "storage_bucket",
+  // Raw classifier output kept for reviewing false positives. It can name what
+  // the detector thought it saw, so it is review material, not viewer material.
+  // The owner learns their file is locked through `moderation_flag`, which is
+  // returned by the owner-only edit RPC rather than smuggled onto every row.
+  "moderation_evidence",
+  "moderation_flag",
+  "moderation_flagged_at",
+  "moderation_reviewed_at",
 ] as const;
 
 /**

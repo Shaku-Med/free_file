@@ -78,7 +78,7 @@ export const action = async ({ request }: { request: Request }) => {
 
     let fileQuery = db
       .from('files')
-      .select('id, views, view_count, duration, file_type, is_adult, is_public, owner_id, upload_status');
+      .select('id, views, view_count, duration, file_type, is_adult, is_public, visibility, owner_id, upload_status');
     if (fileId) fileQuery = fileQuery.eq('id', fileId);
     else fileQuery = fileQuery.eq('unique_id', uniqueId);
     const { data: file, error: fileError } = await fileQuery.single();

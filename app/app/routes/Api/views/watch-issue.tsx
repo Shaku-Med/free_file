@@ -68,7 +68,7 @@ export const loader = async ({ request }: { request: Request }) => {
 
     const { data: row, error } = await db
       .from('files')
-      .select('id, is_adult, is_public, owner_id, upload_status')
+      .select('id, is_adult, is_public, visibility, owner_id, upload_status')
       .eq('id', fileId)
       .maybeSingle();
     if (error || !row?.id) {

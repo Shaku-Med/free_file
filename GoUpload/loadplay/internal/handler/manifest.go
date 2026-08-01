@@ -280,7 +280,10 @@ func resolveAccessAndStorage(ctx context.Context, deps ManifestDeps, tok *token.
 		deps.Log.Errorf("meta fetch err=%s id=%s", err.Error(), tok.FileID)
 		return cfg, fiber.StatusServiceUnavailable
 	}
-	if !meta.IsPublic {
+	// Owner-only means PRIVATE, not merely "not public". Unlisted files are
+	// deliberately playable by anyone holding the link; they are kept out of
+	// feeds and search by SQL, not by refusing to serve them here.
+	if meta.OwnerOnly() {
 		if tok.UserID == "" || tok.UserID != meta.OwnerID {
 			deps.Log.Errorf("private access denied id=%s user=%s owner=%s", tok.FileID, tok.UserID, meta.OwnerID)
 			return cfg, fiber.StatusForbidden

@@ -70,7 +70,7 @@ export const action = async ({ request }: { request: Request }) => {
         .from("files")
         .select(
           `id, created_at, endpoint, filename, unique_id, file_size, file_type,
-           is_adult, owner_id, is_public, file_description, file_title,
+           is_adult, owner_id, is_public, visibility, file_description, file_title,
            default_thumbnail, view_count, share_count, is_reel, is_music, duration,
            categories, tags, colors, metadata, upload_status`
         )

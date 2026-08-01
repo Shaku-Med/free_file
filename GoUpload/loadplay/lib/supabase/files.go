@@ -22,7 +22,13 @@ type FileMeta struct {
 	StorageBucket  string // R2 bucket when StorageBackend == "r2"
 	OwnerID        string
 	IsPublic       bool
-	IsAdult        bool
+	// Visibility is the authoritative three state value ("public", "unlisted",
+	// "private"). IsPublic is only (visibility = 'public'), so gating playback
+	// on IsPublic alone would make every UNLISTED file owner only, which is the
+	// opposite of what unlisted means. Empty when the migration has not run;
+	// OwnerOnly() falls back to IsPublic in that case.
+	Visibility string
+	IsAdult    bool
 	// OwnerStatus is the owner's account_status ("active", "strike",
 	// "restricted", "terminated"). Empty when the moderation migration hasn't
 	// run yet, which is treated as active — see accountBlocked().
@@ -45,6 +51,26 @@ type FileMeta struct {
 // Unknown/empty status means the moderation columns aren't deployed yet, which
 // must read as ALLOWED — failing closed on a missing column would blank every
 // video on the platform.
+// OwnerOnly reports whether only the owner may play this file.
+//
+//	public    no
+//	unlisted  no. Not listed anywhere, but anyone holding the link may watch,
+//	          which is the entire point of the state.
+//	private   yes
+//
+// Falls back to IsPublic when Visibility is empty (migration not applied yet),
+// which keeps the old behaviour rather than opening anything up.
+func (m *FileMeta) OwnerOnly() bool {
+	switch m.Visibility {
+	case "public", "unlisted":
+		return false
+	case "private":
+		return true
+	default:
+		return !m.IsPublic
+	}
+}
+
 func (m *FileMeta) AccountBlocked() bool {
 	switch m.OwnerStatus {
 	case "restricted":
@@ -94,7 +120,7 @@ func (c *Client) GetFileMeta(ctx context.Context, uniqueID string) (*FileMeta, e
 	}
 
 	reqURL := fmt.Sprintf(
-		"%s/rest/v1/files?unique_id=eq.%s&select=id,github_repo,storage_backend,storage_bucket,owner_id,is_public,is_adult&limit=1",
+		"%s/rest/v1/files?unique_id=eq.%s&select=id,github_repo,storage_backend,storage_bucket,owner_id,is_public,visibility,is_adult&limit=1",
 		c.BaseURL, url.QueryEscape(uniqueID),
 	)
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
@@ -124,6 +150,7 @@ func (c *Client) GetFileMeta(ctx context.Context, uniqueID string) (*FileMeta, e
 		StorageBucket  *string `json:"storage_bucket"`
 		OwnerID        *string `json:"owner_id"`
 		IsPublic       *bool   `json:"is_public"`
+		Visibility     *string `json:"visibility"`
 		IsAdult        *bool   `json:"is_adult"`
 	}
 	if err := json.Unmarshal(body, &rows); err != nil {
@@ -151,6 +178,9 @@ func (c *Client) GetFileMeta(ctx context.Context, uniqueID string) (*FileMeta, e
 	}
 	if r.IsPublic != nil {
 		meta.IsPublic = *r.IsPublic
+	}
+	if r.Visibility != nil {
+		meta.Visibility = strings.TrimSpace(*r.Visibility)
 	}
 	if r.IsAdult != nil {
 		meta.IsAdult = *r.IsAdult

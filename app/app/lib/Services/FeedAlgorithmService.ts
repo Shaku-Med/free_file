@@ -155,7 +155,7 @@ export class FeedAlgorithmService {
 
       const { data, error } = await db
         .from('files')
-        .select('id, filename, unique_id, up_count, down_count, views, view_count, shares, share_count, file_size, file_type, endpoint, created_at, is_adult, is_public, owner_id, default_thumbnail, file_title, category, file_description')
+        .select('id, filename, unique_id, up_count, down_count, views, view_count, shares, share_count, file_size, file_type, endpoint, created_at, is_adult, is_public, visibility, owner_id, default_thumbnail, file_title, category, file_description')
         .in('id', fileIds);
 
       if (error) {

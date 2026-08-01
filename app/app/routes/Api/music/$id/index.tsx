@@ -10,7 +10,7 @@ import { stripThumbnailsForClient } from '~/lib/files/reelFilePayload';
  */
 
 const FILE_COLUMNS =
-  'id, created_at, endpoint, filename, unique_id, file_size, file_type, is_adult, owner_id, is_public, upload_status, file_title, default_thumbnail, views, view_count, share_count, up_count, down_count, is_reel, duration, colors, metadata, original_file_id, comments_enabled';
+  'id, created_at, endpoint, filename, unique_id, file_size, file_type, is_adult, owner_id, is_public, visibility, upload_status, file_title, default_thumbnail, views, view_count, share_count, up_count, down_count, is_reel, duration, colors, metadata, original_file_id, comments_enabled';
 
 const USES_LIMIT = 60;
 

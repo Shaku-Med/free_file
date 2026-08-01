@@ -49,7 +49,7 @@ export const action = async ({ request }: { request: Request }) => {
   const { data: row, error: fetchErr } = await db
     .from("files")
     .select(
-      "id, unique_id, owner_id, is_public, is_adult, upload_status, github_repo, storage_backend, captions",
+      "id, unique_id, owner_id, is_public, visibility, is_adult, upload_status, github_repo, storage_backend, captions",
     )
     .eq(lookupColumn, lookup)
     .maybeSingle()

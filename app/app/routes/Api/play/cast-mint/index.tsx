@@ -84,7 +84,7 @@ export const action = async ({ request }: { request: Request }) => {
 
   const { data: rawFile, error } = await db
     .from("files")
-    .select("id,unique_id,endpoint,file_type,duration,owner_id,is_public,is_adult,github_repo")
+    .select("id,unique_id,endpoint,file_type,duration,owner_id,is_public,visibility,is_adult,github_repo")
     .eq("unique_id", fileId)
     .maybeSingle();
   if (error || !rawFile) return jsonError(404);

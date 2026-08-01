@@ -32,7 +32,7 @@ export const loader = async ({
 
   const { data: file, error } = await db
     .from('files')
-    .select('unique_id, thumbnails, duration, is_public, is_adult, upload_status, github_repo, storage_backend, storage_bucket')
+    .select('unique_id, thumbnails, duration, is_public, visibility, is_adult, upload_status, github_repo, storage_backend, storage_bucket')
     .eq('unique_id', uniqueId)
     .maybeSingle();
 

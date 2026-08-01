@@ -341,9 +341,6 @@ export class UploadWorker {
         return;
       }
       const updateData: Record<string, any> = { upload_status: status };
-      if (typeof isPublic === 'boolean') {
-        updateData.is_public = isPublic;
-      }
       if (status === 'completed' || status === 'failed') {
         updateData.processing_progress = null;
       }
@@ -351,6 +348,21 @@ export class UploadWorker {
         .from('files')
         .update(updateData)
         .eq('unique_id', uniqueID);
+
+      // Visibility goes in a SEPARATE statement on purpose. A file that
+      // moderation has locked will make the database refuse this write, and if
+      // it shared a statement with upload_status then the catch below would
+      // swallow the refusal and lose the status update too.
+      if (typeof isPublic === 'boolean') {
+        const { error: visErr } = await db
+          .from('files')
+          .update({ visibility: isPublic ? 'public' : 'private' })
+          .eq('unique_id', uniqueID)
+          .eq('visibility_locked', false);
+        if (visErr) {
+          console.warn(`[Upload Worker] visibility not applied for ${uniqueID}:`, visErr);
+        }
+      }
     } catch (error) {
       console.warn(`[Upload Worker] Failed to update status for ${uniqueID}:`, error);
     }

@@ -27,6 +27,21 @@ interface VisionAPIResponse {
 
 export interface DetectionResult {
   isNSFW: boolean;
+  /**
+   * WHICH kind of problem, not just that there is one.
+   *
+   * 'adult'   sexual / racy. Downstream: unlisted, reachable by link.
+   * 'harmful' gore, violence, graphic medical. Downstream: private until a
+   *           human clears it.
+   * null      clean.
+   *
+   * This exists because a single isNSFW boolean cannot express the difference,
+   * and the two need opposite handling. The reason string was already computed
+   * here and then thrown away.
+   */
+  category: 'adult' | 'harmful' | null;
+  /** Human readable explanation of the category, for review screens. */
+  flagReason: string;
   description: string;
   safeSearch: {
     adult: string;
@@ -199,12 +214,14 @@ export class VisionService {
 
     let isNSFW = false;
     let flagReason = '';
+    let category: 'adult' | 'harmful' | null = null;
 
     if (ss) {
       // 1. Explicit adult content  always flag
       if (NSFW_ADULT.has(ss.adult)) {
         isNSFW = true;
         flagReason = 'adult content';
+        category = 'adult';
       }
 
       // 2. Racy content  only flag if there's NO safe context (fixes bikini
@@ -213,18 +230,21 @@ export class VisionService {
       if (!gateOnly && !isNSFW && NSFW_HIGH.has(ss.racy) && !hasSafeContext) {
         isNSFW = true;
         flagReason = 'racy content without safe context';
+        category = 'adult';
       }
 
       // 3. Violence  flag LIKELY and above (lowered from VERY_LIKELY to catch more harmful content)
       if (!isNSFW && NSFW_ADULT.has(ss.violence)) {
         isNSFW = true;
         flagReason = 'violent content';
+        category = 'harmful';
       }
 
       // 4. Graphic medical content
       if (!isNSFW && NSFW_HIGH.has(ss.medical)) {
         isNSFW = true;
         flagReason = 'graphic medical content';
+        category = 'harmful';
       }
     }
 
@@ -234,6 +254,7 @@ export class VisionService {
       const matched = relevantLabels.filter((l) => HARMFUL_LABELS.has(l));
       isNSFW = true;
       flagReason = `harmful labels: ${matched.join(', ')}`;
+      category = 'harmful';
     }
 
     console.log(`[VisionService] isNSFW decision: ${isNSFW} (reason=${flagReason || 'none'}, adult=${ss?.adult}, racy=${ss?.racy}, violence=${ss?.violence}, medical=${ss?.medical}, safeContext=${hasSafeContext}, harmfulLabels=${hasHarmfulLabels})`);
@@ -245,6 +266,8 @@ export class VisionService {
 
     return {
       isNSFW,
+      category,
+      flagReason,
       description,
       safeSearch: ss
         ? {

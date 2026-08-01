@@ -4,10 +4,14 @@ import {
   canServeOwnerContent,
   getHiddenOwnerIds,
 } from "~/lib/Security/accountStatus.server";
+import { visibilityOf, type FileVisibility } from "~/lib/Security/visibility";
 
 export interface FileData {
   is_adult: boolean;
+  /** Legacy mirror of `visibility`, kept in sync by a database trigger. */
   is_public: boolean;
+  visibility?: FileVisibility;
+  visibility_locked?: boolean;
   owner_id: string;
   upload_status?: string;
   [key: string]: any;
@@ -75,20 +79,28 @@ const getUserAccessContext = async (request: Request): Promise<AccessContext> =>
 
 const canAccessFileWithContext = (file: FileData, context: AccessContext): boolean => {
   const isAdult = normalizeBoolean(file.is_adult);
-  const isPublic = normalizeBoolean(file.is_public, true);
+  const visibility = visibilityOf(file);
+  const isOwner = !!context.user && isFileOwner(context.user.id, file.owner_id);
 
   const uploadStatus = typeof file.upload_status === 'string'
     ? file.upload_status.trim().toLowerCase()
     : null;
   const isCompleted = uploadStatus === 'completed' || uploadStatus === 'complete';
   if (uploadStatus && !isCompleted) {
-    if (!context.user) {
-      return false;
-    }
-    return isFileOwner(context.user.id, file.owner_id);
+    return isOwner;
   }
 
-  if (!isAdult && isPublic) {
+  // Private is owner only, and that is the whole point of the harmful flag:
+  // such files are forced private and locked, so this single check keeps them
+  // off everyone else's screen even when someone has the direct link.
+  if (visibility === 'private') {
+    return isOwner;
+  }
+
+  // Unlisted is reachable by direct link exactly like public. Keeping it OUT of
+  // feeds and search is SQL's job (is_public is false for unlisted), not this
+  // function's, so there is nothing extra to do here.
+  if (!isAdult) {
     return true;
   }
 
@@ -96,22 +108,14 @@ const canAccessFileWithContext = (file: FileData, context: AccessContext): boole
     return false;
   }
 
-  if (isAdult) {
-    if (!context.showNsfw) {
-      return false;
-    }
-    if (!context.user.verified) {
-      return false;
-    }
-    if (!isUserEighteenPlus(context.user.dob)) {
-      return false;
-    }
+  if (!context.showNsfw) {
+    return false;
   }
-
-  if (!isPublic) {
-    if (!isFileOwner(context.user.id, file.owner_id)) {
-      return false;
-    }
+  if (!context.user.verified) {
+    return false;
+  }
+  if (!isUserEighteenPlus(context.user.dob)) {
+    return false;
   }
 
   return true;

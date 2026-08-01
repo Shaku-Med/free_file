@@ -125,6 +125,53 @@ place.
 
 ---
 
+## Content flags and visibility
+
+Separate from account status: a single FILE can be flagged without its owner
+being touched at all. The pipeline returns a category, not just a boolean.
+
+| Flag | What triggers it | What it forces |
+| --- | --- | --- |
+| `adult` | SafeSearch adult or racy | visibility `unlisted`, locked |
+| `harmful` | violence, graphic medical, or a harmful label match | visibility `private`, locked, until a human clears it |
+
+`unlisted` is a real third visibility state, like YouTube's. It never appears in
+feed, search, related, reels or any other listing, but it stays reachable by
+direct link. `private` is owner only.
+
+Locked means the OWNER cannot change visibility. Everything else about the file
+stays editable: title, description, tags. The point is to stop redistribution
+while review happens, not to freeze the whole record.
+
+### How it is enforced
+
+Three independent layers, because the ask was explicitly not to trust the UI:
+
+1. **Database trigger.** `files_visibility_guard` refuses any visibility change
+   on a locked row. There is no RLS on `files` and the app writes with a service
+   role key, so an API bug that forwards a client supplied field is the
+   realistic attack. This layer means such a bug still cannot flip a file public.
+2. **API.** Both edit endpoints (`/api/files`, `/api/studio/post/update`) build
+   their patch from a field allowlist, translate `is_public` into `visibility`
+   rather than writing it raw, and return 403 `visibility_locked` on a refused
+   change. Neither accepts `visibility_locked` or `moderation_flag` from a body.
+3. **Read paths.** `canAccessFile` treats `private` as owner only, which is what
+   keeps a harmful file off everyone else's screen even with a direct link.
+
+### Why is_public still exists
+
+`visibility` is the source of truth; `is_public` is kept as
+`(visibility = 'public')` by the trigger. Around 20 SQL functions and 125 app
+call sites already filter on `is_public = true`, so unlisted and private drop
+out of every existing feed, search and RPC with no change to those queries.
+Rewriting them all would have been a large change with a lot of places to miss.
+
+Anything selecting a file row for an access check must include `visibility`. If
+it is absent the code falls back to reading `is_public`, which cannot tell
+unlisted from private and resolves to the stricter of the two.
+
+---
+
 ## Separate bug, fix independently
 
 Playlists currently show adult items to the public. Owner-only visibility for
@@ -137,7 +184,7 @@ wait for the ban system.
 
 1. [x] `account_status` on users + `moderation_actions` + `user_strikes`
 2. [ ] shared server-side guard used by every read path in the app
-3. [ ] loadplay / LoadNodeServer / image loader enforcement
-4. [ ] GoUpload upload rejection
+3. [x] loadplay enforcement (LoadNodeServer and the image loader still open)
+4. [x] per file content flags: unlisted / private with a visibility lock
 5. [ ] detection wiring + notification
 6. [ ] appeals + admin review surface

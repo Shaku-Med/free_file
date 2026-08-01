@@ -187,7 +187,7 @@ async function loadDynamicPageDetails(
     ? (async () => {
         const { data: orig } = await db
           .from('files')
-          .select('id, unique_id, file_title, filename, default_thumbnail, thumbnails, created_at, owner_id, is_public, upload_status')
+          .select('id, unique_id, file_title, filename, default_thumbnail, thumbnails, created_at, owner_id, is_public, visibility, upload_status')
           .eq('id', originalFileId)
           .maybeSingle();
         if (!orig || orig.is_public !== true || orig.upload_status !== 'complete') return null;

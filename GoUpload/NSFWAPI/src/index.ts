@@ -39,7 +39,7 @@ app.post('/api/nsfw/detect', async (req, res) => {
     const result = await visionService.detect(image, isGrid === true, gateOnly === true);
     const elapsed = Date.now() - startTime;
     console.log(`[detect] >>> Vision API responded in ${elapsed}ms`);
-    console.log(`[detect] >>> isNSFW: ${result.isNSFW}`);
+    console.log(`[detect] >>> isNSFW: ${result.isNSFW} category: ${result.category ?? 'none'} (${result.flagReason || 'clean'})`);
     console.log(`[detect] >>> safeSearch:`, JSON.stringify(result.safeSearch));
     console.log(`[detect] >>> labels (${result.labels.length}):`, result.labels.map(l => `${l.name}(${l.score})`).join(', '));
     res.status(200).json(result);
@@ -48,6 +48,8 @@ app.post('/api/nsfw/detect', async (req, res) => {
     res.status(500).json({
       error: 'Detection failed',
       isNSFW: false,
+      category: null,
+      flagReason: '',
       safeSearch: null,
       labels: [],
       suggestedCategories: [],

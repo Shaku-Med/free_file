@@ -629,6 +629,7 @@ func (w *Worker) processJob(job *queue.Job) {
 		w.notifyRunningProgress(job, 65)
 
 		isAdult := false
+		contentFlag := "" // "adult" | "harmful"; drives the visibility lock
 		var imgColors []string
 		var categories, tags []string
 		var metadata map[string]interface{}
@@ -648,8 +649,9 @@ func (w *Worker) processJob(job *queue.Job) {
 				return
 			}
 			isAdult = visionRes.IsNSFW
+			contentFlag = visionRes.Category
 			categories, tags, metadata = buildVisionData(&visionRes, job.Title, job.Description, job.UserCategories, job.UserTags)
-			w.log.Infof("vision check job=%s adult=%v labels=%d", job.ID, isAdult, len(visionRes.Labels))
+			w.log.Infof("vision check job=%s adult=%v flag=%q reason=%q labels=%d", job.ID, isAdult, contentFlag, visionRes.FlagReason, len(visionRes.Labels))
 
 			extracted, cerr := colors.ExtractDominant(data, 6)
 			if cerr != nil {
@@ -687,6 +689,7 @@ func (w *Worker) processJob(job *queue.Job) {
 			FileSize:            result.FileSize,
 			Endpoint:            ghPath,
 			IsAdult:             &isAdult,
+			ContentFlag:         contentFlag,
 			Colors:              imgColors,
 			Categories:          categories,
 			Tags:                tags,
@@ -889,6 +892,7 @@ func (w *Worker) processJob(job *queue.Job) {
 	}
 
 	isAdult := false
+	contentFlag := "" // "adult" | "harmful"; drives the visibility lock
 	var vidColors []string
 	var categories, tags []string
 	var metadata map[string]interface{}
@@ -941,7 +945,10 @@ func (w *Worker) processJob(job *queue.Job) {
 			w.failJob(job, "vision detection failed: "+err.Error(), result.OutputPath, assembledDir, filepath.Dir(assembledDir), thumbDir, filepath.Dir(thumbDir))
 			return
 		}
-		w.log.Infof("vision check job=%s adult=%v (checked %d frames + grid=%v)", job.ID, isAdult, len(subset), len(gridData) > 0)
+		if visionResult != nil {
+			contentFlag = visionResult.Category
+		}
+		w.log.Infof("vision check job=%s adult=%v flag=%q (checked %d frames + grid=%v)", job.ID, isAdult, contentFlag, len(subset), len(gridData) > 0)
 		if visionResult != nil {
 			categories, tags, metadata = buildVisionData(visionResult, job.Title, job.Description, job.UserCategories, job.UserTags)
 		}
@@ -1205,6 +1212,7 @@ func (w *Worker) processJob(job *queue.Job) {
 		Duration:            videoDuration,
 		IsReel:              isReel,
 		IsAdult:             &isAdult,
+		ContentFlag:         contentFlag,
 		Colors:              vidColors,
 		Categories:          categories,
 		Tags:                tags,

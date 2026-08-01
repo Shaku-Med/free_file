@@ -15,20 +15,26 @@ import (
 // Payload is sent to the app's /api/upload-job-status. The app upserts upload_jobs
 // and creates/updates files in Supabase so the user sees progress on their page.
 type Payload struct {
-	JobID               string                 `json:"job_id"`
-	Status              string                 `json:"status"`
-	UploadID            string                 `json:"upload_id"`
-	UserID              string                 `json:"user_id"`
-	FileName            string                 `json:"file_name,omitempty"`
-	FileSize            int64                  `json:"file_size,omitempty"`
-	IsPublic            *bool                  `json:"is_public,omitempty"`
-	Title               string                 `json:"title,omitempty"`
-	Description         string                 `json:"description,omitempty"`
-	Endpoint            string                 `json:"endpoint,omitempty"`
-	Thumbnails          []string               `json:"thumbnails,omitempty"`
-	Duration            float64                `json:"duration,omitempty"`
-	IsReel              *bool                  `json:"is_reel,omitempty"`
-	IsAdult             *bool                  `json:"is_adult,omitempty"`
+	JobID       string   `json:"job_id"`
+	Status      string   `json:"status"`
+	UploadID    string   `json:"upload_id"`
+	UserID      string   `json:"user_id"`
+	FileName    string   `json:"file_name,omitempty"`
+	FileSize    int64    `json:"file_size,omitempty"`
+	IsPublic    *bool    `json:"is_public,omitempty"`
+	Title       string   `json:"title,omitempty"`
+	Description string   `json:"description,omitempty"`
+	Endpoint    string   `json:"endpoint,omitempty"`
+	Thumbnails  []string `json:"thumbnails,omitempty"`
+	Duration    float64  `json:"duration,omitempty"`
+	IsReel      *bool    `json:"is_reel,omitempty"`
+	IsAdult     *bool    `json:"is_adult,omitempty"`
+	// Moderation verdict from the vision pass: "adult", "harmful", or empty.
+	// The app forces adult -> unlisted and harmful -> private, and LOCKS the
+	// file's visibility in both cases. Sent only over the webhook-secret
+	// channel, so a client can never assert this about its own upload.
+	ContentFlag         string                 `json:"content_flag,omitempty"`
+	ModerationEvidence  map[string]interface{} `json:"moderation_evidence,omitempty"`
 	Colors              []string               `json:"colors,omitempty"`
 	Categories          []string               `json:"categories,omitempty"`
 	Tags                []string               `json:"tags,omitempty"`

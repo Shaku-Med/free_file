@@ -4,6 +4,12 @@ import { isAuthenticated } from "~/lib/Security/Password";
 import db from "~/lib/Database/supabase";
 import { isValidFileId, isValidUUID, sanitizeString } from "~/lib/Security/inputValidation";
 import { invalidateFileByUniqueId } from "~/lib/Services/accessCache.server";
+import {
+  canOwnerChangeVisibility,
+  isFileVisibility,
+  visibilityOf,
+  type FileVisibility,
+} from "~/lib/Security/visibility";
 
 const toJson = (body: unknown, status = 200) => data(body, { status });
 
@@ -15,6 +21,12 @@ function fileEditResponsePayload(row: Record<string, unknown>) {
     file_title: row.file_title ?? null,
     file_description: row.file_description ?? null,
     is_public: row.is_public ?? true,
+    visibility: visibilityOf(row),
+    // Owner-only endpoint (the query is scoped by owner_id), so it is safe to
+    // tell them their file is held and why. moderation_evidence stays server
+    // side; the flag alone is what the UI needs to explain a disabled control.
+    visibility_locked: row.visibility_locked === true,
+    moderation_flag: row.moderation_flag ?? null,
     categories: row.categories ?? [],
     tags: row.tags ?? [],
     comments_enabled: row.comments_enabled !== false,
@@ -65,7 +77,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
       const { data: qrow, error: qErr } = await db
         .from("files")
         .select(
-          "id, unique_id, file_title, file_description, is_public, categories, tags, comments_enabled, comment_limit, default_thumbnail, file_type, is_adult, metadata, captions"
+          "id, unique_id, file_title, file_description, is_public, visibility, visibility_locked, moderation_flag, categories, tags, comments_enabled, comment_limit, default_thumbnail, file_type, is_adult, metadata, captions"
         )
         .eq(lookupField, fileId)
         .eq("owner_id", user.id)
@@ -105,7 +117,7 @@ export const action = async ({ request }: { request: Request }) => {
     }
 
     const body = await request.json();
-    const { fileId, title, description, isPublic, categories, tags, defaultThumbnail, commentsEnabled, commentLimit, markers, isMusic } = body || {};
+    const { fileId, title, description, isPublic, visibility, categories, tags, defaultThumbnail, commentsEnabled, commentLimit, markers, isMusic } = body || {};
 
     /**
      * Skip-intro / next-episode markers  owner-edited, baked into `metadata.markers` so
@@ -187,7 +199,7 @@ export const action = async ({ request }: { request: Request }) => {
     const lookupField = isValidUUID(fileId) ? "id" : "unique_id";
     const { data: fileRow, error: fetchError } = await db
       .from("files")
-      .select("id, unique_id, owner_id, file_type, metadata")
+      .select("id, unique_id, owner_id, file_type, metadata, visibility, is_public, visibility_locked")
       .eq(lookupField, fileId)
       .single();
 
@@ -212,8 +224,26 @@ export const action = async ({ request }: { request: Request }) => {
     if (sanitizedDescription !== undefined) {
       updateData.file_description = sanitizedDescription.length > 0 ? sanitizedDescription : null;
     }
-    if (typeof isPublic === "boolean") {
-      updateData.is_public = isPublic;
+    // Visibility. Written as `visibility`, never as a raw is_public passthrough,
+    // and refused outright while moderation holds the file. The database trigger
+    // enforces the same rule, so this check is about returning a usable error
+    // rather than being the only thing standing in the way.
+    if (typeof isPublic === "boolean" || isFileVisibility(visibility)) {
+      const requested: FileVisibility = isFileVisibility(visibility)
+        ? visibility
+        : isPublic
+          ? "public"
+          : "private";
+      const current = visibilityOf(fileRow as Record<string, unknown>);
+      if (requested !== current) {
+        if (!canOwnerChangeVisibility(fileRow as Record<string, unknown>)) {
+          return toJson(
+            { error: "Visibility is locked pending review.", code: "visibility_locked" },
+            403,
+          );
+        }
+        updateData.visibility = requested;
+      }
     }
     if (Array.isArray(categories)) {
       updateData.categories = categories
@@ -282,7 +312,7 @@ export const action = async ({ request }: { request: Request }) => {
       .update(updateData)
       .eq(lookupField, fileId)
       .eq("owner_id", user.id)
-      .select("id, file_title, file_description, is_public, categories, tags, comments_enabled, comment_limit, default_thumbnail, metadata, is_music")
+      .select("id, file_title, file_description, is_public, visibility, categories, tags, comments_enabled, comment_limit, default_thumbnail, metadata, is_music")
       .single();
 
     if (updateError) {

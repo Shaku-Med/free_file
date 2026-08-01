@@ -6,6 +6,7 @@ import {
     SERVER_METADATA_SQUARE_SIZE,
 } from '~/lib/image/letterboxToSquare';
 import { canAccessFile } from '~/routes/Api/fun/accessControl';
+import { visibilityOf } from '~/lib/Security/visibility';
 import { applyHeavyBlur } from '~/lib/blur/index';
 import {
     defaultGithubBranch,
@@ -686,7 +687,14 @@ export const loader = async ({ request }: { request: Request }) => {
                 shouldBlur = true;
             }
             const isVideoFolderComment = isVideoFolderCommentAttachmentPath(splitUrl);
-            if (!isVideoFolderComment && !hasAccess && !file.is_public && !file.is_adult) {
+            // Deny on VISIBILITY, blur on NSFW preference. These were tangled
+            // together before: the old condition required `!file.is_adult`, so a
+            // file that was both private AND adult fell through to being served
+            // blurred instead of refused. A harmful moderation flag produces
+            // exactly that combination (forced private, is_adult set by the same
+            // vision pass), so it has to deny here.
+            // Unlisted stays reachable: hasAccess is true for it.
+            if (!isVideoFolderComment && !hasAccess && visibilityOf(file) === 'private') {
                 return new Response(
                     JSON.stringify({ error: 'Access denied. You do not have permission to view this file.' }),
                     { status: 403, headers: { 'Content-Type': 'application/json' } }

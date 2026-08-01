@@ -3,6 +3,10 @@
 --
 -- IMPORTANT: Do not return github_repo (or switch back to SELECT f.* / SETOF files). That column is
 -- server-only for GitHub raw URL resolution; clients must never receive it.
+--
+-- moderation_evidence is likewise NOT returned: it is raw detector output kept
+-- for reviewing false positives, not something the owner should read. The flag
+-- itself IS returned so the studio can explain why visibility is locked.
 
 DROP FUNCTION IF EXISTS public.get_file_for_owner_edit(text, uuid);
 
@@ -20,6 +24,10 @@ RETURNS TABLE (
   is_adult boolean,
   owner_id uuid,
   is_public boolean,
+  visibility public.file_visibility,
+  visibility_locked boolean,
+  moderation_flag text,
+  moderation_reviewed_at timestamptz,
   file_description text,
   category jsonb[],
   file_title text,
@@ -62,6 +70,10 @@ AS $$
     f.is_adult,
     f.owner_id,
     f.is_public,
+    f.visibility,
+    f.visibility_locked,
+    f.moderation_flag,
+    f.moderation_reviewed_at,
     f.file_description,
     f.category,
     f.file_title,

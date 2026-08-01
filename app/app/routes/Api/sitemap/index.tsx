@@ -140,7 +140,7 @@ const fetchPublicFilesForSitemap = async (limit: number) => {
   if (!db) return null;
   const { data, error } = await db
     .from("files")
-    .select("unique_id, created_at, is_adult, is_public, owner_id, upload_status")
+    .select("unique_id, created_at, is_adult, is_public, visibility, owner_id, upload_status")
     .eq("is_public", true)
     .eq("is_adult", false)
     .eq("is_reel", false)

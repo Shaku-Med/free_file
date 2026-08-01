@@ -1,4 +1,5 @@
 import { getCachedUserAccessContext } from "~/lib/Services/accessCache.server";
+import { visibilityOf, type FileVisibility } from '~/lib/Security/visibility';
 
 interface FileData {
   is_adult: boolean;
@@ -49,7 +50,11 @@ export const checkFileAccess = async (
   }
 
   const isAdult = normalizeBoolean(file.is_adult);
-  const isPublic = normalizeBoolean(file.is_public, true);
+  // Three state visibility. Gating on is_public alone would treat UNLISTED as
+  // owner only, which is the opposite of what unlisted means and would break
+  // playback for every auto-unlisted adult file.
+  const visibility = visibilityOf(file);
+  const isOwnerOnly = visibility === 'private';
   const uploadStatus = typeof (file as any).upload_status === 'string'
     ? (file as any).upload_status.trim().toLowerCase()
     : null;
@@ -64,7 +69,7 @@ export const checkFileAccess = async (
     if (uploadStatus && !isCompleted) {
       return { allowed: false, reason: 'not_authenticated' };
     }
-    if (isAdult || !isPublic) {
+    if (isAdult || isOwnerOnly) {
       return { allowed: false, reason: 'not_authenticated' };
     }
     return { allowed: true };
@@ -82,7 +87,9 @@ export const checkFileAccess = async (
     }
   }
 
-  if (!isPublic) {
+  // Private is owner only. Unlisted is reachable by anyone holding the link;
+  // keeping it out of feeds and search is SQL's job, not this function's.
+  if (isOwnerOnly) {
     if (!isFileOwner(user.id, file.owner_id)) {
       return { allowed: false, reason: 'not_owner' };
     }
