@@ -1,14 +1,30 @@
 name: goupload
 
-# Resource limits assume a small VPS (~4 CPU / 8 GB). Tune via env vars before
-# `docker compose up`. The adaptive worker pool inside goupload reads cgroup-v2
-# memory.max + /proc/stat to stay within these caps.
+# Resource limits assume a small VPS (2 CPU / 8 GB, KVM 2). Tune via env vars
+# before `docker compose up`. The adaptive worker pool inside goupload reads
+# cgroup-v2 memory.max + /proc/stat to stay within these caps.
+#
+# NOTE ON THE CPU NUMBERS: the limits below add up to more vCPU than the box
+# has. That is deliberate for burst work, since they are ceilings and not
+# reservations, but it means two heavy jobs at once WILL contend. The memory
+# figures are the ones to watch: they total close to the whole 8 GB, so raising
+# any of them without lowering another risks the OOM killer.
+
+# Docker's default json-file driver keeps logs FOREVER. Six chatty services on
+# a 100 GB disk is how a box quietly fills up with nothing but text, so every
+# service caps its own logs. 10M x 3 files x 6 services is ~180 MB worst case.
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
 
 services:
   redis:
     image: redis:7-alpine
     container_name: goupload-redis
     restart: unless-stopped
+    logging: *default-logging
     command: ["redis-server", "--appendonly", "yes", "--maxmemory", "256mb", "--maxmemory-policy", "allkeys-lru"]
     volumes:
       - redis-data:/data
@@ -29,6 +45,7 @@ services:
     image: ${NSFWAPI_IMAGE:-ghcr.io/OWNER/REPO/nsfwapi:latest}
     container_name: goupload-nsfwapi
     restart: unless-stopped
+    logging: *default-logging
     env_file:
       - ./nsfwapi.env
     networks:
@@ -50,6 +67,7 @@ services:
     image: ${EMBEDAPI_IMAGE:-ghcr.io/OWNER/REPO/embedapi:latest}
     container_name: goupload-embedapi
     restart: unless-stopped
+    logging: *default-logging
     environment:
       EMBED_API_PORT: "3007"
       EMBED_API_SECRET: ${EMBED_API_SECRET:?set EMBED_API_SECRET in .env}
@@ -74,6 +92,7 @@ services:
     image: ${MUSICDETECTOR_IMAGE:-ghcr.io/OWNER/REPO/musicdetector:latest}
     container_name: goupload-musicdetector
     restart: unless-stopped
+    logging: *default-logging
     # MUSIC_API_SECRET + the MUSIC_* tunables live here (like nsfwapi.env /
     # loadplay.env). On the VPS this file is written from the GitHub secret
     # MUSICDETECTOR_ENV; locally copy musicdetector.env.example.
@@ -101,6 +120,7 @@ services:
     image: ${GOUPLOAD_IMAGE:-ghcr.io/OWNER/REPO/goupload:latest}
     container_name: goupload
     restart: unless-stopped
+    logging: *default-logging
     env_file:
       - ./goupload.env
     environment:
@@ -156,6 +176,7 @@ services:
     image: ${LOADPLAY_IMAGE:-ghcr.io/OWNER/REPO/loadplay:latest}
     container_name: goupload-loadplay
     restart: unless-stopped
+    logging: *default-logging
     env_file:
       - ./loadplay.env
     environment:
@@ -163,7 +184,10 @@ services:
       # sweeps entries older than SEGMENT_CACHE_TTL every SEGMENT_CACHE_SWEEP,
       # so the volume below never grows past ~20 GiB.
       - SEGMENT_CACHE_DIR=/cache
-      - SEGMENT_CACHE_MAX_BYTES=${LOADPLAY_CACHE_BYTES:-21474836480}
+      # 8 GiB, not the 20 GiB library default. This shares a 100 GB disk with
+      # the upload volume, the fingerprint volume and several ML images, and a
+      # cache is a speed optimisation, not something worth an outage.
+      - SEGMENT_CACHE_MAX_BYTES=${LOADPLAY_CACHE_BYTES:-8589934592}
       - SEGMENT_CACHE_TTL=${LOADPLAY_CACHE_TTL:-1h}
       - SEGMENT_CACHE_SWEEP=${LOADPLAY_CACHE_SWEEP:-1h}
     ports:
