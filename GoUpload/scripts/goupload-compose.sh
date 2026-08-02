@@ -25,11 +25,11 @@ ACTION="${1:-}"
 shift || true
 
 case "$ACTION" in
-  pull|up|down|restart|ps|logs|prune|login|logout)
+  pull|up|down|restart|ps|logs|prune|login|logout|images)
     ;;
   *)
     echo "goupload-compose: unsupported action '${ACTION}'" >&2
-    echo "  allowed: pull | up | down | restart | ps | logs | prune | login | logout" >&2
+    echo "  allowed: pull | up | down | restart | ps | logs | prune | login | logout | images" >&2
     echo "  optional service list after pull/up: goupload | embedapi | musicdetector | nsfwapi | loadplay | redis" >&2
     exit 2
     ;;
@@ -71,6 +71,18 @@ case "$ACTION" in
     ;;
   ps)
     exec docker compose ps
+    ;;
+  images)
+    # Prints the currently deployed image per service, as NAME=image lines.
+    #
+    # Exists because the deploy needs to carry forward the tags of services it
+    # did NOT rebuild, and /opt/goupload/.env is root-owned 0600 while that step
+    # runs as the runner user. A plain `source` there reads nothing and fails
+    # SILENTLY, so every untouched service quietly reverts to :latest and the
+    # SHA pinning only survives until the next unrelated deploy.
+    #
+    # Only the image lines are emitted, never the secrets that share that file.
+    exec grep -E '^[A-Z_]+_IMAGE=' "${DEPLOY_DIR}/.env"
     ;;
   logs)
     # Tail-only, no follow  we don't want to hold the sudo session open.

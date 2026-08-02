@@ -322,14 +322,22 @@ jobs:
           EMBEDAPI_TAG="latest"
           MUSICDETECTOR_TAG="latest"
           LOADPLAY_TAG="latest"
-          if [ -f /opt/goupload/.env ]; then
-            # shellcheck disable=SC1091
-            source /opt/goupload/.env
-            GOUPLOAD_TAG="${GOUPLOAD_IMAGE##*:}"
-            NSFWAPI_TAG="${NSFWAPI_IMAGE##*:}"
-            EMBEDAPI_TAG="${EMBEDAPI_IMAGE##*:}"
-            MUSICDETECTOR_TAG="${MUSICDETECTOR_IMAGE##*:}"
-            LOADPLAY_TAG="${LOADPLAY_IMAGE##*:}"
+          # Read the running tags through the root helper, NOT by sourcing the
+          # file directly. /opt/goupload/.env is root-owned 0600 and this step
+          # runs as the runner user, so `source` read nothing and failed
+          # silently: every service not rebuilt in a given push quietly fell
+          # back to :latest, which un-pinned it until the next time it happened
+          # to be rebuilt. loadplay sat on :latest that way.
+          RUNNING_IMAGES="$(sudo /usr/local/sbin/goupload-compose.sh images 2>/dev/null || true)"
+          if [ -n "$RUNNING_IMAGES" ]; then
+            eval "$RUNNING_IMAGES"
+            [ -n "${GOUPLOAD_IMAGE:-}" ]      && GOUPLOAD_TAG="${GOUPLOAD_IMAGE##*:}"
+            [ -n "${NSFWAPI_IMAGE:-}" ]       && NSFWAPI_TAG="${NSFWAPI_IMAGE##*:}"
+            [ -n "${EMBEDAPI_IMAGE:-}" ]      && EMBEDAPI_TAG="${EMBEDAPI_IMAGE##*:}"
+            [ -n "${MUSICDETECTOR_IMAGE:-}" ] && MUSICDETECTOR_TAG="${MUSICDETECTOR_IMAGE##*:}"
+            [ -n "${LOADPLAY_IMAGE:-}" ]      && LOADPLAY_TAG="${LOADPLAY_IMAGE##*:}"
+          else
+            echo "::warning::could not read running image tags; unrebuilt services will deploy as :latest"
           fi
           if [ "$DEPLOY_GOUPLOAD" = "true" ]; then GOUPLOAD_TAG="${GITHUB_SHA}"; fi
           if [ "$DEPLOY_NSFWAPI" = "true" ]; then NSFWAPI_TAG="${GITHUB_SHA}"; fi
