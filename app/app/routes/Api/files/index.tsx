@@ -312,7 +312,7 @@ export const action = async ({ request }: { request: Request }) => {
       .update(updateData)
       .eq(lookupField, fileId)
       .eq("owner_id", user.id)
-      .select("id, file_title, file_description, is_public, visibility, categories, tags, comments_enabled, comment_limit, default_thumbnail, metadata, is_music")
+      .select("id, file_title, file_description, is_public, visibility, categories, tags, comments_enabled, comment_limit, default_thumbnail, preview_endpoint, metadata, is_music")
       .single();
 
     if (updateError) {

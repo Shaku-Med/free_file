@@ -52,9 +52,13 @@ const startServer = async () => {
 
     const imageRouter = (await import('./routes/image.js')).default;
     const profilepicRouter = (await import('./routes/profilepic.js')).default;
+    // Same deferred import as the others: routers must not load until
+    // reinitializeDatabase() above has run, or they capture an uninitialised client.
+    const previewRouter = (await import('./routes/preview.js')).default;
 
     app.use('/api/load/image', rateLimit, imageRouter);
     app.use('/api/load/profilepic', rateLimit, profilepicRouter);
+    app.use('/api/load/preview', rateLimit, previewRouter);
 
     startLoadMonitor();
 

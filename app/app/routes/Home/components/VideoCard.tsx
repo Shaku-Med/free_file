@@ -1,5 +1,6 @@
 import { memo, useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { visibilityOf, type FileVisibility } from "~/lib/Security/visibility";
+import HoverPreview from "./VideoCard/HoverPreview";
 
 /** Same three states as the upload modal and the studio list. */
 const EDIT_VISIBILITY_CHOICES: ReadonlyArray<{
@@ -1117,6 +1118,7 @@ const VideoCard = ({
     const isSeriesMain = data.is_series_main === true || (data.is_series_main as unknown) === 1;
     return (
     <div className={`relative ${className || ""}`}>
+      <HoverPreview file={data} />
       {isSeriesMain && (
         <>
           {/**

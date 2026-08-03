@@ -36,20 +36,22 @@ type Payload struct {
 	// The app forces adult -> unlisted and harmful -> private, and LOCKS the
 	// file's visibility in both cases. Sent only over the webhook-secret
 	// channel, so a client can never assert this about its own upload.
-	ContentFlag         string                 `json:"content_flag,omitempty"`
-	ModerationEvidence  map[string]interface{} `json:"moderation_evidence,omitempty"`
-	Colors              []string               `json:"colors,omitempty"`
-	Categories          []string               `json:"categories,omitempty"`
-	Tags                []string               `json:"tags,omitempty"`
-	Metadata            map[string]interface{} `json:"metadata,omitempty"`
-	CommentsEnabled     *bool                  `json:"comments_enabled,omitempty"`
-	DefaultThumbnail    string                 `json:"default_thumbnail,omitempty"`
-	FileSeriesID        string                 `json:"file_series_id,omitempty"`
-	FileSeriesEpisodeID string                 `json:"file_series_episode_id,omitempty"`
-	IsNewSeries         bool                   `json:"is_new_series,omitempty"`
-	NewEpisodeName      string                 `json:"new_episode_name,omitempty"`
-	ParentEpisodeID     string                 `json:"parent_episode_id,omitempty"`
-	GitHubRepo          string                 `json:"github_repo,omitempty"`
+	ContentFlag        string                 `json:"content_flag,omitempty"`
+	ModerationEvidence map[string]interface{} `json:"moderation_evidence,omitempty"`
+	Colors             []string               `json:"colors,omitempty"`
+	Categories         []string               `json:"categories,omitempty"`
+	Tags               []string               `json:"tags,omitempty"`
+	Metadata           map[string]interface{} `json:"metadata,omitempty"`
+	CommentsEnabled    *bool                  `json:"comments_enabled,omitempty"`
+	DefaultThumbnail   string                 `json:"default_thumbnail,omitempty"`
+	// Storage path of the hover preview MP4, empty when it was not produced.
+	PreviewEndpoint     string `json:"preview_endpoint,omitempty"`
+	FileSeriesID        string `json:"file_series_id,omitempty"`
+	FileSeriesEpisodeID string `json:"file_series_episode_id,omitempty"`
+	IsNewSeries         bool   `json:"is_new_series,omitempty"`
+	NewEpisodeName      string `json:"new_episode_name,omitempty"`
+	ParentEpisodeID     string `json:"parent_episode_id,omitempty"`
+	GitHubRepo          string `json:"github_repo,omitempty"`
 	// Storage backend the worker wrote to ("github" or "r2"); bucket set for r2.
 	StorageBackend string `json:"storage_backend,omitempty"`
 	StorageBucket  string `json:"storage_bucket,omitempty"`

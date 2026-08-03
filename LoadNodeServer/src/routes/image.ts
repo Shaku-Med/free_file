@@ -474,7 +474,7 @@ const getFileFromPath = async (path: string): Promise<any> => {
 
     const { data } = await db
         .from('files')
-        .select('id, is_adult, is_public, owner_id, upload_status, github_repo, storage_backend, storage_bucket')
+        .select('id, is_adult, is_public, visibility, owner_id, upload_status, github_repo, storage_backend, storage_bucket')
         .eq('unique_id', uniqueId)
         .maybeSingle();
 

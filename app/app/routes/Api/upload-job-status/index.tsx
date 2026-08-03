@@ -269,6 +269,7 @@ export const action = async ({ request }: { request: Request }) => {
     /** Set by Go worker: true when video duration is under 2 minutes */
     is_reel?: boolean;
     is_adult?: boolean;
+    preview_endpoint?: string;
     visibility?: unknown;
     /** Pipeline moderation verdict. See the handling below. */
     content_flag?: 'adult' | 'harmful' | null;
@@ -523,6 +524,9 @@ export const action = async ({ request }: { request: Request }) => {
     }
     if (thumbnails.length > 0) {
       updateData.thumbnails = thumbnails;
+    }
+    if (typeof body?.preview_endpoint === 'string' && body.preview_endpoint.trim()) {
+      updateData.preview_endpoint = body.preview_endpoint.trim().slice(0, 512);
     }
     if (duration !== null) {
       updateData.duration = duration;

@@ -113,7 +113,7 @@ export const action = async ({ request }: { request: Request }) => {
 
     const { data: existing, error: lookupErr } = await db
       .from("files")
-      .select("id, owner_id, endpoint, thumbnails, default_thumbnail, storage_backend, github_repo, upload_status")
+      .select("id, owner_id, endpoint, thumbnails, default_thumbnail, preview_endpoint, storage_backend, github_repo, upload_status")
       .eq("unique_id", uniqueId)
       .maybeSingle();
     if (lookupErr) {

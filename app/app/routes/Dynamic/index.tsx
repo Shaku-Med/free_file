@@ -187,7 +187,7 @@ async function loadDynamicPageDetails(
     ? (async () => {
         const { data: orig } = await db
           .from('files')
-          .select('id, unique_id, file_title, filename, default_thumbnail, thumbnails, created_at, owner_id, is_public, visibility, upload_status')
+          .select('id, unique_id, file_title, filename, default_thumbnail, preview_endpoint, thumbnails, created_at, owner_id, is_public, visibility, upload_status')
           .eq('id', originalFileId)
           .maybeSingle();
         if (!orig || orig.is_public !== true || orig.upload_status !== 'complete') return null;
@@ -219,7 +219,7 @@ async function loadDynamicPageDetails(
     ? (async () => {
         const { data: remixes } = await db
           .from('files')
-          .select('id, unique_id, file_title, filename, default_thumbnail, thumbnails, created_at, view_count, owner_id, is_reel')
+          .select('id, unique_id, file_title, filename, default_thumbnail, preview_endpoint, thumbnails, created_at, view_count, owner_id, is_reel')
           .eq('original_file_id', file.id)
           .eq('is_public', true)
           .eq('is_adult', false)

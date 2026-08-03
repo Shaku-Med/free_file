@@ -127,7 +127,7 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
     if (originalFileId) {
       const { data: orig } = await db
         .from("files")
-        .select("unique_id, file_title, filename, default_thumbnail, created_at, is_public, visibility, is_adult, upload_status")
+        .select("unique_id, file_title, filename, default_thumbnail, preview_endpoint, created_at, is_public, visibility, is_adult, upload_status")
         .eq("id", originalFileId)
         .maybeSingle();
       if (orig && orig.is_public === true && orig.is_adult !== true && orig.upload_status === "complete") {

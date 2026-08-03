@@ -62,9 +62,19 @@ export const isFileOwner = (userId: string, ownerId: string): boolean => {
 interface FileData {
     is_adult: boolean;
     is_public: boolean;
+    visibility?: string | null;
     owner_id: string;
     [key: string]: any;
 }
+
+// public and unlisted are both reachable without ownership; only private is not.
+// Reading is_public alone treats unlisted as private. Falls back to the boolean
+// for rows written before the visibility column existed.
+const isOwnerOnly = (file: FileData): boolean => {
+    const v = typeof file.visibility === 'string' ? file.visibility : null;
+    if (v) return v === 'private';
+    return file.is_public !== true;
+};
 
 interface UserData {
     id: string;
@@ -76,7 +86,7 @@ export const canAccessFile = async (
     request: Request,
     file: FileData,
 ): Promise<boolean> => {
-    if (!file.is_adult && file.is_public) {
+    if (!file.is_adult && !isOwnerOnly(file)) {
         return true;
     }
 
@@ -95,7 +105,7 @@ export const canAccessFile = async (
         }
     }
 
-    if (!file.is_public) {
+    if (isOwnerOnly(file)) {
         if (!isFileOwner(user.id, file.owner_id)) {
             return false;
         }

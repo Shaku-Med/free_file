@@ -50,7 +50,7 @@ export const loader = async ({ request }: { request: Request }) => {
       mainUniqueIds.length > 0
         ? db
             .from("files")
-            .select("unique_id, file_title, filename, default_thumbnail, created_at")
+            .select("unique_id, file_title, filename, default_thumbnail, preview_endpoint, created_at")
             .eq("owner_id", user.id)
             .in("unique_id", mainUniqueIds)
         : Promise.resolve({ data: [] as Record<string, unknown>[] }),

@@ -30,7 +30,7 @@ export const loader = async ({ request }: { request: Request }) => {
     // Get the thumbnails array and owner_id for the file
     const { data: fileRow, error } = await db
       .from("files")
-      .select("owner_id, thumbnails, default_thumbnail")
+      .select("owner_id, thumbnails, default_thumbnail, preview_endpoint")
       .eq(isValidFileId(fileId) ? "id" : "unique_id", fileId)
       .maybeSingle();
 

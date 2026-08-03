@@ -729,6 +729,15 @@ func (w *Worker) processJob(job *queue.Job) {
 		w.log.Infof("thumbnail_preview job=%s preview=%s meta=%s", job.ID, previewPath, metaPath)
 	}
 
+	// Best effort: a missing hover preview must not fail the upload.
+	hoverPreviewOK := false
+	if hoverPath, herr := ffmpeg.BuildHoverPreview(result.OutputPath, thumbDir, thumbResult.Duration); herr != nil {
+		w.log.Errorf("hover preview failed job=%s err=%s", job.ID, herr.Error())
+	} else {
+		hoverPreviewOK = true
+		w.log.Infof("hover_preview job=%s path=%s", job.ID, hoverPath)
+	}
+
 	// One full-quality grid replaces the per-frame thumb_*.jpg files. On
 	// success the individual frames are dropped so they are neither uploaded
 	// nor listed; cells map back to timestamps via thumbnail_grid.json.
@@ -871,6 +880,10 @@ func (w *Worker) processJob(job *queue.Job) {
 		thumbnailPaths = append(thumbnailPaths, ghPrefix+"thumbnail_preview.json")
 
 		defaultThumbGH := ""
+		previewGH := ""
+		if hoverPreviewOK {
+			previewGH = ghPrefix + ffmpeg.HoverPreviewName
+		}
 		if defaultThumbPath != "" {
 			defaultThumbGH = ghPrefix + defaultThumbPath
 		}
@@ -885,6 +898,7 @@ func (w *Worker) processJob(job *queue.Job) {
 			Progress:         &pct,
 			Thumbnails:       thumbnailPaths,
 			DefaultThumbnail: defaultThumbGH,
+			PreviewEndpoint:  previewGH,
 			Duration:         videoDuration,
 			IsReel:           resolveReel(job.ReelMode, videoDuration, videoInfo.Width, videoInfo.Height),
 		})
@@ -1193,6 +1207,10 @@ func (w *Worker) processJob(job *queue.Job) {
 	if defaultThumbPath != "" {
 		defaultThumbGH = ghPrefix + defaultThumbPath
 	}
+	previewGH := ""
+	if hoverPreviewOK {
+		previewGH = ghPrefix + ffmpeg.HoverPreviewName
+	}
 
 	w.notifyRunningProgress(job, 95)
 	_ = w.queue.SetJobStatus(context.Background(), job.ID, "completed")
@@ -1218,6 +1236,7 @@ func (w *Worker) processJob(job *queue.Job) {
 		Tags:                tags,
 		Metadata:            metadata,
 		DefaultThumbnail:    defaultThumbGH,
+		PreviewEndpoint:     previewGH,
 		FileSeriesID:        job.FileSeriesID,
 		FileSeriesEpisodeID: job.FileSeriesEpisodeID,
 		IsNewSeries:         job.IsNewSeries,

@@ -38,6 +38,8 @@ export interface FileType {
   visibility?: FileVisibility;
   /** Owner-facing only: moderation holds visibility and the owner cannot move it. */
   visibility_locked?: boolean;
+  /** Storage path of the hover preview mp4; derived from default_thumbnail when absent. */
+  preview_endpoint?: string | null;
   file_description?: string;
   category?: string[];
   categories?: string[];
