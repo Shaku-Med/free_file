@@ -18,29 +18,31 @@ import { buildFlightKey, getSingleFlight } from '../utils/cache/singleflight.js'
 
 const router = express.Router();
 
-const PREVIEW_FILENAME = 'hover_preview.mp4';
 const PREVIEW_CACHE = 'public, max-age=604800, immutable';
 const PREVIEW_CDN_CACHE = 'public, s-maxage=604800, stale-while-revalidate=86400';
 const PREVIEW_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
+// Decoded before validation; otherwise %2e%2e walks straight past the checks.
 function previewPathFromRequest(req: Request): string {
-    const noQuery = (req.originalUrl ?? req.url ?? '').split('?')[0] ?? '';
-    const base = req.baseUrl ?? '';
-    if (base && noQuery.startsWith(base)) {
-        return noQuery.slice(base.length).replace(/^\/+/, '');
-    }
     let p = (req.path ?? '').replace(/^\/+/, '');
     const mountPrefix = 'api/load/preview/';
     if (p.startsWith(mountPrefix)) p = p.slice(mountPrefix.length);
-    return p;
+    try {
+        return decodeURIComponent(p);
+    } catch {
+        return '';
+    }
 }
 
-// Without this the route reads arbitrary objects out of the bucket.
+// Exactly what GoUpload writes: <dateFolder>/<uniqueId>/hover_preview.mp4.
+// Segments allow no dots or slashes, so traversal is impossible, and the
+// filename is fixed, so this endpoint can never be pointed at the real video
+// by swapping the last part of the path.
+const PREVIEW_PATH_RE = /^[A-Za-z0-9_-]+\/[A-Za-z0-9_-]+\/hover_preview\.mp4$/;
+
 function isPreviewPath(path: string): boolean {
-    if (!path || path.length > 512) return false;
-    if (path.includes('..') || path.includes('\\') || path.startsWith('/')) return false;
-    if (!path.endsWith('/' + PREVIEW_FILENAME)) return false;
-    return path.split('/').length > 2;
+    if (!path || path.length > 256) return false;
+    return PREVIEW_PATH_RE.test(path);
 }
 
 type FileRow = {

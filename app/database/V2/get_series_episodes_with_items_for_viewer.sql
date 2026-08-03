@@ -37,6 +37,7 @@ RETURNS TABLE (
   file_description    text,
   file_title          text,
   default_thumbnail   text,
+  preview_endpoint   text,
   view_count          numeric,
   share_count         numeric,
   is_reel             boolean,
@@ -127,9 +128,11 @@ AS $$
     fi.file_title,
     COALESCE(
       fi.default_thumbnail,
+      fi.preview_endpoint,
       (SELECT t #>> '{}' FROM unnest(fi.thumbnails) AS t
        WHERE (t #>> '{}') LIKE '%thumbnail_preview.jpg' LIMIT 1)
     ) AS default_thumbnail,
+    f.preview_endpoint,
     fi.view_count,
     fi.share_count,
     fi.is_reel,

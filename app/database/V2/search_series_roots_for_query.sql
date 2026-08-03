@@ -7,6 +7,18 @@
 -- files.search_text, tables files / files_series_episodes.
 -- ============================================================
 
+DO $drop_search_series_roots_for_query$
+DECLARE r RECORD;
+BEGIN
+  FOR r IN SELECT n.nspname sch, p.proname nm, p.oid oid
+           FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
+           WHERE p.proname='search_series_roots_for_query' AND n.nspname='public'
+  LOOP
+    EXECUTE format('DROP FUNCTION IF EXISTS %I.%I(%s)', r.sch, r.nm,
+                   pg_get_function_identity_arguments(r.oid));
+  END LOOP;
+END $drop_search_series_roots_for_query$;
+
 CREATE OR REPLACE FUNCTION search_series_roots_for_query(
   p_query         text,
   p_user_id       uuid    DEFAULT NULL,
@@ -26,6 +38,7 @@ RETURNS TABLE (
   file_description text,
   file_title       text,
   default_thumbnail text,
+  preview_endpoint text,
   view_count       numeric,
   share_count      numeric,
   is_reel          boolean,
@@ -192,9 +205,11 @@ BEGIN
       m.file_title,
       COALESCE(
         m.default_thumbnail,
+        m.preview_endpoint,
         (SELECT t #>> '{}' FROM unnest(m.thumbnails) AS t
           WHERE (t #>> '{}') LIKE '%thumbnail_preview.jpg' LIMIT 1)
       ) AS default_thumbnail,
+      f.preview_endpoint,
       m.view_count,
       m.share_count,
       m.is_reel,

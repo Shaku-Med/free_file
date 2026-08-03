@@ -1,4 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { attachPreviewEndpoints } from './attachPreviewEndpoints';
 
 /**
  * Applies live interaction counts and maps RPC feed rows to the shape the home/subscription UIs expect.
@@ -65,7 +66,9 @@ export async function enrichFeedFilesWithInteractions(
   const dislikedFileIds: string[] = [];
   const savedFileIds: string[] = [];
 
-  const data = filteredFeed.map((file) => {
+  const withPreviews = await attachPreviewEndpoints(dbClient as any, filteredFeed);
+
+  const data = withPreviews.map((file) => {
     const f = file as Record<string, unknown>;
     const id = f.id as string | undefined;
     const interactions = id ? interactionsByFile.get(id) : undefined;
@@ -91,6 +94,7 @@ export async function enrichFeedFilesWithInteractions(
 
     return {
       id: f.id,
+      preview_endpoint: f.preview_endpoint ?? null,
       created_at: f.created_at,
       endpoint: f.endpoint || '',
       filename: f.filename,

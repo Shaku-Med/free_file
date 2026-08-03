@@ -53,6 +53,7 @@ RETURNS TABLE (
   file_description text,
   file_title       text,
   default_thumbnail text,
+  preview_endpoint text,
   view_count       numeric,
   share_count      numeric,
   is_reel          boolean,

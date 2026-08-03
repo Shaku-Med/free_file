@@ -297,6 +297,18 @@ $$;
 -- 9. get_subscription_feed  latest uploads from subscribed channels
 --    Mirrors the get_feed return type for consistency
 -- ============================================================
+DO $drop_get_subscription_feed$
+DECLARE r RECORD;
+BEGIN
+  FOR r IN SELECT n.nspname sch, p.proname nm, p.oid oid
+           FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
+           WHERE p.proname='get_subscription_feed' AND n.nspname='public'
+  LOOP
+    EXECUTE format('DROP FUNCTION IF EXISTS %I.%I(%s)', r.sch, r.nm,
+                   pg_get_function_identity_arguments(r.oid));
+  END LOOP;
+END $drop_get_subscription_feed$;
+
 CREATE OR REPLACE FUNCTION get_subscription_feed(
   p_user_id     uuid,
   p_limit       int DEFAULT 20,
@@ -316,6 +328,7 @@ RETURNS TABLE (
   file_description text,
   file_title       text,
   default_thumbnail text,
+  preview_endpoint text,
   view_count       numeric,
   share_count      numeric,
   is_reel          boolean,
@@ -376,6 +389,7 @@ BEGIN
       f.file_description,
       f.file_title,
       f.default_thumbnail,
+      f.preview_endpoint,
       f.view_count,
       f.share_count,
       f.is_reel,
@@ -418,6 +432,7 @@ BEGIN
     r.file_description,
     r.file_title,
     r.default_thumbnail,
+    r.preview_endpoint,
     r.view_count,
     r.share_count,
     r.is_reel,

@@ -110,6 +110,7 @@ RETURNS TABLE (
   file_description text,
   file_title       text,
   default_thumbnail text,
+  preview_endpoint text,
   view_count       numeric,
   share_count      numeric,
   is_reel          boolean,
@@ -208,9 +209,11 @@ BEGIN
       f.file_title,
       COALESCE(
         f.default_thumbnail,
+        f.preview_endpoint,
         (SELECT t #>> '{}' FROM unnest(f.thumbnails) AS t
           WHERE (t #>> '{}') LIKE '%thumbnail_preview.jpg' LIMIT 1)
       ) AS default_thumbnail,
+      f.preview_endpoint,
       f.view_count,
       f.share_count,
       f.is_reel,
