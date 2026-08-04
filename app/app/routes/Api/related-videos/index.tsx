@@ -107,6 +107,7 @@ export const loader = async ({ request }: { request: Request }) => {
         file_description: file.file_description,
         file_title: file.file_title || '',
         default_thumbnail: file.default_thumbnail || null,
+        preview_endpoint: file.preview_endpoint || null,
         view_count: file.view_count,
         share_count: file.share_count,
         is_reel: file.is_reel,

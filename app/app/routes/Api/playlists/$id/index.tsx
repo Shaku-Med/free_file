@@ -74,6 +74,7 @@ export const loader = async ({ request, params }: { request: Request; params: { 
         file_description: r.f_file_description,
         file_title: r.f_file_title,
         default_thumbnail: r.f_default_thumbnail || null,
+        preview_endpoint: r.f_preview_endpoint || null,
         view_count: r.f_view_count,
         share_count: r.f_share_count,
         is_reel: r.f_is_reel,

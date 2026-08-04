@@ -118,6 +118,7 @@ function mapRelatedRow(row: Record<string, unknown>): {
       file_description: row.file_description,
       file_title: row.file_title || "",
       default_thumbnail: row.default_thumbnail || null,
+      preview_endpoint: row.preview_endpoint || null,
       view_count: row.view_count,
       share_count: row.share_count,
       is_reel: row.is_reel,
