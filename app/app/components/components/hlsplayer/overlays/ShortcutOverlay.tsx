@@ -83,8 +83,16 @@ const SHORTCUTS_ALWAYS: ShortcutDef[] = [
     alts: () => [['M']],
   },
   {
-    desc: 'Fullscreen',
-    alts: () => [['F']],
+    desc: 'Fullscreen on / off',
+    alts: () => [['F'], ['Esc']],
+  },
+  {
+    desc: 'Jump to 0%, 10% ... 90%',
+    alts: () => [['0'], ['9']],
+  },
+  {
+    desc: 'Next video',
+    alts: (os) => [[shift(os), 'N']],
   },
   {
     desc: 'Decrease speed',

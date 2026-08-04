@@ -1007,7 +1007,28 @@ function PlayerInner({
           break;
         case 'f': {
           e.preventDefault();
-          enterPlayerFullscreen(videoRef.current, containerRef.current).catch(() => {});
+          if (document.fullscreenElement) {
+            document.exitFullscreen().catch(() => {});
+          } else {
+            enterPlayerFullscreen(videoRef.current, containerRef.current).catch(() => {});
+          }
+          break;
+        }
+        // 0-9 jump to that tenth of the video, same as YouTube.
+        case '0': case '1': case '2': case '3': case '4':
+        case '5': case '6': case '7': case '8': case '9': {
+          if (e.shiftKey || e.ctrlKey || e.metaKey || e.altKey) break;
+          const dur = video.duration;
+          if (!Number.isFinite(dur) || dur <= 0) break;
+          e.preventDefault();
+          video.currentTime = dur * (Number(e.key) / 10);
+          break;
+        }
+        case 'N':
+        case 'n': {
+          if (!e.shiftKey) break;
+          e.preventDefault();
+          handleNextVideo();
           break;
         }
         case 't':
@@ -1052,6 +1073,13 @@ function PlayerInner({
           if (showShortcuts) {
             e.preventDefault();
             setShowShortcuts(false);
+            break;
+          }
+          // The browser already does this for native fullscreen, but the
+          // desktop shell does not always, so exit explicitly.
+          if (document.fullscreenElement) {
+            e.preventDefault();
+            document.exitFullscreen().catch(() => {});
           }
           break;
       }
@@ -1060,6 +1088,7 @@ function PlayerInner({
     window.addEventListener('keydown', handleKey);
     return () => window.removeEventListener('keydown', handleKey);
   }, [
+    handleNextVideo,
     disableKeyboardShortcuts,
     isReelCtx,
     embedReelControls,

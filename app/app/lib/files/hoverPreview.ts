@@ -22,10 +22,23 @@ export function previewPathFor(file: Partial<FileType> | null | undefined): stri
   return path ? path : null;
 }
 
+/**
+ * Adult goes SAME ORIGIN so the session cookie reaches the app's loader, which
+ * is the same rule ImageLoad follows (hasAdultTag forces an authenticated
+ * fetch). Everything else goes to LoadNodeServer.
+ */
 export function previewUrlFor(file: Partial<FileType> | null | undefined): string | null {
   const path = previewPathFor(file);
-  // LoadNodeServer serves this, same host as the image loader.
-  return path ? `${IMAGE_BASE_URL}/api/load/preview/${path}` : null;
+  if (!path) return null;
+  if (needsAuthenticatedFetch(file)) {
+    const origin = typeof window !== 'undefined' ? window.location.origin : '';
+    return `${origin}/api/load/preview/${path}`;
+  }
+  return `${IMAGE_BASE_URL}/api/load/preview/${path}`;
+}
+
+export function needsAuthenticatedFetch(file: Partial<FileType> | null | undefined): boolean {
+  return Boolean(file?.is_adult);
 }
 
 export function cachedPreview(url: string): string | undefined {
@@ -39,7 +52,7 @@ export function cachedPreview(url: string): string | undefined {
 export function loadPreview(
   url: string,
   signal?: AbortSignal,
-  cUser?: string | null,
+  sameOrigin = false,
 ): Promise<string | null> {
   const hit = cache.get(url);
   if (hit) return Promise.resolve(hit);
@@ -49,12 +62,11 @@ export function loadPreview(
 
   const p = (async () => {
     try {
-      // LoadNodeServer authenticates off a c-user HEADER, not a cookie, which is
-      // what lets adult previews resolve cross-origin. Without it the loader
-      // sees an anonymous caller and 404s anything gated.
       const res = await fetch(url, {
         signal,
-        headers: cUser ? { 'c-user': cUser } : undefined,
+        ...(sameOrigin
+          ? { credentials: 'include' as const }
+          : { mode: 'cors' as const }),
       });
       if (!res.ok) return null;
       const blob = await res.blob();

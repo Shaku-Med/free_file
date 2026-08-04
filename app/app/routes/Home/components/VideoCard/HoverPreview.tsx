@@ -1,7 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import type { FileType } from "~/lib/types";
-import { cachedPreview, loadPreview, previewUrlFor } from "~/lib/files/hoverPreview";
-import { useFileContext } from "~/lib/Context/Context";
+import {
+  cachedPreview,
+  loadPreview,
+  needsAuthenticatedFetch,
+  previewUrlFor,
+} from "~/lib/files/hoverPreview";
 
 const HOVER_DELAY_MS = 700;
 
@@ -16,9 +20,12 @@ export default function HoverPreview({ file }: { file: Partial<FileType> }) {
   const holderRef = useRef<HTMLDivElement | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // True only between enter and leave. Without it, the seek that leave() does
+  // fires canplay again and the video re-appears after the pointer has gone.
+  const activeRef = useRef(false);
 
-  const { c_user } = useFileContext();
   const url = previewUrlFor(file);
+  const sameOrigin = needsAuthenticatedFetch(file);
 
   const [src, setSrc] = useState<string | null>(() => (url ? cachedPreview(url) ?? null : null));
   const [loading, setLoading] = useState(false);
@@ -33,25 +40,34 @@ export default function HoverPreview({ file }: { file: Partial<FileType> }) {
     const controller = new AbortController();
 
     const begin = () => {
-      if (cancelled) return;
+      if (cancelled || !activeRef.current) return;
       if (src) {
-        void videoRef.current?.play().catch(() => {});
+        // Already loaded, so canplay will not fire again. Make it visible here
+        // or a second hover leaves it stuck at opacity-0.
+        const v = videoRef.current;
+        if (v) {
+          if (v.readyState >= 2) setReady(true);
+          void v.play().catch(() => {});
+        }
         return;
       }
       setLoading(true);
-      loadPreview(url, controller.signal, c_user).then((objectUrl) => {
+      loadPreview(url, controller.signal, sameOrigin).then((objectUrl) => {
         if (cancelled) return;
         setLoading(false);
-        if (objectUrl) setSrc(objectUrl);
+        // Pointer may have left while this was in flight.
+        if (objectUrl && activeRef.current) setSrc(objectUrl);
       });
     };
 
     const enter = () => {
+      activeRef.current = true;
       if (timerRef.current) clearTimeout(timerRef.current);
       timerRef.current = setTimeout(begin, HOVER_DELAY_MS);
     };
 
     const leave = () => {
+      activeRef.current = false;
       if (timerRef.current) clearTimeout(timerRef.current);
       setLoading(false);
       setReady(false);
@@ -78,29 +94,38 @@ export default function HoverPreview({ file }: { file: Partial<FileType> }) {
       };
     }
 
-    const io = new IntersectionObserver(
-      (entries) => {
-        for (const e of entries) {
-          if (e.isIntersecting && e.intersectionRatio >= 0.6) enter();
-          else leave();
-        }
-      },
-      { threshold: [0, 0.6, 1] },
-    );
-    io.observe(parent);
+    // Touch has no hover, and playing whatever scrolls into view burns data on
+    // cards nobody asked about. Require a deliberate press-and-hold instead,
+    // cancelled the moment the finger moves so scrolling never triggers it.
+    let startY = 0;
+    const onStart = (e: TouchEvent) => {
+      startY = e.touches[0]?.clientY ?? 0;
+      enter();
+    };
+    const onMove = (e: TouchEvent) => {
+      if (Math.abs((e.touches[0]?.clientY ?? 0) - startY) > 8) leave();
+    };
+    parent.addEventListener("touchstart", onStart, { passive: true });
+    parent.addEventListener("touchmove", onMove, { passive: true });
+    parent.addEventListener("touchend", leave, { passive: true });
+    parent.addEventListener("touchcancel", leave, { passive: true });
     return () => {
       cancelled = true;
       controller.abort();
       if (timerRef.current) clearTimeout(timerRef.current);
-      io.disconnect();
+      parent.removeEventListener("touchstart", onStart);
+      parent.removeEventListener("touchmove", onMove);
+      parent.removeEventListener("touchend", leave);
+      parent.removeEventListener("touchcancel", leave);
     };
-  }, [url, src, c_user]);
+  }, [url, src, sameOrigin]);
 
   // A cached blob can already be decodable before React attaches onLoadedData,
   // in which case that event never fires and the video stays invisible.
   useEffect(() => {
     const v = videoRef.current;
     if (!v || !src) return;
+    if (!activeRef.current) return;
     if (v.readyState >= 2) setReady(true);
     v.play().catch(() => {});
   }, [src]);
@@ -126,10 +151,10 @@ export default function HoverPreview({ file }: { file: Partial<FileType> }) {
           playsInline
           preload="auto"
           disablePictureInPicture
-          onLoadedData={() => { setReady(true); }}
-          onCanPlay={() => setReady(true)}
+          onLoadedData={() => { if (activeRef.current) setReady(true); }}
+          onCanPlay={() => { if (activeRef.current) setReady(true); }}
           onError={(e) => { console.log('[HoverPreview] VIDEO ERROR', (e.target as HTMLVideoElement)?.error); setReady(false); }}
-          className={`h-full w-full bg-black object-cover transition-opacity duration-200 pointer-event-none ${
+          className={`h-full w-full bg-black object-cover transition-opacity duration-200 ${
             ready ? "opacity-100" : "opacity-0"
           }`}
         />

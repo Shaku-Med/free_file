@@ -41,6 +41,7 @@ export default [
         route(`upload-job-status`, 'routes/Api/upload-job-status/index.tsx'),
         route(`webhooks/comment-image-storage`, 'routes/Api/webhooks/comment-image-storage/index.tsx'),
         route(`load/image/*`, 'routes/Api/load/image/index.tsx'),
+        route(`load/preview/*`, 'routes/Api/load/preview/index.tsx'),
         route(`load/profilepic/*`, 'routes/Api/load/profilepic/index.tsx'),
         // route(`get/*`, 'routes/Api/get/index.tsx'),
         route(`public-key`, 'routes/Api/PublicKey/index.tsx'),
