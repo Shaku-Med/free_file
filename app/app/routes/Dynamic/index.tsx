@@ -10,6 +10,7 @@ import SeriesSignInGate from "./components/SeriesSignInGate";
 import { getSeriesUpNextVideos } from "./fun/mapSeriesRpcRows";
 import { type FileType, type SeriesEpisodeGroup, type ImageContentPayload, fileWatchPath } from "~/lib/types";
 import { BASE_URL } from "~/lib/URLS";
+import { buildVideoObject, videoPreviewMeta } from "~/lib/seo/videoPreview";
 import { buildPageMeta } from "~/lib/seo";
 import ImageLoad from "../Home/components/ImageLoad/ImageLoad";
 import { ParseFilename, getVideoSrc, getThumbnailUrl, getThumbnailPreviewApiPaths, cn } from "~/lib/utils";
@@ -530,8 +531,13 @@ export const meta: MetaFunction<ReturnType<typeof loader>> = ({ data }: { data: 
       ...(file?.created_at
         ? [{ property: "article:published_time", content: new Date(file.created_at).toISOString() }]
         : []),
-      { name: "twitter:card", content: "summary_large_image" },
+      ...(videoPreviewMeta(file as never, thumbnailUrl).length
+        ? []
+        : [{ name: "twitter:card", content: "summary_large_image" }]),
       ...(data?.owner ? [{ name: "twitter:creator", content: `@${data.owner.username}` }] : []),
+      // Public, non-adult videos advertise the preview mp4 so crawlers and
+      // social cards have a real file to play.
+      ...videoPreviewMeta(file as never, thumbnailUrl),
       { rel: "preconnect", href: thumbnailUrl, as: "image" },
       { rel: "dns-prefetch", href: BASE_URL },
       ...thumbPreviewPrefetch,
@@ -2015,8 +2021,22 @@ const DynamicPage = ({ is_modal }: DynamicPageProps) => {
   const ldTitle = (file_data?.file_title?.trim() || ParseFilename(file_data?.filename || "")) || "Media";
   const ldDescription = (file_data?.file_description?.trim() || ldTitle).slice(0, 200);
   const ownerName = data.owner ? data.owner.username : undefined;
+  // VideoObject is what makes a video eligible for a search preview; CreativeWork
+  // is not. Falls back to the old shape when the file has no public preview.
+  const videoLd = isVideo
+    ? buildVideoObject({
+        file: file_data as never,
+        name: ldTitle,
+        description: ldDescription,
+        pageUrl: pageUrlForLd,
+        thumbnailUrl: jsonLdThumbnail,
+        uploadDate: file_data?.created_at ? new Date(file_data.created_at).toISOString() : null,
+        authorName: ownerName,
+      })
+    : null;
+
   const jsonLd = isVideo
-    ? {
+    ? videoLd ?? {
         "@context": "https://schema.org",
         "@type": "CreativeWork",
         name: ldTitle,

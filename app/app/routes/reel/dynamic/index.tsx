@@ -22,6 +22,7 @@ import { formatNumber } from "~/lib/utils/formatNumber";
 import { stripGithubRepoForClient } from "~/lib/githubStorage";
 import { ownerService } from "~/lib/Services/OwnerService";
 import { buildPageMeta } from "~/lib/seo";
+import { buildVideoObject, videoPreviewMeta } from "~/lib/seo/videoPreview";
 import { isAuthenticated } from "~/lib/Security/Password";
 import { sanitizeFileForPublicViewer } from "~/lib/files/sanitizeFileForViewer";
 import {
@@ -299,16 +300,26 @@ export const meta: MetaFunction<typeof loader> = ({ data: loaderData }) => {
       ...(file?.created_at
         ? [{ property: "article:published_time", content: new Date(file.created_at).toISOString() }]
         : []),
-      ...(isVideo
-        ? [
-            { property: "og:video:type", content: file.file_type || "video/mp4" },
-            {
-              property: "og:video:url",
-              content: `${BASE_URL}${getVideoSrc(file.endpoint ?? "", file.file_type)}`,
-            },
-          ]
+      // Was the HLS manifest, which needs a token and no crawler can play.
+      ...videoPreviewMeta(file as never, thumbnailUrl),
+      ...(() => {
+        const ld = buildVideoObject({
+          file: file as never,
+          name: displayTitle,
+          description: displayDescription,
+          pageUrl: `${BASE_URL}/reel/${encodeURIComponent(String(file.unique_id ?? loaderData.uniqueId ?? ""))}`,
+          thumbnailUrl,
+          uploadDate: file?.created_at ? new Date(file.created_at).toISOString() : null,
+          authorName: ownerUsername ?? null,
+        });
+        return ld ? [{ "script:ld+json": ld }] : [];
+      })(),
+      ...(isVideo && !videoPreviewMeta(file as never, thumbnailUrl).length
+        ? [{ property: "og:video:type", content: file.file_type || "video/mp4" }]
         : []),
-      { name: "twitter:card", content: isVideo ? "player" : "summary_large_image" },
+      ...(videoPreviewMeta(file as never, thumbnailUrl).length
+        ? []
+        : [{ name: "twitter:card", content: isVideo ? "player" : "summary_large_image" }]),
       ...(ownerUsername ? [{ name: "twitter:creator", content: `@${ownerUsername}` }] : []),
       { rel: "preconnect", href: thumbnailUrl, as: "image" },
       { rel: "dns-prefetch", href: BASE_URL },
