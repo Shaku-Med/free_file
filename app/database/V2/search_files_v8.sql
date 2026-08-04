@@ -310,6 +310,7 @@ BEGIN
     wr.id, wr.created_at, wr.endpoint, wr.filename, wr.unique_id,
     wr.file_size, wr.file_type, wr.is_adult, wr.owner_id, wr.is_public,
     wr.file_description, wr.file_title, wr.default_thumbnail,
+    wr.preview_endpoint,
     wr.view_count, wr.share_count, wr.is_reel, wr.is_series_main,
     wr.is_files_series_item, wr.file_series_id, wr.file_series_episode_id,
     wr.duration, wr.categories, wr.tags, wr.colors, wr.metadata,

@@ -243,6 +243,7 @@ BEGIN
     mn.id, mn.created_at, mn.endpoint, mn.filename, mn.unique_id,
     mn.file_size, mn.file_type, mn.is_adult, mn.owner_id, mn.is_public,
     mn.file_description, mn.file_title, mn.default_thumbnail,
+    mn.preview_endpoint,
     mn.view_count, mn.share_count, mn.is_reel, mn.is_series_main,
     mn.is_files_series_item, mn.file_series_id, mn.file_series_episode_id,
     mn.duration, mn.categories, mn.tags, mn.colors, mn.metadata,
