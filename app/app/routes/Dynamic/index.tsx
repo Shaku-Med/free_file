@@ -656,6 +656,23 @@ const DynamicPage = ({ is_modal }: DynamicPageProps) => {
     getImageContent,
     setImageContent,
   } = useFileContext();
+
+  // Layout animation is enabled only for the theater toggle, and only on
+  // desktop. layoutId animates EVERY size change otherwise, so a window resize
+  // or the aspect settling after metadata reads as an unwanted zoom.
+  const [animateTheater, setAnimateTheater] = useState(false);
+  const theaterFirstRun = useRef(true);
+  useEffect(() => {
+    if (theaterFirstRun.current) {
+      theaterFirstRun.current = false;
+      return;
+    }
+    if (isMobileDevice) return;
+    setAnimateTheater(true);
+    const t = setTimeout(() => setAnimateTheater(false), 420);
+    return () => clearTimeout(t);
+  }, [theaterMode]);
+
   const playerBackground = playerSettings?.playerBackground !== false;
   const ambientSyncOn = playerSettings?.ambientSync === true;
   const ambientSizeMul = Math.max(1, Math.min(2, playerSettings?.ambientSize ?? 2));
@@ -1873,6 +1890,11 @@ const DynamicPage = ({ is_modal }: DynamicPageProps) => {
 
   const videoBlock = (
     <motion.div layoutId={`video_id_${file_data.unique_id}`}
+    transition={
+      animateTheater
+        ? { duration: 0.3, ease: [0.4, 0, 0.2, 1] }
+        : { duration: 0 }
+    }
     className={`
       relative z-10 w-full overflow-hidden
       ${isStandalone ? "pt-8" : ""}
@@ -2058,7 +2080,7 @@ const DynamicPage = ({ is_modal }: DynamicPageProps) => {
       };
 
   const contentColumn = (
-    <div className="relative w-fit space-y-4 max-lg:overflow-visible max-lg:rounded-none max-lg:px-2 max-lg:py-0 lg:overflow-hidden lg:rounded-lg lg:p-4">
+    <div className="relative w-full space-y-4 max-lg:overflow-visible max-lg:rounded-none max-lg:px-2 max-lg:py-0 lg:overflow-hidden lg:rounded-lg lg:p-4">
       <h1 className="text-xl font-bold text-foreground leading-tight select-text">
         <ParseFilenameInsert filename={ParseFilename(file_data.file_title || file_data.filename || "")}/>
       </h1>
@@ -2345,7 +2367,7 @@ const DynamicPage = ({ is_modal }: DynamicPageProps) => {
   ) : null;
 
   const relatedColumn = (
-    <aside className={`${!theaterMode ? "min-w-[442px]" : "min-w-0"}`}>
+    <aside className={`${!theaterMode ? "min_size_checker" : "min-w-0"}`}>
       <div className="space-y-4 lg:sticky lg:top-6">
         {showSeriesChrome && (
           <div className="mb-3 hidden lg:block">
@@ -2421,7 +2443,7 @@ const DynamicPage = ({ is_modal }: DynamicPageProps) => {
             aspectRatio: String(playerFrameAspect),
             width: `min(100%, calc(${theaterMode ? 90 : 82}vh * ${playerFrameAspect}))`,
           }}
-           className={!theaterMode ? "min-w-0 w-fit space-y-3 sm:space-y-4 lg:col-span-2 xl:col-span-1" : ""}>
+           className={!theaterMode ? "min-w-0 w-fit space-y-3 sm:space-y-4 lg:col-span-2 xl:col-span-1" : "mx-auto"}>
             <div 
               style={{
                 // Match the video's aspect (clamped above); cap the height so portrait

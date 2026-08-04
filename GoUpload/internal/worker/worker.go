@@ -801,6 +801,9 @@ func (w *Worker) processJob(job *queue.Job) {
 	dateFolder := ghlib.DateFolder(time.Now())
 	ghPrefix := dateFolder + "/" + job.UploadID + "/"
 	var thumbnailPaths []string
+	// Whether the sidecar artifacts actually reached storage. Gates every path
+	// we advertise, so a row never points at files that are not there.
+	thumbUploadOK := false
 	var videoDuration float64
 	defaultThumbPath := ""
 
@@ -845,46 +848,75 @@ func (w *Worker) processJob(job *queue.Job) {
 
 		thumbFiles, cerr := ghlib.CollectDirFlat(thumbDir, ghPrefix)
 		if cerr != nil {
-			w.log.Errorf("collect thumbnail files (early) failed job=%s err=%s", job.ID, cerr.Error())
-		} else if len(thumbFiles) > 0 {
-			var thErr error
-			if useR2 {
-				thErr = w.uploadBatchR2(context.Background(), thumbFiles)
+			w.log.Errorf("collect thumbnail files (early) failed job=%s err=%s dir=%s", job.ID, cerr.Error(), thumbDir)
+		} else if len(thumbFiles) == 0 {
+			// Used to fall through logging NOTHING, which looked identical to a
+			// successful upload from the outside: HLS shipped, every sidecar
+			// artifact silently absent. List what is actually there.
+			names := []string{}
+			if ents, rerr := os.ReadDir(thumbDir); rerr == nil {
+				for _, e := range ents {
+					names = append(names, e.Name())
+				}
 			} else {
+				names = append(names, "readdir: "+rerr.Error())
+			}
+			w.log.Errorf("thumbnail dir yielded NO uploadable files job=%s dir=%s contains=%v", job.ID, thumbDir, names)
+		} else {
+			upload := func() error {
+				if useR2 {
+					return w.uploadBatchR2(context.Background(), thumbFiles)
+				}
 				ghBranch := os.Getenv("GITHUB_BRANCH")
 				if ghBranch == "" {
 					ghBranch = "main"
 				}
-				thErr = ghlib.BatchCommit(context.Background(), w.cfg.GitHubClient, w.cfg.GitHubOwner, w.cfg.GitHubRepo, ghBranch, "Thumbnails "+job.UploadID, thumbFiles, 4, w.log.Infof)
+				return ghlib.BatchCommit(context.Background(), w.cfg.GitHubClient, w.cfg.GitHubOwner, w.cfg.GitHubRepo, ghBranch, "Thumbnails "+job.UploadID, thumbFiles, 4, w.log.Infof)
 			}
-			if thErr != nil {
-				w.log.Errorf("thumbnail upload failed backend=%s job=%s err=%s", storageBackend, job.ID, thErr.Error())
-			} else {
-				w.log.Infof("thumbnails uploaded early backend=%s job=%s files=%d", storageBackend, job.ID, len(thumbFiles))
+
+			var thErr error
+			for attempt := 1; attempt <= 3; attempt++ {
+				if thErr = upload(); thErr == nil {
+					thumbUploadOK = true
+					w.log.Infof("thumbnails uploaded early backend=%s job=%s files=%d attempt=%d",
+						storageBackend, job.ID, len(thumbFiles), attempt)
+					break
+				}
+				w.log.Errorf("thumbnail upload failed backend=%s job=%s attempt=%d/3 err=%s",
+					storageBackend, job.ID, attempt, thErr.Error())
+				if attempt < 3 {
+					time.Sleep(time.Duration(attempt*3) * time.Second)
+				}
+			}
+			if !thumbUploadOK {
+				w.log.Errorf("thumbnails NOT in storage job=%s upload=%s; row will omit them rather than point at missing files",
+					job.ID, job.UploadID)
 			}
 		}
 
-		if defaultThumbPath != "" {
+		if thumbUploadOK && defaultThumbPath != "" {
 			thumbnailPaths = append(thumbnailPaths, ghPrefix+defaultThumbPath)
 		}
-		if gridOK {
+		if thumbUploadOK && gridOK {
 			thumbnailPaths = append(thumbnailPaths, ghPrefix+"thumbnail_grid.jpg")
 			thumbnailPaths = append(thumbnailPaths, ghPrefix+"thumbnail_grid.json")
-		} else {
+		} else if thumbUploadOK {
 			// Grid build failed: fall back to listing the individual frames.
 			for i := range thumbResult.Thumbnails {
 				thumbnailPaths = append(thumbnailPaths, ghPrefix+filepath.Base(thumbResult.Thumbnails[i].Path))
 			}
 		}
-		thumbnailPaths = append(thumbnailPaths, ghPrefix+"thumbnail_preview.jpg")
-		thumbnailPaths = append(thumbnailPaths, ghPrefix+"thumbnail_preview.json")
+		if thumbUploadOK {
+			thumbnailPaths = append(thumbnailPaths, ghPrefix+"thumbnail_preview.jpg")
+			thumbnailPaths = append(thumbnailPaths, ghPrefix+"thumbnail_preview.json")
+		}
 
 		defaultThumbGH := ""
 		previewGH := ""
-		if hoverPreviewOK {
+		if thumbUploadOK && hoverPreviewOK {
 			previewGH = ghPrefix + ffmpeg.HoverPreviewName
 		}
-		if defaultThumbPath != "" {
+		if thumbUploadOK && defaultThumbPath != "" {
 			defaultThumbGH = ghPrefix + defaultThumbPath
 		}
 		pct := 40

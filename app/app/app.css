@@ -953,8 +953,21 @@ input[type="search"] {
 @media (min-width: 1280px) { .watch-grid { grid-template-columns: minmax(0, 1fr) 442px; gap: 1rem; } } */
 
 .watch-flex {
-  
+
 }
+
+/* sm:min-w-[300px] lg:min-w-[442px] xl:min-w-[400px] */
+.min_size_checker {
+  min-width: 442px;
+}
+
+@media screen and (max-width: 1400px) {
+  .min_size_checker {
+    min-width: 360px;
+  }
+}
+
+
 
 /* ── Error / empty-state page animations ── */
 
