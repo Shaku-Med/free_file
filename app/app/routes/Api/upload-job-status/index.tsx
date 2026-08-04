@@ -599,16 +599,39 @@ export const action = async ({ request }: { request: Request }) => {
       }
     }
 
-    const { error: updateErr } = await db
+    // .select() so PostgREST reports which rows changed. Without it an update
+    // matching NOTHING is a silent success: the worker gets 200, drops the job,
+    // and the finished upload exists only in storage with no row anywhere.
+    const { data: updatedRows, error: updateErr } = await db
       .from('files')
       .update(updateData)
-      .eq('unique_id', upload_id);
+      .eq('unique_id', upload_id)
+      .select('id');
+
     if (updateErr) {
       console.error('[upload-job-status] files update (completed):', upload_id, updateErr.message ?? updateErr);
-    } else {
-      const fn = typeof body.file_name === 'string' ? body.file_name.trim() : '';
-      await applyFileSeriesOnComplete(upload_id, body, fn);
+      return new Response(JSON.stringify({ error: 'update_failed' }), {
+        status: 500,
+        headers: { 'Content-Type': 'application/json' },
+      });
     }
+
+    if (!Array.isArray(updatedRows) || updatedRows.length === 0) {
+      // The row was never created (the queued step never ran, or it was deleted
+      // mid-process). Fail loudly so the worker retries and the loss is visible
+      // instead of being reported as a successful upload.
+      console.error(
+        '[upload-job-status] completed webhook matched NO row; upload finished but has no files row:',
+        upload_id,
+      );
+      return new Response(JSON.stringify({ error: 'no_such_upload' }), {
+        status: 409,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+
+    const fn = typeof body.file_name === 'string' ? body.file_name.trim() : '';
+    await applyFileSeriesOnComplete(upload_id, body, fn);
 
     // Reconcile with the real uploaded size. recordUploadUsage upserts, so this
     // works whether or not the queued webhook (or app-route reserve) ran first.

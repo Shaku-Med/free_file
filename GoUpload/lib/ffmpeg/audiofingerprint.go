@@ -21,10 +21,14 @@ const (
 	// Fingerprint at most this much audio  the opening minutes identify a
 	// recording; bounding keeps the index ~thousands of rows per file.
 	fingerprintMaxSeconds = 300
-	// Hard cap on emitted fingerprints per file (DB row budget).
-	fingerprintMaxHashes = 8000
-	// Anchor pairs with targets this many frames ahead (~0.14s .. ~2.8s).
-	fingerprintFanout      = 5
+	// Safety valve on rows per file. It used to be 8000, which at this density
+	// ran out about 30 seconds in, so a stored song only ever covered its intro
+	// and a reel using the chorus could never match it.
+	fingerprintMaxHashes = 60000
+	// Anchor pairs with targets this many frames ahead (~0.07s .. ~2.8s).
+	// Lowered from 5 to keep the row count sane now that the full window is
+	// covered rather than only the opening seconds.
+	fingerprintFanout      = 3
 	fingerprintTargetMinDt = 3
 	fingerprintTargetMaxDt = 120
 	// A peak must beat its band's running average by this factor.
@@ -79,10 +83,18 @@ func FingerprintPCM(samples []float64, sampleRate int) []AudioFingerprint {
 				Offset: int32(anchor.frame),
 			})
 			paired++
-			if len(out) >= fingerprintMaxHashes {
-				return out
-			}
 		}
+	}
+	// If the budget is still exceeded, thin evenly across the whole recording
+	// rather than cutting the tail off. Truncating kept only the opening, which
+	// is what made a chorus-based reel unmatchable.
+	if len(out) > fingerprintMaxHashes {
+		thinned := make([]AudioFingerprint, 0, fingerprintMaxHashes)
+		stride := float64(len(out)) / float64(fingerprintMaxHashes)
+		for i := 0; i < fingerprintMaxHashes; i++ {
+			thinned = append(thinned, out[int(float64(i)*stride)])
+		}
+		out = thinned
 	}
 	return out
 }

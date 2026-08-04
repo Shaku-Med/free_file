@@ -482,13 +482,24 @@ func BatchCommit(ctx context.Context, client *github.Client, owner, repo, branch
 // (delete is idempotent), so callers can retry safely. Used to purge a comment
 // image when its comment is deleted.
 func DeleteFile(ctx context.Context, client *github.Client, owner, repo, path, message string) error {
+	return DeleteFileAtBranch(ctx, client, owner, repo, "", path, message)
+}
+
+// DeleteFileAtBranch removes a single blob at path on the given branch. Treats
+// a missing file as success so callers can retry safely.
+func DeleteFileAtBranch(ctx context.Context, client *github.Client, owner, repo, branch, path, message string) error {
 	if client == nil || owner == "" || repo == "" || path == "" {
 		return errors.New("github: invalid delete args")
 	}
 	if message == "" {
 		message = "Remove " + path
 	}
-	fc, _, _, err := client.Repositories.GetContents(ctx, owner, repo, path, nil)
+
+	var opts *github.RepositoryContentGetOptions
+	if branch != "" {
+		opts = &github.RepositoryContentGetOptions{Ref: branch}
+	}
+	fc, _, _, err := client.Repositories.GetContents(ctx, owner, repo, path, opts)
 	if err != nil {
 		var ge *github.ErrorResponse
 		if errors.As(err, &ge) && ge.Response != nil && ge.Response.StatusCode == 404 {
@@ -500,17 +511,21 @@ func DeleteFile(ctx context.Context, client *github.Client, owner, repo, path, m
 		return nil
 	}
 	sha := fc.GetSHA()
-	_, _, err = client.Repositories.DeleteFile(ctx, owner, repo, path, &github.RepositoryContentFileOptions{
+	deleteOpts := &github.RepositoryContentFileOptions{
 		Message: &message,
 		SHA:     &sha,
-	})
+	}
+	if branch != "" {
+		deleteOpts.Branch = github.String(branch)
+	}
+	_, _, err = client.Repositories.DeleteFile(ctx, owner, repo, path, deleteOpts)
 	return err
 }
 
-// DeleteFolder removes every blob under prefix in ONE commit via the Git
-// Data API (a tree entry with a nil SHA deletes that path). Serialised per
-// repo through the same gate the uploaders use; retried when the branch
-// moves mid-flight. Returns how many blobs were deleted.
+// DeleteFolder removes every blob under prefix by walking the repository
+// contents tree and deleting the matching files in one Git commit. This is
+// much faster than issuing one delete request per file and keeps purges
+// idempotent for the same prefix.
 func DeleteFolder(ctx context.Context, client *github.Client, owner, repo, branch, prefix, message string) (int, error) {
 	if client == nil || owner == "" || repo == "" || prefix == "" || !strings.HasSuffix(prefix, "/") {
 		return 0, errors.New("github: invalid delete args")
@@ -540,27 +555,19 @@ func DeleteFolder(ctx context.Context, client *github.Client, owner, repo, branc
 		}
 		baseTreeSHA := baseCommit.GetTree().GetSHA()
 
-		tree, _, err := client.Git.GetTree(ctx, owner, repo, baseTreeSHA, true)
+		paths, err := collectDeletePaths(ctx, client, owner, repo, branch, prefix)
 		if err != nil {
-			return 0, fmt.Errorf("get tree: %w", err)
+			return 0, fmt.Errorf("collect delete paths: %w", err)
 		}
-		if tree.GetTruncated() {
-			return 0, errors.New("github: tree truncated, cannot purge safely")
+		if len(paths) == 0 {
+			return 0, nil
 		}
 
-		var entries []*github.TreeEntry
-		for _, e := range tree.Entries {
-			if e.GetType() != "blob" || !strings.HasPrefix(e.GetPath(), prefix) {
-				continue
-			}
-			p := e.GetPath()
+		entries := make([]*github.TreeEntry, 0, len(paths))
+		for _, p := range paths {
 			m := "100644"
 			t := "blob"
-			// nil SHA + nil Content marshals as "sha": null = delete this path.
 			entries = append(entries, &github.TreeEntry{Path: &p, Mode: &m, Type: &t})
-		}
-		if len(entries) == 0 {
-			return 0, nil
 		}
 
 		newTree, _, err := client.Git.CreateTree(ctx, owner, repo, baseTreeSHA, entries)
@@ -583,7 +590,6 @@ func DeleteFolder(ctx context.Context, client *github.Client, owner, repo, branc
 			return len(entries), nil
 		}
 		lastErr = err
-		// Branch advanced while we built the commit  re-read and retry.
 		if !isRefNotFastForward(err) && !isContentsConflict(err) {
 			return 0, fmt.Errorf("update ref: %w", err)
 		}
@@ -594,6 +600,81 @@ func DeleteFolder(ctx context.Context, client *github.Client, owner, repo, branc
 		}
 	}
 	return 0, fmt.Errorf("github: delete exhausted retries: %w", lastErr)
+}
+
+// contentsListCap is GitHub's hard limit for a directory listing. The contents
+// API does not paginate past it, it just returns fewer entries, so a folder at
+// the cap cannot be enumerated safely.
+const contentsListCap = 1000
+
+func collectDeletePaths(ctx context.Context, client *github.Client, owner, repo, branch, prefix string) ([]string, error) {
+	var opts *github.RepositoryContentGetOptions
+	if branch != "" {
+		opts = &github.RepositoryContentGetOptions{Ref: branch}
+	}
+	root := strings.TrimSuffix(prefix, "/")
+	return collectDeletePathsFromList(prefix, func(dir string) ([]*github.RepositoryContent, error) {
+		_, entries, _, err := client.Repositories.GetContents(ctx, owner, repo, dir, opts)
+		if err != nil {
+			var ge *github.ErrorResponse
+			if errors.As(err, &ge) && ge.Response != nil && ge.Response.StatusCode == 404 {
+				// Only the root may be missing, which means it is already gone.
+				// A 404 deeper in means we cannot see files that probably still
+				// exist, and reporting a successful purge would strand them.
+				if dir == root {
+					return nil, nil
+				}
+				return nil, fmt.Errorf("directory %q vanished mid-walk: %w", dir, err)
+			}
+			return nil, err
+		}
+		if len(entries) >= contentsListCap {
+			return nil, fmt.Errorf(
+				"directory %q has at least %d entries; the contents API cannot list past that, so a purge here would silently leave files behind",
+				dir, contentsListCap)
+		}
+		return entries, nil
+	})
+}
+
+func collectDeletePathsFromList(prefix string, listDir func(string) ([]*github.RepositoryContent, error)) ([]string, error) {
+	root := strings.TrimSuffix(prefix, "/")
+	if root == "" {
+		return nil, nil
+	}
+
+	var paths []string
+	var walk func(string) error
+	walk = func(dir string) error {
+		entries, err := listDir(dir)
+		if err != nil {
+			return err
+		}
+		for _, entry := range entries {
+			if entry == nil {
+				continue
+			}
+			path := entry.GetPath()
+			if path == "" {
+				continue
+			}
+			if entry.GetType() == "dir" {
+				if err := walk(path); err != nil {
+					return err
+				}
+				continue
+			}
+			if strings.HasPrefix(path, root+"/") || path == root {
+				paths = append(paths, path)
+			}
+		}
+		return nil
+	}
+
+	if err := walk(root); err != nil {
+		return nil, err
+	}
+	return paths, nil
 }
 
 // isRefNotFastForward reports GitHub's 422 when HEAD advanced and a non-force ref update is rejected.

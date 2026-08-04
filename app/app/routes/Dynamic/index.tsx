@@ -2058,7 +2058,7 @@ const DynamicPage = ({ is_modal }: DynamicPageProps) => {
       };
 
   const contentColumn = (
-    <div className="relative space-y-4 max-lg:overflow-visible max-lg:rounded-none max-lg:px-2 max-lg:py-0 lg:overflow-hidden lg:rounded-lg lg:p-4">
+    <div className="relative w-fit space-y-4 max-lg:overflow-visible max-lg:rounded-none max-lg:px-2 max-lg:py-0 lg:overflow-hidden lg:rounded-lg lg:p-4">
       <h1 className="text-xl font-bold text-foreground leading-tight select-text">
         <ParseFilenameInsert filename={ParseFilename(file_data.file_title || file_data.filename || "")}/>
       </h1>
@@ -2345,7 +2345,7 @@ const DynamicPage = ({ is_modal }: DynamicPageProps) => {
   ) : null;
 
   const relatedColumn = (
-    <aside className="min-w-0 lg:col-span-1">
+    <aside className={`${!theaterMode ? "min-w-[442px]" : "min-w-0"}`}>
       <div className="space-y-4 lg:sticky lg:top-6">
         {showSeriesChrome && (
           <div className="mb-3 hidden lg:block">
@@ -2395,7 +2395,7 @@ const DynamicPage = ({ is_modal }: DynamicPageProps) => {
         suggestedVideos={autoNextVideos}
         userActions={data.relatedVideosUserActions}
       />
-    <div className="relative min-h-screen reel_p" key={`dynamic-${currentId}`}>
+    <div className="relative  min-h-screen reel_p" key={`dynamic-${currentId}`}>
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{
@@ -2408,29 +2408,37 @@ const DynamicPage = ({ is_modal }: DynamicPageProps) => {
             .replace(new RegExp("\\u2029", "g"), "\\u2029"),
         }}
       />
-      <div className="relative z-10 mx-auto max-w-full">
+      <div className="relative z-10 mx-auto max-w-full flex flex-col justify-center">
         {/* 
           never remove this comment
           This is the original grid layout for the watch page I may change it later but for now keep it here.
           <div className={!theaterMode ? "grid grid-cols-1 gap-4 sm:gap-5 lg:grid-cols-3 lg:gap-6 xl:gap-8" : ""}>
           <div className={!theaterMode ? "min-w-0 space-y-3 sm:space-y-4 lg:col-span-2" : ""}>
         */}
-        <div className={!theaterMode ? "watch-grid" : ""}>
-          <div className={!theaterMode ? "min-w-0 space-y-3 sm:space-y-4 lg:col-span-2 xl:col-span-1" : ""}>
-            <div className="relative w-full overflow-visible">
+        <div className={!theaterMode ? "watch-flex flex gap-4 flex justify-center" : ""}>
+          <div 
+          style={{
+            aspectRatio: String(playerFrameAspect),
+            width: `min(100%, calc(${theaterMode ? 90 : 82}vh * ${playerFrameAspect}))`,
+          }}
+           className={!theaterMode ? "min-w-0 w-fit space-y-3 sm:space-y-4 lg:col-span-2 xl:col-span-1" : ""}>
+            <div 
+              style={{
+                // Match the video's aspect (clamped above); cap the height so portrait
+                // clips stay within the viewport and width shrinks instead of the
+                // frame towering. Width fills the column for normal ~16:9 videos.
+                aspectRatio: String(playerFrameAspect),
+                width: `min(100%, calc(${theaterMode ? 90 : 82}vh * ${playerFrameAspect}))`,
+              }}
+             className="relative w-fit overflow-visible">
               {videoBlock}
               {ambientEnabled && (
                 <div
                   className="ambience-wrap pointer-events-none absolute -z-10"
                   aria-hidden
                   style={{
-                    // Player background off = the video shows at its REAL aspect
-                    // inside the 16:9 box (pillar/letterboxed). Hug the glow to
-                    // that visible rect so the light matches the picture.
                     inset: (() => {
                       const box = 16 / 9;
-                      // User-tunable glow size. 1x is a tight halo hugging the
-                      // video; only the top step (2x = Full) floods the screen.
                       const hm = 10 + 70 * (ambientSizeMul - 1);
                       const vm = 14 + 106 * (ambientSizeMul - 1);
                       let h = -hm;

@@ -824,21 +824,21 @@ func (w *Worker) processJob(job *queue.Job) {
 				}
 			}
 
-			// No user-chosen cover: auto-pick the middle frame as the default
-			// poster. Now that the per-frame thumb_*.jpg files are gone, this is
-			// what gives every video a single-frame poster (the app reads
-			// default_thumbnail everywhere; falling back to the grid sprite would
-			// show a mosaic).
-			if defaultThumbPath == "" && len(thumbResult.Thumbnails) > 0 {
-				mid := thumbResult.Thumbnails[len(thumbResult.Thumbnails)/2].Data
-				if len(mid) > 0 {
-					dtPath := filepath.Join(thumbDir, "default_thumbnail.jpg")
-					if werr := os.WriteFile(dtPath, mid, 0644); werr != nil {
-						w.log.Errorf("auto default thumbnail write failed job=%s err=%s", job.ID, werr.Error())
-					} else {
-						defaultThumbPath = "default_thumbnail.jpg"
-						w.log.Infof("auto default thumbnail (middle frame) job=%s bytes=%d", job.ID, len(mid))
-					}
+		}
+
+		// Auto-pick the middle frame when there is no usable cover. This sits
+		// OUTSIDE the block above on purpose: it used to be nested inside
+		// `if job.DefaultThumbnail != ""`, so a video uploaded WITHOUT a chosen
+		// cover fell through and got no default_thumbnail.jpg at all.
+		if defaultThumbPath == "" && len(thumbResult.Thumbnails) > 0 {
+			mid := thumbResult.Thumbnails[len(thumbResult.Thumbnails)/2].Data
+			if len(mid) > 0 {
+				dtPath := filepath.Join(thumbDir, "default_thumbnail.jpg")
+				if werr := os.WriteFile(dtPath, mid, 0644); werr != nil {
+					w.log.Errorf("auto default thumbnail write failed job=%s err=%s", job.ID, werr.Error())
+				} else {
+					defaultThumbPath = "default_thumbnail.jpg"
+					w.log.Infof("auto default thumbnail (middle frame) job=%s bytes=%d", job.ID, len(mid))
 				}
 			}
 		}

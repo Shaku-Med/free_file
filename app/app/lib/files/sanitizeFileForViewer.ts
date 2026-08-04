@@ -31,6 +31,7 @@ const ALWAYS_PRIVATE_FILE_FIELDS = [
   "moderation_flag",
   "moderation_flagged_at",
   "moderation_reviewed_at",
+  "visibility_before_flag",
 ] as const;
 
 /**
