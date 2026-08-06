@@ -173,6 +173,7 @@ export function ReelMetaPanel({ file, item, views }: ReelMetaPanelProps) {
           {ownerId && !isOwner && subscribed === false ? (
             <SubscribeButton
               channelId={ownerId}
+              contextFileId={file?.id ?? null}
               currentUserId={userId ?? null}
               initialSubscribed={false}
               initialNotify={false}

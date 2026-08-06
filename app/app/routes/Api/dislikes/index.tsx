@@ -2,6 +2,7 @@ import { isAuthenticated } from "~/lib/Security/Password";
 import db from "~/lib/Database/supabase";
 import { isValidFileId } from "~/lib/Security/inputValidation";
 import { checkInteractionRateLimit } from "~/routes/Api/fun/personalizationRateLimit";
+import { parsePlaybackPosition, recordActionPosition } from "~/lib/Services/actionPosition.server";
 
 const toJson = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), {
@@ -41,10 +42,15 @@ export const action = async ({ request }: { request: Request }) => {
       return toJson({ error: "Failed to update dislike" }, 500);
     }
     const row = Array.isArray(data) ? data[0] : data;
+    const disliked = row?.disliked ?? false;
+    void recordActionPosition(user.id, fileId, 'dislike', parsePlaybackPosition(body?.position), disliked);
+    // A like and a dislike are mutually exclusive, so toggling one clears the
+    // other's position row as well.
+    if (disliked) void recordActionPosition(user.id, fileId, 'like', null, false);
     return toJson({
       success: true,
       liked: row?.liked ?? false,
-      disliked: row?.disliked ?? false,
+      disliked,
       like_count: row?.like_count ?? 0,
       dislike_count: row?.dislike_count ?? 0
     });

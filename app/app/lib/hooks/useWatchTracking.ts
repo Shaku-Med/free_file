@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react';
+import { clearPlaybackPosition, publishPlaybackPosition } from '~/lib/playback/positionRegistry';
 
 interface UseWatchTrackingOptions {
   fileId: string;
@@ -58,6 +59,9 @@ export const useWatchTracking = ({
       if (video.duration) {
         videoDurationRef.current = video.duration;
       }
+      // Feeds the depth of like/dislike/save/subscribe. This hook runs for the
+      // watch page and for reels, so both surfaces get it from one place.
+      publishPlaybackPosition(fileId, video.currentTime, video.duration);
     };
 
     const handleEnded = () => {
@@ -79,7 +83,8 @@ export const useWatchTracking = ({
       video.removeEventListener('pause', handlePause);
       video.removeEventListener('ended', handleEnded);
       video.removeEventListener('timeupdate', handleTimeUpdate);
-      
+      clearPlaybackPosition(fileId);
+
       if (updateIntervalRef.current) {
         clearInterval(updateIntervalRef.current);
       }

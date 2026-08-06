@@ -3,9 +3,12 @@ import { useNavigate } from "react-router";
 import { Bell, BellOff, Loader2, ChevronDown } from "lucide-react";
 import { cn } from "~/lib/utils";
 import { Tooltip, TooltipContent, TooltipTrigger } from "~/components/ui/tooltip";
+import { playbackPositionField } from "~/lib/playback/positionRegistry";
 
 interface SubscribeButtonProps {
   channelId: string;
+  /** File being watched when this was clicked. Ranking signal only, optional. */
+  contextFileId?: string | null;
   currentUserId: string | null;
   initialSubscribed: boolean;
   initialNotify: boolean;
@@ -31,6 +34,7 @@ export function formatSubscriberCount(count: number): string {
 
 export default function SubscribeButton({
   channelId,
+  contextFileId = null,
   currentUserId,
   initialSubscribed,
   initialNotify,
@@ -67,7 +71,11 @@ export default function SubscribeButton({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ channel_id: channelId, action: "toggle" }),
+        body: JSON.stringify({
+          channel_id: channelId,
+          action: "toggle",
+          ...(contextFileId ? { fileId: contextFileId, ...playbackPositionField(contextFileId) } : {}),
+        }),
       });
       if (res.status === 401) { requireAuth(); return; }
       const json = await res.json();
@@ -87,7 +95,7 @@ export default function SubscribeButton({
       }
     } catch {}
     finally { setBusy(false); }
-  }, [channelId, currentUserId, requireAuth, onSubscriberCountChange]);
+  }, [channelId, contextFileId, currentUserId, requireAuth, onSubscriberCountChange]);
 
   const handleBellToggle = useCallback(async (e: React.MouseEvent) => {
     e.stopPropagation();

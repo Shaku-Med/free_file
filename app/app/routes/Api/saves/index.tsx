@@ -3,6 +3,7 @@ import db from '~/lib/Database/supabase';
 import { isValidUUID } from '~/lib/Security/inputValidation';
 import { filterFilesByAccess } from '~/routes/Api/fun/accessControl';
 import { checkSavesGetRateLimit, checkSavesPostRateLimit } from '~/routes/Api/fun/personalizationRateLimit';
+import { parsePlaybackPosition, recordActionPosition } from '~/lib/Services/actionPosition.server';
 
 const toJson = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), {
@@ -110,9 +111,11 @@ export const action = async ({ request }: { request: Request }) => {
     }
 
     const row = Array.isArray(data) ? data[0] : data;
+    const saved = row?.saved ?? false;
+    void recordActionPosition(user.id, fileId, 'save', parsePlaybackPosition(body?.position), saved);
     return toJson({
       success: true,
-      saved: row?.saved ?? false,
+      saved,
       save_count: Number(row?.save_count) ?? 0,
     });
   } catch (error) {

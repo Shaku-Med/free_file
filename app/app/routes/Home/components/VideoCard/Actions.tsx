@@ -57,6 +57,7 @@ import CommentSection from "~/routes/Dynamic/components/Comments/CommentSection"
 import { useLocalPlaylist, normalizeLocalPlaylistFileId } from "~/lib/hooks/useLocalPlaylist";
 import { useFileContext } from "~/lib/Context/Context";
 import { personalizationService } from "~/lib/Services/PersonalizationService";
+import { playbackPositionField } from '~/lib/playback/positionRegistry';
 
 export interface ActionsProps {
   fileId: string;
@@ -397,7 +398,7 @@ export default function Actions({
       const setBusy = kind === "like" ? setLikeBusy : setDislikeBusy;
       setBusy(true);
       const url = kind === "like" ? "/api/likes" : "/api/dislikes";
-      const { ok, json, status } = await postInteraction(url, { fileId });
+      const { ok, json, status } = await postInteraction(url, { fileId, ...playbackPositionField(fileId) });
       setBusy(false);
       if (status === 401) {
         requireAuth();

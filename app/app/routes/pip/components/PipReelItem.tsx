@@ -36,6 +36,7 @@ import {
   reportPipStateToMain,
 } from '../pipEnv';
 import { PIP_REEL_HLS_HIDE_CONTROLS } from './pipPlayerChrome';
+import { playbackPositionField } from '~/lib/playback/positionRegistry';
 
 /**
  * Describes the active reel so the page can drive ONE shared ambience glow AND
@@ -689,7 +690,7 @@ function PipReelItemInner({
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       credentials: 'include',
-      body: JSON.stringify({ fileId }),
+      body: JSON.stringify({ fileId, ...playbackPositionField(fileId) }),
     })
       .then(async (res) =>
         res.ok

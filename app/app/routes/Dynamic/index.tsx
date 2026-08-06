@@ -2104,6 +2104,7 @@ const DynamicPage = ({ is_modal }: DynamicPageProps) => {
             {data.channelStats && !isOwner && (
               <SubscribeButton
                 channelId={data.owner.id}
+                contextFileId={data.file?.id ?? null}
                 currentUserId={userId}
                 initialSubscribed={data.channelStats.is_subscribed}
                 initialNotify={data.channelStats.notify}

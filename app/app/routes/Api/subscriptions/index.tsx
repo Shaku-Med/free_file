@@ -3,6 +3,8 @@ import { isAuthenticated } from "~/lib/Security/Password";
 import db from "~/lib/Database/supabase";
 import { createNotification } from "~/lib/Services/NotificationService";
 import { enqueuePush, cancelPush } from "~/lib/Services/PushQueue.server";
+import { isValidUUID } from "~/lib/Security/inputValidation";
+import { parsePlaybackPosition, recordActionPosition } from "~/lib/Services/actionPosition.server";
 
 function shouldNotifyNewSubscription(
   actionType: string,
@@ -92,6 +94,18 @@ export const action = async ({ request }: { request: Request }) => {
       return data({ success: false, error: "channel_id is required" }, { status: 400 });
     }
 
+    // The file being watched when the subscribe happened. Optional, and only
+    // counted when it actually belongs to this channel.
+    const contextFileId: string | null =
+      typeof body?.fileId === "string" && isValidUUID(body.fileId) ? body.fileId : null;
+    const contextPosition = parsePlaybackPosition(body?.position);
+    const trackSubscribe = (subscribed: boolean) => {
+      if (!contextFileId) return;
+      void recordActionPosition(
+        user.id, contextFileId, "subscribe", contextPosition, subscribed, channel_id,
+      );
+    };
+
     if (actionType === "toggle") {
       const { data: result, error } = await db.rpc("toggle_subscription", {
         p_subscriber_id: user.id,
@@ -105,6 +119,7 @@ export const action = async ({ request }: { request: Request }) => {
 
       const parsed = typeof result === "string" ? JSON.parse(result) : result;
       const obj = parsed as Record<string, unknown>;
+      trackSubscribe(obj.subscribed === true);
       if (shouldNotifyNewSubscription("toggle", obj)) {
         fireNewSubscriberNotifications(channel_id, user.id);
       } else if (obj.success === true && obj.subscribed === false) {
@@ -141,6 +156,7 @@ export const action = async ({ request }: { request: Request }) => {
 
       const parsed = typeof result === "string" ? JSON.parse(result) : result;
       const obj = parsed as Record<string, unknown>;
+      trackSubscribe(true);
       if (shouldNotifyNewSubscription("subscribe", obj)) {
         fireNewSubscriberNotifications(channel_id, user.id);
       }
@@ -159,6 +175,7 @@ export const action = async ({ request }: { request: Request }) => {
 
       // Cancel any pending new-subscriber push from a just-undone subscribe.
       void cancelPush(channel_id, "new_subscriber", user.id);
+      trackSubscribe(false);
       const parsed = typeof result === "string" ? JSON.parse(result) : result;
       return data(parsed, { status: 200 });
     }

@@ -5,6 +5,7 @@ import { createNotification } from "~/lib/Services/NotificationService";
 import { enqueuePush, cancelPush } from "~/lib/Services/PushQueue.server";
 import { checkInteractionRateLimit } from "~/routes/Api/fun/personalizationRateLimit";
 import { recordFileTaste } from "~/lib/Services/taste.server";
+import { parsePlaybackPosition, recordActionPosition } from "~/lib/Services/actionPosition.server";
 
 const toJson = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), {
@@ -45,6 +46,9 @@ export const action = async ({ request }: { request: Request }) => {
     }
     const row = Array.isArray(data) ? data[0] : data;
     const liked = row?.liked ?? false;
+    void recordActionPosition(user.id, fileId, 'like', parsePlaybackPosition(body?.position), liked);
+    // Liking clears any dislike, so its position row goes too.
+    if (liked) void recordActionPosition(user.id, fileId, 'dislike', null, false);
     let likedCategories: string[] = [];
     if (liked && db) {
       // A like is a strong taste signal: bump the user's affinity for this

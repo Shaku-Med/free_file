@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { videoPlaybackDB } from '~/lib/Database/VideoPlaybackDB';
 import { useWatchProgressWriter } from '~/lib/Context/WatchProgressContext';
+import { clearPlaybackPosition, publishPlaybackPosition } from '~/lib/playback/positionRegistry';
 import { usePlayerContext } from '../PlayerContext';
 
 const SERVER_SAVE_INTERVAL_MS = 10_000;
@@ -157,12 +158,22 @@ export function usePlaybackPosition(videoRef: React.RefObject<HTMLVideoElement |
       maybePersistServer(true);
     };
 
+    // Separate from the debounced persistence: action buttons read this the
+    // instant they fire, so it has to be current, and it only writes a module
+    // variable.
+    const publishPosition = () => {
+      publishPlaybackPosition(fileUuid, video.currentTime, video.duration);
+    };
+
     video.addEventListener('timeupdate', debouncedSave);
+    video.addEventListener('timeupdate', publishPosition);
     video.addEventListener('pause', immediateSave);
 
     return () => {
       video.removeEventListener('timeupdate', debouncedSave);
+      video.removeEventListener('timeupdate', publishPosition);
       video.removeEventListener('pause', immediateSave);
+      clearPlaybackPosition(fileUuid);
       if (video.duration && !isNaN(video.currentTime)) {
         videoPlaybackDB
           .savePosition(imageID, video.currentTime, video.duration, src)

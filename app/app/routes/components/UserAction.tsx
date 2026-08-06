@@ -12,6 +12,7 @@ import { ShareModal } from "~/components/ShareModal";
 import { BASE_URL } from "~/lib/URLS";
 import { toast } from "~/components/ui/sonner";
 import { personalizationService } from "~/lib/Services/PersonalizationService";
+import { playbackPositionField } from '~/lib/playback/positionRegistry';
 
 function formatCompact(n: number): string {
   if (n >= 1e6) return (n / 1e6).toFixed(1).replace(/\.0$/, "") + "M";
@@ -59,7 +60,7 @@ const UserAction = ({ upCount = 0, downCount = 0, fileId, initialLiked = false, 
     }
     setIsLoading(true);
     try {
-      const res = await fetch('/api/likes', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ fileId: targetFileId }) });
+      const res = await fetch('/api/likes', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ fileId: targetFileId, ...playbackPositionField(targetFileId) }) });
       if (res.status === 401) { window.location.href = '/auth/login'; return; }
       const result = await res.json();
       if (result.success) {
@@ -102,7 +103,7 @@ const UserAction = ({ upCount = 0, downCount = 0, fileId, initialLiked = false, 
     }
     setIsLoading(true);
     try {
-      const res = await fetch('/api/dislikes', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ fileId: targetFileId }) });
+      const res = await fetch('/api/dislikes', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ fileId: targetFileId, ...playbackPositionField(targetFileId) }) });
       if (res.status === 401) { window.location.href = '/auth/login'; return; }
       const result = await res.json();
       if (result.success) {
