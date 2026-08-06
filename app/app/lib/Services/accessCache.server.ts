@@ -25,6 +25,7 @@
  */
 
 import db from "~/lib/Database/supabase";
+import { isFileVisibility, type FileVisibility } from "~/lib/Security/visibility";
 import { getCookie } from "~/lib/Security/Token";
 import { DecryptCombine } from "~/lib/Security/unsharedkeyEncryption/Combined/Combined";
 import { getAllKeys } from "~/lib/Security/unsharedkeyEncryption/Combined/Verification/TokenKeys";
@@ -34,6 +35,13 @@ export interface CachedFileAccess {
   unique_id: string;
   is_adult: boolean;
   is_public: boolean;
+  /**
+   * Must be carried through. `visibilityOf` falls back to `is_public === false
+   * ? 'private' : 'public'` when this is missing, and unlisted rows have
+   * is_public = false, so dropping it turned every unlisted file private and
+   * 403'd its thumbnails and sidecars for everyone but the owner.
+   */
+  visibility?: FileVisibility;
   owner_id: string;
   upload_status: string | null;
   github_repo: string | null;
@@ -124,6 +132,7 @@ export async function getCachedFileByUniqueId(
       unique_id: String(data.unique_id ?? uniqueId),
       is_adult: Boolean(data.is_adult),
       is_public: data.is_public !== false,
+      visibility: isFileVisibility(data.visibility) ? data.visibility : undefined,
       owner_id: String(data.owner_id ?? ""),
       upload_status: typeof data.upload_status === "string" ? data.upload_status : null,
       github_repo: typeof data.github_repo === "string" ? data.github_repo : null,
