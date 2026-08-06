@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime/debug"
 	"strconv"
 	"strings"
 	"sync"
@@ -200,9 +201,36 @@ func (w *Worker) Stop() {
 	w.wg.Wait()
 }
 
+// recoverOrphanedJobs fails every job that was still mid-flight when the
+// process last died (OOM kill, container restart, hard crash). Those jobs were
+// already popped off the queue, so nothing else will ever finish them and the
+// file row would sit at its last progress percentage forever.
+//
+// Startup only. A live worker's current job is in this same set, so sweeping at
+// any other time would fail work that is running perfectly well.
+func (w *Worker) recoverOrphanedJobs() {
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	jobs, err := w.queue.OrphanedJobs(ctx)
+	if err != nil {
+		w.log.Errorf("orphan job sweep failed: %v", err)
+		return
+	}
+	for _, job := range jobs {
+		w.log.Errorf("orphaned job job=%s user=%s upload=%s file=%s  worker died mid-processing, failing it", job.ID, job.UserID, job.UploadID, job.FileName)
+		w.failJob(job, "worker died mid-processing")
+		_ = w.queue.ClearInFlight(context.Background(), job.ID)
+	}
+	if len(jobs) > 0 {
+		w.log.Infof("orphan job sweep released %d stranded job(s)", len(jobs))
+	}
+}
+
 func (w *Worker) run() {
 	defer w.wg.Done()
 	w.log.Infof("worker started")
+	w.recoverOrphanedJobs()
 	var lastOrphanCleanup time.Time
 
 	for {
@@ -520,6 +548,29 @@ func (w *Worker) failJob(job *queue.Job, reason string, cleanupPaths ...string) 
 
 func (w *Worker) processJob(job *queue.Job) {
 	start := time.Now()
+
+	// The job is already popped off Redis by the time we get here, so there is
+	// nothing left to retry it. A panic below used to escape run() and kill the
+	// whole process: the file row kept whatever progress percentage it last
+	// received and sat there forever. Turn any panic into an ordinary failure so
+	// the row always reaches a terminal state.
+	completed := false
+	defer func() {
+		if r := recover(); r != nil {
+			w.log.Errorf("job PANIC job=%s user=%s upload=%s err=%v\n%s", job.ID, job.UserID, job.UploadID, r, debug.Stack())
+			// Already told the app it succeeded: failing it now would undo a
+			// good upload over a panic in the trailing log line.
+			if !completed {
+				w.failJob(job, fmt.Sprintf("panic: %v", r))
+			}
+		}
+		// Cleared last. While this key exists the next startup treats the job as
+		// orphaned and fails it, which is what we want if the process dies
+		// before reaching a terminal state.
+		_ = w.queue.ClearInFlight(context.Background(), job.ID)
+	}()
+	_ = w.queue.MarkInFlight(context.Background(), job)
+
 	_ = w.queue.SetJobStatus(context.Background(), job.ID, "running")
 	w.notifyRunningProgress(job, 10)
 	w.log.Infof("processing job=%s user=%s upload=%s file=%s", job.ID, job.UserID, job.UploadID, job.FileName)
@@ -1245,8 +1296,12 @@ func (w *Worker) processJob(job *queue.Job) {
 	}
 
 	w.notifyRunningProgress(job, 95)
-	_ = w.queue.SetJobStatus(context.Background(), job.ID, "completed")
-	webhook.NotifyJobStatus(webhook.Payload{
+
+	// Built before any state transition on purpose. embedForFile calls a sidecar
+	// and langdetect parses uploader-supplied text, so a blow-up in either has to
+	// land while the job is still recoverable rather than in the gap between
+	// "queue says done" and "app was told".
+	payload := webhook.Payload{
 		JobID:    job.ID,
 		Status:   "completed",
 		UploadID: job.UploadID,
@@ -1284,7 +1339,13 @@ func (w *Worker) processJob(job *queue.Job) {
 		OriginalUniqueID:    originalUniqueID,
 		// Uploader's own words only - the AI caption is always English.
 		ContentLanguage: langdetect.Detect(job.Title, job.Description),
-	})
+	}
+
+	// App first, queue second. NotifyJobStatus retries terminal statuses; the
+	// queue write is local bookkeeping that cannot resurrect a lost webhook.
+	webhook.NotifyJobStatus(payload)
+	_ = w.queue.SetJobStatus(context.Background(), job.ID, "completed")
+	completed = true
 	w.log.Infof("job complete job=%s user=%s upload=%s duration=%s thumbnails=%d colors=%d tags=%d overflow=%v fingerprints=%d", job.ID, job.UserID, job.UploadID, time.Since(start), len(thumbnailPaths), len(vidColors), len(tags), job.Overflow, len(fpHashes))
 }
 

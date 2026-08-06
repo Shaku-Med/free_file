@@ -16,32 +16,34 @@ type Client struct {
 }
 
 // ReelMode is the user's chosen reel intent for an upload.
-//   "auto"  server picks based on duration + aspect ratio (default)
-//   "yes"   force is_reel=true (refused when duration > 3 min)
-//   "no"    force is_reel=false regardless of shape/length
+//
+//	"auto"  server picks based on duration + aspect ratio (default)
+//	"yes"   force is_reel=true (refused when duration > 3 min)
+//	"no"    force is_reel=false regardless of shape/length
+//
 // Locked at upload time; can't be edited after the file ships.
 type Job struct {
-	ID               string       `json:"id"`
-	UserID           string       `json:"user_id"`
-	UploadID         string       `json:"upload_id"`
-	FileName         string       `json:"file_name"`
-	FileSize         int64        `json:"file_size"`
-	TotalChunks      int          `json:"total_chunks"`
-	Title            string       `json:"title,omitempty"`
-	Description      string       `json:"description,omitempty"`
-	UserCategories   []string     `json:"user_categories,omitempty"`
-	UserTags         []string     `json:"user_tags,omitempty"`
-	DefaultThumbnail string       `json:"default_thumbnail,omitempty"`
-	ReelMode         string       `json:"reel_mode,omitempty"`
-	FileSeriesID        string `json:"file_series_id,omitempty"`
-	FileSeriesEpisodeID string `json:"file_series_episode_id,omitempty"`
-	IsNewSeries         bool   `json:"is_new_series"`
-	NewEpisodeName      string `json:"new_episode_name,omitempty"`
-	ParentEpisodeID     string `json:"parent_episode_id,omitempty"`
+	ID                  string   `json:"id"`
+	UserID              string   `json:"user_id"`
+	UploadID            string   `json:"upload_id"`
+	FileName            string   `json:"file_name"`
+	FileSize            int64    `json:"file_size"`
+	TotalChunks         int      `json:"total_chunks"`
+	Title               string   `json:"title,omitempty"`
+	Description         string   `json:"description,omitempty"`
+	UserCategories      []string `json:"user_categories,omitempty"`
+	UserTags            []string `json:"user_tags,omitempty"`
+	DefaultThumbnail    string   `json:"default_thumbnail,omitempty"`
+	ReelMode            string   `json:"reel_mode,omitempty"`
+	FileSeriesID        string   `json:"file_series_id,omitempty"`
+	FileSeriesEpisodeID string   `json:"file_series_episode_id,omitempty"`
+	IsNewSeries         bool     `json:"is_new_series"`
+	NewEpisodeName      string   `json:"new_episode_name,omitempty"`
+	ParentEpisodeID     string   `json:"parent_episode_id,omitempty"`
 	// Overflow: accepted on the extra weekly allowance after the monthly
 	// quota filled. The worker forces the GitHub backend for these jobs.
-	Overflow         bool      `json:"overflow,omitempty"`
-	CreatedAt        time.Time `json:"created_at"`
+	Overflow  bool      `json:"overflow,omitempty"`
+	CreatedAt time.Time `json:"created_at"`
 }
 
 func NewClient(addr, password string, db int, queueName string) (*Client, error) {
@@ -72,25 +74,25 @@ func (c *Client) Enqueue(ctx context.Context, userID, uploadID, fileName string,
 	}
 	jobID := newJobID()
 	job := Job{
-		ID:               jobID,
-		UserID:           userID,
-		UploadID:         uploadID,
-		FileName:         fileName,
-		FileSize:         fileSize,
-		TotalChunks:      totalChunks,
-		Title:            title,
-		Description:      description,
-		UserCategories:   userCategories,
-		UserTags:         userTags,
-		DefaultThumbnail: defaultThumbnail,
-		ReelMode:         reelMode,
+		ID:                  jobID,
+		UserID:              userID,
+		UploadID:            uploadID,
+		FileName:            fileName,
+		FileSize:            fileSize,
+		TotalChunks:         totalChunks,
+		Title:               title,
+		Description:         description,
+		UserCategories:      userCategories,
+		UserTags:            userTags,
+		DefaultThumbnail:    defaultThumbnail,
+		ReelMode:            reelMode,
 		FileSeriesID:        fileSeriesID,
 		FileSeriesEpisodeID: fileSeriesEpisodeID,
 		IsNewSeries:         isNewSeries,
 		NewEpisodeName:      newEpisodeName,
 		ParentEpisodeID:     parentEpisodeID,
-		Overflow:         overflow,
-		CreatedAt:        time.Now().UTC(),
+		Overflow:            overflow,
+		CreatedAt:           time.Now().UTC(),
 	}
 	data, err := json.Marshal(job)
 	if err != nil {
@@ -150,6 +152,71 @@ func (c *Client) GetJobStatus(ctx context.Context, jobID string) (string, error)
 		return "", err
 	}
 	return s, nil
+}
+
+// In-flight jobs. Dequeue pops the job off the list, so once processing starts
+// Redis holds no record of it beyond a status string keyed by job id. If the
+// process dies mid-job (OOM kill, container restart, hard panic) there is
+// nothing left to tell the app the upload died, and the file row keeps whatever
+// progress percentage it last received forever.
+//
+// MarkInFlight stores the whole job under a key the next startup can find. The
+// TTL is a backstop for a worker that is retired and never comes back; normal
+// operation always clears the key.
+const (
+	jobInFlightKeyPrefix = "upload:job:inflight:"
+	jobInFlightTTL       = 24 * time.Hour
+)
+
+func (c *Client) MarkInFlight(ctx context.Context, job *Job) error {
+	if job == nil || job.ID == "" {
+		return nil
+	}
+	b, err := json.Marshal(job)
+	if err != nil {
+		return err
+	}
+	return c.rdb.Set(ctx, jobInFlightKeyPrefix+job.ID, b, jobInFlightTTL).Err()
+}
+
+func (c *Client) ClearInFlight(ctx context.Context, jobID string) error {
+	if jobID == "" {
+		return nil
+	}
+	return c.rdb.Del(ctx, jobInFlightKeyPrefix+jobID).Err()
+}
+
+// OrphanedJobs returns every job still marked in-flight. Call it at startup
+// only: a live worker's current job is in this set too, so sweeping at any
+// other time would fail a job that is happily running.
+func (c *Client) OrphanedJobs(ctx context.Context) ([]*Job, error) {
+	var out []*Job
+	var cursor uint64
+	for {
+		keys, next, err := c.rdb.Scan(ctx, cursor, jobInFlightKeyPrefix+"*", 100).Result()
+		if err != nil {
+			return out, err
+		}
+		for _, k := range keys {
+			raw, err := c.rdb.Get(ctx, k).Result()
+			if err != nil {
+				continue
+			}
+			var j Job
+			if err := json.Unmarshal([]byte(raw), &j); err != nil {
+				// Undecodable record is still a leak; drop it so it can't
+				// accumulate forever.
+				c.rdb.Del(ctx, k)
+				continue
+			}
+			out = append(out, &j)
+		}
+		if next == 0 {
+			break
+		}
+		cursor = next
+	}
+	return out, nil
 }
 
 func newJobID() string {

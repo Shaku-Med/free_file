@@ -160,6 +160,14 @@ func NotifyJobStatus(p Payload) {
 			log.Printf("[webhook] NotifyJobStatus attempt=%d/%d job=%s upload=%s payload_status=%s http=%d retriable=%v body=%q",
 				i+1, attempts, p.JobID, p.UploadID, p.Status, resp.StatusCode, retriable, strings.TrimSpace(string(bodySnippet)))
 			if !retriable {
+				if isTerminal {
+					// Same stranded row as an exhausted retry, so it needs the
+					// same loud line. A silent return here is how a rejected
+					// "completed" left the file stuck at 95% with nothing in the
+					// logs that reads like a failure.
+					log.Printf("[webhook] NotifyJobStatus REJECTED job=%s upload=%s payload_status=%s http=%d  files row may be stuck; run the recovery SQL",
+						p.JobID, p.UploadID, p.Status, resp.StatusCode)
+				}
 				return
 			}
 		}
