@@ -1168,10 +1168,18 @@ const DynamicPage = ({ is_modal }: DynamicPageProps) => {
     return null;
   }, [file_data]);
 
-  const playerFrameAspect = Math.min(
-    2.4,
-    Math.max(0.56, ambienceVideoAspect ?? dbVideoAspect ?? 16 / 9),
-  );
+  /**
+   * The frame keeps the file's real aspect. The one exception is a portrait
+   * shape: the width is driven by `82vh * aspect`, so the narrower the clip the
+   * narrower the whole player gets, and a 9:16 upload ends up a thin column on
+   * the watch page. Below the floor we fall back to a normal 16:9 frame and let
+   * the video pillarbox inside it, which the element already does via
+   * object-contain. Ultrawide stays capped so it cannot flatten the layout.
+   */
+  const PORTRAIT_FRAME_FLOOR = 1;
+  const rawFrameAspect = ambienceVideoAspect ?? dbVideoAspect ?? 16 / 9;
+  const playerFrameAspect =
+    rawFrameAspect < PORTRAIT_FRAME_FLOOR ? 16 / 9 : Math.min(2.4, rawFrameAspect);
   useEffect(() => {
     if (!videoRefReady) return;
     const v = watchVideoRef.current;
