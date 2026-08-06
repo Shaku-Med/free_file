@@ -2,6 +2,7 @@ import { filterFilesByAccess } from '../fun/accessControl';
 import { enrichFeedFilesWithInteractions } from '../fun/enrichFeedFiles';
 import db from '~/lib/Database/supabase';
 import { isAuthenticated } from '~/lib/Security/Password';
+import { sanitizeFeedCard } from '~/lib/files/sanitizeFileForViewer';
 
 const FEED_LIMIT = 20;
 
@@ -129,7 +130,7 @@ export const loader = async ({ request }: { request: Request }) => {
         : null;
 
     const result = {
-      data,
+      data: (data as Record<string, unknown>[]).map((f) => sanitizeFeedCard(f, userId ?? null)),
       userActions: { likedFileIds, dislikedFileIds, savedFileIds },
       nextCursor
     };

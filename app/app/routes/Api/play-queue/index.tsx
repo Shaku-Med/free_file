@@ -13,6 +13,7 @@ import {
   mapSeriesRpcRowToFileType,
 } from "~/routes/Dynamic/fun/mapSeriesRpcRows";
 import type { FileType, SeriesEpisodeGroup } from "~/lib/types";
+import { sanitizeMetadataForClient } from '~/lib/files/sanitizeFileForViewer';
 
 const RELATED_LIMIT = 20;
 const SUGGESTED_LIMIT = 10;
@@ -63,9 +64,8 @@ function mapRelatedRpcRow(file: Record<string, unknown>) {
           : null,
       duration: file.duration,
       categories: file.categories,
-      tags: file.tags,
       colors: file.colors,
-      metadata: file.metadata,
+      metadata: sanitizeMetadataForClient(file.metadata),
       like_count: likeCount,
       dislike_count: dislikeCount,
       comment_count: commentCount,

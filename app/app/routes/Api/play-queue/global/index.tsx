@@ -14,6 +14,7 @@ import {
   mapSeriesRpcRowToFileType,
 } from "~/routes/Dynamic/fun/mapSeriesRpcRows";
 import type { FileType, SeriesEpisodeGroup } from "~/lib/types";
+import { sanitizeMetadataForClient } from '~/lib/files/sanitizeFileForViewer';
 
 const DEFAULT_HEAD = 5;
 const DEFAULT_TAIL = 20;
@@ -132,9 +133,8 @@ function mapRelatedRow(row: Record<string, unknown>): {
           : null,
       duration: row.duration,
       categories: row.categories,
-      tags: row.tags,
       colors: row.colors,
-      metadata: row.metadata,
+      metadata: sanitizeMetadataForClient(row.metadata),
       like_count: Number(row.like_count) || 0,
       dislike_count: Number(row.dislike_count) || 0,
       comment_count: Number(row.comment_count) || 0,

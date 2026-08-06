@@ -2,6 +2,7 @@ import db from '~/lib/Database/supabase';
 import { attachIsMusic } from '~/lib/files/attachIsMusic.server';
 import { isAuthenticated } from '~/lib/Security/Password';
 import { filterFilesByAccess } from '../fun/accessControl';
+import { sanitizeFeedCard, sanitizeMetadataForClient } from '~/lib/files/sanitizeFileForViewer';
 
 const RELATED_LIMIT = 20;
 
@@ -104,7 +105,6 @@ export const loader = async ({ request }: { request: Request }) => {
         is_adult: file.is_adult,
         owner_id: file.owner_id,
         is_public: file.is_public,
-        file_description: file.file_description,
         file_title: file.file_title || '',
         default_thumbnail: file.default_thumbnail || null,
         preview_endpoint: file.preview_endpoint || null,
@@ -123,9 +123,8 @@ export const loader = async ({ request }: { request: Request }) => {
             : null,
         duration: file.duration,
         categories: file.categories,
-        tags: file.tags,
         colors: file.colors,
-        metadata: file.metadata,
+        metadata: sanitizeMetadataForClient(file.metadata),
         like_count: likeCount,
         dislike_count: dislikeCount,
         comment_count: commentCount,

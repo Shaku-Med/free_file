@@ -99,7 +99,49 @@ export function sanitizeMetadataForClient(
     out.audio = { has_audio: a.has_audio !== false };
   }
 
+  // Shown to the viewer verbatim, so it has to survive the allowlist.
+  if (typeof m.warning === "string" && m.warning.trim()) {
+    out.warning = m.warning;
+  }
+
+  // Intro / credits offsets drive the skip buttons and the owner's edit form.
+  const mk = m.markers;
+  if (mk && typeof mk === "object") {
+    const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : null);
+    out.markers = {
+      introStart: num(mk.introStart),
+      introEnd: num(mk.introEnd),
+      creditsStart: num(mk.creditsStart),
+    };
+  }
+
   return Object.keys(out).length > 0 ? out : null;
+}
+
+/**
+ * Card-sized view of a file row for feeds, related lists, reels and play queues.
+ *
+ * Two things get dropped on top of the always-private set:
+ *   - Everything the vision pass wrote into `metadata` (safeSearch verdicts,
+ *     label confidences, the AI caption, loudness, codec/bitrate). None of it is
+ *     rendered, and the safeSearch verdicts publish how content was classified.
+ *   - `file_description`, `tags` and `captions`, which no card renders. They
+ *     exist only to pre-seed the owner's edit modal, and that modal refetches
+ *     from the owner-only endpoint anyway, so non-owners never need them.
+ */
+const OWNER_ONLY_CARD_FIELDS = ["file_description", "tags", "captions"] as const;
+
+export function sanitizeFeedCard<T extends Record<string, unknown>>(
+  file: T,
+  viewerUserId: string | null,
+): T {
+  const clean = stripServerOnlyFileFields(file) as Record<string, unknown>;
+  const ownerId =
+    file.owner_id != null && file.owner_id !== "" ? String(file.owner_id) : null;
+  if (!viewerUserId || !ownerId || viewerUserId !== ownerId) {
+    for (const key of OWNER_ONLY_CARD_FIELDS) delete clean[key];
+  }
+  return clean as T;
 }
 
 /**
