@@ -5,6 +5,7 @@ import {
   ArrowUpRight,
   Check,
   Monitor,
+  ShieldCheck,
   Smartphone,
 } from "lucide-react";
 import { buildPageMeta } from "~/lib/seo";
@@ -37,6 +38,92 @@ function detectDevice(): DeviceKind {
   if (/Mac/i.test(platform) || /Macintosh/i.test(ua)) return "mac";
   if (/Linux/i.test(platform) || /Linux/i.test(ua)) return "linux";
   return "other";
+}
+
+/**
+ * Windows SmartScreen walkthrough.
+ *
+ * The installer is unsigned, so Windows hides "Run anyway" behind an
+ * understated "More info" link. Nothing on our side removes that, so show
+ * people what they are about to see and where to click.
+ */
+function WindowsInstallSteps() {
+  const steps = [
+    {
+      title: "Run the file you downloaded",
+      body: "It lands in your Downloads folder as Memories Setup.",
+    },
+    {
+      title: 'Windows says "Windows protected your PC"',
+      body: "This appears for every app without a paid signing certificate. Click More info, the small link under the message.",
+    },
+    {
+      title: 'Choose "Run anyway"',
+      body: "The button appears once More info is open. Memories installs normally from there.",
+    },
+  ];
+
+  return (
+    <div className="flex flex-1 flex-col p-6 sm:p-7">
+      <div className="flex items-center gap-2.5">
+        <ShieldCheck className="h-5 w-5 text-muted-foreground" aria-hidden />
+        <h2 className="text-lg font-semibold tracking-tight text-foreground">
+          If Windows shows a warning
+        </h2>
+      </div>
+      <p className="mt-2 max-w-prose text-sm leading-relaxed text-muted-foreground">
+        Memories is safe. Windows shows this for any app without a paid signing
+        certificate, which we do not have yet. Here is how to get past it.
+      </p>
+
+      <div className="mt-6 grid gap-6 lg:grid-cols-[1fr_auto] lg:gap-8">
+        <ol className="space-y-4">
+          {steps.map((step, i) => (
+            <li key={step.title} className="flex gap-3.5">
+              <span
+                className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary text-xs font-semibold text-primary-foreground"
+                aria-hidden
+              >
+                {i + 1}
+              </span>
+              <span className="flex flex-col gap-1">
+                <span className="text-sm font-medium text-foreground">{step.title}</span>
+                <span className="text-sm leading-relaxed text-muted-foreground">{step.body}</span>
+              </span>
+            </li>
+          ))}
+        </ol>
+
+        <div
+          className="w-full max-w-sm select-none overflow-hidden rounded-xl border border-border bg-background shadow-sm lg:w-80"
+          aria-hidden
+        >
+          <div className="border-b border-border px-4 py-3">
+            <p className="text-sm font-semibold text-foreground">Windows protected your PC</p>
+          </div>
+          <div className="space-y-3 px-4 py-3.5">
+            <p className="text-xs leading-relaxed text-muted-foreground">
+              Microsoft Defender SmartScreen prevented an unrecognised app from
+              starting. Running this app might put your PC at risk.
+            </p>
+            <p className="text-xs font-medium text-primary underline underline-offset-2">
+              More info
+            </p>
+            <div className="flex justify-end pt-1">
+              <span className="rounded-md border border-border bg-muted px-3 py-1.5 text-xs text-muted-foreground">
+                Don&apos;t run
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <p className="mt-6 text-xs leading-relaxed text-muted-foreground">
+        Prefer not to install anything? Open Memories in Edge or Chrome and use
+        Install from the address bar. It runs in its own window with no download.
+      </p>
+    </div>
+  );
 }
 
 function BentoCard({
@@ -336,6 +423,10 @@ export default function DownloadPage() {
                 </div>
               </div>
             </div>
+          </BentoCard>
+
+          <BentoCard className="md:col-span-2">
+            <WindowsInstallSteps />
           </BentoCard>
 
           {/* Mac build needs a Mac to compile — hide until we ship one.
