@@ -66,16 +66,16 @@ func ProbeVideo(path string) (*VideoInfo, error) {
 
 	var result struct {
 		Streams []struct {
-			CodecType      string            `json:"codec_type"`
-			CodecName      string            `json:"codec_name"`
-			Width          int               `json:"width"`
-			Height         int               `json:"height"`
-			DisplayAR      string            `json:"display_aspect_ratio"`
-			RFrameRate     string            `json:"r_frame_rate"`
-			BitRate        string            `json:"bit_rate"`
-			SampleRate     string            `json:"sample_rate"`
-			Channels       int               `json:"channels"`
-			Tags           map[string]string `json:"tags"`
+			CodecType  string            `json:"codec_type"`
+			CodecName  string            `json:"codec_name"`
+			Width      int               `json:"width"`
+			Height     int               `json:"height"`
+			DisplayAR  string            `json:"display_aspect_ratio"`
+			RFrameRate string            `json:"r_frame_rate"`
+			BitRate    string            `json:"bit_rate"`
+			SampleRate string            `json:"sample_rate"`
+			Channels   int               `json:"channels"`
+			Tags       map[string]string `json:"tags"`
 		} `json:"streams"`
 		Format struct {
 			Duration string            `json:"duration"`
@@ -199,8 +199,8 @@ func ProbeLoudness(path string) (*LoudnessInfo, error) {
 	}
 
 	var parsed struct {
-		InputI  string `json:"input_i"`
-		InputTP string `json:"input_tp"`
+		InputI   string `json:"input_i"`
+		InputTP  string `json:"input_tp"`
 		InputLRA string `json:"input_lra"`
 	}
 	if err := json.Unmarshal([]byte(match), &parsed); err != nil {
@@ -208,11 +208,32 @@ func ProbeLoudness(path string) (*LoudnessInfo, error) {
 	}
 
 	info := &LoudnessInfo{}
-	info.IntegratedLoudness, _ = strconv.ParseFloat(parsed.InputI, 64)
-	info.TruePeak, _ = strconv.ParseFloat(parsed.InputTP, 64)
-	info.LoudnessRange, _ = strconv.ParseFloat(parsed.InputLRA, 64)
+	info.IntegratedLoudness = parseLoudnessFloat(parsed.InputI)
+	info.TruePeak = parseLoudnessFloat(parsed.InputTP)
+	info.LoudnessRange = parseLoudnessFloat(parsed.InputLRA)
 
 	return info, nil
+}
+
+// loudnessSilenceFloor is the EBU R128 absolute gate. loudnorm reports "-inf"
+// for silent or near-silent audio, and strconv.ParseFloat accepts that string
+// and hands back -Inf with no error. That value reached the completion webhook
+// inside metadata, where json.Marshal rejects it, and the upload hung at 95%
+// forever. Clamping to the gate keeps the number meaningful and encodable.
+const loudnessSilenceFloor = -70.0
+
+func parseLoudnessFloat(s string) float64 {
+	v, err := strconv.ParseFloat(strings.TrimSpace(s), 64)
+	if err != nil || math.IsNaN(v) {
+		return loudnessSilenceFloor
+	}
+	if math.IsInf(v, 0) {
+		if v < 0 {
+			return loudnessSilenceFloor
+		}
+		return 0
+	}
+	return v
 }
 
 func parseFraction(s string) float64 {

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"io"
 	"log"
+	"math"
 	"net/http"
 	"strings"
 	"time"
@@ -106,6 +107,49 @@ var terminalStatuses = map[string]struct{}{
 // pin a worker goroutine; if every attempt fails we log loud enough to
 // notice and the SQL recovery query (see operator notes) can sweep stuck
 // rows after the fact.
+// scrubNonFinite replaces every NaN / ±Inf in the payload with an encodable
+// value. Metadata is walked because it carries whatever the probe measured.
+func scrubNonFinite(p *Payload) {
+	if math.IsNaN(p.Duration) || math.IsInf(p.Duration, 0) {
+		p.Duration = 0
+	}
+	for i, v := range p.Embedding {
+		if math.IsNaN(float64(v)) || math.IsInf(float64(v), 0) {
+			p.Embedding[i] = 0
+		}
+	}
+	if p.Metadata != nil {
+		p.Metadata = scrubMap(p.Metadata)
+	}
+}
+
+func scrubMap(m map[string]interface{}) map[string]interface{} {
+	for k, v := range m {
+		m[k] = scrubValue(v)
+	}
+	return m
+}
+
+func scrubValue(v interface{}) interface{} {
+	switch t := v.(type) {
+	case float64:
+		if math.IsNaN(t) || math.IsInf(t, 0) {
+			return nil
+		}
+	case float32:
+		if math.IsNaN(float64(t)) || math.IsInf(float64(t), 0) {
+			return nil
+		}
+	case map[string]interface{}:
+		return scrubMap(t)
+	case []interface{}:
+		for i, item := range t {
+			t[i] = scrubValue(item)
+		}
+	}
+	return v
+}
+
 func NotifyJobStatus(p Payload) {
 	base := strings.TrimSuffix(env.Get("APP_BASE_URL", ""), "/")
 	secret := env.Get("UPLOAD_WEBHOOK_SECRET", "")
@@ -114,9 +158,19 @@ func NotifyJobStatus(p Payload) {
 		return
 	}
 	log.Printf("[webhook] NotifyJobStatus sending job=%s status=%s upload=%s user=%s", p.JobID, p.Status, p.UploadID, p.UserID)
+
+	// ffprobe hands back -Inf loudness for silent audio and NaN duration for a
+	// few broken containers, and json.Marshal rejects both. That used to return
+	// here after one quiet log line, leaving the row frozen at 95% with no
+	// failure anywhere in the logs.
+	scrubNonFinite(&p)
+
 	body, err := json.Marshal(p)
 	if err != nil {
-		log.Printf("[webhook] NotifyJobStatus marshal: %v", err)
+		// Reaching this now means something other than a float is unencodable,
+		// which is a bug. Say so at the same volume as a stranded row.
+		log.Printf("[webhook] NotifyJobStatus MARSHAL FAILED job=%s upload=%s payload_status=%s err=%v  files row will be stuck; run the recovery SQL",
+			p.JobID, p.UploadID, p.Status, err)
 		return
 	}
 
