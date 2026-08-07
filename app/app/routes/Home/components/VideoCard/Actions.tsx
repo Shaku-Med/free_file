@@ -23,7 +23,6 @@ import {
   Flag,
   EyeOff,
   UserMinus,
-  Repeat2,
 } from "lucide-react";
 import { ReportDialog } from "~/components/ReportDialog";
 import { hideFromFeed } from "~/lib/feedPreferences.client";
@@ -941,7 +940,7 @@ export default function Actions({
   );
 
   /** YouTube-Shorts-style rail: like + count, dislike, comment + count, share,
-      remix (→ sound page), more, and the sound art tile at the bottom. */
+      more, and the sound art tile at the bottom. */
   const instagramReelRow = (
     <div className={cn("flex flex-col items-center", reelRowGapClass)}>
       {howLikesDislikeComments ? (
@@ -1053,20 +1052,9 @@ export default function Actions({
         {reelAuxLabel("Share")}
       </button>
 
-      <Link
-        to={`/music/${encodeURIComponent(String(fileId))}`}
-        onClick={(e) => e.stopPropagation()}
-        className={cn(
-          "group flex select-none flex-col items-center",
-          reelDensityMinimal ? "gap-0.5" : "gap-1.5",
-        )}
-        aria-label="Remix this sound"
-      >
-        <span className={cn(reelIconBtn, "group-active:scale-90")}>
-          <Repeat2 className={cn(reelIconSize, "shrink-0")} aria-hidden />
-        </span>
-        {reelAuxLabel("Remix")}
-      </Link>
+      {/* Remix is not built yet. The audio-art tile below still reaches the
+          sound page, so pulling this only removes the promise of an action the
+          app cannot perform. */}
 
       {moreDropdown}
 
