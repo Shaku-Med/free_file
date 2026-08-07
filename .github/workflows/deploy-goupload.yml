@@ -12,6 +12,18 @@ on:
       - '.github/workflows/deploy-goupload.yml'
   workflow_dispatch:
 
+# One deploy per branch at a time, newest wins.
+#
+# Without this, a run whose self-hosted job never got picked up (VPS rebooted
+# mid-assignment, so the job was tied to a runner session that no longer
+# existed) just sat there, and every later push queued up behind it instead of
+# replacing it. Superseding is the right call for this workflow because the
+# deploy is a pull-and-restart against whatever the newest commit built: an
+# older run finishing after a newer one would roll the VPS backwards.
+concurrency:
+  group: deploy-goupload-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   REGISTRY: ghcr.io
   IMAGE_OWNER: ${{ github.repository_owner }}
