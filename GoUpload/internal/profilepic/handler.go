@@ -22,13 +22,14 @@ import (
 	"goupload/internal/middleware"
 	"goupload/lib/ffmpeg"
 	ghlib "goupload/lib/github"
+	"goupload/lib/imagegate"
 	"goupload/lib/logger"
-	"goupload/lib/quota"
-	"goupload/lib/r2"
-	"goupload/lib/supabase"
 	"goupload/lib/nsfw"
 	"goupload/lib/nsfwstrikes"
+	"goupload/lib/quota"
+	"goupload/lib/r2"
 	"goupload/lib/security"
+	"goupload/lib/supabase"
 )
 
 const maxFileSize = 10 << 20
@@ -102,6 +103,13 @@ func (h *Handler) useR2() bool {
 }
 
 func (h *Handler) upload(c *fiber.Ctx) error {
+	// Bound the CPU work these inline handlers do so a burst cannot starve the
+	// video pipeline. Queued uploads are limited by the worker pool instead.
+	if !imagegate.Acquire(c.UserContext()) {
+		return c.Status(fiber.StatusServiceUnavailable).JSON(fiber.Map{"success": false, "error": "busy"})
+	}
+	defer imagegate.Release()
+
 	uid, ok := c.Locals(middleware.LocalsUserID).(string)
 	if !ok || uid == "" {
 		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"success": false})
@@ -285,8 +293,8 @@ func (h *Handler) upload(c *fiber.Ctx) error {
 	go quota.Record(context.Background(), uid, fmt.Sprintf("pic_%s_%d", uid, time.Now().UnixNano()), int64(len(data)))
 
 	return c.JSON(fiber.Map{
-		"success":      true,
-		"profile_pic":  ghPath,
+		"success":     true,
+		"profile_pic": ghPath,
 		"github_repo": targetRepo,
 	})
 }

@@ -11,8 +11,8 @@ import (
 	"time"
 
 	"goupload/lib/ffmpeg"
-	"goupload/lib/logger"
 	ghlib "goupload/lib/github"
+	"goupload/lib/logger"
 	"goupload/lib/nsfw"
 	"goupload/lib/nsfwstrikes"
 	"goupload/lib/quota"
@@ -23,6 +23,7 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/go-github/v62/github"
 	"github.com/google/uuid"
+	"goupload/lib/imagegate"
 )
 
 const maxFileSize = 10 << 20
@@ -169,6 +170,13 @@ func (h *Handler) deleteInternal(c *fiber.Ctx) error {
 }
 
 func (h *Handler) upload(c *fiber.Ctx) error {
+	// Bound the CPU work these inline handlers do so a burst cannot starve the
+	// video pipeline. Queued uploads are limited by the worker pool instead.
+	if !imagegate.Acquire(c.UserContext()) {
+		return c.Status(fiber.StatusServiceUnavailable).JSON(fiber.Map{"success": false, "error": "busy"})
+	}
+	defer imagegate.Release()
+
 	userID := c.Locals("userID")
 	uid, ok := userID.(string)
 	if !ok || uid == "" {

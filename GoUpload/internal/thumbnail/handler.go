@@ -24,6 +24,7 @@ import (
 	"github.com/google/go-github/v62/github"
 	"goupload/lib/ffmpeg"
 	ghlib "goupload/lib/github"
+	"goupload/lib/imagegate"
 	"goupload/lib/logger"
 	"goupload/lib/nsfw"
 	"goupload/lib/nsfwstrikes"
@@ -138,6 +139,13 @@ func (h *Handler) safeAssembledVideoPath(uid, videoPath string) (string, error) 
 }
 
 func (h *Handler) extractAtTimestamp(c *fiber.Ctx) error {
+	// Bound the CPU work these inline handlers do so a burst cannot starve the
+	// video pipeline. Queued uploads are limited by the worker pool instead.
+	if !imagegate.Acquire(c.UserContext()) {
+		return c.Status(fiber.StatusServiceUnavailable).JSON(fiber.Map{"success": false, "error": "busy"})
+	}
+	defer imagegate.Release()
+
 	uid, ok := c.Locals("userID").(string)
 	if !ok || uid == "" {
 		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "missing_user_id"})
@@ -209,6 +217,13 @@ var allowedMIME = map[string]bool{
 }
 
 func (h *Handler) uploadDefaultThumbnail(c *fiber.Ctx) error {
+	// Bound the CPU work these inline handlers do so a burst cannot starve the
+	// video pipeline. Queued uploads are limited by the worker pool instead.
+	if !imagegate.Acquire(c.UserContext()) {
+		return c.Status(fiber.StatusServiceUnavailable).JSON(fiber.Map{"success": false, "error": "busy"})
+	}
+	defer imagegate.Release()
+
 	userID := c.Locals("userID")
 	uid, ok := userID.(string)
 	if !ok || uid == "" {
