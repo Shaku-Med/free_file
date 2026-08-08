@@ -52,20 +52,26 @@ func parseDurationEnv(key string, fallback time.Duration) time.Duration {
 // never sent to clients).
 //
 // Required env:
-//   PLAYBACK_TOKEN_SECRET   shared HMAC secret with the main app
-//   GITHUB_OWNER            org / user that owns the storage repo
-//   GITHUB_REPO             repo name
+//
+//	PLAYBACK_TOKEN_SECRET   shared HMAC secret with the main app
+//	GITHUB_OWNER            org / user that owns the storage repo
+//	GITHUB_REPO             repo name
+//
 // Optional env:
-//   PORT                    default 3006
-//   GITHUB_BRANCH           default "main"
-//   ALLOWED_ORIGINS         CSV, e.g. "https://memories.brozy.org,http://localhost:3000"
-//   BLOCKED_ORIGINS         CSV of LoadPlay's own origins; standalone access is rejected
-//   PUBLIC_HOST             optional public CDN base, also added to blocked origins
-//   REQUIRE_FINGERPRINT     "1" to enforce IP/UA binding (default off until app side starts emitting it)
-//   BLOCK_TOOL_UA           "1" to reject curl/Postman/etc by UA string
-//   PLAYBACK_DEBUG          "1" to log every successful origin/referer check too
-//   PLAYBACK_SEGMENT_MAX_AGE_SEC  browser-private cache TTL for media segments
-//                           (default 900; 0 = old always-no-store behavior)
+//
+//	PORT                    default 3006
+//	GITHUB_BRANCH           default "main"
+//	ALLOWED_ORIGINS         CSV, e.g. "https://memories.brozy.org,http://localhost:3000"
+//	BLOCKED_ORIGINS         CSV of LoadPlay's own origins; standalone access is rejected
+//	PUBLIC_HOST             optional public CDN base, also added to blocked origins
+//	REQUIRE_FINGERPRINT     "1" to enforce IP/UA binding (default off until app side starts emitting it)
+//	STRICT_IP_BINDING       "1" to refuse a token whose IP prefix changed. Default off:
+//	                        iCloud Private Relay, CGNAT and VPNs rotate egress between the
+//	                        mint host and the CDN host, so a changed IP is normal traffic.
+//	BLOCK_TOOL_UA           "1" to reject curl/Postman/etc by UA string
+//	PLAYBACK_DEBUG          "1" to log every successful origin/referer check too
+//	PLAYBACK_SEGMENT_MAX_AGE_SEC  browser-private cache TTL for media segments
+//	                        (default 900; 0 = old always-no-store behavior)
 func main() {
 	lg := logger.New(2048)
 	handler.SetBuildVersion(buildVersion)
@@ -171,13 +177,14 @@ func main() {
 		// Dev only: accept LAN/loopback origins (e.g. a phone hitting
 		// http://192.168.1.169:3000) so you don't have to hardcode the IP.
 		// Hard-gated to non-production; never widens to routable hosts.
-		Guard:       guard.NewConfig(env.Get("ALLOWED_ORIGINS", ""), blockedOrigins, env.Get("BLOCK_TOOL_UA", "1") == "1", appEnv != "production"),
-		HTTPClient:  &http.Client{Timeout: 20 * time.Second},
-		PublicHost:  env.Get("PUBLIC_HOST", ""),
-		RequireBind: env.Get("REQUIRE_FINGERPRINT", "0") == "1",
-		FileCache:   fileCache,
-		RateLimit:   ratelimit.New(),
-		Allowlist:   guest.NewAllowlist(10 * time.Minute),
+		Guard:        guard.NewConfig(env.Get("ALLOWED_ORIGINS", ""), blockedOrigins, env.Get("BLOCK_TOOL_UA", "1") == "1", appEnv != "production"),
+		HTTPClient:   &http.Client{Timeout: 20 * time.Second},
+		PublicHost:   env.Get("PUBLIC_HOST", ""),
+		RequireBind:  env.Get("REQUIRE_FINGERPRINT", "0") == "1",
+		StrictIPBind: env.Get("STRICT_IP_BINDING", "0") == "1",
+		FileCache:    fileCache,
+		RateLimit:    ratelimit.New(),
+		Allowlist:    guest.NewAllowlist(10 * time.Minute),
 		// Replay defense: a token nonce sticks to the fingerprint that
 		// used it first; copies pasted into another browser get 401.
 		NonceStore: noncestore.New(30*time.Minute, 50_000),

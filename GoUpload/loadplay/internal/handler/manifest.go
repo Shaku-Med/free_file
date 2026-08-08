@@ -33,13 +33,16 @@ import (
 // ManifestDeps is everything a manifest handler needs from outside; passed
 // in so the handler stays test-friendly and doesn't reach for globals.
 type ManifestDeps struct {
-	Log           *logger.Logger
-	Secret        []byte
-	Storage       storage.Config
-	Guard         guard.Config
-	HTTPClient    *http.Client
-	PublicHost    string
-	RequireBind   bool
+	Log         *logger.Logger
+	Secret      []byte
+	Storage     storage.Config
+	Guard       guard.Config
+	HTTPClient  *http.Client
+	PublicHost  string
+	RequireBind bool
+	// StrictIPBind restores the old behaviour of refusing a token whose IP
+	// prefix changed. Off by default; see softGuardOrFingerprint.
+	StrictIPBind  bool
 	FileCache     *cache.FileCache
 	RateLimit     *ratelimit.Limiter
 	Allowlist     *guest.Allowlist
@@ -247,9 +250,25 @@ func softGuardOrFingerprint(c *fiber.Ctx, deps ManifestDeps, tok *token.Playback
 	ip := extractClientIP(c)
 	ipHash := fingerprint.Hash(fingerprint.IPPrefix(ip))
 	uaHash := fingerprint.Hash(c.Get("User-Agent"))
+
+	// IP is an advisory signal, not a gate.
+	//
+	// The token is minted against the app host and spent against the CDN host,
+	// which are two separate connections. Anything that assigns egress per
+	// connection breaks the comparison for a legitimate viewer: iCloud Private
+	// Relay (Safari on iOS routes through Fastly/Akamai and rotates), carrier
+	// CGNAT, VPNs, and dual-stack clients that pick v6 for one host and v4 for
+	// the other. Denying on that locked out every Private Relay iPhone.
+	//
+	// What still gates playback: the HMAC signature, the short expiry, the
+	// Origin+Referer hard gate ahead of this, the user id, the UA below, and
+	// nonce binding. Set STRICT_IP_BINDING=1 to restore the old refusal.
 	if tok.IPHash != "" && tok.IPHash != ipHash {
-		deps.Log.Errorf("fingerprint ip mismatch token=%s req=%s", tok.IPHash, ipHash)
-		return deny(c, fiber.StatusUnauthorized)
+		if deps.StrictIPBind {
+			deps.Log.Errorf("fingerprint ip mismatch (strict) token=%s req=%s", tok.IPHash, ipHash)
+			return deny(c, fiber.StatusUnauthorized)
+		}
+		deps.Log.Infof("fingerprint ip changed token=%s req=%s file=%s", tok.IPHash, ipHash, tok.FileID)
 	}
 	if tok.UAHash != "" && tok.UAHash != uaHash {
 		deps.Log.Errorf("fingerprint ua mismatch")
@@ -322,13 +341,13 @@ func resolveAccessAndStorage(ctx context.Context, deps ManifestDeps, tok *token.
 }
 
 // loadManifestBody folds three traffic controls into one call:
-//   1. manifest body cache (~60s)  finished uploads are immutable, so
-//      hot videos serve from RAM and never re-fetch GitHub
-//   2. singleflight  concurrent misses for the same manifest collapse
-//      into a single upstream fetch
-//   3. fetch gate  caps concurrent upstream fetches so a slow GitHub
-//      can't grow our in-flight queue unboundedly (returns ErrBusy →
-//      503 + Retry-After to shed load)
+//  1. manifest body cache (~60s)  finished uploads are immutable, so
+//     hot videos serve from RAM and never re-fetch GitHub
+//  2. singleflight  concurrent misses for the same manifest collapse
+//     into a single upstream fetch
+//  3. fetch gate  caps concurrent upstream fetches so a slow GitHub
+//     can't grow our in-flight queue unboundedly (returns ErrBusy →
+//     503 + Retry-After to shed load)
 func loadManifestBody(c *fiber.Ctx, deps ManifestDeps, st storage.Config, relPath string) (string, error) {
 	fetch := func() (string, error) {
 		if deps.FetchGate != nil {

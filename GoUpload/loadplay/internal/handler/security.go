@@ -14,15 +14,20 @@ import (
 
 // replayFingerprint identifies the requester for nonce binding.
 // Combines the network bucket (IP /24+UA hash) with the REQUEST SHAPE
-//  Sec-Fetch-Site, Sec-Fetch-Mode, Sec-Fetch-Dest, the Accept-Language
+//
+//	Sec-Fetch-Site, Sec-Fetch-Mode, Sec-Fetch-Dest, the Accept-Language
+//
 // triplet, and whether X-App-Origin is set. A private-tab paste of the
 // same URL on the same machine shows a different request shape (mode=
 // navigate, site=none, dest=document, no X-App-Origin), so the second
 // fetch arrives with a DIFFERENT fingerprint than the first and the
 // nonce store rejects it.
 func replayFingerprint(c *fiber.Ctx) string {
-	ip := extractClientIP(c)
-	ipBucket := fingerprint.Hash(fingerprint.IPPrefix(ip))
+	// No IP bucket. A rotating egress (Private Relay, CGNAT, VPN) changes it
+	// between the manifest fetch and the segment fetches, which would reject a
+	// viewer's own nonce partway through playback. UA + request shape still
+	// separate a real player fetch from an address-bar paste, and Origin +
+	// Referer are checked before this.
 	uaBucket := fingerprint.Hash(c.Get("User-Agent"))
 
 	// Coarse "is this a real player subresource fetch?" shape.
@@ -36,7 +41,7 @@ func replayFingerprint(c *fiber.Ctx) string {
 	}, "|")
 	shapeBucket := fingerprint.Hash(shape)
 
-	return ipBucket + "|" + uaBucket + "|" + shapeBucket
+	return uaBucket + "|" + shapeBucket
 }
 
 func boolFlag(b bool) string {
