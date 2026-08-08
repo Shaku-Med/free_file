@@ -968,15 +968,14 @@ function PipReelItemInner({
     ) : videoSrc && !showHls ? (
       <div className={cn('flex h-full w-full items-center justify-center', playerBackground ? 'bg-black' : 'bg-transparent')}>
         {posterUrl ? (
-          <img
-            src={posterUrl}
-            alt=""
+          <ImageLoad
+            link={getThumbnailUrl(file)}
+            imageID={`${file.unique_id}_reel_poster`}
+            index={0}
+            retry={noopRetry}
             className="h-full w-full object-contain"
-            decoding="async"
-            // Eager + default priority: Swiper only keeps a small window of
-            // slides mounted, so nearby reel posters load ahead and the
-            // thumbnail is already there the moment the user swipes to it.
-            loading="eager"
+            quality={50}
+            hasAdultTag={Boolean(file.is_adult)}
           />
         ) : (
           <div className="h-12 w-12 animate-pulse rounded-full bg-white/10" aria-hidden />
@@ -989,12 +988,14 @@ function PipReelItemInner({
       // is only for the case where there is genuinely nothing to show.
       <div className={cn('flex h-full w-full items-center justify-center', playerBackground ? 'bg-black' : 'bg-transparent')}>
         {posterUrl ? (
-          <img
-            src={posterUrl}
-            alt=""
+          <ImageLoad
+            link={getThumbnailUrl(file)}
+            imageID={`${file.unique_id}_reel_poster`}
+            index={0}
+            retry={noopRetry}
             className="h-full w-full object-contain"
-            decoding="async"
-            loading="eager"
+            quality={50}
+            hasAdultTag={Boolean(file.is_adult)}
           />
         ) : (
           <div className="flex h-full w-full items-center justify-center bg-muted text-muted-foreground">
