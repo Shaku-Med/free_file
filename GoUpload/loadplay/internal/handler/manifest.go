@@ -42,15 +42,18 @@ type ManifestDeps struct {
 	RequireBind bool
 	// StrictIPBind restores the old behaviour of refusing a token whose IP
 	// prefix changed. Off by default; see softGuardOrFingerprint.
-	StrictIPBind  bool
-	FileCache     *cache.FileCache
-	RateLimit     *ratelimit.Limiter
-	Allowlist     *guest.Allowlist
-	NonceStore    *noncestore.Store
-	ManifestCache *manifestcache.Cache
-	SegmentCache  *diskcache.Cache
-	FetchGate     *fetchgate.Gate
-	PlaybackDebug bool
+	StrictIPBind bool
+	// MaxIPsPerToken bounds how many distinct IP prefixes one token may be
+	// played from. 0 uses noncestore.DefaultMaxIPsPerNonce.
+	MaxIPsPerToken int
+	FileCache      *cache.FileCache
+	RateLimit      *ratelimit.Limiter
+	Allowlist      *guest.Allowlist
+	NonceStore     *noncestore.Store
+	ManifestCache  *manifestcache.Cache
+	SegmentCache   *diskcache.Cache
+	FetchGate      *fetchgate.Gate
+	PlaybackDebug  bool
 }
 
 // ErrPlaybackDenied is the sentinel returned by deny() so callers'
@@ -251,22 +254,33 @@ func softGuardOrFingerprint(c *fiber.Ctx, deps ManifestDeps, tok *token.Playback
 	ipHash := fingerprint.Hash(fingerprint.IPPrefix(ip))
 	uaHash := fingerprint.Hash(c.Get("User-Agent"))
 
-	// IP is an advisory signal, not a gate.
+	// The IP gets a small budget rather than an exact match.
 	//
-	// The token is minted against the app host and spent against the CDN host,
-	// which are two separate connections. Anything that assigns egress per
-	// connection breaks the comparison for a legitimate viewer: iCloud Private
-	// Relay (Safari on iOS routes through Fastly/Akamai and rotates), carrier
-	// CGNAT, VPNs, and dual-stack clients that pick v6 for one host and v4 for
-	// the other. Denying on that locked out every Private Relay iPhone.
+	// Exact match was wrong: the token is minted against the app host and spent
+	// against the CDN host, so anything assigning egress per connection (iCloud
+	// Private Relay, CGNAT, VPNs, dual-stack picking v6 for one host and v4 for
+	// the other) shows a different prefix through no fault of the viewer. That
+	// refused every Private Relay iPhone.
 	//
-	// What still gates playback: the HMAC signature, the short expiry, the
-	// Origin+Referer hard gate ahead of this, the user id, the UA below, and
-	// nonce binding. Set STRICT_IP_BINDING=1 to restore the old refusal.
+	// Ignoring it entirely is also wrong. Origin, Referer, User-Agent and the
+	// Sec-Fetch shape are all headers an attacker can set, so the address was
+	// the only binding that could not simply be replayed. Dropping it would let
+	// one pasted URL serve a whole group chat for the life of the token, and
+	// that life tracks video duration up to six hours.
+	//
+	// So: a handful of prefixes per token is a real viewer roaming between relay
+	// exits; more than that is distribution. Set STRICT_IP_BINDING=1 for the old
+	// exact-match refusal.
 	if tok.IPHash != "" && tok.IPHash != ipHash {
 		if deps.StrictIPBind {
 			deps.Log.Errorf("fingerprint ip mismatch (strict) token=%s req=%s", tok.IPHash, ipHash)
 			return deny(c, fiber.StatusUnauthorized)
+		}
+		if deps.NonceStore != nil && tok.Nonce != "" {
+			if !deps.NonceStore.CheckIP(tok.Nonce, ipHash, deps.MaxIPsPerToken) {
+				deps.Log.Errorf("playback ip spread exceeded file=%s nonce_prefix=%s req=%s", tok.FileID, safePrefix(tok.Nonce), ipHash)
+				return deny(c, fiber.StatusUnauthorized)
+			}
 		}
 		deps.Log.Infof("fingerprint ip changed token=%s req=%s file=%s", tok.IPHash, ipHash, tok.FileID)
 	}

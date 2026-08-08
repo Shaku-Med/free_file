@@ -65,6 +65,7 @@ func parseDurationEnv(key string, fallback time.Duration) time.Duration {
 //	BLOCKED_ORIGINS         CSV of LoadPlay's own origins; standalone access is rejected
 //	PUBLIC_HOST             optional public CDN base, also added to blocked origins
 //	REQUIRE_FINGERPRINT     "1" to enforce IP/UA binding (default off until app side starts emitting it)
+//	MAX_IPS_PER_TOKEN       distinct IP prefixes one playback token may be used from (default 3)
 //	STRICT_IP_BINDING       "1" to refuse a token whose IP prefix changed. Default off:
 //	                        iCloud Private Relay, CGNAT and VPNs rotate egress between the
 //	                        mint host and the CDN host, so a changed IP is normal traffic.
@@ -177,14 +178,15 @@ func main() {
 		// Dev only: accept LAN/loopback origins (e.g. a phone hitting
 		// http://192.168.1.169:3000) so you don't have to hardcode the IP.
 		// Hard-gated to non-production; never widens to routable hosts.
-		Guard:        guard.NewConfig(env.Get("ALLOWED_ORIGINS", ""), blockedOrigins, env.Get("BLOCK_TOOL_UA", "1") == "1", appEnv != "production"),
-		HTTPClient:   &http.Client{Timeout: 20 * time.Second},
-		PublicHost:   env.Get("PUBLIC_HOST", ""),
-		RequireBind:  env.Get("REQUIRE_FINGERPRINT", "0") == "1",
-		StrictIPBind: env.Get("STRICT_IP_BINDING", "0") == "1",
-		FileCache:    fileCache,
-		RateLimit:    ratelimit.New(),
-		Allowlist:    guest.NewAllowlist(10 * time.Minute),
+		Guard:          guard.NewConfig(env.Get("ALLOWED_ORIGINS", ""), blockedOrigins, env.Get("BLOCK_TOOL_UA", "1") == "1", appEnv != "production"),
+		HTTPClient:     &http.Client{Timeout: 20 * time.Second},
+		PublicHost:     env.Get("PUBLIC_HOST", ""),
+		RequireBind:    env.Get("REQUIRE_FINGERPRINT", "0") == "1",
+		StrictIPBind:   env.Get("STRICT_IP_BINDING", "0") == "1",
+		MaxIPsPerToken: int(env.GetInt64("MAX_IPS_PER_TOKEN", 0)),
+		FileCache:      fileCache,
+		RateLimit:      ratelimit.New(),
+		Allowlist:      guest.NewAllowlist(10 * time.Minute),
 		// Replay defense: a token nonce sticks to the fingerprint that
 		// used it first; copies pasted into another browser get 401.
 		NonceStore: noncestore.New(30*time.Minute, 50_000),
