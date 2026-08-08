@@ -15,6 +15,7 @@ function goToLogin() {
 }
 import { CommentSignInDialog } from "./CommentSignInDialog";
 import { Button } from "~/components/ui/button";
+import { readPlaybackPosition } from "~/lib/playback/positionRegistry";
 
 const COMMENTS_PAGE_SIZE = 50;
 
@@ -128,6 +129,12 @@ function updateCommentInTree(comments: Comment[], commentId: string, updates: Pa
     }
     return c;
   });
+}
+
+/** Shapes the registry's position into the field the comments API expects. */
+function commentTimestampField(fileId: string): { timestampSeconds?: number } {
+  const at = readPlaybackPosition(fileId);
+  return at === null ? {} : { timestampSeconds: Math.max(0, Math.round(at)) };
 }
 
 const CommentSection = ({
@@ -327,6 +334,9 @@ const CommentSection = ({
             parentId: parentId || null,
             gif: gif ? { id: gif.id, url: gif.url, previewUrl: gif.previewUrl } : undefined,
             image: image ? { url: image.url, type: image.type } : undefined,
+            // Where the playhead was, for slider markers. Null when nothing is
+            // playing, and ignored server-side for replies.
+            ...(parentId ? {} : commentTimestampField(fileId)),
           }),
         });
 

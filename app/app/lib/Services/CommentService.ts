@@ -37,6 +37,8 @@ export interface CreateCommentInput {
   parentId?: string | null;
   gif?: { id: string; url: string; previewUrl: string } | null;
   image?: { url: string; type: string } | null;
+  /** Playback position when the comment was written, for slider markers. */
+  timestampSeconds?: number | null;
 }
 
 export interface CommentServiceResponse<T> {
@@ -471,6 +473,11 @@ export class CommentService {
         content: hasText ? input.content!.trim() : '',
         parent_id: input.parentId || null,
       };
+      // Only on top-level comments: a reply belongs to its thread, not to a
+      // moment in the video, and marking replies would crowd the slider.
+      if (!input.parentId && typeof input.timestampSeconds === 'number') {
+        payload.timestamp_seconds = input.timestampSeconds;
+      }
       if (hasGif) {
         payload.gif_id = input.gif!.id;
         payload.gif_url = input.gif!.url;

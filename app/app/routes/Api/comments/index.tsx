@@ -79,12 +79,13 @@ export const action = async ({ request }: { request: Request }) => {
         return toJson({ error: "Too many requests" }, 429);
       }
       const body = await request.json();
-      const { fileId, content, parentId, gif, image }: CreateCommentInput & {
+      const { fileId, content, parentId, gif, image, timestampSeconds }: CreateCommentInput & {
         fileId: string;
         content?: string;
         parentId?: string;
         gif?: { id: string; url: string; previewUrl?: string };
         image?: { url: string; type: string };
+        timestampSeconds?: unknown;
       } = body;
 
       // Validate inputs
@@ -159,8 +160,25 @@ export const action = async ({ request }: { request: Request }) => {
         return toJson({ error: "Invalid parentId" }, 400);
       }
 
+      // Client-supplied, so clamped to the file's real duration below rather
+      // than trusted. Absent is normal: a comment from the feed has no playhead.
+      let commentAt: number | null = null;
+      const rawAt = Number(timestampSeconds);
+      if (!parentId && Number.isFinite(rawAt) && rawAt >= 0) {
+        const { data: durRow } = await db
+          .from('files')
+          .select('duration')
+          .eq('id', fileId)
+          .maybeSingle();
+        const dur = Number((durRow as { duration?: unknown } | null)?.duration);
+        if (Number.isFinite(dur) && dur > 0) {
+          commentAt = Math.min(Math.round(rawAt), Math.floor(dur));
+        }
+      }
+
       const result = await commentService.createComment(user.id, {
         fileId,
+        timestampSeconds: commentAt,
         content: sanitizedContent,
         parentId: parentId || null,
         gif: hasGif ? { id: gif!.id, url: gif!.url, previewUrl: gif!.previewUrl || gif!.url } : null,

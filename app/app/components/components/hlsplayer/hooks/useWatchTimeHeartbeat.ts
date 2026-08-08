@@ -7,6 +7,8 @@ import { personalizationService } from '~/lib/Services/PersonalizationService';
 const HEARTBEAT_MS = 15_000;
 const ACCUMULATE_MS = 500;
 const MIN_SECONDS_TO_REPORT = 1;
+/** Mirrors playback_heat_buckets() in SQL. Changing one without the other invalidates stored curves. */
+const HEAT_BUCKETS = 100;
 
 /**
  * Heartbeats while **actually playing** → `/api/views/watch-time` using **chained one-time `playbackToken`**
@@ -25,6 +27,12 @@ export function useWatchTimeHeartbeat(videoRef: RefObject<HTMLVideoElement | nul
 
     let accumulatedWatchingSeconds = 0;
     let sessionWatchTracked = false;
+    /**
+     * Most-replayed sampling. Counts which slice of the video the playhead sat
+     * in on each accumulator tick, so a rewatched section accrues twice. Sent
+     * with the heartbeat that already runs, so this costs no extra requests.
+     */
+    let heatBuckets = new Map<number, number>();
     let lastSampleWallMs = performance.now();
     let playbackToken: string | null = null;
     let tokenFetchInFlight = false;
@@ -48,6 +56,17 @@ export function useWatchTimeHeartbeat(videoRef: RefObject<HTMLVideoElement | nul
       lastSampleWallMs = now;
       if (deltaSec > 0 && deltaSec < ACCUMULATE_MS / 1000 + 2) {
         accumulatedWatchingSeconds += deltaSec;
+
+        // Same guard as the accumulator: only count a tick that represents real
+        // elapsed playback, so a seek or a backgrounded tab cannot spike one
+        // slice. Live streams have no finite duration and get no curve.
+        if (Number.isFinite(v.duration) && v.duration > 0 && Number.isFinite(v.currentTime)) {
+          const ratio = v.currentTime / v.duration;
+          if (ratio >= 0 && ratio < 1) {
+            const bucket = Math.min(HEAT_BUCKETS - 1, Math.floor(ratio * HEAT_BUCKETS));
+            heatBuckets.set(bucket, (heatBuckets.get(bucket) ?? 0) + 1);
+          }
+        }
       }
 
       // Session watch boost: once the user has genuinely watched >50% of
@@ -111,6 +130,13 @@ export function useWatchTimeHeartbeat(videoRef: RefObject<HTMLVideoElement | nul
       const tokenToSend = playbackToken;
       if (!tokenToSend) return;
 
+      // Snapshot and clear up front. If the POST fails these samples are gone
+      // rather than replayed onto the next heartbeat, which would double count
+      // the slice the viewer happened to be on when the network blipped.
+      const heatToSend: number[] = [];
+      for (const [bucket, count] of heatBuckets) heatToSend.push(bucket, count);
+      heatBuckets = new Map();
+
       try {
         const res = await fetch('/api/views/watch-time', {
           method: 'POST',
@@ -120,6 +146,7 @@ export function useWatchTimeHeartbeat(videoRef: RefObject<HTMLVideoElement | nul
             playbackToken: tokenToSend,
             watchDurationSeconds: Math.min(86400, Math.round(accumulatedWatchingSeconds)),
             totalDurationSeconds: totalDur,
+            ...(heatToSend.length > 0 ? { heat: heatToSend } : {}),
           }),
         });
 

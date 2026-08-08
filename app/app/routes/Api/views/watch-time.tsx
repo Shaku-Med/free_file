@@ -22,6 +22,37 @@ interface WatchTimeBody {
   fileId?: string;
   watchDurationSeconds?: number;
   totalDurationSeconds?: number;
+  /**
+   * Most-replayed sampling: flat [bucket, count, bucket, count, ...] for the
+   * span this heartbeat covers. Rides along with watch-time on purpose so it
+   * inherits the one-time token, the auth check and the rate limit instead of
+   * opening a second, softer way to write playback data.
+   */
+  heat?: unknown;
+}
+
+/** Mirrors playback_heat_buckets() in SQL. */
+const HEAT_BUCKETS = 100;
+/** One heartbeat is 15s; even at 2 samples/sec it cannot fill many buckets. */
+const MAX_HEAT_PAIRS = 64;
+
+/**
+ * Shapes the client's heat report into flat pairs of finite, in-range integers.
+ * Returns null when there is nothing usable. SQL clamps the counts again; this
+ * is only here so obvious junk never reaches the database.
+ */
+function parseHeat(raw: unknown): number[] | null {
+  if (!Array.isArray(raw) || raw.length === 0 || raw.length % 2 !== 0) return null;
+  if (raw.length / 2 > MAX_HEAT_PAIRS) return null;
+  const out: number[] = [];
+  for (let i = 0; i < raw.length; i += 2) {
+    const bucket = Number(raw[i]);
+    const count = Number(raw[i + 1]);
+    if (!Number.isInteger(bucket) || bucket < 0 || bucket >= HEAT_BUCKETS) continue;
+    if (!Number.isFinite(count) || count <= 0) continue;
+    out.push(bucket, Math.min(Math.round(count), 1000));
+  }
+  return out.length > 0 ? out : null;
 }
 
 export const action = async ({ request }: { request: Request }) => {
@@ -83,6 +114,17 @@ export const action = async ({ request }: { request: Request }) => {
     if (error) {
       console.error('record_watch_time error:', error);
       return toJson({ error: 'Failed to record watch time' }, 500);
+    }
+
+    // Best effort and deliberately after the watch-time write: a bad heat
+    // payload must never cost the user their watch time or their next token.
+    const heat = parseHeat(body.heat);
+    if (heat) {
+      const { error: heatErr } = await db.rpc('record_playback_heat', {
+        p_file_id: fileId,
+        p_buckets: heat,
+      });
+      if (heatErr) console.warn('record_playback_heat:', heatErr.message ?? heatErr);
     }
 
     const nextPlaybackToken = mintWatchPlaybackToken(user.id, fileId, request.headers);
