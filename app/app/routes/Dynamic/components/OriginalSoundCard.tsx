@@ -2,7 +2,7 @@ import { Music2 } from "lucide-react";
 import { Link } from "react-router";
 import WatchLink from "~/components/WatchLink";
 import { getThumbnailUrl, cn } from "~/lib/utils";
-import type { DynamicDeferredDetails } from "../index";
+import type { DynamicDeferredDetails } from "../types";
 
 /**
  * YouTube-style "Music" section inside the description card: shown when this
