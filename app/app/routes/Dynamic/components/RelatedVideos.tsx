@@ -16,6 +16,7 @@ import { RelatedVideosProvider, useRelatedVideosContext } from "./RelatedVideosC
 import VideoCard from "~/routes/Home/components/VideoCard"
 import type { FileType } from "~/lib/types"
 import { SignInToSeeMore } from "~/components/SignInWall"
+import RelatedVideosSkeleton, { RelatedVideosLoadingAnnouncement } from "./RelatedVideosSkeleton"
 import {
   PLAY_QUEUE_DROP_APPEND,
   PLAY_QUEUE_DROP_EMPTY,
@@ -248,6 +249,13 @@ const RelatedVideosContent = ({ currentUserId }: { currentUserId?: string }) => 
     )
   }
 
+  // An empty rail is only genuinely empty once the API has said so. hasMore
+  // starts true and only flips false when a fetch returns no next cursor.
+  // Signed-out viewers never mount the sentinel, so they can't be "awaiting"
+  // anything: for them empty means empty.
+  const awaitingFirstPage =
+    relatedToShow.length === 0 && hasMore && Boolean(currentUserId)
+
   const inner = (
     <div className="@container/related-videos min-w-0 space-y-3 sm:space-y-4">
 {/* No sidebar queue panel: the drag-to-reorder "Play queue" was removed
@@ -255,7 +263,22 @@ const RelatedVideosContent = ({ currentUserId }: { currentUserId?: string }) => 
           sidebar is related videos only. */}
 
       <div className="space-y-4">
-        {relatedToShow.length === 0 && !isLoading ? (
+        {/* Empty is only EMPTY once the API has said so. hasMore starts true and
+            flips to false when a fetch comes back with no next cursor, so an
+            empty list with hasMore still set just means the first page hasn't
+            landed. Showing "no related videos" there was wrong twice over: it
+            claimed a result nobody had, and the observer sentinel below lives
+            in the other branch, so it never mounted and loadMore could never
+            fire. The rail stayed empty forever. */}
+        {awaitingFirstPage ? (
+          <>
+            <RelatedVideosLoadingAnnouncement />
+            <RelatedVideosSkeleton />
+            {/* Sentinel has to be inside this branch too, otherwise the very
+                case that needs a fetch is the one that can't trigger one. */}
+            <div ref={observerRef} className="h-10" />
+          </>
+        ) : relatedToShow.length === 0 ? (
           <div className="flex items-center justify-center p-8">
             <div className="text-center">
               <p className="text-sm text-muted-foreground">No related videos available</p>

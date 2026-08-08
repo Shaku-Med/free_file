@@ -983,8 +983,24 @@ function PipReelItemInner({
         )}
       </div>
     ) : (
-      <div className="flex h-full w-full items-center justify-center bg-muted text-muted-foreground">
-        <span className="text-sm font-medium">Preview unavailable</span>
+      // No playable source. Every other social feed shows the still frame here
+      // rather than an error, and we already have the thumbnail, so use it and
+      // keep the slide looking like content instead of a dead panel. The text
+      // is only for the case where there is genuinely nothing to show.
+      <div className={cn('flex h-full w-full items-center justify-center', playerBackground ? 'bg-black' : 'bg-transparent')}>
+        {posterUrl ? (
+          <img
+            src={posterUrl}
+            alt=""
+            className="h-full w-full object-contain"
+            decoding="async"
+            loading="eager"
+          />
+        ) : (
+          <div className="flex h-full w-full items-center justify-center bg-muted text-muted-foreground">
+            <span className="text-sm font-medium">Preview unavailable</span>
+          </div>
+        )}
       </div>
     );
 
