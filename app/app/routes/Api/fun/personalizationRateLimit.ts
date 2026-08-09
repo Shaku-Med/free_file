@@ -123,6 +123,22 @@ export function checkCommentPostRateLimit(request: Request, userId: string) {
   );
 }
 
+// Comment reads: stop guest scrapers walking every parentId / fileId.
+const COMMENT_GET_MAX = 60;
+const COMMENT_GET_WINDOW_MS = 60 * 1000;
+const COMMENT_GET_BLOCK_MS = 5 * 60 * 1000;
+
+export function checkCommentGetRateLimit(request: Request, userId?: string | null) {
+  const key = userId || `ip:${RateLimiter.getClientIP(request)}`;
+  return rateLimiter.checkLimit(
+    key,
+    'api-comment-get',
+    COMMENT_GET_MAX,
+    COMMENT_GET_WINDOW_MS,
+    COMMENT_GET_BLOCK_MS,
+  );
+}
+
 export function checkPersonalizationRateLimit(request: Request, userId: string) {
   const key = userId || `ip:${RateLimiter.getClientIP(request)}`;
   return rateLimiter.checkLimit(

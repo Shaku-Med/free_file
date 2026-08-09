@@ -25,6 +25,10 @@ import {
 } from "./CommentThreadConnector";
 import { CommentLikesModal } from "./CommentLikesModal";
 import { CommentSignInDialog } from "./CommentSignInDialog";
+import { readReplyCache, writeReplyCache, REPLY_CACHE_STALE_MS } from "./replyCache";
+import { signedFetch } from "~/lib/Security/requestSigning.client";
+
+const REPLIES_PAGE_SIZE = 50;
 
 interface CommentItemProps {
   comment: CommentType;
@@ -35,9 +39,16 @@ interface CommentItemProps {
    *  loader sends the auth details the load server needs to blur/gate it. */
   fileIsAdult?: boolean | null;
   imageUploadContext?: CommentImageUploadContext;
-  onReply: (parentId: string, content: string, gif?: CommentGif | null, image?: CommentImage | null) => Promise<void>;
+  /** Resolves with the created comment so threads can append it without a refetch. */
+  onReply: (
+    parentId: string,
+    content: string,
+    gif?: CommentGif | null,
+    image?: CommentImage | null
+  ) => Promise<CommentType | void>;
   onEdit: (commentId: string, content: string) => Promise<void>;
-  onDelete: (commentId: string) => Promise<void>;
+  /** Resolves with how many comments the delete removed (a thread delete cascades). */
+  onDelete: (commentId: string) => Promise<number | void>;
   onHide?: (commentId: string, hidden: boolean) => Promise<void>;
   onPin?: (commentId: string, pinned: boolean) => Promise<void>;
   onLike?: (commentId: string) => Promise<void>;
@@ -100,12 +111,25 @@ const CommentItem = ({
   /**
    * Replies arrive empty from the list endpoint and are fetched when opened, so
    * a thread with hundreds of replies costs nothing until someone asks for it.
-   * The server still sends the branch when deep-linking to a comment, so seed
-   * from whatever came down rather than always starting empty.
+   * Seed order: the session reply cache (a thread fetched earlier this session
+   * survives remounts and never refetches on open), then whatever branch the
+   * server sent (deep links), then empty.
    */
+  const cachedThread = readReplyCache(fileId, comment.id);
   const [loadedReplies, setLoadedReplies] = useState<CommentType[] | null>(
-    comment.replies && comment.replies.length > 0 ? comment.replies : null
+    () => cachedThread?.replies ?? (comment.replies && comment.replies.length > 0 ? comment.replies : null)
   );
+  /** Mirror of loadedReplies for handlers, so none of them close over a stale list. */
+  const loadedRepliesRef = useRef<CommentType[] | null>(loadedReplies);
+  loadedRepliesRef.current = loadedReplies;
+  /** Whole-subtree size shown on the "View N replies" control. */
+  const [replyTotal, setReplyTotal] = useState(() => cachedThread?.replyTotal ?? comment.reply_count ?? 0);
+  /** Direct children only — drives "Show more replies" pagination. */
+  const [directTotal, setDirectTotal] = useState(
+    () => cachedThread?.directTotal ?? comment.replies?.length ?? 0
+  );
+  /** When this thread last came from the server; 0 forces a background refresh on open. */
+  const fetchedAtRef = useRef(cachedThread?.fetchedAt ?? 0);
   const [repliesLoading, setRepliesLoading] = useState(false);
   const [repliesError, setRepliesError] = useState(false);
   const [showReplies, setShowReplies] = useState(() =>
@@ -116,6 +140,7 @@ const CommentItem = ({
   const [liking, setLiking] = useState(false);
   const [likesModalOpen, setLikesModalOpen] = useState(false);
   const [likesSignInOpen, setLikesSignInOpen] = useState(false);
+  const [moreRepliesSignInOpen, setMoreRepliesSignInOpen] = useState(false);
   const [floatingHearts, setFloatingHearts] = useState<
     { id: number; x: number; y: number; size: number; drift: number; delay: number; rotation: number }[]
   >([]);
@@ -135,6 +160,29 @@ const CommentItem = ({
     setLikeCount(comment.like_count ?? 0);
     setUserLiked(comment.user_has_liked ?? false);
   }, [comment.like_count, comment.user_has_liked]);
+
+  // Parent list refetches (delete, reload) hand down fresh server counts.
+  // Skipped on mount so a fresher cache-seeded total isn't clobbered by the
+  // possibly-stale count the parent list was still holding.
+  const countSyncedOnceRef = useRef(false);
+  useEffect(() => {
+    if (!countSyncedOnceRef.current) {
+      countSyncedOnceRef.current = true;
+      return;
+    }
+    setReplyTotal(comment.reply_count ?? 0);
+  }, [comment.reply_count]);
+
+  // Write-through: whatever this thread shows is what the next mount restores.
+  useEffect(() => {
+    if (loadedReplies === null) return;
+    writeReplyCache(fileId, comment.id, {
+      replies: loadedReplies,
+      directTotal,
+      replyTotal,
+      fetchedAt: fetchedAtRef.current,
+    });
+  }, [fileId, comment.id, loadedReplies, directTotal, replyTotal]);
 
   useEffect(() => {
     setCommentImageRetry(0);
@@ -167,8 +215,7 @@ const CommentItem = ({
   const isFileOwner = Boolean(fileOwnerId && currentUserId === fileOwnerId);
   const canModerate = isCommentOwner || isFileOwner;
   const isHidden = Boolean(comment.is_hidden);
-  const replyCount = comment.reply_count ?? 0;
-  const hasReplies = replyCount > 0 || (loadedReplies?.length ?? 0) > 0;
+  const hasReplies = replyTotal > 0 || (loadedReplies?.length ?? 0) > 0;
   const isHighlighted = Boolean(highlightCommentId && comment.id === highlightCommentId);
   const [showEmphasis, setShowEmphasis] = useState(isHighlighted);
 
@@ -182,55 +229,184 @@ const CommentItem = ({
     return () => window.clearTimeout(t);
   }, [isHighlighted, comment.id]);
 
+  /**
+   * One page of direct replies. `append` continues a partially loaded thread;
+   * otherwise the page replaces the list (fresh open, background refresh).
+   * Totals self-heal from the response so what's displayed always matches
+   * what the server will actually hand out. `silent` keeps the current list
+   * on screen (no skeleton, no disabled buttons) — used to revalidate a
+   * cached thread in the background.
+   */
+  const loadReplies = useCallback(
+    async (offset: number, append: boolean, silent = false) => {
+      if (!silent) {
+        setRepliesLoading(true);
+        setRepliesError(false);
+      }
+      try {
+        const params = new URLSearchParams({
+          fileId,
+          parentId: comment.id,
+          limit: String(REPLIES_PAGE_SIZE),
+          offset: String(offset),
+        });
+        const res = await signedFetch(`/api/comments?${params.toString()}`, {
+          credentials: "include",
+        });
+        if (!res.ok) throw new Error(String(res.status));
+        const json = (await res.json()) as { data?: CommentType[]; totalCount?: number };
+        const batch = Array.isArray(json.data) ? json.data : [];
+        const direct =
+          typeof json.totalCount === "number" ? json.totalCount : offset + batch.length;
+        const next = append && loadedRepliesRef.current
+          ? [...loadedRepliesRef.current, ...batch]
+          : batch;
+        fetchedAtRef.current = Date.now();
+        setLoadedReplies(next);
+        setDirectTotal(direct);
+        setRepliesError(false);
+        if (next.length >= direct) {
+          setReplyTotal(next.reduce((n, r) => n + 1 + (r.reply_count ?? 0), 0));
+        } else {
+          setReplyTotal((n) => Math.max(n, direct));
+        }
+      } catch {
+        // Leave loadedReplies as-is so a retry re-fetches instead of showing
+        // an empty thread as though the replies were gone. A failed silent
+        // refresh changes nothing: the cached thread stays up.
+        if (!silent) setRepliesError(true);
+      } finally {
+        if (!silent) setRepliesLoading(false);
+      }
+    },
+    [fileId, comment.id]
+  );
+
   const toggleReplies = useCallback(async () => {
-    if (showReplies) {
+    // "Retry" state: the thread is open but empty because the fetch failed —
+    // that click should re-fetch, not fold the thread.
+    const needsRetry = repliesError && loadedRepliesRef.current === null;
+    if (showReplies && !needsRetry) {
       setShowReplies(false);
       return;
     }
     setShowReplies(true);
-    if (loadedReplies !== null || repliesLoading) return;
-
-    setRepliesLoading(true);
-    setRepliesError(false);
-    try {
-      const params = new URLSearchParams({
-        fileId,
-        parentId: comment.id,
-        limit: "50",
-      });
-      const res = await fetch(`/api/comments?${params.toString()}`, { credentials: "include" });
-      if (!res.ok) throw new Error(String(res.status));
-      const json = (await res.json()) as { data?: CommentType[] };
-      setLoadedReplies(Array.isArray(json.data) ? json.data : []);
-    } catch {
-      // Leave loadedReplies null so a retry re-fetches instead of showing an
-      // empty thread as though the replies were gone.
-      setRepliesError(true);
-    } finally {
-      setRepliesLoading(false);
+    if (repliesLoading) return;
+    const cached = loadedRepliesRef.current;
+    if (!needsRetry && cached !== null) {
+      // Cached thread: shown instantly, nothing refetched. If the copy has
+      // gone stale, refresh it silently behind what's already on screen —
+      // but never while paginated past page one, or the refresh would fold
+      // the extra pages the user just loaded.
+      const stale = Date.now() - fetchedAtRef.current > REPLY_CACHE_STALE_MS;
+      if (stale && cached.length <= REPLIES_PAGE_SIZE) {
+        void loadReplies(0, false, true);
+      }
+      return;
     }
-  }, [showReplies, loadedReplies, repliesLoading, fileId, comment.id]);
+    await loadReplies(0, false);
+  }, [showReplies, repliesError, repliesLoading, loadReplies]);
 
   const handleReply = async (content: string, gif?: CommentGif | null, image?: CommentImage | null) => {
-    await onReply(comment.id, content, gif, image);
+    const created = await onReply(comment.id, content, gif, image);
     setIsReplying(false);
-    // Drop the cache so the thread refetches with the new reply in it.
-    setLoadedReplies(null);
-    setShowReplies(false);
-    void toggleReplies();
+    setReplyTotal((n) => n + 1);
+    setShowReplies(true);
+    // The POST already returned the created comment: append it locally instead
+    // of refetching the whole thread.
+    if (created && typeof created === "object" && "id" in created) {
+      if (loadedRepliesRef.current !== null) {
+        setLoadedReplies((prev) => (prev ? [...prev, created] : [created]));
+        setDirectTotal((n) => n + 1);
+        return;
+      }
+      if (replyTotal === 0) {
+        // First reply on a fresh thread: no server state to merge with.
+        fetchedAtRef.current = Date.now();
+        setLoadedReplies([created]);
+        setDirectTotal(1);
+        return;
+      }
+    }
+    // Unloaded thread with existing replies (or no created row came back):
+    // one fetch brings the thread up, new reply included.
+    if (loadedRepliesRef.current === null) await loadReplies(0, false);
   };
+
+  /**
+   * A reply posted anywhere below this comment grows this comment's subtree
+   * by one. Each level wraps the handler it passes down, so the whole
+   * ancestor chain stays in step without any refetch. The created comment is
+   * passed back down the chain so the direct parent can append it.
+   */
+  const handleChildReply = useCallback(
+    async (parentId: string, content: string, gif?: CommentGif | null, image?: CommentImage | null) => {
+      const created = await onReply(parentId, content, gif, image);
+      setReplyTotal((n) => n + 1);
+      return created;
+    },
+    [onReply]
+  );
+
+  /**
+   * Nested edits patch this thread's local copy — the section-level tree only
+   * holds roots, so without this an edited reply kept showing its old text.
+   */
+  const handleChildEdit = useCallback(
+    async (commentId: string, content: string) => {
+      await onEdit(commentId, content);
+      setLoadedReplies((prev) =>
+        prev
+          ? prev.map((r) =>
+              r.id === commentId
+                ? { ...r, content, is_edited: true, updated_at: new Date().toISOString() }
+                : r
+            )
+          : prev
+      );
+    },
+    [onEdit]
+  );
+
+  /**
+   * Child threads report deletes through here so every level of the chain can
+   * drop the row and shrink its subtree count by however many comments the
+   * cascade actually removed.
+   */
+  const handleChildDelete = useCallback(
+    async (commentId: string): Promise<number> => {
+      const result = await onDelete(commentId);
+      const removed = typeof result === "number" ? result : 1;
+      if (removed <= 0) return 0;
+      const current = loadedRepliesRef.current;
+      const wasDirect = Boolean(current?.some((r) => r.id === commentId));
+      if (wasDirect) {
+        setLoadedReplies((prev) => (prev ? prev.filter((r) => r.id !== commentId) : prev));
+        setDirectTotal((n) => Math.max(0, n - 1));
+      }
+      setReplyTotal((n) => Math.max(0, n - removed));
+      return removed;
+    },
+    [onDelete]
+  );
 
   const handleLike = useCallback(async () => {
     if (!onLike || liking || !currentUserId) return;
     setLiking(true);
     try {
       await onLike(comment.id);
-      setUserLiked((prev) => !prev);
-      setLikeCount((prev) => (userLiked ? prev - 1 : prev + 1));
+      const nextLiked = !userLiked;
+      setUserLiked(nextLiked);
+      setLikeCount((prev) => (nextLiked ? prev + 1 : prev - 1));
+      // This object is also what the session reply cache holds, so patch it in
+      // place — a remount then re-seeds with the like state the user last saw
+      // instead of reverting to the value from the original fetch.
+      comment.user_has_liked = nextLiked;
+      comment.like_count = Math.max(0, (comment.like_count ?? 0) + (nextLiked ? 1 : -1));
     } finally {
       setLiking(false);
     }
-  }, [onLike, liking, currentUserId, comment.id, userLiked]);
+  }, [onLike, liking, currentUserId, comment, userLiked]);
 
   const spawnHearts = useCallback((clientX: number, clientY: number) => {
     const container = contentRef.current;
@@ -345,7 +521,7 @@ const CommentItem = ({
         {hasReplies && (
           <button
             type="button"
-            onClick={() => setShowReplies(v => !v)}
+            onClick={() => void toggleReplies()}
             aria-label={showReplies ? "Collapse replies" : "Expand replies"}
             className="absolute z-[2] group/stem"
             style={{
@@ -610,13 +786,11 @@ const CommentItem = ({
                       aria-expanded={showReplies}
                       className="rounded-md px-2 py-0.5 font-semibold text-[11px] text-muted-foreground hover:bg-muted/50 hover:text-foreground disabled:opacity-60 sm:text-xs"
                     >
-                      {repliesLoading
-                        ? "Loading..."
-                        : repliesError
-                          ? "Retry"
-                          : `${showReplies ? "Hide" : "View"} ${replyCount || loadedReplies?.length || 0} ${
-                              (replyCount || loadedReplies?.length || 0) === 1 ? "reply" : "replies"
-                            }`}
+                      {repliesError
+                        ? "Retry"
+                        : `${showReplies ? "Hide" : "View"} ${formatCompactCount(
+                            replyTotal || loadedReplies?.length || 0
+                          )} ${(replyTotal || loadedReplies?.length || 0) === 1 ? "reply" : "replies"}`}
                     </button>
                   ) : null}
                 </div>
@@ -647,6 +821,28 @@ const CommentItem = ({
         </div>
       )}
 
+      {showReplies && repliesLoading && loadedReplies === null && (
+        // First open of a thread we know has replies: skeleton rows where they
+        // will appear. Threads already in the session cache never reach this —
+        // they render instantly above.
+        <div
+          className="space-y-3 pb-1 pt-2"
+          style={{ marginLeft: commentThreadGutterWidthPx(level + 1) - (level > 0 ? gutterPx : 0) }}
+          aria-busy="true"
+          aria-label="Loading replies"
+        >
+          {Array.from({ length: Math.min(Math.max(replyTotal, 1), 3) }).map((_, i) => (
+            <div key={`reply-skeleton-${i}`} className="flex gap-2.5">
+              <div className="h-7 w-7 shrink-0 animate-pulse rounded-full bg-muted" />
+              <div className="min-w-0 flex-1 space-y-1.5 pt-0.5">
+                <div className="h-2.5 w-24 animate-pulse rounded bg-muted" />
+                <div className="h-2.5 w-full max-w-[70%] animate-pulse rounded bg-muted" />
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
       {showReplies && (loadedReplies?.length ?? 0) > 0 && (
         <div
           className="relative z-[1] space-y-0 overflow-visible"
@@ -662,9 +858,9 @@ const CommentItem = ({
               fileIsAdult={fileIsAdult}
               imageUploadContext={imageUploadContext}
               allowNewComments={allowNewComments}
-              onReply={onReply}
-              onEdit={onEdit}
-              onDelete={onDelete}
+              onReply={handleChildReply}
+              onEdit={handleChildEdit}
+              onDelete={handleChildDelete}
               onHide={onHide}
               onPin={onPin}
               onLike={onLike}
@@ -676,6 +872,27 @@ const CommentItem = ({
               fileDurationSec={fileDurationSec}
             />
           ))}
+          {loadedReplies && directTotal > loadedReplies.length && (
+            <button
+              type="button"
+              onClick={() => {
+                // The server rejects paginated reads without a session, so
+                // ask for sign-in up front instead of surfacing a fetch error.
+                if (!currentUserId) {
+                  setMoreRepliesSignInOpen(true);
+                  return;
+                }
+                void loadReplies(loadedReplies.length, true);
+              }}
+              disabled={repliesLoading}
+              className="mt-1 rounded-md px-2 py-1 text-[11px] font-semibold text-muted-foreground hover:bg-muted/50 hover:text-foreground disabled:opacity-60 sm:text-xs"
+              style={{ marginLeft: commentThreadGutterWidthPx(level + 1) }}
+            >
+              {repliesLoading
+                ? "Loading..."
+                : `Show more replies (${loadedReplies.length} of ${formatCompactCount(directTotal)})`}
+            </button>
+          )}
         </div>
       )}
 
@@ -690,6 +907,12 @@ const CommentItem = ({
         onOpenChange={setLikesSignInOpen}
         title="Sign in to see who liked this"
         description="Likes are visible to signed-in members only. Sign in to see who reacted to this comment."
+      />
+      <CommentSignInDialog
+        open={moreRepliesSignInOpen}
+        onOpenChange={setMoreRepliesSignInOpen}
+        title="Sign in to see more replies"
+        description="You're viewing the first replies in this thread. Sign in to load the rest."
       />
     </div>
   );

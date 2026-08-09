@@ -16,7 +16,6 @@ import { useMiniMobileBar } from "./miniMobileBar";
 import { setMiniPlayerMobileBarDragLock } from "./miniPlayerDragBridge";
 import { Tooltip, TooltipContent, TooltipTrigger } from "~/components/ui/tooltip";
 import { Popover, PopoverContent, PopoverTrigger } from "~/components/ui/popover";
-import Ambience from "~/components/accessories/CanvasGradient/Ambience";
 import MiniPlayerQueue from "./MiniPlayerQueue";
 import { useWatchPlayBootstrap } from "~/lib/Context/WatchPlayBootstrapContext";
 import type { FileType } from "~/lib/types";
@@ -311,20 +310,6 @@ function MiniPlayerContent() {
     const t = window.setTimeout(() => clampIntoView(), 150);
     return () => window.clearTimeout(t);
   }, [isMobileBar, expanded, viewportH, viewportW, queueItems.length, queueLoading, clampIntoView]);
-
-  const [ambientOn, setAmbientOn] = useState(false);
-  useEffect(() => {
-    try {
-      let on = false;
-      for (const cookie of document.cookie ? document.cookie.split("; ") : []) {
-        const [key, value] = cookie.split("=");
-        if (key === "player-ambient-mode") on = decodeURIComponent(value ?? "") === "1";
-      }
-      setAmbientOn(on);
-    } catch {
-      setAmbientOn(false);
-    }
-  }, [sessionKey]);
 
   const bindVideoShellRef = useCallback(
     (el: HTMLDivElement | null) => {
@@ -640,15 +625,6 @@ function MiniPlayerContent() {
           style={{ isolation: "isolate" }}
           onPointerDown={handlePointerDown}
         />
-      )}
-
-      {ambientOn && !tuck && !closing && !expanded && (
-        <div
-          aria-hidden
-          className="pointer-events-none absolute -inset-[14%] -z-[1] rounded-[2.5rem] opacity-75 blur-2xl saturate-150"
-        >
-          <Ambience key={sessionKey} colors={[]} videoRef={watchVideoRef} videoReady sync={false} />
-        </div>
       )}
 
       <div

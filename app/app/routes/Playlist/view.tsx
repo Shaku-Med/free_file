@@ -3,11 +3,7 @@ import { Link, useParams, useNavigate, type MetaFunction } from "react-router";
 import VideoCard from "~/routes/Home/components/VideoCard";
 import type { FileType } from "~/lib/types";
 import { groupConsecutiveReelClusters } from "~/lib/feed/groupConsecutiveReelClusters";
-import { Swiper, SwiperSlide } from "swiper/react";
-import { Navigation, A11y, Keyboard } from "swiper/modules";
-import type { Swiper as SwiperType } from "swiper";
-import "swiper/css";
-import "swiper/css/navigation";
+import { Carousel, CarouselItem } from "~/components/Carousel/Carousel";
 import { useFileContext } from "~/lib/Context/Context";
 import { Button } from "~/components/ui/button";
 import {
@@ -340,36 +336,13 @@ export default function PlaylistViewPage() {
               return (
                 <div
                   key={`playlist-reel-${clusterKey}`}
-                  className="col-span-full w-full min-w-0 max-w-full overflow-hidden"
+                  className="col-span-full w-full min-w-0 max-w-full overflow-visible"
                 >
-                  <Swiper
-                    modules={[Navigation, A11y, Keyboard]}
-                    slidesPerView={3.15}
-                    spaceBetween={10}
-                    speed={380}
-                    watchOverflow
-                    observer
-                    observeParents
-                    resizeObserver
-                    navigation
-                    keyboard={{ enabled: true, onlyInViewport: true }}
-                    breakpoints={{
-                      640: { slidesPerView: 2.5, spaceBetween: 12 },
-                      768: { slidesPerView: 3, spaceBetween: 12 },
-                      1024: { slidesPerView: 3.5, spaceBetween: 14 },
-                      1280: { slidesPerView: 4, spaceBetween: 14 },
-                      1536: { slidesPerView: 5, spaceBetween: 16 },
-                    }}
-                    className="feed-reel-swiper"
-                    onInit={(swiper: SwiperType) => swiper.update()}
-                  >
+                  <Carousel label="Reels" itemWidth={168} gapClassName="gap-2.5">
                     {g.files.map((file, keyIndex) => {
                       const index = indexCounter++;
                       return (
-                        <SwiperSlide
-                          key={file.id || file.unique_id || keyIndex}
-                          className="!h-auto"
-                        >
+                        <CarouselItem key={file.id || file.unique_id || keyIndex}>
                           <VideoCard
                             data={file}
                             layout="reelStrip"
@@ -379,10 +352,10 @@ export default function PlaylistViewPage() {
                             onUpdate={handleFileUpdate}
                             hideActions={{ completely: true, halfway: false }}
                           />
-                        </SwiperSlide>
+                        </CarouselItem>
                       );
                     })}
-                  </Swiper>
+                  </Carousel>
                 </div>
               );
             });

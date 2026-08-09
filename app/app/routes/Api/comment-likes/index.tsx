@@ -3,16 +3,67 @@ import db from "~/lib/Database/supabase";
 import { isValidFileId } from "~/lib/Security/inputValidation";
 import { createNotification } from "~/lib/Services/NotificationService";
 import { enqueuePush, cancelPush } from "~/lib/Services/PushQueue.server";
+import { assertSafeRequest } from "~/lib/Security/requestGuard.server";
+import { isSameOrigin } from "~/lib/Security/sameOrigin.server";
+import { getCookie } from "~/lib/Security/Token";
+import {
+  validateRequestSignature,
+  readBodyForSigning,
+} from "~/lib/Security/requestSignature.server";
+import { denyIfCommentUnreadable } from "~/routes/Api/fun/commentAccess.server";
 
 const toJson = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), {
     status,
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      "Cache-Control": "private, no-store",
+    },
   });
+
+function denyIfNotAppFetch(request: Request, opts?: { sameOrigin?: boolean }): Response | null {
+  const blocked = assertSafeRequest(request, { apiFetchOnly: true });
+  if (blocked) return blocked;
+  if (opts?.sameOrigin && !isSameOrigin(request)) {
+    return toJson({ error: "Forbidden" }, 403);
+  }
+  return null;
+}
+
+function denyIfBadSignature(
+  request: Request,
+  cookieValue: string,
+  bodyBytes: Uint8Array | null,
+): Response | null {
+  const sig = validateRequestSignature(request, {
+    cookieValue,
+    bodyBytes,
+  });
+  if (sig.valid) return null;
+  console.warn("[comment-likes] signature rejected:", sig.reason);
+  const headers = new Headers({
+    "Content-Type": "application/json",
+    "Cache-Control": "private, no-store",
+  });
+  if (
+    sig.reason === "stale_ts" ||
+    sig.reason === "hmac_mismatch" ||
+    sig.reason === "missing_sig_headers"
+  ) {
+    headers.set("X-Sig-Stale", "1");
+  }
+  return new Response(JSON.stringify({ error: "Forbidden" }), {
+    status: 401,
+    headers,
+  });
+}
 
 /** GET ?commentId=  list users who liked (positive engagement only; no dislikes on comments). */
 export const loader = async ({ request }: { request: Request }) => {
   try {
+    const gate = denyIfNotAppFetch(request);
+    if (gate) return gate;
+
     const url = new URL(request.url);
     const commentId = url.searchParams.get("commentId");
     if (!commentId || !isValidFileId(commentId)) {
@@ -22,16 +73,22 @@ export const loader = async ({ request }: { request: Request }) => {
       return toJson({ error: "Database unavailable" }, 503);
     }
 
-    const { data: comment } = await db
-      .from("comments")
-      .select("id")
-      .eq("id", commentId)
-      .eq("is_deleted", false)
-      .maybeSingle();
-
-    if (!comment) {
-      return toJson({ error: "Comment not found" }, 404);
+    // The likes list names members. Signed in only, and the request has to
+    // carry the browser HMAC so a stolen cookie alone is not enough.
+    const viewer = await isAuthenticated(request, ["id"]).catch(() => null);
+    const viewerId = viewer?.id ?? null;
+    if (!viewerId) {
+      return toJson({ error: "sign_in_required" }, 401);
     }
+    const cookieValue = getCookie("c_user", request.headers);
+    if (!cookieValue) return toJson({ error: "Unauthorized" }, 401);
+    const badSig = denyIfBadSignature(request, cookieValue, null);
+    if (badSig) return badSig;
+
+    // Same file visibility + hidden branch rules as /api/comments. Knowing a
+    // commentId must not reveal likers on a private or owner-hidden thread.
+    const access = await denyIfCommentUnreadable(request, commentId, viewerId);
+    if (access.denied) return access.denied;
 
     const { data: likeRows, error } = await db
       .from("comment_likes")
@@ -70,9 +127,6 @@ export const loader = async ({ request }: { request: Request }) => {
       ])
     );
 
-    const viewer = await isAuthenticated(request, ["id"]).catch(() => null);
-    const viewerId = viewer?.id ?? null;
-
     const CHUNK = 10;
     const enriched: Array<{
       id: string;
@@ -109,7 +163,11 @@ export const loader = async ({ request }: { request: Request }) => {
               ? JSON.parse(statsResult)
               : statsResult
             : {};
-          const p = parsed as { subscriber_count?: number; is_subscribed?: boolean; notify?: boolean };
+          const p = parsed as {
+            subscriber_count?: number;
+            is_subscribed?: boolean;
+            notify?: boolean;
+          };
           return {
             id: u.id,
             username: u.username,
@@ -118,7 +176,7 @@ export const loader = async ({ request }: { request: Request }) => {
             is_subscribed: Boolean(p.is_subscribed),
             notify: Boolean(p.notify),
           };
-        })
+        }),
       );
       for (const item of part) {
         if (item) enriched.push(item);
@@ -134,6 +192,9 @@ export const loader = async ({ request }: { request: Request }) => {
 
 export const action = async ({ request }: { request: Request }) => {
   try {
+    const gate = denyIfNotAppFetch(request, { sameOrigin: true });
+    if (gate) return gate;
+
     const user = await isAuthenticated(request, ["id"]);
     if (!user?.id) {
       return toJson({ error: "Unauthorized" }, 401);
@@ -143,7 +204,13 @@ export const action = async ({ request }: { request: Request }) => {
       return toJson({ error: "Method not allowed" }, 405);
     }
 
-    const body = await request.json().catch(() => ({}));
+    const cookieValue = getCookie("c_user", request.headers);
+    if (!cookieValue) return toJson({ error: "Unauthorized" }, 401);
+    const bodyReader = await readBodyForSigning(request);
+    const badSig = denyIfBadSignature(request, cookieValue, bodyReader.bytes);
+    if (badSig) return badSig;
+
+    const body = bodyReader.json() as { commentId?: string; comment_id?: string };
     const commentId = body?.commentId ?? body?.comment_id;
 
     if (!commentId || !isValidFileId(commentId)) {
@@ -154,6 +221,10 @@ export const action = async ({ request }: { request: Request }) => {
       return toJson({ error: "Database unavailable" }, 503);
     }
 
+    const access = await denyIfCommentUnreadable(request, commentId, user.id);
+    if (access.denied) return access.denied;
+    const fileId = access.comment.file_id;
+
     const { data: existing } = await db
       .from("comment_likes")
       .select("id")
@@ -163,14 +234,19 @@ export const action = async ({ request }: { request: Request }) => {
 
     if (existing) {
       await db.from("comment_likes").delete().eq("id", existing.id);
-      // Cancel any pending push from a just-undone comment like.
       const { data: ownerRow } = await db
         .from("comments")
         .select("user_id, file_id")
         .eq("id", commentId)
         .maybeSingle();
       if (ownerRow?.user_id) {
-        void cancelPush(ownerRow.user_id, "comment_like", user.id, ownerRow.file_id ?? undefined, commentId);
+        void cancelPush(
+          ownerRow.user_id,
+          "comment_like",
+          user.id,
+          ownerRow.file_id ?? fileId,
+          commentId,
+        );
       }
       return toJson({ liked: false, success: true });
     }
@@ -188,10 +264,16 @@ export const action = async ({ request }: { request: Request }) => {
         userId: commentRow.user_id,
         type: "comment_like",
         actorId: user.id,
-        fileId: commentRow.file_id ?? undefined,
+        fileId: commentRow.file_id ?? fileId,
         commentId,
       });
-      void enqueuePush(commentRow.user_id, "comment_like", user.id, commentRow.file_id ?? undefined, commentId);
+      void enqueuePush(
+        commentRow.user_id,
+        "comment_like",
+        user.id,
+        commentRow.file_id ?? fileId,
+        commentId,
+      );
     }
 
     return toJson({ liked: true, success: true });

@@ -16,6 +16,8 @@ function goToLogin() {
 import { CommentSignInDialog } from "./CommentSignInDialog";
 import { Button } from "~/components/ui/button";
 import { readPlaybackPosition } from "~/lib/playback/positionRegistry";
+import { dropReplyCacheForFile } from "./replyCache";
+import { signedFetch } from "~/lib/Security/requestSigning.client";
 
 const COMMENTS_PAGE_SIZE = 50;
 
@@ -78,6 +80,12 @@ interface CommentSectionProps {
    * manual "reload comments" button. Changing it refetches page 0.
    */
   reloadToken?: number;
+  /**
+   * Signed change to the file's total comment count (+1 per post, -N for a
+   * delete that cascades through a thread). Lets the page header stay honest
+   * without refetching the loader.
+   */
+  onCountDelta?: (delta: number) => void;
 }
 
 /** Normalize API comment to full Comment shape (replies, counts, etc.) */
@@ -106,18 +114,35 @@ function normalizeComment(raw: Record<string, unknown>): Comment {
   };
 }
 
-/** Immutably add a reply to a parent in the tree. */
-function addReplyToTree(comments: Comment[], parentId: string, newReply: Comment): Comment[] {
-  return comments.map((c) => {
-    if (c.id === parentId) {
-      const replies = [...(c.replies ?? []), newReply];
-      return { ...c, replies, reply_count: replies.length };
-    }
-    if (c.replies?.length) {
-      return { ...c, replies: addReplyToTree(c.replies, parentId, newReply) };
-    }
-    return c;
-  });
+/**
+ * Immutably bump reply_count on the parent and every ancestor above it.
+ *
+ * The reply body itself is deliberately NOT inserted here. Threads are fetched
+ * on demand by CommentItem; stuffing a lone reply into an unloaded thread used
+ * to poison the session cache — after a remount the thread seeded from that
+ * single reply and never refetched, so the rest of the replies were invisible
+ * while the header count still included them.
+ */
+function bumpReplyCounts(comments: Comment[], parentId: string): Comment[] {
+  const walk = (list: Comment[]): { list: Comment[]; found: boolean } => {
+    let found = false;
+    const next = list.map((c) => {
+      if (c.id === parentId) {
+        found = true;
+        return { ...c, reply_count: (c.reply_count ?? 0) + 1 };
+      }
+      if (c.replies?.length) {
+        const sub = walk(c.replies);
+        if (sub.found) {
+          found = true;
+          return { ...c, replies: sub.list, reply_count: (c.reply_count ?? 0) + 1 };
+        }
+      }
+      return c;
+    });
+    return { list: next, found };
+  };
+  return walk(comments).list;
 }
 
 /** Immutably update a comment by id. */
@@ -151,6 +176,7 @@ const CommentSection = ({
   fillHeight = false,
   fileDurationSec,
   reloadToken = 0,
+  onCountDelta,
 }: CommentSectionProps) => {
   const imageUploadContext: CommentImageUploadContext | undefined = (() => {
     const uniqueId = fileUniqueId?.trim();
@@ -200,7 +226,9 @@ const CommentSection = ({
       if (highlightCommentId) {
         params.set("focusCommentId", highlightCommentId);
       }
-      const response = await fetch(`/api/comments?${params.toString()}`, {
+      // First page can be unsigned (guests). Load more needs the HMAC cookie
+      // signature the server requires for offset > 0.
+      const response = await signedFetch(`/api/comments?${params.toString()}`, {
         credentials: "include",
       });
 
@@ -289,10 +317,12 @@ const CommentSection = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fileId]);
 
-  // Manual reload: refetch page 0, bypassing the cache seed. Skipped on mount
-  // (token starts at 0) so it only fires on an explicit bump.
+  // Manual reload: refetch page 0, bypassing the cache seed, and forget the
+  // file's cached reply threads so reopened threads are fresh too. Skipped on
+  // mount (token starts at 0) so it only fires on an explicit bump.
   useEffect(() => {
     if (!reloadToken) return;
+    dropReplyCacheForFile(fileId);
     void fetchComments();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [reloadToken]);
@@ -314,8 +344,17 @@ const CommentSection = ({
     return () => window.clearTimeout(timer);
   }, [highlightCommentId, isLoading, comments]);
 
+  /**
+   * Post a comment or reply. Resolves with the created comment so reply
+   * threads can append it locally instead of refetching themselves.
+   */
   const handleSubmit = useCallback(
-    async (content: string, parentId?: string | null, gif?: CommentGif | null, image?: CommentImage | null) => {
+    async (
+      content: string,
+      parentId?: string | null,
+      gif?: CommentGif | null,
+      image?: CommentImage | null,
+    ): Promise<Comment | void> => {
       if (!currentUserId) {
         goToLogin();
         return;
@@ -324,7 +363,7 @@ const CommentSection = ({
       setIsSubmitting(true);
       setError(null);
       try {
-        const response = await fetch("/api/comments", {
+        const response = await signedFetch("/api/comments", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           credentials: "include",
@@ -355,11 +394,13 @@ const CommentSection = ({
 
         const newComment = normalizeComment(raw);
         if (parentId) {
-          setComments((prev) => addReplyToTree(prev, parentId, newComment));
+          setComments((prev) => bumpReplyCounts(prev, parentId));
         } else {
           setComments((prev) => [newComment, ...prev]);
           setTotalRootCount((n) => n + 1);
         }
+        onCountDelta?.(1);
+        return newComment;
       } catch (err) {
         console.error("Error submitting comment:", err);
         setError("Failed to post comment");
@@ -367,19 +408,18 @@ const CommentSection = ({
         setIsSubmitting(false);
       }
     },
-    [fileId, currentUserId]
+    [fileId, currentUserId, onCountDelta]
   );
 
   const handleReply = useCallback(
-    async (parentId: string, content: string, gif?: CommentGif | null, image?: CommentImage | null) => {
-      await handleSubmit(content, parentId, gif, image);
-    },
+    async (parentId: string, content: string, gif?: CommentGif | null, image?: CommentImage | null) =>
+      handleSubmit(content, parentId, gif, image),
     [handleSubmit]
   );
 
   const handleLike = useCallback(async (commentId: string) => {
     try {
-      const response = await fetch("/api/comment-likes", {
+      const response = await signedFetch("/api/comment-likes", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ commentId }),
@@ -401,9 +441,10 @@ const CommentSection = ({
 
       setError(null);
       try {
-        const response = await fetch("/api/comments", {
+        const response = await signedFetch("/api/comments", {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
+          credentials: "include",
           body: JSON.stringify({ commentId, content }),
         });
 
@@ -432,12 +473,12 @@ const CommentSection = ({
   );
 
   const handleDelete = useCallback(
-    async (commentId: string) => {
-      if (!currentUserId) return;
+    async (commentId: string): Promise<number> => {
+      if (!currentUserId) return 0;
 
       setError(null);
       try {
-        const response = await fetch("/api/comments", {
+        const response = await signedFetch("/api/comments", {
           method: "DELETE",
           headers: { "Content-Type": "application/json" },
           credentials: "include",
@@ -449,14 +490,25 @@ const CommentSection = ({
           throw new Error(errBody.error || "Failed to delete comment");
         }
 
+        const body = (await response.json().catch(() => null)) as { deletedCount?: number } | null;
+        const deletedCount =
+          typeof body?.deletedCount === "number" && body.deletedCount > 0 ? body.deletedCount : 1;
+        onCountDelta?.(-deletedCount);
+
+        // The cascade may have taken out whole cached subtrees; forget the
+        // file's reply threads so none of them can resurface deleted rows.
+        // (Live threads re-cache themselves from their current state.)
+        dropReplyCacheForFile(fileId);
         // Server cascades soft-delete to all nested replies  refetch to stay in sync
         await fetchComments();
+        return deletedCount;
       } catch (err) {
         console.error("Error deleting comment:", err);
         setError("Failed to delete comment");
+        return 0;
       }
     },
-    [currentUserId, fetchComments]
+    [currentUserId, fetchComments, onCountDelta]
   );
 
   const handleHide = useCallback(
@@ -464,7 +516,7 @@ const CommentSection = ({
       if (!currentUserId) return;
       setError(null);
       try {
-        const response = await fetch("/api/comments", {
+        const response = await signedFetch("/api/comments", {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
           credentials: "include",
@@ -490,7 +542,7 @@ const CommentSection = ({
       if (!currentUserId) return;
       setError(null);
       try {
-        const response = await fetch("/api/comments", {
+        const response = await signedFetch("/api/comments", {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
           credentials: "include",
@@ -642,7 +694,9 @@ const CommentSection = ({
       <CommentForm
         fileId={fileId}
         imageUploadContext={imageUploadContext}
-        onSubmit={(content, gif, image) => handleSubmit(content, undefined, gif, image)}
+        onSubmit={async (content, gif, image) => {
+          await handleSubmit(content, undefined, gif, image);
+        }}
       />
     </div>
   ) : null;

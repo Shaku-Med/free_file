@@ -11,13 +11,9 @@ import { SignInToSeeMore } from "~/components/SignInWall";
 import db from "~/lib/Database/supabase";
 import { isAuthenticated } from "~/lib/Security/Password";
 import { sanitizeSearchQuery } from "~/lib/Security/inputValidation";
-import { Swiper, SwiperSlide } from "swiper/react";
-import { Navigation, A11y, Keyboard } from "swiper/modules";
-import type { Swiper as SwiperType } from "swiper";
+import { Carousel, CarouselItem } from "~/components/Carousel/Carousel";
 import { buildSpotlight } from "~/lib/search/spotlight.server";
 import SearchSpotlight from "~/components/SearchSpotlight";
-import "swiper/css";
-import "swiper/css/navigation";
 import { Separator } from "~/components/ui/separator";
 
 const SEARCH_LIMIT = 20;
@@ -364,36 +360,16 @@ const Search = () => {
       <div className="flex w-full flex-col gap-4 sm:gap-5">
         <Separator/>
         {reels.length > 0 && (
-          <div className="w-full min-w-0 max-w-full overflow-hidden">
+          <div className="w-full min-w-0 max-w-full overflow-visible">
             <div className="mb-2 flex items-center gap-1.5">
               <Clapperboard className="h-5 w-5 text-foreground" aria-hidden />
               <h2 className="text-base font-semibold tracking-tight sm:text-lg">Shorts</h2>
             </div>
-            <Swiper
-              modules={[Navigation, A11y, Keyboard]}
-              slidesPerView={3.15}
-              spaceBetween={10}
-              speed={380}
-              watchOverflow
-              observer
-              observeParents
-              resizeObserver
-              navigation
-              keyboard={{ enabled: true, onlyInViewport: true }}
-              breakpoints={{
-                640: { slidesPerView: 2.5, spaceBetween: 12 },
-                768: { slidesPerView: 3, spaceBetween: 12 },
-                1024: { slidesPerView: 3.5, spaceBetween: 14 },
-                1280: { slidesPerView: 4, spaceBetween: 14 },
-                1536: { slidesPerView: 5, spaceBetween: 16 },
-              }}
-              className="feed-reel-swiper"
-              onInit={(swiper: SwiperType) => swiper.update()}
-            >
+            <Carousel label="Shorts" itemWidth={168} gapClassName="gap-2.5">
               {reels.map((file, keyIndex) => {
                 const index = indexCounter++;
                 return (
-                  <SwiperSlide key={file.id || file.unique_id || keyIndex} className="!h-auto">
+                  <CarouselItem key={file.id || file.unique_id || keyIndex}>
                     <VideoCard
                       data={file}
                       layout="reelStrip"
@@ -402,10 +378,10 @@ const Search = () => {
                       currentUserId={userId || undefined}
                       hideActions={{ completely: true, halfway: false }}
                     />
-                  </SwiperSlide>
+                  </CarouselItem>
                 );
               })}
-            </Swiper>
+            </Carousel>
           </div>
         )}
 

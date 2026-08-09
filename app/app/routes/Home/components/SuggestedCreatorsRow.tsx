@@ -1,10 +1,7 @@
 import { useCallback, useState } from "react";
 import { Link } from "react-router";
 import { UserPlus, X } from "lucide-react";
-import { Swiper, SwiperSlide } from "swiper/react";
-import { A11y, Keyboard, Navigation } from "swiper/modules";
-import "swiper/css";
-import "swiper/css/navigation";
+import { Carousel, CarouselItem } from "~/components/Carousel/Carousel";
 import { getProfilePicUrl } from "~/lib/utils/profilePic";
 import { formatSubscriberCount } from "~/components/SubscribeButton";
 import { cn } from "~/lib/utils";
@@ -144,27 +141,13 @@ export default function SuggestedCreatorsRow({
       <div className="mb-2 flex items-center justify-between">
         <h2 className="text-sm font-medium text-foreground">{title}</h2>
       </div>
-      <Swiper
-        modules={[Navigation, A11y, Keyboard]}
-        slidesPerView={2.2}
-        spaceBetween={10}
-        watchOverflow
-        navigation
-        keyboard={{ enabled: true, onlyInViewport: true }}
-        breakpoints={{
-          480: { slidesPerView: 3.2, spaceBetween: 12 },
-          768: { slidesPerView: 4.2, spaceBetween: 12 },
-          1024: { slidesPerView: 5, spaceBetween: 14 },
-          1280: { slidesPerView: 6, spaceBetween: 14 },
-        }}
-        className="suggested-creators-swiper"
-      >
+      <Carousel label={title} itemWidth={150} gapClassName="gap-2.5">
         {visible.map((c) => (
-          <SwiperSlide key={c.id} className="!h-auto">
+          <CarouselItem key={c.id}>
             <CreatorCard creator={c} currentUserId={currentUserId} onDismiss={handleDismiss} />
-          </SwiperSlide>
+          </CarouselItem>
         ))}
-      </Swiper>
+      </Carousel>
     </div>
   );
 }

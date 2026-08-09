@@ -6,6 +6,7 @@ import { useCallback, useEffect, useLayoutEffect, useState, useRef, useMemo } fr
 import RelatedVideos from "./components/RelatedVideos";
 import SeriesEpisodesSection from "./components/SeriesEpisodesSection";
 import ImageWatchCarousel from "./components/ImageWatchCarousel";
+import { Carousel, CarouselItem } from "~/components/Carousel/Carousel";
 import SeriesSignInGate from "./components/SeriesSignInGate";
 import { getSeriesUpNextVideos } from "./fun/mapSeriesRpcRows";
 import { type FileType, type SeriesEpisodeGroup, type ImageContentPayload, fileWatchPath } from "~/lib/types";
@@ -1087,7 +1088,20 @@ const DynamicPage = ({ is_modal }: DynamicPageProps) => {
     }
   }
 
-  const commentsCount = data.commentsCount || 0;
+  // Posts/deletes made in this session adjust the loader's count so the
+  // number on screen tracks the thread instead of freezing at page load.
+  // A delete that takes a whole reply thread with it subtracts the real
+  // cascade size, not 1.
+  const [commentCountAdj, setCommentCountAdj] = useState(0);
+  const commentedFileId = file_data?.id;
+  useEffect(() => {
+    setCommentCountAdj(0);
+  }, [commentedFileId]);
+  const handleCommentCountDelta = useCallback((delta: number) => {
+    setCommentCountAdj((prev) => prev + delta);
+  }, []);
+
+  const commentsCount = Math.max(0, (data.commentsCount || 0) + commentCountAdj);
   const isOwner = Boolean(userId && file_data?.owner_id && userId === file_data.owner_id);
 
   const retry = useCallback(() => {
@@ -1724,6 +1738,7 @@ const DynamicPage = ({ is_modal }: DynamicPageProps) => {
         highlightCommentId={highlightCommentId}
         commentsOpen={isMobileDevice ? mobileCommentsOpen : undefined}
         onCommentsOpenChange={isMobileDevice ? setMobileCommentsOpen : undefined}
+        onCommentCountDelta={handleCommentCountDelta}
       />
       </div>
 
@@ -1853,9 +1868,9 @@ const DynamicPage = ({ is_modal }: DynamicPageProps) => {
                 See all
               </Link>
             </div>
-            <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1 [scrollbar-width:thin]">
+            <Carousel label="Videos using this sound" itemWidth={144} gapClassName="gap-2">
               {resolvedPageDetails!.soundRemixes.map((remix, index) => (
-                <div key={remix.unique_id} className="w-36 shrink-0">
+                <CarouselItem key={remix.unique_id}>
                   <VideoCard
                     data={soundRemixToFileType(remix)}
                     layout="reelStrip"
@@ -1865,9 +1880,9 @@ const DynamicPage = ({ is_modal }: DynamicPageProps) => {
                     userActions={mergedSidebarUserActions}
                     hideActions={{ completely: true }}
                   />
-                </div>
+                </CarouselItem>
               ))}
-            </div>
+            </Carousel>
           </div>
         )}
 
@@ -1915,6 +1930,7 @@ const DynamicPage = ({ is_modal }: DynamicPageProps) => {
             commentsEnabled={file_data.comments_enabled !== false}
             highlightCommentId={highlightCommentId}
             fileDurationSec={typeof file_data.duration === "number" ? file_data.duration : undefined}
+            onCountDelta={handleCommentCountDelta}
           />
         </div>
       )}

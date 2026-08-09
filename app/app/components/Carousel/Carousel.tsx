@@ -12,38 +12,43 @@ import { ChevronLeft, ChevronRight } from "lucide-react";
 import { cn } from "~/lib/utils";
 
 /**
- * Drag carousel. Transform driven, no scrollbar, no native scrolling.
+ * In-house carousel. Transform driven, so there is no native scrollbar and no
+ * CSS snap. The track follows the pointer 1:1 (mouse, pen or touch), keeps its
+ * velocity on release and glides out with friction. Arrows and arrow keys page
+ * by most of a viewport.
  *
- * Three things it has to get right that a plain overflow container does not:
- *
- *  - The track moves under the pointer and keeps its velocity on release, then
- *    settles on the nearest item.
- *  - A drag must not open the card underneath it. Past a small threshold the
- *    next click is swallowed, so a flick across a card never navigates.
- *  - Cards scale on hover, so the viewport clips on X only (`overflow-x: clip`
- *    with `overflow-y: visible`, which `hidden` cannot express) and the hover
- *    tint keeps its room instead of being cut off. That clipping is what was
- *    swallowing the reels before.
+ * Sizing is container based, like the player: the root is a CSS container and
+ * card widths come from itemWidth capped in container query units, so they are
+ * right from the first server paint with no JS involved. Controls only render
+ * while there is somewhere to scroll to.
  */
 
 const DRAG_SLOP = 6;
-const SNAP_MS = 380;
-const FLICK_MULTIPLIER = 140;
+const GLIDE_MS = 380;
+const FRICTION_TAU = 320;
+const MIN_VELOCITY = 0.02;
+const VELOCITY_SAMPLE_MS = 80;
 
 type CarouselProps = {
   children: ReactNode;
   /** Names the region for assistive tech. */
   label: string;
+  /**
+   * Card width in px. Capped at 85% of the carousel's own width so a card
+   * never overflows a small slot. Omit it and the items size themselves
+   * through their own classes.
+   */
+  itemWidth?: number;
   className?: string;
-  /** Tailwind gap class applied to the track. */
   gapClassName?: string;
-  /** Vertical room so a hovered card that scales up is not cut off. */
+  /** Vertical room so a card that grows on hover is not cut off. */
   bleedClassName?: string;
 };
 
 export function Carousel({
   children,
   label,
+  itemWidth,
   className,
   gapClassName = "gap-2",
   bleedClassName = "py-3 -my-3",
@@ -55,14 +60,13 @@ export function Carousel({
   const [offset, setOffset] = useState(0);
   const [maxOffset, setMaxOffset] = useState(0);
   const [dragging, setDragging] = useState(false);
-  const [animate, setAnimate] = useState(true);
+  const [animate, setAnimate] = useState(false);
 
   const offsetRef = useRef(0);
   offsetRef.current = offset;
   const maxRef = useRef(0);
   maxRef.current = maxOffset;
 
-  /** Live drag bookkeeping; refs so pointermove never re-renders through state. */
   const drag = useRef({
     active: false,
     startX: 0,
@@ -72,8 +76,17 @@ export function Carousel({
     velocity: 0,
     moved: false,
   });
-  /** Set on a real drag so the click it turns into is swallowed once. */
   const suppressClick = useRef(false);
+  const momentumRaf = useRef<number | null>(null);
+
+  const stopMomentum = useCallback(() => {
+    if (momentumRaf.current !== null) {
+      cancelAnimationFrame(momentumRaf.current);
+      momentumRaf.current = null;
+    }
+  }, []);
+
+  useEffect(() => stopMomentum, [stopMomentum]);
 
   const measure = useCallback(() => {
     const vp = viewportRef.current;
@@ -81,8 +94,6 @@ export function Carousel({
     if (!vp || !tr) return;
     const max = Math.max(0, tr.scrollWidth - vp.clientWidth);
     setMaxOffset(max);
-    // Content shrank (resize, a filtered list): never leave the track parked
-    // past its own end.
     setOffset((o) => clamp(o, -max, 0));
   }, []);
 
@@ -101,46 +112,38 @@ export function Carousel({
     return () => ro.disconnect();
   }, [measure, children]);
 
-  /**
-   * Left edge of every item measured from the track's own start.
-   *
-   * No offset correction: the track and its children carry the SAME transform,
-   * so it cancels in the subtraction. Subtracting it again put the first edge at
-   * -offset instead of 0, which poisoned every snap target and left paging and
-   * release both landing back where they started.
-   */
-  const itemEdges = useCallback((): number[] => {
-    const tr = trackRef.current;
-    if (!tr) return [0];
-    const base = tr.getBoundingClientRect().left;
-    return Array.from(tr.children).map(
-      (c) => (c as HTMLElement).getBoundingClientRect().left - base,
-    );
-  }, []);
-
-  const settleTo = useCallback((target: number) => {
-    const max = maxRef.current;
-    const edges = itemEdges();
-    const wanted = clamp(target, -max, 0);
-    // Snap to whichever item edge is closest to where the flick was heading.
-    let best = wanted;
-    let bestDist = Infinity;
-    for (const e of edges) {
-      const candidate = clamp(-e, -max, 0);
-      const d = Math.abs(candidate - wanted);
-      if (d < bestDist) {
-        bestDist = d;
-        best = candidate;
+  const startMomentum = useCallback((initialVelocity: number) => {
+    stopMomentum();
+    let v = initialVelocity;
+    let last = performance.now();
+    const step = (now: number) => {
+      const dt = Math.min(now - last, 64);
+      last = now;
+      const max = maxRef.current;
+      const next = clamp(offsetRef.current + v * dt, -max, 0);
+      setAnimate(false);
+      setOffset(next);
+      v *= Math.exp(-dt / FRICTION_TAU);
+      const hitEdge = next === 0 || next === -max;
+      if (Math.abs(v) < MIN_VELOCITY || hitEdge) {
+        momentumRaf.current = null;
+        return;
       }
-    }
+      momentumRaf.current = requestAnimationFrame(step);
+    };
+    momentumRaf.current = requestAnimationFrame(step);
+  }, [stopMomentum]);
+
+  const glideTo = useCallback((target: number) => {
+    stopMomentum();
     setAnimate(true);
-    setOffset(best);
-  }, [itemEdges]);
+    setOffset(clamp(target, -maxRef.current, 0));
+  }, [stopMomentum]);
 
   const onPointerDown = useCallback((e: ReactPointerEvent<HTMLDivElement>) => {
-    // Mouse: left button only. Pen and touch always engage.
     if (e.pointerType === "mouse" && e.button !== 0) return;
     if (maxRef.current <= 0) return;
+    stopMomentum();
     const d = drag.current;
     d.active = true;
     d.moved = false;
@@ -150,27 +153,30 @@ export function Carousel({
     d.lastT = e.timeStamp;
     d.velocity = 0;
     setAnimate(false);
-    setDragging(true);
-    // Capture can be refused (pointer already gone, synthetic event). It must
-    // never abort the drag, and release must never abort the settle.
-    try { e.currentTarget.setPointerCapture?.(e.pointerId); } catch { /* not fatal */ }
-  }, []);
+  }, [stopMomentum]);
 
   const onPointerMove = useCallback((e: ReactPointerEvent<HTMLDivElement>) => {
     const d = drag.current;
     if (!d.active) return;
     const dx = e.clientX - d.startX;
     if (!d.moved && Math.abs(dx) < DRAG_SLOP) return;
-    d.moved = true;
+    if (!d.moved) {
+      // Capture only once a real drag starts. Capturing on the initial press
+      // makes the browser retarget the click to the viewport, which broke
+      // every link and button inside the cards.
+      d.moved = true;
+      setDragging(true);
+      try { e.currentTarget.setPointerCapture?.(e.pointerId); } catch { /* not fatal */ }
+    }
 
     const dt = e.timeStamp - d.lastT;
     if (dt > 0) d.velocity = (e.clientX - d.lastX) / dt;
     d.lastX = e.clientX;
     d.lastT = e.timeStamp;
 
+    // Past either end the track follows at a third of the distance, so the
+    // boundary is felt instead of hit like a wall.
     const raw = d.startOffset + dx;
-    // Past either end the track still follows, at a third of the distance, so
-    // the boundary is felt rather than hit like a wall.
     const max = maxRef.current;
     const eased = raw > 0 ? raw / 3 : raw < -max ? -max + (raw + max) / 3 : raw;
     setOffset(eased);
@@ -181,13 +187,23 @@ export function Carousel({
     if (!d.active) return;
     d.active = false;
     setDragging(false);
-    try { e.currentTarget.releasePointerCapture?.(e.pointerId); } catch { /* see above */ }
+    try { e.currentTarget.releasePointerCapture?.(e.pointerId); } catch { /* not fatal */ }
     if (!d.moved) return;
     suppressClick.current = true;
-    settleTo(offsetRef.current + d.velocity * FLICK_MULTIPLIER);
-  }, [settleTo]);
 
-  /** Capture phase: kill the click a drag produced before the card sees it. */
+    const max = maxRef.current;
+    const current = offsetRef.current;
+    if (current > 0 || current < -max) {
+      glideTo(current);
+      return;
+    }
+    const fresh = e.timeStamp - d.lastT <= VELOCITY_SAMPLE_MS;
+    if (fresh && Math.abs(d.velocity) >= MIN_VELOCITY) {
+      startMomentum(d.velocity);
+    }
+  }, [glideTo, startMomentum]);
+
+  /** A drag should never turn into a click on whatever card it ended over. */
   const onClickCapture = useCallback((e: React.MouseEvent) => {
     if (!suppressClick.current) return;
     suppressClick.current = false;
@@ -198,8 +214,8 @@ export function Carousel({
   const page = useCallback((dir: -1 | 1) => {
     const vp = viewportRef.current;
     if (!vp) return;
-    settleTo(offsetRef.current - dir * vp.clientWidth * 0.8);
-  }, [settleTo]);
+    glideTo(offsetRef.current - dir * vp.clientWidth * 0.8);
+  }, [glideTo]);
 
   const onKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
@@ -210,12 +226,29 @@ export function Carousel({
     [page],
   );
 
+  // Horizontal trackpad and tilt wheel input. Native listener because React's
+  // delegated wheel handlers are passive and preventDefault would be ignored.
+  useEffect(() => {
+    const vp = viewportRef.current;
+    if (!vp) return;
+    const onWheel = (e: WheelEvent) => {
+      if (maxRef.current <= 0) return;
+      if (Math.abs(e.deltaX) <= Math.abs(e.deltaY)) return;
+      e.preventDefault();
+      stopMomentum();
+      setAnimate(false);
+      setOffset(clamp(offsetRef.current - e.deltaX, -maxRef.current, 0));
+    };
+    vp.addEventListener("wheel", onWheel, { passive: false });
+    return () => vp.removeEventListener("wheel", onWheel);
+  }, [stopMomentum]);
+
   const atStart = offset >= -1;
   const atEnd = maxOffset <= 0 || offset <= -maxOffset + 1;
   const scrollable = maxOffset > 0;
 
   return (
-    <div className={cn("group/carousel relative min-w-0", className)}>
+    <div className={cn("group/carousel @container relative isolate min-w-0", className)}>
       <div
         ref={viewportRef}
         id={regionId}
@@ -230,10 +263,8 @@ export function Carousel({
         onPointerUp={endDrag}
         onPointerCancel={endDrag}
         className={cn(
-          // clip on X only. `hidden` would clip Y too and cut the hover tint.
-          "relative w-full min-w-0 overflow-x-clip overflow-y-visible",
+          "relative z-0 w-full min-w-0 overflow-x-clip overflow-y-visible",
           "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
-          // Vertical page scrolling stays the browser's; horizontal is ours.
           scrollable && "touch-pan-y",
           scrollable && (dragging ? "cursor-grabbing" : "cursor-grab"),
           bleedClassName,
@@ -241,10 +272,22 @@ export function Carousel({
       >
         <div
           ref={trackRef}
-          className={cn("flex w-max min-w-full will-change-transform", gapClassName)}
+          // Images and links start a native HTML drag on mouse down, which
+          // kills the pointer stream and with it the drag. Blocked here once
+          // instead of on every card.
+          onDragStart={(e) => e.preventDefault()}
+          className={cn(
+            "flex w-max min-w-full will-change-transform select-none",
+            gapClassName,
+          )}
           style={{
             transform: `translate3d(${offset}px,0,0)`,
-            transition: animate ? `transform ${SNAP_MS}ms cubic-bezier(0.22,0.61,0.36,1)` : "none",
+            transition: animate ? `transform ${GLIDE_MS}ms cubic-bezier(0.22,0.61,0.36,1)` : "none",
+            // Plain CSS so the server renders correct card widths too. cqw is
+            // relative to the carousel's own box, never the window.
+            ...(itemWidth && itemWidth > 0
+              ? ({ "--carousel-item": `min(${itemWidth}px, 85cqw)` } as React.CSSProperties)
+              : {}),
           }}
         >
           {children}
@@ -285,24 +328,34 @@ function CarouselArrow({
       aria-controls={controls}
       aria-label={side === "left" ? "Previous" : "Next"}
       className={cn(
-        // Cards inside raise themselves to a very high z on hover, so the
-        // controls have to sit above that or they disappear under the row.
-        "absolute top-1/2 z-[1000001] hidden -translate-y-1/2 items-center justify-center",
-        "size-9 rounded-full border border-border/60 bg-background/90 text-foreground shadow-md backdrop-blur",
-        "transition-opacity duration-200",
-        // Pointer devices only: on touch the drag is the control.
+        // z-10 over the z-0 viewport inside an isolated root, so cards can
+        // never paint over the controls.
+        "absolute top-1/2 z-10 hidden -translate-y-1/2 items-center justify-center",
+        "size-10 rounded-full text-foreground/90",
+        "border border-border/50 bg-background/85 shadow-lg shadow-black/10 backdrop-blur-md",
+        "ring-1 ring-black/5 dark:ring-white/10",
+        "transition-[opacity,transform,background-color] duration-200 ease-out",
+        // Pointer devices only. On touch the drag is the control.
         "[@media(pointer:fine)]:flex",
-        side === "left" ? "left-1" : "right-1",
-        "opacity-0 group-hover/carousel:opacity-100 group-focus-within/carousel:opacity-100",
-        "hover:bg-background disabled:pointer-events-none disabled:opacity-0",
+        side === "left" ? "left-2" : "right-2",
+        "opacity-90 hover:scale-105 hover:bg-background hover:opacity-100 hover:text-foreground",
+        "active:scale-95",
+        "disabled:pointer-events-none disabled:scale-90 disabled:opacity-0",
       )}
     >
-      <Icon className="size-5" aria-hidden />
+      <Icon
+        className={cn("size-5", side === "left" ? "-translate-x-px" : "translate-x-px")}
+        strokeWidth={2.5}
+        aria-hidden
+      />
     </button>
   );
 }
 
-/** One slide. Keep `basis` fractional so the next item peeks. */
+/**
+ * One slide. Sized by the carousel when it was given an itemWidth, otherwise
+ * by whatever width classes the caller puts on it.
+ */
 export function CarouselItem({
   children,
   className,
@@ -311,6 +364,11 @@ export function CarouselItem({
   className?: string;
 }) {
   return (
-    <div className={cn("min-w-0 shrink-0", className)}>{children}</div>
+    <div
+      className={cn("min-w-0 shrink-0 grow-0", className)}
+      style={{ flexBasis: "var(--carousel-item, auto)" }}
+    >
+      {children}
+    </div>
   );
 }

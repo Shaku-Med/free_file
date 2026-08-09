@@ -5,43 +5,85 @@ import db from "~/lib/Database/supabase";
 import { commentService, type CreateCommentInput } from "~/lib/Services/CommentService";
 import { createNotification } from "~/lib/Services/NotificationService";
 import { enqueuePush } from "~/lib/Services/PushQueue.server";
-import { validatePagination, isValidFileId, sanitizeCommentContent, validateInteger } from "~/lib/Security/inputValidation";
-import { canAccessFile } from "~/routes/Api/fun/accessControl";
+import { isValidFileId, sanitizeCommentContent, validateInteger } from "~/lib/Security/inputValidation";
+import { assertSafeRequest } from "~/lib/Security/requestGuard.server";
+import { isSameOrigin } from "~/lib/Security/sameOrigin.server";
+import { getCookie } from "~/lib/Security/Token";
+import {
+  validateRequestSignature,
+  readBodyForSigning,
+} from "~/lib/Security/requestSignature.server";
+import {
+  denyIfFileUnreadable,
+  denyIfParentUnusable,
+  loadCommentForAccess,
+  isAllowedCommentGifUrl,
+} from "~/routes/Api/fun/commentAccess.server";
+import { checkCommentGetRateLimit } from "~/routes/Api/fun/personalizationRateLimit";
+
+/** Guests only see the first page. Matches the UI page size. */
+const GUEST_PAGE_LIMIT = 50;
+/** Signed in users can ask for up to this many roots/replies per call. */
+const AUTH_PAGE_LIMIT = 100;
 
 const toJson = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), {
     status,
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      "Cache-Control": "private, no-store",
+    },
   });
 
-/**
- * Comments inherit the visibility of the file they hang off.
- *
- * Nothing gated this before: a fileId was enough to read every comment on a
- * private upload, an unlisted file locked by moderation, or content from a
- * restricted account. The thread leaks usernames, the discussion itself and the
- * fact that the upload exists. Same helper the media routes use, so adult gates,
- * visibility and owner enforcement all stay consistent.
- *
- * Returns null when the viewer may read; otherwise the response to send.
- */
-async function denyIfFileUnreadable(request: Request, fileId: string): Promise<Response | null> {
-  if (!db) return toJson({ error: "Database not initialized" }, 500);
-  const { data: file } = await db
-    .from('files')
-    .select('id, owner_id, is_public, visibility, visibility_locked, is_adult, upload_status')
-    .eq('id', fileId)
-    .maybeSingle();
-  // 404 rather than 403: a missing file and a forbidden one look the same, so
-  // this cannot be used to test which ids exist.
-  if (!file) return toJson({ error: "Not found" }, 404);
-  const allowed = await canAccessFile(request, file as never);
-  if (!allowed) return toJson({ error: "Not found" }, 404);
+/** Browser shaped fetch only. Also run here so a layout skip can't open the door. */
+function denyIfNotAppFetch(request: Request, opts?: { sameOrigin?: boolean }): Response | null {
+  const blocked = assertSafeRequest(request, { apiFetchOnly: true });
+  if (blocked) return blocked;
+  // Mutations always need Origin/Referer. Reads are already locked down by
+  // Sec-Fetch, so we don't fail a privacy browser that strips Referer on GET.
+  if (opts?.sameOrigin && !isSameOrigin(request)) {
+    return toJson({ error: "Forbidden" }, 403);
+  }
   return null;
+}
+
+/**
+ * Cookie HMAC check used by watch issue and friends. Only callers that already
+ * proved they have a session need this. Guests never get a signing key.
+ */
+function denyIfBadSignature(
+  request: Request,
+  cookieValue: string,
+  bodyBytes: Uint8Array | null,
+): Response | null {
+  const sig = validateRequestSignature(request, {
+    cookieValue,
+    bodyBytes,
+  });
+  if (sig.valid) return null;
+  console.warn("[comments] signature rejected:", sig.reason);
+  const headers = new Headers({
+    "Content-Type": "application/json",
+    "Cache-Control": "private, no-store",
+  });
+  if (
+    sig.reason === "stale_ts" ||
+    sig.reason === "hmac_mismatch" ||
+    sig.reason === "missing_sig_headers"
+  ) {
+    headers.set("X-Sig-Stale", "1");
+  }
+  return new Response(JSON.stringify({ error: "Forbidden" }), {
+    status: 401,
+    headers,
+  });
 }
 
 export const loader = async ({ request }: { request: Request }) => {
   try {
+    const gate = denyIfNotAppFetch(request);
+    if (gate) return gate;
+
     const url = new URL(request.url);
     const fileId = url.searchParams.get('fileId');
     const limitParam = url.searchParams.get('limit');
@@ -52,27 +94,54 @@ export const loader = async ({ request }: { request: Request }) => {
       return toJson({ error: "Invalid fileId" }, 400);
     }
 
-    const limit = validateInteger(limitParam, 1, 100) || 50;
     const offset = validateInteger(offsetParam, 0, 10000) || 0;
-    const focusCommentId =
-      focusCommentIdRaw && isValidFileId(focusCommentIdRaw) ? focusCommentIdRaw : null;
-
-    const denied = await denyIfFileUnreadable(request, fileId);
-    if (denied) return denied;
+    const parentIdRaw = url.searchParams.get('parentId');
 
     const user = await isAuthenticated(request, ['id']).catch(() => null);
     const currentUserId = user?.id ?? null;
 
-    // "View N replies": one thread, paginated. The gate above already proved
-    // this viewer may read the file, and the service checks the parent actually
-    // belongs to it.
-    const parentIdRaw = url.searchParams.get('parentId');
+    // Deep-link focus can pull a whole chain past the first page. Guests don't
+    // get that lever — only signed in viewers with a valid HMAC do.
+    const focusCommentId =
+      currentUserId && focusCommentIdRaw && isValidFileId(focusCommentIdRaw)
+        ? focusCommentIdRaw
+        : null;
+
+    // Guests keep the first page only. Paginated reads need a session.
+    // Checked before the file lookup so offset cannot probe file ids.
+    if (offset > 0 && !currentUserId) {
+      return toJson({ error: "sign_in_required" }, 401);
+    }
+
+    // Any signed in read needs the browser HMAC. A stolen cookie alone is
+    // not enough to scrape threads, even for page one.
+    if (currentUserId) {
+      const cookieValue = getCookie("c_user", request.headers);
+      if (!cookieValue) return toJson({ error: "Unauthorized" }, 401);
+      const badSig = denyIfBadSignature(request, cookieValue, null);
+      if (badSig) return badSig;
+    }
+
+    if (!checkCommentGetRateLimit(request, currentUserId).allowed) {
+      return toJson({ error: "Too many requests" }, 429);
+    }
+
+    const denied = await denyIfFileUnreadable(request, fileId);
+    if (denied) return denied;
+
+    const pageLimit = currentUserId
+      ? validateInteger(limitParam, 1, AUTH_PAGE_LIMIT) || 50
+      : Math.min(validateInteger(limitParam, 1, GUEST_PAGE_LIMIT) || GUEST_PAGE_LIMIT, GUEST_PAGE_LIMIT);
+
     if (parentIdRaw) {
       if (!isValidFileId(parentIdRaw)) return toJson({ error: "Invalid parentId" }, 400);
+      const replyLimit = currentUserId
+        ? validateInteger(limitParam, 1, 50) || 20
+        : Math.min(validateInteger(limitParam, 1, 20) || 20, 20);
       const replies = await commentService.getRepliesByCommentId(
         fileId,
         parentIdRaw,
-        validateInteger(limitParam, 1, 50) || 20,
+        replyLimit,
         offset,
         currentUserId
       );
@@ -86,7 +155,7 @@ export const loader = async ({ request }: { request: Request }) => {
 
     const result = await commentService.getCommentsTreeByFileId(
       fileId,
-      limit,
+      pageLimit,
       offset,
       currentUserId,
       focusCommentId,
@@ -117,10 +186,20 @@ export const loader = async ({ request }: { request: Request }) => {
 
 export const action = async ({ request }: { request: Request }) => {
   try {
+    const gate = denyIfNotAppFetch(request, { sameOrigin: true });
+    if (gate) return gate;
+
     const user = await isAuthenticated(request, ['id']);
     if (!user || !user.id) {
       return toJson({ error: "Unauthorized" }, 401);
     }
+
+    const cookieValue = getCookie("c_user", request.headers);
+    if (!cookieValue) return toJson({ error: "Unauthorized" }, 401);
+
+    const bodyReader = await readBodyForSigning(request);
+    const badSig = denyIfBadSignature(request, cookieValue, bodyReader.bytes);
+    if (badSig) return badSig;
 
     // Restricted/terminated accounts can still READ comments (the loader is
     // untouched) but cannot post, edit or delete.
@@ -132,29 +211,30 @@ export const action = async ({ request }: { request: Request }) => {
       if (!checkCommentPostRateLimit(request, user.id).allowed) {
         return toJson({ error: "Too many requests" }, 429);
       }
-      const body = await request.json();
-      const { fileId, content, parentId, gif, image, timestampSeconds }: CreateCommentInput & {
+      const body = bodyReader.json() as CreateCommentInput & {
         fileId: string;
         content?: string;
         parentId?: string;
         gif?: { id: string; url: string; previewUrl?: string };
         image?: { url: string; type: string };
         timestampSeconds?: unknown;
-      } = body;
+      };
+      const { fileId, content, parentId, gif, image, timestampSeconds } = body;
 
-      // Validate inputs
       if (!fileId || !isValidFileId(fileId)) {
         return toJson({ error: "Invalid fileId" }, 400);
       }
 
-      // Check if comments are enabled and within limit
+      // Same visibility gate as the loader: no posting on private / gated files.
+      const unreadable = await denyIfFileUnreadable(request, fileId);
+      if (unreadable) return unreadable;
+
       if (db) {
         try {
           const { data: fileRow } = await db.from('files').select('comments_enabled, comment_limit').eq('id', fileId).maybeSingle();
           if (fileRow && fileRow.comments_enabled === false) {
             return toJson({ error: "Comments are disabled for this file" }, 403);
           }
-          // Enforce comment limit if set
           if (fileRow && typeof fileRow.comment_limit === 'number' && fileRow.comment_limit >= 0) {
             if (fileRow.comment_limit === 0) {
               return toJson({ error: "Comments are disabled for this file" }, 403);
@@ -178,6 +258,17 @@ export const action = async ({ request }: { request: Request }) => {
       const hasImage = image && typeof image.url === 'string';
       if (!hasText && !hasGif && !hasImage) {
         return toJson({ error: "Comment must have text, a GIF, or an image" }, 400);
+      }
+      if (hasGif && !isAllowedCommentGifUrl(String(gif!.url))) {
+        return toJson({ error: "Invalid GIF reference" }, 400);
+      }
+      if (
+        hasGif &&
+        gif!.previewUrl &&
+        typeof gif!.previewUrl === "string" &&
+        !isAllowedCommentGifUrl(gif!.previewUrl)
+      ) {
+        return toJson({ error: "Invalid GIF reference" }, 400);
       }
 
       // image.url is client-supplied. The comment-image upload flow only ever
@@ -212,6 +303,10 @@ export const action = async ({ request }: { request: Request }) => {
 
       if (parentId && !isValidFileId(parentId)) {
         return toJson({ error: "Invalid parentId" }, 400);
+      }
+      if (parentId) {
+        const badParent = await denyIfParentUnusable(fileId, parentId, user.id);
+        if (badParent) return badParent;
       }
 
       // Client-supplied, so clamped to the file's real duration below rather
@@ -270,7 +365,6 @@ export const action = async ({ request }: { request: Request }) => {
             void enqueuePush(fileRow.owner_id, 'file_comment', user.id, fileId, null);
           }
         }
-        // Notify mentioned users (only if they exist and are not the commenter)
         if (hasText && sanitizedContent) {
           const mentionRegex = /@([\w.-]+)/g;
           const usernames = new Set<string>();
@@ -301,18 +395,22 @@ export const action = async ({ request }: { request: Request }) => {
     }
 
     if (request.method === "PATCH") {
-      const body = await request.json();
+      const body = bodyReader.json() as { commentId?: string; content?: string };
       const { commentId, content } = body;
 
       if (!commentId || !isValidFileId(commentId)) {
         return toJson({ error: "Invalid commentId" }, 400);
       }
 
+      const existing = await loadCommentForAccess(commentId);
+      if (!existing) return toJson({ error: "Not found" }, 404);
+      const unreadable = await denyIfFileUnreadable(request, existing.file_id);
+      if (unreadable) return unreadable;
+
       if (!content || typeof content !== 'string') {
         return toJson({ error: "content is required" }, 400);
       }
 
-      // Sanitize comment content
       const sanitizedContent = sanitizeCommentContent(content);
       if (!sanitizedContent || sanitizedContent.length < 1) {
         return toJson({ error: "Comment content is too short or invalid" }, 400);
@@ -328,12 +426,17 @@ export const action = async ({ request }: { request: Request }) => {
     }
 
     if (request.method === "DELETE") {
-      const body = await request.json();
+      const body = bodyReader.json() as { commentId?: string };
       const { commentId } = body;
 
       if (!commentId || !isValidFileId(commentId)) {
         return toJson({ error: "Invalid commentId" }, 400);
       }
+
+      const existing = await loadCommentForAccess(commentId);
+      if (!existing) return toJson({ error: "Not found" }, 404);
+      const unreadable = await denyIfFileUnreadable(request, existing.file_id);
+      if (unreadable) return unreadable;
 
       const result = await commentService.deleteComment(user.id, commentId);
 
@@ -341,19 +444,26 @@ export const action = async ({ request }: { request: Request }) => {
         return toJson({ error: result.error }, 400);
       }
 
-      return toJson({ success: true });
+      return toJson({ success: true, deletedCount: result.data?.deletedCount ?? 1 });
     }
 
-    // HIDE/UNHIDE  file owner only
     if (request.method === "PUT") {
-      const body = await request.json();
+      const body = bodyReader.json() as {
+        commentId?: string;
+        hidden?: boolean;
+        pinned?: boolean;
+      };
       const { commentId, hidden, pinned } = body;
 
       if (!commentId || !isValidFileId(commentId)) {
         return toJson({ error: "Invalid commentId" }, 400);
       }
 
-      // Owner moderation: hide/unhide OR pin/unpin (mutually exclusive per call).
+      const existing = await loadCommentForAccess(commentId);
+      if (!existing) return toJson({ error: "Not found" }, 404);
+      const unreadable = await denyIfFileUnreadable(request, existing.file_id);
+      if (unreadable) return unreadable;
+
       if (typeof pinned === 'boolean') {
         const result = await commentService.setCommentPinned(user.id, commentId, pinned);
         if (result.error) {
@@ -384,4 +494,3 @@ export const action = async ({ request }: { request: Request }) => {
     return toJson({ error: "Internal server error" }, 500);
   }
 };
-

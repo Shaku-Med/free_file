@@ -84,6 +84,12 @@ export interface RequestGuardOptions {
   allowAnyOrigin?: boolean;
   /** Skip the User-Agent sanity check. Default false. */
   allowEmptyUA?: boolean;
+  /**
+   * Only allow real XHR / fetch calls. Rejects address bar opens, "open in
+   * new tab", and any other document navigation (Sec-Fetch-Dest: document,
+   * mode: navigate, or Accept starting with text/html).
+   */
+  apiFetchOnly?: boolean;
 }
 
 const jsonResponse = (status: number, body: unknown) =>
@@ -106,7 +112,11 @@ function reject(reason: string, request: Request): Response {
         `sec-fetch-site=${request.headers.get("sec-fetch-site") ?? "-"})`,
     );
   }
-  return jsonResponse(403, { error: `Forbidden: ${reason}` });
+  // Never echo the reason to the client in production. Attackers use those
+  // labels to tune spoofed headers. Dev keeps them so operators can debug.
+  return jsonResponse(403, {
+    error: IS_DEV ? `Forbidden: ${reason}` : "Forbidden",
+  });
 }
 
 /**
@@ -135,16 +145,31 @@ export function assertSafeRequest(
     return reject(`cross-site (${sfSite})`, request);
   }
 
-  // 2. Sec-Fetch-Mode + Sec-Fetch-Dest  defensive. We want CORS-style
-  //    fetches with empty dest (XHR / fetch), or navigations with
-  //    "document" dest. Anything else (object, embed, iframe) is sus.
+  // 2. Sec-Fetch-Mode + Sec-Fetch-Dest. apiFetchOnly endpoints refuse
+  //    document navigations so opening /api/... in a new tab dies here.
   const sfMode = h.get(SEC_FETCH_MODE)?.toLowerCase();
   const sfDest = h.get(SEC_FETCH_DEST)?.toLowerCase();
-  if (sfMode && !["cors", "navigate", "same-origin", "no-cors"].includes(sfMode)) {
-    return reject(`bad mode (${sfMode})`, request);
-  }
-  if (sfDest && !["empty", "document", "iframe"].includes(sfDest)) {
-    return reject(`bad dest (${sfDest})`, request);
+  if (options.apiFetchOnly) {
+    if (sfDest === "document" || sfMode === "navigate") {
+      return reject("document navigation", request);
+    }
+    const accept = (h.get("accept") ?? "").toLowerCase();
+    if (accept.startsWith("text/html")) {
+      return reject("html accept", request);
+    }
+    if (sfMode && !["cors", "same-origin", "no-cors"].includes(sfMode)) {
+      return reject(`bad mode (${sfMode})`, request);
+    }
+    if (sfDest && sfDest !== "empty") {
+      return reject(`bad dest (${sfDest})`, request);
+    }
+  } else {
+    if (sfMode && !["cors", "navigate", "same-origin", "no-cors"].includes(sfMode)) {
+      return reject(`bad mode (${sfMode})`, request);
+    }
+    if (sfDest && !["empty", "document", "iframe"].includes(sfDest)) {
+      return reject(`bad dest (${sfDest})`, request);
+    }
   }
 
   // 3. Origin allowlist  for state-changing methods especially.

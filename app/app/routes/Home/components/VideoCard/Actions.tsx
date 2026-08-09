@@ -103,6 +103,8 @@ export interface ActionsProps {
    */
   commentsOpen?: boolean;
   onCommentsOpenChange?: (open: boolean) => void;
+  /** Forwarded to the embedded CommentSection so posts/deletes here update the visible count. */
+  onCommentCountDelta?: (delta: number) => void;
   /**
    * When true, the comment button still toggles `onCommentsOpenChange`, but
    * Actions does NOT render its own drawer/dialog  the PARENT renders the
@@ -224,6 +226,7 @@ export default function Actions({
   highlightCommentId = null,
   commentsOpen: commentsOpenProp,
   onCommentsOpenChange,
+  onCommentCountDelta,
   suppressCommentsUi = false,
   layout = "default",
   howLikesDislikeComments = true,
@@ -1155,6 +1158,7 @@ export default function Actions({
                   highlightCommentId={highlightCommentId}
                   fillHeight
                   className="min-h-0 flex-1"
+                  onCountDelta={onCommentCountDelta}
                 />
               ) : null}
             </div>
@@ -1180,6 +1184,7 @@ export default function Actions({
                   highlightCommentId={highlightCommentId}
                   fillHeight
                   className="min-h-0 flex-1"
+                  onCountDelta={onCommentCountDelta}
                 />
               ) : null}
             </div>

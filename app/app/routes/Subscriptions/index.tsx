@@ -1,10 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Swiper, SwiperSlide } from "swiper/react";
-import { A11y, Keyboard, Navigation, Pagination } from "swiper/modules";
-import type { Swiper as SwiperType } from "swiper";
-import "swiper/css";
-import "swiper/css/navigation";
-import "swiper/css/pagination";
+import { Carousel, CarouselItem } from "~/components/Carousel/Carousel";
 import {
   data,
   redirect,
@@ -593,39 +588,15 @@ export default function SubscriptionsPage() {
                   return (
                     <div
                       key={`reel-${clusterKey}`}
-                      className="col-span-full w-full min-w-0 max-w-full overflow-hidden"
+                      // overflow-visible: the carousel clips X itself; clipping
+                      // here would cut the hover scale and the arrow shadows.
+                      className="col-span-full w-full min-w-0 max-w-full overflow-visible"
                     >
-                      <Swiper
-                        modules={[Navigation, Pagination, A11y, Keyboard]}
-                        slidesPerView={1.15}
-                        spaceBetween={10}
-                        speed={380}
-                        watchOverflow
-                        observer
-                        observeParents
-                        resizeObserver
-                        navigation
-                        keyboard={{ enabled: true, onlyInViewport: true }}
-                        pagination={{
-                          clickable: true,
-                          dynamicBullets: g.files.length > 5,
-                        }}
-                        breakpoints={{
-                          640: { slidesPerView: 2.5, spaceBetween: 12 },
-                          768: { slidesPerView: 3, spaceBetween: 12 },
-                          1024: { slidesPerView: 3.5, spaceBetween: 14 },
-                          1280: { slidesPerView: 4, spaceBetween: 14 },
-                          1536: { slidesPerView: 5, spaceBetween: 16 },
-                        }}
-                        className="feed-reel-swiper"
-                        onInit={(swiper: SwiperType) => {
-                          swiper.update();
-                        }}
-                      >
+                      <Carousel label="Reels" itemWidth={168} gapClassName="gap-2.5">
                         {g.files.map((file) => {
                           const index = indexCounter++;
                           return (
-                            <SwiperSlide key={file.id || file.unique_id} className="!h-auto">
+                            <CarouselItem key={file.id || file.unique_id}>
                               <VideoCard
                                 data={file}
                                 layout="reelStrip"
@@ -634,10 +605,10 @@ export default function SubscriptionsPage() {
                                 userActions={userActions}
                                 hideActions={FEED_HIDE_ACTIONS}
                               />
-                            </SwiperSlide>
+                            </CarouselItem>
                           );
                         })}
-                      </Swiper>
+                      </Carousel>
                     </div>
                   );
                 });

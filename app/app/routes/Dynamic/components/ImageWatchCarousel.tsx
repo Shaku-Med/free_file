@@ -1,11 +1,6 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useFileContext } from "~/lib/Context/Context";
-import { Swiper, SwiperSlide } from "swiper/react";
-import { A11y, Keyboard, Navigation } from "swiper/modules";
-import type { Swiper as SwiperType } from "swiper";
 import { ChevronLeft, ChevronRight } from "lucide-react";
-import "swiper/css";
-import "swiper/css/navigation";
 import ImageLoad from "../../Home/components/ImageLoad/ImageLoad";
 import { getThumbnailUrl } from "~/lib/utils";
 
@@ -27,20 +22,25 @@ type ColorsEvent = { src: string; colors: string[] };
 const PREFETCH_REMAINING = 3;
 /** Bound the persisted strip so a long session doesn't grow memory without limit. */
 const MAX_ITEMS = 120;
+const SLIDE_MS = 320;
+const DRAG_SLOP = 8;
+/** How far a drag must go, as a share of the width, before it changes slide. */
+const ADVANCE_RATIO = 0.22;
+/** A quick flick advances even on a short drag (px per ms). */
+const FLICK_VELOCITY = 0.45;
 
-/** Canonical id for URL + dedup — the watch route + loader both key on unique_id. */
+/** Canonical id for URL + dedup. The watch route and loader both key on unique_id. */
 const idOf = (img: CarouselImage): string => String(img.unique_id ?? img.id ?? "");
 
 /**
- * Image watch carousel: starts on the current image and swipes through related
- * images (recommendation engine, mode-locked to images via ?kind=image). On each
- * slide it rewrites the URL with history.replaceState (cheap, no router loader
- * re-run) and hands the active image to the page via onActiveChange; the page
- * then swaps its title / likes / comments from a per-image cache or a light GET,
- * reel-style, so swiping stays instant. `replaceState` (not pushState) keeps the
- * browser back button a one-press exit instead of walking back through every
- * image swiped. The ACTIVE image's palette is bubbled up via onColors so the
- * ambient color background follows.
+ * Image watch pager, one image per view. Starts on the current image and pages
+ * through related images. Each settled slide rewrites the URL with
+ * replaceState (cheap, no loader re-run) and hands the active image to the
+ * page via onActiveChange so title, likes and comments swap instantly. The
+ * active image's palette goes up through onColors for the ambient background.
+ *
+ * The paging itself is ours: pointer drag with a snap to the nearest slide,
+ * a flick gesture, keyboard arrows and app styled arrow buttons.
  */
 export default function ImageWatchCarousel({
   seed,
@@ -54,24 +54,29 @@ export default function ImageWatchCarousel({
   const { getImageCarouselCache, setImageCarouselCache } = useFileContext();
 
   const [items, setItems] = useState<CarouselImage[]>([seed]);
-  // Mirror of `items` for closures (loadMore / persist) that need the latest list.
   const itemsRef = useRef<CarouselImage[]>([seed]);
   const cursorRef = useRef(0);
   const hasMoreRef = useRef(true);
   const loadingRef = useRef(false);
   const seenRef = useRef<Set<string>>(new Set());
-  // Stable id that seeds the related-images pagination for the whole session, so
-  // the strip stays one coherent ordered set as you navigate image to image.
+  // Seeds the related-images pagination for the whole session so the strip
+  // stays one coherent ordered set while navigating image to image.
   const anchorIdRef = useRef<string>(String(seed.id ?? ""));
-  const swiperRef = useRef<SwiperType | null>(null);
 
-  // Per-slide palette, so swiping emits the ACTIVE image's colors to the ambient.
+  const [activeIdx, setActiveIdx] = useState(0);
+  const [dragPx, setDragPx] = useState(0);
+  const [animate, setAnimate] = useState(false);
+  const [vpWidth, setVpWidth] = useState(0);
+
+  const viewportRef = useRef<HTMLDivElement | null>(null);
+  const activeIdxRef = useRef(0);
+  const vpWidthRef = useRef(0);
+  vpWidthRef.current = vpWidth;
+
+  const drag = useRef({ active: false, moved: false, startX: 0, lastX: 0, lastT: 0, velocity: 0 });
+  const suppressClick = useRef(false);
+
   const colorsRef = useRef<Record<number, ColorsEvent>>({});
-  const activeIndexRef = useRef(0);
-
-  // App-styled nav arrows (custom elements wired into Swiper's navigation).
-  const prevRef = useRef<HTMLButtonElement>(null);
-  const nextRef = useRef<HTMLButtonElement>(null);
 
   const seedKey = idOf(seed);
 
@@ -80,7 +85,7 @@ export default function ImageWatchCarousel({
     setItems(list);
   }, []);
 
-  /** Snapshot the strip into the root context so it survives remounts + refresh. */
+  /** Snapshot the strip into the root context so it survives remounts and refresh. */
   const persist = useCallback(() => {
     setImageCarouselCache({
       items: itemsRef.current as Array<Record<string, unknown>>,
@@ -91,7 +96,7 @@ export default function ImageWatchCarousel({
   }, [setImageCarouselCache]);
 
   const emitActiveColors = useCallback(() => {
-    const e = colorsRef.current[activeIndexRef.current];
+    const e = colorsRef.current[activeIdxRef.current];
     if (e) onColors?.(e);
   }, [onColors]);
 
@@ -143,23 +148,51 @@ export default function ImageWatchCarousel({
     }
   }, [applyItems, persist]);
 
-  // Decide what to show whenever the seed changes (mount, self-navigation, or an
-  // external link to another image). The persistent cache is the source of truth
-  // so swiping + the router refresh never lose the images already loaded.
-  useEffect(() => {
-    // Self-navigation: the seed is an image already in our strip → just reposition.
-    if (seenRef.current.has(seedKey)) {
-      const idx = itemsRef.current.findIndex((it) => idOf(it) === seedKey);
-      if (idx >= 0) {
-        activeIndexRef.current = idx;
-        if (swiperRef.current && swiperRef.current.activeIndex !== idx) {
-          swiperRef.current.slideTo(idx, 0);
+  /** Runs once a slide settles: ambient palette, URL and page data swap. */
+  const afterSlideChange = useCallback(
+    (idx: number) => {
+      const img = itemsRef.current[idx];
+      if (!img) return;
+      emitActiveColors();
+      const uid = idOf(img);
+      if (uid) {
+        try {
+          window.history.replaceState(window.history.state, "", `/${encodeURIComponent(uid)}`);
+        } catch {
+          /* history unavailable */
         }
       }
+      onActiveChange?.(img);
+      if (idx >= itemsRef.current.length - PREFETCH_REMAINING) void loadMore();
+    },
+    [loadMore, onActiveChange, emitActiveColors],
+  );
+
+  const goTo = useCallback(
+    (idx: number, opts?: { instant?: boolean; silent?: boolean }) => {
+      const clamped = Math.min(Math.max(idx, 0), itemsRef.current.length - 1);
+      setAnimate(!opts?.instant);
+      setDragPx(0);
+      setActiveIdx(clamped);
+      const changed = activeIdxRef.current !== clamped;
+      activeIdxRef.current = clamped;
+      if (changed && !opts?.silent) afterSlideChange(clamped);
+    },
+    [afterSlideChange],
+  );
+
+  // Decide what to show whenever the seed changes: mount, self navigation, or
+  // an external link to another image. The persistent cache is the source of
+  // truth so the images already loaded are never lost.
+  useEffect(() => {
+    // The seed is an image already in our strip, so just reposition.
+    if (seenRef.current.has(seedKey)) {
+      const idx = itemsRef.current.findIndex((it) => idOf(it) === seedKey);
+      if (idx >= 0) goTo(idx, { instant: true, silent: true });
       return;
     }
     const cache = getImageCarouselCache();
-    // Returning to an image we swiped through earlier → restore the whole strip.
+    // Returning to an image swiped through earlier: restore the whole strip.
     if (cache && cache.seen.includes(seedKey) && cache.items.length > 0) {
       const hydrated = cache.items as CarouselImage[];
       const idx = Math.max(0, hydrated.findIndex((it) => idOf(it) === seedKey));
@@ -168,125 +201,188 @@ export default function ImageWatchCarousel({
       hasMoreRef.current = cache.hasMore;
       loadingRef.current = false;
       anchorIdRef.current = String(hydrated[0]?.id ?? seed.id ?? "");
-      activeIndexRef.current = idx;
       applyItems(hydrated);
-      requestAnimationFrame(() => swiperRef.current?.slideTo(idx, 0));
+      goTo(idx, { instant: true, silent: true });
       return;
     }
-    // Brand-new entry image → fresh strip + fresh cache.
+    // Brand new entry image: fresh strip and fresh cache.
     seenRef.current = new Set([seedKey]);
     cursorRef.current = 0;
     hasMoreRef.current = true;
     loadingRef.current = false;
     colorsRef.current = {};
-    activeIndexRef.current = 0;
     anchorIdRef.current = String(seed.id ?? "");
     applyItems([seed]);
+    goTo(0, { instant: true, silent: true });
     persist();
     void loadMore();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [seedKey]);
 
-  const handleSlideChange = useCallback(
-    (sw: SwiperType) => {
-      const idx = sw.activeIndex;
-      activeIndexRef.current = idx;
-      const list = itemsRef.current;
-      const img = list[idx];
-      if (!img) return;
-      // All instant: ambient palette, URL (replaceState = cheap, no loader),
-      // and hand the image to the page so it swaps title/likes/comments from
-      // its cache or a light GET. No full navigation, so swiping never stalls.
-      emitActiveColors();
-      const uid = idOf(img);
-      if (uid) {
-        try {
-          window.history.replaceState(
-            window.history.state,
-            "",
-            `/${encodeURIComponent(uid)}`,
-          );
-        } catch {
-          /* history unavailable  ignore */
-        }
-      }
-      onActiveChange?.(img);
-      if (idx >= list.length - PREFETCH_REMAINING) void loadMore();
+  useLayoutEffect(() => {
+    const vp = viewportRef.current;
+    if (!vp) return;
+    const sync = () => setVpWidth(vp.clientWidth);
+    sync();
+    const ro = new ResizeObserver(sync);
+    ro.observe(vp);
+    return () => ro.disconnect();
+  }, []);
+
+  const onPointerDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    if (e.pointerType === "mouse" && e.button !== 0) return;
+    if (itemsRef.current.length <= 1) return;
+    const d = drag.current;
+    d.active = true;
+    d.moved = false;
+    d.startX = e.clientX;
+    d.lastX = e.clientX;
+    d.lastT = e.timeStamp;
+    d.velocity = 0;
+    setAnimate(false);
+  }, []);
+
+  const onPointerMove = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    const d = drag.current;
+    if (!d.active) return;
+    const dx = e.clientX - d.startX;
+    if (!d.moved && Math.abs(dx) < DRAG_SLOP) return;
+    if (!d.moved) {
+      // Capture only once a real drag starts, otherwise the browser
+      // retargets the click and controls inside the slide stop working.
+      d.moved = true;
+      try { e.currentTarget.setPointerCapture?.(e.pointerId); } catch { /* not fatal */ }
+    }
+
+    const dt = e.timeStamp - d.lastT;
+    if (dt > 0) d.velocity = (e.clientX - d.lastX) / dt;
+    d.lastX = e.clientX;
+    d.lastT = e.timeStamp;
+
+    // First and last slide resist instead of pulling into empty space.
+    const idx = activeIdxRef.current;
+    const atFirst = idx === 0 && dx > 0;
+    const atLast = idx === itemsRef.current.length - 1 && dx < 0;
+    setDragPx(atFirst || atLast ? dx / 3 : dx);
+  }, []);
+
+  const endDrag = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>) => {
+      const d = drag.current;
+      if (!d.active) return;
+      d.active = false;
+      try { e.currentTarget.releasePointerCapture?.(e.pointerId); } catch { /* not fatal */ }
+      if (!d.moved) return;
+      suppressClick.current = true;
+
+      const dx = e.clientX - d.startX;
+      const w = vpWidthRef.current || 1;
+      const flick = Math.abs(d.velocity) >= FLICK_VELOCITY && Math.sign(d.velocity) === Math.sign(dx);
+      const advance = Math.abs(dx) >= w * ADVANCE_RATIO || flick;
+      const idx = activeIdxRef.current;
+      goTo(advance ? idx + (dx < 0 ? 1 : -1) : idx);
     },
-    [loadMore, onActiveChange, emitActiveColors],
+    [goTo],
+  );
+
+  const onClickCapture = useCallback((e: React.MouseEvent) => {
+    if (!suppressClick.current) return;
+    suppressClick.current = false;
+    e.preventDefault();
+    e.stopPropagation();
+  }, []);
+
+  const onKeyDown = useCallback(
+    (e: React.KeyboardEvent) => {
+      if (e.key !== "ArrowRight" && e.key !== "ArrowLeft") return;
+      e.preventDefault();
+      goTo(activeIdxRef.current + (e.key === "ArrowRight" ? 1 : -1));
+    },
+    [goTo],
   );
 
   const handleImageLoaded = useCallback(
     (index: number, e: ColorsEvent) => {
       colorsRef.current[index] = e;
-      if (index === activeIndexRef.current) emitActiveColors();
+      if (index === activeIdxRef.current) emitActiveColors();
     },
     [emitActiveColors],
   );
 
   const showArrows = items.length > 1;
   const arrowBase =
-    "absolute top-1/2 z-10 hidden h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full bg-black/45 text-white ring-1 ring-white/15 backdrop-blur-md transition hover:bg-black/65 focus:outline-none focus-visible:ring-2 focus-visible:ring-white sm:flex opacity-0 group-hover:opacity-100 focus-visible:opacity-100 [&.swiper-button-disabled]:pointer-events-none [&.swiper-button-disabled]:!opacity-0";
+    "absolute top-1/2 z-10 hidden h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full bg-black/45 text-white ring-1 ring-white/15 backdrop-blur-md transition hover:bg-black/65 focus:outline-none focus-visible:ring-2 focus-visible:ring-white sm:flex opacity-0 group-hover:opacity-100 focus-visible:opacity-100 disabled:pointer-events-none disabled:!opacity-0";
 
   return (
     <div className="group relative aspect-video w-full">
-      <Swiper
-        modules={[Navigation, A11y, Keyboard]}
-        keyboard={{ enabled: true }}
-        onSwiper={(sw) => {
-          swiperRef.current = sw;
-          // Restored a strip that opens mid-way (returned to a swiped image)?
-          // Jump to that image without animation now the slides exist.
-          if (activeIndexRef.current > 0 && sw.activeIndex !== activeIndexRef.current) {
-            sw.slideTo(activeIndexRef.current, 0);
-          }
-        }}
-        navigation={showArrows ? { prevEl: prevRef.current, nextEl: nextRef.current } : false}
-        onBeforeInit={(swiper) => {
-          const nav = swiper.params.navigation;
-          if (showArrows && nav && typeof nav !== "boolean") {
-            nav.prevEl = prevRef.current;
-            nav.nextEl = nextRef.current;
-          }
-        }}
-        slidesPerView={1}
-        spaceBetween={0}
-        className="h-full w-full"
-        onSlideChange={handleSlideChange}
+      <div
+        ref={viewportRef}
+        role="region"
+        aria-roledescription="carousel"
+        aria-label="Image viewer"
+        tabIndex={0}
+        onKeyDown={onKeyDown}
+        onClickCapture={onClickCapture}
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={endDrag}
+        onPointerCancel={endDrag}
+        className="h-full w-full touch-pan-y select-none overflow-hidden focus-visible:outline-none"
       >
-        {items.map((img, i) => (
-          <SwiperSlide key={String(img.id ?? img.unique_id ?? i)}>
-            <div className="relative aspect-video w-full">
-              <ImageLoad
-                link={getThumbnailUrl({
-                  default_thumbnail: img.default_thumbnail,
-                  thumbnails: img.thumbnails,
-                  file_type: img.file_type ?? undefined,
-                  endpoint: img.endpoint ?? undefined,
-                  created_at: img.created_at ?? "",
-                  unique_id: String(img.unique_id ?? ""),
-                  filename: img.filename ?? "",
-                })}
-                className="h-full w-full object-contain"
-                imageID={String(img.unique_id ?? "")}
-                index={i}
-                retry={() => {}}
-                hasAdultTag={Boolean(img.is_adult)}
-                shouldShowPreview
-                eagerLoad
-                callBack={(e) => handleImageLoaded(i, { src: e.src, colors: e.colors })}
-              />
+        <div
+          onDragStart={(e) => e.preventDefault()}
+          className="flex h-full w-full will-change-transform"
+          style={{
+            transform: `translate3d(${-activeIdx * vpWidth + dragPx}px,0,0)`,
+            transition: animate && dragPx === 0 ? `transform ${SLIDE_MS}ms cubic-bezier(0.22,0.61,0.36,1)` : "none",
+          }}
+        >
+          {items.map((img, i) => (
+            <div key={String(img.id ?? img.unique_id ?? i)} className="h-full min-w-full shrink-0">
+              <div className="relative aspect-video w-full">
+                <ImageLoad
+                  link={getThumbnailUrl({
+                    default_thumbnail: img.default_thumbnail,
+                    thumbnails: img.thumbnails,
+                    file_type: img.file_type ?? undefined,
+                    endpoint: img.endpoint ?? undefined,
+                    created_at: img.created_at ?? "",
+                    unique_id: String(img.unique_id ?? ""),
+                    filename: img.filename ?? "",
+                  })}
+                  className="h-full w-full object-contain"
+                  imageID={String(img.unique_id ?? "")}
+                  index={i}
+                  retry={() => {}}
+                  hasAdultTag={Boolean(img.is_adult)}
+                  shouldShowPreview
+                  eagerLoad
+                  callBack={(e) => handleImageLoaded(i, { src: e.src, colors: e.colors })}
+                />
+              </div>
             </div>
-          </SwiperSlide>
-        ))}
-      </Swiper>
+          ))}
+        </div>
+      </div>
 
       {showArrows && (
         <>
-          <button ref={prevRef} type="button" aria-label="Previous image" className={`${arrowBase} left-3`}>
+          <button
+            type="button"
+            aria-label="Previous image"
+            disabled={activeIdx <= 0}
+            onClick={() => goTo(activeIdx - 1)}
+            className={`${arrowBase} left-3`}
+          >
             <ChevronLeft className="h-5 w-5" aria-hidden />
           </button>
-          <button ref={nextRef} type="button" aria-label="Next image" className={`${arrowBase} right-3`}>
+          <button
+            type="button"
+            aria-label="Next image"
+            disabled={activeIdx >= items.length - 1}
+            onClick={() => goTo(activeIdx + 1)}
+            className={`${arrowBase} right-3`}
+          >
             <ChevronRight className="h-5 w-5" aria-hidden />
           </button>
         </>

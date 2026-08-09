@@ -29,9 +29,21 @@ function isServerToServerPath(pathname: string): boolean {
   );
 }
 
-// Sensitive GETs that must look like same-origin browser fetches.
+// Sensitive GETs that must look like same-origin browser fetches. Blocks
+// opening the endpoint directly in a tab (sec-fetch-site: none) and replay
+// from curl or Postman, which never send Sec-Fetch headers.
 function isSensitiveGet(pathname: string): boolean {
-  return pathname === "/api/upload/auth";
+  return (
+    pathname === "/api/upload/auth" ||
+    pathname === "/api/comments" ||
+    pathname === "/api/comment-likes"
+  );
+}
+
+// Comments and likes also refuse document navigations so a pasted URL or
+// "open in new tab" never dumps JSON into the browser.
+function isCommentsSurface(pathname: string): boolean {
+  return pathname === "/api/comments" || pathname === "/api/comment-likes";
 }
 
 export const middleware = [
@@ -60,7 +72,9 @@ export const middleware = [
       MUTATING.has(method) || (method === "GET" && isSensitiveGet(pathname));
 
     if (needsGuard) {
-      const blocked = assertSafeRequest(request);
+      const blocked = assertSafeRequest(request, {
+        apiFetchOnly: isCommentsSurface(pathname),
+      });
       if (blocked) return blocked;
     }
 

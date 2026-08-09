@@ -28,12 +28,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Swiper, SwiperSlide } from "swiper/react";
-import { A11y, Keyboard, Navigation } from "swiper/modules";
-import type { Swiper as SwiperType } from "swiper";
-import "swiper/css";
-import "swiper/css/navigation";
-import "swiper/css/pagination";
+import { Carousel, CarouselItem } from "~/components/Carousel/Carousel";
 
 import { useFileContext } from "~/lib/Context/Context";
 import { cn } from "~/lib/utils";
@@ -223,39 +218,19 @@ export default function PersistentHomeView() {
       nodes.push(
         <div
           key={`${keyPrefix}-reel-${clusterKey}`}
-          className="col-span-full w-full min-w-0 max-w-full overflow-hidden"
+          // overflow-visible: the carousel clips X itself; clipping here would
+          // cut the hover scale and the arrow shadows.
+          className="col-span-full w-full min-w-0 max-w-full overflow-visible"
         >
           <div className="mb-2 flex items-center gap-1.5">
             <Clapperboard className="h-5 w-5 text-foreground" aria-hidden />
             <h2 className="text-base font-semibold tracking-tight sm:text-lg">Shorts</h2>
           </div>
-          <Swiper
-            modules={[Navigation, A11y, Keyboard]}
-            slidesPerView={3.15}
-            spaceBetween={10}
-            speed={380}
-            watchOverflow
-            observer
-            observeParents
-            resizeObserver
-            navigation
-            keyboard={{ enabled: true, onlyInViewport: true }}
-            breakpoints={{
-              640: { slidesPerView: 2.5, spaceBetween: 12 },
-              768: { slidesPerView: 3, spaceBetween: 12 },
-              1024: { slidesPerView: 3.5, spaceBetween: 14 },
-              1280: { slidesPerView: 4, spaceBetween: 14 },
-              1536: { slidesPerView: 5, spaceBetween: 16 },
-            }}
-            className="feed-reel-swiper"
-            onInit={(swiper: SwiperType) => {
-              swiper.update();
-            }}
-          >
+          <Carousel label="Shorts" itemWidth={168} gapClassName="gap-2.5">
             {g.files.map((file, keyIndex) => {
               const index = indexCounter++;
               return (
-                <SwiperSlide key={file.id || file.unique_id || keyIndex} className="!h-auto">
+                <CarouselItem key={file.id || file.unique_id || keyIndex}>
                   <VideoCard
                     data={file}
                     layout="reelStrip"
@@ -265,10 +240,10 @@ export default function PersistentHomeView() {
                     onUpdate={handleFileUpdate}
                     hideActions={FEED_HIDE_ACTIONS}
                   />
-                </SwiperSlide>
+                </CarouselItem>
               );
             })}
-          </Swiper>
+          </Carousel>
         </div>,
       );
     }

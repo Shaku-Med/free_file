@@ -197,22 +197,14 @@ const RelatedVideosContent = ({ currentUserId }: { currentUserId?: string }) => 
           return (
             <div
               key={`${keyPrefix}-reel-${clusterKey}`}
-              // overflow-visible on purpose. This clipped for Swiper's sake,
-              // and leaving it would cut off the carousel's bleed and the
-              // card hover scale exactly like Swiper did. The carousel owns
-              // its own scrollport.
+              // overflow stays visible here, the carousel clips itself
               className="col-span-full w-full min-w-0 max-w-full overflow-visible"
             >
-              <Carousel label="Reels" gapClassName="gap-2">
+              <Carousel label="Reels" itemWidth={150} gapClassName="gap-2">
                 {group.files.map((file, keyIndex) => {
                   const index = indexCounter++
                   return (
-                    <CarouselItem
-                      key={file.id || file.unique_id || keyIndex}
-                      // Fractional basis so the next card peeks and the row
-                      // reads as scrollable without a scrollbar.
-                      className="basis-[46%] sm:basis-[40%] md:basis-[32%] xl:basis-[28%]"
-                    >
+                    <CarouselItem key={file.id || file.unique_id || keyIndex}>
                       <VideoCard
                         data={file}
                         layout="reelStrip"

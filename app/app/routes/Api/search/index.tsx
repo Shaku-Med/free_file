@@ -73,7 +73,80 @@ function dedupeSeriesByMainFiles(seriesRoots: ReturnType<typeof mapSearchFile>[]
   return seriesRoots.filter((s) => s.id && !seen.has(s.id));
 }
 
-type SuggestItem = { text: string; kind: 'recent' | 'popular' | 'match' };
+type SuggestItem = {
+  text: string;
+  kind: 'recent' | 'popular' | 'match';
+  /** Representative public video, for the dropdown thumbnail. Optional. */
+  thumb?: { unique_id: string; created_at: string; default_thumbnail: string | null; filename: string } | null;
+};
+
+/**
+ * PostgREST's `or=` filter is a comma and parenthesis delimited grammar, so a
+ * raw suggestion interpolated into it could break out of its own condition and
+ * rewrite the filter. Suggestions come from user search history, so treat them
+ * as hostile: reduce to letters, digits and spaces, which cannot express any
+ * part of that grammar, and cap the length.
+ */
+function safeIlikePrefix(text: string): string | null {
+  const cleaned = text.toLowerCase().replace(/[^a-z0-9 ]+/g, ' ').replace(/\s+/g, ' ').trim();
+  if (cleaned.length < 2) return null;
+  return cleaned.slice(0, 40);
+}
+
+/**
+ * Attaches one public thumbnail per suggestion. Single query for the whole
+ * list; anything without a confident match simply renders without an image.
+ * Restricted to public, non-adult, finished uploads because this dropdown is
+ * served to signed-out visitors too.
+ */
+async function attachSuggestionThumbs(items: SuggestItem[]): Promise<SuggestItem[]> {
+  if (!db || items.length === 0) return items;
+
+  const prefixes = new Map<string, string>();
+  for (const it of items) {
+    const p = safeIlikePrefix(it.text);
+    if (p) prefixes.set(it.text, p);
+  }
+  if (prefixes.size === 0) return items;
+
+  const ors = [...new Set(prefixes.values())]
+    .slice(0, 12)
+    .map((p) => `file_title.ilike.${p}%`)
+    .join(',');
+
+  try {
+    const { data } = await db
+      .from('files')
+      .select('unique_id, created_at, file_title, filename, default_thumbnail')
+      .or(ors)
+      .eq('is_public', true)
+      .eq('is_adult', false)
+      .eq('upload_status', 'complete')
+      .limit(60);
+
+    const rows = Array.isArray(data) ? data : [];
+    return items.map((it) => {
+      const p = prefixes.get(it.text);
+      if (!p) return it;
+      const hit = rows.find((r) =>
+        String((r as { file_title?: unknown }).file_title ?? '').toLowerCase().startsWith(p),
+      ) as Record<string, any> | undefined;
+      if (!hit) return it;
+      return {
+        ...it,
+        thumb: {
+          unique_id: String(hit.unique_id),
+          created_at: String(hit.created_at),
+          default_thumbnail: hit.default_thumbnail ?? null,
+          filename: String(hit.filename ?? ''),
+        },
+      };
+    });
+  } catch (e) {
+    console.warn('[search] suggestion thumbs:', e instanceof Error ? e.message : e);
+    return items;
+  }
+}
 
 /**
  * Navbar dropdown completions. Empty query => the user's recent searches +
@@ -115,7 +188,7 @@ async function buildSuggestItems(userId: string | null, rawQuery: string): Promi
     }
   }
 
-  return items.slice(0, 12);
+  return attachSuggestionThumbs(items.slice(0, 12));
 }
 
 export const loader = async ({ request }: { request: Request }) => {

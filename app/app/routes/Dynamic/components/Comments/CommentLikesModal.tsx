@@ -8,6 +8,7 @@ import {
 } from "~/components/ui/dialog";
 import { ScrollArea } from "~/components/ui/scroll-area";
 import { UserProfileRow } from "~/components/UserProfileRow";
+import { signedFetch } from "~/lib/Security/requestSigning.client";
 
 export type CommentLikeUser = {
   id: string;
@@ -41,7 +42,7 @@ export function CommentLikesModal({
     setError(null);
     setUsers([]);
     const q = new URLSearchParams({ commentId });
-    fetch(`/api/comment-likes?${q.toString()}`, { credentials: "include" })
+    signedFetch(`/api/comment-likes?${q.toString()}`, { credentials: "include" })
       .then(async (r) => {
         const j = (await r.json()) as {
           success?: boolean;

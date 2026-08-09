@@ -1,11 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router";
-import { Swiper, SwiperSlide } from "swiper/react";
-import { A11y, Keyboard, Navigation, Pagination } from "swiper/modules";
-import type { Swiper as SwiperType } from "swiper";
-import "swiper/css";
-import "swiper/css/navigation";
-import "swiper/css/pagination";
+import { Carousel, CarouselItem } from "~/components/Carousel/Carousel";
 
 import type { FileType } from "~/lib/types";
 import VideoCard from "./VideoCard";
@@ -151,30 +146,9 @@ export function ContinueWatchingSection({ userId, userActions, username }: Props
             ))}
           </div>
         ) : items.length > 0 ? (
-          <Swiper
-            modules={[Navigation, Pagination, A11y, Keyboard]}
-            slidesPerView={1.6}
-            spaceBetween={10}
-            speed={380}
-            watchOverflow
-            navigation
-            keyboard={{ enabled: true, onlyInViewport: true }}
-            pagination={{
-              clickable: true,
-              dynamicBullets: items.length > 6,
-            }}
-            breakpoints={{
-              640: { slidesPerView: 2.4, spaceBetween: 12 },
-              1024: { slidesPerView: 3.2, spaceBetween: 14 },
-              1280: { slidesPerView: 4, spaceBetween: 16 },
-            }}
-            className="continue-watching-swiper"
-            onInit={(swiper: SwiperType) => {
-              swiper.update();
-            }}
-          >
+          <Carousel label="Continue watching" itemWidth={250} gapClassName="gap-3">
             {items.map((file, index) => (
-              <SwiperSlide key={file.id || file.unique_id} className="!h-auto">
+              <CarouselItem key={file.id || file.unique_id}>
                 <VideoCard
                   data={file}
                   index={index}
@@ -184,9 +158,9 @@ export function ContinueWatchingSection({ userId, userActions, username }: Props
                   hideActions={{ completely: false, halfway: true }}
                   layout="continueWatch"
                 />
-              </SwiperSlide>
+              </CarouselItem>
             ))}
-          </Swiper>
+          </Carousel>
         ) : null}
       </div>
 

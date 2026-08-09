@@ -24,6 +24,7 @@ import {
 import { usePlayerContext, SLEEP_TIMER_OPTIONS } from '../../PlayerContext';
 import { isSpatialAudioUiSupported } from '../../hooks/useSpatialAudio';
 import { useFullscreenContainer } from '../../hooks/useFullscreenContainer';
+import { useGlobalPlayerLayout } from '~/lib/Context/GlobalPlayerLayoutContext';
 import { cn } from '~/lib/utils';
 import { mobileOverlayIcon, mobileOverlaySquareBtn, playerMenuSurface } from '../mobileControlMetrics';
 import { usePipMode } from '~/lib/pip/pipModePref';
@@ -144,6 +145,8 @@ export function SettingsMenuBody() {
     isReel,
   } = usePlayerContext();
   const auth = authPlaybackFeatures;
+  // Mini dock has no room for ambient glow, so those toggles stay off the menu.
+  const hideAmbientOptions = useGlobalPlayerLayout() === 'mini';
 
   const [stemPalettes, setStemPalettes] = useState<StemConfettiThemePalettes>(() =>
     buildStemConfettiThemePalettes(),
@@ -262,53 +265,57 @@ export function SettingsMenuBody() {
 
       <DropdownMenuGroup>
         <DropdownMenuLabel className={sectionLabelClass}>Display</DropdownMenuLabel>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <DropdownMenuItem
-              onSelect={(e) => e.preventDefault()}
-              className={cn(toggleRowClass, !auth && 'opacity-60')}
-            >
-              <span className="flex min-w-0 flex-1 items-center gap-2">
-                <Monitor className="size-4 shrink-0 text-muted-foreground" />
-                <span className="min-w-0 truncate">Ambient mode</span>
-              </span>
-              <Switch checked={ambientMode} onChange={setAmbientMode} disabled={!auth} />
-            </DropdownMenuItem>
-          </TooltipTrigger>
-          {!auth && (
-            <TooltipContent side={isMobile ? 'top' : 'left'} className="max-w-[220px]">
-              Sign in to enable ambient lighting behind the watch page.
-            </TooltipContent>
-          )}
-        </Tooltip>
-        {ambientMode && auth && (
+        {!hideAmbientOptions && (
           <>
-            <DropdownMenuItem
-              onSelect={(e) => e.preventDefault()}
-              className={cn(toggleRowClass, 'pl-7')}
-            >
-              <span className="flex min-w-0 flex-1 items-center gap-2">
-                <Activity className="size-4 shrink-0 text-muted-foreground" />
-                <span className="min-w-0 truncate">Ambient sync</span>
-              </span>
-              <Switch checked={ambientSync} onChange={setAmbientSync} />
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              onSelect={(e) => {
-                e.preventDefault();
-                // Cycle 1x â†’ 1.25x â†’ 1.5x â†’ 2x â†’ 1x.
-                const steps = [1, 1.25, 1.5, 2];
-                const idx = steps.findIndex((s) => Math.abs(s - ambientSize) < 0.01);
-                setAmbientSize(steps[(idx + 1) % steps.length]);
-              }}
-              className={cn(toggleRowClass, 'cursor-pointer pl-7')}
-            >
-              <span className="flex min-w-0 flex-1 items-center gap-2">
-                <Monitor className="size-4 shrink-0 text-muted-foreground" />
-                <span className="min-w-0 truncate">Ambient size</span>
-              </span>
-              <span className={valueChipClass}>{ambientSize >= 2 ? 'Full' : `${ambientSize}x`}</span>
-            </DropdownMenuItem>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <DropdownMenuItem
+                  onSelect={(e) => e.preventDefault()}
+                  className={cn(toggleRowClass, !auth && 'opacity-60')}
+                >
+                  <span className="flex min-w-0 flex-1 items-center gap-2">
+                    <Monitor className="size-4 shrink-0 text-muted-foreground" />
+                    <span className="min-w-0 truncate">Ambient mode</span>
+                  </span>
+                  <Switch checked={ambientMode} onChange={setAmbientMode} disabled={!auth} />
+                </DropdownMenuItem>
+              </TooltipTrigger>
+              {!auth && (
+                <TooltipContent side={isMobile ? 'top' : 'left'} className="max-w-[220px]">
+                  Sign in to enable ambient lighting behind the watch page.
+                </TooltipContent>
+              )}
+            </Tooltip>
+            {ambientMode && auth && (
+              <>
+                <DropdownMenuItem
+                  onSelect={(e) => e.preventDefault()}
+                  className={cn(toggleRowClass, 'pl-7')}
+                >
+                  <span className="flex min-w-0 flex-1 items-center gap-2">
+                    <Activity className="size-4 shrink-0 text-muted-foreground" />
+                    <span className="min-w-0 truncate">Ambient sync</span>
+                  </span>
+                  <Switch checked={ambientSync} onChange={setAmbientSync} />
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onSelect={(e) => {
+                    e.preventDefault();
+                    // Cycle 1x → 1.25x → 1.5x → 2x → 1x.
+                    const steps = [1, 1.25, 1.5, 2];
+                    const idx = steps.findIndex((s) => Math.abs(s - ambientSize) < 0.01);
+                    setAmbientSize(steps[(idx + 1) % steps.length]);
+                  }}
+                  className={cn(toggleRowClass, 'cursor-pointer pl-7')}
+                >
+                  <span className="flex min-w-0 flex-1 items-center gap-2">
+                    <Monitor className="size-4 shrink-0 text-muted-foreground" />
+                    <span className="min-w-0 truncate">Ambient size</span>
+                  </span>
+                  <span className={valueChipClass}>{ambientSize >= 2 ? 'Full' : `${ambientSize}x`}</span>
+                </DropdownMenuItem>
+              </>
+            )}
           </>
         )}
         {/* Reels intentionally have no player background, so the toggle is moot. */}
