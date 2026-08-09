@@ -1,6 +1,7 @@
 -- ============================================================================
 -- Comments at scale: SQL-side pagination + counting
 -- ============================================================================
+-- (redeploy trigger: no schema change — keep this comment so CI sees an app/ diff)
 -- Before this, the app loaded up to 500 comment rows (and EVERY like row for
 -- them) into Node memory to sort and paginate. Fine for a quiet upload,
 -- useless at 1k comments and fatal at 100k. These functions move the work to
