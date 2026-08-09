@@ -192,10 +192,24 @@ export class CommentService {
       const userIds = [...new Set(list.map((r) => r.user_id).filter(Boolean))];
       const commentIds = list.map((r) => r.id);
 
-      const [{ data: users }, { data: likes }] = await Promise.all([
+      const [{ data: users }, { data: likes }, { data: grandchildren }] = await Promise.all([
         db.from('users').select('id, username, profile_pic').in('id', userIds),
         db.from('comment_likes').select('comment_id, user_id').in('comment_id', commentIds),
+        // Each reply's own children. Without this every reply came back with
+        // reply_count 0, so a nested thread had no "View N replies" control and
+        // its children were unreachable: the header count included them while
+        // the UI could never show them.
+        db
+          .from('comments')
+          .select('parent_id')
+          .in('parent_id', commentIds)
+          .eq('is_deleted', false),
       ]);
+
+      const childCount = new Map<string, number>();
+      for (const g of (grandchildren ?? []) as Array<{ parent_id: string }>) {
+        childCount.set(g.parent_id, (childCount.get(g.parent_id) ?? 0) + 1);
+      }
 
       const userMap = new Map((users ?? []).map((u: any) => [u.id, u]));
       const likeCount = new Map<string, number>();
@@ -217,8 +231,9 @@ export class CommentService {
           is_edited: row.is_edited,
           is_deleted: false,
           user: userMap.get(row.user_id) ?? undefined,
+          // Loaded on demand, same as the roots.
           replies: [],
-          reply_count: 0,
+          reply_count: childCount.get(row.id) ?? 0,
           like_count: likeCount.get(row.id) ?? 0,
           user_has_liked: likedByViewer.has(row.id),
           gif_id: row.gif_id ?? undefined,
