@@ -599,31 +599,38 @@ const Profile = () => {
           </div>
         ) : (
         <Tabs value={activeTab} onValueChange={setProfileTab} className="mt-6">
-          <TabsList variant="line" className="w-full flex-wrap items-center justify-start gap-1 h-auto min-h-9 mb-6 border-b border-border">
-            <TabsTrigger value="home" className="shrink-0">
+          <TabsList
+            variant="line"
+            /* One scrolling row, never wrapped. The active indicator is an
+               ::after pinned 5px below its trigger, so on a second row it
+               drew across the middle of the list instead of on the border,
+               and the rows read as stacked on top of each other. */
+            className="mb-6 h-auto min-h-9 w-full flex-nowrap items-center justify-start gap-1 overflow-x-auto overscroll-x-contain border-b border-border [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+          >
+            <TabsTrigger value="home" className="flex-none">
               Home
             </TabsTrigger>
-            <TabsTrigger value="uploads" className="shrink-0">
+            <TabsTrigger value="uploads" className="flex-none">
               Videos
             </TabsTrigger>
-            <TabsTrigger value="images" className="shrink-0">
+            <TabsTrigger value="images" className="flex-none">
               Images
             </TabsTrigger>
             {isOwner && (
-              <TabsTrigger value="liked" className="shrink-0">
+              <TabsTrigger value="liked" className="flex-none">
                 Liked
               </TabsTrigger>
             )}
             {isOwner && (
-              <TabsTrigger value="history" className="shrink-0">
+              <TabsTrigger value="history" className="flex-none">
                 History
               </TabsTrigger>
             )}
-            <TabsTrigger value="playlists" className="shrink-0">
+            <TabsTrigger value="playlists" className="flex-none">
               Playlists
             </TabsTrigger>
             {isOwner && (
-              <TabsTrigger value="adult" className="shrink-0">
+              <TabsTrigger value="adult" className="flex-none">
                 Flagged
               </TabsTrigger>
             )}

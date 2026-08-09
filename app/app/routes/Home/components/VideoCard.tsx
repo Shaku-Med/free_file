@@ -2571,20 +2571,24 @@ const VideoCard = ({
 
   if (layout === "reelStrip") {
     return (
-      <div className="group relative flex w-full flex-col">
+      <div className="group relative flex w-full flex-col rounded-2xl">
+        <VideoCardHoverOverlay colors={fileColors} seed={hoverTintSeed} />
         <Link
           onClick={(e) => {
             e.preventDefault();
             void handleWatchNav();
           }}
           to={watchPath}
-          // Taller portrait card (closer to a real Short) for the strip.
-          className="relative block aspect-[9/16] w-full shrink-0 overflow-hidden rounded-lg bg-muted outline-none ring-0 transition-opacity hover:opacity-95"
+          // Portrait, but not a full 9:16. At the widths this renders in a feed
+          // column that came out taller than the viewport on smaller screens and
+          // pushed everything under it off the fold. 3:4 still reads as a Short
+          // and the thumbnail is object-cover, so the framing is unchanged.
+          className="relative z-[1000000] block aspect-[3/4] w-full shrink-0 overflow-hidden rounded-lg bg-muted outline-none ring-0 transition-opacity hover:opacity-95"
         >
           {renderThumbnail("h-full w-full")}
         </Link>
 
-        <div className="mt-2 flex min-w-0 items-start gap-1">
+        <div className="relative z-[1000000] mt-2 flex min-w-0 items-start gap-1">
           <div className="min-w-0 flex-1">
             <Link
               onClick={(e) => {
@@ -2654,8 +2658,9 @@ const VideoCard = ({
         }}
         // End-card cells scale with the player slot  fluid padding + clamp
         // type so cards grow on cinema layouts and stay legible on phone.
-        className="group flex w-full flex-col gap-[clamp(0.25rem,1.5cqi,0.625rem)] rounded-lg p-[clamp(0.25rem,1.2cqi,0.625rem)] text-left transition-colors hover:bg-white/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-white/60"
+        className="group relative isolate flex w-full flex-col gap-[clamp(0.25rem,1.5cqi,0.625rem)] rounded-lg p-[clamp(0.25rem,1.2cqi,0.625rem)] text-left transition-colors hover:bg-white/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-white/60"
       >
+      <VideoCardHoverOverlay colors={fileColors} seed={hoverTintSeed} behind className="rounded-lg" />
         <div className="relative aspect-video w-full overflow-hidden rounded-md bg-card ring-1 ring-white/10">
           {renderThumbnail("h-full w-full")}
           {durationStr && (
@@ -2699,8 +2704,9 @@ const VideoCard = ({
           e.preventDefault();
           void handleWatchNav();
         }}
-        className="group flex w-full flex-col gap-2 text-left"
+        className="group relative isolate flex w-full flex-col gap-2 rounded-lg text-left"
       >
+      <VideoCardHoverOverlay colors={fileColors} seed={hoverTintSeed} behind className="rounded-lg" />
         <div className="relative aspect-video w-full overflow-hidden rounded-xl bg-card ring-1 ring-border/40 transition-all group-hover:-translate-y-0.5 group-hover:ring-border">
           {renderThumbnail("h-full w-full")}
           {durationStr && (
@@ -2740,8 +2746,9 @@ const VideoCard = ({
           e.preventDefault();
           void handleWatchNav();
         }}
-        className="group flex h-full w-full items-stretch gap-[clamp(0.5rem,2cqi,0.875rem)] rounded-lg p-[clamp(0.25rem,1cqi,0.5rem)] text-left transition-colors hover:bg-white/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-white/60"
+        className="group relative isolate flex h-full w-full items-stretch gap-[clamp(0.5rem,2cqi,0.875rem)] rounded-lg p-[clamp(0.25rem,1cqi,0.5rem)] text-left transition-colors hover:bg-white/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-white/60"
       >
+      <VideoCardHoverOverlay colors={fileColors} seed={hoverTintSeed} behind className="rounded-lg" />
         {/* Thumbnail  fixed 38% of card width, locked to 16:9 so card height
             stays predictable for the overlay's vertical stack math. */}
         <div className="relative aspect-video h-full shrink-0 overflow-hidden rounded-md bg-card ring-1 ring-white/10">

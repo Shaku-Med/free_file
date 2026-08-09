@@ -13,6 +13,17 @@ type VideoCardHoverOverlayProps = {
    * Default matches the home grid card overlay.
    */
   surface?: string;
+  /**
+   * Paint behind the card's content instead of above it.
+   *
+   * The default mode raises itself over everything on hover, which is why those
+   * layouts push their thumb and text to `z-[1000000]`. Layouts whose root is a
+   * single Link with many loose children can't do that without z-indexing each
+   * one, so they set `behind` and add `isolate` to the root: the overlay drops
+   * to `-z-10` inside that stacking context and content paints above it with no
+   * per-child changes.
+   */
+  behind?: boolean;
 };
 
 /**
@@ -25,6 +36,7 @@ export function VideoCardHoverOverlay({
   seed,
   className,
   surface = "color-mix(in srgb, var(--muted) 85%, transparent)",
+  behind = false,
 }: VideoCardHoverOverlayProps) {
   const tint = useMemo(
     () => fileHoverTint(colors, seed, surface),
@@ -35,8 +47,11 @@ export function VideoCardHoverOverlay({
     <div
       aria-hidden
       className={cn(
-        "hover_overlay pointer-events-none absolute inset-0 z-[10] rounded-2xl bg-muted/80 opacity-0 scale-100 transition-all duration-300 ease-out",
-        "group-hover:z-[100] group-hover:opacity-100 group-hover:scale-105",
+        "hover_overlay pointer-events-none absolute inset-0 rounded-2xl bg-muted/80 opacity-0 scale-100 transition-all duration-300 ease-out",
+        // Written out rather than composed, so Tailwind can see both variants.
+        behind
+          ? "-z-10 group-hover:opacity-100 group-hover:scale-105"
+          : "z-[10] group-hover:z-[100] group-hover:opacity-100 group-hover:scale-105",
         className,
       )}
       style={tint ? { background: tint } : undefined}
