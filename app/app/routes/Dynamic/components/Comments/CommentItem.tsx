@@ -97,8 +97,19 @@ const CommentItem = ({
 }: CommentItemProps) => {
   const [isReplying, setIsReplying] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
+  /**
+   * Replies arrive empty from the list endpoint and are fetched when opened, so
+   * a thread with hundreds of replies costs nothing until someone asks for it.
+   * The server still sends the branch when deep-linking to a comment, so seed
+   * from whatever came down rather than always starting empty.
+   */
+  const [loadedReplies, setLoadedReplies] = useState<CommentType[] | null>(
+    comment.replies && comment.replies.length > 0 ? comment.replies : null
+  );
+  const [repliesLoading, setRepliesLoading] = useState(false);
+  const [repliesError, setRepliesError] = useState(false);
   const [showReplies, setShowReplies] = useState(() =>
-    !highlightCommentId ? true : subtreeContainsHighlight(comment, highlightCommentId)
+    highlightCommentId ? subtreeContainsHighlight(comment, highlightCommentId) : false
   );
   const [likeCount, setLikeCount] = useState(comment.like_count ?? 0);
   const [userLiked, setUserLiked] = useState(comment.user_has_liked ?? false);
@@ -156,7 +167,8 @@ const CommentItem = ({
   const isFileOwner = Boolean(fileOwnerId && currentUserId === fileOwnerId);
   const canModerate = isCommentOwner || isFileOwner;
   const isHidden = Boolean(comment.is_hidden);
-  const hasReplies = comment.replies && comment.replies.length > 0;
+  const replyCount = comment.reply_count ?? 0;
+  const hasReplies = replyCount > 0 || (loadedReplies?.length ?? 0) > 0;
   const isHighlighted = Boolean(highlightCommentId && comment.id === highlightCommentId);
   const [showEmphasis, setShowEmphasis] = useState(isHighlighted);
 
@@ -170,10 +182,42 @@ const CommentItem = ({
     return () => window.clearTimeout(t);
   }, [isHighlighted, comment.id]);
 
+  const toggleReplies = useCallback(async () => {
+    if (showReplies) {
+      setShowReplies(false);
+      return;
+    }
+    setShowReplies(true);
+    if (loadedReplies !== null || repliesLoading) return;
+
+    setRepliesLoading(true);
+    setRepliesError(false);
+    try {
+      const params = new URLSearchParams({
+        fileId,
+        parentId: comment.id,
+        limit: "50",
+      });
+      const res = await fetch(`/api/comments?${params.toString()}`, { credentials: "include" });
+      if (!res.ok) throw new Error(String(res.status));
+      const json = (await res.json()) as { data?: CommentType[] };
+      setLoadedReplies(Array.isArray(json.data) ? json.data : []);
+    } catch {
+      // Leave loadedReplies null so a retry re-fetches instead of showing an
+      // empty thread as though the replies were gone.
+      setRepliesError(true);
+    } finally {
+      setRepliesLoading(false);
+    }
+  }, [showReplies, loadedReplies, repliesLoading, fileId, comment.id]);
+
   const handleReply = async (content: string, gif?: CommentGif | null, image?: CommentImage | null) => {
     await onReply(comment.id, content, gif, image);
     setIsReplying(false);
-    setShowReplies(true);
+    // Drop the cache so the thread refetches with the new reply in it.
+    setLoadedReplies(null);
+    setShowReplies(false);
+    void toggleReplies();
   };
 
   const handleLike = useCallback(async () => {
@@ -561,11 +605,18 @@ const CommentItem = ({
                   {hasReplies ? (
                     <button
                       type="button"
-                      onClick={() => setShowReplies(!showReplies)}
-                      className="rounded-md px-2 py-0.5 font-semibold text-[11px] text-muted-foreground hover:bg-muted/50 hover:text-foreground sm:text-xs"
+                      onClick={() => void toggleReplies()}
+                      disabled={repliesLoading}
+                      aria-expanded={showReplies}
+                      className="rounded-md px-2 py-0.5 font-semibold text-[11px] text-muted-foreground hover:bg-muted/50 hover:text-foreground disabled:opacity-60 sm:text-xs"
                     >
-                      {showReplies ? "Hide" : "View"} {comment.reply_count}{" "}
-                      {comment.reply_count === 1 ? "reply" : "replies"}
+                      {repliesLoading
+                        ? "Loading..."
+                        : repliesError
+                          ? "Retry"
+                          : `${showReplies ? "Hide" : "View"} ${replyCount || loadedReplies?.length || 0} ${
+                              (replyCount || loadedReplies?.length || 0) === 1 ? "reply" : "replies"
+                            }`}
                     </button>
                   ) : null}
                 </div>
@@ -596,12 +647,12 @@ const CommentItem = ({
         </div>
       )}
 
-      {showReplies && hasReplies && (
+      {showReplies && (loadedReplies?.length ?? 0) > 0 && (
         <div
           className="relative z-[1] space-y-0 overflow-visible"
           style={gutterPx > 0 ? { marginLeft: -gutterPx } : undefined}
         >
-          {comment.replies?.map((reply, idx, arr) => (
+          {loadedReplies?.map((reply, idx, arr) => (
             <CommentItem
               key={reply.id}
               comment={reply}

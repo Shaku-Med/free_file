@@ -139,6 +139,103 @@ function stripCommentBranchForApi(c: Comment): Comment {
 }
 
 export class CommentService {
+
+  /**
+   * Direct replies to one comment, paginated. Backs the "View N replies"
+   * expander so a thread is only ever fetched when someone opens it.
+   *
+   * `fileId` is required and checked against the parent row. The caller has
+   * already proved it may read that file, so without this a valid fileId could
+   * be paired with any commentId to pull a thread off a file the viewer cannot
+   * see.
+   */
+  async getRepliesByCommentId(
+    fileId: string,
+    parentId: string,
+    limit: number = 20,
+    offset: number = 0,
+    currentUserId: string | null = null
+  ): Promise<CommentServiceResponse<{ data: Comment[]; totalCount: number }>> {
+    try {
+      if (!db) return { data: null, error: 'Database not initialized' };
+
+      const safeLimit = Math.min(Math.max(Math.trunc(limit) || 20, 1), 50);
+      const safeOffset = Math.min(Math.max(Math.trunc(offset) || 0, 0), 10_000);
+
+      const { data: parent } = await db
+        .from('comments')
+        .select('id, file_id, is_deleted')
+        .eq('id', parentId)
+        .maybeSingle();
+      const parentRow = parent as { file_id?: string; is_deleted?: boolean } | null;
+      if (!parentRow || parentRow.file_id !== fileId || parentRow.is_deleted) {
+        return { data: { data: [], totalCount: 0 }, error: null };
+      }
+
+      const { data: rows, count, error } = await db
+        .from('comments')
+        .select(COMMENT_SELECT_BASE, { count: 'exact' })
+        .eq('file_id', fileId)
+        .eq('parent_id', parentId)
+        .eq('is_deleted', false)
+        .order('created_at', { ascending: true })
+        .range(safeOffset, safeOffset + safeLimit - 1);
+
+      if (error) {
+        console.error('getRepliesByCommentId:', error);
+        return { data: null, error: 'Failed to load replies' };
+      }
+
+      const list = (rows ?? []) as Array<Record<string, any>>;
+      if (list.length === 0) return { data: { data: [], totalCount: count ?? 0 }, error: null };
+
+      const userIds = [...new Set(list.map((r) => r.user_id).filter(Boolean))];
+      const commentIds = list.map((r) => r.id);
+
+      const [{ data: users }, { data: likes }] = await Promise.all([
+        db.from('users').select('id, username, profile_pic').in('id', userIds),
+        db.from('comment_likes').select('comment_id, user_id').in('comment_id', commentIds),
+      ]);
+
+      const userMap = new Map((users ?? []).map((u: any) => [u.id, u]));
+      const likeCount = new Map<string, number>();
+      const likedByViewer = new Set<string>();
+      for (const l of (likes ?? []) as Array<{ comment_id: string; user_id: string }>) {
+        likeCount.set(l.comment_id, (likeCount.get(l.comment_id) ?? 0) + 1);
+        if (currentUserId && l.user_id === currentUserId) likedByViewer.add(l.comment_id);
+      }
+
+      const replies = list.map((row) =>
+        stripCommentBranchForApi({
+          id: row.id,
+          user_id: row.user_id,
+          file_id: row.file_id,
+          content: row.content ?? '',
+          parent_id: row.parent_id,
+          created_at: row.created_at,
+          updated_at: row.updated_at,
+          is_edited: row.is_edited,
+          is_deleted: false,
+          user: userMap.get(row.user_id) ?? undefined,
+          replies: [],
+          reply_count: 0,
+          like_count: likeCount.get(row.id) ?? 0,
+          user_has_liked: likedByViewer.has(row.id),
+          gif_id: row.gif_id ?? undefined,
+          gif_url: row.gif_url ?? undefined,
+          gif_preview_url: row.gif_preview_url ?? undefined,
+          image_url: row.image_url ?? undefined,
+          image_type: row.image_type ?? undefined,
+        } as Comment)
+      );
+
+      return { data: { data: replies, totalCount: count ?? replies.length }, error: null };
+    } catch (error) {
+      console.error('Error in getRepliesByCommentId:', error);
+      return { data: null, error: 'Internal server error' };
+    }
+  }
+
   /**
    * Fetches all comments (including nested) via get_comments RPC, builds tree, returns total count.
    */
@@ -159,6 +256,9 @@ export class CommentService {
     currentUserId?: string | null,
     /** When set (e.g. from notification deep link), ensure this comment's root thread is in the first page. */
     focusCommentId?: string | null
+  ,
+    /** When false, roots come back with reply_count but no nested replies. */
+    includeReplies: boolean = true
   ): Promise<CommentServiceResponse<CommentsTreeResult>> {
     try {
       if (!db) {
@@ -383,7 +483,11 @@ export class CommentService {
 
       const paginatedRoots = orderedRoots
         .slice(offset, offset + limit)
-        .map(stripCommentBranchForApi);
+        .map(stripCommentBranchForApi)
+        // Replies are fetched on demand. reply_count survives so the client can
+        // render "View N replies" without holding the thread in memory, and the
+        // sort above already used the real counts.
+        .map((r) => (includeReplies ? r : { ...r, replies: [] }));
 
       return {
         data: { data: paginatedRoots, totalCount, totalCommentCount },

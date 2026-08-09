@@ -6,12 +6,39 @@ import { commentService, type CreateCommentInput } from "~/lib/Services/CommentS
 import { createNotification } from "~/lib/Services/NotificationService";
 import { enqueuePush } from "~/lib/Services/PushQueue.server";
 import { validatePagination, isValidFileId, sanitizeCommentContent, validateInteger } from "~/lib/Security/inputValidation";
+import { canAccessFile } from "~/routes/Api/fun/accessControl";
 
 const toJson = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), {
     status,
     headers: { "Content-Type": "application/json" },
   });
+
+/**
+ * Comments inherit the visibility of the file they hang off.
+ *
+ * Nothing gated this before: a fileId was enough to read every comment on a
+ * private upload, an unlisted file locked by moderation, or content from a
+ * restricted account. The thread leaks usernames, the discussion itself and the
+ * fact that the upload exists. Same helper the media routes use, so adult gates,
+ * visibility and owner enforcement all stay consistent.
+ *
+ * Returns null when the viewer may read; otherwise the response to send.
+ */
+async function denyIfFileUnreadable(request: Request, fileId: string): Promise<Response | null> {
+  if (!db) return toJson({ error: "Database not initialized" }, 500);
+  const { data: file } = await db
+    .from('files')
+    .select('id, owner_id, is_public, visibility, visibility_locked, is_adult, upload_status')
+    .eq('id', fileId)
+    .maybeSingle();
+  // 404 rather than 403: a missing file and a forbidden one look the same, so
+  // this cannot be used to test which ids exist.
+  if (!file) return toJson({ error: "Not found" }, 404);
+  const allowed = await canAccessFile(request, file as never);
+  if (!allowed) return toJson({ error: "Not found" }, 404);
+  return null;
+}
 
 export const loader = async ({ request }: { request: Request }) => {
   try {
@@ -30,15 +57,42 @@ export const loader = async ({ request }: { request: Request }) => {
     const focusCommentId =
       focusCommentIdRaw && isValidFileId(focusCommentIdRaw) ? focusCommentIdRaw : null;
 
+    const denied = await denyIfFileUnreadable(request, fileId);
+    if (denied) return denied;
+
     const user = await isAuthenticated(request, ['id']).catch(() => null);
     const currentUserId = user?.id ?? null;
+
+    // "View N replies": one thread, paginated. The gate above already proved
+    // this viewer may read the file, and the service checks the parent actually
+    // belongs to it.
+    const parentIdRaw = url.searchParams.get('parentId');
+    if (parentIdRaw) {
+      if (!isValidFileId(parentIdRaw)) return toJson({ error: "Invalid parentId" }, 400);
+      const replies = await commentService.getRepliesByCommentId(
+        fileId,
+        parentIdRaw,
+        validateInteger(limitParam, 1, 50) || 20,
+        offset,
+        currentUserId
+      );
+      if (replies.error) return toJson({ error: replies.error }, 500);
+      return toJson({
+        data: replies.data?.data ?? [],
+        totalCount: replies.data?.totalCount ?? 0,
+        success: true,
+      });
+    }
 
     const result = await commentService.getCommentsTreeByFileId(
       fileId,
       limit,
       offset,
       currentUserId,
-      focusCommentId
+      focusCommentId,
+      // Focusing a comment has to deliver the thread it lives in, otherwise the
+      // deep link lands on a collapsed parent.
+      Boolean(focusCommentId)
     );
 
     if (result.error) {

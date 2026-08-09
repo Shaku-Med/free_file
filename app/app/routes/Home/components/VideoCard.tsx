@@ -2579,11 +2579,11 @@ const VideoCard = ({
             void handleWatchNav();
           }}
           to={watchPath}
-          // Portrait, but not a full 9:16. At the widths this renders in a feed
-          // column that came out taller than the viewport on smaller screens and
-          // pushed everything under it off the fold. 3:4 still reads as a Short
-          // and the thumbnail is object-cover, so the framing is unchanged.
-          className="relative z-[1000000] block aspect-[3/4] w-full shrink-0 overflow-hidden rounded-lg bg-muted outline-none ring-0 transition-opacity hover:opacity-95"
+          // Matches the Shorts shelf: portrait, but nowhere near a full 9:16,
+          // which at feed column widths produced a card taller than the viewport
+          // and pushed everything under it off the fold. Thumbnail is
+          // object-cover so the framing is unchanged.
+          className="relative z-[1000000] block aspect-[2/3] w-full shrink-0 overflow-hidden rounded-xl bg-muted outline-none ring-0 transition-opacity hover:opacity-95"
         >
           {renderThumbnail("h-full w-full")}
         </Link>
@@ -2606,24 +2606,11 @@ const VideoCard = ({
               </h3>
             </Link>
 
-            <div className="mt-0.5 flex min-w-0 items-center gap-1 text-xs leading-tight text-muted-foreground">
-              {data.owner ? (
-                <Link
-                  to={`/profile/${data.owner.username}`}
-                  className="min-w-0 truncate hover:text-foreground transition-colors"
-                >
-                  @{data.owner.username}
-                </Link>
-              ) : null}
-              {data.owner && viewCount > 0 ? (
-                <span className="shrink-0 text-muted-foreground/50" aria-hidden>
-                  ·
-                </span>
-              ) : null}
-              {viewCount > 0 ? (
-                <span className="shrink-0 tabular-nums">{viewsLabel(viewCount)}</span>
-              ) : null}
-            </div>
+            {viewCount > 0 ? (
+              <div className="mt-1 text-xs leading-tight tabular-nums text-muted-foreground">
+                {viewsLabel(viewCount)}
+              </div>
+            ) : null}
           </div>
 
           {hideActions.halfway ? (
