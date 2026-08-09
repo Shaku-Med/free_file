@@ -28,11 +28,7 @@ import { cn, getThumbnailUrl, displayMediaTitle } from "~/lib/utils"
 import { BASE_URL } from "~/lib/URLS"
 import ParseFilenameInsert from "~/lib/utils/ShowFileName"
 import { groupConsecutiveReelClusters } from "~/lib/feed/groupConsecutiveReelClusters"
-import { Swiper, SwiperSlide } from "swiper/react"
-import { Navigation, A11y, Keyboard } from "swiper/modules"
-import type { Swiper as SwiperType } from "swiper"
-import "swiper/css"
-import "swiper/css/navigation"
+import { Carousel, CarouselItem } from "~/components/Carousel/Carousel"
 
 interface RelatedVideosProps {
   videos: FileType[]
@@ -201,34 +197,22 @@ const RelatedVideosContent = ({ currentUserId }: { currentUserId?: string }) => 
           return (
             <div
               key={`${keyPrefix}-reel-${clusterKey}`}
-              className="col-span-full w-full min-w-0 max-w-full overflow-hidden"
+              // overflow-visible on purpose. This clipped for Swiper's sake,
+              // and leaving it would cut off the carousel's bleed and the
+              // card hover scale exactly like Swiper did. The carousel owns
+              // its own scrollport.
+              className="col-span-full w-full min-w-0 max-w-full overflow-visible"
             >
-              <Swiper
-                modules={[Navigation, A11y, Keyboard]}
-                slidesPerView={2.15}
-                spaceBetween={2}
-                speed={380}
-                watchOverflow
-                observer
-                observeParents
-                resizeObserver
-                navigation
-                keyboard={{ enabled: true, onlyInViewport: true }}
-                breakpoints={{
-                  480: { slidesPerView: 2.2, spaceBetween: 2 },
-                  768: { slidesPerView: 2.5, spaceBetween: 3 },
-                  1024: { slidesPerView: 3, spaceBetween: 3 },
-                  1280: { slidesPerView: 3.5, spaceBetween: 3 },
-                }}
-                className="feed-reel-swiper"
-                onInit={(swiper: SwiperType) => {
-                  swiper.update()
-                }}
-              >
+              <Carousel label="Reels" gapClassName="gap-2">
                 {group.files.map((file, keyIndex) => {
                   const index = indexCounter++
                   return (
-                    <SwiperSlide key={file.id || file.unique_id || keyIndex} className="!h-auto">
+                    <CarouselItem
+                      key={file.id || file.unique_id || keyIndex}
+                      // Fractional basis so the next card peeks and the row
+                      // reads as scrollable without a scrollbar.
+                      className="basis-[46%] sm:basis-[40%] md:basis-[32%] xl:basis-[28%]"
+                    >
                       <VideoCard
                         data={file}
                         layout="reelStrip"
@@ -238,10 +222,10 @@ const RelatedVideosContent = ({ currentUserId }: { currentUserId?: string }) => 
                         userActions={userActions}
                         hideActions={{ completely: false, halfway: true }}
                       />
-                    </SwiperSlide>
+                    </CarouselItem>
                   )
                 })}
-              </Swiper>
+              </Carousel>
             </div>
           )
         })}
