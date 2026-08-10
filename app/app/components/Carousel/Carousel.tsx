@@ -142,6 +142,15 @@ export function Carousel({
 
   const onPointerDown = useCallback((e: ReactPointerEvent<HTMLDivElement>) => {
     if (e.pointerType === "mouse" && e.button !== 0) return;
+    // Measure first. maxOffset is what bounds the drag, and if it is stale
+    // (cards still loading, sidebar just toggled, list just grew) the track can
+    // be pulled far past where the content actually ends and the row empties
+    // out. Cheap: two reads on press, not per move.
+    const vp0 = viewportRef.current;
+    const tr0 = trackRef.current;
+    if (vp0 && tr0) {
+      maxRef.current = Math.max(0, tr0.scrollWidth - vp0.clientWidth);
+    }
     if (maxRef.current <= 0) return;
     stopMomentum();
     const d = drag.current;
@@ -175,10 +184,18 @@ export function Carousel({
     d.lastT = e.timeStamp;
 
     // Past either end the track follows at a third of the distance, so the
-    // boundary is felt instead of hit like a wall.
+    // boundary is felt instead of hit like a wall. Capped as well: a long flick
+    // at the edge would otherwise ease its way to an offset that pushes every
+    // card off screen and leaves a blank row.
     const raw = d.startOffset + dx;
     const max = maxRef.current;
-    const eased = raw > 0 ? raw / 3 : raw < -max ? -max + (raw + max) / 3 : raw;
+    const limit = Math.max(48, (viewportRef.current?.clientWidth ?? 0) * 0.15);
+    const eased =
+      raw > 0
+        ? Math.min(raw / 3, limit)
+        : raw < -max
+          ? -max - Math.min((-max - raw) / 3, limit)
+          : raw;
     setOffset(eased);
   }, []);
 

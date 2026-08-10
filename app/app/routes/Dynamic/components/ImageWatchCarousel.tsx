@@ -333,7 +333,13 @@ export default function ImageWatchCarousel({
           onDragStart={(e) => e.preventDefault()}
           className="flex h-full w-full will-change-transform"
           style={{
-            transform: `translate3d(${-activeIdx * vpWidth + dragPx}px,0,0)`,
+            // Percent, not measured pixels. Every slide is exactly one track
+            // width, and a percentage transform resolves against that same box,
+            // so the slide always lands dead centre. Driving it from vpWidth
+            // meant any stale or pre-layout measurement (first paint, sidebar
+            // toggle, rotation) multiplied by the slide index and left images
+            // sitting off to one side. Only the live drag stays in pixels.
+            transform: `translate3d(calc(${-activeIdx * 100}% + ${dragPx}px),0,0)`,
             transition: animate && dragPx === 0 ? `transform ${SLIDE_MS}ms cubic-bezier(0.22,0.61,0.36,1)` : "none",
           }}
         >
