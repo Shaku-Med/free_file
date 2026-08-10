@@ -344,7 +344,16 @@ export default function ImageWatchCarousel({
           }}
         >
           {items.map((img, i) => (
-            <div key={String(img.id ?? img.unique_id ?? i)} className="h-full min-w-full shrink-0">
+            <div
+              key={String(img.id ?? img.unique_id ?? i)}
+              // basis-full, not min-w-full. min-width is only a floor, and with
+              // flex-basis auto the slide still sized itself to the image's
+              // natural width, so a 1290px photo made a 1290px slide inside a
+              // 558px viewport and the picture centred against the wrong box.
+              // Pinning the basis makes every slide exactly one viewport wide,
+              // which is also what the percentage transform assumes.
+              className="h-full w-full min-w-0 shrink-0 grow-0 basis-full"
+            >
               <div className="relative aspect-video w-full">
                 <ImageLoad
                   link={getThumbnailUrl({
