@@ -11,7 +11,19 @@ import { useDebouncedValue } from "~/lib/hooks/useDebouncedValue";
 const SUGGEST_DEBOUNCE_MS = 180;
 const CACHE_MAX = 100;
 
-export type SearchSuggestion = { text: string; kind: "recent" | "popular" | "match" };
+/** Optional preview attached server side; absent whenever nothing matched. */
+export type SuggestionThumb = {
+  unique_id: string;
+  created_at: string;
+  default_thumbnail: string | null;
+  filename: string;
+};
+
+export type SearchSuggestion = {
+  text: string;
+  kind: "recent" | "popular" | "match";
+  thumb?: SuggestionThumb | null;
+};
 
 /** Session cache for TYPED terms only; the empty box always refetches so recent
  *  searches stay fresh after a new search or a removal. */
@@ -26,13 +38,22 @@ function cachePut(term: string, items: SearchSuggestion[]) {
   suggestionCache.set(term, items);
 }
 
+function isThumb(v: unknown): v is SuggestionThumb {
+  if (!v || typeof v !== "object") return false;
+  const t = v as Record<string, unknown>;
+  return typeof t.unique_id === "string" && typeof t.created_at === "string";
+}
+
 function isSuggestion(v: unknown): v is SearchSuggestion {
   if (!v || typeof v !== "object") return false;
-  const o = v as { text?: unknown; kind?: unknown };
+  const o = v as { text?: unknown; kind?: unknown; thumb?: unknown };
   return (
     typeof o.text === "string" &&
     o.text.length > 0 &&
-    (o.kind === "recent" || o.kind === "popular" || o.kind === "match")
+    (o.kind === "recent" || o.kind === "popular" || o.kind === "match") &&
+    // Absent or null is normal; a malformed one is dropped rather than
+    // rendered, so a bad payload cannot put a broken image in the dropdown.
+    (o.thumb == null || isThumb(o.thumb))
   );
 }
 

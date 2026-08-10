@@ -136,12 +136,25 @@ export function NavbarSearchBar({
         className="flex w-full min-w-0 max-w-[720px] items-stretch"
         role="search"
       >
+        {/* One pill rather than a split field and button: the magnifier moves
+            inside on the left once the box is live, which is what makes the
+            dropdown read as part of the same surface. */}
         <div
           className={cn(
-            "flex min-w-0 flex-1 items-center overflow-hidden rounded-l-full border border-border/60 bg-background pl-4 transition-colors focus-within:border-primary/70 focus-within:ring-1 focus-within:ring-primary/30 dark:border-white/15 dark:bg-background/80",
-            open && "border-primary/70 ring-1 ring-primary/30",
+            "flex min-w-0 flex-1 items-center gap-3 rounded-full border border-border/60 bg-muted/40 px-4 transition-colors",
+            "focus-within:border-primary/70 focus-within:bg-background focus-within:ring-1 focus-within:ring-primary/30",
+            "dark:border-white/15 dark:bg-white/[0.06] dark:focus-within:bg-background/80",
+            open && "border-primary/70 bg-background ring-1 ring-primary/30 dark:bg-background/80",
           )}
         >
+          <Search
+            className={cn(
+              "size-5 shrink-0 text-muted-foreground transition-opacity",
+              open ? "opacity-100" : "opacity-0 w-0",
+            )}
+            strokeWidth={2}
+            aria-hidden
+          />
           <input
             ref={inputRef}
             type="search"
@@ -165,9 +178,9 @@ export function NavbarSearchBar({
         <button
           type="submit"
           aria-label="Search"
-          className="flex h-10 w-14 shrink-0 items-center justify-center rounded-r-full border border-l-0 border-border/60 bg-muted/50 text-foreground/90 transition-colors hover:bg-muted dark:border-white/15 dark:bg-muted/30"
+          className="ml-2 flex size-10 shrink-0 items-center justify-center rounded-full bg-muted/60 text-foreground/90 transition-colors hover:bg-muted dark:bg-white/[0.08] dark:hover:bg-white/[0.14]"
         >
-          <Search className="h-5 w-5" strokeWidth={2} />
+          <Search className="size-5" strokeWidth={2} />
         </button>
       </form>
 
@@ -176,7 +189,7 @@ export function NavbarSearchBar({
           id="navbar-search-dropdown"
           role="listbox"
           className={cn(
-            "absolute left-0 right-0 top-[calc(100%+0.35rem)] z-[100000001] overflow-hidden rounded-2xl border border-border/60 bg-background shadow-2xl dark:border-white/10",
+            "absolute left-0 right-0 top-[calc(100%+0.5rem)] z-[100000001] overflow-hidden rounded-2xl border border-border/60 bg-background py-1 shadow-2xl dark:border-white/10",
             dropdownClassName,
           )}
         >

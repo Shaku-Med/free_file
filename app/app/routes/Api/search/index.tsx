@@ -111,7 +111,10 @@ async function attachSuggestionThumbs(items: SuggestItem[]): Promise<SuggestItem
 
   const ors = [...new Set(prefixes.values())]
     .slice(0, 12)
-    .map((p) => `file_title.ilike.${p}%`)
+    // Contains, not prefix. Suggestions are query strings, so they almost
+    // never start a title; matching on prefix returned a thumbnail for
+    // essentially nothing. `*` is PostgREST's wildcard inside an or= filter.
+    .map((p) => `file_title.ilike.*${p}*`)
     .join(',');
 
   try {
@@ -129,7 +132,7 @@ async function attachSuggestionThumbs(items: SuggestItem[]): Promise<SuggestItem
       const p = prefixes.get(it.text);
       if (!p) return it;
       const hit = rows.find((r) =>
-        String((r as { file_title?: unknown }).file_title ?? '').toLowerCase().startsWith(p),
+        String((r as { file_title?: unknown }).file_title ?? '').toLowerCase().includes(p),
       ) as Record<string, any> | undefined;
       if (!hit) return it;
       return {
