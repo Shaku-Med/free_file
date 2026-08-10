@@ -33,6 +33,8 @@ import { getCookie } from "./lib/Security/Token";
 import { VerifyToken } from "./lib/Security/unsharedkeyEncryption/Combined/Verification/VerifyToken";
 import SetToken from "./lib/Security/unsharedkeyEncryption/Combined/Verification/SetToken";
 import { isAuthenticated } from "./lib/Security/Password";
+import { getFeatureFlags } from "./lib/Services/featureFlags.server";
+import { FeatureFlagProvider } from "./lib/Context/FeatureFlagContext";
 import { maybeUpdateUserGeo } from "./lib/Security/geo.server";
 import AppShell from "./components/AppShell";
 import RegisterServiceWorker from "./components/RegisterServiceWorker";
@@ -207,6 +209,10 @@ export const loader = async ({request}: {request: Request}) => {
     const isMobileServer = isMobileUserAgent(request.headers.get('user-agent'));
     const isDevelopmentServer = process.env.NODE_ENV === 'development';
 
+    // Resolved server side so only the ON keys cross the wire. Never fails the
+    // page: an empty set means every flag reads as off.
+    const featureFlags = await getFeatureFlags(userId);
+
     const altVault = readAltAccountsFromRequest(request.headers);
     const altAccounts = altVault.map(({ id, u, pic }) => ({
       id,
@@ -215,7 +221,7 @@ export const loader = async ({request}: {request: Request}) => {
     }));
 
     // SECURITY: never serialize the HttpOnly c_user session JWT into loader JSON.
-    return data({ st: sessionToken, user_agent: request.headers.get('user-agent'), userId, uploadServerUrl, userTheme, playerSettingsFromLoader, isMobileServer, isDevelopmentServer, requestURL, altAccounts }, {
+    return data({ st: sessionToken, user_agent: request.headers.get('user-agent'), userId, uploadServerUrl, userTheme, playerSettingsFromLoader, isMobileServer, isDevelopmentServer, requestURL, altAccounts, featureFlags }, {
       status: 200,
       headers: (token) ? { // I left this part open for now. Fix will be done later.
         'Set-Cookie': `token=${token}; Path=/; HttpOnly; ${secure}; ${sameSite}`
@@ -263,7 +269,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
     )
   }
 
-  const { st, user_agent, userId, uploadServerUrl, userTheme, playerSettingsFromLoader, isMobileServer, isDevelopmentServer, requestURL, altAccounts } = data;
+  const { st, user_agent, userId, uploadServerUrl, userTheme, playerSettingsFromLoader, isMobileServer, isDevelopmentServer, requestURL, altAccounts, featureFlags } = data;
   const themeClass = userTheme?.theme ?? "system";
   const themeStyle = userTheme?.style ?? "default";
 
@@ -316,6 +322,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
         <RegisterServiceWorker />
         <OrientationLock />
         <ErrorBoundary>
+          <FeatureFlagProvider flags={featureFlags}>
           <ContextProvider st={st || ''} user_agent={user_agent || ''} userId={userId || null} c_user={null} uploadServerUrl={uploadServerUrl || ''} playerSettingsFromLoader={playerSettingsFromLoader ?? null} isMobileServer={isMobileServer ?? false} isDevelopment={isDevelopmentServer ?? false} altAccounts={altAccounts ?? []}>
             <LikeProvider>
               <WatchProgressProvider>
@@ -350,6 +357,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
               </WatchProgressProvider>
             </LikeProvider>
           </ContextProvider>
+          </FeatureFlagProvider>
         </ErrorBoundary>
         </DesktopUpdateProvider>
         <Toaster />
