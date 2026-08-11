@@ -38,7 +38,7 @@ esac
 # Optional service list after the action  whitelisted names only.
 SERVICES=()
 if [[ $# -gt 0 && "$ACTION" != "login" ]]; then
-  allowed=" goupload embedapi musicdetector nsfwapi loadplay redis "
+  allowed=" goupload embedapi musicdetector acoustid nsfwapi loadplay redis "
   for svc in "$@"; do
     if [[ "$allowed" != *" ${svc} "* ]]; then
       echo "goupload-compose: unsupported service '${svc}'" >&2

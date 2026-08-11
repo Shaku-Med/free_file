@@ -57,4 +57,14 @@ export type DynamicDeferredDetails = {
     is_reel?: boolean;
     owner?: { id: string; username: string; profile_pic: string; verified?: boolean } | null;
   }>;
+  /** AcoustID / MusicBrainz catalog match linked via files.acoustid_recording_id. */
+  acoustidRecording: {
+    id: string;
+    title: string;
+    artists: string;
+    album: string | null;
+    cover_art_url: string | null;
+    musicbrainz_url: string | null;
+    duration: number | null;
+  } | null;
 };

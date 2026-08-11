@@ -36,12 +36,54 @@ func (c *Client) Enabled() bool {
 	return c != nil && c.apiURL != "" && c.apiURL != "disabled" && c.secret != ""
 }
 
+// Segment is a labelled time range from inaSpeechSegmenter (seconds from clip start).
+type Segment struct {
+	Label string  `json:"label"`
+	Start float64 `json:"start"`
+	End   float64 `json:"end"`
+}
+
 // Result is the subset of the sidecar's /analyze response we act on.
 type Result struct {
-	IsMusic      bool    `json:"is_music"`
-	MusicRatio   float64 `json:"music_ratio"`
-	MusicSeconds float64 `json:"music_seconds"`
-	Stub         bool    `json:"stub"`
+	IsMusic      bool      `json:"is_music"`
+	MusicRatio   float64   `json:"music_ratio"`
+	MusicSeconds float64   `json:"music_seconds"`
+	Stub         bool      `json:"stub"`
+	Segments     []Segment `json:"segments"`
+}
+
+// BestMusicWindow picks the longest contiguous "music" segment that is at least
+// minSec long, then caps its length at maxSec (AcoustID guidance: first ~120s).
+// Returns ok=false when nothing usable is present.
+func (r *Result) BestMusicWindow(minSec, maxSec float64) (start, end float64, ok bool) {
+	if r == nil || maxSec <= 0 {
+		return 0, 0, false
+	}
+	if minSec < 0 {
+		minSec = 0
+	}
+	var bestStart, bestEnd, bestDur float64
+	found := false
+	for _, seg := range r.Segments {
+		if seg.Label != "music" {
+			continue
+		}
+		dur := seg.End - seg.Start
+		if dur < minSec {
+			continue
+		}
+		if !found || dur > bestDur {
+			bestStart, bestEnd, bestDur = seg.Start, seg.End, dur
+			found = true
+		}
+	}
+	if !found {
+		return 0, 0, false
+	}
+	if bestDur > maxSec {
+		bestEnd = bestStart + maxSec
+	}
+	return bestStart, bestEnd, true
 }
 
 // Classify streams the audio file at path to the sidecar and returns its is_music

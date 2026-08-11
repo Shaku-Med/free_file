@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="robots" content="noindex, nofollow" />
+<title>AcoustID test bench</title>
+<link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <main class="wrap">
+    <header class="head">
+      <h1>AcoustID test bench</h1>
+      <p class="sub">
+        Drop a track. It is fingerprinted locally with Chromaprint and only the
+        fingerprint leaves this machine, never the audio.
+      </p>
+      <div id="status" class="status" role="status" aria-live="polite"></div>
+    </header>
+
+    <form id="form" class="drop" aria-label="Upload a song">
+      <input id="file" type="file" accept="audio/*,.m4a,.flac,.opus,.wma" hidden />
+      <div class="drop-inner">
+        <svg viewBox="0 0 24 24" class="drop-icon" aria-hidden="true">
+          <path d="M9 18V5l12-2v13" fill="none" stroke="currentColor" stroke-width="1.6"
+                stroke-linecap="round" stroke-linejoin="round"/>
+          <circle cx="6" cy="18" r="3" fill="none" stroke="currentColor" stroke-width="1.6"/>
+          <circle cx="18" cy="16" r="3" fill="none" stroke="currentColor" stroke-width="1.6"/>
+        </svg>
+        <p class="drop-title">Drop a song here, or <button type="button" id="browse" class="link">browse</button></p>
+        <p class="drop-hint" id="hint">mp3, m4a, flac, ogg, opus, wav</p>
+      </div>
+    </form>
+
+    <section id="results" class="results" hidden></section>
+  </main>
+
+  <script src="/app.js"></script>
+</body>
+</html>

@@ -10,9 +10,9 @@ name: goupload
 # figures are the ones to watch: they total close to the whole 8 GB, so raising
 # any of them without lowering another risks the OOM killer.
 
-# Docker's default json-file driver keeps logs FOREVER. Six chatty services on
-# a 100 GB disk is how a box quietly fills up with nothing but text, so every
-# service caps its own logs. 10M x 3 files x 6 services is ~180 MB worst case.
+# Docker's default json-file driver keeps logs FOREVER. Several chatty services
+# on a 100 GB disk is how a box quietly fills up with nothing but text, so every
+# service caps its own logs. 10M x 3 files x N services stays bounded.
 x-logging: &default-logging
   driver: json-file
   options:
@@ -116,6 +116,41 @@ services:
       timeout: 5s
       retries: 3
 
+  # AcoustID sidecar (song metadata via Chromaprint + AcoustID). Private
+  # network only; GoUpload posts a short MP3 clip, this service queues work
+  # on Redis and processes ONE job at a time (~3 lookups/sec).
+  acoustid:
+    image: ${ACOUSTID_IMAGE:-ghcr.io/OWNER/REPO/acoustid:latest}
+    container_name: goupload-acoustid
+    restart: unless-stopped
+    logging: *default-logging
+    env_file:
+      - ./acoustid.env
+    environment:
+      ACOUSTID_API_PORT: "3009"
+      REDIS_ADDR: redis:6379
+      ACOUSTID_API_SECRET: ${ACOUSTID_API_SECRET:?set ACOUSTID_API_SECRET in .env}
+      # Same app webhook target/secret as goupload (forced so they can't drift).
+      APP_BASE_URL: ${APP_BASE_URL:?set APP_BASE_URL in .env}
+      UPLOAD_WEBHOOK_SECRET: ${UPLOAD_WEBHOOK_SECRET:?set UPLOAD_WEBHOOK_SECRET in .env}
+      # Results + cover art go through GoUpload so covers are hosted like thumbnails.
+      GOUPLOAD_INTERNAL_URL: http://goupload:3003
+    networks:
+      - goupload-net
+    depends_on:
+      redis:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: "${ACOUSTID_CPUS:-0.5}"
+          memory: ${ACOUSTID_MEM:-256M}
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request;urllib.request.urlopen('http://localhost:3009/health', timeout=3)\""]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
   goupload:
     image: ${GOUPLOAD_IMAGE:-ghcr.io/OWNER/REPO/goupload:latest}
     container_name: goupload
@@ -130,6 +165,8 @@ services:
       EMBED_API_SECRET: ${EMBED_API_SECRET:?set EMBED_API_SECRET in .env}
       MUSIC_API_URL: http://musicdetector:3008/analyze
       MUSIC_API_SECRET: ${MUSIC_API_SECRET:?set MUSIC_API_SECRET in .env}
+      ACOUSTID_API_URL: http://acoustid:3009
+      ACOUSTID_API_SECRET: ${ACOUSTID_API_SECRET:?set ACOUSTID_API_SECRET in .env}
       # On-VPS audio fingerprint store (SQLite). Lives on its own volume so it
       # survives container recreation and reboots; hard-capped at 10 GiB.
       FINGERPRINT_DB_PATH: /data/fingerprints/fp.db
@@ -154,6 +191,8 @@ services:
       embedapi:
         condition: service_started
       musicdetector:
+        condition: service_started
+      acoustid:
         condition: service_started
     deploy:
       resources:

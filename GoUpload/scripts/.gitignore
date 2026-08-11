@@ -1,0 +1,11 @@
+# Disposable AcoustID backfill / audit tooling and its output. Throwaway, to be
+# deleted once the catalogue is checked.
+#
+# Scoped to Python on purpose. The .sh files in this folder are PRODUCTION: the
+# deploy workflow copies goupload-compose.sh and dangerous-guard.sh onto the
+# VPS, and GoUpload/scripts/** is in the workflow's path filter. Ignoring the
+# folder wholesale would break deploys.
+*.py
+__pycache__/
+*.log
+acoustid_suspects.txt

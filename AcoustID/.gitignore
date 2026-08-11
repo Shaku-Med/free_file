@@ -1,0 +1,11 @@
+# The bench itself IS committed. These are the only things that must never be.
+#
+# .env holds a real AcoustID key, and uploads/ holds whatever audio was dropped
+# on it. .env.example is tracked on purpose so the shape of the config is
+# visible without the secret.
+.env
+.env.*
+!.env.example
+uploads/
+__pycache__/
+*.pyc

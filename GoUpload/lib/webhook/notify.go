@@ -241,6 +241,53 @@ func NotifyJobStatus(p Payload) {
 	}
 }
 
+// NotifyAcoustidResult posts a JSON body to /api/acoustid-result (after GoUpload
+// has hosted any cover art and replaced cover_art with a storage path).
+func NotifyAcoustidResult(payload map[string]interface{}) {
+	base := strings.TrimSuffix(env.Get("APP_BASE_URL", ""), "/")
+	secret := env.Get("UPLOAD_WEBHOOK_SECRET", "")
+	if base == "" || secret == "" {
+		log.Printf("[webhook] NotifyAcoustidResult skipped: APP_BASE_URL=%q secret_set=%v", base, secret != "")
+		return
+	}
+	body, err := json.Marshal(payload)
+	if err != nil {
+		log.Printf("[webhook] NotifyAcoustidResult marshal: %v", err)
+		return
+	}
+	uploadID, _ := payload["upload_id"].(string)
+	url := base + "/api/acoustid-result"
+	client := &http.Client{Timeout: 15 * time.Second}
+	for attempt := 1; attempt <= 3; attempt++ {
+		req, rerr := http.NewRequest(http.MethodPost, url, bytes.NewReader(body))
+		if rerr != nil {
+			log.Printf("[webhook] NotifyAcoustidResult newrequest: %v", rerr)
+			return
+		}
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-Webhook-Secret", secret)
+		resp, derr := client.Do(req)
+		if derr != nil {
+			log.Printf("[webhook] NotifyAcoustidResult attempt=%d/3 upload=%s err=%v", attempt, uploadID, derr)
+		} else {
+			snippet, _ := io.ReadAll(io.LimitReader(resp.Body, 300))
+			resp.Body.Close()
+			if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+				log.Printf("[webhook] NotifyAcoustidResult ok upload=%s http=%d", uploadID, resp.StatusCode)
+				return
+			}
+			log.Printf("[webhook] NotifyAcoustidResult attempt=%d/3 upload=%s http=%d body=%q",
+				attempt, uploadID, resp.StatusCode, string(snippet))
+			if resp.StatusCode >= 400 && resp.StatusCode < 500 && resp.StatusCode != 408 && resp.StatusCode != 429 {
+				return
+			}
+		}
+		if attempt < 3 {
+			time.Sleep(time.Duration(attempt) * time.Second)
+		}
+	}
+}
+
 // CommentImagePayload is sent after a comment image is stored (same secret as upload-job-status).
 type CommentImagePayload struct {
 	ImageURL       string `json:"image_url"`

@@ -12,6 +12,7 @@ import (
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/limiter"
+	"goupload/internal/acoustidhook"
 	"goupload/internal/captions"
 	"goupload/internal/commentimg"
 	"goupload/internal/embedproxy"
@@ -22,6 +23,7 @@ import (
 	"goupload/internal/thumbnail"
 	"goupload/internal/upload"
 	"goupload/internal/worker"
+	acoustidlib "goupload/lib/acoustid"
 	embedlib "goupload/lib/embed"
 	"goupload/lib/env"
 	"goupload/lib/fingerprintdb"
@@ -111,6 +113,15 @@ func main() {
 		appLog.Infof("music detector client ready url=%s", env.Get("MUSIC_API_URL", ""))
 	}
 
+	// Local AcoustID sidecar: song metadata for music uploads. Defaults to the
+	// local sidecar (same idea as NSFW_API_URL). Set ACOUSTID_API_URL=disabled
+	// to turn it off. Soft-fails if the sidecar is down.
+	acoustidURL := env.Get("ACOUSTID_API_URL", "http://127.0.0.1:3009")
+	acoustidClient := acoustidlib.NewClient(acoustidURL, env.Get("ACOUSTID_API_SECRET", ""))
+	if acoustidClient.Enabled() {
+		appLog.Infof("acoustid client ready url=%s", acoustidURL)
+	}
+
 	ghToken := env.Get("GITHUB_TOKEN", "")
 	ghOwner := env.Get("GITHUB_OWNER", "")
 	ghRepo := strings.TrimSpace(env.Get("GITHUB_REPO", ""))
@@ -142,6 +153,7 @@ func main() {
 		TempDir:        "upload/temp_processing",
 		HLSDir:         "upload/hls",
 		ThumbnailDir:   "upload/thumbnails",
+		AcoustIDDir:    "upload/acoustid",
 		NSFWApiURL:     nsfwAPI,
 		NSFWApiSecret:  webhookSecret,
 		GitHubOwner:    ghOwner,
@@ -150,6 +162,7 @@ func main() {
 		StorageBackend: storageBackend,
 		Embed:          embedClient,
 		Music:          musicClient,
+		AcoustID:       acoustidClient,
 		Fingerprints:   fpDB,
 	}
 	if ghToken != "" && ghOwner != "" {
@@ -336,6 +349,17 @@ func main() {
 		GitHubBranch: env.Get("GITHUB_BRANCH", "main"),
 		R2:           r2Client,
 		Log:          appLog,
+	})
+	acoustidhook.RegisterRoutes(app, acoustidhook.Config{
+		ThumbnailDir:   "upload/thumbnails",
+		GitHubClient:   wcfg.GitHubClient,
+		GitHubOwner:    ghOwner,
+		GitHubRepo:     ghRepo,
+		GitHubBranch:   env.Get("GITHUB_BRANCH", "main"),
+		R2:             r2Client,
+		StorageBackend: storageBackend,
+		WebhookSecret:  webhookSecret,
+		Log:            appLog,
 	})
 
 	// Liveness/readiness probe. Public, no auth: Docker/compose healthchecks and

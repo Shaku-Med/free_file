@@ -39,6 +39,7 @@ export default [
         route(`load/vtt/*`, 'routes/Api/load/vtt/index.tsx'),
         route(`upload-server-check`, 'routes/Api/upload-server-check/index.tsx'),
         route(`upload-job-status`, 'routes/Api/upload-job-status/index.tsx'),
+        route(`acoustid-result`, 'routes/Api/acoustid-result/index.tsx'),
         route(`webhooks/comment-image-storage`, 'routes/Api/webhooks/comment-image-storage/index.tsx'),
         route(`feature-flags`, 'routes/Api/feature-flags/index.tsx'),
         route(`load/image/*`, 'routes/Api/load/image/index.tsx'),

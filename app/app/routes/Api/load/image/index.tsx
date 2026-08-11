@@ -702,18 +702,32 @@ export const loader = async ({ request }: { request: Request }) => {
             }
         }
 
+        // AcoustID covers are hosted by GoUpload using whatever storage backend
+        // is active *now* (usually R2). The parent video may still be tagged
+        // github from an older upload era — so always try R2 first for these
+        // paths, then fall back to the file's normal backend.
+        const isAcoustidCover = /\/acoustid_cover\.(jpe?g|png|webp)$/i.test(splitUrl);
+
+        const r2Resolver = (urlPath: string) => {
+            const signed = r2PresignGet(urlPath);
+            if (!signed) throw new ImageLoadExhaustedError();
+            return signed;
+        };
+
         // R2-backed files: presign + proxy. Bucket stays private (same as GitHub
         // raw). Blur still applies (processing is buffer-based, not URL-based).
-        if ((file as { storage_backend?: string | null }).storage_backend === 'r2') {
-            const r2Resolver = (urlPath: string) => {
-                const signed = r2PresignGet(urlPath);
-                if (!signed) throw new ImageLoadExhaustedError();
-                return signed;
-            };
-            if (splitUrl.toLowerCase().endsWith('.json')) {
-                return await fetchGithubJsonWithRetry(splitUrl, '', '', r2Resolver);
+        if ((file as { storage_backend?: string | null }).storage_backend === 'r2' || isAcoustidCover) {
+            try {
+                if (splitUrl.toLowerCase().endsWith('.json')) {
+                    return await fetchGithubJsonWithRetry(splitUrl, '', '', r2Resolver);
+                }
+                return await loadImageWithRetry(splitUrl, qualityParam, shouldBlur, isMetadata, '', '', r2Resolver);
+            } catch (e) {
+                // acoustid_cover on a github-era file: R2 miss → try GitHub below.
+                if (!isAcoustidCover || (file as { storage_backend?: string | null }).storage_backend === 'r2') {
+                    throw e;
+                }
             }
-            return await loadImageWithRetry(splitUrl, qualityParam, shouldBlur, isMetadata, '', '', r2Resolver);
         }
 
         const branch = defaultGithubBranch();

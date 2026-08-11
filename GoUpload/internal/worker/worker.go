@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"goupload/internal/upload"
+	"goupload/lib/acoustid"
 	"goupload/lib/assembler"
 	"goupload/lib/colors"
 	"goupload/lib/embed"
@@ -44,6 +45,9 @@ type Config struct {
 	TempDir       string
 	HLSDir        string
 	ThumbnailDir  string
+	// AcoustIDDir holds per-upload MP3 clips for the AcoustID sidecar:
+	// upload/acoustid/{userID}/{uploadID}/clip.mp3
+	AcoustIDDir   string
 	NSFWApiURL    string
 	NSFWApiSecret string // X-Webhook-Secret for app /api/nsfw/detect; often UPLOAD_WEBHOOK_SECRET
 	// GitHub: if GitHubClient is nil, uploads to GitHub are skipped.
@@ -60,6 +64,8 @@ type Config struct {
 	// Music: optional local MusicDetector sidecar; the source of truth for
 	// is_music when set. Falls back to the stems heuristic when nil/unreachable.
 	Music *musicdetect.Client
+	// AcoustID: optional song-ID sidecar. Soft-fail; never blocks the upload.
+	AcoustID *acoustid.Client
 	// Fingerprints: on-VPS SQLite fingerprint store + matcher. When set, audio
 	// duplicate detection runs locally and only the resulting link is sent to
 	// the app (raw hashes never leave the box). Nil = fingerprinting disabled.
@@ -84,6 +90,9 @@ func New(q *queue.Client, log *logger.Logger, cfg Config) *Worker {
 	}
 	if cfg.ThumbnailDir == "" {
 		cfg.ThumbnailDir = "upload/thumbnails"
+	}
+	if cfg.AcoustIDDir == "" {
+		cfg.AcoustIDDir = "upload/acoustid"
 	}
 
 	return &Worker{
@@ -401,10 +410,10 @@ func heuristicIsMusic(stems *ffmpeg.AudioStemsResult, categories []string) bool 
 // classifyMusic asks the MusicDetector sidecar whether a file is actually music
 // (by the music fraction of its audio). Soft-fail: ok=false on any problem so the
 // caller falls back to the stems heuristic. A compact mono clip is sent, not the
-// whole video.
-func (w *Worker) classifyMusic(job *queue.Job, videoPath string) (isMusic bool, ratio float64, ok bool) {
+// whole video. When ok, res carries segment ranges for AcoustID clip cutting.
+func (w *Worker) classifyMusic(job *queue.Job, videoPath string) (res *musicdetect.Result, ok bool) {
 	if w.cfg.Music == nil || !w.cfg.Music.Enabled() {
-		return false, 0, false
+		return nil, false
 	}
 	// Probe clip goes to an ephemeral temp dir, NOT thumbDir (which is uploaded to
 	// storage) or the upload volume. The whole dir is removed when we're done, so
@@ -412,24 +421,124 @@ func (w *Worker) classifyMusic(job *queue.Job, videoPath string) (isMusic bool, 
 	probeDir, err := os.MkdirTemp("", "musicprobe-")
 	if err != nil {
 		w.log.Infof("music probe tempdir failed job=%s reason=%s", job.ID, err.Error())
-		return false, 0, false
+		return nil, false
 	}
 	defer os.RemoveAll(probeDir)
 
 	clip, err := ffmpeg.ExtractAudioClip(videoPath, probeDir, musicProbeSeconds())
 	if err != nil {
 		w.log.Infof("music probe extract failed job=%s reason=%s", job.ID, err.Error())
-		return false, 0, false
+		return nil, false
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 150*time.Second)
 	defer cancel()
-	res, err := w.cfg.Music.Classify(ctx, clip)
+	res, err = w.cfg.Music.Classify(ctx, clip)
 	if err != nil || res == nil {
 		w.log.Infof("music detector unavailable job=%s reason=%v (using heuristic)", job.ID, err)
-		return false, 0, false
+		return nil, false
 	}
-	return res.IsMusic, res.MusicRatio, true
+	return res, true
+}
+
+func acoustidMinSegmentSec() float64 {
+	v := 15.0
+	if raw := strings.TrimSpace(os.Getenv("ACOUSTID_MIN_SEGMENT_SEC")); raw != "" {
+		if n, err := strconv.ParseFloat(raw, 64); err == nil && n >= 0 {
+			v = n
+		}
+	}
+	return v
+}
+
+func acoustidMaxClipSec() float64 {
+	v := 120.0
+	if raw := strings.TrimSpace(os.Getenv("ACOUSTID_MAX_CLIP_SEC")); raw != "" {
+		if n, err := strconv.ParseFloat(raw, 64); err == nil && n > 0 {
+			v = n
+		}
+	}
+	return v
+}
+
+// acoustidClipDir is upload/acoustid/{userID}/{uploadID}/ — same shape as
+// thumbnails/hls so the clip is easy to find by file id.
+func (w *Worker) acoustidClipDir(job *queue.Job) string {
+	return filepath.Join(w.cfg.AcoustIDDir, job.UserID, job.UploadID)
+}
+
+// enqueueAcoustID cuts a short MP3 into upload/acoustid/{user}/{uploadID}/clip.mp3
+// then POSTs that file to the AcoustID sidecar (202 + Redis queue). Soft-fail.
+// When MusicDetector didn't return segments, falls back to the first N seconds.
+// sourceDuration is the whole-track length (seconds) AcoustID needs for lookup.
+// storagePrefix is the thumbnail/storage folder (e.g. "10_08_2026/{uploadID}/").
+func (w *Worker) enqueueAcoustID(job *queue.Job, videoPath string, musicRes *musicdetect.Result, sourceDuration float64, storagePrefix string) {
+	if w.cfg.AcoustID == nil || !w.cfg.AcoustID.Enabled() {
+		return
+	}
+	maxClip := acoustidMaxClipSec()
+	start, end := 0.0, maxClip
+	if musicRes != nil {
+		if s, e, ok := musicRes.BestMusicWindow(acoustidMinSegmentSec(), maxClip); ok {
+			start, end = s, e
+		} else {
+			w.log.Infof("acoustid job=%s: no music segment, using first %.0fs", job.ID, maxClip)
+		}
+	} else {
+		w.log.Infof("acoustid job=%s: no detector segments, using first %.0fs", job.ID, maxClip)
+	}
+
+	clipDir := w.acoustidClipDir(job)
+	clip, err := ffmpeg.ExtractAudioRange(videoPath, clipDir, start, end-start)
+	if err != nil {
+		w.log.Infof("acoustid extract failed job=%s reason=%s", job.ID, err.Error())
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	titleHint := strings.TrimSpace(job.Title)
+	if titleHint == "" {
+		titleHint = strings.TrimSpace(job.FileName)
+	}
+	err = w.cfg.AcoustID.IdentifyAsync(ctx, clip, acoustid.IdentifyJob{
+		JobID:          job.ID,
+		UploadID:       job.UploadID,
+		UniqueID:       job.UploadID,
+		UserID:         job.UserID,
+		StoragePrefix:  storagePrefix,
+		ClipStart:      start,
+		ClipEnd:        end,
+		SourceDuration: sourceDuration,
+		TitleHint:      titleHint,
+	})
+	// Clip was handed off (or failed) — remove local copy immediately.
+	w.cleanupAcoustIDClip(job)
+	if err != nil {
+		w.log.Infof("acoustid enqueue failed job=%s reason=%s", job.ID, err.Error())
+		return
+	}
+	w.log.Infof("acoustid queued job=%s upload=%s window=%.1f-%.1f source_dur=%.1f prefix=%s", job.ID, job.UploadID, start, end, sourceDuration, storagePrefix)
+}
+
+func (w *Worker) cancelAcoustID(jobID string) {
+	if w.cfg.AcoustID == nil || !w.cfg.AcoustID.Enabled() || jobID == "" {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := w.cfg.AcoustID.Cancel(ctx, jobID); err != nil {
+		w.log.Infof("acoustid cancel failed job=%s reason=%s", jobID, err.Error())
+	}
+}
+
+func (w *Worker) cleanupAcoustIDClip(job *queue.Job) {
+	if job == nil || job.UploadID == "" || job.UserID == "" {
+		return
+	}
+	dir := w.acoustidClipDir(job)
+	_ = os.RemoveAll(dir)
+	// Best-effort: prune empty parent user dir.
+	_ = os.Remove(filepath.Join(w.cfg.AcoustIDDir, job.UserID))
 }
 
 // visionFrameSamples is how many full-resolution frames are SafeSearch'd
@@ -511,6 +620,7 @@ var sharedRootDirs = map[string]struct{}{
 	"assembled":       {},
 	"hls":             {},
 	"thumbnails":      {},
+	"acoustid":        {},
 	"temp":            {},
 	"temp_processing": {},
 	"upload":          {},
@@ -518,6 +628,9 @@ var sharedRootDirs = map[string]struct{}{
 
 func (w *Worker) failJob(job *queue.Job, reason string, cleanupPaths ...string) {
 	w.log.Errorf("job FAILED job=%s reason=%s", job.ID, reason)
+	// Drop any queued / in-flight AcoustID work for this upload job.
+	w.cancelAcoustID(job.ID)
+	w.cleanupAcoustIDClip(job)
 	for _, p := range cleanupPaths {
 		if p == "" {
 			continue
@@ -1079,11 +1192,13 @@ func (w *Worker) processJob(job *queue.Job) {
 	// the stems beat-score + category heuristic when the sidecar is off or
 	// unreachable; files with no audio are never music.
 	isMusic := false
+	var musicRes *musicdetect.Result
 	if stemsResult != nil && stemsResult.HasAudio {
-		if dm, ratio, ok := w.classifyMusic(job, result.OutputPath); ok {
-			isMusic = dm
-			metadata["musicRatio"] = ratio
-			w.log.Infof("music detector job=%s is_music=%v ratio=%.2f", job.ID, dm, ratio)
+		if res, ok := w.classifyMusic(job, result.OutputPath); ok {
+			musicRes = res
+			isMusic = res.IsMusic
+			metadata["musicRatio"] = res.MusicRatio
+			w.log.Infof("music detector job=%s is_music=%v ratio=%.2f", job.ID, res.IsMusic, res.MusicRatio)
 		} else {
 			isMusic = heuristicIsMusic(stemsResult, categories)
 		}
@@ -1091,6 +1206,9 @@ func (w *Worker) processJob(job *queue.Job) {
 
 	if isMusic {
 		categories = appendCategoryIfMissing(categories, "Music")
+		// Non-blocking: cut a short MP3 from the detected music window and hand
+		// it to the AcoustID sidecar (own Redis queue, concurrency 1).
+		w.enqueueAcoustID(job, result.OutputPath, musicRes, videoDuration, ghPrefix)
 	} else {
 		// Audio fingerprinting (original-sound detection) is music-only, so
 		// non-music files send no prints  keeps the index music-only and cuts

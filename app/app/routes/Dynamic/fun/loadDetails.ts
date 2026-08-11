@@ -32,6 +32,7 @@ export async function loadDynamicPageDetails(
       relatedVideosUserActions: { likedFileIds: [], dislikedFileIds: [] },
       originalSound: null,
       soundRemixes: [],
+      acoustidRecording: null,
     };
   }
 
@@ -146,8 +147,72 @@ export async function loadDynamicPageDetails(
       })().catch(() => [] as DynamicDeferredDetails['soundRemixes'])
     : Promise.resolve([] as DynamicDeferredDetails['soundRemixes']);
 
-  const [interactionsData, ownerChannel, commentsCountResult, originalSound, soundRemixes] =
-    await Promise.all([interactionsP, ownerChannelP, commentsP, originalSoundP, soundRemixesP]);
+  // AcoustID catalog (title / artists / album / hosted cover path).
+  const acoustidRecordingId = (file as { acoustid_recording_id?: string | null })
+    .acoustid_recording_id;
+  const acoustidRecordingP: Promise<DynamicDeferredDetails["acoustidRecording"]> =
+    acoustidRecordingId
+      ? (async () => {
+          const { data: rec } = await db
+            .from("acoustid_recordings")
+            .select(
+              "id, title, artists, album, cover_art_url, musicbrainz_url, duration",
+            )
+            .eq("id", acoustidRecordingId)
+            .maybeSingle();
+          if (!rec) return null;
+          const title = typeof rec.title === "string" ? rec.title.trim() : "";
+          const artists = typeof rec.artists === "string" ? rec.artists.trim() : "";
+          // Fingerprint-only stubs (no real song metadata) — hide completely.
+          if (
+            !title ||
+            !artists ||
+            /^unknown title$/i.test(title) ||
+            /^unknown artist$/i.test(artists) ||
+            /matched,\s*but musicbrainz/i.test(title)
+          ) {
+            return null;
+          }
+          const durationRaw = (rec as { duration?: unknown }).duration;
+          const duration =
+            typeof durationRaw === "number" && Number.isFinite(durationRaw)
+              ? durationRaw
+              : durationRaw != null && Number.isFinite(Number(durationRaw))
+                ? Number(durationRaw)
+                : null;
+          return {
+            id: String(rec.id),
+            title,
+            artists,
+            album: typeof rec.album === "string" && rec.album.trim() ? rec.album : null,
+            cover_art_url:
+              typeof rec.cover_art_url === "string" && rec.cover_art_url.trim()
+                ? rec.cover_art_url.trim()
+                : null,
+            musicbrainz_url:
+              typeof rec.musicbrainz_url === "string" && rec.musicbrainz_url.trim()
+                ? rec.musicbrainz_url.trim()
+                : null,
+            duration,
+          };
+        })().catch(() => null)
+      : Promise.resolve(null);
+
+  const [
+    interactionsData,
+    ownerChannel,
+    commentsCountResult,
+    originalSound,
+    soundRemixes,
+    acoustidRecording,
+  ] = await Promise.all([
+    interactionsP,
+    ownerChannelP,
+    commentsP,
+    originalSoundP,
+    soundRemixesP,
+    acoustidRecordingP,
+  ]);
 
   let userLiked = false;
   let userDisliked = false;
@@ -201,6 +266,7 @@ export async function loadDynamicPageDetails(
     relatedVideosUserActions: { likedFileIds: [], dislikedFileIds: [] },
     originalSound,
     soundRemixes,
+    acoustidRecording,
   };
 }
 

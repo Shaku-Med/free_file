@@ -31,6 +31,7 @@ import { isAuthenticated } from "~/lib/Security/Password";
 import CommentSection from "./components/Comments/CommentSection";
 import { FormattedText } from "~/components/FormattedText";
 import OriginalSoundCard from "./components/OriginalSoundCard";
+import AcoustidRecordingCard from "./components/AcoustidRecordingCard";
 import WatchLink from "~/components/WatchLink";
 import { fileHoverTint } from "~/components/components/hlsplayer/visualizerPalette";
 import OwnerProfile from "~/components/OwnerProfile/OwnerProfile";
@@ -1779,6 +1780,7 @@ const DynamicPage = ({ is_modal }: DynamicPageProps) => {
           {!descriptionExpanded &&
             !description &&
             (tagsList.length > 0 ||
+              !!resolvedPageDetails?.acoustidRecording ||
               !!resolvedPageDetails?.originalSound ||
               (resolvedPageDetails?.soundRemixes?.length ?? 0) > 0) && (
               <button
@@ -1814,6 +1816,7 @@ const DynamicPage = ({ is_modal }: DynamicPageProps) => {
             {!descriptionExpanded &&
               (isOverflowing ||
                 tagsList.length > 0 ||
+                !!resolvedPageDetails?.acoustidRecording ||
                 !!resolvedPageDetails?.originalSound ||
                 (resolvedPageDetails?.soundRemixes?.length ?? 0) > 0) && (
                 <button
@@ -1845,8 +1848,21 @@ const DynamicPage = ({ is_modal }: DynamicPageProps) => {
           </div>
         )}
 
+        {/* AcoustID match + cover — always visible (not buried under ...more). */}
+        {resolvedPageDetails?.acoustidRecording && (
+          <AcoustidRecordingCard
+            recording={resolvedPageDetails.acoustidRecording}
+            host={{
+              unique_id: String(file_data.unique_id),
+              created_at: file_data.created_at ?? null,
+            }}
+          />
+        )}
+
         {/* Audio matched an existing upload  YouTube-style "Music" attribution. */}
-        {descriptionExpanded && resolvedPageDetails?.originalSound && (
+        {descriptionExpanded &&
+          !resolvedPageDetails?.acoustidRecording &&
+          resolvedPageDetails?.originalSound && (
           <OriginalSoundCard originalSound={resolvedPageDetails.originalSound} />
         )}
 
