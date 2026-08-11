@@ -1,5 +1,5 @@
 import { motion } from 'framer-motion';
-import { RotateCcw, RotateCw } from 'lucide-react';
+import { ChevronLeft, ChevronRight } from 'lucide-react';
 
 interface SeekFeedbackProps {
   direction: 'back' | 'forward';
@@ -9,6 +9,7 @@ interface SeekFeedbackProps {
 
 export default function SeekFeedback({ direction, seconds, fading }: SeekFeedbackProps) {
   const isBack = direction === 'back';
+  const Chevron = isBack ? ChevronLeft : ChevronRight;
 
   return (
     <div
@@ -18,25 +19,19 @@ export default function SeekFeedback({ direction, seconds, fading }: SeekFeedbac
       aria-hidden
     >
       <motion.div
-        className={`flex items-center gap-2 rounded-full bg-black/60 backdrop-blur-md px-4 py-3 shadow-lg ${
+        // No backing pill: the glyphs carry their own shadow so they stay
+        // readable on bright frames without dimming the video behind them.
+        className={`flex items-center gap-1.5 drop-shadow-[0_2px_6px_rgba(0,0,0,0.75)] ${
           isBack ? 'flex-row' : 'flex-row-reverse'
         }`}
-        initial={{ scale: 0.4, opacity: 0 }}
-        animate={{
-          scale: fading ? 0.9 : 1,
-          opacity: fading ? 0 : 1,
-        }}
-        transition={{
-          scale: { duration: fading ? 0.25 : 0.2, ease: fading ? 'easeIn' : [0.34, 1.56, 0.64, 1] },
-          opacity: { duration: fading ? 0.25 : 0.15 },
-        }}
+        initial={{ opacity: 0, x: isBack ? 10 : -10 }}
+        animate={{ opacity: fading ? 0 : 1, x: 0 }}
+        transition={{ duration: fading ? 0.25 : 0.15, ease: 'easeOut' }}
       >
-        {isBack ? (
-          <RotateCcw className="w-9 h-9 text-white shrink-0" strokeWidth={2.5} />
-        ) : (
-          <RotateCw className="w-9 h-9 text-white shrink-0" strokeWidth={2.5} />
-        )}
-        <span className="text-white text-lg font-semibold tabular-nums">{seconds}</span>
+        <Chevron className="h-9 w-9 shrink-0 text-white" strokeWidth={2.5} />
+        <span className="text-2xl font-semibold tabular-nums text-white">
+          {isBack ? '−' : '+'} {seconds}
+        </span>
       </motion.div>
     </div>
   );

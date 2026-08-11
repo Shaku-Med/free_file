@@ -1,4 +1,11 @@
-import { useRef, useState, useEffect, useLayoutEffect, type ReactElement } from 'react';
+import {
+  useRef,
+  useState,
+  useEffect,
+  useLayoutEffect,
+  type ReactElement,
+  type MouseEvent as ReactMouseEvent,
+} from 'react';
 import { createPortal } from 'react-dom';
 import { Play, Pause, SkipForward, MoreVertical, SkipBack, ChevronLeft, LoaderCircle, X } from 'lucide-react';
 import { usePlayerContext } from '../PlayerContext';
@@ -247,6 +254,17 @@ export default function ControlBar({
   const { showTime, showRightInline, showVolumeSlider, mobileMetrics } = useControlBarWidth(containerRef);
   const mobileVars = mobileControlStyleVars(mobileMetrics);
   const [overflowOpen, setOverflowOpen] = useState(false);
+  // Clicking the time swaps elapsed for time remaining, same as YouTube.
+  const [showRemaining, setShowRemaining] = useState(false);
+  const canCountDown = Number.isFinite(state.duration) && state.duration > 0;
+  const elapsedLabel =
+    showRemaining && canCountDown
+      ? `-${formatTime(Math.max(0, state.duration - state.currentTime))}`
+      : formatTime(state.currentTime);
+  const toggleRemaining = (e: ReactMouseEvent) => {
+    e.stopPropagation();
+    if (canCountDown) setShowRemaining(v => !v);
+  };
   const overflowRef = useRef<HTMLDivElement>(null);
   const moreButtonRef = useRef<HTMLButtonElement>(null);
   const [dropdownStyle, setDropdownStyle] = useState<{
@@ -740,12 +758,21 @@ export default function ControlBar({
                 </div>
               )}
               {!isHidden(hideControls, 'time') && (
-                <PlayerControlTooltip label="Current time and total length" side="top">
-                  <div className={mobileTimePill} style={mobileTimePillStyle()}>
-                    {formatTime(state.currentTime)}
+                <PlayerControlTooltip
+                  label={showRemaining ? 'Time remaining and total length' : 'Current time and total length'}
+                  side="top"
+                >
+                  <button
+                    type="button"
+                    onClick={toggleRemaining}
+                    aria-label={showRemaining ? 'Show elapsed time' : 'Show time remaining'}
+                    className={mobileTimePill}
+                    style={mobileTimePillStyle()}
+                  >
+                    {elapsedLabel}
                     <span className="text-white/50" style={mobileTimeSeparatorStyle()}>/</span>
                     {formatTime(state.duration)}
-                  </div>
+                  </button>
                 </PlayerControlTooltip>
               )}
             </div>
@@ -872,12 +899,19 @@ export default function ControlBar({
           )}
 
           {!isHidden(hideControls, 'time') && showTime && (
-            <PlayerControlTooltip label="Current time and total length">
-              <div className="flex h-10 min-h-10 min-w-0 shrink cursor-default items-center justify-center rounded-full bg-black/40 px-2.5 text-[11px] font-medium tabular-nums leading-none text-white shadow-sm sm:px-3 sm:text-xs">
-                {formatTime(state.currentTime)}
+            <PlayerControlTooltip
+              label={showRemaining ? 'Time remaining and total length' : 'Current time and total length'}
+            >
+              <button
+                type="button"
+                onClick={toggleRemaining}
+                aria-label={showRemaining ? 'Show elapsed time' : 'Show time remaining'}
+                className="flex h-10 min-h-10 min-w-0 shrink items-center justify-center rounded-full bg-black/40 px-2.5 text-[11px] font-medium tabular-nums leading-none text-white shadow-sm transition hover:bg-black/55 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:px-3 sm:text-xs"
+              >
+                {elapsedLabel}
                 <span className="mx-0.5 text-white/45 sm:mx-1">/</span>
                 {formatTime(state.duration)}
-              </div>
+              </button>
             </PlayerControlTooltip>
           )}
         </div>

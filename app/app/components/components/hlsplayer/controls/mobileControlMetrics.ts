@@ -107,7 +107,7 @@ export const mobileVolumePillShell =
   'flex shrink-0 items-center justify-center rounded-full bg-black/40 shadow-sm';
 
 export const mobileTimePill =
-  'flex min-w-0 max-w-full shrink cursor-default items-center justify-center rounded-full bg-black/40 font-medium tabular-nums leading-none text-white shadow-sm';
+  'flex min-w-0 max-w-full shrink cursor-pointer items-center justify-center rounded-full bg-black/40 font-medium tabular-nums leading-none text-white shadow-sm transition hover:bg-black/55';
 
 export const mobileAutoplayToggleTrack =
   'relative inline-flex shrink-0 rounded-full transition-colors duration-200 h-[var(--hls-ctrl-toggle-h,1.5rem)] w-[var(--hls-ctrl-toggle-w,2.75rem)]';
