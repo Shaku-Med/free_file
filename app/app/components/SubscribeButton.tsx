@@ -130,7 +130,7 @@ export default function SubscribeButton({
         disabled={busy}
         onClick={handleToggle}
         className={cn(
-          "inline-flex items-center gap-1.5 rounded-full font-medium bg-foreground text-background hover:bg-foreground/80 transition-colors disabled:opacity-60",
+          "inline-flex shrink-0 items-center gap-1.5 rounded-full font-medium bg-foreground text-background hover:bg-foreground/80 transition-colors disabled:opacity-60",
           compact ? "px-3 py-1 text-xs" : "px-4 py-2 text-sm"
         )}
       >
@@ -143,7 +143,7 @@ export default function SubscribeButton({
   return (
     <div
       className={cn(
-        "inline-flex items-stretch overflow-hidden rounded-full bg-muted",
+        "inline-flex shrink-0 items-stretch overflow-hidden rounded-full bg-muted",
         compact ? "text-xs" : "text-sm"
       )}
       role="group"

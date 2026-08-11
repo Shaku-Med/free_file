@@ -1683,9 +1683,12 @@ const DynamicPage = ({ is_modal }: DynamicPageProps) => {
         <ParseFilenameInsert filename={ParseFilename(file_data.file_title || file_data.filename || "")}/>
       </h1>
 
-      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between lg:gap-4">
+      {/* Wraps rather than squeezing: when the actions no longer fit beside the
+          channel, they drop to their own full-width line instead of truncating
+          the channel name to make room. */}
+      <div className="flex flex-col gap-3 lg:flex-row lg:flex-wrap lg:items-center lg:justify-between lg:gap-x-4 lg:gap-y-3">
         {data.owner && (
-          <div className="flex items-center justify-between gap-3 lg:flex-1 lg:min-w-0">
+          <div className="flex items-center justify-between gap-3 lg:min-w-0 lg:flex-1 lg:basis-80">
             <div className="flex items-center gap-3 min-w-0">
               <OwnerProfile owner={data.owner} size="md" showUsername={false} />
               <div className="min-w-0">
@@ -1713,6 +1716,7 @@ const DynamicPage = ({ is_modal }: DynamicPageProps) => {
           </div>
         )}
 
+        <div className="min-w-0 max-lg:w-full lg:max-w-full lg:shrink-0">
         <Actions
         key={`actions-${file_data.id}-${currentId}`}
         fileId={String(file_data.id)}
@@ -1741,6 +1745,7 @@ const DynamicPage = ({ is_modal }: DynamicPageProps) => {
         onCommentsOpenChange={isMobileDevice ? setMobileCommentsOpen : undefined}
         onCommentCountDelta={handleCommentCountDelta}
       />
+        </div>
       </div>
 
       {/* YouTube-style description card. Collapsed: stats + a couple of

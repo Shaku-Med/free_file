@@ -530,7 +530,7 @@ export default function Actions({
   );
 
   const pillOuter =
-    `inline-flex items-center justify-center gap-1.5 rounded-full border border-border px-3 py-2 text-sm font-medium text-foreground shadow-sm transition hover:bg-accent/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:opacity-50 data-[state=open]:bg-accent/70`;
+    `inline-flex shrink-0 items-center justify-center gap-1.5 rounded-full border border-border px-3 py-2 text-sm font-medium text-foreground shadow-sm transition hover:bg-accent/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:opacity-50 data-[state=open]:bg-accent/70`;
 
   const moreTriggerClass =
     `inline-flex size-9 shrink-0 items-center justify-center rounded-full ${howLikesDislikeComments ? `bg-card/80 border border-border ` : `bg-transparent`} text-foreground shadow-sm transition hover:bg-accent/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:opacity-50 data-[state=open]:bg-accent/70`;
@@ -853,7 +853,7 @@ export default function Actions({
   const likeDislikeSegment = (
     <div
       className={cn(
-        "inline-flex items-stretch overflow-hidden rounded-full border shadow-sm",
+        "inline-flex shrink-0 items-stretch overflow-hidden rounded-full border shadow-sm",
         isReel
           ? "flex-col divide-y divide-white/15 border-white/18 bg-black/45 backdrop-blur-md shadow-none"
           : "flex-row divide-x divide-border border-border bg-card/80",
