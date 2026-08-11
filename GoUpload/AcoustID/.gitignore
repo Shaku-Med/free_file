@@ -1,0 +1,11 @@
+# Real secrets never land in the repo. acoustid.env is the name the deploy
+# writes on the server, so cover it here too in case a copy shows up locally.
+.env
+.env.*
+*.env
+!.env.example
+
+__pycache__/
+*.pyc
+.pytest_cache/
+clips/

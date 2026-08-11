@@ -40,6 +40,7 @@ jobs:
       goupload: ${{ steps.flags.outputs.goupload }}
       embedapi: ${{ steps.flags.outputs.embedapi }}
       musicdetector: ${{ steps.flags.outputs.musicdetector }}
+      acoustid: ${{ steps.flags.outputs.acoustid }}
       nsfwapi: ${{ steps.flags.outputs.nsfwapi }}
       loadplay: ${{ steps.flags.outputs.loadplay }}
       compose: ${{ steps.flags.outputs.compose }}
@@ -60,6 +61,7 @@ jobs:
               - '!GoUpload/NSFWAPI/**'
               - '!GoUpload/EmbedAPI/**'
               - '!GoUpload/MusicDetector/**'
+              - '!GoUpload/AcoustID/**'
             loadplay:
               - 'GoUpload/loadplay/**'
               - 'GoUpload/LoadPlay/**'
@@ -74,6 +76,8 @@ jobs:
               - 'GoUpload/EmbedAPI/**'
             musicdetector:
               - 'GoUpload/MusicDetector/**'
+            acoustid:
+              - 'GoUpload/AcoustID/**'
             compose:
               - 'GoUpload/docker-compose.yml'
               - 'GoUpload/scripts/**'
@@ -87,6 +91,7 @@ jobs:
             echo "goupload=true" >> "$GITHUB_OUTPUT"
             echo "embedapi=true" >> "$GITHUB_OUTPUT"
             echo "musicdetector=true" >> "$GITHUB_OUTPUT"
+            echo "acoustid=true" >> "$GITHUB_OUTPUT"
             echo "nsfwapi=true" >> "$GITHUB_OUTPUT"
             echo "loadplay=true" >> "$GITHUB_OUTPUT"
             echo "compose=true" >> "$GITHUB_OUTPUT"
@@ -101,6 +106,7 @@ jobs:
           nsfwapi="${{ steps.filter.outputs.nsfwapi }}"
           embedapi="${{ steps.filter.outputs.embedapi }}"
           musicdetector="${{ steps.filter.outputs.musicdetector }}"
+          acoustid="${{ steps.filter.outputs.acoustid }}"
           compose="${{ steps.filter.outputs.compose }}"
 
           if [ "$shared" = "true" ]; then
@@ -111,6 +117,7 @@ jobs:
             goupload=true
             embedapi=true
             musicdetector=true
+            acoustid=true
             nsfwapi=true
             loadplay=true
             compose=true
@@ -119,6 +126,7 @@ jobs:
           deploy_goupload=false
           deploy_embedapi=false
           deploy_musicdetector=false
+          deploy_acoustid=false
           deploy_nsfwapi=false
           deploy_loadplay=false
           deploy_compose=false
@@ -127,6 +135,7 @@ jobs:
           [ "$goupload" = "true" ] && deploy_goupload=true && any=true
           [ "$embedapi" = "true" ] && deploy_embedapi=true && any=true
           [ "$musicdetector" = "true" ] && deploy_musicdetector=true && any=true
+          [ "$acoustid" = "true" ] && deploy_acoustid=true && any=true
           [ "$loadplay" = "true" ] && deploy_loadplay=true && any=true
           [ "$nsfwapi" = "true" ] && deploy_nsfwapi=true && any=true
           [ "$compose" = "true" ] && deploy_compose=true && any=true
@@ -134,6 +143,7 @@ jobs:
           echo "goupload=$deploy_goupload" >> "$GITHUB_OUTPUT"
           echo "embedapi=$deploy_embedapi" >> "$GITHUB_OUTPUT"
           echo "musicdetector=$deploy_musicdetector" >> "$GITHUB_OUTPUT"
+          echo "acoustid=$deploy_acoustid" >> "$GITHUB_OUTPUT"
           echo "nsfwapi=$deploy_nsfwapi" >> "$GITHUB_OUTPUT"
           echo "loadplay=$deploy_loadplay" >> "$GITHUB_OUTPUT"
           echo "compose=$deploy_compose" >> "$GITHUB_OUTPUT"
@@ -211,16 +221,19 @@ jobs:
           BASE_NSFW="${REGISTRY}/${OWNER_LC}/${REPO_LC}/nsfwapi"
           BASE_EMBED="${REGISTRY}/${OWNER_LC}/${REPO_LC}/embedapi"
           BASE_MUSIC="${REGISTRY}/${OWNER_LC}/${REPO_LC}/musicdetector"
+          BASE_ACOUSTID="${REGISTRY}/${OWNER_LC}/${REPO_LC}/acoustid"
           BASE_LP="${REGISTRY}/${OWNER_LC}/${REPO_LC}/loadplay"
           echo "goupload=${BASE_GO}:${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
           echo "nsfwapi=${BASE_NSFW}:${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
           echo "embedapi=${BASE_EMBED}:${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
           echo "musicdetector=${BASE_MUSIC}:${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+          echo "acoustid=${BASE_ACOUSTID}:${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
           echo "loadplay=${BASE_LP}:${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
           echo "goupload_latest=${BASE_GO}:latest" >> "$GITHUB_OUTPUT"
           echo "nsfwapi_latest=${BASE_NSFW}:latest" >> "$GITHUB_OUTPUT"
           echo "embedapi_latest=${BASE_EMBED}:latest" >> "$GITHUB_OUTPUT"
           echo "musicdetector_latest=${BASE_MUSIC}:latest" >> "$GITHUB_OUTPUT"
+          echo "acoustid_latest=${BASE_ACOUSTID}:latest" >> "$GITHUB_OUTPUT"
           echo "loadplay_latest=${BASE_LP}:latest" >> "$GITHUB_OUTPUT"
 
       - name: Build & push GoUpload
@@ -275,6 +288,19 @@ jobs:
           cache-from: type=gha,scope=musicdetector
           cache-to: type=gha,scope=musicdetector,mode=max
 
+      - name: Build & push AcoustID
+        if: needs.changes.outputs.acoustid == 'true'
+        uses: docker/build-push-action@v6
+        with:
+          context: ./GoUpload/AcoustID
+          file: ./GoUpload/AcoustID/Dockerfile
+          push: true
+          tags: |
+            ${{ steps.tags.outputs.acoustid }}
+            ${{ steps.tags.outputs.acoustid_latest }}
+          cache-from: type=gha,scope=acoustid
+          cache-to: type=gha,scope=acoustid,mode=max
+
       - name: Build & push LoadPlay
         if: needs.changes.outputs.loadplay == 'true'
         uses: docker/build-push-action@v6
@@ -312,6 +338,7 @@ jobs:
       DEPLOY_GOUPLOAD: ${{ needs.changes.outputs.goupload }}
       DEPLOY_EMBEDAPI: ${{ needs.changes.outputs.embedapi }}
       DEPLOY_MUSICDETECTOR: ${{ needs.changes.outputs.musicdetector }}
+      DEPLOY_ACOUSTID: ${{ needs.changes.outputs.acoustid }}
       DEPLOY_NSFWAPI: ${{ needs.changes.outputs.nsfwapi }}
       DEPLOY_LOADPLAY: ${{ needs.changes.outputs.loadplay }}
       DEPLOY_COMPOSE: ${{ needs.changes.outputs.compose }}
@@ -326,6 +353,7 @@ jobs:
           LOADPLAY_ENV: ${{ secrets.LOADPLAY_ENV }}
           EMBED_API_SECRET: ${{ secrets.EMBED_API_SECRET }}
           MUSICDETECTOR_ENV: ${{ secrets.MUSICDETECTOR_ENV }}
+          ACOUSTID_ENV: ${{ secrets.ACOUSTID_ENV }}
           MUSIC_API_SECRET: ${{ secrets.MUSIC_API_SECRET }}
         run: |
           set -euo pipefail
@@ -345,7 +373,24 @@ jobs:
           if [ -z "${MUSIC_API_SECRET:-}" ]; then
             MUSIC_API_SECRET="$(printf '%s\n' "$GOUPLOAD_ENV" | sed -n 's/^MUSIC_API_SECRET=//p' | head -n1 | tr -d '\r')"
           fi
-          if { [ -z "${EMBED_API_SECRET:-}" ] || [ -z "${MUSIC_API_SECRET:-}" ]; } && [ -f /opt/goupload/.env ]; then
+          # ACOUSTID_API_SECRET is shared: the sidecar checks it and goupload
+          # sends it. Both compose services declare it with :? so a missing value
+          # aborts the WHOLE stack, not just acoustid. Same for APP_BASE_URL and
+          # UPLOAD_WEBHOOK_SECRET, which acoustid needs to reach the app webhook.
+          if [ -z "${ACOUSTID_API_SECRET:-}" ]; then
+            ACOUSTID_API_SECRET="$(printf '%s\n' "$ACOUSTID_ENV" | sed -n 's/^ACOUSTID_API_SECRET=//p' | head -n1 | tr -d '\r')"
+          fi
+          if [ -z "${ACOUSTID_API_SECRET:-}" ]; then
+            ACOUSTID_API_SECRET="$(printf '%s\n' "$GOUPLOAD_ENV" | sed -n 's/^ACOUSTID_API_SECRET=//p' | head -n1 | tr -d '\r')"
+          fi
+          if [ -z "${APP_BASE_URL:-}" ]; then
+            APP_BASE_URL="$(printf '%s\n' "$GOUPLOAD_ENV" | sed -n 's/^APP_BASE_URL=//p' | head -n1 | tr -d '\r')"
+          fi
+          if [ -z "${UPLOAD_WEBHOOK_SECRET:-}" ]; then
+            UPLOAD_WEBHOOK_SECRET="$(printf '%s\n' "$GOUPLOAD_ENV" | sed -n 's/^UPLOAD_WEBHOOK_SECRET=//p' | head -n1 | tr -d '\r')"
+          fi
+
+          if { [ -z "${EMBED_API_SECRET:-}" ] || [ -z "${MUSIC_API_SECRET:-}" ] || [ -z "${ACOUSTID_API_SECRET:-}" ] || [ -z "${APP_BASE_URL:-}" ] || [ -z "${UPLOAD_WEBHOOK_SECRET:-}" ]; } && [ -f /opt/goupload/.env ]; then
             # shellcheck disable=SC1091
             set -a
             source /opt/goupload/.env
@@ -361,6 +406,18 @@ jobs:
             echo "  Add MUSIC_API_SECRET=... to the MUSICDETECTOR_ENV secret (or a standalone MUSIC_API_SECRET secret / VPS_ENV)." >&2
             exit 1
           fi
+          if [ -z "${ACOUSTID_API_SECRET:-}" ]; then
+            echo "ERROR: ACOUSTID_API_SECRET is missing." >&2
+            echo "  Add ACOUSTID_API_SECRET=... to the ACOUSTID_ENV secret (or VPS_ENV / a standalone secret)." >&2
+            echo "  Without it compose refuses to start the whole stack, which is deliberate:" >&2
+            echo "  an empty secret would leave the sidecar's identify endpoint unauthenticated." >&2
+            exit 1
+          fi
+          if [ -z "${APP_BASE_URL:-}" ] || [ -z "${UPLOAD_WEBHOOK_SECRET:-}" ]; then
+            echo "ERROR: APP_BASE_URL / UPLOAD_WEBHOOK_SECRET missing; acoustid cannot reach the app webhook." >&2
+            echo "  Add them to VPS_ENV (goupload.env) or as standalone secrets." >&2
+            exit 1
+          fi
 
           rm -rf "$STAGING"
           mkdir -p "$STAGING"
@@ -370,6 +427,7 @@ jobs:
           printf '%s' "$NSFWAPI_ENV"       > "$STAGING/nsfwapi.env"
           printf '%s' "$LOADPLAY_ENV"      > "$STAGING/loadplay.env"
           printf '%s' "$MUSICDETECTOR_ENV" > "$STAGING/musicdetector.env"
+          printf '%s' "$ACOUSTID_ENV"      > "$STAGING/acoustid.env"
 
           OWNER_LC=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
           REPO_LC=$(echo  "${{ github.event.repository.name }}" | tr '[:upper:]' '[:lower:]')
@@ -380,6 +438,7 @@ jobs:
           NSFWAPI_TAG="latest"
           EMBEDAPI_TAG="latest"
           MUSICDETECTOR_TAG="latest"
+          ACOUSTID_TAG="latest"
           LOADPLAY_TAG="latest"
           # Read the running tags through the root helper, NOT by sourcing the
           # file directly. /opt/goupload/.env is root-owned 0600 and this step
@@ -394,6 +453,7 @@ jobs:
             [ -n "${NSFWAPI_IMAGE:-}" ]       && NSFWAPI_TAG="${NSFWAPI_IMAGE##*:}"
             [ -n "${EMBEDAPI_IMAGE:-}" ]      && EMBEDAPI_TAG="${EMBEDAPI_IMAGE##*:}"
             [ -n "${MUSICDETECTOR_IMAGE:-}" ] && MUSICDETECTOR_TAG="${MUSICDETECTOR_IMAGE##*:}"
+            [ -n "${ACOUSTID_IMAGE:-}" ]      && ACOUSTID_TAG="${ACOUSTID_IMAGE##*:}"
             [ -n "${LOADPLAY_IMAGE:-}" ]      && LOADPLAY_TAG="${LOADPLAY_IMAGE##*:}"
           else
             echo "::warning::could not read running image tags; unrebuilt services will deploy as :latest"
@@ -402,19 +462,26 @@ jobs:
           if [ "$DEPLOY_NSFWAPI" = "true" ]; then NSFWAPI_TAG="${GITHUB_SHA}"; fi
           if [ "$DEPLOY_EMBEDAPI" = "true" ]; then EMBEDAPI_TAG="${GITHUB_SHA}"; fi
           if [ "$DEPLOY_MUSICDETECTOR" = "true" ]; then MUSICDETECTOR_TAG="${GITHUB_SHA}"; fi
+          if [ "$DEPLOY_ACOUSTID" = "true" ]; then ACOUSTID_TAG="${GITHUB_SHA}"; fi
           if [ "$DEPLOY_LOADPLAY" = "true" ]; then LOADPLAY_TAG="${GITHUB_SHA}"; fi
           # First rollout: the running .env predates musicdetector, so its tag
           # resolves empty. Fall back to latest (the build job just pushed it).
           [ -z "${MUSICDETECTOR_TAG}" ] && MUSICDETECTOR_TAG="latest"
+          # Same first-rollout case: the running .env predates acoustid.
+          [ -z "${ACOUSTID_TAG}" ] && ACOUSTID_TAG="latest"
 
           cat > "$STAGING/.env" <<EOF
           GOUPLOAD_IMAGE=${BASE}/goupload:${GOUPLOAD_TAG}
           NSFWAPI_IMAGE=${BASE}/nsfwapi:${NSFWAPI_TAG}
           EMBEDAPI_IMAGE=${BASE}/embedapi:${EMBEDAPI_TAG}
           MUSICDETECTOR_IMAGE=${BASE}/musicdetector:${MUSICDETECTOR_TAG}
+          ACOUSTID_IMAGE=${BASE}/acoustid:${ACOUSTID_TAG}
           LOADPLAY_IMAGE=${BASE}/loadplay:${LOADPLAY_TAG}
           EMBED_API_SECRET=${EMBED_API_SECRET}
           MUSIC_API_SECRET=${MUSIC_API_SECRET}
+          ACOUSTID_API_SECRET=${ACOUSTID_API_SECRET}
+          APP_BASE_URL=${APP_BASE_URL}
+          UPLOAD_WEBHOOK_SECRET=${UPLOAD_WEBHOOK_SECRET}
           GOUPLOAD_PORT=3003
           LOADPLAY_PORT=3006
           GOUPLOAD_CPUS=1.2
@@ -426,6 +493,8 @@ jobs:
           EMBED_THREADS=1
           MUSICDETECTOR_CPUS=1.0
           MUSICDETECTOR_MEM=1536M
+          ACOUSTID_CPUS=0.5
+          ACOUSTID_MEM=256M
           LOADPLAY_CPUS=0.3
           LOADPLAY_MEM=256M
           WORKER_MIN=1
@@ -436,7 +505,7 @@ jobs:
           cp GoUpload/scripts/goupload-compose.sh "$STAGING/goupload-compose.sh"
           cp GoUpload/scripts/dangerous-guard.sh  "$STAGING/dangerous-guard.sh"
 
-          echo "Deploy targets: goupload=$DEPLOY_GOUPLOAD embedapi=$DEPLOY_EMBEDAPI musicdetector=$DEPLOY_MUSICDETECTOR nsfwapi=$DEPLOY_NSFWAPI loadplay=$DEPLOY_LOADPLAY compose=$DEPLOY_COMPOSE"
+          echo "Deploy targets: goupload=$DEPLOY_GOUPLOAD embedapi=$DEPLOY_EMBEDAPI musicdetector=$DEPLOY_MUSICDETECTOR acoustid=$DEPLOY_ACOUSTID nsfwapi=$DEPLOY_NSFWAPI loadplay=$DEPLOY_LOADPLAY compose=$DEPLOY_COMPOSE"
 
       - name: Promote staged files into /opt/goupload
         run: |
@@ -455,11 +524,12 @@ jobs:
           [ "$DEPLOY_GOUPLOAD" = "true" ] && SERVICES+=(goupload embedapi)
           [ "$DEPLOY_EMBEDAPI" = "true" ] && SERVICES+=(embedapi)
           [ "$DEPLOY_MUSICDETECTOR" = "true" ] && SERVICES+=(musicdetector)
+          [ "$DEPLOY_ACOUSTID" = "true" ] && SERVICES+=(acoustid)
           [ "$DEPLOY_NSFWAPI" = "true" ] && SERVICES+=(nsfwapi)
           [ "$DEPLOY_LOADPLAY" = "true" ] && SERVICES+=(loadplay)
 
           if [ ${#SERVICES[@]} -eq 0 ] && [ "$DEPLOY_COMPOSE" = "true" ]; then
-            SERVICES=(goupload embedapi musicdetector nsfwapi loadplay)
+            SERVICES=(goupload embedapi musicdetector acoustid nsfwapi loadplay)
           fi
 
           # Deduplicate service names (bash 4+).
