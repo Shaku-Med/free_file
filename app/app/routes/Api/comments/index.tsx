@@ -107,9 +107,10 @@ export const loader = async ({ request }: { request: Request }) => {
         ? focusCommentIdRaw
         : null;
 
-    // Guests keep the first page only. Paginated reads need a session.
-    // Checked before the file lookup so offset cannot probe file ids.
-    if (offset > 0 && !currentUserId) {
+    // Guests get the first page of root comments and nothing else: no
+    // pagination, no reply threads. Both are refused before the file lookup so
+    // neither lever can be used to probe file ids.
+    if (!currentUserId && (offset > 0 || parentIdRaw)) {
       return toJson({ error: "sign_in_required" }, 401);
     }
 
@@ -135,9 +136,8 @@ export const loader = async ({ request }: { request: Request }) => {
 
     if (parentIdRaw) {
       if (!isValidFileId(parentIdRaw)) return toJson({ error: "Invalid parentId" }, 400);
-      const replyLimit = currentUserId
-        ? validateInteger(limitParam, 1, 50) || 20
-        : Math.min(validateInteger(limitParam, 1, 20) || 20, 20);
+      // Guests were turned away above, so this branch is always authenticated.
+      const replyLimit = validateInteger(limitParam, 1, 50) || 20;
       const replies = await commentService.getRepliesByCommentId(
         fileId,
         parentIdRaw,

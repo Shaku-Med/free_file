@@ -283,6 +283,12 @@ const CommentItem = ({
   );
 
   const toggleReplies = useCallback(async () => {
+    // Reply threads are signed-in only and the API enforces it, so ask for
+    // sign-in up front rather than firing a request that comes back 401.
+    if (!currentUserId) {
+      setMoreRepliesSignInOpen(true);
+      return;
+    }
     // "Retry" state: the thread is open but empty because the fetch failed —
     // that click should re-fetch, not fold the thread.
     const needsRetry = repliesError && loadedRepliesRef.current === null;
@@ -305,7 +311,7 @@ const CommentItem = ({
       return;
     }
     await loadReplies(0, false);
-  }, [showReplies, repliesError, repliesLoading, loadReplies]);
+  }, [showReplies, repliesError, repliesLoading, loadReplies, currentUserId]);
 
   const handleReply = async (content: string, gif?: CommentGif | null, image?: CommentImage | null) => {
     const created = await onReply(comment.id, content, gif, image);
@@ -911,8 +917,8 @@ const CommentItem = ({
       <CommentSignInDialog
         open={moreRepliesSignInOpen}
         onOpenChange={setMoreRepliesSignInOpen}
-        title="Sign in to see more replies"
-        description="You're viewing the first replies in this thread. Sign in to load the rest."
+        title="Sign in to see replies"
+        description="Replies are visible to signed-in members only. Sign in to open this thread."
       />
     </div>
   );
