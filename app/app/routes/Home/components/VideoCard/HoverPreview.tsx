@@ -25,7 +25,7 @@ export default function HoverPreview({ file }: { file: Partial<FileType> }) {
   const activeRef = useRef(false);
 
   const url = previewUrlFor(file);
-  const sameOrigin = needsAuthenticatedFetch(file);
+  const needsAuth = needsAuthenticatedFetch(file);
 
   const [src, setSrc] = useState<string | null>(() => (url ? cachedPreview(url) ?? null : null));
   const [loading, setLoading] = useState(false);
@@ -52,7 +52,7 @@ export default function HoverPreview({ file }: { file: Partial<FileType> }) {
         return;
       }
       setLoading(true);
-      loadPreview(url, controller.signal, sameOrigin).then((objectUrl) => {
+      loadPreview(url, controller.signal, needsAuth).then((objectUrl) => {
         if (cancelled) return;
         setLoading(false);
         // Pointer may have left while this was in flight.
@@ -118,7 +118,7 @@ export default function HoverPreview({ file }: { file: Partial<FileType> }) {
       parent.removeEventListener("touchend", leave);
       parent.removeEventListener("touchcancel", leave);
     };
-  }, [url, src, sameOrigin]);
+  }, [url, src, needsAuth]);
 
   // A cached blob can already be decodable before React attaches onLoadedData,
   // in which case that event never fires and the video stays invisible.

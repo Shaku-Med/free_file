@@ -1872,7 +1872,16 @@ const VideoCard = ({
             {/* Selected frame thumbnail preview */}
             {selectedThumbPath && !customThumbPreview && (
               <div className="relative inline-flex rounded-lg overflow-hidden border-2 border-primary">
-                <img src={`/api/load/image/${selectedThumbPath}?quality=30`} alt="Selected thumbnail" className="h-16 w-auto object-contain rounded-lg" />
+                <ImageLoad
+                  link={`/api/load/image/${selectedThumbPath}`}
+                  imageID={`${data.unique_id}_selected_thumb`}
+                  index={0}
+                  retry={() => {}}
+                  quality={30}
+                  hasAdultTag={Boolean(data.is_adult)}
+                  className="h-16 w-auto object-contain rounded-lg"
+                  eagerLoad
+                />
                 <button
                   type="button"
                   onClick={() => setSelectedThumbPath(null)}
@@ -1955,7 +1964,6 @@ const VideoCard = ({
                               hasAdultTag={Boolean(data.is_adult)}
                               className="w-full h-full object-contain"
                               eagerLoad
-                              useRelativeApiUrl
                             />
                             {(isSelected || isCurrent) && (
                               <div className="absolute inset-0 flex items-center justify-center bg-black/30">

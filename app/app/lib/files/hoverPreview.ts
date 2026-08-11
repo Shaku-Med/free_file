@@ -1,5 +1,6 @@
 import type { FileType } from '~/lib/types';
 import { IMAGE_BASE_URL } from '~/lib/URLS';
+import { loadAuthHeaders } from '~/lib/loadAuth.client';
 
 // Hover preview source + a process-wide blob cache, so a card that has already
 // been hovered never refetches.
@@ -17,28 +18,30 @@ const inFlight = new Map<string, Promise<string | null>>();
  */
 export function previewPathFor(file: Partial<FileType> | null | undefined): string | null {
   const explicit = (file as { preview_endpoint?: unknown } | null | undefined)?.preview_endpoint;
-  if (typeof explicit !== 'string') return null;
-  const path = explicit.trim();
-  return path ? path : null;
+  if (typeof explicit === 'string') {
+    const path = explicit.trim();
+    return path ? path : null;
+  }
+  return null;
 }
 
 /**
- * Adult goes SAME ORIGIN so the session cookie reaches the app's loader, which
- * is the same rule ImageLoad follows (hasAdultTag forces an authenticated
- * fetch). Everything else goes to LoadNodeServer.
+ * Always LoadNodeServer. Adult/private cannot load standalone there — the
+ * fetch must send `Authorization: Bearer <load token>` (see loadPreview).
  */
 export function previewUrlFor(file: Partial<FileType> | null | undefined): string | null {
   const path = previewPathFor(file);
   if (!path) return null;
-  if (needsAuthenticatedFetch(file)) {
-    const origin = typeof window !== 'undefined' ? window.location.origin : '';
-    return `${origin}/api/load/preview/${path}`;
-  }
   return `${IMAGE_BASE_URL}/api/load/preview/${path}`;
 }
 
 export function needsAuthenticatedFetch(file: Partial<FileType> | null | undefined): boolean {
-  return Boolean(file?.is_adult);
+  if (!file) return false;
+  if (file.is_adult) return true;
+  const v = (file as { visibility?: string | null }).visibility;
+  if (v === 'private') return true;
+  if (v == null && file.is_public === false) return true;
+  return false;
 }
 
 export function cachedPreview(url: string): string | undefined {
@@ -52,7 +55,7 @@ export function cachedPreview(url: string): string | undefined {
 export function loadPreview(
   url: string,
   signal?: AbortSignal,
-  sameOrigin = false,
+  needsAuth = false,
 ): Promise<string | null> {
   const hit = cache.get(url);
   if (hit) return Promise.resolve(hit);
@@ -62,11 +65,16 @@ export function loadPreview(
 
   const p = (async () => {
     try {
+      const headers: Record<string, string> = {};
+      if (needsAuth) {
+        const auth = await loadAuthHeaders();
+        Object.assign(headers, auth);
+      }
       const res = await fetch(url, {
         signal,
-        ...(sameOrigin
-          ? { credentials: 'include' as const }
-          : { mode: 'cors' as const }),
+        mode: 'cors',
+        credentials: 'omit',
+        headers,
       });
       if (!res.ok) return null;
       const blob = await res.blob();

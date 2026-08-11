@@ -1,5 +1,5 @@
 import db from "~/lib/Database/supabase";
-import { canAccessFile } from "~/routes/Api/fun/accessControl";
+import { canAccessMediaLoad } from "~/routes/Api/fun/mediaAccess.server";
 import {
   defaultGithubBranch,
   githubRawFileUrl,
@@ -51,9 +51,9 @@ export const loader = async ({ request }: { request: Request }) => {
     const status = String(file.upload_status ?? "").trim().toLowerCase();
     if (status && status !== "complete" && status !== "completed") return deny();
 
-    // 404 rather than 403 so the endpoint never confirms a file exists to
-    // someone who may not see it.
-    if (!(await canAccessFile(request, file as any))) return deny();
+    // Adult/private need Authorization bearer — cookie alone is denied
+    // (blocks standalone / address-bar opens). 404 so we don't confirm existence.
+    if (!(await canAccessMediaLoad(request, file as any))) return deny();
 
     let upstream: string | null = null;
     if (file.storage_backend === "r2") {

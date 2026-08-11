@@ -102,10 +102,10 @@ router.get('/*', async (req: Request, res: Response) => {
         if (!file) return res.status(404).send(null);
         if (!isServable(file)) return res.status(404).send(null);
 
-        // Same gate as the image loader: adult needs a verified, 18+ session,
-        // private needs ownership. 404 rather than 403 so the endpoint does not
-        // confirm the file exists to someone who may not see it.
+        // Adult/private need Authorization Bearer — standalone / cookie → 404
+        // (same gate as image; 404 so we don't confirm the file exists).
         if (!(await canAccessFile(req, file as any))) {
+            res.set('Cache-Control', 'no-store');
             return res.status(404).send(null);
         }
 

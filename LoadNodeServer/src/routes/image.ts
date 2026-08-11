@@ -674,26 +674,26 @@ router.get('/*', async (req: Request, res: Response) => {
             return res.status(404).send(null);
         }
 
-        // Determine if we should blur the image BEFORE fetching
+        // Access gate BEFORE fetch. Adult/private require Authorization Bearer
+        // (same as app canAccessMediaLoad). Standalone URL / cookie → 403.
+        // Never soft-blur gated content.
         let shouldBlur = false;
         if (file) {
             const hasAccess = await canAccessFile(req, file);
-            if (!hasAccess && file.is_adult) {
-                shouldBlur = true;
-            }
-            // Video-folder comment PNGs: same as comment-images/  still proxy; optional blur from parent is_adult.
-            // Do not 403 private parents (avoids broken <img> for comment attachments).
             const isVideoFolderComment = isVideoFolderCommentAttachmentPath(splitUrl);
-            if (!isVideoFolderComment && !hasAccess && !file.is_public && !file.is_adult) {
-                return res.status(403).json({
-                    error: 'Access denied. You do not have permission to view this file.',
-                });
+            const isPrivate =
+                (typeof file.visibility === 'string' && file.visibility === 'private') ||
+                (file.visibility == null && file.is_public !== true);
+            if (!hasAccess) {
+                // Comment attachments under private non-adult parents may still
+                // proxy. Adult never bypasses.
+                const allowCommentBypass =
+                    isVideoFolderComment && isPrivate && !file.is_adult;
+                if (!allowCommentBypass) {
+                    res.set('Cache-Control', 'no-store');
+                    return res.status(403).send(null);
+                }
             }
-        } else {
-            // SECURITY: If file not found in database, we can't verify access
-            // For security, we should still check if the URL suggests adult content
-            // But to be safe, we'll allow the image to load (it might be a public file)
-            // The main security is handled by the file lookup - if it's in the DB and is_adult, blur is applied
         }
 
         // Only cache responses that don't depend on viewer identity AND

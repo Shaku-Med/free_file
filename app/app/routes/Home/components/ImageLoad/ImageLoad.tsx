@@ -36,30 +36,35 @@ interface ImageLoadProps {
 
 const MAX_FETCH_RECOVERY_ATTEMPTS = 3
 
-/** Adult / media-session loads must fetch (not <img src>) so auth cookies reach /api/load/image. */
+/** Adult / gated loads must fetch (not bare <img src>) so Authorization reaches LoadNode. */
 function buildImageRequestUrl(
     path: string,
     opts: {
-        forceSameOrigin: boolean
         useRelativeApiUrl?: boolean
         secondaryBaseUrl?: string | null
     },
 ): string {
-    const sameOrigin =
-        opts.forceSameOrigin ||
-        opts.useRelativeApiUrl ||
-        path.startsWith('/api/')
-    if (sameOrigin && path.startsWith('/') && typeof window !== 'undefined') {
+    // Dev-only: relative /api for local app proxy when explicitly requested.
+    if (opts.useRelativeApiUrl && path.startsWith('/') && typeof window !== 'undefined') {
         return `${window.location.origin}${path}`
     }
     return `${opts.secondaryBaseUrl || IMAGE_BASE_URL}${path}`
 }
 
-function buildImageFetchInit(forceSameOrigin: boolean): RequestInit {
-    if (forceSameOrigin) {
-        return { method: 'GET', credentials: 'include' }
+async function buildImageFetchInit(needsAuth: boolean): Promise<RequestInit> {
+    // Adult/private: Authorization Bearer from /api/load/auth → LoadNode.
+    // Public: cors to LoadNode, no credentials (standalone CDN).
+    if (needsAuth) {
+        const { loadAuthHeaders } = await import('~/lib/loadAuth.client')
+        const auth = await loadAuthHeaders()
+        return {
+            method: 'GET',
+            mode: 'cors',
+            credentials: 'omit',
+            headers: { ...auth },
+        }
     }
-    return { method: 'GET', mode: 'cors' }
+    return { method: 'GET', mode: 'cors', credentials: 'omit' }
 }
 
 function ImageLoadShimmer({
@@ -178,17 +183,17 @@ const ImageLoad = ({
     const isSearchBot = useMemo(() => isSearchBotUserAgent(user_agent), [user_agent])
 
     /**
-     * Adult content MUST use fetch → blob (never bare <img src>): /api/load/image
-     * applies blur/access from session cookies, which only go with fetch +
-     * credentials on same-origin. Media-session posters use the same path.
+     * Adult content MUST use fetch → blob (never bare <img src>) so we can
+     * attach `Authorization: Bearer <load token>` to LoadNodeServer. Public
+     * thumbs can use a bare <img> to the CDN. Media-session posters use fetch too.
      */
     const needsBlobFetch = useMemo(() => {
         if (isSearchBot) return false
         return hasAdultTag || getMediaSessionURL
     }, [isSearchBot, hasAdultTag, getMediaSessionURL])
 
-    /** Same-origin fetch so HttpOnly session cookies authenticate the image API. */
-    const useAuthenticatedFetch = needsBlobFetch || useRelativeApiUrl || hasAdultTag
+    /** Adult/private → Authorization header on LoadNode (never standalone). */
+    const useAuthenticatedFetch = hasAdultTag
 
     const hasFetchedRef = useRef(false)
 
@@ -267,7 +272,6 @@ const ImageLoad = ({
                 if (!cancelled) setError(false)
                 if (resolvedImageID) {
                     const bgUrl = buildImageRequestUrl(resolvedLink, {
-                        forceSameOrigin: useRelativeApiUrl,
                         useRelativeApiUrl,
                         secondaryBaseUrl,
                     })
@@ -277,7 +281,7 @@ const ImageLoad = ({
                             try {
                                 const resp = await fetch(
                                     bgUrl,
-                                    buildImageFetchInit(useRelativeApiUrl),
+                                    await buildImageFetchInit(false),
                                 )
                                 if (!resp.ok || cancelled) return
                                 const blob = await resp.blob()
@@ -350,11 +354,12 @@ const ImageLoad = ({
 
             try {
                 const fetchUrl = buildImageRequestUrl(resolvedLink, {
-                    forceSameOrigin: useAuthenticatedFetch,
-                    useRelativeApiUrl,
+                    // Adult must hit LoadNode with Authorization — never same-origin
+                    // relative (that path only has the HttpOnly cookie, not our bearer).
+                    useRelativeApiUrl: useRelativeApiUrl && !useAuthenticatedFetch,
                     secondaryBaseUrl,
                 })
-                let response = await fetch(fetchUrl, buildImageFetchInit(useAuthenticatedFetch))
+                let response = await fetch(fetchUrl, await buildImageFetchInit(useAuthenticatedFetch))
                 if (!response.ok) {
                     if (!cancelled) setError(true)
                     return
@@ -478,11 +483,10 @@ const ImageLoad = ({
                     fetchRecoveryRemaining.current -= 1
                     try {
                         const recoveryUrl = buildImageRequestUrl(path, {
-                            forceSameOrigin: ctx.useAuthenticatedFetch,
-                            useRelativeApiUrl: ctx.useRelativeApiUrl,
+                            useRelativeApiUrl: ctx.useRelativeApiUrl && !ctx.useAuthenticatedFetch,
                             secondaryBaseUrl: ctx.secondaryBaseUrl,
                         })
-                        const res = await fetch(recoveryUrl, buildImageFetchInit(ctx.useAuthenticatedFetch))
+                        const res = await fetch(recoveryUrl, await buildImageFetchInit(ctx.useAuthenticatedFetch))
                         if (!res.ok) continue
                         const blob = await res.blob()
                         if (!blob.size) continue

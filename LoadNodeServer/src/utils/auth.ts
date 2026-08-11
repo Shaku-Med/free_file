@@ -1,40 +1,99 @@
 import express from 'express';
 type Request = express.Request;
 import db from './database.js';
-import { getCookie } from './security.js';
 import { getAllKeys } from './tokenKeys.js';
 import { DecryptCombine } from './combined.js';
 
 type ReturnUserSelect = string[] | undefined | null;
 
-export const isAuthenticated = async (request: Request, returnUser_Select?: ReturnUserSelect): Promise<any | boolean | null> => {
+const SESSION_KEY_NAMES = ['token1', 'c_user'] as const;
+const LOAD_KEY_NAMES = ['video_token', 'token1'] as const;
+
+function bearerFromAuthorization(request: Request): string | null {
+    const raw = request.headers['authorization'];
+    if (typeof raw !== 'string') return null;
+    const m = raw.match(/^Bearer\s+(.+)$/i);
+    return m?.[1]?.trim() || null;
+}
+
+async function userFromLoadToken(
+    token: string,
+    returnUser_Select: string[],
+): Promise<any | null> {
+    const keys = await getAllKeys([...LOAD_KEY_NAMES]);
+    if (!keys) return null;
+    const decoded = await DecryptCombine(token, keys);
+    if (!decoded || typeof decoded !== 'object') return null;
+    if (decoded.typ !== 'load') return null;
+    if (typeof decoded.c_usr !== 'string' || !decoded.c_usr) return null;
+
+    const returnUser_Select_String = returnUser_Select.join(',');
+    const { data: user, error } = await db
+        .from('users')
+        .select(returnUser_Select_String)
+        .eq('c_usr', decoded.c_usr)
+        .maybeSingle();
+    if (error || !user) return null;
+    // Optional uid bind — reject if the mint uid doesn't match the row.
+    if (typeof decoded.uid === 'string' && decoded.uid && (user as any).id && decoded.uid !== (user as any).id) {
+        return null;
+    }
+    return user;
+}
+
+async function userFromSessionToken(
+    token: string,
+    returnUser_Select: string[],
+): Promise<any | null> {
+    const keys = await getAllKeys([...SESSION_KEY_NAMES]);
+    if (!keys) return null;
+    const decoded = await DecryptCombine(token, keys);
+    if (!decoded?.c_usr) return null;
+
+    const returnUser_Select_String = returnUser_Select.join(',');
+    const { data: user, error } = await db
+        .from('users')
+        .select(returnUser_Select_String)
+        .eq('c_usr', decoded.c_usr)
+        .maybeSingle();
+    if (error) return null;
+    return user;
+}
+
+/**
+ * Auth for LoadNode media.
+ * Accepts, in order:
+ *   1. Authorization: Bearer <load token>  (minted by /api/load/auth)
+ *   2. c-user header (session JWT) — for clients that can set headers
+ * Cookie alone is intentionally NOT enough for adult/private (see canAccessFile).
+ */
+export const isAuthenticated = async (
+    request: Request,
+    returnUser_Select?: ReturnUserSelect,
+): Promise<any | boolean | null> => {
     try {
         if (!db) return null;
-        // const ck = getCookie('c_user', request.headers);
-        const c_user = request.headers['c-user'] as string | null;
-        if (!c_user) return null;
-        const keys = await getAllKeys(['token1', 'c_user']);
-        if (!keys) return null;
 
-        const decoded = await DecryptCombine(c_user, keys);
-        if (!decoded) return null;
+        let shouldReturnUser = !!(returnUser_Select && returnUser_Select.length > 0);
+        const select = shouldReturnUser
+            ? (returnUser_Select as string[])
+            : ['id'];
 
-        let shouldReturnUser = returnUser_Select && returnUser_Select!.length > 0;
-        if (shouldReturnUser) {
-            returnUser_Select = returnUser_Select as string[];
-        } else {
-            returnUser_Select = ['id'];
+        const bearer = bearerFromAuthorization(request);
+        if (bearer) {
+            let user = await userFromLoadToken(bearer, select);
+            if (!user) user = await userFromSessionToken(bearer, select);
+            if (!user) return null;
+            return shouldReturnUser ? user : true;
         }
-        const returnUser_Select_String = returnUser_Select!.join(',');
-        const { data: user, error } = await db
-            .from('users')
-            .select(returnUser_Select_String)
-            .eq('c_usr', decoded.c_usr).maybeSingle();
-        if (error) return null;
-        
-        // if(!ck){
-        //     response?.setHeader(`c_user`, c_user);
-        // }
+
+        // Header only — do not fall back to cookie here for identity used by
+        // adult/private gates (cookie fallback would re-enable standalone tabs).
+        const c_user = (request.headers['c-user'] as string | null | undefined) || null;
+        if (!c_user) return null;
+
+        const user = await userFromSessionToken(c_user, select);
+        if (!user) return null;
         return shouldReturnUser ? user : true;
     } catch (error) {
         console.error(error);
@@ -47,11 +106,11 @@ export const isUserEighteenPlus = (dob: string): boolean => {
     const today = new Date();
     const age = today.getFullYear() - birthDate.getFullYear();
     const monthDiff = today.getMonth() - birthDate.getMonth();
-    
+
     if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birthDate.getDate())) {
         return age - 1 >= 18;
     }
-    
+
     return age >= 18;
 };
 
@@ -59,17 +118,27 @@ export const isFileOwner = (userId: string, ownerId: string): boolean => {
     return userId === ownerId;
 };
 
+const normalizeBoolean = (value: unknown, fallback = false): boolean => {
+    if (typeof value === 'boolean') return value;
+    if (typeof value === 'number') return value === 1;
+    if (typeof value === 'string') {
+        const normalized = value.trim().toLowerCase();
+        if (['true', 't', '1', 'yes', 'y'].includes(normalized)) return true;
+        if (['false', 'f', '0', 'no', 'n'].includes(normalized)) return false;
+        return fallback;
+    }
+    return fallback;
+};
+
 interface FileData {
     is_adult: boolean;
     is_public: boolean;
     visibility?: string | null;
     owner_id: string;
+    upload_status?: string | null;
     [key: string]: any;
 }
 
-// public and unlisted are both reachable without ownership; only private is not.
-// Reading is_public alone treats unlisted as private. Falls back to the boolean
-// for rows written before the visibility column existed.
 const isOwnerOnly = (file: FileData): boolean => {
     const v = typeof file.visibility === 'string' ? file.visibility : null;
     if (v) return v === 'private';
@@ -80,36 +149,70 @@ interface UserData {
     id: string;
     dob: string;
     verified: boolean;
+    show_nsfw?: boolean | null;
 }
 
+/**
+ * Mirrors the app's `canAccessMediaLoad` gate:
+ * - Public/unlisted non-adult: open (CDN).
+ * - Adult/private: REQUIRE `Authorization: Bearer <load token>` from
+ *   /api/load/auth. Cookie / bare URL / address-bar → denied.
+ */
 export const canAccessFile = async (
     request: Request,
     file: FileData,
 ): Promise<boolean> => {
-    if (!file.is_adult && !isOwnerOnly(file)) {
+    const uploadStatus = typeof file.upload_status === 'string'
+        ? file.upload_status.trim().toLowerCase()
+        : null;
+    const isCompleted = uploadStatus === 'completed' || uploadStatus === 'complete';
+    const adult = normalizeBoolean(file.is_adult);
+    const privateOnly = isOwnerOnly(file);
+
+    // Public/unlisted non-adult: standalone CDN ok (once upload finished).
+    if (!adult && !privateOnly) {
+        if (uploadStatus && !isCompleted) {
+            const bearer = bearerFromAuthorization(request);
+            if (!bearer) return false;
+            const user = await isAuthenticated(request, [
+                'id',
+                'dob',
+                'verified',
+                'show_nsfw',
+            ]) as UserData | null | boolean;
+            const authed = user && typeof user !== 'boolean' ? user : null;
+            return !!authed && isFileOwner(authed.id, file.owner_id);
+        }
         return true;
     }
 
-    const user = await isAuthenticated(request, ['id', 'dob', 'verified']) as UserData | null | boolean;
+    // Adult or private: Bearer only. No cookie, no c-user-only, no standalone.
+    const bearer = bearerFromAuthorization(request);
+    if (!bearer) return false;
 
-    if (!user || typeof user === 'boolean') {
-        return false;
+    const user = await isAuthenticated(request, [
+        'id',
+        'dob',
+        'verified',
+        'show_nsfw',
+    ]) as UserData | null | boolean;
+
+    const authed = user && typeof user !== 'boolean' ? user : null;
+    if (!authed) return false;
+
+    const isOwner = isFileOwner(authed.id, file.owner_id);
+
+    if (uploadStatus && !isCompleted) {
+        return isOwner;
     }
 
-    if (file.is_adult) {
-        if (!user.verified) {
-            return false;
-        }
-        if (!isUserEighteenPlus(user.dob)) {
-            return false;
-        }
+    if (privateOnly) {
+        return isOwner;
     }
 
-    if (isOwnerOnly(file)) {
-        if (!isFileOwner(user.id, file.owner_id)) {
-            return false;
-        }
-    }
-
+    // adult
+    if (!normalizeBoolean(authed.show_nsfw)) return false;
+    if (!authed.verified) return false;
+    if (!isUserEighteenPlus(authed.dob)) return false;
     return true;
 };

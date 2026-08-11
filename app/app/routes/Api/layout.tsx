@@ -35,6 +35,7 @@ function isServerToServerPath(pathname: string): boolean {
 function isSensitiveGet(pathname: string): boolean {
   return (
     pathname === "/api/upload/auth" ||
+    pathname === "/api/load/auth" ||
     pathname === "/api/comments" ||
     pathname === "/api/comment-likes"
   );

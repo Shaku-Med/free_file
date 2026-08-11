@@ -5,7 +5,7 @@ import {
     drawImageLetterboxedInSquare,
     SERVER_METADATA_SQUARE_SIZE,
 } from '~/lib/image/letterboxToSquare';
-import { canAccessFile } from '~/routes/Api/fun/accessControl';
+import { canAccessMediaLoad } from '~/routes/Api/fun/mediaAccess.server';
 import { visibilityOf } from '~/lib/Security/visibility';
 import { applyHeavyBlur } from '~/lib/blur/index';
 import {
@@ -682,23 +682,27 @@ export const loader = async ({ request }: { request: Request }) => {
 
         let shouldBlur = false;
         if (file) {
-            const hasAccess = await canAccessFile(request, file);
-            if (!hasAccess && file.is_adult) {
-                shouldBlur = true;
-            }
+            // Adult/private require Authorization: Bearer from /api/load/auth.
+            // Session cookie alone is denied so address-bar / standalone URLs fail.
+            const hasAccess = await canAccessMediaLoad(request, file);
             const isVideoFolderComment = isVideoFolderCommentAttachmentPath(splitUrl);
-            // Deny on VISIBILITY, blur on NSFW preference. These were tangled
-            // together before: the old condition required `!file.is_adult`, so a
-            // file that was both private AND adult fell through to being served
-            // blurred instead of refused. A harmful moderation flag produces
-            // exactly that combination (forced private, is_adult set by the same
-            // vision pass), so it has to deny here.
-            // Unlisted stays reachable: hasAccess is true for it.
-            if (!isVideoFolderComment && !hasAccess && visibilityOf(file) === 'private') {
-                return new Response(
-                    JSON.stringify({ error: 'Access denied. You do not have permission to view this file.' }),
-                    { status: 403, headers: { 'Content-Type': 'application/json' } }
-                );
+            if (!hasAccess) {
+                const allowCommentBypass =
+                    isVideoFolderComment &&
+                    visibilityOf(file) === 'private' &&
+                    !file.is_adult;
+                if (!allowCommentBypass) {
+                    return new Response(
+                        null,
+                        {
+                            status: 403,
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'Cache-Control': 'no-store',
+                            },
+                        },
+                    );
+                }
             }
         }
 
