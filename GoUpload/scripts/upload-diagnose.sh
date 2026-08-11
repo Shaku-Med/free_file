@@ -41,11 +41,11 @@ log "nsfw / music sidecars (a timeout here fails the whole job today)"
 grab | $FILTER | grep -iE "vision|nsfw|music api|musicdetector" | tail -20
 
 log "sidecar health"
-for svc in nsfwapi musicdetector embedapi; do
+for svc in nsfwapi musicdetector acoustid embedapi; do
   s=$(docker inspect -f '{{.State.Status}} {{if .State.Health}}{{.State.Health.Status}}{{end}}' "goupload-$svc" 2>/dev/null || echo "not found")
   printf '  %-16s %s\n' "$svc" "$s"
 done
 
 log "recent restarts (an OOM kill mid-job looks like a skipped stage)"
 docker inspect -f '{{.Name}} restarts={{.RestartCount}} oomkilled={{.State.OOMKilled}}' \
-  "$C" goupload-nsfwapi goupload-musicdetector 2>/dev/null
+  "$C" goupload-nsfwapi goupload-musicdetector goupload-acoustid 2>/dev/null

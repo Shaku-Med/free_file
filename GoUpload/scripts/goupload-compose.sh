@@ -30,7 +30,7 @@ case "$ACTION" in
   *)
     echo "goupload-compose: unsupported action '${ACTION}'" >&2
     echo "  allowed: pull | up | down | restart | ps | logs | prune | login | logout | images" >&2
-    echo "  optional service list after pull/up: goupload | embedapi | musicdetector | nsfwapi | loadplay | redis" >&2
+    echo "  optional service list after pull/up: goupload | embedapi | musicdetector | acoustid | nsfwapi | loadplay | redis" >&2
     exit 2
     ;;
 esac
