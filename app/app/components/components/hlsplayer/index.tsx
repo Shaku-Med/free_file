@@ -20,7 +20,6 @@ import { usePlaybackPosition } from './hooks/usePlaybackPosition';
 import { useWatchTimeHeartbeat } from './hooks/useWatchTimeHeartbeat';
 import { useAutoplay } from './hooks/useAutoplay';
 import { useControlsVisibility } from './hooks/useControlsVisibility';
-import { enterPlayerFullscreen } from './fullscreenMode';
 import { useFullscreen } from './hooks/useFullscreen';
 import { useWakeLock } from './hooks/useWakeLock';
 import { useSpatialAudio, isSpatialAudioUiSupported } from './hooks/useSpatialAudio';
@@ -227,6 +226,7 @@ function PlayerInner({
     setState,
     togglePlay,
     toggleMute,
+    toggleFullscreen,
     setPlaybackRate,
     setControlsVisible,
     setReelAuxiliaryChromeVisible,
@@ -1007,11 +1007,10 @@ function PlayerInner({
           break;
         case 'f': {
           e.preventDefault();
-          if (document.fullscreenElement) {
-            document.exitFullscreen().catch(() => {});
-          } else {
-            enterPlayerFullscreen(videoRef.current, containerRef.current).catch(() => {});
-          }
+          // Goes through the context toggle, which picks the native OS window
+          // in the desktop app and the HTML5 API in a browser. Testing
+          // document.fullscreenElement here would always miss the desktop case.
+          toggleFullscreen();
           break;
         }
         // 0-9 jump to that tenth of the video, same as YouTube.
@@ -1075,11 +1074,12 @@ function PlayerInner({
             setShowShortcuts(false);
             break;
           }
-          // The browser already does this for native fullscreen, but the
-          // desktop shell does not always, so exit explicitly.
-          if (document.fullscreenElement) {
+          // The browser exits HTML5 fullscreen on its own, but the desktop
+          // app's native window fullscreen leaves document.fullscreenElement
+          // null, so Escape has to act on the player's own state instead.
+          if (state.isFullscreen) {
             e.preventDefault();
-            document.exitFullscreen().catch(() => {});
+            toggleFullscreen();
           }
           break;
       }
@@ -1101,6 +1101,8 @@ function PlayerInner({
     handleTheaterModeChange,
     isMobileView,
     setPlaybackRate,
+    toggleFullscreen,
+    state.isFullscreen,
     showShortcuts,
     file,
     src,
