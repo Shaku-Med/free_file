@@ -5,7 +5,7 @@ import { motion } from "framer-motion";
 import { useFileContext } from "~/lib/Context/Context";
 import { fileAccentColors } from "~/components/components/hlsplayer/visualizerPalette";
 import { Switch } from "~/components/ui/switch";
-import { ListVideo, X, ChevronUp, ChevronDown } from "lucide-react";
+import { ListVideo, X, ChevronUp, ChevronDown, Play, Pause, SkipForward } from "lucide-react";
 import { useMiniPlayerContext, isReelPath } from "~/lib/Context/MiniPlayerContext";
 import { useWatchSurfaceVideoRef } from "~/lib/Context/WatchSurfaceVideoRefContext";
 import { useMainPlayerSlot } from "~/lib/Context/MainPlayerSlotContext";
@@ -379,6 +379,41 @@ function MiniPlayerContent() {
     return () => video.removeEventListener("ended", onEnded);
   }, [miniPlayer, watchVideoRef, sessionKey]);
 
+  /**
+   * Transport state for the mobile bar. The docked <video> stays the source of
+   * truth — mirroring its events keeps the button honest when playback is
+   * changed from anywhere else (autoplay, the OS media keys, the watch page).
+   */
+  const [isPlaying, setIsPlaying] = useState(false);
+
+  useEffect(() => {
+    if (!miniPlayer) return;
+    const video = watchVideoRef.current;
+    if (!video) return;
+    const sync = () => setIsPlaying(!video.paused && !video.ended);
+    sync();
+    for (const evt of ["play", "pause", "ended", "emptied"]) {
+      video.addEventListener(evt, sync);
+    }
+    return () => {
+      for (const evt of ["play", "pause", "ended", "emptied"]) {
+        video.removeEventListener(evt, sync);
+      }
+    };
+  }, [miniPlayer, watchVideoRef, sessionKey]);
+
+  const toggleMiniPlay = useCallback(() => {
+    const video = watchVideoRef.current;
+    if (!video) return;
+    if (video.paused) void video.play().catch(() => {});
+    else video.pause();
+  }, [watchVideoRef]);
+
+  const playNextInMini = useCallback(() => {
+    const next = queueItemsRef.current[0];
+    if (next) void handlePlayInMiniRef.current(next);
+  }, []);
+
   const expandToWatch = useCallback(() => {
     if (!miniPlayer || isExpanding) return;
     const video = watchVideoRef.current;
@@ -472,8 +507,17 @@ function MiniPlayerContent() {
         {/* Content row (below the seek strip). paddingTop reserves the seek hit
             area for the docked player's scrubber. */}
         <div
-          className="relative z-10 flex items-center gap-3 px-3 pointer-events-none"
-          style={{ height: MOBILE_BAR_H, paddingTop: MOBILE_SEEK_HIT_H }}
+          className="relative z-10 flex items-center gap-2 px-2.5 pointer-events-none"
+          // Symmetric padding keeps this centred on 36px, the same axis as the
+          // thumb. Reserving the whole seek HIT band as top padding instead
+          // pushed the row to 50px, which read as the content sinking into the
+          // tab bar. The scrub band stays reachable via the tap catcher below,
+          // which still starts at MOBILE_SEEK_HIT_H.
+          style={{
+            height: MOBILE_BAR_H,
+            paddingTop: MOBILE_SEEK_TRACK_CLEAR,
+            paddingBottom: MOBILE_SEEK_TRACK_CLEAR,
+          }}
         >
           {/* One solid tap catcher over the whole content band → opens the
               video AND blocks taps from leaking through to the feed behind the
@@ -496,11 +540,47 @@ function MiniPlayerContent() {
 
           {/* Title + owner (visual only; the catcher takes the tap). */}
           <div className="pointer-events-none relative z-10 min-w-0 flex-1">
-            <p className="truncate text-sm font-semibold leading-snug text-foreground">{titleStr}</p>
+            <p className="truncate text-[13px] font-semibold leading-tight text-foreground">{titleStr}</p>
             {ownerName ? (
-              <p className="mt-0.5 truncate text-xs text-muted-foreground">{ownerName}</p>
+              <p className="mt-0.5 truncate text-[11px] leading-tight text-muted-foreground">{ownerName}</p>
             ) : null}
           </div>
+
+          {/* Transport. Play is the one solid control so the bar reads as a
+              player at a glance; the rest stay quiet until touched. */}
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              toggleMiniPlay();
+            }}
+            className="pointer-events-auto relative z-20 flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-foreground text-background transition-colors hover:bg-foreground/90 active:bg-foreground/80"
+            aria-label={isPlaying ? "Pause" : "Play"}
+          >
+            {isPlaying ? (
+              <Pause className="h-[18px] w-[18px]" fill="currentColor" />
+            ) : (
+              <Play className="ml-0.5 h-[18px] w-[18px]" fill="currentColor" />
+            )}
+          </button>
+
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              playNextInMini();
+            }}
+            className={cn(
+              // Measured at 375px: four controls leave the title only 79px, which
+              // truncates it to about nine characters. Dropping this one gives it
+              // back 123px, and up-next is still one tap away in the queue sheet.
+              "pointer-events-auto relative z-20 flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:bg-muted/80 max-[420px]:hidden",
+              !hasQueue && "hidden",
+            )}
+            aria-label="Play next"
+          >
+            <SkipForward className="h-[18px] w-[18px]" />
+          </button>
 
           <Popover open={queueOpen} onOpenChange={setQueueOpen}>
             <PopoverTrigger asChild>
@@ -508,13 +588,13 @@ function MiniPlayerContent() {
                 type="button"
                 onClick={(e) => e.stopPropagation()}
                 className={cn(
-                  "pointer-events-auto relative z-20 flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:bg-muted/80",
+                  "pointer-events-auto relative z-20 flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:bg-muted/80",
                   !hasQueue && "hidden",
                 )}
                 aria-label="Up next"
                 aria-expanded={queueOpen}
               >
-                <ListVideo className="h-5 w-5" />
+                <ListVideo className="h-[18px] w-[18px]" />
               </button>
             </PopoverTrigger>
             <PopoverContent
@@ -549,14 +629,14 @@ function MiniPlayerContent() {
 
           <button
             type="button"
-            className="pointer-events-auto relative z-20 flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:bg-muted/80"
+            className="pointer-events-auto relative z-20 flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:bg-muted/80"
             aria-label="Close mini player"
             onClick={(e) => {
               e.stopPropagation();
               handleClose();
             }}
           >
-            <X className="h-5 w-5" />
+            <X className="h-[18px] w-[18px]" />
           </button>
         </div>
       </div>
