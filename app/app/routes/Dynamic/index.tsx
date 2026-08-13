@@ -105,7 +105,15 @@ export const loader = async ({ request, params }: { request: Request, params: { 
       }, { status: 404 });
     }
 
-    const accessControl = await checkFileAccess(request, file);
+    // Independent lookups, so they run together instead of back to back. The
+    // identity call stays isAuthenticated rather than reusing the access
+    // check's cached context: only isAuthenticated enforces the User-Agent
+    // session bind. A denied file just wastes the identity query, which is
+    // fine — the 403 below still returns before `user` is ever read.
+    const [accessControl, user] = await Promise.all([
+      checkFileAccess(request, file),
+      isAuthenticated(request, ['id']),
+    ]);
 
     if (!accessControl.allowed) {
       return data({ 
@@ -127,7 +135,6 @@ export const loader = async ({ request, params }: { request: Request, params: { 
 
     let headers = new Headers();
 
-    const user = await isAuthenticated(request, ['id']);
     const userId = user?.id ?? null;
 
     /** Related videos load client-side via /api/related-videos (smaller HTML, same security). */

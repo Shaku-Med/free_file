@@ -223,7 +223,7 @@ export function AppSidebar() {
                       tooltip={item.title}
                       className={isActive ? "bg-primary/10 text-primary font-medium" : ""}
                     >
-                      <Link to={item.href}>
+                      <Link to={item.href} prefetch="intent">
                         <item.icon className="w-[18px] h-[18px] fill-none stroke-current" />
                         <span>{item.title}</span>
                       </Link>
@@ -256,7 +256,7 @@ export function AppSidebar() {
                           tooltip={item.title}
                           className={`ml-2 ${isActive ? "bg-primary/10 text-primary font-medium" : "text-muted-foreground"}`}
                         >
-                          <Link to={item.href}>
+                          <Link to={item.href} prefetch="intent">
                             <item.icon className="w-4 h-4 fill-none stroke-current" />
                             <span className="text-[13px]">{item.title}</span>
                           </Link>

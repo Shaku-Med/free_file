@@ -80,7 +80,7 @@ const RelatedVideoCard = ({ data, currentUserId, userActions }: RelatedVideoCard
 
   return (
     <div className="block group">
-      <Link to={watchPath}>
+      <Link to={watchPath} prefetch="intent">
         <div className="relative rounded-xl overflow-hidden bg-card aspect-video">
           {data.is_adult && <AdultContentBadge />}
           <ImageLoad
@@ -115,7 +115,7 @@ const RelatedVideoCard = ({ data, currentUserId, userActions }: RelatedVideoCard
           )}
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-1.5">
-              <Link to={watchPath} className="hover:text-primary transition-colors flex-1 min-w-0">
+              <Link to={watchPath} prefetch="intent" className="hover:text-primary transition-colors flex-1 min-w-0">
                 <p className="text-sm font-medium leading-tight line-clamp-2">
                   {displayMediaTitle(data.file_title || data.filename || "")}
                 </p>

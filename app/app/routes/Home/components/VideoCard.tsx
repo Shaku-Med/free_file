@@ -2313,7 +2313,7 @@ const VideoCard = ({
             e.preventDefault();
             void handleWatchNav();
           }}
-          to={watchPath}
+          to={watchPath} prefetch="intent"
           aria-label={`Open ${displayMediaTitle(data.file_title || data.filename || "").slice(0, 80)}`}
           className="relative aspect-video w-full shrink-0 overflow-hidden bg-muted/30 outline-none ring-0 transition-[filter] duration-200 hover:brightness-[1.03] focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-offset-0"
         >
@@ -2328,7 +2328,7 @@ const VideoCard = ({
                   e.preventDefault();
                   void handleWatchNav();
                 }}
-                to={watchPath}
+                to={watchPath} prefetch="intent"
                 className="min-w-0 flex-1 rounded-md hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
               >
                 <h3 className="line-clamp-2 break-all text-[13px] font-semibold leading-snug tracking-tight text-foreground sm:text-sm">
@@ -2435,7 +2435,7 @@ const VideoCard = ({
             e.preventDefault();
             void handleWatchNav();
           }}
-          to={watchPath}
+          to={watchPath} prefetch="intent"
           className={cn(
             // Stay above VideoCardHoverOverlay (z-10 → group-hover:z-100).
             "relative z-[1000000]",
@@ -2453,7 +2453,7 @@ const VideoCard = ({
           <div className="relative z-[1000000] flex min-w-0 flex-1 flex-col justify-center py-0.5">
             <div className="flex items-start justify-between gap-2">
               <Link
-                to={watchPath}
+                to={watchPath} prefetch="intent"
                 onClick={(e) => {
                   e.preventDefault();
                   void handleWatchNav();
@@ -2523,7 +2523,7 @@ const VideoCard = ({
           <div className="relative z-[1000000] flex min-w-0 flex-1 flex-col justify-start gap-1 py-0.5">
             <div className="flex items-start justify-between gap-2">
               <Link
-                to={watchPath}
+                to={watchPath} prefetch="intent"
                 onClick={(e) => {
                   e.preventDefault();
                   void handleWatchNav();
@@ -2586,7 +2586,7 @@ const VideoCard = ({
             e.preventDefault();
             void handleWatchNav();
           }}
-          to={watchPath}
+          to={watchPath} prefetch="intent"
           // Matches the Shorts shelf: portrait, but nowhere near a full 9:16,
           // which at feed column widths produced a card taller than the viewport
           // and pushed everything under it off the fold. Thumbnail is
@@ -2603,7 +2603,7 @@ const VideoCard = ({
                 e.preventDefault();
                 void handleWatchNav();
               }}
-              to={watchPath}
+              to={watchPath} prefetch="intent"
               className="block min-w-0 hover:opacity-90"
             >
               <h3 className="line-clamp-2 break-words text-left text-sm font-semibold leading-snug tracking-tight text-foreground">
@@ -2646,7 +2646,7 @@ const VideoCard = ({
     const durationStr = formatDuration(durationSec);
     return (
       <Link
-        to={watchPath}
+        to={watchPath} prefetch="intent"
         onClick={(e) => {
           e.preventDefault();
           void handleWatchNav();
@@ -2694,7 +2694,7 @@ const VideoCard = ({
     const durationStr = formatDuration(durationSec);
     return (
       <Link
-        to={watchPath}
+        to={watchPath} prefetch="intent"
         onClick={(e) => {
           e.preventDefault();
           void handleWatchNav();
@@ -2736,7 +2736,7 @@ const VideoCard = ({
     const durationStr = formatDuration(durationSec);
     return (
       <Link
-        to={watchPath}
+        to={watchPath} prefetch="intent"
         onClick={(e) => {
           e.preventDefault();
           void handleWatchNav();
@@ -2795,7 +2795,7 @@ const VideoCard = ({
     return (
       <>
         <Link
-          to={watchPath}
+          to={watchPath} prefetch="intent"
           onClick={(e) => {
             e.preventDefault();
             void handleWatchNav();
@@ -2833,7 +2833,7 @@ const VideoCard = ({
     return (
       <>
         <Link
-          to={watchPath}
+          to={watchPath} prefetch="intent"
           onClick={(e) => {
             e.preventDefault();
             void handleWatchNav();
@@ -2896,7 +2896,7 @@ const VideoCard = ({
         )}
       >
         <Link
-          to={watchPath}
+          to={watchPath} prefetch="intent"
           onClick={queueNavClick}
           className="relative aspect-video w-[5.5rem] shrink-0 overflow-hidden rounded-md bg-card ring-1 ring-border/30"
         >
@@ -2910,7 +2910,7 @@ const VideoCard = ({
 
         <div className="flex min-w-0 flex-1 items-center gap-2">
           <div className="min-w-0 flex-1">
-            <Link to={watchPath} onClick={queueNavClick} className="min-w-0 transition-colors hover:text-primary">
+            <Link to={watchPath} prefetch="intent" onClick={queueNavClick} className="min-w-0 transition-colors hover:text-primary">
               <h3 className="truncate text-[13px] font-medium leading-snug text-foreground">
                 <ParseFilenameInsert
                   filename={displayMediaTitle(data.file_title || data.filename || "")}
@@ -2962,7 +2962,7 @@ const VideoCard = ({
             e.preventDefault();
             void handleWatchNav();
           }}
-          to={watchPath}
+          to={watchPath} prefetch="intent"
           className={cn(
             "relative z-[1000000] aspect-video shrink-0 overflow-hidden rounded-md bg-card ring-1 ring-border/20 dark:ring-white/10",
             dense ? "w-[5.25rem]" : "w-[7rem]",
@@ -2979,7 +2979,7 @@ const VideoCard = ({
         <div className="relative z-[1000000] flex min-w-0 flex-1 items-start justify-between gap-1.5">
           <div className="flex min-w-0 flex-1 flex-col gap-0.5">
             <Link
-              to={watchPath}
+              to={watchPath} prefetch="intent"
               onClick={(e) => {
                 e.preventDefault();
                 void handleWatchNav();
@@ -3034,7 +3034,7 @@ const VideoCard = ({
           e.preventDefault();
           void handleWatchNav();
         }}
-        to={watchPath}
+        to={watchPath} prefetch="intent"
         className="relative z-[10] aspect-video w-full overflow-hidden rounded-xl group-hover:z-[1000000]"
       >
         {renderThumbnail("w-full h-full")}
@@ -3057,7 +3057,7 @@ const VideoCard = ({
             <div className="flex min-w-0 flex-1 flex-col justify-center">
               <div className="flex min-w-0 items-start gap-1.5">
                 <Link
-                  to={watchPath}
+                  to={watchPath} prefetch="intent"
                   onClick={(e) => {
                     e.preventDefault();
                     void handleWatchNav();

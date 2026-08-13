@@ -6,8 +6,9 @@ import {
   Scripts,
   useLoaderData,
   type MetaFunction,
+  type ShouldRevalidateFunctionArgs,
 } from "react-router";
-import { lazy, Suspense } from "react";
+import { lazy, Suspense, useEffect } from "react";
 
 import type { Route } from "./+types/root";
 import "./app.css";
@@ -151,25 +152,27 @@ export const loader = async ({request}: {request: Request}) => {
     let requestURL = getRequestURL(request);
     if(!requestURL) return data(`Upstream error: ${request.url}`, { status: 400 });
 
-    let sessionToken = await makeSessionToken(request.headers);
-
-    if (!sessionToken) {
-      // The anonymous file-access token couldn't be minted — e.g. a bare
-      // request with no cookies and no forwarded IP, which is exactly what the
-      // Docker healthcheck (wget --spider from 127.0.0.1) sends. Serve the page
-      // WITHOUT a session token instead of 400ing the whole app: that 400 was
-      // marking the container unhealthy and flooding the logs, and it never made
-      // sense to fail the page just because an anon token wasn't available.
-      sessionToken = null;
-    }
-
     if (!db) return data(null, { status: 500 });
 
+    // All three only read the incoming headers and none feeds another, so they
+    // run together. Serially they were three round trips in front of every
+    // navigation, one of them a DB hit.
     let keys = ['token1', 'token2'];
-    let verified = await VerifyB4Making(request.headers, keys);
+    const [mintedSessionToken, verified, user] = await Promise.all([
+      makeSessionToken(request.headers),
+      VerifyB4Making(request.headers, keys),
+      // id + theme in one round-trip (avoids a second users query).
+      isAuthenticated(request, ['id', 'theme']),
+    ]);
 
-    // id + theme in one round-trip (avoids a second users query).
-    const user = await isAuthenticated(request, ['id', 'theme']);
+    // The anonymous file-access token couldn't be minted — e.g. a bare
+    // request with no cookies and no forwarded IP, which is exactly what the
+    // Docker healthcheck (wget --spider from 127.0.0.1) sends. Serve the page
+    // WITHOUT a session token instead of 400ing the whole app: that 400 was
+    // marking the container unhealthy and flooding the logs, and it never made
+    // sense to fail the page just because an anon token wasn't available.
+    let sessionToken = mintedSessionToken || null;
+
     const userId = user?.id || null;
 
     // Refresh the signed-in user's IP/geo (throttled in the helper so app opens
@@ -237,8 +240,45 @@ export const loader = async ({request}: {request: Request}) => {
 export const meta: MetaFunction<ReturnType<typeof loader>> = ({ data }) =>
   data ? buildDefaultMeta() : buildErrorMeta();
 
+/**
+ * Root re-ran on every navigation, putting its token work in front of each
+ * click. It cannot simply be skipped: the loader mints the anonymous
+ * file-access token, which lives 10 minutes, and it carries `userId`.
+ *
+ * So this skips root only inside a window that is provably safe:
+ *
+ *  - refreshed well before the 10 minute token can lapse,
+ *  - forced on any non-GET, which is what mutations go through,
+ *  - forced around the auth routes. Sign in and account switch already do a
+ *    full `window.location.assign`, so root always re-runs for those; logout
+ *    is a client side `navigate('/logout')`, which is the one path that could
+ *    otherwise leave a signed out user with a stale `userId`. Matching the
+ *    current URL too covers the redirect back out of /logout.
+ */
+const ROOT_MAX_AGE_MS = 5 * 60 * 1000;
+const AUTH_PATHS = /^\/(logout|auth|login|signup|register)(\/|$)/i;
+let lastRootLoadedAt = 0;
+
+export function shouldRevalidate({
+  formMethod,
+  currentUrl,
+  nextUrl,
+}: ShouldRevalidateFunctionArgs) {
+  if (formMethod && formMethod.toUpperCase() !== 'GET') return true;
+  if (AUTH_PATHS.test(currentUrl.pathname) || AUTH_PATHS.test(nextUrl.pathname)) return true;
+  if (Date.now() - lastRootLoadedAt > ROOT_MAX_AGE_MS) return true;
+  // Root's data does not depend on route params, so a plain GET navigation
+  // inside the window has nothing to refresh.
+  return false;
+}
+
 export function Layout({ children }: { children: React.ReactNode }) {
   const data = useLoaderData<typeof loader>();
+  // Stamped whenever fresh root data lands, so the age check above measures
+  // the real token age rather than time since page open.
+  useEffect(() => {
+    lastRootLoadedAt = Date.now();
+  }, [data]);
   if (!data || typeof data === 'string') {
     return (
        <html className="system" lang="en">
