@@ -24,6 +24,25 @@ const PREFETCH_REMAINING = 3;
 const MAX_ITEMS = 120;
 const SLIDE_MS = 320;
 const DRAG_SLOP = 8;
+/**
+ * True when the event came from something rendered in a portal rather than
+ * from a slide.
+ *
+ * The image preview opens in a Radix dialog, which portals its DOM under
+ * <body> — but React still bubbles that dialog's events up through this
+ * component tree, because the preview is a React child of a slide. So swiping
+ * or arrowing inside the open preview also paged the carousel behind it.
+ *
+ * A real slide is always a DOM descendant of the viewport; portal content
+ * never is, and that is what separates the two.
+ */
+function fromPortalledOverlay(e: {
+  currentTarget: Element;
+  target: EventTarget | null;
+}): boolean {
+  return e.target instanceof Node && !e.currentTarget.contains(e.target);
+}
+
 /** How far a drag must go, as a share of the width, before it changes slide. */
 const ADVANCE_RATIO = 0.22;
 /** A quick flick advances even on a short drag (px per ms). */
@@ -230,6 +249,7 @@ export default function ImageWatchCarousel({
   }, []);
 
   const onPointerDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    if (fromPortalledOverlay(e)) return;
     if (e.pointerType === "mouse" && e.button !== 0) return;
     if (itemsRef.current.length <= 1) return;
     const d = drag.current;
@@ -286,6 +306,7 @@ export default function ImageWatchCarousel({
   );
 
   const onClickCapture = useCallback((e: React.MouseEvent) => {
+    if (fromPortalledOverlay(e)) return;
     if (!suppressClick.current) return;
     suppressClick.current = false;
     e.preventDefault();
@@ -294,6 +315,7 @@ export default function ImageWatchCarousel({
 
   const onKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
+      if (fromPortalledOverlay(e)) return;
       if (e.key !== "ArrowRight" && e.key !== "ArrowLeft") return;
       e.preventDefault();
       goTo(activeIdxRef.current + (e.key === "ArrowRight" ? 1 : -1));

@@ -12,6 +12,23 @@ import { ChevronLeft, ChevronRight } from "lucide-react";
 import { cn } from "~/lib/utils";
 
 /**
+ * True when the event came from something rendered in a portal rather than
+ * from a slide.
+ *
+ * Slides here hold VideoCards, whose comments drawer / share sheet / playlist
+ * modal portal their DOM under <body>. React still bubbles those events up
+ * through this component tree, so dragging inside an open sheet would page the
+ * carousel behind it. A real slide is always a DOM descendant of the viewport;
+ * portal content never is.
+ */
+function fromPortalledOverlay(e: {
+  currentTarget: Element;
+  target: EventTarget | null;
+}): boolean {
+  return e.target instanceof Node && !e.currentTarget.contains(e.target);
+}
+
+/**
  * In-house carousel. Transform driven, so there is no native scrollbar and no
  * CSS snap. The track follows the pointer 1:1 (mouse, pen or touch), keeps its
  * velocity on release and glides out with friction. Arrows and arrow keys page
@@ -141,6 +158,7 @@ export function Carousel({
   }, [stopMomentum]);
 
   const onPointerDown = useCallback((e: ReactPointerEvent<HTMLDivElement>) => {
+    if (fromPortalledOverlay(e)) return;
     if (e.pointerType === "mouse" && e.button !== 0) return;
     // Measure first. maxOffset is what bounds the drag, and if it is stale
     // (cards still loading, sidebar just toggled, list just grew) the track can
@@ -222,6 +240,7 @@ export function Carousel({
 
   /** A drag should never turn into a click on whatever card it ended over. */
   const onClickCapture = useCallback((e: React.MouseEvent) => {
+    if (fromPortalledOverlay(e)) return;
     if (!suppressClick.current) return;
     suppressClick.current = false;
     e.preventDefault();
@@ -236,6 +255,7 @@ export function Carousel({
 
   const onKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
+      if (fromPortalledOverlay(e)) return;
       if (e.key !== "ArrowRight" && e.key !== "ArrowLeft") return;
       e.preventDefault();
       page(e.key === "ArrowRight" ? 1 : -1);
