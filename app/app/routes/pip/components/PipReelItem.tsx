@@ -1065,7 +1065,7 @@ function PipReelItemInner({
                     // doesn't block the player's top chrome (CC / settings).
                     "swiper-no-swiping absolute z-20 flex flex-col justify-end lg:hidden pointer-events-none",
                     "right-[max(0.5rem,env(safe-area-inset-right))]",
-                    "top-[calc(var(--app-top-nav-h,3.5rem)+3.25rem)]",
+                    "top-2",
                     "bottom-[calc(5rem+env(safe-area-inset-bottom,0px))]",
                   )}
                 >
@@ -1121,7 +1121,7 @@ function PipReelItemInner({
         <div
           className={cn(
             'swiper-no-swiping absolute right-0 z-20 flex flex-col justify-end pointer-events-none',
-            'top-[calc(var(--app-top-nav-h,3.5rem)+3.25rem)]',
+            'top-2',
             'bottom-[calc(3.75rem+env(safe-area-inset-bottom,0px))]',
             'px-2 pt-2',
           )}

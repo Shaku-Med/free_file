@@ -50,6 +50,7 @@ import GuestPreviewNudge from '~/components/components/hlsplayer/overlays/GuestP
 import { GuestPlaybackSignInDialog } from './controls/GuestPlaybackSignInDialog';
 import { useGuestWatchLimit } from './hooks/useGuestWatchLimit';
 import { usePictureInPictureContext } from '~/lib/Context/PictureInPictureContext';
+import { getPipImplementationForDevice } from '~/lib/pip/pipCapabilities';
 import { useFileContext } from '~/lib/Context/Context';
 import { useGlobalPlayerLayout } from '~/lib/Context/GlobalPlayerLayoutContext';
 import { isPipChromeRoute } from '~/routes/pip/pipEnv';
@@ -426,8 +427,14 @@ function PlayerInner({
     pipContentId,
     notifyBrowserDrivenNativePipEntered,
     notifyBrowserDrivenWebKitPipEntered,
+    toggleDocumentPip,
   } = usePictureInPictureContext();
   const inPipForThisVideo = isPipActive && isContentInPip(imageID);
+
+  /** Open whichever PiP the viewer picked — same path the PiP button uses. */
+  const openPreferredPip = useCallback(() => {
+    void toggleDocumentPip(src, videoRef, imageID, file ?? undefined, loopEnabled);
+  }, [toggleDocumentPip, src, videoRef, imageID, file, loopEnabled]);
   const onPipChrome = isPipChromeRoute(location.pathname);
   /** Native / WebKit PiP uses this `<video>`  must not pause or block `play`. Document PiP uses a separate iframe. */
   const documentPipPausesMain = inPipForThisVideo && activePipKind === 'document';
@@ -616,6 +623,26 @@ function PlayerInner({
     const onEnterNative = () => {
       const v = videoRef.current;
       if (!v) return;
+      // Fallback only. On Chrome the Media Session "enterpictureinpicture"
+      // action already handed us the request before any native window opened,
+      // so this never runs. Engines without that action open their own PiP
+      // first, and swapping it out is visibly janky — but it still beats
+      // ignoring the viewer's choice.
+      if (
+        getPipImplementationForDevice(v) === 'document' &&
+        document.pictureInPictureElement === v
+      ) {
+        void document
+          .exitPictureInPicture()
+          .then(() => openPreferredPip())
+          // Our window was refused (transient activation spent, shell blocked).
+          // Put the native one back rather than leaving the viewer with no PiP
+          // at all after they asked for it.
+          .catch(() => {
+            void v.requestPictureInPicture().catch(() => {});
+          });
+        return;
+      }
       notifyBrowserDrivenNativePipEntered(v, imageID);
     };
 
@@ -662,6 +689,7 @@ function PlayerInner({
     imageID,
     notifyBrowserDrivenNativePipEntered,
     notifyBrowserDrivenWebKitPipEntered,
+    openPreferredPip,
     videoRef,
   ]);
 
@@ -914,6 +942,7 @@ function PlayerInner({
     // Reels: only the active swiper slide owns the lock-screen metadata. The
     // single watch-page player always owns it.
     isReelCtx ? reelSwiperActive : true,
+    openPreferredPip,
   );
 
   const handleTouchEnd = useCallback(

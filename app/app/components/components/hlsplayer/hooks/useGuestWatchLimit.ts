@@ -35,8 +35,18 @@ export function useGuestWatchLimit(
     const lim = limitSeconds;
     const lead = nudgeLeadSeconds(lim);
 
+    /**
+     * Wall-clock seconds left, not content seconds. At 1.5x the cap arrives a
+     * third sooner, and the old maths quoted the content figure — so the number
+     * on screen was simply wrong whenever the viewer changed speed.
+     */
+    const realSecondsLeft = () => {
+      const rate = video.playbackRate > 0 ? video.playbackRate : 1;
+      return (lim - video.currentTime) / rate;
+    };
+
     const onTime = () => {
-      const remaining = lim - video.currentTime;
+      const remaining = realSecondsLeft();
       setSecondsRemaining(remaining);
 
       if (
@@ -67,7 +77,7 @@ export function useGuestWatchLimit(
         video.pause();
         setWallOpen(true);
       }
-      const remaining = lim - video.currentTime;
+      const remaining = realSecondsLeft();
       setSecondsRemaining(remaining);
       if (remaining > lead || remaining <= 0) {
         setNudgeVisible(false);
@@ -79,10 +89,18 @@ export function useGuestWatchLimit(
     video.addEventListener("timeupdate", onTime);
     video.addEventListener("seeking", onSeek);
     video.addEventListener("seeked", onSeek);
+    video.addEventListener("ratechange", onTime);
+    // timeupdate is throttled hard in background tabs while playback carries on,
+    // which left the figure stale and drifting. A ticker keeps it honest.
+    const ticker = window.setInterval(() => {
+      if (!video.paused && !video.ended) onTime();
+    }, 500);
     return () => {
+      window.clearInterval(ticker);
       video.removeEventListener("timeupdate", onTime);
       video.removeEventListener("seeking", onSeek);
       video.removeEventListener("seeked", onSeek);
+      video.removeEventListener("ratechange", onTime);
     };
   }, [videoRef, enabled, limitSeconds]);
 

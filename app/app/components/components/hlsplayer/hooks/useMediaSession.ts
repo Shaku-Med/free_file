@@ -2,6 +2,12 @@ import { useEffect, useRef, useCallback } from 'react';
 import { usePlayerContext } from '../PlayerContext';
 import { ParseFilename } from '~/lib/utils';
 
+/**
+ * Shipped in Chrome 120 but not yet in TypeScript's DOM lib, so the union of
+ * MediaSessionAction doesn't know it. Cast once here rather than at each use.
+ */
+const ENTER_PIP_ACTION = 'enterpictureinpicture' as MediaSessionAction;
+
 export type MediaSessionPlaylistHandlers = {
   canNext: boolean;
   canPrevious: boolean;
@@ -41,6 +47,17 @@ export function useMediaSession(
    * metadata with the wrong video. Always true for the single watch-page player.
    */
   active: boolean = true,
+  /**
+   * Called when the BROWSER asks for Picture-in-Picture — its global media
+   * controls button, or the tab becoming occluded.
+   *
+   * Registering this Media Session action is what makes the swap seamless:
+   * Chrome hands the request to us instead of opening its own PiP window, so
+   * nothing ever flashes on screen. Without it the only option is to let the
+   * native window open and then replace it, which is visibly janky.
+   * Chrome 120+; other engines simply never fire it.
+   */
+  onEnterPictureInPicture: (() => void) | null = null,
 ) {
   const { file, isReel } = usePlayerContext();
   const imageRef = useRef(mediaSessionImage);
@@ -48,6 +65,9 @@ export function useMediaSession(
   const posterHttpRef = useRef(posterHttpUrl);
   posterHttpRef.current = posterHttpUrl;
   const fileRef = useRef(file);
+  // Held in a ref so re-registering the action never depends on callback identity.
+  const onEnterPipRef = useRef(onEnterPictureInPicture);
+  onEnterPipRef.current = onEnterPictureInPicture;
   fileRef.current = file;
   const playlistRef = useRef<MediaSessionPlaylistHandlers | null>(playlist);
   playlistRef.current = playlist;
@@ -144,6 +164,16 @@ export function useMediaSession(
     navigator.mediaSession.setActionHandler('pause', pauseHandler);
     navigator.mediaSession.setActionHandler('stop', stopHandler);
 
+    if (onEnterPipRef.current) {
+      try {
+        navigator.mediaSession.setActionHandler(ENTER_PIP_ACTION, () => {
+          onEnterPipRef.current?.();
+        });
+      } catch {
+        /* action unsupported on this engine — the caller keeps its fallback */
+      }
+    }
+
     if (!isReel) {
       navigator.mediaSession.setActionHandler('seekbackward', (d) => {
         video.currentTime = Math.max(video.currentTime - (d.seekOffset || 10), 0);
@@ -220,6 +250,9 @@ export function useMediaSession(
       try {
         navigator.mediaSession.setActionHandler('nexttrack', null);
         navigator.mediaSession.setActionHandler('previoustrack', null);
+      } catch { /* noop */ }
+      try {
+        navigator.mediaSession.setActionHandler(ENTER_PIP_ACTION, null);
       } catch { /* noop */ }
       void window.memoriesWindapp?.clearMediaState?.();
     };
