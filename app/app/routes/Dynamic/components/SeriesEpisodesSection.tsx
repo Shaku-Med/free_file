@@ -13,7 +13,6 @@ import VideoCard from "~/routes/Home/components/VideoCard";
 import { Button } from "~/components/ui/button";
 import { ChevronRight, Layers, Link2, ListVideo, Play } from "lucide-react";
 import { cn } from "~/lib/utils";
-import { usePlayQueueOptional } from "./PlayQueueContext";
 import {
   flattenSeriesEpisodesInOrder,
   getSeriesUpNextVideos,
@@ -169,8 +168,6 @@ function EpisodeBlock({
   userActions,
   episodeOpen,
   setEpisodeOpen,
-  onAddToPlayQueue,
-  inPlayQueue,
   onRequestAdultReview,
   reviewingFor,
 }: {
@@ -181,8 +178,6 @@ function EpisodeBlock({
   userActions?: { likedFileIds: Set<string>; dislikedFileIds: Set<string> };
   episodeOpen: Record<string, boolean>;
   setEpisodeOpen: Dispatch<SetStateAction<Record<string, boolean>>>;
-  onAddToPlayQueue?: (video: FileType) => void;
-  inPlayQueue: (fileId: string) => boolean;
   onRequestAdultReview?: (fileId: string) => void;
   reviewingFor?: string | null;
 }) {
@@ -264,8 +259,6 @@ function EpisodeBlock({
                       index={index}
                       currentUserId={currentUserId}
                       userActions={userActions}
-                      onAddToPlayQueue={onAddToPlayQueue}
-                      inPlayQueue={inPlayQueue(video.id)}
                     />
                     {/* Owner-only "Adult flagged" badge + review request. Never
                         visible to anyone else because the file is filtered out
@@ -306,8 +299,6 @@ function EpisodeBlock({
                       userActions={userActions}
                       episodeOpen={episodeOpen}
                       setEpisodeOpen={setEpisodeOpen}
-                      onAddToPlayQueue={onAddToPlayQueue}
-                      inPlayQueue={inPlayQueue}
                       onRequestAdultReview={onRequestAdultReview}
                       reviewingFor={reviewingFor}
                     />
@@ -339,11 +330,6 @@ export default function SeriesEpisodesSection({
   currentUserId,
   userActions,
 }: SeriesEpisodesSectionProps) {
-  const playQueue = usePlayQueueOptional();
-  const onAddToPlayQueue = playQueue?.viewerCanCustomizeQueue
-    ? (video: FileType) => playQueue.addToQueue(video)
-    : undefined;
-  const inPlayQueue = (fileId: string) => playQueue?.isInQueue(fileId) ?? false;
 
   // Owner-only toggle: hide my own adult-flagged items (e.g. when
   // screen-sharing). Default = show. Has no effect for non-owners,
@@ -537,7 +523,7 @@ export default function SeriesEpisodesSection({
             </div>
           )}
 
-          {(resumeTarget || (playQueue?.viewerCanCustomizeQueue && seriesNext.length > 0)) && (
+          {resumeTarget && (
             <div className="space-y-2 border-b border-border/50 bg-muted/15 px-2 py-2">
               {resumeTarget ? (
                 <Link
@@ -549,18 +535,6 @@ export default function SeriesEpisodesSection({
                     {resumeTarget.file_title?.trim() || resumeTarget.filename || "Open episode"}
                   </span>
                 </Link>
-              ) : null}
-              {playQueue?.viewerCanCustomizeQueue && seriesNext.length > 0 ? (
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="secondary"
-                  className="h-8 w-full gap-1.5 text-xs"
-                  onClick={() => playQueue.replaceQueueWith(seriesNext)}
-                >
-                  <ListVideo className="h-3.5 w-3.5 shrink-0" />
-                  Queue {seriesNext.length} more in series order
-                </Button>
               ) : null}
             </div>
           )}
@@ -576,8 +550,6 @@ export default function SeriesEpisodesSection({
                   userActions={userActions}
                   episodeOpen={episodeOpen}
                   setEpisodeOpen={setEpisodeOpen}
-                  onAddToPlayQueue={onAddToPlayQueue}
-                  inPlayQueue={inPlayQueue}
                   onRequestAdultReview={requestAdultReview}
                   reviewingFor={reviewingFor}
                 />

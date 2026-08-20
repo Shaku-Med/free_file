@@ -1,29 +1,8 @@
-import { useState, type ComponentProps } from "react"
-import {
-  DndContext,
-  DragOverlay,
-  PointerSensor,
-  KeyboardSensor,
-  useSensor,
-  useSensors,
-  closestCenter,
-  useDraggable,
-  type DragEndEvent,
-  type DragStartEvent,
-} from "@dnd-kit/core"
-import { sortableKeyboardCoordinates } from "@dnd-kit/sortable"
 import { RelatedVideosProvider, useRelatedVideosContext } from "./RelatedVideosContext"
 import VideoCard from "~/routes/Home/components/VideoCard"
 import type { FileType } from "~/lib/types"
 import { SignInToSeeMore } from "~/components/SignInWall"
 import RelatedVideosSkeleton, { RelatedVideosLoadingAnnouncement } from "./RelatedVideosSkeleton"
-import {
-  PLAY_QUEUE_DROP_APPEND,
-  PLAY_QUEUE_DROP_EMPTY,
-  playQueueItemId,
-  relatedVideoDragId,
-  usePlayQueueOptional,
-} from "./PlayQueueContext"
 import { cn, getThumbnailUrl, displayMediaTitle } from "~/lib/utils"
 import { BASE_URL } from "~/lib/URLS"
 import ParseFilenameInsert from "~/lib/utils/ShowFileName"
@@ -40,24 +19,6 @@ interface RelatedVideosProps {
   userActions?: { likedFileIds: Set<string>; dislikedFileIds: Set<string> }
 }
 
-function DraggableQueueVideoCard(props: ComponentProps<typeof VideoCard>) {
-  const { data } = props
-  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
-    id: relatedVideoDragId(data.id),
-    data: { video: data },
-  })
-  return (
-    <div
-      ref={setNodeRef}
-      className={cn("h-full min-w-0 rounded-xl", isDragging && "opacity-50")}
-      {...listeners}
-      {...attributes}
-    >
-      <VideoCard {...props} />
-    </div>
-  )
-}
-
 const RelatedVideosContent = ({ currentUserId }: { currentUserId?: string }) => {
   const {
     displayVideos,
@@ -67,117 +28,23 @@ const RelatedVideosContent = ({ currentUserId }: { currentUserId?: string }) => 
     userActions,
   } = useRelatedVideosContext()
 
-  const playQueue = usePlayQueueOptional()
-  const addToPlayQueue = playQueue?.viewerCanCustomizeQueue
-    ? (video: FileType) => playQueue.addToQueue(video)
-    : undefined
-  const isInPlayQueue = (id: string) => playQueue?.isInQueue(id) ?? false
-
-  const [overlayVideo, setOverlayVideo] = useState<FileType | null>(null)
-
-  const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
-    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
-  )
-
-  const onDragStart = (e: DragStartEvent) => {
-    const id = String(e.active.id)
-    if (id.startsWith("related:")) {
-      const v = e.active.data.current?.video as FileType | undefined
-      setOverlayVideo(v ?? null)
-    }
-  }
-
-  const onDragEnd = (e: DragEndEvent) => {
-    setOverlayVideo(null)
-    const { active, over } = e
-    if (!playQueue) return
-    if (!over) return
-
-    const activeId = String(active.id)
-    const overId = String(over.id)
-
-    if (activeId.startsWith("queue:")) {
-      if (overId === PLAY_QUEUE_DROP_APPEND) {
-        const oldIndex = playQueue.queue.findIndex((v) => playQueueItemId(v.id) === activeId)
-        if (oldIndex >= 0 && oldIndex !== playQueue.queue.length - 1) {
-          playQueue.reorderQueue(oldIndex, playQueue.queue.length - 1)
-        }
-        return
-      }
-      if (overId.startsWith("queue:")) {
-        const oldIndex = playQueue.queue.findIndex((v) => playQueueItemId(v.id) === activeId)
-        const newIndex = playQueue.queue.findIndex((v) => playQueueItemId(v.id) === overId)
-        if (oldIndex >= 0 && newIndex >= 0 && oldIndex !== newIndex) {
-          playQueue.reorderQueue(oldIndex, newIndex)
-        }
-      }
-      return
-    }
-
-    if (!activeId.startsWith("related:")) {
-      return
-    }
-
-    const video = active.data.current?.video as FileType | undefined
-    if (!video || video.unique_id === playQueue.currentUniqueId) return
-
-    if (overId === PLAY_QUEUE_DROP_EMPTY) {
-      playQueue.insertOrMoveAt(video, 0)
-      return
-    }
-    if (overId === PLAY_QUEUE_DROP_APPEND) {
-      playQueue.insertOrMoveAt(video, playQueue.queue.length)
-      return
-    }
-    if (overId.startsWith("queue:")) {
-      const overIndex = playQueue.queue.findIndex((v) => playQueueItemId(v.id) === overId)
-      if (overIndex >= 0) playQueue.insertOrMoveAt(video, overIndex)
-    }
-  }
-
-  const onDragCancel = () => setOverlayVideo(null)
-
-  // Keep the related list DIFFERENT from the play queue (YouTube-style): drop
-  // anything already sitting in the queue so the two sections never show the
-  // same video twice.
-  const queuedIds = new Set((playQueue?.queue ?? []).map((v) => v.id))
-  const relatedToShow = displayVideos.filter((v) => !queuedIds.has(v.id))
+  const relatedToShow = displayVideos
 
   const relatedGridClass =
     "grid min-w-0 grid-cols-1 gap-2 @min-[480px]/related-videos:grid-cols-2 @min-[900px]/related-videos:grid-cols-3"
 
-  // Reels never enter the play queue: no drag handle, no "add to queue".
-  const renderVideoCard = (video: FileType, index: number) => {
-    const queueable = !video.is_reel
-    return queueable && playQueue?.viewerCanCustomizeQueue ? (
-      <DraggableQueueVideoCard
-        related
-        hideActions={{completely: false, halfway: true}}
-        key={video.unique_id}
-        data={video}
-        index={index}
-        currentUserId={currentUserId}
-        userActions={userActions}
-        onAddToPlayQueue={addToPlayQueue}
-        inPlayQueue={isInPlayQueue(video.id)}
-        layout={`horizontal`}
-      />
-    ) : (
-      <VideoCard
-        related
-        hideActions={{completely: false, halfway: true}}
-        key={video.unique_id}
-        data={video}
-        index={index}
-        currentUserId={currentUserId}
-        userActions={userActions}
-        onAddToPlayQueue={queueable ? addToPlayQueue : undefined}
-        inPlayQueue={queueable ? isInPlayQueue(video.id) : false}
-        layout={`horizontal`}
-      />
-    )
-  }
+  const renderVideoCard = (video: FileType, index: number) => (
+    <VideoCard
+      related
+      hideActions={{completely: false, halfway: true}}
+      key={video.unique_id}
+      data={video}
+      index={index}
+      currentUserId={currentUserId}
+      userActions={userActions}
+      layout={`horizontal`}
+    />
+  )
 
   const renderGroupedVideos = (videos: FileType[], keyPrefix: string) => {
     const groups = groupConsecutiveReelClusters(videos)
@@ -283,39 +150,7 @@ const RelatedVideosContent = ({ currentUserId }: { currentUserId?: string }) => 
     </div>
   )
 
-  if (!playQueue?.viewerCanCustomizeQueue) return inner
-
-  return (
-    <DndContext
-      sensors={sensors}
-      collisionDetection={closestCenter}
-      onDragStart={onDragStart}
-      onDragEnd={onDragEnd}
-      onDragCancel={onDragCancel}
-    >
-      {inner}
-      <DragOverlay dropAnimation={null}>
-        {overlayVideo ? (
-          <div className="flex max-w-[min(100%,18rem)] items-center gap-2 rounded-lg border border-border bg-card p-2 shadow-lg">
-            <img
-              src={getThumbnailUrl(overlayVideo, {
-                baseUrl: BASE_URL,
-                queryString: "?quality=60&is_metadata=true",
-              })}
-              alt=""
-              className="h-12 w-20 shrink-0 rounded object-cover"
-            />
-            <span className="line-clamp-2 text-xs font-medium">
-              <ParseFilenameInsert
-                filename={displayMediaTitle(overlayVideo.file_title || overlayVideo.filename || "")}
-                showLimit={42}
-              />
-            </span>
-          </div>
-        ) : null}
-      </DragOverlay>
-    </DndContext>
-  )
+  return inner
 }
 
 const RelatedVideos = ({

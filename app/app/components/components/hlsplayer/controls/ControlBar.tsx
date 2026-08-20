@@ -70,7 +70,6 @@ function PlayerControlTooltip({
   );
 }
 
-const compactViews = new Intl.NumberFormat('en', { notation: 'compact', maximumFractionDigits: 1 });
 
 /**
  * "Up next" hover preview — a compact card, not a full VideoCard: thumbnail
@@ -119,17 +118,22 @@ function NextVideoTooltipButton({
     baseUrl: BASE_URL,
     queryString: '?quality=60&is_metadata=true',
   });
-  const views = nextVideo.views ?? nextVideo.view_count;
-  const creator = nextVideo.owner?.username;
-  const meta = [creator, views != null ? `${compactViews.format(views)} views` : null]
-    .filter(Boolean)
-    .join(' · ');
-
   return (
     <Tooltip delayDuration={220}>
       <TooltipTrigger asChild>{button}</TooltipTrigger>
-      <TooltipContent side="top" sideOffset={10} className="w-60 overflow-hidden rounded-xl p-0">
-        <div className="relative aspect-video w-full overflow-hidden bg-muted">
+      <TooltipContent
+        side="top"
+        sideOffset={10}
+        className="w-64 overflow-hidden rounded-xl border-white/10 bg-black/85 p-0 backdrop-blur-md"
+      >
+        {/* Label + shortcut sit above the frame, same as YouTube's next preview. */}
+        <div className="flex items-center gap-2 px-3 pb-2 pt-2.5">
+          <span className="text-[13px] font-semibold uppercase tracking-wide text-white">Next</span>
+          <span className="rounded border border-white/25 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-white/90">
+            Shift+N
+          </span>
+        </div>
+        <div className="relative aspect-video w-full overflow-hidden bg-white/5">
           {thumb ? (
             <img src={thumb} alt="" loading="lazy" className="h-full w-full object-cover" />
           ) : (
@@ -148,10 +152,11 @@ function NextVideoTooltipButton({
             </span>
           ) : null}
         </div>
-        <div className="space-y-0.5 px-2.5 py-2">
-          <p className="line-clamp-2 text-xs font-semibold leading-snug">{title}</p>
-          {meta ? <p className="truncate text-[11px] text-muted-foreground">{meta}</p> : null}
-        </div>
+        {title ? (
+          <p className="line-clamp-2 px-3 py-2 text-xs font-medium leading-snug text-white/90">
+            {title}
+          </p>
+        ) : null}
       </TooltipContent>
     </Tooltip>
   );

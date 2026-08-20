@@ -690,7 +690,7 @@ export default function Actions({
       <DropdownMenuTrigger asChild>
         <button
           type="button"
-          className={cn(moreTriggerClass, "max-md:hidden")}
+          className={cn(pillOuter, "max-md:hidden")}
           aria-pressed={inLocalList}
           aria-label={inLocalList ? "Saved" : "Save"}
         >
@@ -698,6 +698,7 @@ export default function Actions({
             className={cn("h-[1.125rem] w-[1.125rem] shrink-0", inLocalList && "fill-current")}
             aria-hidden
           />
+          <span>{inLocalList ? "Saved" : "Save"}</span>
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent
@@ -923,7 +924,7 @@ export default function Actions({
         <>
           <button
             type="button"
-            className={cn(moreTriggerClass, "max-md:hidden")}
+            className={cn(pillOuter, "max-md:hidden")}
             onClick={openReelShare}
             disabled={shareBusy}
             aria-label="Share"
@@ -933,6 +934,7 @@ export default function Actions({
             ) : (
               <Share2 className="h-[1.125rem] w-[1.125rem] shrink-0" aria-hidden />
             )}
+            <span>Share</span>
           </button>
           {saveRowDropdown}
         </>

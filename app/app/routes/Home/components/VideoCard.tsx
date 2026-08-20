@@ -2442,7 +2442,7 @@ const VideoCard = ({
             related
               ? isMobile
                 ? "aspect-video w-full shrink-0 overflow-hidden rounded-xl bg-card ring-1 ring-border/30 dark:ring-white/10"
-                : "aspect-video w-[46%] min-w-40 max-w-80 shrink-0 overflow-hidden rounded-lg bg-card ring-1 ring-border/30 dark:ring-white/10"
+                : "aspect-video w-[54%] min-w-44 max-w-96 shrink-0 overflow-hidden rounded-lg bg-card ring-1 ring-border/30 dark:ring-white/10"
               : "aspect-video w-[44%] min-w-[128px] max-w-[520px] shrink-0 overflow-hidden rounded-xl bg-card",
           )}
         >
