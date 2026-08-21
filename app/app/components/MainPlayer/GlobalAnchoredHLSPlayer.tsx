@@ -115,6 +115,37 @@ export function GlobalAnchoredHLSPlayer() {
   // FIRST mount (so the portal renders), then routes subsequent updates
   // through onUpdate which we apply directly to the container's style.
   const containerRef = useRef<HTMLDivElement | null>(null);
+
+  /**
+   * Forward wheel over the video to the page scroller.
+   *
+   * This shell is position:fixed and mounted as a sibling of AppShell, so it is
+   * NOT inside #scroll_container, which is what actually scrolls. The browser
+   * looks for a scrollable ancestor of whatever the wheel landed on, finds none
+   * here, and the page just sits there. That is why scrolling died whenever the
+   * pointer was over the player.
+   */
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const onWheel = (e: WheelEvent) => {
+      // The 3D room is the one place the wheel belongs to the player: it drives
+      // look and zoom in there. Everywhere else, including fullscreen, the
+      // page should still scroll under the pointer.
+      if (el.querySelector("[data-vr-theater]")) return;
+      const target = e.target;
+      // Menus and any scroller of our own handle their own wheel.
+      if (target instanceof Element && target.closest("[data-player-scrolls]")) return;
+      const sc = document.getElementById("scroll_container");
+      if (!sc || sc.scrollHeight <= sc.clientHeight) return;
+      // deltaMode 1 is lines, 2 is pages; normalise both to pixels.
+      const unit = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? sc.clientHeight : 1;
+      sc.scrollTop += e.deltaY * unit;
+    };
+    // Passive: we never preventDefault, we just mirror the delta.
+    el.addEventListener("wheel", onWheel, { passive: true });
+    return () => el.removeEventListener("wheel", onWheel);
+  }, []);
   const onRectUpdate = useCallback((r: { top: number; left: number; width: number; height: number }) => {
     const el = containerRef.current;
     if (!el) return;

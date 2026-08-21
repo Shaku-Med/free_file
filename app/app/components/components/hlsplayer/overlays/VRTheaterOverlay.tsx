@@ -935,6 +935,13 @@ export default function VRTheaterOverlay() {
   // Same screen shell as <video>; listeners live on the container, so the
   // canvas host never eats clicks meant for the video / controls.
   return (
-    <div ref={hostRef} className="pointer-events-none absolute inset-0 z-[2] overflow-hidden" />
+    // Marked so the anchored player knows the 3D room owns the wheel and must
+    // not forward it to the page. This only renders while VR is enabled, so
+    // its presence in the DOM is the signal.
+    <div
+      ref={hostRef}
+      data-vr-theater=""
+      className="pointer-events-none absolute inset-0 z-[2] overflow-hidden"
+    />
   );
 }
