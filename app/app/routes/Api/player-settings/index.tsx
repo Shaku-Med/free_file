@@ -29,6 +29,7 @@ const COOKIE_NAMES = {
   stemConfettiInstruments: 'player-stem-confetti',
   videoBounce: 'player-video-bounce',
   videoBounceIntensity: 'player-video-bounce-intensity',
+  ambientIntensity: 'player-ambient-intensity',
   videoBounceInstruments: 'player-video-bounce-instruments',
   quality: 'hls-quality-preference',
   spatialAudio: 'player-spatial-audio',
@@ -93,6 +94,7 @@ export interface PlayerSettingsDto {
   videoBounce?: boolean;
   /** Bounce strength multiplier (0.25–2). */
   videoBounceIntensity?: number;
+  ambientIntensity?: number;
   /** JSON map of stem type → bounce reacts to it. */
   videoBounceInstruments?: string;
   quality?: string;
@@ -145,6 +147,12 @@ export function getPlayerSettingsFromCookies(cookieHeader: string | null) {
   const videoBounceIntensity = Number.isFinite(bounceIntensityRaw)
     ? Math.max(0.25, Math.min(2, bounceIntensityRaw))
     : 1;
+  const ambientIntensityRaw = parseFloat(get(COOKIE_NAMES.ambientIntensity) ?? '');
+  // 0 = almost no glow, 1 = full spread. 0.4 sits just under the midpoint, which
+  // is the "a bit dim" look we want out of the box.
+  const ambientIntensity = Number.isFinite(ambientIntensityRaw)
+    ? Math.max(0, Math.min(1, ambientIntensityRaw))
+    : 0.4;
   const videoBounceInstruments = get(COOKIE_NAMES.videoBounceInstruments) ?? '';
   const quality = get(COOKIE_NAMES.quality) ?? 'auto';
   const spatialAudio =
@@ -183,6 +191,7 @@ export function getPlayerSettingsFromCookies(cookieHeader: string | null) {
     stemConfettiInstruments,
     videoBounce,
     videoBounceIntensity,
+    ambientIntensity,
     videoBounceInstruments,
     quality,
     spatialAudio,
@@ -316,6 +325,11 @@ export const action = async ({ request }: { request: Request }) => {
       const v = Math.max(0.25, Math.min(2, body.videoBounceIntensity));
       setCookies.push(buildSetCookie(COOKIE_NAMES.videoBounceIntensity, String(v), secure));
       result.videoBounceIntensity = v;
+    }
+    if (typeof body.ambientIntensity === 'number' && Number.isFinite(body.ambientIntensity)) {
+      const v = Math.max(0, Math.min(1, body.ambientIntensity));
+      setCookies.push(buildSetCookie(COOKIE_NAMES.ambientIntensity, String(v), secure));
+      result.ambientIntensity = v;
     }
     if (typeof body.videoBounceInstruments === 'string') {
       const trimmed = body.videoBounceInstruments.slice(0, 256);

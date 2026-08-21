@@ -198,6 +198,9 @@ interface PlayerContextValue {
   /** Bounce strength multiplier (0.25–2, 1 = default). */
   videoBounceIntensity: number;
   setVideoBounceIntensity: (v: number) => void;
+  /** 0 = barely any glow, 1 = full spread. Drives the ambient opacity + mask. */
+  ambientIntensity: number;
+  setAmbientIntensity: (v: number) => void;
   /** Which stems the bounce reacts to. */
   videoBounceInstruments: StemConfettiInstruments;
   setVideoBounceInstrument: (type: StemType, enabled: boolean) => void;
@@ -501,6 +504,19 @@ export function PlayerProvider({
 
   const [videoBounceIntensity, setVideoBounceIntensityState] = useState(1);
 
+  const [ambientIntensity, setAmbientIntensityState] = useState(0.4);
+
+  const setAmbientIntensity = useCallback(
+    (v: number) => {
+      if (!authPlaybackFeatures) return;
+      const clamped = Math.max(0, Math.min(1, Number.isFinite(v) ? v : 0.4));
+      setAmbientIntensityState(clamped);
+      setPlayerSettings(prev => (prev ? { ...prev, ambientIntensity: clamped } : prev));
+      savePlayerSettings({ ambientIntensity: clamped }).catch(() => {});
+    },
+    [authPlaybackFeatures, setPlayerSettings, savePlayerSettings],
+  );
+
   const setVideoBounceIntensity = useCallback(
     (v: number) => {
       if (!authPlaybackFeatures) return;
@@ -590,6 +606,9 @@ export function PlayerProvider({
       setVideoBounceState(playerSettings.videoBounce === true);
       setVideoBounceIntensityState(
         Math.max(0.25, Math.min(2, playerSettings.videoBounceIntensity ?? 1)),
+      );
+      setAmbientIntensityState(
+        Math.max(0, Math.min(1, playerSettings.ambientIntensity ?? 0.4)),
       );
       setVideoBounceInstrumentsState(
         parseStemInstrumentMap(playerSettings.videoBounceInstruments, DEFAULT_VIDEO_BOUNCE_INSTRUMENTS),
@@ -1149,6 +1168,8 @@ export function PlayerProvider({
     setVideoBounce,
     videoBounceIntensity,
     setVideoBounceIntensity,
+    ambientIntensity,
+    setAmbientIntensity,
     videoBounceInstruments,
     setVideoBounceInstrument,
     statsForNerds,

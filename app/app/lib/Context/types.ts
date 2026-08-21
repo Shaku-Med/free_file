@@ -37,6 +37,8 @@ export type PlayerSettings = {
   videoBounce: boolean;
   /** Bounce strength multiplier (0.25–2, 1 = default). */
   videoBounceIntensity: number;
+  /** Ambient glow strength 0–1. 0.5 matches the original fixed look. */
+  ambientIntensity: number;
   /** JSON map of stem type → the bounce reacts to it (kick/snare/hihat/bass/other). */
   videoBounceInstruments: string;
   quality: string;

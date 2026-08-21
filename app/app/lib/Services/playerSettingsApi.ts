@@ -28,6 +28,7 @@ export interface PlayerSettings {
   videoBounce: boolean;
   /** Bounce strength multiplier (0.25–2, 1 = default). */
   videoBounceIntensity: number;
+  ambientIntensity: number;
   /** JSON map of stem type → the bounce reacts to it. */
   videoBounceInstruments: string;
   quality: string;
@@ -52,6 +53,7 @@ export interface PlayerSettingsPatch {
   stemConfettiInstruments?: string;
   videoBounce?: boolean;
   videoBounceIntensity?: number;
+  ambientIntensity?: number;
   videoBounceInstruments?: string;
   quality?: string;
   captionLanguage?: string;
@@ -74,10 +76,18 @@ const DEFAULTS: PlayerSettings = {
   stemConfettiInstruments: '{"kick":true,"snare":true,"hihat":true,"bass":true,"other":true}',
   videoBounce: false,
   videoBounceIntensity: 1,
+  /** Just under the midpoint: dimmer than a full glow without going dark. */
+  ambientIntensity: 0.4,
   videoBounceInstruments: '{"kick":true,"bass":true,"snare":false,"hihat":false,"other":false}',
   quality: 'auto',
   captionLanguage: '',
 };
+
+function clampAmbient(v: unknown): number {
+  const n = typeof v === 'number' ? v : Number(v);
+  if (!Number.isFinite(n)) return DEFAULTS.ambientIntensity;
+  return Math.max(0, Math.min(1, n));
+}
 
 function clampIntensity(v: unknown): number {
   const n = typeof v === 'number' ? v : Number(v);
@@ -111,6 +121,7 @@ export async function getPlayerSettings(): Promise<PlayerSettings> {
         : DEFAULTS.stemConfettiInstruments,
     videoBounce: data.videoBounce === true || data.videoBounce === '1',
     videoBounceIntensity: clampIntensity(data.videoBounceIntensity),
+    ambientIntensity: clampAmbient(data.ambientIntensity),
     videoBounceInstruments:
       typeof data.videoBounceInstruments === 'string'
         ? data.videoBounceInstruments

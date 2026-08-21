@@ -104,6 +104,8 @@ export function SettingsMenuBody() {
     setAmbientSync,
     ambientSize,
     setAmbientSize,
+    ambientIntensity,
+    setAmbientIntensity,
     playerBackground,
     setPlayerBackground,
     autoPlay,
@@ -288,6 +290,28 @@ export function SettingsMenuBody() {
             </Tooltip>
             {ambientMode && auth && (
               <>
+                {/* How bright the glow reads: opacity and the size of the
+                    unmasked window move together. */}
+                <DropdownMenuItem
+                  onSelect={(e) => e.preventDefault()}
+                  className="flex-col items-stretch gap-1.5 pl-7"
+                >
+                  <span className="flex items-center justify-between text-xs text-muted-foreground">
+                    <span>Glow strength</span>
+                    <span className="tabular-nums">{Math.round(ambientIntensity * 100)}%</span>
+                  </span>
+                  <input
+                    type="range"
+                    min={0}
+                    max={100}
+                    step={5}
+                    value={Math.round(ambientIntensity * 100)}
+                    onChange={(e) => setAmbientIntensity(Number(e.target.value) / 100)}
+                    onKeyDown={(e) => e.stopPropagation()}
+                    className="w-full accent-primary"
+                    aria-label="Ambient glow strength"
+                  />
+                </DropdownMenuItem>
                 <DropdownMenuItem
                   onSelect={(e) => e.preventDefault()}
                   className={cn(toggleRowClass, 'pl-7')}

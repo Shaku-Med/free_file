@@ -259,6 +259,32 @@ const DynamicPage = ({ is_modal }: DynamicPageProps) => {
 
   const playerBackground = playerSettings?.playerBackground !== false;
   const ambientSyncOn = playerSettings?.ambientSync === true;
+  /**
+   * Ambient strength, 0..1. Two knobs move together: how opaque the glow is,
+   * and how wide the unmasked "window" in the middle is. 0.5 reproduces the
+   * original fixed look exactly, so the slider reads as centred on what
+   * shipped before; the default sits just under it.
+   */
+  const ambientStrength = Math.max(0, Math.min(1, playerSettings?.ambientIntensity ?? 0.4));
+  const ambientStyle = useMemo(() => {
+    const i = ambientStrength;
+    // Piecewise so the midpoint lands exactly on the old fixed 0.80 while the
+    // top half still has somewhere to go. A single linear ramp saturated at
+    // 1.0 around 0.65 and left the last third of the slider doing nothing.
+    const opacity = i <= 0.5 ? 0.12 + (i / 0.5) * 0.68 : 0.8 + ((i - 0.5) / 0.5) * 0.2;
+    // Inner edge of the fully opaque band. Smaller number = wider window.
+    const vIn = Math.max(6, Math.min(46, 30 + (0.5 - i) * 24));
+    const hIn = Math.max(6, Math.min(46, 26 + (0.5 - i) * 24));
+    const vFeather = vIn * (14 / 30);
+    const hFeather = hIn * (12 / 26);
+    const band = (inner: number, feather: number) =>
+      `linear-gradient(to VAR, transparent 0%, rgba(0,0,0,0.55) ${feather.toFixed(2)}%, black ${inner.toFixed(2)}%, black ${(100 - inner).toFixed(2)}%, rgba(0,0,0,0.55) ${(100 - feather).toFixed(2)}%, transparent 100%)`;
+    return {
+      opacity,
+      vertical: band(vIn, vFeather).replace('VAR', 'bottom'),
+      horizontal: band(hIn, hFeather).replace('VAR', 'right'),
+    };
+  }, [ambientStrength]);
   const ambientSizeMul = Math.max(1, Math.min(2, playerSettings?.ambientSize ?? 2));
   const hasCachedRef = useRef<string | null>(null);
 
@@ -2118,21 +2144,18 @@ const DynamicPage = ({ is_modal }: DynamicPageProps) => {
                     mask read as a round blob that ignored the video's corners.
                   */}
                   <div
-                    className="absolute inset-0 opacity-80"
+                    className="absolute inset-0"
                     style={{
-                      WebkitMaskImage:
-                        "linear-gradient(to bottom, transparent 0%, rgba(0,0,0,0.55) 14%, black 30%, black 70%, rgba(0,0,0,0.55) 86%, transparent 100%)",
-                      maskImage:
-                        "linear-gradient(to bottom, transparent 0%, rgba(0,0,0,0.55) 14%, black 30%, black 70%, rgba(0,0,0,0.55) 86%, transparent 100%)",
+                      opacity: ambientStyle.opacity,
+                      WebkitMaskImage: ambientStyle.vertical,
+                      maskImage: ambientStyle.vertical,
                     }}
                   >
                     <div
                       className="absolute inset-0"
                       style={{
-                        WebkitMaskImage:
-                          "linear-gradient(to right, transparent 0%, rgba(0,0,0,0.55) 12%, black 26%, black 74%, rgba(0,0,0,0.55) 88%, transparent 100%)",
-                        maskImage:
-                          "linear-gradient(to right, transparent 0%, rgba(0,0,0,0.55) 12%, black 26%, black 74%, rgba(0,0,0,0.55) 88%, transparent 100%)",
+                        WebkitMaskImage: ambientStyle.horizontal,
+                        maskImage: ambientStyle.horizontal,
                       }}
                     >
                       <Ambience colors={imageColors || []} videoRef={watchVideoRef} videoReady={videoRefReady} sync={ambientSyncOn} />
