@@ -201,6 +201,9 @@ interface PlayerContextValue {
   /** 0 = barely any glow, 1 = full spread. Drives the ambient opacity + mask. */
   ambientIntensity: number;
   setAmbientIntensity: (v: number) => void;
+  /** Waveform seek handle: ride the wave or pin to the bottom rail. */
+  seekWaveThumb: 'ride' | 'bottom';
+  setSeekWaveThumb: (v: 'ride' | 'bottom') => void;
   /** Which stems the bounce reacts to. */
   videoBounceInstruments: StemConfettiInstruments;
   setVideoBounceInstrument: (type: StemType, enabled: boolean) => void;
@@ -506,6 +509,19 @@ export function PlayerProvider({
 
   const [ambientIntensity, setAmbientIntensityState] = useState(0.4);
 
+  const [seekWaveThumb, setSeekWaveThumbState] = useState<'ride' | 'bottom'>('ride');
+
+  const setSeekWaveThumb = useCallback(
+    (v: 'ride' | 'bottom') => {
+      if (!authPlaybackFeatures) return;
+      const next = v === 'bottom' ? 'bottom' : 'ride';
+      setSeekWaveThumbState(next);
+      setPlayerSettings(prev => (prev ? { ...prev, seekWaveThumb: next } : prev));
+      savePlayerSettings({ seekWaveThumb: next }).catch(() => {});
+    },
+    [authPlaybackFeatures, setPlayerSettings, savePlayerSettings],
+  );
+
   const setAmbientIntensity = useCallback(
     (v: number) => {
       if (!authPlaybackFeatures) return;
@@ -610,6 +626,7 @@ export function PlayerProvider({
       setAmbientIntensityState(
         Math.max(0, Math.min(1, playerSettings.ambientIntensity ?? 0.4)),
       );
+      setSeekWaveThumbState(playerSettings.seekWaveThumb === 'bottom' ? 'bottom' : 'ride');
       setVideoBounceInstrumentsState(
         parseStemInstrumentMap(playerSettings.videoBounceInstruments, DEFAULT_VIDEO_BOUNCE_INSTRUMENTS),
       );
@@ -1170,6 +1187,8 @@ export function PlayerProvider({
     setVideoBounceIntensity,
     ambientIntensity,
     setAmbientIntensity,
+    seekWaveThumb,
+    setSeekWaveThumb,
     videoBounceInstruments,
     setVideoBounceInstrument,
     statsForNerds,

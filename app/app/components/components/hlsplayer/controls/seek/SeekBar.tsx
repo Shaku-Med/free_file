@@ -1,5 +1,6 @@
 import { useRef, useState, useCallback, useEffect, useLayoutEffect, useMemo } from 'react';
 import { usePlayerContext } from '../../PlayerContext';
+import { useFileContext } from '~/lib/Context/Context';
 import type { BufferedRange } from '../../PlayerContext';
 import ThumbnailPreview from './ThumbnailPreview';
 import { formatTime } from './functions/formatTime';
@@ -160,6 +161,7 @@ function ThinSeekTrack({
   handleInsetPx,
   waveformUrl,
   trackWidth,
+  waveThumb,
   onWaveformError,
   onPointerDown,
   onPointerMove,
@@ -186,6 +188,8 @@ function ThinSeekTrack({
   handleInsetPx: number;
   waveformUrl?: string;
   trackWidth: number;
+  /** 'ride' puts the handle on the waveform, 'bottom' pins it to the rail. */
+  waveThumb: 'ride' | 'bottom';
   onWaveformError: () => void;
   onPointerDown: (e: React.PointerEvent) => void;
   onPointerMove: (e: React.PointerEvent) => void;
@@ -198,6 +202,52 @@ function ThinSeekTrack({
   const handleLeft = scaledStyle
     ? `calc(${progress}% - var(--hls-ctrl-seek-handle-inset, ${handleInsetPx}px))`
     : `calc(${progress}% - ${handleInsetPx}px)`;
+
+  // Peaks are already cached by the canvases, so this is a map read on revisit
+  // rather than a second fetch.
+  const [wavePeaks, setWavePeaks] = useState<number[] | null>(() =>
+    waveformUrl && isWaveformJson(waveformUrl) ? getCachedPeaks(waveformUrl) : null,
+  );
+  useEffect(() => {
+    if (!waveformUrl || !isWaveformJson(waveformUrl)) {
+      setWavePeaks(null);
+      return;
+    }
+    let alive = true;
+    fetchPeaks(waveformUrl).then(p => {
+      if (alive) setWavePeaks(p);
+    });
+    return () => {
+      alive = false;
+    };
+  }, [waveformUrl]);
+
+  /**
+   * Where the handle sits when it rides the wave.
+   *
+   * The canvas is bottom anchored (baseline = height, bars grow upward), so
+   * amplitude 1 is the top edge. Quiet passages used to leave the handle
+   * hovering in empty space above a short bar; now it lands on the bar.
+   *
+   * Max pooling over the peaks that map to the handle's own pixel mirrors what
+   * the canvas draws, so the handle sits on the bar actually on screen rather
+   * than on a raw sample between two of them. null means pin to the bottom.
+   */
+  const waveHandleTop = useMemo(() => {
+    if (waveThumb !== 'ride') return null;
+    const peaks = wavePeaks;
+    if (!peaks || peaks.length === 0) return null;
+    const n = peaks.length;
+    const frac = Math.min(1, Math.max(0, progress / 100));
+    const perPixel = Math.max(1, n / Math.max(1, trackWidth));
+    const centre = frac * (n - 1);
+    const lo = Math.max(0, Math.floor(centre - perPixel / 2));
+    const hi = Math.min(n - 1, Math.ceil(centre + perPixel / 2));
+    let v = 0;
+    for (let i = lo; i <= hi; i++) if (peaks[i] > v) v = peaks[i];
+    const barH = Math.max(1, v * (WAVEFORM_HEIGHT - 1));
+    return WAVEFORM_HEIGHT - barH;
+  }, [waveThumb, wavePeaks, progress, trackWidth]);
   const handleSizeClass = scaledStyle
     ? 'h-[var(--hls-ctrl-seek-handle,1rem)] w-[var(--hls-ctrl-seek-handle,1rem)]'
     : 'h-4 w-4';
@@ -336,18 +386,28 @@ function ThinSeekTrack({
               </div>
             </div>
 
-            {/* Scrubber handle */}
+            {/* Scrubber handle. Vertical position is driven from style, not a
+                fixed top-1/2, so it can track the waveform. */}
             <div
               ref={handleRef}
               className={cn(
-                'absolute top-1/2 -translate-y-1/2 rounded-full border-2 border-primary bg-background shadow-md',
+                'absolute rounded-full border-2 border-primary bg-background shadow-md',
                 handleSizeClass,
                 mobileStyle
                   ? 'opacity-100'
                   : 'opacity-0 transition-opacity duration-150 group-hover/seek:opacity-100',
                 showHandle && 'opacity-100'
               )}
-              style={{ left: handleLeft }}
+              style={{
+                left: handleLeft,
+                // No peaks yet, or pinned by preference: sit on the baseline
+                // rather than floating mid-track.
+                top: waveHandleTop ?? WAVEFORM_HEIGHT,
+                transform: 'translateY(-50%)',
+                // Max pooling makes neighbouring pixels jump; a short ease
+                // reads as riding rather than snapping.
+                transition: 'top 80ms linear',
+              }}
             />
 
             {/* Hairline + buffered ranges sit on top of everything else so
@@ -454,6 +514,7 @@ export default function SeekBar({
     isReel,
     file,
   } = usePlayerContext();
+  const { playerSettings } = useFileContext();
   const trackRef = useRef<HTMLDivElement>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [hoverTime, setHoverTime] = useState<number | null>(null);
@@ -784,6 +845,7 @@ export default function SeekBar({
         flushTop={flushTop}
         handleInsetPx={handleInsetPx}
         waveformUrl={showWaveform ? (waveformUrl ?? undefined) : undefined}
+        waveThumb={playerSettings?.seekWaveThumb === 'bottom' ? 'bottom' : 'ride'}
         trackWidth={trackWidth}
         onWaveformError={handleWaveformError}
         onPointerDown={handlePointerDown}

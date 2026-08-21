@@ -30,6 +30,7 @@ const COOKIE_NAMES = {
   videoBounce: 'player-video-bounce',
   videoBounceIntensity: 'player-video-bounce-intensity',
   ambientIntensity: 'player-ambient-intensity',
+  seekWaveThumb: 'player-seek-wave-thumb',
   videoBounceInstruments: 'player-video-bounce-instruments',
   quality: 'hls-quality-preference',
   spatialAudio: 'player-spatial-audio',
@@ -95,6 +96,7 @@ export interface PlayerSettingsDto {
   /** Bounce strength multiplier (0.25–2). */
   videoBounceIntensity?: number;
   ambientIntensity?: number;
+  seekWaveThumb?: string;
   /** JSON map of stem type → bounce reacts to it. */
   videoBounceInstruments?: string;
   quality?: string;
@@ -153,6 +155,9 @@ export function getPlayerSettingsFromCookies(cookieHeader: string | null) {
   const ambientIntensity = Number.isFinite(ambientIntensityRaw)
     ? Math.max(0, Math.min(1, ambientIntensityRaw))
     : 0.4;
+  // 'ride' = the handle sits on the waveform; 'bottom' = pinned to the rail.
+  const seekWaveThumb: 'ride' | 'bottom' =
+    get(COOKIE_NAMES.seekWaveThumb) === 'bottom' ? 'bottom' : 'ride';
   const videoBounceInstruments = get(COOKIE_NAMES.videoBounceInstruments) ?? '';
   const quality = get(COOKIE_NAMES.quality) ?? 'auto';
   const spatialAudio =
@@ -192,6 +197,7 @@ export function getPlayerSettingsFromCookies(cookieHeader: string | null) {
     videoBounce,
     videoBounceIntensity,
     ambientIntensity,
+    seekWaveThumb,
     videoBounceInstruments,
     quality,
     spatialAudio,
@@ -330,6 +336,10 @@ export const action = async ({ request }: { request: Request }) => {
       const v = Math.max(0, Math.min(1, body.ambientIntensity));
       setCookies.push(buildSetCookie(COOKIE_NAMES.ambientIntensity, String(v), secure));
       result.ambientIntensity = v;
+    }
+    if (body.seekWaveThumb === 'ride' || body.seekWaveThumb === 'bottom') {
+      setCookies.push(buildSetCookie(COOKIE_NAMES.seekWaveThumb, body.seekWaveThumb, secure));
+      result.seekWaveThumb = body.seekWaveThumb;
     }
     if (typeof body.videoBounceInstruments === 'string') {
       const trimmed = body.videoBounceInstruments.slice(0, 256);
