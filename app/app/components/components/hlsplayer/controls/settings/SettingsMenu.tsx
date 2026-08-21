@@ -106,6 +106,8 @@ export function SettingsMenuBody() {
     setAmbientSize,
     ambientIntensity,
     setAmbientIntensity,
+    seekWaveThumb,
+    setSeekWaveThumb,
     playerBackground,
     setPlayerBackground,
     autoPlay,
@@ -355,6 +357,22 @@ export function SettingsMenuBody() {
             <Switch checked={playerBackground} onChange={setPlayerBackground} />
           </DropdownMenuItem>
         )}
+        {!isReel && (
+          <DropdownMenuItem
+            onSelect={(e) => e.preventDefault()}
+            className={toggleRowClass}
+          >
+            <span className="flex min-w-0 flex-1 items-center gap-2">
+              <AudioWaveform className="size-4 shrink-0 text-muted-foreground" />
+              <span className="min-w-0 truncate">Handle rides the wave</span>
+            </span>
+            <Switch
+              checked={seekWaveThumb === 'ride'}
+              onChange={(v) => setSeekWaveThumb(v ? 'ride' : 'bottom')}
+              disabled={!auth}
+            />
+          </DropdownMenuItem>
+        )}
         {pipSettingVisible && (
           <Tooltip>
             <TooltipTrigger asChild>
@@ -364,7 +382,7 @@ export function SettingsMenuBody() {
               >
                 <span className="flex min-w-0 flex-1 items-center gap-2">
                   <PictureInPicture2 className="size-4 shrink-0 text-muted-foreground" />
-                  <span className="min-w-0 truncate">Wide picture-in-picture</span>
+                  <span className="min-w-0 truncate">Wide picture in picture</span>
                 </span>
                 <Switch
                   checked={pipMode === 'wide'}
@@ -373,8 +391,8 @@ export function SettingsMenuBody() {
               </DropdownMenuItem>
             </TooltipTrigger>
             <TooltipContent side={isMobile ? 'top' : 'left'} className="max-w-[240px]">
-              Off uses our compact phone-style window (default). On uses your browser&apos;s
-              built-in picture-in-picture — a wider, resizable video.
+              Off keeps our compact phone shaped window, which is the default. On hands
+              it to your browser, so you get a wider video you can resize.
             </TooltipContent>
           </Tooltip>
         )}

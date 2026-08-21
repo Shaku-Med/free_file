@@ -34,12 +34,12 @@ export default function PipButton({
                 controlPill ? 'rounded-full p-2 hover:bg-white/10' : 'rounded-md p-1.5 hover:bg-white/10'
               )
           )}
-          aria-label="Picture-in-Picture"
+          aria-label="Picture in picture"
         >
           <PictureInPicture2 className={mobileOverlay ? mobileOverlayIcon : 'w-5 h-5'} />
         </button>
       </TooltipTrigger>
-      <TooltipContent side="top">Picture-in-Picture</TooltipContent>
+      <TooltipContent side="top">Picture in picture</TooltipContent>
     </Tooltip>
   );
 }
