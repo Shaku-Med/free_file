@@ -1,5 +1,5 @@
 import { useRef, useState, useCallback, useEffect } from 'react';
-import { Volume2, Volume1, VolumeX } from 'lucide-react';
+import { Volume2, Volume1, VolumeX } from '~/components/icons';
 import { usePlayerContext } from '../../PlayerContext';
 import { useVideoHasAudio } from '../../hooks/useVideoHasAudio';
 import { Tooltip, TooltipContent, TooltipTrigger } from '~/components/ui/tooltip';

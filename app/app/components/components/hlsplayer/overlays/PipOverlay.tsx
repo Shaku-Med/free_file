@@ -1,4 +1,4 @@
-import { Pause, PictureInPicture2, Play } from 'lucide-react';
+import { Pause, PictureInPicture2, Play } from '~/components/icons';
 import { usePictureInPictureContext } from '~/lib/Context/PictureInPictureContext';
 import { usePlayerContext } from '../PlayerContext';
 

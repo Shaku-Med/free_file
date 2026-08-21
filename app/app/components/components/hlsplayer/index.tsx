@@ -1,5 +1,5 @@
 import React, { useEffect, useLayoutEffect, useState, useCallback, useRef, useMemo } from 'react';
-import { Play, Pause, LoaderCircle, Volume2, VolumeX } from 'lucide-react';
+import { Play, Pause, LoaderCircle, Volume2, VolumeX } from '~/components/icons';
 import { flushSync } from 'react-dom';
 import { useNavigate, useLocation } from 'react-router';
 import { useInView } from 'react-intersection-observer';

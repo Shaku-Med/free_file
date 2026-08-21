@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { useLocation, useNavigate, useParams } from "react-router";
-import { EyeOff, RotateCcw } from "lucide-react";
+import { EyeOff, RotateCcw } from "~/components/icons";
 import { cn } from "~/lib/utils";
 import { usePlayerContext } from "../PlayerContext";
 import { usePlayerContainerSize, endCardOverlayLayout } from "../hooks/usePlayerContainerSize";

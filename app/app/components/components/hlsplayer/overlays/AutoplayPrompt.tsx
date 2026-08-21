@@ -1,4 +1,4 @@
-import { Volume2, VolumeX } from 'lucide-react';
+import { Volume2, VolumeX } from '~/components/icons';
 import { usePlayerContext } from '../PlayerContext';
 
 interface AutoplayPromptProps {

@@ -1,4 +1,4 @@
-import { LogIn, Lock } from 'lucide-react';
+import { LogIn, Lock } from '~/components/icons';
 import { Link, useLocation } from 'react-router';
 import {
   Dialog,

@@ -1,4 +1,4 @@
-import { Captions, CaptionsOff, Check, RotateCcw, Loader2, AlignLeft, AlignCenter, AlignRight } from "lucide-react"
+import { Captions, CaptionsOff, Check, RotateCcw, Loader2, AlignLeft, AlignCenter, AlignRight } from "~/components/icons"
 import { cn } from "~/lib/utils"
 import { mobileOverlayIcon, mobileOverlaySquareBtn, playerMenuSurface } from "../mobileControlMetrics"
 import { Tooltip, TooltipContent, TooltipTrigger } from "~/components/ui/tooltip"

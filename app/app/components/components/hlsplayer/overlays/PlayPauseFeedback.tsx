@@ -1,4 +1,4 @@
-import { Play, Pause } from 'lucide-react';
+import { Play, Pause } from '~/components/icons';
 
 interface PlayPauseFeedbackProps {
   isPlaying: boolean;

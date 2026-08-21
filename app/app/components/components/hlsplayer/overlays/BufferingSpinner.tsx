@@ -1,4 +1,4 @@
-import { LoaderCircle } from 'lucide-react';
+import { LoaderCircle } from '~/components/icons';
 
 export default function BufferingSpinner() {
   return (

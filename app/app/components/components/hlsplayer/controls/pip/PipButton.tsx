@@ -1,4 +1,4 @@
-import { PictureInPicture2 } from 'lucide-react';
+import { PictureInPicture2 } from '~/components/icons';
 import { cn } from '~/lib/utils';
 import { mobileOverlayIcon, mobileOverlaySquareBtn } from '../mobileControlMetrics';import { usePlayerContext } from '../../PlayerContext';
 import { usePictureInPictureContext } from '~/lib/Context/PictureInPictureContext';

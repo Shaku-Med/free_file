@@ -7,7 +7,7 @@ import {
   type MouseEvent as ReactMouseEvent,
 } from 'react';
 import { createPortal } from 'react-dom';
-import { Play, Pause, SkipForward, MoreVertical, SkipBack, ChevronLeft, LoaderCircle, X } from 'lucide-react';
+import { Play, Pause, SkipForward, MoreVertical, SkipBack, ChevronLeft, LoaderCircle, X } from '~/components/icons';
 import { usePlayerContext } from '../PlayerContext';
 import { useControlBarWidth } from '../hooks/useControlBarWidth';
 import { useFullscreenContainer } from '../hooks/useFullscreenContainer';

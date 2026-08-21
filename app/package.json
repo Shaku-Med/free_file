@@ -39,6 +39,7 @@
     "@radix-ui/react-tooltip": "^1.2.8",
     "@react-router/node": "^7.18.1",
     "@react-router/serve": "^7.18.1",
+    "@remixicon/react": "^4.9.0",
     "@simplewebauthn/browser": "^13.3.0",
     "@simplewebauthn/server": "^13.3.0",
     "@supabase/supabase-js": "^2.76.1",

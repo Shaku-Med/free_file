@@ -1,4 +1,4 @@
-import { Maximize, Minimize } from 'lucide-react';
+import { Maximize, Minimize } from '~/components/icons';
 import { cn } from '~/lib/utils';
 import { usePlayerContext } from '../../PlayerContext';
 import { mobileOverlayCircleBtn, mobileOverlayIcon } from '../mobileControlMetrics';import { Tooltip, TooltipContent, TooltipTrigger } from '~/components/ui/tooltip';

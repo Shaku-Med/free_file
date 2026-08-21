@@ -1,5 +1,5 @@
 import { useEffect, useMemo } from 'react';
-import { SkipForward, FastForward } from 'lucide-react';
+import { SkipForward, FastForward } from '~/components/icons';
 import { usePlayerContext } from '../PlayerContext';
 import type { FileType } from '~/lib/types';
 

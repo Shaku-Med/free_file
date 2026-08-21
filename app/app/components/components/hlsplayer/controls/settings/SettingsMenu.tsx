@@ -20,7 +20,7 @@ import {
   Orbit,
   Speaker,
   PictureInPicture2,
-} from 'lucide-react';
+} from '~/components/icons';
 import { usePlayerContext, SLEEP_TIMER_OPTIONS } from '../../PlayerContext';
 import { isSpatialAudioUiSupported } from '../../hooks/useSpatialAudio';
 import { useFullscreenContainer } from '../../hooks/useFullscreenContainer';

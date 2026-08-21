@@ -1,4 +1,4 @@
-import { CircleHelp } from 'lucide-react';
+import { CircleHelp } from '~/components/icons';
 import { useState } from 'react';
 import { mobileOverlayIcon, mobileOverlaySmallCircleBtn } from './mobileControlMetrics';
 import { Tooltip, TooltipContent, TooltipTrigger } from '~/components/ui/tooltip';

@@ -1,5 +1,5 @@
 import { Link } from "react-router";
-import { LogIn, X } from "lucide-react";
+import { LogIn, X } from "~/components/icons";
 import { Button } from "~/components/ui/button";
 import { useAuthHrefs } from "~/lib/loginRedirect";
 

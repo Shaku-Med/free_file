@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { AlertTriangle, RotateCcw } from 'lucide-react';
+import { AlertTriangle, RotateCcw } from '~/components/icons';
 
 // Only paint after the error has been around for a grace period AND the page is
 // visible. Most "failures" on mobile come from the page coming back to focus

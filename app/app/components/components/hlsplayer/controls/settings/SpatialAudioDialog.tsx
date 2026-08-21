@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Headphones, Sparkles, RotateCcw, Volume2 } from 'lucide-react';
+import { Headphones, Sparkles, RotateCcw, Volume2 } from '~/components/icons';
 import {
   Dialog,
   DialogContent,

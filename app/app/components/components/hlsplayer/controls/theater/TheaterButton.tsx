@@ -1,4 +1,4 @@
-import { RectangleHorizontal, RectangleVertical } from 'lucide-react';
+import { RectangleHorizontal, RectangleVertical } from '~/components/icons';
 import { cn } from '~/lib/utils';
 import { Tooltip, TooltipContent, TooltipTrigger } from '~/components/ui/tooltip';
 

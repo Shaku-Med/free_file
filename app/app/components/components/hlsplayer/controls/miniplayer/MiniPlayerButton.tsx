@@ -1,4 +1,4 @@
-import { PanelBottom } from 'lucide-react';
+import { PanelBottom } from '~/components/icons';
 import { useCallback } from 'react';
 import { flushSync } from 'react-dom';
 import { useNavigate } from 'react-router';

@@ -1,5 +1,5 @@
 import { motion } from 'framer-motion';
-import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { ChevronLeft, ChevronRight } from '~/components/icons';
 
 interface SeekFeedbackProps {
   direction: 'back' | 'forward';
@@ -28,7 +28,9 @@ export default function SeekFeedback({ direction, seconds, fading }: SeekFeedbac
         animate={{ opacity: fading ? 0 : 1, x: 0 }}
         transition={{ duration: fading ? 0.25 : 0.15, ease: 'easeOut' }}
       >
-        <Chevron className="h-9 w-9 shrink-0 text-white" strokeWidth={2.5} />
+        {/* Remix glyphs are filled, so weight comes from the shape itself
+            rather than a stroke width. */}
+        <Chevron className="h-9 w-9 shrink-0 text-white" />
         <span className="text-2xl font-semibold tabular-nums text-white">
           {isBack ? '−' : '+'} {seconds}
         </span>
