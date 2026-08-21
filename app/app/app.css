@@ -51,6 +51,10 @@
    Page content uses high z-index in places, so chrome sits well above it. */
 :root {
   --z-reel: 40;                   /* fullscreen reel overlay */
+  /* Docked comment composer. Feed cards sit as high as z-[1000000], which is
+     what used to scroll straight over the composer, so it needs to clear them
+     while staying under the tab bar it docks against. */
+  --z-comment-dock: 10000000;
   --z-app-chrome: 100000000;      /* sticky navbar + mobile tab bar */
   --z-mini-player: 2147483646;    /* floating mini player */
   --z-sidebar-sheet: 10000000000; /* mobile sidebar sheet (over chrome) */

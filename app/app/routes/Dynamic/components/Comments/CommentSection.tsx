@@ -665,15 +665,25 @@ const CommentSection = ({
 
   const dockComposer = composerDock != null && !fillHeight;
 
+  /**
+   * Same wash as the tab bar it docks against (background/90, /75 without
+   * backdrop-filter) so the two read as one surface rather than two panels
+   * with slightly different tints.
+   */
+  const composerSurface =
+    "border-t border-border/60 bg-background/90 backdrop-blur-md supports-[backdrop-filter]:bg-background/75";
+
   const composerShellClass = cn(
-    "z-20 shrink-0 border-t border-border/60 bg-background/95 shadow-[0_-8px_24px_-8px_rgba(0,0,0,0.1)] backdrop-blur-md supports-[backdrop-filter]:bg-background/85 dark:shadow-[0_-8px_24px_-8px_rgba(0,0,0,0.35)]",
+    "shrink-0 shadow-[0_-8px_24px_-8px_rgba(0,0,0,0.1)] dark:shadow-[0_-8px_24px_-8px_rgba(0,0,0,0.35)]",
+    composerSurface,
     fillHeight
-      ? "mt-auto px-3 pt-1.5 pb-[max(0.125rem,env(safe-area-inset-bottom))]"
+      ? "z-20 mt-auto px-3 pt-1.5 pb-[max(0.125rem,env(safe-area-inset-bottom))]"
       : cn(
-          "pt-2 pb-[max(0.35rem,env(safe-area-inset-bottom))]",
-          dockComposer
-            ? "fixed z-30"
-            : "sticky z-20 bottom-[var(--app-bottom-nav-h,0px)]",
+          // Feed cards render as high as z-[1000000], so the old z-20/z-30
+          // put the composer underneath them and they scrolled straight over
+          // it. This tier clears content and stays under the tab bar.
+          "z-[var(--z-comment-dock)] pt-2 pb-[max(0.35rem,env(safe-area-inset-bottom))]",
+          dockComposer ? "fixed" : "sticky bottom-[var(--app-bottom-nav-h,0px)]",
         ),
   );
 
