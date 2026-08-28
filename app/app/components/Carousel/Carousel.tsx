@@ -81,8 +81,16 @@ export function Carousel({
 
   const offsetRef = useRef(0);
   offsetRef.current = offset;
+  /**
+   * The live drag bound. Deliberately NOT re-synced from maxOffset on every
+   * render: onPointerDown re-measures into this ref precisely because the
+   * state can be stale, and the first pointer move calls setOffset, which
+   * re-renders. Assigning here would have overwritten that fresh measurement
+   * one move into the drag and handed the rest of the gesture back to the
+   * stale number, which is how the row could be dragged past its content and
+   * emptied out. measure() and onPointerDown are the only writers.
+   */
   const maxRef = useRef(0);
-  maxRef.current = maxOffset;
 
   const drag = useRef({
     active: false,
@@ -110,6 +118,7 @@ export function Carousel({
     const tr = trackRef.current;
     if (!vp || !tr) return;
     const max = Math.max(0, tr.scrollWidth - vp.clientWidth);
+    maxRef.current = max;
     setMaxOffset(max);
     setOffset((o) => clamp(o, -max, 0));
   }, []);
