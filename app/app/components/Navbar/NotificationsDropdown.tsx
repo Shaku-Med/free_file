@@ -278,7 +278,18 @@ export function NotificationsDropdown({ userId, unreadCount, setUnreadCount, ico
   if (!userId) return null;
 
   return (
-    <DropdownMenu open={open} onOpenChange={setOpen}>
+    <DropdownMenu
+      open={open}
+      onOpenChange={(next) => {
+        setOpen(next);
+        // The list is otherwise only polled every few minutes, so opening the
+        // bell could show a copy that old. Anything that arrived since the
+        // last poll was simply missing from the panel until it happened to
+        // refresh. "background" so the rows already on screen do not flash
+        // back to skeletons.
+        if (next) void fetchList("background");
+      }}
+    >
       <Tooltip>
         <TooltipTrigger asChild>
           <DropdownMenuTrigger
