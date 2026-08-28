@@ -3,6 +3,7 @@ import { textContainsNsfw, DEFAULT_METADATA_WARNING } from '~/lib/nsfwTextCheck'
 import { isValidUUID } from '~/lib/Security/inputValidation';
 import { recordUploadUsage, refundUploadQuota } from '~/lib/uploadQuota.server';
 import { verifyWebhookSecret } from '~/lib/Security/webhookAuth.server';
+import { notifyUploadReady, notifyUploadFailed } from '~/lib/Services/uploadNotifications.server';
 import { isFileVisibility } from '~/lib/Security/visibility';
 
 function inferFileType(filename: string): string {
@@ -431,13 +432,24 @@ export const action = async ({ request }: { request: Request }) => {
     // Scope to not-yet-complete rows only: a genuine failure is always still
     // 'queued'/'running', so this can never nuke an already-shipped file even
     // if a stale/spoofed 'failed' webhook arrives for a completed upload_id.
-    const { error: deleteErr } = await db
+    // .select() serves two purposes: it hands back the owner and title for the
+    // notification (the row is about to stop existing, so there is nothing to
+    // read afterwards), and an empty result means this webhook already ran, so
+    // a retry does not notify a second time.
+    const { data: deletedRows, error: deleteErr } = await db
       .from('files')
       .delete()
       .eq('unique_id', upload_id)
-      .neq('upload_status', 'complete');
+      .neq('upload_status', 'complete')
+      .select('owner_id, file_title, filename');
     if (deleteErr) {
       console.warn('[upload-job-status] files delete (failed):', deleteErr);
+    }
+    const removed = Array.isArray(deletedRows) ? deletedRows[0] : null;
+    if (removed?.owner_id) {
+      // Deliberately not awaited: the worker is waiting on this response, and
+      // a slow mail provider must not hold up the job or fail it.
+      void notifyUploadFailed(removed.owner_id, removed.file_title ?? null, removed.filename ?? null);
     }
   } else if (status === 'running' && upload_id) {
     const p = parseProcessingProgress(body.progress);
@@ -630,6 +642,13 @@ export const action = async ({ request }: { request: Request }) => {
       });
     }
 
+    // The row is written and the id is known, so the uploader can be told.
+    // Deliberately not awaited: the worker is blocked on this response and a
+    // slow push endpoint or mail provider must not hold the job open. The
+    // fan-out swallows its own errors and dedupes on retry.
+    const completedFileId = updatedRows[0]?.id;
+    if (completedFileId) void notifyUploadReady(String(completedFileId));
+
     const fn = typeof body.file_name === 'string' ? body.file_name.trim() : '';
     await applyFileSeriesOnComplete(upload_id, body, fn);
 
@@ -699,6 +718,7 @@ export const action = async ({ request }: { request: Request }) => {
         }
       }
     }
+
   }
 
   return new Response(JSON.stringify({ ok: true }), {

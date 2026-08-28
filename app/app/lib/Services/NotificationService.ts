@@ -9,7 +9,11 @@ export type NotificationType =
   | "comment_reply"
   | "comment_like"
   | "comment_mention"
-  | "new_subscriber";
+  | "new_subscriber"
+  // System notifications about the viewer's own upload. Written by
+  // uploadNotifications.server, which bypasses the self-notify guard below.
+  | "upload_ready"
+  | "upload_failed";
 
 export interface CreateNotificationInput {
   userId: string;

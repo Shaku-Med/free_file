@@ -4,7 +4,7 @@ import { useFileContext } from "~/lib/Context/Context";
 import { Button } from "~/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "~/components/ui/avatar";
 import { getProfilePicUrl } from "~/lib/utils/profilePic";
-import { Heart, MessageCircle, Reply, ThumbsUp, AtSign, UserPlus, ChevronDown } from "lucide-react";
+import { Heart, MessageCircle, Reply, ThumbsUp, AtSign, UserPlus, ChevronDown, CircleCheck, TriangleAlert } from "lucide-react";
 import VideoCard from "~/routes/Home/components/VideoCard";
 import type { FileType } from "~/lib/types";
 import { groupNotifications, type NotificationGroup } from "~/lib/notifications/groupNotifications";
@@ -15,7 +15,9 @@ type NotificationType =
   | "comment_reply"
   | "comment_like"
   | "comment_mention"
-  | "new_subscriber";
+  | "new_subscriber"
+  | "upload_ready"
+  | "upload_failed";
 
 interface NotificationRow {
   id: string;
@@ -39,6 +41,15 @@ interface NotificationRow {
   } | null;
 }
 
+/**
+ * Upload outcomes come from the system, not another member. actor_id holds the
+ * recipient only because the column is NOT NULL, so naming the actor would
+ * render "medzyamara your upload is ready".
+ */
+function isSystemNotification(type: NotificationType): boolean {
+  return type === "upload_ready" || type === "upload_failed";
+}
+
 function getNotificationLabel(type: NotificationType): string {
   switch (type) {
     case "file_like":
@@ -53,6 +64,10 @@ function getNotificationLabel(type: NotificationType): string {
       return "mentioned you in a comment";
     case "new_subscriber":
       return "subscribed to your channel";
+    case "upload_ready":
+      return "Your upload finished processing";
+    case "upload_failed":
+      return "Your upload could not be processed";
     default:
       return "interacted";
   }
@@ -72,6 +87,10 @@ function getNotificationIcon(type: NotificationType) {
       return <AtSign className="h-4 w-4 text-primary" />;
     case "new_subscriber":
       return <UserPlus className="h-4 w-4 text-primary" />;
+    case "upload_ready":
+      return <CircleCheck className="h-4 w-4 text-primary" />;
+    case "upload_failed":
+      return <TriangleAlert className="h-4 w-4 text-destructive" />;
     default:
       return null;
   }
@@ -219,8 +238,14 @@ export default function NotificationsPage() {
         </Avatar>
         <div className="min-w-0 flex-1">
           <p className="text-sm text-foreground">
-            <span className="font-medium">{username}</span>{" "}
-            <span className="text-muted-foreground">{getNotificationLabel(n.type)}</span>
+            {isSystemNotification(n.type) ? (
+              <span className="text-foreground">{getNotificationLabel(n.type)}</span>
+            ) : (
+              <>
+                <span className="font-medium">{username}</span>{" "}
+                <span className="text-muted-foreground">{getNotificationLabel(n.type)}</span>
+              </>
+            )}
           </p>
           <p className="text-xs text-muted-foreground">
             {new Date(n.created_at).toLocaleDateString(undefined, {
