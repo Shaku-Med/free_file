@@ -3,16 +3,8 @@ import { cn, getThumbnailUrl } from "~/lib/utils";
 import ImageLoad from "~/routes/Home/components/ImageLoad/ImageLoad";
 import type { SearchSuggestion } from "./useSearchPanel";
 
-/**
- * Suggestion list for the navbar dropdown. An empty box shows recent (clock,
- * removable) and popular queries; typing shows matches with the completion
- * bolded.
- *
- * Rows carry a preview of a representative public video when the server found
- * one. It goes through the shared thumbnail loader rather than a bare img so it
- * inherits the retry, the cache and the adult gate, same as every other
- * thumbnail in the app.
- */
+// Clock rows are this device's history and removable; trending rows are what
+// other people search most for the typed prefix.
 
 export interface SearchPanelProps {
   term: string;
@@ -108,7 +100,7 @@ export function SearchPanel({ term, items, activeIndex, onPick, onHover, onRemov
                   onRemoveRecent(item.text);
                 }}
                 className="shrink-0 rounded-full p-1 text-xs font-medium text-muted-foreground opacity-0 transition-opacity hover:text-foreground group-hover:opacity-100"
-                aria-label={`Remove ${item.text} from recent searches`}
+                aria-label={`Remove ${item.text} from search history`}
               >
                 <X className="size-4" />
               </button>

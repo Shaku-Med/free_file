@@ -39,7 +39,19 @@ BEGIN
   IF v_tokens IS NULL OR array_length(v_tokens, 1) = 0 THEN RETURN; END IF;
 
   RETURN QUERY
-  WITH candidates AS (
+  -- Restricted and terminated accounts never feed suggestions; a lapsed
+  -- restriction counts as lifted.
+  WITH hidden_owners AS (
+    SELECT u.id
+    FROM users u
+    WHERE u.account_status IN ('restricted', 'terminated')
+      AND NOT (
+        u.account_status = 'restricted'
+        AND u.status_expires_at IS NOT NULL
+        AND u.status_expires_at <= now()
+      )
+  ),
+  candidates AS (
     SELECT
       lower(btrim(f.file_title)) AS s,
       COALESCE(f.view_count, 0)::float AS pop
@@ -49,6 +61,7 @@ BEGIN
       AND f.upload_status = 'complete'
       AND f.file_title IS NOT NULL
       AND length(f.file_title) BETWEEN 2 AND 80
+      AND NOT EXISTS (SELECT 1 FROM hidden_owners h WHERE h.id = f.owner_id)
 
     UNION ALL
 
@@ -59,6 +72,7 @@ BEGIN
       AND f.is_adult = false
       AND f.upload_status = 'complete'
       AND length(tag.value) BETWEEN 2 AND 60
+      AND NOT EXISTS (SELECT 1 FROM hidden_owners h WHERE h.id = f.owner_id)
   ),
   -- Every query token must hit some word of the candidate (prefix or typo).
   matched AS (
@@ -97,4 +111,7 @@ BEGIN
   LIMIT GREATEST(1, LEAST(COALESCE(p_limit, 8), 10));
 END $$;
 
-GRANT EXECUTE ON FUNCTION public.get_search_suggestions(text, int) TO anon, authenticated;
+-- Only the app calls this, with the service role. It scans every public file per
+-- call, so it must not be reachable directly with a public key.
+REVOKE ALL ON FUNCTION public.get_search_suggestions(text, int) FROM public, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.get_search_suggestions(text, int) TO service_role;

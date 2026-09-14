@@ -13,6 +13,13 @@ import { isAuthenticated } from "~/lib/Security/Password";
 import { sanitizeSearchQuery } from "~/lib/Security/inputValidation";
 import { Carousel, CarouselItem } from "~/components/Carousel/Carousel";
 import { buildSpotlight } from "~/lib/search/spotlight.server";
+import { logSearchQuery } from "~/lib/search/searchStats.server";
+import {
+  allowSearchRequest,
+  escapeLikePattern,
+  hasLexicalHit,
+  withoutRestrictedOwners,
+} from "~/lib/search/searchSafety.server";
 import SearchSpotlight from "~/components/SearchSpotlight";
 import { Separator } from "~/components/ui/separator";
 
@@ -84,17 +91,21 @@ export const loader = async ({ request }: { request: Request }) => {
     } catch {
       return data(null, { status: 400 });
     }
+    const emptyResults = {
+      url: '',
+      results: [],
+      seriesRoots: [],
+      users: [],
+      userActions: { likedFileIds: [], dislikedFileIds: [] },
+      nextCursor: null,
+      hasMore: false,
+    };
     const sanitizedTerm = sanitizeSearchQuery(term);
     if (!sanitizedTerm) {
-      return data({
-        url: '',
-        results: [],
-        seriesRoots: [],
-        users: [],
-        userActions: { likedFileIds: [], dislikedFileIds: [] },
-        nextCursor: null,
-        hasMore: false,
-      }, { status: 200 });
+      return data(emptyResults, { status: 200 });
+    }
+    if (!allowSearchRequest(request)) {
+      return data(emptyResults, { status: 429, headers: { 'Retry-After': '120' } });
     }
 
     const user = await isAuthenticated(request, ['id']);
@@ -128,7 +139,7 @@ export const loader = async ({ request }: { request: Request }) => {
           db
             .from('users')
             .select('id, username, profile_pic, file_count')
-            .ilike('username', `%${sanitizedTerm}%`)
+            .ilike('username', `%${escapeLikePattern(sanitizedTerm)}%`)
             .eq('is_memories', false)
             .limit(10),
         ]);
@@ -173,22 +184,39 @@ export const loader = async ({ request }: { request: Request }) => {
       console.error("Server search failed:", e);
     }
 
+    // Cursor was taken from the unfiltered page above, so hiding rows here
+    // can't end pagination early.
+    const visible = await withoutRestrictedOwners({
+      files: results,
+      series: seriesRoots,
+      users,
+      viewerId: userId ?? null,
+      likedFileIds,
+      dislikedFileIds,
+    });
+
     // Entity spotlight (channel / music artist) for the top of the results.
     // Shares one implementation with /api/search so the two can't drift.
     let spotlight = null;
     try {
-      spotlight = await buildSpotlight(db, sanitizedTerm, users);
+      spotlight = await buildSpotlight(db, sanitizedTerm, visible.users);
     } catch (e) {
       console.error('spotlight failed:', e);
     }
 
+    // Page one is served here, not by /api/search, so this is where a search
+    // gets counted toward suggestions.
+    if (hasLexicalHit(sanitizedTerm, visible)) {
+      logSearchQuery(request, userId ?? null, sanitizedTerm);
+    }
+
     return data({
       url: sanitizedTerm,
-      results,
-      seriesRoots,
-      users,
+      results: visible.files,
+      seriesRoots: visible.series,
+      users: visible.users,
       spotlight,
-      userActions: { likedFileIds, dislikedFileIds },
+      userActions: { likedFileIds: visible.likedFileIds, dislikedFileIds: visible.dislikedFileIds },
       nextCursor,
       hasMore: Boolean(nextCursor),
     }, { status: 200 });

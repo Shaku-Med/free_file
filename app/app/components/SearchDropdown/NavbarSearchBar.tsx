@@ -19,11 +19,8 @@ export interface NavbarSearchBarProps {
   dropdownClassName?: string;
 }
 
-/**
- * YouTube-style search bar: typing shows text completions only; Enter (or
- * picking a suggestion) goes to the full /search page where the video cards
- * — and the semantic vector ranking — live. Arrow keys walk the list.
- */
+// Enter or picking a suggestion goes to /search, where the video cards and the
+// semantic ranking live. Arrow keys walk the list.
 export function NavbarSearchBar({
   className,
   autoFocus,
@@ -36,7 +33,7 @@ export function NavbarSearchBar({
   const [activeIndex, setActiveIndex] = useState(-1);
   const navigate = useNavigate();
 
-  const { inputValue, setInputValue, debouncedTerm, items, removeRecent } = useSearchPanel(open);
+  const { inputValue, setInputValue, debouncedTerm, items, recordSearch, removeRecent } = useSearchPanel(open);
 
   const closeDropdown = useCallback(() => {
     setOpen(false);
@@ -48,11 +45,12 @@ export function NavbarSearchBar({
     (query: string) => {
       const q = query.trim();
       if (!q) return;
+      recordSearch(q);
       navigate(`/search/${encodeURIComponent(q)}`);
       closeDropdown();
       inputRef.current?.blur();
     },
-    [navigate, closeDropdown],
+    [navigate, closeDropdown, recordSearch],
   );
 
   useEffect(() => {

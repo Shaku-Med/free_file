@@ -3,9 +3,33 @@ import { attachIsMusic } from '~/lib/files/attachIsMusic.server';
 import { isAuthenticated } from '~/lib/Security/Password';
 import { embedSearchQuery } from '~/lib/Services/embedQuery.server';
 import { buildSpotlight } from '~/lib/search/spotlight.server';
+import { getPopularCompletions, logSearchQuery } from '~/lib/search/searchStats.server';
+import { filterByOwnerStatus } from '~/lib/Security/accountStatus.server';
+import { isValidUUID } from '~/lib/Security/inputValidation';
+import {
+  allowSearchRequest,
+  allowSuggestRequest,
+  escapeLikePattern,
+  hasLexicalHit,
+  withoutRestrictedOwners,
+} from '~/lib/search/searchSafety.server';
 
 const SEARCH_LIMIT = 20;
 const SERIES_ROOTS_LIMIT = 8;
+
+const SORTS = new Set(['relevance', 'recent', 'popular']);
+const FILE_TYPE = /^(video|image|audio)(\/[a-z0-9.+-]{1,40})?$/;
+
+function tooManyRequests(retryAfterSeconds: number) {
+  return new Response(JSON.stringify({ error: 'Too many requests' }), {
+    status: 429,
+    headers: {
+      'Content-Type': 'application/json',
+      'Cache-Control': 'no-store',
+      'Retry-After': String(retryAfterSeconds),
+    },
+  });
+}
 
 /** Search cards only show a 2-line snippet, so trim long descriptions to a
  *  word boundary (~160 chars) here  keeps the payload light too. */
@@ -75,7 +99,7 @@ function dedupeSeriesByMainFiles(seriesRoots: ReturnType<typeof mapSearchFile>[]
 
 type SuggestItem = {
   text: string;
-  kind: 'recent' | 'popular' | 'match';
+  kind: 'popular' | 'match';
   /** Representative public video, for the dropdown thumbnail. Optional. */
   thumb?: { unique_id: string; created_at: string; default_thumbnail: string | null; filename: string } | null;
 };
@@ -120,14 +144,14 @@ async function attachSuggestionThumbs(items: SuggestItem[]): Promise<SuggestItem
   try {
     const { data } = await db
       .from('files')
-      .select('unique_id, created_at, file_title, filename, default_thumbnail')
+      .select('unique_id, created_at, file_title, filename, default_thumbnail, owner_id')
       .or(ors)
       .eq('is_public', true)
       .eq('is_adult', false)
       .eq('upload_status', 'complete')
       .limit(60);
 
-    const rows = Array.isArray(data) ? data : [];
+    const rows = await filterByOwnerStatus(Array.isArray(data) ? data : [], null);
     return items.map((it) => {
       const p = prefixes.get(it.text);
       if (!p) return it;
@@ -151,47 +175,34 @@ async function attachSuggestionThumbs(items: SuggestItem[]): Promise<SuggestItem
   }
 }
 
-/**
- * Navbar dropdown completions. Empty query => the user's recent searches +
- * globally popular queries. Typed query => popularity-ranked query matches,
- * then content-title completions  all deduped, frequent matches first.
- */
-async function buildSuggestItems(userId: string | null, rawQuery: string): Promise<SuggestItem[]> {
+// Typed completions only. The empty box shows the device's own history, which
+// never leaves the device, so there is nothing to return for it here.
+async function buildSuggestItems(rawQuery: string): Promise<SuggestItem[]> {
   const q = rawQuery.trim().slice(0, 80);
+  if (!q) return [];
+
   const items: SuggestItem[] = [];
   const seen = new Set<string>();
   const push = (text: unknown, kind: SuggestItem['kind']) => {
     if (typeof text !== 'string') return;
     const t = text.trim();
     const key = t.toLowerCase();
-    if (!t || seen.has(key)) return;
+    if (!t || seen.has(key) || key === q.toLowerCase()) return;
     seen.add(key);
     items.push({ text: t, kind });
   };
 
-  const { data: comps } = await db.rpc('get_search_completions', {
-    p_user_id: userId,
-    p_query: q,
-    p_limit: 10,
-  });
-  if (Array.isArray(comps)) {
-    for (const c of comps) {
-      const kind = (c as { kind?: unknown })?.kind;
-      if (kind === 'recent' || kind === 'popular' || kind === 'match') {
-        push((c as { query?: unknown }).query, kind);
-      }
-    }
+  const [popular, titles] = await Promise.all([
+    getPopularCompletions(q, 8),
+    db.rpc('get_search_suggestions', { p_query: q, p_limit: 8 }),
+  ]);
+
+  for (const text of popular) push(text, 'popular');
+  if (Array.isArray(titles?.data)) {
+    for (const r of titles.data) push((r as { suggestion?: unknown }).suggestion, 'match');
   }
 
-  // Content-title completions only while typing, appended after frequent matches.
-  if (q.length >= 1) {
-    const { data: sugg } = await db.rpc('get_search_suggestions', { p_query: q, p_limit: 8 });
-    if (Array.isArray(sugg)) {
-      for (const r of sugg) push((r as { suggestion?: unknown }).suggestion, 'match');
-    }
-  }
-
-  return attachSuggestionThumbs(items.slice(0, 12));
+  return attachSuggestionThumbs(items.slice(0, 10));
 }
 
 export const loader = async ({ request }: { request: Request }) => {
@@ -200,13 +211,11 @@ export const loader = async ({ request }: { request: Request }) => {
     let query = url.searchParams.get('q')?.trim();
     // Cap the term so an oversized string can't drive an expensive RPC/DB scan.
     if (query && query.length > 200) query = query.slice(0, 200);
-    // Navbar dropdown completions. Handled BEFORE the empty-query guard so an
-    // empty box still returns recent + popular searches (YouTube-style).
     if (url.searchParams.get('suggest') === '1') {
-      const sugUser = await isAuthenticated(request, ['id']).catch(() => null);
+      if (!allowSuggestRequest(request)) return tooManyRequests(60);
       let items: SuggestItem[] = [];
       try {
-        items = await buildSuggestItems(sugUser?.id || null, query ?? '');
+        items = await buildSuggestItems(query ?? '');
       } catch (e) {
         console.warn('[search] completions:', e instanceof Error ? e.message : e);
       }
@@ -221,26 +230,23 @@ export const loader = async ({ request }: { request: Request }) => {
       });
     }
 
+    if (!allowSearchRequest(request)) return tooManyRequests(120);
+
     const cursorScoreParam = url.searchParams.get('cursor_score');
     const cursorIdParam = url.searchParams.get('cursor_id');
-    const sortBy = url.searchParams.get('sort_by') ?? 'relevance';
-    const fileType = url.searchParams.get('file_type');
-    const category = url.searchParams.get('category');
+    const sortParam = url.searchParams.get('sort_by') ?? 'relevance';
+    const sortBy = SORTS.has(sortParam) ? sortParam : 'relevance';
+    const fileTypeParam = url.searchParams.get('file_type')?.trim().toLowerCase() ?? '';
+    const fileType = FILE_TYPE.test(fileTypeParam) ? fileTypeParam : null;
+    const categoryParam = url.searchParams.get('category')?.trim() ?? '';
+    const category = categoryParam && categoryParam.length <= 60 ? categoryParam : null;
 
     const cursorScore = cursorScoreParam ? parseFloat(cursorScoreParam) : null;
-    const cursorId = cursorIdParam ?? null;
+    const cursorId = cursorIdParam && isValidUUID(cursorIdParam) ? cursorIdParam : null;
     const isInitialSearch = !Number.isFinite(cursorScore) && !cursorId;
 
     const user = await isAuthenticated(request, ['id']);
     const userId: string | undefined = user?.id || undefined;
-
-    // Log the search once per submission (first page only) to power frequent /
-    // recent suggestions. Best-effort  never blocks or fails the search.
-    if (isInitialSearch) {
-      void db
-        .rpc('log_search_query', { p_user_id: userId || null, p_query: query })
-        .then(() => {}, () => {});
-    }
 
     // Semantic vector for the query (cached, ~10ms cold). Null when the
     // embed sidecar is down/unconfigured  search degrades to lexical-only.
@@ -317,10 +323,8 @@ export const loader = async ({ request }: { request: Request }) => {
       }
     }
 
-    // RPC rows don't carry is_music; add it so the card music icon shows.
-    await attachIsMusic(db, data);
-    if (seriesRootsMapped.length > 0) await attachIsMusic(db, seriesRootsMapped);
-
+    // Cursor comes from the unfiltered page, otherwise hiding a restricted
+    // owner's rows would end pagination early.
     const lastItem = data[data.length - 1];
     const nextCursor =
       lastItem && data.length >= SEARCH_LIMIT
@@ -329,9 +333,7 @@ export const loader = async ({ request }: { request: Request }) => {
 
     let users: Array<{ id: string; username: string; profile_pic: string; file_count: number }> = [];
     if (db && isInitialSearch) {
-      // Escape LIKE wildcards so a user can't inject `%`/`_` to widen the match
-      // (enumeration) or force expensive leading-wildcard scans.
-      const likeSafe = query.replace(/[\\%_]/g, (c) => `\\${c}`);
+      const likeSafe = escapeLikePattern(query);
       const usersResult = await db
         .from('users')
         .select('id, username, profile_pic, file_count')
@@ -349,16 +351,33 @@ export const loader = async ({ request }: { request: Request }) => {
       }
     }
 
+    const visible = await withoutRestrictedOwners({
+      files: data,
+      series: seriesRootsMapped,
+      users,
+      viewerId: userId ?? null,
+      likedFileIds,
+      dislikedFileIds,
+    });
+
+    // RPC rows don't carry is_music; add it so the card music icon shows.
+    await attachIsMusic(db, visible.files);
+    if (visible.series.length > 0) await attachIsMusic(db, visible.series);
+
     const spotlight = (db && isInitialSearch)
-      ? await buildSpotlight(db, query, users)
+      ? await buildSpotlight(db, query, visible.users)
       : null;
 
+    if (isInitialSearch && hasLexicalHit(query, visible)) {
+      logSearchQuery(request, userId ?? null, query);
+    }
+
     return new Response(JSON.stringify({
-      data,
-      seriesRoots: seriesRootsMapped,
-      users,
+      data: visible.files,
+      seriesRoots: visible.series,
+      users: visible.users,
       spotlight,
-      userActions: { likedFileIds, dislikedFileIds },
+      userActions: { likedFileIds: visible.likedFileIds, dislikedFileIds: visible.dislikedFileIds },
       nextCursor
     }), {
       headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }

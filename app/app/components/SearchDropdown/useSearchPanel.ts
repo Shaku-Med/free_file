@@ -1,17 +1,21 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useDebouncedValue } from "~/lib/hooks/useDebouncedValue";
+import {
+  addSearchHistory,
+  getSearchHistory,
+  matchSearchHistory,
+  removeSearchHistory,
+} from "~/lib/search/searchHistory";
 
-/**
- * YouTube-style navbar search:
- *   - empty box (on focus)  shows the user's recent searches + popular queries
- *   - typing               shows popularity-ranked query matches + content completions
- * The full result page with video cards is reached on Enter / picking a row.
- */
+// Empty box: this device's own search history. Typing: matching history first,
+// then what other people search most for that prefix, then content titles.
 
 const SUGGEST_DEBOUNCE_MS = 180;
 const CACHE_MAX = 100;
+const EMPTY_HISTORY_LIMIT = 10;
+const TYPED_HISTORY_LIMIT = 3;
+const MAX_ITEMS = 12;
 
-/** Optional preview attached server side; absent whenever nothing matched. */
 export type SuggestionThumb = {
   unique_id: string;
   created_at: string;
@@ -25,12 +29,11 @@ export type SearchSuggestion = {
   thumb?: SuggestionThumb | null;
 };
 
-/** Session cache for TYPED terms only; the empty box always refetches so recent
- *  searches stay fresh after a new search or a removal. */
-const suggestionCache = new Map<string, SearchSuggestion[]>();
+type RemoteSuggestion = SearchSuggestion & { kind: "popular" | "match" };
 
-function cachePut(term: string, items: SearchSuggestion[]) {
-  if (!term) return;
+const suggestionCache = new Map<string, RemoteSuggestion[]>();
+
+function cachePut(term: string, items: RemoteSuggestion[]) {
   if (suggestionCache.size >= CACHE_MAX) {
     const oldest = suggestionCache.keys().next().value;
     if (oldest !== undefined) suggestionCache.delete(oldest);
@@ -44,31 +47,33 @@ function isThumb(v: unknown): v is SuggestionThumb {
   return typeof t.unique_id === "string" && typeof t.created_at === "string";
 }
 
-function isSuggestion(v: unknown): v is SearchSuggestion {
+// "recent" is rejected: only this device may put an entry in the history section.
+function isRemoteSuggestion(v: unknown): v is RemoteSuggestion {
   if (!v || typeof v !== "object") return false;
   const o = v as { text?: unknown; kind?: unknown; thumb?: unknown };
   return (
     typeof o.text === "string" &&
     o.text.length > 0 &&
-    (o.kind === "recent" || o.kind === "popular" || o.kind === "match") &&
-    // Absent or null is normal; a malformed one is dropped rather than
-    // rendered, so a bad payload cannot put a broken image in the dropdown.
+    o.text.length <= 200 &&
+    (o.kind === "popular" || o.kind === "match") &&
     (o.thumb == null || isThumb(o.thumb))
   );
 }
 
 export function useSearchPanel(open: boolean) {
   const [inputValue, setInputValue] = useState("");
-  const debouncedTerm = useDebouncedValue(inputValue.trim(), SUGGEST_DEBOUNCE_MS);
+  const term = inputValue.trim();
+  const debouncedTerm = useDebouncedValue(term, SUGGEST_DEBOUNCE_MS);
 
-  const [items, setItems] = useState<SearchSuggestion[]>([]);
+  const [remote, setRemote] = useState<{ term: string; list: RemoteSuggestion[] }>({ term: "", list: [] });
+  const [historyVersion, setHistoryVersion] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
 
-  const fetchSuggestions = useCallback(async (term: string) => {
-    const cached = term ? suggestionCache.get(term) : undefined;
+  const fetchSuggestions = useCallback(async (q: string) => {
+    const cached = suggestionCache.get(q);
     if (cached) {
-      setItems(cached);
+      setRemote({ term: q, list: cached });
       return;
     }
 
@@ -78,25 +83,25 @@ export function useSearchPanel(open: boolean) {
     setIsLoading(true);
 
     try {
-      const params = new URLSearchParams({ suggest: "1" });
-      if (term) params.set("q", term);
+      const params = new URLSearchParams({ suggest: "1", q });
       const response = await fetch(`/api/search?${params}`, { signal: controller.signal });
       if (controller.signal.aborted || !response.ok) return;
       const result = (await response.json()) as { items?: unknown };
-      const list = Array.isArray(result.items) ? result.items.filter(isSuggestion) : [];
-      cachePut(term, list);
-      setItems(list);
+      const list = Array.isArray(result.items) ? result.items.filter(isRemoteSuggestion) : [];
+      cachePut(q, list);
+      setRemote({ term: q, list });
     } catch (error) {
       if (error instanceof DOMException && error.name === "AbortError") return;
-      setItems([]);
+      setRemote({ term: q, list: [] });
     } finally {
       if (!controller.signal.aborted) setIsLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    if (!open) {
+    if (!open || !debouncedTerm) {
       abortRef.current?.abort();
+      setIsLoading(false);
       return;
     }
     void fetchSuggestions(debouncedTerm);
@@ -104,21 +109,43 @@ export function useSearchPanel(open: boolean) {
 
   useEffect(() => () => abortRef.current?.abort(), []);
 
+  const items = useMemo<SearchSuggestion[]>(() => {
+    if (!open) return [];
+    if (!term) {
+      return getSearchHistory(EMPTY_HISTORY_LIMIT).map((text) => ({ text, kind: "recent" as const }));
+    }
+
+    const local = matchSearchHistory(term, TYPED_HISTORY_LIMIT).map((text) => ({ text, kind: "recent" as const }));
+    const seen = new Set(local.map((i) => i.text.toLowerCase()));
+    const lowerTerm = term.toLowerCase();
+
+    // While the debounce catches up, keep the previous list but only what still fits.
+    const stale = remote.term.toLowerCase() !== lowerTerm;
+    const fromServer = remote.list.filter((i) => {
+      const key = i.text.toLowerCase();
+      if (seen.has(key)) return false;
+      if (stale && !key.includes(lowerTerm)) return false;
+      seen.add(key);
+      return true;
+    });
+
+    return [...local, ...fromServer].slice(0, MAX_ITEMS);
+  }, [open, term, remote, historyVersion]);
+
   const reset = useCallback(() => {
     setInputValue("");
-    setItems([]);
+    setRemote({ term: "", list: [] });
     setIsLoading(false);
   }, []);
 
-  /** Remove one of the user's recent searches (the dropdown "x"). */
+  const recordSearch = useCallback((query: string) => {
+    addSearchHistory(query);
+    setHistoryVersion((v) => v + 1);
+  }, []);
+
   const removeRecent = useCallback((query: string) => {
-    setItems((prev) => prev.filter((i) => !(i.kind === "recent" && i.text === query)));
-    suggestionCache.clear();
-    void fetch("/api/search/recent", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "X-Requested-With": "fetch" },
-      body: JSON.stringify({ query }),
-    }).catch(() => {});
+    removeSearchHistory(query);
+    setHistoryVersion((v) => v + 1);
   }, []);
 
   return {
@@ -128,6 +155,7 @@ export function useSearchPanel(open: boolean) {
     items,
     isLoading,
     reset,
+    recordSearch,
     removeRecent,
   };
 }
