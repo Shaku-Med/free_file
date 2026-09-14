@@ -5,6 +5,8 @@ import { WatchPlayBootstrapSync } from "./components/WatchPlayBootstrapSync";
 import { useCallback, useEffect, useLayoutEffect, useState, useRef, useMemo } from "react";
 import RelatedVideos from "./components/RelatedVideos";
 import SeriesEpisodesSection from "./components/SeriesEpisodesSection";
+import VideoSections from "./components/VideoSections";
+import { parseChapters } from "~/components/components/hlsplayer/controls/seek/functions/parseChapters";
 import ImageWatchCarousel from "./components/ImageWatchCarousel";
 import { Carousel, CarouselItem } from "~/components/Carousel/Carousel";
 import SeriesSignInGate from "./components/SeriesSignInGate";
@@ -1616,6 +1618,11 @@ const DynamicPage = ({ is_modal }: DynamicPageProps) => {
   );
 
   const description = file_data.file_description?.trim() ?? "";
+  const fileDuration = typeof file_data.duration === "number" ? file_data.duration : 0;
+  const sections = useMemo(
+    () => (file_data.is_reel ? [] : parseChapters(description, fileDuration)),
+    [description, fileDuration, file_data.is_reel],
+  );
   // Hover tint for the collapsed description card: the FILE's dominant
   // color crushed onto the theme surface (YouTube's trick). color-mix keeps
   // most of the surface's luminance, so the hue shows but text contrast
@@ -1870,6 +1877,14 @@ const DynamicPage = ({ is_modal }: DynamicPageProps) => {
               )}
           </div>
         )}
+
+        {/* Always visible, not behind ...more: sections are how people skip around a course. */}
+        <VideoSections
+          chapters={sections}
+          fileId={file_data.id}
+          videoRef={watchVideoRef}
+          videoReady={videoRefReady}
+        />
 
         {/* Hashtags  YouTube-style blue #tags under the description. */}
         {descriptionExpanded && tagsList.length > 0 && (

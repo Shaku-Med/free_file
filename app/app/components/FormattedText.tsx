@@ -2,11 +2,14 @@ import type React from "react";
 import { Fragment } from "react";
 import { Link } from "react-router";
 import { cn } from "~/lib/utils";
+import { createTimestampRegex, timestampMatchToSeconds } from "~/lib/timestamps";
 
-const MD_LINK = /\[([^\]]+)\]\(([^)\s]+)\)/g;
+// Bounded quantifiers on both of these: user text can hold a long unclosed "["
+// or a long run with no "@", and unbounded `+` rescans it from every position.
+const MD_LINK = /\[([^\]\n]{1,200})\]\(([^)\s]{1,2048})\)/g;
 
 const URL_RE = /(?:https?:\/\/[^\s<>\[\]()]+|www\.[^\s<>\[\]()]+)/gi;
-const EMAIL_RE = /(?:[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/g;
+const EMAIL_RE = /(?:[a-zA-Z0-9._%+-]{1,64}@[a-zA-Z0-9.-]{1,253}\.[a-zA-Z]{2,24})/g;
 const PHONE_RE = /(?:\+?[\d][\d\s\-().]{9,}\d|\(\d{3}\)\s*\d{3}[-.\s]?\d{4})/g;
 
 const HASHTAG_OR_MENTION = /(?:#[\w-]+)|(?:@[\w.-]+)/g;
@@ -21,23 +24,7 @@ type Segment =
   | { type: "mention"; value: string }
   | { type: "timestamp"; value: string; seconds: number };
 
-/**
- * Matches video-style timestamps: M:SS, MM:SS, H:MM:SS, HH:MM:SS.
- *  - Seconds must be 00-59 (the regex enforces it)
- *  - Hours / minutes are unconstrained at parse time; we filter against
- *    the actual video duration when rendering, so "99:59" parses but
- *    won't render as a link if the video is shorter.
- *  - Word boundaries on both sides so "v1.2.3" / "tel:1234" don't false-positive
- */
-const TIMESTAMP_RE = /\b(\d{1,2}):([0-5]\d)(?::([0-5]\d))?\b/g;
-
-function timestampToSeconds(m: RegExpExecArray): number {
-  const a = Number(m[1]);
-  const b = Number(m[2]);
-  const c = m[3] != null ? Number(m[3]) : null;
-  if (c == null) return a * 60 + b; // M:SS
-  return a * 3600 + b * 60 + c;     // H:MM:SS
-}
+const TIMESTAMP_RE = createTimestampRegex();
 
 /** Global event the player listens to. Decouples comment rendering from
  *  the player so any mounted player (main, mini, embed) can react. */
@@ -174,7 +161,7 @@ function expandTimestamps(segments: Segment[], maxSeconds?: number): Segment[] {
     let m: RegExpExecArray | null;
     let matched = false;
     while ((m = TIMESTAMP_RE.exec(s)) !== null) {
-      const seconds = timestampToSeconds(m);
+      const seconds = timestampMatchToSeconds(m);
       if (maxSeconds != null && seconds > maxSeconds) continue;
       if (seconds < 0) continue;
       matched = true;

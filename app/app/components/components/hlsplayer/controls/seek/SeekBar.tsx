@@ -2,7 +2,7 @@ import { useRef, useState, useCallback, useEffect, useLayoutEffect, useMemo } fr
 import { usePlayerContext } from '../../PlayerContext';
 import { useFileContext } from '~/lib/Context/Context';
 import type { BufferedRange } from '../../PlayerContext';
-import ThumbnailPreview from './ThumbnailPreview';
+import ThumbnailPreview, { SectionTimeLabel } from './ThumbnailPreview';
 import { formatTime } from './functions/formatTime';
 import { parseChapters, activeChapterIndex, type Chapter } from './functions/parseChapters';
 import WaveformCanvas, {
@@ -36,25 +36,27 @@ function BufferSegments({ ranges, duration, className }: {
   );
 }
 
-/** YouTube-style gap markers at each chapter boundary (skips the 0:00 start). */
-function ChapterTicks({ chapters, duration }: { chapters: Chapter[]; duration: number }) {
-  if (duration <= 0 || chapters.length < 2) return null;
-  return (
-    <>
-      {chapters.map((ch, i) => {
-        if (i === 0 || ch.start <= 0 || ch.start >= duration) return null;
-        const left = (ch.start / duration) * 100;
-        return (
-          <div
-            key={ch.start}
-            className="absolute top-1/2 z-[1] h-[140%] w-[2px] -translate-y-1/2 rounded-full bg-background/80"
-            style={{ left: `${left}%` }}
-            aria-hidden
-          />
-        );
-      })}
-    </>
-  );
+// Cuts a transparent gap at each chapter boundary so the bar reads as separate
+// sections. A mask rather than extra elements, so the played fill keeps its
+// single rAF-driven width and every bar style (plain, mobile, waveform) splits
+// the same way. The handle must stay outside the masked layer or it gets cut.
+function chapterGapMask(chapters: Chapter[], duration: number, gapPx: number): React.CSSProperties | undefined {
+  if (duration <= 0 || chapters.length < 2) return undefined;
+  const half = gapPx / 2;
+  const stops = ['#000 0%'];
+  for (const ch of chapters) {
+    if (ch.start <= 0 || ch.start >= duration) continue;
+    const pct = (ch.start / duration) * 100;
+    stops.push(
+      `#000 calc(${pct}% - ${half}px)`,
+      `transparent calc(${pct}% - ${half}px)`,
+      `transparent calc(${pct}% + ${half}px)`,
+      `#000 calc(${pct}% + ${half}px)`,
+    );
+  }
+  stops.push('#000 100%');
+  const image = `linear-gradient(to right, ${stops.join(', ')})`;
+  return { maskImage: image, WebkitMaskImage: image };
 }
 
 function useVideoProgress(
@@ -252,19 +254,24 @@ function ThinSeekTrack({
     ? 'h-[var(--hls-ctrl-seek-handle,1rem)] w-[var(--hls-ctrl-seek-handle,1rem)]'
     : 'h-4 w-4';
 
+  const railMask = useMemo(() => chapterGapMask(chapters, duration, 2), [chapters, duration]);
+  // Waveform bars already have spacing between them, so its gap is wider to read.
+  const waveMask = useMemo(() => chapterGapMask(chapters, duration, 4), [chapters, duration]);
+
   const rail = (
     <>
-      <BufferSegments
-        ranges={bufferedRanges}
-        duration={duration}
-        className="bg-white/25 rounded-full"
-      />
-      <div
-        ref={barRef}
-        className="absolute top-0 left-0 h-full rounded-full bg-primary"
-        style={{ width: `${progress}%` }}
-      />
-      <ChapterTicks chapters={chapters} duration={duration} />
+      <div className="absolute inset-0 overflow-hidden rounded-full bg-secondary" style={railMask}>
+        <BufferSegments
+          ranges={bufferedRanges}
+          duration={duration}
+          className="bg-white/25 rounded-full"
+        />
+        <div
+          ref={barRef}
+          className="absolute top-0 left-0 h-full rounded-full bg-primary"
+          style={{ width: `${progress}%` }}
+        />
+      </div>
       <div
         ref={handleRef}
         className={cn(
@@ -298,7 +305,7 @@ function ThinSeekTrack({
         onPointerCancel={onPointerCancel}
         onBlur={onMouseLeave}
       >
-        <div className="relative h-[var(--hls-ctrl-seek-track,3px)] w-full shrink-0 overflow-visible rounded-full bg-secondary">
+        <div className="relative h-[var(--hls-ctrl-seek-track,3px)] w-full shrink-0 overflow-visible rounded-full">
           {rail}
         </div>
       </div>
@@ -328,62 +335,73 @@ function ThinSeekTrack({
       >
         {isJson ? (
           <>
-            {/* Unplayed waveform  muted-foreground, fades a touch more
-                until hover so the primary fill pops. Only this canvas
-                wires onError; the played-layer canvas above shares the
-                same URL and would fire a redundant callback. */}
-            <div className="pointer-events-none absolute inset-0 text-muted-foreground opacity-60 transition-opacity duration-200 group-hover/seek:opacity-80">
-              <WaveformCanvas
-                url={waveformUrl}
-                height={WAVEFORM_HEIGHT}
-                onError={onWaveformError}
-              />
-            </div>
-
-            {/* Buffered ranges  rendered as semi-opaque foreground bars
-                over the unplayed waveform. Same color family as played
-                but lower opacity, so the eye reads: muted → buffered →
-                played, like YouTube. Each range gets its own clip box;
-                the inner canvas is positioned in pixels relative to the
-                whole track so the bars stay aligned with the muted and
-                primary layers underneath. */}
-            {duration > 0 &&
-              trackWidth > 0 &&
-              bufferedRanges.map((range, i) => {
-                const leftPx = (range.start / duration) * trackWidth;
-                const widthPx = ((range.end - range.start) / duration) * trackWidth;
-                if (widthPx <= 0) return null;
-                return (
-                  <div
-                    key={i}
-                    className="pointer-events-none absolute inset-y-0 overflow-hidden text-foreground/70 opacity-35 transition-opacity duration-200 group-hover/seek:opacity-50"
-                    style={{ left: `${leftPx}px`, width: `${widthPx}px` }}
-                  >
-                    <div
-                      className="absolute inset-y-0"
-                      style={{ left: `${-leftPx}px`, width: `${trackWidth}px` }}
-                    >
-                      <WaveformCanvas url={waveformUrl} height={WAVEFORM_HEIGHT} />
-                    </div>
-                  </div>
-                );
-              })}
-
-            {/* Played waveform  primary, clipped to progress%. The inner
-                canvas always renders at the track's full pixel width so
-                that as the clip grows the bars stay aligned with the
-                muted layer underneath. */}
-            <div
-              ref={barRef}
-              className="pointer-events-none absolute inset-y-0 left-0 overflow-hidden text-primary"
-              style={{ width: `${progress}%` }}
-            >
-              <div
-                className="absolute inset-y-0 left-0"
-                style={{ width: trackWidth || '100%' }}
-              >
-                <WaveformCanvas url={waveformUrl} height={WAVEFORM_HEIGHT} />
+            <div className="pointer-events-none absolute inset-0" style={waveMask}>
+              {/* Unplayed waveform  muted-foreground, fades a touch more
+                  until hover so the primary fill pops. Only this canvas
+                  wires onError; the played-layer canvas above shares the
+                  same URL and would fire a redundant callback. */}
+              <div className="pointer-events-none absolute inset-0 text-muted-foreground opacity-60 transition-opacity duration-200 group-hover/seek:opacity-80">
+                <WaveformCanvas
+                  url={waveformUrl}
+                  height={WAVEFORM_HEIGHT}
+                  onError={onWaveformError}
+                />
               </div>
+
+              {/* Buffered ranges  rendered as semi-opaque foreground bars
+                  over the unplayed waveform. Same color family as played
+                  but lower opacity, so the eye reads: muted → buffered →
+                  played, like YouTube. Each range gets its own clip box;
+                  the inner canvas is positioned in pixels relative to the
+                  whole track so the bars stay aligned with the muted and
+                  primary layers underneath. */}
+              {duration > 0 &&
+                trackWidth > 0 &&
+                bufferedRanges.map((range, i) => {
+                  const leftPx = (range.start / duration) * trackWidth;
+                  const widthPx = ((range.end - range.start) / duration) * trackWidth;
+                  if (widthPx <= 0) return null;
+                  return (
+                    <div
+                      key={i}
+                      className="pointer-events-none absolute inset-y-0 overflow-hidden text-foreground/70 opacity-35 transition-opacity duration-200 group-hover/seek:opacity-50"
+                      style={{ left: `${leftPx}px`, width: `${widthPx}px` }}
+                    >
+                      <div
+                        className="absolute inset-y-0"
+                        style={{ left: `${-leftPx}px`, width: `${trackWidth}px` }}
+                      >
+                        <WaveformCanvas url={waveformUrl} height={WAVEFORM_HEIGHT} />
+                      </div>
+                    </div>
+                  );
+                })}
+
+              {/* Played waveform  primary, clipped to progress%. The inner
+                  canvas always renders at the track's full pixel width so
+                  that as the clip grows the bars stay aligned with the
+                  muted layer underneath. */}
+              <div
+                ref={barRef}
+                className="pointer-events-none absolute inset-y-0 left-0 overflow-hidden text-primary"
+                style={{ width: `${progress}%` }}
+              >
+                <div
+                  className="absolute inset-y-0 left-0"
+                  style={{ width: trackWidth || '100%' }}
+                >
+                  <WaveformCanvas url={waveformUrl} height={WAVEFORM_HEIGHT} />
+                </div>
+              </div>
+
+              {/* Hairline + buffered ranges so a flat-line waveform (silent
+                  video) still has a clear track. */}
+              <div className="pointer-events-none absolute inset-x-0 bottom-0 h-px bg-border" />
+              <BufferSegments
+                ranges={bufferedRanges}
+                duration={duration}
+                className="bg-white/15 rounded-full bottom-0 top-auto h-px"
+              />
             </div>
 
             {/* Scrubber handle. Vertical position is driven from style, not a
@@ -409,15 +427,6 @@ function ThinSeekTrack({
                 transition: 'top 80ms linear',
               }}
             />
-
-            {/* Hairline + buffered ranges sit on top of everything else so
-                a flat-line waveform (silent video) still has a clear track. */}
-            <div className="pointer-events-none absolute inset-x-0 bottom-0 h-px bg-border" />
-            <BufferSegments
-              ranges={bufferedRanges}
-              duration={duration}
-              className="bg-white/15 rounded-full bottom-0 top-auto h-px"
-            />
           </>
         ) : (
           <>
@@ -428,6 +437,7 @@ function ThinSeekTrack({
             <div
               className="pointer-events-none absolute inset-x-0 top-0 opacity-60 group-hover/seek:opacity-90 transition-opacity duration-200"
               style={{
+                ...waveMask,
                 height: WAVEFORM_HEIGHT - 6,
                 backgroundImage: `url(${waveformUrl})`,
                 backgroundSize: '100% 100%',
@@ -440,7 +450,7 @@ function ThinSeekTrack({
             {/* Thin rail at the bottom  same as the no-waveform branch
                 so the seek/scrub UX matches. */}
             <div className="absolute inset-x-0 bottom-0 flex items-center pb-0.5">
-              <div className="relative h-1 w-full overflow-visible rounded-full bg-secondary transition-[height] duration-150 group-hover/seek:h-1.5">
+              <div className="relative h-1 w-full overflow-visible rounded-full transition-[height] duration-150 group-hover/seek:h-1.5">
                 {rail}
               </div>
             </div>
@@ -471,7 +481,7 @@ function ThinSeekTrack({
     >
       <div
         className={cn(
-          'relative w-full overflow-visible rounded-full bg-secondary',
+          'relative w-full overflow-visible rounded-full',
           scaledStyle
             ? 'h-[var(--hls-ctrl-seek-track,4px)] transition-[height] duration-150 group-hover/seek:h-[calc(var(--hls-ctrl-seek-track,4px)*1.5)]'
             : 'h-1 transition-[height] duration-150 group-hover/seek:h-2',
@@ -496,7 +506,7 @@ export default function SeekBar({
   flushBottom?: boolean;
   /** Align the rail to the top of the hit area (mobile music bar). */
   flushTop?: boolean;
-  /** Skip scrub thumbnail hover (music bar — preview blocked shell taps). */
+  /** Skip scrub thumbnail hover (music bar: preview blocked shell taps). */
   disablePreview?: boolean;
 }) {
   const {
@@ -825,8 +835,8 @@ export default function SeekBar({
               : { bottom: '100%', marginBottom: 8 }
           }
         >
-          <span className="max-w-[70%] truncate rounded-md bg-black/85 px-2 py-1 text-[11px] font-medium text-white shadow-md">
-            {hoverChapterTitle}
+          <span className="flex max-w-[70%] justify-center">
+            <SectionTimeLabel caption={hoverChapterTitle} time={hoverTime} compact={mobileStyle} />
           </span>
         </div>
       )}

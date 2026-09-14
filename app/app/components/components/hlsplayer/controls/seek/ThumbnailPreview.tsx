@@ -2,6 +2,7 @@ import { useMemo } from 'react';
 import type { ThumbnailSpriteMeta } from '../../PlayerContext';
 import { getFrameAtTime } from './functions/thumbnailSprite';
 import { formatTime } from './functions/formatTime';
+import { cn } from '~/lib/utils';
 
 interface ThumbnailPreviewProps {
   meta: ThumbnailSpriteMeta;
@@ -9,7 +10,7 @@ interface ThumbnailPreviewProps {
   time: number;
   parentWidth: number;
   cursorX: number;
-  /** Chapter title for the hovered position, shown above the timestamp. */
+  /** Section title for the hovered position, shown beside the timestamp. */
   caption?: string;
   /**
    * Mobile / mini seek: sit just above the visible rail instead of above the
@@ -18,11 +19,42 @@ interface ThumbnailPreviewProps {
   tight?: boolean;
   /** Mini dock: rail is flush to the bottom of the hit area. */
   flushBottom?: boolean;
-  /** Music bar: rail is flush to the top — preview stacks upward from the bar. */
+  /** Music bar: rail is flush to the top, so the preview stacks upward from the bar. */
   flushTop?: boolean;
 }
 
-/** Desktop watch ceiling — never larger than this on a wide player. */
+// Section name and time in one pill, so it's obvious which section the hovered
+// time belongs to. Long names truncate; the time never does.
+export function SectionTimeLabel({
+  caption,
+  time,
+  compact,
+}: {
+  caption?: string;
+  time: number;
+  compact: boolean;
+}) {
+  return (
+    <span
+      className={cn(
+        'inline-flex max-w-full items-center gap-1 rounded-md bg-black/85 font-medium text-white shadow-md',
+        compact ? 'px-1 py-0.5 text-[10px]' : 'px-1.5 py-0.5 text-[11px]',
+      )}
+    >
+      {caption && (
+        <>
+          <span className="min-w-0 truncate">{caption}</span>
+          <span className="shrink-0 text-white/50" aria-hidden>
+            ·
+          </span>
+        </>
+      )}
+      <span className="shrink-0 tabular-nums">{formatTime(time)}</span>
+    </span>
+  );
+}
+
+/** Desktop watch ceiling: never larger than this on a wide player. */
 const PREVIEW_MAX_W = 160;
 const PREVIEW_MAX_H = 120;
 /** Floor so tiny mini docks still show a readable scrub preview. */
@@ -101,27 +133,8 @@ export default function ThumbnailPreview({
           }}
         />
       </div>
-      <div className="mt-0.5 flex flex-col items-center gap-0.5">
-        {caption && (
-          <span
-            className={
-              compact
-                ? 'max-w-full truncate rounded bg-black/85 px-1 py-0.5 text-[10px] font-medium text-white'
-                : 'max-w-full truncate rounded-md bg-black/85 px-1.5 py-0.5 text-[11px] font-medium text-white'
-            }
-          >
-            {caption}
-          </span>
-        )}
-        <span
-          className={
-            compact
-              ? 'text-[10px] font-medium text-white bg-secondary px-1 py-0.5 rounded'
-              : 'text-[11px] font-medium text-white bg-secondary px-1.5 py-0.5 rounded-md'
-          }
-        >
-          {formatTime(time)}
-        </span>
+      <div className="mt-1 flex justify-center">
+        <SectionTimeLabel caption={caption} time={time} compact={compact} />
       </div>
     </div>
   );

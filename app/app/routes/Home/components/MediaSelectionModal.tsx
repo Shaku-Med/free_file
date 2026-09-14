@@ -43,6 +43,7 @@ import {
   Minimize2,
 } from "lucide-react"
 import type { FileVisibility } from "~/lib/Security/visibility"
+import { SectionsHint } from "~/components/SectionsHint";
 
 /**
  * The three visibility states, in one place so the upload modal and the studio
@@ -2290,6 +2291,7 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
                     disabled={isFieldDisabled}
                     className="text-sm resize-none bg-muted/30 border-border/50 focus:bg-background transition-colors"
                   />
+                  {activeItem?.file.type.startsWith("video/") && <SectionsHint />}
                 </div>
 
                 {activeItem?.file.type.startsWith("video/") && (

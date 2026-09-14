@@ -1,5 +1,6 @@
 import { memo, useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { visibilityOf, type FileVisibility } from "~/lib/Security/visibility";
+import { SectionsHint } from "~/components/SectionsHint";
 import HoverPreview from "./VideoCard/HoverPreview";
 
 /** Same three states as the upload modal and the studio list. */
@@ -1318,6 +1319,7 @@ const VideoCard = ({
               disabled={isSaving}
               className="bg-muted/50 text-foreground placeholder:text-muted-foreground"
             />
+            {typeof data.file_type === "string" && !data.file_type.startsWith("image/") && <SectionsHint />}
           </div>
 
           {/**
