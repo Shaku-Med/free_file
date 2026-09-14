@@ -121,6 +121,8 @@ export interface ActionsProps {
    */
   layout?: "default" | "reel" | "tiktok" | "shortsShelf";
   howLikesDislikeComments?: boolean;
+  /** Rendered inside a video card, never the watch page's main actions row. */
+  inCard?: boolean;
   /**
    * Instagram-style reel rail: drops the dislike, uses a heart for likes and a
    * paper-plane for share, and (when `reelAudioArt` is set) shows an audio
@@ -230,6 +232,7 @@ export default function Actions({
   suppressCommentsUi = false,
   layout = "default",
   howLikesDislikeComments = true,
+  inCard = false,
   instagramStyle = false,
   reelAudioArt,
   reelDensity = "comfortable",
@@ -277,7 +280,9 @@ export default function Actions({
       (routeReelUniqueId && routeReelUniqueId === uniqueId),
   );
   /** Watch page main actions row — not feed cards, sidebar, or related tiles. */
-  const shareSaveInRow = isOnThisFilePage && layout === "default";
+  // A card can point at the page you're on (the current episode in the series
+  // list), which must not grow the main row's Share/Save pills.
+  const shareSaveInRow = isOnThisFilePage && layout === "default" && !inCard;
   const { has: hasLocalSave, add: addLocalSave, remove: removeLocalSave } = useLocalPlaylist();
   const effectiveLocalFileId = normalizeLocalPlaylistFileId(fileId);
   const inLocalList = Boolean(effectiveLocalFileId && hasLocalSave(effectiveLocalFileId));

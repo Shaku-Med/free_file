@@ -856,14 +856,20 @@ input[type="search"] {
 
 }
 
-/* sm:min-w-[300px] lg:min-w-[442px] xl:min-w-[400px] */
+/* Fixed rather than min, so opening or collapsing the series list can't widen
+   the column and squeeze the player beside it. */
 .min_size_checker {
+  flex: none;
+  width: 442px;
   min-width: 442px;
+  max-width: 442px;
 }
 
 @media screen and (max-width: 1400px) {
   .min_size_checker {
+    width: 360px;
     min-width: 360px;
+    max-width: 360px;
   }
 }
 

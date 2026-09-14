@@ -2267,6 +2267,7 @@ const VideoCard = ({
           {hideActions.halfway ? null : <Separator className="my-2" />}
           <Actions
             layout={actionsLayout}
+            inCard
             fileId={data.id ?? ""}
             uniqueId={data.unique_id}
             sharePagePath={watchPath}
