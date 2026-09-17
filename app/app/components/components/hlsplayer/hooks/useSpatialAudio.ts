@@ -3,8 +3,13 @@ import { isMobile } from 'react-device-detect';
 import {
   ensureSharedGraph,
   resumeIfNeeded,
+  reverbRoomTone,
   setPannerActive,
   setPannerPosition,
+  setReverbActive,
+  setReverbMix,
+  setReverbTone,
+  type ReverbRoom,
 } from '~/lib/audio/sharedAudioGraph';
 
 /**
@@ -53,7 +58,31 @@ export interface SpatialAudioConfig {
   radius: number;
   /** Orbit / sweep speed in revolutions per second. 0.25 = a calm 4-second loop. */
   speedHz: number;
+  /**
+   * How much of the room you hear behind the moving source, 0 to 1. A dry 8D
+   * sweep sounds like an effect; a little room is what makes it sound like the
+   * sound is actually somewhere.
+   */
+  reverb: number;
+  /** Which space the source is moving around in. */
+  room: SpatialRoom;
 }
+
+/** The rooms 8D offers; `theater` is reserved for the VR player. */
+export type SpatialRoom = Extract<ReverbRoom, 'room' | 'hall' | 'cathedral'>;
+
+export const SPATIAL_ROOMS: ReadonlyArray<{ id: SpatialRoom; label: string }> = [
+  { id: 'room', label: 'Small room' },
+  { id: 'hall', label: 'Concert hall' },
+  { id: 'cathedral', label: 'Cathedral' },
+];
+
+export function isSpatialRoom(value: unknown): value is SpatialRoom {
+  return value === 'room' || value === 'hall' || value === 'cathedral';
+}
+
+/** Config wet is 0..1 for the UI; the graph wants a sane gain. */
+const MAX_WET = 0.45;
 
 export const DEFAULT_SPATIAL_CONFIG: SpatialAudioConfig = {
   enabled: false,
@@ -61,6 +90,8 @@ export const DEFAULT_SPATIAL_CONFIG: SpatialAudioConfig = {
   position: { x: 0, y: 0, z: -1 },
   radius: 1.6,
   speedHz: 0.25,
+  reverb: 0.3,
+  room: 'room',
 };
 
 /**
@@ -114,6 +145,22 @@ export function computeSpatialPosition(
   }
 
   return { x: 0, y: 0, z: -1 };
+}
+
+/** Applies the config's room to the shared graph, unless the VR room holds it. */
+function applySpatialReverb(video: HTMLVideoElement | null, config: SpatialAudioConfig) {
+  if (!video) return;
+  const graph = ensureSharedGraph(video);
+  if (!graph || graph.theaterActive) return;
+  const wet = Math.max(0, Math.min(1, config.reverb));
+  if (!config.enabled || wet <= 0) {
+    setReverbActive(graph, false);
+    return;
+  }
+  const room: SpatialRoom = isSpatialRoom(config.room) ? config.room : 'room';
+  setReverbActive(graph, true, room);
+  setReverbMix(graph, wet * MAX_WET, 0.3);
+  setReverbTone(graph, reverbRoomTone(room), 0.3);
 }
 
 /**
@@ -177,11 +224,21 @@ export function useSpatialAudio(
       setPannerPosition(graph, x, y, z, 0.04);
     };
 
+    const applyReverb = () => applySpatialReverb(videoRef.current, configRef.current);
+
     const ensureAndApply = () => {
       const v = videoRef.current;
       if (!v) return;
       const graph = ensureSharedGraph(v);
       if (!graph) return;
+
+      // The VR room owns the panner and its own reverb while it is up.
+      if (graph.theaterActive) {
+        stopAnimation();
+        return;
+      }
+
+      applyReverb();
 
       if (!configRef.current.enabled) {
         // 8D is off  release the panner, but ONLY if we own it. This handler
@@ -241,10 +298,19 @@ export function useSpatialAudio(
       if (v) {
         v.removeEventListener('play', ensureAndApply);
         v.removeEventListener('loadedmetadata', ensureAndApply);
+        const graph = ensureSharedGraph(v);
+        if (graph && !graph.theaterActive) setReverbActive(graph, false);
       }
     };
     // Re-run on toggle / mode change so the rAF loop starts/stops cleanly.
     // Position / radius / speed updates are read live via configRef without re-running.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [videoRef, config.enabled, config.mode]);
+
+  // Room changes apply on their own so dragging the slider never restarts the
+  // sweep, which would snap the source back to the top of its orbit.
+  useEffect(() => {
+    if (isMobile) return;
+    applySpatialReverb(videoRef.current, configRef.current);
+  }, [videoRef, config.enabled, config.reverb, config.room]);
 }

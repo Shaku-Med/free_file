@@ -6,8 +6,10 @@ import {
   resumeIfNeeded,
   setPannerActive,
   setPannerPosition,
+  setReverbActive,
+  setReverbMix,
+  setReverbTone,
   setTheaterActive,
-  setTheaterWet,
 } from '~/lib/audio/sharedAudioGraph';
 import { setVrTheaterActive } from './vrTheaterActive';
 
@@ -220,6 +222,8 @@ export default function VRTheaterOverlay() {
         if (graph.ctx.state !== 'running') return;
         wired = true;
         setTheaterActive(graph, true);
+        setReverbActive(graph, true, 'theater');
+        setReverbMix(graph, 0.18, 0.4);
         setPannerActive(graph, true);
       });
     };
@@ -240,6 +244,7 @@ export default function VRTheaterOverlay() {
       const graph = ensureSharedGraph(video);
       if (graph) {
         setTheaterActive(graph, false);
+        setReverbActive(graph, false);
         // The 8D spatial feature re-asserts the panner itself if it's on.
         setPannerActive(graph, false);
         setPannerPosition(graph, 0, 0, -1, 0);
@@ -888,7 +893,10 @@ export default function VRTheaterOverlay() {
             // room than screen — and lags a touch, rooms don't snap.
             if (now - lastReverbSync > 140) {
               lastReverbSync = now;
-              setTheaterWet(graph, 0.08 + Math.min(0.38, Math.max(0, effDist - 1.1) * 0.09), 0.16);
+              setReverbMix(graph, 0.1 + Math.min(0.4, Math.max(0, effDist - 1.1) * 0.1), 0.16);
+              // The tail darkens as you move back, the way a real room's highs
+              // get absorbed on the way to the cheap seats.
+              setReverbTone(graph, 6400 - effDist * 900, 0.2);
             }
           }
         }

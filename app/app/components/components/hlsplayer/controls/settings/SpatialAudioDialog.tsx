@@ -15,6 +15,7 @@ import { Switch } from '~/components/ui/switch';
 import { cn } from '~/lib/utils';
 import {
   DEFAULT_SPATIAL_CONFIG,
+  SPATIAL_ROOMS,
   computeSpatialPosition,
   isAnimatedSpatialMode,
   type SpatialAudioConfig,
@@ -53,12 +54,14 @@ const PRESETS: Array<{
   label: string;
   patch: Partial<SpatialAudioConfig>;
 }> = [
-  { id: 'classic-8d', label: 'Classic 8D', patch: { mode: 'stereo', radius: 1.6, speedHz: 0.2 } },
-  { id: 'fast-8d', label: 'Fast 8D', patch: { mode: 'stereo', radius: 1.6, speedHz: 0.5 } },
-  { id: 'wide-8d', label: 'Wide 8D', patch: { mode: 'stereo', radius: 2.6, speedHz: 0.18 } },
-  { id: 'classic-orbit', label: 'Around Your Head', patch: { mode: 'orbit', radius: 1.5, speedHz: 0.22 } },
-  { id: 'concert-hall', label: 'Concert Hall', patch: { mode: 'stereo', radius: 0.9, speedHz: 0.08 } },
-  { id: 'in-room', label: 'In Front of You', patch: { mode: 'room-front', radius: 1.4, speedHz: 0.2 } },
+  { id: 'classic-8d', label: 'Classic 8D', patch: { mode: 'stereo', radius: 1.6, speedHz: 0.2, reverb: 0.3, room: 'room' } },
+  { id: 'fast-8d', label: 'Fast 8D', patch: { mode: 'stereo', radius: 1.6, speedHz: 0.5, reverb: 0.22, room: 'room' } },
+  { id: 'wide-8d', label: 'Wide 8D', patch: { mode: 'stereo', radius: 2.6, speedHz: 0.18, reverb: 0.45, room: 'hall' } },
+  { id: 'classic-orbit', label: 'Around Your Head', patch: { mode: 'orbit', radius: 1.5, speedHz: 0.22, reverb: 0.35, room: 'room' } },
+  { id: 'concert-hall', label: 'Concert Hall', patch: { mode: 'stereo', radius: 0.9, speedHz: 0.08, reverb: 0.6, room: 'hall' } },
+  { id: 'cathedral', label: 'Cathedral', patch: { mode: 'orbit', radius: 1.2, speedHz: 0.1, reverb: 0.8, room: 'cathedral' } },
+  { id: 'in-room', label: 'In Front of You', patch: { mode: 'room-front', radius: 1.4, speedHz: 0.2, reverb: 0.25, room: 'room' } },
+  { id: 'dry', label: 'No Room', patch: { mode: 'stereo', radius: 1.6, speedHz: 0.2, reverb: 0 } },
 ];
 
 const POSITION_PRESETS: Array<{
@@ -385,6 +388,48 @@ export default function SpatialAudioDialog({
               )}
             </div>
           )}
+
+          {/* Room: the reverb the moving source is heard inside */}
+          <div className="space-y-3 rounded-xl border border-border/50 bg-muted/15 p-3">
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between">
+                <Label className="text-xs uppercase tracking-wide text-muted-foreground">
+                  Room
+                </Label>
+                <span className="text-xs tabular-nums text-muted-foreground">
+                  {value.reverb <= 0 ? 'Dry' : `${Math.round(value.reverb * 100)}%`}
+                </span>
+              </div>
+              <Slider
+                value={[value.reverb]}
+                min={0}
+                max={1}
+                step={0.01}
+                onValueChange={(v) => update({ reverb: v[0] ?? 0 })}
+              />
+            </div>
+            <div className="grid grid-cols-3 gap-1.5">
+              {SPATIAL_ROOMS.map((r) => {
+                const active = value.room === r.id;
+                return (
+                  <button
+                    key={r.id}
+                    type="button"
+                    disabled={value.reverb <= 0}
+                    onClick={() => update({ room: r.id })}
+                    className={cn(
+                      'rounded-md border px-2 py-1.5 text-[11px] font-medium transition disabled:opacity-50',
+                      active
+                        ? 'border-primary bg-primary/10 text-foreground'
+                        : 'border-border/60 bg-background hover:border-primary/40 hover:bg-primary/5',
+                    )}
+                  >
+                    {r.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
 
           {/* Manual position pad  only in manual mode */}
           {showManualPad && (

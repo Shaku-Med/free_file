@@ -7,6 +7,8 @@
  * With analyser: `source → analyser → destination`.
  * With panner:   `source → panner → destination`.
  * Both:          `source → panner → analyser → destination`.
+ * With reverb the wet send branches off `source` rather than the panner, so the
+ * room is a fixed place around the listener and only the direct sound travels.
  *
  * Toggling either feature reconnects the chain in-place; the source / panner / analyser
  * nodes themselves are never recreated until the video element is garbage-collected.
@@ -32,12 +34,18 @@ export interface SharedAudioGraph {
   /** Tiny makeup gain to offset the compressor's threshold reduction (~1.4x). */
   makeupGain: GainNode | null;
   /**
-   * Created lazily for the VR theater "sound system": a synthetic room reverb
-   * (convolver) blended wet/dry. Sits right after the panner so the direct
-   * sound is seat-positioned and the reverb fills the room around it.
+   * Created lazily: a synthetic room reverb blended wet/dry, shared by the VR
+   * theater and 8D. The send is tapped BEFORE the panner, so the direct sound
+   * moves while the room stays put. A reverb that pans with the source is the
+   * main thing that makes spatial audio sound like an effect rather than a place.
    */
-  theater: {
+  reverb: {
+    room: ReverbRoom;
     convolver: ConvolverNode;
+    /** Keeps the tail out of the bass, where it only turns into mud. */
+    highpass: BiquadFilterNode;
+    /** Live tone control: distance and room size darken the tail. */
+    damping: BiquadFilterNode;
     dryGain: GainNode;
     wetGain: GainNode;
     mixOut: GainNode;
@@ -45,6 +53,8 @@ export interface SharedAudioGraph {
   pannerActive: boolean;
   analyserActive: boolean;
   compressorActive: boolean;
+  reverbActive: boolean;
+  /** The VR room owns the panner while this is set; 8D stands down. */
   theaterActive: boolean;
 }
 
@@ -122,10 +132,11 @@ export function ensureSharedGraph(video: HTMLVideoElement): SharedAudioGraph | n
       analyser: null,
       compressor: null,
       makeupGain: null,
-      theater: null,
+      reverb: null,
       pannerActive: false,
       analyserActive: false,
       compressorActive: false,
+      reverbActive: false,
       theaterActive: false,
     };
     rewireGraph(graph);
@@ -190,40 +201,149 @@ export function setCompressorActive(graph: SharedAudioGraph, active: boolean) {
   rewireGraph(graph);
 }
 
+export type ReverbRoom = 'room' | 'theater' | 'hall' | 'cathedral';
+
+interface RoomSpec {
+  seconds: number;
+  /** Gap before the first reflection: how far the walls are. */
+  preDelay: number;
+  /** Tail decay curve; lower means the room rings on longer. */
+  decay: number;
+  /** 0 keeps the tail glassy and bright, 1 soaks the highs up fast. */
+  damping: number;
+  earlyCount: number;
+  earlyGain: number;
+  /** Where the live tone control sits by default. */
+  toneHz: number;
+}
+
+const ROOMS: Record<ReverbRoom, RoomSpec> = {
+  room: { seconds: 0.9, preDelay: 0.007, decay: 2.4, damping: 0.6, earlyCount: 9, earlyGain: 1.6, toneHz: 7000 },
+  theater: { seconds: 1.8, preDelay: 0.016, decay: 2.3, damping: 0.62, earlyCount: 13, earlyGain: 1.3, toneHz: 5200 },
+  hall: { seconds: 2.4, preDelay: 0.022, decay: 1.9, damping: 0.5, earlyCount: 11, earlyGain: 1.0, toneHz: 6000 },
+  cathedral: { seconds: 4.5, preDelay: 0.035, decay: 1.5, damping: 0.42, earlyCount: 8, earlyGain: 0.8, toneHz: 4200 },
+};
+
+/** Deterministic noise, so a given room sounds identical every time it is built. */
+function mulberry32(seed: number) {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
 /**
- * Synthetic theater impulse response: ~12ms pre-delay (walls are far), then
- * exponentially decaying stereo-decorrelated noise (~1.2s tail). Cheap to
- * generate, no asset download, and reads convincingly as "big dark room".
+ * Synthetic room impulse. Three things separate this from a plain noise burst,
+ * and all three are what the ear actually uses to place a sound in a space:
+ * discrete early reflections off the near walls, a tail whose highs die before
+ * its lows the way soft surfaces and air absorb them, and a short build up
+ * instead of the tail switching on at full level.
+ *
+ * Normalised to unit energy per channel so every room sits at the same loudness
+ * for a given wet amount, and the two channels use independent noise so the
+ * room is wide rather than a point behind your forehead.
  */
-function buildTheaterImpulse(ctx: AudioContext): AudioBuffer {
-  const seconds = 1.2;
+function buildRoomImpulse(ctx: AudioContext, room: ReverbRoom): AudioBuffer {
+  const spec = ROOMS[room];
   const rate = ctx.sampleRate;
-  const length = Math.max(1, Math.floor(seconds * rate));
-  const preDelay = Math.floor(0.012 * rate);
+  const length = Math.max(1, Math.floor(spec.seconds * rate));
   const buffer = ctx.createBuffer(2, length, rate);
+  const rand = mulberry32(0x9e3779b9 ^ Math.round(spec.seconds * 1000));
+  const buildSamples = Math.max(1, 0.012 * rate);
+
+  // Both curves depend only on how far into the tail we are, and they move
+  // slowly, so table them instead of calling pow twice per sample. A long room
+  // is ~190k samples per channel and that cost lands on a click.
+  const STEPS = 1024;
+  const openTable = new Float32Array(STEPS);
+  const gainTable = new Float32Array(STEPS);
+  for (let k = 0; k < STEPS; k++) {
+    const age = k / (STEPS - 1);
+    const a = Math.max(0.02, Math.min(1, 1 - spec.damping + spec.damping * Math.pow(1 - age, 3)));
+    openTable[k] = a;
+    // A one pole loses level as it closes; put it back so damping darkens the
+    // tail instead of just shortening it.
+    gainTable[k] = Math.sqrt((2 - a) / a) * Math.pow(1 - age, spec.decay);
+  }
+
   for (let ch = 0; ch < 2; ch++) {
     const data = buffer.getChannelData(ch);
-    for (let i = preDelay; i < length; i++) {
-      const decay = Math.pow(1 - (i - preDelay) / (length - preDelay), 2.6);
-      data[i] = (Math.random() * 2 - 1) * decay;
+    const start = Math.floor(spec.preDelay * rate) + Math.floor(rand() * 0.003 * rate);
+    const tail = Math.max(1, length - start);
+
+    for (let k = 0; k < spec.earlyCount; k++) {
+      const frac = (k + 1) / spec.earlyCount;
+      const at = start + Math.floor((0.004 + frac * frac * 0.086 + rand() * 0.004) * rate);
+      if (at >= length) break;
+      const amp = spec.earlyGain * Math.pow(1 - frac, 1.4) * (0.6 + rand() * 0.4);
+      data[at] += k % 2 === 0 ? amp : -amp;
     }
+
+    // Every non-zero sample lives in this range, early taps included, so the
+    // energy for normalising can be accumulated here rather than in a second pass.
+    const ageScale = (STEPS - 1) / tail;
+    let energy = 0;
+    let lp = 0;
+    let hp = 0;
+    let prev = 0;
+    for (let i = start; i < length; i++) {
+      const age = i - start;
+      const k = (age * ageScale) | 0;
+      lp += openTable[k] * (rand() * 2 - 1 - lp);
+      hp = 0.995 * (hp + lp - prev);
+      prev = lp;
+      const build = age < buildSamples ? age / buildSamples : 1;
+      const sample = data[i] + hp * gainTable[k] * build;
+      data[i] = sample;
+      energy += sample * sample;
+    }
+
+    const scale = energy > 0 ? 1 / Math.sqrt(energy) : 0;
+    for (let i = start; i < length; i++) data[i] *= scale;
   }
   return buffer;
 }
 
-/** Lazily creates the theater reverb stage; idempotent thereafter. */
-export function ensureTheater(graph: SharedAudioGraph) {
-  if (graph.theater) return graph.theater;
-  const convolver = graph.ctx.createConvolver();
-  convolver.buffer = buildTheaterImpulse(graph.ctx);
-  const dryGain = graph.ctx.createGain();
-  dryGain.gain.value = 0.92;
-  const wetGain = graph.ctx.createGain();
-  wetGain.gain.value = 0.25;
-  const mixOut = graph.ctx.createGain();
+/** Lazily creates the reverb stage, and swaps the impulse when the room changes. */
+export function ensureReverb(graph: SharedAudioGraph, requested: ReverbRoom = 'room') {
+  const room: ReverbRoom = requested in ROOMS ? requested : 'room';
+  if (graph.reverb) {
+    if (graph.reverb.room !== room) {
+      graph.reverb.room = room;
+      graph.reverb.convolver.buffer = buildRoomImpulse(graph.ctx, room);
+      graph.reverb.damping.frequency.value = ROOMS[room].toneHz;
+    }
+    return graph.reverb;
+  }
+
+  const ctx = graph.ctx;
+  const convolver = ctx.createConvolver();
+  // Our own energy normalisation instead of the browser's, which varies with
+  // impulse length and would make each room a different loudness.
+  convolver.normalize = false;
+  convolver.buffer = buildRoomImpulse(ctx, room);
+
+  const highpass = ctx.createBiquadFilter();
+  highpass.type = 'highpass';
+  highpass.frequency.value = 140;
+
+  const damping = ctx.createBiquadFilter();
+  damping.type = 'lowpass';
+  damping.frequency.value = ROOMS[room].toneHz;
+  damping.Q.value = 0.7;
+
+  const dryGain = ctx.createGain();
+  dryGain.gain.value = 1;
+  const wetGain = ctx.createGain();
+  wetGain.gain.value = 0;
+  const mixOut = ctx.createGain();
   mixOut.gain.value = 1;
-  graph.theater = { convolver, dryGain, wetGain, mixOut };
-  return graph.theater;
+
+  graph.reverb = { room, convolver, highpass, damping, dryGain, wetGain, mixOut };
+  return graph.reverb;
 }
 
 /** Gentle default so the 8D orbits stay near native loudness even at radius 3+. */
@@ -235,21 +355,67 @@ const DEFAULT_ROLLOFF = 0.25;
  */
 const THEATER_ROLLOFF = 0.85;
 
-export function setTheaterActive(graph: SharedAudioGraph, active: boolean) {
-  if (graph.theaterActive === active) return;
-  if (active) ensureTheater(graph);
-  graph.theaterActive = active;
-  graph.panner.rolloffFactor = active ? THEATER_ROLLOFF : DEFAULT_ROLLOFF;
+/**
+ * The stage as it stands. Mix and tone must never pass a room of their own:
+ * doing that would rebuild the impulse on every call, and the VR loop calls
+ * them several times a second.
+ */
+function reverbStage(graph: SharedAudioGraph) {
+  return graph.reverb ?? ensureReverb(graph);
+}
+
+export function setReverbActive(
+  graph: SharedAudioGraph,
+  active: boolean,
+  room: ReverbRoom = 'room',
+) {
+  if (active) {
+    const reverb = ensureReverb(graph, room);
+    if (graph.reverbActive) return;
+    graph.reverbActive = true;
+    reverb.mixOut.gain.value = 1;
+  } else {
+    if (!graph.reverbActive) return;
+    graph.reverbActive = false;
+  }
   rewireGraph(graph);
 }
 
-/** Reverb amount  back rows get more room, front rows mostly direct sound. */
-export function setTheaterWet(graph: SharedAudioGraph, wet: number, rampSeconds = 0.25) {
-  const theater = ensureTheater(graph);
+/**
+ * Reverb amount. The dry path ducks a little as the room comes up, so turning
+ * the reverb on adds space instead of just volume.
+ */
+export function setReverbMix(graph: SharedAudioGraph, wet: number, rampSeconds = 0.25) {
+  const reverb = reverbStage(graph);
   const t = graph.ctx.currentTime;
-  const clamped = Math.max(0, Math.min(0.6, wet));
-  theater.wetGain.gain.cancelScheduledValues(t);
-  theater.wetGain.gain.linearRampToValueAtTime(clamped, t + Math.max(0.01, rampSeconds));
+  const ramp = Math.max(0.01, rampSeconds);
+  // A non finite value here throws inside the AudioParam and takes the whole
+  // render loop with it, so it never gets that far.
+  const clamped = Number.isFinite(wet) ? Math.max(0, Math.min(0.6, wet)) : 0;
+  reverb.wetGain.gain.cancelScheduledValues(t);
+  reverb.wetGain.gain.linearRampToValueAtTime(clamped, t + ramp);
+  reverb.dryGain.gain.cancelScheduledValues(t);
+  reverb.dryGain.gain.linearRampToValueAtTime(1 - clamped * 0.45, t + ramp);
+}
+
+/** Darkens or opens the tail: far away and big rooms lose their highs. */
+export function setReverbTone(graph: SharedAudioGraph, cutoffHz: number, rampSeconds = 0.25) {
+  const reverb = reverbStage(graph);
+  const t = graph.ctx.currentTime;
+  const clamped = Number.isFinite(cutoffHz) ? Math.max(700, Math.min(12_000, cutoffHz)) : 6000;
+  reverb.damping.frequency.cancelScheduledValues(t);
+  reverb.damping.frequency.linearRampToValueAtTime(clamped, t + Math.max(0.01, rampSeconds));
+}
+
+/** Default tone for a room, for callers that don't drive it live. */
+export function reverbRoomTone(room: ReverbRoom): number {
+  return (ROOMS[room] ?? ROOMS.room).toneHz;
+}
+
+export function setTheaterActive(graph: SharedAudioGraph, active: boolean) {
+  if (graph.theaterActive === active) return;
+  graph.theaterActive = active;
+  graph.panner.rolloffFactor = active ? THEATER_ROLLOFF : DEFAULT_ROLLOFF;
 }
 
 /**
@@ -325,12 +491,14 @@ function rewireGraph(graph: SharedAudioGraph) {
       graph.makeupGain.disconnect();
     } catch {}
   }
-  if (graph.theater) {
+  if (graph.reverb) {
     try {
-      graph.theater.convolver.disconnect();
-      graph.theater.dryGain.disconnect();
-      graph.theater.wetGain.disconnect();
-      graph.theater.mixOut.disconnect();
+      graph.reverb.convolver.disconnect();
+      graph.reverb.highpass.disconnect();
+      graph.reverb.damping.disconnect();
+      graph.reverb.dryGain.disconnect();
+      graph.reverb.wetGain.disconnect();
+      graph.reverb.mixOut.disconnect();
     } catch {}
   }
 
@@ -339,13 +507,18 @@ function rewireGraph(graph: SharedAudioGraph) {
     head.connect(graph.panner);
     head = graph.panner;
   }
-  if (graph.theaterActive && graph.theater) {
-    head.connect(graph.theater.dryGain);
-    graph.theater.dryGain.connect(graph.theater.mixOut);
-    head.connect(graph.theater.convolver);
-    graph.theater.convolver.connect(graph.theater.wetGain);
-    graph.theater.wetGain.connect(graph.theater.mixOut);
-    head = graph.theater.mixOut;
+  if (graph.reverbActive && graph.reverb) {
+    const r = graph.reverb;
+    head.connect(r.dryGain);
+    r.dryGain.connect(r.mixOut);
+    // Send taken from the source, ahead of the panner: the direct sound moves
+    // around you, the room it is in does not.
+    graph.source.connect(r.highpass);
+    r.highpass.connect(r.convolver);
+    r.convolver.connect(r.damping);
+    r.damping.connect(r.wetGain);
+    r.wetGain.connect(r.mixOut);
+    head = r.mixOut;
   }
   if (graph.analyserActive && graph.analyser) {
     head.connect(graph.analyser);

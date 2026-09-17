@@ -14,6 +14,7 @@ import {
 } from './audioVisualizerStyles';
 import {
   DEFAULT_SPATIAL_CONFIG,
+  isSpatialRoom,
   type SpatialAudioConfig,
   type SpatialAudioMode,
 } from './hooks/useSpatialAudio';
@@ -682,6 +683,10 @@ export function PlayerProvider({
           speedHz: Number.isFinite(raw.speedHz)
             ? Math.max(0.02, Math.min(2, Number(raw.speedHz)))
             : DEFAULT_SPATIAL_CONFIG.speedHz,
+          reverb: Number.isFinite(raw.reverb)
+            ? Math.max(0, Math.min(1, Number(raw.reverb)))
+            : DEFAULT_SPATIAL_CONFIG.reverb,
+          room: isSpatialRoom(raw.room) ? raw.room : DEFAULT_SPATIAL_CONFIG.room,
         };
       } catch {
         /* keep defaults */
