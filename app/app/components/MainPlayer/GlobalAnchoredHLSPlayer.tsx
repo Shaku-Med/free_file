@@ -17,6 +17,7 @@ import { resolvePlaybackSrc, playbackUrlMatchesFile } from "~/lib/playbackUrlCac
 import type { FileType } from "~/lib/types";
 import { dispatchMiniPlayerDrag } from "~/components/MiniPlayer/miniPlayerDragBridge";
 import { useMiniMobileBar } from "~/components/MiniPlayer/miniMobileBar";
+import { isVrTheaterActive } from "~/components/components/hlsplayer/overlays/vrTheaterActive";
 
 const MAIN_ANCHOR_Z = 99_999_995;
 /** One step above mini chrome (`z-[2147483646]`) so video paints on top of the slot, not behind it. */
@@ -115,6 +116,7 @@ export function GlobalAnchoredHLSPlayer() {
   // FIRST mount (so the portal renders), then routes subsequent updates
   // through onUpdate which we apply directly to the container's style.
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const detachWheelRef = useRef<(() => void) | null>(null);
 
   /**
    * Forward wheel over the video to the page scroller.
@@ -124,15 +126,22 @@ export function GlobalAnchoredHLSPlayer() {
    * looks for a scrollable ancestor of whatever the wheel landed on, finds none
    * here, and the page just sits there. That is why scrolling died whenever the
    * pointer was over the player.
+   *
+   * Wired from the ref callback rather than a mount effect: the portal only
+   * renders once an anchor rect exists, so on mount the node is still null and
+   * an effect would bail and never run again.
    */
-  useEffect(() => {
-    const el = containerRef.current;
+  const setContainer = useCallback((el: HTMLDivElement | null) => {
+    detachWheelRef.current?.();
+    detachWheelRef.current = null;
+    containerRef.current = el;
     if (!el) return;
+
     const onWheel = (e: WheelEvent) => {
       // The 3D room is the one place the wheel belongs to the player: it drives
       // look and zoom in there. Everywhere else, including fullscreen, the
       // page should still scroll under the pointer.
-      if (el.querySelector("[data-vr-theater]")) return;
+      if (isVrTheaterActive()) return;
       const target = e.target;
       // Menus and any scroller of our own handle their own wheel.
       if (target instanceof Element && target.closest("[data-player-scrolls]")) return;
@@ -144,7 +153,7 @@ export function GlobalAnchoredHLSPlayer() {
     };
     // Passive: we never preventDefault, we just mirror the delta.
     el.addEventListener("wheel", onWheel, { passive: true });
-    return () => el.removeEventListener("wheel", onWheel);
+    detachWheelRef.current = () => el.removeEventListener("wheel", onWheel);
   }, []);
   const onRectUpdate = useCallback((r: { top: number; left: number; width: number; height: number }) => {
     const el = containerRef.current;
@@ -291,7 +300,7 @@ export function GlobalAnchoredHLSPlayer() {
 
   return createPortal(
     <div
-      ref={containerRef}
+      ref={setContainer}
       data-mini-player-dock={committedResolved.kind === "mini" ? "" : undefined}
       className={cn(
         // Music bar: let shell chrome receive taps; seek re-enables pointer events.

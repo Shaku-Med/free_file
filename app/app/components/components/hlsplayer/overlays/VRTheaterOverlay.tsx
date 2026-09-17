@@ -9,6 +9,7 @@ import {
   setTheaterActive,
   setTheaterWet,
 } from '~/lib/audio/sharedAudioGraph';
+import { setVrTheaterActive } from './vrTheaterActive';
 
 /**
  * VR theater: a three.js space rendered in place of the flat video.
@@ -185,6 +186,12 @@ export default function VRTheaterOverlay() {
   /** Render loop reads this live: when on, the panner tracks the camera every frame. */
   const soundOnRef = useRef(false);
   soundOnRef.current = vrSoundSystem;
+
+  // The room claims the wheel while it is up; off, it leaves nothing behind.
+  useEffect(() => {
+    setVrTheaterActive(enabled);
+    return () => setVrTheaterActive(false);
+  }, [enabled]);
 
   // Theater sound system on the SHARED per-video audio graph (one
   // MediaElementSource per element). This effect only flips the stages on
@@ -935,13 +942,6 @@ export default function VRTheaterOverlay() {
   // Same screen shell as <video>; listeners live on the container, so the
   // canvas host never eats clicks meant for the video / controls.
   return (
-    // Marked so the anchored player knows the 3D room owns the wheel and must
-    // not forward it to the page. This only renders while VR is enabled, so
-    // its presence in the DOM is the signal.
-    <div
-      ref={hostRef}
-      data-vr-theater=""
-      className="pointer-events-none absolute inset-0 z-[2] overflow-hidden"
-    />
+    <div ref={hostRef} className="pointer-events-none absolute inset-0 z-[2] overflow-hidden" />
   );
 }
