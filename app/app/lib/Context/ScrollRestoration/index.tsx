@@ -3,29 +3,18 @@ import { useLocation } from "react-router";
 import { useFileContext } from "~/lib/Context/Context";
 
 /**
- * Per-route scroll memory  our own implementation, decoupled from
- * react-router's data router. Saves the scroll position of every visited
- * page to `sessionStorage` (so it survives within a tab but doesn't leak
- * across sessions). On return, snaps the container to the saved value
- * BEFORE paint so there's no "flash of top".
+ * Per-route scroll memory, keyed by path and search, kept in sessionStorage.
  *
- * Pipeline:
- *   1. On scroll → debounce-write to sessionStorage keyed by `path+search`.
- *   2. On route change (useLayoutEffect) → BEFORE the browser paints the
- *      new route, set scroll_container.scrollTop to the saved value.
- *      If content isn't tall enough yet, the browser clamps; we then
- *      keep retrying as soon as new content lands.
- *   3. ResizeObserver on scroll_container  every time its scrollHeight
- *      grows (lazy-loaded feed cards, image height settle, etc.), retry
- *      the snap until either we hit the target or the user scrolls.
- *   4. As soon as the user actually scrolls (real interaction, not our
- *      programmatic .scrollTop write), stop retrying  they've taken
- *      over and we don't want to fight them.
+ * The position is sampled while the user scrolls and that sample is what gets
+ * saved on navigation. Reading the container at navigation time is too late:
+ * BodyComponent hides the persistent home feed with display:none, the
+ * container's scrollable height collapses to zero in the same layout pass, and
+ * the browser has already clamped scrollTop to 0 before any effect runs. That
+ * clamp is also why moving the scroll to <body> would not help; the height is
+ * gone either way.
  *
- * Why not the built-in `<ScrollRestoration />`: that one uses RR's
- * router lifecycle and assumes loaders block paint until data lands.
- * Our app does a lot of client-side lazy loading, so we need to snap
- * AS CONTENT ARRIVES rather than at a single before-paint instant.
+ * Restoring keeps retrying as lazily loaded content lands, and stops as soon as
+ * the user scrolls themselves.
  */
 
 const STORAGE_KEY = "memories.scroll.v2";
@@ -101,6 +90,13 @@ export default function ScrollRestoration() {
    *  immediately mark the page as settled (and worse, save the clamped
    *  value as the new target, overwriting the user's actual position). */
   const programmaticTopRef = useRef<number | null>(null);
+  /** Last position we believe the USER is at, sampled from real scrolls. This,
+   *  not a late read of the container, is what gets saved on navigation. */
+  const liveRef = useRef<ScrollEntry | null>(null);
+  /** Previous max scroll, to recognise a clamp: the browser drops scrollTop to
+   *  the new bottom when content shrinks, which looks exactly like the user
+   *  scrolling up and would otherwise overwrite their saved position. */
+  const lastMaxRef = useRef(0);
 
   // SAVE on scroll. Throttle to once per animation frame so we don't
   // hammer sessionStorage on a long scroll. We always capture  even
@@ -128,6 +124,10 @@ export default function ScrollRestoration() {
 
     const onScroll = () => {
       const currentTop = container.scrollTop;
+      const max = Math.max(0, container.scrollHeight - container.clientHeight);
+      const shrank = max < lastMaxRef.current;
+      lastMaxRef.current = max;
+
       // Echo of our own programmatic scroll? Skip it.
       if (
         programmaticTopRef.current !== null &&
@@ -135,15 +135,24 @@ export default function ScrollRestoration() {
       ) {
         return;
       }
+
+      // Content shrank and we landed on the new bottom: that is the browser
+      // clamping, not the user. Keep the position we already had.
+      if (shrank && currentTop <= max + RESTORE_EPS && currentTop < (liveRef.current?.top ?? 0)) {
+        return;
+      }
+
       // Real user scroll  they've taken over, stop our retries.
       programmaticTopRef.current = null;
       settledRef.current = true;
       pendingTop = currentTop;
       pendingLeft = container.scrollLeft;
       havePending = true;
+      liveRef.current = { top: pendingTop, left: pendingLeft };
       if (rafId === 0) rafId = window.requestAnimationFrame(flush);
     };
 
+    lastMaxRef.current = Math.max(0, container.scrollHeight - container.clientHeight);
     container.addEventListener("scroll", onScroll, { passive: true });
     return () => {
       container.removeEventListener("scroll", onScroll);
@@ -163,13 +172,13 @@ export default function ScrollRestoration() {
     const newKey = keyFor(location);
     if (previousKey === newKey) return;
 
-    // Persist whatever scroll the user had on the outgoing route. We
-    // also do this on every scroll above, but the final value at
-    // navigate-away time deserves to be saved with certainty.
-    setEntry(previousKey, {
+    // Save the sampled position, NOT container.scrollTop: by the time this
+    // runs the outgoing content can already be hidden and the scroll clamped.
+    const outgoing = liveRef.current ?? {
       top: container.scrollTop,
       left: container.scrollLeft,
-    });
+    };
+    setEntry(previousKey, outgoing);
 
     currentKeyRef.current = newKey;
     tokenRef.current += 1;
@@ -181,6 +190,7 @@ export default function ScrollRestoration() {
       programmaticTopRef.current = 0;
       container.scrollTop = 0;
       container.scrollLeft = 0;
+      liveRef.current = { top: 0, left: 0 };
       settledRef.current = true;
       setScrollDataReady(true);
       return;
@@ -194,6 +204,8 @@ export default function ScrollRestoration() {
     programmaticTopRef.current = targetTop;
     container.scrollTop = targetTop;
     container.scrollLeft = targetLeft;
+    liveRef.current = { top: targetTop, left: targetLeft };
+    lastMaxRef.current = Math.max(0, container.scrollHeight - container.clientHeight);
 
     // If the browser clamped us short of the target (content not yet
     // tall enough), the retry effect below will keep trying.
@@ -241,7 +253,9 @@ export default function ScrollRestoration() {
       if (Math.abs(container.scrollTop - clamped) > RESTORE_EPS) {
         programmaticTopRef.current = clamped;
         container.scrollTop = clamped;
+        liveRef.current = { top: clamped, left: container.scrollLeft };
       }
+      lastMaxRef.current = max;
       if (Math.abs(container.scrollTop - targetTop) <= RESTORE_EPS) {
         settledRef.current = true;
         setScrollDataReady(true);
