@@ -44,8 +44,19 @@ export interface SharedAudioGraph {
     convolver: ConvolverNode;
     /** Keeps the tail out of the bass, where it only turns into mud. */
     highpass: BiquadFilterNode;
+    /** Gap before the room answers: how far away the walls read as. */
+    preDelay: DelayNode;
     /** Live tone control: distance and room size darken the tail. */
     damping: BiquadFilterNode;
+    /** Mid/side matrix on the tail, for collapsing or widening the room. */
+    width: {
+      splitter: ChannelSplitterNode;
+      merger: ChannelMergerNode;
+      /** Each channel's own signal. */
+      direct: [GainNode, GainNode];
+      /** Each channel bled into the other. */
+      cross: [GainNode, GainNode];
+    };
     dryGain: GainNode;
     wetGain: GainNode;
     mixOut: GainNode;
@@ -203,6 +214,9 @@ export function setCompressorActive(graph: SharedAudioGraph, active: boolean) {
 
 export type ReverbRoom = 'room' | 'theater' | 'hall' | 'cathedral';
 
+/** Delay line ceiling, fixed at build time; the UI stops well short of it. */
+const MAX_PRE_DELAY = 0.25;
+
 interface RoomSpec {
   seconds: number;
   /** Gap before the first reflection: how far the walls are. */
@@ -330,10 +344,22 @@ export function ensureReverb(graph: SharedAudioGraph, requested: ReverbRoom = 'r
   highpass.type = 'highpass';
   highpass.frequency.value = 140;
 
+  const preDelay = ctx.createDelay(MAX_PRE_DELAY);
+  preDelay.delayTime.value = ROOMS[room].preDelay;
+
   const damping = ctx.createBiquadFilter();
   damping.type = 'lowpass';
   damping.frequency.value = ROOMS[room].toneHz;
   damping.Q.value = 0.7;
+
+  const width = {
+    splitter: ctx.createChannelSplitter(2),
+    merger: ctx.createChannelMerger(2),
+    direct: [ctx.createGain(), ctx.createGain()] as [GainNode, GainNode],
+    cross: [ctx.createGain(), ctx.createGain()] as [GainNode, GainNode],
+  };
+  for (const g of width.direct) g.gain.value = 1;
+  for (const g of width.cross) g.gain.value = 0;
 
   const dryGain = ctx.createGain();
   dryGain.gain.value = 1;
@@ -342,7 +368,7 @@ export function ensureReverb(graph: SharedAudioGraph, requested: ReverbRoom = 'r
   const mixOut = ctx.createGain();
   mixOut.gain.value = 1;
 
-  graph.reverb = { room, convolver, highpass, damping, dryGain, wetGain, mixOut };
+  graph.reverb = { room, convolver, highpass, preDelay, damping, width, dryGain, wetGain, mixOut };
   return graph.reverb;
 }
 
@@ -405,6 +431,51 @@ export function setReverbTone(graph: SharedAudioGraph, cutoffHz: number, rampSec
   const clamped = Number.isFinite(cutoffHz) ? Math.max(700, Math.min(12_000, cutoffHz)) : 6000;
   reverb.damping.frequency.cancelScheduledValues(t);
   reverb.damping.frequency.linearRampToValueAtTime(clamped, t + Math.max(0.01, rampSeconds));
+}
+
+/** How long the room waits before answering. Longer reads as a bigger space. */
+export function setReverbPreDelay(graph: SharedAudioGraph, seconds: number, rampSeconds = 0.1) {
+  const reverb = reverbStage(graph);
+  const t = graph.ctx.currentTime;
+  const clamped = Number.isFinite(seconds) ? Math.max(0, Math.min(MAX_PRE_DELAY, seconds)) : 0.016;
+  reverb.preDelay.delayTime.cancelScheduledValues(t);
+  reverb.preDelay.delayTime.linearRampToValueAtTime(clamped, t + Math.max(0.01, rampSeconds));
+}
+
+/**
+ * Stereo spread of the tail through a mid/side matrix: 0 collapses the room to
+ * the centre, 1 leaves it as built, above 1 pushes it past the speakers.
+ */
+export function setReverbWidth(graph: SharedAudioGraph, width: number, rampSeconds = 0.2) {
+  const reverb = reverbStage(graph);
+  const t = graph.ctx.currentTime;
+  const ramp = Math.max(0.01, rampSeconds);
+  const w = Number.isFinite(width) ? Math.max(0, Math.min(2, width)) : 1;
+  const a = 0.5 + 0.5 * w;
+  const b = 0.5 - 0.5 * w;
+  // Hold the level steady across the sweep, or widening would just sound louder
+  // and the control would read as a second volume knob. The tail is very nearly
+  // uncorrelated, so its energy is a**2 + b**2.
+  const norm = 1 / Math.sqrt(a * a + b * b);
+  const direct = a * norm;
+  const cross = b * norm;
+  for (const g of reverb.width.direct) {
+    g.gain.cancelScheduledValues(t);
+    g.gain.linearRampToValueAtTime(direct, t + ramp);
+  }
+  for (const g of reverb.width.cross) {
+    g.gain.cancelScheduledValues(t);
+    g.gain.linearRampToValueAtTime(cross, t + ramp);
+  }
+}
+
+/** Where the tail stops following the bass. Higher keeps the low end clean. */
+export function setReverbLowCut(graph: SharedAudioGraph, hz: number, rampSeconds = 0.2) {
+  const reverb = reverbStage(graph);
+  const t = graph.ctx.currentTime;
+  const clamped = Number.isFinite(hz) ? Math.max(20, Math.min(600, hz)) : 140;
+  reverb.highpass.frequency.cancelScheduledValues(t);
+  reverb.highpass.frequency.linearRampToValueAtTime(clamped, t + Math.max(0.01, rampSeconds));
 }
 
 /** Default tone for a room, for callers that don't drive it live. */
@@ -493,12 +564,17 @@ function rewireGraph(graph: SharedAudioGraph) {
   }
   if (graph.reverb) {
     try {
-      graph.reverb.convolver.disconnect();
-      graph.reverb.highpass.disconnect();
-      graph.reverb.damping.disconnect();
-      graph.reverb.dryGain.disconnect();
-      graph.reverb.wetGain.disconnect();
-      graph.reverb.mixOut.disconnect();
+      const r = graph.reverb;
+      r.convolver.disconnect();
+      r.highpass.disconnect();
+      r.preDelay.disconnect();
+      r.damping.disconnect();
+      r.width.splitter.disconnect();
+      r.width.merger.disconnect();
+      for (const g of [...r.width.direct, ...r.width.cross]) g.disconnect();
+      r.dryGain.disconnect();
+      r.wetGain.disconnect();
+      r.mixOut.disconnect();
     } catch {}
   }
 
@@ -514,9 +590,21 @@ function rewireGraph(graph: SharedAudioGraph) {
     // Send taken from the source, ahead of the panner: the direct sound moves
     // around you, the room it is in does not.
     graph.source.connect(r.highpass);
-    r.highpass.connect(r.convolver);
+    r.highpass.connect(r.preDelay);
+    r.preDelay.connect(r.convolver);
     r.convolver.connect(r.damping);
-    r.damping.connect(r.wetGain);
+    // Mid/side width: each tail channel keeps its own signal and takes a share
+    // of the other, which narrows or widens the room without moving the source.
+    r.damping.connect(r.width.splitter);
+    r.width.splitter.connect(r.width.direct[0], 0);
+    r.width.splitter.connect(r.width.cross[0], 0);
+    r.width.splitter.connect(r.width.direct[1], 1);
+    r.width.splitter.connect(r.width.cross[1], 1);
+    r.width.direct[0].connect(r.width.merger, 0, 0);
+    r.width.cross[1].connect(r.width.merger, 0, 0);
+    r.width.direct[1].connect(r.width.merger, 0, 1);
+    r.width.cross[0].connect(r.width.merger, 0, 1);
+    r.width.merger.connect(r.wetGain);
     r.wetGain.connect(r.mixOut);
     head = r.mixOut;
   }

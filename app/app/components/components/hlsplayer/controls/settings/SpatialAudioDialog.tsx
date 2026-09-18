@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Headphones, Sparkles, RotateCcw, Volume2 } from '~/components/icons';
+import { AudioWaveform, Headphones, Sparkles, RotateCcw, Volume2 } from '~/components/icons';
 import {
   Dialog,
   DialogContent,
@@ -21,6 +21,7 @@ import {
   type SpatialAudioConfig,
   type SpatialAudioMode,
 } from '../../hooks/useSpatialAudio';
+import { REVERB_LIMITS } from '~/lib/audio/reverbSettings';
 
 interface SpatialAudioDialogProps {
   open: boolean;
@@ -62,6 +63,61 @@ const PRESETS: Array<{
   { id: 'cathedral', label: 'Cathedral', patch: { mode: 'orbit', radius: 1.2, speedHz: 0.1, reverb: 0.8, room: 'cathedral' } },
   { id: 'in-room', label: 'In Front of You', patch: { mode: 'room-front', radius: 1.4, speedHz: 0.2, reverb: 0.25, room: 'room' } },
   { id: 'dry', label: 'No Room', patch: { mode: 'stereo', radius: 1.6, speedHz: 0.2, reverb: 0 } },
+];
+
+/** The room shaping sliders, driven off the config keys they write. */
+type RoomSliderKey = 'reverbPreDelayMs' | 'reverbTone' | 'reverbWidth' | 'reverbLowCut';
+
+const ROOM_SLIDERS: Array<{
+  key: RoomSliderKey;
+  label: string;
+  hint: string;
+  min: number;
+  max: number;
+  step: number;
+  fallback: number;
+  format: (v: number) => string;
+}> = [
+  {
+    key: 'reverbPreDelayMs',
+    label: 'Pre delay',
+    hint: 'How long before the room answers. Longer reads as bigger walls.',
+    min: REVERB_LIMITS.preDelayMs.min,
+    max: REVERB_LIMITS.preDelayMs.max,
+    step: 1,
+    fallback: DEFAULT_SPATIAL_CONFIG.reverbPreDelayMs,
+    format: (v) => `${Math.round(v)} ms`,
+  },
+  {
+    key: 'reverbTone',
+    label: 'Tone',
+    hint: 'Dark soaks the highs up like curtains. Bright leaves it glassy.',
+    min: 0,
+    max: 1,
+    step: 0.01,
+    fallback: DEFAULT_SPATIAL_CONFIG.reverbTone,
+    format: (v) => (v < 0.45 ? 'Dark' : v > 0.55 ? 'Bright' : 'Natural'),
+  },
+  {
+    key: 'reverbWidth',
+    label: 'Spread',
+    hint: 'Collapses the tail to the centre, or pushes it past the speakers.',
+    min: REVERB_LIMITS.width.min,
+    max: REVERB_LIMITS.width.max,
+    step: 0.01,
+    fallback: DEFAULT_SPATIAL_CONFIG.reverbWidth,
+    format: (v) => (v < 0.05 ? 'Mono' : `${Math.round(v * 100)}%`),
+  },
+  {
+    key: 'reverbLowCut',
+    label: 'Low cut',
+    hint: 'Keeps the bass out of the tail so the low end stays tight.',
+    min: REVERB_LIMITS.lowCutHz.min,
+    max: REVERB_LIMITS.lowCutHz.max,
+    step: 5,
+    fallback: DEFAULT_SPATIAL_CONFIG.reverbLowCut,
+    format: (v) => `${Math.round(v)} Hz`,
+  },
 ];
 
 const POSITION_PRESETS: Array<{
@@ -171,6 +227,8 @@ export default function SpatialAudioDialog({
 }: SpatialAudioDialogProps) {
   const padRef = useRef<HTMLDivElement>(null);
   const [draggingPad, setDraggingPad] = useState(false);
+  const [showRoomDetail, setShowRoomDetail] = useState(false);
+  const dry = !(value.reverb > 0);
 
   const update = useCallback(
     (patch: Omit<Partial<SpatialAudioConfig>, 'position'> & {
@@ -393,11 +451,12 @@ export default function SpatialAudioDialog({
           <div className="space-y-3 rounded-xl border border-border/50 bg-muted/15 p-3">
             <div className="space-y-1.5">
               <div className="flex items-center justify-between">
-                <Label className="text-xs uppercase tracking-wide text-muted-foreground">
-                  Room
+                <Label className="flex items-center gap-1.5 text-xs uppercase tracking-wide text-muted-foreground">
+                  <AudioWaveform className="h-3.5 w-3.5" />
+                  Wetness
                 </Label>
                 <span className="text-xs tabular-nums text-muted-foreground">
-                  {value.reverb <= 0 ? 'Dry' : `${Math.round(value.reverb * 100)}%`}
+                  {dry ? 'Dry' : `${Math.round(value.reverb * 100)}%`}
                 </span>
               </div>
               <Slider
@@ -408,14 +467,15 @@ export default function SpatialAudioDialog({
                 onValueChange={(v) => update({ reverb: v[0] ?? 0 })}
               />
             </div>
-            <div className="grid grid-cols-3 gap-1.5">
+
+            <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-4">
               {SPATIAL_ROOMS.map((r) => {
                 const active = value.room === r.id;
                 return (
                   <button
                     key={r.id}
                     type="button"
-                    disabled={value.reverb <= 0}
+                    disabled={dry}
                     onClick={() => update({ room: r.id })}
                     className={cn(
                       'rounded-md border px-2 py-1.5 text-[11px] font-medium transition disabled:opacity-50',
@@ -429,6 +489,50 @@ export default function SpatialAudioDialog({
                 );
               })}
             </div>
+
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-[11px] leading-snug text-muted-foreground">
+                Also shapes the VR theater room.
+              </p>
+              <button
+                type="button"
+                onClick={() => setShowRoomDetail((s) => !s)}
+                disabled={dry}
+                className={cn(
+                  'shrink-0 rounded-md border px-2 py-1 text-[11px] font-medium transition disabled:opacity-50',
+                  showRoomDetail
+                    ? 'border-primary bg-primary/10'
+                    : 'border-border/60 bg-background hover:border-primary/40 hover:bg-primary/5',
+                )}
+              >
+                {showRoomDetail ? 'Fewer controls' : 'Shape the room'}
+              </button>
+            </div>
+
+            {showRoomDetail && !dry && (
+              <div className="space-y-3 border-t border-border/50 pt-3">
+                {ROOM_SLIDERS.map((s) => (
+                  <div key={s.key} className="space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <Label className="text-[11px] uppercase tracking-wide text-muted-foreground">
+                        {s.label}
+                      </Label>
+                      <span className="text-xs tabular-nums text-muted-foreground">
+                        {s.format(value[s.key])}
+                      </span>
+                    </div>
+                    <Slider
+                      value={[value[s.key]]}
+                      min={s.min}
+                      max={s.max}
+                      step={s.step}
+                      onValueChange={(v) => update({ [s.key]: v[0] ?? s.fallback })}
+                    />
+                    <p className="text-[10px] leading-snug text-muted-foreground/80">{s.hint}</p>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
 
           {/* Manual position pad  only in manual mode */}

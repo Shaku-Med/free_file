@@ -3,14 +3,12 @@ import { isMobile } from 'react-device-detect';
 import {
   ensureSharedGraph,
   resumeIfNeeded,
-  reverbRoomTone,
   setPannerActive,
   setPannerPosition,
   setReverbActive,
-  setReverbMix,
-  setReverbTone,
   type ReverbRoom,
 } from '~/lib/audio/sharedAudioGraph';
+import { applyReverbSettings, type ReverbSettings } from '~/lib/audio/reverbSettings';
 
 /**
  * Phone browsers (especially iOS Safari) make Web Audio + `MediaElementSource`
@@ -66,23 +64,26 @@ export interface SpatialAudioConfig {
   reverb: number;
   /** Which space the source is moving around in. */
   room: SpatialRoom;
+  reverbPreDelayMs: number;
+  /** 0 dark, 0.5 the room's own tone, 1 bright. */
+  reverbTone: number;
+  /** 0 mono tail, 1 as built, 2 wider than the speakers. */
+  reverbWidth: number;
+  reverbLowCut: number;
 }
 
-/** The rooms 8D offers; `theater` is reserved for the VR player. */
-export type SpatialRoom = Extract<ReverbRoom, 'room' | 'hall' | 'cathedral'>;
+export type SpatialRoom = ReverbRoom;
 
 export const SPATIAL_ROOMS: ReadonlyArray<{ id: SpatialRoom; label: string }> = [
   { id: 'room', label: 'Small room' },
+  { id: 'theater', label: 'Theater' },
   { id: 'hall', label: 'Concert hall' },
   { id: 'cathedral', label: 'Cathedral' },
 ];
 
 export function isSpatialRoom(value: unknown): value is SpatialRoom {
-  return value === 'room' || value === 'hall' || value === 'cathedral';
+  return SPATIAL_ROOMS.some((r) => r.id === value);
 }
-
-/** Config wet is 0..1 for the UI; the graph wants a sane gain. */
-const MAX_WET = 0.45;
 
 export const DEFAULT_SPATIAL_CONFIG: SpatialAudioConfig = {
   enabled: false,
@@ -92,7 +93,26 @@ export const DEFAULT_SPATIAL_CONFIG: SpatialAudioConfig = {
   speedHz: 0.25,
   reverb: 0.3,
   room: 'room',
+  reverbPreDelayMs: 18,
+  reverbTone: 0.5,
+  reverbWidth: 1,
+  reverbLowCut: 140,
 };
+
+/** The reverb half of the config, in the shape the audio graph wants. */
+export function reverbSettingsOf(
+  config: SpatialAudioConfig,
+  room: SpatialRoom = config.room,
+): ReverbSettings {
+  return {
+    room: isSpatialRoom(room) ? room : 'room',
+    mix: config.reverb,
+    preDelayMs: config.reverbPreDelayMs,
+    tone: config.reverbTone,
+    width: config.reverbWidth,
+    lowCutHz: config.reverbLowCut,
+  };
+}
 
 /**
  * Pure position math  given a config and a wall-clock timestamp (ms), returns the
@@ -152,15 +172,13 @@ function applySpatialReverb(video: HTMLVideoElement | null, config: SpatialAudio
   if (!video) return;
   const graph = ensureSharedGraph(video);
   if (!graph || graph.theaterActive) return;
-  const wet = Math.max(0, Math.min(1, config.reverb));
-  if (!config.enabled || wet <= 0) {
+  const settings = reverbSettingsOf(config);
+  if (!config.enabled || !(settings.mix > 0)) {
     setReverbActive(graph, false);
     return;
   }
-  const room: SpatialRoom = isSpatialRoom(config.room) ? config.room : 'room';
-  setReverbActive(graph, true, room);
-  setReverbMix(graph, wet * MAX_WET, 0.3);
-  setReverbTone(graph, reverbRoomTone(room), 0.3);
+  setReverbActive(graph, true, settings.room);
+  applyReverbSettings(graph, settings);
 }
 
 /**
@@ -312,5 +330,14 @@ export function useSpatialAudio(
   useEffect(() => {
     if (isMobile) return;
     applySpatialReverb(videoRef.current, configRef.current);
-  }, [videoRef, config.enabled, config.reverb, config.room]);
+  }, [
+    videoRef,
+    config.enabled,
+    config.reverb,
+    config.room,
+    config.reverbPreDelayMs,
+    config.reverbTone,
+    config.reverbWidth,
+    config.reverbLowCut,
+  ]);
 }

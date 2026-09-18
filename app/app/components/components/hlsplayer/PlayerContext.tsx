@@ -18,6 +18,7 @@ import {
   type SpatialAudioConfig,
   type SpatialAudioMode,
 } from './hooks/useSpatialAudio';
+import { REVERB_LIMITS } from '~/lib/audio/reverbSettings';
 import { useStableVolume } from './hooks/useStableVolume';
 import { enterPlayerFullscreen, syncNativeVideoControls } from './fullscreenMode';
 import { windappFullscreenBridge } from '~/lib/hooks/useWindapp';
@@ -669,6 +670,10 @@ export function PlayerProvider({
           }
         };
         const migratedMode = migrate(raw.mode);
+        // The cookie is user controlled, so every number is range checked and
+        // anything that isn't a finite number falls back to the default.
+        const num = (v: unknown, lo: number, hi: number, fallback: number) =>
+          Number.isFinite(v) ? Math.max(lo, Math.min(hi, Number(v))) : fallback;
         parsed = {
           enabled: typeof raw.enabled === 'boolean' ? raw.enabled : DEFAULT_SPATIAL_CONFIG.enabled,
           mode: migratedMode ?? DEFAULT_SPATIAL_CONFIG.mode,
@@ -683,10 +688,27 @@ export function PlayerProvider({
           speedHz: Number.isFinite(raw.speedHz)
             ? Math.max(0.02, Math.min(2, Number(raw.speedHz)))
             : DEFAULT_SPATIAL_CONFIG.speedHz,
-          reverb: Number.isFinite(raw.reverb)
-            ? Math.max(0, Math.min(1, Number(raw.reverb)))
-            : DEFAULT_SPATIAL_CONFIG.reverb,
+          reverb: num(raw.reverb, 0, 1, DEFAULT_SPATIAL_CONFIG.reverb),
           room: isSpatialRoom(raw.room) ? raw.room : DEFAULT_SPATIAL_CONFIG.room,
+          reverbPreDelayMs: num(
+            raw.reverbPreDelayMs,
+            REVERB_LIMITS.preDelayMs.min,
+            REVERB_LIMITS.preDelayMs.max,
+            DEFAULT_SPATIAL_CONFIG.reverbPreDelayMs,
+          ),
+          reverbTone: num(raw.reverbTone, 0, 1, DEFAULT_SPATIAL_CONFIG.reverbTone),
+          reverbWidth: num(
+            raw.reverbWidth,
+            REVERB_LIMITS.width.min,
+            REVERB_LIMITS.width.max,
+            DEFAULT_SPATIAL_CONFIG.reverbWidth,
+          ),
+          reverbLowCut: num(
+            raw.reverbLowCut,
+            REVERB_LIMITS.lowCutHz.min,
+            REVERB_LIMITS.lowCutHz.max,
+            DEFAULT_SPATIAL_CONFIG.reverbLowCut,
+          ),
         };
       } catch {
         /* keep defaults */

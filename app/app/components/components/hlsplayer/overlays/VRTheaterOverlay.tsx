@@ -7,10 +7,10 @@ import {
   setPannerActive,
   setPannerPosition,
   setReverbActive,
-  setReverbMix,
-  setReverbTone,
   setTheaterActive,
 } from '~/lib/audio/sharedAudioGraph';
+import { applyReverbSettings } from '~/lib/audio/reverbSettings';
+import { reverbSettingsOf } from '../hooks/useSpatialAudio';
 import { setVrTheaterActive } from './vrTheaterActive';
 
 /**
@@ -163,7 +163,13 @@ export default function VRTheaterOverlay() {
     videoBounce,
     videoBounceIntensity,
     videoBounceInstruments,
+    spatialAudio,
   } = usePlayerContext();
+
+  // The room the user shaped in the spatial dialog, always in the theater
+  // impulse. The seat distance modulates it live in the render loop.
+  const reverbRef = useRef(reverbSettingsOf(spatialAudio, 'theater'));
+  reverbRef.current = reverbSettingsOf(spatialAudio, 'theater');
 
   const enabled = vrTheater && !isReel;
   /** Scene is rebuilt per video  navigating watch→watch must never stack two rooms. */
@@ -223,7 +229,7 @@ export default function VRTheaterOverlay() {
         wired = true;
         setTheaterActive(graph, true);
         setReverbActive(graph, true, 'theater');
-        setReverbMix(graph, 0.18, 0.4);
+        applyReverbSettings(graph, reverbRef.current, { rampSeconds: 0.4 });
         setPannerActive(graph, true);
       });
     };
@@ -893,10 +899,15 @@ export default function VRTheaterOverlay() {
             // room than screen — and lags a touch, rooms don't snap.
             if (now - lastReverbSync > 140) {
               lastReverbSync = now;
-              setReverbMix(graph, 0.1 + Math.min(0.4, Math.max(0, effDist - 1.1) * 0.1), 0.16);
-              // The tail darkens as you move back, the way a real room's highs
-              // get absorbed on the way to the cheap seats.
-              setReverbTone(graph, 6400 - effDist * 900, 0.2);
+              // Back rows hear more room and less treble, the way a real room
+              // absorbs highs on the way to the cheap seats. This scales what
+              // the user set rather than replacing it.
+              const back = Math.min(1, Math.max(0, effDist - 1.1) / 2.5);
+              applyReverbSettings(graph, reverbRef.current, {
+                mixScale: 0.7 + back * 1.1,
+                toneScale: 1 - back * 0.5,
+                rampSeconds: 0.18,
+              });
             }
           }
         }
