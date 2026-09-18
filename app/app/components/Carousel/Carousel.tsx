@@ -45,6 +45,19 @@ const GLIDE_MS = 380;
 const FRICTION_TAU = 320;
 const MIN_VELOCITY = 0.02;
 const VELOCITY_SAMPLE_MS = 80;
+/** Hard ceiling on how far past an end the row can ever be pulled. */
+const RUBBER_MAX = 72;
+
+/**
+ * Give at the ends: the row keeps following the finger but gives way, and
+ * approaches `limit` without ever reaching it however hard it is pulled. A
+ * plain fraction with a cap would let a fast flick sit at the cap, which is
+ * what let people drag the whole row off screen and stare at an empty strip.
+ */
+function rubberBand(excess: number, viewportWidth: number) {
+  const limit = Math.min(RUBBER_MAX, Math.max(24, viewportWidth * 0.08));
+  return limit * (1 - Math.exp(-excess / limit));
+}
 
 type CarouselProps = {
   children: ReactNode;
@@ -94,6 +107,8 @@ export function Carousel({
 
   const drag = useRef({
     active: false,
+    /** The one pointer that owns the gesture. Others are ignored outright. */
+    pointerId: -1,
     startX: 0,
     startOffset: 0,
     lastX: 0,
@@ -103,6 +118,7 @@ export function Carousel({
   });
   const suppressClick = useRef(false);
   const momentumRaf = useRef<number | null>(null);
+  const releaseWatch = useRef<(() => void) | null>(null);
 
   const stopMomentum = useCallback(() => {
     if (momentumRaf.current !== null) {
@@ -166,9 +182,37 @@ export function Carousel({
     setOffset(clamp(target, -maxRef.current, 0));
   }, [stopMomentum]);
 
+  const finishDrag = useCallback((pointerId: number, timeStamp: number) => {
+    const d = drag.current;
+    if (!d.active || pointerId !== d.pointerId) return;
+    d.active = false;
+    d.pointerId = -1;
+    releaseWatch.current?.();
+    releaseWatch.current = null;
+    setDragging(false);
+    try { viewportRef.current?.releasePointerCapture?.(pointerId); } catch { /* not fatal */ }
+    if (!d.moved) return;
+    suppressClick.current = true;
+
+    const max = maxRef.current;
+    const current = offsetRef.current;
+    if (current > 0 || current < -max) {
+      glideTo(current > 0 ? 0 : -max);
+      return;
+    }
+    const fresh = timeStamp - d.lastT <= VELOCITY_SAMPLE_MS;
+    if (fresh && Math.abs(d.velocity) >= MIN_VELOCITY) {
+      startMomentum(d.velocity);
+    }
+  }, [glideTo, startMomentum]);
+
   const onPointerDown = useCallback((e: ReactPointerEvent<HTMLDivElement>) => {
     if (fromPortalledOverlay(e)) return;
     if (e.pointerType === "mouse" && e.button !== 0) return;
+    // A second finger must not take over the gesture. Without this its position
+    // became the new drag origin while the first finger kept reporting moves,
+    // so the row leapt by the distance between the two and shot off screen.
+    if (drag.current.active) return;
     // Measure first. maxOffset is what bounds the drag, and if it is stale
     // (cards still loading, sidebar just toggled, list just grew) the track can
     // be pulled far past where the content actually ends and the row empties
@@ -182,18 +226,43 @@ export function Carousel({
     stopMomentum();
     const d = drag.current;
     d.active = true;
+    d.pointerId = e.pointerId;
     d.moved = false;
     d.startX = e.clientX;
     d.startOffset = offsetRef.current;
     d.lastX = e.clientX;
     d.lastT = e.timeStamp;
     d.velocity = 0;
+    // Clear any suppression a previous drag armed but never spent, or the next
+    // genuine tap on a card would be swallowed instead.
+    suppressClick.current = false;
     setAnimate(false);
-  }, [stopMomentum]);
+
+    // The release can land anywhere: outside the viewport, in another window,
+    // on a portalled sheet. Pointer capture is only taken once the drag passes
+    // the slop, so before that a release elsewhere left the gesture armed and
+    // the row then followed a button-free cursor around.
+    const onWindowRelease = (ev: PointerEvent) => finishDrag(ev.pointerId, ev.timeStamp);
+    const onWindowBlur = () => finishDrag(drag.current.pointerId, performance.now());
+    window.addEventListener("pointerup", onWindowRelease);
+    window.addEventListener("pointercancel", onWindowRelease);
+    window.addEventListener("blur", onWindowBlur);
+    releaseWatch.current = () => {
+      window.removeEventListener("pointerup", onWindowRelease);
+      window.removeEventListener("pointercancel", onWindowRelease);
+      window.removeEventListener("blur", onWindowBlur);
+    };
+  }, [stopMomentum, finishDrag]);
 
   const onPointerMove = useCallback((e: ReactPointerEvent<HTMLDivElement>) => {
     const d = drag.current;
-    if (!d.active) return;
+    if (!d.active || e.pointerId !== d.pointerId) return;
+    // A mouse back over the row with no button held was released somewhere we
+    // never heard about. Stop, do not keep dragging under a free cursor.
+    if (e.pointerType === "mouse" && e.buttons === 0) {
+      finishDrag(e.pointerId, e.timeStamp);
+      return;
+    }
     const dx = e.clientX - d.startX;
     if (!d.moved && Math.abs(dx) < DRAG_SLOP) return;
     if (!d.moved) {
@@ -210,42 +279,23 @@ export function Carousel({
     d.lastX = e.clientX;
     d.lastT = e.timeStamp;
 
-    // Past either end the track follows at a third of the distance, so the
-    // boundary is felt instead of hit like a wall. Capped as well: a long flick
-    // at the edge would otherwise ease its way to an offset that pushes every
-    // card off screen and leaves a blank row.
     const raw = d.startOffset + dx;
     const max = maxRef.current;
-    const limit = Math.max(48, (viewportRef.current?.clientWidth ?? 0) * 0.15);
+    const span = viewportRef.current?.clientWidth ?? 0;
     const eased =
       raw > 0
-        ? Math.min(raw / 3, limit)
+        ? rubberBand(raw, span)
         : raw < -max
-          ? -max - Math.min((-max - raw) / 3, limit)
+          ? -max - rubberBand(-max - raw, span)
           : raw;
     setOffset(eased);
-  }, []);
+  }, [finishDrag]);
 
   const endDrag = useCallback((e: ReactPointerEvent<HTMLDivElement>) => {
-    const d = drag.current;
-    if (!d.active) return;
-    d.active = false;
-    setDragging(false);
-    try { e.currentTarget.releasePointerCapture?.(e.pointerId); } catch { /* not fatal */ }
-    if (!d.moved) return;
-    suppressClick.current = true;
+    finishDrag(e.pointerId, e.timeStamp);
+  }, [finishDrag]);
 
-    const max = maxRef.current;
-    const current = offsetRef.current;
-    if (current > 0 || current < -max) {
-      glideTo(current);
-      return;
-    }
-    const fresh = e.timeStamp - d.lastT <= VELOCITY_SAMPLE_MS;
-    if (fresh && Math.abs(d.velocity) >= MIN_VELOCITY) {
-      startMomentum(d.velocity);
-    }
-  }, [glideTo, startMomentum]);
+  useEffect(() => () => releaseWatch.current?.(), []);
 
   /** A drag should never turn into a click on whatever card it ended over. */
   const onClickCapture = useCallback((e: React.MouseEvent) => {
