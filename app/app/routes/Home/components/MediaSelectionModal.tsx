@@ -87,11 +87,37 @@ import { UploadProgressFloat } from "./UploadProgressFloat"
  * the underlying `File` (for using as the default thumbnail at upload time),
  * and the clip duration (for the reel-eligibility check).
  */
+/**
+ * Last resort preview for a video whose still could not be captured: the file
+ * itself with preload="metadata", which paints frame one in most browsers.
+ * Cheaper than it looks, since the object URL already exists.
+ */
+function VideoFramePreview({ src, className }: { src: string; className?: string }) {
+  return (
+    <video
+      src={src}
+      className={className}
+      muted
+      playsInline
+      preload="metadata"
+      tabIndex={-1}
+      aria-hidden
+    />
+  )
+}
+
+/** Nothing decodes for this long; past it the file simply has no still. */
+const POSTER_TIMEOUT_MS = 12_000
+/** A seek that has not landed by now is not going to. Grab whatever is decoded. */
+const POSTER_SEEK_GRACE_MS = 2_500
+
 function extractVideoPoster(
   file: File,
 ): Promise<{ url: string; file: File; durationSeconds: number | null } | null> {
   return new Promise((resolve) => {
     const blobUrl = URL.createObjectURL(file)
+    let hardTimer: ReturnType<typeof setTimeout> | null = null
+    let seekTimer: ReturnType<typeof setTimeout> | null = null
     const video = document.createElement("video")
     video.muted = true
     video.playsInline = true
@@ -101,6 +127,8 @@ function extractVideoPoster(
     const finish = (result: { url: string; file: File } | null) => {
       if (settled) return
       settled = true
+      if (hardTimer) clearTimeout(hardTimer)
+      if (seekTimer) clearTimeout(seekTimer)
       URL.revokeObjectURL(blobUrl)
       video.removeAttribute("src")
       video.load()
@@ -157,6 +185,12 @@ function extractVideoPoster(
             t = Math.min(Math.max(0.05, d * 0.05), Math.max(0.05, d - 0.01))
           }
           video.currentTime = t
+          // Some containers decode but refuse to seek from a blob. Take the
+          // frame we already have rather than waiting on an event that is
+          // never coming.
+          seekTimer = setTimeout(() => {
+            if (!settled && video.readyState >= 2) captureFrame()
+          }, POSTER_SEEK_GRACE_MS)
         } catch {
           finish(null)
         }
@@ -165,6 +199,7 @@ function extractVideoPoster(
     )
     video.addEventListener("seeked", captureFrame, { once: true })
     video.addEventListener("error", () => finish(null), { once: true })
+    hardTimer = setTimeout(() => finish(null), POSTER_TIMEOUT_MS)
     video.src = blobUrl
     video.load()
   })
@@ -389,6 +424,8 @@ function SortableFileRow({
               </div>
             ) : videoStill ? (
               <img src={videoStill} alt="" className="h-full w-full object-cover" />
+            ) : item.previewUrl ? (
+              <VideoFramePreview src={item.previewUrl} className="h-full w-full object-cover" />
             ) : (
               <div className="flex h-full w-full items-center justify-center">
                 <FileVideo className="h-4 w-4 text-muted-foreground" />
@@ -572,11 +609,8 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
       return null
     })
     items.forEach((item) => {
-      if (item.file.type.startsWith("image/")) {
-        if (item.previewUrl) URL.revokeObjectURL(item.previewUrl)
-      } else if (item.videoPosterUrl) {
-        URL.revokeObjectURL(item.videoPosterUrl)
-      }
+      if (item.previewUrl) URL.revokeObjectURL(item.previewUrl)
+      if (item.videoPosterUrl) URL.revokeObjectURL(item.videoPosterUrl)
       if (item.customThumbnailPreview) URL.revokeObjectURL(item.customThumbnailPreview)
     })
     setItems([])
@@ -622,7 +656,7 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
     return {
       id: `${file.name}-${file.size}-${file.lastModified}-${GenerateUniqueID()}`,
       file,
-      previewUrl: isVideo ? "" : URL.createObjectURL(file),
+      previewUrl: URL.createObjectURL(file),
       videoPosterUrl: null,
       isExtractingVideoPoster: isVideo,
       durationSeconds: null,
@@ -903,11 +937,8 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
     setItems((prev) => {
       const target = prev.find((item) => item.id === id)
       if (target) {
-        if (target.file.type.startsWith("image/")) {
-          if (target.previewUrl) URL.revokeObjectURL(target.previewUrl)
-        } else if (target.videoPosterUrl) {
-          URL.revokeObjectURL(target.videoPosterUrl)
-        }
+        if (target.previewUrl) URL.revokeObjectURL(target.previewUrl)
+        if (target.videoPosterUrl) URL.revokeObjectURL(target.videoPosterUrl)
         if (target.customThumbnailPreview) URL.revokeObjectURL(target.customThumbnailPreview)
       }
       const next = prev.filter((item) => item.id !== id)
@@ -1813,6 +1844,8 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
                                   {isVideo ? (
                                     videoStill ? (
                                       <img src={videoStill} alt="" className="h-full w-full object-cover" />
+                                    ) : item.previewUrl ? (
+                                      <VideoFramePreview src={item.previewUrl} className="h-full w-full object-cover" />
                                     ) : (
                                       <div className="flex h-full w-full items-center justify-center">
                                         <FileVideo className="h-4 w-4 text-muted-foreground" />
@@ -1976,6 +2009,8 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
                                                   <div className="h-9 w-9 shrink-0 overflow-hidden rounded-lg bg-muted ring-1 ring-border/60">
                                                     {still ? (
                                                       <img src={still} alt="" className="h-full w-full object-cover" />
+                                                    ) : it.previewUrl ? (
+                                                      <VideoFramePreview src={it.previewUrl} className="h-full w-full object-cover" />
                                                     ) : (
                                                       <div className="flex h-full w-full items-center justify-center">
                                                         <FileVideo className="h-4 w-4 text-muted-foreground" />
@@ -2240,6 +2275,18 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
                             />
                             <span className="absolute inset-0 bg-foreground/20 group-hover:bg-foreground/30 group-active:bg-foreground/35 transition-colors" />
                             <span className="relative z-10 flex h-14 w-14 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lg ring-2 ring-background/80 group-hover:bg-primary/90 transition-colors">
+                              <Play className="h-7 w-7 ml-0.5" fill="currentColor" />
+                            </span>
+                            <span className="sr-only">Play preview</span>
+                          </>
+                        ) : activeItem.previewUrl ? (
+                          <>
+                            <VideoFramePreview
+                              src={activeItem.previewUrl}
+                              className="absolute inset-0 h-full w-full bg-muted object-contain"
+                            />
+                            <span className="absolute inset-0 bg-foreground/20 transition-colors group-hover:bg-foreground/30 group-active:bg-foreground/35" />
+                            <span className="relative z-10 flex h-14 w-14 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lg ring-2 ring-background/80 transition-colors group-hover:bg-primary/90">
                               <Play className="h-7 w-7 ml-0.5" fill="currentColor" />
                             </span>
                             <span className="sr-only">Play preview</span>
