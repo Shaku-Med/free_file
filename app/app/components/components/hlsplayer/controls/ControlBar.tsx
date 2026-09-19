@@ -189,6 +189,13 @@ interface ControlBarProps {
   onClose?: () => void;
   /** Rendered at the very bottom of the control bar flex-col (e.g. audio visualizer). */
   bottomSlot?: React.ReactNode;
+  /**
+   * A double tap seek indicator is on screen. The mobile skip and play circles
+   * sit in the middle at z-40 and the indicator draws at 15% from the edge at
+   * z-20, so on a phone they land on top of each other; the circles step aside
+   * while it shows.
+   */
+  seekFeedbackActive?: boolean;
 }
 
 export default function ControlBar({
@@ -206,6 +213,7 @@ export default function ControlBar({
   onBack,
   onClose,
   bottomSlot,
+  seekFeedbackActive = false,
 }: ControlBarProps) {
   const {
     state,
@@ -642,8 +650,16 @@ export default function ControlBar({
         </div>
 
         <div
-          className="pointer-events-auto absolute left-1/2 top-1/2 z-40 flex -translate-x-1/2 -translate-y-1/2 items-center"
+          className={cn(
+            'absolute left-1/2 top-1/2 z-40 flex -translate-x-1/2 -translate-y-1/2 items-center transition-opacity',
+            // Out of the way, and out of the way of taps: a third tap during
+            // the indicator should keep seeking, not hit the play button.
+            seekFeedbackActive
+              ? 'pointer-events-none opacity-0 duration-100'
+              : 'pointer-events-auto opacity-100 duration-200',
+          )}
           style={{ gap: 'var(--hls-ctrl-gap, 1rem)' }}
+          inert={seekFeedbackActive || undefined}
         >
           {!isReel && !isHidden(hideControls, 'seek') && (
             <PlayerControlTooltip label={`Rewind ${MOBILE_SKIP_SEC} seconds`}>

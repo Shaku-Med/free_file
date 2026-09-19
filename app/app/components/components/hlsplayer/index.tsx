@@ -1457,6 +1457,7 @@ function PlayerInner({
               hideControls={effectiveHideControls}
               liftBottomPx={showAudioVisualizer && visualizerWave ? visualizerStripPx : 0}
               isMobileLayout={isMobileView || isNarrowPlayer}
+              seekFeedbackActive={showSeekFeedback}
               onBack={onBack}
             />
           </div>
