@@ -884,3 +884,31 @@ input[type="search"] {
 .err-enter      { animation: err-enter .5s ease-out both; }
 .err-enter-d1   { animation: err-enter .5s .12s ease-out both; }
 .err-enter-d2   { animation: err-enter .5s .24s ease-out both; }
+
+/* The page gutter, defined once.
+   BodyComponent used to spell it out as px-3 sm:px-5 lg:px-8 xl:px-4, which
+   meant anything wanting to break out of it had to guess the same four values
+   in negative margins and stay in step with them forever. Now the gutter is a
+   variable and `app_bleed` cancels whatever it currently is. */
+.app_gutter {
+  --app-gutter: 0.75rem;
+  padding-inline: var(--app-gutter);
+}
+
+@media screen and (min-width: 640px) {
+  .app_gutter { --app-gutter: 1.25rem; }
+}
+
+@media screen and (min-width: 1024px) {
+  .app_gutter { --app-gutter: 2rem; }
+}
+
+@media screen and (min-width: 1280px) {
+  .app_gutter { --app-gutter: 1rem; }
+}
+
+/* Runs edge to edge, then puts the gutter back on its own contents. */
+.app_bleed {
+  margin-inline: calc(var(--app-gutter, 0px) * -1);
+  padding-inline: var(--app-gutter, 0px);
+}

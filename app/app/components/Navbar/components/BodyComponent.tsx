@@ -135,7 +135,7 @@ const BodyComponent = ({ children }: BodyComponentProps) => {
           className={`mx-auto w-full min-w-0 flex-1 ${
             applyTheater || onReelRoute
               ? "max-w-none px-0"
-              : " px-3 sm:px-5 lg:px-8 xl:px-4"
+              : " app_gutter"
           } sidebar_body`}
         >
           <div style={{ display: isHomeRoute ? "block" : "none" }} aria-hidden={!isHomeRoute}>

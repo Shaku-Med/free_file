@@ -206,7 +206,7 @@ export default function PlaylistViewPage() {
 
   return (
     <div className="space-y-6">
-      <div className="relative overflow-hidden rounded-2xl border border-border/50">
+      <div className="app_bleed relative overflow-hidden border-b border-border/50">
         {/* The cover blown up and blurred behind its own artwork, fading into
             the page. No sampled colours needed, and it works on any theme. */}
         <div className="pointer-events-none absolute inset-0" aria-hidden>
@@ -219,10 +219,10 @@ export default function PlaylistViewPage() {
           ) : (
             <div className="h-full w-full bg-muted" />
           )}
-          <div className="absolute inset-0 bg-gradient-to-t from-background via-background/85 to-background/40" />
+          <div className="absolute inset-0 bg-gradient-to-b from-background/45 via-background/80 to-background" />
         </div>
 
-        <div className="relative flex flex-col gap-5 p-4 sm:flex-row sm:items-end sm:gap-6 sm:p-6">
+        <div className="relative flex flex-col gap-5 py-6 sm:flex-row sm:items-end sm:gap-6 sm:py-8">
         <div className="relative w-full shrink-0 overflow-hidden rounded-xl bg-muted shadow-xl shadow-black/25 sm:w-72">
           <div className="aspect-video">
             {cover ? (
