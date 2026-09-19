@@ -4,6 +4,9 @@ import { Link, type MetaFunction } from "react-router";
 import VideoCard from "~/routes/Home/components/VideoCard";
 import type { FileType } from "~/lib/types";
 import { groupConsecutiveReelClusters } from "~/lib/feed/groupConsecutiveReelClusters";
+import { FEED_HIDE_ACTIONS, MEDIA_GRID } from "~/lib/feed/feedVideoCardLayout";
+import { MediaGridSkeleton, ReelShelf, VideoCardSkeleton } from "~/components/MediaShelf";
+import type { PlaylistCover } from "~/lib/playlist/playlistCovers.server";
 import { Carousel, CarouselItem } from "~/components/Carousel/Carousel";
 import { useFileContext } from "~/lib/Context/Context";
 import { useLocalPlaylist } from "~/lib/hooks/useLocalPlaylist";
@@ -29,22 +32,6 @@ export const meta: MetaFunction = () =>
     canonicalPath: "/playlist",
   });
 
-function SkeletonCard() {
-  return (
-    <div className="animate-pulse">
-      <div className="aspect-video bg-muted rounded-xl" />
-      <div className="flex gap-3 mt-3">
-        <div className="w-9 h-9 rounded-full bg-muted shrink-0" />
-        <div className="flex-1 space-y-2">
-          <div className="h-4 bg-muted rounded w-[85%]" />
-          <div className="h-3 bg-muted rounded w-[60%]" />
-          <div className="h-3 bg-muted rounded w-[40%]" />
-        </div>
-      </div>
-    </div>
-  );
-}
-
 interface ServerPlaylist {
   id: string;
   title: string;
@@ -55,11 +42,62 @@ interface ServerPlaylist {
   created_at: string;
   thumbnail_url?: string | null;
   first_thumb?: string | null;
+  /** Newest listable item, resolved server side. */
+  cover?: PlaylistCover | null;
+}
+
+const PLAYLIST_GRID =
+  "grid w-full min-w-0 grid-cols-2 gap-x-4 gap-y-6 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6";
+
+/** Playlist artwork with the stacked edge that says list rather than video. */
+function PlaylistCard({ playlist }: { playlist: ServerPlaylist }) {
+  const thumb = resolvePlaylistThumbSrc(playlist.thumbnail_url || playlist.first_thumb);
+  return (
+    <Link to={`/playlist/${playlist.id}`} className="group block min-w-0">
+      <div className="relative pt-2">
+        {/* Two offset slivers behind the artwork, the way a stack of cards sits. */}
+        <div className="absolute inset-x-4 top-0 h-2 rounded-t-lg bg-muted/40" aria-hidden />
+        <div className="absolute inset-x-2 top-1 h-2 rounded-t-lg bg-muted/70" aria-hidden />
+        <div className="relative aspect-video overflow-hidden rounded-xl bg-muted">
+          {playlist.cover ? (
+            <VideoCard layout="notificationThumb" data={playlist.cover as unknown as FileType} />
+          ) : thumb ? (
+            <img
+              src={thumb}
+              alt=""
+              loading="lazy"
+              className="h-full w-full object-cover"
+            />
+          ) : (
+            <div className="flex h-full w-full items-center justify-center">
+              <ListVideo className="h-7 w-7 text-muted-foreground/60" aria-hidden />
+            </div>
+          )}
+          <div className="absolute inset-y-0 right-0 flex w-[38%] flex-col items-center justify-center gap-1 bg-black/65 text-white">
+            <span className="text-sm font-semibold tabular-nums">{playlist.item_count}</span>
+            <ListVideo className="h-4 w-4" aria-hidden />
+          </div>
+        </div>
+      </div>
+      <p className="mt-2.5 line-clamp-2 text-sm font-medium leading-snug text-foreground">
+        {playlist.title}
+      </p>
+      <span className="mt-1 inline-flex items-center gap-1 text-xs text-muted-foreground">
+        {playlist.is_public ? (
+          <>
+            <Globe className="h-3 w-3" aria-hidden /> Public
+          </>
+        ) : (
+          <>
+            <Lock className="h-3 w-3" aria-hidden /> Private
+          </>
+        )}
+      </span>
+    </Link>
+  );
 }
 
 export default function PlaylistPage() {
-  const playlistGridClass =
-    "grid w-full min-w-0 grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3";
   const { userId } = useFileContext();
   const { ids, count, clear } = useLocalPlaylist();
   const [files, setFiles] = useState<FileType[]>([]);
@@ -131,9 +169,6 @@ export default function PlaylistPage() {
     );
   }, []);
 
-  const savedVideoGridClass =
-    "grid w-full min-w-0 grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3";
-
   useEffect(() => {
     if (ids.length === 0) {
       setFiles([]);
@@ -173,7 +208,7 @@ export default function PlaylistPage() {
   }, [hasMore, loadingMore, page, fetchPage]);
 
   return (
-    <div className="space-y-10 px-2">
+    <div className="space-y-8">
       <div className="flex items-center justify-between gap-3">
         <h1 className="text-2xl font-bold tracking-tight">Playlists</h1>
         {userId && (
@@ -187,42 +222,14 @@ export default function PlaylistPage() {
       {/* Server Playlists */}
       {userId && (
         <section>
-          <h2 className="text-base font-semibold mb-4 text-muted-foreground">Your lists</h2>
+          <h2 className="mb-4 text-base font-semibold text-foreground">Your lists</h2>
           {serverLoading ? (
-            <div className={playlistGridClass}>
-              {Array.from({ length: 3 }).map((_, i) => (
-                <div key={i} className="animate-pulse rounded-xl border bg-card overflow-hidden">
-                  <div className="aspect-video bg-muted" />
-                  <div className="p-3 h-14 bg-muted/40" />
-                </div>
-              ))}
-            </div>
+            <MediaGridSkeleton variant="poster" count={5} className={PLAYLIST_GRID} />
           ) : serverPlaylists.length > 0 ? (
-            <div className="grid w-full min-w-0 grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
-              {serverPlaylists.map((pl) => {
-                const thumb = resolvePlaylistThumbSrc(pl.thumbnail_url || pl.first_thumb);
-                return (
-                  <Link
-                    key={pl.id}
-                    to={`/playlist/${pl.id}`}
-                    className="group block rounded-xl border bg-card overflow-hidden hover:border-primary/30 hover:bg-accent/40 transition-colors"
-                  >
-                    <div className="p-3 min-w-0 relative">
-                      <p className="font-medium text-sm line-clamp-2 group-hover:text-primary transition-colors">{pl.title}</p>
-                      <div className="flex items-center gap-2 text-xs text-muted-foreground mt-1.5">
-                        {pl.is_public ? (
-                          <span className="inline-flex items-center gap-0.5"><Globe className="w-3 h-3" /> Public</span>
-                        ) : (
-                          <span className="inline-flex items-center gap-0.5"><Lock className="w-3 h-3" /> Private</span>
-                        )}
-                      <span className="absolute top-1.5 right-1.5 rounded-md bg-black/65 px-2 py-0.5 text-[11px] font-medium text-white">
-                        {pl.item_count === 1 ? "1 video" : `${pl.item_count} videos`}
-                      </span>
-                      </div>
-                    </div>
-                  </Link>
-                );
-              })}
+            <div className={PLAYLIST_GRID}>
+              {serverPlaylists.map((pl) => (
+                <PlaylistCard key={pl.id} playlist={pl} />
+              ))}
             </div>
           ) : (
             <EmptyState
@@ -242,10 +249,10 @@ export default function PlaylistPage() {
       {/* Saved Locally */}
       <section>
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-base font-semibold text-muted-foreground flex items-center gap-2">
-            <Bookmark className="w-5 h-5 shrink-0 opacity-80" />
+          <h2 className="flex items-center gap-2 text-base font-semibold text-foreground">
+            <Bookmark className="h-5 w-5 shrink-0 text-muted-foreground" aria-hidden />
             Saved on this device
-            <span className="text-sm font-normal opacity-80">({count})</span>
+            <span className="text-sm font-normal text-muted-foreground">{count}</span>
           </h2>
           {count > 0 && (
             <Button
@@ -261,14 +268,10 @@ export default function PlaylistPage() {
         </div>
 
         {loading ? (
-          <div className={savedVideoGridClass}>
-            {Array.from({ length: 6 }).map((_, i) => (
-              <SkeletonCard key={i} />
-            ))}
-          </div>
+          <MediaGridSkeleton count={8} className={MEDIA_GRID} />
         ) : files.length > 0 ? (
           <>
-            <div className={savedVideoGridClass}>
+            <div className={MEDIA_GRID}>
               {(() => {
                 const groups = groupConsecutiveReelClusters(files);
                 let indexCounter = 0;
@@ -292,35 +295,23 @@ export default function PlaylistPage() {
                       }
                       const clusterKey =
                         g.files[0]?.feed_reel_cluster_id ?? g.files[0]?.id ?? "saved-local";
+                      const startIndex = indexCounter;
+                      indexCounter += g.files.length;
                       return (
-                        <div
+                        <ReelShelf
                           key={`saved-local-reel-${clusterKey}`}
-                          className="col-span-full w-full min-w-0 max-w-full overflow-visible"
-                        >
-                          <Carousel label="Reels" itemWidth={168} gapClassName="gap-2.5">
-                            {g.files.map((file, keyIndex) => {
-                              const index = indexCounter++;
-                              return (
-                                <CarouselItem key={file.id || file.unique_id || keyIndex}>
-                                  <VideoCard
-                                    data={file}
-                                    layout="reelStrip"
-                                    index={index}
-                                    currentUserId={userId || undefined}
-                                    userActions={userActions}
-                                    onUpdate={handleFileUpdate}
-                                    hideActions={{ completely: false, halfway: true }}
-                                  />
-                                </CarouselItem>
-                              );
-                            })}
-                          </Carousel>
-                        </div>
+                          files={g.files}
+                          startIndex={startIndex}
+                          currentUserId={userId || undefined}
+                          userActions={userActions}
+                          onUpdate={handleFileUpdate}
+                          hideActions={FEED_HIDE_ACTIONS}
+                        />
                       );
                     })}
                     {loadingMore &&
                       Array.from({ length: 4 }).map((_, i) => (
-                        <SkeletonCard key={`more-${i}`} />
+                        <VideoCardSkeleton key={`more-${i}`} />
                       ))}
                   </>
                 );

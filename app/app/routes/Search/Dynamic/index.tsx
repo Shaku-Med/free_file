@@ -13,6 +13,7 @@ import db from "~/lib/Database/supabase";
 import { isAuthenticated } from "~/lib/Security/Password";
 import { sanitizeSearchQuery } from "~/lib/Security/inputValidation";
 import { Carousel, CarouselItem } from "~/components/Carousel/Carousel";
+import { ReelShelf } from "~/components/MediaShelf";
 import { buildSpotlight } from "~/lib/search/spotlight.server";
 import { logSearchQuery } from "~/lib/search/searchStats.server";
 import {
@@ -384,34 +385,18 @@ const Search = () => {
     // YouTube-style horizontal list (thumbnail left, meta right; vertical on mobile).
     const reels = items.filter((f) => f.is_reel);
     const videos = items.filter((f) => !f.is_reel);
-    let indexCounter = 0;
+    let indexCounter = reels.length;
     return (
       <div className="flex w-full flex-col gap-4 sm:gap-5">
         <Separator/>
         {reels.length > 0 && (
-          <div className="w-full min-w-0 max-w-full overflow-visible">
-            <div className="mb-2 flex items-center gap-1.5">
-              <Clapperboard className="h-5 w-5 text-foreground" aria-hidden />
-              <h2 className="text-base font-semibold tracking-tight sm:text-lg">Shorts</h2>
-            </div>
-            <Carousel label="Shorts" itemWidth={168} gapClassName="gap-2.5">
-              {reels.map((file, keyIndex) => {
-                const index = indexCounter++;
-                return (
-                  <CarouselItem key={file.id || file.unique_id || keyIndex}>
-                    <VideoCard
-                      data={file}
-                      layout="reelStrip"
-                      index={index}
-                      userActions={localUserActions}
-                      currentUserId={userId || undefined}
-                      hideActions={{ completely: true, halfway: false }}
-                    />
-                  </CarouselItem>
-                );
-              })}
-            </Carousel>
-          </div>
+          <ReelShelf
+            files={reels}
+            startIndex={0}
+            userActions={localUserActions}
+            currentUserId={userId || undefined}
+            hideActions={{ completely: true, halfway: false }}
+          />
         )}
 
         <div className="flex w-full flex-col gap-3 sm:gap-4">

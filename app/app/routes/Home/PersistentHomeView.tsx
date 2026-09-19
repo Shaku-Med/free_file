@@ -28,7 +28,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Carousel, CarouselItem } from "~/components/Carousel/Carousel";
+import { MediaGridSkeleton, ReelShelf } from "~/components/MediaShelf";
 
 import { useFileContext } from "~/lib/Context/Context";
 import { cn } from "~/lib/utils";
@@ -46,7 +46,7 @@ import VideoCard from "./components/VideoCard";
 import { ContinueWatchingSection } from "./components/ContinueWatchingSection";
 import type { FileType } from "~/lib/types";
 import { groupConsecutiveReelClusters } from "~/lib/feed/groupConsecutiveReelClusters";
-import { FEED_HIDE_ACTIONS } from "~/lib/feed/feedVideoCardLayout";
+import { FEED_HIDE_ACTIONS, MEDIA_GRID } from "~/lib/feed/feedVideoCardLayout";
 import { Button } from "~/components/ui/button";
 import { Check, Clapperboard, Image as ImageIcon, Plus, TriangleAlert } from "lucide-react";
 import EmptyState from "~/components/EmptyState";
@@ -71,34 +71,8 @@ function rotatedSlice(pool: SuggestedCreator[], start: number, count: number): S
   return out;
 }
 
-/** The feed's column rhythm, in one place: it was written out three times. */
-const FEED_GRID =
-  "grid w-full min-w-0 grid-cols-1 gap-x-4 gap-y-6 sm:grid-cols-2 sm:gap-y-8 lg:grid-cols-3 lg:gap-y-10 xl:grid-cols-4";
-
-function SkeletonCard() {
-  return (
-    <div className="animate-pulse">
-      <div className="aspect-video bg-muted rounded-xl" />
-      <div className="flex gap-3 mt-3">
-        <div className="w-9 h-9 rounded-full bg-muted shrink-0" />
-        <div className="flex-1 space-y-2">
-          <div className="h-4 bg-muted rounded w-[85%]" />
-          <div className="h-3 bg-muted rounded w-[60%]" />
-          <div className="h-3 bg-muted rounded w-[40%]" />
-        </div>
-      </div>
-    </div>
-  );
-}
-
 function FeedSkeleton() {
-  return (
-    <div className={FEED_GRID}>
-      {Array.from({ length: 12 }).map((_, i) => (
-        <SkeletonCard key={i} />
-      ))}
-    </div>
-  );
+  return <MediaGridSkeleton count={12} className={MEDIA_GRID} />;
 }
 
 export default function PersistentHomeView() {
@@ -217,40 +191,22 @@ export default function PersistentHomeView() {
       }
 
       const clusterKey = g.files[0]?.feed_reel_cluster_id ?? g.files[0]?.id ?? keyPrefix;
+      const startIndex = indexCounter;
+      indexCounter += g.files.length;
       nodes.push(
-        <div
+        <ReelShelf
           key={`${keyPrefix}-reel-${clusterKey}`}
-          // overflow-visible: the carousel clips X itself; clipping here would
-          // cut the hover scale and the arrow shadows.
-          className="col-span-full w-full min-w-0 max-w-full overflow-visible"
-        >
-          <div className="mb-2 flex items-center gap-1.5">
-            <Clapperboard className="h-5 w-5 text-foreground" aria-hidden />
-            <h2 className="text-base font-semibold tracking-tight sm:text-lg">Shorts</h2>
-          </div>
-          <Carousel label="Shorts" itemWidth={168} gapClassName="gap-2.5">
-            {g.files.map((file, keyIndex) => {
-              const index = indexCounter++;
-              return (
-                <CarouselItem key={file.id || file.unique_id || keyIndex}>
-                  <VideoCard
-                    data={file}
-                    layout="reelStrip"
-                    index={index}
-                    currentUserId={userId || undefined}
-                    userActions={userActions}
-                    onUpdate={handleFileUpdate}
-                    hideActions={FEED_HIDE_ACTIONS}
-                  />
-                </CarouselItem>
-              );
-            })}
-          </Carousel>
-        </div>,
+          files={g.files}
+          startIndex={startIndex}
+          currentUserId={userId || undefined}
+          userActions={userActions}
+          onUpdate={handleFileUpdate}
+          hideActions={FEED_HIDE_ACTIONS}
+        />,
       );
     }
 
-    return <div className={FEED_GRID}>{nodes}</div>;
+    return <div className={MEDIA_GRID}>{nodes}</div>;
   };
 
   return (
@@ -294,11 +250,7 @@ export default function PersistentHomeView() {
             renderFeedGroups(files as FileType[], "feed")
           )}
           {isLoading && (
-            <div className={cn(FEED_GRID, "mt-2")}>
-              {Array.from({ length: 4 }).map((_, i) => (
-                <SkeletonCard key={`skeleton-${i}`} />
-              ))}
-            </div>
+            <MediaGridSkeleton count={4} className={cn(MEDIA_GRID, "mt-2")} />
           )}
           {userId ? (
             <div ref={observerRef} className="h-10" />

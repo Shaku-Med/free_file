@@ -1,6 +1,7 @@
 import db from "~/lib/Database/supabase";
 import { isAuthenticated } from "~/lib/Security/Password";
 import { mapPlaylistRpcToClientRow } from "~/lib/profile/normalizePlaylistRpcRow";
+import { resolvePlaylistCovers } from "~/lib/playlist/playlistCovers.server";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const MAX_TITLE = 100;
@@ -30,7 +31,17 @@ export const loader = async ({ request }: { request: Request }) => {
   }
 
   const raw = Array.isArray(data) ? data : [];
-  const playlists = raw.map((p: Record<string, unknown>) => mapPlaylistRpcToClientRow(p));
+  const mapped = raw.map((p: Record<string, unknown>) => mapPlaylistRpcToClientRow(p));
+
+  // The RPC's own first_thumb is the first item with no visibility filter at
+  // all, so it is dropped rather than trusted. Covers are resolved here where
+  // the listing rule and the moderation lookup both apply.
+  const covers = await resolvePlaylistCovers(mapped.map((p) => p.id));
+  const playlists = mapped.map((p) => ({
+    ...p,
+    first_thumb: null,
+    cover: covers.get(p.id) ?? null,
+  }));
 
   return jsonRes({ playlists });
 };

@@ -2,6 +2,7 @@ import db from "~/lib/Database/supabase";
 import { isAuthenticated } from "~/lib/Security/Password";
 import { filterFilesByAccess } from "~/routes/Api/fun/accessControl";
 import { normalizeRpcFileRow } from "~/lib/profile/normalizeRpcFileRow";
+import { resolvePlaylistCovers } from "~/lib/playlist/playlistCovers.server";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const MAX_TITLE = 100;
@@ -101,7 +102,10 @@ export const loader = async ({ request, params }: { request: Request; params: { 
     normalizeRpcFileRow(item as Record<string, unknown>)
   );
 
-  return jsonRes({ playlist, items });
+  // Header artwork, resolved under the same listing rule as the grid covers.
+  const covers = await resolvePlaylistCovers([String(playlist.id)]);
+
+  return jsonRes({ playlist, items, cover: covers.get(String(playlist.id)) ?? null });
 };
 
 export const action = async ({ request, params }: { request: Request; params: { id: string } }) => {

@@ -4,23 +4,8 @@ import VideoCard from "~/routes/Home/components/VideoCard";
 import { SignInToSeeMore } from "~/components/SignInWall";
 import { FEED_HIDE_ACTIONS } from "~/lib/feed/feedVideoCardLayout";
 import { groupConsecutiveReelClusters } from "~/lib/feed/groupConsecutiveReelClusters";
+import { ReelShelf, VideoCardSkeleton } from "~/components/MediaShelf";
 import { Carousel, CarouselItem } from "~/components/Carousel/Carousel";
-
-function SkeletonCard() {
-  return (
-    <div className="animate-pulse">
-      <div className="aspect-video bg-muted rounded-xl" />
-      <div className="flex gap-3 mt-3">
-        <div className="w-9 h-9 rounded-full bg-muted shrink-0" />
-        <div className="flex-1 space-y-2">
-          <div className="h-4 bg-muted rounded w-[85%]" />
-          <div className="h-3 bg-muted rounded w-[60%]" />
-          <div className="h-3 bg-muted rounded w-[40%]" />
-        </div>
-      </div>
-    </div>
-  );
-}
 
 interface UserFilesGridProps {
   files: FileType[];
@@ -392,36 +377,22 @@ const UserFilesGrid = ({
                 const clusterKey =
                   g.files[0]?.feed_reel_cluster_id ?? g.files[0]?.id ?? "profile";
                 return (
-                  <div
+                  <ReelShelf
                     key={`profile-reel-${clusterKey}`}
-                    className="col-span-full w-full min-w-0 max-w-full overflow-visible"
-                  >
-                    <Carousel label="Reels" itemWidth={168} gapClassName="gap-2.5">
-                      {g.files.map((file, keyIndex) => {
-                        const index = indexCounter++;
-                        return (
-                          <CarouselItem key={file.id || file.unique_id || keyIndex}>
-                            <VideoCard
-                              data={file}
-                              layout="reelStrip"
-                              index={index}
-                              currentUserId={currentUserId}
-                              userActions={userActions}
-                              onUpdate={handleFileUpdate}
-                              showOwnerControls={true}
-                              hideActions={FEED_HIDE_ACTIONS}
-                              profileOwnerUsername={profileOwnerUsername}
-                            />
-                          </CarouselItem>
-                        );
-                      })}
-                    </Carousel>
-                  </div>
+                    files={g.files}
+                    startIndex={indexCounter}
+                    currentUserId={currentUserId}
+                    userActions={userActions}
+                    onUpdate={handleFileUpdate}
+                    showOwnerControls
+                    hideActions={FEED_HIDE_ACTIONS}
+                    profileOwnerUsername={profileOwnerUsername}
+                  />
                 );
               })}
               {isLoading &&
                 Array.from({ length: 4 }).map((_, i) => (
-                  <SkeletonCard key={`skel-${i}`} />
+                  <VideoCardSkeleton key={`skel-${i}`} />
                 ))}
             </div>
           );

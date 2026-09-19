@@ -23,7 +23,8 @@ import { Avatar, AvatarFallback, AvatarImage } from "~/components/ui/avatar";
 import { Button } from "~/components/ui/button";
 import EmptyState from "~/components/EmptyState";
 import { cn } from "~/lib/utils";
-import { FEED_HIDE_ACTIONS } from "~/lib/feed/feedVideoCardLayout";
+import { FEED_HIDE_ACTIONS, MEDIA_GRID } from "~/lib/feed/feedVideoCardLayout";
+import { VideoCardSkeleton } from "~/components/MediaShelf";
 import { ChevronLeft, ChevronRight, Search, Users , Inbox} from "lucide-react";
 
 export const meta: MetaFunction = () =>
@@ -349,21 +350,6 @@ export const loader = async ({ request }: { request: Request }) => {
 /*  Skeleton                                                           */
 /* ------------------------------------------------------------------ */
 
-function SkeletonCard() {
-  return (
-    <div className="animate-pulse">
-      <div className="aspect-video bg-muted rounded-xl" />
-      <div className="flex gap-3 mt-3">
-        <div className="w-9 h-9 rounded-full bg-muted shrink-0" />
-        <div className="flex-1 space-y-2">
-          <div className="h-4 bg-muted rounded w-[85%]" />
-          <div className="h-3 bg-muted rounded w-[60%]" />
-        </div>
-      </div>
-    </div>
-  );
-}
-
 /* ------------------------------------------------------------------ */
 /*  Page                                                               */
 /* ------------------------------------------------------------------ */
@@ -565,7 +551,7 @@ export default function SubscriptionsPage() {
             <h2 className="mb-4 text-base font-semibold text-foreground">
               Latest
             </h2>
-            <div className="grid grid-cols-1 gap-x-4 gap-y-6 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
+            <div className={MEDIA_GRID}>
               {(() => {
                 const groups = groupConsecutiveReelClusters(files);
                 let indexCounter = 0;
@@ -617,9 +603,9 @@ export default function SubscriptionsPage() {
             </div>
 
             {isLoading && (
-              <div className="mt-6 grid grid-cols-1 gap-x-4 gap-y-6 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
+              <div className={cn(MEDIA_GRID, "mt-6")}>
                 {Array.from({ length: 4 }).map((_, i) => (
-                  <SkeletonCard key={`sk-${i}`} />
+                  <VideoCardSkeleton key={`sk-${i}`} />
                 ))}
               </div>
             )}

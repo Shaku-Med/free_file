@@ -1,7 +1,8 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from "react";
 import type { FileType } from "~/lib/types";
 import VideoCard from "~/routes/Home/components/VideoCard";
-import { FEED_HIDE_ACTIONS } from "~/lib/feed/feedVideoCardLayout";
+import { FEED_HIDE_ACTIONS, MEDIA_GRID } from "~/lib/feed/feedVideoCardLayout";
+import { MediaGridSkeleton } from "~/components/MediaShelf";
 import { SignInToSeeMore } from "~/components/SignInWall";
 import { Button } from "~/components/ui/button";
 import { cn } from "~/lib/utils";
@@ -9,22 +10,6 @@ import {
   groupProfileTabItems,
   type ProfileTabRenderGroup,
 } from "~/lib/feed/groupProfileTabItems";
-
-function SkeletonCard() {
-  return (
-    <div className="animate-pulse">
-      <div className="aspect-video bg-muted rounded-xl" />
-      <div className="flex gap-3 mt-3">
-        <div className="w-9 h-9 rounded-full bg-muted shrink-0" />
-        <div className="flex-1 space-y-2">
-          <div className="h-4 bg-muted rounded w-[85%]" />
-          <div className="h-3 bg-muted rounded w-[60%]" />
-          <div className="h-3 bg-muted rounded w-[40%]" />
-        </div>
-      </div>
-    </div>
-  );
-}
 
 type ProfileVideoTab = "liked" | "history" | "adult" | "shorts" | "videos" | "popular";
 
@@ -45,11 +30,11 @@ interface ProfileTabVideosGridProps {
   dataReady?: boolean;
 }
 
+const SHORTS_GRID =
+  "grid w-full min-w-0 grid-cols-2 gap-x-4 gap-y-6 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6";
+
 function gridClassForGroup(group: ProfileTabRenderGroup): string {
-  if (group.variant === "shorts") {
-    return "grid w-full min-w-0 grid-cols-2 gap-4 sm:gap-5 md:grid-cols-3 lg:grid-cols-3 xl:grid-cols-4";
-  }
-  return "grid w-full min-w-0 grid-cols-1 gap-4 sm:grid-cols-2 sm:gap-5 lg:grid-cols-3 xl:grid-cols-4";
+  return group.variant === "shorts" ? SHORTS_GRID : MEDIA_GRID;
 }
 
 const ProfileTabVideosGrid = ({
@@ -276,18 +261,10 @@ const ProfileTabVideosGrid = ({
           );
         })}
         {(isLoading || isLoadingMore) && (
-          <div
-            className={cn(
-              "grid w-full min-w-0 gap-4 sm:gap-5",
-              tab === "shorts"
-                ? "grid-cols-2 md:grid-cols-3 xl:grid-cols-4"
-                : "grid-cols-1 sm:grid-cols-2 xl:grid-cols-3",
-            )}
-          >
-            {Array.from({ length: files.length === 0 ? 6 : 4 }).map((_, i) => (
-              <SkeletonCard key={`skel-${i}`} />
-            ))}
-          </div>
+          <MediaGridSkeleton
+            count={files.length === 0 ? 8 : 4}
+            className={tab === "shorts" ? SHORTS_GRID : MEDIA_GRID}
+          />
         )}
       </div>
       {hasMore &&

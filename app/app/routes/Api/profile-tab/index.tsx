@@ -4,6 +4,7 @@ import db from "~/lib/Database/supabase";
 import { attachIsMusic } from "~/lib/files/attachIsMusic.server";
 import { isValidUUID } from "~/lib/Security/inputValidation";
 import { mapRpcFileRows } from "~/lib/profile/mapRpcFileRows";
+import { resolvePlaylistCovers } from "~/lib/playlist/playlistCovers.server";
 import { mapPlaylistRpcToClientRow } from "~/lib/profile/normalizePlaylistRpcRow";
 
 const TABS = new Set(["liked", "history", "playlists", "adult", "shorts", "videos", "popular"]);
@@ -46,9 +47,17 @@ export const loader = async ({ request }: { request: Request }) => {
       }
       const list = Array.isArray(raw) ? raw : [];
       const filtered = list.filter((p: { is_public?: boolean }) => p.is_public === true || isOwner);
-      const playlists = filtered.map((p: Record<string, unknown>) =>
+      const mapped = filtered.map((p: Record<string, unknown>) =>
         mapPlaylistRpcToClientRow(p)
       );
+      // Same reason as /api/playlists: the RPC picks a cover with no visibility
+      // filter, and this one is served to anyone looking at the profile.
+      const covers = await resolvePlaylistCovers(mapped.map((pl) => pl.id));
+      const playlists = mapped.map((pl) => ({
+        ...pl,
+        first_thumb: null,
+        cover: covers.get(pl.id) ?? null,
+      }));
       return data({ playlists, tab }, { status: 200 });
     }
 
