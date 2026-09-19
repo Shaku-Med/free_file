@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import EmptyState from "~/components/EmptyState";
 import { data, useLoaderData, Link } from "react-router";
-import { User, Layers, Clapperboard } from "lucide-react";
+import { User, Layers, Clapperboard , SearchX} from "lucide-react";
 
 import { useFileContext } from "~/lib/Context/Context";
 import type { FileType } from "~/lib/types";
@@ -532,12 +533,12 @@ const Search = () => {
             </div>
           ) : (
             <div className="space-y-6">
-              <div className="rounded-2xl border border-border bg-card p-8 text-center shadow-sm">
-                <h2 className="text-xl font-semibold text-foreground">No results found</h2>
-                <p className="mt-2 text-sm text-muted-foreground">
-                  Try adjusting your search or explore these suggestions.
-                </p>
-              </div>
+              <EmptyState
+              variant="panel"
+                icon={SearchX}
+                title="No results found"
+                description="Try different words, or check the spelling."
+              />
 
               {showSuggestions && suggestions.length > 0 && (
                 <div className="space-y-4">

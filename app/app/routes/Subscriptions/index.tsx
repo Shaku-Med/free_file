@@ -24,7 +24,7 @@ import { Button } from "~/components/ui/button";
 import EmptyState from "~/components/EmptyState";
 import { cn } from "~/lib/utils";
 import { FEED_HIDE_ACTIONS } from "~/lib/feed/feedVideoCardLayout";
-import { ChevronLeft, ChevronRight, Search, Users } from "lucide-react";
+import { ChevronLeft, ChevronRight, Search, Users , Inbox} from "lucide-react";
 
 export const meta: MetaFunction = () =>
   buildPageMeta({
@@ -479,6 +479,7 @@ export default function SubscriptionsPage() {
     return (
       <div className="mx-auto max-w-3xl px-4 py-16">
         <EmptyState
+              variant="panel"
           icon={Users}
           title="No subscriptions yet"
           description="Find creators you like and subscribe to see their latest uploads here."
@@ -625,9 +626,7 @@ export default function SubscriptionsPage() {
             <div ref={observerRef} className="h-8" />
           </section>
         ) : (
-          <div className="rounded-xl border border-dashed border-border/60 py-10 text-center text-sm text-muted-foreground">
-            Nothing new in your feed yet.
-          </div>
+          <EmptyState variant="panel" icon={Inbox} title="Nothing new yet" />
         )}
       </div>
     </div>

@@ -22,12 +22,14 @@ import {
   ChevronRight,
   ExternalLink,
   GripVertical,
+  Layers,
   ListOrdered,
   Loader2,
   Plus,
   Search,
   Trash2,
 } from "lucide-react";
+import { EmptyState, ErrorNote, PageBody, PageHeader } from "../components/StudioUI";
 import { Button } from "~/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "~/components/ui/dialog";
 import VideoCard from "~/routes/Home/components/VideoCard";
@@ -866,22 +868,20 @@ export default function StudioSeriesPage() {
   }, []);
 
   return (
-    <section className="space-y-5">
-      <div className="flex flex-wrap items-baseline justify-between gap-3 border-b border-border/60 pb-3">
-        <h1 className="text-lg font-semibold tracking-tight text-foreground sm:text-xl">Series</h1>
-        <p className="text-xs text-muted-foreground sm:text-sm">
-          Add videos and arrange the order of each series.
-        </p>
-      </div>
+    <PageBody>
+      <PageHeader title="Series" />
 
       {status === "loading" ? (
-        <div className="space-y-2">
+        <div className="space-y-2.5">
           {[0, 1, 2].map((i) => (
-            <div key={i} className="h-16 animate-pulse rounded-xl border border-border/60 bg-muted/20" />
+            <div
+              key={i}
+              className="h-16 animate-pulse rounded-xl border border-border/60 bg-muted/20"
+            />
           ))}
         </div>
       ) : status === "error" ? (
-        <p className="py-10 text-center text-sm text-muted-foreground">Couldn’t load your series.</p>
+        <ErrorNote>Could not load your series. Try refreshing.</ErrorNote>
       ) : series && series.length > 0 ? (
         <div className="space-y-2.5">
           {series.map((s) => (
@@ -889,13 +889,13 @@ export default function StudioSeriesPage() {
           ))}
         </div>
       ) : (
-        <div className="rounded-xl border border-dashed border-border/60 px-4 py-12 text-center">
-          <p className="text-sm font-medium text-foreground">No series yet</p>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Turn a video into a series from its menu, then come back here to arrange the videos.
-          </p>
-        </div>
+        <EmptyState
+          variant="panel"
+          icon={Layers}
+          title="No series yet"
+          description="Turn a video into a series from its menu."
+        />
       )}
-    </section>
+    </PageBody>
   );
 }

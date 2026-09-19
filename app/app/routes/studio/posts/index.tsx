@@ -15,10 +15,18 @@ import {
   Globe,
   Link2 as LinkIcon,
   ShieldAlert,
+  Film,
   Loader2,
   Lock,
   Search,
 } from "lucide-react";
+import {
+  EmptyState,
+  ErrorNote,
+  PageBody,
+  PageHeader,
+  studioButton,
+} from "../components/StudioUI";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -33,6 +41,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "~/components/ui/dialog";
+import { Select } from "~/components/ui/select";
 import { useFileContext } from "~/lib/Context/Context";
 
 export const meta: MetaFunction = () =>
@@ -78,6 +87,8 @@ const STATUS_OPTIONS: { key: StatusFilter; label: string }[] = [
   { key: "adult", label: "Adult flagged" },
   { key: "processing", label: "Processing" },
 ];
+
+const STATUS_FILTER_OPTIONS = STATUS_OPTIONS.map((o) => ({ value: o.key, label: o.label }));
 
 const PAGE_SIZE = 24;
 
@@ -558,40 +569,26 @@ export default function StudioPostsPage() {
   };
 
   return (
-    <section className="space-y-5">
-      <div className="flex flex-wrap items-baseline gap-4 border-b border-border/60">
-        <button
-          type="button"
-          className="border-b-2 border-primary pb-2 text-sm font-semibold text-foreground"
-        >
-          Posts <span className="text-muted-foreground">{total}</span>
-        </button>
-        <Link
-          to="/brozystudio/posts?status=processing"
-          className="pb-2 text-sm font-medium text-muted-foreground/70 hover:text-foreground"
-        >
-          Drafts 0
-        </Link>
-      </div>
+    <PageBody>
+      <PageHeader
+        title="Posts"
+        description={total > 0 ? total.toLocaleString() : undefined}
+      />
 
       <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
-        <select
+        <Select
           value={status}
-          onChange={(e) => {
+          options={STATUS_FILTER_OPTIONS}
+          onValueChange={(next) => {
             setOffset(0);
-            setStatus(e.target.value as StatusFilter);
+            setStatus(next);
           }}
-          className="w-full rounded-md border border-border/60 bg-card/40 px-3 py-2 text-sm text-foreground sm:w-auto sm:py-1.5"
-        >
-          {STATUS_OPTIONS.map((o) => (
-            <option key={o.key} value={o.key}>
-              {o.label}
-            </option>
-          ))}
-        </select>
+          label="Filter by status"
+          className="w-full py-2 sm:w-auto sm:py-1.5"
+        />
 
-        <div className="flex w-full items-center gap-2 rounded-md border border-border/60 bg-card/40 px-3 py-2 sm:ml-auto sm:max-w-md sm:py-1.5">
-          <Search className="h-4 w-4 shrink-0 text-muted-foreground" />
+        <div className="flex w-full items-center gap-2 rounded-lg border border-border/60 bg-card/40 px-3 py-2 focus-within:border-border sm:ml-auto sm:max-w-md sm:py-1.5">
+          <Search className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
           <input
             type="search"
             value={search}
@@ -602,14 +599,10 @@ export default function StudioPostsPage() {
         </div>
       </div>
 
-      {err && (
-        <div className="rounded-lg border border-destructive/40 bg-destructive/5 px-4 py-3 text-sm text-destructive">
-          Could not load your posts. Try refreshing.
-        </div>
-      )}
+      {err && <ErrorNote>Could not load your posts. Try refreshing.</ErrorNote>}
 
-      <div className="overflow-hidden rounded-lg border border-border/60 bg-card/30">
-        <div className="hidden border-b border-border/60 bg-muted/20 px-4 py-2.5 text-muted-foreground lg:grid lg:grid-cols-[minmax(0,1fr)_minmax(100px,130px)_repeat(3,minmax(56px,72px))_minmax(88px,120px)] lg:items-center lg:gap-3">
+      <div className="overflow-hidden rounded-xl border border-border/60 bg-card/30">
+        <div className="hidden border-b border-border/50 bg-muted/20 px-4 py-2.5 text-muted-foreground lg:grid lg:grid-cols-[minmax(0,1fr)_minmax(100px,130px)_repeat(3,minmax(56px,72px))_minmax(88px,120px)] lg:items-center lg:gap-3">
           <SortHeader label="Posts (Created on)" onToggle={() => cycleSort("date")} active={sort === "newest" || sort === "oldest"} />
           <span className="text-xs font-medium uppercase tracking-wide">Privacy</span>
           <SortHeader label="Views" onToggle={() => cycleSort("views")} active={sort === "views"} />
@@ -623,8 +616,21 @@ export default function StudioPostsPage() {
             <Loader2 className="h-4 w-4 animate-spin" /> Loading…
           </div>
         ) : filtered.length === 0 ? (
-          <div className="px-4 py-12 text-center text-sm text-muted-foreground">
-            No posts match this view.
+          <div className="p-4 sm:p-5">
+            <EmptyState
+              variant="panel"
+              icon={Film}
+              title={
+                search.trim() || status !== "all"
+                  ? "Nothing matches this view"
+                  : "No posts yet"
+              }
+              description={
+                search.trim() || status !== "all"
+                  ? "Try a different filter, or clear the search."
+                  : undefined
+              }
+            />
           </div>
         ) : (
           <ul>
@@ -767,7 +773,7 @@ export default function StudioPostsPage() {
               type="button"
               onClick={() => setOffset((o) => Math.max(0, o - PAGE_SIZE))}
               disabled={offset === 0}
-              className="rounded-md border border-border/60 px-2.5 py-1 disabled:opacity-50"
+              className={studioButton}
             >
               Previous
             </button>
@@ -775,13 +781,13 @@ export default function StudioPostsPage() {
               type="button"
               onClick={() => setOffset((o) => o + PAGE_SIZE)}
               disabled={!hasMore}
-              className="rounded-md border border-border/60 px-2.5 py-1 disabled:opacity-50"
+              className={studioButton}
             >
               Next
             </button>
           </div>
         </div>
       )}
-    </section>
+    </PageBody>
   );
 }

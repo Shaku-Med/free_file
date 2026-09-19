@@ -48,7 +48,8 @@ import type { FileType } from "~/lib/types";
 import { groupConsecutiveReelClusters } from "~/lib/feed/groupConsecutiveReelClusters";
 import { FEED_HIDE_ACTIONS } from "~/lib/feed/feedVideoCardLayout";
 import { Button } from "~/components/ui/button";
-import { Plus, Clapperboard } from "lucide-react";
+import { Check, Clapperboard, Image as ImageIcon, Plus, TriangleAlert } from "lucide-react";
+import EmptyState from "~/components/EmptyState";
 import { SignInToSeeMore } from "~/components/SignInWall";
 import { Separator } from "~/components/ui/separator";
 
@@ -70,6 +71,10 @@ function rotatedSlice(pool: SuggestedCreator[], start: number, count: number): S
   return out;
 }
 
+/** The feed's column rhythm, in one place: it was written out three times. */
+const FEED_GRID =
+  "grid w-full min-w-0 grid-cols-1 gap-x-4 gap-y-6 sm:grid-cols-2 sm:gap-y-8 lg:grid-cols-3 lg:gap-y-10 xl:grid-cols-4";
+
 function SkeletonCard() {
   return (
     <div className="animate-pulse">
@@ -88,7 +93,7 @@ function SkeletonCard() {
 
 function FeedSkeleton() {
   return (
-    <div className="grid w-full min-w-0 grid-cols-1 gap-x-4 gap-y-6 sm:grid-cols-2 sm:gap-y-8 lg:grid-cols-3 lg:gap-y-10 xl:grid-cols-4">
+    <div className={FEED_GRID}>
       {Array.from({ length: 12 }).map((_, i) => (
         <SkeletonCard key={i} />
       ))}
@@ -159,9 +164,6 @@ export default function PersistentHomeView() {
       </div>
     );
   }
-
-  const gridClass =
-    "grid w-full min-w-0 grid-cols-1 gap-x-4 gap-y-6 sm:grid-cols-2 sm:gap-y-8 lg:grid-cols-3 lg:gap-y-10 xl:grid-cols-4";
 
   const splitForHistory =
     userId && files.length > 0
@@ -248,13 +250,13 @@ export default function PersistentHomeView() {
       );
     }
 
-    return <div className={gridClass}>{nodes}</div>;
+    return <div className={FEED_GRID}>{nodes}</div>;
   };
 
   return (
     <div className="w-full min-w-0">
       {/* YouTube-style filter chips: All + categories. Functional  drives the feed. */}
-      <div className="mb-4 -mx-1 flex gap-2 overflow-x-auto px-1 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+      <div className="-mx-1 mb-5 flex gap-2 overflow-x-auto px-1 pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         {[null, ...HOME_CHIPS].map((value) => {
           const label = value ?? "All";
           const active = (feedCategory ?? null) === value;
@@ -264,10 +266,10 @@ export default function PersistentHomeView() {
               type="button"
               onClick={() => setFeedCategory(value)}
               className={cn(
-                "shrink-0 whitespace-nowrap rounded-lg px-3 py-1.5 text-sm font-medium transition-colors",
+                "shrink-0 whitespace-nowrap rounded-full px-3.5 py-1.5 text-sm font-medium transition-colors",
                 active
                   ? "bg-foreground text-background"
-                  : "bg-muted text-foreground hover:bg-muted-foreground/20",
+                  : "bg-muted text-foreground hover:bg-accent hover:text-accent-foreground",
               )}
             >
               {label}
@@ -292,7 +294,7 @@ export default function PersistentHomeView() {
             renderFeedGroups(files as FileType[], "feed")
           )}
           {isLoading && (
-            <div className="mt-2 grid w-full min-w-0 grid-cols-1 gap-x-4 gap-y-6 sm:grid-cols-2 sm:gap-y-8 lg:grid-cols-3 lg:gap-y-10 xl:grid-cols-4">
+            <div className={cn(FEED_GRID, "mt-2")}>
               {Array.from({ length: 4 }).map((_, i) => (
                 <SkeletonCard key={`skeleton-${i}`} />
               ))}
@@ -307,62 +309,41 @@ export default function PersistentHomeView() {
       ) : isLoading ? (
         <FeedSkeleton />
       ) : feedError ? (
-        <div className="flex items-center flex-col justify-center min-h-full bg-background">
-          <div className="text-center">
-            <div className="w-20 h-20 bg-muted rounded-full flex items-center justify-center mx-auto mb-6">
-              <svg className="w-10 h-10 text-muted-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 9v2m0 4h.01M5.07 19h13.86a2 2 0 001.74-2.99l-6.93-12a2 2 0 00-3.48 0l-6.93 12A2 2 0 005.07 19z" />
-              </svg>
-            </div>
-          </div>
-          <h2 className="text-2xl font-semibold text-foreground mb-2">Couldn't load your feed</h2>
-          <p className="text-muted-foreground mb-6">Check your connection and try again.</p>
-          <Button
-            onClick={() => retryFeed()}
-            variant="default"
-            className="rounded-full px-8 py-3 font-medium shadow-lg"
-          >
-            Try again
-          </Button>
-        </div>
+        <EmptyState
+          variant="page"
+          icon={TriangleAlert}
+          title="Couldn't load your feed"
+          description="Check your connection and try again."
+          action={
+            <Button onClick={() => retryFeed()} className="rounded-full px-6">
+              Try again
+            </Button>
+          }
+        />
+      ) : userId ? (
+        <EmptyState
+          variant="page"
+          icon={Check}
+          title="You're all caught up"
+          description="Your feed only shows what you haven't seen yet."
+          action={
+            <Button onClick={() => clearFeedHistory()} className="rounded-full px-6">
+              Reset feed
+            </Button>
+          }
+        />
       ) : (
-        <div className="flex items-center flex-col justify-center min-h-full bg-background">
-          <div className="text-center">
-            <div className="w-20 h-20 bg-muted rounded-full flex items-center justify-center mx-auto mb-6">
-              <svg className="w-10 h-10 text-muted-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-              </svg>
-            </div>
-          </div>
-          {userId ? (
-            <>
-              <h2 className="text-2xl font-semibold text-foreground mb-2">You're all caught up</h2>
-              <p className="text-muted-foreground mb-6">
-                Your feed only shows content you haven't seen yet. Reset feed to see everything again.
-              </p>
-              <Button
-                onClick={() => clearFeedHistory()}
-                variant="default"
-                className="rounded-full px-8 py-3 font-medium shadow-lg"
-              >
-                Reset feed
-              </Button>
-            </>
-          ) : (
-            <>
-              <h2 className="text-2xl font-semibold text-foreground mb-2">No Media Found</h2>
-              <p className="text-muted-foreground mb-6">Upload some files to get started</p>
-              <Button
-                onClick={() => setIsModalOpen(true)}
-                variant="default"
-                className="rounded-full px-8 py-3 font-medium shadow-lg"
-              >
-                <Plus className="w-5 h-5 mr-2" />
-                Add Media
-              </Button>
-            </>
-          )}
-        </div>
+        <EmptyState
+          variant="page"
+          icon={ImageIcon}
+          title="Nothing here yet"
+          action={
+            <Button onClick={() => setIsModalOpen(true)} className="rounded-full px-6">
+              <Plus className="mr-1.5 h-4 w-4" aria-hidden />
+              Add media
+            </Button>
+          }
+        />
       )}
     </div>
   );

@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
+import EmptyState from "~/components/EmptyState";
 import { Link, type MetaFunction } from "react-router";
 import VideoCard from "~/routes/Home/components/VideoCard";
 import type { FileType } from "~/lib/types";
@@ -224,13 +225,16 @@ export default function PlaylistPage() {
               })}
             </div>
           ) : (
-            <div className="rounded-xl border border-dashed p-8 text-center">
-              <ListVideo className="w-8 h-8 text-muted-foreground/40 mx-auto mb-2" />
-              <p className="text-sm text-muted-foreground">No playlists yet</p>
-              <Button variant="link" size="sm" onClick={() => setCreateOpen(true)} className="mt-1 text-primary">
-                Create one
-              </Button>
-            </div>
+            <EmptyState
+              variant="panel"
+              icon={ListVideo}
+              title="No playlists yet"
+              action={
+                <Button variant="outline" size="sm" onClick={() => setCreateOpen(true)}>
+                  Create one
+                </Button>
+              }
+            />
           )}
         </section>
       )}
@@ -331,20 +335,17 @@ export default function PlaylistPage() {
             )}
           </>
         ) : (
-          <div className="flex items-center flex-col justify-center py-16 rounded-xl border border-dashed">
-            <div className="w-16 h-16 bg-muted rounded-full flex items-center justify-center mx-auto mb-4">
-              <Bookmark className="w-7 h-7 text-muted-foreground" />
-            </div>
-            <h3 className="text-lg font-semibold text-foreground mb-2">Nothing saved here</h3>
-            <p className="text-sm text-muted-foreground mb-5 text-center max-w-sm leading-relaxed">
-              On any video open the menu, tap add to playlist, then choose save on this device.
-            </p>
-            <Link to="/">
-              <Button variant="default" className="rounded-full px-6">
-                Browse
-              </Button>
-            </Link>
-          </div>
+          <EmptyState
+              variant="panel"
+            icon={Bookmark}
+            title="Nothing saved here"
+            description="On any video open the menu, tap add to playlist, then save on this device."
+            action={
+              <Link to="/">
+                <Button className="rounded-full px-6">Browse</Button>
+              </Link>
+            }
+          />
         )}
       </section>
 

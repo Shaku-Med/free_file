@@ -26,7 +26,9 @@ import {
   Clapperboard,
   TrendingUp,
   ListVideo,
+  LayoutList,
 } from "lucide-react";
+import { EmptyState, ErrorNote, PageBody, PageHeader } from "../components/StudioUI";
 import { isAuthenticated } from "~/lib/Security/Password";
 import db from "~/lib/Database/supabase";
 import { normalizeRpcFileRow } from "~/lib/profile/normalizeRpcFileRow";
@@ -350,28 +352,22 @@ export default function StudioCustomizationPage() {
   }, [layout]);
 
   return (
-    <section className="space-y-6">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h1 className="text-lg font-semibold text-foreground">Customize profile</h1>
-          <p className="text-sm text-muted-foreground">
-            Drag to arrange how your profile home looks to everyone. Up to {MAX_SECTIONS} sections.
-          </p>
-        </div>
-        <Button onClick={save} disabled={saveState === "saving"} className="gap-1.5">
-          {saveState === "saving" && <Loader2 className="h-4 w-4 animate-spin" />}
-          {saveState === "saved" && <Check className="h-4 w-4" />}
-          {saveState === "saved" ? "Saved" : "Save"}
-        </Button>
-      </div>
+    <PageBody>
+      <PageHeader
+        title="Customize profile"
+        description={`Up to ${MAX_SECTIONS} sections`}
+        actions={
+          <Button onClick={save} disabled={saveState === "saving"} size="sm" className="gap-1.5">
+            {saveState === "saving" && <Loader2 className="h-4 w-4 animate-spin" />}
+            {saveState === "saved" && <Check className="h-4 w-4" />}
+            {saveState === "saved" ? "Saved" : "Save"}
+          </Button>
+        }
+      />
 
-      {saveState === "error" && (
-        <p className="rounded-lg border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm text-destructive">
-          Couldn&apos;t save. Try again.
-        </p>
-      )}
+      {saveState === "error" && <ErrorNote>Could not save. Try again.</ErrorNote>}
 
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-3">
         <h2 className="text-sm font-semibold text-foreground">Sections</h2>
         {missingTypes.length > 0 && layout.sections.length < MAX_SECTIONS && (
           <DropdownMenu>
@@ -393,9 +389,11 @@ export default function StudioCustomizationPage() {
       </div>
 
       {layout.sections.length === 0 ? (
-        <p className="rounded-2xl border border-dashed border-border/60 py-10 text-center text-sm text-muted-foreground">
-          No sections. Add one to build your channel home.
-        </p>
+        <EmptyState
+          variant="panel"
+          icon={LayoutList}
+          title="No sections yet"
+        />
       ) : (
         <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
           <SortableContext
@@ -417,6 +415,6 @@ export default function StudioCustomizationPage() {
           </SortableContext>
         </DndContext>
       )}
-    </section>
+    </PageBody>
   );
 }

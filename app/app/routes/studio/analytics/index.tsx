@@ -3,8 +3,18 @@ import type { MetaFunction } from "react-router";
 import { buildPageMeta } from "~/lib/seo";
 import { formatNumber } from "~/lib/utils/formatNumber";
 import { cn } from "~/lib/utils";
-import { ChevronDown, Download } from "lucide-react";
+import { BarChart3, Download, Users } from "lucide-react";
+import { Select } from "~/components/ui/select";
 import { useStudioData } from "~/lib/studio/studioCache";
+import {
+  EmptyState,
+  ErrorNote,
+  PageBody,
+  PageHeader,
+  Panel,
+  StatTile,
+  studioButton,
+} from "../components/StudioUI";
 import VideoCard from "~/routes/Home/components/VideoCard";
 import type { FileType } from "~/lib/types";
 import { useFileContext } from "~/lib/Context/Context";
@@ -139,6 +149,8 @@ const RANGES = [
   { value: 90, label: "Last 90 days" },
 ] as const;
 
+const RANGE_OPTIONS = RANGES.map((r) => ({ value: r.value, label: r.label }));
+
 type Tab = "overview" | "content" | "viewers" | "followers";
 
 const TABS: { key: Tab; label: string }[] = [
@@ -147,15 +159,6 @@ const TABS: { key: Tab; label: string }[] = [
   { key: "viewers", label: "Viewers" },
   { key: "followers", label: "Followers" },
 ];
-
-function PolarisedDelta({ value }: { value: number }) {
-  const up = value >= 0;
-  return (
-    <span className={cn("inline-flex items-center text-xs font-medium", up ? "text-primary" : "text-muted-foreground")}>
-      {up ? "▲" : "▼"} {formatNumber(Math.abs(value))}
-    </span>
-  );
-}
 
 function downloadCsv(filename: string, rows: string[][]) {
   const csv = rows.map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(",")).join("\n");
@@ -200,58 +203,53 @@ export default function StudioAnalyticsPage() {
   };
 
   return (
-    <section className="space-y-5">
-      <header className="flex flex-wrap items-center gap-3 border-b border-border/60 pb-1">
-        <div className="flex flex-1 flex-wrap items-center gap-4">
-          {TABS.map((t) => (
-            <button
-              key={t.key}
-              type="button"
-              onClick={() => setTab(t.key)}
-              className={cn(
-                "border-b-2 pb-2 text-sm font-semibold transition-colors",
-                tab === t.key
-                  ? "border-primary text-foreground"
-                  : "border-transparent text-muted-foreground hover:text-foreground",
-              )}
-            >
-              {t.label}
+    <PageBody>
+      <PageHeader
+        title="Analytics"
+        actions={
+          <>
+            <Select
+              value={days}
+              options={RANGE_OPTIONS}
+              onValueChange={setDays}
+              label="Date range"
+              align="end"
+              className="text-xs"
+            />
+            <button type="button" onClick={onDownload} disabled={!data} className={studioButton}>
+              <Download className="h-3.5 w-3.5" aria-hidden /> Download data
             </button>
-          ))}
-        </div>
-        <label className="inline-flex items-center gap-1 rounded-md border border-border/60 bg-card/40 px-3 py-1.5 text-xs text-foreground">
-          <select
-            value={days}
-            onChange={(e) => setDays(Number(e.target.value) as (typeof RANGES)[number]["value"])}
-            className="bg-transparent outline-none"
-          >
-            {RANGES.map((r) => (
-              <option key={r.value} value={r.value}>
-                {r.label}
-              </option>
-            ))}
-          </select>
-          <ChevronDown className="h-3 w-3 text-muted-foreground" />
-        </label>
-        <button
-          type="button"
-          onClick={onDownload}
-          disabled={!data}
-          className="inline-flex items-center gap-1.5 rounded-md border border-border/60 bg-card/40 px-3 py-1.5 text-xs text-foreground transition-colors hover:bg-muted/30 disabled:opacity-50"
-        >
-          <Download className="h-3.5 w-3.5" /> Download data
-        </button>
-      </header>
+          </>
+        }
+      />
 
-      {err && (
-        <div className="rounded-lg border border-destructive/40 bg-destructive/5 px-4 py-3 text-sm text-destructive">
-          Could not load analytics. Try refreshing.
-        </div>
-      )}
+      {/* Segmented control rather than a second row of underlined tabs: the rail
+          already owns underline-style navigation and two levels of it read as
+          one broken bar. */}
+      <div className="flex w-full gap-1 overflow-x-auto rounded-lg border border-border/60 bg-muted/20 p-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+        {TABS.map((t) => (
+          <button
+            key={t.key}
+            type="button"
+            onClick={() => setTab(t.key)}
+            aria-pressed={tab === t.key}
+            className={cn(
+              "flex-1 shrink-0 whitespace-nowrap rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
+              tab === t.key
+                ? "bg-background text-foreground shadow-sm"
+                : "text-muted-foreground hover:text-foreground",
+            )}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {err && <ErrorNote>Could not load analytics. Try refreshing.</ErrorNote>}
 
       {tab === "overview" && (
         <>
-          <div className="grid grid-cols-2 gap-3 lg:grid-cols-6">
+          <div className="grid grid-cols-2 gap-3 lg:grid-cols-3 xl:grid-cols-6">
             {[
               { label: "Video views", value: data ? formatNumber(data.totals.views) : "—", delta: previousWindowDelta.views },
               { label: "Profile views", value: "—", delta: 0 },
@@ -260,61 +258,61 @@ export default function StudioAnalyticsPage() {
               { label: "Watch hours", value: data ? data.totals.estWatchHours.toFixed(1) : "—", delta: 0 },
               { label: "Subscribers", value: data ? formatNumber(data.totals.subscribers) : "—", delta: 0 },
             ].map((t) => (
-              <div key={t.label} className="rounded-lg border border-border/60 bg-card/40 px-4 py-3">
-                <div className="text-xs uppercase tracking-wide text-muted-foreground">{t.label}</div>
-                <div className="mt-1 text-2xl font-semibold text-foreground tabular-nums">
-                  {loading ? <span className="inline-block h-6 w-12 animate-pulse rounded bg-muted" /> : t.value}
-                </div>
-                {!loading && t.delta !== 0 && (
-                  <div className="mt-1">
-                    <PolarisedDelta value={t.delta} />
-                  </div>
-                )}
-              </div>
+              <StatTile
+                key={t.label}
+                label={t.label}
+                value={t.value}
+                loading={loading}
+                delta={t.delta || undefined}
+              />
             ))}
           </div>
 
-          <div className="rounded-lg border border-border/60 bg-card/40 p-4">
-            <div className="mb-3 flex items-baseline justify-between">
-              <div>
-                <h2 className="text-sm font-semibold">Views</h2>
-                <p className="text-xs text-muted-foreground">Last {days} days</p>
-              </div>
-              <span className="text-sm font-medium tabular-nums">
+          <Panel
+            title="Views"
+            action={
+              <span className="text-sm font-medium tabular-nums text-foreground">
                 {formatNumber(data?.totals.views ?? 0)}
               </span>
-            </div>
+            }
+          >
+            <p className="mb-3 text-xs text-muted-foreground">Last {days} days</p>
             {loading || !data ? (
-              <div className="h-64 w-full animate-pulse rounded bg-muted" />
+              <div className="h-64 w-full animate-pulse rounded-lg bg-muted" />
             ) : (
-              <Suspense fallback={<div className="h-64 w-full animate-pulse rounded bg-muted" />}>
+              <Suspense
+                fallback={<div className="h-64 w-full animate-pulse rounded-lg bg-muted" />}
+              >
                 <ViewsAreaChart
                   data={data.timeline.map((b) => ({ date: b.date, views: b.views }))}
                 />
               </Suspense>
             )}
-          </div>
+          </Panel>
         </>
       )}
 
       {tab === "content" && (
-        <div className="overflow-hidden rounded-lg border border-border/60 bg-card/30">
-          <div className="border-b border-border/60 px-3 py-3 sm:px-4">
-            <h2 className="text-sm font-semibold text-foreground">Top posts</h2>
-            <p className="mt-0.5 text-xs text-muted-foreground">Ranked by views in the selected date range.</p>
-          </div>
+        <Panel title="Top posts" bodyClassName="p-0">
+          <p className="px-4 pt-3 text-xs text-muted-foreground sm:px-5">
+            Ranked by views in the selected date range.
+          </p>
 
           {loading || !data ? (
-            <div className="px-4 py-10">
-              <div className="h-24 animate-pulse rounded bg-muted" />
+            <div className="px-4 py-10 sm:px-5">
+              <div className="h-24 animate-pulse rounded-lg bg-muted" />
             </div>
           ) : data.topPosts.length === 0 ? (
-            <p className="px-4 py-12 text-center text-sm text-muted-foreground">
-              No posts yet. Upload something to see analytics.
-            </p>
+            <div className="p-4 sm:p-5">
+              <EmptyState
+                variant="panel"
+                icon={BarChart3}
+                title="Nothing to rank yet"
+              />
+            </div>
           ) : (
-            <>
-              <div className="hidden border-b border-border/60 bg-muted/20 px-4 py-2.5 text-muted-foreground lg:grid lg:grid-cols-[36px_minmax(0,1fr)_repeat(3,minmax(56px,72px))] lg:items-center lg:gap-3">
+            <div className="mt-3 border-t border-border/50">
+              <div className="hidden border-b border-border/50 bg-muted/20 px-4 py-2.5 text-muted-foreground lg:grid lg:grid-cols-[36px_minmax(0,1fr)_repeat(3,minmax(56px,72px))] lg:items-center lg:gap-3 lg:px-5">
                 <span className="text-xs font-medium uppercase tracking-wide">#</span>
                 <span className="text-xs font-medium uppercase tracking-wide">Post</span>
                 <span className="text-xs font-medium uppercase tracking-wide">Views</span>
@@ -326,23 +324,30 @@ export default function StudioAnalyticsPage() {
                   <TopPostRow key={p.id} post={p} rank={i + 1} userId={userId} />
                 ))}
               </ul>
-            </>
+            </div>
           )}
-        </div>
+        </Panel>
       )}
 
       {tab === "viewers" && (
-        <div className="rounded-lg border border-dashed border-border/60 bg-muted/10 px-4 py-12 text-center text-sm text-muted-foreground">
-          Viewer demographics wire in once we aggregate watch session data.
-        </div>
+        <EmptyState
+          variant="panel"
+          icon={Users}
+          title="Viewer breakdown is not ready yet"
+          description="This fills in once we aggregate watch session data."
+        />
       )}
 
       {tab === "followers" && (
-        <div className="rounded-lg border border-dashed border-border/60 bg-muted/10 px-4 py-12 text-center text-sm text-muted-foreground">
-          Follower growth charts come next. You currently have{" "}
-          {data ? formatNumber(data.totals.subscribers) : "—"} subscribers.
-        </div>
+        <EmptyState
+          variant="panel"
+          icon={Users}
+          title="Follower growth is coming"
+          description={`You currently have ${
+            data ? formatNumber(data.totals.subscribers) : "—"
+          } subscribers.`}
+        />
       )}
-    </section>
+    </PageBody>
   );
 }

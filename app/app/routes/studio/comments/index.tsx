@@ -6,8 +6,15 @@ import { formatTimeAgo } from "~/lib/formatTimeAgo";
 import { getProfilePicUrl } from "~/lib/utils/profilePic";
 import { Avatar, AvatarFallback, AvatarImage } from "~/components/ui/avatar";
 import { FormattedText } from "~/components/FormattedText";
-import { Loader2 } from "lucide-react";
+import { Loader2, MessageSquare } from "lucide-react";
 import { useStudioData } from "~/lib/studio/studioCache";
+import {
+  EmptyState,
+  ErrorNote,
+  PageBody,
+  PageHeader,
+  studioButton,
+} from "../components/StudioUI";
 
 export const meta: MetaFunction = () =>
   buildPageMeta({
@@ -65,27 +72,24 @@ export default function StudioCommentsPage() {
   const hasMore = Boolean(raw?.pagination?.hasMore);
 
   return (
-    <section className="space-y-4">
-      <header className="flex flex-wrap items-baseline justify-between gap-2">
-        <h1 className="text-xl font-semibold text-foreground">
-          Comments <span className="text-muted-foreground">{total}</span>
-        </h1>
-      </header>
+    <PageBody>
+      <PageHeader
+        title="Comments"
+        description={total > 0 ? total.toLocaleString() : undefined}
+      />
 
-      {err && (
-        <div className="rounded-lg border border-destructive/40 bg-destructive/5 px-4 py-3 text-sm text-destructive">
-          Could not load comments. Try refreshing.
-        </div>
-      )}
+      {err && <ErrorNote>Could not load comments. Try refreshing.</ErrorNote>}
 
       {loading ? (
         <div className="flex items-center gap-2 px-4 py-8 text-sm text-muted-foreground">
           <Loader2 className="h-4 w-4 animate-spin" /> Loading…
         </div>
       ) : rows.length === 0 ? (
-        <div className="rounded-lg border border-dashed border-border/60 bg-muted/10 px-4 py-12 text-center text-sm text-muted-foreground">
-          No comments yet on your posts.
-        </div>
+        <EmptyState
+          variant="panel"
+          icon={MessageSquare}
+          title="No comments yet"
+        />
       ) : (
         <ul className="space-y-2">
           {rows.map((c) => {
@@ -97,7 +101,7 @@ export default function StudioCommentsPage() {
             return (
               <li
                 key={c.id}
-                className="rounded-lg border border-border/60 bg-card/40 p-3"
+                className="rounded-xl border border-border/60 bg-card/40 p-3 transition-colors hover:bg-card/70"
               >
                 <div className="flex items-start gap-3">
                   <Avatar className="h-8 w-8 shrink-0">
@@ -158,7 +162,7 @@ export default function StudioCommentsPage() {
               type="button"
               onClick={() => setOffset((o) => Math.max(0, o - PAGE_SIZE))}
               disabled={offset === 0}
-              className="rounded-md border border-border/60 px-2.5 py-1 disabled:opacity-50"
+              className={studioButton}
             >
               Previous
             </button>
@@ -166,13 +170,13 @@ export default function StudioCommentsPage() {
               type="button"
               onClick={() => setOffset((o) => o + PAGE_SIZE)}
               disabled={!hasMore}
-              className="rounded-md border border-border/60 px-2.5 py-1 disabled:opacity-50"
+              className={studioButton}
             >
               Next
             </button>
           </div>
         </div>
       )}
-    </section>
+    </PageBody>
   );
 }

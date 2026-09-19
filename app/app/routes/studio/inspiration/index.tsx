@@ -2,8 +2,15 @@ import { Link } from "react-router";
 import type { MetaFunction } from "react-router";
 import { buildPageMeta } from "~/lib/seo";
 import { formatNumber } from "~/lib/utils/formatNumber";
-import { TrendingUp, Tag, Loader2 } from "lucide-react";
+import { TrendingUp, Tag } from "lucide-react";
 import { useStudioData } from "~/lib/studio/studioCache";
+import {
+  ErrorNote,
+  PageBody,
+  PageHeader,
+  Panel,
+  Skeleton,
+} from "../components/StudioUI";
 
 export const meta: MetaFunction = () =>
   buildPageMeta({
@@ -54,57 +61,49 @@ export default function StudioInspirationPage() {
     ? { trending: raw.trending ?? [], yours: raw.yours ?? [] }
     : null;
 
-  return (
-    <section className="space-y-6">
-      <h1 className="text-xl font-semibold text-foreground">Inspiration</h1>
-
-      {err && (
-        <div className="rounded-lg border border-destructive/40 bg-destructive/5 px-4 py-3 text-sm text-destructive">
-          Could not load inspiration. Try refreshing.
+  const tagSection = (rows: TagRow[], keyPrefix: string, empty: string) => {
+    if (loading) {
+      return (
+        <div className="flex flex-wrap gap-1.5">
+          {[0, 1, 2, 3, 4].map((i) => (
+            <Skeleton key={i} className="h-7 w-24 rounded-full" />
+          ))}
         </div>
-      )}
-
-      <div className="rounded-lg border border-border/60 bg-card/40 p-4">
-        <h2 className="flex items-center gap-2 text-sm font-semibold text-foreground">
-          <TrendingUp className="h-4 w-4 text-primary" /> Trending this week
-        </h2>
-        {loading ? (
-          <div className="mt-3 flex items-center gap-2 text-xs text-muted-foreground">
-            <Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading…
-          </div>
-        ) : data && data.trending.length > 0 ? (
-          <div className="mt-3 flex flex-wrap gap-1.5">
-            {data.trending.map((t) => (
-              <TagPill key={`trend-${t.tag}`} row={t} />
-            ))}
-          </div>
-        ) : (
-          <p className="mt-3 text-sm text-muted-foreground">
-            Not enough activity yet this week.
-          </p>
-        )}
+      );
+    }
+    if (rows.length === 0) return <p className="text-sm text-muted-foreground">{empty}</p>;
+    return (
+      <div className="flex flex-wrap gap-1.5">
+        {rows.map((t) => (
+          <TagPill key={`${keyPrefix}-${t.tag}`} row={t} />
+        ))}
       </div>
+    );
+  };
 
-      <div className="rounded-lg border border-border/60 bg-card/40 p-4">
-        <h2 className="flex items-center gap-2 text-sm font-semibold text-foreground">
-          <Tag className="h-4 w-4 text-primary" /> Your top tags
-        </h2>
-        {loading ? (
-          <div className="mt-3 flex items-center gap-2 text-xs text-muted-foreground">
-            <Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading…
-          </div>
-        ) : data && data.yours.length > 0 ? (
-          <div className="mt-3 flex flex-wrap gap-1.5">
-            {data.yours.map((t) => (
-              <TagPill key={`mine-${t.tag}`} row={t} />
-            ))}
-          </div>
-        ) : (
-          <p className="mt-3 text-sm text-muted-foreground">
-            Tag your uploads to start seeing patterns here.
-          </p>
+  return (
+    <PageBody>
+      <PageHeader title="Inspiration" />
+
+      {err && <ErrorNote>Could not load inspiration. Try refreshing.</ErrorNote>}
+
+      <Panel
+        title="Trending this week"
+        icon={<TrendingUp className="h-4 w-4 text-muted-foreground" aria-hidden />}
+      >
+        {tagSection(data?.trending ?? [], "trend", "Not enough activity yet this week.")}
+      </Panel>
+
+      <Panel
+        title="Your top tags"
+        icon={<Tag className="h-4 w-4 text-muted-foreground" aria-hidden />}
+      >
+        {tagSection(
+          data?.yours ?? [],
+          "mine",
+          "Tag your uploads to start seeing patterns here.",
         )}
-      </div>
-    </section>
+      </Panel>
+    </PageBody>
   );
 }
