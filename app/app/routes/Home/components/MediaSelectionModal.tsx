@@ -2258,24 +2258,7 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
                       />
                     </div>
                   ) : activeItem.file.type.startsWith("video/") ? (
-                    videoPlaybackUrl ? (
-                      <div className="relative w-full aspect-video max-h-[min(56vh,480px)] bg-muted">
-                        <video
-                          src={videoPlaybackUrl}
-                          controls
-                          className="w-full h-full max-h-[min(56vh,480px)] object-contain"
-                          playsInline
-                        />
-                        <button
-                          type="button"
-                          onClick={stopVideoPlayback}
-                          className="absolute top-2 right-2 sm:top-3 sm:right-3 z-10 h-10 w-10 sm:h-9 sm:w-9 rounded-full bg-secondary text-secondary-foreground hover:bg-secondary/90 flex items-center justify-center transition-colors touch-manipulation shadow-md border border-border"
-                          aria-label="Back to thumbnail"
-                        >
-                          <X className="w-5 h-5 sm:w-4 sm:h-4" />
-                        </button>
-                      </div>
-                    ) : (
+                    (
                       <button
                         type="button"
                         onClick={startVideoPlayback}
@@ -2967,6 +2950,34 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
         onOpen={restoreFromFloat}
       />
     )}
+
+    {/* Playback opens over the form rather than replacing the thumbnail, so the
+        clip gets the room it needs and the metadata underneath stays put. */}
+    <Dialog
+      open={!!videoPlaybackUrl}
+      onOpenChange={(open) => {
+        if (!open) stopVideoPlayback()
+      }}
+    >
+      <DialogContent className="w-[min(100vw-1.5rem,64rem)] max-w-5xl overflow-hidden rounded-2xl p-0">
+        <DialogHeader className="px-4 pt-4">
+          <DialogTitle className="truncate pr-8 text-sm font-medium">
+            {activeItem?.title || activeItem?.file.name || "Preview"}
+          </DialogTitle>
+        </DialogHeader>
+        <div className="bg-black">
+          {videoPlaybackUrl && (
+            <video
+              src={videoPlaybackUrl}
+              controls
+              autoPlay
+              playsInline
+              className="max-h-[min(72dvh,640px)] w-full object-contain"
+            />
+          )}
+        </div>
+      </DialogContent>
+    </Dialog>
 
     <Dialog
       open={seriesBrowseOpen}
