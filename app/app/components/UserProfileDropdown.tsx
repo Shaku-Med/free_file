@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Link, useLocation, useNavigate } from "react-router";
+import { Link, useLocation } from "react-router";
 import { usePushNotifications } from "~/lib/hooks/usePushNotifications";
 import { Avatar, AvatarFallback, AvatarImage } from "~/components/ui/avatar";
 import { Button } from "~/components/ui/button";
@@ -185,7 +185,6 @@ function MenuStatsSection() {
 
 function ProfileMenuContent({ username }: { username: string | undefined }) {
   const location = useLocation();
-  const navigate = useNavigate();
   const { altAccounts } = useFileContext();
   const { unsubscribe: unsubscribePush } = usePushNotifications();
   const [switching, setSwitching] = useState<string | null>(null);
@@ -212,7 +211,13 @@ function ProfileMenuContent({ username }: { username: string | undefined }) {
     } catch {
       /* ignore  log out regardless */
     }
-    navigate(logoutTo);
+    // Full document navigation, like switchAccount below, because the session
+    // is changing. navigate() kept this shell alive: the context still held the
+    // old identity, the persistent feed was never torn down, and this dropdown
+    // never unmounts on a client side route change, so the button stayed on
+    // "Signing out..." forever even though the server had already cleared the
+    // cookies and answered with a redirect.
+    window.location.assign(logoutTo);
   };
 
   const switchAccount = async (uid: string) => {
