@@ -551,7 +551,7 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
   const [seriesBrowseResults, setSeriesBrowseResults] = useState<{ file_title: string; file_series_id: string }[]>([])
   const [seriesBrowseLoading, setSeriesBrowseLoading] = useState(false)
   const [signInOpen, setSignInOpen] = useState(false)
-  const [videoPlaybackUrl, setVideoPlaybackUrl] = useState<string | null>(null)
+  const [playbackOpen, setPlaybackOpen] = useState(false)
   const categoryRef = useRef<HTMLDivElement>(null)
   const itemsRef = useRef<MediaItem[]>([])
   const dropRef = useRef<HTMLDivElement>(null)
@@ -618,10 +618,9 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
   const effectiveMaxSize = maxFileSizeBytes ?? MAX_UPLOAD_FILE_BYTES
 
   const resetState = () => {
-    setVideoPlaybackUrl((prev) => {
-      if (prev) URL.revokeObjectURL(prev)
-      return null
-    })
+    setPlaybackOpen(false)
+    // This is where the preview URLs are released: once the batch is done with,
+    // not every time the playback dialog closes.
     items.forEach((item) => {
       if (item.previewUrl) URL.revokeObjectURL(item.previewUrl)
       if (item.videoPosterUrl) URL.revokeObjectURL(item.videoPosterUrl)
@@ -1512,26 +1511,18 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
     [items]
   )
 
+  // Switching files closes playback; the URL itself is the item's and stays.
   useEffect(() => {
-    setVideoPlaybackUrl((prev) => {
-      if (prev) URL.revokeObjectURL(prev)
-      return null
-    })
+    setPlaybackOpen(false)
   }, [activeId])
 
   const startVideoPlayback = () => {
     if (!activeItem?.file.type.startsWith("video/")) return
-    setVideoPlaybackUrl((prev) => {
-      if (prev) URL.revokeObjectURL(prev)
-      return URL.createObjectURL(activeItem.file)
-    })
+    setPlaybackOpen(true)
   }
 
   const stopVideoPlayback = () => {
-    setVideoPlaybackUrl((prev) => {
-      if (prev) URL.revokeObjectURL(prev)
-      return null
-    })
+    setPlaybackOpen(false)
   }
 
   const activeVideoStill = useMemo(() => {
@@ -2954,7 +2945,7 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
     {/* Playback opens over the form rather than replacing the thumbnail, so the
         clip gets the room it needs and the metadata underneath stays put. */}
     <Dialog
-      open={!!videoPlaybackUrl}
+      open={playbackOpen && !!activeItem?.previewUrl}
       onOpenChange={(open) => {
         if (!open) stopVideoPlayback()
       }}
@@ -2965,14 +2956,21 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
             {activeItem?.title || activeItem?.file.name || "Preview"}
           </DialogTitle>
         </DialogHeader>
-        <div className="bg-black">
-          {videoPlaybackUrl && (
+        <div className="flex justify-center bg-black">
+          {activeItem?.previewUrl && (
             <video
-              src={videoPlaybackUrl}
+              // The item's own object URL, minted when the file was added and
+              // released with the item. Reopening no longer re-reads the file.
+              src={activeItem.previewUrl}
+              // The extracted still, so the frame is up before the first byte
+              // of video is decoded.
+              poster={activeVideoStill ?? undefined}
               controls
               autoPlay
               playsInline
-              className="max-h-[min(72dvh,640px)] w-full object-contain"
+              // Sized by the clip rather than stretched to the dialog, so the
+              // aspect is the file's and there are no bars around it.
+              className="block h-auto max-h-[min(72dvh,640px)] w-auto max-w-full"
             />
           )}
         </div>
