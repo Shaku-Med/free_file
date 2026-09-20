@@ -14,7 +14,7 @@ export default {
    * 400 Bad Request. Naming the hosts here is the documented escape hatch for
    * proxied deployments. Dev is unaffected: there the two already match.
    */
-  allowedActionOrigins: ["memories.brozy.org", "*.memories.brozy.org"],
+  allowedActionOrigins: ["memories.brozy.org", "uploads.memories.brozy.org"],
   future: {
     v8_middleware: true, // 👈 Enable V8 middleware
     // Build-time-only chunk splitting (loader/action/component load separately).
