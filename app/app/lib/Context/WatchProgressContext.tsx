@@ -8,6 +8,7 @@ import {
   useState,
   type ReactNode,
 } from 'react';
+import { useFileContext } from '~/lib/Context/Context';
 
 export interface WatchProgressEntry {
   currentTime: number;
@@ -33,6 +34,9 @@ const MAX_PER_BATCH = 200;
 const REFETCH_INTERVAL_MS = 60_000;
 
 export function WatchProgressProvider({ children }: { children: ReactNode }) {
+  // Watch progress is per account; signed out the endpoint only answers 401.
+  const { userId } = useFileContext();
+  const signedIn = Boolean(userId);
   const [progress, setProgress] = useState<Map<string, WatchProgressEntry>>(() => new Map());
   const lastFetchedRef = useRef<Map<string, number>>(new Map());
   const pendingRef = useRef<Set<string>>(new Set());
@@ -40,6 +44,10 @@ export function WatchProgressProvider({ children }: { children: ReactNode }) {
 
   const flush = useCallback(() => {
     flushTimerRef.current = null;
+    if (!signedIn) {
+      pendingRef.current.clear();
+      return;
+    }
     const ids = Array.from(pendingRef.current).slice(0, MAX_PER_BATCH);
     pendingRef.current = new Set(Array.from(pendingRef.current).slice(MAX_PER_BATCH));
     if (ids.length === 0) return;
@@ -83,11 +91,11 @@ export function WatchProgressProvider({ children }: { children: ReactNode }) {
         }
       }
     })();
-  }, []);
+  }, [signedIn]);
 
   const request = useCallback(
     (fileId: string) => {
-      if (!fileId) return;
+      if (!fileId || !signedIn) return;
       const last = lastFetchedRef.current.get(fileId) ?? 0;
       if (Date.now() - last < REFETCH_INTERVAL_MS) return;
       pendingRef.current.add(fileId);
@@ -95,7 +103,7 @@ export function WatchProgressProvider({ children }: { children: ReactNode }) {
         flushTimerRef.current = setTimeout(flush, BATCH_FLUSH_MS);
       }
     },
-    [flush],
+    [flush, signedIn],
   );
 
   const setLocal = useCallback((fileId: string, entry: WatchProgressEntry) => {

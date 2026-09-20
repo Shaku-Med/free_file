@@ -3,6 +3,7 @@ import { videoPlaybackDB } from '~/lib/Database/VideoPlaybackDB';
 import { useWatchProgressWriter } from '~/lib/Context/WatchProgressContext';
 import { clearPlaybackPosition, publishPlaybackPosition } from '~/lib/playback/positionRegistry';
 import { usePlayerContext } from '../PlayerContext';
+import { useFileContext } from '~/lib/Context/Context';
 
 const SERVER_SAVE_INTERVAL_MS = 10_000;
 
@@ -30,6 +31,10 @@ function postProgressBeacon(uniqueId: string, currentTime: number, duration: num
 
 export function usePlaybackPosition(videoRef: React.RefObject<HTMLVideoElement | null>) {
   const { imageID, src, startTime, file, isReel } = usePlayerContext();
+  // Progress is stored per account, so signed out both the read and the write
+  // can only be refused. Local playback position still works from IndexedDB.
+  const { userId } = useFileContext();
+  const signedIn = Boolean(userId);
   const fileUuid = file?.id ?? null;
   const localSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastServerSaveRef = useRef(0);
@@ -72,7 +77,7 @@ export function usePlaybackPosition(videoRef: React.RefObject<HTMLVideoElement |
 
         const [localSaved, serverSaved] = await Promise.all([
           videoPlaybackDB.getPosition(imageID).catch(() => null),
-          fileUuid ? fetchServerPosition(fileUuid).catch(() => null) : Promise.resolve(null),
+          fileUuid && signedIn ? fetchServerPosition(fileUuid).catch(() => null) : Promise.resolve(null),
         ]);
         if (cancelled) return;
 
@@ -131,7 +136,7 @@ export function usePlaybackPosition(videoRef: React.RefObject<HTMLVideoElement |
       const now = Date.now();
       if (!force && now - lastServerSaveRef.current < SERVER_SAVE_INTERVAL_MS) return;
       lastServerSaveRef.current = now;
-      postProgressBeacon(imageID, video.currentTime, video.duration);
+      if (signedIn) postProgressBeacon(imageID, video.currentTime, video.duration);
       if (fileUuid && seedProgressCache) {
         seedProgressCache(fileUuid, {
           currentTime: video.currentTime,
@@ -178,11 +183,11 @@ export function usePlaybackPosition(videoRef: React.RefObject<HTMLVideoElement |
         videoPlaybackDB
           .savePosition(imageID, video.currentTime, video.duration, src)
           .catch(() => {});
-        postProgressBeacon(imageID, video.currentTime, video.duration);
+        if (signedIn) postProgressBeacon(imageID, video.currentTime, video.duration);
       }
       if (localSaveTimer.current) clearTimeout(localSaveTimer.current);
     };
-  }, [imageID, src, fileUuid, seedProgressCache, isReel]);
+  }, [imageID, src, fileUuid, seedProgressCache, isReel, signedIn]);
 }
 
 async function fetchServerPosition(fileUuid: string): Promise<{

@@ -513,8 +513,7 @@ export const ContextProvider = ({ children, st, user_agent, userId, c_user, uplo
                     }
                 })
                 if(!handshake.ok) return
-                let handshakeData = await handshake.json()
-                console.log('handshakeData', handshakeData)
+                await handshake.json()
             }
             catch (error) {
                 console.error('Error in fetchPublicKey:', error)
@@ -522,8 +521,11 @@ export const ContextProvider = ({ children, st, user_agent, userId, c_user, uplo
             }
         }
         
-        if(st && !st.includes('not_needed')) fetchPublicKey()
-    }, [st])
+        // Both /api/public-key and /api/handshake verify the session cookie,
+        // so with nobody signed in they can only ever answer 401. Waiting for
+        // a user id keeps the pair off the wire on the login page.
+        if(userId && st && !st.includes('not_needed')) fetchPublicKey()
+    }, [st, userId])
 
     const safeUserId: string | null = userId ?? null;
 
