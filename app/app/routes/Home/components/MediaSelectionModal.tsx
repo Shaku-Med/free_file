@@ -2244,7 +2244,11 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
               ) : (
                 <>
               {activeItem && (
-                <div className="rounded-xl overflow-hidden bg-muted/50 border border-border shadow-sm">
+                // shrink-0: this sits in a column flex scroller, so without it
+                // the wrapper is squeezed to a sliver once the metadata below
+                // fills the pane, and overflow-hidden clips the preview away.
+                // The min-h on the button inside does not stop the parent.
+                <div className="shrink-0 rounded-xl overflow-hidden bg-muted/50 border border-border shadow-sm">
                   {activeItem.file.type.startsWith("image/") ? (
                     <div className="relative w-full aspect-video max-h-[min(52vh,420px)] bg-muted/80 flex items-center justify-center">
                       <img
