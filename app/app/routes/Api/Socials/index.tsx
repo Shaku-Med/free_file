@@ -47,19 +47,38 @@ function getYtDlpCommand(): { command: string; args: string[]; useWsl: boolean }
     };
 }
 
+const PLATFORM_HOSTS: ReadonlyArray<{
+    platform: 'youtube' | 'facebook' | 'instagram' | 'tiktok';
+    hosts: readonly string[];
+}> = [
+    { platform: 'youtube', hosts: ['youtube.com', 'youtu.be'] },
+    { platform: 'facebook', hosts: ['facebook.com', 'fb.com', 'fb.watch'] },
+    { platform: 'instagram', hosts: ['instagram.com', 'instagr.am'] },
+    { platform: 'tiktok', hosts: ['tiktok.com'] },
+];
+
+/**
+ * Match on the HOSTNAME, and only as a whole label.
+ *
+ * This used to test `url.includes('youtube.com')` against the entire string, so
+ * http://169.254.169.254/youtube.com sailed through the platform gate and on
+ * into a server side fetch. Anchoring to the host, and requiring either an
+ * exact match or a dotted suffix, means evil-youtube.com and
+ * youtube.com.attacker.net are rejected too.
+ */
 function detectPlatform(url: string): 'youtube' | 'facebook' | 'instagram' | 'tiktok' | 'unknown' {
-    const lowerUrl = url.toLowerCase();
-    if (lowerUrl.includes('youtube.com') || lowerUrl.includes('youtu.be')) {
-        return 'youtube';
+    let host: string;
+    try {
+        const parsed = new URL(url);
+        if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return 'unknown';
+        host = parsed.hostname.toLowerCase().replace(/\.$/, '');
+    } catch {
+        return 'unknown';
     }
-    if (lowerUrl.includes('facebook.com') || lowerUrl.includes('fb.com') || lowerUrl.includes('fb.watch')) {
-        return 'facebook';
-    }
-    if (lowerUrl.includes('instagram.com') || lowerUrl.includes('instagr.am')) {
-        return 'instagram';
-    }
-    if (lowerUrl.includes('tiktok.com') || lowerUrl.includes('vm.tiktok.com')) {
-        return 'tiktok';
+    for (const { platform, hosts } of PLATFORM_HOSTS) {
+        for (const allowed of hosts) {
+            if (host === allowed || host.endsWith(`.${allowed}`)) return platform;
+        }
     }
     return 'unknown';
 }
@@ -91,7 +110,7 @@ function getFormatSelector(quality: string, format: string): string {
 
 async function collectAnonymousCookies(targetUrl: string): Promise<string | undefined> {
     try {
-        const resp = await fetch(targetUrl, {
+        const resp = await safeFetch(targetUrl, {
             method: 'GET',
             redirect: 'manual',
             headers: {

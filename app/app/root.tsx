@@ -136,6 +136,16 @@ let makeSessionToken = async (headers: Headers) => {
   }
 }
 
+/** JSON-LD that cannot break out of its own script tag. */
+function jsonLdScript(value: unknown): string {
+  return JSON.stringify(value)
+    .replace(/</g, "\\u003c")
+    .replace(/>/g, "\\u003e")
+    .replace(/&/g, "\\u0026")
+    .replace(new RegExp("\\u2028", "g"), "\\u2028")
+    .replace(new RegExp("\\u2029", "g"), "\\u2029");
+}
+
 const getRequestURL = (request: Request) => {
   try {
     const origin = new URL(request.url)?.origin;
@@ -335,8 +345,11 @@ export function Layout({ children }: { children: React.ReactNode }) {
         <link rel="apple-touch-icon" href={`${isDevelopmentServer ? requestURL : BASE_URL}/icons/web/apple-touch-icon.png`} />
         <script
           type="application/ld+json"
+          // Escaped the same way the watch page does it. The values here are
+          // constants plus a parsed origin, so nothing can currently carry a
+          // closing tag, but the two JSON-LD blocks should not differ on this.
           dangerouslySetInnerHTML={{
-            __html: JSON.stringify({
+            __html: jsonLdScript({
               "@context": "https://schema.org",
               "@type": "WebSite",
               name: SITE_NAME,
