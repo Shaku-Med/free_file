@@ -4,6 +4,17 @@ export default {
   // Config options...
   // Server-side render by default, to enable SPA mode set this to `false`
   ssr: true,
+  /**
+   * Hosts allowed to submit actions to UI routes.
+   *
+   * React Router 7.18 started refusing document mutations whose `origin`
+   * header does not match `request.url`. Behind Cloudflare the browser sends
+   * `https://memories.brozy.org` while the origin server is reached over plain
+   * http, so every form POST, login and logout included, came back as a bare
+   * 400 Bad Request. Naming the hosts here is the documented escape hatch for
+   * proxied deployments. Dev is unaffected: there the two already match.
+   */
+  allowedActionOrigins: ["memories.brozy.org", "*.memories.brozy.org"],
   future: {
     v8_middleware: true, // 👈 Enable V8 middleware
     // Build-time-only chunk splitting (loader/action/component load separately).
