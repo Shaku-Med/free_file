@@ -102,6 +102,20 @@ function VideoFramePreview({ src, className }: { src: string; className?: string
       preload="metadata"
       tabIndex={-1}
       aria-hidden
+      // metadata alone leaves the element black: readyState reaches 4 but no
+      // frame is presented until the playback position moves. Measured at 0%
+      // non-black pixels without this and 100% with it. A tiny seek costs one
+      // frame of decode and avoids preload="auto" pulling the whole file.
+      onLoadedMetadata={(e) => {
+        const v = e.currentTarget
+        if (v.currentTime === 0) {
+          try {
+            v.currentTime = Math.min(0.05, Math.max(0, (v.duration || 1) * 0.01))
+          } catch {
+            /* a container that will not seek keeps the poster frame it has */
+          }
+        }
+      }}
     />
   )
 }
