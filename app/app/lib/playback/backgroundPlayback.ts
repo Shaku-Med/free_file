@@ -39,15 +39,15 @@ export function setAudioSessionType(type: AudioSessionType): void {
 let userPauseAt = 0;
 let systemInterruptAt = 0;
 
-/**
- * The screen was locked or the wake lock was taken by the OS, not by a pause
- * the player asked for. Power-button lock often does this while `document.hidden`
- * is still false, so background playback treats a pause in this window as the
- * system's, not the user's.
- */
 /** Fired when the OS takes the screen wake lock (power button), not when we release it. */
 export const DISPLAY_INTERRUPTED_EVENT = 'memories:display-interrupted';
 
+/**
+ * The screen went off, or the wake lock was taken by the OS, rather than by a
+ * pause the player asked for. A power button lock does this while
+ * `document.hidden` is still false, so background playback treats a pause in
+ * this window as the system's, not the user's.
+ */
 export function markSystemInterrupt(): void {
   systemInterruptAt = Date.now();
   if (typeof window === 'undefined') return;

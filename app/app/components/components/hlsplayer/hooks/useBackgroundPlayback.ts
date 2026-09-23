@@ -19,6 +19,14 @@ const BACKGROUND_PAUSE_WINDOW_MS = 5_000;
 const MAX_RESUME_ATTEMPTS = 3;
 
 /**
+ * How long a pause waits for a sign that the display went away before we accept
+ * it as deliberate. Long enough for a wake lock release or a blur that lands
+ * just after the pause, short enough that a later unrelated blur cannot restart
+ * something the app stopped on purpose.
+ */
+const PAUSE_SETTLE_MS = 800;
+
+/**
  * Honours the user's "keep playing in the background" setting.
  *
  * Declares the audio session as playback so iOS lets the sound continue past a
@@ -46,6 +54,7 @@ export function useBackgroundPlayback(
     let sessionClaimed = false;
     let hiddenAt = 0;
     let attempts = 0;
+    let settleTimer = 0;
     // True only after the user (or autoplay) has actually started this element.
     // A system pause must not be what starts playback.
     let wantPlaying = !video.paused;
@@ -78,7 +87,11 @@ export function useBackgroundPlayback(
 
     const onPlay = () => {
       wantPlaying = true;
-      attempts = 0;
+      window.clearTimeout(settleTimer);
+      // Only a play we are not fighting for earns a fresh budget. Resetting on
+      // every play lets a surface that re-pauses us on sight, the way PiP holds
+      // the main player down, ping pong forever with the screen off.
+      if (!displayInterrupted()) attempts = 0;
       claimAudioSession();
     };
 
@@ -115,6 +128,13 @@ export function useBackgroundPlayback(
       window.setTimeout(() => {
         if (displayInterrupted()) resume();
       }, 0);
+      // Nothing took the display a moment later means the app stopped us on
+      // purpose: PiP adopting the video, autoplay off, a reel scrolled away.
+      // Drop the intent so an unrelated blur later cannot start it again.
+      window.clearTimeout(settleTimer);
+      settleTimer = window.setTimeout(() => {
+        if (video.paused && !displayInterrupted()) wantPlaying = false;
+      }, PAUSE_SETTLE_MS);
     };
 
     // Screen lock blurs the window even on engines that never mark the page hidden.
@@ -137,6 +157,7 @@ export function useBackgroundPlayback(
     if (!video.paused) claimAudioSession();
 
     return () => {
+      window.clearTimeout(settleTimer);
       video.removeEventListener('play', onPlay);
       video.removeEventListener('pause', onPause);
       document.removeEventListener('visibilitychange', onVisibility);
