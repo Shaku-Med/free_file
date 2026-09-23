@@ -176,6 +176,43 @@ function withoutReels(list: FileType[] | undefined): FileType[] {
   return list.filter((v) => !v.is_reel);
 }
 
+/**
+ * Scrub preview sprite metadata, fetched once per file for the life of the page.
+ *
+ * A reel remounts a player every time the virtual window shifts, and each mount
+ * used to re-request this JSON: the same handful of files, several times per
+ * swipe. A file's sprite never changes, so one request each is enough. Misses
+ * are remembered too, or a file without a sprite would be asked for on every
+ * remount forever.
+ */
+const SPRITE_META_CACHE_LIMIT = 200;
+const spriteMetaCache = new Map<string, ThumbnailSpriteMeta | null>();
+const spriteMetaInFlight = new Map<string, Promise<ThumbnailSpriteMeta | null>>();
+
+function fetchSpriteMeta(metaUrl: string): Promise<ThumbnailSpriteMeta | null> {
+  if (spriteMetaCache.has(metaUrl)) {
+    return Promise.resolve(spriteMetaCache.get(metaUrl) ?? null);
+  }
+  const pending = spriteMetaInFlight.get(metaUrl);
+  if (pending) return pending;
+
+  const request = fetch(metaUrl)
+    .then((res) => (res.ok ? (res.json() as Promise<ThumbnailSpriteMeta>) : null))
+    .catch(() => null)
+    .then((meta) => {
+      spriteMetaInFlight.delete(metaUrl);
+      if (spriteMetaCache.size >= SPRITE_META_CACHE_LIMIT) {
+        const oldest = spriteMetaCache.keys().next().value;
+        if (oldest !== undefined) spriteMetaCache.delete(oldest);
+      }
+      spriteMetaCache.set(metaUrl, meta);
+      return meta;
+    });
+
+  spriteMetaInFlight.set(metaUrl, request);
+  return request;
+}
+
 function PlayerInner({
   src,
   className = '',
@@ -752,6 +789,11 @@ function PlayerInner({
   }, [file?.default_thumbnail]);
 
   useEffect(() => {
+    // A bare reel slide has no seek bar, so nothing can ever show the scrub
+    // preview. Fetching the sprite there was pure cost on the surface that can
+    // least afford it.
+    if (isReelCtx && !embedReelControls) return;
+
     const prefix =
       file?.default_thumbnail && typeof file.default_thumbnail === 'string'
         ? file.default_thumbnail.replace(/[^/]+$/, '')
@@ -759,26 +801,23 @@ function PlayerInner({
     if (!prefix || !spriteSheetUrl) return;
 
     let cancelled = false;
-    const metaUrl = `/api/load/image/${prefix}thumbnail_preview.json`;
-
-    const loadSpriteMeta = async () => {
-      try {
-        const res = await fetch(metaUrl);
-        if (!res.ok || cancelled) return;
-        const meta = (await res.json()) as ThumbnailSpriteMeta;
-        if (cancelled) return;
-        if (meta?.cells?.length) {
-          setSpriteMeta(meta);
-          setSpriteUrl(spriteSheetUrl);
-        }
-      } catch {}
-    };
-    loadSpriteMeta();
+    void fetchSpriteMeta(`/api/load/image/${prefix}thumbnail_preview.json`).then((meta) => {
+      if (cancelled || !meta?.cells?.length) return;
+      setSpriteMeta(meta);
+      setSpriteUrl(spriteSheetUrl);
+    });
 
     return () => {
       cancelled = true;
     };
-  }, [file?.default_thumbnail, spriteSheetUrl, setSpriteMeta, setSpriteUrl]);
+  }, [
+    file?.default_thumbnail,
+    spriteSheetUrl,
+    setSpriteMeta,
+    setSpriteUrl,
+    isReelCtx,
+    embedReelControls,
+  ]);
 
   const triggerSeekFeedbackOverlay = useCallback(
     (direction: 'back' | 'forward', seconds: number) => {

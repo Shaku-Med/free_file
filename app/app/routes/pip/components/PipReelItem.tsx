@@ -523,15 +523,17 @@ function PipReelItemInner({
     document.title = `${display} | Memories`;
   }, [variant, isActive, file.unique_id, file.file_title, file.filename]);
 
+  // Watch history belongs to an account, so signed out this was a 401 on every
+  // single swipe.
   useEffect(() => {
-    if (!isActive || variant !== 'page' || !file.id || !file.unique_id) return;
+    if (!userId || !isActive || variant !== 'page' || !file.id || !file.unique_id) return;
     fetch('/api/views/watch-history', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ fileId: file.id, uniqueId: file.unique_id }),
       credentials: 'include',
     }).catch(() => {});
-  }, [isActive, variant, file.id, file.unique_id]);
+  }, [userId, isActive, variant, file.id, file.unique_id]);
 
   const requiredViewSeconds = useMemo(() => {
     if (isHLS && file.duration != null && Number(file.duration) > 0) {

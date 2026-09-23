@@ -1065,8 +1065,9 @@ const DynamicPage = ({ is_modal }: DynamicPageProps) => {
     source: 'page_view',
   });
 
+  // Watch history belongs to an account: signed out this only ever 401s.
   useEffect(() => {
-    if (!file_data?.id || !file_data?.unique_id) return;
+    if (!userId || !file_data?.id || !file_data?.unique_id) return;
     const payload = { fileId: file_data.id, uniqueId: file_data.unique_id };
     fetch('/api/views/watch-history', {
       method: 'POST',
@@ -1074,7 +1075,7 @@ const DynamicPage = ({ is_modal }: DynamicPageProps) => {
       body: JSON.stringify(payload),
       credentials: 'include',
     }).catch(() => {});
-  }, [currentId, file_data?.id, file_data?.unique_id]);
+  }, [userId, currentId, file_data?.id, file_data?.unique_id]);
 
   const [retryAttempt, setRetryAttempt] = useState<number>(0)
   const [imageColors, setImageColors] = useState<string[] | null>(null)
