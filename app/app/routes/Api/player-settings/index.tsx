@@ -22,6 +22,7 @@ const COOKIE_NAMES = {
   ambientSync: 'player-ambient-sync',
   ambientSize: 'player-ambient-size',
   playerBackground: 'player-background',
+  backgroundPlayback: 'player-background-playback',
   audioVisualizer: 'player-audio-visualizer',
   audioVisualizerStyle: 'player-audio-visualizer-style',
   visualizerConfetti: 'player-visualizer-confetti',
@@ -85,6 +86,8 @@ export interface PlayerSettingsDto {
   /** Ambient glow size multiplier (1–2). */
   ambientSize?: number;
   playerBackground?: boolean;
+  /** Mirror of users.background_playback, so the player reads it without a DB hit. */
+  backgroundPlayback?: boolean;
   audioVisualizer?: boolean;
   audioVisualizerStyle?: string;
   visualizerConfetti?: boolean;
@@ -134,6 +137,7 @@ export function getPlayerSettingsFromCookies(cookieHeader: string | null) {
     : 2;
   const playerBackgroundRaw = get(COOKIE_NAMES.playerBackground);
   const playerBackground = playerBackgroundRaw === '0' || playerBackgroundRaw === 'false' ? false : true;
+  const backgroundPlayback = get(COOKIE_NAMES.backgroundPlayback) === '1';
   const audioVisualizer =
     get(COOKIE_NAMES.audioVisualizer) === '1' || get(COOKIE_NAMES.audioVisualizer) === 'true';
   const styleRaw = get(COOKIE_NAMES.audioVisualizerStyle);
@@ -189,6 +193,7 @@ export function getPlayerSettingsFromCookies(cookieHeader: string | null) {
     ambientSync,
     ambientSize,
     playerBackground,
+    backgroundPlayback,
     audioVisualizer,
     audioVisualizerStyle,
     visualizerConfetti,
@@ -292,6 +297,11 @@ export const action = async ({ request }: { request: Request }) => {
       const v = body.playerBackground ? '1' : '0';
       setCookies.push(buildSetCookie(COOKIE_NAMES.playerBackground, v, secure));
       result.playerBackground = body.playerBackground;
+    }
+    if (typeof body.backgroundPlayback === 'boolean') {
+      const v = body.backgroundPlayback ? '1' : '0';
+      setCookies.push(buildSetCookie(COOKIE_NAMES.backgroundPlayback, v, secure));
+      result.backgroundPlayback = body.backgroundPlayback;
     }
     if (typeof body.audioVisualizer === 'boolean') {
       const v = body.audioVisualizer ? '1' : '0';

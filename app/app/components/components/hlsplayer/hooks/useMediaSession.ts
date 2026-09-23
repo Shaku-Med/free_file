@@ -1,6 +1,7 @@
 import { useEffect, useRef, useCallback } from 'react';
 import { usePlayerContext } from '../PlayerContext';
 import { ParseFilename } from '~/lib/utils';
+import { markUserPause } from '~/lib/playback/backgroundPlayback';
 
 /**
  * Shipped in Chrome 120 but not yet in TypeScript's DOM lib, so the union of
@@ -157,8 +158,10 @@ export function useMediaSession(
     updateMetadata();
 
     const playHandler = () => video.play().catch(() => {});
-    const pauseHandler = () => video.pause();
-    const stopHandler = () => { video.pause(); video.currentTime = 0; };
+    // Flagged so background playback knows this pause was asked for, not the
+    // browser cutting us off because the page went away.
+    const pauseHandler = () => { markUserPause(); video.pause(); };
+    const stopHandler = () => { markUserPause(); video.pause(); video.currentTime = 0; };
 
     navigator.mediaSession.setActionHandler('play', playHandler);
     navigator.mediaSession.setActionHandler('pause', pauseHandler);

@@ -54,6 +54,53 @@ function SettingsSection({
   );
 }
 
+/** The page has several of these; the markup is the switch, the props are the copy. */
+function SettingToggle({
+  label,
+  description,
+  checked,
+  onChange,
+  labelWhenOn,
+  labelWhenOff,
+  disabled,
+}: {
+  label: string;
+  description: string;
+  checked: boolean;
+  onChange: (next: boolean) => void;
+  labelWhenOn: string;
+  labelWhenOff: string;
+  disabled?: boolean;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-4 py-1">
+      <div>
+        <p className="text-sm font-medium text-foreground">{label}</p>
+        <p className="mt-0.5 text-xs text-muted-foreground">{description}</p>
+      </div>
+      <button
+        type="button"
+        role="switch"
+        aria-checked={checked}
+        aria-label={checked ? labelWhenOn : labelWhenOff}
+        onClick={() => onChange(!checked)}
+        disabled={disabled}
+        className={cn(
+          "relative inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full border border-input transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50",
+          checked ? "border-primary bg-primary" : "bg-muted",
+        )}
+      >
+        <span
+          className={cn(
+            "pointer-events-none block h-5 w-5 rounded-full bg-background shadow ring-0 transition-transform",
+            checked ? "translate-x-5" : "translate-x-0.5",
+          )}
+        />
+      </button>
+    </div>
+  );
+}
+
 const STYLE_COLORS: Record<ThemeStyle, string> = {
   default: "#00a85c",
   slate: "#475569",
@@ -87,7 +134,7 @@ function isIosDevice(): boolean {
 }
 
 const SettingsPage = () => {
-  const { userId } = useFileContext();
+  const { userId, playerSettings, setPlayerSettings, savePlayerSettings } = useFileContext();
   const navigate = useNavigate();
   const push = usePushNotifications();
   const isStandalone = useStandalone();
@@ -99,6 +146,12 @@ const SettingsPage = () => {
   const needsInstall = !push.supported && isIos && !isStandalone;
   const [showNsfw, setShowNsfw] = useState(false);
   const [historyPaused, setHistoryPaused] = useState(false);
+  // Seeded from the player cookie so the switch shows the truth on first paint,
+  // then corrected by the account row, which is the one that follows you across
+  // devices.
+  const [backgroundPlayback, setBackgroundPlayback] = useState(
+    () => playerSettings?.backgroundPlayback === true,
+  );
   const [snapFloatsToCorners, setSnapFloatsToCorners] = useState(() =>
     typeof window !== "undefined" ? readSnapFloatsToCorners() : false,
   );
@@ -137,6 +190,10 @@ const SettingsPage = () => {
         const payload = await response.json();
         setShowNsfw(Boolean(payload?.showNsfw));
         setHistoryPaused(Boolean(payload?.historyPaused));
+        // Column not migrated yet: the cookie value we started with stands.
+        if (!payload?.backgroundPlaybackColumnMissing) {
+          setBackgroundPlayback(Boolean(payload?.backgroundPlayback));
+        }
         // Prefer the server value when the column exists; otherwise keep localStorage.
         if (!payload?.snapColumnMissing) {
           const snapOn = Boolean(payload?.snapFloatsToCorners);
@@ -263,7 +320,13 @@ const SettingsPage = () => {
       const response = await fetch("/api/settings", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ showNsfw, historyPaused, snapFloatsToCorners, theme }),
+        body: JSON.stringify({
+          showNsfw,
+          historyPaused,
+          snapFloatsToCorners,
+          backgroundPlayback,
+          theme,
+        }),
       });
       if (!response.ok) {
         const payload = await response.json().catch(() => null);
@@ -271,6 +334,10 @@ const SettingsPage = () => {
       }
       applyTheme(theme);
       writeSnapFloatsToCorners(snapFloatsToCorners);
+      // Mirror into the player cookie and the live context so playing video
+      // picks the change up without a reload.
+      setPlayerSettings((prev) => (prev ? { ...prev, backgroundPlayback } : prev));
+      void savePlayerSettings({ backgroundPlayback });
       setSaveSuccess(true);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to update settings");
@@ -545,120 +612,79 @@ const SettingsPage = () => {
           </SettingsSection>
 
           <SettingsSection title="Interface" description="How floating panels behave while you move them around.">
-            <div className="flex items-center justify-between gap-4 py-1">
-              <div>
-                <p className="text-sm font-medium text-foreground">Snap to corners</p>
-                <p className="mt-0.5 text-xs text-muted-foreground">
-                  When you let go, the mini player and upload button glide into the nearest corner so they stay out of the way.
-                </p>
-              </div>
-              <button
-                type="button"
-                role="switch"
-                aria-checked={snapFloatsToCorners}
-                aria-label={
-                  snapFloatsToCorners
-                    ? "Turn off snap to corners"
-                    : "Turn on snap to corners"
-                }
-                onClick={() => {
-                  const next = !snapFloatsToCorners;
-                  setSnapFloatsToCorners(next);
-                  writeSnapFloatsToCorners(next);
-                  // Persist right away so the toggle survives a refresh.
-                  void (async () => {
-                    try {
-                      const response = await fetch("/api/settings", {
-                        method: "PATCH",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({ snapFloatsToCorners: next }),
-                      });
-                      if (!response.ok) {
-                        const payload = await response.json().catch(() => null);
-                        // Column missing: localStorage still holds the choice.
-                        if (!payload?.snapColumnMissing) {
-                          console.warn("Failed to save snap preference", payload?.error);
-                        }
-                        return;
-                      }
+            <SettingToggle
+              label="Snap to corners"
+              description="When you let go, the mini player and upload button glide into the nearest corner so they stay out of the way."
+              checked={snapFloatsToCorners}
+              labelWhenOn="Turn off snap to corners"
+              labelWhenOff="Turn on snap to corners"
+              disabled={isLoading || isSaving}
+              onChange={(next) => {
+                setSnapFloatsToCorners(next);
+                writeSnapFloatsToCorners(next);
+                // Persist right away so the toggle survives a refresh.
+                void (async () => {
+                  try {
+                    const response = await fetch("/api/settings", {
+                      method: "PATCH",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ snapFloatsToCorners: next }),
+                    });
+                    if (!response.ok) {
                       const payload = await response.json().catch(() => null);
-                      if (payload && typeof payload.snapFloatsToCorners === "boolean" && !payload.snapColumnMissing) {
-                        setSnapFloatsToCorners(payload.snapFloatsToCorners);
-                        writeSnapFloatsToCorners(payload.snapFloatsToCorners);
+                      // Column missing: localStorage still holds the choice.
+                      if (!payload?.snapColumnMissing) {
+                        console.warn("Failed to save snap preference", payload?.error);
                       }
-                    } catch {
-                      /* local preference already written */
+                      return;
                     }
-                  })();
-                }}
-                disabled={isLoading || isSaving}
-                className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full border border-input transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 ${
-                  snapFloatsToCorners ? "bg-primary border-primary" : "bg-muted"
-                }`}
-              >
-                <span
-                  className={`pointer-events-none block h-5 w-5 rounded-full bg-background shadow ring-0 transition-transform ${
-                    snapFloatsToCorners ? "translate-x-5" : "translate-x-0.5"
-                  }`}
-                />
-              </button>
-            </div>
+                    const payload = await response.json().catch(() => null);
+                    if (payload && typeof payload.snapFloatsToCorners === "boolean" && !payload.snapColumnMissing) {
+                      setSnapFloatsToCorners(payload.snapFloatsToCorners);
+                      writeSnapFloatsToCorners(payload.snapFloatsToCorners);
+                    }
+                  } catch {
+                    /* local preference already written */
+                  }
+                })();
+              }}
+            />
+          </SettingsSection>
+
+          <SettingsSection title="Playback">
+            <SettingToggle
+              label="Keep playing in the background"
+              description="Sound carries on when you switch apps or lock your screen. On iPhone the picture stops, the audio does not."
+              checked={backgroundPlayback}
+              labelWhenOn="Stop playing in the background"
+              labelWhenOff="Keep playing in the background"
+              disabled={isLoading || isSaving}
+              onChange={setBackgroundPlayback}
+            />
           </SettingsSection>
 
           <SettingsSection title="Content" description="What shows up in your feed.">
-            <div className="flex items-center justify-between gap-4 py-1">
-              <div>
-                <p className="text-sm font-medium text-foreground">Show NSFW content</p>
-                <p className="mt-0.5 text-xs text-muted-foreground">
-                  Include adult content in your feed.
-                </p>
-              </div>
-              <button
-                type="button"
-                role="switch"
-                aria-checked={showNsfw}
-                aria-label={showNsfw ? "Hide NSFW content" : "Show NSFW content"}
-                onClick={() => setShowNsfw((prev) => !prev)}
-                disabled={isLoading || isSaving}
-                className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full border border-input transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 ${
-                  showNsfw ? "bg-primary border-primary" : "bg-muted"
-                }`}
-              >
-                <span
-                  className={`pointer-events-none block h-5 w-5 rounded-full bg-background shadow ring-0 transition-transform ${
-                    showNsfw ? "translate-x-5" : "translate-x-0.5"
-                  }`}
-                />
-              </button>
-            </div>
+            <SettingToggle
+              label="Show NSFW content"
+              description="Include adult content in your feed."
+              checked={showNsfw}
+              labelWhenOn="Hide NSFW content"
+              labelWhenOff="Show NSFW content"
+              disabled={isLoading || isSaving}
+              onChange={setShowNsfw}
+            />
           </SettingsSection>
 
           <SettingsSection title="Privacy">
-            <div className="flex items-center justify-between gap-4 py-1">
-              <div>
-                <p className="text-sm font-medium text-foreground">Pause watch history</p>
-                <p className="mt-0.5 text-xs text-muted-foreground">
-                  Stop saving what you watch. Recommendations get less personal.
-                </p>
-              </div>
-              <button
-                type="button"
-                role="switch"
-                aria-checked={historyPaused}
-                aria-label={historyPaused ? "Resume watch history" : "Pause watch history"}
-                onClick={() => setHistoryPaused((prev) => !prev)}
-                disabled={isLoading || isSaving}
-                className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full border border-input transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 ${
-                  historyPaused ? "bg-primary border-primary" : "bg-muted"
-                }`}
-              >
-                <span
-                  className={`pointer-events-none block h-5 w-5 rounded-full bg-background shadow ring-0 transition-transform ${
-                    historyPaused ? "translate-x-5" : "translate-x-0.5"
-                  }`}
-                />
-              </button>
-            </div>
+            <SettingToggle
+              label="Pause watch history"
+              description="Stop saving what you watch. Recommendations get less personal."
+              checked={historyPaused}
+              labelWhenOn="Resume watch history"
+              labelWhenOff="Pause watch history"
+              disabled={isLoading || isSaving}
+              onChange={setHistoryPaused}
+            />
 
             <div className="mt-3 flex items-center justify-between gap-4 border-t border-border/60 py-3">
               <div>

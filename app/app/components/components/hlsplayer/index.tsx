@@ -16,6 +16,7 @@ import PersistentBottomVisualizer from './controls/seek/PersistentBottomVisualiz
 import { useHLS } from './hooks/useHLS';
 import { useVideoEvents } from './hooks/useVideoEvents';
 import { useMediaSession } from './hooks/useMediaSession';
+import { useBackgroundPlayback } from './hooks/useBackgroundPlayback';
 import { usePlaybackPosition } from './hooks/usePlaybackPosition';
 import { useWatchTimeHeartbeat } from './hooks/useWatchTimeHeartbeat';
 import { useAutoplay } from './hooks/useAutoplay';
@@ -944,6 +945,10 @@ function PlayerInner({
     isReelCtx ? reelSwiperActive : true,
     openPreferredPip,
   );
+
+  // Same ownership rule as the Media Session: only the player the user is
+  // actually listening to may hold the audio session open.
+  useBackgroundPlayback(videoRef, isReelCtx ? reelSwiperActive : true);
 
   const handleTouchEnd = useCallback(
     (e: React.TouchEvent) => {

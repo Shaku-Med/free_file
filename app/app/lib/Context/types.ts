@@ -24,6 +24,8 @@ export type PlayerSettings = {
   ambientSize?: number;
   /** Blurred poster + black letterbox behind the video. Off = transparent player shell. */
   playerBackground: boolean;
+  /** Keep playing when the app is backgrounded or the screen locks. Mirrors users.background_playback. */
+  backgroundPlayback: boolean;
   /** Bars + seek strip stay visible when controls auto-hide */
   audioVisualizer: boolean;
   audioVisualizerStyle: 'bars' | 'mirror' | 'ribbon' | 'pulse' | 'line' | 'blocks' | 'dots' | 'aurora';
