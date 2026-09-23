@@ -158,13 +158,25 @@ export function PipReelContainer({
     setActiveIdx(initialSlide);
   }, [initialSlide]);
 
+  /**
+   * Line the deck up with the reel PiP was opened on, once.
+   *
+   * `items` grows as pages append, so re-running this on every change dragged
+   * anyone who had scrolled on back to the opening reel the moment pagination
+   * landed, killing whatever they were watching. The alignment only has to
+   * happen once per opening id.
+   */
+  const alignedToRef = useRef<string | null>(null);
   useEffect(() => {
     const s = swiperRef.current;
     if (!s || !initialActiveId) return;
+    if (alignedToRef.current === initialActiveId) return;
     const i = items.findIndex(
       (x) => x.unique_id === initialActiveId || String(x.id) === String(initialActiveId),
     );
-    if (i >= 0 && i !== s.activeIndex) s.slideTo(i, 0);
+    if (i < 0) return;
+    alignedToRef.current = initialActiveId;
+    if (i !== s.activeIndex) s.slideTo(i, 0);
   }, [initialActiveId, items]);
 
   /**
