@@ -466,6 +466,7 @@ function PlayerInner({
     notifyBrowserDrivenNativePipEntered,
     notifyBrowserDrivenWebKitPipEntered,
     toggleDocumentPip,
+    pipHandoffComplete,
   } = usePictureInPictureContext();
   const inPipForThisVideo = isPipActive && isContentInPip(imageID);
 
@@ -474,8 +475,14 @@ function PlayerInner({
     void toggleDocumentPip(src, videoRef, imageID, file ?? undefined, loopEnabled);
   }, [toggleDocumentPip, src, videoRef, imageID, file, loopEnabled]);
   const onPipChrome = isPipChromeRoute(location.pathname);
-  /** Native / WebKit PiP uses this `<video>`  must not pause or block `play`. Document PiP uses a separate iframe. */
-  const documentPipPausesMain = inPipForThisVideo && activePipKind === 'document';
+  /**
+   * Native / WebKit PiP uses this `<video>`  must not pause or block `play`.
+   * Document PiP uses a separate iframe, which needs seconds to boot the app
+   * and reach a frame. We hold this player until it reports that it is playing,
+   * so the viewer hears one continuous stream instead of a silent spinner.
+   */
+  const documentPipPausesMain =
+    inPipForThisVideo && activePipKind === 'document' && pipHandoffComplete;
   /** A different file is in PiP  pause this player so only one plays. */
   const otherVideoInPipBlocksThisPlayer =
     Boolean(isPipActive && pipContentId !== null && pipContentId !== imageID);

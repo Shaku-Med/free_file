@@ -11,11 +11,15 @@ export default function PipOverlay() {
     activePipKind,
     pipPlaybackPaused,
     controlPipPlayback,
+    pipHandoffComplete,
   } = usePictureInPictureContext();
 
   if (!isPipActive) return null;
 
   if (isContentInPip(imageID)) {
+    // The floating window is still booting and this player is still the one
+    // playing, so covering it with a takeover card would be a lie.
+    if (activePipKind === 'document' && !pipHandoffComplete) return null;
     const showRemoteControls = activePipKind === 'document' && pipPlaybackPaused !== null;
     return (
       <div

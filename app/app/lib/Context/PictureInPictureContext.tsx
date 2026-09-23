@@ -27,6 +27,8 @@ interface PictureInPictureContextType {
   isContentInPip: (contentId: string) => boolean;
   /** Live play/pause state of the document PiP player (null when unknown / inactive). */
   pipPlaybackPaused: boolean | null;
+  /** The floating player has started; until then the main player still owns playback. */
+  pipHandoffComplete: boolean;
   /** Remote-control the document PiP player from the main window (Spotify-style). */
   controlPipPlayback: (action: 'play' | 'pause' | 'toggle') => void;
   /** Browser UI opened native PiP (not our button)  sync session so custom overlay / state match. */
@@ -53,6 +55,9 @@ const PIP_PHONE_WIDTH = 390;
 const PIP_PHONE_HEIGHT = 844;
 
 const MAX_SEEK_SECONDS = 24 * 60 * 60;
+
+/** Longest we let the main player keep going while the floating one boots. */
+const PIP_HANDOFF_TIMEOUT_MS = 10_000;
 
 /** iOS/WebKit often flips `muted` right after PiP  re-apply if the user was playing with sound. */
 export function restoreVideoAudioAfterSystemPip(video: HTMLVideoElement, wantSound: boolean) {
@@ -101,6 +106,36 @@ export const PictureInPictureProvider: React.FC<PictureInPictureProviderProps> =
   // while PiP is open, then moved to this position/play-state on exit.
   const pipLiveStateRef = useRef<{ time: number; paused: boolean; id: string | null } | null>(null);
   const [pipPlaybackPaused, setPipPlaybackPaused] = useState<boolean | null>(null);
+  /**
+   * Document PiP loads the whole app again inside its window, which takes
+   * seconds before a frame appears. Pausing the main player the moment the
+   * window opens buys nothing and costs the viewer a silent gap, so the main
+   * player keeps going until the floating one reports that it is playing.
+   */
+  const [pipHandoffComplete, setPipHandoffComplete] = useState(false);
+  const handoffTimerRef = useRef<number | null>(null);
+
+  const clearHandoffTimer = useCallback(() => {
+    if (handoffTimerRef.current !== null) {
+      window.clearTimeout(handoffTimerRef.current);
+      handoffTimerRef.current = null;
+    }
+  }, []);
+
+  const completeHandoff = useCallback(() => {
+    clearHandoffTimer();
+    setPipHandoffComplete(true);
+  }, [clearHandoffTimer]);
+
+  /** Never leave both players live: give up waiting and hand over regardless. */
+  const armHandoffTimeout = useCallback(() => {
+    clearHandoffTimer();
+    setPipHandoffComplete(false);
+    handoffTimerRef.current = window.setTimeout(() => {
+      handoffTimerRef.current = null;
+      setPipHandoffComplete(true);
+    }, PIP_HANDOFF_TIMEOUT_MS);
+  }, [clearHandoffTimer]);
 
   const assignPipKind = useCallback((k: ActivePipKind | null) => {
     activePipKindRef.current = k;
@@ -148,6 +183,8 @@ export const PictureInPictureProvider: React.FC<PictureInPictureProviderProps> =
     }
     pipLiveStateRef.current = null;
     setPipPlaybackPaused(null);
+    clearHandoffTimer();
+    setPipHandoffComplete(false);
 
     if (kind === 'native-video' && mainVideo && document.pictureInPictureElement === mainVideo) {
       document.exitPictureInPicture().catch(() => {});
@@ -185,7 +222,7 @@ export const PictureInPictureProvider: React.FC<PictureInPictureProviderProps> =
     pipUpdateMediaSessionRef.current = null;
     setIsPipActive(false);
     setPipContentId(null);
-  }, [assignPipKind, detachNativePipListeners, detachWebkitPipListeners]);
+  }, [assignPipKind, clearHandoffTimer, detachNativePipListeners, detachWebkitPipListeners]);
 
   const documentPipShellOpen = useCallback((): boolean => {
     try {
@@ -307,6 +344,10 @@ export const PictureInPictureProvider: React.FC<PictureInPictureProviderProps> =
 
       if (data.type === 'pip-state') {
         setPipPlaybackPaused(paused);
+        // The floating player is actually playing, so it now owns the audio and
+        // the main player can stand down. Until this arrives the main player is
+        // the only thing making sound.
+        if (!paused) completeHandoff();
         if (matchesMainContent) {
           pipLiveStateRef.current = { time, paused, id: payloadId };
         }
@@ -545,10 +586,9 @@ export const PictureInPictureProvider: React.FC<PictureInPictureProviderProps> =
         setPipContentId(contentId);
         pipLiveStateRef.current = { time: currentTime, paused: wasPaused, id: contentId };
         setPipPlaybackPaused(wasPaused);
-
-        if (video) {
-          video.pause();
-        }
+        // Don't silence this player yet: the floating one has a whole app to
+        // boot first. The handoff pauses it once there is sound to hand over.
+        armHandoffTimeout();
       } catch (error) {
         console.error('Error opening windapp PiP:', error);
         pipWindowRef.current = null;
@@ -682,16 +722,16 @@ export const PictureInPictureProvider: React.FC<PictureInPictureProviderProps> =
       // Seed the resume point so closing PiP before the first state report still restores.
       pipLiveStateRef.current = { time: currentTime, paused: wasPaused, id: contentId };
       setPipPlaybackPaused(wasPaused);
-
-      if (video) {
-        video.pause();
-      }
+      // Keep this player audible until the floating one has actually started;
+      // pausing here is what produced the silent spinner on entry.
+      armHandoffTimeout();
     } catch (error) {
       console.error('Error opening Document PiP:', error);
       pipWindowRef.current = null;
       assignPipKind(null);
     }
   }, [
+    armHandoffTimeout,
     assignPipKind,
     isPipActive,
     pipContentId,
@@ -750,6 +790,7 @@ export const PictureInPictureProvider: React.FC<PictureInPictureProviderProps> =
     closePip,
     isContentInPip,
     pipPlaybackPaused,
+    pipHandoffComplete,
     controlPipPlayback,
     notifyBrowserDrivenNativePipEntered,
     notifyBrowserDrivenWebKitPipEntered,
