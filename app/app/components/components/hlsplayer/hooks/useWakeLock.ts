@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { usePlayerContext } from '../PlayerContext';
+import { markSystemInterrupt } from '~/lib/playback/backgroundPlayback';
 
 /**
  * Prevents the device from sleeping while video is playing.
@@ -11,6 +12,10 @@ export function useWakeLock(videoRef: React.RefObject<HTMLVideoElement | null>) 
   const wakeLockRef = useRef<WakeLockSentinel | null>(null);
   const isPlayingRef = useRef(state.isPlaying);
   isPlayingRef.current = state.isPlaying;
+  // Set only around a release() we initiated. A release without it is the OS
+  // taking the screen (power button) and is how lock is detected while the
+  // page is still the foreground app.
+  const intentionalReleaseRef = useRef(false);
 
   useEffect(() => {
     if (!('wakeLock' in navigator)) return;
@@ -22,9 +27,15 @@ export function useWakeLock(videoRef: React.RefObject<HTMLVideoElement | null>) 
       if (wakeLockRef.current && !wakeLockRef.current.released) return;
 
       try {
-        wakeLockRef.current = await navigator.wakeLock.request('screen');
-        wakeLockRef.current.addEventListener('release', () => {
-          wakeLockRef.current = null;
+        const sentinel = await navigator.wakeLock.request('screen');
+        wakeLockRef.current = sentinel;
+        sentinel.addEventListener('release', () => {
+          if (wakeLockRef.current === sentinel) wakeLockRef.current = null;
+          if (intentionalReleaseRef.current) {
+            intentionalReleaseRef.current = false;
+            return;
+          }
+          markSystemInterrupt();
         });
       } catch {
         // Wake lock request failed (e.g., low battery mode)
@@ -32,12 +43,15 @@ export function useWakeLock(videoRef: React.RefObject<HTMLVideoElement | null>) 
     };
 
     const release = async () => {
-      if (wakeLockRef.current && !wakeLockRef.current.released) {
-        try {
-          await wakeLockRef.current.release();
-        } catch {}
-        wakeLockRef.current = null;
+      const sentinel = wakeLockRef.current;
+      if (!sentinel || sentinel.released) return;
+      intentionalReleaseRef.current = true;
+      try {
+        await sentinel.release();
+      } catch {
+        intentionalReleaseRef.current = false;
       }
+      if (wakeLockRef.current === sentinel) wakeLockRef.current = null;
     };
 
     if (state.isPlaying) {

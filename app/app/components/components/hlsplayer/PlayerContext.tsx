@@ -392,6 +392,10 @@ export function PlayerProvider({
       if (Date.now() < sleepTimerEndsAt) return;
       const v = videoRef.current;
       if (v && !v.paused) {
+        // Deliberate stop. Without the flag, a screen lock right after the
+        // timer would look like a system pause and background playback would
+        // start the video again.
+        v.dataset.userPaused = '1';
         try { v.pause(); } catch { /* ignore */ }
       }
       setSleepTimerState('Off');

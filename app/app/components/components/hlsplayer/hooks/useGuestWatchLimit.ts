@@ -62,7 +62,10 @@ export function useGuestWatchLimit(
 
       if (video.currentTime >= lim) {
         video.currentTime = lim;
-        if (!video.paused) video.pause();
+        if (!video.paused) {
+          video.dataset.userPaused = '1';
+          video.pause();
+        }
         if (!hitRef.current) {
           hitRef.current = true;
           setWallOpen(true);
@@ -74,6 +77,7 @@ export function useGuestWatchLimit(
     const onSeek = () => {
       if (video.currentTime > lim) {
         video.currentTime = lim;
+        video.dataset.userPaused = '1';
         video.pause();
         setWallOpen(true);
       }

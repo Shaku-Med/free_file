@@ -28,6 +28,7 @@ export default function CastButton({
   // browser don't play the same audio at once.
   useEffect(() => {
     if (gcast.isCasting && videoRef.current && !videoRef.current.paused) {
+      videoRef.current.dataset.userPaused = '1';
       videoRef.current.pause();
     }
   }, [gcast.isCasting, videoRef]);

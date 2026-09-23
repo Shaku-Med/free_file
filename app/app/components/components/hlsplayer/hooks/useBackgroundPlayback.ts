@@ -1,6 +1,11 @@
 import { useEffect } from 'react';
 import { useFileContext } from '~/lib/Context/Context';
-import { setAudioSessionType, userPausedRecently } from '~/lib/playback/backgroundPlayback';
+import {
+  DISPLAY_INTERRUPTED_EVENT,
+  setAudioSessionType,
+  systemInterruptedRecently,
+  userPausedRecently,
+} from '~/lib/playback/backgroundPlayback';
 
 /**
  * How long after the page hides a pause still counts as the browser's own
@@ -17,8 +22,14 @@ const MAX_RESUME_ATTEMPTS = 3;
  * Honours the user's "keep playing in the background" setting.
  *
  * Declares the audio session as playback so iOS lets the sound continue past a
- * screen lock, and puts playback back when the browser pauses it purely because
- * the page went away. A pause the user actually asked for is left alone.
+ * screen lock, and puts playback back when the browser pauses it on its own.
+ * A pause the user actually asked for is left alone.
+ *
+ * Leaving the app hides the page first, so the pause arrives with
+ * `document.hidden` already set. The power button does not: it turns the
+ * display off while this app is still the foreground app, pauses the element
+ * while the page is still "visible", and only afterwards (if at all) flips
+ * visibility. Resume has to run on that pause, not only once the page is hidden.
  */
 export function useBackgroundPlayback(
   videoRef: React.RefObject<HTMLVideoElement | null>,
@@ -35,6 +46,9 @@ export function useBackgroundPlayback(
     let sessionClaimed = false;
     let hiddenAt = 0;
     let attempts = 0;
+    // True only after the user (or autoplay) has actually started this element.
+    // A system pause must not be what starts playback.
+    let wantPlaying = !video.paused;
 
     // Claimed on play rather than on mount: `playback` interrupts other apps'
     // audio and overrides the ringer switch, which is only ours to ask for once
@@ -45,35 +59,91 @@ export function useBackgroundPlayback(
       setAudioSessionType('playback');
     };
 
-    const onVisibility = () => {
-      hiddenAt = document.hidden ? Date.now() : 0;
-      attempts = 0;
-    };
+    const userOptedOut = () =>
+      video.dataset.userPaused === '1' || userPausedRecently();
 
-    const onPause = () => {
-      // A pause arriving while the page is visible is the user's own; so is one
-      // routed through the OS media controls.
-      if (!document.hidden) return;
-      if (userPausedRecently()) return;
-      if (video.ended || video.error) return;
-      // Some engines pause before we see visibilitychange, so treat an unset
-      // timestamp as "hidden as of now".
-      if (!hiddenAt) hiddenAt = Date.now();
-      if (Date.now() - hiddenAt > BACKGROUND_PAUSE_WINDOW_MS) return;
+    // Power-button lock often leaves `document.hidden` false: the app was not
+    // backgrounded, the screen just went off, and the window has lost focus.
+    // The wake lock release is the same moment, even when visibility never flips.
+    const displayInterrupted = () =>
+      document.hidden || !document.hasFocus() || systemInterruptedRecently();
+
+    const resume = () => {
+      if (!wantPlaying || userOptedOut()) return;
+      if (video.ended || video.error || !video.paused) return;
       if (attempts >= MAX_RESUME_ATTEMPTS) return;
       attempts += 1;
       void video.play().catch(() => {});
     };
 
-    video.addEventListener('play', claimAudioSession);
+    const onPlay = () => {
+      wantPlaying = true;
+      attempts = 0;
+      claimAudioSession();
+    };
+
+    const onVisibility = () => {
+      if (document.hidden) {
+        const becameHidden = hiddenAt === 0;
+        hiddenAt = Date.now();
+        // The pause may already have been ignored while we were still visible.
+        if (becameHidden) attempts = 0;
+        resume();
+        return;
+      }
+      hiddenAt = 0;
+      attempts = 0;
+    };
+
+    const onPause = () => {
+      if (userOptedOut()) {
+        wantPlaying = false;
+        return;
+      }
+      if (!wantPlaying || video.ended || video.error) return;
+      // Some engines pause before we see visibilitychange, so treat an unset
+      // timestamp as "hidden as of now".
+      if (document.hidden && !hiddenAt) hiddenAt = Date.now();
+      if (document.hidden && Date.now() - hiddenAt > BACKGROUND_PAUSE_WINDOW_MS) return;
+      if (displayInterrupted()) {
+        resume();
+        return;
+      }
+      // Hidden can flip in the same turn, just after this listener returns.
+      // A timer is only a backup: a lock can freeze the page before it runs,
+      // which is why visibility / blur / freeze resume on their own.
+      window.setTimeout(() => {
+        if (displayInterrupted()) resume();
+      }, 0);
+    };
+
+    // Screen lock blurs the window even on engines that never mark the page hidden.
+    const onBlur = () => {
+      if (video.paused) resume();
+    };
+
+    const onFreeze = () => {
+      attempts = 0;
+      resume();
+    };
+
+    video.addEventListener('play', onPlay);
     video.addEventListener('pause', onPause);
     document.addEventListener('visibilitychange', onVisibility);
+    document.addEventListener('freeze', onFreeze);
+    window.addEventListener('blur', onBlur);
+    window.addEventListener('pagehide', onFreeze);
+    window.addEventListener(DISPLAY_INTERRUPTED_EVENT, onBlur);
     if (!video.paused) claimAudioSession();
 
     return () => {
-      video.removeEventListener('play', claimAudioSession);
+      video.removeEventListener('play', onPlay);
       video.removeEventListener('pause', onPause);
       document.removeEventListener('visibilitychange', onVisibility);
+      document.removeEventListener('freeze', onFreeze);
+      window.removeEventListener('blur', onBlur);
+      window.removeEventListener('pagehide', onFreeze);
+      window.removeEventListener(DISPLAY_INTERRUPTED_EVENT, onBlur);
       if (sessionClaimed) setAudioSessionType('auto');
     };
   }, [enabled, videoRef]);
