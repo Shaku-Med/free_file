@@ -19,6 +19,7 @@ import ImageLoad from "../Home/components/ImageLoad/ImageLoad";
 import { ParseFilename, getVideoSrc, getThumbnailUrl, getThumbnailPreviewApiPaths, cn } from "~/lib/utils";
 import { usePlaybackUrl } from "~/lib/hooks/usePlaybackUrl";
 import { resolvePlaybackSrc } from "~/lib/playbackUrlCache";
+import { loadedMediaFile } from "~/lib/playback/loadedMedia";
 import { motion } from "framer-motion";
 import { ChevronDown, MessageCircle } from "lucide-react";
 import { Button } from "~/components/ui/button";
@@ -752,8 +753,19 @@ const DynamicPage = ({ is_modal }: DynamicPageProps) => {
   const [hasIncrementedView, setHasIncrementedView] = useState(false);
   const watchVideoRef = useWatchSurfaceVideoRef();
   const [videoRefReady, setVideoRefReady] = useState(false);
-  /** Intrinsic video aspect  used to hug the ambience glow to the visible video when the player background is off. */
-  const [ambienceVideoAspect, setAmbienceVideoAspect] = useState<number | null>(null);
+  /**
+   * Intrinsic video aspect, tagged with the file it was measured for.
+   *
+   * Used to hug the ambience glow to the visible video when the player
+   * background is off, and to size the player frame. The tag is what keeps the
+   * previous video's shape from sizing the next one: the global player reuses a
+   * single `<video>`, so right after a param swap the element still reports the
+   * old dimensions, and an untagged number would stick until the new media
+   * happened to fire an event.
+   */
+  const [measuredAspect, setMeasuredAspect] = useState<{ id: string; aspect: number } | null>(null);
+  const ambienceVideoAspect =
+    measuredAspect && measuredAspect.id === currentId ? measuredAspect.aspect : null;
   // The frame matches the video's real aspect (no black bars), clamped so a
   // portrait or ultrawide clip can't blow up the layout. ~16:9 is unchanged.
   // Falls back to 16:9 until the video's dimensions are known.
@@ -793,17 +805,37 @@ const DynamicPage = ({ is_modal }: DynamicPageProps) => {
   const playerFrameAspect =
     rawFrameAspect < PORTRAIT_FRAME_FLOOR ? 16 / 9 : Math.min(2.4, rawFrameAspect);
   useEffect(() => {
-    if (!videoRefReady) return;
+    if (!videoRefReady || !currentId) return;
     const v = watchVideoRef.current;
     if (!v) return;
-    const update = () => {
+
+    // A size only describes this file once the element has taken on its media.
+    // The engine's stamp answers that exactly; where it is absent (another
+    // surface owns the element) an already empty element says the same thing,
+    // and `emptied` marks the moment the old media is dropped.
+    let cleared = v.videoWidth === 0;
+    const read = () => {
+      const stamp = loadedMediaFile(v);
+      if (stamp ? stamp !== currentId : !cleared) return;
       if (v.videoWidth > 0 && v.videoHeight > 0) {
-        setAmbienceVideoAspect(v.videoWidth / v.videoHeight);
+        setMeasuredAspect({ id: currentId, aspect: v.videoWidth / v.videoHeight });
       }
     };
-    update();
-    v.addEventListener("loadedmetadata", update);
-    return () => v.removeEventListener("loadedmetadata", update);
+    const onEmptied = () => {
+      cleared = true;
+    };
+
+    read();
+    v.addEventListener("emptied", onEmptied);
+    v.addEventListener("loadedmetadata", read);
+    // A rotated track or an ABR switch changes the dimensions without another
+    // loadedmetadata; resize is the event that always fires for those.
+    v.addEventListener("resize", read);
+    return () => {
+      v.removeEventListener("emptied", onEmptied);
+      v.removeEventListener("loadedmetadata", read);
+      v.removeEventListener("resize", read);
+    };
   }, [videoRefReady, watchVideoRef, currentId]);
   const {
     activateMiniPlayer,

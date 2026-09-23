@@ -4,6 +4,7 @@ import { usePlayerContext } from '../PlayerContext';
 import { useFileContext } from '~/lib/Context/Context';
 import { isLoadplayPlaybackUrl } from '~/lib/Services/loadplayPlayback.client';
 import { requestPlaybackUrlRefresh, playbackAssetPath } from '~/lib/playbackUrlCache';
+import { markLoadedMedia } from '~/lib/playback/loadedMedia';
 
 function hlsUsesCredentials(url: string): boolean {
   return !isLoadplayPlaybackUrl(url);
@@ -441,6 +442,7 @@ export function useHLS(videoRef: React.RefObject<HTMLVideoElement | null>) {
       const sameAsset =
         Boolean(newPath) && lastSrcPathRef.current === newPath;
       lastSrcPathRef.current = newPath;
+      markLoadedMedia(video, file?.unique_id);
 
       // Snapshot the user's intent at the moment of the swap. We DON'T treat
       // "ended" as "was playing"  the original code did, which made paused-
@@ -590,6 +592,7 @@ export function useHLS(videoRef: React.RefObject<HTMLVideoElement | null>) {
         lastEnginePathRef.current = 'hlsjs';
         lastAttachedVideoRef.current = video;
         lastSrcPathRef.current = playbackAssetPath(src);
+        markLoadedMedia(video, file?.unique_id);
 
         const onTimeUpdate = () => {
           const t = video.currentTime;
@@ -724,6 +727,7 @@ export function useHLS(videoRef: React.RefObject<HTMLVideoElement | null>) {
         video.load();
         lastEnginePathRef.current = 'native';
         lastAttachedVideoRef.current = video;
+        markLoadedMedia(video, file?.unique_id);
 
         const handleLoaded = () => {
           if (!mountedRef.current) return;
@@ -775,6 +779,7 @@ export function useHLS(videoRef: React.RefObject<HTMLVideoElement | null>) {
         video.load();
         lastEnginePathRef.current = 'direct';
         lastAttachedVideoRef.current = video;
+        markLoadedMedia(video, file?.unique_id);
         setState((s) => ({ ...s, levels: [] }));
       }
     };
