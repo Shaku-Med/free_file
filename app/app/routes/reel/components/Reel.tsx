@@ -16,6 +16,7 @@ import type { FileType } from "~/lib/types";
 import { newReelFeedSeed } from "~/lib/feed/reelFeedSeed";
 import { personalizationService } from "~/lib/Services/PersonalizationService";
 import { useRateLimit } from "~/lib/hooks/useRateLimit";
+import { useCloseOnTimestampSeek } from "~/lib/hooks/useCloseOnTimestampSeek";
 import { cn } from "~/lib/utils";
 import type { ReelProfileContext } from "~/lib/reel/reelProfileContext";
 
@@ -513,6 +514,11 @@ const Reel = ({ initialItems, initialUserActions, profileReelContext = null }: R
   }, [userId, flushWatchSignals]);
 
   const activeCommentFileId = activeReel?.fileId ?? null;
+  // Phone only: the drawer sits on top of the reel, so a timestamp jump would
+  // otherwise happen out of sight. The desktop panel sits beside the player and
+  // has no reason to move.
+  const closeComments = useCallback(() => setCommentsOpen(false), []);
+  useCloseOnTimestampSeek(commentsOpen && !isLargeScreen, closeComments, activeCommentFileId);
   const activeCommentOwnerId = activeReel?.ownerId;
   const commentsBody =
     commentsOpen && activeCommentFileId ? (

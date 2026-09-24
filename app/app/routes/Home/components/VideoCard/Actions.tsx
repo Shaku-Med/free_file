@@ -55,6 +55,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "~/components/ui/tooltip
 import CommentSection from "~/routes/Dynamic/components/Comments/CommentSection";
 import { useLocalPlaylist, normalizeLocalPlaylistFileId } from "~/lib/hooks/useLocalPlaylist";
 import { useFileContext } from "~/lib/Context/Context";
+import { useCloseOnTimestampSeek } from "~/lib/hooks/useCloseOnTimestampSeek";
 import { personalizationService } from "~/lib/Services/PersonalizationService";
 import { playbackPositionField } from '~/lib/playback/positionRegistry';
 
@@ -264,6 +265,10 @@ export default function Actions({
     },
     [isCommentsControlled, onCommentsOpenChange],
   );
+  // The comments overlay covers the card it belongs to, so a timestamp tap has
+  // to hand the screen back before the jump is worth anything.
+  const closeCommentsPanel = useCallback(() => setCommentsPanelOpen(false), [setCommentsPanelOpen]);
+  useCloseOnTimestampSeek(commentsPanelOpen, closeCommentsPanel, fileId);
 
   useEffect(() => {
     if (!isMobile || !highlightCommentId) return;
