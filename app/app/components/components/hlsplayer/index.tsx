@@ -266,6 +266,7 @@ function PlayerInner({
     togglePlay,
     toggleMute,
     toggleFullscreen,
+    setFullscreenBlocked,
     setPlaybackRate,
     setControlsVisible,
     setReelAuxiliaryChromeVisible,
@@ -495,6 +496,11 @@ function PlayerInner({
     !(watchHlsSurface?.props && file && watchHlsSurface.props.file?.unique_id === file.unique_id);
   const isMiniMobileBar = useMiniMobileBar();
   const miniSeekOnly = isMiniDock && isMiniMobileBar;
+  // A floating dock has nowhere to go fullscreen to. The button is already
+  // hidden there; this closes the keyboard route as well.
+  useEffect(() => {
+    setFullscreenBlocked(isMiniDock);
+  }, [isMiniDock, setFullscreenBlocked]);
   // Height of the persistent visualizer strip (wave + bottom padding).
   const visualizerStripPx = isMiniDock ? (miniSeekOnly ? 0 : 28) : 48;
   const showAudioVisualizer =

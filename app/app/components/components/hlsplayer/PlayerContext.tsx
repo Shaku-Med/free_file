@@ -140,6 +140,12 @@ interface PlayerContextValue {
   setPlaybackRate: (rate: number) => void;
   setQualityLevel: (level: number) => void;
   toggleFullscreen: () => void;
+  /**
+   * Refuse fullscreen for this player. The floating mini dock sets it: a
+   * fullscreen mini player is a contradiction, and the keyboard shortcut could
+   * reach it even with the button hidden.
+   */
+  setFullscreenBlocked: (blocked: boolean) => void;
   replay: () => void;
   setControlsVisible: (visible: boolean) => void;
   setReelAuxiliaryChromeVisible: (visible: boolean) => void;
@@ -955,7 +961,15 @@ export function PlayerProvider({
   const isFullscreenRef = useRef(false);
   isFullscreenRef.current = state.isFullscreen;
 
+  const fullscreenBlockedRef = useRef(false);
+  const setFullscreenBlocked = useCallback((blocked: boolean) => {
+    fullscreenBlockedRef.current = blocked;
+  }, []);
+
   const toggleFullscreen = useCallback(async () => {
+    // Guarded here rather than at each call site, so the keyboard shortcut, the
+    // button and anything added later all obey it.
+    if (fullscreenBlockedRef.current) return;
     try {
       // Desktop app: drive the native OS window fullscreen (the HTML5
       // Fullscreen API misbehaves in the frameless Electron window). The
@@ -1175,6 +1189,7 @@ export function PlayerProvider({
     setPlaybackRate,
     setQualityLevel,
     toggleFullscreen,
+    setFullscreenBlocked,
     replay,
     setControlsVisible,
     setReelAuxiliaryChromeVisible,
