@@ -24,7 +24,7 @@ export default function PipButton({
           type="button"
           onClick={(e) => {
             if (mobileOverlay) e.stopPropagation();
-            void toggleDocumentPip(src, videoRef, imageID, file, loop);
+            void toggleDocumentPip(src, videoRef, imageID, file, loop, { allowDocumentWindow: !isReel });
           }}
           className={cn(
             'text-white transition-colors',

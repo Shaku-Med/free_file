@@ -3,7 +3,7 @@ import { usePictureInPictureContext } from '~/lib/Context/PictureInPictureContex
 import { usePlayerContext } from '../PlayerContext';
 
 export default function PipOverlay() {
-  const { videoRef, src, imageID, file, loop } = usePlayerContext();
+  const { videoRef, src, imageID, file, loop, isReel } = usePlayerContext();
   const {
     isPipActive,
     isContentInPip,
@@ -23,7 +23,7 @@ export default function PipOverlay() {
     const showRemoteControls = activePipKind === 'document' && pipPlaybackPaused !== null;
     return (
       <div
-        onClick={() => toggleDocumentPip(src, videoRef, imageID, file, loop)}
+        onClick={() => toggleDocumentPip(src, videoRef, imageID, file, loop, { allowDocumentWindow: !isReel })}
         className="absolute inset-0 z-[60] flex flex-col items-center justify-center gap-2 bg-black/75 backdrop-blur-sm cursor-pointer hover:bg-black/65 transition-colors"
       >
         <PictureInPicture2 className="w-12 h-12 text-white" />

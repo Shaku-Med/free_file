@@ -9,6 +9,16 @@ import { detectWindapp } from '~/lib/hooks/useWindapp';
 /** Which PiP path is active  native/WebKit use the same `<video>` element (must keep playing). */
 export type ActivePipKind = Exclude<PipImplementationKind, 'none'>;
 
+export type TogglePipOptions = {
+  updateMediaSession?: (isPlaying: boolean, currentTime: number, duration: number) => void;
+  /**
+   * Set false to rule out our own floating window, leaving the platform default.
+   * Reel surfaces do this: that window exists to host the reel feed UI, and a
+   * reel already is that.
+   */
+  allowDocumentWindow?: boolean;
+};
+
 interface PictureInPictureContextType {
   isPipActive: boolean;
   setIsPipActive: (active: boolean) => void;
@@ -22,7 +32,14 @@ interface PictureInPictureContextType {
   pipHlsRef: React.MutableRefObject<null>;
   pipContentId: string | null;
   setPipContentId: (id: string | null) => void;
-  toggleDocumentPip: (src: string, videoRef: React.RefObject<HTMLVideoElement | null>, contentId: string, file?: any, loop?: boolean, updateMediaSession?: (isPlaying: boolean, currentTime: number, duration: number) => void) => Promise<void>;
+  toggleDocumentPip: (
+    src: string,
+    videoRef: React.RefObject<HTMLVideoElement | null>,
+    contentId: string,
+    file?: any,
+    loop?: boolean,
+    opts?: TogglePipOptions,
+  ) => Promise<void>;
   closePip: () => void;
   isContentInPip: (contentId: string) => boolean;
   /** Live play/pause state of the document PiP player (null when unknown / inactive). */
@@ -450,9 +467,22 @@ export const PictureInPictureProvider: React.FC<PictureInPictureProviderProps> =
     return () => clearInterval(id);
   }, [pipWindow, closePip]);
 
-  const toggleDocumentPip = useCallback(async (src: string, videoRef: React.RefObject<HTMLVideoElement | null>, contentId: string, file?: any, loop?: boolean, updateMediaSession?: (isPlaying: boolean, currentTime: number, duration: number) => void) => {
+  const toggleDocumentPip = useCallback(async (
+    src: string,
+    videoRef: React.RefObject<HTMLVideoElement | null>,
+    contentId: string,
+    file?: any,
+    loop?: boolean,
+    opts?: TogglePipOptions,
+  ) => {
+    const updateMediaSession = opts?.updateMediaSession;
     const video = videoRef.current;
-    const impl = getPipImplementationForDevice(video);
+    // Reel surfaces only ever get the platform's own picture in picture. The
+    // caller decides, not the file: the reel feed carries ordinary videos too,
+    // and what matters is the surface they are being watched on.
+    const impl = getPipImplementationForDevice(video, {
+      allowDocument: opts?.allowDocumentWindow !== false,
+    });
 
     if (impl === 'none') {
       return;

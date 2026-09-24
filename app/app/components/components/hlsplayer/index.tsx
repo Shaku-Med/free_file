@@ -473,7 +473,9 @@ function PlayerInner({
 
   /** Open whichever PiP the viewer picked — same path the PiP button uses. */
   const openPreferredPip = useCallback(() => {
-    void toggleDocumentPip(src, videoRef, imageID, file ?? undefined, loopEnabled);
+    void toggleDocumentPip(src, videoRef, imageID, file ?? undefined, loopEnabled, {
+      allowDocumentWindow: !isReelCtx,
+    });
   }, [toggleDocumentPip, src, videoRef, imageID, file, loopEnabled]);
   const onPipChrome = isPipChromeRoute(location.pathname);
   /**

@@ -76,12 +76,24 @@ export function isMobileStyleViewport(): boolean {
  * Pick implementation for this device.
  * Mobile → native/WebKit only; windapp / desktop Document PiP when available.
  */
-export function getPipImplementationForDevice(video: HTMLVideoElement | null): PipImplementationKind {
+export function getPipImplementationForDevice(
+  video: HTMLVideoElement | null,
+  opts?: {
+    /**
+     * Set false to rule out our own floating window. Reels use it: that window
+     * exists to host the reel feed UI, and a reel already is that. Enforced here
+     * rather than by hiding a button, so the browser's media controls and
+     * anything poked in from outside land on the platform default too.
+     */
+    allowDocument?: boolean;
+  },
+): PipImplementationKind {
   if (typeof window === 'undefined') return 'none';
   if (isIosStandaloneApp()) return 'none';
+  const allowDocument = opts?.allowDocument !== false;
 
   // Desktop app: always use our /pip UI in a floating Electron window.
-  if (detectWindapp()) return 'document';
+  if (allowDocument && detectWindapp()) return 'document';
 
   if (isMobileStyleViewport()) {
     // Mobile always uses the platform default  the style preference never applies.
@@ -95,7 +107,7 @@ export function getPipImplementationForDevice(video: HTMLVideoElement | null): P
   if (readPipMode() === 'wide' && hasNativeVideoPictureInPicture()) {
     return 'native-video';
   }
-  if (hasDocumentPictureInPicture()) return 'document';
+  if (allowDocument && hasDocumentPictureInPicture()) return 'document';
   if (hasNativeVideoPictureInPicture()) return 'native-video';
   if (videoSupportsWebKitPresentationPiP(video)) return 'webkit-presentation';
   return 'none';
