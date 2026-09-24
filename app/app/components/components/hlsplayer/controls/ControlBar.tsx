@@ -7,7 +7,7 @@ import {
   type MouseEvent as ReactMouseEvent,
 } from 'react';
 import { createPortal } from 'react-dom';
-import { Play, Pause, SkipForward, MoreVertical, SkipBack, ChevronLeft, LoaderCircle, X } from '~/components/icons';
+import { Play, Pause, SkipForward, SkipBack, ChevronLeft, LoaderCircle, X } from '~/components/icons';
 import { usePlayerContext } from '../PlayerContext';
 import { useControlBarWidth } from '../hooks/useControlBarWidth';
 import { useFullscreenContainer } from '../hooks/useFullscreenContainer';
@@ -26,6 +26,7 @@ import {
   mobileAutoplayToggleIcon,
 } from './mobileControlMetrics';
 import SeekBar from './seek/SeekBar';
+import { FoldableControlRow, type FoldGroup, type FoldItem } from './FoldableControlRow';
 import VolumeControl from './volume/VolumeControl';
 import SettingsMenu from './settings/SettingsMenu';
 import TheaterButton from './theater/TheaterButton';
@@ -46,10 +47,6 @@ import type { FileType } from '~/lib/types';
 const isHidden = (hide?: HideControls, key?: keyof NonNullable<HideControls>) =>
   !!(hide && key && hide[key]);
 
-const DROPDOWN_GAP = 8;
-const VIEWPORT_PADDING = 16;
-const MIN_SPACE_BELOW_TO_OPEN_DOWN = 320;
-const DROPDOWN_MAX_HEIGHT_RATIO = 0.55;
 const MOBILE_SKIP_SEC = 10;
 const CTRL_TIP_MS = 350;
 
@@ -264,9 +261,8 @@ export default function ControlBar({
     hideControls,
     setReelChromeBottomReservePx,
   ]);
-  const { showTime, showRightInline, showVolumeSlider, mobileMetrics } = useControlBarWidth(containerRef);
+  const { showTime, showVolumeSlider, mobileMetrics } = useControlBarWidth(containerRef);
   const mobileVars = mobileControlStyleVars(mobileMetrics);
-  const [overflowOpen, setOverflowOpen] = useState(false);
   // Clicking the time swaps elapsed for time remaining, same as YouTube.
   const [showRemaining, setShowRemaining] = useState(false);
   const canCountDown = Number.isFinite(state.duration) && state.duration > 0;
@@ -278,48 +274,6 @@ export default function ControlBar({
     e.stopPropagation();
     if (canCountDown) setShowRemaining(v => !v);
   };
-  const overflowRef = useRef<HTMLDivElement>(null);
-  const moreButtonRef = useRef<HTMLButtonElement>(null);
-  const [dropdownStyle, setDropdownStyle] = useState<{
-    top?: number;
-    bottom?: number;
-    left: number;
-    maxHeight?: number;
-  }>({ left: 0 });
-
-  useEffect(() => {
-    if (!overflowOpen || !moreButtonRef.current) return;
-    const btn = moreButtonRef.current.getBoundingClientRect();
-    const dropdownWidth = 280;
-    const padding = VIEWPORT_PADDING;
-    let left = btn.right - dropdownWidth;
-    left = Math.max(padding, Math.min(left, window.innerWidth - dropdownWidth - padding));
-    const spaceBelow = window.innerHeight - btn.bottom - DROPDOWN_GAP - padding;
-    const spaceAbove = btn.top - DROPDOWN_GAP - padding;
-    const openAbove = spaceBelow < MIN_SPACE_BELOW_TO_OPEN_DOWN || spaceAbove > spaceBelow;
-    const maxHeight = Math.min(
-      openAbove ? spaceAbove : spaceBelow,
-      window.innerHeight * DROPDOWN_MAX_HEIGHT_RATIO
-    );
-    setDropdownStyle(
-      openAbove
-        ? { bottom: window.innerHeight - btn.top + DROPDOWN_GAP, left, maxHeight }
-        : { top: btn.bottom + DROPDOWN_GAP, left, maxHeight }
-    );
-  }, [overflowOpen]);
-
-  useEffect(() => {
-    if (!overflowOpen) return;
-    const handle = (e: MouseEvent) => {
-      const target = e.target as Node;
-      const inOverflow = overflowRef.current?.contains(target);
-      const inMoreBtn = moreButtonRef.current?.contains(target);
-      if (!inOverflow && !inMoreBtn) setOverflowOpen(false);
-    };
-    document.addEventListener('mousedown', handle);
-    return () => document.removeEventListener('mousedown', handle);
-  }, [overflowOpen]);
-
   const skipBack = (e: React.SyntheticEvent) => {
     e.stopPropagation();
     const v = videoRef.current;
@@ -348,7 +302,7 @@ export default function ControlBar({
     'flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-black/40 text-white shadow-sm transition-colors hover:bg-black/60';
 
   const desktopRightPill =
-    'flex max-w-[min(100%,28rem)] items-center gap-0.5 overflow-x-auto rounded-full bg-black/40 px-1.5 py-1 shadow-sm [scrollbar-width:none] [&::-webkit-scrollbar]:hidden';
+    'flex items-center gap-0.5 rounded-full bg-black/40 px-1.5 py-1 shadow-sm';
 
   const autoplayKnobOffset = autoPlay
     ? { right: 'calc((var(--hls-ctrl-toggle-h, 1.5rem) - var(--hls-ctrl-toggle-knob, 1.25rem)) / 2)' }
@@ -849,6 +803,177 @@ export default function ControlBar({
     </PlayerControlTooltip>
   );
 
+  /**
+   * The desktop row, described as groups of items rather than fixed markup, so
+   * the row itself can decide what the player has room for. Lower priority folds
+   * away first; play and fullscreen never do.
+   */
+  const desktopGroups: FoldGroup[] = (() => {
+    const left: FoldItem[] = [];
+    if (onBack && !isHidden(hideControls, 'back')) {
+      left.push({
+        key: 'back',
+        priority: 95,
+        node: (
+          <PlayerControlTooltip label="Back">
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onBack();
+              }}
+              className={desktopIconCircle}
+              aria-label="Back"
+            >
+              <ChevronLeft className="h-5 w-5 text-white" />
+            </button>
+          </PlayerControlTooltip>
+        ),
+      });
+    }
+    if (!isHidden(hideControls, 'playPause')) {
+      left.push({
+        key: 'playPause',
+        priority: 100,
+        essential: true,
+        node: (
+          <PlayerControlTooltip label={state.isPlaying ? 'Pause' : 'Play'}>
+            <button
+              type="button"
+              onClick={() => {
+                togglePlay();
+                onPlayPauseClick?.();
+              }}
+              className={desktopIconCircle}
+              aria-label={state.isPlaying ? 'Pause' : 'Play'}
+            >
+              {state.isPlaying ? (
+                <Pause className="h-5 w-5 fill-white" />
+              ) : (
+                <Play className="ml-0.5 h-5 w-5 fill-white" />
+              )}
+            </button>
+          </PlayerControlTooltip>
+        ),
+      });
+    }
+    if (!isHidden(hideControls, 'next') && onNext) {
+      left.push({
+        key: 'next',
+        priority: 60,
+        node: (
+          <NextVideoTooltipButton
+            onClick={() => onNext()}
+            className={desktopIconCircle}
+            nextVideo={nextVideo}
+            nextVideoBadge={nextVideoBadge}
+            ariaLabel="Next"
+          >
+            <SkipForward className="h-5 w-5 fill-white" />
+          </NextVideoTooltipButton>
+        ),
+      });
+    }
+    if (!isHidden(hideControls, 'volume')) {
+      left.push({
+        key: 'volume',
+        priority: 80,
+        // The slider opens to 80px on hover; claim that up front so opening it
+        // never steals room from anything else.
+        estimate: 140,
+        node: (
+          <div className="flex h-10 min-h-10 items-center rounded-full bg-black/40 py-0 pl-1 pr-1.5 shadow-sm">
+            <VolumeControl showSlider={!isMobile} barPill />
+          </div>
+        ),
+      });
+    }
+    if (!isHidden(hideControls, 'time')) {
+      left.push({
+        key: 'time',
+        priority: 90,
+        estimate: 88,
+        node: (
+          <PlayerControlTooltip
+            label={showRemaining ? 'Time remaining and total length' : 'Current time and total length'}
+          >
+            <button
+              type="button"
+              onClick={toggleRemaining}
+              aria-label={showRemaining ? 'Show elapsed time' : 'Show time remaining'}
+              className="flex h-10 min-h-10 items-center justify-center rounded-full bg-black/40 px-2.5 text-[11px] font-medium tabular-nums leading-none text-white shadow-sm transition hover:bg-black/55 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:px-3 sm:text-xs"
+            >
+              {elapsedLabel}
+              <span className="mx-0.5 text-white/45 sm:mx-1">/</span>
+              {formatTime(state.duration)}
+            </button>
+          </PlayerControlTooltip>
+        ),
+      });
+    }
+
+    const right: FoldItem[] = [];
+    if (desktopAutoplayToggle) {
+      right.push({ key: 'autoplay', priority: 20, estimate: 56, node: desktopAutoplayToggle });
+    }
+    if (!isHidden(hideControls, 'subtitles')) {
+      right.push({ key: 'subtitles', priority: 25, node: <SubtitleButton variant="desktopPill" /> });
+    }
+    if (!authPlaybackFeatures) {
+      right.push({
+        key: 'guest',
+        priority: 85,
+        node: <GuestPlaybackBenefitsDialog variant="controlPill" />,
+      });
+    }
+    if (authPlaybackFeatures && !isHidden(hideControls, 'settings')) {
+      right.push({ key: 'settings', priority: 70, estimate: 48, node: <SettingsMenu pillBarTrigger /> });
+    }
+    if (!isHidden(hideControls, 'cast')) {
+      right.push({ key: 'cast', priority: 35, node: <CastButton controlPill /> });
+    }
+    if (authPlaybackFeatures && !isHidden(hideControls, 'miniPlayer')) {
+      right.push({ key: 'mini', priority: 40, node: <MiniPlayerButton controlPill /> });
+    }
+    if (!isHidden(hideControls, 'pip')) {
+      right.push({ key: 'pip', priority: 50, node: <PipButton controlPill /> });
+    }
+    if (authPlaybackFeatures && !isHidden(hideControls, 'theater') && onTheaterModeChange) {
+      right.push({
+        key: 'theater',
+        priority: 45,
+        node: (
+          <TheaterButton theaterMode={theaterMode} onTheaterModeChange={onTheaterModeChange} controlPill />
+        ),
+      });
+    }
+    if (!isHidden(hideControls, 'fullscreen')) {
+      right.push({
+        key: 'fullscreen',
+        priority: 100,
+        essential: true,
+        node: <FullscreenButton variant="controlPill" />,
+      });
+    }
+
+    const out: FoldGroup[] = [];
+    if (left.length) {
+      out.push({ id: 'left', items: left, expandLabel: 'Show playback controls', itemGapPx: 8 });
+    }
+    if (right.length) {
+      out.push({
+        id: 'right',
+        items: right,
+        expandLabel: 'Show more controls',
+        // gap-0.5 between the pill's icons, px-1.5 either side of the pill.
+        itemGapPx: 2,
+        chromePx: 12,
+        wrap: (children) => <div className={desktopRightPill}>{children}</div>,
+      });
+    }
+    return out;
+  })();
+
   return (
     <div
       ref={(node) => {
@@ -864,177 +989,8 @@ export default function ControlBar({
         </div>
       )}
 
-      <div className="flex min-w-0 items-center justify-between gap-3 px-3 pb-2 pt-0">
-        <div className="flex min-w-0 shrink-0 items-center gap-2">
-          {onBack && !isHidden(hideControls, 'back') && (
-            <PlayerControlTooltip label="Back">
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onBack();
-                }}
-                className={desktopIconCircle}
-                aria-label="Back"
-              >
-                <ChevronLeft className="h-5 w-5 text-white" />
-              </button>
-            </PlayerControlTooltip>
-          )}
-          {!isHidden(hideControls, 'playPause') && (
-            <PlayerControlTooltip label={state.isPlaying ? 'Pause' : 'Play'}>
-              <button
-                type="button"
-                onClick={() => {
-                  togglePlay();
-                  onPlayPauseClick?.();
-                }}
-                className={desktopIconCircle}
-                aria-label={state.isPlaying ? 'Pause' : 'Play'}
-              >
-                {state.isPlaying ? (
-                  <Pause className="h-5 w-5 fill-white" />
-                ) : (
-                  <Play className="ml-0.5 h-5 w-5 fill-white" />
-                )}
-              </button>
-            </PlayerControlTooltip>
-          )}
+      <FoldableControlRow className="px-3 pb-2 pt-0" groups={desktopGroups} />
 
-          {!isHidden(hideControls, 'next') && onNext && (
-            <NextVideoTooltipButton
-              onClick={() => onNext()}
-              className={desktopIconCircle}
-              nextVideo={nextVideo}
-              nextVideoBadge={nextVideoBadge}
-              ariaLabel="Next"
-            >
-              <SkipForward className="h-5 w-5 fill-white" />
-            </NextVideoTooltipButton>
-          )}
-
-          {!isHidden(hideControls, 'volume') && (
-            <div className="flex h-10 min-h-10 items-center rounded-full bg-black/40 py-0 pl-1 pr-1.5 shadow-sm">
-              <VolumeControl showSlider={showVolumeSlider && !isMobile} barPill />
-            </div>
-          )}
-
-          {!isHidden(hideControls, 'time') && showTime && (
-            <PlayerControlTooltip
-              label={showRemaining ? 'Time remaining and total length' : 'Current time and total length'}
-            >
-              <button
-                type="button"
-                onClick={toggleRemaining}
-                aria-label={showRemaining ? 'Show elapsed time' : 'Show time remaining'}
-                className="flex h-10 min-h-10 min-w-0 shrink items-center justify-center rounded-full bg-black/40 px-2.5 text-[11px] font-medium tabular-nums leading-none text-white shadow-sm transition hover:bg-black/55 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:px-3 sm:text-xs"
-              >
-                {elapsedLabel}
-                <span className="mx-0.5 text-white/45 sm:mx-1">/</span>
-                {formatTime(state.duration)}
-              </button>
-            </PlayerControlTooltip>
-          )}
-        </div>
-
-        <div className="flex min-w-0 shrink-0 items-center gap-2">
-          <div className={desktopRightPill}>
-            {/* On a narrow player (e.g. portrait video) autoplay + subtitles
-                collapse into the "..." menu too, so the bar never overflows. */}
-            {showRightInline && desktopAutoplayToggle}
-            {showRightInline && !isHidden(hideControls, 'subtitles') && <SubtitleButton variant="desktopPill" />}
-            {!authPlaybackFeatures && <GuestPlaybackBenefitsDialog variant="controlPill" />}
-            {showRightInline &&
-              authPlaybackFeatures &&
-              !isHidden(hideControls, 'settings') && <SettingsMenu pillBarTrigger />}
-            {showRightInline && !isHidden(hideControls, 'cast') && <CastButton controlPill />}
-            {showRightInline && authPlaybackFeatures && !isHidden(hideControls, 'miniPlayer') && (
-              <MiniPlayerButton controlPill />
-            )}
-            {showRightInline && !isHidden(hideControls, 'pip') && <PipButton controlPill />}
-            {!isHidden(hideControls, 'fullscreen') && <FullscreenButton variant="controlPill" />}
-            {showRightInline &&
-              authPlaybackFeatures &&
-              !isHidden(hideControls, 'theater') &&
-              onTheaterModeChange && (
-                <TheaterButton theaterMode={theaterMode} onTheaterModeChange={onTheaterModeChange} controlPill />
-              )}
-          </div>
-
-          {(() => {
-            if (showRightInline) return null;
-            const overflowSubtitles = !isHidden(hideControls, 'subtitles');
-            const overflowSettings = !isHidden(hideControls, 'settings') && authPlaybackFeatures;
-            const overflowTheater = !isHidden(hideControls, 'theater') && onTheaterModeChange && authPlaybackFeatures;
-            const overflowCast = !isHidden(hideControls, 'cast');
-            const overflowMini = !isHidden(hideControls, 'miniPlayer') && authPlaybackFeatures;
-            const overflowPip = !isHidden(hideControls, 'pip');
-            // autoplay + subtitles now collapse here too on narrow players.
-            const hasOverflow =
-              overflowSubtitles || Boolean(desktopAutoplayToggle) || overflowSettings ||
-              overflowTheater || overflowCast || overflowMini || overflowPip;
-            if (!hasOverflow) return null;
-            return (
-              <>
-                <PlayerControlTooltip label="More controls">
-                  <button
-                    ref={moreButtonRef}
-                    type="button"
-                    onClick={() => setOverflowOpen((o) => !o)}
-                    className={desktopIconCircle}
-                    aria-label="More controls"
-                  >
-                    <MoreVertical className="h-5 w-5" />
-                  </button>
-                </PlayerControlTooltip>
-                {overflowOpen &&
-                  typeof document !== 'undefined' &&
-                  createPortal(
-                    <div
-                      ref={overflowRef}
-                      className="dark fixed z-[100000100] flex max-h-[55vh] min-w-[200px] max-w-[280px] flex-col overflow-y-auto rounded-xl border border-white/10 bg-black/40 py-1 text-white shadow-xl backdrop-blur-xl"
-                      style={{
-                        position: 'fixed',
-                        left: dropdownStyle.left,
-                        ...(dropdownStyle.top != null ? { top: dropdownStyle.top } : { bottom: dropdownStyle.bottom }),
-                        maxHeight: dropdownStyle.maxHeight,
-                      }}
-                    >
-                      {desktopAutoplayToggle && <div className="px-2 py-1">{desktopAutoplayToggle}</div>}
-                      {!isHidden(hideControls, 'subtitles') && (
-                        <div className="px-2 py-1" onClick={() => setOverflowOpen(false)}>
-                          <SubtitleButton variant="desktopPill" />
-                        </div>
-                      )}
-                      {authPlaybackFeatures && !isHidden(hideControls, 'settings') && <SettingsMenu nested />}
-                      {authPlaybackFeatures && !isHidden(hideControls, 'theater') && onTheaterModeChange && (
-                        <div className="px-2 py-1" onClick={() => setOverflowOpen(false)}>
-                          <TheaterButton theaterMode={theaterMode} onTheaterModeChange={onTheaterModeChange} />
-                        </div>
-                      )}
-                      {!isHidden(hideControls, 'cast') && (
-                        <div className="px-2 py-1" onClick={() => setOverflowOpen(false)}>
-                          <CastButton />
-                        </div>
-                      )}
-                      {authPlaybackFeatures && !isHidden(hideControls, 'miniPlayer') && (
-                        <div className="px-2 py-1" onClick={() => setOverflowOpen(false)}>
-                          <MiniPlayerButton />
-                        </div>
-                      )}
-                      {!isHidden(hideControls, 'pip') && (
-                        <div className="px-2 py-1" onClick={() => setOverflowOpen(false)}>
-                          <PipButton />
-                        </div>
-                      )}
-                    </div>,
-                    fullscreenContainer ?? document.body
-                  )}
-              </>
-            );
-          })()}
-        </div>
-      </div>
       {bottomSlot}
     </div>
   );
