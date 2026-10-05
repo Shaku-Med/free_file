@@ -214,6 +214,14 @@ export const meta: MetaFunction<ReturnType<typeof loader>> = ({ data }: { data: 
 interface DynamicPageProps {
   is_modal?: boolean;
 }
+
+// Phones in portrait keep the video pinned under the top bar while the page
+// scrolls, as YouTube does. The visible player is the global one, which tracks
+// this box. The negative z keeps the box (and the ambient glow inside it) under
+// the page text, where the glow sat before it could stick.
+const MOBILE_STICKY_PLAYER =
+  "max-lg:portrait:sticky max-lg:portrait:top-[var(--app-top-nav-h,0px)] max-lg:portrait:-z-10";
+
 const DynamicPage = ({ is_modal }: DynamicPageProps) => {
   const params = useParams();
   const navigation = useNavigation();
@@ -2148,7 +2156,7 @@ const DynamicPage = ({ is_modal }: DynamicPageProps) => {
             aspectRatio: String(playerFrameAspect),
             width: `min(100%, calc(${theaterMode ? 90 : 82}vh * ${playerFrameAspect}))`,
           }}
-           className={!theaterMode ? "min-w-0 w-fit space-y-3 sm:space-y-4 lg:col-span-2 xl:col-span-1" : "mx-auto"}>
+           className={!theaterMode ? "min-w-0 w-fit space-y-3 sm:space-y-4 lg:col-span-2 xl:col-span-1" : cn("mx-auto", isHLS && MOBILE_STICKY_PLAYER)}>
             <div 
               style={{
                 // Match the video's aspect (clamped above); cap the height so portrait
