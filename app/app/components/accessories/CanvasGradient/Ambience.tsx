@@ -2,15 +2,19 @@ import { useEffect, useRef } from "react";
 
 const CANVAS_W = 10;
 const CANVAS_H = 6;
-/** How often to resample video for ambient (ms). avoids per-frame work. */
+/** Unsynced mode: how often the glow takes a new frame from the video. */
 const AMBIENT_SAMPLE_INTERVAL_MS = 1000;
-/** Crossfade duration after each sample (rAF only during this window). */
-const AMBIENT_TRANSITION_MS = 480;
-
-function smoothstep01(t: number): number {
-  const x = Math.min(1, Math.max(0, t));
-  return x * x * (3 - 2 * x);
-}
+/**
+ * How long each new frame takes to fade in. Longer than the interval, so a
+ * new frame always arrives mid fade and carries on from what is on screen:
+ * the glow keeps drifting a couple of seconds behind the picture and never
+ * sits still and then jumps.
+ */
+const AMBIENT_FADE_MS = 2000;
+/** A fade this slow looks the same at 30fps and costs half the repaints. */
+const AMBIENT_FADE_FRAME_MS = 1000 / 30;
+/** The glow fades in when it first appears instead of popping on. */
+const AMBIENT_REVEAL_MS = 1000;
 
 type AmbienceProps = {
   colors: string[];
@@ -73,6 +77,10 @@ const Ambience = ({ videoRef, videoReady, sync = false }: AmbienceProps) => {
       rawCtx.drawImage(v, 0, 0, CANVAS_W, CANVAS_H);
     };
 
+    const reveal = () => {
+      canvas.style.opacity = "1";
+    };
+
     const snapVideoToDisplay = () => {
       if (cancelled || document.hidden) return;
       const v = videoRef.current;
@@ -82,29 +90,22 @@ const Ambience = ({ videoRef, videoReady, sync = false }: AmbienceProps) => {
         captureVideoToRaw();
         ctx.drawImage(rawBuf, 0, 0);
         hasDisplayState = true;
+        reveal();
       } catch {}
     };
 
-    const sampleVideoCrossfade = () => {
+    const fadeToVideo = () => {
       if (cancelled || document.hidden) return;
       const v = videoRef.current;
       if (!v || v.readyState < 2) return;
+      if (!hasDisplayState) {
+        snapVideoToDisplay();
+        return;
+      }
       try {
         captureVideoToRaw();
-      } catch {
-        return;
-      }
-
-      if (!hasDisplayState) {
-        cancelTransition();
-        try {
-          ctx.drawImage(rawBuf, 0, 0);
-          hasDisplayState = true;
-        } catch {}
-        return;
-      }
-
-      try {
+        // Starts from what is on screen, even halfway through the last fade,
+        // so one fade hands on to the next without a jump.
         fromCtx.drawImage(canvas, 0, 0, CANVAS_W, CANVAS_H);
       } catch {
         return;
@@ -112,19 +113,23 @@ const Ambience = ({ videoRef, videoReady, sync = false }: AmbienceProps) => {
 
       cancelTransition();
       const t0 = performance.now();
+      let lastDraw = -Infinity;
 
-      const step = () => {
+      const step = (now: number) => {
         if (cancelled || document.hidden) {
           transRaf = 0;
           return;
         }
-        const u = Math.min(1, (performance.now() - t0) / AMBIENT_TRANSITION_MS);
-        const e = smoothstep01(u);
+        const u = Math.min(1, Math.max(0, (now - t0) / AMBIENT_FADE_MS));
+        if (u < 1 && now - lastDraw < AMBIENT_FADE_FRAME_MS) {
+          transRaf = requestAnimationFrame(step);
+          return;
+        }
+        lastDraw = now;
         blendCtx.clearRect(0, 0, CANVAS_W, CANVAS_H);
-        blendCtx.globalCompositeOperation = "source-over";
-        blendCtx.globalAlpha = 1 - e;
+        blendCtx.globalAlpha = 1 - u;
         blendCtx.drawImage(fromBuf, 0, 0);
-        blendCtx.globalAlpha = e;
+        blendCtx.globalAlpha = u;
         blendCtx.drawImage(rawBuf, 0, 0);
         blendCtx.globalAlpha = 1;
         try {
@@ -133,12 +138,14 @@ const Ambience = ({ videoRef, videoReady, sync = false }: AmbienceProps) => {
           transRaf = 0;
           return;
         }
-        if (u < 1) transRaf = requestAnimationFrame(step);
-        else transRaf = 0;
+        transRaf = u < 1 ? requestAnimationFrame(step) : 0;
       };
 
       transRaf = requestAnimationFrame(step);
     };
+
+    /** Synced mode follows the picture live, so it never fades. */
+    const refresh = sync ? snapVideoToDisplay : fadeToVideo;
 
     /** Sync mode: paint every frame  the glow flows with the video, no gap. */
     let syncRaf = 0;
@@ -159,6 +166,7 @@ const Ambience = ({ videoRef, videoReady, sync = false }: AmbienceProps) => {
           captureVideoToRaw();
           ctx.drawImage(rawBuf, 0, 0);
           hasDisplayState = true;
+          reveal();
         } catch {}
       }
       syncRaf = requestAnimationFrame(syncStep);
@@ -177,25 +185,22 @@ const Ambience = ({ videoRef, videoReady, sync = false }: AmbienceProps) => {
           clearSampleInterval();
           return;
         }
-        sampleVideoCrossfade();
+        fadeToVideo();
       }, AMBIENT_SAMPLE_INTERVAL_MS);
     };
 
     const onPlay = () => {
-      clearSampleInterval();
-      cancelTransition();
-      snapVideoToDisplay();
+      refresh();
       startSampleInterval();
     };
     const onPause = () => {
       clearSampleInterval();
       stopSyncLoop();
-      cancelTransition();
-      snapVideoToDisplay();
+      refresh();
     };
-    const onSeeked = () => snapVideoToDisplay();
+    const onSeeked = () => refresh();
     const onLoaded = () => {
-      snapVideoToDisplay();
+      refresh();
       if (!video.paused && !video.ended) startSampleInterval();
     };
     const onVisibility = () => {
@@ -204,8 +209,7 @@ const Ambience = ({ videoRef, videoReady, sync = false }: AmbienceProps) => {
         stopSyncLoop();
         cancelTransition();
       } else if (!video.paused && !video.ended) {
-        clearSampleInterval();
-        snapVideoToDisplay();
+        refresh();
         startSampleInterval();
       }
     };
@@ -213,7 +217,6 @@ const Ambience = ({ videoRef, videoReady, sync = false }: AmbienceProps) => {
     const onEnded = () => {
       clearSampleInterval();
       stopSyncLoop();
-      cancelTransition();
     };
 
     snapVideoToDisplay();
@@ -251,6 +254,8 @@ const Ambience = ({ videoRef, videoReady, sync = false }: AmbienceProps) => {
         filter: "saturate(1.5)",
         willChange: "transform",
         transform: "translateZ(0)",
+        opacity: 0,
+        transition: `opacity ${AMBIENT_REVEAL_MS}ms ease-out`,
       }}
     />
   );
