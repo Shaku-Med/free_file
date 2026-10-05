@@ -4,6 +4,7 @@ import { Bell, BellOff, Loader2, ChevronDown } from "lucide-react";
 import { cn } from "~/lib/utils";
 import { Tooltip, TooltipContent, TooltipTrigger } from "~/components/ui/tooltip";
 import { playbackPositionField } from "~/lib/playback/positionRegistry";
+import { notifySubscriptionsChanged } from "~/lib/subscriptionEvents";
 
 interface SubscribeButtonProps {
   channelId: string;
@@ -81,6 +82,7 @@ export default function SubscribeButton({
       const json = await res.json();
       if (json.success) {
         setSubscribed(json.subscribed);
+        notifySubscriptionsChanged();
         if (typeof json.subscriber_count === "number") {
           setCount(json.subscriber_count);
           onSubscriberCountChange?.(json.subscriber_count);

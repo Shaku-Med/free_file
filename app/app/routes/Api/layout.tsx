@@ -37,7 +37,8 @@ function isSensitiveGet(pathname: string): boolean {
     pathname === "/api/upload/auth" ||
     pathname === "/api/load/auth" ||
     pathname === "/api/comments" ||
-    pathname === "/api/comment-likes"
+    pathname === "/api/comment-likes" ||
+    pathname === "/api/subscriptions/channels"
   );
 }
 

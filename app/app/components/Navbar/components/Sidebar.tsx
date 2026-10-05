@@ -1,27 +1,28 @@
 "use client"
 
-import { useState, useEffect, useMemo, useCallback } from "react"
+import { useState, useEffect, useCallback, type ComponentType } from "react"
 import { Link, useLocation } from "react-router"
 import {
-  File,
   ChevronDown,
   ChevronRight,
-  Shield,
-  Play,
-  ListVideo,
-  Users,
-  Sparkles,
-  Home,
+  ChevronUp,
+  CircleUserRound,
   Film,
-  LibraryBig,
+  History,
+  Home,
+  ListVideo,
+  Settings,
+  Sparkles,
+  SquarePlay,
+  SquareUserRound,
+  ThumbsUp,
+  Users,
 } from "lucide-react"
 import {
   Sidebar,
   SidebarContent,
   SidebarFooter,
   SidebarGroup,
-  SidebarGroupContent,
-  SidebarGroupLabel,
   SidebarHeader,
   SidebarMenu,
   SidebarMenuButton,
@@ -31,156 +32,175 @@ import {
   useSidebar,
 } from "~/components/ui/sidebar"
 import { Button } from "~/components/ui/button"
+import { Avatar, AvatarFallback, AvatarImage } from "~/components/ui/avatar"
 import { UserProfileDropdown } from "~/components/UserProfileDropdown"
-import { Badge } from "~/components/ui/badge"
 import Logo from "../Logo/Logo"
 import { useFileContext } from "~/lib/Context/Context"
-import { getThumbnailUrl, ParseFilename, cn } from "~/lib/utils"
-import type { FileType } from "~/lib/types"
-import ImageLoad from "~/routes/Home/components/ImageLoad/ImageLoad"
+import { cn } from "~/lib/utils"
+import { getProfilePicUrl } from "~/lib/utils/profilePic"
+import { SUBSCRIPTIONS_CHANGED_EVENT } from "~/lib/subscriptionEvents"
 import { useStandalone } from "~/lib/hooks/useStandalone"
 import { isWindappMac, useWindapp } from "~/lib/hooks/useWindapp"
 import { isWatchRoute } from "~/lib/watchRoute"
 import { DesktopUpdateSidebarCard } from "~/components/DesktopUpdateCta"
 
-const noopRetry = () => {}
+type Icon = ComponentType<{ className?: string; strokeWidth?: number }>
 
-function SidebarThumbnail({ file, imageID }: { file: FileType; imageID: string }) {
-  const link = useMemo(() => getThumbnailUrl(file), [file.file_type, file.endpoint, file.default_thumbnail, file.created_at, file.unique_id, file.filename])
+type NavEntry = { title: string; icon: Icon; href: string }
 
+type SubscribedChannel = { username: string; profile_pic: string | null; verified: boolean }
+
+const mainNav: NavEntry[] = [
+  { title: "Home", icon: Home, href: "/" },
+  { title: "Reel", icon: Film, href: "/reel" },
+  { title: "Subscriptions", icon: Users, href: "/subscriptions" },
+]
+
+const footerLinks = [
+  { title: "Privacy", href: "/privacy" },
+  { title: "Terms", href: "/terms" },
+  { title: "Guidelines", href: "/community-guidelines" },
+  { title: "DMCA", href: "/dmca" },
+  { title: "Download app", href: "/download" },
+]
+
+/** Profile tabs that have a row of their own under "You". */
+const TAB_ROWS = new Set(["history", "liked"])
+
+/** YouTube shows this many channels before "Show more". */
+const CHANNELS_FOLDED = 7
+
+// YouTube's guide row: 40px tall, 10px corners, 24px icon with 24px after it.
+// The active row gets the accent background (from the menu button), not a new
+// colour; hover is a lighter wash of it so a hovered row never reads as current.
+const ENTRY = "h-10 gap-6 rounded-lg px-3 text-sm [&>svg]:size-6 not-data-[active=true]:hover:bg-sidebar-accent/60"
+
+function useSubscribedChannels(userId: string | null | undefined) {
+  const [channels, setChannels] = useState<SubscribedChannel[]>([])
+
+  useEffect(() => {
+    if (!userId) {
+      setChannels([])
+      return
+    }
+    let cancelled = false
+    const load = () => {
+      fetch("/api/subscriptions/channels", { credentials: "include" })
+        .then((r) => (r.ok ? r.json() : { channels: [] }))
+        .then((j) => {
+          if (!cancelled) setChannels(Array.isArray(j?.channels) ? j.channels : [])
+        })
+        .catch(() => {})
+    }
+    load()
+    window.addEventListener(SUBSCRIPTIONS_CHANGED_EVENT, load)
+    return () => {
+      cancelled = true
+      window.removeEventListener(SUBSCRIPTIONS_CHANGED_EVENT, load)
+    }
+  }, [userId])
+
+  return channels
+}
+
+function SectionHeading({ title, href }: { title: string; href: string }) {
   return (
-    <ImageLoad
-      link={link}
-      imageID={imageID}
-      index={0}
-      retry={noopRetry}
-      className="w-full h-full object-cover"
-      quality={10}
-      hasAdultTag={Boolean(file.is_adult)}
-    />
+    <Link
+      to={href}
+      prefetch="intent"
+      className="flex h-10 w-fit items-center gap-2 rounded-lg px-3 text-base font-medium text-sidebar-foreground transition-colors hover:bg-sidebar-accent"
+    >
+      {title}
+      <ChevronRight className="size-4" strokeWidth={2} aria-hidden />
+    </Link>
   )
 }
 
-function getFileTitle(file: FileType): string {
-  return (file.file_title && file.file_title.trim() !== '')
-    ? file.file_title
-    : ParseFilename(file.filename)
+function EntryLink({ entry, active }: { entry: NavEntry; active: boolean }) {
+  return (
+    <SidebarMenuItem>
+      <SidebarMenuButton asChild isActive={active} tooltip={entry.title} className={ENTRY}>
+        <Link to={entry.href} prefetch="intent">
+          <entry.icon strokeWidth={1.75} />
+          <span>{entry.title}</span>
+        </Link>
+      </SidebarMenuButton>
+    </SidebarMenuItem>
+  )
 }
 
-const mainNavItems = [
-  {
-    title: "Home",
-    icon: Home,
-    href: "/",
-  },
-  {
-    title: "Subscriptions",
-    icon: Users,
-    href: "/subscriptions",
-  },
-  {
-    title: "Reel",
-    icon: Film,
-    href: "/reel",
-  },
-  {
-    title: "Library",
-    icon: LibraryBig,
-    href: "/library",
-  },
-  {
-    title: "Playlist",
-    icon: ListVideo,
-    href: "/playlist",
-  },
-]
-
-const moreNavItems = [
-  {
-    title: "Incoming Features",
-    icon: Sparkles,
-    href: "/features/incoming",
-  },
-  {
-    title: "Privacy Policy",
-    icon: Shield,
-    href: "/privacy",
-  },
-  {
-    title: "Terms of Service",
-    icon: File,
-    href: "/terms",
-  },
-]
+/** The collapsed rail, like YouTube's mini guide: icon over a small label. */
+function RailLink({ entry, active }: { entry: NavEntry; active: boolean }) {
+  return (
+    <Link
+      to={entry.href}
+      prefetch="intent"
+      data-active={active}
+      className="flex w-full flex-col items-center gap-1.5 rounded-lg py-4 text-[10px] leading-[14px] text-sidebar-foreground transition-colors hover:bg-sidebar-accent/60 data-[active=true]:bg-sidebar-accent"
+    >
+      <entry.icon className="size-6" strokeWidth={1.75} />
+      <span className="max-w-full truncate px-1">{entry.title}</span>
+    </Link>
+  )
+}
 
 export function AppSidebar() {
   const location = useLocation()
-  const { files } = useFileContext()
-  const { isMobile, setOpenMobile, sheetOnly, state } = useSidebar()
+  const { userId, userProfile } = useFileContext()
+  const { isMobile, setOpenMobile, state } = useSidebar()
   const isStandalone = useStandalone()
   const isWindapp = useWindapp()
   const isMac = isWindappMac()
-  // Desktop rail (collapsed to icons): hide content-heavy sections so the
-  // thumbnail lists unmount instead of clipping inside the 4rem rail.
-  // On the watch page collapse fully (offcanvas) so the player goes full-width;
-  // everywhere else collapse to the icon rail.
+  // The watch page collapses the sidebar away entirely so the player gets the
+  // width; everywhere else it folds down to the rail.
   const onWatch = isWatchRoute(location.pathname)
-  const collapsibleMode = onWatch ? "offcanvas" : "icon"
-  const railMode = !isMobile && !sheetOnly && !onWatch && state === "collapsed"
+  const railMode = !isMobile && !onWatch && state === "collapsed"
   // Mirror the navbar's pt-2 offset (only present when the rail is expanded).
-  const expandedDesktop = !isMobile && !sheetOnly && state === "expanded"
-  const [monitoredFiles, setMonitoredFiles] = useState<FileType[]>([])
-  const [displayCount, setDisplayCount] = useState(100)
-  const [moreOpen, setMoreOpen] = useState(false)
-  const [filesCollapsed, setFilesCollapsed] = useState(false)
-
-  useEffect(() => {
-    setMonitoredFiles(files)
-    setDisplayCount(100)
-  }, [files])
+  const expandedDesktop = !isMobile && state === "expanded"
+  const channels = useSubscribedChannels(userId)
+  const [channelsOpen, setChannelsOpen] = useState(false)
 
   useEffect(() => {
     setOpenMobile(false)
   }, [location.pathname, setOpenMobile])
 
-  const currentFileId = location.pathname.replace(/^\//, "")
-  const currentFile = useMemo(() =>
-    monitoredFiles.find(file => file.unique_id === currentFileId),
-    [monitoredFiles, currentFileId]
-  )
-  const allOtherFiles = useMemo(() =>
-    monitoredFiles.filter(file => file.unique_id !== currentFileId),
-    [monitoredFiles, currentFileId]
-  )
-  const otherFiles = useMemo(() =>
-    allOtherFiles.slice(0, displayCount),
-    [allOtherFiles, displayCount]
-  )
-  const hasMore = allOtherFiles.length > displayCount
-
-  const handleLoadMore = useCallback(() => {
-    setDisplayCount(prev => prev + 100)
-  }, [])
-
   const isActiveRoute = useCallback((href: string) => {
-    const path = href.split("#")[0] || "/"
+    const [path, query] = href.split("?")
     if (path === "/") return location.pathname === "/"
-    return location.pathname === path || location.pathname.startsWith(`${path}/`)
-  }, [location.pathname])
+    const onPath = location.pathname === path || location.pathname.startsWith(`${path}/`)
+    if (!onPath) return false
+    // History and liked are tabs of the profile, so on that page the tab
+    // decides which row is lit; any other tab still lights "Your channel".
+    const tab = new URLSearchParams(query ?? "").get("tab")
+    const currentTab = new URLSearchParams(location.search).get("tab")
+    if (tab) return currentTab === tab
+    return !(location.pathname === path && currentTab && TAB_ROWS.has(currentTab))
+  }, [location.pathname, location.search])
 
-  // Auto-expand "More" if user is on one of those pages
-  useEffect(() => {
-    if (moreNavItems.some(item => isActiveRoute(item.href))) {
-      setMoreOpen(true)
-    }
-  }, [isActiveRoute])
+  const profileBase = userProfile?.username ? `/profile/${encodeURIComponent(userProfile.username)}` : null
+  const youNav: NavEntry[] = profileBase
+    ? [
+        { title: "Your channel", icon: SquareUserRound, href: profileBase },
+        { title: "History", icon: History, href: `${profileBase}?tab=history` },
+        { title: "Playlists", icon: ListVideo, href: "/playlist" },
+        { title: "Liked videos", icon: ThumbsUp, href: `${profileBase}?tab=liked` },
+        { title: "Your videos", icon: SquarePlay, href: "/brozystudio/posts" },
+      ]
+    : [{ title: "Playlists", icon: ListVideo, href: "/playlist" }]
+  const moreNav: NavEntry[] = [
+    ...(userId ? [{ title: "Settings", icon: Settings, href: "/settings" }] : []),
+    { title: "Incoming features", icon: Sparkles, href: "/features/incoming" },
+  ]
+  const shownChannels = channelsOpen ? channels : channels.slice(0, CHANNELS_FOLDED)
+  const signInHref = `/auth/login?redirect=${encodeURIComponent(location.pathname + location.search)}`
 
   return (
-    <Sidebar variant="sidebar" collapsible={collapsibleMode} className="bg-background border-none">
-      {/* Header  Logo. Matches the navbar's h-14 row so the mark lines up. */}
+    <Sidebar variant="sidebar" collapsible={onWatch ? "offcanvas" : "icon"} className="bg-background border-none">
+      {/* Header: logo. Matches the navbar's h-14 row, and px-6 puts the mark's
+          left edge on the same line as the nav icons below it. */}
       <SidebarHeader
         className={cn(
-          "p-0 ml-[-5px]",
+          "p-0",
           isStandalone && "pt-[env(safe-area-inset-top)]",
           isWindapp && "windapp-drag",
           // Clear native Mac traffic lights (top-left).
@@ -189,7 +209,7 @@ export function AppSidebar() {
       >
         <div
           className={cn(
-            "flex h-14 items-center px-4 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-2",
+            "flex h-14 items-center px-6 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-2",
             expandedDesktop && "mt-2",
             // Collapsed icon rail: leave vertical room under the traffic lights.
             isWindapp && isMac && "group-data-[collapsible=icon]:pt-6",
@@ -198,241 +218,128 @@ export function AppSidebar() {
           <Link
             to="/"
             id="home_button"
-            className="flex items-center gap-2 group w-fit group-data-[collapsible=icon]:w-full group-data-[collapsible=icon]:justify-center ml-[-5px]"
+            className="group flex w-fit items-center gap-2.5 group-data-[collapsible=icon]:w-full group-data-[collapsible=icon]:justify-center"
           >
-            <Logo className="relative h-8 w-8 text-primary transition-transform duration-200 group-hover:scale-110 group-data-[collapsible=icon]:h-7 group-data-[collapsible=icon]:w-7" />
-            <span className="text-lg font-bold bg-gradient-to-r from-primary to-primary/60 bg-clip-text text-transparent group-data-[collapsible=icon]:hidden">
+            <Logo className="size-7 text-primary transition-transform duration-200 group-hover:scale-105" />
+            <span className="text-xl font-bold tracking-tight text-foreground group-data-[collapsible=icon]:hidden">
               Memories
             </span>
           </Link>
         </div>
       </SidebarHeader>
 
-      <SidebarContent className="px-1 overflow-x-hidden">
-        {/* Main Navigation */}
-        <SidebarGroup className="py-1">
-          <SidebarGroupContent>
-            <SidebarMenu>
-              {mainNavItems.map((item) => {
-                const isActive = isActiveRoute(item.href)
-                return (
-                  <SidebarMenuItem key={item.title}>
-                    <SidebarMenuButton
-                      asChild
-                      isActive={isActive}
-                      tooltip={item.title}
-                      className={isActive ? "bg-primary/10 text-primary font-medium" : ""}
-                    >
-                      <Link to={item.href} prefetch="intent">
-                        <item.icon className="w-[18px] h-[18px] fill-none stroke-current" />
-                        <span>{item.title}</span>
-                      </Link>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                )
-              })}
+      <SidebarContent className="overflow-x-hidden">
+        {railMode ? (
+          <nav className="flex flex-col gap-0.5 px-1 pt-1" aria-label="Main">
+            {mainNav.map((entry) => (
+              <RailLink key={entry.href} entry={entry} active={isActiveRoute(entry.href)} />
+            ))}
+            <RailLink entry={{ title: "You", icon: CircleUserRound, href: "/library" }} active={isActiveRoute("/library")} />
+          </nav>
+        ) : (
+          <>
+            <SidebarGroup className="p-3">
+              <SidebarMenu>
+                {mainNav.map((entry) => (
+                  <EntryLink key={entry.href} entry={entry} active={isActiveRoute(entry.href)} />
+                ))}
+              </SidebarMenu>
+            </SidebarGroup>
+            <SidebarSeparator className="mx-0" />
 
-              {/* More  collapsible (hidden in the icon rail) */}
-              {!railMode && (
-                <>
-                  <SidebarMenuItem>
-                    <SidebarMenuButton
-                      tooltip="More"
-                      onClick={() => setMoreOpen(prev => !prev)}
-                      className="text-muted-foreground"
-                    >
-                      <ChevronRight className={`w-[18px] h-[18px] transition-transform duration-200 ${moreOpen ? 'rotate-90' : ''}`} />
-                      <span>More</span>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-
-                  {moreOpen && moreNavItems.map((item) => {
-                    const isActive = isActiveRoute(item.href)
-                    return (
-                      <SidebarMenuItem key={item.title}>
-                        <SidebarMenuButton
-                          asChild
-                          isActive={isActive}
-                          tooltip={item.title}
-                          className={`ml-2 ${isActive ? "bg-primary/10 text-primary font-medium" : "text-muted-foreground"}`}
-                        >
-                          <Link to={item.href} prefetch="intent">
-                            <item.icon className="w-4 h-4 fill-none stroke-current" />
-                            <span className="text-[13px]">{item.title}</span>
-                          </Link>
+            {userId && channels.length > 0 ? (
+              <>
+                <SidebarGroup className="p-3">
+                  <SectionHeading title="Subscriptions" href="/subscriptions" />
+                  <SidebarMenu>
+                    {shownChannels.map((channel) => {
+                      const href = `/profile/${encodeURIComponent(channel.username)}`
+                      return (
+                        <SidebarMenuItem key={channel.username}>
+                          <SidebarMenuButton
+                            asChild
+                            isActive={location.pathname === href}
+                            tooltip={channel.username}
+                            className={ENTRY}
+                          >
+                            <Link to={href} prefetch="intent">
+                              <Avatar className="size-6 shrink-0">
+                                <AvatarImage src={getProfilePicUrl(channel.profile_pic)} alt="" loading="lazy" />
+                                <AvatarFallback className="text-[10px]">
+                                  {channel.username.charAt(0).toUpperCase()}
+                                </AvatarFallback>
+                              </Avatar>
+                              <span>{channel.username}</span>
+                            </Link>
+                          </SidebarMenuButton>
+                        </SidebarMenuItem>
+                      )
+                    })}
+                    {channels.length > CHANNELS_FOLDED ? (
+                      <SidebarMenuItem>
+                        <SidebarMenuButton className={ENTRY} onClick={() => setChannelsOpen((open) => !open)}>
+                          {channelsOpen ? <ChevronUp strokeWidth={1.75} /> : <ChevronDown strokeWidth={1.75} />}
+                          <span>{channelsOpen ? "Show fewer" : "Show more"}</span>
                         </SidebarMenuButton>
                       </SidebarMenuItem>
-                    )
-                  })}
-                </>
-              )}
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
+                    ) : null}
+                  </SidebarMenu>
+                </SidebarGroup>
+                <SidebarSeparator className="mx-0" />
+              </>
+            ) : null}
 
-        <SidebarSeparator />
-
-        {/* Now Playing */}
-        {currentFile && !railMode && (
-          <>
-            <SidebarGroup className="py-1">
-              <SidebarGroupLabel className="text-xs font-semibold uppercase tracking-wider text-muted-foreground/60 px-3">
-                Now Playing
-              </SidebarGroupLabel>
-              <SidebarGroupContent className="px-1">
-                <Link
-                  to={`/${currentFile.unique_id}`}
-                  className="group/current flex gap-3 p-2 rounded-lg bg-primary/5 border border-primary/10 hover:bg-primary/10 transition-colors"
-                >
-                  <div className="relative h-12 w-20 flex-shrink-0 overflow-hidden rounded-md bg-muted ring-1 ring-primary/20">
-                    <SidebarThumbnail file={currentFile} imageID={`${currentFile.unique_id}_sidebar_current`} />
-                    <div className="absolute inset-0 flex items-center justify-center bg-black/20 opacity-0 group-hover/current:opacity-100 transition-opacity">
-                      <Play className="w-4 h-4 text-white fill-white" />
-                    </div>
-                  </div>
-                  <div className="flex-1 min-w-0 flex flex-col justify-center">
-                    <p className="text-sm font-medium text-foreground truncate leading-tight">
-                      {getFileTitle(currentFile)}
-                    </p>
-                    {currentFile.is_adult && (
-                      <Badge variant="destructive" className="mt-1 w-fit text-[9px] px-1.5 py-0 h-4 font-semibold">
-                        18+
-                      </Badge>
-                    )}
-                  </div>
-                </Link>
-              </SidebarGroupContent>
-            </SidebarGroup>
-            <SidebarSeparator />
-          </>
-        )}
-
-        {/* Files Library */}
-        {allOtherFiles.length > 0 && !railMode && (
-          <SidebarGroup className="py-1 flex-1">
-            <button
-              onClick={() => setFilesCollapsed(prev => !prev)}
-              className="flex items-center justify-between w-full px-3 py-1 group/label cursor-pointer"
-            >
-              <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground/60 group-hover/label:text-muted-foreground transition-colors">
-                Library
-              </span>
-              <div className="flex items-center gap-1.5">
-                <span className="text-[10px] text-muted-foreground/50 tabular-nums">{allOtherFiles.length}</span>
-                <ChevronDown className={`w-3.5 h-3.5 text-muted-foreground/50 transition-transform duration-200 ${filesCollapsed ? '-rotate-90' : ''}`} />
-              </div>
-            </button>
-            {!filesCollapsed && (
-              <SidebarGroupContent className="mt-1">
-                <SidebarMenu>
-                  {otherFiles.map((file) => (
-                    <SidebarMenuItem key={file.unique_id}>
-                      <SidebarMenuButton
-                        asChild
-                        isActive={location.pathname === `/${file.unique_id}`}
-                        tooltip={getFileTitle(file)}
-                      >
-                        <Link to={`/${file.unique_id}`} className="flex items-center gap-2.5 w-full group/file">
-                          <div className="relative h-8 w-14 flex-shrink-0 overflow-hidden rounded-md bg-muted">
-                            <SidebarThumbnail file={file} imageID={`${file.unique_id}_sidebar`} />
-                            <div className="absolute inset-0 flex items-center justify-center bg-black/30 opacity-0 group-hover/file:opacity-100 transition-opacity">
-                              <Play className="w-3 h-3 text-white fill-white" />
-                            </div>
-                          </div>
-                          <span className="truncate flex-1 text-[13px]">
-                            {getFileTitle(file)}
-                          </span>
-                          {file.is_adult && (
-                            <Badge variant="destructive" className="shrink-0 text-[9px] px-1.5 py-0 h-4 font-semibold">
-                              18+
-                            </Badge>
-                          )}
-                        </Link>
-                      </SidebarMenuButton>
-                    </SidebarMenuItem>
-                  ))}
-                </SidebarMenu>
-                {hasMore && (
-                  <div className="px-2 pt-2 pb-1">
-                    <Button
-                      onClick={handleLoadMore}
-                      variant="ghost"
-                      className="w-full text-muted-foreground hover:text-foreground h-8 text-xs"
-                      size="sm"
-                    >
-                      <ChevronDown className="mr-1.5 h-3.5 w-3.5" />
-                      Show more
-                    </Button>
-                  </div>
-                )}
-              </SidebarGroupContent>
-            )}
-          </SidebarGroup>
-        )}
-
-        {/* Files Library  icon rail. The full list is hidden in rail mode (text
-            clips at 4rem), so show just the thumbnails as square icons, with the
-            now-playing file pinned on top and a tooltip carrying the title. */}
-        {railMode && (currentFile || allOtherFiles.length > 0) && (
-          <SidebarGroup className="py-1 flex-1 min-h-0 overflow-y-auto">
-            <SidebarGroupContent>
-              <div className="flex flex-col items-center gap-1.5">
-                {currentFile && (
-                  <Link
-                    to={`/${currentFile.unique_id}`}
-                    title={getFileTitle(currentFile)}
-                    aria-label={getFileTitle(currentFile)}
-                    className="relative h-9 w-9 shrink-0 overflow-hidden rounded-md bg-muted ring-2 ring-primary transition-transform hover:scale-105"
-                  >
-                    <SidebarThumbnail file={currentFile} imageID={`${currentFile.unique_id}_sidebar_rail_current`} />
-                    <span className="absolute inset-0 flex items-center justify-center bg-black/20">
-                      <Play className="h-3.5 w-3.5 fill-white text-white" />
-                    </span>
-                  </Link>
-                )}
-                {otherFiles.map((file) => (
-                  <Link
-                    key={file.unique_id}
-                    to={`/${file.unique_id}`}
-                    title={getFileTitle(file)}
-                    aria-label={getFileTitle(file)}
-                    className={cn(
-                      "relative h-9 w-9 shrink-0 overflow-hidden rounded-md bg-muted ring-1 transition-all hover:scale-105 hover:ring-primary/50 group/railfile",
-                      location.pathname === `/${file.unique_id}` ? "ring-2 ring-primary" : "ring-border/50",
-                    )}
-                  >
-                    <SidebarThumbnail file={file} imageID={`${file.unique_id}_sidebar_rail`} />
-                    <span className="absolute inset-0 flex items-center justify-center bg-black/30 opacity-0 transition-opacity group-hover/railfile:opacity-100">
-                      <Play className="h-3 w-3 fill-white text-white" />
-                    </span>
-                    {file.is_adult && (
-                      <span className="absolute inset-x-0 bottom-0 bg-black/65 text-center text-[7px] font-semibold leading-tight text-white">
-                        18+
-                      </span>
-                    )}
-                  </Link>
+            <SidebarGroup className="p-3">
+              <SectionHeading title="You" href="/library" />
+              <SidebarMenu>
+                {youNav.map((entry) => (
+                  <EntryLink key={entry.href} entry={entry} active={isActiveRoute(entry.href)} />
                 ))}
-                {hasMore && (
-                  <button
-                    type="button"
-                    onClick={handleLoadMore}
-                    aria-label="Show more"
-                    title="Show more"
-                    className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-muted-foreground/60 ring-1 ring-border/50 transition-colors hover:bg-muted hover:text-foreground"
-                  >
-                    <ChevronDown className="h-4 w-4" />
-                  </button>
-                )}
-              </div>
-            </SidebarGroupContent>
-          </SidebarGroup>
+              </SidebarMenu>
+            </SidebarGroup>
+            <SidebarSeparator className="mx-0" />
+
+            {!userId ? (
+              <>
+                <SidebarGroup className="gap-3 px-6 py-4">
+                  <p className="text-sm text-sidebar-foreground">
+                    Sign in to like videos, comment, and subscribe.
+                  </p>
+                  <Button asChild variant="outline" className="h-9 w-fit gap-2 rounded-full px-4">
+                    <Link to={signInHref}>
+                      <CircleUserRound className="size-5" strokeWidth={1.75} />
+                      Sign in
+                    </Link>
+                  </Button>
+                </SidebarGroup>
+                <SidebarSeparator className="mx-0" />
+              </>
+            ) : null}
+
+            <SidebarGroup className="p-3">
+              <SidebarMenu>
+                {moreNav.map((entry) => (
+                  <EntryLink key={entry.href} entry={entry} active={isActiveRoute(entry.href)} />
+                ))}
+              </SidebarMenu>
+            </SidebarGroup>
+            <SidebarSeparator className="mx-0" />
+
+            <nav className="flex flex-wrap gap-x-2 gap-y-1 px-6 py-4 text-xs font-medium text-muted-foreground" aria-label="About">
+              {footerLinks.map((link) => (
+                <Link key={link.href} to={link.href} className="transition-colors hover:text-foreground">
+                  {link.title}
+                </Link>
+              ))}
+              <span className="w-full pt-2 font-normal">© {new Date().getFullYear()} Memories</span>
+            </nav>
+          </>
         )}
       </SidebarContent>
 
-      {/* Account  reuses the same profile dropdown/menu as the navbar; the
-          sidebar variant adds the username + subscriber/upload counts when the
-          rail is expanded (and in the mobile sheet), collapsing to the avatar
-          in the icon rail. */}
+      {/* Account: the same profile menu as the navbar. The sidebar variant adds
+          the username and counts when expanded (and in the mobile sheet), and
+          shrinks to the avatar in the rail. */}
       <SidebarFooter className="border-t border-border/40 p-0">
         <DesktopUpdateSidebarCard />
         <div className="p-2">
@@ -440,7 +347,7 @@ export function AppSidebar() {
         </div>
       </SidebarFooter>
 
-      {/* Grab handle at the edge  drag/click to reveal when collapsed. */}
+      {/* Grab handle at the edge: drag or click to reveal when collapsed. */}
       <SidebarRail />
     </Sidebar>
   )

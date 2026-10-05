@@ -5,6 +5,7 @@ import { Carousel, CarouselItem } from "~/components/Carousel/Carousel";
 import { getProfilePicUrl } from "~/lib/utils/profilePic";
 import { formatSubscriberCount } from "~/components/SubscribeButton";
 import { cn } from "~/lib/utils";
+import { notifySubscriptionsChanged } from "~/lib/subscriptionEvents";
 
 export interface SuggestedCreator {
   id: string;
@@ -63,7 +64,10 @@ function CreatorCard({
       });
       const j = await res.json().catch(() => ({}));
       if (!res.ok || j.success !== true) setSubscribed(!optimistic);
-      else if (typeof j.subscribed === "boolean") setSubscribed(j.subscribed);
+      else {
+        if (typeof j.subscribed === "boolean") setSubscribed(j.subscribed);
+        notifySubscriptionsChanged();
+      }
     } catch {
       setSubscribed(!optimistic);
     } finally {
