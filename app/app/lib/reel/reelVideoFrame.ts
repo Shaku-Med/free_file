@@ -19,30 +19,19 @@ export interface ReelVideoFrameOptions {
 }
 
 /**
- * Size a reel player shell to the video aspect ratio while fitting inside the viewport.
- * Portrait: height-led; landscape: width-led.
+ * Size a reel player shell to the video aspect ratio while fitting inside the
+ * given box: as wide as the box allows, or as the height cap allows, whichever
+ * is smaller. One rule for portrait and landscape, so the frame always keeps
+ * the video's shape.
  */
 export function reelVideoFrameStyle(
   aspectRatio: number,
   { maxHeight, maxWidth }: ReelVideoFrameOptions,
 ): CSSProperties {
   const ar = aspectRatio > 0 ? aspectRatio : REEL_FALLBACK_ASPECT;
-
-  if (ar >= 1) {
-    return {
-      aspectRatio: ar,
-      width: `min(${maxWidth}, calc(${maxHeight} * ${ar}))`,
-      maxWidth,
-      maxHeight,
-      height: "auto",
-    };
-  }
-
   return {
     aspectRatio: ar,
-    height: maxHeight,
-    maxHeight,
-    maxWidth,
-    width: "auto",
+    width: `min(${maxWidth}, calc(${maxHeight} * ${ar}))`,
+    height: "auto",
   };
 }

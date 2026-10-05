@@ -31,7 +31,7 @@ function easeOutCubic(t: number): number {
 }
 
 const BodyComponent = ({ children }: BodyComponentProps) => {
-  const { isMobile, state, sheetOnly } = useSidebar()
+  const { isMobile, state } = useSidebar()
   const { theaterMode, hideAppChrome } = useFileContext();
   const location = useLocation();
   const suppressChrome = hideAppChrome || isPipChromeRoute(location.pathname);
@@ -72,7 +72,7 @@ const BodyComponent = ({ children }: BodyComponentProps) => {
   );
 
   const applyTheater = theaterMode && !isStaticRoute;
-  const sidebarExpandedLayout = !isMobile && state === "expanded" && !sheetOnly;
+  const sidebarExpandedLayout = !isMobile && state === "expanded";
 
   // Re-sync bar opacity after navigation (after ScrollRestoration may have applied scroll).
   const handleScrollRef = useRef(handleScroll);

@@ -641,16 +641,15 @@ function PipReelItemInner({
 
   const reelFrameStyle = useMemo(() => {
     if (variant !== 'page' || isReelMobileLayout) return undefined;
-    // With the comments dock open, force the mobile portrait aspect so the reel
-    // narrows beside the panel instead of squeezing a wide frame.
-    return reelVideoFrameStyle(
-      commentsOpen ? REEL_FALLBACK_ASPECT : (videoAspect ?? REEL_FALLBACK_ASPECT),
-      {
-        maxHeight: 'min(calc(100dvh - 3rem), 820px)',
-        maxWidth: 'min(100%, calc(100vw - 14rem))',
-      },
-    );
-  }, [variant, videoAspect, isReelMobileLayout, commentsOpen]);
+    // The width comes from the reel's own row, which already sits between the
+    // sidebar and the comments panel, less the room the side columns need
+    // (--reel-side, set on the row). A wide video gets smaller instead of
+    // squeezing the caption.
+    return reelVideoFrameStyle(videoAspect ?? REEL_FALLBACK_ASPECT, {
+      maxHeight: 'min(calc(100dvh - 3rem), 820px)',
+      maxWidth: 'calc(100% - 2 * var(--reel-side))',
+    });
+  }, [variant, videoAspect, isReelMobileLayout]);
 
   const handleReelPosterColorsFromPlayer = useCallback(
     (payload: { src: string; colors: string[] }) => {
@@ -914,9 +913,10 @@ function PipReelItemInner({
 
   const reelInfoSlot =
     variant === 'page' && showChrome ? (
-      // Overlaid on the video on mobile; desktop shows it OUTSIDE the frame
-      // (bottom-left, Instagram-web style) via the separate block below.
-      <div className="lg:hidden">
+      // On the video on phones, and on desktop whenever the reel area is too
+      // narrow for a caption column (comments open, sidebar expanded). With
+      // room to spare it moves out beside the frame, in the block below.
+      <div className="@min-[64rem]/reelstage:hidden">
         <ReelMetaPanel file={file} item={item} views={views} />
       </div>
     ) : undefined;
@@ -1022,20 +1022,23 @@ function PipReelItemInner({
             className={cn(
               "relative flex h-full w-full max-w-full flex-row items-center justify-center gap-3 lg:gap-4 lg:px-6",
               "max-lg:gap-0 max-lg:px-0",
+              // Room kept each side of the frame: the action buttons, plus a
+              // caption column once the reel area is wide enough for one.
+              "[--reel-side:5.5rem] @min-[64rem]/reelstage:[--reel-side:17rem]",
             )}
           >
             {/* Desktop: author + caption in their own flex column LEFT of the video
                 frame (Instagram-web layout) — it shares the row, so it can never
                 overlap the player. On mobile this is overlaid via reelInfoSlot. */}
-            {showChrome ? (
-              <div className="pointer-events-auto z-30 hidden min-w-0 flex-1 basis-0 flex-col justify-end self-stretch pb-8 lg:flex">
-                <div className="w-full max-w-[24rem]">
+            {/* Caption column, only when the reel area has room for it. The
+                column itself stays either way so the frame stays centred. */}
+            <div className="pointer-events-auto z-30 hidden min-w-0 flex-1 basis-0 flex-col items-end justify-end self-stretch pb-8 lg:flex">
+              {showChrome ? (
+                <div className="hidden w-full max-w-[24rem] @min-[64rem]/reelstage:block">
                   <ReelMetaPanel file={file} item={item} views={views} />
                 </div>
-              </div>
-            ) : (
-              <div aria-hidden className="hidden min-w-0 flex-1 basis-0 lg:block" />
-            )}
+              ) : null}
+            </div>
             <div
               className={cn(
                 "relative shrink-0 overflow-hidden",

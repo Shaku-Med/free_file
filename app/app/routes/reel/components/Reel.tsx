@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback, useLayoutEffect, useRef } from "react";
 import { RotateCw, X } from "lucide-react";
 import { useFileContext } from "~/lib/Context/Context";
+import { useSidebar } from "~/components/ui/sidebar";
 import { ReelSwiper } from "~/routes/reel/components/ReelSwiper";
 import type { ReelAmbienceInfo } from "~/routes/pip/components/PipReelItem";
 import Ambience from "~/components/accessories/CanvasGradient/Ambience";
@@ -91,6 +92,12 @@ interface ReelProps {
 
 const Reel = ({ initialItems, initialUserActions, profileReelContext = null }: ReelProps) => {
   const { userId, playerSettings } = useFileContext();
+  const { isMobile: sidebarIsSheet, state: sidebarState } = useSidebar();
+  const sidebarInset = sidebarIsSheet
+    ? "0px"
+    : sidebarState === "expanded"
+      ? "var(--sidebar-width)"
+      : "var(--sidebar-width-icon)";
   const [items, setItems] = useState<FileType[]>(initialItems || []);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(true);
@@ -538,11 +545,17 @@ const Reel = ({ initialItems, initialUserActions, profileReelContext = null }: R
     ) : null;
 
   return (
-    <div className="fixed inset-0 z-[var(--z-reel)] reel_p flex">
-      {/* STAGE: ambience + reel deck. Shrinks (flex-1) when the comments dock
-          opens on large screens, so the whole stage — ambience included — is
-          pushed left and the player still fits beside the panel. */}
-      <div className="relative h-full min-h-0 min-w-0 flex-1">
+    // Starts where the sidebar ends and follows it as it opens or folds, so the
+    // sidebar, the reel and the comments panel share the width instead of
+    // covering each other. Phones have no sidebar beside the page.
+    <div
+      className="fixed inset-y-0 right-0 z-[var(--z-reel)] reel_p flex overflow-hidden transition-[left] duration-200 ease-linear"
+      style={{ left: sidebarInset }}
+    >
+      {/* STAGE: ambience + reel deck, and the size container each reel lays
+          itself out against. It shrinks (flex-1) when the comments dock opens,
+          so the reel and its caption rearrange to fit beside the panel. */}
+      <div className="@container/reelstage relative h-full min-h-0 min-w-0 flex-1">
       {/*
         Ambient plate ~600px wide (centered): solid zinc-950 + poster palette from the active slide’s thumbnail.
       */}
@@ -585,11 +598,8 @@ const Reel = ({ initialItems, initialUserActions, profileReelContext = null }: R
               style={{
                 // Size follows the ambient-size control (1×2×).
                 transform: `scale(${ambientSize})`,
-                // Comments dock forces the portrait frame, so the glow follows it.
                 aspectRatio:
-                  !commentsOpen && ambienceDesc.aspect && ambienceDesc.aspect > 0
-                    ? String(ambienceDesc.aspect)
-                    : "9 / 16",
+                  ambienceDesc.aspect && ambienceDesc.aspect > 0 ? String(ambienceDesc.aspect) : "9 / 16",
                 WebkitMaskImage: `${REEL_AMB_MASKRadial}, ${REEL_AMB_MASKHorizontal}`,
                 WebkitMaskSize: "100% 100%, 100% 100%",
                 WebkitMaskRepeat: "no-repeat, no-repeat",

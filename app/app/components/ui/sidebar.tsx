@@ -27,8 +27,6 @@ import {
 } from "~/components/ui/tooltip"
 import { useStandalone } from "~/lib/hooks/useStandalone"
 import { useFileContext } from "~/lib/Context/Context"
-import { useLocation } from "react-router"
-import { isReelRoute } from "~/lib/reelRoute"
 
 const SIDEBAR_WIDTH = "19rem"
 const SIDEBAR_WIDTH_MOBILE = "19rem"
@@ -42,8 +40,6 @@ type SidebarContextProps = {
   openMobile: boolean
   setOpenMobile: (open: boolean) => void
   isMobile: boolean
-  /** Reel routes: always sheet, no desktop rail / resize / shortcut. */
-  sheetOnly: boolean
   toggleSidebar: () => void
 }
 
@@ -77,8 +73,6 @@ function SidebarProvider({
   onOpenChange?: (open: boolean) => void
 }) {
   const isMobile = useIsMobile()
-  const { pathname } = useLocation()
-  const sheetOnly = isReelRoute(pathname)
   const { playerSettings, setPlayerSettings, savePlayerSettings } = useFileContext()
   const [openMobile, setOpenMobile] = React.useState(false)
 
@@ -97,27 +91,25 @@ function SidebarProvider({
         _setOpen(openState)
       }
 
-      // Persist desktop rail via same API/cookies as player controls (not mobile / reel sheet).
-      if (!isMobile && !sheetOnly) {
+      // Persist desktop rail via same API/cookies as player controls (not the mobile sheet).
+      if (!isMobile) {
         setPlayerSettings((prev) => (prev ? { ...prev, sidebarOpen: openState } : prev))
         savePlayerSettings({ sidebarOpen: openState }).catch(() => {})
       }
     },
-    [setOpenProp, open, isMobile, sheetOnly, setPlayerSettings, savePlayerSettings]
+    [setOpenProp, open, isMobile, setPlayerSettings, savePlayerSettings]
   )
 
   // Helper to toggle the sidebar.
   const toggleSidebar = React.useCallback(() => {
-    if (sheetOnly || isMobile) {
+    if (isMobile) {
       return setOpenMobile((open) => !open)
     }
     return setOpen((open) => !open)
-  }, [isMobile, sheetOnly, setOpen, setOpenMobile])
+  }, [isMobile, setOpen, setOpenMobile])
 
-  // Adds a keyboard shortcut to toggle the sidebar (disabled on reel).
+  // Adds a keyboard shortcut to toggle the sidebar.
   React.useEffect(() => {
-    if (sheetOnly) return
-
     const handleKeyDown = (event: KeyboardEvent) => {
       if (
         event.key === SIDEBAR_KEYBOARD_SHORTCUT &&
@@ -130,7 +122,7 @@ function SidebarProvider({
 
     window.addEventListener("keydown", handleKeyDown)
     return () => window.removeEventListener("keydown", handleKeyDown)
-  }, [toggleSidebar, sheetOnly])
+  }, [toggleSidebar])
 
   // We add a state so that we can do data-state="expanded" or "collapsed".
   // This makes it easier to style the sidebar with Tailwind classes.
@@ -144,10 +136,9 @@ function SidebarProvider({
       isMobile,
       openMobile,
       setOpenMobile,
-      sheetOnly,
       toggleSidebar,
     }),
-    [state, open, setOpen, isMobile, openMobile, setOpenMobile, sheetOnly, toggleSidebar]
+    [state, open, setOpen, isMobile, openMobile, setOpenMobile, toggleSidebar]
   )
 
   return (
@@ -187,7 +178,7 @@ function Sidebar({
   variant?: "sidebar" | "floating" | "inset"
   collapsible?: "offcanvas" | "icon" | "none"
 }) {
-  const { isMobile, state, openMobile, setOpenMobile, sheetOnly } = useSidebar()
+  const { isMobile, state, openMobile, setOpenMobile } = useSidebar()
 
   if (collapsible === "none") {
     return (
@@ -204,14 +195,13 @@ function Sidebar({
     )
   }
 
-  if (sheetOnly || isMobile) {
+  if (isMobile) {
     return (
       <Sheet open={openMobile} onOpenChange={setOpenMobile} {...props}>
         <SheetContent
           data-sidebar="sidebar"
           data-slot="sidebar"
           data-mobile="true"
-          data-sheet-only={sheetOnly ? "true" : undefined}
           className="bg-background/95 backdrop-blur-xl text-sidebar-foreground w-[min(80vw,19rem)] p-0 [&>button]:hidden z-[var(--z-sidebar-sheet)] border-none"
           style={
             {
@@ -307,12 +297,10 @@ function SidebarTrigger({
 }
 
 function SidebarRail({ className, ...props }: React.ComponentProps<"button">) {
-  const { toggleSidebar, setOpen, sheetOnly } = useSidebar()
+  const { toggleSidebar, setOpen } = useSidebar()
   // Drag the edge to reveal/hide (left sidebar: drag right = open, left = close).
   const drag = React.useRef({ active: false, startX: 0, moved: false })
   const DRAG_THRESHOLD = 24
-
-  if (sheetOnly) return null
 
   const onPointerDown = (e: React.PointerEvent<HTMLButtonElement>) => {
     drag.current = { active: true, startX: e.clientX, moved: false }

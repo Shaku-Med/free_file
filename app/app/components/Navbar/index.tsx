@@ -39,10 +39,10 @@ function getProfileUsernameFromPath(pathname: string): string | null {
 
 export default function Navbar({ hasScrolled = { state: false, opacityLevel: 0 } }: NavbarProps) {
   const { userId, setIsModalOpen } = useFileContext();
-  const { isMobile, state, sheetOnly } = useSidebar();
+  const { isMobile, state } = useSidebar();
   // When the rail is expanded the content area becomes a card surface, so the
   // bar matches it (bg-card); otherwise it sits on the plain background.
-  const expandedDesktop = !isMobile && !sheetOnly && state === "expanded";
+  const expandedDesktop = !isMobile && state === "expanded";
   const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
   const location = useLocation();
@@ -143,7 +143,7 @@ export default function Navbar({ hasScrolled = { state: false, opacityLevel: 0 }
         className={cn(
           "relative z-10 mx-auto flex h-14 min-w-0 items-center gap-1 px-2 sm:px-4",
           // When the Mac traffic lights sit over the navbar (no desktop rail).
-          isWindapp && isMac && (isMobile || sheetOnly) && "pl-[72px]",
+          isWindapp && isMac && isMobile && "pl-[72px]",
         )}
       >
         {searchExpanded ? (
