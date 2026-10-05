@@ -187,9 +187,9 @@ export default function Navbar({ hasScrolled = { state: false, opacityLevel: 0 }
                 <Link
                   to="/"
                   id="home_button"
-                  className="group flex min-w-0 items-center gap-1 rounded-lg px-1 py-1 hover:bg-muted/60 sm:gap-1.5"
+                  className="group flex min-w-0 items-center gap-2 rounded-lg px-1 py-1 hover:bg-muted/60"
                 >
-                  <Logo className="h-7 w-7 shrink-0 text-primary sm:h-8 sm:w-8 ml-[-5px]" />
+                  <Logo className="size-7 text-primary" />
                   <span
                     className={cn(
                       "truncate text-base font-bold tracking-tight text-foreground sm:text-lg",

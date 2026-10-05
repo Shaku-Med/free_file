@@ -95,7 +95,7 @@ const Footer = () => {
               to="/"
               className="inline-flex items-center gap-2.5 rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
-              <Logo className="h-8 w-8 shrink-0 text-foreground" />
+              <Logo className="size-8 text-foreground" inkClassName="fill-background stroke-background" />
               <span className="text-base font-semibold tracking-tight text-foreground">
                 {SITE_NAME}
               </span>

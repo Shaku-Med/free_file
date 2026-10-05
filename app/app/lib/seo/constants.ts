@@ -17,7 +17,8 @@ export const DEFAULT_KEYWORDS = [
   "private gallery",
   "public gallery",
 ].join(", ");
-export const DEFAULT_OG_IMAGE_PATH = "/icons/web/apple-touch-icon.png";
+/** 1200x630 share card, rendered by scripts/brand/build-brand.mjs. */
+export const DEFAULT_OG_IMAGE_PATH = "/brand/og-image.png";
 export const FAVICON_PATH = "/favicon.ico";
 export const MANIFEST_PATH = "/manifest.json";
 export const APPLE_TOUCH_ICON_PATH = "/icons/web/apple-touch-icon.png";
