@@ -30,8 +30,9 @@ interface ProfileTabVideosGridProps {
   dataReady?: boolean;
 }
 
+// As many 2:3 cards as fit at YouTube's channel Shorts size, never fewer than two.
 const SHORTS_GRID =
-  "grid w-full min-w-0 grid-cols-2 gap-x-4 gap-y-6 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6";
+  "grid w-full min-w-0 grid-cols-[repeat(auto-fill,minmax(min(calc(50%-0.5rem),12rem),1fr))] gap-x-4 gap-y-6";
 
 function gridClassForGroup(group: ProfileTabRenderGroup): string {
   return group.variant === "shorts" ? SHORTS_GRID : MEDIA_GRID;

@@ -18,7 +18,7 @@ interface OwnerProfileProps {
 }
 
 const sizeClasses = {
-  sm: "h-8 w-8 text-sm",
+  sm: "h-9 w-9 text-sm",
   md: "h-10 w-10 text-sm",
   lg: "h-12 w-12 text-base"
 };

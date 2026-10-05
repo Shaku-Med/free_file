@@ -2,7 +2,7 @@ import { useState, useCallback, useRef, useEffect, useMemo } from "react";
 import type { FileType } from "~/lib/types";
 import VideoCard from "~/routes/Home/components/VideoCard";
 import { SignInToSeeMore } from "~/components/SignInWall";
-import { FEED_HIDE_ACTIONS } from "~/lib/feed/feedVideoCardLayout";
+import { FEED_HIDE_ACTIONS, MEDIA_GRID } from "~/lib/feed/feedVideoCardLayout";
 import { groupConsecutiveReelClusters } from "~/lib/feed/groupConsecutiveReelClusters";
 import { ReelShelf, VideoCardSkeleton } from "~/components/MediaShelf";
 import { Carousel, CarouselItem } from "~/components/Carousel/Carousel";
@@ -353,7 +353,7 @@ const UserFilesGrid = ({
           const groups = groupConsecutiveReelClusters(files);
           let indexCounter = 0;
           return (
-            <div className="grid w-full min-w-0 grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+            <div className={MEDIA_GRID}>
               {groups.map((g) => {
                 if (g.kind === "single") {
                   const file = g.file;

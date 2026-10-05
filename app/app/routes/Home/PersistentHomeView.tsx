@@ -219,7 +219,7 @@ export default function PersistentHomeView() {
   return (
     <div className="w-full min-w-0">
       {/* YouTube-style filter chips: All + categories. Functional  drives the feed. */}
-      <div className="-mx-1 mb-5 flex gap-2 overflow-x-auto px-1 pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+      <div className="-mx-1 mb-6 flex gap-3 overflow-x-auto px-1 pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         {[null, ...HOME_CHIPS].map((value) => {
           const label = value ?? "All";
           const active = (feedCategory ?? null) === value;
@@ -229,7 +229,7 @@ export default function PersistentHomeView() {
               type="button"
               onClick={() => setFeedCategory(value)}
               className={cn(
-                "shrink-0 whitespace-nowrap rounded-full px-3.5 py-1.5 text-sm font-medium transition-colors",
+                "h-8 shrink-0 whitespace-nowrap rounded-md px-3 text-sm font-medium transition-colors",
                 active
                   ? "bg-foreground text-background"
                   : "bg-muted text-foreground hover:bg-accent hover:text-accent-foreground",

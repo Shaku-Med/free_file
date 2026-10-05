@@ -9,7 +9,7 @@ import { buildPageMeta } from "~/lib/seo";
 import type { FileType } from "~/lib/types";
 import VideoCard from "~/routes/Home/components/VideoCard";
 import EmptyState from "~/components/EmptyState";
-import { FEED_HIDE_ACTIONS } from "~/lib/feed/feedVideoCardLayout";
+import { FEED_HIDE_ACTIONS, MEDIA_GRID } from "~/lib/feed/feedVideoCardLayout";
 
 export const meta: MetaFunction = () =>
   buildPageMeta({
@@ -227,7 +227,7 @@ export default function Library() {
                 title={section.title}
                 seeAllTo={section.seeAllTo}
               />
-              <div className="grid grid-cols-1 gap-x-4 gap-y-6 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
+              <div className={MEDIA_GRID}>
                 {section.files.map((file, index) => (
                   <div key={`${section.key}-${file.id || index}`} className="min-w-0">
                     <VideoCard

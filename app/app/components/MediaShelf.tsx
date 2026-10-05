@@ -14,6 +14,15 @@ import { cn } from "~/lib/utils";
 
 type CardProps = React.ComponentProps<typeof VideoCard>;
 
+/**
+ * YouTube's Shorts shelf: a whole number of cards across the shelf's own
+ * width, 16px apart. Five on a wide screen, which is also the most one shelf
+ * holds, down to two on a phone. Capped near YouTube's 1080p size so an
+ * ultrawide screen does not turn them into posters.
+ */
+const SHORTS_SHELF_ITEM =
+  "max-w-80 w-[calc((100cqw-1rem)/2)] @min-[30rem]:w-[calc((100cqw-2rem)/3)] @min-[45rem]:w-[calc((100cqw-3rem)/4)] @min-[60rem]:w-[calc((100cqw-4rem)/5)]";
+
 interface ShelfCardProps {
   currentUserId?: string;
   userActions?: CardProps["userActions"];
@@ -40,14 +49,15 @@ export function ReelShelf({
   return (
     // overflow-visible: the carousel clips X itself; clipping here would cut
     // the hover scale and the arrow shadows.
-    <div className={cn("col-span-full w-full min-w-0 max-w-full overflow-visible", className)}>
-      <div className="mb-2 flex items-center gap-1.5">
-        <Clapperboard className="h-5 w-5 text-foreground" aria-hidden />
-        <h2 className="text-base font-semibold tracking-tight sm:text-lg">{label}</h2>
+    // mb-4 on top of the grid's 32px row gap gives YouTube's 48px after a shelf.
+    <div className={cn("col-span-full mb-4 w-full min-w-0 max-w-full overflow-visible", className)}>
+      <div className="mb-4 flex items-center gap-2">
+        <Clapperboard className="size-6 text-foreground" aria-hidden />
+        <h2 className="text-lg font-bold leading-[1.625rem] sm:text-xl sm:leading-7">{label}</h2>
       </div>
-      <Carousel label={label} itemWidth={168} gapClassName="gap-2.5">
+      <Carousel label={label} gapClassName="gap-4">
         {files.map((file, i) => (
-          <CarouselItem key={file.id || file.unique_id || i}>
+          <CarouselItem key={file.id || file.unique_id || i} className={SHORTS_SHELF_ITEM}>
             <VideoCard data={file} layout="reelStrip" index={startIndex + i} {...card} />
           </CarouselItem>
         ))}

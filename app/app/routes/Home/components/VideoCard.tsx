@@ -2582,7 +2582,9 @@ const VideoCard = ({
 
   if (layout === "reelStrip") {
     return (
-      <div className="group relative flex w-full flex-col rounded-2xl">
+      // A size container: the type follows the card's width, so a wide shelf
+      // card gets YouTube's 16px title and a narrow sidebar one stays at 14px.
+      <div className="@container group relative flex w-full flex-col rounded-2xl">
         <VideoCardHoverOverlay colors={fileColors} seed={hoverTintSeed} />
         <Link
           onClick={(e) => {
@@ -2594,7 +2596,7 @@ const VideoCard = ({
           // which at feed column widths produced a card taller than the viewport
           // and pushed everything under it off the fold. Thumbnail is
           // object-cover so the framing is unchanged.
-          className="relative z-[1000000] block aspect-[2/3] w-full shrink-0 overflow-hidden rounded-xl bg-muted outline-none ring-0 transition-opacity hover:opacity-95"
+          className="relative z-[1000000] block aspect-[2/3] w-full shrink-0 overflow-hidden rounded-md bg-muted outline-none ring-0 transition-opacity hover:opacity-95"
         >
           {renderThumbnail("h-full w-full")}
         </Link>
@@ -2609,7 +2611,7 @@ const VideoCard = ({
               to={watchPath} prefetch="intent"
               className="block min-w-0 hover:opacity-90"
             >
-              <h3 className="line-clamp-2 break-words text-left text-sm font-semibold leading-snug tracking-tight text-foreground">
+              <h3 className="line-clamp-2 break-words text-left text-sm font-medium leading-5 text-foreground @min-[11rem]:text-base @min-[11rem]:leading-[1.375rem]">
                 <ParseFilenameInsert
                   filename={displayMediaTitle(data.file_title || data.filename || "")}
                   showLimit={56}
@@ -2618,7 +2620,7 @@ const VideoCard = ({
             </Link>
 
             {viewCount > 0 ? (
-              <div className="mt-1 text-xs leading-tight tabular-nums text-muted-foreground">
+              <div className="text-xs leading-[1.125rem] tabular-nums text-muted-foreground @min-[11rem]:text-sm @min-[11rem]:leading-5">
                 {viewsLabel(viewCount)}
               </div>
             ) : null}
@@ -3069,7 +3071,7 @@ const VideoCard = ({
                 >
                   {/* break-words, NOT break-all: break-all split words mid-character
                       (“vide\no”), which is why titles looked ragged next to YouTube's. */}
-                  <h3 className="line-clamp-2 break-words text-[0.9375rem] font-medium leading-[1.35] md:text-base">
+                  <h3 className="line-clamp-2 break-words text-base font-medium leading-[1.375rem]">
                     <ParseFilenameInsert
                       filename={displayMediaTitle(data.file_title || data.filename || "")}
                       showLimit={64}
@@ -3098,19 +3100,25 @@ const VideoCard = ({
                   </Tooltip>
                 )}
               </div>
-              {/* Secondary line sits 4px under the title and uses 13px, closer to
-                  YouTube's meta scale than the previous 12px. */}
-              <div className="mt-1 flex min-h-[1.25rem] flex-wrap items-center gap-x-1 gap-y-0.5 text-[0.8125rem] text-muted-foreground">
+              {/* YouTube's meta block: 14px on 20px lines, the channel on one
+                  line and views with age on the next. */}
+              <div className="mt-1 flex min-w-0 flex-col text-sm leading-5 text-muted-foreground">
                 {data.owner && (
                   <Link
                     to={`/profile/${data.owner.username}`}
-                    className="max-w-[140px] truncate hover:text-foreground transition-colors"
+                    className="w-fit max-w-full truncate hover:text-foreground transition-colors"
                   >
                     {data.owner.username}
                   </Link>
                 )}
-                {data.owner && viewCount > 0 && <span className="text-muted-foreground/60">·</span>}
-                {viewCount > 0 && <span>{viewsLabel(viewCount)}</span>}
+                {(viewCount > 0 || data.created_at) && (
+                  <div className="flex min-w-0 flex-wrap items-center gap-x-1">
+                    {viewCount > 0 && <span className="tabular-nums">{viewsLabel(viewCount)}</span>}
+                    {viewCount > 0 && data.created_at && <span aria-hidden>•</span>}
+                    {/* Age depends on the clock, so server and browser can differ by a minute. */}
+                    {data.created_at && <span suppressHydrationWarning>{formatTimeAgo(data.created_at)}</span>}
+                  </div>
+                )}
               </div>
             </div>
             <div>
