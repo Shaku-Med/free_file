@@ -7,7 +7,7 @@ import {
   type KeyboardEvent,
 } from "react";
 import { useNavigate } from "react-router";
-import { Search } from "lucide-react";
+import { Search, X } from "lucide-react";
 import { cn } from "~/lib/utils";
 import { SearchPanel } from "./SearchPanel";
 import { useSearchPanel } from "./useSearchPanel";
@@ -129,26 +129,21 @@ export function NavbarSearchBar({
 
   return (
     <div ref={rootRef} className={cn("relative w-full min-w-0", className)}>
-      <form
-        onSubmit={handleSubmit}
-        className="flex w-full min-w-0 max-w-[720px] items-stretch"
-        role="search"
-      >
-        {/* One pill rather than a split field and button: the magnifier moves
-            inside on the left once the box is live, which is what makes the
-            dropdown read as part of the same surface. */}
+      {/* YouTube's box: the field and the search button are one joined pill,
+          rounded on the outside ends only. The magnifier slides in on the left
+          while the box is live. */}
+      <form onSubmit={handleSubmit} className="flex h-10 w-full min-w-0 items-stretch" role="search">
         <div
           className={cn(
-            "flex min-w-0 flex-1 items-center gap-3 rounded-full border border-border/60 bg-muted/40 px-4 transition-colors",
-            "focus-within:border-primary/70 focus-within:bg-background focus-within:ring-1 focus-within:ring-primary/30",
-            "dark:border-white/15 dark:bg-white/[0.06] dark:focus-within:bg-background/80",
-            open && "border-primary/70 bg-background ring-1 ring-primary/30 dark:bg-background/80",
+            "flex min-w-0 flex-1 items-center gap-3 rounded-l-full border border-r-0 border-input bg-background pl-4 pr-1 shadow-inner transition-colors dark:shadow-none",
+            "focus-within:border-primary/70",
+            open && "border-primary/70",
           )}
         >
           <Search
             className={cn(
-              "size-5 shrink-0 text-muted-foreground transition-opacity",
-              open ? "opacity-100" : "opacity-0 w-0",
+              "size-5 shrink-0 text-muted-foreground transition-[opacity,width]",
+              open ? "opacity-100" : "w-0 opacity-0",
             )}
             strokeWidth={2}
             aria-hidden
@@ -170,13 +165,27 @@ export function NavbarSearchBar({
             aria-controls="navbar-search-dropdown"
             autoComplete="off"
             enterKeyHint="search"
-            className="h-10 min-w-0 flex-1 bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground"
+            className="h-full min-w-0 flex-1 bg-transparent text-base text-foreground outline-none placeholder:text-muted-foreground [&::-webkit-search-cancel-button]:appearance-none"
           />
+          {inputValue ? (
+            <button
+              type="button"
+              aria-label="Clear search"
+              onClick={() => {
+                setInputValue("");
+                setActiveIndex(-1);
+                inputRef.current?.focus();
+              }}
+              className="flex size-8 shrink-0 items-center justify-center rounded-full text-foreground/80 transition-colors hover:bg-accent"
+            >
+              <X className="size-5" strokeWidth={1.75} />
+            </button>
+          ) : null}
         </div>
         <button
           type="submit"
           aria-label="Search"
-          className="ml-2 flex size-10 shrink-0 items-center justify-center rounded-full bg-muted/60 text-foreground/90 transition-colors hover:bg-muted dark:bg-white/[0.08] dark:hover:bg-white/[0.14]"
+          className="flex w-16 shrink-0 items-center justify-center rounded-r-full border border-input bg-muted text-foreground/90 transition-colors hover:bg-accent"
         >
           <Search className="size-5" strokeWidth={2} />
         </button>
@@ -187,7 +196,7 @@ export function NavbarSearchBar({
           id="navbar-search-dropdown"
           role="listbox"
           className={cn(
-            "absolute left-0 right-0 top-[calc(100%+0.5rem)] z-[100000001] overflow-hidden rounded-2xl border border-border/60 bg-background py-1 shadow-2xl dark:border-white/10",
+            "absolute left-0 right-16 top-[calc(100%+0.25rem)] z-[100000001] overflow-hidden rounded-xl border border-border/60 bg-background py-1 shadow-2xl dark:border-white/10",
             dropdownClassName,
           )}
         >

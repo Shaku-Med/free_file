@@ -210,13 +210,10 @@ export default function Navbar({ hasScrolled = { state: false, opacityLevel: 0 }
           Search field itself is no-drag via CSS (input/button rules).
         */}
         {showSearchBar ? (
-          <div
-            className={cn(
-              "min-w-0 flex-1",
-              effectiveInlineSearch && "flex justify-center px-1 lg:px-6",
-            )}
-          >
-            <div className={cn("windapp-no-drag", effectiveInlineSearch ? "w-full max-w-[720px]" : "w-full")}>
+          // Centred and capped at YouTube's 732px whether it sits in the bar or
+          // was opened from the icon, so it never stretches across a wide screen.
+          <div className="flex min-w-0 flex-1 justify-center px-1 lg:px-6">
+            <div className="windapp-no-drag w-full max-w-[732px]">
               <NavbarSearchBar
                 className="w-full"
                 autoFocus={searchExpanded}
