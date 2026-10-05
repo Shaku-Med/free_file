@@ -1,7 +1,9 @@
 import { filterFilesByAccess } from '../fun/accessControl';
 import { enrichFeedFilesWithInteractions } from '../fun/enrichFeedFiles';
 import db from '~/lib/Database/supabase';
+import { recommendationRpc } from '~/lib/recommendations/recommendationRpc.server';
 import { isAuthenticated } from '~/lib/Security/Password';
+import { isValidUUID } from '~/lib/Security/inputValidation';
 import { sanitizeFeedCard } from '~/lib/files/sanitizeFileForViewer';
 
 const FEED_LIMIT = 20;
@@ -40,7 +42,7 @@ export const loader = async ({ request }: { request: Request }) => {
     const fileTypeFilter = url.searchParams.get('file_type');
     const excludeIds = parseExcludeIds(url);
     const cursorPosParam = url.searchParams.get('cursor_pos');
-    const seedParam = url.searchParams.get('seed') ?? 'default';
+    const seedParam = (url.searchParams.get('seed') ?? 'default').slice(0, 64);
     // Home filter-chip category. "all"/empty => personalized feed (null).
     const categoryParam = url.searchParams.get('category');
     const category =
@@ -48,10 +50,10 @@ export const loader = async ({ request }: { request: Request }) => {
         ? categoryParam.trim().slice(0, 40)
         : null;
 
-    const cursorPos = cursorPosParam ? Math.max(0, parseInt(cursorPosParam, 10)) : 0;
+    const cursorPos = cursorPosParam ? Math.min(Math.max(0, parseInt(cursorPosParam, 10)), 100_000) : 0;
     const pExcludeIds =
       excludeIds.length > 0
-        ? excludeIds.filter((id) => /^[0-9a-f-]{36}$/i.test(id))
+        ? excludeIds.filter((id) => isValidUUID(id))
         : [];
 
     const user = await isAuthenticated(request, ['id']);
@@ -63,7 +65,7 @@ export const loader = async ({ request }: { request: Request }) => {
       ? (() => {
           try {
             const parsed = JSON.parse(sessionCatsParam);
-            return Array.isArray(parsed) ? parsed.filter((c: any) => typeof c === 'string').slice(0, 20) : [];
+            return Array.isArray(parsed) ? parsed.filter((c: unknown): c is string => typeof c === 'string' && c.length > 0 && c.length <= 64).slice(0, 20) : [];
           } catch { return []; }
         })()
       : [];
@@ -81,7 +83,7 @@ export const loader = async ({ request }: { request: Request }) => {
       ...(sessionCats.length > 0 ? { p_session_cats: sessionCats } : {})
     };
 
-    const { data: feed, error } = await db.rpc('get_feed', feedParams);
+    const { data: feed, error } = await recommendationRpc('get_feed', feedParams);
     if (error) {
       console.error('Feed RPC error:', error);
       return new Response(JSON.stringify({ error: 'Failed to fetch feed' }), {

@@ -1247,12 +1247,15 @@ const DynamicPage = ({ is_modal }: DynamicPageProps) => {
    * at /reel and shouldn't hijack a watch session), images/audio are excluded
    * because there's nothing to play, and the current file is excluded.
    *
-   * Rotated by a seed derived from the current file so different visits surface
-   * different neighbours, while a single visit stays stable (no reshuffling
-   * under the viewer mid-watch).
+   * Rotated by a seed derived from the current file so different videos lead
+   * into different neighbours, while a single visit stays stable (no
+   * reshuffling under the viewer mid-watch). The rotation only reaches the top
+   * few: the list arrives ranked for this viewer, and rotating across all of it
+   * used to make up next a lottery over twenty related videos.
    */
   const autoNextVideos = useMemo(() => {
     const AUTO_NEXT_COUNT = 4;
+    const ROTATE_WITHIN = 3;
     const currentUid = String(file_data?.unique_id ?? "");
     const playable = (relatedVideos as FileType[]).filter((v) => {
       if (!v || v.is_reel) return false;
@@ -1271,7 +1274,7 @@ const DynamicPage = ({ is_modal }: DynamicPageProps) => {
       h ^= currentUid.charCodeAt(i);
       h = Math.imul(h, 16777619);
     }
-    const start = (h >>> 0) % playable.length;
+    const start = (h >>> 0) % Math.min(ROTATE_WITHIN, playable.length);
     return Array.from(
       { length: AUTO_NEXT_COUNT },
       (_, i) => playable[(start + i) % playable.length],

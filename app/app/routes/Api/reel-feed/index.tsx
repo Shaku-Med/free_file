@@ -1,6 +1,8 @@
 import { filterFilesByAccess } from '../fun/accessControl';
 import db from '~/lib/Database/supabase';
+import { recommendationRpc, TASTE_WEIGHT } from '~/lib/recommendations/recommendationRpc.server';
 import { isAuthenticated } from '~/lib/Security/Password';
+import { isValidUUID } from '~/lib/Security/inputValidation';
 import {
   mapRpcFileToReelFeedItem,
   type ReelFeedInteraction,
@@ -85,7 +87,7 @@ async function fetchContextRelatedReels(
 ): Promise<Record<string, unknown>[]> {
   const pExcludeIds =
     excludeIds.length > 0
-      ? excludeIds.filter((id) => /^[0-9a-f-]{36}$/i.test(id))
+      ? excludeIds.filter((id) => isValidUUID(id))
       : [];
 
   const rpcParams: Record<string, unknown> = {
@@ -95,9 +97,11 @@ async function fetchContextRelatedReels(
     p_cursor_pos: 0,
     ...(pExcludeIds.length > 0 ? { p_exclude_ids: pExcludeIds } : {}),
     ...(sessionCats.length > 0 ? { p_session_cats: sessionCats } : {}),
+    // Swiping is "what next", not "more like this one".
+    p_taste_weight: TASTE_WEIGHT.upNext,
   };
 
-  const { data: related, error } = await db.rpc('get_related', rpcParams);
+  const { data: related, error } = await recommendationRpc('get_related', rpcParams);
   if (error) {
     console.error('Reel feed context related RPC error:', error);
     return [];
@@ -208,26 +212,26 @@ export const loader = async ({ request }: { request: Request }) => {
     // No seed = fresh random order per request, NOT a frozen 'default' hash -
     // otherwise every caller that omits the param serves the identical feed forever.
     const seedParam =
-      url.searchParams.get('seed') ?? `r-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
-    const categoryParam = url.searchParams.get('category');
+      url.searchParams.get('seed')?.slice(0, 64) ?? `r-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+    const categoryParam = url.searchParams.get('category')?.trim().slice(0, 40) || null;
     const maxDurationParam = url.searchParams.get('max_duration');
     const contextFileIdParam = url.searchParams.get('context_file_id');
     const profileUserIdParam = url.searchParams.get('profile_user_id');
     const profileExhaustedParam = url.searchParams.get('profile_exhausted') === '1';
-    const profileCursorPos = Math.max(
-      0,
-      parseInt(url.searchParams.get('profile_cursor_pos') ?? '0', 10) || 0,
+    const profileCursorPos = Math.min(
+      Math.max(0, parseInt(url.searchParams.get('profile_cursor_pos') ?? '0', 10) || 0),
+      100_000,
     );
 
     const profileUserId =
-      profileUserIdParam && /^[0-9a-f-]{36}$/i.test(profileUserIdParam)
+      profileUserIdParam && isValidUUID(profileUserIdParam)
         ? profileUserIdParam
         : null;
     const profileModeActive = profileUserId != null && !profileExhaustedParam;
 
     const pExcludeIds =
       excludeIds.length > 0
-        ? excludeIds.filter((id) => /^[0-9a-f-]{36}$/i.test(id))
+        ? excludeIds.filter((id) => isValidUUID(id))
         : [];
 
     const user = await isAuthenticated(request, ['id']);
@@ -242,7 +246,7 @@ export const loader = async ({ request }: { request: Request }) => {
       ? (() => {
           try {
             const parsed = JSON.parse(sessionCatsParam);
-            return Array.isArray(parsed) ? parsed.filter((c: unknown) => typeof c === 'string').slice(0, 20) : [];
+            return Array.isArray(parsed) ? parsed.filter((c: unknown): c is string => typeof c === 'string' && c.length > 0 && c.length <= 64).slice(0, 20) : [];
           } catch { return []; }
         })()
       : [];
@@ -253,7 +257,7 @@ export const loader = async ({ request }: { request: Request }) => {
           try {
             const parsed = JSON.parse(watchedIdsParam);
             return Array.isArray(parsed)
-              ? parsed.filter((id: unknown) => typeof id === 'string' && /^[0-9a-f-]{36}$/i.test(id as string)).slice(0, 50)
+              ? parsed.filter((id: unknown) => typeof id === 'string' && isValidUUID(id)).slice(0, 50)
               : [];
           } catch { return []; }
         })()
@@ -262,7 +266,7 @@ export const loader = async ({ request }: { request: Request }) => {
     const contextFileId =
       !profileModeActive &&
       contextFileIdParam &&
-      /^[0-9a-f-]{36}$/i.test(contextFileIdParam)
+      isValidUUID(contextFileIdParam)
         ? contextFileIdParam
         : null;
 

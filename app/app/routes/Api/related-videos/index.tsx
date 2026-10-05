@@ -1,6 +1,8 @@
 import db from '~/lib/Database/supabase';
+import { recommendationRpc, TASTE_WEIGHT } from '~/lib/recommendations/recommendationRpc.server';
 import { attachIsMusic } from '~/lib/files/attachIsMusic.server';
 import { isAuthenticated } from '~/lib/Security/Password';
+import { isValidUUID } from '~/lib/Security/inputValidation';
 import { filterFilesByAccess } from '../fun/accessControl';
 import { sanitizeFeedCard, sanitizeMetadataForClient } from '~/lib/files/sanitizeFileForViewer';
 
@@ -32,14 +34,14 @@ export const loader = async ({ request }: { request: Request }) => {
     const cursorPosParam = url.searchParams.get('cursor_pos');
     const excludeParam = url.searchParams.get('exclude_ids');
 
-    const cursorPos = cursorPosParam ? Math.max(0, parseInt(cursorPosParam, 10)) : 0;
+    const cursorPos = cursorPosParam ? Math.min(Math.max(0, parseInt(cursorPosParam, 10)), 100_000) : 0;
     const excludeIds = parseIdsParam(excludeParam);
     const pExcludeIds =
       excludeIds.length > 0
-        ? excludeIds.filter((id) => /^[0-9a-f-]{36}$/i.test(id))
+        ? excludeIds.filter((id) => isValidUUID(id))
         : [];
 
-    if (!fileIdParam || !/^[0-9a-f-]{36}$/i.test(fileIdParam)) {
+    if (!fileIdParam || !isValidUUID(fileIdParam)) {
       return new Response(
         JSON.stringify({ error: 'fileId (uuid) is required', data: [], userActions: { likedFileIds: [], dislikedFileIds: [] }, nextCursor: null }),
         { status: 400, headers: { 'Content-Type': 'application/json' } }
@@ -54,7 +56,7 @@ export const loader = async ({ request }: { request: Request }) => {
       ? (() => {
           try {
             const parsed = JSON.parse(sessionCatsParam);
-            return Array.isArray(parsed) ? parsed.filter((c: unknown) => typeof c === 'string').slice(0, 20) : [];
+            return Array.isArray(parsed) ? parsed.filter((c: unknown): c is string => typeof c === 'string' && c.length > 0 && c.length <= 64).slice(0, 20) : [];
           } catch { return []; }
         })()
       : [];
@@ -71,9 +73,13 @@ export const loader = async ({ request }: { request: Request }) => {
       ...(pExcludeIds.length > 0 ? { p_exclude_ids: pExcludeIds } : {}),
       ...(sessionCats.length > 0 ? { p_session_cats: sessionCats } : {}),
       ...(kind ? { p_kind: kind } : {}),
+      // A video list is where up next comes from, so it leans toward the viewer.
+      // Chosen here from the list's kind rather than taken from the client: every
+      // page of one list has to rank the same way or pagination skips and repeats.
+      p_taste_weight: kind === 'image' ? TASTE_WEIGHT.sidebar : TASTE_WEIGHT.upNext,
     };
 
-    const { data: related, error } = await db.rpc('get_related', rpcParams);
+    const { data: related, error } = await recommendationRpc('get_related', rpcParams);
 
     if (error) {
       console.error('get_related RPC error:', error);

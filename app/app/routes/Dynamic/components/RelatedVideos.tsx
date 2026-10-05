@@ -6,7 +6,7 @@ import RelatedVideosSkeleton, { RelatedVideosLoadingAnnouncement } from "./Relat
 import { cn, getThumbnailUrl, displayMediaTitle } from "~/lib/utils"
 import { BASE_URL } from "~/lib/URLS"
 import ParseFilenameInsert from "~/lib/utils/ShowFileName"
-import { groupConsecutiveReelClusters } from "~/lib/feed/groupConsecutiveReelClusters"
+import { groupReelShelves } from "~/lib/feed/groupConsecutiveReelClusters"
 import { Carousel, CarouselItem } from "~/components/Carousel/Carousel"
 
 interface RelatedVideosProps {
@@ -47,7 +47,7 @@ const RelatedVideosContent = ({ currentUserId }: { currentUserId?: string }) => 
   )
 
   const renderGroupedVideos = (videos: FileType[], keyPrefix: string) => {
-    const groups = groupConsecutiveReelClusters(videos)
+    const groups = groupReelShelves(videos)
     let indexCounter = 0
     return (
       <div className={relatedGridClass}>
@@ -58,12 +58,9 @@ const RelatedVideosContent = ({ currentUserId }: { currentUserId?: string }) => 
             return renderVideoCard(file, index)
           }
 
-          const clusterKey =
-            group.files[0]?.feed_reel_cluster_id ?? group.files[0]?.id ?? keyPrefix
-
           return (
             <div
-              key={`${keyPrefix}-reel-${clusterKey}`}
+              key={`${keyPrefix}-reel-${group.files[0].id}`}
               // overflow stays visible here, the carousel clips itself
               className="col-span-full w-full min-w-0 max-w-full overflow-visible"
             >

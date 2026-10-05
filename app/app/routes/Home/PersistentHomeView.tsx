@@ -45,7 +45,7 @@ import SuggestedCreatorsRow, {
 import VideoCard from "./components/VideoCard";
 import { ContinueWatchingSection } from "./components/ContinueWatchingSection";
 import type { FileType } from "~/lib/types";
-import { groupConsecutiveReelClusters } from "~/lib/feed/groupConsecutiveReelClusters";
+import { groupReelShelves, inSameReelShelf } from "~/lib/feed/groupConsecutiveReelClusters";
 import { FEED_HIDE_ACTIONS, MEDIA_GRID } from "~/lib/feed/feedVideoCardLayout";
 import { Button } from "~/components/ui/button";
 import { Check, Clapperboard, Image as ImageIcon, Plus, TriangleAlert } from "lucide-react";
@@ -139,10 +139,18 @@ export default function PersistentHomeView() {
     );
   }
 
-  const splitForHistory =
+  let splitForHistory =
     userId && files.length > 0
       ? Math.max(1, Math.min(continueWatchingPos.current, files.length - 1))
       : 0;
+  // Continue watching goes between cards, never through a shelf of shorts.
+  while (
+    splitForHistory > 0 &&
+    splitForHistory < files.length &&
+    inSameReelShelf(files[splitForHistory - 1], files[splitForHistory])
+  ) {
+    splitForHistory++;
+  }
   const feedBeforeHistory = (userId ? files.slice(0, splitForHistory) : files) as FileType[];
   const feedAfterHistory = (userId ? files.slice(splitForHistory) : []) as FileType[];
 
@@ -150,7 +158,7 @@ export default function PersistentHomeView() {
   suggestionRotation.current.ordinal = 0;
 
   const renderFeedGroups = (slice: FileType[], keyPrefix: string) => {
-    const groups = groupConsecutiveReelClusters(slice);
+    const groups = groupReelShelves(slice);
     let indexCounter = 0;
     let cardsSinceSuggestion = 0;
     const nodes: React.ReactNode[] = [];
@@ -190,12 +198,11 @@ export default function PersistentHomeView() {
         continue;
       }
 
-      const clusterKey = g.files[0]?.feed_reel_cluster_id ?? g.files[0]?.id ?? keyPrefix;
       const startIndex = indexCounter;
       indexCounter += g.files.length;
       nodes.push(
         <ReelShelf
-          key={`${keyPrefix}-reel-${clusterKey}`}
+          key={`${keyPrefix}-reel-${g.files[0].id}`}
           files={g.files}
           startIndex={startIndex}
           currentUserId={userId || undefined}

@@ -55,7 +55,7 @@ export interface FileType {
   is_reel?: boolean;
   /** Detected as music (audio track / music video). Shows the card music icon. */
   is_music?: boolean;
-  /** From feed RPCs: consecutive reels in one response share the same id (see feed_smart_v5). */
+  /** Shelf id from get_feed / get_related: shorts in one shelf share it. */
   feed_reel_cluster_id?: number | null;
   /** Series hub video (playlist root). */
   is_series_main?: boolean;
