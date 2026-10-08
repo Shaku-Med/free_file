@@ -117,10 +117,6 @@ export default [
         // music/mix: Mix feature deferred — see docs/Mix.md. Unregistered so
         // the endpoint is unreachable.
         route(`music/:id`, 'routes/Api/music/$id/index.tsx'),
-        route(`playlist`, 'routes/Api/playlist/index.tsx'),
-        route(`playlists`, 'routes/Api/playlists/index.tsx'),
-        route(`playlists/contains`, 'routes/Api/playlists/contains.tsx'),
-        route(`playlists/:id`, 'routes/Api/playlists/$id/index.tsx'),
         route(`search`, 'routes/Api/search/index.tsx'),
         route(`search/recent`, 'routes/Api/search/recent/index.tsx'),
         route(`mentions`, 'routes/Api/mentions/index.tsx'),
@@ -156,8 +152,6 @@ export default [
         route(`sitemap`, 'routes/Api/sitemap/index.tsx'),
         route(`indexnow`, 'routes/Api/indexnow/index.tsx'),
     ]),
-    route(`playlist`, 'routes/Playlist/index.tsx'),
-    route(`playlist/:playlistId`, 'routes/Playlist/view.tsx'),
     route(`tag/:tagname`, 'routes/tag.$tagname.tsx'),
     route(`music/:id`, 'routes/Music/index.tsx'),
     route(`pip`, 'routes/pip/index.tsx'),
@@ -171,6 +165,7 @@ export default [
     ]),
     route(`subscriptions`, 'routes/Subscriptions/index.tsx'),
     route(`library`, 'routes/Library/index.tsx'),
+    route(`saved`, 'routes/Saved/index.tsx'),
     route(`features`, 'routes/Features/layout.tsx', [
         route(`incoming`, 'routes/Features/Incoming/index.tsx'),
     ]),

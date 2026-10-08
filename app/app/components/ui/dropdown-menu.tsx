@@ -365,7 +365,7 @@ function DropdownMenuCollapsibleContent({
   children,
   ...props
 }: React.ComponentProps<typeof CollapsiblePrimitive.CollapsibleContent> & {
-  /** Full-width inset (no left rule); use for dense lists like playlists. */
+  /** Full-width inset (no left rule); use for dense lists. */
   flush?: boolean
 }) {
   return (

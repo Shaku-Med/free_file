@@ -23,7 +23,7 @@ import {
 import { useFileContext } from "~/lib/Context/Context";
 import { getProfilePicUrl } from "~/lib/utils/profilePic";
 import { cn } from "~/lib/utils";
-import { LogIn, User, Settings, LogOut, Heart, UserPlus, FileEdit, Download } from "lucide-react";
+import { LogIn, User, Settings, LogOut, Bookmark, UserPlus, FileEdit, Download } from "lucide-react";
 import { detectWindapp } from "~/lib/hooks/useWindapp";
 
 type Variant = "topbar" | "bottombar" | "sidebar";
@@ -254,9 +254,9 @@ function ProfileMenuContent({ username }: { username: string | undefined }) {
         </Link>
       </DropdownMenuItem>
       <DropdownMenuItem asChild>
-        <Link to="/playlist" className="flex items-center gap-2">
-          <Heart className="h-4 w-4" />
-          <span>Playlist</span>
+        <Link to="/saved" className="flex items-center gap-2">
+          <Bookmark className="h-4 w-4" />
+          <span>Saved</span>
         </Link>
       </DropdownMenuItem>
       <DropdownMenuItem asChild>

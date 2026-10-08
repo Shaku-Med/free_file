@@ -15,6 +15,7 @@ import { setPlayerSettings as setPlayerSettingsApi } from "~/lib/Services/player
 import { useLocation, useNavigation } from "react-router";
 import { isPipChromeRoute } from "~/routes/pip/pipEnv";
 import { personalizationService } from "~/lib/Services/PersonalizationService";
+import { rememberSaves } from "~/lib/save/useSave";
 
 export const driverObj = driver({
     showProgress: true,
@@ -284,6 +285,10 @@ export const ContextProvider = ({ children, st, user_agent, userId, c_user, uplo
               const newItems = data.data.filter((f: FileType) => !existingIds.has(f.id))
               return [...prev, ...newItems]
             })
+            rememberSaves(
+              data.data.map((f: FileType) => f.id).filter(Boolean),
+              data?.userActions?.savedFileIds ?? [],
+            )
             if (data?.userActions) {
               setUserActions(prev => {
                 const newLikedIds = new Set(prev.likedFileIds)

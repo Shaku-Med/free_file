@@ -25,7 +25,6 @@ import {
   Film,
   Clapperboard,
   TrendingUp,
-  ListVideo,
   LayoutList,
 } from "lucide-react";
 import { EmptyState, ErrorNote, PageBody, PageHeader } from "../components/StudioUI";
@@ -93,17 +92,16 @@ export const loader = async ({ request }: { request: Request }) => {
   const user = await isAuthenticated(request, ["id"]).catch(() => null);
   const empty: ChannelBuckets = { shorts: [], videos: [], popular: [] };
   if (!user?.id || !db) {
-    return data({ layout: DEFAULT_CHANNEL_LAYOUT, buckets: empty, playlistCount: 0 });
+    return data({ layout: DEFAULT_CHANNEL_LAYOUT, buckets: empty });
   }
 
-  const [{ data: userRow }, { data: homeRows }, { data: plRows }] = await Promise.all([
+  const [{ data: userRow }, { data: homeRows }] = await Promise.all([
     db.from("users").select("channel_layout").eq("id", user.id).maybeSingle(),
     db.rpc("get_channel_home", {
       p_profile_user_id: user.id,
       p_viewer_id: user.id,
       p_limit: CHANNEL_HOME_PREVIEW_LIMIT,
     }),
-    db.rpc("get_user_playlists", { p_user_id: user.id }),
   ]);
 
   const layout = userRow?.channel_layout
@@ -121,42 +119,23 @@ export const loader = async ({ request }: { request: Request }) => {
     }
   }
 
-  return data({
-    layout,
-    buckets,
-    playlistCount: Array.isArray(plRows) ? plRows.length : 0,
-  });
+  return data({ layout, buckets });
 };
 
 const SECTION_ICON: Record<ChannelSectionType, typeof Film> = {
   shorts: Clapperboard,
   videos: Film,
   popular: TrendingUp,
-  playlists: ListVideo,
 };
 
 /** Live preview strip of what the section shows on the channel. */
 function SectionPreview({
   type,
   buckets,
-  playlistCount,
 }: {
   type: ChannelSectionType;
   buckets: ChannelBuckets;
-  playlistCount: number;
 }) {
-  if (type === "playlists") {
-    return (
-      <p className="px-1 text-xs text-muted-foreground">
-        {playlistCount === 0
-          ? "No playlists yet."
-          : playlistCount === 1
-            ? "1 playlist"
-            : `${playlistCount} playlists`}
-      </p>
-    );
-  }
-
   const files = (type === "shorts" ? buckets.shorts : type === "popular" ? buckets.popular : buckets.videos).slice(
     0,
     4,
@@ -191,13 +170,11 @@ function SectionPreview({
 function SortableSectionRow({
   section,
   buckets,
-  playlistCount,
   onToggle,
   onRemove,
 }: {
   section: ChannelSection;
   buckets: ChannelBuckets;
-  playlistCount: number;
   onToggle: () => void;
   onRemove: () => void;
 }) {
@@ -261,14 +238,14 @@ function SortableSectionRow({
         </button>
       </div>
       <div className={cn("px-3 pb-3.5 pt-3 sm:px-4", !section.visible && "opacity-50")}>
-        <SectionPreview type={section.type} buckets={buckets} playlistCount={playlistCount} />
+        <SectionPreview type={section.type} buckets={buckets} />
       </div>
     </div>
   );
 }
 
 export default function StudioCustomizationPage() {
-  const { layout: initialLayout, buckets, playlistCount } = useLoaderData<typeof loader>();
+  const { layout: initialLayout, buckets } = useLoaderData<typeof loader>();
   const [layout, setLayout] = useState<ChannelLayout>(initialLayout);
   const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
 
@@ -406,7 +383,6 @@ export default function StudioCustomizationPage() {
                   key={section.type}
                   section={section}
                   buckets={buckets}
-                  playlistCount={playlistCount}
                   onToggle={() => toggleSection(section.type)}
                   onRemove={() => removeSection(section.type)}
                 />

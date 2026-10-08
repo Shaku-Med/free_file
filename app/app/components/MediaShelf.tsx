@@ -7,7 +7,7 @@ import { cn } from "~/lib/utils";
 /**
  * The labelled Shorts shelf and the grid skeletons, in one place.
  *
- * Four pages had grown their own copy of each: the feed, search, the playlist
+ * Four pages had grown their own copy of each: the feed, search, a list
  * view and the profile grid, with the shelf labelled "Shorts" in two of them
  * and "Reels" in another.
  */

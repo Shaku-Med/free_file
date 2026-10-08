@@ -1,12 +1,14 @@
 import { redirect, useLoaderData, Link } from "react-router";
 import type { MetaFunction } from "react-router";
-import { History, ThumbsUp, Bookmark, ListVideo, Play, LibraryBig } from "lucide-react";
+import { useEffect } from "react";
+import { History, ThumbsUp, Bookmark, Play, LibraryBig } from "lucide-react";
 import db from "~/lib/Database/supabase";
 import { isAuthenticated } from "~/lib/Security/Password";
 import { filterFilesByAccess } from "~/routes/Api/fun/accessControl";
 import { mapRpcFileRows } from "~/lib/profile/mapRpcFileRows";
 import { buildPageMeta } from "~/lib/seo";
 import type { FileType } from "~/lib/types";
+import { rememberSaves } from "~/lib/save/useSave";
 import VideoCard from "~/routes/Home/components/VideoCard";
 import EmptyState from "~/components/EmptyState";
 import { FEED_HIDE_ACTIONS, MEDIA_GRID } from "~/lib/feed/feedVideoCardLayout";
@@ -173,6 +175,11 @@ export default function Library() {
   };
   const profileBase = username ? `/profile/${encodeURIComponent(username)}` : null;
 
+  useEffect(() => {
+    const ids = saved.map((f) => f.id);
+    rememberSaves(ids, ids);
+  }, [saved]);
+
   const sections: {
     key: string;
     icon: typeof History;
@@ -195,23 +202,14 @@ export default function Library() {
       files: liked,
       seeAllTo: profileBase ? `${profileBase}?tab=liked` : undefined,
     },
-    { key: "saved", icon: Bookmark, title: "Saved", files: saved },
+    { key: "saved", icon: Bookmark, title: "Saved", files: saved, seeAllTo: "/saved" },
   ];
   const nonEmpty = sections.filter((s) => s.files.length > 0);
 
   return (
     <div className="w-full max-w-full overflow-x-hidden">
       <div className="space-y-8 px-3 py-5 sm:px-5">
-        <div className="flex items-center justify-between gap-3">
-          <h1 className="text-lg font-semibold text-foreground">Library</h1>
-          <Link
-            to="/playlist"
-            className="flex items-center gap-1.5 rounded-full bg-muted/60 px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
-          >
-            <ListVideo className="size-3.5" />
-            Playlists
-          </Link>
-        </div>
+        <h1 className="text-lg font-semibold text-foreground">Library</h1>
 
         {nonEmpty.length === 0 ? (
           <EmptyState

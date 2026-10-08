@@ -134,7 +134,7 @@ interface VideoCardProps {
   /** When set (e.g. watch page sidebar), show add-to-play-queue on horizontal cards. */
   onAddToPlayQueue?: (video: FileType) => void;
   inPlayQueue?: boolean;
-  /** Hide like/share/⋯ row  use on watch sidebar, queue, playlists, series lists (YouTube-style). */
+  /** Hide like/share/⋯ row  use on watch sidebar, queue, series lists (YouTube-style). */
   hideActions?: {
     halfway?: boolean;
     completely?: boolean;

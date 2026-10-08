@@ -4,7 +4,7 @@
  * page so the shape and validation live in exactly one place.
  */
 
-export const CHANNEL_SECTION_TYPES = ['shorts', 'videos', 'popular', 'playlists'] as const;
+export const CHANNEL_SECTION_TYPES = ['shorts', 'videos', 'popular'] as const;
 export type ChannelSectionType = (typeof CHANNEL_SECTION_TYPES)[number];
 
 export interface ChannelSection {
@@ -26,14 +26,12 @@ export const SECTION_LABELS: Record<ChannelSectionType, string> = {
   shorts: 'Shorts',
   videos: 'Videos',
   popular: 'Popular videos',
-  playlists: 'Playlists',
 };
 
 export const SECTION_DESCRIPTIONS: Record<ChannelSectionType, string> = {
   shorts: 'Your reels, newest first.',
   videos: 'Your uploads, newest first.',
   popular: 'Your most-viewed videos.',
-  playlists: 'Playlists you created.',
 };
 
 export const DEFAULT_CHANNEL_LAYOUT: ChannelLayout = {

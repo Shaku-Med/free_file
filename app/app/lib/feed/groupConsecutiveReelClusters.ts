@@ -43,7 +43,7 @@ export function groupReelShelves(files: FileType[]): FeedRenderGroup[] {
 }
 
 /**
- * For lists the database does not shelve (subscriptions, profile, playlists).
+ * For lists the database does not shelve (subscriptions, profile, saved).
  *
  * When a reel is encountered, scan forward through the rest of the list and
  * collect up to {@link REEL_STRIP_BATCH_SIZE} reels for one strip — even if

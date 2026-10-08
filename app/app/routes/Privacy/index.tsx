@@ -56,7 +56,7 @@ export default function PrivacyPage() {
           </li>
           <li>
             <strong className="text-foreground">User Content:</strong> videos, images, captions, comments,
-            reactions, playlists, and metadata you upload or create.
+            reactions, saves, and metadata you upload or create.
           </li>
           <li>
             <strong className="text-foreground">Technical info:</strong> IP address, user agent, device type,

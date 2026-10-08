@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { isMobile } from "react-device-detect";
-import { Link, useNavigate, useParams } from "react-router";
+import { useNavigate, useParams } from "react-router";
 import {
   ThumbsUp,
   ThumbsDown,
@@ -12,10 +12,6 @@ import {
   Loader2,
   MoreHorizontal,
   MoreVertical,
-  ListPlus,
-  Check,
-  ListVideo,
-  Plus,
   Pencil,
   Bookmark,
   MoveVertical,
@@ -31,10 +27,6 @@ import { useRateLimit } from "~/lib/hooks/useRateLimit";
 import { ShareModal } from "~/components/ShareModal";
 import {
   DropdownMenu,
-  DropdownMenuCheckboxItem,
-  DropdownMenuCollapsible,
-  DropdownMenuCollapsibleContent,
-  DropdownMenuCollapsibleTrigger,
   DropdownMenuContent,
   DropdownMenuGroup,
   DropdownMenuItem,
@@ -42,7 +34,6 @@ import {
   DropdownMenuTrigger,
 } from "~/components/ui/dropdown-menu";
 import { cn } from "~/lib/utils";
-import CreatePlaylistModal from "~/components/Playlist/CreatePlaylistModal";
 import { Dialog, DialogContent } from "~/components/ui/dialog";
 import {
   Drawer,
@@ -51,13 +42,12 @@ import {
   DrawerOverlay,
   DrawerTitle,
 } from "~/components/ui/drawer";
-import { Tooltip, TooltipContent, TooltipTrigger } from "~/components/ui/tooltip";
 import CommentSection from "~/routes/Dynamic/components/Comments/CommentSection";
-import { useLocalPlaylist, normalizeLocalPlaylistFileId } from "~/lib/hooks/useLocalPlaylist";
 import { useFileContext } from "~/lib/Context/Context";
 import { useCloseOnTimestampSeek } from "~/lib/hooks/useCloseOnTimestampSeek";
 import { personalizationService } from "~/lib/Services/PersonalizationService";
 import { playbackPositionField } from '~/lib/playback/positionRegistry';
+import { useSave } from "~/lib/save/useSave";
 
 export interface ActionsProps {
   fileId: string;
@@ -89,7 +79,7 @@ export interface ActionsProps {
    * Defaults to `/${uniqueId}` when omitted.
    */
   sharePagePath?: string;
-  /** Logged-in user id from the page loader; playlist submenu loads lists when this is set. */
+  /** Logged-in user id from the page loader; saving needs it. */
   currentUserId?: string | null;
   /** File `created_at` for comment image uploads (GitHub path under the post folder). */
   fileCreatedAt?: string | null;
@@ -149,13 +139,6 @@ type InteractionResponse = {
   dislike_count?: number;
   user_has_liked?: boolean;
   user_has_disliked?: boolean;
-};
-
-type UserPlaylist = {
-  id: string;
-  title: string;
-  unique_id: string;
-  item_count: number;
 };
 
 function normalizeInteraction(json: InteractionResponse | null): {
@@ -248,12 +231,7 @@ export default function Actions({
   const [shareModalOpen, setShareModalOpen] = useState(false);
   const [reportOpen, setReportOpen] = useState(false);
 
-  const [playlists, setPlaylists] = useState<UserPlaylist[]>([]);
-  const [addedTo, setAddedTo] = useState<Set<string>>(() => new Set());
-  const [playlistLoad, setPlaylistLoad] = useState<"idle" | "loading" | "error" | "done">("idle");
-  const [playlistError, setPlaylistError] = useState("");
-  const [addingPlaylistId, setAddingPlaylistId] = useState<string | null>(null);
-  const [createPlaylistOpen, setCreatePlaylistOpen] = useState(false);
+  const { saved, busy: saveBusy, toggle: toggleSave, ensureStatus: ensureSaveStatus } = useSave(fileId, currentUserId);
   const [internalCommentsOpen, setInternalCommentsOpen] = useState(false);
   const [likeButtonPop, setLikeButtonPop] = useState(false);
   const isCommentsControlled = typeof onCommentsOpenChange === "function";
@@ -288,10 +266,6 @@ export default function Actions({
   // A card can point at the page you're on (the current episode in the series
   // list), which must not grow the main row's Share/Save pills.
   const shareSaveInRow = isOnThisFilePage && layout === "default" && !inCard;
-  const { has: hasLocalSave, add: addLocalSave, remove: removeLocalSave } = useLocalPlaylist();
-  const effectiveLocalFileId = normalizeLocalPlaylistFileId(fileId);
-  const inLocalList = Boolean(effectiveLocalFileId && hasLocalSave(effectiveLocalFileId));
-
 
   const pulseLikeButton = useCallback(() => {
     setLikeButtonPop(true);
@@ -302,98 +276,18 @@ export default function Actions({
     setCanWebShare(typeof navigator !== "undefined" && typeof navigator.share === "function");
   }, []);
 
+  const isReel = layout === "reel" || layout === "tiktok";
+
+  // The watch row and the reel rail show Save as a button of its own, so they
+  // need the state up front; cards ask when their menu opens.
   useEffect(() => {
-    setPlaylists([]);
-    setAddedTo(new Set());
-    setPlaylistLoad("idle");
-    setPlaylistError("");
-  }, [fileId, currentUserId]);
+    if (shareSaveInRow || isReel) ensureSaveStatus();
+  }, [shareSaveInRow, isReel, ensureSaveStatus]);
 
   const requireAuth = useCallback(() => {
     const next = typeof window !== "undefined" ? window.location.pathname + window.location.search : "/";
     navigate(`/auth/login?redirect=${encodeURIComponent(next)}`);
   }, [navigate]);
-
-  const loadPlaylistData = useCallback(async () => {
-    if (!currentUserId) return;
-    setPlaylistLoad("loading");
-    setPlaylistError("");
-    try {
-      const [playlistsRes, containsRes] = await Promise.all([
-        fetch("/api/playlists", { credentials: "include" }),
-        fetch(`/api/playlists/contains?file_id=${encodeURIComponent(fileId)}`, { credentials: "include" }),
-      ]);
-      const playlistsJson = await playlistsRes.json();
-      if (!playlistsRes.ok) {
-        if (playlistsRes.status === 401) {
-          requireAuth();
-          setPlaylistLoad("idle");
-          return;
-        }
-        setPlaylistError(String(playlistsJson.error || "Could not load playlists"));
-        setPlaylistLoad("error");
-        return;
-      }
-      setPlaylists(Array.isArray(playlistsJson.playlists) ? playlistsJson.playlists : []);
-      if (containsRes.ok) {
-        const containsJson = await containsRes.json();
-        setAddedTo(new Set(containsJson.playlist_ids || []));
-      } else {
-        setAddedTo(new Set());
-      }
-      setPlaylistLoad("done");
-    } catch {
-      setPlaylistError("Network error");
-      setPlaylistLoad("error");
-    }
-  }, [currentUserId, fileId, requireAuth]);
-
-  const handlePlaylistToggle = useCallback(
-    async (playlistId: string) => {
-      if (!currentUserId) {
-        requireAuth();
-        return;
-      }
-      const isAdded = addedTo.has(playlistId);
-      setAddingPlaylistId(playlistId);
-      try {
-        const res = await fetch(`/api/playlists/${playlistId}`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          credentials: "include",
-          body: JSON.stringify(
-            isAdded ? { action: "remove", file_id: fileId } : { file_id: fileId },
-          ),
-        });
-        if (res.status === 401) {
-          requireAuth();
-          return;
-        }
-        if (res.ok || (!isAdded && res.status === 409)) {
-          setAddedTo((prev) => {
-            const next = new Set(prev);
-            if (isAdded) next.delete(playlistId);
-            else next.add(playlistId);
-            return next;
-          });
-          if (res.ok) {
-            setPlaylists((prev) =>
-              prev.map((p) => {
-                if (p.id !== playlistId) return p;
-                if (isAdded) return { ...p, item_count: Math.max(0, p.item_count - 1) };
-                return { ...p, item_count: p.item_count + 1 };
-              }),
-            );
-          }
-        }
-      } catch {
-        /* ignore */
-      } finally {
-        setAddingPlaylistId(null);
-      }
-    },
-    [addedTo, currentUserId, fileId, requireAuth],
-  );
 
   // One shared bounce limit for the like/dislike pair, so rapidly toggling (or
   // flipping like↔dislike) can't flood /api/likes. ~600ms is below human
@@ -529,16 +423,6 @@ export default function Actions({
     setCommentsPanelOpen(!commentsPanelOpen);
   }, [isOnThisFilePage, isMobile, commentsPanelOpen, setCommentsPanelOpen]);
 
-  const onPlaylistSubOpenChange = useCallback(
-    (open: boolean) => {
-      if (!open) return;
-      if (!currentUserId) return;
-      if (playlistLoad === "loading" || playlistLoad === "done") return;
-      void loadPlaylistData();
-    },
-    [currentUserId, playlistLoad, loadPlaylistData],
-  );
-
   const pillOuter =
     `inline-flex shrink-0 items-center justify-center gap-1.5 rounded-full border border-border px-3 py-2 text-sm font-medium text-foreground shadow-sm transition hover:bg-accent/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:opacity-50 data-[state=open]:bg-accent/70`;
 
@@ -589,141 +473,28 @@ export default function Actions({
     reelDensityMinimal ? null : <span className={reelLabelClass}>{text}</span>;
 
   const isShortsShelf = layout === "shortsShelf";
-  const isReel = layout === "reel" || layout === "tiktok";
 
-  const playlistSaveMenuBody = (
-    <div
-      className={cn(
-        "max-h-[min(280px,var(--radix-dropdown-menu-content-available-height))] overflow-y-auto overscroll-contain p-1.5",
-        isReel && !isShortsShelf && "max-w-[calc(100vw-1.5rem)]",
-      )}
+  const saveLabel = saved ? "Saved" : "Save";
+  const saveIcon = (className: string) => (
+    <Bookmark className={cn(className, "shrink-0", saved && "fill-current")} aria-hidden />
+  );
+
+  const savePill = (
+    <button
+      type="button"
+      className={cn(pillOuter, "max-md:hidden", saved && "bg-accent")}
+      onClick={() => void toggleSave()}
+      disabled={saveBusy}
+      aria-pressed={saved}
+      aria-label={saveLabel}
     >
-      <DropdownMenuCheckboxItem
-        checked={inLocalList}
-        disabled={!effectiveLocalFileId}
-        onCheckedChange={(next) => {
-          if (!effectiveLocalFileId) return;
-          if (next) addLocalSave(effectiveLocalFileId);
-          else removeLocalSave(effectiveLocalFileId);
-        }}
-      >
-        <Bookmark className={cn("size-4", inLocalList && "fill-current")} aria-hidden />
-        Save locally on this device
-      </DropdownMenuCheckboxItem>
-      <DropdownMenuSeparator className="my-1" />
-      {!currentUserId ? (
-        <DropdownMenuItem onSelect={() => requireAuth()}>
-          <ListPlus className="size-4" aria-hidden />
-          Sign in to save to playlists
-        </DropdownMenuItem>
-      ) : playlistLoad === "loading" ? (
-        <DropdownMenuItem disabled>
-          <Loader2 className="size-4 animate-spin" aria-hidden />
-          Loading playlists…
-        </DropdownMenuItem>
-      ) : playlistLoad === "error" ? (
-        <>
-          <DropdownMenuItem disabled className="text-muted-foreground">
-            {playlistError}
-          </DropdownMenuItem>
-          <DropdownMenuItem onSelect={() => void loadPlaylistData()}>Retry</DropdownMenuItem>
-        </>
-      ) : (
-        <>
-          {playlists.length === 0 ? (
-            <DropdownMenuItem disabled className="text-muted-foreground">
-              No playlists yet
-            </DropdownMenuItem>
-          ) : (
-            playlists.map((pl) => {
-              const isAdded = addedTo.has(pl.id);
-              const busy = addingPlaylistId === pl.id;
-              return (
-                <DropdownMenuItem
-                  key={pl.id}
-                  disabled={addingPlaylistId !== null}
-                  onSelect={() => void handlePlaylistToggle(pl.id)}
-                  className="min-w-0 gap-2"
-                >
-                  {busy ? (
-                    <Loader2 className="size-4 shrink-0 animate-spin" aria-hidden />
-                  ) : isAdded ? (
-                    <Check className="size-4 shrink-0 text-primary" aria-hidden />
-                  ) : (
-                    <ListVideo className="size-4 shrink-0 opacity-70" aria-hidden />
-                  )}
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <span className="min-w-0 flex-1 truncate cursor-default">
-                        {pl.title}
-                      </span>
-                    </TooltipTrigger>
-                    <TooltipContent side="right" className="max-w-xs">
-                      {pl.title}
-                    </TooltipContent>
-                  </Tooltip>
-                  <span className="shrink-0 text-[11px] text-muted-foreground tabular-nums">
-                    {pl.item_count}
-                  </span>
-                </DropdownMenuItem>
-              );
-            })
-          )}
-          <DropdownMenuSeparator className="my-1" />
-          <DropdownMenuItem onSelect={() => setCreatePlaylistOpen(true)}>
-            <Plus className="size-4" aria-hidden />
-            New playlist…
-          </DropdownMenuItem>
-          <DropdownMenuItem asChild>
-            <Link to="/playlist" className="cursor-pointer">
-              <ListVideo className="size-4" aria-hidden />
-              Manage playlists
-            </Link>
-          </DropdownMenuItem>
-        </>
-      )}
-    </div>
+      {saveIcon("h-[1.125rem] w-[1.125rem]")}
+      <span>{saveLabel}</span>
+    </button>
   );
-
-  const playlistSaveMenuCollapsible = (
-    <DropdownMenuCollapsible onOpenChange={onPlaylistSubOpenChange}>
-      <DropdownMenuCollapsibleTrigger className="min-w-[12rem]">
-        <ListPlus className="size-4" aria-hidden />
-        Add to playlist
-      </DropdownMenuCollapsibleTrigger>
-      <DropdownMenuCollapsibleContent flush>{playlistSaveMenuBody}</DropdownMenuCollapsibleContent>
-    </DropdownMenuCollapsible>
-  );
-
-  const saveRowDropdown = shareSaveInRow ? (
-    <DropdownMenu onOpenChange={onPlaylistSubOpenChange}>
-      <DropdownMenuTrigger asChild>
-        <button
-          type="button"
-          className={cn(pillOuter, "max-md:hidden")}
-          aria-pressed={inLocalList}
-          aria-label={inLocalList ? "Saved" : "Save"}
-        >
-          <Bookmark
-            className={cn("h-[1.125rem] w-[1.125rem] shrink-0", inLocalList && "fill-current")}
-            aria-hidden
-          />
-          <span>{inLocalList ? "Saved" : "Save"}</span>
-        </button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent
-        align="end"
-        side="bottom"
-        sideOffset={4}
-        className="z-[200] min-w-[12rem] rounded-xl border-border/80 p-1 shadow-lg"
-      >
-        <DropdownMenuGroup>{playlistSaveMenuBody}</DropdownMenuGroup>
-      </DropdownMenuContent>
-    </DropdownMenu>
-  ) : null;
 
   const moreDropdown = (
-    <DropdownMenu modal={!isReel || isShortsShelf}>
+    <DropdownMenu modal={!isReel || isShortsShelf} onOpenChange={(open) => open && ensureSaveStatus()}>
       <DropdownMenuTrigger asChild>
         {isShortsShelf ? (
           <button
@@ -782,24 +553,22 @@ export default function Actions({
             </>
           ) : null}
           <DropdownMenuGroup>
+            {/* The watch row shows Save and Share as buttons on wider screens,
+                so the menu only repeats them where the row hides them. */}
+            <DropdownMenuItem
+              disabled={saveBusy}
+              className={cn(shareSaveInRow && "md:hidden")}
+              onSelect={() => void toggleSave()}
+            >
+              {saveIcon("size-4")}
+              {saved ? "Remove from Saved" : "Save"}
+            </DropdownMenuItem>
             <DropdownMenuItem
               onSelect={() => setShareModalOpen(true)}
-              className={cn(shareSaveInRow && "max-md:hidden")}
+              className={cn(shareSaveInRow && "md:hidden")}
             >
               <Share2 className="size-4" aria-hidden />
               Share
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              disabled={!effectiveLocalFileId}
-              className={cn(shareSaveInRow && "md:hidden")}
-              onSelect={() => {
-                if (!effectiveLocalFileId) return;
-                if (inLocalList) removeLocalSave(effectiveLocalFileId);
-                else addLocalSave(effectiveLocalFileId);
-              }}
-            >
-              <Bookmark className={cn("size-4", inLocalList && "fill-current")} aria-hidden />
-              {inLocalList ? "Saved" : "Save"}
             </DropdownMenuItem>
             <DropdownMenuItem disabled={shareBusy} onSelect={() => void onCopyLink()}>
               <Link2 className="size-4" aria-hidden />
@@ -812,8 +581,6 @@ export default function Actions({
             </DropdownMenuItem>
           </DropdownMenuGroup>
 
-          <DropdownMenuSeparator />
-          <DropdownMenuGroup>{playlistSaveMenuCollapsible}</DropdownMenuGroup>
           {!isOwner && currentUserId ? (
             <>
               <DropdownMenuSeparator />
@@ -946,7 +713,7 @@ export default function Actions({
             )}
             <span>Share</span>
           </button>
-          {saveRowDropdown}
+          {savePill}
         </>
       ) : null}
 
@@ -1067,6 +834,21 @@ export default function Actions({
         {reelAuxLabel("Share")}
       </button>
 
+      <button
+        type="button"
+        className={cn(
+          "group flex select-none flex-col items-center",
+          reelDensityMinimal ? "gap-0.5" : "gap-1.5",
+        )}
+        onClick={() => void toggleSave()}
+        disabled={saveBusy}
+        aria-pressed={saved}
+        aria-label={saveLabel}
+      >
+        <span className={cn(reelIconBtn, "group-active:scale-90")}>{saveIcon(reelIconSize)}</span>
+        {reelAuxLabel(saveLabel)}
+      </button>
+
       {/* Remix is not built yet. The audio-art tile below still reaches the
           sound page, so pulling this only removes the promise of an action the
           app cannot perform. */}
@@ -1123,16 +905,6 @@ export default function Actions({
   return (
     <>
       {isShortsShelf ? moreDropdown : isReel ? (instagramStyle ? instagramReelRow : reelRow) : defaultRow}
-
-      {currentUserId ? (
-        <CreatePlaylistModal
-          open={createPlaylistOpen}
-          onOpenChange={setCreatePlaylistOpen}
-          onCreated={(pl) => {
-            setPlaylists((prev) => [{ ...pl, item_count: 0 }, ...prev]);
-          }}
-        />
-      ) : null}
 
       {suppressCommentsUi ? null : isMobile ? (
         /**

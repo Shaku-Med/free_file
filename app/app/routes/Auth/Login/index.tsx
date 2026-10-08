@@ -127,7 +127,7 @@ export const action = async ({ request }: { request: Request }) => {
 export const meta: MetaFunction = () =>
   buildPageMeta({
     title: 'Sign In to your account | Memories',
-    description: 'Sign in to your Memories account to view your feed, upload content, and access your saved playlists and profile.',
+    description: 'Sign in to your Memories account to view your feed, upload content, and get to your saved videos and profile.',
     canonicalPath: '/auth/login',
     noindex: true,
   });

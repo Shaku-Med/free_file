@@ -1,6 +1,5 @@
-import { useEffect, useState } from "react";
 import { Link } from "react-router";
-import { ChevronRight, ListVideo, Globe, Lock, Music } from "lucide-react";
+import { ChevronRight, ListVideo } from "lucide-react";
 import VideoCard from "~/routes/Home/components/VideoCard";
 import { FEED_HIDE_ACTIONS } from "~/lib/feed/feedVideoCardLayout";
 import { cn } from "~/lib/utils";
@@ -21,7 +20,6 @@ export interface ChannelHomeBuckets {
 interface ChannelHomeProps {
   sections: ChannelSection[];
   buckets: ChannelHomeBuckets;
-  profileUserId: string;
   profileOwnerUsername: string;
   isOwner: boolean;
   currentUserId?: string | null;
@@ -59,70 +57,9 @@ function SectionRow({
   );
 }
 
-function PlaylistsRow({ profileUserId, isOwner }: { profileUserId: string; isOwner: boolean }) {
-  const [playlists, setPlaylists] = useState<
-    { id: string; title: string; item_count: number; is_public: boolean }[]
-  >([]);
-  const [loaded, setLoaded] = useState(false);
-
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const res = await fetch(
-          `/api/profile-tab?userId=${encodeURIComponent(profileUserId)}&tab=playlists`,
-          { credentials: "include" },
-        );
-        if (!res.ok || cancelled) return;
-        const json = await res.json();
-        if (!cancelled) setPlaylists(Array.isArray(json.playlists) ? json.playlists : []);
-      } catch {
-        /* ignore */
-      } finally {
-        if (!cancelled) setLoaded(true);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [profileUserId]);
-
-  if (loaded && playlists.length === 0) return null;
-
-  return (
-    <SectionRow
-      title={SECTION_LABELS.playlists}
-      bodyClassName="grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3"
-    >
-      {playlists.map((pl) => (
-        <Link
-          key={pl.id}
-          to={`/playlist/${pl.id}`}
-          className="group flex min-w-0 items-center gap-3 rounded-xl border border-border/60 bg-card/40 p-3 transition-colors hover:bg-accent/50"
-        >
-          <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
-            <Music className="h-5 w-5" />
-          </span>
-          <div className="min-w-0 flex-1">
-            <p className="truncate text-sm font-medium text-foreground group-hover:text-primary">
-              {pl.title}
-            </p>
-            <div className="mt-0.5 flex items-center gap-1.5 text-xs text-muted-foreground">
-              <span>{pl.item_count === 1 ? "1 video" : `${pl.item_count} videos`}</span>
-              <span className="text-muted-foreground/50">·</span>
-              {pl.is_public ? <Globe className="h-3 w-3" /> : <Lock className="h-3 w-3" />}
-            </div>
-          </div>
-        </Link>
-      ))}
-    </SectionRow>
-  );
-}
-
 export default function ChannelHome({
   sections,
   buckets,
-  profileUserId,
   profileOwnerUsername,
   isOwner,
   currentUserId,
@@ -176,8 +113,6 @@ export default function ChannelHome({
             return renderFileRow("videos", buckets.videos, false);
           case "popular":
             return renderFileRow("popular", buckets.popular, false);
-          case "playlists":
-            return <PlaylistsRow key="playlists" profileUserId={profileUserId} isOwner={isOwner} />;
           default:
             return null;
         }

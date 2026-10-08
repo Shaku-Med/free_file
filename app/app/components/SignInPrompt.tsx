@@ -40,7 +40,7 @@ const PROMPTS = [
   },
   {
     title: "Unlock the full experience",
-    description: "Playlists, subscriptions, upload history, and more. Create a free account to get started.",
+    description: "Saves, subscriptions, upload history, and more. Create a free account to get started.",
     icon: Sparkles,
     accent: "text-violet-500",
   },

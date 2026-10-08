@@ -1,7 +1,7 @@
 import { isAuthenticated } from '~/lib/Security/Password';
 import db from '~/lib/Database/supabase';
 import { isValidUUID } from '~/lib/Security/inputValidation';
-import { filterFilesByAccess } from '~/routes/Api/fun/accessControl';
+import { listSavedFiles } from '~/lib/save/savedFiles.server';
 import { checkSavesGetRateLimit, checkSavesPostRateLimit } from '~/routes/Api/fun/personalizationRateLimit';
 import { parsePlaybackPosition, recordActionPosition } from '~/lib/Services/actionPosition.server';
 
@@ -11,7 +11,8 @@ const toJson = (body: unknown, status = 200) =>
     headers: { 'Content-Type': 'application/json' },
   });
 
-// GET: Check if a file is saved, or list all saved files
+// GET: whether one file is saved, or a page of the viewer's saves.
+// Saves are private: only the signed in viewer's own are ever read.
 export const loader = async ({ request }: { request: Request }) => {
   try {
     const user = await isAuthenticated(request, ['id']);
@@ -27,44 +28,16 @@ export const loader = async ({ request }: { request: Request }) => {
     const fileId = url.searchParams.get('fileId');
     const list = url.searchParams.get('list');
 
-    // List all saved files
+    // One page of the viewer's own saves, shaped like feed cards.
     if (list === 'true') {
-      const limit = Math.min(parseInt(url.searchParams.get('limit') || '20', 10), 100);
-      const offset = Math.max(parseInt(url.searchParams.get('offset') || '0', 10), 0);
-
-      const { data, error } = await db
-        .from('saved_files')
-        .select(`
-          file_id,
-          created_at,
-          files:file_id (
-            id, unique_id, file_title, file_description, file_type,
-            default_thumbnail, view_count, share_count, is_reel, duration,
-            categories, tags, owner_id, endpoint, filename, created_at,
-            is_public, is_adult, upload_status
-          )
-        `)
-        .eq('user_id', user.id)
-        .order('created_at', { ascending: false })
-        .range(offset, offset + limit - 1);
-
-      if (error) {
+      const offset = Math.min(Math.max(parseInt(url.searchParams.get('offset') || '0', 10) || 0, 0), 10_000);
+      try {
+        const page = await listSavedFiles(request, user.id, offset);
+        return toJson({ data: page.files, nextOffset: page.nextOffset });
+      } catch (error) {
         console.error('List saved files error:', error);
         return toJson({ error: 'Failed to list saved files' }, 500);
       }
-
-      // A file may have been made private/age-gated after it was saved. Drop any
-      // row the viewer can no longer access so we don't leak storage metadata
-      // (endpoint/filename/owner) for content they're no longer allowed to see.
-      const rows = Array.isArray(data) ? data : [];
-      const accessibleFiles = await filterFilesByAccess(
-        request,
-        rows.map((r: any) => r.files).filter(Boolean) as any[],
-      );
-      const accessibleIds = new Set(accessibleFiles.map((f: any) => f?.id).filter(Boolean));
-      const filtered = rows.filter((r: any) => r.files && accessibleIds.has(r.files.id));
-
-      return toJson({ data: filtered, total: filtered.length });
     }
 
     // Check single file
@@ -113,11 +86,9 @@ export const action = async ({ request }: { request: Request }) => {
     const row = Array.isArray(data) ? data[0] : data;
     const saved = row?.saved ?? false;
     void recordActionPosition(user.id, fileId, 'save', parsePlaybackPosition(body?.position), saved);
-    return toJson({
-      success: true,
-      saved,
-      save_count: Number(row?.save_count) ?? 0,
-    });
+    // No save count: saves are private, so how many people saved a video is
+    // not something to hand back to whoever taps the button.
+    return toJson({ success: true, saved });
   } catch (error) {
     console.error('Save action error:', error);
     return toJson({ error: 'Internal server error' }, 500);

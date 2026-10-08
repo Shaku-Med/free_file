@@ -11,7 +11,7 @@ const FOOTER_VISIBLE_PREFIXES = [
   "/download",
   "/auth",
   "/api",
-  "/playlist",
+  "/saved",
   "/profile",
   "/subscriptions",
   "/settings",
@@ -52,7 +52,7 @@ const FOOTER_SECTIONS: ReadonlyArray<{
     links: [
       { to: "/", label: "Home" },
       { to: "/subscriptions", label: "Subscriptions" },
-      { to: "/playlist", label: "Playlists" },
+      { to: "/saved", label: "Saved" },
     ],
   },
   {

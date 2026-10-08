@@ -9,7 +9,6 @@ import type { FileType } from "~/lib/types";
 import UserProfileHeader from "./components/UserProfileHeader";
 import UserFilesGrid from "./components/UserFilesGrid";
 import ProfileTabVideosGrid from "./components/ProfileTabVideosGrid";
-import ProfilePlaylistsSection from "./components/ProfilePlaylistsSection";
 import ChannelHome, { type ChannelHomeBuckets } from "./components/ChannelHome";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "~/components/ui/tabs";
 import { getProfilePicUrl } from "~/lib/utils/profilePic";
@@ -338,7 +337,7 @@ function blendFilesWithFresh(cachedFiles: FileType[], freshFiles: FileType[]): F
   return blended;
 }
 
-const PROFILE_TAB_VALUES = new Set(["home", "uploads", "images", "liked", "history", "playlists", "adult"]);
+const PROFILE_TAB_VALUES = new Set(["home", "uploads", "images", "liked", "history", "adult"]);
 /** Tabs only the profile owner may open. */
 const OWNER_ONLY_TABS = new Set(["liked", "history", "adult"]);
 
@@ -626,9 +625,6 @@ const Profile = () => {
                 History
               </TabsTrigger>
             )}
-            <TabsTrigger value="playlists" className="flex-none">
-              Playlists
-            </TabsTrigger>
             {isOwner && (
               <TabsTrigger value="adult" className="flex-none">
                 Flagged
@@ -648,7 +644,6 @@ const Profile = () => {
             <ChannelHome
               sections={channelData?.channelLayout?.sections ?? DEFAULT_CHANNEL_LAYOUT.sections}
               buckets={channelData?.channelBuckets ?? { shorts: [], videos: [], popular: [] }}
-              profileUserId={effectiveData.profile.id}
               profileOwnerUsername={effectiveData.profile.username}
               isOwner={isOwner}
               currentUserId={effectiveData.currentUserId ?? undefined}
@@ -716,13 +711,6 @@ const Profile = () => {
               />
             </TabsContent>
           )}
-          <TabsContent value="playlists" className="mt-0">
-            <ProfilePlaylistsSection
-              profileUserId={effectiveData.profile.id}
-              isOwner={isOwner}
-              dataReady={true}
-            />
-          </TabsContent>
           {isOwner && (
             <TabsContent value="adult" className="mt-0">
               <p className="mb-4 -mt-2 text-sm text-muted-foreground">

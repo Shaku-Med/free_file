@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, type ComponentType } from "react"
 import { Link, useLocation } from "react-router"
 import {
+  Bookmark,
   ChevronDown,
   ChevronRight,
   ChevronUp,
@@ -10,7 +11,6 @@ import {
   Film,
   History,
   Home,
-  ListVideo,
   Settings,
   Sparkles,
   SquarePlay,
@@ -182,11 +182,11 @@ export function AppSidebar() {
     ? [
         { title: "Your channel", icon: SquareUserRound, href: profileBase },
         { title: "History", icon: History, href: `${profileBase}?tab=history` },
-        { title: "Playlists", icon: ListVideo, href: "/playlist" },
+        { title: "Saved", icon: Bookmark, href: "/saved" },
         { title: "Liked videos", icon: ThumbsUp, href: `${profileBase}?tab=liked` },
         { title: "Your videos", icon: SquarePlay, href: "/brozystudio/posts" },
       ]
-    : [{ title: "Playlists", icon: ListVideo, href: "/playlist" }]
+    : [{ title: "Saved", icon: Bookmark, href: "/saved" }]
   const moreNav: NavEntry[] = [
     ...(userId ? [{ title: "Settings", icon: Settings, href: "/settings" }] : []),
     { title: "Incoming features", icon: Sparkles, href: "/features/incoming" },

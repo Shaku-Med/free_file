@@ -31,7 +31,7 @@ export function SignInToSeeMore() {
         </p>
         <p className="max-w-sm text-sm text-muted-foreground">
           Create a free account to unlock unlimited browsing, uploads,
-          playlists, and more.
+          saves, and more.
         </p>
         <Button
           onClick={() => setDialogOpen(true)}
@@ -56,7 +56,7 @@ export function SignInDialog({
   open,
   onOpenChange,
   title = "Sign in to continue",
-  description = "Create a free account or sign in to enjoy full access  uploads, playlists, comments, and more.",
+  description = "Create a free account or sign in to enjoy full access  uploads, saves, comments, and more.",
 }: {
   open: boolean;
   onOpenChange: (v: boolean) => void;

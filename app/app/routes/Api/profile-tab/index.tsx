@@ -4,10 +4,8 @@ import db from "~/lib/Database/supabase";
 import { attachIsMusic } from "~/lib/files/attachIsMusic.server";
 import { isValidUUID } from "~/lib/Security/inputValidation";
 import { mapRpcFileRows } from "~/lib/profile/mapRpcFileRows";
-import { resolvePlaylistCovers } from "~/lib/playlist/playlistCovers.server";
-import { mapPlaylistRpcToClientRow } from "~/lib/profile/normalizePlaylistRpcRow";
 
-const TABS = new Set(["liked", "history", "playlists", "adult", "shorts", "videos", "popular"]);
+const TABS = new Set(["liked", "history", "adult", "shorts", "videos", "popular"]);
 /** Public per-section "See all" views (channel home sections). NOT owner-gated. */
 const PUBLIC_SECTION_TABS = new Set(["shorts", "videos", "popular"]);
 
@@ -32,34 +30,12 @@ export const loader = async ({ request }: { request: Request }) => {
     }
 
     if (!db) {
-      return data({ error: "Database unavailable", data: [], playlists: [] }, { status: 500 });
+      return data({ error: "Database unavailable", data: [] }, { status: 500 });
     }
 
     const user = await isAuthenticated(request, ["id"]);
     const currentUserId = user?.id ?? null;
     const isOwner = currentUserId === userId;
-
-    if (tab === "playlists") {
-      const { data: raw, error } = await db.rpc("get_user_playlists", { p_user_id: userId });
-      if (error) {
-        console.error("get_user_playlists (profile-tab) error:", error);
-        return data({ error: "Failed to load playlists", playlists: [] }, { status: 500 });
-      }
-      const list = Array.isArray(raw) ? raw : [];
-      const filtered = list.filter((p: { is_public?: boolean }) => p.is_public === true || isOwner);
-      const mapped = filtered.map((p: Record<string, unknown>) =>
-        mapPlaylistRpcToClientRow(p)
-      );
-      // Same reason as /api/playlists: the RPC picks a cover with no visibility
-      // filter, and this one is served to anyone looking at the profile.
-      const covers = await resolvePlaylistCovers(mapped.map((pl) => pl.id));
-      const playlists = mapped.map((pl) => ({
-        ...pl,
-        first_thumb: null,
-        cover: covers.get(pl.id) ?? null,
-      }));
-      return data({ playlists, tab }, { status: 200 });
-    }
 
     // Public "See all" section views. Visibility (public-only for non-owners,
     // adult NEVER) is enforced inside get_profile_section_files, so these are

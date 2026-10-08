@@ -37,7 +37,7 @@ export interface ExpandPlaybackState {
 }
 
 const STATIC_TOP_SEGMENTS = new Set([
-  'privacy', 'terms', 'api', 'playlist', 'tag', 'search', 'features', 'auth',
+  'privacy', 'terms', 'api', 'saved', 'library', 'download', 'tag', 'search', 'features', 'auth',
   'logout', 'settings', 'notifications', 'profile', 'reel', 'pip', 'subscriptions',
 ]);
 

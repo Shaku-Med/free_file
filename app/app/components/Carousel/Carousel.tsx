@@ -15,8 +15,8 @@ import { cn } from "~/lib/utils";
  * True when the event came from something rendered in a portal rather than
  * from a slide.
  *
- * Slides here hold VideoCards, whose comments drawer / share sheet / playlist
- * modal portal their DOM under <body>. React still bubbles those events up
+ * Slides here hold VideoCards, whose comments drawer / share sheet / report
+ * dialog portal their DOM under <body>. React still bubbles those events up
  * through this component tree, so dragging inside an open sheet would page the
  * carousel behind it. A real slide is always a DOM descendant of the viewport;
  * portal content never is.

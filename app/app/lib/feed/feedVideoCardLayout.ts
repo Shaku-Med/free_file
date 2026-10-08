@@ -3,7 +3,7 @@ export const FEED_HIDE_ACTIONS = { completely: false, halfway: true } as const;
 
 /**
  * The column rhythm every video grid in the app uses: home, subscriptions,
- * playlists. Kept in one place so a card never ends up twice the size of the
+ * saved. Kept in one place so a card never ends up twice the size of the
  * same card on the next page over.
  *
  * YouTube's sizing, from the grid's own width rather than the window's so it

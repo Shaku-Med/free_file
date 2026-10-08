@@ -85,38 +85,6 @@ export class PersonalizationService {
   }
 
   /**
-   * Toggle save/bookmark on a file.
-   */
-  async toggleSave(fileId: string): Promise<{ saved: boolean; save_count: number } | null> {
-    try {
-      const res = await fetch('/api/saves', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ fileId }),
-      });
-      if (!res.ok) return null;
-      const data = await res.json();
-      return { saved: data.saved, save_count: data.save_count };
-    } catch {
-      return null;
-    }
-  }
-
-  /**
-   * Check if a file is saved.
-   */
-  async isSaved(fileId: string): Promise<boolean> {
-    try {
-      const res = await fetch(`/api/saves?fileId=${fileId}`);
-      if (!res.ok) return false;
-      const data = await res.json();
-      return !!data.saved;
-    } catch {
-      return false;
-    }
-  }
-
-  /**
    * Send a "not interested" signal for a specific file.
    */
   async notInterested(fileId: string): Promise<boolean> {
