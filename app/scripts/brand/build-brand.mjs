@@ -25,24 +25,37 @@ export const BRAND = {
   muted: "#a1a1aa",
 };
 
-// The mark lives on a 512 grid: an M drawn as one rounded stroke, with a play
-// triangle under its middle. Memories, and the videos in them.
+// The mark lives on a 512 grid: a camera shutter whose opening is a play
+// button. Taking the moment, and playing it back. Three blades fill a disk of
+// radius 172; the opening is an equilateral triangle of circumradius 102
+// centred on the disk, and each seam carries one side of it out to the rim.
 export const MARK = {
-  m: "M116 372 V174 a34 34 0 0 1 55 -27 L256 216 L341 147 a34 34 0 0 1 55 27 V372",
-  mStroke: 52,
-  play: "M236 282 L236 358 L298 320 Z",
-  playStroke: 22,
+  opening: "M358 256L205 344.3L205 167.7Z",
+  openingRound: 10,
+  seams: "M358 256L431 298.1M205 344.3L132 386.5M205 167.7L205 83.4",
+  seamWidth: 13,
+  // Bottom, left, top right. Lit from above, like the tile.
+  blades: [
+    "M358 256L139.2 382.3A172 172 0 0 0 423.8 294Z",
+    "M205 344.3L205 91.7A172 172 0 0 0 139.2 382.3Z",
+    "M205 167.7L423.8 294A172 172 0 0 0 205 91.7Z",
+  ],
+  shade: [0.86, 0.93, 1],
   tileRadius: 116,
 };
 
-function symbol(color, scale = 1) {
+function symbol(color, scale = 1, shaded = true) {
   const t = scale === 1 ? "" : ` transform="translate(256 256) scale(${scale}) translate(-256 -256)"`;
-  return (
-    `<g${t}>` +
-    `<path d="${MARK.m}" fill="none" stroke="${color}" stroke-width="${MARK.mStroke}" stroke-linecap="round" stroke-linejoin="round"/>` +
-    `<path d="${MARK.play}" fill="${color}" stroke="${color}" stroke-width="${MARK.playStroke}" stroke-linejoin="round"/>` +
-    `</g>`
-  );
+  const cut =
+    `<mask id="cut" maskUnits="userSpaceOnUse" x="0" y="0" width="512" height="512">` +
+    `<rect width="512" height="512" fill="#fff"/>` +
+    `<path d="${MARK.opening}" fill="#000" stroke="#000" stroke-width="${MARK.openingRound}" stroke-linejoin="round"/>` +
+    `<path d="${MARK.seams}" stroke="#000" stroke-width="${MARK.seamWidth}"/>` +
+    `</mask>`;
+  const blades = MARK.blades
+    .map((d, i) => `<path d="${d}" fill="${color}"${shaded && MARK.shade[i] < 1 ? ` fill-opacity="${MARK.shade[i]}"` : ""}/>`)
+    .join("");
+  return `<defs>${cut}</defs><g${t}><g mask="url(#cut)">${blades}</g></g>`;
 }
 
 const gradient =
@@ -55,28 +68,29 @@ const gradient =
  * for platforms that cut their own shape), or "none" (symbol only).
  * scale shrinks the symbol into a platform's safe zone.
  */
-function iconSvg({ shape, scale = 1, color = "#fff" }) {
+function iconSvg({ shape, scale = 1, color = "#fff", shaded = true }) {
   const bg =
     shape === "tile"
       ? `<rect width="512" height="512" rx="${MARK.tileRadius}" fill="url(#bg)"/>`
       : shape === "full"
         ? `<rect width="512" height="512" fill="url(#bg)"/>`
         : "";
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">${bg ? gradient + bg : ""}${symbol(color, scale)}</svg>`;
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">${bg ? gradient + bg : ""}${symbol(color, scale, shaded)}</svg>`;
 }
 
 // Safe zones: maskable web icons keep content inside a circle of 80% of the
-// width, Android adaptive icons inside 66 of 108dp. The symbol's farthest
-// corner sits 214 units from the centre, so these scales keep it inside.
-const SCALE_MASKABLE = 0.86;
-const SCALE_ADAPTIVE = 0.68;
+// width, Android adaptive icons inside 66 of the 108dp layer, of which only the
+// middle 72dp shows. The disk reaches 172 units from the centre; these scales
+// keep it inside and leave it the same share of the visible icon as on the tile.
+const SCALE_MASKABLE = 0.9;
+const SCALE_ADAPTIVE = 0.67;
 
 const tile = iconSvg({ shape: "tile" });
 const full = iconSvg({ shape: "full" });
 const maskable = iconSvg({ shape: "full", scale: SCALE_MASKABLE });
 const adaptiveBackground = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">${gradient}<rect width="512" height="512" fill="url(#bg)"/></svg>`;
 const adaptiveForeground = iconSvg({ shape: "none", scale: SCALE_ADAPTIVE });
-const monochrome = iconSvg({ shape: "none", scale: SCALE_ADAPTIVE });
+const monochrome = iconSvg({ shape: "none", scale: SCALE_ADAPTIVE, shaded: false });
 
 const outputs = [];
 const png = (path, size, svg) => outputs.push({ path, w: size, h: size, svg });
@@ -290,7 +304,7 @@ function main() {
 
     write("logo.svg", tile);
     write("brand/logo-mark.svg", tile);
-    write("brand/logo-mark-mono.svg", iconSvg({ shape: "none" }));
+    write("brand/logo-mark-mono.svg", iconSvg({ shape: "none", shaded: false }));
 
     console.log(`Wrote ${Object.keys(files).length - ico.length} PNGs, favicon.ico (${ico.map((i) => i.size).join(", ")}) and the SVGs.`);
     if (!hasFfmpeg) console.log("ffmpeg was not found, so the PNGs are uncompressed.");
