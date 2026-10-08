@@ -67,12 +67,12 @@ export function SearchPanel({ term, items, activeIndex, onPick, onHover, onRemov
   if (items.length === 0) return null;
 
   return (
-    <ul className="py-2" role="presentation">
+    <ul className="flex flex-col gap-0.5" role="presentation">
       {items.map((item, index) => (
         <li key={`${item.kind}-${item.text}`} role="option" aria-selected={index === activeIndex}>
           <div
             className={cn(
-              "group flex w-full items-center gap-3 pr-2",
+              "group flex w-full items-center gap-3 rounded-2xl pr-2 transition-colors",
               index === activeIndex && "bg-accent",
             )}
           >
@@ -84,7 +84,7 @@ export function SearchPanel({ term, items, activeIndex, onPick, onHover, onRemov
                 onPick(item.text);
               }}
               onMouseEnter={() => onHover(index)}
-              className="flex min-w-0 flex-1 items-center gap-4 px-4 py-2 text-left text-[15px] text-foreground"
+              className="flex min-w-0 flex-1 items-center gap-4 py-2 pl-3.5 text-left text-[15px] text-foreground"
             >
               <KindIcon kind={item.kind} />
               <SuggestionLabel term={term} suggestion={item.text} />

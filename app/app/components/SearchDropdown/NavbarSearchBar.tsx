@@ -127,23 +127,30 @@ export function NavbarSearchBar({
     [open, items.length],
   );
 
+  const showList = open && items.length > 0;
+
   return (
-    <div ref={rootRef} className={cn("relative w-full min-w-0", className)}>
-      {/* YouTube's box: the field and the search button are one joined pill,
-          rounded on the outside ends only. The magnifier slides in on the left
-          while the box is live. */}
-      <form onSubmit={handleSubmit} className="flex h-10 w-full min-w-0 items-stretch" role="search">
-        <div
-          className={cn(
-            "flex min-w-0 flex-1 items-center gap-3 rounded-l-full border border-r-0 border-input bg-background pl-4 pr-1 shadow-inner transition-colors dark:shadow-none",
-            "focus-within:border-primary/70",
-            open && "border-primary/70",
-          )}
-        >
+    // The box keeps its 48px slot in the bar; when it opens it grows downward
+    // over the page as one card, the way YouTube's search does now, so the bar
+    // itself never changes height.
+    <div ref={rootRef} className={cn("relative h-12 w-full min-w-0", className)}>
+      <div
+        className={cn(
+          "absolute inset-x-0 top-0 z-[100000001] overflow-hidden border",
+          // The fill switches at once: easing it from the half-transparent hover
+          // wash let the page show through the card while it opened.
+          "transition-[border-radius,border-color,box-shadow] duration-300 ease-[cubic-bezier(0.2,0,0.6,1)]",
+          open
+            ? "rounded-[28px] border-border bg-popover text-popover-foreground"
+            : "rounded-[24px] border-input bg-background hover:bg-muted/50",
+          showList && "shadow-[0_4px_32px_rgb(0_0_0/0.18)]",
+        )}
+      >
+        <form onSubmit={handleSubmit} className="flex h-[46px] min-w-0 items-center gap-1 pl-4 pr-[3px]" role="search">
           <Search
             className={cn(
-              "size-5 shrink-0 text-muted-foreground transition-[opacity,width]",
-              open ? "opacity-100" : "w-0 opacity-0",
+              "size-5 shrink-0 text-muted-foreground transition-[opacity,width,margin] duration-300",
+              open ? "mr-2 opacity-100" : "w-0 opacity-0",
             )}
             strokeWidth={2}
             aria-hidden
@@ -161,7 +168,7 @@ export function NavbarSearchBar({
             onKeyDown={handleInputKeyDown}
             placeholder="Search"
             aria-label="Search"
-            aria-expanded={open}
+            aria-expanded={showList}
             aria-controls="navbar-search-dropdown"
             autoComplete="off"
             enterKeyHint="search"
@@ -176,42 +183,51 @@ export function NavbarSearchBar({
                 setActiveIndex(-1);
                 inputRef.current?.focus();
               }}
-              className="flex size-8 shrink-0 items-center justify-center rounded-full text-foreground/80 transition-colors hover:bg-accent"
+              className="flex size-10 shrink-0 items-center justify-center rounded-full text-foreground/80 transition-colors hover:bg-accent"
             >
               <X className="size-5" strokeWidth={1.75} />
             </button>
           ) : null}
-        </div>
-        <button
-          type="submit"
-          aria-label="Search"
-          className="flex w-16 shrink-0 items-center justify-center rounded-r-full border border-input bg-muted text-foreground/90 transition-colors hover:bg-accent"
-        >
-          <Search className="size-5" strokeWidth={2} />
-        </button>
-      </form>
+          <button
+            type="submit"
+            aria-label="Search"
+            className="flex size-10 shrink-0 items-center justify-center rounded-full bg-muted text-foreground transition-colors hover:bg-accent"
+          >
+            <Search className="size-5" strokeWidth={2} />
+          </button>
+        </form>
 
-      {open && items.length > 0 ? (
+        {/* Suggestions open inside the same card. The grid row eases from 0fr
+            to 1fr, which animates to the list's natural height. */}
         <div
-          id="navbar-search-dropdown"
-          role="listbox"
           className={cn(
-            "absolute left-0 right-16 top-[calc(100%+0.25rem)] z-[100000001] overflow-hidden rounded-xl border border-border/60 bg-background py-1 shadow-2xl dark:border-white/10",
-            dropdownClassName,
+            "grid transition-[grid-template-rows] duration-300 ease-[cubic-bezier(0.2,0,0.6,1)]",
+            showList ? "grid-rows-[1fr]" : "grid-rows-[0fr]",
           )}
         >
-          <div className="max-h-[min(70dvh,640px)] overflow-y-auto overscroll-contain">
-            <SearchPanel
-              term={debouncedTerm || inputValue.trim()}
-              items={items}
-              activeIndex={activeIndex}
-              onPick={goToSearch}
-              onHover={setActiveIndex}
-              onRemoveRecent={removeRecent}
-            />
+          <div className="min-h-0 overflow-hidden">
+            <div
+              id="navbar-search-dropdown"
+              role="listbox"
+              className={cn(
+                "max-h-[min(70dvh,560px)] overflow-y-auto overscroll-contain border-t border-border/60 p-1.5",
+                dropdownClassName,
+              )}
+            >
+              {showList ? (
+                <SearchPanel
+                  term={debouncedTerm || inputValue.trim()}
+                  items={items}
+                  activeIndex={activeIndex}
+                  onPick={goToSearch}
+                  onHover={setActiveIndex}
+                  onRemoveRecent={removeRecent}
+                />
+              ) : null}
+            </div>
           </div>
         </div>
-      ) : null}
+      </div>
     </div>
   );
 }
