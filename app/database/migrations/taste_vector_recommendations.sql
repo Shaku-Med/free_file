@@ -41,6 +41,8 @@ CREATE INDEX IF NOT EXISTS dislike_user_created_idx ON dislike (user_id, created
 CREATE INDEX IF NOT EXISTS saved_files_user_created_idx ON saved_files (user_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS file_watch_time_user_created_idx ON file_watch_time (user_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS user_watch_progress_user_updated_idx ON user_watch_progress (user_id, updated_at DESC);
+-- A series' newest episode, for bringing the series back to the feed when one lands.
+CREATE INDEX IF NOT EXISTS files_series_episode_items_series_idx ON files_series_episode_items (file_series_id);
 
 
 -- ------------------------------------------------------------
@@ -297,7 +299,7 @@ BEGIN
     WHERE sf.user_id = p_user_id AND p_user_id IS NOT NULL
   ),
   user_seen AS (
-    SELECT fi.file_id FROM feed_impressions fi
+    SELECT fi.file_id, fi.seen_at FROM feed_impressions fi
     WHERE fi.user_id = p_user_id AND p_user_id IS NOT NULL
   ),
   sub_channels AS (
@@ -386,7 +388,8 @@ BEGIN
       (ul.file_id IS NOT NULL)      AS _user_liked,
       (ud.file_id IS NOT NULL)      AS _user_disliked,
       (usv.file_id IS NOT NULL)     AS _user_saved,
-      (us.file_id IS NOT NULL)      AS _is_seen,
+      -- Seen, unless a new episode of the series came out since, like YouTube.
+      (us.file_id IS NOT NULL AND (sl.latest IS NULL OR us.seen_at >= sl.latest)) AS _is_seen,
       (sc.channel_id IS NOT NULL)   AS _is_subscribed,
 
       CASE WHEN GREATEST(f.view_count, 1) > 0 THEN
@@ -409,7 +412,9 @@ BEGIN
         / GREATEST(EXTRACT(EPOCH FROM (now() - f.created_at)) / 3600.0, 1.0)
       ELSE 0.0 END AS _eng_velocity,
 
-      EXTRACT(EPOCH FROM (now() - f.created_at)) / 3600.0 AS _hours_old,
+      -- A series is as new as its newest episode, so a fresh one brings the
+      -- whole series back into the fresh pool even after it aged out.
+      EXTRACT(EPOCH FROM (now() - GREATEST(f.created_at, COALESCE(sl.latest, f.created_at)))) / 3600.0 AS _hours_old,
 
       COALESCE(
         (
@@ -464,6 +469,18 @@ BEGIN
     LEFT JOIN user_seen us ON us.file_id = f.id
     LEFT JOIN sub_channels sc ON sc.channel_id = f.owner_id
     LEFT JOIN creator_aff ca ON ca.creator_id = f.owner_id
+    -- Newest public episode of the series this file heads (series mains only).
+    LEFT JOIN LATERAL (
+      SELECT MAX(ef.created_at) AS latest
+      FROM file_series fs
+      JOIN files_series_episode_items ei ON ei.file_series_id = fs.id
+      JOIN files ef ON ef.unique_id = ei.file_id
+      WHERE f.is_series_main
+        AND fs.file_id = f.unique_id
+        AND ef.is_public = true
+        AND ef.is_adult = false
+        AND ef.upload_status = 'complete'
+    ) sl ON true
     WHERE f.is_public = true
       AND f.is_adult = false
       AND f.upload_status = 'complete'
