@@ -341,6 +341,17 @@ function ProfileMenuContent({ username }: { username: string | undefined }) {
   );
 }
 
+/** The account menu on a caller's own trigger, for tab bars that draw their own profile tab. */
+export function AccountMenu({ children }: { children: React.ReactNode }) {
+  const { userProfile } = useFileContext();
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>{children}</DropdownMenuTrigger>
+      <ProfileMenuContent username={userProfile?.username} />
+    </DropdownMenu>
+  );
+}
+
 export function UserProfileDropdown({ variant }: UserProfileDropdownProps) {
   const { userId, userProfile, userProfileLoading } = useFileContext();
   const location = useLocation();

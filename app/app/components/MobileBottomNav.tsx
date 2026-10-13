@@ -1,12 +1,18 @@
-import { useEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useState } from "react";
 import { Link, useLocation } from "react-router";
 import { Home, Users, Plus, Film } from "lucide-react";
 import { useSidebar } from "~/components/ui/sidebar";
 import { useFileContext } from "~/lib/Context/Context";
 import { UserProfileDropdown } from "~/components/UserProfileDropdown";
+import PlatformTabBar, { type PlatformTab } from "~/components/PlatformTabBar";
+import { HomeIcon, ReelIcon, SubsIcon } from "~/components/TabBarIcons";
+import { useTabBarStyle } from "~/lib/hooks/useTabBarStyle";
 import { isReelRoute } from "~/lib/reelRoute";
 import { isPipChromeRoute } from "~/routes/pip/pipEnv";
 import { cn } from "~/lib/utils";
+
+/** Space kept between a floating bar and anything docked above it (mini player, toasts). */
+const FLOAT_GAP = 8;
 
 type Item = {
   title: string;
@@ -30,6 +36,8 @@ export default function MobileBottomNav() {
   const { pathname } = useLocation();
   const { setIsModalOpen, hideAppChrome } = useFileContext();
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [bar, setBar] = useState<HTMLElement | null>(null);
+  const style = useTabBarStyle();
 
   // Hide when the player goes browser-fullscreen (not covered by route checks).
   useEffect(() => {
@@ -50,27 +58,49 @@ export default function MobileBottomNav() {
     isReelRoute(pathname) ||
     isPipChromeRoute(pathname);
 
-  // Publish bar height so overlays (mini player) can dock above it.
-  useEffect(() => {
+  // Publish how far the bar reaches up from the bottom edge so overlays (mini
+  // player, toasts, the page's own bottom padding) can dock above it.
+  useLayoutEffect(() => {
     const root = document.documentElement;
-    if (hidden) {
+    if (hidden || !bar) {
       root.style.removeProperty("--app-bottom-nav-h");
       return;
     }
+    const gap = style === "ios-glass" ? FLOAT_GAP : 0;
+    const publish = () => root.style.setProperty("--app-bottom-nav-h", `${bar.offsetHeight + gap}px`);
+    publish();
+    const observer = new ResizeObserver(publish);
+    observer.observe(bar);
     return () => {
+      observer.disconnect();
       root.style.removeProperty("--app-bottom-nav-h");
     };
-  }, [hidden]);
+  }, [hidden, bar, style]);
 
   if (hidden) return null;
+
+  if (style !== "default") {
+    const tabs: PlatformTab[] = [
+      { title: "Home", href: "/", Icon: HomeIcon, active: isActive(pathname, "/") },
+      { title: "Subs", href: "/subscriptions", Icon: SubsIcon, active: isActive(pathname, "/subscriptions") },
+      { title: "Reel", href: "/reel", Icon: ReelIcon, active: isActive(pathname, "/reel") },
+    ];
+    return (
+      <PlatformTabBar
+        variant={style}
+        tabs={tabs}
+        profileActive={pathname.startsWith("/profile/")}
+        onUpload={() => setIsModalOpen(true)}
+        barRef={setBar}
+      />
+    );
+  }
 
   return (
     <nav
       aria-label="Primary"
       data-app-chrome=""
-      ref={(el) => {
-        if (el) document.documentElement.style.setProperty("--app-bottom-nav-h", `${el.offsetHeight}px`);
-      }}
+      ref={setBar}
       // Always reserve the home-indicator inset (env() is 0 on devices without one)
       // so the bar's background fills down to the true bottom edge  no black gap.
       className="fixed inset-x-0 bottom-0 z-[var(--z-app-chrome)] border-t border-border/60 bg-background/90 backdrop-blur-md supports-[backdrop-filter]:bg-background/75 pb-[env(safe-area-inset-bottom)]"

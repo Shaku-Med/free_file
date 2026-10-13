@@ -125,7 +125,7 @@ const BodyComponent = ({ children }: BodyComponentProps) => {
     >
       <div
         id="scroll_container"
-        className={`${sidebarExpandedLayout && "rounded-tl-2xl bg-card shadow-sm"} min-h-0 w-full min-w-0 flex-1 overflow-y-auto overflow-x-hidden ${onReelRoute ? "overflow-hidden pb-0" : "pb-20"}`}
+        className={`${sidebarExpandedLayout && "rounded-tl-2xl bg-card shadow-sm"} min-h-0 w-full min-w-0 flex-1 overflow-y-auto overflow-x-hidden ${onReelRoute ? "overflow-hidden pb-0" : "pb-[max(5rem,calc(var(--app-bottom-nav-h,0px)+1rem))]"}`}
         ref={scrollContainerRef}
         onScroll={handleScroll}
       >
