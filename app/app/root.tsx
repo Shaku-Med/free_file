@@ -40,6 +40,7 @@ import { maybeUpdateUserGeo } from "./lib/Security/geo.server";
 import AppShell from "./components/AppShell";
 import RegisterServiceWorker from "./components/RegisterServiceWorker";
 import OrientationLock from "./components/OrientationLock";
+import ViewportVars from "./components/ViewportVars";
 import { ThemeApply } from "./components/ThemeApply";
 import { WindappChrome } from "./components/WindappChrome";
 import { DesktopUpdateProvider } from "./lib/hooks/useDesktopUpdate";
@@ -374,6 +375,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
         <WindappChrome />
         <RegisterServiceWorker />
         <OrientationLock />
+        <ViewportVars />
         <ErrorBoundary>
           <FeatureFlagProvider flags={featureFlags}>
           <ContextProvider st={st || ''} user_agent={user_agent || ''} userId={userId || null} c_user={null} uploadServerUrl={uploadServerUrl || ''} playerSettingsFromLoader={playerSettingsFromLoader ?? null} isMobileServer={isMobileServer ?? false} isDevelopment={isDevelopmentServer ?? false} altAccounts={altAccounts ?? []}>

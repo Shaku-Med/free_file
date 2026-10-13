@@ -78,13 +78,17 @@ function DialogContent({
           "data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0",
           "data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95",
           "data-[state=closed]:slide-out-to-top-[2%] data-[state=open]:slide-in-from-top-[2%]",
+          "max-h-[calc(var(--app-vvh,100dvh)-2rem)] overflow-y-auto overscroll-contain",
+          "max-sm:content-start max-sm:overflow-y-auto",
           className,
           // Full-screen on mobile, but inset into the safe area so content
           // clears the status bar / home indicator (works for full-bleed p-0
           // modals too, since it shifts the whole box rather than its padding).
-          "max-sm:!top-[env(safe-area-inset-top)] max-sm:!bottom-[env(safe-area-inset-bottom)] max-sm:!left-0 max-sm:!right-0",
+          // Sized from the visible viewport, not `bottom`, which an installed
+          // iOS app or the keyboard can push off screen.
+          "max-sm:!top-[calc(env(safe-area-inset-top)+var(--app-vv-top,0px))] max-sm:!bottom-auto max-sm:!left-0 max-sm:!right-0",
           "max-sm:!translate-x-0 max-sm:!translate-y-0",
-          "max-sm:!w-screen max-sm:!h-auto max-sm:!max-w-none max-sm:!max-h-none",
+          "max-sm:!w-screen max-sm:!h-[calc(var(--app-vvh,100dvh)-env(safe-area-inset-top)-env(safe-area-inset-bottom))] max-sm:!max-w-none max-sm:!max-h-none",
           "max-sm:!rounded-none max-sm:!border-0 max-sm:!shadow-none",
         )}
         {...props}
