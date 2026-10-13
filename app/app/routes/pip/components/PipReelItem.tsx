@@ -1045,7 +1045,7 @@ function PipReelItemInner({
                 // Reels intentionally have NO player background  the page-level
                 // ambience shows through the letterbox.
                 "bg-transparent",
-                "max-lg:h-[100dvh] max-lg:min-h-[100dvh] max-lg:max-h-[100dvh] max-lg:w-full max-lg:max-w-full",
+                "max-lg:h-[var(--reel-h)] max-lg:min-h-[var(--reel-h)] max-lg:max-h-[var(--reel-h)] max-lg:w-full max-lg:max-w-full",
                 "lg:max-w-full lg:transition-[width,height] lg:duration-300 lg:ease-out",
                 "max-lg:rounded-none",
                 "lg:rounded-2xl lg:shadow-[0_25px_80px_-15px_rgba(0,0,0,0.9)] lg:ring-1 lg:ring-white/10",

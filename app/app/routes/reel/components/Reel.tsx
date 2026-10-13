@@ -550,7 +550,7 @@ const Reel = ({ initialItems, initialUserActions, profileReelContext = null }: R
     // covering each other. Phones have no sidebar beside the page.
     <div
       className="fixed inset-y-0 right-0 z-[var(--z-reel)] reel_p flex overflow-hidden transition-[left] duration-200 ease-linear"
-      style={{ left: sidebarInset }}
+      style={{ left: sidebarInset, bottom: "var(--app-bottom-nav-h, 0px)" }}
     >
       {/* STAGE: ambience + reel deck, and the size container each reel lays
           itself out against. It shrinks (flex-1) when the comments dock opens,

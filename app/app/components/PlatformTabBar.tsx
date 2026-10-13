@@ -1,5 +1,5 @@
 import { Link } from "react-router";
-import { Plus, SquarePlus } from "lucide-react";
+import { Search } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "~/components/ui/avatar";
 import { AccountMenu } from "~/components/UserProfileDropdown";
 import { ProfileIcon, type TabIconProps } from "~/components/TabBarIcons";
@@ -19,16 +19,17 @@ type Variant = Exclude<TabBarStyle, "default">;
 
 type Props = {
   variant: Variant;
-  /** Home, Subs and Reel, in that order. */
+  /** Home, Subs and Reels, in that order. */
   tabs: PlatformTab[];
   profileActive: boolean;
-  onUpload: () => void;
+  searchActive: boolean;
+  onSearch: () => void;
   barRef: (el: HTMLElement | null) => void;
 };
 
 type Entry =
   | { kind: "link"; tab: PlatformTab }
-  | { kind: "upload" }
+  | { kind: "search"; active: boolean }
   | { kind: "profile"; active: boolean };
 
 const RESET = "outline-none select-none [-webkit-tap-highlight-color:transparent] focus-visible:ring-2 focus-visible:ring-ring";
@@ -117,7 +118,7 @@ function ProfileEntry({ variant, active }: { variant: Variant; active: boolean }
         <ItemBody
           variant={variant}
           active={active}
-          label="Profile"
+          label="You"
           icon={<ProfileIcon filled={active} className={ICON[variant]} />}
         />
       </Link>
@@ -141,22 +142,28 @@ function ProfileEntry({ variant, active }: { variant: Variant; active: boolean }
   return (
     <AccountMenu>
       <button type="button" aria-label="Account menu" className={className}>
-        <ItemBody variant={variant} active={active} label="Profile" icon={avatar} />
+        <ItemBody variant={variant} active={active} label="You" icon={avatar} />
       </button>
     </AccountMenu>
   );
 }
 
-function EntryView({ variant, entry, onUpload }: { variant: Variant; entry: Entry; onUpload: () => void }) {
+function EntryView({ variant, entry, onSearch }: { variant: Variant; entry: Entry; onSearch: () => void }) {
   if (entry.kind === "profile") return <ProfileEntry variant={variant} active={entry.active} />;
-  if (entry.kind === "upload") {
+  if (entry.kind === "search") {
     return (
-      <button type="button" onClick={onUpload} aria-label="Upload" className={cn(ITEM[variant](false), RESET)}>
+      <button
+        type="button"
+        onClick={onSearch}
+        aria-label="Search"
+        aria-current={entry.active ? "page" : undefined}
+        className={cn(ITEM[variant](entry.active), RESET)}
+      >
         <ItemBody
           variant={variant}
-          active={false}
-          label="Upload"
-          icon={<SquarePlus className={ICON[variant]} strokeWidth={1.9} />}
+          active={entry.active}
+          label="Search"
+          icon={<Search className={ICON[variant]} strokeWidth={entry.active ? 2.6 : 2} />}
         />
       </button>
     );
@@ -178,11 +185,19 @@ function EntryView({ variant, entry, onUpload }: { variant: Variant; entry: Entr
   );
 }
 
-/** Floating Liquid Glass capsule plus a separate round action, as UITabBar draws it on iOS 26. */
-function GlassBar({ entries, onUpload, barRef }: { entries: Entry[]; onUpload: () => void; barRef: Props["barRef"] }) {
-  const selected = entries.findIndex((e) =>
-    e.kind === "link" ? e.tab.active : e.kind === "profile" ? e.active : false,
-  );
+/** Floating Liquid Glass capsule plus Search in its own circle, as UITabBar draws it on iOS 26. */
+function GlassBar({
+  entries,
+  searchActive,
+  onSearch,
+  barRef,
+}: {
+  entries: Entry[];
+  searchActive: boolean;
+  onSearch: () => void;
+  barRef: Props["barRef"];
+}) {
+  const selected = entries.findIndex((e) => (e.kind === "link" ? e.tab.active : e.active));
 
   return (
     <nav
@@ -205,20 +220,28 @@ function GlassBar({ entries, onUpload, barRef }: { entries: Entry[]; onUpload: (
         />
         {entries.map((entry, i) => (
           <li key={i} className="flex flex-1">
-            <EntryView variant="ios-glass" entry={entry} onUpload={onUpload} />
+            <EntryView variant="ios-glass" entry={entry} onSearch={onSearch} />
           </li>
         ))}
       </ul>
       <button
         type="button"
-        onClick={onUpload}
-        aria-label="Upload"
+        onClick={onSearch}
+        aria-label="Search"
+        aria-current={searchActive ? "page" : undefined}
         className={cn(
-          "tabbar-glass pointer-events-auto flex h-[62px] w-[62px] shrink-0 items-center justify-center rounded-full text-foreground transition-transform duration-200 active:scale-[0.92]",
+          "tabbar-glass pointer-events-auto relative flex h-[62px] w-[62px] shrink-0 items-center justify-center rounded-full text-foreground transition-transform duration-200 active:scale-[0.92]",
           RESET,
         )}
       >
-        <Plus className="h-[26px] w-[26px]" strokeWidth={2.1} />
+        <span
+          aria-hidden
+          className={cn(
+            "tabbar-glass-selection absolute inset-1 rounded-full transition-opacity duration-300",
+            !searchActive && "opacity-0",
+          )}
+        />
+        <Search className="relative h-[25px] w-[25px]" strokeWidth={searchActive ? 2.6 : 2.1} />
       </button>
     </nav>
   );
@@ -234,12 +257,12 @@ const DOCKED: Record<Exclude<Variant, "ios-glass">, { nav: string; row: string }
 function DockedBar({
   variant,
   entries,
-  onUpload,
+  onSearch,
   barRef,
 }: {
   variant: Exclude<Variant, "ios-glass">;
   entries: Entry[];
-  onUpload: () => void;
+  onSearch: () => void;
   barRef: Props["barRef"];
 }) {
   return (
@@ -255,7 +278,7 @@ function DockedBar({
       <ul className={cn("flex items-stretch", DOCKED[variant].row)}>
         {entries.map((entry, i) => (
           <li key={i} className="flex flex-1">
-            <EntryView variant={variant} entry={entry} onUpload={onUpload} />
+            <EntryView variant={variant} entry={entry} onSearch={onSearch} />
           </li>
         ))}
       </ul>
@@ -263,18 +286,20 @@ function DockedBar({
   );
 }
 
-export default function PlatformTabBar({ variant, tabs, profileActive, onUpload, barRef }: Props) {
-  const [home, subs, reel] = tabs.map((tab): Entry => ({ kind: "link", tab }));
+export default function PlatformTabBar({ variant, tabs, profileActive, searchActive, onSearch, barRef }: Props) {
+  const links = tabs.map((tab): Entry => ({ kind: "link", tab }));
   const profile: Entry = { kind: "profile", active: profileActive };
 
   if (variant === "ios-glass") {
-    return <GlassBar entries={[home, subs, reel, profile]} onUpload={onUpload} barRef={barRef} />;
+    return (
+      <GlassBar entries={[...links, profile]} searchActive={searchActive} onSearch={onSearch} barRef={barRef} />
+    );
   }
   return (
     <DockedBar
       variant={variant}
-      entries={[home, subs, { kind: "upload" }, reel, profile]}
-      onUpload={onUpload}
+      entries={[...links, profile, { kind: "search", active: searchActive }]}
+      onSearch={onSearch}
       barRef={barRef}
     />
   );

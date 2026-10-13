@@ -354,7 +354,7 @@ export const ReelSwiper = ({
   return (
     <div
       className={cn(
-        "relative isolate h-[100dvh] max-h-[100dvh] min-h-0 overflow-hidden bg-transparent",
+        "relative isolate h-[var(--reel-h)] max-h-[var(--reel-h)] min-h-0 overflow-hidden bg-transparent",
         "mx-auto w-full reel-column",
         "touch-pan-y",
       )}
@@ -412,7 +412,7 @@ export const ReelSwiper = ({
         // Wheel + keyboard for desktop.
         mousewheel={{ forceToAxis: true, thresholdDelta: 20, sensitivity: 1, releaseOnEdges: true }}
         keyboard={{ enabled: true, onlyInViewport: true }}
-        className="h-full w-full max-h-[100dvh] touch-pan-y"
+        className="h-full w-full max-h-[var(--reel-h)] touch-pan-y"
         role="listbox"
         aria-label="Reels"
       >
@@ -420,11 +420,11 @@ export const ReelSwiper = ({
           <SwiperSlide
             key={`${String(file.id)}-${slideIndex}`}
             virtualIndex={slideIndex}
-            className="!h-full !max-h-[100dvh] !w-full shrink-0"
+            className="!h-full !max-h-[var(--reel-h)] !w-full shrink-0"
           >
             {({ isActive }) => (
               <div
-                className="h-full max-h-[100dvh] w-full min-h-0 touch-pan-y"
+                className="h-full max-h-[var(--reel-h)] w-full min-h-0 touch-pan-y"
                 role="option"
                 aria-selected={isActive}
               >

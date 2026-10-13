@@ -7,6 +7,7 @@ import { UserProfileDropdown } from "~/components/UserProfileDropdown";
 import PlatformTabBar, { type PlatformTab } from "~/components/PlatformTabBar";
 import { HomeIcon, ReelIcon, SubsIcon } from "~/components/TabBarIcons";
 import { useTabBarStyle } from "~/lib/hooks/useTabBarStyle";
+import { openHeaderSearch } from "~/lib/headerSearch";
 import { isReelRoute } from "~/lib/reelRoute";
 import { isPipChromeRoute } from "~/routes/pip/pipEnv";
 import { cn } from "~/lib/utils";
@@ -51,11 +52,13 @@ export default function MobileBottomNav() {
     };
   }, []);
 
+  // The app keeps its tab bar on Reels, with the reel ending above it; the
+  // desktop-style bar still steps aside for the full height reel.
   const hidden =
     !isMobile ||
     hideAppChrome ||
     isFullscreen ||
-    isReelRoute(pathname) ||
+    (style === "default" && isReelRoute(pathname)) ||
     isPipChromeRoute(pathname);
 
   // Publish how far the bar reaches up from the bottom edge so overlays (mini
@@ -83,14 +86,15 @@ export default function MobileBottomNav() {
     const tabs: PlatformTab[] = [
       { title: "Home", href: "/", Icon: HomeIcon, active: isActive(pathname, "/") },
       { title: "Subs", href: "/subscriptions", Icon: SubsIcon, active: isActive(pathname, "/subscriptions") },
-      { title: "Reel", href: "/reel", Icon: ReelIcon, active: isActive(pathname, "/reel") },
+      { title: "Reels", href: "/reel", Icon: ReelIcon, active: isActive(pathname, "/reel") },
     ];
     return (
       <PlatformTabBar
         variant={style}
         tabs={tabs}
         profileActive={pathname.startsWith("/profile/")}
-        onUpload={() => setIsModalOpen(true)}
+        searchActive={isActive(pathname, "/search")}
+        onSearch={openHeaderSearch}
         barRef={setBar}
       />
     );

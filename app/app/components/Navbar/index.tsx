@@ -16,6 +16,8 @@ import { WindappNavButtons } from "./WindappNavButtons";
 import { DesktopUpdateHeaderButton } from "~/components/DesktopUpdateCta";
 import { cn } from "~/lib/utils";
 import { isReelRoute } from "~/lib/reelRoute";
+import { useTabBarStyle, type TabBarStyle } from "~/lib/hooks/useTabBarStyle";
+import { onOpenHeaderSearch } from "~/lib/headerSearch";
 
 interface NavbarProps {
   hasScrolled?: ScrollState;
@@ -26,6 +28,20 @@ const iconBtn =
 
 const iconBtnReel =
   "text-white/95 hover:bg-white/12 focus-visible:ring-white/40";
+
+/** Bar buttons grouped inside one iOS 26 glass capsule. */
+const glassBtn =
+  "inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-foreground transition-colors active:bg-foreground/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
+
+/** The app's reel controls: glass on iOS, a tonal pill on Android. */
+const REEL_PILL: Record<Exclude<TabBarStyle, "default">, string> = {
+  "ios-glass": "tabbar-glass-dark",
+  ios: "bg-black/40 backdrop-blur-xl",
+  material3: "bg-neutral-800/90",
+  material2: "bg-neutral-800/90",
+};
+const reelPill =
+  "inline-flex h-9 shrink-0 items-center justify-center rounded-full text-[15px] font-semibold text-white transition-transform active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/40";
 
 function getProfileUsernameFromPath(pathname: string): string | null {
   const match = pathname.match(/^\/profile\/([^/]+)\/?$/);
@@ -53,6 +69,10 @@ export default function Navbar({ hasScrolled = { state: false, opacityLevel: 0 }
   const isStandalone = useStandalone();
   const isWindapp = useWindapp();
   const isMac = isWindappMac();
+  const tabBarStyle = useTabBarStyle();
+  // Phones draw the app's header: brand on the left, new post and the bell on
+  // the right, and Search lives in the tab bar instead of here.
+  const appStyle = isMobile && tabBarStyle !== "default" ? tabBarStyle : null;
   const profileUsername = useMemo(
     () => getProfileUsernameFromPath(location.pathname),
     [location.pathname],
@@ -72,6 +92,8 @@ export default function Navbar({ hasScrolled = { state: false, opacityLevel: 0 }
   useEffect(() => {
     setMobileSearchOpen(false);
   }, [location.pathname]);
+
+  useEffect(() => onOpenHeaderSearch(() => setMobileSearchOpen(true)), []);
 
   useEffect(() => {
     if (effectiveInlineSearch) {
@@ -129,16 +151,24 @@ export default function Navbar({ hasScrolled = { state: false, opacityLevel: 0 }
       aria-label="Main"
       onDoubleClick={onTitlebarDoubleClick}
     >
-      <div
-        aria-hidden
-        className={cn(
-          "pointer-events-none absolute inset-0 border-b border-border/40 backdrop-blur-md",
-          expandedDesktop
-            ? "bg-card/90 supports-[backdrop-filter]:bg-card/75"
-            : "bg-background/90 supports-[backdrop-filter]:bg-background/75",
-        )}
-        style={{ opacity: barOpacity }}
-      />
+      {appStyle === "ios-glass" && !searchExpanded ? (
+        <div
+          aria-hidden
+          className="header-scroll-edge pointer-events-none absolute inset-x-0 top-0 h-[calc(100%+1.25rem)]"
+          style={{ opacity: barOpacity }}
+        />
+      ) : (
+        <div
+          aria-hidden
+          className={cn(
+            "pointer-events-none absolute inset-0 border-b border-border/40 backdrop-blur-md",
+            expandedDesktop
+              ? "bg-card/90 supports-[backdrop-filter]:bg-card/75"
+              : "bg-background/90 supports-[backdrop-filter]:bg-background/75",
+          )}
+          style={{ opacity: barOpacity }}
+        />
+      )}
       <div
         className={cn(
           "relative z-10 mx-auto flex h-14 min-w-0 items-center gap-1 px-2 sm:px-4",
@@ -157,7 +187,14 @@ export default function Navbar({ hasScrolled = { state: false, opacityLevel: 0 }
           </button>
         ) : (
           <div className="flex min-w-0 shrink-0 items-center gap-1">
-            <SidebarTrigger className={cn(iconBtn, onReelRoute && iconBtnReel, "[&_svg]:size-5")} />
+            {appStyle ? null : (
+              <SidebarTrigger className={cn(iconBtn, onReelRoute && iconBtnReel, "[&_svg]:size-5")} />
+            )}
+            {appStyle && onReelRoute ? (
+              <span role="heading" aria-level={1} className={cn(reelPill, REEL_PILL[appStyle], "ml-1 px-4")}>
+                Reels
+              </span>
+            ) : null}
             {/* Windapp: browser-style back / forward / refresh */}
             {isWindapp ? <WindappNavButtons /> : null}
             {/* Desktop: quick Home next to the sidebar toggle (logo lives in the sidebar). */}
@@ -189,11 +226,12 @@ export default function Navbar({ hasScrolled = { state: false, opacityLevel: 0 }
                   id="home_button"
                   className="group flex min-w-0 items-center gap-2 rounded-lg px-1 py-1 hover:bg-muted/60"
                 >
-                  <Logo className="size-7 text-primary" />
+                  <Logo className={cn("size-7 text-primary", appStyle && "size-[26px]")} />
                   <span
                     className={cn(
                       "truncate text-base font-bold tracking-tight text-foreground sm:text-lg",
-                      !showMemoriesLabel && "sr-only",
+                      appStyle && "text-[19px] sm:text-[19px]",
+                      !showMemoriesLabel && !appStyle && "sr-only",
                     )}
                   >
                     Memories
@@ -225,7 +263,44 @@ export default function Navbar({ hasScrolled = { state: false, opacityLevel: 0 }
           <div className="min-w-0 flex-1 self-stretch" aria-hidden />
         )}
 
-        {!searchExpanded ? (
+        {!searchExpanded && appStyle ? (
+          <div className="ml-auto flex shrink-0 items-center">
+            {onReelRoute ? (
+              <button
+                type="button"
+                onClick={() => setIsModalOpen(true)}
+                aria-label="New post"
+                className={cn(reelPill, REEL_PILL[appStyle], "w-9")}
+              >
+                <Plus className="h-5 w-5" strokeWidth={2.4} />
+              </button>
+            ) : (
+              <div
+                className={cn(
+                  "flex items-center gap-0.5",
+                  appStyle === "ios-glass" && "tabbar-glass h-11 rounded-full px-1",
+                )}
+              >
+                <button
+                  type="button"
+                  onClick={() => setIsModalOpen(true)}
+                  aria-label="New post"
+                  className={cn(appStyle === "ios-glass" ? glassBtn : iconBtn, "[&>svg]:size-[22px]")}
+                >
+                  <Plus strokeWidth={2} />
+                </button>
+                {userId ? (
+                  <NotificationsDropdown
+                    userId={userId}
+                    unreadCount={unreadCount}
+                    setUnreadCount={setUnreadCount}
+                    iconBtn={cn(appStyle === "ios-glass" ? glassBtn : iconBtn, "[&>svg]:size-[22px]")}
+                  />
+                ) : null}
+              </div>
+            )}
+          </div>
+        ) : !searchExpanded ? (
           <div className="ml-auto flex shrink-0 items-center gap-0.5 sm:gap-1">
             {/* Search  available everywhere, including reels (white icon on the video). */}
             {!effectiveInlineSearch && !mobileSearchOpen ? (
