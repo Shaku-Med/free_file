@@ -111,6 +111,18 @@ function applyVideoCrossOrigin(video: HTMLVideoElement, playbackSrc: string) {
  *  showing the user a failure (instead of looping mint→fetch→fail forever). */
 const MAX_MANIFEST_REMINTS = 4;
 
+/** Fatal media errors closer together than this count as the same failure.
+ *  hls.js's own guidance: recover, then swap the audio codec and recover, then
+ *  stop. Without a limit a browser that can't decode the stream (Firefox on
+ *  Linux without H.264) reloads the first segments many times a second. */
+const MEDIA_RECOVERY_WINDOW_MS = 30_000;
+
+/** The browser can't play this codec at all, so recovering only loops. */
+const UNPLAYABLE_CODEC_ERRORS = new Set<string>([
+  Hls.ErrorDetails.BUFFER_ADD_CODEC_ERROR,
+  Hls.ErrorDetails.BUFFER_INCOMPATIBLE_CODECS_ERROR,
+]);
+
 export function useHLS(videoRef: React.RefObject<HTMLVideoElement | null>) {
   const { hlsRef, setState, src, autoPlay, file, isReel, startTime } = usePlayerContext();
   const { playerSettings } = useFileContext();
@@ -129,10 +141,30 @@ export function useHLS(videoRef: React.RefObject<HTMLVideoElement | null>) {
   // on a successful manifest parse (a real recovery earns fresh attempts).
   const remintAttemptsRef = useRef(0);
   const lastRemintAtRef = useRef(0);
+  const mediaRecoveriesRef = useRef(0);
+  const lastMediaRecoveryAtRef = useRef(0);
+  // Set once playback has given up. Nothing reloads segments on its own after
+  // that (not the stall watchdog either) until the user presses Retry or the
+  // source changes.
+  const failedRef = useRef(false);
+
+  /** Stop every loader and show the failure, so a dead stream stops hitting the server. */
+  const giveUp = useCallback(() => {
+    failedRef.current = true;
+    try {
+      hlsRef.current?.stopLoad();
+    } catch {
+      /* already torn down */
+    }
+    setState((s) => ({ ...s, hasError: true, isLoaded: false, isBuffering: false }));
+  }, [hlsRef, setState]);
 
   /** Manual retry from the error overlay: clear the failure, reset the re-mint
    *  budget, and force a fresh manifest load. */
   const retryPlayback = useCallback(() => {
+    failedRef.current = false;
+    mediaRecoveriesRef.current = 0;
+    lastMediaRecoveryAtRef.current = 0;
     remintAttemptsRef.current = 0;
     lastRemintAtRef.current = 0;
     setState((s) => ({ ...s, hasError: false, isLoaded: false, isBuffering: true }));
@@ -288,7 +320,7 @@ export function useHLS(videoRef: React.RefObject<HTMLVideoElement | null>) {
 
     const kickHls = () => {
       const hls = hlsRef.current;
-      if (!hls) return;
+      if (!hls || failedRef.current) return;
       const at =
         Number.isFinite(video.currentTime) && video.currentTime > 0.1
           ? video.currentTime
@@ -302,7 +334,7 @@ export function useHLS(videoRef: React.RefObject<HTMLVideoElement | null>) {
 
     const triggerRemint = () => {
       const fileId = file?.unique_id;
-      if (!fileId) return;
+      if (!fileId || failedRef.current) return;
       if (typeof src !== 'string' || !isLoadplayPlaybackUrl(src)) {
         // Non-LoadPlay direct URL: a second startLoad kick is the best
         // recovery available without changing the src.
@@ -389,6 +421,11 @@ export function useHLS(videoRef: React.RefObject<HTMLVideoElement | null>) {
       }
       return;
     }
+
+    // A new source (another video, a fresh token, or Retry) gets a clean slate.
+    failedRef.current = false;
+    mediaRecoveriesRef.current = 0;
+    lastMediaRecoveryAtRef.current = 0;
 
     let nativeLoadedCleanup: (() => void) | null = null;
     let timeUpdateCleanup: (() => void) | null = null;
@@ -600,10 +637,16 @@ export function useHLS(videoRef: React.RefObject<HTMLVideoElement | null>) {
             lastKnownGoodTimeRef.current = t;
           }
         };
+        // The element itself can't play this source: no recovery will help, so stop fetching.
+        const onVideoError = () => {
+          if (video.error?.code === MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED) giveUp();
+        };
         video.addEventListener('timeupdate', onTimeUpdate);
+        video.addEventListener('error', onVideoError);
         timeUpdateCleanup?.();
         timeUpdateCleanup = () => {
           video.removeEventListener('timeupdate', onTimeUpdate);
+          video.removeEventListener('error', onVideoError);
         };
 
         hls.on(Hls.Events.MANIFEST_PARSED, () => {
@@ -676,7 +719,7 @@ export function useHLS(videoRef: React.RefObject<HTMLVideoElement | null>) {
                 lastRemintAtRef.current = now;
                 if (remintAttemptsRef.current >= MAX_MANIFEST_REMINTS) {
                   // Stop the mint→fetch→fail loop and tell the user it failed.
-                  setState((s) => ({ ...s, hasError: true, isLoaded: false, isBuffering: false }));
+                  giveUp();
                   break;
                 }
                 remintAttemptsRef.current += 1;
@@ -690,30 +733,31 @@ export function useHLS(videoRef: React.RefObject<HTMLVideoElement | null>) {
               );
               break;
             }
-            case Hls.ErrorTypes.MEDIA_ERROR:
+            case Hls.ErrorTypes.MEDIA_ERROR: {
+              if (UNPLAYABLE_CODEC_ERRORS.has(data.details)) {
+                giveUp();
+                break;
+              }
+              const now = Date.now();
+              if (now - lastMediaRecoveryAtRef.current > MEDIA_RECOVERY_WINDOW_MS) mediaRecoveriesRef.current = 0;
+              lastMediaRecoveryAtRef.current = now;
+              mediaRecoveriesRef.current += 1;
               try {
-                hls.recoverMediaError();
-              } catch {
-                try {
+                if (mediaRecoveriesRef.current === 1) {
+                  hls.recoverMediaError();
+                } else if (mediaRecoveriesRef.current === 2) {
                   hls.swapAudioCodec();
                   hls.recoverMediaError();
-                } catch {
-                  setState((s) => ({
-                    ...s,
-                    hasError: true,
-                    isLoaded: false,
-                    isBuffering: false,
-                  }));
+                } else {
+                  giveUp();
                 }
+              } catch {
+                giveUp();
               }
               break;
+            }
             default:
-              setState((s) => ({
-                ...s,
-                hasError: true,
-                isLoaded: false,
-                isBuffering: false,
-              }));
+              giveUp();
               break;
           }
         });
