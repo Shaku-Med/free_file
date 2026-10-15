@@ -41,6 +41,8 @@ import {
   Smartphone,
   Film,
   Minimize2,
+  Camera,
+  ChevronRight,
 } from "lucide-react"
 import type { FileVisibility } from "~/lib/Security/visibility"
 import { SectionsHint } from "~/components/SectionsHint";
@@ -81,6 +83,39 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "~/components/ui/tooltip
 import { toast } from "~/components/ui/sonner"
 import { fileWithSanitizedUploadName, sanitizeUploadFilename } from "~/lib/sanitizeUploadFilename"
 import { UploadProgressFloat } from "./UploadProgressFloat"
+
+/** One way to add files, styled like the app's Create tiles. */
+function SourceTile({
+  icon,
+  title,
+  description,
+  onClick,
+  className,
+}: {
+  icon: React.ReactNode
+  title: string
+  description: string
+  onClick: () => void
+  className?: string
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        "flex w-full items-center gap-4 rounded-2xl bg-muted p-4 text-left transition-colors hover:bg-muted/70 active:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+        className,
+      )}
+    >
+      <span className="flex size-12 shrink-0 items-center justify-center rounded-full bg-background text-foreground">{icon}</span>
+      <span className="min-w-0 flex-1">
+        <span className="block text-[16px] font-semibold text-foreground">{title}</span>
+        <span className="block text-[13px] text-muted-foreground">{description}</span>
+      </span>
+      <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
+    </button>
+  )
+}
 
 /**
  * Captures a still from a video file. Returns the blob URL (for inline preview),
@@ -384,6 +419,102 @@ type SortableFileRowProps = {
   formatBytes: (bytes: number) => string
 }
 
+function FileThumb({
+  item,
+  statusIcon,
+  className,
+}: {
+  item: MediaItem
+  statusIcon: SortableFileRowProps["statusIcon"]
+  className?: string
+}) {
+  const isVideo = item.file.type.startsWith("video/")
+  const videoStill = isVideo ? item.customThumbnailPreview ?? item.videoPosterUrl : null
+  return (
+    <div className={cn("relative shrink-0 overflow-hidden bg-muted", className)}>
+      {isVideo ? (
+        item.isExtractingVideoPoster && !videoStill ? (
+          <div className="flex h-full w-full items-center justify-center">
+            <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
+          </div>
+        ) : videoStill ? (
+          <img src={videoStill} alt="" className="h-full w-full object-cover" />
+        ) : item.previewUrl ? (
+          <VideoFramePreview src={item.previewUrl} className="h-full w-full object-cover" />
+        ) : (
+          <div className="flex h-full w-full items-center justify-center">
+            <FileVideo className="h-4 w-4 text-muted-foreground" />
+          </div>
+        )
+      ) : (
+        <img src={item.previewUrl} alt="" className="h-full w-full object-cover" />
+      )}
+      {item.status !== "idle" && (
+        <div
+          className={cn(
+            "absolute inset-0 flex items-center justify-center",
+            item.status === "success" && "bg-green-500/25",
+            item.status === "error" && "bg-destructive/25",
+            (item.status === "uploading" || item.status === "processing") && "bg-foreground/30",
+          )}
+        >
+          {statusIcon(item.status)}
+        </div>
+      )}
+    </div>
+  )
+}
+
+/** A picked file on a phone: the app's square draft tile, outlined when it's the one being edited. */
+function DraftTile({
+  item,
+  isActive,
+  canRemove,
+  onSelect,
+  onRemove,
+  statusIcon,
+}: {
+  item: MediaItem
+  isActive: boolean
+  canRemove: boolean
+  onSelect: () => void
+  onRemove: () => void
+  statusIcon: SortableFileRowProps["statusIcon"]
+}) {
+  return (
+    <div className="relative shrink-0 pr-1.5 pt-1.5">
+      <button
+        type="button"
+        onClick={onSelect}
+        aria-label={item.file.name}
+        aria-pressed={isActive}
+        className={cn(
+          "block rounded-2xl outline-none focus-visible:ring-2 focus-visible:ring-ring",
+          isActive && "ring-2 ring-foreground",
+          item.status === "error" && "ring-2 ring-destructive",
+        )}
+      >
+        <FileThumb item={item} statusIcon={statusIcon} className="size-[76px] rounded-2xl" />
+        {item.status === "uploading" && (
+          <span className="absolute inset-x-3 bottom-3 h-1 overflow-hidden rounded-full bg-background/60">
+            <span className="block h-full bg-primary" style={{ width: `${item.progress}%` }} />
+          </span>
+        )}
+      </button>
+      {canRemove && (
+        <button
+          type="button"
+          onClick={onRemove}
+          aria-label={`Remove ${item.file.name}`}
+          className="absolute right-0 top-0 flex size-6 items-center justify-center rounded-full border-2 border-background bg-muted text-foreground transition-colors hover:bg-destructive hover:text-destructive-foreground"
+        >
+          <X className="h-3 w-3" />
+        </button>
+      )}
+    </div>
+  )
+}
+
 function SortableFileRow({
   item,
   isActive,
@@ -398,7 +529,6 @@ function SortableFileRow({
     id: item.id,
   })
   const isVideo = item.file.type.startsWith("video/")
-  const videoStill = isVideo ? item.customThumbnailPreview ?? item.videoPosterUrl : null
 
   const style = {
     transform: CSS.Transform.toString(transform),
@@ -430,37 +560,7 @@ function SortableFileRow({
         onClick={onSelect}
         className="flex min-w-0 flex-1 items-center gap-2.5 rounded text-left outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
       >
-        <div className="relative h-9 w-9 shrink-0 overflow-hidden rounded-md bg-muted">
-          {isVideo ? (
-            item.isExtractingVideoPoster && !videoStill ? (
-              <div className="flex h-full w-full items-center justify-center">
-                <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
-              </div>
-            ) : videoStill ? (
-              <img src={videoStill} alt="" className="h-full w-full object-cover" />
-            ) : item.previewUrl ? (
-              <VideoFramePreview src={item.previewUrl} className="h-full w-full object-cover" />
-            ) : (
-              <div className="flex h-full w-full items-center justify-center">
-                <FileVideo className="h-4 w-4 text-muted-foreground" />
-              </div>
-            )
-          ) : (
-            <img src={item.previewUrl} alt="" className="h-full w-full object-cover" />
-          )}
-          {item.status !== "idle" && (
-            <div
-              className={cn(
-                "absolute inset-0 flex items-center justify-center",
-                item.status === "success" && "bg-green-500/25",
-                item.status === "error" && "bg-destructive/25",
-                (item.status === "uploading" || item.status === "processing") && "bg-foreground/30",
-              )}
-            >
-              {statusIcon(item.status)}
-            </div>
-          )}
-        </div>
+        <FileThumb item={item} statusIcon={statusIcon} className="h-9 w-9 rounded-md" />
         <div className="min-w-0 flex-1">
           <Tooltip>
             <TooltipTrigger asChild>
@@ -764,12 +864,13 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
     addFiles(Array.from(fileList))
   }
 
-  const openFilePicker = useCallback(() => {
+  const openFilePicker = useCallback((camera = false) => {
     if (isUploadingBatch) return
     const input = document.createElement("input")
     input.type = "file"
     input.accept = "image/*,video/*"
-    input.multiple = true
+    input.multiple = !camera
+    if (camera) input.setAttribute("capture", "environment")
     input.onchange = (e) => {
       const target = e.target as HTMLInputElement
       handleFileChange(target.files)
@@ -1638,52 +1739,68 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
       <>
       <Dialog open={isOpen && !minimized} onOpenChange={handleDialogOpenChange}>
         <DialogContent
-          className="w-[min(100%,calc(100vw-1.5rem))] max-w-2xl rounded-3xl p-0 overflow-hidden max-h-[min(92dvh,640px)] flex flex-col shadow-2xl border-border/60"
+          showCloseButton={false}
+          className="flex max-h-[min(92dvh,640px)] w-[min(100%,calc(100vw-1.5rem))] max-w-lg flex-col gap-0 overflow-hidden rounded-3xl p-0 shadow-2xl border-border/60"
         >
+          {/* The app's Create sheet: close on the left, the title in the middle. */}
+          <div className="flex shrink-0 items-center border-b border-border/60 px-2 py-2">
+            <DialogClose
+              type="button"
+              className="flex size-10 items-center justify-center rounded-full text-foreground transition-colors hover:bg-muted"
+              aria-label="Close"
+            >
+              <X className="h-5 w-5" />
+            </DialogClose>
+            <DialogTitle className="flex-1 text-center text-[15px] font-semibold tracking-tight">Create</DialogTitle>
+            <span className="size-10" aria-hidden />
+          </div>
           <div
             ref={dropRef}
             onDragEnter={handleDragIn}
             onDragLeave={handleDragOut}
             onDragOver={handleDrag}
             onDrop={handleDrop}
-            onClick={openFilePicker}
-            className={`cursor-pointer group flex flex-col items-center justify-center px-6 py-12 sm:p-16 transition-all duration-300 min-h-[min(52vh,320px)] sm:min-h-0 ${
-              isDragging
-                ? "bg-primary/[0.04] ring-2 ring-primary/30 ring-inset"
-                : "hover:bg-muted/30"
-            }`}
+            className="relative flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-4 pb-[max(1.5rem,env(safe-area-inset-bottom))] pt-4"
           >
-            <div className={`w-16 h-16 sm:w-[72px] sm:h-[72px] rounded-3xl flex items-center justify-center mb-5 transition-all duration-300 shadow-sm ${
-              isDragging
-                ? "bg-primary/15 scale-110 shadow-md"
-                : "bg-gradient-to-b from-primary/15 to-primary/5 group-hover:scale-105"
-            }`}>
-              <CloudUpload className={`w-7 h-7 sm:w-8 sm:h-8 transition-colors ${isDragging ? "text-primary" : "text-primary/80 group-hover:text-primary"}`} />
+            {isDragging && (
+              <div className="absolute inset-2 z-10 flex flex-col items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-primary/40 bg-background/90">
+                <CloudUpload className="h-9 w-9 text-primary" />
+                <p className="text-sm font-medium text-foreground">Drop to add files</p>
+              </div>
+            )}
+            <div className="space-y-1 px-1">
+              <h2 className="text-[26px] font-bold tracking-tight text-foreground">Upload</h2>
+              <p className="text-[15px] text-muted-foreground">Share videos, reels and photos. You can pick several at once.</p>
             </div>
-            <p className="text-[17px] font-semibold tracking-tight text-foreground mb-1.5 text-center px-2">
-              {isDragging ? "Drop files here" : "Upload files"}
-            </p>
-            <p className="text-[13px] text-muted-foreground mb-5 text-center max-w-sm px-2">
-              Drag and drop or click to browse
-            </p>
-            <div className="flex flex-wrap items-center justify-center gap-x-2 gap-y-1 text-[11px] text-muted-foreground/70 px-2 text-center">
+            <SourceTile
+              icon={<ImagePlus className="h-[22px] w-[22px]" />}
+              title="Library"
+              description="Photos and videos from your device"
+              onClick={() => openFilePicker()}
+            />
+            <SourceTile
+              className="sm:hidden"
+              icon={<Camera className="h-[22px] w-[22px]" />}
+              title="Camera"
+              description="Record a video or take a photo"
+              onClick={() => openFilePicker(true)}
+            />
+            <p className="hidden px-1 text-[13px] text-muted-foreground sm:block">Or drop files anywhere here.</p>
+            <StorageQuotaMeter variant="compact" />
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-1 px-1 text-[12px] text-muted-foreground">
               <span className="flex items-center gap-1 whitespace-nowrap">
-                <FileImage className="w-3 h-3 shrink-0" /> Images
+                <FileImage className="h-3.5 w-3.5 shrink-0" /> Images
               </span>
-              <span className="text-border/70 select-none" aria-hidden>
-                ·
-              </span>
+              <span aria-hidden>·</span>
               <span className="flex items-center gap-1 whitespace-nowrap">
-                <FileVideo className="w-3 h-3 shrink-0" /> Videos
+                <FileVideo className="h-3.5 w-3.5 shrink-0" /> Videos
               </span>
-              <span className="text-border/70 select-none" aria-hidden>
-                ·
-              </span>
-              <span className="whitespace-nowrap">Max {formatBytes(effectiveMaxSize)}</span>
+              <span aria-hidden>·</span>
+              <span className="whitespace-nowrap">Up to {formatBytes(effectiveMaxSize)} each</span>
             </div>
             {error && (
-              <div className="mt-4 flex items-center gap-2 text-xs text-destructive bg-destructive/10 px-3 py-2 rounded-lg">
-                <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+              <div className="flex items-center gap-2 rounded-xl bg-destructive/10 px-3 py-2 text-xs text-destructive">
+                <AlertCircle className="h-3.5 w-3.5 shrink-0" />
                 <span>{error}</span>
               </div>
             )}
@@ -1727,9 +1844,16 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
 
           <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleMediaDragEnd}>
           <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-            <div className="flex shrink-0 flex-col gap-2 border-b border-border/60 bg-background/80 backdrop-blur-xl px-4 py-3 sm:flex-row sm:items-center sm:justify-between supports-[backdrop-filter]:bg-background/70">
-              <div className="flex items-center gap-2">
-                <p className="text-[15px] font-semibold tracking-tight text-foreground">Upload</p>
+            <div className="flex shrink-0 items-center gap-1 border-b border-border/60 bg-background/80 px-2 py-2 backdrop-blur-xl supports-[backdrop-filter]:bg-background/70 sm:px-3">
+              <DialogClose
+                type="button"
+                className="flex size-10 shrink-0 items-center justify-center rounded-full text-foreground transition-colors hover:bg-muted"
+                aria-label="Close"
+              >
+                <X className="h-5 w-5" />
+              </DialogClose>
+              <div className="flex min-w-0 flex-1 items-center gap-2 px-1">
+                <DialogTitle className="truncate text-[15px] font-semibold tracking-tight text-foreground">New post</DialogTitle>
                 <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground tabular-nums">
                   {items.length}
                 </span>
@@ -1758,35 +1882,51 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
                     type="button"
                     variant={seriesOrganizerOpen ? "default" : "outline"}
                     size="sm"
-                    className="h-9 gap-1.5 rounded-full px-4"
+                    className="h-9 gap-1.5 rounded-full px-3 sm:px-4"
                     disabled={isUploadingBatch}
                     onClick={() => setSeriesOrganizerOpen((o) => !o)}
                   >
                     <Layers className="h-3.5 w-3.5" />
-                    {seriesOrganizerOpen ? "Done" : "Series organizer"}
+                    {seriesOrganizerOpen ? "Done" : (
+                      <>
+                        <span className="sm:hidden">Series</span>
+                        <span className="max-sm:hidden">Series organizer</span>
+                      </>
+                    )}
                   </Button>
                 ) : null}
-                <DialogClose
-                  type="button"
-                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-                  aria-label="Close"
-                >
-                  <X className="h-4 w-4" />
-                </DialogClose>
               </div>
             </div>
             <div className="shrink-0 border-b border-border/60 bg-background/60 px-4 py-2.5">
               <StorageQuotaMeter variant="compact" refreshKey={uploadResultBanner} />
             </div>
-            <div className="grid min-h-0 flex-1 grid-cols-1 overflow-hidden md:grid-cols-[minmax(0,220px)_minmax(0,1fr)] lg:grid-cols-[minmax(0,240px)_minmax(0,1fr)]">
-            <div
-              className={cn(
-                "flex min-h-0 flex-col border-b border-border/60 p-2.5 md:h-full md:max-h-none md:border-b-0 md:border-r",
-                seriesOrganizerOpen
-                  ? "max-md:max-h-[min(22vh,160px)] max-md:shrink-0"
-                  : "max-md:max-h-[min(30vh,200px)] max-md:shrink-0"
+            <div className="grid min-h-0 flex-1 grid-cols-1 grid-rows-[auto_minmax(0,1fr)] overflow-hidden md:grid-cols-[minmax(0,220px)_minmax(0,1fr)] md:grid-rows-1 lg:grid-cols-[minmax(0,240px)_minmax(0,1fr)]">
+            <div className="flex gap-2.5 overflow-x-auto border-b border-border/60 px-4 py-3 scrollbar-none md:hidden">
+              {pendingItems.map((item) => (
+                <DraftTile
+                  key={item.id}
+                  item={item}
+                  isActive={activeId === item.id}
+                  canRemove={!isUploadingBatch}
+                  onSelect={() => setActiveId(item.id)}
+                  onRemove={() => removeItem(item.id)}
+                  statusIcon={statusIcon}
+                />
+              ))}
+              {!isUploadingBatch && (
+                <div className="shrink-0 pt-1.5">
+                  <button
+                    type="button"
+                    onClick={() => openFilePicker()}
+                    aria-label="Add more files"
+                    className="flex size-[76px] items-center justify-center rounded-2xl border border-dashed border-border text-foreground transition-colors hover:bg-muted"
+                  >
+                    <Plus className="h-5 w-5" />
+                  </button>
+                </div>
               )}
-            >
+            </div>
+            <div className="hidden min-h-0 flex-col border-border/60 p-2.5 md:flex md:h-full md:border-r">
               <div className="mb-2 shrink-0 px-1">
                 <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/80">Library</span>
               </div>
@@ -1880,7 +2020,7 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
               <div className="sticky bottom-0 z-10 mt-2 shrink-0 -mx-2.5 border-t border-border/60 bg-background/80 px-2.5 pt-2 backdrop-blur supports-[backdrop-filter]:bg-background/60">
                 <button
                   type="button"
-                  onClick={openFilePicker}
+                  onClick={() => openFilePicker()}
                   disabled={isUploadingBatch}
                   className="flex w-full min-h-[40px] items-center justify-center gap-1.5 rounded-lg border border-dashed border-border text-xs font-medium text-muted-foreground transition-colors hover:border-primary/50 hover:bg-primary/5 hover:text-primary disabled:cursor-not-allowed disabled:opacity-50 touch-manipulation"
                 >
