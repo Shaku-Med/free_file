@@ -900,6 +900,13 @@ func (w *Worker) processJob(job *queue.Job) {
 	} else {
 		hoverPreviewOK = true
 		w.log.Infof("hover_preview job=%s path=%s", job.ID, hoverPath)
+		// Uploaded with the rest of thumbDir. Without it the preview still works
+		// anywhere H.264 does.
+		if webmPath, werr := ffmpeg.BuildHoverPreviewWebM(hoverPath); werr != nil {
+			w.log.Errorf("hover preview webm failed job=%s err=%s", job.ID, werr.Error())
+		} else {
+			w.log.Infof("hover_preview_webm job=%s path=%s", job.ID, webmPath)
+		}
 	}
 
 	// One full-quality grid replaces the per-frame thumb_*.jpg files. On

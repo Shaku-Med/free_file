@@ -13,8 +13,8 @@ import { getMemoryCache } from '../utils/cache/memoryCache.js';
 import { fileMetaCache, FILE_404_TTL_MS } from '../utils/cache/metadataCache.js';
 import { buildFlightKey, getSingleFlight } from '../utils/cache/singleflight.js';
 
-// GET /api/load/preview/<storage path> — the short silent MP4 GoUpload builds
-// next to the thumbnails.
+// GET /api/load/preview/<storage path> — the short silent MP4 (and its VP9
+// WebM copy) GoUpload builds next to the thumbnails.
 
 const router = express.Router();
 
@@ -34,16 +34,19 @@ function previewPathFromRequest(req: Request): string {
     }
 }
 
-// Exactly what GoUpload writes: <dateFolder>/<uniqueId>/hover_preview.mp4.
-// Segments allow no dots or slashes, so traversal is impossible, and the
-// filename is fixed, so this endpoint can never be pointed at the real video
-// by swapping the last part of the path.
-const PREVIEW_PATH_RE = /^[A-Za-z0-9_-]+\/[A-Za-z0-9_-]+\/hover_preview\.mp4$/;
+// Exactly what GoUpload writes: <dateFolder>/<uniqueId>/hover_preview.mp4, plus
+// a VP9 .webm copy for browsers without H.264. Segments allow no dots or
+// slashes, so traversal is impossible, and the filename is fixed, so this
+// endpoint can never be pointed at the real video by swapping the last part of
+// the path.
+const PREVIEW_PATH_RE = /^[A-Za-z0-9_-]+\/[A-Za-z0-9_-]+\/hover_preview\.(mp4|webm)$/;
 
 function isPreviewPath(path: string): boolean {
     if (!path || path.length > 256) return false;
     return PREVIEW_PATH_RE.test(path);
 }
+
+const contentTypeFor = (path: string) => (path.endsWith('.webm') ? 'video/webm' : 'video/mp4');
 
 type FileRow = {
     id: string;
@@ -123,7 +126,7 @@ router.get('/*', async (req: Request, res: Response) => {
         const cached = isCacheable ? cache.get(cacheKey) : undefined;
         if (cached) {
             res.set({
-                'Content-Type': 'video/mp4',
+                'Content-Type': contentTypeFor(path),
                 'Cache-Control': PREVIEW_CACHE,
                 'CDN-Cache-Control': PREVIEW_CDN_CACHE,
                 'Accept-Ranges': 'none',
@@ -152,11 +155,11 @@ router.get('/*', async (req: Request, res: Response) => {
         if (!buffer) return res.status(404).send(null);
 
         if (isCacheable) {
-            cache.set(cacheKey, buffer, 'video/mp4', PREVIEW_CACHE, PREVIEW_TTL_MS);
+            cache.set(cacheKey, buffer, contentTypeFor(path), PREVIEW_CACHE, PREVIEW_TTL_MS);
         }
 
         res.set({
-            'Content-Type': 'video/mp4',
+            'Content-Type': contentTypeFor(path),
             'Content-Length': String(buffer.length),
             'Cache-Control': isCacheable ? PREVIEW_CACHE : 'private, no-store',
             'CDN-Cache-Control': isCacheable ? PREVIEW_CDN_CACHE : 'no-store',

@@ -33,6 +33,13 @@ const (
 
 	// HoverPreviewName is the on-disk name callers append to a storage prefix.
 	HoverPreviewName = hoverPreviewName
+
+	// VP9 copy for browsers without an H.264 decoder: Firefox on Linux only gets
+	// H.264 from the system's ffmpeg, while VP9 is built into every Firefox.
+	// It sits next to the MP4 with the same name, so no extra column is needed.
+	HoverPreviewWebMName = "hover_preview.webm"
+	hoverWebMCRF         = "40"
+	hoverWebMRetryCRF    = "48"
 )
 
 func hoverTargetFor(duration float64) float64 {
@@ -170,5 +177,60 @@ func BuildHoverPreview(videoPath, outDir string, duration float64) (string, erro
 		}
 	}
 
+	return dst, nil
+}
+
+func buildHoverWebMArgs(src, dst, crf string) []string {
+	return []string{
+		"-hide_banner", "-loglevel", "error", "-y",
+		"-i", src,
+		"-an",
+		"-c:v", "libvpx-vp9",
+		// Constant quality: -b:v 0 lets -crf alone decide the size.
+		"-b:v", "0",
+		"-crf", crf,
+		"-deadline", "good",
+		"-cpu-used", "4",
+		"-row-mt", "1",
+		"-pix_fmt", "yuv420p",
+		dst,
+	}
+}
+
+// BuildHoverPreviewWebM re-encodes the finished MP4 preview to VP9. The MP4 is
+// already small and short, so this is quick and never touches the source again.
+// A failure leaves no partial file behind.
+func BuildHoverPreviewWebM(mp4Path string) (string, error) {
+	if mp4Path == "" {
+		return "", fmt.Errorf("hover preview webm: empty path")
+	}
+	dst := filepath.Join(filepath.Dir(mp4Path), HoverPreviewWebMName)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+
+	run := func(crf string) error {
+		out, err := FFmpegCommand(ctx, buildHoverWebMArgs(mp4Path, dst, crf)...).CombinedOutput()
+		if err != nil {
+			return fmt.Errorf("hover preview webm encode: %w: %s", err, string(out))
+		}
+		return nil
+	}
+
+	if err := run(hoverWebMCRF); err != nil {
+		_ = os.Remove(dst)
+		return "", err
+	}
+	st, err := os.Stat(dst)
+	if err != nil {
+		_ = os.Remove(dst)
+		return "", fmt.Errorf("hover preview webm stat: %w", err)
+	}
+	if st.Size() > hoverMaxBytes {
+		if err := run(hoverWebMRetryCRF); err != nil {
+			_ = os.Remove(dst)
+			return "", err
+		}
+	}
 	return dst, nil
 }

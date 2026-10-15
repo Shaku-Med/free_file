@@ -4,6 +4,7 @@ import {
   cachedPreview,
   loadPreview,
   needsAuthenticatedFetch,
+  previewPathFor,
   previewUrlFor,
 } from "~/lib/files/hoverPreview";
 
@@ -13,8 +14,8 @@ const HOVER_DELAY_MS = 700;
  * Silent looping preview layered over a card thumbnail.
  *
  * Binds its listeners to the PARENT element, so dropping it inside an existing
- * thumbnail wrapper needs no other changes. Touch devices have no hover, so
- * those play once the card is properly in view.
+ * thumbnail wrapper needs no other changes. A mouse or pen hover plays it; a
+ * finger has to press and hold.
  */
 export default function HoverPreview({ file }: { file: Partial<FileType> }) {
   const holderRef = useRef<HTMLDivElement | null>(null);
@@ -24,10 +25,19 @@ export default function HoverPreview({ file }: { file: Partial<FileType> }) {
   // fires canplay again and the video re-appears after the pointer has gone.
   const activeRef = useRef(false);
 
-  const url = previewUrlFor(file);
+  const path = previewPathFor(file);
   const needsAuth = needsAuthenticatedFetch(file);
 
-  const [src, setSrc] = useState<string | null>(() => (url ? cachedPreview(url) ?? null : null));
+  // Which file to ask for depends on the browser's codecs (MP4, or the WebM copy
+  // where H.264 can't play), which the server can't know, so it's picked after
+  // mount to keep the server and first client render the same.
+  const [url, setUrl] = useState<string | null>(null);
+  const [src, setSrc] = useState<string | null>(null);
+  useEffect(() => {
+    const next = path ? previewUrlFor({ preview_endpoint: path } as Partial<FileType>) : null;
+    setUrl(next);
+    setSrc(next ? cachedPreview(next) ?? null : null);
+  }, [path]);
   const [loading, setLoading] = useState(false);
   const [ready, setReady] = useState(false);
 
@@ -78,21 +88,12 @@ export default function HoverPreview({ file }: { file: Partial<FileType> }) {
       }
     };
 
-    const canHover =
-      typeof window !== "undefined" &&
-      window.matchMedia?.("(hover: hover) and (pointer: fine)").matches;
-
-    if (canHover) {
-      parent.addEventListener("mouseenter", enter);
-      parent.addEventListener("mouseleave", leave);
-      return () => {
-        cancelled = true;
-        controller.abort();
-        if (timerRef.current) clearTimeout(timerRef.current);
-        parent.removeEventListener("mouseenter", enter);
-        parent.removeEventListener("mouseleave", leave);
-      };
-    }
+    const onPointerEnter = (e: PointerEvent) => {
+      if (e.pointerType !== "touch") enter();
+    };
+    const onPointerLeave = (e: PointerEvent) => {
+      if (e.pointerType !== "touch") leave();
+    };
 
     // Touch has no hover, and playing whatever scrolls into view burns data on
     // cards nobody asked about. Require a deliberate press-and-hold instead,
@@ -105,6 +106,8 @@ export default function HoverPreview({ file }: { file: Partial<FileType> }) {
     const onMove = (e: TouchEvent) => {
       if (Math.abs((e.touches[0]?.clientY ?? 0) - startY) > 8) leave();
     };
+    parent.addEventListener("pointerenter", onPointerEnter);
+    parent.addEventListener("pointerleave", onPointerLeave);
     parent.addEventListener("touchstart", onStart, { passive: true });
     parent.addEventListener("touchmove", onMove, { passive: true });
     parent.addEventListener("touchend", leave, { passive: true });
@@ -113,6 +116,8 @@ export default function HoverPreview({ file }: { file: Partial<FileType> }) {
       cancelled = true;
       controller.abort();
       if (timerRef.current) clearTimeout(timerRef.current);
+      parent.removeEventListener("pointerenter", onPointerEnter);
+      parent.removeEventListener("pointerleave", onPointerLeave);
       parent.removeEventListener("touchstart", onStart);
       parent.removeEventListener("touchmove", onMove);
       parent.removeEventListener("touchend", leave);
@@ -130,7 +135,7 @@ export default function HoverPreview({ file }: { file: Partial<FileType> }) {
     v.play().catch(() => {});
   }, [src]);
 
-  if (!url) return null;
+  if (!path) return null;
 
   return (
     <div ref={holderRef} className="pointer-events-none absolute inset-0 z-[20]">
@@ -153,7 +158,7 @@ export default function HoverPreview({ file }: { file: Partial<FileType> }) {
           disablePictureInPicture
           onLoadedData={() => { if (activeRef.current) setReady(true); }}
           onCanPlay={() => { if (activeRef.current) setReady(true); }}
-          onError={(e) => { console.log('[HoverPreview] VIDEO ERROR', (e.target as HTMLVideoElement)?.error); setReady(false); }}
+          onError={() => setReady(false)}
           className={`h-full w-full bg-black object-cover transition-opacity duration-200 ${
             ready ? "opacity-100" : "opacity-0"
           }`}
