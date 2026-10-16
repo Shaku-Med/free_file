@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useLocation } from "react-router";
-import { ArrowLeft, Home, Plus, Search } from "lucide-react";
+import { ArrowLeft, Home, Plus, Search, SlidersHorizontal, Volume2, VolumeX } from "lucide-react";
 import Logo from "./Logo/Logo";
 import { useFileContext } from "~/lib/Context/Context";
 import { SidebarTrigger, useSidebar } from "../ui/sidebar";
@@ -16,8 +16,9 @@ import { WindappNavButtons } from "./WindappNavButtons";
 import { DesktopUpdateHeaderButton } from "~/components/DesktopUpdateCta";
 import { cn } from "~/lib/utils";
 import { isReelRoute } from "~/lib/reelRoute";
-import { useTabBarStyle, type TabBarStyle } from "~/lib/hooks/useTabBarStyle";
+import { useTabBarStyle } from "~/lib/hooks/useTabBarStyle";
 import { onOpenHeaderSearch } from "~/lib/headerSearch";
+import { sendReelCommand, setReelFeedMode, useReelFeedMode, useReelMuted, type ReelFeedMode } from "~/lib/reel/reelChrome";
 
 interface NavbarProps {
   hasScrolled?: ScrollState;
@@ -33,15 +34,41 @@ const iconBtnReel =
 const glassBtn =
   "inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-foreground transition-colors active:bg-foreground/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
 
-/** The app's reel controls: glass on iOS, a tonal pill on Android. */
-const REEL_PILL: Record<Exclude<TabBarStyle, "default">, string> = {
-  "ios-glass": "tabbar-glass-dark",
-  ios: "bg-black/40 backdrop-blur-xl",
-  material3: "bg-neutral-800/90",
-  material2: "bg-neutral-800/90",
-};
-const reelPill =
-  "inline-flex h-9 shrink-0 items-center justify-center rounded-full text-[15px] font-semibold text-white transition-transform active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/40";
+/** The app's reel header icons: bare and white, with a shadow so they read on any picture. */
+const reelHeaderIcon =
+  "inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-white drop-shadow-[0_1px_4px_rgba(0,0,0,0.55)] transition active:scale-95 active:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/40";
+
+const REEL_FEEDS: { id: ReelFeedMode; label: string }[] = [
+  { id: "reels", label: "Reels" },
+  { id: "following", label: "Following" },
+];
+
+/** Reels and Following as big titles in the middle of the bar, like the app's Reels tab. */
+function ReelFeedTabs() {
+  const mode = useReelFeedMode();
+  return (
+    <div role="tablist" aria-label="Reel feeds" className="pointer-events-auto flex items-center gap-[18px]">
+      {REEL_FEEDS.map((feed) => {
+        const on = feed.id === mode;
+        return (
+          <button
+            key={feed.id}
+            type="button"
+            role="tab"
+            aria-selected={on}
+            onClick={() => setReelFeedMode(feed.id)}
+            className={cn(
+              "text-[22px] font-extrabold tracking-[-0.3px] [text-shadow:0_1px_8px_rgba(0,0,0,0.45)] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/40 rounded-md",
+              on ? "text-white" : "text-white/55 hover:text-white/80",
+            )}
+          >
+            {feed.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
 
 function getProfileUsernameFromPath(pathname: string): string | null {
   const match = pathname.match(/^\/profile\/([^/]+)\/?$/);
@@ -88,6 +115,8 @@ export default function Navbar({ hasScrolled = { state: false, opacityLevel: 0 }
   // Reel keeps a transparent bar, but give a backdrop while the search is expanded
   // so the field stays readable against the video.
   const barOpacity = searchExpanded ? 1 : onReelRoute ? 0 : hasScrolled.opacityLevel;
+  const appReelHeader = Boolean(appStyle) && onReelRoute && !searchExpanded;
+  const reelMuted = useReelMuted();
 
   useEffect(() => {
     setMobileSearchOpen(false);
@@ -151,6 +180,12 @@ export default function Navbar({ hasScrolled = { state: false, opacityLevel: 0 }
       aria-label="Main"
       onDoubleClick={onTitlebarDoubleClick}
     >
+      {appReelHeader ? (
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-x-0 top-0 h-[calc(100%+1.5rem)] bg-gradient-to-b from-black/40 to-transparent"
+        />
+      ) : null}
       {appStyle === "ios-glass" && !searchExpanded ? (
         <div
           aria-hidden
@@ -190,10 +225,10 @@ export default function Navbar({ hasScrolled = { state: false, opacityLevel: 0 }
             {appStyle ? null : (
               <SidebarTrigger className={cn(iconBtn, onReelRoute && iconBtnReel, "[&_svg]:size-5")} />
             )}
-            {appStyle && onReelRoute ? (
-              <span role="heading" aria-level={1} className={cn(reelPill, REEL_PILL[appStyle], "ml-1 px-4")}>
-                Reels
-              </span>
+            {appReelHeader ? (
+              <button type="button" onClick={() => setIsModalOpen(true)} aria-label="New post" className={cn(reelHeaderIcon, "ml-1")}>
+                <Plus className="h-[26px] w-[26px]" strokeWidth={2.2} />
+              </button>
             ) : null}
             {/* Windapp: browser-style back / forward / refresh */}
             {isWindapp ? <WindappNavButtons /> : null}
@@ -247,6 +282,12 @@ export default function Navbar({ hasScrolled = { state: false, opacityLevel: 0 }
           Do NOT put windapp-no-drag on this flex-1 wrapper — that was killing window drag.
           Search field itself is no-drag via CSS (input/button rules).
         */}
+        {appReelHeader ? (
+          <div className="pointer-events-none absolute inset-x-0 top-0 flex h-14 items-center justify-center">
+            <ReelFeedTabs />
+          </div>
+        ) : null}
+
         {showSearchBar ? (
           // Centred and capped at YouTube's 732px whether it sits in the bar or
           // was opened from the icon, so it never stretches across a wide screen.
@@ -266,14 +307,22 @@ export default function Navbar({ hasScrolled = { state: false, opacityLevel: 0 }
         {!searchExpanded && appStyle ? (
           <div className="ml-auto flex shrink-0 items-center">
             {onReelRoute ? (
-              <button
-                type="button"
-                onClick={() => setIsModalOpen(true)}
-                aria-label="New post"
-                className={cn(reelPill, REEL_PILL[appStyle], "w-9")}
-              >
-                <Plus className="h-5 w-5" strokeWidth={2.4} />
-              </button>
+              <div className="mr-1 flex items-center">
+                <button
+                  type="button"
+                  onClick={() => sendReelCommand("mute")}
+                  aria-label={reelMuted ? "Unmute" : "Mute"}
+                  aria-pressed={reelMuted}
+                  className={reelHeaderIcon}
+                >
+                  {reelMuted ? <VolumeX className="h-6 w-6" strokeWidth={2} /> : <Volume2 className="h-6 w-6" strokeWidth={2} />}
+                </button>
+                {userId ? (
+                  <button type="button" onClick={() => sendReelCommand("settings")} aria-label="Playback settings" className={reelHeaderIcon}>
+                    <SlidersHorizontal className="h-6 w-6" strokeWidth={2} />
+                  </button>
+                ) : null}
+              </div>
             ) : (
               <div
                 className={cn(

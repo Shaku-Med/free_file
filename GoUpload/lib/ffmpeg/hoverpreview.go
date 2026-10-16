@@ -122,7 +122,11 @@ func buildHoverArgs(src, dst string, points []float64, clipLen float64, crf stri
 		"-c:v", "libx264",
 		"-preset", "veryfast",
 		"-crf", crf,
-		"-profile:v", "main",
+		// Constrained Baseline, because Firefox on Linux without the system ffmpeg
+		// decodes H.264 with OpenH264, which only handles Baseline and reports any
+		// Main profile file as corrupt.
+		"-profile:v", "baseline",
+		"-level:v", "3.0",
 		"-pix_fmt", "yuv420p",
 		// Without faststart the preview stalls on hover regardless of size.
 		"-movflags", "+faststart",

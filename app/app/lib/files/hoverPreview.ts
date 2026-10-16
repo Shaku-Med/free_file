@@ -31,6 +31,13 @@ export function previewPathFor(file: Partial<FileType> | null | undefined): stri
 type PreviewFormat = 'mp4' | 'webm';
 let playableFormat: PreviewFormat | null | undefined;
 
+// Some Chromium builds answer "" to canPlayType for H.264 and still play it,
+// so either check saying yes counts. Firefox without a decoder says no to both.
+function supports(type: string): boolean {
+  const probe = document.createElement('video');
+  return Boolean(probe.canPlayType(type)) || (typeof MediaSource !== 'undefined' && MediaSource.isTypeSupported(type));
+}
+
 /**
  * The preview format this browser can actually decode. Firefox on Linux only
  * plays H.264 through the system's ffmpeg, which many installs lack, but it
@@ -40,18 +47,24 @@ let playableFormat: PreviewFormat | null | undefined;
 function previewFormat(): PreviewFormat | null {
   if (playableFormat !== undefined) return playableFormat;
   if (typeof document === 'undefined') return 'mp4';
-  const probe = document.createElement('video');
-  // Some Chromium builds answer "" to canPlayType for H.264 and still play it,
-  // so either check saying yes counts. Firefox without a decoder says no to both.
-  const supports = (type: string) =>
-    Boolean(probe.canPlayType(type)) ||
-    (typeof MediaSource !== 'undefined' && MediaSource.isTypeSupported(type));
   playableFormat = supports('video/mp4; codecs="avc1.4D401E"')
     ? 'mp4'
     : supports('video/webm; codecs="vp9"')
       ? 'webm'
       : null;
   return playableFormat;
+}
+
+/**
+ * The browser claimed H.264 but an MP4 preview failed to decode, as Firefox on
+ * Linux does when only OpenH264 is there: it decodes Baseline only and calls
+ * anything else corrupt. Use the WebM copies for the rest of the visit.
+ * True when there is a WebM to try.
+ */
+export function preferWebm(): boolean {
+  if (playableFormat !== 'mp4' || typeof document === 'undefined') return false;
+  playableFormat = supports('video/webm; codecs="vp9"') ? 'webm' : null;
+  return playableFormat === 'webm';
 }
 
 /**

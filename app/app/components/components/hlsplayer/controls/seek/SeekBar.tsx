@@ -160,6 +160,7 @@ function ThinSeekTrack({
   scaledStyle,
   flushBottom,
   flushTop = false,
+  reelLine = false,
   handleInsetPx,
   waveformUrl,
   trackWidth,
@@ -187,6 +188,8 @@ function ThinSeekTrack({
   flushBottom: boolean;
   /** Sit the visible track on the top edge (mobile music bar). */
   flushTop?: boolean;
+  /** Reels on phones: the app's thin white line, which thickens and shows its knob only while dragged. */
+  reelLine?: boolean;
   handleInsetPx: number;
   waveformUrl?: string;
   trackWidth: number;
@@ -260,25 +263,32 @@ function ThinSeekTrack({
 
   const rail = (
     <>
-      <div className="absolute inset-0 overflow-hidden rounded-full bg-secondary" style={railMask}>
+      <div className={cn('absolute inset-0 overflow-hidden rounded-full', reelLine ? 'bg-white/25' : 'bg-secondary')} style={railMask}>
         <BufferSegments
           ranges={bufferedRanges}
           duration={duration}
-          className="bg-white/25 rounded-full"
+          className={reelLine ? 'bg-white/20 rounded-full' : 'bg-white/25 rounded-full'}
         />
         <div
           ref={barRef}
-          className="absolute top-0 left-0 h-full rounded-full bg-primary"
+          className={cn('absolute top-0 left-0 h-full rounded-full', reelLine ? 'bg-white' : 'bg-primary')}
           style={{ width: `${progress}%` }}
         />
       </div>
       <div
         ref={handleRef}
         className={cn(
-          'absolute top-1/2 -translate-y-1/2 rounded-full border-2 border-primary bg-background shadow-md',
+          'absolute top-1/2 -translate-y-1/2 rounded-full shadow-md',
+          reelLine ? 'bg-white transition-[opacity,transform] duration-150' : 'border-2 border-primary bg-background',
           handleSizeClass,
-          mobileStyle ? 'opacity-100' : 'opacity-0 transition-opacity duration-150 group-hover/seek:opacity-100',
-          showHandle && 'opacity-100'
+          reelLine
+            ? showHandle
+              ? 'opacity-100'
+              : 'scale-50 opacity-0'
+            : mobileStyle
+              ? 'opacity-100'
+              : 'opacity-0 transition-opacity duration-150 group-hover/seek:opacity-100',
+          !reelLine && showHandle && 'opacity-100'
         )}
         style={{ left: handleLeft }}
       />
@@ -305,7 +315,12 @@ function ThinSeekTrack({
         onPointerCancel={onPointerCancel}
         onBlur={onMouseLeave}
       >
-        <div className="relative h-[var(--hls-ctrl-seek-track,3px)] w-full shrink-0 overflow-visible rounded-full">
+        <div
+          className={cn(
+            'relative w-full shrink-0 overflow-visible rounded-full',
+            reelLine ? cn('transition-[height] duration-150', showHandle ? 'h-1.5' : 'h-0.5') : 'h-[var(--hls-ctrl-seek-track,3px)]',
+          )}
+        >
           {rail}
         </div>
       </div>
@@ -848,7 +863,8 @@ export default function SeekBar({
         chapters={chapters}
         barRef={barRef}
         handleRef={handleRef}
-        showHandle={Boolean(hoverTime !== null || isDragging || mobileStyle)}
+        showHandle={isReel && mobileStyle ? isDragging : Boolean(hoverTime !== null || isDragging || mobileStyle)}
+        reelLine={isReel && mobileStyle}
         mobileStyle={mobileStyle}
         scaledStyle={scaledStyle || mobileStyle}
         flushBottom={flushBottom}

@@ -13,6 +13,9 @@ const REEL_LIMIT = 15;
 const CONTEXT_RELATED_MAX = 5;
 /** Profile-channel mode: page through a creator's shorts before the global feed. */
 const PROFILE_REEL_FETCH_LIMIT = 20;
+/** Following mode reads the subscription feed, which mixes videos and reels, so it reads wide. */
+const FOLLOWING_FETCH_LIMIT = 60;
+const MAX_CURSOR = 100_000;
 
 /** UUID string compare-safe key (Supabase/JSON may vary in casing). */
 function fileIdKey(id: unknown): string {
@@ -157,6 +160,79 @@ async function fetchProfileOwnerReels(
   };
 }
 
+/** Reels from channels the viewer subscribes to, newest first, paged by the subscription feed's cursor. */
+async function fetchFollowingReels(
+  request: Request,
+  userId: string,
+  excludeIds: string[],
+  cursorPos: number,
+): Promise<{ rows: Record<string, unknown>[]; hasMore: boolean; nextCursor: number }> {
+  const { data: rows, error } = await db.rpc('get_subscription_feed', {
+    p_user_id: userId,
+    p_limit: FOLLOWING_FETCH_LIMIT,
+    p_cursor_pos: cursorPos,
+  });
+  if (error) {
+    console.error('Reel feed following RPC error:', error);
+    return { rows: [], hasMore: false, nextCursor: cursorPos };
+  }
+  const rowArr = Array.isArray(rows) ? rows : [];
+  const accessible = await filterFilesByAccess(request, rowArr);
+  const exclude = new Set(excludeIds.map(fileIdKey));
+  const reels = (accessible as Record<string, unknown>[]).filter((file) => {
+    const id = file.id ? fileIdKey(file.id) : '';
+    return id && isReelRow(file) && !exclude.has(id);
+  });
+  return {
+    rows: reels.slice(0, REEL_LIMIT),
+    hasMore: rowArr.length >= FOLLOWING_FETCH_LIMIT,
+    nextCursor: cursorPos + rowArr.length,
+  };
+}
+
+/** Interaction counts and the viewer's likes for a batch, mapped to the client's reel rows. */
+async function toClientReels(rows: Record<string, unknown>[], userId: string | undefined) {
+  await backfillOriginalSound(rows);
+
+  const fileIds = rows.map((f) => f.id as string | undefined).filter(Boolean);
+  const interactionsByFile = new Map<string, ReelFeedInteraction>();
+  if (fileIds.length > 0) {
+    const { data: batch } = await db.rpc("get_batch_interactions", {
+      p_file_ids: fileIds,
+      p_user_id: userId || null,
+    });
+    if (Array.isArray(batch)) {
+      for (const row of batch) {
+        if (row?.file_id) {
+          const fid = fileIdKey(row.file_id);
+          interactionsByFile.set(fid, {
+            like_count: Number(row.like_count) ?? 0,
+            dislike_count: Number(row.dislike_count) ?? 0,
+            comment_count: Number(row.comment_count) ?? 0,
+            user_has_liked: !!row.user_has_liked,
+            user_has_disliked: !!row.user_has_disliked,
+          });
+        }
+      }
+    }
+  }
+
+  const likedFileIds: string[] = [];
+  const dislikedFileIds: string[] = [];
+
+  const data = rows.map((file: Record<string, unknown>) => {
+    const fid = file.id ? fileIdKey(file.id) : "";
+    const interactions = fid ? interactionsByFile.get(fid) : undefined;
+    const mapped = mapRpcFileToReelFeedItem(file, interactions);
+    if (mapped.user_has_liked && file.id) likedFileIds.push(fileIdKey(file.id));
+    if (mapped.user_has_disliked && file.id) dislikedFileIds.push(fileIdKey(file.id));
+    const { user_has_liked: _l, user_has_disliked: _d, ...clientRow } = mapped;
+    return clientRow;
+  });
+
+  return { data, likedFileIds, dislikedFileIds };
+}
+
 /**
  * Some RPC paths (get_related, profile sections, pre-v2 get_reel_feed) don't return
  * original_* columns — backfill them so every batch carries sound-chip data like SSR.
@@ -236,6 +312,31 @@ export const loader = async ({ request }: { request: Request }) => {
 
     const user = await isAuthenticated(request, ['id']);
     const userId: string | undefined = user?.id || undefined;
+
+    if (url.searchParams.get('feed') === 'following') {
+      // Following needs an account; guests get an empty page and a sign-in flag, not someone else's feed.
+      if (!userId) {
+        return new Response(
+          JSON.stringify({ data: [], userActions: { likedFileIds: [], dislikedFileIds: [] }, nextCursor: null, needs_sign_in: true }),
+          { headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } },
+        );
+      }
+      const cursorPos = Math.min(
+        Math.max(0, parseInt(url.searchParams.get('following_cursor_pos') ?? '0', 10) || 0),
+        MAX_CURSOR,
+      );
+      const following = await fetchFollowingReels(request, userId, excludeIds, cursorPos);
+      const { data, likedFileIds, dislikedFileIds } = await toClientReels(following.rows, userId);
+      return new Response(
+        JSON.stringify({
+          data,
+          userActions: { likedFileIds, dislikedFileIds },
+          nextCursor: following.hasMore ? { cursor_pos: following.nextCursor } : null,
+          following_next_cursor: following.nextCursor,
+        }),
+        { headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } },
+      );
+    }
 
     const maxDuration = maxDurationParam != null && maxDurationParam !== ''
       ? parseFloat(maxDurationParam)
@@ -346,43 +447,7 @@ export const loader = async ({ request }: { request: Request }) => {
             REEL_LIMIT + CONTEXT_RELATED_MAX,
           );
 
-    await backfillOriginalSound(filtered);
-
-    const fileIds = filtered.map((f) => f.id as string | undefined).filter(Boolean);
-    const interactionsByFile = new Map<string, ReelFeedInteraction>();
-    if (fileIds.length > 0) {
-      const { data: batch } = await db.rpc("get_batch_interactions", {
-        p_file_ids: fileIds,
-        p_user_id: userId || null,
-      });
-      if (Array.isArray(batch)) {
-        for (const row of batch) {
-          if (row?.file_id) {
-            const fid = fileIdKey(row.file_id);
-            interactionsByFile.set(fid, {
-              like_count: Number(row.like_count) ?? 0,
-              dislike_count: Number(row.dislike_count) ?? 0,
-              comment_count: Number(row.comment_count) ?? 0,
-              user_has_liked: !!row.user_has_liked,
-              user_has_disliked: !!row.user_has_disliked,
-            });
-          }
-        }
-      }
-    }
-
-    const likedFileIds: string[] = [];
-    const dislikedFileIds: string[] = [];
-
-    const data = filtered.map((file: Record<string, unknown>) => {
-      const fid = file.id ? fileIdKey(file.id) : "";
-      const interactions = fid ? interactionsByFile.get(fid) : undefined;
-      const mapped = mapRpcFileToReelFeedItem(file, interactions);
-      if (mapped.user_has_liked && file.id) likedFileIds.push(fileIdKey(file.id));
-      if (mapped.user_has_disliked && file.id) dislikedFileIds.push(fileIdKey(file.id));
-      const { user_has_liked: _l, user_has_disliked: _d, ...clientRow } = mapped;
-      return clientRow;
-    });
+    const { data, likedFileIds, dislikedFileIds } = await toClientReels(filtered, userId);
 
     const deliveredCount = data.length;
     const rawCountForCursor = profileModeActive && !profileExhausted ? profileRows.length : rawCount;

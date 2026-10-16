@@ -4,6 +4,7 @@ import {
   cachedPreview,
   loadPreview,
   needsAuthenticatedFetch,
+  preferWebm,
   previewPathFor,
   previewUrlFor,
 } from "~/lib/files/hoverPreview";
@@ -112,6 +113,8 @@ export default function HoverPreview({ file }: { file: Partial<FileType> }) {
     parent.addEventListener("touchmove", onMove, { passive: true });
     parent.addEventListener("touchend", leave, { passive: true });
     parent.addEventListener("touchcancel", leave, { passive: true });
+    // Swapped to the WebM copy while the pointer was already over the card.
+    if (activeRef.current && !src) begin();
     return () => {
       cancelled = true;
       controller.abort();
@@ -158,7 +161,15 @@ export default function HoverPreview({ file }: { file: Partial<FileType> }) {
           disablePictureInPicture
           onLoadedData={() => { if (activeRef.current) setReady(true); }}
           onCanPlay={() => { if (activeRef.current) setReady(true); }}
-          onError={() => setReady(false)}
+          onError={(e) => {
+            setReady(false);
+            const code = e.currentTarget.error?.code;
+            const undecodable = code === MediaError.MEDIA_ERR_DECODE || code === MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED;
+            if (path && url?.endsWith(".mp4") && undecodable && preferWebm()) {
+              setSrc(null);
+              setUrl(previewUrlFor({ preview_endpoint: path } as Partial<FileType>));
+            }
+          }}
           className={`h-full w-full bg-black object-cover transition-opacity duration-200 ${
             ready ? "opacity-100" : "opacity-0"
           }`}

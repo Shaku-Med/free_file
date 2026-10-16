@@ -437,25 +437,28 @@ export default function Actions({
   const reelDensityCompact = reelDensity === "compact" || reelDensity === "minimal";
   const reelDensityMinimal = reelDensity === "minimal";
 
-  /** YouTube-Shorts-style: glassy dark circle, white icon  no border/blur. */
+  /** The app's reel rail: a frosted dark circle that stays visible on any picture, white icon. */
+  const reelGlass = "bg-black/40 text-white ring-1 ring-white/10 backdrop-blur-md";
   const reelIconBtn = cn(
-    "flex items-center justify-center rounded-full bg-black/35 text-white transition active:scale-90 hover:bg-black/45 focus-visible:outline-none disabled:opacity-50",
-    reelDensityMinimal ? "h-8 w-8" : reelDensityCompact ? "h-9 w-9" : "h-11 w-11",
+    "flex items-center justify-center rounded-full transition active:scale-90 hover:bg-black/55 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/60 disabled:opacity-50",
+    reelGlass,
+    reelDensityMinimal ? "h-9 w-9" : reelDensityCompact ? "h-10 w-10" : "h-12 w-12",
   );
 
   const reelIconSize = reelDensityMinimal
-    ? "h-[1.15rem] w-[1.15rem]"
+    ? "h-[1.2rem] w-[1.2rem]"
     : reelDensityCompact
-      ? "h-[1.25rem] w-[1.25rem]"
-      : "h-[1.4rem] w-[1.4rem]";
+      ? "h-[1.35rem] w-[1.35rem]"
+      : "h-6 w-6";
 
   // Liked / disliked state is carried by the ICON (fill), not a button chrome.
   const reelIconBtnLiked = "text-white";
   const reelIconBtnDisliked = "text-white";
 
   const reelMoreTriggerClass = cn(
-    "inline-flex shrink-0 items-center justify-center rounded-full bg-black/35 text-white transition active:scale-90 hover:bg-black/45 focus-visible:outline-none disabled:opacity-50 data-[state=open]:bg-black/55",
-    reelDensityMinimal ? "size-8" : reelDensityCompact ? "size-9" : "size-11",
+    "inline-flex shrink-0 items-center justify-center rounded-full transition active:scale-90 hover:bg-black/55 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/60 disabled:opacity-50 data-[state=open]:bg-black/60",
+    reelGlass,
+    reelDensityMinimal ? "size-9" : reelDensityCompact ? "size-10" : "size-12",
   );
 
   const reelLabel =
@@ -463,10 +466,10 @@ export default function Actions({
 
   const reelLabelClass = cn(
     reelLabel,
-    reelDensityMinimal ? "text-[9px]" : reelDensityCompact ? "text-[10px]" : "text-[11px]",
+    reelDensityMinimal ? "text-[10px]" : reelDensityCompact ? "text-[11px]" : "text-[12px]",
   );
 
-  const reelRowGapClass = reelDensityMinimal ? "gap-1.5" : reelDensityCompact ? "gap-2" : "gap-3";
+  const reelRowGapClass = reelDensityMinimal ? "gap-2" : reelDensityCompact ? "gap-3" : "gap-4";
 
   /** Hide non-essential text labels on very short screens; counts stay for like/comment. */
   const reelAuxLabel = (text: string) =>
@@ -507,13 +510,13 @@ export default function Actions({
         ) : isReel ? (
           <button
             type="button"
-            className={`flex flex-col items-center gap-1`}
+            className={cn("flex flex-col items-center", reelDensityMinimal ? "gap-0.5" : "gap-1.5")}
             aria-label="More options"
           >
             <span className={reelMoreTriggerClass}>
-              <MoveVertical className="size-[1.125rem] shrink-0" aria-hidden />
+              <MoveVertical className={cn(reelIconSize, "shrink-0")} aria-hidden />
             </span>
-            <span className={reelLabel}>More</span>
+            {reelAuxLabel("More")}
           </button>
         ) : (
           <button type="button" className={`${moreTriggerClass}`} aria-label="More options">
@@ -726,11 +729,22 @@ export default function Actions({
   const instagramReelRow = (
     <div className={cn("flex flex-col items-center", reelRowGapClass)}>
       {howLikesDislikeComments ? (
+        // Like and dislike share one tall pill, as on the app's reel rail.
+        <div
+          role="group"
+          aria-label="Like and dislike"
+          className={cn(
+            "flex flex-col overflow-hidden rounded-full",
+            reelGlass,
+            reelDensityMinimal ? "w-9" : reelDensityCompact ? "w-10" : "w-[52px]",
+          )}
+        >
         <button
           type="button"
           className={cn(
-            "group flex select-none flex-col items-center",
-            reelDensityMinimal ? "gap-0.5" : "gap-1",
+            "group flex select-none flex-col items-center transition hover:bg-white/10 focus-visible:bg-white/15 focus-visible:outline-none",
+            reelDensityMinimal ? "gap-0.5 py-2" : "gap-1 py-3",
+            liked && "bg-primary/40 hover:bg-primary/50",
           )}
           onClick={() => {
             pulseLikeButton();
@@ -744,8 +758,7 @@ export default function Actions({
             ref={reelLikeIconRef}
             data-reel-like-target=""
             className={cn(
-              reelIconBtn,
-              "group-active:scale-90",
+              "flex items-center justify-center transition group-active:scale-90",
               likeBusy && "opacity-70",
               likeButtonPop && "reel-like-target-pop",
             )}
@@ -769,21 +782,20 @@ export default function Actions({
             {formatNumber(likeCount)}
           </span>
         </button>
-      ) : null}
-
-      {howLikesDislikeComments ? (
+        <span aria-hidden className="mx-2 h-px bg-white/15" />
         <button
           type="button"
           className={cn(
-            "group flex select-none flex-col items-center",
-            reelDensityMinimal ? "gap-0.5" : "gap-1",
+            "group flex select-none flex-col items-center transition hover:bg-white/10 focus-visible:bg-white/15 focus-visible:outline-none",
+            reelDensityMinimal ? "gap-0.5 py-2" : "gap-1 py-3",
+            disliked && "bg-destructive/30 hover:bg-destructive/40",
           )}
           onClick={() => applyLikeDislike("dislike")}
           disabled={dislikeBusy}
           aria-pressed={disliked}
           aria-label={disliked ? "Remove dislike" : "Dislike"}
         >
-          <span className={cn(reelIconBtn, "group-active:scale-90", dislikeBusy && "opacity-70")}>
+          <span className={cn("flex items-center justify-center transition group-active:scale-90", dislikeBusy && "opacity-70")}>
             {dislikeBusy ? (
               <Loader2 className={cn(reelIconSize, "shrink-0 animate-spin")} aria-hidden />
             ) : (
@@ -795,6 +807,7 @@ export default function Actions({
           </span>
           {reelAuxLabel("Dislike")}
         </button>
+        </div>
       ) : null}
 
       {howLikesDislikeComments ? (
@@ -845,7 +858,9 @@ export default function Actions({
         aria-pressed={saved}
         aria-label={saveLabel}
       >
-        <span className={cn(reelIconBtn, "group-active:scale-90")}>{saveIcon(reelIconSize)}</span>
+        <span className={cn(reelIconBtn, "group-active:scale-90", saved && "bg-white text-black ring-0 hover:bg-white/90")}>
+          {saveIcon(reelIconSize)}
+        </span>
         {reelAuxLabel(saveLabel)}
       </button>
 

@@ -40,6 +40,7 @@ import StatsForNerdsOverlay from './overlays/StatsForNerdsOverlay';
 import SkipMarkerOverlay from './overlays/SkipMarkerOverlay';
 import SpatialAudioDialog from './controls/settings/SpatialAudioDialog';
 import SettingsMenu, { SettingsMenuBody } from './controls/settings/SettingsMenu';
+import { setReelMuted, useAppReelChrome, useReelCommand, type ReelCommand } from '~/lib/reel/reelChrome';
 import SubtitleButton from './controls/subtitles/SubtitleButton';
 import {
   DropdownMenu,
@@ -256,6 +257,8 @@ function PlayerInner({
 
   const navigate = useNavigate();
   const location = useLocation();
+  const appReelChrome = useAppReelChrome();
+  const [reelSettingsOpen, setReelSettingsOpen] = useState(false);
   const globalPlayerLayout = useGlobalPlayerLayout();
   const { surface: watchHlsSurface } = useWatchHlsSurface();
   const { theaterMode, setTheaterMode, setPlayerSettings, savePlayerSettings } = useFileContext();
@@ -290,6 +293,19 @@ function PlayerInner({
     unlockPipReelAudio,
     vrTheater,
   } = usePlayerContext();
+
+  // The phone reel header's sound and settings buttons drive whichever reel is on screen.
+  const onReelCommand = useCallback(
+    (command: ReelCommand) => {
+      if (command === 'mute') toggleMute();
+      else if (authPlayback) setReelSettingsOpen(true);
+    },
+    [toggleMute, authPlayback],
+  );
+  useReelCommand(isReelCtx && reelSwiperActive && appReelChrome, onReelCommand);
+  useEffect(() => {
+    if (isReelCtx && reelSwiperActive) setReelMuted(state.isMuted);
+  }, [isReelCtx, reelSwiperActive, state.isMuted]);
   /**
    * Skip-intro / next-episode markers come from the owner-edited `metadata.markers` jsonb on
    * the file row  same data for every viewer, just like Netflix. The VideoCard edit dialog
@@ -1388,10 +1404,19 @@ function PlayerInner({
           <ReelInfoOverlay>{reelInfoSlot}</ReelInfoOverlay>
         ) : null}
 
+        {/* On phones the app-style header carries sound and settings; the menu still opens
+            from here, anchored under that header button, so the trigger stays invisible. */}
+        {isReelCtx && embedReelControls && appReelChrome && authPlayback && !inPipForThisVideo && !isMiniDock && (
+          <div className="invisible absolute right-[max(0.75rem,env(safe-area-inset-right))] top-[calc(var(--app-top-nav-h,3.5rem)-2.5rem)] z-[55]">
+            <SettingsMenu overlayTrigger open={reelSettingsOpen} onOpenChange={setReelSettingsOpen} />
+          </div>
+        )}
+
         {/* Reel top chrome: playback (play/pause + volume) on the LEFT, CC + settings on the
             RIGHT — same split layout as the main player. Uniform 2.25rem buttons via the
-            control vars. Shows/hides with the rest of the reel chrome. */}
-        {isReelCtx && embedReelControls && !inPipForThisVideo && !isMiniDock && (
+            control vars. Shows/hides with the rest of the reel chrome. Phones keep only
+            captions here, since tapping the reel already plays and pauses it. */}
+        {isReelCtx && embedReelControls && !inPipForThisVideo && !isMiniDock && (!appReelChrome || authPlayback) && (
           <div
             className={cn(
               'swiper-no-swiping absolute z-[55] flex items-center justify-between left-[max(0.5rem,env(safe-area-inset-left))] right-[max(0.5rem,env(safe-area-inset-right))] top-[calc(var(--app-top-nav-h,3.5rem)+0.5rem)] transition-opacity',
@@ -1404,6 +1429,7 @@ function PlayerInner({
             onClick={(e) => e.stopPropagation()}
             onPointerDown={(e) => e.stopPropagation()}
           >
+            {appReelChrome ? <span /> : (
             <div className="flex items-center gap-2">
               <button
                 type="button"
@@ -1433,11 +1459,12 @@ function PlayerInner({
                 )}
               </button>
             </div>
+            )}
             {/* CC + settings are signed-in-only surfaces; guests get neither on reels. */}
             {authPlayback && (
               <div className="flex items-center gap-2">
                 <SubtitleButton variant="mobileOverlay" />
-                <SettingsMenu overlayTrigger />
+                {appReelChrome ? null : <SettingsMenu overlayTrigger />}
               </div>
             )}
           </div>

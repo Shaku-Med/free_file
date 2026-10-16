@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback, useLayoutEffect, useRef } from "react";
+import { Link } from "react-router";
 import { RotateCw, X } from "lucide-react";
 import { useFileContext } from "~/lib/Context/Context";
 import { useSidebar } from "~/components/ui/sidebar";
@@ -20,6 +21,7 @@ import { useRateLimit } from "~/lib/hooks/useRateLimit";
 import { useCloseOnTimestampSeek } from "~/lib/hooks/useCloseOnTimestampSeek";
 import { cn } from "~/lib/utils";
 import type { ReelProfileContext } from "~/lib/reel/reelProfileContext";
+import { setReelFeedMode, useReelFeedMode } from "~/lib/reel/reelChrome";
 
 /**
  * Poster/thumbnail palette → soft radial washes (same hex source as `ImageLoad` / player poster).
@@ -90,8 +92,14 @@ interface ReelProps {
   profileReelContext?: ReelProfileContext | null;
 }
 
-const Reel = ({ initialItems, initialUserActions, profileReelContext = null }: ReelProps) => {
+const Reel = ({ initialItems: routeItems, initialUserActions, profileReelContext = null }: ReelProps) => {
   const { userId, playerSettings } = useFileContext();
+  // Following starts from the viewer's subscriptions, so a reel opened by link doesn't lead it.
+  const feedMode = useReelFeedMode();
+  const following = feedMode === "following";
+  const initialItems = following ? undefined : routeItems;
+  const followingCursorRef = useRef(0);
+  const [needsSignIn, setNeedsSignIn] = useState(false);
   const { isMobile: sidebarIsSheet, state: sidebarState } = useSidebar();
   const sidebarInset = sidebarIsSheet
     ? "0px"
@@ -136,7 +144,7 @@ const Reel = ({ initialItems, initialUserActions, profileReelContext = null }: R
     : "__none__";
 
   const initialItemsKey =
-    `${profileContextKey}|` +
+    `${feedMode}|${profileContextKey}|` +
     ((initialItems ?? [])
       .map((f) => (f.id ? String(f.id) : f.unique_id ?? ""))
       .join("|") || "__empty__");
@@ -154,6 +162,8 @@ const Reel = ({ initialItems, initialUserActions, profileReelContext = null }: R
     profileReelContextRef.current = profileReelContext;
     profileCursorRef.current = 0;
     profileExhaustedRef.current = !profileReelContext;
+    followingCursorRef.current = 0;
+    setNeedsSignIn(false);
     for (const f of seed) {
       if (f.id) shownIdsRef.current.add(String(f.id));
     }
@@ -203,16 +213,20 @@ const Reel = ({ initialItems, initialUserActions, profileReelContext = null }: R
           // Most recent 500 shown ids — the server hard-excludes these.
           params.set("exclude_ids", JSON.stringify(Array.from(shownIdsRef.current).slice(-500)));
         }
-        const sessionCats = personalizationService.getSessionCategories();
+        const sessionCats = following ? [] : personalizationService.getSessionCategories();
         if (sessionCats.length > 0) {
           params.set("session_cats", JSON.stringify(sessionCats));
         }
         const watchedReelIds = watchedReelIdsRef.current;
-        if (watchedReelIds.length > 0) {
+        if (!following && watchedReelIds.length > 0) {
           params.set("watched_ids", JSON.stringify(watchedReelIds.slice(-50)));
         }
+        if (following) {
+          params.set("feed", "following");
+          params.set("following_cursor_pos", String(followingCursorRef.current));
+        }
 
-        const profileCtx = profileReelContextRef.current;
+        const profileCtx = following ? null : profileReelContextRef.current;
         if (profileCtx && !profileExhaustedRef.current) {
           params.set("profile_user_id", profileCtx.userId);
           params.set("profile_cursor_pos", String(profileCursorRef.current));
@@ -222,6 +236,7 @@ const Reel = ({ initialItems, initialUserActions, profileReelContext = null }: R
         }
 
         const contextFileId = (() => {
+          if (following) return null;
           if (profileCtx && !profileExhaustedRef.current) return null;
           if (append) {
             const current = itemsRef.current[itemsRef.current.length - 1];
@@ -256,6 +271,10 @@ const Reel = ({ initialItems, initialUserActions, profileReelContext = null }: R
         if (data.profile_exhausted === true) {
           profileExhaustedRef.current = true;
         }
+        if (typeof data.following_next_cursor === "number" && Number.isFinite(data.following_next_cursor)) {
+          followingCursorRef.current = data.following_next_cursor;
+        }
+        if (data.needs_sign_in === true) setNeedsSignIn(true);
         if (typeof data.profile_next_cursor === "number" && Number.isFinite(data.profile_next_cursor)) {
           profileCursorRef.current = data.profile_next_cursor;
         }
@@ -301,7 +320,9 @@ const Reel = ({ initialItems, initialUserActions, profileReelContext = null }: R
           if (newItems.length > 0) setItems([...prev, ...newItems]);
         }
 
-        if (userId) {
+        if (following) {
+          setHasMore(Boolean(data.nextCursor));
+        } else if (userId) {
           setHasMore(
             incoming.length > 0 ||
               Boolean(data.nextCursor) ||
@@ -334,8 +355,14 @@ const Reel = ({ initialItems, initialUserActions, profileReelContext = null }: R
         }
       }
     },
-    [initialItemsKey, initialItems, isLoadingMore, userId],
+    [initialItemsKey, initialItems, isLoadingMore, userId, following],
   );
+
+  // A reel opened by its own link always starts in the Reels feed.
+  const routeKey = (routeItems ?? []).map((f) => String(f.id ?? f.unique_id ?? "")).join("|");
+  useEffect(() => {
+    if (routeKey) setReelFeedMode("reels");
+  }, [routeKey]);
 
   useLayoutEffect(() => {
     void loadFeed(false);
@@ -638,9 +665,31 @@ const Reel = ({ initialItems, initialUserActions, profileReelContext = null }: R
           onActiveItemChange={onActiveItemChange}
         />
       ) : initialLoadDone ? (
-        <div className="flex h-full w-full flex-col items-center justify-center gap-4 px-4 text-white/80">
-          <p className="text-center text-lg">No reels to show yet.</p>
-          <p className="text-center text-sm">Upload or mark content as reels to see them here.</p>
+        <div className="flex h-full w-full flex-col items-center justify-center gap-4 px-6 text-white/80">
+          {following ? (
+            needsSignIn ? (
+              <>
+                <p className="text-center text-lg font-semibold text-white">Reels from people you follow</p>
+                <p className="text-center text-sm">Sign in to see new reels from the channels you subscribe to.</p>
+                <Link to="/auth/login" className="rounded-full bg-white px-5 py-2 text-sm font-semibold text-black transition-opacity hover:opacity-90">
+                  Sign in
+                </Link>
+              </>
+            ) : (
+              <>
+                <p className="text-center text-lg font-semibold text-white">Nothing new from people you follow</p>
+                <p className="text-center text-sm">Subscribe to creators and their reels show up here.</p>
+                <button type="button" onClick={() => setReelFeedMode("reels")} className="rounded-full bg-white px-5 py-2 text-sm font-semibold text-black transition-opacity hover:opacity-90">
+                  Back to Reels
+                </button>
+              </>
+            )
+          ) : (
+            <>
+              <p className="text-center text-lg">No reels to show yet.</p>
+              <p className="text-center text-sm">Upload or mark content as reels to see them here.</p>
+            </>
+          )}
         </div>
       ) : (
         <div className="flex h-full w-full items-center justify-center">

@@ -746,6 +746,8 @@ export function SettingsMenuBody() {
 interface SettingsMenuProps {
   nested?: boolean;
   panelRef?: RefObject<HTMLDivElement | null>;
+  /** Opens it from elsewhere, such as the reel header. Left out, it opens from its own button. */
+  open?: boolean;
   onOpenChange?: (open: boolean) => void;
   overlayTrigger?: boolean;
   pillBarTrigger?: boolean;
@@ -776,7 +778,7 @@ function QualityBadge({ label, className }: { label: string; className?: string 
   );
 }
 
-export default function SettingsMenu({ nested, panelRef, onOpenChange, overlayTrigger, pillBarTrigger }: SettingsMenuProps) {
+export default function SettingsMenu({ nested, panelRef, open, onOpenChange, overlayTrigger, pillBarTrigger }: SettingsMenuProps) {
   const menuWidthClass = cn(
     playerMenuSurface,
     'max-h-[min(72dvh,var(--radix-dropdown-menu-content-available-height))]',
@@ -826,7 +828,7 @@ export default function SettingsMenu({ nested, panelRef, onOpenChange, overlayTr
   }
 
   return (
-    <DropdownMenu onOpenChange={onOpenChange}>
+    <DropdownMenu open={open} onOpenChange={onOpenChange}>
       <Tooltip delayDuration={350}>
         <TooltipTrigger asChild>
           <DropdownMenuTrigger asChild>
