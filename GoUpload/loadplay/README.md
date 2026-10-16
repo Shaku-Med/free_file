@@ -32,6 +32,35 @@ All `/v/...` routes require `?t=<playback-token>` (HMAC, short expiry).
 | `ALLOWED_ORIGINS`       | no       | empty   | CSV of Origin / Referer values for the soft hot-link gate   |
 | `REQUIRE_FINGERPRINT`   | no       | `0`     | `1` to enforce IP/UA hashes embedded in the token           |
 | `BLOCK_TOOL_UA`         | no       | `1`     | `0` to allow curl/Postman/etc UAs through                   |
+| `R2_SEGMENT_REDIRECT_SECONDS` | no | `0`     | 15 to 600: send R2 segments as signed links that live this long |
+
+## R2 signed segment links
+
+With `R2_SEGMENT_REDIRECT_SECONDS=60` in `loadplay.env`, a segment request
+for an R2 file still goes through every check here (token, fingerprint,
+pace limiter, guest window, access) but gets a `302` to a signed R2 link for
+that one object instead of the bytes. Video traffic then flows from
+Cloudflare, not this box. GitHub files are still streamed.
+
+The bucket must allow the player's cross origin reads first, or R2 videos
+stop playing. In the Cloudflare dashboard: R2, the bucket, Settings, CORS
+policy:
+
+```json
+[
+  {
+    "AllowedOrigins": ["*"],
+    "AllowedMethods": ["GET", "HEAD"],
+    "AllowedHeaders": ["x-app-origin", "x-app-referer", "range"],
+    "ExposeHeaders": ["Content-Length", "Content-Range"],
+    "MaxAgeSeconds": 3600
+  }
+]
+```
+
+`*` is needed because a browser sends `Origin: null` after a redirect to
+another site. It does not open the bucket: every object still needs a valid
+signature that expires within the minute.
 
 ## Token format
 

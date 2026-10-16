@@ -6,7 +6,7 @@ import db from "~/lib/Database/supabase";
 import { getWebAuthnConfig } from "~/lib/webauthn/config";
 import { storeWebAuthnChallenge } from "~/lib/webauthn/challenges";
 import { PasskeyUserMessage } from "~/lib/webauthn/userMessages";
-import { checkAuthRateLimit } from "~/routes/Auth/fun/rateLimit";
+import { checkAuthRateLimit } from "~/routes/Auth/fun/rateLimit.server";
 
 export const loader = () => data({ error: PasskeyUserMessage.tryAgainLater }, { status: 405 });
 
@@ -18,7 +18,7 @@ export const action = async ({ request }: { request: Request }) => {
     return json({ error: PasskeyUserMessage.tryAgainLater }, 405);
   }
 
-  const rate = checkAuthRateLimit(request, "passkey");
+  const rate = await checkAuthRateLimit(request, "passkey");
   if (!rate.allowed) {
     return json({ error: PasskeyUserMessage.rateLimited }, 429);
   }

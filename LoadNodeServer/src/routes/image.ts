@@ -32,6 +32,9 @@ const PUBLIC_JSON_CDN_CACHE = 'public, s-maxage=3600, stale-while-revalidate=864
 const router = express.Router();
 
 /** Thrown when every GitHub fetch / decode attempt failed (route maps to 404). */
+// Files that can be added to a post after upload. New ones always go to R2.
+const R2_FIRST_SIDE_FILE = /\/(default_thumbnail|acoustid_cover)\.(jpe?g|png|webp)$/i;
+
 class ImageLoadExhaustedError extends Error {
     constructor(cause?: unknown) {
         super('All image load retries failed', cause !== undefined ? { cause } : undefined);
@@ -705,8 +708,14 @@ router.get('/*', async (req: Request, res: Response) => {
 
         // R2-backed files: presign + proxy. Bucket stays private, same as the
         // GitHub-raw path. shouldBlur still applies (processing is buffer-based).
-        if (file.storage_backend === 'r2') {
-            const r2 = getR2Client();
+        // Thumbnails, cover art and comment images added to an old GitHub post
+        // after the move are on R2 too, so those try R2 before GitHub.
+        const r2 = getR2Client();
+        const sideFileFirst = r2 !== null && R2_FIRST_SIDE_FILE.test(splitUrl);
+        const commentOnR2 =
+            isVideoFolderCommentAttachmentPath(splitUrl) && (await lookupCommentImageBackend(splitUrl)) === 'r2';
+        const onlyOnR2 = file.storage_backend === 'r2' || commentOnR2;
+        if (onlyOnR2 || sideFileFirst) try {
             if (!r2) {
                 return res.status(503).send(null);
             }
@@ -762,6 +771,9 @@ router.get('/*', async (req: Request, res: Response) => {
                 'X-Cache': isCacheable ? 'MISS' : 'BYPASS',
             });
             return res.send(result.buffer);
+        } catch (e) {
+            // Not in R2 yet: an old GitHub post's original file, try GitHub below.
+            if (onlyOnR2 || !(e instanceof ImageLoadExhaustedError)) throw e;
         }
 
         const branch = defaultGithubBranch();

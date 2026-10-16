@@ -10,7 +10,6 @@ import (
 	"strings"
 
 	"github.com/gofiber/fiber/v2"
-	"goupload/lib/env"
 	"goupload/lib/ffmpeg"
 	"goupload/lib/logger"
 	"goupload/lib/queue"
@@ -283,21 +282,17 @@ func (h *Handler) completeUpload(c *fiber.Ctx) error {
 	predicted := quota.PredictFinalBytes(actualBytes, meta.FileName, srcHeight)
 	qres, qerr := quota.Check(c.Context(), userID, predicted)
 
-	// Monthly budget full but the extra weekly allowance still fits: accept
-	// the upload and let the worker route it to the overflow backend. The
-	// client never learns where it landed, same response as a normal accept.
-	// Requires the GitHub backend to be configured (worker can't honor the
-	// overflow flag without it).
-	overflowUpload := false
-	if qerr == nil && !qres.OK && qres.OverflowOK && overflowBackendConfigured() {
-		overflowUpload = true
+	// Storage costs money now, so an unanswered quota check never lets an
+	// upload through. The chunks stay on disk and /complete can be retried.
+	if qerr != nil {
 		if h.log != nil {
-			h.log.Infof("quota_overflow_route user=%s upload=%s predicted=%d overflow_used=%d overflow_limit=%d",
-				userID, uploadID, predicted, qres.OverflowUsed, qres.OverflowLimit)
+			h.log.Errorf("quota_check_unavailable user=%s upload=%s err=%s", userID, uploadID, qerr.Error())
 		}
+		c.Set("Retry-After", "30")
+		return c.Status(fiber.StatusServiceUnavailable).JSON(fiber.Map{"error": "quota_unavailable"})
 	}
 
-	if qerr == nil && !qres.OK && !overflowUpload {
+	if !qres.OK {
 		// 1. Delete THIS upload's chunks (the one that just tripped the cap).
 		_ = h.manager.AbandonUpload(userID, uploadID)
 
@@ -331,22 +326,17 @@ func (h *Handler) completeUpload(c *fiber.Ctx) error {
 		// expansion), not just "you already used it all"  the UI uses this
 		// to render a "your file is predicted to exceed your limit after
 		// processing" explanation instead of a generic over-quota message.
-		// overflow_* lets the UI explain that the extra weekly allowance is
-		// ALSO used up (it never names the backing storage).
 		return c.Status(fiber.StatusRequestEntityTooLarge).JSON(fiber.Map{
-			"error":              "monthly_limit_exceeded",
-			"used":               qres.Used,
-			"limit":              qres.Limit,
-			"remaining":          qres.Remaining,
-			"predicted":          predicted,
-			"source_bytes":       actualBytes,
-			"overflow_used":      qres.OverflowUsed,
-			"overflow_limit":     qres.OverflowLimit,
-			"overflow_remaining": qres.OverflowRemaining,
+			"error":        "monthly_limit_exceeded",
+			"used":         qres.Used,
+			"limit":        qres.Limit,
+			"remaining":    qres.Remaining,
+			"predicted":    predicted,
+			"source_bytes": actualBytes,
 		})
 	}
 
-	jobID, err := h.queue.Enqueue(context.Background(), meta.UserID, meta.UploadID, meta.FileName, meta.FileSize, meta.TotalChunks, title, description, userCategories, userTags, defaultThumbnail, reelMode, fileSeriesID, fileSeriesEpisodeID, isNewSeries, newEpisodeName, parentEpisodeID, overflowUpload)
+	jobID, err := h.queue.Enqueue(context.Background(), meta.UserID, meta.UploadID, meta.FileName, meta.FileSize, meta.TotalChunks, title, description, userCategories, userTags, defaultThumbnail, reelMode, fileSeriesID, fileSeriesEpisodeID, isNewSeries, newEpisodeName, parentEpisodeID)
 	if err != nil {
 		if h.log != nil {
 			h.log.Errorf("queue_error user=%s upload=%s err=%s", userID, uploadID, err.Error())
@@ -373,21 +363,12 @@ func (h *Handler) completeUpload(c *fiber.Ctx) error {
 		IsNewSeries:         isNewSeries,
 		NewEpisodeName:      newEpisodeName,
 		ParentEpisodeID:     parentEpisodeID,
-		GitHubRepo:          strings.TrimSpace(env.Get("GITHUB_REPO", "")),
-		Overflow:            overflowUpload,
+		StorageBackend:      "r2",
 	})
 	if h.log != nil {
 		h.log.Infof("upload_queued user=%s upload=%s job=%s", userID, uploadID, jobID)
 	}
 	return c.JSON(CompleteResponse{Status: "queued", JobID: jobID})
-}
-
-// overflowBackendConfigured reports whether the GitHub backend is usable for
-// overflow uploads. Mirrors the main.go gate that builds the GitHub client.
-func overflowBackendConfigured() bool {
-	return env.Get("GITHUB_TOKEN", "") != "" &&
-		env.Get("GITHUB_OWNER", "") != "" &&
-		strings.TrimSpace(env.Get("GITHUB_REPO", "")) != ""
 }
 
 func userIDFromCtx(c *fiber.Ctx) string {

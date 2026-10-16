@@ -55,7 +55,7 @@ export const loader = async ({ request }: { request: Request }) => {
       });
     }
 
-    const limit = checkWatchIssueRateLimit(request, user.id);
+    const limit = await checkWatchIssueRateLimit(request, user.id);
     if (!limit.allowed) {
       return toJson({ error: limit.error ?? 'Rate limited' }, 429);
     }

@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -73,6 +74,9 @@ func parseDurationEnv(key string, fallback time.Duration) time.Duration {
 //	PLAYBACK_DEBUG          "1" to log every successful origin/referer check too
 //	PLAYBACK_SEGMENT_MAX_AGE_SEC  browser-private cache TTL for media segments
 //	                        (default 900; 0 = old always-no-store behavior)
+//	R2_SEGMENT_REDIRECT_SECONDS  serve R2 segments as signed links that live this
+//	                        many seconds (15 to 600) instead of streaming them.
+//	                        Unset or 0 keeps streaming. Needs the bucket CORS rule.
 func main() {
 	lg := logger.New(2048)
 	handler.SetBuildVersion(buildVersion)
@@ -200,6 +204,7 @@ func main() {
 		// instead of growing memory.
 		FetchGate:     fetchgate.New(64, 2*time.Second),
 		PlaybackDebug: env.Get("PLAYBACK_DEBUG", "0") == "1",
+		R2Redirect:    r2RedirectTTL(lg, r2Client),
 	}
 
 	app := fiber.New(fiber.Config{
@@ -311,4 +316,22 @@ func main() {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	_ = app.ShutdownWithContext(shutdownCtx)
+}
+
+// r2RedirectTTL reads R2_SEGMENT_REDIRECT_SECONDS. A value outside 15 to 600
+// is a typo, not a choice, so it stops the server instead of guessing.
+func r2RedirectTTL(lg *logger.Logger, client *r2.Client) time.Duration {
+	raw := strings.TrimSpace(env.Get("R2_SEGMENT_REDIRECT_SECONDS", ""))
+	if raw == "" || raw == "0" {
+		return 0
+	}
+	secs, err := strconv.Atoi(raw)
+	if err != nil || secs < 15 || secs > 600 {
+		log.Fatal("R2_SEGMENT_REDIRECT_SECONDS must be a whole number from 15 to 600")
+	}
+	if client == nil {
+		log.Fatal("R2_SEGMENT_REDIRECT_SECONDS is set but R2 is not configured")
+	}
+	lg.Infof("r2 segments served as signed links ttl=%ds", secs)
+	return time.Duration(secs) * time.Second
 }

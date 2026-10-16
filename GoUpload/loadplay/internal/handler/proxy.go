@@ -103,6 +103,24 @@ func fetchStorageObject(
 	return body, nil
 }
 
+// redirectToR2 answers an R2 segment with a short lived signed link to that
+// one object instead of streaming it. Every check in the handler already ran
+// for this request, so the token, fingerprint and pace limits still apply;
+// only the bytes skip this server.
+func redirectToR2(c *fiber.Ctx, deps ManifestDeps, st storage.Config, relPath string) error {
+	st.R2TTL = deps.R2Redirect
+	signed, err := st.RawURL(relPath)
+	if err != nil {
+		deps.Log.Errorf("segment presign err=%s", err.Error())
+		return deny(c, fiber.StatusBadRequest)
+	}
+	// The link expires quickly, so neither the browser nor anything between
+	// may keep the redirect itself.
+	setPlaybackResponseHeaders(c, deps)
+	c.Set("Referrer-Policy", "no-referrer")
+	return c.Redirect(signed, fiber.StatusFound)
+}
+
 // sendStorageBytes returns the object, honoring a Range request by slicing the
 // in-memory bytes. No Content-Disposition: a .ts opened in a standalone tab
 // triggers download, and those requests are already 403'd before reaching here.

@@ -129,6 +129,18 @@ func RegisterRoutes(app *fiber.App, webhookSecret string, cfg Config) {
 				}
 				return c.Status(fiber.StatusBadGateway).JSON(fiber.Map{"error": "purge_failed"})
 			}
+			// Thumbnails, captions and comment images added after the move to R2
+			// live there even though the video itself is on GitHub.
+			if cfg.R2 != nil {
+				extra, rerr := purgeR2(ctx, cfg.R2, prefix)
+				if rerr != nil {
+					if cfg.Log != nil {
+						cfg.Log.Errorf("purge r2 side files prefix=%s err=%s", prefix, rerr.Error())
+					}
+					return c.Status(fiber.StatusBadGateway).JSON(fiber.Map{"error": "purge_failed"})
+				}
+				deleted += extra
+			}
 			if cfg.Log != nil {
 				cfg.Log.Infof("purge archive prefix=%s deleted=%d", prefix, deleted)
 			}

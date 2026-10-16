@@ -18,7 +18,7 @@ import {
 import { resendVerificationCode } from '../fun/auth';
 import db from '~/lib/Database/supabase';
 import { isAuthenticated } from '~/lib/Security/Password';
-import { checkAuthRateLimit, resetAuthRateLimit } from '../fun/rateLimit';
+import { checkAuthRateLimit, resetAuthRateLimit } from '../fun/rateLimit.server';
 import { isValidVerificationCode, constantTimeDelay } from '../fun/validation';
 import { MailCheck, AlertCircle, CheckCircle2, ArrowLeft, RefreshCw } from 'lucide-react';
 
@@ -84,7 +84,7 @@ export const action = async ({ request }: { request: Request }) => {
     const { userId, type } = ctx;
 
     if (actionType === 'resend') {
-      const rateLimitCheck = checkAuthRateLimit(request, 'resend', userId);
+      const rateLimitCheck = await checkAuthRateLimit(request, 'resend', userId);
       if (!rateLimitCheck.allowed) {
         return data({ error: rateLimitCheck.error || 'Too many attempts. Please wait a bit and try again.' }, { status: 429 });
       }
@@ -106,7 +106,7 @@ export const action = async ({ request }: { request: Request }) => {
       return data({ error: 'Please enter the 6-digit code from your email.' }, { status: 400 });
     }
 
-    const rateLimitCheck = checkAuthRateLimit(request, 'verify', userId);
+    const rateLimitCheck = await checkAuthRateLimit(request, 'verify', userId);
     if (!rateLimitCheck.allowed) {
       return data({ error: rateLimitCheck.error || 'Too many attempts. Please wait a bit and try again.' }, { status: 429 });
     }
@@ -156,7 +156,7 @@ export const action = async ({ request }: { request: Request }) => {
       return data({ error: 'That code doesn\'t look right. Please check and try again.' }, { status: 400 });
     }
 
-    resetAuthRateLimit(request, 'verify', userId);
+    await resetAuthRateLimit(request, 'verify', userId);
     await deleteVerificationRecord(userId);
 
     if (type === 'signup') {

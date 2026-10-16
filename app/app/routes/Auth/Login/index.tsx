@@ -24,7 +24,7 @@ import {
   safeServerRedirect,
 } from '~/lib/Security/accountVault';
 import { PasskeyUserMessage, friendlyPasskeyClientError } from '~/lib/webauthn/userMessages';
-import { checkAuthRateLimit, resetAuthRateLimit } from '../fun/rateLimit';
+import { checkAuthRateLimit, resetAuthRateLimit } from '../fun/rateLimit.server';
 import { isCrossOriginForgery } from '~/lib/Security/requestOrigin';
 import { issueVerifyContext, appendVerifyContextCookie } from '../fun/verification';
 import { getProfilePicUrl } from '~/lib/utils/profilePic';
@@ -62,11 +62,11 @@ export const action = async ({ request }: { request: Request }) => {
 
     // Per-IP cap first (stops password spraying across many accounts), then
     // the tighter per-identifier cap.
-    const ipLimit = checkAuthRateLimit(request, 'login_ip');
+    const ipLimit = await checkAuthRateLimit(request, 'login_ip');
     if (!ipLimit.allowed) {
       return data({ error: ipLimit.error || 'Too many attempts. Please wait a bit and try again.' }, { status: 429 });
     }
-    const rateLimitCheck = checkAuthRateLimit(request, 'login', normalizedIdentifier);
+    const rateLimitCheck = await checkAuthRateLimit(request, 'login', normalizedIdentifier);
     if (!rateLimitCheck.allowed) {
       return data({ error: rateLimitCheck.error || 'Too many attempts. Please wait a bit and try again.' }, { status: 429 });
     }
@@ -94,7 +94,7 @@ export const action = async ({ request }: { request: Request }) => {
       return data({ error: 'Something went wrong. Please try again.' }, { status: 500 });
     }
 
-    resetAuthRateLimit(request, 'login', identifier.toLowerCase());
+    await resetAuthRateLimit(request, 'login', identifier.toLowerCase());
 
     const url = new URL(request.url);
     const redirectTo = safeServerRedirect(request, url.searchParams.get('redirect'));

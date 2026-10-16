@@ -2,7 +2,7 @@ import db from '~/lib/Database/supabase';
 import { isValidFileId, isValidUUID } from '~/lib/Security/inputValidation';
 import { isAuthenticated } from '~/lib/Security/Password';
 import { isSameOrigin } from '~/lib/Security/sameOrigin.server';
-import { rateLimiter } from '~/routes/Auth/fun/rateLimit';
+import { rateLimiter } from '~/routes/Auth/fun/rateLimit.server';
 
 const toJson = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), {
@@ -19,7 +19,7 @@ async function clearHistory(request: Request) {
   if (!user?.id) return toJson({ error: 'Unauthorized' }, 401);
 
   // Destructive but idempotent — still no reason to allow hammering it.
-  const limit = rateLimiter.checkLimit(user.id, 'clear-watch-history', 3, 10 * 60 * 1000, 10 * 60 * 1000);
+  const limit = await rateLimiter.checkLimit(user.id, 'clear-watch-history', 3, 10 * 60 * 1000, 10 * 60 * 1000);
   if (!limit.allowed) return toJson({ error: limit.error ?? 'Rate limited' }, 429);
 
   const [historyRes, progressRes] = await Promise.all([

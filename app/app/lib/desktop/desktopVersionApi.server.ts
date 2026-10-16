@@ -4,7 +4,7 @@
  */
 
 import db from '~/lib/Database/supabase';
-import { rateLimiter, RateLimiter } from '~/routes/Auth/fun/rateLimit';
+import { rateLimiter, RateLimiter } from '~/routes/Auth/fun/rateLimit.server';
 import type { DesktopPlatform, DesktopVersionRow } from './desktopVersions.server';
 
 const VERSION_TTL_MS = 90_000; // serve from memory for 90s
@@ -127,13 +127,13 @@ export async function withInstallerFetchSlot<T>(fn: () => Promise<T>): Promise<T
 }
 
 /** Version check: generous (every app launch). */
-export function checkDesktopVersionRateLimit(request: Request): {
+export async function checkDesktopVersionRateLimit(request: Request): Promise<{
   allowed: boolean;
   error?: string;
   retryAfterSec?: number;
-} {
+}> {
   const ip = RateLimiter.getClientIP(request);
-  const r = rateLimiter.checkLimit(ip, 'desktop-version', 60, 5 * 60_000, 5 * 60_000);
+  const r = await rateLimiter.checkLimit(ip, 'desktop-version', 60, 5 * 60_000, 5 * 60_000);
   if (!r.allowed) {
     const retryAfterSec = r.blockedUntil
       ? Math.max(1, Math.ceil((r.blockedUntil - Date.now()) / 1000))
@@ -144,13 +144,13 @@ export function checkDesktopVersionRateLimit(request: Request): {
 }
 
 /** Installer download: stricter (large payloads). */
-export function checkDesktopDownloadRateLimit(request: Request): {
+export async function checkDesktopDownloadRateLimit(request: Request): Promise<{
   allowed: boolean;
   error?: string;
   retryAfterSec?: number;
-} {
+}> {
   const ip = RateLimiter.getClientIP(request);
-  const r = rateLimiter.checkLimit(ip, 'desktop-download', 12, 15 * 60_000, 15 * 60_000);
+  const r = await rateLimiter.checkLimit(ip, 'desktop-download', 12, 15 * 60_000, 15 * 60_000);
   if (!r.allowed) {
     const retryAfterSec = r.blockedUntil
       ? Math.max(1, Math.ceil((r.blockedUntil - Date.now()) / 1000))

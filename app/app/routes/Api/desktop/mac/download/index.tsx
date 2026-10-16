@@ -30,7 +30,7 @@ export async function loader({ request }: { request: Request }) {
       return jsonError('Method not allowed', 405);
     }
 
-    const limited = checkDesktopDownloadRateLimit(request);
+    const limited = await checkDesktopDownloadRateLimit(request);
     if (!limited.allowed) {
       return jsonError(limited.error || 'Too many downloads. Try again shortly.', 429, {
         'Retry-After': String(limited.retryAfterSec || 120),

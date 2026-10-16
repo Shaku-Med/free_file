@@ -18,7 +18,7 @@ export const action = async ({ request }: { request: Request }) => {
     if (!user?.id) return toJson({ error: 'Unauthorized' }, 401);
     if (!db) return toJson({ error: 'Database not initialized' }, 500);
 
-    const limit = checkPersonalizationRateLimit(request, user.id);
+    const limit = await checkPersonalizationRateLimit(request, user.id);
     if (!limit.allowed) {
       return toJson({ error: limit.error ?? 'Rate limited' }, 429);
     }

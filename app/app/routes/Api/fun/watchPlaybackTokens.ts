@@ -8,6 +8,8 @@ import { sessionScope } from "~/lib/Services/SegmentTokenService";
 
 import { requireSecret } from "~/lib/Security/secretEnv.server";
 
+import { claimOnce, digest, getValue, setValue } from "~/lib/kv.server";
+
 
 
 /**
@@ -22,7 +24,7 @@ import { requireSecret } from "~/lib/Security/secretEnv.server";
 
  *
 
- * Replay: each `nonce` is accepted at most once until pruned from memory (no DB).
+ * Replay: each `nonce` is accepted at most once, tracked in the shared store so every app instance agrees.
 
  */
 
@@ -40,11 +42,6 @@ const MAX_TOKEN_CHARS = 600;
 
 const NONCE_HOLD_SLACK_MS = 2 * 60 * 1000;
 
-const MAX_NONCES = 55_000;
-
-
-
-const consumedNonces = new Map<string, number>();
 
 
 
@@ -52,9 +49,7 @@ const consumedNonces = new Map<string, number>();
 
 type ProgressEntry = { watch: number; atMs: number };
 
-const MAX_PROGRESS_TRACKED = 8_000;
-
-const playbackProgress = new Map<string, ProgressEntry>();
+const PROGRESS_TTL_MS = 6 * 60 * 60 * 1000;
 
 
 
@@ -73,72 +68,13 @@ function getPlaybackSecret(): string {
 
 
 
-function pruneConsumedNonces() {
-
-  const now = Date.now();
-
-  for (const [k, until] of consumedNonces) {
-
-    if (until <= now) consumedNonces.delete(k);
-
-  }
-
-  while (consumedNonces.size > MAX_NONCES) {
-
-    const first = consumedNonces.keys().next().value;
-
-    if (first === undefined) break;
-
-    consumedNonces.delete(first);
-
-  }
-
+async function tryConsumeNonceOnce(nonce: string, expSecs: number): Promise<boolean> {
+  const holdMs = Math.max(Date.now(), expSecs * 1000) + NONCE_HOLD_SLACK_MS - Date.now();
+  return claimOnce(`wpn:${digest(nonce)}`, holdMs);
 }
-
-
-
-function tryConsumeNonceOnce(nonce: string, expSecs: number): boolean {
-
-  pruneConsumedNonces();
-
-  if (consumedNonces.has(nonce)) return false;
-
-  const until =
-
-    Math.max(Date.now(), expSecs * 1000) + NONCE_HOLD_SLACK_MS;
-
-  consumedNonces.set(nonce, until);
-
-  return true;
-
-}
-
-
 
 function progressKey(userId: string, fileId: string) {
-
-  return `${userId}:${fileId}`;
-
-}
-
-
-
-/** Prunes playback progress LRU-style and consumed-nonces TTL map. */
-
-export function pruneWatchPlaybackTokens() {
-
-  pruneConsumedNonces();
-
-  while (playbackProgress.size > MAX_PROGRESS_TRACKED) {
-
-    const first = playbackProgress.keys().next().value;
-
-    if (first === undefined) break;
-
-    playbackProgress.delete(first);
-
-  }
-
+  return `wpp:${userId}:${fileId}`;
 }
 
 
@@ -241,7 +177,7 @@ export type WatchPlaybackConsumption = {
 
 /**
 
- * Stateless signed token (+ one-time nonce in memory).
+ * Stateless signed token (+ one-time nonce in the shared store).
 
  * Caller must mint with same `Headers` family as the client POST (cookie scope binding).
 
@@ -256,8 +192,6 @@ export function mintWatchPlaybackToken(
   headers: Headers,
 
 ): string {
-
-  pruneWatchPlaybackTokens();
 
   const exp =
 
@@ -289,15 +223,13 @@ export function mintWatchPlaybackToken(
 
  */
 
-export function consumeWatchPlaybackToken(
+export async function consumeWatchPlaybackToken(
 
   raw: string | null | undefined,
 
   headers: Headers,
 
-): WatchPlaybackConsumption | null {
-
-  pruneWatchPlaybackTokens();
+): Promise<WatchPlaybackConsumption | null> {
 
   const s = typeof raw === "string" ? raw.trim() : "";
 
@@ -383,7 +315,7 @@ export function consumeWatchPlaybackToken(
 
 
 
-  if (!tryConsumeNonceOnce(nonce, exp)) return null;
+  if (!(await tryConsumeNonceOnce(nonce, exp))) return null;
 
 
 
@@ -394,62 +326,34 @@ export function consumeWatchPlaybackToken(
 
 
 /** Clamp unrealistic jumps in cumulative `watch_duration_s` across heartbeats. */
-
-export function sanitizeAcceptedWatchSeconds(
-
+export async function sanitizeAcceptedWatchSeconds(
   userId: string,
-
   fileId: string,
-
   claimedSeconds: number,
-
-): number {
-
-  pruneWatchPlaybackTokens();
-
+): Promise<number> {
   const key = progressKey(userId, fileId);
-
   const now = Date.now();
-
-
-
-  let prev = playbackProgress.get(key);
-
-  if (!prev) prev = { watch: 0, atMs: now };
-
-
-
-  let c = Number(claimedSeconds);
-
-  if (!Number.isFinite(c) || c < 0) c = 0;
-
-  if (c > 86_400) c = 86_400;
-
-
-
-  /** Not moving forward — keep prior accepted cumulative (matches RPC `GREATEST` ceiling). */
-
-  if (c <= prev.watch) {
-
-    prev.atMs = now;
-
-    playbackProgress.set(key, prev);
-
-    return prev.watch;
-
+  let prev: ProgressEntry = { watch: 0, atMs: now };
+  const stored = await getValue(key);
+  if (stored) {
+    try {
+      const v = JSON.parse(stored) as Partial<ProgressEntry>;
+      if (Number.isFinite(v.watch) && Number.isFinite(v.atMs)) prev = { watch: Number(v.watch), atMs: Number(v.atMs) };
+    } catch {
+      // A broken entry counts as a fresh start.
+    }
   }
-
-
-
+  let c = Number(claimedSeconds);
+  if (!Number.isFinite(c) || c < 0) c = 0;
+  if (c > 86_400) c = 86_400;
+  /** Not moving forward — keep prior accepted cumulative (matches RPC `GREATEST` ceiling). */
+  if (c <= prev.watch) {
+    await setValue(key, JSON.stringify({ watch: prev.watch, atMs: now }), PROGRESS_TTL_MS);
+    return prev.watch;
+  }
   const elapsedSec = Math.max(1, (now - prev.atMs) / 1000);
-
   const maxIncrease = Math.min(900, Math.floor(elapsedSec * 28) + 45);
-
   const admitted = Math.min(c, prev.watch + maxIncrease);
-
-  playbackProgress.set(key, { watch: admitted, atMs: now });
-
+  await setValue(key, JSON.stringify({ watch: admitted, atMs: now }), PROGRESS_TTL_MS);
   return admitted;
-
 }
-

@@ -2,7 +2,7 @@ import db from '~/lib/Database/supabase';
 import { isValidFileId, isValidUUID } from '~/lib/Security/inputValidation';
 import { isAuthenticated } from '~/lib/Security/Password';
 import { canAccessFile } from '~/routes/Api/fun/accessControl';
-import { rateLimiter, RateLimiter } from '~/routes/Auth/fun/rateLimit';
+import { rateLimiter, RateLimiter } from '~/routes/Auth/fun/rateLimit.server';
 import crypto from 'node:crypto';
 
 const toJson = (body: unknown, status = 200) =>
@@ -59,7 +59,7 @@ export const action = async ({ request }: { request: Request }) => {
 
     // ── Rate limit: per-IP ──────────────────────────────────────
     const ip = getClientIP(request);
-    const ipLimit = rateLimiter.checkLimit(ip, 'api-views-ip', VIEW_RATE_MAX, VIEW_RATE_WINDOW_MS, VIEW_RATE_BLOCK_MS);
+    const ipLimit = await rateLimiter.checkLimit(ip, 'api-views-ip', VIEW_RATE_MAX, VIEW_RATE_WINDOW_MS, VIEW_RATE_BLOCK_MS);
     if (!ipLimit.allowed) {
       return toJson({ error: ipLimit.error ?? 'Too many requests' }, 429);
     }
@@ -93,7 +93,7 @@ export const action = async ({ request }: { request: Request }) => {
 
     // ── Rate limit: per-user (if authenticated) ─────────────────
     if (user?.id) {
-      const userLimit = rateLimiter.checkLimit(user.id, 'api-views-user', VIEW_USER_RATE_MAX, VIEW_USER_RATE_WINDOW_MS, VIEW_USER_RATE_BLOCK_MS);
+      const userLimit = await rateLimiter.checkLimit(user.id, 'api-views-user', VIEW_USER_RATE_MAX, VIEW_USER_RATE_WINDOW_MS, VIEW_USER_RATE_BLOCK_MS);
       if (!userLimit.allowed) {
         return toJson({ error: userLimit.error ?? 'Too many requests' }, 429);
       }

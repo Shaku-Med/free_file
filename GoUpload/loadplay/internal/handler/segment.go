@@ -69,6 +69,9 @@ func Segment(deps SegmentDeps) fiber.Handler {
 			return deny(c, denyStatus)
 		}
 
+		if storageCfg.Backend == "r2" && deps.R2Redirect > 0 {
+			return redirectToR2(c, deps, storageCfg, askedPath)
+		}
 		return streamStorageObject(c, deps, storageCfg, askedPath)
 	}
 }

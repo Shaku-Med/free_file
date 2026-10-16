@@ -19,7 +19,7 @@ export const loader = async ({ request }: { request: Request }) => {
     if (!user?.id) return toJson({}, 401);
     if (!db) return toJson({}, 500);
 
-    const getLimit = checkSavesGetRateLimit(request, user.id);
+    const getLimit = await checkSavesGetRateLimit(request, user.id);
     if (!getLimit.allowed) {
       return toJson({ error: getLimit.error ?? 'Rate limited' }, 429);
     }
@@ -63,7 +63,7 @@ export const action = async ({ request }: { request: Request }) => {
     if (!user?.id) return toJson({}, 401);
     if (!db) return toJson({}, 500);
 
-    const postLimit = checkSavesPostRateLimit(request, user.id);
+    const postLimit = await checkSavesPostRateLimit(request, user.id);
     if (!postLimit.allowed) {
       return toJson({ error: postLimit.error ?? 'Rate limited' }, 429);
     }

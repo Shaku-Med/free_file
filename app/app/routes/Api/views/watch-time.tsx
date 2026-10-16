@@ -86,7 +86,7 @@ export const action = async ({ request }: { request: Request }) => {
       return toJson({ error: 'Invalid totalDurationSeconds' }, 400);
     }
 
-    const consumed = consumeWatchPlaybackToken(playbackTokenRaw, request.headers);
+    const consumed = await consumeWatchPlaybackToken(playbackTokenRaw, request.headers);
     if (!consumed) {
       return toJson({ error: 'Invalid or expired playback token', code: 'invalid_playback_token' }, 409);
     }
@@ -97,9 +97,9 @@ export const action = async ({ request }: { request: Request }) => {
 
     const fileId = consumed.fileId;
 
-    const watchDur = sanitizeAcceptedWatchSeconds(user.id, fileId, watchDurRaw);
+    const watchDur = await sanitizeAcceptedWatchSeconds(user.id, fileId, watchDurRaw);
 
-    const limit = checkWatchTimeRateLimit(request, user.id);
+    const limit = await checkWatchTimeRateLimit(request, user.id);
     if (!limit.allowed) {
       return toJson({ error: limit.error ?? 'Rate limited' }, 429);
     }

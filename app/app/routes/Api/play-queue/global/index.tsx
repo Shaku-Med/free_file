@@ -6,7 +6,7 @@ import { attachIsMusic } from "~/lib/files/attachIsMusic.server";
 import { isAuthenticated } from "~/lib/Security/Password";
 import { stripGithubRepoForClient } from "~/lib/githubStorage";
 import { filterFilesByAccess } from "~/routes/Api/fun/accessControl";
-import { rateLimiter, RateLimiter } from "~/routes/Auth/fun/rateLimit";
+import { rateLimiter, RateLimiter } from "~/routes/Auth/fun/rateLimit.server";
 import {
   collectSeriesMemberIds,
   getSeriesUpNextVideos,
@@ -217,7 +217,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   // Rate limit by userId (auth'd) or by IP (anon). Keyed per-endpoint so it
   // doesn't share buckets with other API routes.
   const rlKey = userId || `ip:${RateLimiter.getClientIP(request)}`;
-  const rl = rateLimiter.checkLimit(
+  const rl = await rateLimiter.checkLimit(
     rlKey,
     "api-play-queue-global",
     RL_MAX,

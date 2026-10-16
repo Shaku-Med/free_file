@@ -62,49 +62,43 @@ var allowedMIME = map[string]bool{
 }
 
 type Handler struct {
-	log            *logger.Logger
-	nsfw           *nsfw.Detector
-	strikes        *nsfwstrikes.Limiter
-	ghCli          *github.Client
-	ghOwner        string
-	ghRepo         string
-	r2             *r2.Client
-	storageBackend string
-	supabaseURL    string
-	supabaseKey    string
-	webhookSecret  string
+	log           *logger.Logger
+	nsfw          *nsfw.Detector
+	strikes       *nsfwstrikes.Limiter
+	ghCli         *github.Client
+	ghOwner       string
+	r2            *r2.Client
+	supabaseURL   string
+	supabaseKey   string
+	webhookSecret string
 }
 
 type Config struct {
+	// GitHub is only used to delete images stored there before the move to R2.
 	GitHubClient  *github.Client
 	GitHubOwner   string
-	GitHubRepo    string
 	NSFWApiURL    string
 	NSFWApiSecret string
 	Strikes       *nsfwstrikes.Limiter
-	// R2 dual-backend. Standalone comment images use StorageBackend; images
-	// under a video's folder follow that file's backend (looked up via Supabase).
-	R2             *r2.Client
-	StorageBackend string
-	SupabaseURL    string
-	SupabaseKey    string
+	// Every new comment image goes to R2.
+	R2          *r2.Client
+	SupabaseURL string
+	SupabaseKey string
 	// Shared server-to-server secret for the internal delete route.
 	WebhookSecret string
 }
 
 func RegisterRoutes(app *fiber.App, log *logger.Logger, cfg Config) {
 	h := &Handler{
-		log:            log,
-		nsfw:           nsfw.NewDetector(cfg.NSFWApiURL, cfg.NSFWApiSecret),
-		strikes:        cfg.Strikes,
-		ghCli:          cfg.GitHubClient,
-		ghOwner:        cfg.GitHubOwner,
-		ghRepo:         cfg.GitHubRepo,
-		r2:             cfg.R2,
-		storageBackend: cfg.StorageBackend,
-		supabaseURL:    strings.TrimSpace(cfg.SupabaseURL),
-		supabaseKey:    strings.TrimSpace(cfg.SupabaseKey),
-		webhookSecret:  strings.TrimSpace(cfg.WebhookSecret),
+		log:           log,
+		nsfw:          nsfw.NewDetector(cfg.NSFWApiURL, cfg.NSFWApiSecret),
+		strikes:       cfg.Strikes,
+		ghCli:         cfg.GitHubClient,
+		ghOwner:       cfg.GitHubOwner,
+		r2:            cfg.R2,
+		supabaseURL:   strings.TrimSpace(cfg.SupabaseURL),
+		supabaseKey:   strings.TrimSpace(cfg.SupabaseKey),
+		webhookSecret: strings.TrimSpace(cfg.WebhookSecret),
 	}
 	app.Post("/api/comment-image/upload", h.upload)
 	// Server-to-server only (X-Webhook-Secret): purge one comment image when its
@@ -346,42 +340,20 @@ func (h *Handler) upload(c *fiber.Ctx) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	// Backend: video-folder images follow the parent file; standalone images
-	// use the global default.
-	backend := h.storageBackend
-	if backend != "r2" {
-		backend = "github"
+	// Always R2, even under a video still stored on GitHub. The webhook records
+	// the backend per image so the loaders know where to look.
+	if h.r2 == nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "storage not configured"})
 	}
-	if isVideoFolder && h.supabaseURL != "" && h.supabaseKey != "" {
-		if fb, ferr := supabase.FetchFileStorageBackend(ctx, h.supabaseURL, h.supabaseKey, uniqueID); ferr == nil {
-			backend = fb
-		} else {
-			h.log.Errorf("comment-image parent backend lookup: %v", ferr)
-		}
+	if err := h.r2.PutObject(ctx, ghPath, data, mime); err != nil {
+		h.log.Errorf("comment-image R2 upload failed: %v", err)
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "upload failed"})
 	}
 
-	repoForWebhook := h.ghRepo
-	if backend == "r2" && h.r2 != nil {
-		if err := h.r2.PutObject(ctx, ghPath, data, mime); err != nil {
-			h.log.Errorf("comment-image R2 upload failed: %v", err)
-			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "upload failed"})
-		}
-		repoForWebhook = ""
-	} else {
-		backend = "github"
-		if h.ghCli == nil {
-			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "storage not configured"})
-		}
-		if err := ghlib.CreateOrUpdateFile(ctx, h.ghCli, h.ghOwner, h.ghRepo, ghPath, data, fmt.Sprintf("Comment image by %s", uid)); err != nil {
-			h.log.Errorf("comment-image GitHub upload failed: %v", err)
-			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "upload failed"})
-		}
-	}
-
-	webhook.NotifyCommentImageStorage(ghPath, repoForWebhook, backend)
+	webhook.NotifyCommentImageStorage(ghPath, "", "r2")
 	go quota.Record(context.Background(), uid, "cmt_"+imageID, int64(len(data)))
 
-	h.log.Infof("comment-image uploaded backend=%s user=%s path=%s", backend, uid, ghPath)
+	h.log.Infof("comment-image uploaded user=%s path=%s", uid, ghPath)
 
 	// Storage repo/backend are recorded via NotifyCommentImageStorage webhook only
 	// — never returned to the browser.

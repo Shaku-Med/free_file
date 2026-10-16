@@ -54,25 +54,32 @@ export const loader = async ({ request }: { request: Request }) => {
 
   if (row.path !== requestedPath) return errorResponse(403)
 
-  // R2-backed captions presign; GitHub-backed need a repo + owner.
-  const isR2 = row.storage_backend === "r2"
-  let rawUrl: string
-  if (isR2) {
-    const signed = r2PresignGet(row.path)
-    if (!signed) return errorResponse(503)
-    rawUrl = signed
-  } else {
+  // New captions are always on R2, even for a video still stored on GitHub, so
+  // R2 is tried first and GitHub only holds captions from before the move.
+  const candidates: string[] = []
+  const signed = r2PresignGet(row.path)
+  if (signed) candidates.push(signed)
+  if (row.storage_backend !== "r2") {
     const owner = process.env.GITHUB_OWNER
-    if (!owner) return errorResponse(503)
-    if (typeof row.github_repo !== "string" || !row.github_repo) return errorResponse(503)
-    rawUrl = githubRawFileUrl(owner, row.github_repo, defaultGithubBranch(), row.path)
+    if (owner && typeof row.github_repo === "string" && row.github_repo) {
+      candidates.push(githubRawFileUrl(owner, row.github_repo, defaultGithubBranch(), row.path))
+    }
   }
+  if (candidates.length === 0) return errorResponse(503)
 
   const ctrl = new AbortController()
   const timer = setTimeout(() => ctrl.abort(), FETCH_TIMEOUT_MS)
   try {
-    const res = await fetch(rawUrl, { signal: ctrl.signal })
-    if (!res.ok) return errorResponse(404)
+    let res: Response | null = null
+    for (const rawUrl of candidates) {
+      const attempt = await fetch(rawUrl, { signal: ctrl.signal })
+      if (attempt.ok) {
+        res = attempt
+        break
+      }
+      await attempt.body?.cancel()
+    }
+    if (!res) return errorResponse(404)
 
     const lengthHeader = res.headers.get("content-length")
     if (lengthHeader && Number(lengthHeader) > MAX_VTT_BYTES) {

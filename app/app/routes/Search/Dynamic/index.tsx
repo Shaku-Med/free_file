@@ -106,7 +106,7 @@ export const loader = async ({ request }: { request: Request }) => {
     if (!sanitizedTerm) {
       return data(emptyResults, { status: 200 });
     }
-    if (!allowSearchRequest(request)) {
+    if (!(await allowSearchRequest(request))) {
       return data(emptyResults, { status: 429, headers: { 'Retry-After': '120' } });
     }
 
@@ -209,7 +209,7 @@ export const loader = async ({ request }: { request: Request }) => {
     // Page one is served here, not by /api/search, so this is where a search
     // gets counted toward suggestions.
     if (hasLexicalHit(sanitizedTerm, visible)) {
-      logSearchQuery(request, userId ?? null, sanitizedTerm);
+      void logSearchQuery(request, userId ?? null, sanitizedTerm);
     }
 
     return data({

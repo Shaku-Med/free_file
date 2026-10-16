@@ -123,7 +123,7 @@ export const loader = async ({ request }: { request: Request }) => {
       if (badSig) return badSig;
     }
 
-    if (!checkCommentGetRateLimit(request, currentUserId).allowed) {
+    if (!(await checkCommentGetRateLimit(request, currentUserId)).allowed) {
       return toJson({ error: "Too many requests" }, 429);
     }
 
@@ -208,7 +208,7 @@ export const action = async ({ request }: { request: Request }) => {
     }
 
     if (request.method === "POST") {
-      if (!checkCommentPostRateLimit(request, user.id).allowed) {
+      if (!(await checkCommentPostRateLimit(request, user.id)).allowed) {
         return toJson({ error: "Too many requests" }, 429);
       }
       const body = bodyReader.json() as CreateCommentInput & {

@@ -1332,8 +1332,9 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
         remaining?: number
         predicted?: number
         source_bytes?: number
-        overflow_remaining?: number
-        overflow_limit?: number
+      }
+      if (completeRes.status === 503 && j.error === "quota_unavailable") {
+        throw new Error("We couldn't check your upload limit just now. Try again in a minute.")
       }
       // Pre-queue monthly limit reject. Two flavors:
       //  1. Source file already exceeds remaining quota  honest "you're out"
@@ -1352,10 +1353,6 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
         const left = typeof j.remaining === "number" ? formatBytesShort(j.remaining) : null
         const predicted = typeof j.predicted === "number" ? formatBytesShort(j.predicted) : null
         const source = typeof j.source_bytes === "number" ? formatBytesShort(j.source_bytes) : null
-        // A 413 here means BOTH budgets are out: the monthly limit AND the
-        // extra 10 GB weekly allowance that unlocks once monthly fills up.
-        const extraLeft =
-          typeof j.overflow_remaining === "number" ? formatBytesShort(j.overflow_remaining) : null
         // Prediction-rejection: source fits but final won't.
         if (
           predicted &&
@@ -1371,9 +1368,9 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
           )
         }
         throw new Error(
-          extraLeft && j.overflow_remaining! > 0
-            ? `Monthly upload limit reached, and this file doesn't fit in the ${extraLeft} left of your extra weekly allowance. Try a smaller file.`
-            : "Monthly upload limit reached and your extra 10 GB weekly allowance is used up too. It refills weekly, so try again later.",
+          left
+            ? `This file doesn't fit in the ${left} you have left this month. Try a smaller file.`
+            : "Monthly upload limit reached. Space frees up as your older uploads pass 30 days.",
         )
       }
       throw new Error(j.error || "Complete upload failed")

@@ -212,7 +212,7 @@ export const loader = async ({ request }: { request: Request }) => {
     // Cap the term so an oversized string can't drive an expensive RPC/DB scan.
     if (query && query.length > 200) query = query.slice(0, 200);
     if (url.searchParams.get('suggest') === '1') {
-      if (!allowSuggestRequest(request)) return tooManyRequests(60);
+      if (!(await allowSuggestRequest(request))) return tooManyRequests(60);
       let items: SuggestItem[] = [];
       try {
         items = await buildSuggestItems(query ?? '');
@@ -230,7 +230,7 @@ export const loader = async ({ request }: { request: Request }) => {
       });
     }
 
-    if (!allowSearchRequest(request)) return tooManyRequests(120);
+    if (!(await allowSearchRequest(request))) return tooManyRequests(120);
 
     const cursorScoreParam = url.searchParams.get('cursor_score');
     const cursorIdParam = url.searchParams.get('cursor_id');
@@ -369,7 +369,7 @@ export const loader = async ({ request }: { request: Request }) => {
       : null;
 
     if (isInitialSearch && hasLexicalHit(query, visible)) {
-      logSearchQuery(request, userId ?? null, query);
+      void logSearchQuery(request, userId ?? null, query);
     }
 
     return new Response(JSON.stringify({

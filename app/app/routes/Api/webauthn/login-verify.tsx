@@ -13,7 +13,7 @@ import {
   readAltAccountsFromRequest,
 } from "~/lib/Security/accountVault";
 import { appendSessionCookie, issueCUserSessionToken } from "~/routes/Auth/fun/auth";
-import { checkAuthRateLimit, resetAuthRateLimit } from "~/routes/Auth/fun/rateLimit";
+import { checkAuthRateLimit, resetAuthRateLimit } from "~/routes/Auth/fun/rateLimit.server";
 
 export const loader = () => data({ error: PasskeyUserMessage.tryAgainLater }, { status: 405 });
 
@@ -39,7 +39,7 @@ export const action = async ({ request }: { request: Request }) => {
     return json({ error: PasskeyUserMessage.tryAgainLater }, 405);
   }
 
-  const rate = checkAuthRateLimit(request, "passkey");
+  const rate = await checkAuthRateLimit(request, "passkey");
   if (!rate.allowed) {
     return json({ error: PasskeyUserMessage.rateLimited }, 429);
   }
@@ -139,7 +139,7 @@ export const action = async ({ request }: { request: Request }) => {
     return json({ error: PasskeyUserMessage.tryAgainLater }, 500);
   }
 
-  resetAuthRateLimit(request, "passkey");
+  await resetAuthRateLimit(request, "passkey");
 
   let vault = readAltAccountsFromRequest(request.headers);
   if (addAccount && oldToken && oldUser && account.id !== oldUser.id) {

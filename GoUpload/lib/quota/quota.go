@@ -1,5 +1,5 @@
 // Package quota asks the app whether a user can still upload N bytes this
-// week. Lets the upload server reject early and free disk before the worker
+// month. Lets the upload server reject early and free disk before the worker
 // burns time processing a job that would be rejected anyway.
 //
 // Auth is the shared UPLOAD_WEBHOOK_SECRET; the same secret the worker uses
@@ -26,13 +26,6 @@ type CheckResult struct {
 	Limit     int64 `json:"limit"`
 	Remaining int64 `json:"remaining"`
 	Predicted int64 `json:"predicted"`
-	// Extra weekly allowance that opens once the monthly budget is full.
-	// When OK is false but OverflowOK is true the upload is still accepted
-	// and routed to the overflow storage backend.
-	OverflowOK        bool  `json:"overflow_ok"`
-	OverflowUsed      int64 `json:"overflow_used"`
-	OverflowLimit     int64 `json:"overflow_limit"`
-	OverflowRemaining int64 `json:"overflow_remaining"`
 }
 
 type checkRequest struct {
@@ -40,19 +33,17 @@ type checkRequest struct {
 	Predicted int64  `json:"predicted_bytes"`
 }
 
-// ErrUnavailable means we couldn't reach the app. Caller policy: allow on
-// transient unavailability (don't punish users for an outage); the webhook
-// reconciles real usage when the upload finishes.
+// ErrUnavailable means the app could not answer. Callers reject the upload:
+// storage is paid for, so an unchecked upload is never let through.
 var ErrUnavailable = errors.New("quota: app unreachable")
 
-// Check asks the app whether predicted bytes would fit in the user's weekly
-// budget. Returns ok=false when over limit; ok=true otherwise.
+// Check asks the app whether predicted bytes would fit in the user's monthly
+// budget. Any error means the answer is unknown and the upload must wait.
 func Check(ctx context.Context, userID string, predictedBytes int64) (CheckResult, error) {
 	base := strings.TrimSuffix(env.Get("APP_BASE_URL", ""), "/")
 	secret := env.Get("UPLOAD_WEBHOOK_SECRET", "")
 	if base == "" || secret == "" {
-		// Not configured. Fail open so dev environments without the app keep working.
-		return CheckResult{OK: true}, ErrUnavailable
+		return CheckResult{}, ErrUnavailable
 	}
 	body, err := json.Marshal(checkRequest{UserID: userID, Predicted: predictedBytes})
 	if err != nil {
@@ -68,12 +59,12 @@ func Check(ctx context.Context, userID string, predictedBytes int64) (CheckResul
 	req.Header.Set("X-Webhook-Secret", secret)
 	res, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return CheckResult{OK: true}, ErrUnavailable
+		return CheckResult{}, ErrUnavailable
 	}
 	defer res.Body.Close()
 	rb, _ := io.ReadAll(io.LimitReader(res.Body, 4<<10))
 	if res.StatusCode < 200 || res.StatusCode >= 300 {
-		return CheckResult{OK: true}, ErrUnavailable
+		return CheckResult{}, ErrUnavailable
 	}
 	var out CheckResult
 	if err := json.Unmarshal(rb, &out); err != nil {
@@ -209,8 +200,8 @@ func PurgeUser(ctx context.Context, userID string, purgedUploadIDs []string) {
 		ids = ids[:maxIDs]
 	}
 	payload, err := json.Marshal(map[string]interface{}{
-		"user_id":            userID,
-		"purged_upload_ids":  ids,
+		"user_id":           userID,
+		"purged_upload_ids": ids,
 	})
 	if err != nil {
 		return

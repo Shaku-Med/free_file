@@ -1,7 +1,7 @@
 import db from '~/lib/Database/supabase';
 import { isValidFileId, isValidUUID } from '~/lib/Security/inputValidation';
 import { isAuthenticated } from '~/lib/Security/Password';
-import { rateLimiter, RateLimiter } from '~/routes/Auth/fun/rateLimit';
+import { rateLimiter, RateLimiter } from '~/routes/Auth/fun/rateLimit.server';
 
 /** Hard upper bound on stored timestamps (24h). Matches the SQL function's CHECK ceiling. */
 const MAX_TIMESTAMP_SECONDS = 86_400;
@@ -167,7 +167,7 @@ export const action = async ({ request }: { request: Request }) => {
      * earlier  defense in depth).
      */
     const rateKey = user.id || `ip:${RateLimiter.getClientIP(request)}`;
-    const limit = rateLimiter.checkLimit(
+    const limit = await rateLimiter.checkLimit(
       rateKey,
       'watch-progress',
       MAX_SAVES_PER_WINDOW,

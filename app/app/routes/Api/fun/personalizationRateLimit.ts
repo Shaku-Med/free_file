@@ -1,4 +1,4 @@
-import { rateLimiter, RateLimiter } from '~/routes/Auth/fun/rateLimit';
+import { rateLimiter, RateLimiter } from '~/routes/Auth/fun/rateLimit.server';
 
 /** Watch-time pings (one-time playback token per submission). Increased headroom vs legacy. */
 const WATCH_TIME_MAX = 420;

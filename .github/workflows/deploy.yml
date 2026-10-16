@@ -191,6 +191,13 @@ jobs:
             # Bind mounts must point at real FILES — if .env.notification is
             # missing, Docker would silently create a DIRECTORY and break it.
             [ -f .env ] || { echo "❌ .env missing after copy"; exit 1; }
+
+            # Redis password: made once on this box and kept across deploys,
+            # never in the repo or CI. Compose reads it for the app and Redis.
+            if [ ! -s .env.redis ]; then
+              ( umask 077; printf 'REDIS_PASSWORD=%s\n' "$(tr -dc 'a-f0-9' < /dev/urandom | head -c 64)" > .env.redis )
+              echo "🔐 Created .env.redis"
+            fi
             [ -f .env.notification ] || { echo "⚠️  .env.notification missing — creating empty (push off until keys set)"; touch .env.notification; }
 
             # Pin compose to the exact image we just pushed, in a file that is

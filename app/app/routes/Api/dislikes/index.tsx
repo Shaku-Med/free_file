@@ -30,7 +30,7 @@ export const action = async ({ request }: { request: Request }) => {
     const user = await isAuthenticated(request, ['id']);
     if (!user?.id) return toJson({ error: "Unauthorized" }, 401);
     if (!db) return toJson({ error: "Database not initialized" }, 500);
-    if (!checkInteractionRateLimit(request, user.id).allowed) {
+    if (!(await checkInteractionRateLimit(request, user.id)).allowed) {
       return toJson({ error: "Too many requests" }, 429);
     }
     const body = await request.json();

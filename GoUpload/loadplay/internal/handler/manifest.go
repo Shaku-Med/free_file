@@ -54,6 +54,10 @@ type ManifestDeps struct {
 	SegmentCache   *diskcache.Cache
 	FetchGate      *fetchgate.Gate
 	PlaybackDebug  bool
+	// R2Redirect, when set, sends R2 segments to the player as signed links
+	// valid this long instead of streaming them through LoadPlay. The bucket
+	// needs a CORS rule for it (see loadplay/README.md). Zero streams them.
+	R2Redirect time.Duration
 }
 
 // ErrPlaybackDenied is the sentinel returned by deny() so callers'

@@ -10,7 +10,7 @@ import db from '~/lib/Database/supabase';
 import crypto from 'crypto';
 import { generateVerificationCode, hashVerificationCode, saveVerificationCode, issueVerifyContext, appendVerifyContextCookie } from '../fun/verification';
 import { sendVerificationEmail } from '../fun/email';
-import { checkAuthRateLimit, resetAuthRateLimit } from '../fun/rateLimit';
+import { checkAuthRateLimit } from '../fun/rateLimit.server';
 import { normalizeIdentifier, sanitizeString, isValidEmail, constantTimeDelay } from '../fun/validation';
 import { KeyRound, AlertCircle, ArrowLeft } from 'lucide-react';
 
@@ -50,12 +50,12 @@ export const action = async ({ request }: { request: Request }) => {
 
     // Per-IP cap first, so one host can't spray reset mail across many accounts
     // (the per-identifier limit below only rations a single target).
-    const ipLimit = checkAuthRateLimit(request, 'reset_ip');
+    const ipLimit = await checkAuthRateLimit(request, 'reset_ip');
     if (!ipLimit.allowed) {
       return data({ error: ipLimit.error || 'Too many attempts. Please wait a bit and try again.' }, { status: 429 });
     }
 
-    const rateLimitCheck = checkAuthRateLimit(request, 'reset', normalized);
+    const rateLimitCheck = await checkAuthRateLimit(request, 'reset', normalized);
     if (!rateLimitCheck.allowed) {
       return data({ error: rateLimitCheck.error || 'Too many attempts. Please wait a bit and try again.' }, { status: 429 });
     }

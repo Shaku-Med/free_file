@@ -1,38 +1,32 @@
 /**
- * Rate limiting utility for auth endpoints
- * Prevents spam and abuse by tracking requests per IP/identifier
+ * Rate limiting for auth and API endpoints, per IP or identifier.
+ *
+ * Counts live in the shared store (Redis), so every copy of the app enforces
+ * the same limit. When the store can't answer the request is refused.
  */
 
 import { clientIpBucket } from '~/lib/Security/clientIp';
+import { clearKeys, digest, hitWindow, setValue } from '~/lib/kv.server';
 
-interface RateLimitEntry {
-  count: number;
-  resetAt: number;
+export type RateLimitResult = {
+  allowed: boolean;
+  remaining?: number;
+  resetAt?: number;
   blockedUntil?: number;
+  error?: string;
+};
+
+const ACTION_RE = /^[a-z0-9_-]{1,64}$/i;
+
+function minutes(ms: number): string {
+  const m = Math.max(1, Math.ceil(ms / 60_000));
+  return `${m} minute${m !== 1 ? 's' : ''}`;
 }
 
 export class RateLimiter {
-  private store: Map<string, RateLimitEntry> = new Map();
-  private cleanupInterval: NodeJS.Timeout;
-
-  constructor() {
-    // Clean up expired entries every 5 minutes
-    this.cleanupInterval = setInterval(() => {
-      this.cleanup();
-    }, 5 * 60 * 1000);
-  }
-
-  private cleanup(): void {
-    const now = Date.now();
-    for (const [key, entry] of this.store.entries()) {
-      if (entry.resetAt < now && (!entry.blockedUntil || entry.blockedUntil < now)) {
-        this.store.delete(key);
-      }
-    }
-  }
-
-  private getKey(identifier: string, action: string): string {
-    return `${action}:${identifier}`;
+  private keys(identifier: string, action: string) {
+    const id = digest(identifier);
+    return { count: `rl:${action}:${id}`, block: `rlb:${action}:${id}` };
   }
 
   /**
@@ -44,66 +38,51 @@ export class RateLimiter {
    * @param blockDurationMs - Duration to block after exceeding limit (optional)
    * @returns Object with allowed status and remaining time
    */
-  checkLimit(
+  async checkLimit(
     identifier: string,
     action: string,
     maxRequests: number = 5,
     windowMs: number = 15 * 60 * 1000, // 15 minutes default
     blockDurationMs: number = 30 * 60 * 1000 // 30 minutes block
-  ): { allowed: boolean; remaining?: number; resetAt?: number; blockedUntil?: number; error?: string } {
-    const key = this.getKey(identifier, action);
+  ): Promise<RateLimitResult> {
+    if (!ACTION_RE.test(action)) throw new Error(`bad rate limit action ${action}`);
+    const keys = this.keys(identifier, action);
     const now = Date.now();
-    const entry = this.store.get(key);
-
-    // Check if currently blocked
-    if (entry?.blockedUntil && entry.blockedUntil > now) {
-      const remainingBlock = Math.ceil((entry.blockedUntil - now) / 1000 / 60);
-      return {
-        allowed: false,
-        blockedUntil: entry.blockedUntil,
-        error: `Too many requests. Please try again in ${remainingBlock} minute${remainingBlock !== 1 ? 's' : ''}.`
-      };
+    try {
+      const hit = await hitWindow(keys.count, keys.block, windowMs);
+      if (hit.blockedMs > 0) {
+        return {
+          allowed: false,
+          blockedUntil: now + hit.blockedMs,
+          error: `Too many requests. Please try again in ${minutes(hit.blockedMs)}.`,
+        };
+      }
+      if (hit.count > maxRequests) {
+        if (blockDurationMs > 0) await setValue(keys.block, '1', blockDurationMs);
+        const wait = blockDurationMs > 0 ? blockDurationMs : hit.resetMs;
+        return {
+          allowed: false,
+          blockedUntil: now + wait,
+          error: `Rate limit exceeded. Please try again in ${minutes(wait)}.`,
+        };
+      }
+      return { allowed: true, remaining: maxRequests - hit.count, resetAt: now + hit.resetMs };
+    } catch (e) {
+      console.error(`[rateLimit] store unavailable, refusing ${action}:`, e instanceof Error ? e.message : e);
+      return { allowed: false, error: 'Something went wrong. Please try again in a moment.' };
     }
-
-    // Reset if window expired
-    if (!entry || entry.resetAt < now) {
-      this.store.set(key, {
-        count: 1,
-        resetAt: now + windowMs
-      });
-      return { allowed: true, remaining: maxRequests - 1, resetAt: now + windowMs };
-    }
-
-    // Check if limit exceeded
-    if (entry.count >= maxRequests) {
-      const blockedUntil = now + blockDurationMs;
-      entry.blockedUntil = blockedUntil;
-      this.store.set(key, entry);
-      const remainingBlock = Math.ceil(blockDurationMs / 1000 / 60);
-      return {
-        allowed: false,
-        blockedUntil,
-        error: `Rate limit exceeded. Please try again in ${remainingBlock} minute${remainingBlock !== 1 ? 's' : ''}.`
-      };
-    }
-
-    // Increment count
-    entry.count++;
-    this.store.set(key, entry);
-
-    return {
-      allowed: true,
-      remaining: maxRequests - entry.count,
-      resetAt: entry.resetAt
-    };
   }
 
   /**
    * Reset rate limit for an identifier (useful for successful operations)
    */
-  reset(identifier: string, action: string): void {
-    const key = this.getKey(identifier, action);
-    this.store.delete(key);
+  async reset(identifier: string, action: string): Promise<void> {
+    const keys = this.keys(identifier, action);
+    try {
+      await clearKeys(keys.count, keys.block);
+    } catch {
+      // The window simply runs out on its own.
+    }
   }
 
   /**
@@ -148,7 +127,7 @@ export function checkAuthRateLimit(
   request: Request,
   action: keyof typeof RATE_LIMITS,
   identifier?: string
-): { allowed: boolean; remaining?: number; resetAt?: number; error?: string } {
+): Promise<RateLimitResult> {
   const ip = RateLimiter.getClientIP(request);
   const id = identifier || ip;
   const config = RATE_LIMITS[action];
@@ -169,8 +148,8 @@ export function resetAuthRateLimit(
   request: Request,
   action: keyof typeof RATE_LIMITS,
   identifier?: string
-): void {
+): Promise<void> {
   const ip = RateLimiter.getClientIP(request);
   const id = identifier || ip;
-  rateLimiter.reset(id, action);
+  return rateLimiter.reset(id, action);
 }

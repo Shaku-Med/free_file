@@ -1,6 +1,6 @@
 import geoip from "geoip-lite";
 import db from "~/lib/Database/supabase";
-import { RateLimiter } from "~/routes/Auth/fun/rateLimit";
+import { RateLimiter } from "~/routes/Auth/fun/rateLimit.server";
 
 export interface GeoInfo {
   ip: string;

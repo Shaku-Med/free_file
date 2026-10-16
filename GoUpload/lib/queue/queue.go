@@ -23,27 +23,24 @@ type Client struct {
 //
 // Locked at upload time; can't be edited after the file ships.
 type Job struct {
-	ID                  string   `json:"id"`
-	UserID              string   `json:"user_id"`
-	UploadID            string   `json:"upload_id"`
-	FileName            string   `json:"file_name"`
-	FileSize            int64    `json:"file_size"`
-	TotalChunks         int      `json:"total_chunks"`
-	Title               string   `json:"title,omitempty"`
-	Description         string   `json:"description,omitempty"`
-	UserCategories      []string `json:"user_categories,omitempty"`
-	UserTags            []string `json:"user_tags,omitempty"`
-	DefaultThumbnail    string   `json:"default_thumbnail,omitempty"`
-	ReelMode            string   `json:"reel_mode,omitempty"`
-	FileSeriesID        string   `json:"file_series_id,omitempty"`
-	FileSeriesEpisodeID string   `json:"file_series_episode_id,omitempty"`
-	IsNewSeries         bool     `json:"is_new_series"`
-	NewEpisodeName      string   `json:"new_episode_name,omitempty"`
-	ParentEpisodeID     string   `json:"parent_episode_id,omitempty"`
-	// Overflow: accepted on the extra weekly allowance after the monthly
-	// quota filled. The worker forces the GitHub backend for these jobs.
-	Overflow  bool      `json:"overflow,omitempty"`
-	CreatedAt time.Time `json:"created_at"`
+	ID                  string    `json:"id"`
+	UserID              string    `json:"user_id"`
+	UploadID            string    `json:"upload_id"`
+	FileName            string    `json:"file_name"`
+	FileSize            int64     `json:"file_size"`
+	TotalChunks         int       `json:"total_chunks"`
+	Title               string    `json:"title,omitempty"`
+	Description         string    `json:"description,omitempty"`
+	UserCategories      []string  `json:"user_categories,omitempty"`
+	UserTags            []string  `json:"user_tags,omitempty"`
+	DefaultThumbnail    string    `json:"default_thumbnail,omitempty"`
+	ReelMode            string    `json:"reel_mode,omitempty"`
+	FileSeriesID        string    `json:"file_series_id,omitempty"`
+	FileSeriesEpisodeID string    `json:"file_series_episode_id,omitempty"`
+	IsNewSeries         bool      `json:"is_new_series"`
+	NewEpisodeName      string    `json:"new_episode_name,omitempty"`
+	ParentEpisodeID     string    `json:"parent_episode_id,omitempty"`
+	CreatedAt           time.Time `json:"created_at"`
 }
 
 func NewClient(addr, password string, db int, queueName string) (*Client, error) {
@@ -63,7 +60,7 @@ func NewClient(addr, password string, db int, queueName string) (*Client, error)
 	return &Client{rdb: rdb, queueName: queueName}, nil
 }
 
-func (c *Client) Enqueue(ctx context.Context, userID, uploadID, fileName string, fileSize int64, totalChunks int, title, description string, userCategories, userTags []string, defaultThumbnail, reelMode string, fileSeriesID, fileSeriesEpisodeID string, isNewSeries bool, newEpisodeName, parentEpisodeID string, overflow bool) (string, error) {
+func (c *Client) Enqueue(ctx context.Context, userID, uploadID, fileName string, fileSize int64, totalChunks int, title, description string, userCategories, userTags []string, defaultThumbnail, reelMode string, fileSeriesID, fileSeriesEpisodeID string, isNewSeries bool, newEpisodeName, parentEpisodeID string) (string, error) {
 	// Reject unknown reel modes early  silent fallthrough to "auto" is
 	// safer than dropping the upload, but log-worthy for the caller.
 	switch reelMode {
@@ -91,7 +88,6 @@ func (c *Client) Enqueue(ctx context.Context, userID, uploadID, fileName string,
 		IsNewSeries:         isNewSeries,
 		NewEpisodeName:      newEpisodeName,
 		ParentEpisodeID:     parentEpisodeID,
-		Overflow:            overflow,
 		CreatedAt:           time.Now().UTC(),
 	}
 	data, err := json.Marshal(job)

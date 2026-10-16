@@ -7,7 +7,7 @@ import { Input } from '~/components/ui/input';
 import { Card, CardContent, CardHeader } from '~/components/ui/card';
 import { createUser } from '../fun/auth';
 import { isAuthenticated } from '~/lib/Security/Password';
-import { checkAuthRateLimit, resetAuthRateLimit } from '../fun/rateLimit';
+import { checkAuthRateLimit, resetAuthRateLimit } from '../fun/rateLimit.server';
 import { issueVerifyContext, appendVerifyContextCookie } from '../fun/verification';
 import { Eye, EyeOff, AlertCircle, User, Mail, Calendar, Lock } from 'lucide-react';
 
@@ -34,12 +34,12 @@ export const action = async ({ request }: { request: Request }) => {
 
     // Per-IP cap first: the per-email limit below can't stop one host from
     // registering endlessly with fresh addresses.
-    const ipLimit = checkAuthRateLimit(request, 'signup_ip');
+    const ipLimit = await checkAuthRateLimit(request, 'signup_ip');
     if (!ipLimit.allowed) {
       return data({ error: ipLimit.error || 'Too many attempts. Please wait a bit and try again.' }, { status: 429 });
     }
 
-    const rateLimitCheck = checkAuthRateLimit(request, 'signup', normalizedEmail);
+    const rateLimitCheck = await checkAuthRateLimit(request, 'signup', normalizedEmail);
     if (!rateLimitCheck.allowed) {
       return data({ error: rateLimitCheck.error || 'Too many attempts. Please wait a bit and try again.' }, { status: 429 });
     }
@@ -53,7 +53,7 @@ export const action = async ({ request }: { request: Request }) => {
     // Only the per-email counter is cleared on success (that address now has an
     // account and can't re-register). The per-IP counter deliberately survives,
     // otherwise a successful signup would reset the bulk-registration guard.
-    resetAuthRateLimit(request, 'signup', normalizedEmail);
+    await resetAuthRateLimit(request, 'signup', normalizedEmail);
 
     const ctxToken = await issueVerifyContext(result.userId!, 'signup');
     if (!ctxToken) {

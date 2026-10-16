@@ -172,10 +172,13 @@ services:
       FINGERPRINT_DB_PATH: /data/fingerprints/fp.db
       FINGERPRINT_DB_MAX_BYTES: ${FINGERPRINT_DB_MAX_BYTES:-10737418240}
       # Adaptive worker pool  see internal/worker/pool.go. These can also live
-      # in goupload.env if you prefer.
+      # in goupload.env if you prefer. Two encodes at most on a 2 core box, so
+      # playback and the API never wait behind a queue of transcodes.
       WORKER_MIN: ${WORKER_MIN:-1}
-      WORKER_MAX: ${WORKER_MAX:-6}
-      WORKER_INITIAL: ${WORKER_INITIAL:-2}
+      WORKER_MAX: ${WORKER_MAX:-2}
+      WORKER_INITIAL: ${WORKER_INITIAL:-1}
+      # ffmpeg runs under nice at this level (0 to 19, 0 = normal priority).
+      FFMPEG_NICE: ${FFMPEG_NICE:-10}
     ports:
       - "127.0.0.1:${GOUPLOAD_PORT:-3003}:3003"
     volumes:

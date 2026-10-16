@@ -1,50 +1,23 @@
 import db from '~/lib/Database/supabase';
 
-// Rolling 30-day per-user upload cap. Reserve before queueing, finalize with
-// the real size on completion, refund on cancel/failure. Limit comes from env
-// so it is never hardcoded; defaults to 5 GiB.
+// Rolling 30-day per-user upload cap, all stored on R2. Reserve before
+// queueing, finalize with the real size on completion, refund on
+// cancel/failure. MONTHLY_UPLOAD_LIMIT_BYTES can lower or raise it; 10 GiB
+// otherwise.
 //
 // Window length is enforced by the Supabase function `get_monthly_upload_usage`
 // (see app/database/migrations/monthly_upload_quota.sql)  if you change it
 // there, mirror the marketing-copy window in StorageQuotaMeter too.
-const DEFAULT_MONTHLY_LIMIT_BYTES = 5 * 1024 * 1024 * 1024;
+const DEFAULT_MONTHLY_LIMIT_BYTES = 10 * 1024 * 1024 * 1024;
 
 export function getMonthlyUploadLimitBytes(): number {
-  // Accept either MONTHLY_UPLOAD_LIMIT_BYTES (new name) or
-  // WEEKLY_UPLOAD_LIMIT_BYTES (legacy env name)  the value carried the same
-  // meaning before/after the rolling window changed, and we don't want a
-  // missed-rename in .env to silently drop everyone to the default.
-  const monthly = typeof process !== 'undefined' ? process.env?.MONTHLY_UPLOAD_LIMIT_BYTES : undefined;
-  const legacy = typeof process !== 'undefined' ? process.env?.WEEKLY_UPLOAD_LIMIT_BYTES : undefined;
-  const raw = monthly || legacy;
+  const raw = typeof process !== 'undefined' ? process.env?.MONTHLY_UPLOAD_LIMIT_BYTES : undefined;
   if (raw) {
     const n = Number(raw);
     if (Number.isFinite(n) && n > 0) return Math.floor(n);
   }
   return DEFAULT_MONTHLY_LIMIT_BYTES;
 }
-
-/**
- * Backwards-compat alias  any caller still importing the old name keeps
- * working through the rename. Delete once all call sites use the new one.
- */
-export const getWeeklyUploadLimitBytes = getMonthlyUploadLimitBytes;
-
-// Extra allowance that opens up once the monthly limit is full: a rolling
-// 7-day budget (default 10 GiB). Uploads accepted on it are metered under
-// scope='overflow' in the same ledger.
-const DEFAULT_OVERFLOW_WEEKLY_LIMIT_BYTES = 10 * 1024 * 1024 * 1024;
-
-export function getOverflowWeeklyLimitBytes(): number {
-  const raw = typeof process !== 'undefined' ? process.env?.OVERFLOW_WEEKLY_LIMIT_BYTES : undefined;
-  if (raw) {
-    const n = Number(raw);
-    if (Number.isFinite(n) && n >= 0) return Math.floor(n);
-  }
-  return DEFAULT_OVERFLOW_WEEKLY_LIMIT_BYTES;
-}
-
-export type QuotaScope = 'monthly' | 'overflow';
 
 export interface QuotaResult {
   ok: boolean;
@@ -102,7 +75,6 @@ export async function recordUploadUsage(
   userId: string,
   uploadId: string,
   bytes: number,
-  scope: QuotaScope = 'monthly'
 ): Promise<void> {
   if (!db) {
     console.warn('[uploadQuota] record skipped: db not configured');
@@ -121,7 +93,7 @@ export async function recordUploadUsage(
       p_user_id: userId,
       p_upload_id: uploadId,
       p_bytes: safe,
-      p_scope: scope === 'overflow' ? 'overflow' : 'monthly',
+      p_scope: 'monthly',
     });
     if (error) {
       // Most common: weekly_upload_quota_record.sql migration not applied yet.

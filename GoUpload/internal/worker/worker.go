@@ -29,8 +29,6 @@ import (
 	"goupload/lib/r2"
 	"goupload/lib/security"
 	"goupload/lib/webhook"
-
-	"github.com/google/go-github/v62/github"
 )
 
 // workerUserIDPattern mirrors the HTTP ingress check (middleware.userIDPattern).
@@ -40,25 +38,19 @@ import (
 var workerUserIDPattern = regexp.MustCompile(`^[a-zA-Z0-9_-]{1,64}$`)
 
 type Config struct {
-	ChunksDir     string
-	OutputDir     string
-	TempDir       string
-	HLSDir        string
-	ThumbnailDir  string
+	ChunksDir    string
+	OutputDir    string
+	TempDir      string
+	HLSDir       string
+	ThumbnailDir string
 	// AcoustIDDir holds per-upload MP3 clips for the AcoustID sidecar:
 	// upload/acoustid/{userID}/{uploadID}/clip.mp3
 	AcoustIDDir   string
 	NSFWApiURL    string
 	NSFWApiSecret string // X-Webhook-Secret for app /api/nsfw/detect; often UPLOAD_WEBHOOK_SECRET
-	// GitHub: if GitHubClient is nil, uploads to GitHub are skipped.
-	GitHubClient *github.Client
-	GitHubOwner  string
-	GitHubRepo   string
-	// R2: when StorageBackend == "r2" and R2 is non-nil, new uploads go to
-	// Cloudflare R2 instead of GitHub. Legacy files keep resolving via their
-	// stored github_repo (dual-backend).
-	R2             *r2.Client
-	StorageBackend string
+	// R2 holds every new upload. Files stored on GitHub before the move keep
+	// loading from their github_repo; nothing new is written there.
+	R2 *r2.Client
 	// Embed: optional local embedding sidecar client for semantic search.
 	Embed *embed.Client
 	// Music: optional local MusicDetector sidecar; the source of truth for
@@ -102,11 +94,6 @@ func New(q *queue.Client, log *logger.Logger, cfg Config) *Worker {
 		cfg:    cfg,
 		stopCh: make(chan struct{}),
 	}
-}
-
-// useR2 reports whether new uploads for this worker target R2.
-func (w *Worker) useR2() bool {
-	return w.cfg.StorageBackend == "r2" && w.cfg.R2 != nil
 }
 
 func contentTypeFor(name string) string {
@@ -705,23 +692,12 @@ func (w *Worker) processJob(job *queue.Job) {
 		return
 	}
 
-	// Storage backend for THIS upload. github_repo is only meaningful for the
-	// GitHub backend; R2 rows carry the bucket instead. Overflow jobs (extra
-	// weekly allowance after the monthly quota filled) always take the GitHub
-	// path regardless of the global backend.
-	useR2 := w.useR2() && !job.Overflow
-	storageBackend := "github"
-	storageBucket := ""
-	repoForPayload := w.cfg.GitHubRepo
-	if useR2 {
-		storageBackend = "r2"
-		storageBucket = w.cfg.R2.Bucket()
-		repoForPayload = ""
-	}
-	if job.Overflow && w.cfg.GitHubClient == nil {
-		w.failJob(job, "overflow upload but github backend not configured")
+	if w.cfg.R2 == nil {
+		w.failJob(job, "r2 storage not configured")
 		return
 	}
+	const storageBackend = "r2"
+	storageBucket := w.cfg.R2.Bucket()
 
 	result, err := assembler.Assemble(assembler.Config{
 		ChunksDir:   w.cfg.ChunksDir,
@@ -777,13 +753,7 @@ func (w *Worker) processJob(job *queue.Job) {
 		// contain spaces / unicode / unsafe chars that break the path. Use a
 		// fixed name; the original filename stays in the files.filename column.
 		ghPath := dateFolder + "/" + job.UploadID + "/" + safeImageObjectName(job.FileName)
-		var upErr error
-		if useR2 {
-			upErr = w.putLocalR2(context.Background(), ghPath, result.OutputPath)
-		} else {
-			upErr = ghlib.UploadLocalFile(context.Background(), w.cfg.GitHubClient, w.cfg.GitHubOwner, w.cfg.GitHubRepo, ghPath, result.OutputPath, "Upload "+job.FileName)
-		}
-		if upErr != nil {
+		if upErr := w.putLocalR2(context.Background(), ghPath, result.OutputPath); upErr != nil {
 			w.log.Errorf("storage upload failed backend=%s job=%s path=%s err=%s", storageBackend, job.ID, ghPath, upErr.Error())
 			_ = w.queue.SetJobStatus(context.Background(), job.ID, "failed")
 			webhook.NotifyJobStatus(webhook.Payload{JobID: job.ID, Status: "failed", UploadID: job.UploadID, UserID: job.UserID, FileName: job.FileName, FileSize: job.FileSize})
@@ -863,10 +833,8 @@ func (w *Worker) processJob(job *queue.Job) {
 			IsNewSeries:         job.IsNewSeries,
 			NewEpisodeName:      job.NewEpisodeName,
 			ParentEpisodeID:     job.ParentEpisodeID,
-			GitHubRepo:          repoForPayload,
 			StorageBackend:      storageBackend,
 			StorageBucket:       storageBucket,
-			Overflow:            job.Overflow,
 			Embedding:           w.embedForFile(job, categories, tags, metadata),
 			// Detected from the uploader's own words only - the AI caption is
 			// always English and would mislabel non-English uploads.
@@ -968,7 +936,7 @@ func (w *Worker) processJob(job *queue.Job) {
 
 	w.notifyRunningProgress(job, 42)
 
-	// ── Early upload: push thumbnails + waveform to GitHub right away ──
+	// ── Early upload: push thumbnails + waveform to storage right away ──
 	dateFolder := ghlib.DateFolder(time.Now())
 	ghPrefix := dateFolder + "/" + job.UploadID + "/"
 	var thumbnailPaths []string
@@ -1034,20 +1002,9 @@ func (w *Worker) processJob(job *queue.Job) {
 			}
 			w.log.Errorf("thumbnail dir yielded NO uploadable files job=%s dir=%s contains=%v", job.ID, thumbDir, names)
 		} else {
-			upload := func() error {
-				if useR2 {
-					return w.uploadBatchR2(context.Background(), thumbFiles)
-				}
-				ghBranch := os.Getenv("GITHUB_BRANCH")
-				if ghBranch == "" {
-					ghBranch = "main"
-				}
-				return ghlib.BatchCommit(context.Background(), w.cfg.GitHubClient, w.cfg.GitHubOwner, w.cfg.GitHubRepo, ghBranch, "Thumbnails "+job.UploadID, thumbFiles, 4, w.log.Infof)
-			}
-
 			var thErr error
 			for attempt := 1; attempt <= 3; attempt++ {
-				if thErr = upload(); thErr == nil {
+				if thErr = w.uploadBatchR2(context.Background(), thumbFiles); thErr == nil {
 					thumbUploadOK = true
 					w.log.Infof("thumbnails uploaded early backend=%s job=%s files=%d attempt=%d",
 						storageBackend, job.ID, len(thumbFiles), attempt)
@@ -1346,17 +1303,7 @@ func (w *Worker) processJob(job *queue.Job) {
 
 	if len(batchFiles) > 0 {
 		w.notifyRunningProgress(job, 85)
-		var buErr error
-		if useR2 {
-			buErr = w.uploadBatchR2(context.Background(), batchFiles)
-		} else {
-			ghBranch := os.Getenv("GITHUB_BRANCH")
-			if ghBranch == "" {
-				ghBranch = "main"
-			}
-			buErr = ghlib.BatchCommit(context.Background(), w.cfg.GitHubClient, w.cfg.GitHubOwner, w.cfg.GitHubRepo, ghBranch, "Upload "+job.UploadID, batchFiles, 4, w.log.Infof)
-		}
-		if buErr != nil {
+		if buErr := w.uploadBatchR2(context.Background(), batchFiles); buErr != nil {
 			w.log.Errorf("storage batch upload failed backend=%s job=%s files=%d err=%s", storageBackend, job.ID, len(batchFiles), buErr.Error())
 			_ = os.RemoveAll(hlsDir)
 			_ = os.Remove(filepath.Dir(hlsDir))
@@ -1410,7 +1357,7 @@ func (w *Worker) processJob(job *queue.Job) {
 	_ = os.Remove(assembledDir)
 	_ = os.Remove(filepath.Dir(assembledDir))
 
-	// Build default thumbnail GitHub path
+	// Build default thumbnail storage path
 	defaultThumbGH := ""
 	if defaultThumbPath != "" {
 		defaultThumbGH = ghPrefix + defaultThumbPath
@@ -1454,10 +1401,8 @@ func (w *Worker) processJob(job *queue.Job) {
 		IsNewSeries:         job.IsNewSeries,
 		NewEpisodeName:      job.NewEpisodeName,
 		ParentEpisodeID:     job.ParentEpisodeID,
-		GitHubRepo:          repoForPayload,
 		StorageBackend:      storageBackend,
 		StorageBucket:       storageBucket,
-		Overflow:            job.Overflow,
 		Embedding:           w.embedForFile(job, categories, tags, metadata),
 		IsMusic:             isMusic,
 		FpProcessed:         fpProcessed,
@@ -1471,7 +1416,7 @@ func (w *Worker) processJob(job *queue.Job) {
 	webhook.NotifyJobStatus(payload)
 	_ = w.queue.SetJobStatus(context.Background(), job.ID, "completed")
 	completed = true
-	w.log.Infof("job complete job=%s user=%s upload=%s duration=%s thumbnails=%d colors=%d tags=%d overflow=%v fingerprints=%d", job.ID, job.UserID, job.UploadID, time.Since(start), len(thumbnailPaths), len(vidColors), len(tags), job.Overflow, len(fpHashes))
+	w.log.Infof("job complete job=%s user=%s upload=%s duration=%s thumbnails=%d colors=%d tags=%d fingerprints=%d", job.ID, job.UserID, job.UploadID, time.Since(start), len(thumbnailPaths), len(vidColors), len(tags), len(fpHashes))
 }
 
 // reelAspectMatch is true for portrait ~9:16 (typical Reels / Shorts / TikTok).

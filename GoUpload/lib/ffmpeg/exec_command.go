@@ -9,14 +9,16 @@ import (
 // Arguments are argv slices  no shell is spawned, so shell metacharacters in paths
 // are not interpreted by /bin/sh or cmd.exe.
 func FFmpegCommand(ctx context.Context, args ...string) *exec.Cmd {
-	cmd := exec.CommandContext(ctx, "ffmpeg", args...)
+	name, argv := lowPriority("ffmpeg", args)
+	cmd := exec.CommandContext(ctx, name, argv...)
 	applyExecHardening(cmd)
 	return cmd
 }
 
 // FFprobeCommand is like FFmpegCommand but for ffprobe.
 func FFprobeCommand(ctx context.Context, args ...string) *exec.Cmd {
-	cmd := exec.CommandContext(ctx, "ffprobe", args...)
+	name, argv := lowPriority("ffprobe", args)
+	cmd := exec.CommandContext(ctx, name, argv...)
 	applyExecHardening(cmd)
 	return cmd
 }

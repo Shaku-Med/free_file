@@ -9,7 +9,7 @@ import db from "~/lib/Database/supabase"
 export const loader = async ({ request }: { request: Request }) => {
   try {
     // Per user/IP cap so the list/search can't be hammered into the DB.
-    const rl = checkOwnerVideosRateLimit(request)
+    const rl = await checkOwnerVideosRateLimit(request)
     if (!rl.allowed) {
       return data({ error: "Too many requests", data: [] }, { status: 429 })
     }

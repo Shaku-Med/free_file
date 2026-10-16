@@ -3,7 +3,7 @@ import db from '~/lib/Database/supabase';
 import { EnvValidator } from '~/lib/EnvValidator';
 import { clientIpBucket } from '~/lib/Security/clientIp';
 import { textContainsNsfw } from '~/lib/nsfwTextCheck';
-import { rateLimiter } from '~/routes/Auth/fun/rateLimit';
+import { rateLimiter } from '~/routes/Auth/fun/rateLimit.server';
 
 const MAX_QUERY = 80;
 
@@ -44,7 +44,7 @@ function getSearchKey(): Buffer | null {
   return searchKey;
 }
 
-export function logSearchQuery(request: Request, userId: string | null, rawQuery: string): void {
+export async function logSearchQuery(request: Request, userId: string | null, rawQuery: string): Promise<void> {
   if (!db) return;
   const q = normalizeSearchQuery(rawQuery);
   if (!isSuggestableQuery(q)) return;
@@ -57,7 +57,7 @@ export function logSearchQuery(request: Request, userId: string | null, rawQuery
   // Each new query adds rows, so one person scripting searches must not be able
   // to grow the tables without bound. Over the cap the search still works; it
   // just stops being counted.
-  if (!rateLimiter.checkLimit(identity, 'search_log', 30, 60 * 60_000, 60 * 60_000).allowed) return;
+  if (!(await rateLimiter.checkLimit(identity, 'search_log', 30, 60 * 60_000, 60 * 60_000)).allowed) return;
 
   const searcher = createHmac('sha256', key).update(identity).digest('base64url');
   void db.rpc('log_search_query_v2', { p_query: q, p_searcher: searcher }).then(

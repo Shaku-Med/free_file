@@ -293,7 +293,6 @@ export const action = async ({ request }: { request: Request }) => {
     storage_backend?: string;
     storage_bucket?: string;
     /** True when the upload was accepted on the extra weekly allowance. */
-    overflow?: boolean;
     /** Semantic-search vector (384 floats) from the Go worker, optional. */
     embedding?: number[];
     /** Worker's music verdict (MusicDetector sidecar / heuristic). Absent = not music. */
@@ -367,10 +366,6 @@ export const action = async ({ request }: { request: Request }) => {
     const description = typeof body?.description === 'string' ? body.description.trim().slice(0, 2000) : '';
     const file_type = inferFileType(file_name);
 
-    const uploadTargetRepo =
-      (typeof body?.github_repo === 'string' ? body.github_repo.trim() : '') ||
-      (typeof process.env.GITHUB_REPO === 'string' ? process.env.GITHUB_REPO.trim() : '');
-
     // Ownership binding (defense-in-depth): if a row for this upload already
     // exists (created by /api/upload from the user's session), its owner is
     // authoritative  never let a webhook body reassign ownership. Only trust
@@ -404,11 +399,10 @@ export const action = async ({ request }: { request: Request }) => {
       file_description: description,
       file_size: String(file_size),
       file_type,
+      // Every new upload is stored on R2.
+      storage_backend: 'r2',
       created_at: updated_at,
     };
-    if (uploadTargetRepo) {
-      fileRow.github_repo = uploadTargetRepo;
-    }
 
     const { error: filesErr } = await db
       .from('files')
@@ -420,9 +414,8 @@ export const action = async ({ request }: { request: Request }) => {
       console.log('[upload-job-status] files created for', upload_id, 'with status queued');
     }
     // Record quota usage now so it shows immediately. Idempotent by upload_id.
-    // Charge the authoritative owner, not whatever the body claimed. Overflow
-    // jobs (accepted on the extra weekly allowance) meter separately.
-    await recordUploadUsage(ownerId, upload_id, file_size, body?.overflow === true ? 'overflow' : 'monthly');
+    // Charge the authoritative owner, not whatever the body claimed.
+    await recordUploadUsage(ownerId, upload_id, file_size);
   }
 
   if (status === 'failed' && upload_id) {
@@ -657,7 +650,7 @@ export const action = async ({ request }: { request: Request }) => {
     const actualBytes =
       typeof body?.file_size === 'number' && body.file_size >= 0 ? body.file_size : 0;
     if (user_id) {
-      await recordUploadUsage(user_id, upload_id, actualBytes, body?.overflow === true ? 'overflow' : 'monthly');
+      await recordUploadUsage(user_id, upload_id, actualBytes);
     }
 
     // Semantic-search vector from the worker. Best-effort: a bad/missing

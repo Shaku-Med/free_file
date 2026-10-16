@@ -543,7 +543,7 @@ const getFileFromPath = async (path: string): Promise<any> => {
   // return file;
 };
 
-/** Backend for a standalone comment image (comment-images/...): comment row first, then the staging table. */
+/** Backend for a comment image, standalone or in a video folder: comment row first, then the staging table. */
 async function lookupCommentImageBackend(storagePath: string): Promise<'github' | 'r2'> {
   if (!db) return 'github';
   try {
@@ -706,11 +706,13 @@ export const loader = async ({ request }: { request: Request }) => {
             }
         }
 
-        // AcoustID covers are hosted by GoUpload using whatever storage backend
-        // is active *now* (usually R2). The parent video may still be tagged
-        // github from an older upload era — so always try R2 first for these
-        // paths, then fall back to the file's normal backend.
-        const isAcoustidCover = /\/acoustid_cover\.(jpe?g|png|webp)$/i.test(splitUrl);
+        // Cover art and replacement thumbnails always go to R2 now, even on a
+        // post still stored on GitHub, so try R2 first for those and fall back
+        // to the file's own backend. Comment images record their backend.
+        const sideFileFirst = /\/(default_thumbnail|acoustid_cover)\.(jpe?g|png|webp)$/i.test(splitUrl);
+        const onlyOnR2 =
+            (file as { storage_backend?: string | null }).storage_backend === 'r2' ||
+            (isVideoFolderCommentAttachmentPath(splitUrl) && (await lookupCommentImageBackend(splitUrl)) === 'r2');
 
         const r2Resolver = (urlPath: string) => {
             const signed = r2PresignGet(urlPath);
@@ -720,17 +722,15 @@ export const loader = async ({ request }: { request: Request }) => {
 
         // R2-backed files: presign + proxy. Bucket stays private (same as GitHub
         // raw). Blur still applies (processing is buffer-based, not URL-based).
-        if ((file as { storage_backend?: string | null }).storage_backend === 'r2' || isAcoustidCover) {
+        if (onlyOnR2 || sideFileFirst) {
             try {
                 if (splitUrl.toLowerCase().endsWith('.json')) {
                     return await fetchGithubJsonWithRetry(splitUrl, '', '', r2Resolver);
                 }
                 return await loadImageWithRetry(splitUrl, qualityParam, shouldBlur, isMetadata, '', '', r2Resolver);
             } catch (e) {
-                // acoustid_cover on a github-era file: R2 miss → try GitHub below.
-                if (!isAcoustidCover || (file as { storage_backend?: string | null }).storage_backend === 'r2') {
-                    throw e;
-                }
+                // Not in R2: an old GitHub post's original file, try GitHub below.
+                if (onlyOnR2 || !(e instanceof ImageLoadExhaustedError)) throw e;
             }
         }
 

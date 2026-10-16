@@ -1,5 +1,5 @@
 import { getHiddenOwnerIds } from '~/lib/Security/accountStatus.server';
-import { rateLimiter, RateLimiter } from '~/routes/Auth/fun/rateLimit';
+import { rateLimiter, RateLimiter } from '~/routes/Auth/fun/rateLimit.server';
 
 // Shared by the search page loader and /api/search so the two can't drift.
 
@@ -8,12 +8,12 @@ type SearchUser = { id: string; username: string };
 
 // Page one comes from the search page loader and later pages from /api/search;
 // both draw from the same budget.
-export function allowSearchRequest(request: Request): boolean {
-  return rateLimiter.checkLimit(RateLimiter.getClientIP(request), 'search', 60, 60_000, 120_000).allowed;
+export async function allowSearchRequest(request: Request): Promise<boolean> {
+  return (await rateLimiter.checkLimit(RateLimiter.getClientIP(request), 'search', 60, 60_000, 120_000)).allowed;
 }
 
-export function allowSuggestRequest(request: Request): boolean {
-  return rateLimiter.checkLimit(RateLimiter.getClientIP(request), 'search_suggest', 120, 60_000, 60_000).allowed;
+export async function allowSuggestRequest(request: Request): Promise<boolean> {
+  return (await rateLimiter.checkLimit(RateLimiter.getClientIP(request), 'search_suggest', 120, 60_000, 60_000)).allowed;
 }
 
 export function escapeLikePattern(term: string): string {

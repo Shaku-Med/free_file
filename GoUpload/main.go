@@ -12,6 +12,7 @@ import (
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/limiter"
+	"github.com/google/go-github/v62/github"
 	"goupload/internal/acoustidhook"
 	"goupload/internal/captions"
 	"goupload/internal/commentimg"
@@ -136,37 +137,33 @@ func main() {
 		appLog.Infof("nsfw strike limiter max=%d window=%s", strikeMax, strikeWindow)
 	}
 
-	// R2 (dual-backend). When UPLOAD_STORAGE_BACKEND=r2, new uploads go to R2;
-	// legacy files keep resolving via their stored github_repo.
+	// Every new upload goes to R2. GitHub is kept only to delete files stored
+	// there before the move; nothing new is written to it.
 	r2Client := r2.FromEnv()
-	storageBackend := strings.ToLower(strings.TrimSpace(env.Get("UPLOAD_STORAGE_BACKEND", "github")))
-	if storageBackend == "r2" && r2Client == nil {
-		log.Fatal("UPLOAD_STORAGE_BACKEND=r2 but R2_* env not fully configured (need R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_BUCKET, and R2_ACCOUNT_ID or R2_ENDPOINT)")
+	if r2Client == nil {
+		log.Fatal("R2 is not configured (need R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_BUCKET, and R2_ACCOUNT_ID or R2_ENDPOINT)")
 	}
-	if r2Client != nil {
-		appLog.Infof("r2 client ready bucket=%s active_backend=%s", r2Client.Bucket(), storageBackend)
+	appLog.Infof("r2 client ready bucket=%s", r2Client.Bucket())
+
+	var ghClient *github.Client
+	if ghToken != "" && ghOwner != "" {
+		ghClient = ghlib.NewClient(ghlib.Config{Token: ghToken, Owner: ghOwner, Repo: ghRepo})
 	}
 
 	wcfg := worker.Config{
-		ChunksDir:      chunksDir,
-		OutputDir:      outputDir,
-		TempDir:        "upload/temp_processing",
-		HLSDir:         "upload/hls",
-		ThumbnailDir:   "upload/thumbnails",
-		AcoustIDDir:    "upload/acoustid",
-		NSFWApiURL:     nsfwAPI,
-		NSFWApiSecret:  webhookSecret,
-		GitHubOwner:    ghOwner,
-		GitHubRepo:     ghRepo,
-		R2:             r2Client,
-		StorageBackend: storageBackend,
-		Embed:          embedClient,
-		Music:          musicClient,
-		AcoustID:       acoustidClient,
-		Fingerprints:   fpDB,
-	}
-	if ghToken != "" && ghOwner != "" {
-		wcfg.GitHubClient = ghlib.NewClient(ghlib.Config{Token: ghToken, Owner: ghOwner, Repo: ghRepo})
+		ChunksDir:     chunksDir,
+		OutputDir:     outputDir,
+		TempDir:       "upload/temp_processing",
+		HLSDir:        "upload/hls",
+		ThumbnailDir:  "upload/thumbnails",
+		AcoustIDDir:   "upload/acoustid",
+		NSFWApiURL:    nsfwAPI,
+		NSFWApiSecret: webhookSecret,
+		R2:            r2Client,
+		Embed:         embedClient,
+		Music:         musicClient,
+		AcoustID:      acoustidClient,
+		Fingerprints:  fpDB,
 	}
 	w := worker.New(q, appLog, wcfg)
 	pool := worker.NewPool(w, worker.PoolConfig{
@@ -300,9 +297,6 @@ func main() {
 	upload.RegisterRoutes(app, manager, q, appLog)
 	embedproxy.RegisterRoutes(app, appLog, embedClient, webhookSecret)
 	thumbnail.RegisterRoutes(app, appLog, thumbnail.Config{
-		GitHubClient:  wcfg.GitHubClient,
-		GitHubOwner:   ghOwner,
-		GitHubRepo:    ghRepo,
 		NSFWApiURL:    nsfwAPI,
 		NSFWApiSecret: webhookSecret,
 		Strikes:       nsfwStrikes,
@@ -312,54 +306,43 @@ func main() {
 		SupabaseKey:   supabaseKey,
 	})
 	commentimg.RegisterRoutes(app, appLog, commentimg.Config{
-		GitHubClient:   wcfg.GitHubClient,
-		GitHubOwner:    ghOwner,
-		GitHubRepo:     ghRepo,
-		NSFWApiURL:     nsfwAPI,
-		NSFWApiSecret:  webhookSecret,
-		Strikes:        nsfwStrikes,
-		R2:             r2Client,
-		StorageBackend: storageBackend,
-		SupabaseURL:    supabaseURL,
-		SupabaseKey:    supabaseKey,
-		WebhookSecret:  webhookSecret,
+		GitHubClient:  ghClient,
+		GitHubOwner:   ghOwner,
+		NSFWApiURL:    nsfwAPI,
+		NSFWApiSecret: webhookSecret,
+		Strikes:       nsfwStrikes,
+		R2:            r2Client,
+		SupabaseURL:   supabaseURL,
+		SupabaseKey:   supabaseKey,
+		WebhookSecret: webhookSecret,
 	})
 	profilepic.RegisterRoutes(app, appLog, profilepic.Config{
-		GitHubClient:   wcfg.GitHubClient,
-		GitHubOwner:    ghOwner,
-		GitHubRepo:     ghRepo,
-		NSFWApiURL:     nsfwAPI,
-		NSFWApiSecret:  webhookSecret,
-		Strikes:        nsfwStrikes,
-		SupabaseURL:    supabaseURL,
-		SupabaseKey:    supabaseKey,
-		R2:             r2Client,
-		StorageBackend: storageBackend,
+		NSFWApiURL:    nsfwAPI,
+		NSFWApiSecret: webhookSecret,
+		Strikes:       nsfwStrikes,
+		SupabaseURL:   supabaseURL,
+		SupabaseKey:   supabaseKey,
+		R2:            r2Client,
 	})
 	captions.RegisterRoutes(app, appLog, captions.Config{
-		GitHubClient: wcfg.GitHubClient,
+		GitHubClient: ghClient,
 		GitHubOwner:  ghOwner,
 		AppBaseURL:   env.Get("APP_BASE_URL", "http://localhost:3000"),
 		AppSecret:    webhookSecret,
 		R2:           r2Client,
 	})
 	purge.RegisterRoutes(app, webhookSecret, purge.Config{
-		GitHubClient: wcfg.GitHubClient,
+		GitHubClient: ghClient,
 		GitHubOwner:  ghOwner,
 		GitHubBranch: env.Get("GITHUB_BRANCH", "main"),
 		R2:           r2Client,
 		Log:          appLog,
 	})
 	acoustidhook.RegisterRoutes(app, acoustidhook.Config{
-		ThumbnailDir:   "upload/thumbnails",
-		GitHubClient:   wcfg.GitHubClient,
-		GitHubOwner:    ghOwner,
-		GitHubRepo:     ghRepo,
-		GitHubBranch:   env.Get("GITHUB_BRANCH", "main"),
-		R2:             r2Client,
-		StorageBackend: storageBackend,
-		WebhookSecret:  webhookSecret,
-		Log:            appLog,
+		ThumbnailDir:  "upload/thumbnails",
+		R2:            r2Client,
+		WebhookSecret: webhookSecret,
+		Log:           appLog,
 	})
 
 	// Liveness/readiness probe. Public, no auth: Docker/compose healthchecks and

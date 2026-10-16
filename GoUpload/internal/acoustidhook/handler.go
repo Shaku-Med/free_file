@@ -16,12 +16,10 @@ import (
 	"strings"
 	"time"
 
-	ghlib "goupload/lib/github"
 	"goupload/lib/logger"
 	"goupload/lib/r2"
 	"goupload/lib/webhook"
 
-	gh "github.com/google/go-github/v62/github"
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/limiter"
 )
@@ -29,15 +27,10 @@ import (
 const coverFileName = "acoustid_cover.jpg"
 
 type Config struct {
-	ThumbnailDir   string
-	GitHubClient   *gh.Client
-	GitHubOwner    string
-	GitHubRepo     string
-	GitHubBranch   string
-	R2             *r2.Client
-	StorageBackend string
-	WebhookSecret  string
-	Log            *logger.Logger
+	ThumbnailDir  string
+	R2            *r2.Client
+	WebhookSecret string
+	Log           *logger.Logger
 }
 
 var (
@@ -173,23 +166,11 @@ func (cfg Config) uploadCover(ctx context.Context, userID, uploadID, storagePref
 	}
 
 	repoPath := storagePrefix + coverFileName
-	useR2 := strings.ToLower(cfg.StorageBackend) == "r2" && cfg.R2 != nil
-	if useR2 {
-		if err := cfg.R2.PutObject(ctx, repoPath, data, "image/jpeg"); err != nil {
-			return "", err
-		}
-	} else {
-		if cfg.GitHubClient == nil || cfg.GitHubOwner == "" || cfg.GitHubRepo == "" {
-			return "", fmt.Errorf("no storage backend for cover")
-		}
-		branch := cfg.GitHubBranch
-		if branch == "" {
-			branch = "main"
-		}
-		files := []ghlib.BatchFile{{RepoPath: repoPath, LocalPath: localPath}}
-		if err := ghlib.BatchCommit(ctx, cfg.GitHubClient, cfg.GitHubOwner, cfg.GitHubRepo, branch, "AcoustID cover "+uploadID, files, 1, nil); err != nil {
-			return "", err
-		}
+	if cfg.R2 == nil {
+		return "", fmt.Errorf("no storage backend for cover")
+	}
+	if err := cfg.R2.PutObject(ctx, repoPath, data, "image/jpeg"); err != nil {
+		return "", err
 	}
 	return repoPath, nil
 }

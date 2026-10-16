@@ -15,7 +15,6 @@ import (
 	"github.com/google/go-github/v62/github"
 
 	captionslib "goupload/lib/captions"
-	ghlib "goupload/lib/github"
 	"goupload/lib/logger"
 	"goupload/lib/quota"
 	"goupload/lib/r2"
@@ -34,8 +33,8 @@ type Config struct {
 	GitHubOwner  string
 	AppBaseURL   string
 	AppSecret    string
-	// R2 dual-backend: caption files follow the parent video's backend, which
-	// is carried on the token (payload.StorageBackend).
+	// Every new caption goes to R2. GitHub is only used to remove captions
+	// stored there before the move (token says storage_backend github).
 	R2 *r2.Client
 }
 
@@ -52,8 +51,8 @@ func RegisterRoutes(app *fiber.App, log *logger.Logger, cfg Config) {
 }
 
 type tokenPayload struct {
-	UserID     string `json:"user_id"`
-	FileID     string `json:"file_id"`
+	UserID         string `json:"user_id"`
+	FileID         string `json:"file_id"`
 	UniqueID       string `json:"unique_id"`
 	DateFolder     string `json:"date_folder"`
 	GithubRepo     string `json:"github_repo"`
@@ -213,21 +212,13 @@ func (h *Handler) upload(c *fiber.Ctx) error {
 
 	ghCtx, ghCancel := context.WithTimeout(context.Background(), githubTimeout)
 	defer ghCancel()
-	if tk.StorageBackend == "r2" && h.cfg.R2 != nil {
-		if err := h.cfg.R2.PutObject(ghCtx, ghPath, []byte(cleaned), captionContentType); err != nil {
-			h.log.Errorf("caption r2 upload failed user=%s path=%s err=%v", uid, ghPath, err)
-			return c.Status(fiber.StatusBadGateway).JSON(fiber.Map{"error": "storage upload failed"})
-		}
-	} else if err := ghlib.CreateOrUpdateFile(
-		ghCtx,
-		h.cfg.GitHubClient,
-		h.cfg.GitHubOwner,
-		tk.GithubRepo,
-		ghPath,
-		[]byte(cleaned),
-		fmt.Sprintf("Caption %s for %s", tk.Language, tk.UniqueID),
-	); err != nil {
-		h.log.Errorf("caption github upload failed user=%s repo=%s path=%s err=%v", uid, tk.GithubRepo, ghPath, err)
+	// Always R2, even for a video still stored on GitHub; the caption loader
+	// looks in R2 first.
+	if h.cfg.R2 == nil {
+		return c.Status(fiber.StatusServiceUnavailable).JSON(fiber.Map{"error": "storage not configured"})
+	}
+	if err := h.cfg.R2.PutObject(ghCtx, ghPath, []byte(cleaned), captionContentType); err != nil {
+		h.log.Errorf("caption r2 upload failed user=%s path=%s err=%v", uid, ghPath, err)
 		return c.Status(fiber.StatusBadGateway).JSON(fiber.Map{"error": "storage upload failed"})
 	}
 
@@ -294,12 +285,16 @@ func (h *Handler) delete(c *fiber.Ctx) error {
 
 	ghCtx, ghCancel := context.WithTimeout(context.Background(), githubTimeout)
 	defer ghCancel()
-	if tk.StorageBackend == "r2" && h.cfg.R2 != nil {
+	if h.cfg.R2 != nil {
 		if err := h.cfg.R2.DeleteObject(ghCtx, ghPath); err != nil {
 			h.log.Errorf("caption r2 delete failed user=%s path=%s err=%v", uid, ghPath, err)
 		}
-	} else if err := deleteGitHubFile(ghCtx, h.cfg.GitHubClient, h.cfg.GitHubOwner, tk.GithubRepo, ghPath, fmt.Sprintf("Remove caption %s for %s", tk.Language, tk.UniqueID)); err != nil {
-		h.log.Errorf("caption github delete failed user=%s repo=%s path=%s err=%v", uid, tk.GithubRepo, ghPath, err)
+	}
+	// A video from before the move may still hold an older copy on GitHub.
+	if tk.StorageBackend == "github" {
+		if err := deleteGitHubFile(ghCtx, h.cfg.GitHubClient, h.cfg.GitHubOwner, tk.GithubRepo, ghPath, fmt.Sprintf("Remove caption %s for %s", tk.Language, tk.UniqueID)); err != nil {
+			h.log.Errorf("caption github delete failed user=%s repo=%s path=%s err=%v", uid, tk.GithubRepo, ghPath, err)
+		}
 	}
 
 	commitCtx, commitCancel := context.WithTimeout(context.Background(), commitTimeout)

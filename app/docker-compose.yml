@@ -5,8 +5,9 @@
 # Restart app:    docker compose restart app
 # Stop:           docker compose down
 #
-# No Redis: the app is fully in-memory (rate limiting, CSRF). The host's
-# redis-server belongs to GoUpload and the app never touches it.
+# Redis holds rate limits and one time tokens so more than one copy of the
+# app can run. It sits on an internal network only the app can reach, with a
+# password the deploy script makes once on the box (.env.redis, never in git).
 #
 # The port is published on 127.0.0.1 only, so nothing but nginx (which proxies
 # memories.brozy.org → localhost:3000) can reach the container. Secrets
@@ -33,6 +34,15 @@ services:
       # 0.0.0.0 *inside* the container so Docker's port mapping can reach it;
       # the mapping above still only exposes it on the host's loopback.
       - HOST=0.0.0.0
+      - REDIS_URL=redis://redis:6379
+    env_file:
+      - ./.env.redis
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - default
+      - cache
     volumes:
       # Real secrets live on the host; mounted read-only at the paths the
       # start script (dotenv -e .env -e .env.notification) expects.
@@ -45,3 +55,36 @@ services:
       timeout: 10s
       retries: 3
       start_period: 60s
+
+  redis:
+    image: redis:7.4-alpine
+    container_name: memories-redis
+    restart: unless-stopped
+    env_file:
+      - ./.env.redis
+    # Counters and tokens all expire on their own, so nothing is written to
+    # disk and the oldest expiring keys go first if memory ever runs short.
+    command:
+      - sh
+      - -c
+      - >-
+        [ -n "$$REDIS_PASSWORD" ] || { echo "REDIS_PASSWORD missing" >&2; exit 1; };
+        exec docker-entrypoint.sh redis-server --requirepass "$$REDIS_PASSWORD"
+        --save "" --appendonly no --maxmemory 96mb --maxmemory-policy volatile-ttl
+    networks:
+      - cache
+    deploy:
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 128M
+    healthcheck:
+      test: ["CMD-SHELL", "REDISCLI_AUTH=\"$$REDIS_PASSWORD\" redis-cli ping | grep -q PONG"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+networks:
+  # internal: no route in or out except to other containers on it.
+  cache:
+    internal: true

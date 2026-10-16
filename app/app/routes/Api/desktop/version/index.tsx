@@ -19,7 +19,7 @@ export async function loader({ request }: { request: Request }) {
     const bad = assertDesktopVersionRequest(request);
     if (bad) return bad;
 
-    const limited = checkDesktopVersionRateLimit(request);
+    const limited = await checkDesktopVersionRateLimit(request);
     if (!limited.allowed) {
       return Response.json(
         { success: false, error: limited.error || 'Too many requests' },

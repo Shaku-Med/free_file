@@ -17,7 +17,7 @@ import {
   verifyCode,
 } from "~/routes/Auth/fun/verification";
 import { sendVerificationEmail } from "~/routes/Auth/fun/email";
-import { rateLimiter } from "~/routes/Auth/fun/rateLimit";
+import { rateLimiter } from "~/routes/Auth/fun/rateLimit.server";
 import { getClientIP } from "~/lib/Security/unsharedkeyEncryption/Combined/Verification/GetIp";
 import {
   issueDeleteSudoToken,
@@ -63,8 +63,8 @@ export const action = async ({ request }: { request: Request }) => {
 
     if (step === "send") {
       const ipKey = await clientIpKey(request);
-      const byUser = rateLimiter.checkLimit(user.id, "delete_sudo_send", 3, 10 * 60 * 1000, 30 * 60 * 1000);
-      const byIp = rateLimiter.checkLimit(ipKey, "delete_sudo_send_ip", 10, 10 * 60 * 1000, 30 * 60 * 1000);
+      const byUser = await rateLimiter.checkLimit(user.id, "delete_sudo_send", 3, 10 * 60 * 1000, 30 * 60 * 1000);
+      const byIp = await rateLimiter.checkLimit(ipKey, "delete_sudo_send_ip", 10, 10 * 60 * 1000, 30 * 60 * 1000);
       if (!byUser.allowed || !byIp.allowed) return denyErr(429);
 
       const code = generateVerificationCode();
@@ -89,8 +89,8 @@ export const action = async ({ request }: { request: Request }) => {
 
     if (step === "verify") {
       const ipKey = await clientIpKey(request);
-      const byUser = rateLimiter.checkLimit(user.id, "delete_sudo_verify", 10, 10 * 60 * 1000, 30 * 60 * 1000);
-      const byIp = rateLimiter.checkLimit(ipKey, "delete_sudo_verify_ip", 20, 10 * 60 * 1000, 30 * 60 * 1000);
+      const byUser = await rateLimiter.checkLimit(user.id, "delete_sudo_verify", 10, 10 * 60 * 1000, 30 * 60 * 1000);
+      const byIp = await rateLimiter.checkLimit(ipKey, "delete_sudo_verify_ip", 20, 10 * 60 * 1000, 30 * 60 * 1000);
       if (!byUser.allowed || !byIp.allowed) return denyErr(429);
 
       const code = typeof body.code === "string" ? body.code.trim() : "";
