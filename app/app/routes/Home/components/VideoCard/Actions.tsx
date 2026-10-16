@@ -442,14 +442,14 @@ export default function Actions({
   const reelIconBtn = cn(
     "flex items-center justify-center rounded-full transition active:scale-90 hover:bg-black/55 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/60 disabled:opacity-50",
     reelGlass,
-    reelDensityMinimal ? "h-9 w-9" : reelDensityCompact ? "h-10 w-10" : "h-12 w-12",
+    reelDensityMinimal ? "h-9 w-9" : reelDensityCompact ? "h-10 w-10" : "h-11 w-11",
   );
 
   const reelIconSize = reelDensityMinimal
-    ? "h-[1.2rem] w-[1.2rem]"
+    ? "h-[1.1rem] w-[1.1rem]"
     : reelDensityCompact
-      ? "h-[1.35rem] w-[1.35rem]"
-      : "h-6 w-6";
+      ? "h-[1.2rem] w-[1.2rem]"
+      : "h-[1.3rem] w-[1.3rem]";
 
   // Liked / disliked state is carried by the ICON (fill), not a button chrome.
   const reelIconBtnLiked = "text-white";
@@ -458,7 +458,7 @@ export default function Actions({
   const reelMoreTriggerClass = cn(
     "inline-flex shrink-0 items-center justify-center rounded-full transition active:scale-90 hover:bg-black/55 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/60 disabled:opacity-50 data-[state=open]:bg-black/60",
     reelGlass,
-    reelDensityMinimal ? "size-9" : reelDensityCompact ? "size-10" : "size-12",
+    reelDensityMinimal ? "size-9" : reelDensityCompact ? "size-10" : "size-11",
   );
 
   const reelLabel =
@@ -466,14 +466,13 @@ export default function Actions({
 
   const reelLabelClass = cn(
     reelLabel,
-    reelDensityMinimal ? "text-[10px]" : reelDensityCompact ? "text-[11px]" : "text-[12px]",
+    reelDensityMinimal ? "text-[10px]" : "text-[11px]",
   );
 
-  const reelRowGapClass = reelDensityMinimal ? "gap-2" : reelDensityCompact ? "gap-3" : "gap-4";
+  const reelRowGapClass = reelDensityMinimal ? "gap-2" : reelDensityCompact ? "gap-2.5" : "gap-3";
 
-  /** Hide non-essential text labels on very short screens; counts stay for like/comment. */
-  const reelAuxLabel = (text: string) =>
-    reelDensityMinimal ? null : <span className={reelLabelClass}>{text}</span>;
+  /** Like Instagram's rail, only counts get text; the other icons speak for themselves. */
+  const reelAuxLabel = (_text: string) => null;
 
   const isShortsShelf = layout === "shortsShelf";
 
@@ -736,14 +735,14 @@ export default function Actions({
           className={cn(
             "flex flex-col overflow-hidden rounded-full",
             reelGlass,
-            reelDensityMinimal ? "w-9" : reelDensityCompact ? "w-10" : "w-[52px]",
+            reelDensityMinimal ? "w-9" : reelDensityCompact ? "w-10" : "w-11",
           )}
         >
         <button
           type="button"
           className={cn(
             "group flex select-none flex-col items-center transition hover:bg-white/10 focus-visible:bg-white/15 focus-visible:outline-none",
-            reelDensityMinimal ? "gap-0.5 py-2" : "gap-1 py-3",
+            reelDensityMinimal ? "gap-0.5 py-2" : "gap-1 py-2.5",
             liked && "bg-primary/40 hover:bg-primary/50",
           )}
           onClick={() => {
@@ -787,7 +786,7 @@ export default function Actions({
           type="button"
           className={cn(
             "group flex select-none flex-col items-center transition hover:bg-white/10 focus-visible:bg-white/15 focus-visible:outline-none",
-            reelDensityMinimal ? "gap-0.5 py-2" : "gap-1 py-3",
+            reelDensityMinimal ? "gap-0.5 py-2" : "gap-1 py-2.5",
             disliked && "bg-destructive/30 hover:bg-destructive/40",
           )}
           onClick={() => applyLikeDislike("dislike")}

@@ -96,6 +96,7 @@ export default function MobileBottomNav() {
         searchActive={isActive(pathname, "/search")}
         onSearch={openHeaderSearch}
         barRef={setBar}
+        overVideo={isReelRoute(pathname)}
       />
     );
   }

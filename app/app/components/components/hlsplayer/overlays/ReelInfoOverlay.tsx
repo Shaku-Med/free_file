@@ -44,16 +44,18 @@ export function ReelInfoOverlay({
   const { reelEmbedAutoHide, reelChromeBottomReservePx } = usePlayerContext();
   const mobileLayout = usePlayerMobileLayout();
 
-  const bottom =
+  // The reel page lets the video run under the tab bar; the caption stays above it.
+  const above =
     reelEmbedAutoHide && reelChromeBottomReservePx > 0
       ? `${reelChromeBottomReservePx}px`
       : fallbackReelInfoBottom(mobileLayout);
+  const bottom = `calc(${above} + var(--reel-bottom-inset, 0px))`;
 
   return (
     <>
       <div
         aria-hidden
-        className="pointer-events-none absolute inset-x-0 bottom-0 z-[28] h-[min(38%,11rem)] bg-gradient-to-t from-black/95 via-black/55 to-transparent"
+        className="pointer-events-none absolute inset-x-0 bottom-0 z-[28] h-[calc(min(38%,11rem)+var(--reel-bottom-inset,0px))] bg-gradient-to-t from-black/95 via-black/55 to-transparent"
       />
       <div
         className={cn(

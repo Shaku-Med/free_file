@@ -575,9 +575,18 @@ const Reel = ({ initialItems: routeItems, initialUserActions, profileReelContext
     // Starts where the sidebar ends and follows it as it opens or folds, so the
     // sidebar, the reel and the comments panel share the width instead of
     // covering each other. Phones have no sidebar beside the page.
+    //
+    // Like the app, the video runs to the bottom edge behind the frosted tab
+    // bar; --reel-bottom-inset lifts every control above that bar.
     <div
       className="fixed inset-y-0 right-0 z-[var(--z-reel)] reel_p flex overflow-hidden transition-[left] duration-200 ease-linear"
-      style={{ left: sidebarInset, bottom: "var(--app-bottom-nav-h, 0px)" }}
+      style={
+        {
+          left: sidebarInset,
+          "--reel-h": "100dvh",
+          "--reel-bottom-inset": "var(--app-bottom-nav-h, 0px)",
+        } as React.CSSProperties
+      }
     >
       {/* STAGE: ambience + reel deck, and the size container each reel lays
           itself out against. It shrinks (flex-1) when the comments dock opens,

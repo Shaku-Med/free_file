@@ -505,7 +505,7 @@ export const ReelSwiper = ({
       {showHint && (
         <div
           className={cn(
-            "pointer-events-none absolute inset-x-0 bottom-[max(7rem,calc(6rem+env(safe-area-inset-bottom,0px)))] z-30",
+            "pointer-events-none absolute inset-x-0 bottom-[calc(max(7rem,calc(6rem+env(safe-area-inset-bottom,0px)))+var(--reel-bottom-inset,0px))] z-30",
             "flex flex-col items-center gap-2 text-white/90",
             "animate-[reelHintFade_3s_ease-in-out_forwards]",
           )}

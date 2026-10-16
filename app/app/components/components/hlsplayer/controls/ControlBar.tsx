@@ -472,7 +472,7 @@ export default function ControlBar({
         <div
           ref={containerRef}
           className="pointer-events-none absolute inset-0 z-30 flex flex-col"
-          style={{ ...mobileVars, bottom: liftBottomPx }}
+          style={{ ...mobileVars, bottom: `calc(${liftBottomPx}px + var(--reel-bottom-inset, 0px))` }}
         >
           <div
             ref={bottomStripRef}
@@ -497,7 +497,7 @@ export default function ControlBar({
           bottomStripRef.current = node;
         }}
         className="pointer-events-auto absolute left-0 right-0 z-30 flex flex-col"
-        style={{ bottom: liftBottomPx }}
+        style={{ bottom: `calc(${liftBottomPx}px + var(--reel-bottom-inset, 0px))` }}
       >
         {!isHidden(hideControls, 'seek') && (
           <div className="px-3 pb-2 pt-1">

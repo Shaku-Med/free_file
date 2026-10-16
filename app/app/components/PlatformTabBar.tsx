@@ -25,6 +25,8 @@ type Props = {
   searchActive: boolean;
   onSearch: () => void;
   barRef: (el: HTMLElement | null) => void;
+  /** Over a full screen reel: dark frosted glass in either theme, like the app. */
+  overVideo?: boolean;
 };
 
 type Entry =
@@ -191,12 +193,15 @@ function GlassBar({
   searchActive,
   onSearch,
   barRef,
+  overVideo,
 }: {
   entries: Entry[];
   searchActive: boolean;
   onSearch: () => void;
   barRef: Props["barRef"];
+  overVideo?: boolean;
 }) {
+  const glass = overVideo ? "tabbar-glass-dark" : "tabbar-glass";
   const selected = entries.findIndex((e) => (e.kind === "link" ? e.tab.active : e.active));
 
   return (
@@ -204,9 +209,12 @@ function GlassBar({
       aria-label="Primary"
       data-app-chrome=""
       ref={barRef}
-      className="tabbar-font pointer-events-none fixed inset-x-0 bottom-0 z-[var(--z-app-chrome)] flex items-end gap-2.5 pl-[max(1.25rem,env(safe-area-inset-left))] pr-[max(1.25rem,env(safe-area-inset-right))] pb-[max(0.75rem,calc(env(safe-area-inset-bottom)-0.75rem))]"
+      className={cn(
+        "tabbar-font pointer-events-none fixed inset-x-0 bottom-0 z-[var(--z-app-chrome)] flex items-end gap-2.5 pl-[max(1.25rem,env(safe-area-inset-left))] pr-[max(1.25rem,env(safe-area-inset-right))] pb-[max(0.75rem,calc(env(safe-area-inset-bottom)-0.75rem))]",
+        overVideo && "dark",
+      )}
     >
-      <ul className="tabbar-glass pointer-events-auto relative flex h-[62px] min-w-0 flex-1 items-stretch rounded-full p-1">
+      <ul className={cn(glass, "pointer-events-auto relative flex h-[62px] min-w-0 flex-1 items-stretch rounded-full p-1")}>
         <span
           aria-hidden
           className={cn(
@@ -230,7 +238,8 @@ function GlassBar({
         aria-label="Search"
         aria-current={searchActive ? "page" : undefined}
         className={cn(
-          "tabbar-glass pointer-events-auto relative flex h-[62px] w-[62px] shrink-0 items-center justify-center rounded-full text-foreground transition-transform duration-200 active:scale-[0.92]",
+          glass,
+          "pointer-events-auto relative flex h-[62px] w-[62px] shrink-0 items-center justify-center rounded-full text-foreground transition-transform duration-200 active:scale-[0.92]",
           RESET,
         )}
       >
@@ -259,11 +268,13 @@ function DockedBar({
   entries,
   onSearch,
   barRef,
+  overVideo,
 }: {
   variant: Exclude<Variant, "ios-glass">;
   entries: Entry[];
   onSearch: () => void;
   barRef: Props["barRef"];
+  overVideo?: boolean;
 }) {
   return (
     <nav
@@ -272,7 +283,7 @@ function DockedBar({
       ref={barRef}
       className={cn(
         "tabbar-font fixed inset-x-0 bottom-0 z-[var(--z-app-chrome)] pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)]",
-        DOCKED[variant].nav,
+        overVideo ? "dark tabbar-glass-dark" : DOCKED[variant].nav,
       )}
     >
       <ul className={cn("flex items-stretch", DOCKED[variant].row)}>
@@ -286,13 +297,13 @@ function DockedBar({
   );
 }
 
-export default function PlatformTabBar({ variant, tabs, profileActive, searchActive, onSearch, barRef }: Props) {
+export default function PlatformTabBar({ variant, tabs, profileActive, searchActive, onSearch, barRef, overVideo }: Props) {
   const links = tabs.map((tab): Entry => ({ kind: "link", tab }));
   const profile: Entry = { kind: "profile", active: profileActive };
 
   if (variant === "ios-glass") {
     return (
-      <GlassBar entries={[...links, profile]} searchActive={searchActive} onSearch={onSearch} barRef={barRef} />
+      <GlassBar entries={[...links, profile]} searchActive={searchActive} onSearch={onSearch} barRef={barRef} overVideo={overVideo} />
     );
   }
   return (
@@ -301,6 +312,7 @@ export default function PlatformTabBar({ variant, tabs, profileActive, searchAct
       entries={[...links, profile, { kind: "search", active: searchActive }]}
       onSearch={onSearch}
       barRef={barRef}
+      overVideo={overVideo}
     />
   );
 }

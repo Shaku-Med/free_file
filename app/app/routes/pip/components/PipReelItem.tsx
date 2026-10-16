@@ -1070,8 +1070,10 @@ function PipReelItemInner({
                     // doesn't block the player's top chrome (CC / settings).
                     "swiper-no-swiping absolute z-20 flex flex-col justify-end lg:hidden pointer-events-none",
                     "right-[max(0.5rem,env(safe-area-inset-right))]",
-                    "top-2",
-                    "bottom-[calc(5rem+env(safe-area-inset-bottom,0px))]",
+                    // Sits low, level with the caption, the way Instagram's does;
+                    // never under the header above or the tab bar below.
+                    "top-[calc(var(--app-top-nav-h,3.5rem)+0.5rem)]",
+                    "bottom-[calc(var(--reel-bottom-inset,0px)+3rem)]",
                   )}
                 >
                   <div className="pointer-events-auto min-h-0 max-h-full overflow-y-auto overscroll-contain touch-pan-y [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
@@ -1083,7 +1085,7 @@ function PipReelItemInner({
 
             {/* Right column mirrors the left one (flex-1 basis-0) so the frame stays centered. */}
             {showChrome ? (
-              <div className="hidden min-w-0 flex-1 basis-0 items-center justify-start self-stretch lg:flex">
+              <div className="hidden min-w-0 flex-1 basis-0 items-end justify-start self-stretch pb-8 lg:flex">
                 <div className="swiper-no-swiping pointer-events-auto z-30 flex max-h-[min(96dvh,calc(100dvh-1rem))] shrink-0 flex-col items-center overflow-y-auto overscroll-contain [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
                   {actionsEl}
                 </div>
