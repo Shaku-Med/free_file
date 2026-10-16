@@ -206,10 +206,10 @@ function createWindow() {
     if (input.type === 'keyDown' && input.alt && !input.control && !input.meta) {
       if (input.key === 'ArrowLeft') {
         event.preventDefault();
-        if (mainWindow.webContents.canGoBack()) mainWindow.webContents.goBack();
+        if (mainWindow.webContents.navigationHistory.canGoBack()) mainWindow.webContents.navigationHistory.goBack();
       } else if (input.key === 'ArrowRight') {
         event.preventDefault();
-        if (mainWindow.webContents.canGoForward()) mainWindow.webContents.goForward();
+        if (mainWindow.webContents.navigationHistory.canGoForward()) mainWindow.webContents.navigationHistory.goForward();
       }
     }
   });
@@ -279,16 +279,16 @@ ipcMain.handle('pip:close', () => {
 });
 
 ipcMain.handle('nav:goBack', () => {
-  if (mainWindow?.webContents.canGoBack()) {
-    mainWindow.webContents.goBack();
+  if (mainWindow?.webContents.navigationHistory.canGoBack()) {
+    mainWindow.webContents.navigationHistory.goBack();
     return true;
   }
   return false;
 });
 
 ipcMain.handle('nav:goForward', () => {
-  if (mainWindow?.webContents.canGoForward()) {
-    mainWindow.webContents.goForward();
+  if (mainWindow?.webContents.navigationHistory.canGoForward()) {
+    mainWindow.webContents.navigationHistory.goForward();
     return true;
   }
   return false;
@@ -298,8 +298,8 @@ ipcMain.handle('nav:reload', () => {
   mainWindow?.webContents.reload();
 });
 
-ipcMain.handle('nav:canGoBack', () => mainWindow?.webContents.canGoBack() ?? false);
-ipcMain.handle('nav:canGoForward', () => mainWindow?.webContents.canGoForward() ?? false);
+ipcMain.handle('nav:canGoBack', () => mainWindow?.webContents.navigationHistory.canGoBack() ?? false);
+ipcMain.handle('nav:canGoForward', () => mainWindow?.webContents.navigationHistory.canGoForward() ?? false);
 
 app.whenReady().then(() => {
   // Allow in-app Notification API prompts; Web Push still isn't supported in Electron.

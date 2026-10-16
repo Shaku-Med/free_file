@@ -1,5 +1,5 @@
 fastapi>=0.115
 uvicorn>=0.30
-python-multipart>=0.0.9
-requests>=2.32
+python-multipart>=0.0.32
+requests>=2.34.2
 redis>=5.0
