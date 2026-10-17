@@ -2,6 +2,7 @@ import { data } from "react-router"
 import { isAuthenticated } from "~/lib/Security/Password"
 import db from "~/lib/Database/supabase"
 import { isValidUUID } from "~/lib/Security/inputValidation"
+import { resolveSecret } from "~/lib/Security/secretEnv.server"
 import { resolveGithubRepoForFile } from "~/lib/githubStorage"
 import {
   MAX_LANGUAGES_PER_FILE,
@@ -24,7 +25,11 @@ export const action = async ({ request }: { request: Request }) => {
     return data({ error: "Unauthorized" }, { status: 401 })
   }
 
-  const expectedOrigin = (process.env.APP_BASE_URL || "").replace(/\/$/, "")
+  const expectedOrigin = (resolveSecret(process.env.APP_BASE_URL) ?? "").replace(/\/$/, "")
+  if (!expectedOrigin && process.env.NODE_ENV === "production") {
+    console.error("[api/captions/prepare] APP_BASE_URL is not set, refusing")
+    return data({ error: "Service unavailable" }, { status: 503 })
+  }
   if (expectedOrigin) {
     const origin = request.headers.get("Origin") ?? ""
     const refOrigin = (() => {

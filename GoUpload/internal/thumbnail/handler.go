@@ -21,6 +21,7 @@ import (
 	_ "golang.org/x/image/webp"
 
 	"github.com/gofiber/fiber/v2"
+	"goupload/lib/env"
 	"goupload/lib/ffmpeg"
 	"goupload/lib/imagegate"
 	"goupload/lib/logger"
@@ -242,9 +243,14 @@ func (h *Handler) uploadDefaultThumbnail(c *fiber.Ctx) error {
 
 	// IDOR guard: only the file's owner may overwrite its default thumbnail.
 	// The app proxy checks this, but a caller with a valid bearer can hit the
-	// upload server directly, so we re-verify ownership here. When Supabase
-	// isn't configured (local dev) we skip the check to keep dev working.
-	if h.supabaseURL != "" && h.supabaseKey != "" {
+	// upload server directly, so we re-verify ownership here. Without Supabase
+	// production refuses; anywhere else skips the check so local dev works.
+	supabaseReady := h.supabaseURL != "" && h.supabaseKey != ""
+	if !supabaseReady && env.IsProd() {
+		h.log.Errorf("thumbnail ownership check unavailable: Supabase not configured")
+		return c.Status(fiber.StatusServiceUnavailable).JSON(fiber.Map{"error": "policy check unavailable"})
+	}
+	if supabaseReady {
 		ownCtx, ownCancel := context.WithTimeout(context.Background(), 10*time.Second)
 		own, oerr := supabase.FetchFileOwnership(ownCtx, h.supabaseURL, h.supabaseKey, uniqueId)
 		ownCancel()

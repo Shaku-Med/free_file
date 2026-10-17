@@ -418,6 +418,17 @@ jobs:
             echo "  Add them to VPS_ENV (goupload.env) or as standalone secrets." >&2
             exit 1
           fi
+          # goupload reads these from goupload.env only and exits at startup in
+          # production without them. Only emptiness is tested; values are never printed.
+          for key in SUPABASE_URL SUPABASE_SERVICE_ROLE_KEY; do
+            val="$(printf '%s\n' "$GOUPLOAD_ENV" | sed -n "s/^${key}=//p" | head -n1 | tr -d "\r\t \"'")"
+            if [ -z "$val" ]; then
+              echo "ERROR: $key is missing from VPS_ENV (goupload.env)." >&2
+              echo "  goupload refuses to start with APP_ENV=production without it." >&2
+              exit 1
+            fi
+          done
+          unset val
 
           rm -rf "$STAGING"
           mkdir -p "$STAGING"

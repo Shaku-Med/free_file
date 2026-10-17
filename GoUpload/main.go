@@ -289,10 +289,13 @@ func main() {
 		},
 	})
 	app.Use("/api/captions", captionLimiter)
-	supabaseURL := env.EnvValidator("SUPABASE_URL")
-	supabaseKey := env.EnvValidator("SUPABASE_SERVICE_ROLE_KEY")
+	supabaseURL := strings.TrimSpace(env.EnvValidator("SUPABASE_URL"))
+	supabaseKey := strings.TrimSpace(env.EnvValidator("SUPABASE_SERVICE_ROLE_KEY"))
 	if supabaseKey == "" {
-		supabaseKey = env.EnvValidator("SUPABASE_ANON_KEY")
+		supabaseKey = strings.TrimSpace(env.EnvValidator("SUPABASE_ANON_KEY"))
+	}
+	if env.IsProd() && (supabaseURL == "" || supabaseKey == "") {
+		log.Fatal("SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY (or SUPABASE_ANON_KEY) must be set when APP_ENV=production")
 	}
 	upload.RegisterRoutes(app, manager, q, appLog)
 	embedproxy.RegisterRoutes(app, appLog, embedClient, webhookSecret)
