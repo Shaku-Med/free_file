@@ -204,12 +204,32 @@ jobs:
             # SEPARATE from the secrets .env (so compose never parses secrets).
             printf 'APP_IMAGE=%s\n' "$APP_IMAGE" > .env.deploy
 
+            # Secrets readable by deployer and the container's node user only,
+            # not every account on the box. The copy step resets .env to 644,
+            # so this has to run on every deploy. One setfacl call swaps the
+            # whole ACL at once, so if it fails the old mode stays and the
+            # running app never loses its env files. Host uid 1000 is the
+            # ubuntu account, which has sudo anyway.
+            APP_UID=1000
+            command -v setfacl >/dev/null 2>&1 || { echo "❌ setfacl missing, run: sudo apt-get install acl"; exit 1; }
+            setfacl --set "u::rw-,g::---,o::---,u:${APP_UID}:r--" .env .env.notification
+            chmod 600 .env.redis .env.deploy
+
             # Pull FIRST — if login/pull fails we bail before touching the
             # running app, so the old process keeps serving (no downtime).
             echo "🔑 Logging in to GHCR..."
             echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin
             echo "🐳 Pulling $APP_IMAGE ..."
             docker compose --env-file .env.deploy pull
+            docker logout ghcr.io >/dev/null 2>&1 || true
+
+            # The new image must be able to read its secrets before the
+            # running app is touched.
+            docker run --rm --network none --entrypoint sh \
+              -v "$PWD/.env:/app/.env:ro" \
+              -v "$PWD/.env.notification:/app/.env.notification:ro" \
+              "$APP_IMAGE" -c 'test -r /app/.env && test -r /app/.env.notification' \
+              || { echo "❌ New image can't read .env or .env.notification, old app left running"; exit 1; }
 
             # Only now hand port 3000 over from the old PM2 process.
             if command -v pm2 >/dev/null 2>&1; then
@@ -219,7 +239,9 @@ jobs:
             echo "🚀 (Re)starting container..."
             docker compose --env-file .env.deploy up -d --remove-orphans
 
-            docker logout ghcr.io >/dev/null 2>&1 || true
+            docker exec memories-app sh -c 'test -r /app/.env && test -r /app/.env.notification' \
+              || { echo "❌ memories-app can't read .env or .env.notification"; exit 1; }
+
             # -a, not just dangling: every deploy ships a new SHA-tagged image, and
             # the old one stays *tagged* (not <none>), so plain prune -f never touched
             # it and they piled up to 40 images / 29GB. -af drops all images no running
