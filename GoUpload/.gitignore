@@ -13,6 +13,8 @@ goupload.env
 nsfwapi.env
 loadplay.env
 musicdetector.env
+# Made once on the box by goupload-compose.sh, not from CI
+redis.env
 
 # Upload and temp dirs
 /upload/

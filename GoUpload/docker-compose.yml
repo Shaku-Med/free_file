@@ -20,23 +20,35 @@ x-logging: &default-logging
     max-file: "3"
 
 services:
+  # The password lives in redis.env, which goupload-compose.sh makes once on
+  # the box (root 0600) and keeps across deploys. It is never in git or CI.
+  # Only goupload and acoustid share the internal cache network, so a sidecar
+  # that handles untrusted files (nsfwapi) can't even reach the queue.
   redis:
     image: redis:7-alpine
     container_name: goupload-redis
     restart: unless-stopped
     logging: *default-logging
-    command: ["redis-server", "--appendonly", "yes", "--maxmemory", "256mb", "--maxmemory-policy", "allkeys-lru"]
+    env_file:
+      - ./redis.env
+    command:
+      - sh
+      - -c
+      - >-
+        [ -n "$$REDIS_PASSWORD" ] || { echo "REDIS_PASSWORD missing" >&2; exit 1; };
+        exec docker-entrypoint.sh redis-server --requirepass "$$REDIS_PASSWORD"
+        --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
     volumes:
       - redis-data:/data
     networks:
-      - goupload-net
+      - goupload-cache
     deploy:
       resources:
         limits:
           cpus: "0.50"
           memory: 384M
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD-SHELL", "REDISCLI_AUTH=\"$$REDIS_PASSWORD\" redis-cli ping | grep -q PONG"]
       interval: 15s
       timeout: 3s
       retries: 5
@@ -124,8 +136,11 @@ services:
     container_name: goupload-acoustid
     restart: unless-stopped
     logging: *default-logging
+    # redis.env comes last so its REDIS_PASSWORD wins over any stale one in
+    # acoustid.env.
     env_file:
       - ./acoustid.env
+      - ./redis.env
     environment:
       ACOUSTID_API_PORT: "3009"
       REDIS_ADDR: redis:6379
@@ -137,6 +152,7 @@ services:
       GOUPLOAD_INTERNAL_URL: http://goupload:3003
     networks:
       - goupload-net
+      - goupload-cache
     depends_on:
       redis:
         condition: service_healthy
@@ -156,8 +172,11 @@ services:
     container_name: goupload
     restart: unless-stopped
     logging: *default-logging
+    # Last file wins, so the box's Redis password beats the empty
+    # REDIS_PASSWORD that goupload.env may still carry.
     env_file:
       - ./goupload.env
+      - ./redis.env
     environment:
       REDIS_ADDR: redis:6379
       NSFW_API_URL: http://nsfwapi:3004/api/nsfw/detect
@@ -186,6 +205,7 @@ services:
       - fingerprint-data:/data/fingerprints
     networks:
       - goupload-net
+      - goupload-cache
     depends_on:
       redis:
         condition: service_healthy
@@ -255,6 +275,10 @@ services:
 networks:
   goupload-net:
     driver: bridge
+  # internal: no route in or out except to the containers attached to it.
+  goupload-cache:
+    driver: bridge
+    internal: true
 
 volumes:
   redis-data:

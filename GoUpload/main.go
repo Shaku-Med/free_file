@@ -81,6 +81,9 @@ func main() {
 
 	redisAddr := env.Get("REDIS_ADDR", "localhost:6379")
 	redisPass := env.Get("REDIS_PASSWORD", "")
+	if env.IsProd() && redisPass == "" {
+		log.Fatal("REDIS_PASSWORD must be set when APP_ENV=production")
+	}
 	q, err := queue.NewClient(redisAddr, redisPass, 0, "upload_jobs")
 	if err != nil {
 		log.Fatalf("redis connection failed: %v", err)

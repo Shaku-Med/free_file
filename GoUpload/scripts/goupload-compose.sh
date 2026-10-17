@@ -50,6 +50,40 @@ fi
 
 cd "$DEPLOY_DIR"
 
+# Redis password: made once here on the box and kept across deploys, never in
+# git or CI. Compose refuses to load the stack without redis.env, so it has to
+# exist before any compose call. Deleting the file and redeploying rotates it.
+REDIS_ENV="${DEPLOY_DIR}/redis.env"
+ensure_redis_env() {
+  if [[ -L "$REDIS_ENV" ]]; then
+    echo "goupload-compose: refusing symlink at $REDIS_ENV" >&2
+    exit 1
+  fi
+  if [[ ! -e "$REDIS_ENV" ]]; then
+    local pass tmp
+    # head reads exactly 32 bytes and exits on its own, so nothing in this
+    # pipeline dies of SIGPIPE under pipefail.
+    pass="$(head -c 32 /dev/urandom | od -An -v -tx1 | tr -d ' \n')"
+    tmp="$(mktemp "${DEPLOY_DIR}/.redis.env.XXXXXX")"
+    printf 'REDIS_PASSWORD=%s\n' "$pass" > "$tmp"
+    mv -f "$tmp" "$REDIS_ENV"
+    echo "goupload-compose: created $REDIS_ENV"
+  fi
+  chown root:root "$REDIS_ENV"
+  chmod 0600 "$REDIS_ENV"
+  if [[ "$(grep -c . "$REDIS_ENV")" != 1 ]] || ! grep -Eq '^REDIS_PASSWORD=[A-Za-z0-9]{32,128}$' "$REDIS_ENV"; then
+    echo "goupload-compose: $REDIS_ENV must hold one line, REDIS_PASSWORD= then 32 to 128 letters or digits." >&2
+    echo "  Fix it, or delete it so the next run makes a new one." >&2
+    exit 1
+  fi
+}
+
+case "$ACTION" in
+  pull|up|down|restart|ps|logs)
+    ensure_redis_env
+    ;;
+esac
+
 case "$ACTION" in
   pull)
     if [[ ${#SERVICES[@]} -gt 0 ]]; then
