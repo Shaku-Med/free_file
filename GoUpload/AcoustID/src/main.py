@@ -35,6 +35,11 @@ if problem := config.missing_config():
 if os.path.exists("/.dockerenv") and not config.SECRET:
     raise SystemExit("ACOUSTID_API_SECRET is not set - refusing to start")
 
+# Compose gives every container the password from redis.env, so a container
+# without one is misconfigured and would only loop on auth errors.
+if os.path.exists("/.dockerenv") and not config.REDIS_PASSWORD:
+    raise SystemExit("REDIS_PASSWORD is not set - refusing to start")
+
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
