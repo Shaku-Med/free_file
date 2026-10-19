@@ -443,93 +443,113 @@ input[type="file"] {
   50% { transform: translateY(-6px); }
 }
 
-/* Double-tap like: thumbs pop at tap, morph-fly into the action-rail like button. */
-@property --fly-dx {
-  syntax: "<length>";
-  inherits: false;
-  initial-value: 0px;
+/* Double-tap like, same as the app: pop with a tilt, ring and sparks, then an arc into the rail's like button. */
+.reel-like-burst {
+  width: 0;
+  height: 0;
 }
 
-@property --fly-dy {
-  syntax: "<length>";
-  inherits: false;
-  initial-value: 0px;
+.reel-like-burst > span {
+  position: absolute;
+  left: 0;
+  top: 0;
 }
 
-@keyframes reelLikeFlyMorph {
-  0% {
-    transform: translate(-50%, -50%) scale(0) rotate(-14deg);
-    opacity: 0;
-  }
-  14% {
-    transform: translate(-50%, -50%) scale(1.22) rotate(2deg);
-    opacity: 1;
-  }
-  24% {
-    transform: translate(-50%, -50%) scale(1) rotate(0deg);
-    opacity: 1;
-  }
-  68% {
-    transform: translate(calc(-50% + var(--fly-dx)), calc(-50% + var(--fly-dy))) scale(0.52)
-      rotate(4deg);
-    opacity: 0.92;
-  }
-  82% {
-    transform: translate(calc(-50% + var(--fly-dx)), calc(-50% + var(--fly-dy))) scale(0.4)
-      rotate(0deg);
-    opacity: 0.55;
-  }
-  100% {
-    transform: translate(calc(-50% + var(--fly-dx)), calc(-50% + var(--fly-dy))) scale(0.34)
-      rotate(0deg);
-    opacity: 0;
-  }
+.reel-like-burst__glow {
+  width: 154px;
+  height: 154px;
+  margin: -77px 0 0 -77px;
+  background: radial-gradient(circle, var(--primary) 0%, transparent 70%);
+  animation: reelLikeGlow 1s linear forwards;
 }
 
-@keyframes reelLikeFlyHalo {
-  0% {
-    transform: scale(0.4);
-    opacity: 0;
-  }
-  18% {
-    transform: scale(1.15);
-    opacity: 0.55;
-  }
-  100% {
-    transform: scale(0.35);
-    opacity: 0;
-  }
+.reel-like-burst__ring {
+  width: 124px;
+  height: 124px;
+  margin: -62px 0 0 -62px;
+  border: 3px solid var(--primary);
+  border-radius: 9999px;
+  opacity: 0;
+  animation: reelLikeRing 0.45s cubic-bezier(0.22, 1, 0.36, 1) 30ms forwards;
 }
 
-.reel-like-fly-burst {
-  animation: reelLikeFlyMorph 0.88s cubic-bezier(0.22, 1, 0.36, 1) forwards;
-  transform: translate(-50%, -50%);
-  margin-left: 0;
-  margin-top: 0;
+.reel-like-burst__spark {
+  margin: 0;
+  border-radius: 9999px;
+  background: var(--primary);
+  translate: -50% -50%;
+  opacity: 0;
+  animation: reelLikeSpark 0.45s cubic-bezier(0.22, 1, 0.36, 1) forwards;
 }
 
-.reel-like-fly-burst__icon {
+.reel-like-burst__spark--white {
+  background: #fff;
+}
+
+.reel-like-burst__fly-x {
+  animation: reelLikeFlyX 1s linear forwards;
+}
+
+.reel-like-burst__fly-y {
+  display: block;
+  animation: reelLikeFlyY 1s linear forwards;
+}
+
+.reel-like-burst__thumb {
+  display: grid;
+  place-items: center;
+  width: 96px;
+  height: 96px;
+  margin: -48px 0 0 -48px;
   filter: drop-shadow(0 8px 22px rgba(0, 0, 0, 0.5));
+  animation: reelLikeThumb 1s linear forwards;
 }
 
-.reel-like-fly-burst__halo {
-  background: radial-gradient(circle, rgba(255, 255, 255, 0.38) 0%, rgba(255, 255, 255, 0) 68%);
-  animation: reelLikeFlyHalo 0.88s ease-out forwards;
-  transform-origin: center;
+@keyframes reelLikeGlow {
+  0% { transform: scale(0.4); opacity: 0; }
+  18% { opacity: 0.8; }
+  26% { transform: scale(1.3); }
+  60%, 100% { transform: scale(1.3); opacity: 0; }
 }
 
-/* Legacy heart burst (unused) — keep briefly for cached builds. */
-@keyframes reelHeartBurst {
-  0% { transform: scale(0) rotate(-10deg); opacity: 0; }
-  18% { transform: scale(1.2) rotate(4deg); opacity: 1; }
-  32% { transform: scale(0.95) rotate(0deg); opacity: 1; }
-  55% { transform: scale(1) translateY(0); opacity: 1; }
-  100% { transform: scale(0.85) translateY(-56px); opacity: 0; }
+@keyframes reelLikeRing {
+  0% { transform: scale(0.3); opacity: 0.85; }
+  100% { transform: scale(1.9); opacity: 0; }
 }
 
-.reel-heart-burst {
-  animation: reelHeartBurst 0.85s cubic-bezier(0.18, 0.89, 0.32, 1.18) forwards;
-  filter: drop-shadow(0 6px 18px rgba(0, 0, 0, 0.45));
+@keyframes reelLikeSpark {
+  0% { transform: translate(0, 0) scale(1); opacity: 1; }
+  55% { opacity: 1; }
+  100% { transform: translate(var(--spark-x), var(--spark-y)) scale(0.3); opacity: 0; }
+}
+
+@keyframes reelLikeFlyX {
+  0%, 38% { transform: translateX(0); animation-timing-function: cubic-bezier(0.65, 0, 0.35, 1); }
+  90%, 100% { transform: translateX(var(--fly-dx)); }
+}
+
+@keyframes reelLikeFlyY {
+  0%, 38% { transform: translateY(0); animation-timing-function: cubic-bezier(0.33, 0, 0.67, 0.6); }
+  64% { transform: translateY(calc(var(--fly-dy) * 0.5 - 70px)); animation-timing-function: cubic-bezier(0.33, 0.4, 0.67, 1); }
+  90%, 100% { transform: translateY(var(--fly-dy)); }
+}
+
+@keyframes reelLikeThumb {
+  0% { transform: scale(0.2) rotate(calc(var(--tilt) - 14deg)); opacity: 0; animation-timing-function: cubic-bezier(0.22, 1, 0.36, 1); }
+  6% { opacity: 1; }
+  14% { transform: scale(1.18) rotate(var(--tilt)); }
+  23%, 38% { transform: scale(1) rotate(var(--tilt)); animation-timing-function: cubic-bezier(0.65, 0, 0.35, 1); }
+  86% { opacity: 1; }
+  90% { transform: scale(0.34) rotate(0deg); }
+  100% { transform: scale(0.34) rotate(0deg); opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .reel-like-burst__ring,
+  .reel-like-burst__spark,
+  .reel-like-burst__glow {
+    display: none;
+  }
 }
 
 /* Action-rail like: bouncy pop when liked (double-tap arrival or tap). */
