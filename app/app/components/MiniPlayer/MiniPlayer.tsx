@@ -12,7 +12,7 @@ import { useMainPlayerSlot } from "~/lib/Context/MainPlayerSlotContext";
 import { displayMediaTitle } from "~/lib/utils";
 import { cn } from "~/lib/utils";
 import { useMiniPlayerDrag, SNAP_TRANSITION_MS, SNAP_EASING } from "./useMiniPlayerDrag";
-import { useMiniMobileBar } from "./miniMobileBar";
+import { MINI_MOBILE_BAR_H_PX, MINI_MOBILE_SEEK_HIT_PX, MINI_MOBILE_SEEK_INSET_PX, useMiniMobileBar } from "./miniMobileBar";
 import { setMiniPlayerMobileBarDragLock } from "./miniPlayerDragBridge";
 import { Tooltip, TooltipContent, TooltipTrigger } from "~/components/ui/tooltip";
 import { Popover, PopoverContent, PopoverTrigger } from "~/components/ui/popover";
@@ -34,19 +34,16 @@ const MINI_AUTO_NEXT_H = 56;
 const MINI_QUEUE_HEADER_H = 30;
 const MINI_QUEUE_ROW_H = 72;
 const MINI_VIEWPORT_PAD = 16;
-/** Fixed music-bar row height (seek sits on the top edge inside the docked player). */
-const MOBILE_BAR_H = 72;
+const MOBILE_BAR_H = MINI_MOBILE_BAR_H_PX;
+/** How far the phone card floats above the tab bar. */
+const MOBILE_BAR_GAP = 8;
 /**
- * Seek hover/scrub target. Tall enough to grab for thumbnail preview; the
- * visible track stays at the top while frost may cover the lower hit band
- * (frost is pointer-events-none).
+ * The docked player paints at 2147483645, between the card's controls (the
+ * mini player's z) and this background, so its video shows on the card.
  */
-const MOBILE_SEEK_HIT_H = 28;
-/** Clear band so the 2px track isn’t painted under the frosted wash. */
-const MOBILE_SEEK_TRACK_CLEAR = 8;
-/** Video thumb size inside the music bar. */
-const MOBILE_THUMB_W = 88;
-const MOBILE_THUMB_H = 56;
+const MOBILE_CARD_BG_Z = 2147483644;
+/** 16:9 at 40px tall, where the docked video shows (see the player's miniSeekOnly frame). */
+const MOBILE_THUMB_W = 72;
 const MINI_AUTO_NEXT_KEY = "mini-auto-next";
 
 function readMiniAutoNext(fallback: boolean): boolean {
@@ -203,8 +200,7 @@ function MiniPlayerContent() {
       return;
     }
     const el = mobileBarRef.current;
-    if (el) root.style.setProperty("--app-mini-player-h", `${el.offsetHeight}px`);
-    else root.style.setProperty("--app-mini-player-h", `${MOBILE_BAR_H}px`);
+    root.style.setProperty("--app-mini-player-h", `${(el?.offsetHeight ?? MOBILE_BAR_H) + MOBILE_BAR_GAP}px`);
     return () => {
       root.style.removeProperty("--app-mini-player-h");
     };
@@ -441,205 +437,140 @@ function MiniPlayerContent() {
   const titleStr = typeof title === "string" ? title : (title as string[]).join("");
   const ownerName = miniOwnerName(miniPlayer.file);
   const barAccent = miniBarAccent((miniPlayer.file as { colors?: unknown }).colors);
-  /** Mobile bar: translucent tint so page blur shows through. */
-  const mobileFrostBg = barAccent
-    ? `color-mix(in srgb, ${barAccent} 22%, transparent)`
-    : "color-mix(in srgb, var(--card) 42%, transparent)";
   /** Desktop floating mini: solid tint (no translucent opacity). */
   const desktopSolidBg = barAccent
     ? `color-mix(in srgb, ${barAccent} 22%, var(--card))`
     : undefined;
-  // Match hlsplayer miniSeekOnly thumb: left-2.5, h-14 w-[5.5rem], vertically centered.
-  const thumbLeft = 10;
-  const thumbTop = Math.round((MOBILE_BAR_H - MOBILE_THUMB_H) / 2);
-  // Frost starts just under the visible track; seek HIT extends lower for easy hover.
-  const frostTop = MOBILE_SEEK_TRACK_CLEAR;
-  const thumbTopRel = Math.max(0, thumbTop - frostTop);
-  const thumbBotRel = thumbTop + MOBILE_THUMB_H - frostTop;
-  const thumbClip = `polygon(evenodd, 0% 0%, 100% 0%, 100% 100%, 0% 100%, 0% 0%, ${thumbLeft}px ${thumbTopRel}px, ${thumbLeft + MOBILE_THUMB_W}px ${thumbTopRel}px, ${thumbLeft + MOBILE_THUMB_W}px ${thumbBotRel}px, ${thumbLeft}px ${thumbBotRel}px)`;
-  const contentH = MOBILE_BAR_H - MOBILE_SEEK_HIT_H;
-  const thumbBtnH = Math.min(MOBILE_THUMB_H, contentH - 4);
-
-  // ── Mobile music bar (≤700px) ──────────────────────────────────────────
+  // ── Mobile mini player (≤700px): the app's floating card ──────────────
   if (isMobileBar) {
+    const control =
+      "pointer-events-auto relative z-20 flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-foreground transition-colors hover:bg-muted active:bg-muted";
+    const card = cn(
+      "pointer-events-none fixed inset-x-2 mx-auto max-w-[640px] rounded-2xl transition-[opacity,transform] duration-200 animate-in fade-in-0 slide-in-from-bottom-2",
+      closing && "translate-y-2 opacity-0",
+    );
+    const place = { bottom: `calc(var(--app-bottom-nav-h, 0px) + ${MOBILE_BAR_GAP}px)`, height: MOBILE_BAR_H };
     return (
-      <div
-        ref={mobileBarRef}
-        data-mini-player
-        data-mini-mobile-bar=""
-        className={cn(
-          // pointer-events-none so the docked seek hit-area can receive hover;
-          // queue/close/title re-enable pointer events. overflow-visible so
-          // scrub thumbnails aren’t clipped above the bar.
-          "fixed inset-x-0 z-[var(--z-mini-player)] overflow-visible border-t border-border/40 pointer-events-none",
-          closing && "opacity-0 translate-y-2 transition-all duration-200",
-        )}
-        style={{ bottom: "calc(var(--app-bottom-nav-h, 0px) - 1px)" }}
-      >
-        {/* Full-bar dock: player fills this; video thumb + seek laid out inside HLS. */}
-        <div
-          ref={bindVideoShellRef}
-          className={cn(
-            "absolute inset-0 overflow-visible bg-transparent",
-            `mini_player_inner_${miniPlayer.imageID}`,
-          )}
-        />
-
-        {/*
-          Frost under the visible track. Seek HIT is taller and continues under
-          this layer (pointer-events-none) so thumbnail hover is easy.
-        */}
+      <>
+        {/* Catches taps that miss the controls so they never reach the feed behind. */}
         <div
           aria-hidden
-          className="pointer-events-none absolute inset-x-0 bottom-0 backdrop-blur-xl"
-          style={{
-            top: frostTop,
-            backgroundColor: mobileFrostBg,
-            clipPath: thumbClip,
-          }}
+          className={cn(card, "pointer-events-auto border border-border bg-secondary/95 shadow-lg shadow-black/15 backdrop-blur-xl")}
+          style={{ ...place, zIndex: MOBILE_CARD_BG_Z }}
         />
         <div
-          aria-hidden
-          className="pointer-events-none absolute inset-x-0 bottom-0 bg-card/25"
-          style={{ top: frostTop, clipPath: thumbClip }}
-        />
-
-        {/* Content row (below the seek strip). paddingTop reserves the seek hit
-            area for the docked player's scrubber. */}
-        <div
-          className="relative z-10 flex items-center gap-2 px-2.5 pointer-events-none"
-          // Symmetric padding keeps this centred on 36px, the same axis as the
-          // thumb. Reserving the whole seek HIT band as top padding instead
-          // pushed the row to 50px, which read as the content sinking into the
-          // tab bar. The scrub band stays reachable via the tap catcher below,
-          // which still starts at MOBILE_SEEK_HIT_H.
-          style={{
-            height: MOBILE_BAR_H,
-            paddingTop: MOBILE_SEEK_TRACK_CLEAR,
-            paddingBottom: MOBILE_SEEK_TRACK_CLEAR,
-          }}
+          ref={mobileBarRef}
+          data-mini-player
+          data-mini-mobile-bar=""
+          // overflow-visible so the scrub preview can float above the card.
+          className={cn(card, "z-[var(--z-mini-player)] overflow-visible")}
+          style={place}
         >
-          {/* One solid tap catcher over the whole content band → opens the
-              video AND blocks taps from leaking through to the feed behind the
-              bar (the old per element buttons left transparent gaps). Sits
-              below the seek strip (top) and below the queue/close buttons (z). */}
-          <button
-            type="button"
-            aria-label="Open video"
-            onClick={expandToWatch}
-            className="pointer-events-auto absolute inset-x-0 bottom-0 z-0"
-            style={{ top: MOBILE_SEEK_HIT_H }}
-          />
-
-          {/* Thumb spacer: the docked video shows through the frost hole here. */}
+          {/* The docked player fills the card: its video is the thumbnail and its seek rail the bottom line. */}
           <div
-            aria-hidden
-            className="pointer-events-none shrink-0"
-            style={{ width: MOBILE_THUMB_W, height: thumbBtnH }}
+            ref={bindVideoShellRef}
+            className={cn("absolute inset-0 overflow-visible bg-transparent", `mini_player_inner_${miniPlayer.imageID}`)}
           />
 
-          {/* Title + owner (visual only; the catcher takes the tap). */}
-          <div className="pointer-events-none relative z-10 min-w-0 flex-1">
-            <p className="truncate text-[13px] font-semibold leading-tight text-foreground">{titleStr}</p>
-            {ownerName ? (
-              <p className="mt-0.5 truncate text-[11px] leading-tight text-muted-foreground">{ownerName}</p>
-            ) : null}
-          </div>
+          <div className="relative z-10 flex h-full items-center pl-3 pr-1 pointer-events-none">
+            {/* One tap catcher over the card opens the video and keeps taps from
+                reaching the feed behind it. It stops short of the scrub band. */}
+            <button
+              type="button"
+              aria-label="Open video"
+              onClick={expandToWatch}
+              className="pointer-events-auto absolute inset-x-0 top-0 z-0 rounded-t-2xl"
+              style={{ bottom: MINI_MOBILE_SEEK_HIT_PX + MINI_MOBILE_SEEK_INSET_PX.bottom }}
+            />
 
-          {/* Transport. Play is the one solid control so the bar reads as a
-              player at a glance; the rest stay quiet until touched. */}
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              toggleMiniPlay();
-            }}
-            className="pointer-events-auto relative z-20 flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-foreground text-background transition-colors hover:bg-foreground/90 active:bg-foreground/80"
-            aria-label={isPlaying ? "Pause" : "Play"}
-          >
-            {isPlaying ? (
-              <Pause className="h-[18px] w-[18px]" fill="currentColor" />
-            ) : (
-              <Play className="ml-0.5 h-[18px] w-[18px]" fill="currentColor" />
-            )}
-          </button>
+            <div aria-hidden className="pointer-events-none h-10 shrink-0" style={{ width: MOBILE_THUMB_W }} />
 
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              playNextInMini();
-            }}
-            className={cn(
-              // Measured at 375px: four controls leave the title only 79px, which
-              // truncates it to about nine characters. Dropping this one gives it
-              // back 123px, and up-next is still one tap away in the queue sheet.
-              "pointer-events-auto relative z-20 flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:bg-muted/80 max-[420px]:hidden",
-              !hasQueue && "hidden",
-            )}
-            aria-label="Play next"
-          >
-            <SkipForward className="h-[18px] w-[18px]" />
-          </button>
+            <div className="pointer-events-none relative z-10 ml-2.5 mr-1 min-w-0 flex-1">
+              <p className="truncate text-sm font-semibold leading-[18px] text-foreground">{titleStr}</p>
+              {ownerName ? <p className="mt-px truncate text-xs leading-[15px] text-muted-foreground">{ownerName}</p> : null}
+            </div>
 
-          <Popover open={queueOpen} onOpenChange={setQueueOpen}>
-            <PopoverTrigger asChild>
-              <button
-                type="button"
-                onClick={(e) => e.stopPropagation()}
-                className={cn(
-                  "pointer-events-auto relative z-20 flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:bg-muted/80",
-                  !hasQueue && "hidden",
-                )}
-                aria-label="Up next"
-                aria-expanded={queueOpen}
-              >
-                <ListVideo className="h-[18px] w-[18px]" />
-              </button>
-            </PopoverTrigger>
-            <PopoverContent
-              side="top"
-              align="end"
-              sideOffset={8}
-              className="w-[min(100vw-1.5rem,22rem)] max-h-[min(40vh,24rem)] overflow-hidden p-0"
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                toggleMiniPlay();
+              }}
+              className={control}
+              aria-label={isPlaying ? "Pause" : "Play"}
             >
-              <div className="flex items-center justify-between gap-3 border-b border-border/60 px-3 py-2.5">
-                <div className="min-w-0">
-                  <p className="text-sm font-medium text-foreground">Auto next</p>
-                  <p className="text-[11px] text-muted-foreground">
-                    Play the next video in mini without opening the page
-                  </p>
-                </div>
-                <Switch
-                  checked={miniAutoNext}
-                  onCheckedChange={setMiniAutoNext}
-                  aria-label="Auto next in mini player"
-                />
-              </div>
-              <MiniPlayerQueue
-                current={miniPlayer.file as FileType}
-                items={queueItems}
-                loading={queueLoading}
-                onPlay={handlePlayInMini}
-                busyId={queueBusyId}
-                maxHeight={Math.floor(viewportH * 0.4) - 72}
-              />
-            </PopoverContent>
-          </Popover>
+              {isPlaying ? <Pause className="h-5 w-5" fill="currentColor" /> : <Play className="h-5 w-5" fill="currentColor" />}
+            </button>
 
-          <button
-            type="button"
-            className="pointer-events-auto relative z-20 flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:bg-muted/80"
-            aria-label="Close mini player"
-            onClick={(e) => {
-              e.stopPropagation();
-              handleClose();
-            }}
-          >
-            <X className="h-[18px] w-[18px]" />
-          </button>
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                playNextInMini();
+              }}
+              // At 375px four controls squeeze the title to a few characters; up next stays one tap away in the queue.
+              className={cn(control, "max-[420px]:hidden", !hasQueue && "hidden")}
+              aria-label="Play next"
+            >
+              <SkipForward className="h-[18px] w-[18px]" fill="currentColor" />
+            </button>
+
+            <Popover open={queueOpen} onOpenChange={setQueueOpen}>
+              <PopoverTrigger asChild>
+                <button
+                  type="button"
+                  onClick={(e) => e.stopPropagation()}
+                  className={cn(control, queueOpen && "bg-muted", !hasQueue && "hidden")}
+                  aria-label="Up next"
+                  aria-expanded={queueOpen}
+                >
+                  <ListVideo className="h-[18px] w-[18px]" />
+                </button>
+              </PopoverTrigger>
+              <PopoverContent
+                side="top"
+                align="end"
+                sideOffset={10}
+                className="w-[min(100vw-1.5rem,22rem)] max-h-[min(40vh,24rem)] overflow-hidden rounded-2xl p-0"
+              >
+                <div className="flex items-center justify-between gap-3 border-b border-border/60 px-3 py-2.5">
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium text-foreground">Auto next</p>
+                    <p className="text-[11px] text-muted-foreground">
+                      Play the next video in mini without opening the page
+                    </p>
+                  </div>
+                  <Switch
+                    checked={miniAutoNext}
+                    onCheckedChange={setMiniAutoNext}
+                    aria-label="Auto next in mini player"
+                  />
+                </div>
+                <MiniPlayerQueue
+                  current={miniPlayer.file as FileType}
+                  items={queueItems}
+                  loading={queueLoading}
+                  onPlay={handlePlayInMini}
+                  busyId={queueBusyId}
+                  maxHeight={Math.floor(viewportH * 0.4) - 72}
+                />
+              </PopoverContent>
+            </Popover>
+
+            <button
+              type="button"
+              className={control}
+              aria-label="Close mini player"
+              onClick={(e) => {
+                e.stopPropagation();
+                handleClose();
+              }}
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
         </div>
-      </div>
+      </>
     );
   }
 

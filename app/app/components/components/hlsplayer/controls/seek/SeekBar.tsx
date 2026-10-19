@@ -161,6 +161,7 @@ function ThinSeekTrack({
   flushBottom,
   flushTop = false,
   reelLine = false,
+  miniLine = false,
   handleInsetPx,
   waveformUrl,
   trackWidth,
@@ -190,6 +191,8 @@ function ThinSeekTrack({
   flushTop?: boolean;
   /** Reels on phones: the app's thin white line, which thickens and shows its knob only while dragged. */
   reelLine?: boolean;
+  /** The phone mini player: the same thin line in the theme's colours. */
+  miniLine?: boolean;
   handleInsetPx: number;
   waveformUrl?: string;
   trackWidth: number;
@@ -261,13 +264,17 @@ function ThinSeekTrack({
   // Waveform bars already have spacing between them, so its gap is wider to read.
   const waveMask = useMemo(() => chapterGapMask(chapters, duration, 4), [chapters, duration]);
 
+  const thinLine = reelLine || miniLine;
   const rail = (
     <>
-      <div className={cn('absolute inset-0 overflow-hidden rounded-full', reelLine ? 'bg-white/25' : 'bg-secondary')} style={railMask}>
+      <div
+        className={cn('absolute inset-0 overflow-hidden rounded-full', reelLine ? 'bg-white/25' : miniLine ? 'bg-border' : 'bg-secondary')}
+        style={railMask}
+      >
         <BufferSegments
           ranges={bufferedRanges}
           duration={duration}
-          className={reelLine ? 'bg-white/20 rounded-full' : 'bg-white/25 rounded-full'}
+          className={reelLine ? 'bg-white/20 rounded-full' : miniLine ? 'bg-muted-foreground/20 rounded-full' : 'bg-white/25 rounded-full'}
         />
         <div
           ref={barRef}
@@ -279,16 +286,20 @@ function ThinSeekTrack({
         ref={handleRef}
         className={cn(
           'absolute top-1/2 -translate-y-1/2 rounded-full shadow-md',
-          reelLine ? 'bg-white transition-[opacity,transform] duration-150' : 'border-2 border-primary bg-background',
-          handleSizeClass,
           reelLine
+            ? 'bg-white transition-[opacity,transform] duration-150'
+            : miniLine
+              ? 'bg-primary transition-[opacity,transform] duration-150'
+              : 'border-2 border-primary bg-background',
+          handleSizeClass,
+          thinLine
             ? showHandle
               ? 'opacity-100'
               : 'scale-50 opacity-0'
             : mobileStyle
               ? 'opacity-100'
               : 'opacity-0 transition-opacity duration-150 group-hover/seek:opacity-100',
-          !reelLine && showHandle && 'opacity-100'
+          !thinLine && showHandle && 'opacity-100'
         )}
         style={{ left: handleLeft }}
       />
@@ -318,7 +329,11 @@ function ThinSeekTrack({
         <div
           className={cn(
             'relative w-full shrink-0 overflow-visible rounded-full',
-            reelLine ? cn('transition-[height] duration-150', showHandle ? 'h-1.5' : 'h-0.5') : 'h-[var(--hls-ctrl-seek-track,3px)]',
+            reelLine
+              ? cn('transition-[height] duration-150', showHandle ? 'h-1.5' : 'h-0.5')
+              : miniLine
+                ? cn('transition-[height] duration-150', showHandle ? 'h-1' : 'h-0.5')
+                : 'h-[var(--hls-ctrl-seek-track,3px)]',
           )}
         >
           {rail}
@@ -514,6 +529,8 @@ export default function SeekBar({
   flushBottom = false,
   flushTop = false,
   disablePreview = false,
+  miniLine = false,
+  previewLift,
 }: {
   mobileStyle?: boolean;
   scaledStyle?: boolean;
@@ -523,6 +540,10 @@ export default function SeekBar({
   flushTop?: boolean;
   /** Skip scrub thumbnail hover (music bar: preview blocked shell taps). */
   disablePreview?: boolean;
+  /** The phone mini player's thin line: theme colours, knob only while dragging. */
+  miniLine?: boolean;
+  /** Pixels above the hit area for the scrub preview, to clear what the bar sits in. */
+  previewLift?: number;
 }) {
   const {
     videoRef,
@@ -835,19 +856,22 @@ export default function SeekBar({
           tight={mobileStyle}
           flushBottom={flushBottom}
           flushTop={flushTop}
+          lift={previewLift}
         />
       )}
       {hoverTime !== null && !disablePreview && hoverChapterTitle && !(spriteMeta && spriteUrl) && (
         <div
           className="pointer-events-none absolute left-0 right-0 z-20 flex justify-center"
           style={
-            mobileStyle
-              ? {
-                  bottom: flushBottom
-                    ? 'calc(var(--hls-ctrl-seek-track, 3px) + 4px)'
-                    : 'calc((var(--hls-ctrl-seek-hit, 2.25rem) + var(--hls-ctrl-seek-track, 3px)) / 2 + 4px)',
-                }
-              : { bottom: '100%', marginBottom: 8 }
+            previewLift != null
+              ? { bottom: '100%', marginBottom: previewLift }
+              : mobileStyle
+                ? {
+                    bottom: flushBottom
+                      ? 'calc(var(--hls-ctrl-seek-track, 3px) + 4px)'
+                      : 'calc((var(--hls-ctrl-seek-hit, 2.25rem) + var(--hls-ctrl-seek-track, 3px)) / 2 + 4px)',
+                  }
+                : { bottom: '100%', marginBottom: 8 }
           }
         >
           <span className="flex max-w-[70%] justify-center">
@@ -863,8 +887,9 @@ export default function SeekBar({
         chapters={chapters}
         barRef={barRef}
         handleRef={handleRef}
-        showHandle={isReel && mobileStyle ? isDragging : Boolean(hoverTime !== null || isDragging || mobileStyle)}
+        showHandle={(isReel || miniLine) && mobileStyle ? isDragging : Boolean(hoverTime !== null || isDragging || mobileStyle)}
         reelLine={isReel && mobileStyle}
+        miniLine={miniLine && !isReel}
         mobileStyle={mobileStyle}
         scaledStyle={scaledStyle || mobileStyle}
         flushBottom={flushBottom}

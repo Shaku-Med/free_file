@@ -26,6 +26,7 @@ import {
   mobileAutoplayToggleIcon,
 } from './mobileControlMetrics';
 import SeekBar from './seek/SeekBar';
+import { MINI_MOBILE_PREVIEW_LIFT_PX, MINI_MOBILE_SEEK_HIT_PX, MINI_MOBILE_SEEK_INSET_PX } from '~/components/MiniPlayer/miniMobileBar';
 import { FoldableControlRow, type FoldGroup, type FoldItem } from './FoldableControlRow';
 import VolumeControl from './volume/VolumeControl';
 import SettingsMenu from './settings/SettingsMenu';
@@ -309,8 +310,9 @@ export default function ControlBar({
     : { left: 'calc((var(--hls-ctrl-toggle-h, 1.5rem) - var(--hls-ctrl-toggle-knob, 1.25rem)) / 2)' };
 
   if (miniLayout && miniSeekOnly) {
-    // Full-width thin rail along the top. Shell chrome uses pt + pointer-events so
-    // queue/close stay clickable while scrub + hover preview sit above the bar.
+    // The app's thin progress line along the bottom of the phone card. Its hit
+    // band stays under the card's controls, and the scrub preview floats above
+    // the card the way the app's does.
     return (
       <div
         ref={containerRef}
@@ -319,16 +321,19 @@ export default function ControlBar({
         {!isHidden(hideControls, 'seek') && (
           <div
             data-mini-no-drag
-            className="pointer-events-auto absolute inset-x-0 top-0 z-[60] overflow-visible"
+            className="pointer-events-auto absolute z-[60] overflow-visible"
             style={{
-              // Tall hit target for hover scrub / thumbnail preview. Visible
-              // track stays flush to the top; shell chrome pads below this.
-              height: '1.75rem',
-              ['--hls-ctrl-seek-hit' as string]: '1.75rem',
+              left: MINI_MOBILE_SEEK_INSET_PX.side,
+              right: MINI_MOBILE_SEEK_INSET_PX.side,
+              bottom: MINI_MOBILE_SEEK_INSET_PX.bottom,
+              height: MINI_MOBILE_SEEK_HIT_PX,
+              ['--hls-ctrl-seek-hit' as string]: `${MINI_MOBILE_SEEK_HIT_PX}px`,
               ['--hls-ctrl-seek-track' as string]: '2px',
+              ['--hls-ctrl-seek-handle' as string]: '0.75rem',
+              ['--hls-ctrl-seek-handle-inset' as string]: '6px',
             }}
           >
-            <SeekBar mobileStyle flushTop />
+            <SeekBar mobileStyle flushBottom miniLine previewLift={MINI_MOBILE_PREVIEW_LIFT_PX} />
           </div>
         )}
       </div>

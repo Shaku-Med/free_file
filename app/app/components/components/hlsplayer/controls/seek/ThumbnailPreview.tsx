@@ -21,6 +21,8 @@ interface ThumbnailPreviewProps {
   flushBottom?: boolean;
   /** Music bar: rail is flush to the top, so the preview stacks upward from the bar. */
   flushTop?: boolean;
+  /** Pixels above the hit area, to clear the bar the seek sits in. Overrides the flush placements. */
+  lift?: number;
 }
 
 // Section name and time in one pill, so it's obvious which section the hovered
@@ -70,6 +72,7 @@ export default function ThumbnailPreview({
   tight = false,
   flushBottom = false,
   flushTop = false,
+  lift,
 }: ThumbnailPreviewProps) {
   const frame = useMemo(() => getFrameAtTime(meta, time), [meta, time]);
   if (!frame) return null;
@@ -108,15 +111,17 @@ export default function ThumbnailPreview({
       style={{
         left,
         width: previewW,
-        ...(flushTop
-          ? { bottom: '100%', marginBottom: 8 }
-          : tight
-            ? {
-                bottom: flushBottom
-                  ? 'calc(var(--hls-ctrl-seek-track, 3px) + 4px)'
-                  : 'calc((var(--hls-ctrl-seek-hit, 2.25rem) + var(--hls-ctrl-seek-track, 3px)) / 2 + 4px)',
-              }
-            : { bottom: '100%', marginBottom: 8 }),
+        ...(lift != null
+          ? { bottom: '100%', marginBottom: lift }
+          : flushTop
+            ? { bottom: '100%', marginBottom: 8 }
+            : tight
+              ? {
+                  bottom: flushBottom
+                    ? 'calc(var(--hls-ctrl-seek-track, 3px) + 4px)'
+                    : 'calc((var(--hls-ctrl-seek-hit, 2.25rem) + var(--hls-ctrl-seek-track, 3px)) / 2 + 4px)',
+                }
+              : { bottom: '100%', marginBottom: 8 }),
       }}
     >
       <div

@@ -1328,7 +1328,7 @@ function PlayerInner({
               className={cn(
                 'absolute overflow-hidden',
                 miniSeekOnly
-                  ? 'left-2.5 top-1/2 z-[5] h-14 w-[5.5rem] -translate-y-1/2 rounded-md'
+                  ? 'left-3 top-1/2 z-[5] h-10 w-[4.5rem] -translate-y-1/2 rounded-lg bg-black'
                   : isMiniDock
                     ? 'inset-0 rounded-t-xl'
                     : 'inset-0 rounded-none',

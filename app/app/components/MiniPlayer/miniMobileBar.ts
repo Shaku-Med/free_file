@@ -5,6 +5,19 @@ export const MINI_MOBILE_BAR_MAX_PX = 700;
 
 export const MINI_MOBILE_BAR_MQ = `(max-width: ${MINI_MOBILE_BAR_MAX_PX}px)`;
 
+/** The phone mini player is the app's floating card, this tall. */
+export const MINI_MOBILE_BAR_H_PX = 64;
+/**
+ * The scrub band along the bottom of the card, under the thin progress line.
+ * The docked player's seek rail and the card's tap catcher both size from it,
+ * so a tap above it opens the video.
+ */
+export const MINI_MOBILE_SEEK_HIT_PX = 12;
+/** How far the line sits above the card's bottom edge, and in from its sides. */
+export const MINI_MOBILE_SEEK_INSET_PX = { bottom: 3, side: 14 };
+/** Lifts the scrub preview from the seek band to just above the card. */
+export const MINI_MOBILE_PREVIEW_LIFT_PX = MINI_MOBILE_BAR_H_PX - MINI_MOBILE_SEEK_INSET_PX.bottom - MINI_MOBILE_SEEK_HIT_PX + 8;
+
 export function useMiniMobileBar(): boolean {
   const [isMobileBar, setIsMobileBar] = useState(() =>
     typeof window !== "undefined" ? window.matchMedia(MINI_MOBILE_BAR_MQ).matches : false,
