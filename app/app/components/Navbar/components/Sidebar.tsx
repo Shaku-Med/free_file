@@ -220,7 +220,7 @@ export function AppSidebar() {
             id="home_button"
             className="group flex w-fit items-center gap-2.5 group-data-[collapsible=icon]:w-full group-data-[collapsible=icon]:justify-center"
           >
-            <Logo className="size-7 text-primary transition-transform duration-200 group-hover:scale-105" />
+            <Logo bare className="size-8 text-primary transition-transform duration-200 group-hover:scale-105" />
             <span className="text-xl font-bold tracking-tight text-foreground group-data-[collapsible=icon]:hidden">
               Memories
             </span>

@@ -5,6 +5,8 @@ interface LogoProps {
   className?: string;
   /** Fill of the shutter blades; the tile itself takes currentColor. */
   inkClassName?: string;
+  /** Just the shutter in currentColor, no tile, framed tight so it can be drawn bigger. */
+  bare?: boolean;
 }
 
 const BLADES = [
@@ -19,12 +21,18 @@ const BLADES = [
  * the favicons, app icons and share card from it. Drawn in theme colours so it
  * follows the active theme; the faint sheen stands in for the icon's gradient.
  */
-const Logo = ({ className, inkClassName = "fill-primary-foreground" }: LogoProps) => {
+const Logo = ({ className, inkClassName = "fill-primary-foreground", bare = false }: LogoProps) => {
   const id = useId();
   const sheen = `${id}sheen`;
   const cut = `${id}cut`;
   return (
-    <svg viewBox="0 0 512 512" className={cn("h-8 w-8 shrink-0", className)} aria-hidden="true" focusable="false">
+    <svg
+      // The shutter is a circle of radius 172 around the centre, so the bare mark crops to it.
+      viewBox={bare ? "84 84 344 344" : "0 0 512 512"}
+      className={cn("h-8 w-8 shrink-0", className)}
+      aria-hidden="true"
+      focusable="false"
+    >
       <defs>
         <linearGradient id={sheen} x1="0" y1="0" x2="1" y2="1">
           <stop offset="0" stopColor="#fff" stopOpacity="0.16" />
@@ -36,9 +44,13 @@ const Logo = ({ className, inkClassName = "fill-primary-foreground" }: LogoProps
           <path d="M358 256L431 298.1M205 344.3L132 386.5M205 167.7L205 83.4" stroke="#000" strokeWidth="13" />
         </mask>
       </defs>
-      <rect width="512" height="512" rx="116" fill="currentColor" />
-      <rect width="512" height="512" rx="116" fill={`url(#${sheen})`} />
-      <g mask={`url(#${cut})`} className={inkClassName}>
+      {bare ? null : (
+        <>
+          <rect width="512" height="512" rx="116" fill="currentColor" />
+          <rect width="512" height="512" rx="116" fill={`url(#${sheen})`} />
+        </>
+      )}
+      <g mask={`url(#${cut})`} className={bare ? "fill-current" : inkClassName}>
         {BLADES.map((b) => (
           <path key={b.d} d={b.d} fillOpacity={b.opacity} />
         ))}

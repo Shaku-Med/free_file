@@ -261,7 +261,7 @@ export default function Navbar({ hasScrolled = { state: false, opacityLevel: 0 }
                   id="home_button"
                   className="group flex min-w-0 items-center gap-2 rounded-lg px-1 py-1 hover:bg-muted/60"
                 >
-                  <Logo className={cn("size-7 text-primary", appStyle && "size-[26px]")} />
+                  <Logo bare className="size-8 text-primary" />
                   <span
                     className={cn(
                       "truncate text-base font-bold tracking-tight text-foreground sm:text-lg",
