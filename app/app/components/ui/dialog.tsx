@@ -3,6 +3,7 @@ import * as DialogPrimitive from "@radix-ui/react-dialog"
 import { XIcon } from "lucide-react"
 
 import { cn } from "~/lib/utils"
+import { useDeviceClass } from "./device"
 
 function Dialog({
   ...props
@@ -61,6 +62,8 @@ function DialogContent({
   overlayClassName?: string
 }) {
   const showBuiltinClose = showCloseButton && !shouldClose
+  const sheet = useDeviceClass("dialog")
+  const grabber = useDeviceClass("grabber")
 
   return (
     <DialogPortal data-slot="dialog-portal">
@@ -90,9 +93,14 @@ function DialogContent({
           "max-sm:!translate-x-0 max-sm:!translate-y-0",
           "max-sm:!w-screen max-sm:!h-[calc(var(--app-vvh,100dvh)-env(safe-area-inset-top)-env(safe-area-inset-bottom))] max-sm:!max-w-none max-sm:!max-h-none",
           "max-sm:!rounded-none max-sm:!border-0 max-sm:!shadow-none",
+          // On a phone platform the full screen box becomes the app's sheet.
+          sheet,
         )}
         {...props}
       >
+        {grabber ? (
+          <div aria-hidden className={cn("pointer-events-none absolute left-1/2 z-10 -translate-x-1/2 rounded-full sm:hidden", grabber)} />
+        ) : null}
         {children}
         {showBuiltinClose && (
           <DialogPrimitive.Close

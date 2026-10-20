@@ -44,6 +44,7 @@ import ViewportVars from "./components/ViewportVars";
 import { ThemeApply } from "./components/ThemeApply";
 import { WindappChrome } from "./components/WindappChrome";
 import { DesktopUpdateProvider } from "./lib/hooks/useDesktopUpdate";
+import { DeviceStyleProvider } from "./lib/device";
 import SignInPrompt from "./components/SignInPrompt";
 import PushPromptOverlay from "./components/PushPromptOverlay";
 import { Toaster } from "./components/ui/sonner";
@@ -371,6 +372,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
       </head>
       <body className={`flex flex-col fixed top-0 left-0 w-full h-full`}>
         <ThemeApply userTheme={userTheme ?? null} />
+        <DeviceStyleProvider>
         <DesktopUpdateProvider>
         <WindappChrome />
         <RegisterServiceWorker />
@@ -417,6 +419,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
         </DesktopUpdateProvider>
         <Toaster />
         <ErrorDetailsDialog />
+        </DeviceStyleProvider>
         <Scripts />
 
         <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>

@@ -4,6 +4,7 @@ import * as CollapsiblePrimitive from "@radix-ui/react-collapsible"
 import { CheckIcon, ChevronDownIcon, CircleIcon } from "lucide-react"
 
 import { cn } from "~/lib/utils"
+import { useDeviceClass } from "./device"
 
 /**
  * Live narrow-viewport hook for positioning defaults. Self-contained so the
@@ -91,6 +92,7 @@ function DropdownMenuContent({
   portalContainer?: HTMLElement | null
 }) {
   const isNarrow = useIsNarrowViewport()
+  const device = useDeviceClass("menuContent")
   // On narrow viewports we bias toward `end` alignment so the menu hugs the right
   // edge of a trigger that's already near the right side of the screen  Radix will
   // still flip via `avoidCollisions` if that doesn't fit.
@@ -109,7 +111,7 @@ function DropdownMenuContent({
         hideWhenDetached
         avoidCollisions
         style={{ zIndex: DROPDOWN_MENU_CONTENT_Z }}
-        className={cn(contentBase, className)}
+        className={cn(contentBase, device, className)}
         {...props}
       >
         <div className={scrollBody}>{children}</div>
@@ -135,6 +137,7 @@ function DropdownMenuItem({
   inset?: boolean
   variant?: "default" | "destructive"
 }) {
+  const device = useDeviceClass("menuItem")
   return (
     <DropdownMenuPrimitive.Item
       data-slot="dropdown-menu-item"
@@ -144,6 +147,7 @@ function DropdownMenuItem({
         // Bigger min-height on coarse pointers (phones/tablets) per WCAG 2.5.5
         // touch target guidance, normal density on hover-capable inputs.
         "relative flex cursor-default items-center gap-2 rounded-lg px-2.5 py-2 text-sm outline-hidden select-none transition-colors duration-150 ease-out focus:bg-accent focus:text-accent-foreground data-[variant=destructive]:text-destructive data-[variant=destructive]:focus:bg-destructive/15 data-[variant=destructive]:focus:text-destructive data-[variant=destructive]:*:[svg]:!text-destructive [&_svg:not([class*='text-'])]:text-muted-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50 data-[inset]:pl-8 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 [@media(pointer:coarse)]:min-h-[2.5rem] [@media(pointer:coarse)]:py-2.5",
+        device,
         className
       )}
       {...props}
@@ -157,11 +161,13 @@ function DropdownMenuCheckboxItem({
   checked,
   ...props
 }: React.ComponentProps<typeof DropdownMenuPrimitive.CheckboxItem>) {
+  const device = useDeviceClass("menuCheckItem")
   return (
     <DropdownMenuPrimitive.CheckboxItem
       data-slot="dropdown-menu-checkbox-item"
       className={cn(
         "relative flex cursor-default items-center gap-2 rounded-lg py-2 pr-2.5 pl-8 text-sm outline-hidden select-none transition-colors duration-150 ease-out focus:bg-accent focus:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 [@media(pointer:coarse)]:min-h-[2.5rem] [@media(pointer:coarse)]:py-2.5",
+        device,
         className
       )}
       checked={checked}
@@ -193,11 +199,13 @@ function DropdownMenuRadioItem({
   children,
   ...props
 }: React.ComponentProps<typeof DropdownMenuPrimitive.RadioItem>) {
+  const device = useDeviceClass("menuCheckItem")
   return (
     <DropdownMenuPrimitive.RadioItem
       data-slot="dropdown-menu-radio-item"
       className={cn(
         "relative flex cursor-default items-center gap-2 rounded-lg py-2 pr-2.5 pl-8 text-sm outline-hidden select-none transition-colors duration-150 ease-out focus:bg-accent focus:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 [@media(pointer:coarse)]:min-h-[2.5rem] [@media(pointer:coarse)]:py-2.5",
+        device,
         className
       )}
       {...props}
@@ -219,12 +227,14 @@ function DropdownMenuLabel({
 }: React.ComponentProps<typeof DropdownMenuPrimitive.Label> & {
   inset?: boolean
 }) {
+  const device = useDeviceClass("menuLabel")
   return (
     <DropdownMenuPrimitive.Label
       data-slot="dropdown-menu-label"
       data-inset={inset}
       className={cn(
         "px-2.5 py-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground data-[inset]:pl-8",
+        device,
         className
       )}
       {...props}
@@ -236,10 +246,11 @@ function DropdownMenuSeparator({
   className,
   ...props
 }: React.ComponentProps<typeof DropdownMenuPrimitive.Separator>) {
+  const device = useDeviceClass("menuSeparator")
   return (
     <DropdownMenuPrimitive.Separator
       data-slot="dropdown-menu-separator"
-      className={cn("-mx-0.5 my-1 h-px bg-border", className)}
+      className={cn("-mx-0.5 my-1 h-px bg-border", device, className)}
       {...props}
     />
   )

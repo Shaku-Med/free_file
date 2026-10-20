@@ -290,6 +290,17 @@ html.windapp-fullscreen [data-app-chrome] {
     background-color: var(--popover);
   }
 }
+/* Menus on a phone take the system's material: Liquid Glass on iOS 26, a solid surface on Android. */
+[data-device="ios-glass"] .menu-frost {
+  background-color: color-mix(in oklch, var(--popover) 72%, transparent);
+  -webkit-backdrop-filter: blur(24px) saturate(1.8);
+  backdrop-filter: blur(24px) saturate(1.8);
+}
+[data-device^="material"] .menu-frost {
+  background-color: var(--popover);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
 
 @keyframes image-load-shimmer {
   0% {

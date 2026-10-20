@@ -1,5 +1,6 @@
 import { Check, ChevronDown } from "lucide-react";
 import { cn } from "~/lib/utils";
+import { useDeviceClass } from "./device";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -40,6 +41,7 @@ export function Select<T extends string | number>({
   align?: "start" | "center" | "end";
 }) {
   const active = options.find((o) => o.value === value);
+  const device = useDeviceClass("field");
 
   return (
     <DropdownMenu>
@@ -49,6 +51,7 @@ export function Select<T extends string | number>({
           aria-label={label}
           className={cn(
             "inline-flex items-center justify-between gap-2 rounded-lg border border-border/60 bg-card/40 px-3 py-1.5 text-sm text-foreground transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
+            device,
             className,
           )}
         >
