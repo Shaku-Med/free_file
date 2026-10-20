@@ -1,5 +1,5 @@
 import React, { useEffect, useLayoutEffect, useState, useCallback, useRef, useMemo } from 'react';
-import { Play, Pause, LoaderCircle, Volume2, VolumeX } from '~/components/icons';
+import { Play, Pause, LoaderCircle, Volume2, VolumeX, AlertTriangle } from '~/components/icons';
 import { flushSync } from 'react-dom';
 import { useNavigate, useLocation } from 'react-router';
 import { useInView } from 'react-intersection-observer';
@@ -1301,12 +1301,13 @@ function PlayerInner({
         )}
         onTouchEnd={miniSeekOnly ? undefined : handleTouchEnd}
       >
-        {state.hasError && <ErrorOverlay onRetry={retryPlayback} />}
+        {/* The phone mini player only has its thumbnail to paint in; its own frame shows these. */}
+        {state.hasError && !miniSeekOnly && <ErrorOverlay onRetry={retryPlayback} />}
 
         {/* On mobile with controls visible, the spinner lives INSIDE the
             center play/pause circle (ControlBar)  hide the full-screen one
             so we don't double-up. */}
-        {showLoadingOverlay && !(isMobile && showControls) && <BufferingSpinner />}
+        {showLoadingOverlay && !miniSeekOnly && !(isMobile && showControls) && <BufferingSpinner />}
 
         {showPlayPauseFeedback &&
           !showSeekFeedback &&
@@ -1319,7 +1320,7 @@ function PlayerInner({
           <PlayPauseFeedback isPlaying={feedbackIconPlaying} fading={feedbackFading} />
         )}
 
-        {showSeekFeedback && (!isReelCtx || embedReelControls) && !inPipForThisVideo && (
+        {showSeekFeedback && (!isReelCtx || embedReelControls) && !inPipForThisVideo && !miniSeekOnly && (
           <SeekFeedback direction={seekFeedbackDirection} seconds={seekFeedbackSeconds} fading={seekFeedbackFading} />
         )}
 
@@ -1367,6 +1368,15 @@ function PlayerInner({
                 )}
                 {!miniSeekOnly && <VideoKickBounce />}
                 {!miniSeekOnly && <VRTheaterOverlay />}
+                {miniSeekOnly && (state.hasError || showLoadingOverlay) ? (
+                  <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/40">
+                    {state.hasError ? (
+                      <AlertTriangle className="h-4 w-4 text-white/80" aria-label="Video failed to load" />
+                    ) : (
+                      <LoaderCircle className="h-4 w-4 animate-spin text-white/80" aria-hidden />
+                    )}
+                  </div>
+                ) : null}
               </div>
             </div>
           )}
@@ -1578,14 +1588,14 @@ function PlayerInner({
           />
         )}
 
-        {!isReelCtx && <PipOverlay />}
+        {!isReelCtx && !miniSeekOnly && <PipOverlay />}
 
 
-        {showPrompt && autoPlayEnabled && !isReelCtx && authPlayback && !inPipForThisVideo && (
+        {showPrompt && autoPlayEnabled && !isReelCtx && authPlayback && !inPipForThisVideo && !miniSeekOnly && (
           <AutoplayPrompt onEnable={enableAutoplay} onDismiss={dismissPrompt} />
         )}
 
-        {showShortcuts && !isReelCtx && !inPipForThisVideo && (
+        {showShortcuts && !isReelCtx && !inPipForThisVideo && !miniSeekOnly && (
           <ShortcutOverlay
             authPlaybackFeatures={authPlayback}
             onClose={() => setShowShortcuts(false)}

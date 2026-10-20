@@ -324,8 +324,8 @@ export function GlobalAnchoredHLSPlayer() {
         left: rect.left,
         width: rect.width,
         height: rect.height,
-        // Music bar chrome sits at --z-mini-player; keep the dock just under it
-        // so queue/close stay clickable while seek still paints full-width on top.
+        // The phone card sits just under the dock: the dock only paints the
+        // video thumbnail and the seek line, and lets every other tap through.
         zIndex: miniBarDock ? 2147483645 : z,
         willChange: "top, left, width, height",
       }}
