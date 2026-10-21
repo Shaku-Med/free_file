@@ -306,6 +306,8 @@ export const action = async ({ request }: { request: Request }) => {
     original_unique_id?: string;
     /** 0–100 from Go worker while processing */
     progress?: number;
+    /** On completed: live on its lowest quality, higher ones still encoding. */
+    qualities_pending?: boolean;
   };
   try {
     body = await request.json();
@@ -317,7 +319,7 @@ export const action = async ({ request }: { request: Request }) => {
   }
 
   const status = typeof body?.status === 'string' ? body.status.trim().toLowerCase() : '';
-  const allowed = ['queued', 'running', 'completed', 'failed'];
+  const allowed = ['queued', 'running', 'completed', 'failed', 'qualities_ready'];
   const upload_id = typeof body?.upload_id === 'string' ? body.upload_id.trim() : '';
   const user_id = typeof body?.user_id === 'string' ? body.user_id.trim() : '';
   const job_id = typeof body?.job_id === 'string' ? body.job_id.trim() : '';
@@ -373,9 +375,18 @@ export const action = async ({ request }: { request: Request }) => {
     let ownerId = user_id;
     const { data: existingRow } = await db
       .from('files')
-      .select('owner_id')
+      .select('owner_id, upload_status')
       .eq('unique_id', upload_id)
       .maybeSingle();
+    // 'queued' is sent alongside the worker starting, so it can land late, and a
+    // video now goes live on its first quality within seconds. Rewriting the row
+    // here would blank its endpoint and pull a live video offline.
+    if ((existingRow as { upload_status?: string } | null)?.upload_status === 'complete') {
+      return new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
     const existingOwner =
       existingRow && typeof (existingRow as { owner_id?: unknown }).owner_id === 'string'
         ? (existingRow as { owner_id: string }).owner_id
@@ -419,6 +430,26 @@ export const action = async ({ request }: { request: Request }) => {
   }
 
   if (status === 'failed' && upload_id) {
+    // A video goes live on its lowest quality while the rest encode, so a job
+    // can fail after it is already watchable. That video stays, with the
+    // qualities it got, and keeps its storage charge.
+    const { data: liveRow } = await db
+      .from('files')
+      .select('upload_status')
+      .eq('unique_id', upload_id)
+      .maybeSingle();
+    if ((liveRow as { upload_status?: string } | null)?.upload_status === 'complete') {
+      const { error: stopErr } = await db
+        .from('files')
+        .update({ processing_progress: null })
+        .eq('unique_id', upload_id)
+        .eq('upload_status', 'complete');
+      if (stopErr) console.warn('[upload-job-status] clear pending qualities (failed):', stopErr.message ?? stopErr);
+      return new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
     // Failed upload never lands in storage  release its quota reservation.
     await refundUploadQuota(upload_id);
     // Delete the file record on failure so user doesn't see broken entry.
@@ -472,7 +503,12 @@ export const action = async ({ request }: { request: Request }) => {
       }
     }
 
-    const { error: updateErr } = await db.from('files').update(patch).eq('unique_id', upload_id);
+    // Never pull a live video back to 'running', which would hide it from every feed.
+    const { error: updateErr } = await db
+      .from('files')
+      .update(patch)
+      .eq('unique_id', upload_id)
+      .neq('upload_status', 'complete');
     if (updateErr) {
       console.warn('[upload-job-status] files update (running):', updateErr);
     } else if (thumbnails.length > 0) {
@@ -505,7 +541,13 @@ export const action = async ({ request }: { request: Request }) => {
       metadata.warning = DEFAULT_METADATA_WARNING;
     }
 
-    const updateData: Record<string, any> = { upload_status: 'complete', processing_progress: null };
+    // Live on its lowest quality with higher ones still encoding: the progress
+    // stays set (only the owner ever sees it) until qualities_ready clears it.
+    const qualitiesPending = body?.qualities_pending === true;
+    const updateData: Record<string, any> = {
+      upload_status: 'complete',
+      processing_progress: qualitiesPending ? (parseProcessingProgress(body.progress) ?? 0) : null,
+    };
     if (endpoint) {
       updateData.endpoint = endpoint;
     }
@@ -712,6 +754,43 @@ export const action = async ({ request }: { request: Request }) => {
       }
     }
 
+  } else if (status === 'qualities_ready' && upload_id) {
+    // Every quality of a live video is in. Clear the "higher qualities processing"
+    // flag (it holds off deletes) and charge for what is stored now (the
+    // completed webhook could only count the qualities that existed at the time).
+    const { data: row, error: lookupErr } = await db
+      .from('files')
+      .select('owner_id, upload_status')
+      .eq('unique_id', upload_id)
+      .maybeSingle();
+    if (lookupErr) {
+      console.error('[upload-job-status] lookup (qualities_ready):', upload_id, lookupErr.message ?? lookupErr);
+      return new Response(JSON.stringify({ error: 'lookup_failed' }), {
+        status: 500,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+    const live = row as { owner_id?: string | null; upload_status?: string | null } | null;
+    if (live?.upload_status === 'complete') {
+      const { error: clearErr } = await db
+        .from('files')
+        .update({ processing_progress: null })
+        .eq('unique_id', upload_id)
+        .eq('upload_status', 'complete');
+      if (clearErr) {
+        console.error('[upload-job-status] clear pending qualities:', upload_id, clearErr.message ?? clearErr);
+        return new Response(JSON.stringify({ error: 'update_failed' }), {
+          status: 500,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      const storedBytes =
+        typeof body?.file_size === 'number' && Number.isFinite(body.file_size) && body.file_size > 0 ? body.file_size : 0;
+      // Charge the row's owner, never whoever the body names.
+      if (storedBytes > 0 && typeof live.owner_id === 'string' && live.owner_id) {
+        await recordUploadUsage(live.owner_id, upload_id, storedBytes);
+      }
+    }
   }
 
   return new Response(JSON.stringify({ ok: true }), {

@@ -313,6 +313,19 @@ func (w *Worker) notifyRunningProgress(job *queue.Job, pct int) {
 	})
 }
 
+// notifyQualitiesReady tells the app a live video has every quality it is going
+// to get. size is what now lives in R2 for it; 0 leaves the recorded size alone.
+func (w *Worker) notifyQualitiesReady(job *queue.Job, size int64) {
+	webhook.NotifyJobStatus(webhook.Payload{
+		JobID:    job.ID,
+		Status:   "qualities_ready",
+		UploadID: job.UploadID,
+		UserID:   job.UserID,
+		FileName: job.FileName,
+		FileSize: size,
+	})
+}
+
 // embedForFile builds the document text (title + description + AI caption +
 // categories + tags) and asks the local sidecar for a semantic-search vector.
 // Soft-fail: nil on any error  search just stays lexical for this file.
@@ -655,6 +668,9 @@ func (w *Worker) processJob(job *queue.Job) {
 	// received and sat there forever. Turn any panic into an ordinary failure so
 	// the row always reaches a terminal state.
 	completed := false
+	// Live on its lowest quality with higher ones still encoding. However the job
+	// ends from here, the app must hear that the video is done changing.
+	qualitiesPending := false
 	defer func() {
 		if r := recover(); r != nil {
 			w.log.Errorf("job PANIC job=%s user=%s upload=%s err=%v\n%s", job.ID, job.UserID, job.UploadID, r, debug.Stack())
@@ -663,6 +679,10 @@ func (w *Worker) processJob(job *queue.Job) {
 			if !completed {
 				w.failJob(job, fmt.Sprintf("panic: %v", r))
 			}
+		}
+		if qualitiesPending {
+			w.notifyQualitiesReady(job, 0)
+			_ = w.queue.SetJobStatus(context.Background(), job.ID, "completed")
 		}
 		// Cleared last. While this key exists the next startup treats the job as
 		// orphaned and fails it, which is what we want if the process dies
@@ -1266,68 +1286,143 @@ func (w *Worker) processJob(job *queue.Job) {
 	}
 
 	hlsDir := filepath.Join(w.cfg.HLSDir, job.UserID, job.UploadID)
+	videoEndpoint := dateFolder + "/" + job.UploadID + "/master.m3u8"
+
+	defaultThumbGH := ""
+	if defaultThumbPath != "" {
+		defaultThumbGH = ghPrefix + defaultThumbPath
+	}
+	previewGH := ""
+	if hoverPreviewOK {
+		previewGH = ghPrefix + ffmpeg.HoverPreviewName
+	}
+
+	// Built before any state transition on purpose. embedForFile calls a sidecar
+	// and langdetect parses uploader-supplied text, so a blow-up in either has to
+	// land while the job is still recoverable rather than in the gap between
+	// "queue says done" and "app was told".
+	payload := webhook.Payload{
+		JobID:               job.ID,
+		Status:              "completed",
+		UploadID:            job.UploadID,
+		UserID:              job.UserID,
+		FileName:            job.FileName,
+		Endpoint:            videoEndpoint,
+		Thumbnails:          thumbnailPaths,
+		Duration:            videoDuration,
+		IsReel:              isReel,
+		IsAdult:             &isAdult,
+		ContentFlag:         contentFlag,
+		Colors:              vidColors,
+		Categories:          categories,
+		Tags:                tags,
+		Metadata:            metadata,
+		DefaultThumbnail:    defaultThumbGH,
+		PreviewEndpoint:     previewGH,
+		FileSeriesID:        job.FileSeriesID,
+		FileSeriesEpisodeID: job.FileSeriesEpisodeID,
+		IsNewSeries:         job.IsNewSeries,
+		NewEpisodeName:      job.NewEpisodeName,
+		ParentEpisodeID:     job.ParentEpisodeID,
+		StorageBackend:      storageBackend,
+		StorageBucket:       storageBucket,
+		Embedding:           w.embedForFile(job, categories, tags, metadata),
+		IsMusic:             isMusic,
+		FpProcessed:         fpProcessed,
+		OriginalUniqueID:    originalUniqueID,
+		// Uploader's own words only - the AI caption is always English.
+		ContentLanguage: langdetect.Detect(job.Title, job.Description),
+	}
+
+	// What lives in R2 for this upload, which is what the user is billed on (it
+	// can be 1.5-2x the source for low-bitrate phone videos): the thumbnails,
+	// already uploaded, plus every published HLS file. The master is rewritten as
+	// qualities land, so only its latest size counts.
+	thumbBytes := dirSizeBytes(thumbDir)
+	var hlsBytes, masterBytes int64
+	storedBytes := func() int64 {
+		if n := thumbBytes + hlsBytes + masterBytes; n > 0 {
+			return n
+		}
+		return job.FileSize
+	}
+
+	// Each quality goes up as soon as it is encoded, lowest first, and the video
+	// goes live with the first one, the way YouTube serves SD while HD is still
+	// processing. Viewers pick up the higher qualities on their next load.
+	publish := func(newDirs []string, done, total int) error {
+		var files []ghlib.BatchFile
+		for _, d := range newDirs {
+			found, cerr := ghlib.CollectDir(filepath.Join(hlsDir, d), ghPrefix+d+"/")
+			if cerr != nil {
+				return fmt.Errorf("collect %s: %w", d, cerr)
+			}
+			files = append(files, found...)
+		}
+		if uerr := w.uploadBatchR2(context.Background(), files); uerr != nil {
+			return uerr
+		}
+		// Last, so the master never lists a quality whose files are not in R2 yet.
+		masterPath := filepath.Join(hlsDir, "master.m3u8")
+		if uerr := w.putLocalR2(context.Background(), ghPrefix+"master.m3u8", masterPath); uerr != nil {
+			return uerr
+		}
+		for _, f := range files {
+			if st, serr := os.Stat(f.LocalPath); serr == nil {
+				hlsBytes += st.Size()
+			}
+		}
+		if st, serr := os.Stat(masterPath); serr == nil {
+			masterBytes = st.Size()
+		}
+		w.log.Infof("published quality %d/%d backend=%s job=%s files=%d", done, total, storageBackend, job.ID, len(files))
+
+		if completed {
+			return nil
+		}
+		payload.FileSize = storedBytes()
+		if done < total {
+			pct := done * 100 / total
+			payload.Progress = &pct
+			payload.QualitiesPending = true
+		}
+		// App first: the queue write is local bookkeeping that cannot resurrect a
+		// lost webhook. NotifyJobStatus retries terminal statuses.
+		webhook.NotifyJobStatus(payload)
+		completed = true
+		qualitiesPending = done < total
+		return nil
+	}
+
 	w.notifyRunningProgress(job, 58)
 	hlsAll, err := ffmpeg.ConvertToHLSAllQualities(result.OutputPath, hlsDir, ffmpeg.HLSOptions{
 		// 6s segments (down from 10): the player must fetch a whole segment
-		// before it can start, so shorter segments mean a faster first frame —
+		// before it can start, so shorter segments mean a faster first frame,
 		// the biggest win for slow connections. Apple's recommended default.
 		SegmentTime: 6,
 		IsReel:      isReelBool,
+		Publish:     publish,
 	})
-	if err != nil {
+	if err != nil || !completed {
+		// Nothing went live, so this is an ordinary failure.
+		reason := "hls finished without publishing"
+		if err != nil {
+			reason = "hls conversion failed: " + err.Error()
+		}
 		assembledDir := filepath.Dir(result.OutputPath)
-		w.failJob(job, "hls conversion failed: "+err.Error(), result.OutputPath, assembledDir, filepath.Dir(assembledDir), hlsDir, filepath.Dir(hlsDir), thumbDir, filepath.Dir(thumbDir))
+		w.failJob(job, reason, result.OutputPath, assembledDir, filepath.Dir(assembledDir), hlsDir, filepath.Dir(hlsDir), thumbDir, filepath.Dir(thumbDir))
 		return
-	} else {
-		tierNames := make([]string, len(hlsAll.Tiers))
-		for i, t := range hlsAll.Tiers {
-			tierNames[i] = fmt.Sprintf("%s(%d segs)", t.TierName, len(t.SegmentFiles))
-		}
-		w.log.Infof("hls job=%s tiers=[%s]", job.ID, strings.Join(tierNames, ", "))
 	}
-	w.notifyRunningProgress(job, 78)
-
-	videoEndpoint := ""
-	var batchFiles []ghlib.BatchFile
-
-	if hlsAll != nil {
-		hlsFiles, cerr := ghlib.CollectDir(hlsDir, ghPrefix)
-		if cerr != nil {
-			w.failJob(job, "collect hls files: "+cerr.Error(), result.OutputPath, filepath.Dir(result.OutputPath), filepath.Dir(filepath.Dir(result.OutputPath)), hlsDir, filepath.Dir(hlsDir), thumbDir, filepath.Dir(thumbDir))
-			return
-		}
-		batchFiles = append(batchFiles, hlsFiles...)
-		videoEndpoint = dateFolder + "/" + job.UploadID + "/master.m3u8"
-		w.log.Infof("collected %d hls files job=%s", len(hlsFiles), job.ID)
+	tierNames := make([]string, len(hlsAll.Tiers))
+	for i, t := range hlsAll.Tiers {
+		tierNames[i] = fmt.Sprintf("%s(%d segs)", t.TierName, len(t.SegmentFiles))
+	}
+	w.log.Infof("hls job=%s tiers=[%s]", job.ID, strings.Join(tierNames, ", "))
+	if hlsAll.Partial != nil {
+		w.log.Errorf("hls stopped early job=%s kept=%d err=%s", job.ID, len(hlsAll.Tiers), hlsAll.Partial.Error())
 	}
 
-	if len(batchFiles) > 0 {
-		w.notifyRunningProgress(job, 85)
-		if buErr := w.uploadBatchR2(context.Background(), batchFiles); buErr != nil {
-			w.log.Errorf("storage batch upload failed backend=%s job=%s files=%d err=%s", storageBackend, job.ID, len(batchFiles), buErr.Error())
-			_ = os.RemoveAll(hlsDir)
-			_ = os.Remove(filepath.Dir(hlsDir))
-			_ = os.RemoveAll(thumbDir)
-			_ = os.Remove(filepath.Dir(thumbDir))
-			_ = os.Remove(result.OutputPath)
-			// Non-recursive  see comment in image success path.
-			_ = os.Remove(filepath.Dir(result.OutputPath))
-			_ = os.Remove(filepath.Dir(filepath.Dir(result.OutputPath)))
-			_ = w.queue.SetJobStatus(context.Background(), job.ID, "failed")
-			webhook.NotifyJobStatus(webhook.Payload{JobID: job.ID, Status: "failed", UploadID: job.UploadID, UserID: job.UserID, FileName: job.FileName, FileSize: job.FileSize})
-			return
-		}
-		w.log.Infof("storage batch uploaded backend=%s job=%s files=%d", storageBackend, job.ID, len(batchFiles))
-	}
-
-	// Measure the ACTUAL post-processing bytes BEFORE cleanup. HLS ladder
-	// (360p/480p/720p/1080p) + segments + manifests + thumbnails are the real
-	// storage cost; the declared source size we got at /start is unrelated.
-	// Falls back to job.FileSize if the walk somehow returns 0.
-	processedBytes := dirSizeBytes(hlsDir) + dirSizeBytes(thumbDir)
-	if processedBytes <= 0 {
-		processedBytes = job.FileSize
-	}
+	processedBytes := storedBytes()
 	w.log.Infof("post-processing size job=%s source=%d processed=%d ratio=%.2fx",
 		job.ID, job.FileSize, processedBytes,
 		func() float64 {
@@ -1357,65 +1452,11 @@ func (w *Worker) processJob(job *queue.Job) {
 	_ = os.Remove(assembledDir)
 	_ = os.Remove(filepath.Dir(assembledDir))
 
-	// Build default thumbnail storage path
-	defaultThumbGH := ""
-	if defaultThumbPath != "" {
-		defaultThumbGH = ghPrefix + defaultThumbPath
+	if qualitiesPending {
+		w.notifyQualitiesReady(job, processedBytes)
+		qualitiesPending = false
 	}
-	previewGH := ""
-	if hoverPreviewOK {
-		previewGH = ghPrefix + ffmpeg.HoverPreviewName
-	}
-
-	w.notifyRunningProgress(job, 95)
-
-	// Built before any state transition on purpose. embedForFile calls a sidecar
-	// and langdetect parses uploader-supplied text, so a blow-up in either has to
-	// land while the job is still recoverable rather than in the gap between
-	// "queue says done" and "app was told".
-	payload := webhook.Payload{
-		JobID:    job.ID,
-		Status:   "completed",
-		UploadID: job.UploadID,
-		UserID:   job.UserID,
-		FileName: job.FileName,
-		// Actual stored bytes (HLS ladder + thumbnails) measured before
-		// cleanup, NOT the declared source size  the user is billed on what
-		// lives in R2, which can be 1.5-2x the source for low-bitrate phone
-		// videos.
-		FileSize:            processedBytes,
-		Endpoint:            videoEndpoint,
-		Thumbnails:          thumbnailPaths,
-		Duration:            videoDuration,
-		IsReel:              isReel,
-		IsAdult:             &isAdult,
-		ContentFlag:         contentFlag,
-		Colors:              vidColors,
-		Categories:          categories,
-		Tags:                tags,
-		Metadata:            metadata,
-		DefaultThumbnail:    defaultThumbGH,
-		PreviewEndpoint:     previewGH,
-		FileSeriesID:        job.FileSeriesID,
-		FileSeriesEpisodeID: job.FileSeriesEpisodeID,
-		IsNewSeries:         job.IsNewSeries,
-		NewEpisodeName:      job.NewEpisodeName,
-		ParentEpisodeID:     job.ParentEpisodeID,
-		StorageBackend:      storageBackend,
-		StorageBucket:       storageBucket,
-		Embedding:           w.embedForFile(job, categories, tags, metadata),
-		IsMusic:             isMusic,
-		FpProcessed:         fpProcessed,
-		OriginalUniqueID:    originalUniqueID,
-		// Uploader's own words only - the AI caption is always English.
-		ContentLanguage: langdetect.Detect(job.Title, job.Description),
-	}
-
-	// App first, queue second. NotifyJobStatus retries terminal statuses; the
-	// queue write is local bookkeeping that cannot resurrect a lost webhook.
-	webhook.NotifyJobStatus(payload)
 	_ = w.queue.SetJobStatus(context.Background(), job.ID, "completed")
-	completed = true
 	w.log.Infof("job complete job=%s user=%s upload=%s duration=%s thumbnails=%d colors=%d tags=%d fingerprints=%d", job.ID, job.UserID, job.UploadID, time.Since(start), len(thumbnailPaths), len(vidColors), len(tags), len(fpHashes))
 }
 

@@ -76,6 +76,9 @@ type Payload struct {
 	OriginalUniqueID string `json:"original_unique_id,omitempty"`
 	// 0–100 while status is running; omitted for queued/completed/failed unless set.
 	Progress *int `json:"progress,omitempty"`
+	// Set on "completed" when the video went live on its lowest quality and
+	// higher ones are still encoding; "qualities_ready" follows once they land.
+	QualitiesPending bool `json:"qualities_pending,omitempty"`
 }
 
 // terminalStatuses are payload statuses we MUST land in the DB for the row
@@ -87,6 +90,8 @@ type Payload struct {
 var terminalStatuses = map[string]struct{}{
 	"completed": {},
 	"failed":    {},
+	// Clears the "higher qualities processing" state on a live video.
+	"qualities_ready": {},
 }
 
 // NotifyJobStatus sends the payload to the app's /api/upload-job-status.

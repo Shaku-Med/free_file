@@ -50,6 +50,9 @@ type HLSResult struct {
 type HLSAllResult struct {
 	MasterPath string
 	Tiers      []*HLSResult
+	// Partial is why encoding stopped early after at least one quality had been
+	// published. The video stays watchable with the qualities in Tiers.
+	Partial error
 }
 
 type HLSOptions struct {
@@ -57,6 +60,12 @@ type HLSOptions struct {
 	SegmentTime int
 	// IsReel switches to the compact reel ladder (capped at 720p, tighter CRF).
 	IsReel bool
+	// Publish, when set, runs each time another quality finishes, lowest first,
+	// once master.m3u8 lists every quality done so far. newDirs are the folders
+	// (relative to the output dir) that are new since the last call. The first
+	// call is the moment the video can be watched, so a viewer gets 360p while
+	// 1080p is still encoding. A failure after that keeps what was published.
+	Publish func(newDirs []string, done, total int) error
 }
 
 func ConvertToHLS(inputPath, outputDir string, opts HLSOptions) (*HLSResult, error) {
@@ -299,91 +308,108 @@ func ConvertToHLSAllQualities(inputPath, outputDir string, opts HLSOptions) (*HL
 
 	hasAudio := strings.TrimSpace(probe.AudioCodec) != ""
 	hasGPU := checkGPU()
+	masterPath := filepath.Join(outputDir, "master.m3u8")
+
+	// What master.m3u8 lists: every finished rendition with its audio rung, and
+	// each DISTINCT rung once. Audio quality tracks video quality while a rung is
+	// still shared by every rendition in its band, so we store a couple of audio
+	// copies instead of one per tier.
 	var results []*HLSResult
+	var variantRung []audioRung
+	var distinct []audioRung
+	rungBW := map[string]int{}
+	published := false
+
+	// Once a quality is out, a later failure must not take the video down with it.
+	stop := func(err error) (*HLSAllResult, error) {
+		if !published {
+			return nil, err
+		}
+		log.Printf("[hls] stopped after %d of %d qualities, keeping those: %v", len(results), len(tiers), err)
+		return &HLSAllResult{MasterPath: masterPath, Tiers: results, Partial: err}, nil
+	}
 
 	for i, tier := range tiers {
 		log.Printf("[hls] starting tier %d/%d: %s (target width %d)", i+1, len(tiers), tier.Name, tier.Width)
 		tierStart := time.Now()
 		dir := filepath.Join(outputDir, tier.Name)
 		if err := os.MkdirAll(dir, 0700); err != nil {
-			return nil, err
+			return stop(err)
 		}
 		minFreeTier := uint64(2 << 30)
 		if est := inputSz * 2; est > minFreeTier {
 			minFreeTier = est
 		}
 		if err := RequireMinFreeSpace(dir, minFreeTier); err != nil {
-			return nil, fmt.Errorf("hls %s: %w", tier.Name, err)
+			return stop(fmt.Errorf("hls %s: %w", tier.Name, err))
 		}
 		// Video renditions are always encoded without audio here; the shared
-		// audio track (below) carries it for every quality.
+		// audio track carries it for every quality.
 		r, err := convertTier(inputPath, dir, opts, tier, hasGPU, hasAudio, true)
 		if err != nil {
-			return nil, fmt.Errorf("hls %s: %w", tier.Name, err)
+			return stop(fmt.Errorf("hls %s: %w", tier.Name, err))
 		}
 		r.TierName = tier.Name
 		r.Width, r.Height = scaledDims(tier.Width, probe.Width, probe.Height)
-		results = append(results, r)
 		log.Printf("[hls] finished tier %d/%d: %s %dx%d (%d segments, took %s)", i+1, len(tiers), tier.Name, r.Width, r.Height, len(r.SegmentFiles), time.Since(tierStart).Round(time.Second))
-	}
 
-	// Assign each variant an audio rung by its (actual) short side, then encode
-	// each DISTINCT rung once. Audio quality tracks video quality while a rung is
-	// still shared by every rendition in its band, so we store a couple of audio
-	// copies instead of one per tier.
-	variantRung := make([]audioRung, len(results))
-	var distinct []audioRung
-	seen := map[string]bool{}
-	rungBW := map[string]int{}
-	if hasAudio {
-		for i, r := range results {
+		newDirs := []string{tier.Name}
+		var rung audioRung
+		if hasAudio {
 			short := r.Height
 			if r.Width < r.Height {
 				short = r.Width
 			}
-			rung := audioRungForShort(short)
-			variantRung[i] = rung
-			if !seen[rung.id] {
-				seen[rung.id] = true
+			rung = audioRungForShort(short)
+			if _, done := rungBW[rung.id]; !done {
+				br := capAudioBitrate(rung.bitrate, probe.AudioBitrate)
+				log.Printf("[hls] starting audio rung %q (%s)", rung.id, br)
+				audioStart := time.Now()
+				if err := convertAudioTrack(inputPath, filepath.Join(outputDir, "audio_"+rung.id), opts, br); err != nil {
+					return stop(fmt.Errorf("hls audio %s: %w", rung.id, err))
+				}
+				rungBW[rung.id] = audioBitrateBps(br)
 				distinct = append(distinct, rung)
+				newDirs = append(newDirs, "audio_"+rung.id)
+				log.Printf("[hls] finished audio rung %q (took %s)", rung.id, time.Since(audioStart).Round(time.Second))
 			}
 		}
-		for _, rung := range distinct {
-			br := capAudioBitrate(rung.bitrate, probe.AudioBitrate)
-			dir := filepath.Join(outputDir, "audio_"+rung.id)
-			log.Printf("[hls] starting audio rung %q (%s)", rung.id, br)
-			audioStart := time.Now()
-			if err := convertAudioTrack(inputPath, dir, opts, br); err != nil {
-				return nil, fmt.Errorf("hls audio %s: %w", rung.id, err)
-			}
-			rungBW[rung.id] = audioBitrateBps(br)
-			log.Printf("[hls] finished audio rung %q (took %s)", rung.id, time.Since(audioStart).Round(time.Second))
+
+		if err := writeMaster(masterPath, append(results, r), append(variantRung, rung), distinct, rungBW, hasAudio); err != nil {
+			return stop(err)
 		}
+		if opts.Publish != nil {
+			if err := opts.Publish(newDirs, i+1, len(tiers)); err != nil {
+				return stop(fmt.Errorf("publish %s: %w", tier.Name, err))
+			}
+			published = true
+		}
+		results = append(results, r)
+		variantRung = append(variantRung, rung)
 	}
 
-	var masterLines []string
-	masterLines = append(masterLines, "#EXTM3U", "#EXT-X-VERSION:4")
+	return &HLSAllResult{MasterPath: masterPath, Tiers: results}, nil
+}
+
+func writeMaster(path string, results []*HLSResult, variantRung, distinct []audioRung, rungBW map[string]int, hasAudio bool) error {
+	lines := []string{"#EXTM3U", "#EXT-X-VERSION:4"}
 	for _, rung := range distinct {
-		masterLines = append(masterLines,
+		lines = append(lines,
 			fmt.Sprintf(`#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="aud-%s",NAME="Audio",DEFAULT=YES,AUTOSELECT=YES,CHANNELS="2",URI="audio_%s/audio.m3u8"`, rung.id, rung.id),
 		)
 	}
 	for i, r := range results {
-		bw := r.Bandwidth
-		inf := fmt.Sprintf("#EXT-X-STREAM-INF:BANDWIDTH=%d,RESOLUTION=%dx%d", bw+rungBW[variantRung[i].id], r.Width, r.Height)
+		inf := fmt.Sprintf("#EXT-X-STREAM-INF:BANDWIDTH=%d,RESOLUTION=%dx%d", r.Bandwidth+rungBW[variantRung[i].id], r.Width, r.Height)
 		if hasAudio {
 			inf += fmt.Sprintf(`,AUDIO="aud-%s"`, variantRung[i].id)
 		}
-		masterLines = append(masterLines, inf, r.TierName+"/playlist.m3u8")
+		lines = append(lines, inf, r.TierName+"/playlist.m3u8")
 	}
-	masterLines = append(masterLines, "")
-
-	masterPath := filepath.Join(outputDir, "master.m3u8")
-	if err := os.WriteFile(masterPath, []byte(strings.Join(masterLines, "\n")), 0644); err != nil {
-		return nil, fmt.Errorf("write master: %w", err)
+	lines = append(lines, "")
+	if err := os.WriteFile(path, []byte(strings.Join(lines, "\n")), 0644); err != nil {
+		return fmt.Errorf("write master: %w", err)
 	}
-
-	return &HLSAllResult{MasterPath: masterPath, Tiers: results}, nil
+	return nil
 }
 
 func convertTier(inputPath, outputDir string, opts HLSOptions, tier QualityTier, tryGPU bool, hasAudio bool, videoOnly bool) (*HLSResult, error) {

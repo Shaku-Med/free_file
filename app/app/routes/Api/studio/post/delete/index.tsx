@@ -26,6 +26,8 @@ const denyErr = (status = 500) => toJson({ error: "Something's wrong." }, status
 
 /** Upload states where the worker may still be writing  deletion is blocked. */
 const PROCESSING_STATES = new Set(["queued", "running", "processing", "pending", "uploading"]);
+/** How long a live video's higher qualities can hold off a delete; past it, a row a crashed worker never cleared is deletable again. */
+const PENDING_QUALITIES_MAX_MS = 24 * 60 * 60 * 1000;
 
 /** The only storage-directory shape the purge endpoint accepts. */
 const PREFIX_PATTERN = /^\d{2}_\d{2}_\d{4}\/[a-f0-9]{32}\//;
@@ -113,7 +115,7 @@ export const action = async ({ request }: { request: Request }) => {
 
     const { data: existing, error: lookupErr } = await db
       .from("files")
-      .select("id, owner_id, endpoint, thumbnails, default_thumbnail, preview_endpoint, storage_backend, github_repo, upload_status")
+      .select("id, owner_id, endpoint, thumbnails, default_thumbnail, preview_endpoint, storage_backend, github_repo, upload_status, processing_progress, created_at")
       .eq("unique_id", uniqueId)
       .maybeSingle();
     if (lookupErr) {
@@ -129,6 +131,17 @@ export const action = async ({ request }: { request: Request }) => {
     // (terminal) uploads are deletable. Legacy rows with no status are allowed.
     const status = (existing as { upload_status?: string | null }).upload_status;
     if (typeof status === "string" && PROCESSING_STATES.has(status.toLowerCase())) {
+      return toJson(
+        { error: "processing", message: "This video is still processing. You can delete it once it finishes." },
+        409,
+      );
+    }
+    // Live, but its higher qualities are still being written to the same folder.
+    const row = existing as { processing_progress?: unknown; created_at?: unknown };
+    if (
+      typeof row.processing_progress === "number" &&
+      Date.now() - Date.parse(String(row.created_at)) < PENDING_QUALITIES_MAX_MS
+    ) {
       return toJson(
         { error: "processing", message: "This video is still processing. You can delete it once it finishes." },
         409,
