@@ -18,31 +18,26 @@ const PROMPTS = [
     title: "Join the community",
     description: "Sign in to upload your own videos, follow creators you love, and build your personal feed.",
     icon: Upload,
-    accent: "text-blue-500",
   },
   {
     title: "Never miss a moment",
     description: "Get notified when your favorite creators post something new. Sign in to turn on notifications.",
     icon: Bell,
-    accent: "text-amber-500",
   },
   {
     title: "Show some love",
     description: "Like, comment, and save the videos you enjoy. Sign in to interact with the community.",
     icon: Heart,
-    accent: "text-rose-500",
   },
   {
     title: "Join the conversation",
     description: "Have something to say? Sign in to leave comments and connect with other viewers.",
     icon: MessageCircle,
-    accent: "text-emerald-500",
   },
   {
     title: "Unlock the full experience",
     description: "Saves, subscriptions, upload history, and more. Create a free account to get started.",
     icon: Sparkles,
-    accent: "text-violet-500",
   },
 ];
 
@@ -119,7 +114,7 @@ export default function SignInPrompt() {
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogContent className="max-w-lg w-full min-w-[200px] gap-5">
         <DialogHeader className="items-center text-center gap-3">
-          <div className={`inline-flex h-14 w-14 items-center justify-center rounded-2xl bg-muted ${prompt.accent}`}>
+          <div className="inline-flex h-14 w-14 items-center justify-center rounded-2xl bg-primary/10 text-primary">
             <Icon className="h-7 w-7" strokeWidth={1.75} />
           </div>
           <DialogTitle className="text-lg">{prompt.title}</DialogTitle>

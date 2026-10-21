@@ -16,6 +16,7 @@ import { WindappNavButtons } from "./WindappNavButtons";
 import { DesktopUpdateHeaderButton } from "~/components/DesktopUpdateCta";
 import { cn } from "~/lib/utils";
 import { isReelRoute } from "~/lib/reelRoute";
+import { isSingleSegmentWatchPath } from "~/lib/Context/MiniPlayerContext";
 import { useTabBarStyle } from "~/lib/hooks/useTabBarStyle";
 import { onOpenHeaderSearch } from "~/lib/headerSearch";
 import { sendReelCommand, setReelFeedMode, useReelFeedMode, useReelMuted, type ReelFeedMode } from "~/lib/reel/reelChrome";
@@ -114,7 +115,10 @@ export default function Navbar({ hasScrolled = { state: false, opacityLevel: 0 }
   const showSearchBar = effectiveInlineSearch || mobileSearchOpen;
   // Reel keeps a transparent bar, but give a backdrop while the search is expanded
   // so the field stays readable against the video.
-  const barOpacity = searchExpanded ? 1 : onReelRoute ? 0 : hasScrolled.opacityLevel;
+  // On a phone's watch page the video pins right under the bar, so the bar is
+  // solid there: see-through glass let the page show between bar and video.
+  const solidOverPlayer = isMobile && isSingleSegmentWatchPath(location.pathname);
+  const barOpacity = searchExpanded || solidOverPlayer ? 1 : onReelRoute ? 0 : hasScrolled.opacityLevel;
   const appReelHeader = Boolean(appStyle) && onReelRoute && !searchExpanded;
   const reelMuted = useReelMuted();
 
@@ -186,7 +190,7 @@ export default function Navbar({ hasScrolled = { state: false, opacityLevel: 0 }
           className="pointer-events-none absolute inset-x-0 top-0 h-[calc(100%+1.5rem)] bg-gradient-to-b from-black/40 to-transparent"
         />
       ) : null}
-      {appStyle === "ios-glass" && !searchExpanded ? (
+      {appStyle === "ios-glass" && !searchExpanded && !solidOverPlayer ? (
         <div
           aria-hidden
           className="header-scroll-edge pointer-events-none absolute inset-x-0 top-0 h-[calc(100%+1.25rem)]"
@@ -200,6 +204,7 @@ export default function Navbar({ hasScrolled = { state: false, opacityLevel: 0 }
             expandedDesktop
               ? "bg-card/90 supports-[backdrop-filter]:bg-card/75"
               : "bg-background/90 supports-[backdrop-filter]:bg-background/75",
+            solidOverPlayer && "border-transparent bg-background supports-[backdrop-filter]:bg-background",
           )}
           style={{ opacity: barOpacity }}
         />

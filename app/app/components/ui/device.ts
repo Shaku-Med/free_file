@@ -115,7 +115,7 @@ const LOOKS = {
   },
   toast: {
     ios: "rounded-[22px]",
-    material: "rounded-[4px] group-[.toaster]:bg-foreground group-[.toaster]:text-background group-[.toaster]:border-transparent",
+    material: "rounded-xl",
   },
 } satisfies Record<string, Look>;
 

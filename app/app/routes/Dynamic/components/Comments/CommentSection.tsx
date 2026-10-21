@@ -677,7 +677,7 @@ const CommentSection = ({
     "shrink-0 shadow-[0_-8px_24px_-8px_rgba(0,0,0,0.1)] dark:shadow-[0_-8px_24px_-8px_rgba(0,0,0,0.35)]",
     composerSurface,
     fillHeight
-      ? "z-20 mt-auto px-3 pt-1.5 pb-[max(0.125rem,env(safe-area-inset-bottom))]"
+      ? "z-20 mt-auto px-3 pt-2.5 pb-[max(0.625rem,env(safe-area-inset-bottom))]"
       : cn(
           // Feed cards render as high as z-[1000000], so the old z-20/z-30
           // put the composer underneath them and they scrolled straight over
@@ -815,7 +815,7 @@ const CommentSection = ({
   // bar where the composer would be, as in the app.
   const signInBar =
     fillHeight && commentsEnabled && !currentUserId ? (
-      <div className={cn(composerShellClass, "py-2")}>
+      <div className={composerShellClass}>
         <Button type="button" className="w-full" onClick={goToLogin}>
           Sign in to comment
         </Button>

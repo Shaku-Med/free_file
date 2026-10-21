@@ -660,6 +660,7 @@ export default function ImgPreview({
 
   return (
     <Dialog
+      presentation="fullscreen"
       open={isOpen}
       onOpenChange={(open) => {
         if (open) setIsOpen(true);

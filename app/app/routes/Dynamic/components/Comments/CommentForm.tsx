@@ -463,7 +463,7 @@ const CommentForm = ({
   );
 
   const attachmentBtn =
-    "inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-background/80 hover:text-foreground disabled:opacity-50";
+    "mb-0.5 inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-background/80 hover:text-foreground disabled:opacity-50";
 
   return (
     <>
@@ -512,9 +512,10 @@ const CommentForm = ({
         {imageError ? <p className="ml-10 text-[11px] text-destructive">{imageError}</p> : null}
 
         <div className="flex items-end gap-2">
-          {avatarEl}
+          {/* Lifted by the pill's border and padding, so it centres on one line and stays with the last line as it grows. */}
+          <div className="mb-[7px] flex shrink-0">{avatarEl}</div>
           <div className="relative flex min-w-0 flex-1 items-end gap-1 rounded-[1.35rem] border border-border/55 bg-muted/45 px-2 py-1.5 shadow-sm dark:bg-muted/35">
-            <div className="relative min-w-0 flex-1">
+            <div className="relative mb-0.5 min-w-0 flex-1">
               <Textarea
                 ref={textareaRef}
                 rows={1}

@@ -149,7 +149,7 @@ export const NativeSheetContent = React.forwardRef<HTMLDivElement, ContentProps>
   // Measured as soon as the content attaches (the portal only renders it after
   // mounting), so a short sheet opens straight at its own height.
   const fitTo = sheet?.fitTo
-  // Room left above the sheet at full height; detents count from the window's top, so it is part of the fit.
+  // Room left above the sheet at full height.
   const gap = material ? 16 : 10
   const measured = React.useCallback(
     (el: HTMLDivElement | null) => {
@@ -159,8 +159,12 @@ export const NativeSheetContent = React.forwardRef<HTMLDivElement, ContentProps>
         return
       }
       const measure = () => {
-        const need = Math.ceil(el.getBoundingClientRect().height) + gap
-        fitTo(need > gap && need <= window.innerHeight * MEDIUM ? need : null)
+        const height = Math.ceil(el.getBoundingClientRect().height)
+        // A detent counts from the window's top, but the sheet stops short of it by the gap and the
+        // notch's safe area (about 59px in the home screen app), so both go on top of the content.
+        const sheetHeight = el.closest<HTMLElement>("[data-vaul-drawer]")?.offsetHeight ?? window.innerHeight - gap
+        const need = height + Math.max(gap, window.innerHeight - sheetHeight)
+        fitTo(height > 0 && need <= window.innerHeight * MEDIUM ? need : null)
       }
       measure()
       const observer = new ResizeObserver(measure)

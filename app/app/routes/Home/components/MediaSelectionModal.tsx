@@ -1816,7 +1816,7 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
 
   return (
     <>
-    <Dialog open={isOpen && !minimized} onOpenChange={handleDialogOpenChange}>
+    <Dialog presentation="fullscreen" open={isOpen && !minimized} onOpenChange={handleDialogOpenChange}>
       <DialogContent
         shouldClose
         className="w-[min(100%,calc(100vw-1rem))] max-w-[520px] sm:max-w-xl md:max-w-3xl lg:max-w-6xl h-full rounded-3xl p-0 overflow-hidden max-h-[min(92dvh,900px)] max-sm:max-h-[calc(100dvh-env(safe-area-inset-top)-env(safe-area-inset-bottom))] flex flex-col gap-0 shadow-2xl border-border/60"
@@ -3082,6 +3082,7 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
     {/* Playback opens over the form rather than replacing the thumbnail, so the
         clip gets the room it needs and the metadata underneath stays put. */}
     <Dialog
+      presentation="fullscreen"
       open={playbackOpen && !!activeItem?.previewUrl}
       onOpenChange={(open) => {
         if (!open) stopVideoPlayback()

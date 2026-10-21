@@ -14,12 +14,17 @@ import {
   useSheetsOnPhone,
 } from "./native-sheet"
 
-/** On a phone a dialog is the app's sheet, with its detents and gestures; elsewhere it stays a dialog. */
+/**
+ * On a phone a dialog is the app's sheet, with its detents and gestures;
+ * elsewhere it stays a dialog. A full screen view (an image viewer, the upload
+ * flow) passes `presentation="fullscreen"` and keeps the whole screen there.
+ */
 function Dialog({
+  presentation = "sheet",
   ...props
-}: React.ComponentProps<typeof DialogPrimitive.Root>) {
+}: React.ComponentProps<typeof DialogPrimitive.Root> & { presentation?: "sheet" | "fullscreen" }) {
   const phone = useSheetsOnPhone()
-  if (phone) return <NativeSheet open={props.open} defaultOpen={props.defaultOpen} onOpenChange={props.onOpenChange} modal={props.modal}>{props.children}</NativeSheet>
+  if (phone && presentation === "sheet") return <NativeSheet open={props.open} defaultOpen={props.defaultOpen} onOpenChange={props.onOpenChange} modal={props.modal}>{props.children}</NativeSheet>
   return <DialogPrimitive.Root data-slot="dialog" {...props} />
 }
 

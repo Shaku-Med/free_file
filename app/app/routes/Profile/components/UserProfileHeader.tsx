@@ -320,7 +320,7 @@ const UserProfileHeader = ({
             isOpen={isEditOpen}
             onClose={() => setIsEditOpen(false)}
           />
-          <Dialog open={isUploadModalOpen} onOpenChange={handleModalClose}>
+          <Dialog presentation="fullscreen" open={isUploadModalOpen} onOpenChange={handleModalClose}>
             <DialogContent className="w-[95vw] max-w-4xl max-h-[95vh] p-0 gap-0 flex flex-col">
               <DialogHeader className="px-4 sm:px-6 pt-4 sm:pt-6 pb-3 sm:pb-4 border-b flex-shrink-0 bg-background sticky top-0 z-10">
                 <DialogTitle className="text-lg sm:text-xl font-semibold">Change Profile Picture</DialogTitle>

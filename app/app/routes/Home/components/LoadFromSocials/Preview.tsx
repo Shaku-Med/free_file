@@ -124,7 +124,7 @@ const Preview: React.FC<PreviewProps> = ({ previewUrl, blob, fileName, onClose, 
         </CardContent>
       </Card>
 
-      <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+      <Dialog presentation="fullscreen" open={isDialogOpen} onOpenChange={setIsDialogOpen}>
         <DialogContent className="max-w-4xl max-h-[90vh] p-0 bg-background/95 backdrop-blur-xl border-0 shadow-2xl">
           <DialogHeader className="px-6 pt-6 pb-4">
             <DialogTitle className="text-lg font-semibold">{fileName || 'Preview'}</DialogTitle>

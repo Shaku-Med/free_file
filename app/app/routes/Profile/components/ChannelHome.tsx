@@ -88,7 +88,11 @@ export default function ChannelHome({
         )}
       >
         {preview.map((file, i) => (
-          <div key={file.id} className={cn("min-w-0", phone && cn("shrink-0 snap-start", reel ? "w-[36vw] max-w-44" : "w-[68vw] max-w-72"))}>
+          <div
+            key={file.id}
+            // Every card in a shelf takes the row's height, so a one line title doesn't leave a short card.
+            className={cn("min-w-0", phone && cn("flex shrink-0 snap-start flex-col [&>*]:flex-1", reel ? "w-[36vw] max-w-44" : "w-[68vw] max-w-72"))}
+          >
             <VideoCard
               data={file}
               index={i}
