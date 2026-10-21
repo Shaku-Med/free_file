@@ -16,7 +16,7 @@ type UserAgentData = {
 
 function isIos(ua: string): boolean {
   if (/iPhone|iPad|iPod/i.test(ua)) return true;
-  return /Macintosh/i.test(ua) && navigator.maxTouchPoints > 1;
+  return typeof navigator !== "undefined" && /Macintosh/i.test(ua) && navigator.maxTouchPoints > 1;
 }
 
 /**
@@ -30,6 +30,18 @@ function isLiquidGlassIos(ua: string): boolean {
   const safari = /Version\/(\d+)/.exec(ua);
   if (safari) return Number(safari[1]) >= 26;
   return typeof CSS !== "undefined" && CSS.supports("animation-timeline", "scroll()");
+}
+
+/**
+ * The look as far as the user agent alone tells, so the server's first paint
+ * already matches the phone instead of flashing the desktop look first. The
+ * browser then refines it (an iPad that says Mac, Android's real version).
+ */
+export function deviceStyleFromUserAgent(ua: string | null | undefined): DeviceStyle {
+  if (!ua) return "default";
+  if (isIos(ua)) return isLiquidGlassIos(ua) ? "ios-glass" : "ios";
+  if (/Android/i.test(ua)) return androidStyle(reportedAndroidMajor(ua));
+  return "default";
 }
 
 /** Chrome's reduced UA always says "Android 10; K", so treat that as unknown. */
@@ -49,8 +61,8 @@ const DeviceStyleContext = createContext<DeviceStyle>("default");
  * Works the device out once for the whole page. It also lands on
  * `<html data-device>`, for the few styles that live in CSS.
  */
-export function DeviceStyleProvider({ children }: { children: ReactNode }) {
-  const [style, setStyle] = useState<DeviceStyle>("default");
+export function DeviceStyleProvider({ initial = "default", children }: { initial?: DeviceStyle; children: ReactNode }) {
+  const [style, setStyle] = useState<DeviceStyle>(initial);
 
   useEffect(() => {
     const ua = navigator.userAgent;

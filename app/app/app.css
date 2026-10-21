@@ -372,6 +372,17 @@ img {
   }
 }
 
+/* Phones and tablets show no scrollbars of their own, like the app; the green
+   desktop bar only showed up on rows that overflow by a pixel. */
+@media (pointer: coarse) {
+  * {
+    scrollbar-width: none;
+  }
+  *::-webkit-scrollbar {
+    display: none;
+  }
+}
+
 .masonry { 
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(14rem, 1fr));

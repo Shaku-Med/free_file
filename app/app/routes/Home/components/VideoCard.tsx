@@ -2334,7 +2334,7 @@ const VideoCard = ({
                 to={watchPath} prefetch="intent"
                 className="min-w-0 flex-1 rounded-md hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
               >
-                <h3 className="line-clamp-2 break-all text-[13px] font-semibold leading-snug tracking-tight text-foreground sm:text-sm">
+                <h3 className="line-clamp-2 break-words text-[13px] font-semibold leading-snug tracking-tight text-foreground sm:text-sm">
                   <ParseFilenameInsert filename={displayMediaTitle(data.file_title || data.filename || "")} showLimit={64} />
                 </h3>
               </Link>

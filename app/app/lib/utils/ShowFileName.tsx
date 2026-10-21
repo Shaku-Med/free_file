@@ -50,7 +50,8 @@ function renderSegments(segments: Segment[], keyPrefix: string): React.ReactNode
     const k = `${keyPrefix}-${i}`;
     if (seg.type === "text") {
       out.push(
-        <span key={k} className="break-all">
+        // Words wrap whole; only one too long for the line (a bare filename) is split.
+        <span key={k} className="break-words">
           {seg.value}
         </span>
       );

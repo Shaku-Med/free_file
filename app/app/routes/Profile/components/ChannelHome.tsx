@@ -3,6 +3,7 @@ import { ChevronRight, ListVideo } from "lucide-react";
 import VideoCard from "~/routes/Home/components/VideoCard";
 import { FEED_HIDE_ACTIONS } from "~/lib/feed/feedVideoCardLayout";
 import { cn } from "~/lib/utils";
+import { useIsMobile } from "~/hooks/use-mobile";
 import type { FileType } from "~/lib/types";
 import {
   CHANNEL_HOME_PREVIEW_LIMIT,
@@ -65,6 +66,9 @@ export default function ChannelHome({
   currentUserId,
   userActions,
 }: ChannelHomeProps) {
+  // Phones get the app's shelves: a row you swipe sideways, with cards that keep
+  // their size, instead of a grid squeezing two full cards into each line.
+  const phone = useIsMobile();
   const renderFileRow = (type: ChannelSectionType, files: FileType[], reel: boolean) => {
     if (files.length === 0) return null;
     const preview = files.slice(0, CHANNEL_HOME_PREVIEW_LIMIT);
@@ -80,14 +84,15 @@ export default function ChannelHome({
           reel
             ? "grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6"
             : "grid-cols-2 sm:grid-cols-3 lg:grid-cols-4",
+          phone && "-mx-3 flex w-auto snap-x snap-mandatory scroll-px-3 overflow-x-auto px-3 pb-1",
         )}
       >
         {preview.map((file, i) => (
-          <div key={file.id} className="min-w-0">
+          <div key={file.id} className={cn("min-w-0", phone && cn("shrink-0 snap-start", reel ? "w-[36vw] max-w-44" : "w-[68vw] max-w-72"))}>
             <VideoCard
               data={file}
               index={i}
-              layout={reel ? "reelStrip" : "default"}
+              layout={reel ? "reelStrip" : phone ? "shelf" : "default"}
               currentUserId={currentUserId ?? undefined}
               userActions={userActions}
               hideActions={FEED_HIDE_ACTIONS}
