@@ -220,7 +220,7 @@ function PipReelItemInner({
     setDislikeCount(u.dislike_count);
   };
 
-  /** Reset when Swiper reuses a slide for a different `file` (virtual). */
+  /** Keeps likes and counts in step with the feed, including after the viewer's own actions load. */
   useEffect(() => {
     const id = fileIdNorm;
     if (userActions) {
@@ -233,14 +233,6 @@ function PipReelItemInner({
     setLikeCount(Number(file.like_count) || 0);
     setDislikeCount(Number(file.dislike_count) || 0);
     setViews(Number(file.views ?? file.view_count ?? 0));
-    setHasIncrementedView(false);
-    viewIncrementSentRef.current = false;
-    setTrackedVideoEl(null);
-    setVideoAspect(null);
-    if (viewIncrementTimerRef.current) {
-      clearTimeout(viewIncrementTimerRef.current);
-      viewIncrementTimerRef.current = null;
-    }
   }, [
     fileIdNorm,
     file.like_count,
@@ -252,6 +244,23 @@ function PipReelItemInner({
     item.liked,
     item.disliked,
   ]);
+
+  /**
+   * Reset when Swiper reuses a slide for a different `file` (virtual), and only
+   * then. Running this whenever a count changed threw away the slide's video a
+   * moment after it started, so the frame fell back to 9:16, the ambience stayed
+   * on the last reel and the view guard reset. The player only hands its video
+   * over when it mounts, so the element is kept; only what it measured goes.
+   */
+  useEffect(() => {
+    setHasIncrementedView(false);
+    viewIncrementSentRef.current = false;
+    setVideoAspect(null);
+    if (viewIncrementTimerRef.current) {
+      clearTimeout(viewIncrementTimerRef.current);
+      viewIncrementTimerRef.current = null;
+    }
+  }, [fileIdNorm]);
 
   useWatchTracking({
     fileId: String(file.id),
@@ -619,8 +628,11 @@ function PipReelItemInner({
     return () => mql.removeEventListener('change', update);
   }, []);
 
+  // A slide with its own video measures it while it preloads, so its frame is
+  // right before it scrolls in. With the page's one shared video, only the slide
+  // on screen reads it; one that has moved on would take the next reel's shape.
   useEffect(() => {
-    if (variant !== 'page') return;
+    if (variant !== 'page' || (sharedVideoEl && !isActive)) return;
     const v = trackedVideoEl ?? videoRef.current;
     if (!v) return;
 
@@ -639,7 +651,7 @@ function PipReelItemInner({
       v.removeEventListener('loadeddata', syncAspect);
       v.removeEventListener('resize', syncAspect);
     };
-  }, [variant, isReelMobileLayout, trackedVideoEl, fileIdNorm]);
+  }, [variant, isActive, sharedVideoEl, trackedVideoEl, fileIdNorm]);
 
   const reelFrameStyle = useMemo(() => {
     if (variant !== 'page' || isReelMobileLayout) return undefined;
