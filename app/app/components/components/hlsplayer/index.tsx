@@ -1,5 +1,7 @@
 import React, { useEffect, useLayoutEffect, useState, useCallback, useRef, useMemo } from 'react';
-import { Play, Pause, LoaderCircle, Volume2, VolumeX, AlertTriangle } from '~/components/icons';
+import { Play, Pause, LoaderCircle, Volume2, VolumeX, AlertTriangle, Maximize, Minimize } from '~/components/icons';
+import { useReelFullscreen } from '~/lib/reel/reelFullscreen';
+import VolumeControl from './controls/volume/VolumeControl';
 import { flushSync } from 'react-dom';
 import { useNavigate, useLocation } from 'react-router';
 import { useInView } from 'react-intersection-observer';
@@ -513,6 +515,8 @@ function PlayerInner({
     globalPlayerLayout === 'mini' &&
     !(watchHlsSurface?.props && file && watchHlsSurface.props.file?.unique_id === file.unique_id);
   const isMiniMobileBar = useMiniMobileBar();
+  /** Set on the reel page, which owns the reel's full screen mode. */
+  const reelFullscreen = useReelFullscreen();
   const miniSeekOnly = isMiniDock && isMiniMobileBar;
   // A floating dock has nowhere to go fullscreen to. The button is already
   // hidden there; this closes the keyboard route as well.
@@ -1456,6 +1460,12 @@ function PlayerInner({
                   <Play className="h-[1.125rem] w-[1.125rem] translate-x-0.5 fill-current" aria-hidden />
                 )}
               </button>
+              {reelFullscreen ? (
+                // YouTube's volume: a pill whose slider slides open on hover.
+                <div className="flex items-center rounded-full bg-black/40 text-white [&_button]:text-white [&_svg]:text-white">
+                  <VolumeControl showSlider barPill />
+                </div>
+              ) : (
               <button
                 type="button"
                 onClick={() => toggleMute()}
@@ -1468,15 +1478,33 @@ function PlayerInner({
                   <Volume2 className="h-[1.125rem] w-[1.125rem]" aria-hidden />
                 )}
               </button>
+              )}
             </div>
             )}
-            {/* CC + settings are signed-in-only surfaces; guests get neither on reels. */}
-            {authPlayback && (
-              <div className="flex items-center gap-2">
-                <SubtitleButton variant="mobileOverlay" />
-                {appReelChrome ? null : <SettingsMenu overlayTrigger />}
-              </div>
-            )}
+            <div className="flex items-center gap-2">
+              {/* CC + settings are signed-in-only surfaces; guests get neither on reels. */}
+              {authPlayback ? (
+                <>
+                  <SubtitleButton variant="mobileOverlay" />
+                  {appReelChrome ? null : <SettingsMenu overlayTrigger moreIcon={Boolean(reelFullscreen)} />}
+                </>
+              ) : null}
+              {/* Full screen, as on YouTube Shorts: the reel takes the whole page. */}
+              {reelFullscreen && !appReelChrome ? (
+                <button
+                  type="button"
+                  onClick={reelFullscreen.toggle}
+                  aria-label={reelFullscreen.active ? 'Exit full screen' : 'Full screen'}
+                  className={cn(mobileOverlayCircleBtn, 'hover:bg-black/60')}
+                >
+                  {reelFullscreen.active ? (
+                    <Minimize className="h-[1.125rem] w-[1.125rem]" aria-hidden />
+                  ) : (
+                    <Maximize className="h-[1.125rem] w-[1.125rem]" aria-hidden />
+                  )}
+                </button>
+              ) : null}
+            </div>
           </div>
         )}
 

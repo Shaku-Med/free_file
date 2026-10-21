@@ -4,6 +4,7 @@ import { useAuthHrefs } from '~/lib/loginRedirect';
 import { isMobile } from 'react-device-detect';
 import {
   Settings,
+  MoreVertical,
   BarChart3,
   Monitor,
   Square,
@@ -751,6 +752,8 @@ interface SettingsMenuProps {
   onOpenChange?: (open: boolean) => void;
   overlayTrigger?: boolean;
   pillBarTrigger?: boolean;
+  /** YouTube's ⋮ in place of the gear, as on desktop reels. */
+  moreIcon?: boolean;
 }
 
 function useResolutionBadge(): string | null {
@@ -778,7 +781,7 @@ function QualityBadge({ label, className }: { label: string; className?: string 
   );
 }
 
-export default function SettingsMenu({ nested, panelRef, open, onOpenChange, overlayTrigger, pillBarTrigger }: SettingsMenuProps) {
+export default function SettingsMenu({ nested, panelRef, open, onOpenChange, overlayTrigger, pillBarTrigger, moreIcon }: SettingsMenuProps) {
   const menuWidthClass = cn(
     playerMenuSurface,
     'max-h-[min(72dvh,var(--radix-dropdown-menu-content-available-height))]',
@@ -791,7 +794,7 @@ export default function SettingsMenu({ nested, panelRef, open, onOpenChange, ove
 
   if (nested) {
     return (
-      <DropdownMenu modal={false}>
+      <DropdownMenu modal={false} sheetOnPhone sheetTitle="Player settings">
         <Tooltip delayDuration={350}>
           <TooltipTrigger asChild>
             <DropdownMenuTrigger asChild>
@@ -828,7 +831,7 @@ export default function SettingsMenu({ nested, panelRef, open, onOpenChange, ove
   }
 
   return (
-    <DropdownMenu open={open} onOpenChange={onOpenChange}>
+    <DropdownMenu open={open} onOpenChange={onOpenChange} sheetOnPhone sheetTitle="Player settings">
       <Tooltip delayDuration={350}>
         <TooltipTrigger asChild>
           <DropdownMenuTrigger asChild>
@@ -842,7 +845,8 @@ export default function SettingsMenu({ nested, panelRef, open, onOpenChange, ove
                 overlayTrigger
                   ? cn(
                       mobileOverlaySquareBtn,
-                      'outline-none hover:bg-black/60 data-[state=open]:bg-black/60 data-[state=open]:[&_svg]:rotate-45',
+                      'outline-none hover:bg-black/60 data-[state=open]:bg-black/60',
+                      !moreIcon && 'data-[state=open]:[&_svg]:rotate-45',
                     )
                   : pillBarTrigger
                     ? 'rounded-full p-2 text-white outline-none transition-colors hover:bg-white/10 data-[state=open]:bg-white/15 data-[state=open]:[&_svg]:rotate-45'
@@ -850,6 +854,9 @@ export default function SettingsMenu({ nested, panelRef, open, onOpenChange, ove
               )}
               aria-label="Settings"
             >
+              {moreIcon ? (
+                <MoreVertical className={cn(mobileOverlayIcon, 'text-white')} />
+              ) : (
               <Settings
                 className={
                   overlayTrigger
@@ -859,6 +866,7 @@ export default function SettingsMenu({ nested, panelRef, open, onOpenChange, ove
                       : 'h-5 w-5 transition-transform duration-300'
                 }
               />
+              )}
               {badge && (
                 <QualityBadge
                   label={badge}

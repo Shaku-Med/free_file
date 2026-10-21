@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Swiper, SwiperSlide } from "swiper/react";
 import { Keyboard, Mousewheel, Virtual } from "swiper/modules";
 import type { Swiper as SwiperType } from "swiper";
-import { ChevronDown, ChevronUp } from "lucide-react";
+import { ArrowDown, ArrowUp, ChevronUp } from "lucide-react";
 import "swiper/css";
 
 import { isIOS } from "react-device-detect";
@@ -465,7 +465,7 @@ export const ReelSwiper = ({
       {hasFinePointer && (
         <div
           className={cn(
-            "absolute right-[max(0.75rem,env(safe-area-inset-right))] top-1/2 z-30 hidden -translate-y-1/2 flex-col gap-2 lg:flex",
+            "absolute right-[max(1.5rem,env(safe-area-inset-right))] top-1/2 z-30 hidden -translate-y-1/2 flex-col gap-4 lg:flex",
           )}
         >
           <button
@@ -474,14 +474,13 @@ export const ReelSwiper = ({
             disabled={!canGoPrev}
             aria-label="Previous reel"
             className={cn(
-              "group inline-flex h-9 w-9 items-center justify-center rounded-full",
-              "border border-white/15 bg-black/45 text-white/85 backdrop-blur-sm",
-              "transition-all duration-200 hover:bg-black/70 hover:text-white",
+              "group inline-flex size-14 items-center justify-center rounded-full",
+              "bg-white/10 text-white transition-colors duration-200 hover:bg-white/20 active:bg-white/25",
               "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70",
-              canGoPrev ? "opacity-60 hover:opacity-100" : "pointer-events-none opacity-0",
+              canGoPrev ? "" : "pointer-events-none opacity-0",
             )}
           >
-            <ChevronUp className="h-5 w-5" aria-hidden />
+            <ArrowUp className="size-6" aria-hidden />
           </button>
           <button
             type="button"
@@ -489,14 +488,13 @@ export const ReelSwiper = ({
             disabled={!canGoNext}
             aria-label="Next reel"
             className={cn(
-              "group inline-flex h-9 w-9 items-center justify-center rounded-full",
-              "border border-white/15 bg-black/45 text-white/85 backdrop-blur-sm",
-              "transition-all duration-200 hover:bg-black/70 hover:text-white",
+              "group inline-flex size-14 items-center justify-center rounded-full",
+              "bg-white/10 text-white transition-colors duration-200 hover:bg-white/20 active:bg-white/25",
               "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70",
-              canGoNext ? "opacity-60 hover:opacity-100" : "pointer-events-none opacity-0",
+              canGoNext ? "" : "pointer-events-none opacity-0",
             )}
           >
-            <ChevronDown className="h-5 w-5" aria-hidden />
+            <ArrowDown className="size-6" aria-hidden />
           </button>
         </div>
       )}

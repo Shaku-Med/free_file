@@ -189,6 +189,11 @@ html.windapp-fullscreen [data-app-chrome] {
   display: none !important;
 }
 
+/* Reel full screen: the header and tab bars step aside so the reel has the whole page. */
+html[data-reel-fullscreen] [data-app-chrome] {
+  display: none !important;
+}
+
 /* Mobile tab bar styles that follow the phone's own system bar. */
 .tabbar-font {
   font-family: system-ui, -apple-system, BlinkMacSystemFont, Roboto, sans-serif;

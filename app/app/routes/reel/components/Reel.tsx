@@ -22,6 +22,7 @@ import { useCloseOnTimestampSeek } from "~/lib/hooks/useCloseOnTimestampSeek";
 import { cn } from "~/lib/utils";
 import type { ReelProfileContext } from "~/lib/reel/reelProfileContext";
 import { setReelFeedMode, useReelFeedMode } from "~/lib/reel/reelChrome";
+import { ReelFullscreenProvider, useReelFullscreenState } from "~/lib/reel/reelFullscreen";
 
 /**
  * Poster/thumbnail palette → soft radial washes (same hex source as `ImageLoad` / player poster).
@@ -101,7 +102,8 @@ const Reel = ({ initialItems: routeItems, initialUserActions, profileReelContext
   const followingCursorRef = useRef(0);
   const [needsSignIn, setNeedsSignIn] = useState(false);
   const { isMobile: sidebarIsSheet, state: sidebarState } = useSidebar();
-  const sidebarInset = sidebarIsSheet
+  const fullscreen = useReelFullscreenState();
+  const sidebarInset = sidebarIsSheet || fullscreen.active
     ? "0px"
     : sidebarState === "expanded"
       ? "var(--sidebar-width)"
@@ -578,12 +580,19 @@ const Reel = ({ initialItems: routeItems, initialUserActions, profileReelContext
     //
     // Like the app, the video runs to the bottom edge behind the frosted tab
     // bar; --reel-bottom-inset lifts every control above that bar.
+    <ReelFullscreenProvider value={fullscreen}>
     <div
       className="fixed inset-y-0 right-0 z-[var(--z-reel)] reel_p flex overflow-hidden transition-[left] duration-200 ease-linear"
       style={
         {
           left: sidebarInset,
           "--reel-h": "100dvh",
+          // On desktop the frame runs from under the header to near the bottom,
+          // or the whole height in full screen, like YouTube Shorts.
+          "--reel-frame-top": fullscreen.active ? "0.75rem" : "var(--app-top-nav-h, 3.5rem)",
+          "--reel-frame-h": fullscreen.active
+            ? "calc(100dvh - 1.5rem)"
+            : "calc(100dvh - var(--app-top-nav-h, 3.5rem) - 1.5rem)",
           "--reel-bottom-inset": "var(--app-bottom-nav-h, 0px)",
         } as React.CSSProperties
       }
@@ -630,7 +639,7 @@ const Reel = ({ initialItems: routeItems, initialUserActions, profileReelContext
         {ambientEnabled && ambienceDesc && (
           <div className="absolute inset-0 flex items-center justify-center">
             <div
-              className="relative h-full max-h-[100dvh] origin-center overflow-visible blur-3xl opacity-80 lg:h-[min(calc(100dvh-3rem),820px)]"
+              className="relative h-full max-h-[100dvh] origin-center overflow-visible blur-3xl opacity-80 lg:h-[var(--reel-frame-h)]"
               style={{
                 // Size follows the ambient-size control (1×2×).
                 transform: `scale(${ambientSize})`,
@@ -769,6 +778,7 @@ const Reel = ({ initialItems: routeItems, initialUserActions, profileReelContext
         </Drawer>
       ) : null}
     </div>
+    </ReelFullscreenProvider>
   );
 };
 

@@ -97,6 +97,8 @@ export interface PipReelItemProps {
 }
 
 const noopRetry = () => {};
+/** Widest reel that fills an upright phone screen: 9:16 and taller lose only a sliver of their sides. */
+const REEL_FILL_MAX_ASPECT = 0.6;
 
 function isVideoLikeFile(f: FileType): boolean {
   const t = (f.file_type ?? '').toLowerCase();
@@ -618,7 +620,7 @@ function PipReelItemInner({
   }, []);
 
   useEffect(() => {
-    if (variant !== 'page' || isReelMobileLayout) return;
+    if (variant !== 'page') return;
     const v = trackedVideoEl ?? videoRef.current;
     if (!v) return;
 
@@ -642,12 +644,12 @@ function PipReelItemInner({
   const reelFrameStyle = useMemo(() => {
     if (variant !== 'page' || isReelMobileLayout) return undefined;
     // The width comes from the reel's own row, which already sits between the
-    // sidebar and the comments panel, less the room the side columns need
-    // (--reel-side, set on the row). A wide video gets smaller instead of
-    // squeezing the caption.
+    // sidebar and the comments panel. Only a very wide video is held back by it.
     return reelVideoFrameStyle(videoAspect ?? REEL_FALLBACK_ASPECT, {
-      maxHeight: 'min(calc(100dvh - 3rem), 820px)',
-      maxWidth: 'calc(100% - 2 * var(--reel-side))',
+      // Set by the reel page: under the header to near the bottom, or the full height in full screen.
+      maxHeight: 'var(--reel-frame-h, calc(100dvh - 3rem))',
+      // Height comes first, as on YouTube: only the action rail's room is held back.
+      maxWidth: 'calc(100% - 2 * 5.5rem)',
     });
   }, [variant, videoAspect, isReelMobileLayout]);
 
@@ -1020,7 +1022,7 @@ function PipReelItemInner({
           <div
             ref={likeBurstHostRef}
             className={cn(
-              "relative flex h-full w-full max-w-full flex-row items-center justify-center gap-3 lg:gap-4 lg:px-6",
+              "relative flex h-full w-full max-w-full flex-row items-center justify-center gap-3 lg:gap-4 lg:px-6 lg:pt-[var(--reel-frame-top,0px)] lg:pb-3",
               "max-lg:gap-0 max-lg:px-0",
               // Room kept each side of the frame: the action buttons, plus a
               // caption column once the reel area is wide enough for one.
@@ -1047,8 +1049,13 @@ function PipReelItemInner({
                 "bg-transparent",
                 "max-lg:h-[var(--reel-h)] max-lg:min-h-[var(--reel-h)] max-lg:max-h-[var(--reel-h)] max-lg:w-full max-lg:max-w-full",
                 "lg:max-w-full lg:transition-[width,height] lg:duration-300 lg:ease-out",
+                // The framed reel sits below the header, so its own top controls need no room for it.
+                "lg:[--app-top-nav-h:0px]",
                 "max-lg:rounded-none",
                 "lg:rounded-2xl lg:shadow-[0_25px_80px_-15px_rgba(0,0,0,0.9)] lg:ring-1 lg:ring-white/10",
+                // A tall reel on an upright phone fills the screen edge to edge, top included, as in the
+                // app; trimming a little off its sides beats bars above and below. Wider ones stay whole.
+                videoAspect !== null && videoAspect <= REEL_FILL_MAX_ASPECT && "portrait:max-lg:[&_video]:object-cover",
               )}
               style={reelFrameStyle}
             >
