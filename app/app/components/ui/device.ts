@@ -83,11 +83,11 @@ const LOOKS = {
     ios: "h-1 bg-muted-foreground/20",
     material: "h-1 bg-primary/25",
   },
-  /** A dialog on a phone is the app's sheet: a gap at the top, rounded top corners, run to the bottom edge. */
-  dialog: {
-    ios: "max-sm:!top-[calc(env(safe-area-inset-top)+var(--app-vv-top,0px)+10px)] max-sm:!h-[calc(var(--app-vvh,100dvh)-env(safe-area-inset-top)-10px)] max-sm:!rounded-t-[12px] max-sm:!border-transparent max-sm:!border-b-[length:env(safe-area-inset-bottom)] max-sm:data-[state=open]:slide-in-from-bottom max-sm:data-[state=closed]:slide-out-to-bottom",
-    glass: "max-sm:!rounded-t-[38px]",
-    material: "max-sm:!top-[calc(env(safe-area-inset-top)+var(--app-vv-top,0px)+16px)] max-sm:!h-[calc(var(--app-vvh,100dvh)-env(safe-area-inset-top)-16px)] max-sm:!rounded-t-[28px] max-sm:!border-transparent max-sm:!border-b-[length:env(safe-area-inset-bottom)] max-sm:data-[state=open]:slide-in-from-bottom max-sm:data-[state=closed]:slide-out-to-bottom",
+  /** The native sheet's corners: iOS's, rounder with Liquid Glass, and Material's. */
+  sheetFrame: {
+    ios: "rounded-t-[12px]",
+    glass: "rounded-t-[38px]",
+    material: "rounded-t-[28px]",
   },
   /** The grabber on top of a sheet: iOS's short pill, Material's drag handle. */
   grabber: {

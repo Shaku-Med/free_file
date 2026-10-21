@@ -114,7 +114,7 @@ export default function SubtitleButton({
   })()
 
   return (
-    <DropdownMenu onOpenChange={handleOpenChange}>
+    <DropdownMenu onOpenChange={handleOpenChange} sheetOnPhone sheetTitle="Captions">
       <Tooltip delayDuration={350}>
         <TooltipTrigger asChild>
           <DropdownMenuTrigger asChild>{triggerNode}</DropdownMenuTrigger>

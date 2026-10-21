@@ -2,9 +2,11 @@ import * as React from "react"
 import * as DropdownMenuPrimitive from "@radix-ui/react-dropdown-menu"
 import * as CollapsiblePrimitive from "@radix-ui/react-collapsible"
 import { CheckIcon, ChevronDownIcon, CircleIcon } from "lucide-react"
+import { Slot } from "radix-ui"
 
 import { cn } from "~/lib/utils"
 import { useDeviceClass } from "./device"
+import { NativeSheet, NativeSheetContent, NativeSheetTrigger, useNativeSheet, useSheetsOnPhone } from "./native-sheet"
 
 /**
  * Live narrow-viewport hook for positioning defaults. Self-contained so the
@@ -29,15 +31,50 @@ function useIsNarrowViewport() {
   return narrow
 }
 
+/**
+ * Set while a menu shows as a sheet. Its own context rather than the sheet's,
+ * so a plain menu opened inside a dialog sheet stays a menu.
+ */
+type MenuSheet = { close: () => void; title: React.ReactNode }
+const MenuSheetContext = React.createContext<MenuSheet | null>(null)
+
+function MenuSheetBridge({ title, children }: { title: React.ReactNode; children: React.ReactNode }) {
+  const sheet = useNativeSheet()
+  const close = sheet?.close
+  const value = React.useMemo(() => (close ? { close, title } : null), [close, title])
+  return <MenuSheetContext.Provider value={value}>{children}</MenuSheetContext.Provider>
+}
+
 function DropdownMenu({
+  sheetOnPhone = false,
+  sheetTitle = "Options",
   ...props
-}: React.ComponentProps<typeof DropdownMenuPrimitive.Root>) {
-  return <DropdownMenuPrimitive.Root data-slot="dropdown-menu" {...props} />
+}: React.ComponentProps<typeof DropdownMenuPrimitive.Root> & {
+  /** On a phone, open as the app's sheet instead, the way its settings and player options do. */
+  sheetOnPhone?: boolean
+  /** The sheet's title row. */
+  sheetTitle?: React.ReactNode
+}) {
+  const phone = useSheetsOnPhone()
+  if (sheetOnPhone && phone) {
+    return (
+      <NativeSheet open={props.open} defaultOpen={props.defaultOpen} onOpenChange={props.onOpenChange}>
+        <MenuSheetBridge title={sheetTitle}>{props.children}</MenuSheetBridge>
+      </NativeSheet>
+    )
+  }
+  return (
+    <MenuSheetContext.Provider value={null}>
+      <DropdownMenuPrimitive.Root data-slot="dropdown-menu" {...props} />
+    </MenuSheetContext.Provider>
+  )
 }
 
 function DropdownMenuPortal({
   ...props
 }: React.ComponentProps<typeof DropdownMenuPrimitive.Portal>) {
+  const sheet = React.useContext(MenuSheetContext)
+  if (sheet) return <>{props.children}</>
   return (
     <DropdownMenuPrimitive.Portal data-slot="dropdown-menu-portal" {...props} />
   )
@@ -46,6 +83,8 @@ function DropdownMenuPortal({
 function DropdownMenuTrigger({
   ...props
 }: React.ComponentProps<typeof DropdownMenuPrimitive.Trigger>) {
+  const sheet = React.useContext(MenuSheetContext)
+  if (sheet) return <NativeSheetTrigger data-slot="dropdown-menu-trigger" {...(props as React.ComponentProps<typeof NativeSheetTrigger>)} />
   return (
     <DropdownMenuPrimitive.Trigger
       data-slot="dropdown-menu-trigger"
@@ -53,6 +92,51 @@ function DropdownMenuTrigger({
     />
   )
 }
+
+type SheetRowProps = Omit<React.ComponentProps<"div">, "onSelect"> & {
+  asChild?: boolean
+  disabled?: boolean
+  onSelect?: (event: Event) => void
+  textValue?: string
+}
+
+/**
+ * A menu row inside a sheet. Radix rows only work inside a Radix menu, so a
+ * sheet gets plain rows that keep their contract: `onSelect` runs on a tap
+ * and closes the sheet unless it calls `preventDefault()`.
+ */
+function SheetRow({ asChild, disabled, onSelect, onClick, onKeyDown, textValue, ...props }: SheetRowProps) {
+  void textValue
+  const sheet = React.useContext(MenuSheetContext)
+  const Comp = asChild ? Slot.Root : "div"
+  const select = () => {
+    if (disabled) return
+    const event = new Event("menu.itemselect", { cancelable: true })
+    onSelect?.(event)
+    if (!event.defaultPrevented) sheet?.close()
+  }
+  return (
+    <Comp
+      tabIndex={disabled ? -1 : 0}
+      aria-disabled={disabled || undefined}
+      data-disabled={disabled ? "" : undefined}
+      onClick={(e: React.MouseEvent<HTMLDivElement>) => {
+        onClick?.(e)
+        if (!e.defaultPrevented) select()
+      }}
+      onKeyDown={(e: React.KeyboardEvent<HTMLDivElement>) => {
+        onKeyDown?.(e)
+        if (e.defaultPrevented || (e.key !== "Enter" && e.key !== " ")) return
+        e.preventDefault()
+        select()
+      }}
+      {...props}
+    />
+  )
+}
+
+/** The radio group's value, for radio rows inside a sheet. */
+const SheetRadioContext = React.createContext<{ value?: string; onValueChange?: (value: string) => void } | null>(null)
 
 const DROPDOWN_MENU_CONTENT_Z = 21474933648
 
@@ -93,6 +177,15 @@ function DropdownMenuContent({
 }) {
   const isNarrow = useIsNarrowViewport()
   const device = useDeviceClass("menuContent")
+  const sheet = React.useContext(MenuSheetContext)
+  if (sheet) {
+    // The menu's own sizing classes are for a popover, so the sheet keeps its shape and pads its rows.
+    return (
+      <NativeSheetContent ref={props.ref} data-slot="dropdown-menu-content" title={sheet.title} container={portalContainer} bodyClassName="px-2">
+        {children}
+      </NativeSheetContent>
+    )
+  }
   // On narrow viewports we bias toward `end` alignment so the menu hugs the right
   // edge of a trigger that's already near the right side of the screen  Radix will
   // still flip via `avoidCollisions` if that doesn't fit.
@@ -138,8 +231,11 @@ function DropdownMenuItem({
   variant?: "default" | "destructive"
 }) {
   const device = useDeviceClass("menuItem")
+  const sheet = React.useContext(MenuSheetContext)
+  const Row = (sheet ? SheetRow : DropdownMenuPrimitive.Item) as typeof DropdownMenuPrimitive.Item
   return (
-    <DropdownMenuPrimitive.Item
+    <Row
+      role="menuitem"
       data-slot="dropdown-menu-item"
       data-inset={inset}
       data-variant={variant}
@@ -162,6 +258,33 @@ function DropdownMenuCheckboxItem({
   ...props
 }: React.ComponentProps<typeof DropdownMenuPrimitive.CheckboxItem>) {
   const device = useDeviceClass("menuCheckItem")
+  const sheet = React.useContext(MenuSheetContext)
+  if (sheet) {
+    const { onCheckedChange, onSelect, disabled, ...rest } = props
+    return (
+      <SheetRow
+        role="menuitemcheckbox"
+        aria-checked={checked === true}
+        data-slot="dropdown-menu-checkbox-item"
+        disabled={disabled}
+        className={cn(
+          "relative flex cursor-default items-center gap-2 rounded-lg py-2 pr-2.5 pl-8 text-sm outline-hidden select-none transition-colors duration-150 ease-out active:bg-accent data-[disabled]:pointer-events-none data-[disabled]:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 min-h-[2.5rem]",
+          device,
+          className
+        )}
+        onSelect={(event) => {
+          onCheckedChange?.(checked !== true)
+          onSelect?.(event)
+        }}
+        {...(rest as SheetRowProps)}
+      >
+        <span className="pointer-events-none absolute left-2 flex size-3.5 items-center justify-center">
+          {checked === true ? <CheckIcon className="size-4" /> : null}
+        </span>
+        {children}
+      </SheetRow>
+    )
+  }
   return (
     <DropdownMenuPrimitive.CheckboxItem
       data-slot="dropdown-menu-checkbox-item"
@@ -186,6 +309,17 @@ function DropdownMenuCheckboxItem({
 function DropdownMenuRadioGroup({
   ...props
 }: React.ComponentProps<typeof DropdownMenuPrimitive.RadioGroup>) {
+  const sheet = React.useContext(MenuSheetContext)
+  if (sheet) {
+    const { value, onValueChange, children, className } = props
+    return (
+      <SheetRadioContext.Provider value={{ value, onValueChange }}>
+        <div role="group" data-slot="dropdown-menu-radio-group" className={className}>
+          {children}
+        </div>
+      </SheetRadioContext.Provider>
+    )
+  }
   return (
     <DropdownMenuPrimitive.RadioGroup
       data-slot="dropdown-menu-radio-group"
@@ -200,6 +334,35 @@ function DropdownMenuRadioItem({
   ...props
 }: React.ComponentProps<typeof DropdownMenuPrimitive.RadioItem>) {
   const device = useDeviceClass("menuCheckItem")
+  const sheet = React.useContext(MenuSheetContext)
+  const group = React.useContext(SheetRadioContext)
+  if (sheet) {
+    const { value, onSelect, disabled, ...rest } = props
+    const selected = group?.value === value
+    return (
+      <SheetRow
+        role="menuitemradio"
+        aria-checked={selected}
+        data-slot="dropdown-menu-radio-item"
+        disabled={disabled}
+        className={cn(
+          "relative flex cursor-default items-center gap-2 rounded-lg py-2 pr-2.5 pl-8 text-sm outline-hidden select-none transition-colors duration-150 ease-out active:bg-accent data-[disabled]:pointer-events-none data-[disabled]:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 min-h-[2.5rem]",
+          device,
+          className
+        )}
+        onSelect={(event) => {
+          group?.onValueChange?.(value)
+          onSelect?.(event)
+        }}
+        {...(rest as SheetRowProps)}
+      >
+        <span className="pointer-events-none absolute left-2 flex size-3.5 items-center justify-center">
+          {selected ? <CircleIcon className="size-2 fill-current" /> : null}
+        </span>
+        {children}
+      </SheetRow>
+    )
+  }
   return (
     <DropdownMenuPrimitive.RadioItem
       data-slot="dropdown-menu-radio-item"

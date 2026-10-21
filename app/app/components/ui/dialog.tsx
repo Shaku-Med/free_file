@@ -3,17 +3,31 @@ import * as DialogPrimitive from "@radix-ui/react-dialog"
 import { XIcon } from "lucide-react"
 
 import { cn } from "~/lib/utils"
-import { useDeviceClass } from "./device"
+import {
+  NativeSheet,
+  NativeSheetClose,
+  NativeSheetContent,
+  NativeSheetDescription,
+  NativeSheetTitle,
+  NativeSheetTrigger,
+  useNativeSheet,
+  useSheetsOnPhone,
+} from "./native-sheet"
 
+/** On a phone a dialog is the app's sheet, with its detents and gestures; elsewhere it stays a dialog. */
 function Dialog({
   ...props
 }: React.ComponentProps<typeof DialogPrimitive.Root>) {
+  const phone = useSheetsOnPhone()
+  if (phone) return <NativeSheet open={props.open} defaultOpen={props.defaultOpen} onOpenChange={props.onOpenChange} modal={props.modal}>{props.children}</NativeSheet>
   return <DialogPrimitive.Root data-slot="dialog" {...props} />
 }
 
 function DialogTrigger({
   ...props
 }: React.ComponentProps<typeof DialogPrimitive.Trigger>) {
+  const sheet = useNativeSheet()
+  if (sheet) return <NativeSheetTrigger data-slot="dialog-trigger" {...props} />
   return <DialogPrimitive.Trigger data-slot="dialog-trigger" {...props} />
 }
 
@@ -26,6 +40,8 @@ function DialogPortal({
 function DialogClose({
   ...props
 }: React.ComponentProps<typeof DialogPrimitive.Close>) {
+  const sheet = useNativeSheet()
+  if (sheet) return <NativeSheetClose data-slot="dialog-close" {...props} />
   return <DialogPrimitive.Close data-slot="dialog-close" {...props} />
 }
 
@@ -62,8 +78,21 @@ function DialogContent({
   overlayClassName?: string
 }) {
   const showBuiltinClose = showCloseButton && !shouldClose
-  const sheet = useDeviceClass("dialog")
-  const grabber = useDeviceClass("grabber")
+  const sheet = useNativeSheet()
+
+  if (sheet) {
+    // The page's own layout classes go on the sheet's body, never its frame, so the sheet keeps its shape.
+    return (
+      <NativeSheetContent
+        data-slot="dialog-content"
+        showClose={showBuiltinClose}
+        bodyClassName={cn("grid gap-4 px-6", className)}
+        {...(props as Omit<React.ComponentProps<typeof NativeSheetContent>, "title">)}
+      >
+        {children}
+      </NativeSheetContent>
+    )
+  }
 
   return (
     <DialogPortal data-slot="dialog-portal">
@@ -93,14 +122,9 @@ function DialogContent({
           "max-sm:!translate-x-0 max-sm:!translate-y-0",
           "max-sm:!w-screen max-sm:!h-[calc(var(--app-vvh,100dvh)-env(safe-area-inset-top)-env(safe-area-inset-bottom))] max-sm:!max-w-none max-sm:!max-h-none",
           "max-sm:!rounded-none max-sm:!border-0 max-sm:!shadow-none",
-          // On a phone platform the full screen box becomes the app's sheet.
-          sheet,
         )}
         {...props}
       >
-        {grabber ? (
-          <div aria-hidden className={cn("pointer-events-none absolute left-1/2 z-10 -translate-x-1/2 rounded-full sm:hidden", grabber)} />
-        ) : null}
         {children}
         {showBuiltinClose && (
           <DialogPrimitive.Close
@@ -152,6 +176,8 @@ function DialogTitle({
   className,
   ...props
 }: React.ComponentProps<typeof DialogPrimitive.Title>) {
+  const sheet = useNativeSheet()
+  if (sheet) return <NativeSheetTitle data-slot="dialog-title" className={cn("text-lg leading-none font-semibold tracking-tight", className)} {...props} />
   return (
     <DialogPrimitive.Title
       data-slot="dialog-title"
@@ -165,6 +191,8 @@ function DialogDescription({
   className,
   ...props
 }: React.ComponentProps<typeof DialogPrimitive.Description>) {
+  const sheet = useNativeSheet()
+  if (sheet) return <NativeSheetDescription data-slot="dialog-description" className={cn("text-muted-foreground text-sm leading-relaxed", className)} {...props} />
   return (
     <DialogPrimitive.Description
       data-slot="dialog-description"
