@@ -23,6 +23,7 @@ import { useStableVolume } from './hooks/useStableVolume';
 import { enterPlayerFullscreen, syncNativeVideoControls } from './fullscreenMode';
 import { windappFullscreenBridge } from '~/lib/hooks/useWindapp';
 import { fetchAudioStems, type AudioStems, type StemType } from './audioStems';
+import { qualityLines } from './quality';
 import {
   DEFAULT_STEM_CONFETTI_INSTRUMENTS,
   DEFAULT_VIDEO_BOUNCE_INSTRUMENTS,
@@ -952,7 +953,8 @@ export function PlayerProvider({
     if (!hls) return;
     hls.currentLevel = level;
     setState(s => ({ ...s, currentLevel: level }));
-    const quality = level === -1 ? 'auto' : String(hls.levels?.[level]?.height ?? 'auto');
+    const picked = level === -1 ? undefined : hls.levels?.[level];
+    const quality = picked ? String(qualityLines(picked)) : 'auto';
     setPlayerSettings(prev => (prev ? { ...prev, quality } : prev));
     savePlayerSettings({ quality }).catch(() => {});
   }, [setPlayerSettings, savePlayerSettings]);

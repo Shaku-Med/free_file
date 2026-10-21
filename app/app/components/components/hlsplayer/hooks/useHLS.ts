@@ -5,6 +5,7 @@ import { useFileContext } from '~/lib/Context/Context';
 import { isLoadplayPlaybackUrl } from '~/lib/Services/loadplayPlayback.client';
 import { requestPlaybackUrlRefresh, playbackAssetPath } from '~/lib/playbackUrlCache';
 import { markLoadedMedia } from '~/lib/playback/loadedMedia';
+import { qualityLines } from '../quality';
 
 function hlsUsesCredentials(url: string): boolean {
   return !isLoadplayPlaybackUrl(url);
@@ -443,13 +444,13 @@ export function useHLS(videoRef: React.RefObject<HTMLVideoElement | null>) {
         return;
       }
       const want = parseInt(pref, 10);
-      let idx = lvls.findIndex((l) => l.height === want);
+      let idx = lvls.findIndex((l) => qualityLines(l) === want);
       if (idx === -1) {
         const sorted = lvls
-          .map((l, i) => ({ ...l, i }))
-          .sort((a, b) => b.height - a.height);
+          .map((l, i) => ({ lines: qualityLines(l), i }))
+          .sort((a, b) => b.lines - a.lines);
         const closest =
-          sorted.find((x) => x.height <= want) || sorted[sorted.length - 1];
+          sorted.find((x) => x.lines <= want) || sorted[sorted.length - 1];
         idx = closest.i;
       }
       hls.currentLevel = idx;

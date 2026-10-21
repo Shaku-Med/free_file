@@ -2168,14 +2168,17 @@ const DynamicPage = ({ is_modal }: DynamicPageProps) => {
             .replace(new RegExp("\\u2029", "g"), "\\u2029"),
         }}
       />
-      <div className="relative z-10 mx-auto max-w-full flex flex-col justify-center">
+      <div className="@container/watch relative z-10 mx-auto max-w-full flex flex-col justify-center">
         {/* 
           never remove this comment
           This is the original grid layout for the watch page I may change it later but for now keep it here.
           <div className={!theaterMode ? "grid grid-cols-1 gap-4 sm:gap-5 lg:grid-cols-3 lg:gap-6 xl:gap-8" : ""}>
           <div className={!theaterMode ? "min-w-0 space-y-3 sm:space-y-4 lg:col-span-2" : ""}>
         */}
-        <div className={!theaterMode ? "watch-flex flex gap-4 flex justify-center" : ""}>
+        {/* Side by side only when the watch area (not the window: the sidebar takes
+            its share) fits the player and the related column; narrower, the related
+            videos drop below the player at full width, as on YouTube. */}
+        <div className={!theaterMode ? "watch-flex flex flex-col items-center gap-4 @min-[55rem]/watch:flex-row @min-[55rem]/watch:items-stretch @min-[55rem]/watch:justify-center" : ""}>
           <div 
           style={{
             aspectRatio: String(playerFrameAspect),

@@ -991,20 +991,29 @@ input[type="search"] {
 
 }
 
-/* Fixed rather than min, so opening or collapsing the series list can't widen
-   the column and squeeze the player beside it. */
+/* Below the player at full width when the watch area is too narrow for both.
+   Beside it, fixed rather than min, so opening or collapsing the series list
+   can't widen the column and squeeze the player. */
 .min_size_checker {
-  flex: none;
-  width: 442px;
-  min-width: 442px;
-  max-width: 442px;
+  width: 100%;
+}
+
+@container watch (min-width: 55rem) {
+  .min_size_checker {
+    flex: none;
+    width: 442px;
+    min-width: 442px;
+    max-width: 442px;
+  }
 }
 
 @media screen and (max-width: 1400px) {
-  .min_size_checker {
-    width: 360px;
-    min-width: 360px;
-    max-width: 360px;
+  @container watch (min-width: 55rem) {
+    .min_size_checker {
+      width: 360px;
+      min-width: 360px;
+      max-width: 360px;
+    }
   }
 }
 

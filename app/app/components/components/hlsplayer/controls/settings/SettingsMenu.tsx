@@ -47,6 +47,7 @@ import {
 } from '~/components/ui/dropdown-menu';
 import { Tooltip, TooltipContent, TooltipTrigger } from '~/components/ui/tooltip';
 import { STEM_TYPES } from '../../audioStems';
+import { qualityLines } from '../../quality';
 import {
   buildStemConfettiThemePalettes,
   STEM_CONFETTI_META,
@@ -175,8 +176,9 @@ export function SettingsMenuBody() {
   }, []);
 
   const speedLabel = state.playbackRate === 1 ? 'Normal' : `${state.playbackRate}x`;
+  const currentQuality = state.levels[state.currentLevel];
   const qualityLabel =
-    state.currentLevel === -1 ? 'Auto' : `${state.levels[state.currentLevel]?.height ?? '?'}p`;
+    state.currentLevel === -1 ? 'Auto' : currentQuality ? `${qualityLines(currentQuality)}p` : '?p';
 
   const [nowMs, setNowMs] = useState(() => Date.now());
   useEffect(() => {
@@ -725,15 +727,15 @@ export function SettingsMenuBody() {
                 Auto
               </DropdownMenuItem>
               {[...state.levels]
-                .map((l, i) => ({ ...l, i }))
-                .sort((a, b) => b.height - a.height)
-                .map(({ height, i }) => (
+                .map((l, i) => ({ lines: qualityLines(l), i }))
+                .sort((a, b) => b.lines - a.lines)
+                .map(({ lines, i }) => (
                   <DropdownMenuItem
-                    key={`${height}-${i}`}
+                    key={`${lines}-${i}`}
                     onClick={() => setQualityLevel(i)}
                     className={cn(state.currentLevel === i ? 'bg-accent font-medium text-accent-foreground' : undefined)}
                   >
-                    {height}p
+                    {lines}p
                   </DropdownMenuItem>
                 ))}
             </DropdownMenuCollapsibleContent>
@@ -760,7 +762,7 @@ function useResolutionBadge(): string | null {
   const { state } = usePlayerContext();
   const h =
     state.currentLevel >= 0 && state.levels[state.currentLevel]
-      ? state.levels[state.currentLevel].height
+      ? qualityLines(state.levels[state.currentLevel])
       : null;
   if (h == null) return null;
   if (h >= 2160) return '4K';
