@@ -44,6 +44,7 @@ import { formatExactDate } from "~/lib/utils/formatExactDate";
 import { useWatchTracking } from "~/lib/hooks/useWatchTracking";
 import { IMAGE_BASE_URL } from "~/lib/URLS";
 import ParseFilenameInsert from "~/lib/utils/ShowFileName";
+import { NativeSheet, NativeSheetContent } from "~/components/ui/native-sheet";
 import { usePageCache } from "~/lib/hooks/usePageCache";
 import CanvasGradient from "~/components/accessories/CanvasGradient/CanvasGradient";
 import Ambience from "~/components/accessories/CanvasGradient/Ambience";
@@ -1105,6 +1106,9 @@ const DynamicPage = ({ is_modal }: DynamicPageProps) => {
   })
 
   const [descriptionExpanded, setDescriptionExpanded] = useState(false)
+  const [descriptionSheetOpen, setDescriptionSheetOpen] = useState(false)
+  /** A phone opens the full description as the app's half sheet; elsewhere the card unfolds. */
+  const openDescription = () => (isMobileDevice ? setDescriptionSheetOpen(true) : setDescriptionExpanded(true))
   const [liked, setLiked] = useState(data.userLiked || false)
   const [disliked, setDisliked] = useState(data.userDisliked || false)
   const [likeCount, setLikeCount] = useState(Number(data.likeCount) || 0)
@@ -1761,6 +1765,171 @@ const DynamicPage = ({ is_modal }: DynamicPageProps) => {
         ...(ownerName ? { author: { "@type": "Person", name: ownerName } } : {}),
       };
 
+  /**
+   * The description's contents, collapsed or in full. A phone opens the full
+   * version as the app's sheet; elsewhere the card unfolds where it is.
+   */
+  const descriptionBody = (expanded: boolean, inSheet: boolean) => (
+    <>
+          {/* Collapsed: compact stats (10k views, 2 days ago). Expanded: exact values (10,000 views, 2025-05-07 at 4:32 PM). */}
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-foreground">
+            <span className="font-semibold tabular-nums">
+              {expanded ? views.toLocaleString("en-US") : formatNumber(views)} views
+            </span>
+            {file_data.created_at && (
+              <span className="font-semibold">
+                {expanded
+                  ? formatExactDate(file_data.created_at)
+                  : formatTimeAgo(file_data.created_at)}
+              </span>
+            )}
+            {/* No description text: the expand affordance lives inline here. */}
+            {!expanded &&
+              !description &&
+              (tagsList.length > 0 ||
+                !!resolvedPageDetails?.acoustidRecording ||
+                !!resolvedPageDetails?.originalSound ||
+                (resolvedPageDetails?.soundRemixes?.length ?? 0) > 0) && (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    openDescription();
+                  }}
+                  className="text-sm font-semibold text-muted-foreground hover:text-foreground"
+                >
+                  ...more
+                </button>
+              )}
+          </div>
+          {description && (
+            <div className="mt-2">
+              <div
+                ref={inSheet ? undefined : descRef}
+                className={cn(
+                  "text-sm text-foreground break-words whitespace-pre-wrap",
+                  !expanded && "line-clamp-2",
+                )}
+              >
+                <FormattedText
+                  text={description}
+                  timestamps={
+                    typeof file_data.duration === "number" && file_data.duration > 0
+                      ? { maxSeconds: file_data.duration, fileId: file_data.id }
+                      : undefined
+                  }
+                />
+              </div>
+              {!expanded &&
+                (isOverflowing ||
+                  tagsList.length > 0 ||
+                  !!resolvedPageDetails?.acoustidRecording ||
+                  !!resolvedPageDetails?.originalSound ||
+                  (resolvedPageDetails?.soundRemixes?.length ?? 0) > 0) && (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      openDescription();
+                    }}
+                    className="mt-1 text-sm font-semibold text-foreground hover:underline"
+                  >
+                    ...more
+                  </button>
+                )}
+            </div>
+          )}
+
+          {/* Always visible, not behind ...more: sections are how people skip around a course. */}
+          <VideoSections
+            chapters={sections}
+            fileId={file_data.id}
+            videoRef={watchVideoRef}
+            videoReady={videoRefReady}
+          />
+
+          {/* Hashtags  YouTube-style blue #tags under the description. */}
+          {expanded && tagsList.length > 0 && (
+            <div className="mt-3 flex flex-wrap gap-x-3 gap-y-1">
+              {tagsList.map((t) => (
+                <Link
+                  key={t}
+                  to={`/tag/${encodeURIComponent(t)}`}
+                  className="text-sm text-primary hover:underline underline-offset-2"
+                >
+                  #{t.replace(/\s+/g, "")}
+                </Link>
+              ))}
+            </div>
+          )}
+
+          {/* AcoustID match + cover — always visible (not buried under ...more). */}
+          {resolvedPageDetails?.acoustidRecording && (
+            <AcoustidRecordingCard
+              recording={resolvedPageDetails.acoustidRecording}
+              host={{
+                unique_id: String(file_data.unique_id),
+                created_at: file_data.created_at ?? null,
+              }}
+            />
+          )}
+
+          {/* Audio matched an existing upload  YouTube-style "Music" attribution. */}
+          {expanded &&
+            !resolvedPageDetails?.acoustidRecording &&
+            resolvedPageDetails?.originalSound && (
+            <OriginalSoundCard originalSound={resolvedPageDetails.originalSound} />
+          )}
+
+          {/* This file IS the original: the videos that sampled its sound. */}
+          {expanded && (resolvedPageDetails?.soundRemixes?.length ?? 0) > 0 && (
+            <div className="mt-4 border-t border-border/60 pt-4">
+              <div className="mb-3 flex items-baseline justify-between gap-2">
+                <div>
+                  <h3 className="text-lg font-bold text-foreground">Videos using this sound</h3>
+                  <p className="text-xs text-muted-foreground">
+                    {resolvedPageDetails!.soundRemixes.length}
+                    {resolvedPageDetails!.soundRemixes.length >= 12 ? "+" : ""} videos
+                  </p>
+                </div>
+                <Link
+                  to={`/music/${encodeURIComponent(String(file_data.id))}`}
+                  className="shrink-0 text-sm font-medium text-primary hover:underline"
+                >
+                  See all
+                </Link>
+              </div>
+              <Carousel label="Videos using this sound" itemWidth={144} gapClassName="gap-2">
+                {resolvedPageDetails!.soundRemixes.map((remix, index) => (
+                  <CarouselItem key={remix.unique_id}>
+                    <VideoCard
+                      data={soundRemixToFileType(remix)}
+                      layout="reelStrip"
+                      related
+                      index={index}
+                      currentUserId={userId || undefined}
+                      userActions={mergedSidebarUserActions}
+                      hideActions={{ completely: true }}
+                    />
+                  </CarouselItem>
+                ))}
+              </Carousel>
+            </div>
+          )}
+
+          {/* Fold everything back up. */}
+          {expanded && !inSheet && (
+            <button
+              type="button"
+              onClick={collapseDescription}
+              className="mt-4 text-sm font-semibold text-foreground hover:underline"
+            >
+              Show less
+            </button>
+          )}
+    </>
+  );
+
   const contentColumn = (
     <div className="relative w-full space-y-4 max-lg:overflow-visible max-lg:rounded-none max-lg:px-2 max-lg:py-0 lg:overflow-hidden lg:rounded-lg lg:p-4">
       <h1 className="text-xl font-bold text-foreground leading-tight select-text">
@@ -1851,165 +2020,21 @@ const DynamicPage = ({ is_modal }: DynamicPageProps) => {
             ? ({ "--desc-tint": descriptionTint } as React.CSSProperties)
             : undefined
         }
-        onClick={!descriptionExpanded ? () => setDescriptionExpanded(true) : undefined}
+        onClick={!descriptionExpanded ? () => openDescription() : undefined}
       >
-        {/* Collapsed: compact stats (10k views, 2 days ago). Expanded: exact values (10,000 views, 2025-05-07 at 4:32 PM). */}
-        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-foreground">
-          <span className="font-semibold tabular-nums">
-            {descriptionExpanded ? views.toLocaleString("en-US") : formatNumber(views)} views
-          </span>
-          {file_data.created_at && (
-            <span className="font-semibold">
-              {descriptionExpanded
-                ? formatExactDate(file_data.created_at)
-                : formatTimeAgo(file_data.created_at)}
-            </span>
-          )}
-          {/* No description text: the expand affordance lives inline here. */}
-          {!descriptionExpanded &&
-            !description &&
-            (tagsList.length > 0 ||
-              !!resolvedPageDetails?.acoustidRecording ||
-              !!resolvedPageDetails?.originalSound ||
-              (resolvedPageDetails?.soundRemixes?.length ?? 0) > 0) && (
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setDescriptionExpanded(true);
-                }}
-                className="text-sm font-semibold text-muted-foreground hover:text-foreground"
-              >
-                ...more
-              </button>
-            )}
-        </div>
-        {description && (
-          <div className="mt-2">
-            <div
-              ref={descRef}
-              className={cn(
-                "text-sm text-foreground break-words whitespace-pre-wrap",
-                !descriptionExpanded && "line-clamp-2",
-              )}
-            >
-              <FormattedText
-                text={description}
-                timestamps={
-                  typeof file_data.duration === "number" && file_data.duration > 0
-                    ? { maxSeconds: file_data.duration, fileId: file_data.id }
-                    : undefined
-                }
-              />
-            </div>
-            {!descriptionExpanded &&
-              (isOverflowing ||
-                tagsList.length > 0 ||
-                !!resolvedPageDetails?.acoustidRecording ||
-                !!resolvedPageDetails?.originalSound ||
-                (resolvedPageDetails?.soundRemixes?.length ?? 0) > 0) && (
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setDescriptionExpanded(true);
-                  }}
-                  className="mt-1 text-sm font-semibold text-foreground hover:underline"
-                >
-                  ...more
-                </button>
-              )}
-          </div>
-        )}
-
-        {/* Always visible, not behind ...more: sections are how people skip around a course. */}
-        <VideoSections
-          chapters={sections}
-          fileId={file_data.id}
-          videoRef={watchVideoRef}
-          videoReady={videoRefReady}
-        />
-
-        {/* Hashtags  YouTube-style blue #tags under the description. */}
-        {descriptionExpanded && tagsList.length > 0 && (
-          <div className="mt-3 flex flex-wrap gap-x-3 gap-y-1">
-            {tagsList.map((t) => (
-              <Link
-                key={t}
-                to={`/tag/${encodeURIComponent(t)}`}
-                className="text-sm text-primary hover:underline underline-offset-2"
-              >
-                #{t.replace(/\s+/g, "")}
-              </Link>
-            ))}
-          </div>
-        )}
-
-        {/* AcoustID match + cover — always visible (not buried under ...more). */}
-        {resolvedPageDetails?.acoustidRecording && (
-          <AcoustidRecordingCard
-            recording={resolvedPageDetails.acoustidRecording}
-            host={{
-              unique_id: String(file_data.unique_id),
-              created_at: file_data.created_at ?? null,
-            }}
-          />
-        )}
-
-        {/* Audio matched an existing upload  YouTube-style "Music" attribution. */}
-        {descriptionExpanded &&
-          !resolvedPageDetails?.acoustidRecording &&
-          resolvedPageDetails?.originalSound && (
-          <OriginalSoundCard originalSound={resolvedPageDetails.originalSound} />
-        )}
-
-        {/* This file IS the original: the videos that sampled its sound. */}
-        {descriptionExpanded && (resolvedPageDetails?.soundRemixes?.length ?? 0) > 0 && (
-          <div className="mt-4 border-t border-border/60 pt-4">
-            <div className="mb-3 flex items-baseline justify-between gap-2">
-              <div>
-                <h3 className="text-lg font-bold text-foreground">Videos using this sound</h3>
-                <p className="text-xs text-muted-foreground">
-                  {resolvedPageDetails!.soundRemixes.length}
-                  {resolvedPageDetails!.soundRemixes.length >= 12 ? "+" : ""} videos
-                </p>
-              </div>
-              <Link
-                to={`/music/${encodeURIComponent(String(file_data.id))}`}
-                className="shrink-0 text-sm font-medium text-primary hover:underline"
-              >
-                See all
-              </Link>
-            </div>
-            <Carousel label="Videos using this sound" itemWidth={144} gapClassName="gap-2">
-              {resolvedPageDetails!.soundRemixes.map((remix, index) => (
-                <CarouselItem key={remix.unique_id}>
-                  <VideoCard
-                    data={soundRemixToFileType(remix)}
-                    layout="reelStrip"
-                    related
-                    index={index}
-                    currentUserId={userId || undefined}
-                    userActions={mergedSidebarUserActions}
-                    hideActions={{ completely: true }}
-                  />
-                </CarouselItem>
-              ))}
-            </Carousel>
-          </div>
-        )}
-
-        {/* Fold everything back up. */}
-        {descriptionExpanded && (
-          <button
-            type="button"
-            onClick={collapseDescription}
-            className="mt-4 text-sm font-semibold text-foreground hover:underline"
-          >
-            Show less
-          </button>
-        )}
+        {descriptionBody(descriptionExpanded, false)}
       </div>
+
+      {isMobileDevice ? (
+        <NativeSheet open={descriptionSheetOpen} onOpenChange={setDescriptionSheetOpen}>
+          <NativeSheetContent title="Description" bodyClassName="px-5">
+            <h2 className="mb-3 text-lg font-semibold leading-snug text-foreground">
+              <ParseFilenameInsert filename={ParseFilename(file_data.file_title || file_data.filename || "")} />
+            </h2>
+            {descriptionBody(true, true)}
+          </NativeSheetContent>
+        </NativeSheet>
+      ) : null}
 
       {isMobileDevice ? (
         <div id="comments" className="scroll-mt-20">

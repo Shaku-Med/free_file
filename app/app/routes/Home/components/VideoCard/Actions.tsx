@@ -35,13 +35,7 @@ import {
 } from "~/components/ui/dropdown-menu";
 import { cn } from "~/lib/utils";
 import { Dialog, DialogContent } from "~/components/ui/dialog";
-import {
-  Drawer,
-  DrawerContent,
-  DrawerHeader,
-  DrawerOverlay,
-  DrawerTitle,
-} from "~/components/ui/drawer";
+import { NativeSheet, NativeSheetContent } from "~/components/ui/native-sheet";
 import CommentSection from "~/routes/Dynamic/components/Comments/CommentSection";
 import { useFileContext } from "~/lib/Context/Context";
 import { useCloseOnTimestampSeek } from "~/lib/hooks/useCloseOnTimestampSeek";
@@ -922,26 +916,22 @@ export default function Actions({
 
       {suppressCommentsUi ? null : isMobile ? (
         /**
-         * YouTube-style comments bottom sheet:
-         *  - Full width, anchored flush to the bottom edge (no centered card insets).
-         *  - Tall  up to 85dvh  leaving the video visible above so the user keeps watching.
-         *  - Sits at the very top of the stacking order via the drawer primitive's max z-index;
-         *    floating UI like the mini-player dock can no longer cover it.
-         *  - Backdrop is lighter on mobile so the video peeking above stays readable.
+         * The app's comments sheet: it opens at the half detent with the video
+         * still in view, drags up to full height and down to close from
+         * anywhere on it, and keeps the composer at the foot of what is showing.
          */
-        <Drawer
-          open={commentsPanelOpen}
-          onOpenChange={setCommentsPanelOpen}
-          direction="bottom"
-        >
-          <DrawerOverlay className="bg-black/30" />
-          <DrawerContent
+        <NativeSheet open={commentsPanelOpen} onOpenChange={setCommentsPanelOpen}>
+          <NativeSheetContent
             id="watch-comments-drawer"
-            className="flex flex-col gap-0 overflow-hidden p-0 pb-0 data-[vaul-drawer-direction=bottom]:inset-x-0 data-[vaul-drawer-direction=bottom]:mx-auto data-[vaul-drawer-direction=bottom]:h-[85dvh] data-[vaul-drawer-direction=bottom]:max-h-[85dvh] data-[vaul-drawer-direction=bottom]:w-full data-[vaul-drawer-direction=bottom]:max-w-2xl data-[vaul-drawer-direction=bottom]:rounded-t-2xl data-[vaul-drawer-direction=bottom]:border-t data-[vaul-drawer-direction=bottom]:border-border data-[vaul-drawer-direction=bottom]:pb-0 data-[vaul-drawer-direction=bottom]:shadow-[0_-12px_40px_-8px_rgba(0,0,0,0.35)]"
+            fill
+            title={
+              <span className="flex items-baseline gap-2">
+                Comments
+                {commentCount > 0 ? <span className="text-sm font-normal text-muted-foreground">{formatNumber(commentCount)}</span> : null}
+              </span>
+            }
+            bodyClassName="border-t border-border/60"
           >
-            <DrawerHeader className="shrink-0 border-b px-3 py-2 text-left">
-              <DrawerTitle className="text-base">Comments</DrawerTitle>
-            </DrawerHeader>
             <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
               {commentsPanelOpen ? (
                 <CommentSection
@@ -960,8 +950,8 @@ export default function Actions({
                 />
               ) : null}
             </div>
-          </DrawerContent>
-        </Drawer>
+          </NativeSheetContent>
+        </NativeSheet>
       ) : (
         <Dialog open={commentsPanelOpen} onOpenChange={setCommentsPanelOpen}>
           <DialogContent

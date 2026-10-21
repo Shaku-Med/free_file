@@ -7,13 +7,7 @@ import { ReelSwiper } from "~/routes/reel/components/ReelSwiper";
 import type { ReelAmbienceInfo } from "~/routes/pip/components/PipReelItem";
 import Ambience from "~/components/accessories/CanvasGradient/Ambience";
 import CommentSection from "~/routes/Dynamic/components/Comments/CommentSection";
-import {
-  Drawer,
-  DrawerContent,
-  DrawerHeader,
-  DrawerOverlay,
-  DrawerTitle,
-} from "~/components/ui/drawer";
+import { NativeSheet, NativeSheetContent } from "~/components/ui/native-sheet";
 import type { FileType } from "~/lib/types";
 import { newReelFeedSeed } from "~/lib/feed/reelFeedSeed";
 import { personalizationService } from "~/lib/Services/PersonalizationService";
@@ -388,14 +382,14 @@ const Reel = ({ initialItems: routeItems, initialUserActions, profileReelContext
   // the single Ambience so it re-samples the new element on each swipe.
   // Ambient mode is a signed-in-only feature — never run it for guests, even
   // if a stale/default setting says ambientMode=true.
-  // Live video sampled ambience is DESKTOP ONLY, like YouTube's ambient mode.
-  // On phones the glow sits under a full screen CSS blur that recomposites on
-  // every canvas update - that combination overheats mobile Safari and drains
-  // the battery, so touch devices keep the cheap static palette backdrop instead.
+  // On phones the full screen CSS blur under the glow recomposited on every
+  // canvas update, which overheated mobile Safari. The canvas is only a few
+  // pixels, so stretched to the screen it is already a soft glow: touch
+  // devices get it without that blur, desktops keep the extra softness.
   const [finePointer] = useState(() =>
     typeof window !== "undefined" ? window.matchMedia("(pointer: fine)").matches : false,
   );
-  const ambientEnabled = Boolean(userId) && playerSettings?.ambientMode === true && finePointer;
+  const ambientEnabled = Boolean(userId) && playerSettings?.ambientMode === true;
   // Follow the same ambient controls as the watch page: sync mode + size.
   const ambientSync = playerSettings?.ambientSync === true;
   const ambientSize = Math.max(1, Math.min(2, playerSettings?.ambientSize ?? 2));
@@ -639,7 +633,10 @@ const Reel = ({ initialItems: routeItems, initialUserActions, profileReelContext
         {ambientEnabled && ambienceDesc && (
           <div className="absolute inset-0 flex items-center justify-center">
             <div
-              className="relative h-full max-h-[100dvh] origin-center overflow-visible blur-3xl opacity-80 lg:h-[var(--reel-frame-h)]"
+              className={cn(
+                "relative h-full max-h-[100dvh] origin-center overflow-visible opacity-80 lg:h-[var(--reel-frame-h)]",
+                finePointer && "blur-3xl",
+              )}
               style={{
                 // Size follows the ambient-size control (1×2×).
                 transform: `scale(${ambientSize})`,
@@ -756,26 +753,28 @@ const Reel = ({ initialItems: routeItems, initialUserActions, profileReelContext
         ) : null}
       </div>
 
-      {/* Small screens: the shared bottom drawer (no push). */}
+      {/* Small screens: the app's comments sheet, with its detents and gestures (no push). */}
       {!isLargeScreen ? (
-        <Drawer open={commentsOpen} onOpenChange={setCommentsOpen} direction="bottom">
-          <DrawerOverlay className="bg-black/30" />
-          <DrawerContent className="flex flex-col gap-0 overflow-hidden p-0 data-[vaul-drawer-direction=bottom]:inset-x-0 data-[vaul-drawer-direction=bottom]:mx-auto data-[vaul-drawer-direction=bottom]:h-[85dvh] data-[vaul-drawer-direction=bottom]:max-h-[85dvh] data-[vaul-drawer-direction=bottom]:w-full data-[vaul-drawer-direction=bottom]:max-w-2xl data-[vaul-drawer-direction=bottom]:rounded-t-2xl data-[vaul-drawer-direction=bottom]:border-t data-[vaul-drawer-direction=bottom]:border-border">
-            <DrawerHeader className="shrink-0 flex-row items-center justify-between border-b px-3 py-2 text-left">
-              <DrawerTitle className="text-base">Comments</DrawerTitle>
+        <NativeSheet open={commentsOpen} onOpenChange={setCommentsOpen}>
+          <NativeSheetContent
+            fill
+            title="Comments"
+            bodyClassName="border-t border-border/60"
+            actions={
               <button
                 type="button"
                 onClick={reloadComments}
                 disabled={reloadCoolingDown}
                 aria-label="Reload comments"
-                className="rounded-full p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:opacity-40 disabled:hover:bg-transparent"
+                className="flex size-9 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted active:bg-muted disabled:opacity-40 disabled:hover:bg-transparent"
               >
-                <RotateCw className={cn("h-4 w-4", reloadCoolingDown && "animate-spin")} />
+                <RotateCw className={cn("size-4", reloadCoolingDown && "animate-spin")} />
               </button>
-            </DrawerHeader>
+            }
+          >
             <div className="flex min-h-0 flex-1 flex-col overflow-hidden">{commentsBody}</div>
-          </DrawerContent>
-        </Drawer>
+          </NativeSheetContent>
+        </NativeSheet>
       ) : null}
     </div>
     </ReelFullscreenProvider>

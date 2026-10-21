@@ -36,6 +36,8 @@ type SheetState = {
   close: () => void
   /** At the top detent, where the sheet turns solid and runs edge to edge. */
   full: boolean
+  /** The detent it rests at: a share of the window, or pixels for a sheet sized to its content. */
+  snap: number | string | null
   /** A sheet whose content fits under the half detent is sized to its content instead. */
   fitTo: (height: number | null) => void
 }
@@ -93,7 +95,7 @@ export function NativeSheet({ open: openProp, defaultOpen, onOpenChange, modal =
   }, [open])
 
   const state = React.useMemo<SheetState>(
-    () => ({ close: () => setOpen(false), full: active === FULL, fitTo }),
+    () => ({ close: () => setOpen(false), full: active === FULL, snap: active, fitTo }),
     [setOpen, active, fitTo],
   )
 
@@ -123,18 +125,27 @@ type ContentProps = Omit<React.ComponentProps<typeof Vaul.Content>, "title"> & {
   showClose?: boolean
   /** Render inside this element instead of document.body (a fullscreen player). */
   container?: HTMLElement | null
+  /**
+   * For content that scrolls itself and keeps a bar at its foot (comments and
+   * their composer): the body takes exactly the visible part of the sheet at
+   * each detent, so that bar never sits below the screen at the half detent.
+   */
+  fill?: boolean
+  /** Extra buttons in the title row, before the close button. */
+  actions?: React.ReactNode
 }
 
 export const NativeSheetContent = React.forwardRef<HTMLDivElement, ContentProps>(function NativeSheetContent(
-  { title, bodyClassName, showClose = true, container, children, className, style, ...props },
+  { title, bodyClassName, showClose = true, container, fill = false, actions, children, className, style, ...props },
   ref,
 ) {
   const sheet = useNativeSheet()
   const device = useDeviceStyle()
   const material = platformOf(device) === "material"
   const glass = device === "ios-glass"
-  const frame = useDeviceClass("sheetFrame")
-  const grabber = useDeviceClass("grabber")
+  // A phone the device check couldn't place still gets a sheet's shape.
+  const frame = useDeviceClass("sheetFrame") || "rounded-t-2xl"
+  const grabber = useDeviceClass("grabber") || "top-2 h-1.5 w-10 bg-muted-foreground/30"
   // Measured as soon as the content attaches (the portal only renders it after
   // mounting), so a short sheet opens straight at its own height.
   const fitTo = sheet?.fitTo
@@ -143,6 +154,10 @@ export const NativeSheetContent = React.forwardRef<HTMLDivElement, ContentProps>
   const measured = React.useCallback(
     (el: HTMLDivElement | null) => {
       if (!el || !fitTo) return
+      if (fill) {
+        fitTo(null)
+        return
+      }
       const measure = () => {
         const need = Math.ceil(el.getBoundingClientRect().height) + gap
         fitTo(need > gap && need <= window.innerHeight * MEDIUM ? need : null)
@@ -152,11 +167,48 @@ export const NativeSheetContent = React.forwardRef<HTMLDivElement, ContentProps>
       observer.observe(el)
       return () => observer.disconnect()
     },
-    [fitTo, gap],
+    [fitTo, gap, fill],
   )
+  // The part of the sheet on screen at its detent: the rest hangs below the window.
+  const snap = sheet?.snap
+  const visible =
+    typeof snap === "number"
+      ? `calc(${snap * 100}dvh - env(safe-area-inset-top) - ${gap}px)`
+      : typeof snap === "string"
+        ? `calc(${snap} - ${gap}px)`
+        : undefined
 
   // Glass while it floats at a lower detent, solid and edge to edge at full height, as on iOS 26.
   const floating = glass && !sheet?.full
+  const full = Boolean(sheet?.full)
+  const frameRef = React.useRef<HTMLDivElement>(null)
+
+  // At full height the lists inside scroll. One sitting at its top lets a pull
+  // down go to the sheet instead (pan-up leaves only upward scrolling to the
+  // browser), so the sheet can be dragged from anywhere there too.
+  React.useEffect(() => {
+    const frame = frameRef.current
+    if (!frame || !full || typeof CSS === "undefined" || !CSS.supports("touch-action", "pan-up")) return
+    const settle = (el: HTMLElement) => {
+      el.style.touchAction = el.scrollTop <= 0 ? "pan-up" : "pan-y"
+    }
+    const scrollers = () =>
+      [...frame.querySelectorAll<HTMLElement>("*")].filter((el) => {
+        const overflow = getComputedStyle(el).overflowY
+        return (overflow === "auto" || overflow === "scroll") && el.scrollHeight > el.clientHeight
+      })
+    scrollers().forEach(settle)
+    const onScroll = (e: Event) => {
+      if (e.target instanceof HTMLElement && frame.contains(e.target)) settle(e.target)
+    }
+    frame.addEventListener("scroll", onScroll, true)
+    return () => {
+      frame.removeEventListener("scroll", onScroll, true)
+      scrollers().forEach((el) => {
+        el.style.touchAction = ""
+      })
+    }
+  }, [full])
 
   return (
     <Vaul.Portal container={container ?? undefined}>
@@ -173,17 +225,26 @@ export const NativeSheetContent = React.forwardRef<HTMLDivElement, ContentProps>
         {...props}
       >
         <div
+          ref={frameRef}
           className={cn(
             "absolute inset-y-0 flex flex-col overflow-hidden bg-background text-foreground transition-[left,right,background-color] duration-300 ease-out",
             floating ? "inset-x-2 bg-background/75 backdrop-blur-2xl backdrop-saturate-150" : "inset-x-0",
+            // Below full height the whole sheet is its handle, as in the app: the
+            // browser pans nothing inside it, so a drag anywhere moves the sheet.
+            full ? "[&_*]:overscroll-y-none" : "touch-none [&_*]:touch-none",
             frame,
           )}
         >
           <div aria-hidden className={cn("pointer-events-none absolute left-1/2 z-10 -translate-x-1/2 rounded-full", grabber)} />
-          <div ref={measured} className="flex max-h-full min-h-0 flex-col">
+          <div
+            ref={measured}
+            className={cn("flex max-h-full min-h-0 flex-col", fill && "transition-[height] duration-300 ease-out")}
+            style={fill ? { height: visible } : undefined}
+          >
             {title ? (
-              <div className="flex shrink-0 items-center gap-2 pt-6 pr-2 pb-2 pl-5">
+              <div className="flex shrink-0 items-center gap-1 pt-6 pr-2 pb-2 pl-5">
                 <Vaul.Title className="min-w-0 flex-1 truncate text-[17px] font-semibold">{title}</Vaul.Title>
+                {actions}
                 {showClose ? (
                   <Vaul.Close className="flex size-9 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted active:bg-muted" aria-label="Close">
                     <XIcon className="size-[18px]" />
@@ -198,7 +259,15 @@ export const NativeSheetContent = React.forwardRef<HTMLDivElement, ContentProps>
                 <XIcon className="size-4" />
               </Vaul.Close>
             ) : null}
-            <div className={cn("min-h-0 overflow-y-auto overscroll-contain pb-[calc(env(safe-area-inset-bottom)+16px)]", !title && "pt-6", bodyClassName)}>
+            <div
+              className={cn(
+                fill
+                  ? "flex min-h-0 flex-1 flex-col"
+                  : "min-h-0 overflow-y-auto overscroll-contain pb-[calc(env(safe-area-inset-bottom)+16px)]",
+                !title && "pt-6",
+                bodyClassName,
+              )}
+            >
               {children}
             </div>
           </div>

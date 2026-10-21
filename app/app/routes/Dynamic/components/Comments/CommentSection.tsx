@@ -811,13 +811,24 @@ const CommentSection = ({
       </div>
     );
 
-  const threadWithComposer = showComposer ? (
+  // In a sheet a guest gets the same padded, scrolling thread, with a sign in
+  // bar where the composer would be, as in the app.
+  const signInBar =
+    fillHeight && commentsEnabled && !currentUserId ? (
+      <div className={cn(composerShellClass, "py-2")}>
+        <Button type="button" className="w-full" onClick={goToLogin}>
+          Sign in to comment
+        </Button>
+      </div>
+    ) : null;
+
+  const threadWithComposer = showComposer || fillHeight ? (
     fillHeight ? (
       <>
         <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-3 pt-2 [scrollbar-gutter:stable]">
           {threadPanel}
         </div>
-        {composerNode}
+        {composerNode ?? signInBar}
       </>
     ) : (
       <div className="flex min-h-full min-w-0 flex-col">
