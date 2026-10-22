@@ -16,6 +16,7 @@ import {
   Bookmark,
   MoveVertical,
   Trash2,
+  CircleStop,
   Flag,
   EyeOff,
   UserMinus,
@@ -55,6 +56,8 @@ export interface ActionsProps {
   isAdult?: boolean;
   onEdit?: () => void;
   onDelete?: () => void;
+  /** Owner only, while it processes: stop it and remove the upload. */
+  onStopProcessing?: () => void;
   onUpdate?: (updates: {
     liked: boolean;
     disliked: boolean;
@@ -194,6 +197,7 @@ export default function Actions({
   isAdult,
   onEdit,
   onDelete,
+  onStopProcessing,
   onUpdate,
   getShareTimestamp,
   onShareSuccess,
@@ -526,13 +530,22 @@ export default function Actions({
           isShortsShelf ? "min-w-[13.5rem]" : "min-w-[12rem]",
         )}
       >
-          {isOwner && (typeof onEdit === "function" || typeof onDelete === "function") ? (
+          {isOwner && (typeof onEdit === "function" || typeof onDelete === "function" || typeof onStopProcessing === "function") ? (
             <>
               <DropdownMenuGroup>
                 {typeof onEdit === "function" && (
                   <DropdownMenuItem onSelect={() => onEdit()}>
                     <Pencil className="size-4" aria-hidden />
                     Edit upload
+                  </DropdownMenuItem>
+                )}
+                {typeof onStopProcessing === "function" && (
+                  <DropdownMenuItem
+                    onSelect={() => onStopProcessing()}
+                    className="text-destructive focus:text-destructive"
+                  >
+                    <CircleStop className="size-4" aria-hidden />
+                    Stop processing
                   </DropdownMenuItem>
                 )}
                 {typeof onDelete === "function" && (

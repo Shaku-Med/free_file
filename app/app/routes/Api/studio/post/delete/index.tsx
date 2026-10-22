@@ -15,6 +15,8 @@
 import { isAuthenticated } from "~/lib/Security/Password";
 import db from "~/lib/Database/supabase";
 import { hasDeleteSudo } from "~/lib/Security/deleteSudo.server";
+import { hasPendingQualities, isStillProcessing } from "~/lib/files/uploadStatus";
+import { storagePrefixFor } from "~/lib/files/storagePrefix";
 
 const toJson = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), {
@@ -24,33 +26,7 @@ const toJson = (body: unknown, status = 200) =>
 
 const denyErr = (status = 500) => toJson({ error: "Something's wrong." }, status);
 
-/** Upload states where the worker may still be writing  deletion is blocked. */
-const PROCESSING_STATES = new Set(["queued", "running", "processing", "pending", "uploading"]);
-/** How long a live video's higher qualities can hold off a delete; past it, a row a crashed worker never cleared is deletable again. */
-const PENDING_QUALITIES_MAX_MS = 24 * 60 * 60 * 1000;
-
-/** The only storage-directory shape the purge endpoint accepts. */
-const PREFIX_PATTERN = /^\d{2}_\d{2}_\d{4}\/[a-f0-9]{32}\//;
-
 const PURGE_TIMEOUT_MS = 90_000;
-
-function storagePrefixFor(row: {
-  endpoint?: string | null;
-  thumbnails?: unknown;
-  default_thumbnail?: string | null;
-}): string | null {
-  const candidates: string[] = [];
-  if (typeof row.endpoint === "string") candidates.push(row.endpoint);
-  if (typeof row.default_thumbnail === "string") candidates.push(row.default_thumbnail);
-  if (Array.isArray(row.thumbnails)) {
-    for (const t of row.thumbnails) if (typeof t === "string") candidates.push(t);
-  }
-  for (const c of candidates) {
-    const m = PREFIX_PATTERN.exec(c.replace(/^\/+/, ""));
-    if (m) return m[0];
-  }
-  return null;
-}
 
 /** True when the storage directory is gone (or there was nothing to purge). */
 async function purgeStorage(row: {
@@ -129,19 +105,10 @@ export const action = async ({ request }: { request: Request }) => {
     // storage mid-process races the worker and can orphan the directory (which
     // we pay for) or strand a half-processed row. Only complete / failed
     // (terminal) uploads are deletable. Legacy rows with no status are allowed.
-    const status = (existing as { upload_status?: string | null }).upload_status;
-    if (typeof status === "string" && PROCESSING_STATES.has(status.toLowerCase())) {
-      return toJson(
-        { error: "processing", message: "This video is still processing. You can delete it once it finishes." },
-        409,
-      );
-    }
-    // Live, but its higher qualities are still being written to the same folder.
-    const row = existing as { processing_progress?: unknown; created_at?: unknown };
-    if (
-      typeof row.processing_progress === "number" &&
-      Date.now() - Date.parse(String(row.created_at)) < PENDING_QUALITIES_MAX_MS
-    ) {
+    // Live with higher qualities still encoding counts too: they are being
+    // written to the same folder.
+    const row = existing as { upload_status?: unknown; processing_progress?: unknown; created_at?: unknown };
+    if (isStillProcessing(row.upload_status) || hasPendingQualities(row)) {
       return toJson(
         { error: "processing", message: "This video is still processing. You can delete it once it finishes." },
         409,

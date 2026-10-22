@@ -22,6 +22,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"goupload/lib/env"
@@ -234,6 +235,49 @@ func (c *Client) ListKeys(ctx context.Context, prefix string, max int) ([]string
 		token = page.NextContinuationToken
 	}
 	return keys, nil
+}
+
+// DeletePrefix deletes every object under prefix (up to max) with bounded
+// concurrency and returns how many went. DeleteObject treats 404 as success,
+// so repeating it is safe. Shared by the purge endpoint and a canceled upload.
+func (c *Client) DeletePrefix(ctx context.Context, prefix string, max, concurrency int) (int, error) {
+	keys, err := c.ListKeys(ctx, prefix, max)
+	if err != nil {
+		return 0, err
+	}
+	if concurrency <= 0 {
+		concurrency = 8
+	}
+	sem := make(chan struct{}, concurrency)
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	var firstErr error
+	deleted := 0
+	for _, key := range keys {
+		// Defense in depth: never act outside the asked-for directory.
+		if !strings.HasPrefix(key, prefix) {
+			continue
+		}
+		wg.Add(1)
+		go func(k string) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+			if err := c.DeleteObject(ctx, k); err != nil {
+				mu.Lock()
+				if firstErr == nil {
+					firstErr = err
+				}
+				mu.Unlock()
+				return
+			}
+			mu.Lock()
+			deleted++
+			mu.Unlock()
+		}(key)
+	}
+	wg.Wait()
+	return deleted, firstErr
 }
 
 // signedGet performs a SigV4-signed GET against the bucket root with query

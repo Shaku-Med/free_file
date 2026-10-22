@@ -150,6 +150,31 @@ func (c *Client) GetJobStatus(ctx context.Context, jobID string) (string, error)
 	return s, nil
 }
 
+// Canceled uploads. The owner can stop an upload while it processes; the flag
+// is keyed by upload id because that is all the app knows, and it outlives any
+// realistic queue wait so a job popped later still sees it.
+const (
+	cancelKeyPrefix = "upload:cancel:"
+	cancelTTL       = 24 * time.Hour
+)
+
+func (c *Client) RequestCancel(ctx context.Context, uploadID string) error {
+	if uploadID == "" {
+		return nil
+	}
+	return c.rdb.Set(ctx, cancelKeyPrefix+uploadID, "1", cancelTTL).Err()
+}
+
+// IsCanceled reports whether the owner stopped this upload. A Redis error reads
+// as not canceled: the worker carries on rather than dropping a healthy upload.
+func (c *Client) IsCanceled(ctx context.Context, uploadID string) bool {
+	if uploadID == "" {
+		return false
+	}
+	v, err := c.rdb.Get(ctx, cancelKeyPrefix+uploadID).Result()
+	return err == nil && v == "1"
+}
+
 // In-flight jobs. Dequeue pops the job off the list, so once processing starts
 // Redis holds no record of it beyond a status string keyed by job id. If the
 // process dies mid-job (OOM kill, container restart, hard panic) there is

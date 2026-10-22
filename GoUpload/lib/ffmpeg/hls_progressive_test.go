@@ -138,3 +138,36 @@ func TestProgressivePublishFailsWhenNothingWentLive(t *testing.T) {
 		t.Fatalf("got res=%v err=%v, want the publish error and no result", res, err)
 	}
 }
+
+func TestCanceledUploadStopsEncoding(t *testing.T) {
+	clip := makeClip(t)
+
+	// Stopped before anything went live: an error, nothing to keep.
+	res, err := ConvertToHLSAllQualities(clip, filepath.Join(t.TempDir(), "hls"), HLSOptions{
+		SegmentTime: 6,
+		Publish:     func([]string, int, int) error { return nil },
+		Canceled:    func() bool { return true },
+	})
+	if !errors.Is(err, ErrCanceled) || res != nil {
+		t.Fatalf("got res=%v err=%v, want ErrCanceled and no result", res, err)
+	}
+
+	// Stopped after the first quality: no further quality is even encoded.
+	stopped := false
+	var encoded []string
+	res, err = ConvertToHLSAllQualities(clip, filepath.Join(t.TempDir(), "hls"), HLSOptions{
+		SegmentTime: 6,
+		Publish: func(dirs []string, _, _ int) error {
+			encoded = append(encoded, dirs[0])
+			stopped = true
+			return nil
+		},
+		Canceled: func() bool { return stopped },
+	})
+	if err != nil || res == nil || !errors.Is(res.Partial, ErrCanceled) {
+		t.Fatalf("got res=%v err=%v, want a partial result stopped by ErrCanceled", res, err)
+	}
+	if len(encoded) != 1 || encoded[0] != "360p" {
+		t.Fatalf("encoded %v after the cancel, want only 360p", encoded)
+	}
+}

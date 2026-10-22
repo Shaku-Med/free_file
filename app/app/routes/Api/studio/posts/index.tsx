@@ -2,6 +2,7 @@ import { isAuthenticated } from "~/lib/Security/Password";
 import db from "~/lib/Database/supabase";
 import { validateInteger } from "~/lib/Security/inputValidation";
 import { getFileCounts } from "~/lib/studio/fileCounts.server";
+import { PENDING_QUALITIES_MAX_MS } from "~/lib/files/uploadStatus";
 
 const toJson = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), {
@@ -71,7 +72,11 @@ export const loader = async ({ request }: { request: Request }) => {
     else if (status === "unlisted") q = q.eq("visibility", "unlisted");
     else if (status === "private") q = q.eq("visibility", "private");
     else if (status === "adult") q = q.eq("is_adult", true);
-    else if (status === "processing") q = q.neq("upload_status", "complete");
+    else if (status === "processing") {
+      // Nothing playable yet, or live with higher qualities still encoding.
+      const since = new Date(Date.now() - PENDING_QUALITIES_MAX_MS).toISOString();
+      q = q.or(`upload_status.neq.complete,and(processing_progress.not.is.null,created_at.gte."${since}")`);
+    }
 
     const { data: rawRows, count, error } = await q;
     if (error) {

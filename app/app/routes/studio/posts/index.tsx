@@ -9,6 +9,7 @@ import Actions from "~/routes/Home/components/VideoCard/Actions";
 import type { FileType } from "~/lib/types";
 import { invalidateStudioCache, useStudioData } from "~/lib/studio/studioCache";
 import { visibilityOf, type FileVisibility } from "~/lib/Security/visibility";
+import { hasPendingQualities, isStillProcessing } from "~/lib/files/uploadStatus";
 import {
   ArrowUpDown,
   ChevronDown,
@@ -253,6 +254,7 @@ function StudioPostRow({
   onPrivacyChange,
   onEdit,
   onDelete,
+  onStopProcessing,
   onUpdate,
 }: {
   post: PostRow;
@@ -260,17 +262,15 @@ function StudioPostRow({
   onPrivacyChange: (visibility: FileVisibility) => void;
   onEdit: () => void;
   onDelete: () => void;
+  onStopProcessing: () => void;
   onUpdate: (fileId: string, updates: Partial<FileType>) => void;
 }) {
   const fileData = { ...post, owner_id: userId ?? undefined } as unknown as FileType;
 
-  // A still-processing upload can't be deleted (the worker may be mid-write).
-  // Hide the delete action; the server also blocks it as the real safeguard.
-  const isProcessing =
-    typeof post.upload_status === "string" &&
-    ["queued", "running", "processing", "pending", "uploading"].includes(
-      post.upload_status.toLowerCase(),
-    );
+  // A still-processing upload can't be deleted (the worker may be mid-write),
+  // nor a live one whose higher qualities are still encoding. Hide the delete
+  // action; the server also blocks it as the real safeguard.
+  const isProcessing = isStillProcessing(post.upload_status) || hasPendingQualities(post);
 
   const renderActions = () => (
     <Actions
@@ -290,6 +290,7 @@ function StudioPostRow({
       layout="shortsShelf"
       onEdit={onEdit}
       onDelete={isProcessing ? undefined : onDelete}
+      onStopProcessing={isProcessing ? onStopProcessing : undefined}
     />
   );
 
@@ -371,6 +372,43 @@ export default function StudioPostsPage() {
     setHasMore(Boolean(raw.pagination?.hasMore));
   }, [raw]);
 
+  // While anything here is processing, check on it quietly so its progress moves
+  // and its status clears when it's done. Only the processing fields are merged
+  // in, so the list never flashes back to loading and an edit in flight stays.
+  const anyProcessing = rows.some((r) => isStillProcessing(r.upload_status) || hasPendingQualities(r));
+  useEffect(() => {
+    if (!anyProcessing) return;
+    const id = window.setInterval(async () => {
+      if (document.visibilityState === "hidden") return;
+      try {
+        const res = await fetch(url, { credentials: "same-origin" });
+        const json = res.ok ? ((await res.json()) as { data?: PostRow[] }) : null;
+        if (!json?.data) return;
+        const fresh = new Map(json.data.map((r) => [r.id, r]));
+        setRows((prev) =>
+          prev.map((r) => {
+            const f = fresh.get(r.id);
+            return f
+              ? {
+                  ...r,
+                  upload_status: f.upload_status,
+                  processing_progress: f.processing_progress,
+                  endpoint: f.endpoint,
+                  duration: f.duration,
+                  default_thumbnail: f.default_thumbnail,
+                  thumbnails: f.thumbnails,
+                }
+              : r;
+          }),
+        );
+        invalidateStudioCache(cacheKey);
+      } catch {
+        // Offline: try again next tick.
+      }
+    }, 10_000);
+    return () => window.clearInterval(id);
+  }, [anyProcessing, url, cacheKey]);
+
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     if (!q) return rows;
@@ -382,6 +420,10 @@ export default function StudioPostsPage() {
 
   const { userId } = useFileContext();
   const [pendingDelete, setPendingDelete] = useState<PostRow | null>(null);
+  // One confirm-and-verify flow for both: deleting a post, or stopping one
+  // mid-processing (rolled back and removed the same way, just sooner).
+  const [removeMode, setRemoveMode] = useState<"delete" | "stop">("delete");
+  const stopping = removeMode === "stop";
   const [busyId, setBusyId] = useState<string | null>(null);
   // Email-code "sudo" step shown when the server asks for delete verification.
   const [verifyStep, setVerifyStep] = useState<"sending" | "code" | null>(null);
@@ -494,7 +536,7 @@ export default function StudioPostsPage() {
     setBusyId(target.id);
     setVerifyError(null);
     try {
-      const res = await fetch("/api/studio/post/delete", {
+      const res = await fetch(stopping ? "/api/studio/post/cancel" : "/api/studio/post/delete", {
         method: "POST",
         credentials: "same-origin",
         headers: { "Content-Type": "application/json" },
@@ -516,14 +558,15 @@ export default function StudioPostsPage() {
         }
       }
       if (res.status === 409) {
-        // Still processing  the worker may be mid-write; surface why.
+        // Delete: still processing, the worker may be mid-write. Stop: it just
+        // finished, so there is nothing left to stop. Either way, say why.
         const data = (await res.json().catch(() => null)) as { message?: string } | null;
         setVerifyError(data?.message ?? "This video is still processing. You can delete it once it finishes.");
         return;
       }
-      setVerifyError("Couldn't delete right now. Try again.");
+      setVerifyError(stopping ? "Couldn't stop it right now. Try again." : "Couldn't delete right now. Try again.");
     } catch {
-      setVerifyError("Couldn't delete right now. Try again.");
+      setVerifyError(stopping ? "Couldn't stop it right now. Try again." : "Couldn't delete right now. Try again.");
     } finally {
       setBusyId(null);
     }
@@ -641,7 +684,14 @@ export default function StudioPostsPage() {
                 userId={userId}
                 onPrivacyChange={(v) => togglePrivacy(p, v)}
                 onEdit={() => requestVideoCardEdit(p.unique_id)}
-                onDelete={() => setPendingDelete(p)}
+                onDelete={() => {
+                  setRemoveMode("delete");
+                  setPendingDelete(p);
+                }}
+                onStopProcessing={() => {
+                  setRemoveMode("stop");
+                  setPendingDelete(p);
+                }}
                 onUpdate={(fileId, updates) => {
                   setRows((prev) =>
                     prev.map((r) => (r.id === fileId ? { ...r, ...updates } : r)),
@@ -664,13 +714,26 @@ export default function StudioPostsPage() {
           {verifyStep === null ? (
             <>
               <DialogHeader>
-                <DialogTitle>Delete this post forever?</DialogTitle>
-                <DialogDescription>
-                  Everything will be gone: the video and its stored files, likes, comments, and
-                  analytics. There are{" "}
-                  <span className="font-semibold text-foreground">no backups</span>  this cannot
-                  be undone.
-                </DialogDescription>
+                {stopping ? (
+                  <>
+                    <DialogTitle>Stop processing and remove it?</DialogTitle>
+                    <DialogDescription>
+                      Processing stops and this upload is removed right away, along with everything
+                      already saved for it. It won&apos;t count toward your upload limit.{" "}
+                      <span className="font-semibold text-foreground">This cannot be undone.</span>
+                    </DialogDescription>
+                  </>
+                ) : (
+                  <>
+                    <DialogTitle>Delete this post forever?</DialogTitle>
+                    <DialogDescription>
+                      Everything will be gone: the video and its stored files, likes, comments, and
+                      analytics. There are{" "}
+                      <span className="font-semibold text-foreground">no backups</span>  this cannot
+                      be undone.
+                    </DialogDescription>
+                  </>
+                )}
               </DialogHeader>
               {verifyError && <p className="text-sm text-destructive">{verifyError}</p>}
               <DialogFooter>
@@ -691,7 +754,7 @@ export default function StudioPostsPage() {
                   {pendingDelete && busyId === pendingDelete.id && (
                     <Loader2 className="h-3.5 w-3.5 animate-spin" />
                   )}
-                  Yes, delete
+                  {stopping ? "Yes, stop and remove" : "Yes, delete"}
                 </button>
               </DialogFooter>
             </>

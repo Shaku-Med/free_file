@@ -15,11 +15,11 @@ import (
 	"crypto/subtle"
 	"regexp"
 	"strings"
-	"sync"
 	"time"
 
 	ghlib "goupload/lib/github"
 	"goupload/lib/logger"
+	"goupload/lib/queue"
 	"goupload/lib/r2"
 
 	gh "github.com/google/go-github/v62/github"
@@ -34,6 +34,17 @@ type Config struct {
 	GitHubBranch string
 	R2           *r2.Client
 	Log          *logger.Logger
+	// Queue carries the cancel flag the worker checks for /internal/cancel.
+	Queue *queue.Client
+}
+
+var uploadIDRe = regexp.MustCompile(`^[a-f0-9]{32}$`)
+
+type cancelBody struct {
+	UploadID string `json:"upload_id"`
+	// Prefix is the upload's storage directory when the app knows it, so what
+	// is already stored goes now even if no worker is left to notice the flag.
+	Prefix string `json:"prefix"`
 }
 
 // prefixRe pins the only deletable shape: one upload directory. No dots, no
@@ -149,43 +160,73 @@ func RegisterRoutes(app *fiber.App, webhookSecret string, cfg Config) {
 
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid_request"})
 	})
+
+	app.Use("/internal/cancel", limiter.New(limiter.Config{
+		Max:        30,
+		Expiration: time.Minute,
+		KeyGenerator: func(c *fiber.Ctx) string {
+			return "ip:" + c.IP()
+		},
+		LimitReached: func(c *fiber.Ctx) error {
+			c.Set("Retry-After", "60")
+			return c.Status(fiber.StatusTooManyRequests).JSON(fiber.Map{"error": "rate_limited"})
+		},
+	}))
+
+	// POST /internal/cancel: the owner stopped an upload while it processed.
+	// The flag makes the worker drop the job at its next step and delete what
+	// it stored; anything already stored under a known prefix goes right now.
+	// Ownership is checked by the app before it calls here, as with purge.
+	app.Post("/internal/cancel", func(c *fiber.Ctx) error {
+		if webhookSecret == "" || cfg.Queue == nil {
+			return c.Status(fiber.StatusServiceUnavailable).JSON(fiber.Map{"error": "unavailable"})
+		}
+		provided := c.Get("X-Webhook-Secret")
+		if subtle.ConstantTimeCompare([]byte(provided), []byte(webhookSecret)) != 1 {
+			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "unauthorized"})
+		}
+
+		var body cancelBody
+		if err := c.BodyParser(&body); err != nil {
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid_request"})
+		}
+		uploadID := strings.TrimSpace(body.UploadID)
+		prefix := strings.TrimSpace(body.Prefix)
+		// The prefix may only ever name this upload's own directory.
+		if !uploadIDRe.MatchString(uploadID) || (prefix != "" && (!prefixRe.MatchString(prefix) || !strings.HasSuffix(prefix, "/"+uploadID+"/"))) {
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid_request"})
+		}
+
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
+
+		// Fail closed: without the flag a running worker would keep publishing.
+		if err := cfg.Queue.RequestCancel(ctx, uploadID); err != nil {
+			if cfg.Log != nil {
+				cfg.Log.Errorf("cancel flag upload=%s err=%s", uploadID, err.Error())
+			}
+			return c.Status(fiber.StatusServiceUnavailable).JSON(fiber.Map{"error": "unavailable"})
+		}
+
+		deleted := 0
+		if prefix != "" && cfg.R2 != nil {
+			n, err := purgeR2(ctx, cfg.R2, prefix)
+			if err != nil {
+				if cfg.Log != nil {
+					cfg.Log.Errorf("cancel purge prefix=%s err=%s", prefix, err.Error())
+				}
+				return c.Status(fiber.StatusBadGateway).JSON(fiber.Map{"error": "purge_failed"})
+			}
+			deleted = n
+		}
+		if cfg.Log != nil {
+			cfg.Log.Infof("upload canceled upload=%s deleted_now=%d", uploadID, deleted)
+		}
+		return c.JSON(fiber.Map{"ok": true})
+	})
 }
 
-// purgeR2 lists every key under prefix and deletes them with bounded
-// concurrency. DeleteObject treats 404 as success, so retries are safe.
+// purgeR2 deletes every key under prefix.
 func purgeR2(ctx context.Context, client *r2.Client, prefix string) (int, error) {
-	keys, err := client.ListKeys(ctx, prefix, maxPurgeKeys)
-	if err != nil {
-		return 0, err
-	}
-	sem := make(chan struct{}, deleteConcurrency)
-	var wg sync.WaitGroup
-	var mu sync.Mutex
-	var firstErr error
-	deleted := 0
-	for _, key := range keys {
-		// Defense in depth: never act outside the validated directory.
-		if !strings.HasPrefix(key, prefix) {
-			continue
-		}
-		wg.Add(1)
-		go func(k string) {
-			defer wg.Done()
-			sem <- struct{}{}
-			defer func() { <-sem }()
-			if err := client.DeleteObject(ctx, k); err != nil {
-				mu.Lock()
-				if firstErr == nil {
-					firstErr = err
-				}
-				mu.Unlock()
-				return
-			}
-			mu.Lock()
-			deleted++
-			mu.Unlock()
-		}(key)
-	}
-	wg.Wait()
-	return deleted, firstErr
+	return client.DeletePrefix(ctx, prefix, maxPurgeKeys, deleteConcurrency)
 }

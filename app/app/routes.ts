@@ -98,6 +98,7 @@ export default [
         route(`studio/post`, 'routes/Api/studio/post/index.tsx'),
         route(`studio/post/update`, 'routes/Api/studio/post/update/index.tsx'),
         route(`studio/post/delete`, 'routes/Api/studio/post/delete/index.tsx'),
+        route(`studio/post/cancel`, 'routes/Api/studio/post/cancel/index.tsx'),
         route(`studio/delete-verify`, 'routes/Api/studio/delete-verify/index.tsx'),
         route(`studio/track`, 'routes/Api/studio/track/index.tsx'),
         route(`dynamic-series`, 'routes/Api/dynamic-series/index.tsx'),

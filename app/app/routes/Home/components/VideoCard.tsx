@@ -41,6 +41,7 @@ import { useSidebarOptional } from "~/components/ui/sidebar";
 import { formatTimeAgo } from "~/lib/formatTimeAgo";
 import { EpisodePicker } from "./EpisodePicker";
 import WatchProgressBar from "./WatchProgressBar";
+import { hasPendingQualities, isStillProcessing } from "~/lib/files/uploadStatus";
 import { SeriesEpisodesPreviewDialog } from "~/components/SeriesEpisodesPreviewDialog";
 
 function tryUnwrapJsonEntry(val: string): CaptionEntry | null {
@@ -1183,7 +1184,8 @@ const VideoCard = ({
               quality={60}
               hasAdultTag={Boolean(data.is_adult)}
             />
-            {isPending && (
+            {/* The studio row says it beside the title; its thumbnail is too small for this. */}
+            {isPending && layout !== "studioRow" && (
               <>
                 <div
                   className="pointer-events-none absolute inset-0 z-[15] bg-gradient-to-t from-black/85 via-black/25 to-transparent"
@@ -1221,7 +1223,7 @@ const VideoCard = ({
           </div>
         ) : (
           <div className="w-full h-full flex flex-col items-center justify-center gap-2 bg-muted px-3 py-4 text-xs text-center text-muted-foreground">
-            {isPending ? (
+            {isPending && layout === "studioRow" ? null : isPending ? (
               <>
                 <span className="font-medium text-foreground">
                   {processingProgressPct != null
@@ -2784,8 +2786,6 @@ const VideoCard = ({
     // as every other layout so adult blur, retry, lazy load, and the edit
     // upload dialog (title / description / skip markers / series) stay
     // identical to the rest of the app, no duplication.
-    const durationSec = typeof data.duration === "number" ? data.duration : 0;
-    const durationStr = formatDuration(durationSec);
     const sameYear =
       data.created_at && new Date(data.created_at).getFullYear() === new Date().getFullYear();
     const postedAt = data.created_at
@@ -2797,6 +2797,16 @@ const VideoCard = ({
           minute: "2-digit",
         })
       : "";
+    // The owner's view: say when an upload is still being worked on, in place of
+    // its date. Nothing playable yet shows how far along it is; live with higher
+    // qualities still encoding just says HD is on the way.
+    const processingLabel = isStillProcessing(data.upload_status)
+      ? processingProgressPct != null
+        ? `Processing ${processingProgressPct}%`
+        : "Processing"
+      : hasPendingQualities(data)
+        ? "HD processing"
+        : null;
     return (
       <>
         <Link
@@ -2808,20 +2818,21 @@ const VideoCard = ({
           className="flex min-w-0 items-start gap-3"
         >
           <div className="relative h-[4.25rem] w-[6.75rem] shrink-0 overflow-hidden rounded-md bg-card ring-1 ring-border/30 sm:h-16 sm:w-28">
+            {/* renderThumbnail draws the duration badge itself. */}
             {renderThumbnail("h-full w-full")}
-            {durationStr && (
-              <span className="absolute right-1 bottom-1 rounded bg-black/80 px-1 py-px text-[10px] font-semibold tabular-nums leading-none text-white">
-                {durationStr}
-              </span>
-            )}
           </div>
           <div className="min-w-0">
             <p className="line-clamp-2 text-sm font-semibold text-foreground">
               <ParseFilenameInsert filename={displayMediaTitle(data.file_title || data.filename || "")} showLimit={120} />
             </p>
-            {postedAt && (
+            {processingLabel ? (
+              <p className="mt-1 inline-flex items-center gap-1.5 rounded-full bg-muted px-2 py-0.5 text-xs font-medium tabular-nums text-foreground">
+                <Loader2 className="size-3 shrink-0 animate-spin text-muted-foreground" aria-hidden />
+                {processingLabel}
+              </p>
+            ) : postedAt ? (
               <p className="mt-1 text-xs text-muted-foreground">{postedAt}</p>
-            )}
+            ) : null}
           </div>
         </Link>
         {renderEditDialog()}

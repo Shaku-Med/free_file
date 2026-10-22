@@ -66,7 +66,13 @@ type HLSOptions struct {
 	// call is the moment the video can be watched, so a viewer gets 360p while
 	// 1080p is still encoding. A failure after that keeps what was published.
 	Publish func(newDirs []string, done, total int) error
+	// Canceled, when set, is asked before each quality. Once it says yes the
+	// encode stops with ErrCanceled, the owner having stopped the upload.
+	Canceled func() bool
 }
+
+// ErrCanceled is why encoding stopped when the owner stopped the upload.
+var ErrCanceled = errors.New("hls: upload canceled")
 
 func ConvertToHLS(inputPath, outputDir string, opts HLSOptions) (*HLSResult, error) {
 	if opts.Quality == "" {
@@ -330,6 +336,9 @@ func ConvertToHLSAllQualities(inputPath, outputDir string, opts HLSOptions) (*HL
 	}
 
 	for i, tier := range tiers {
+		if opts.Canceled != nil && opts.Canceled() {
+			return stop(ErrCanceled)
+		}
 		log.Printf("[hls] starting tier %d/%d: %s (target width %d)", i+1, len(tiers), tier.Name, tier.Width)
 		tierStart := time.Now()
 		dir := filepath.Join(outputDir, tier.Name)

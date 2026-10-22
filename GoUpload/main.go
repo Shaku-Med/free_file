@@ -343,6 +343,7 @@ func main() {
 		GitHubBranch: env.Get("GITHUB_BRANCH", "main"),
 		R2:           r2Client,
 		Log:          appLog,
+		Queue:        q,
 	})
 	acoustidhook.RegisterRoutes(app, acoustidhook.Config{
 		ThumbnailDir:  "upload/thumbnails",

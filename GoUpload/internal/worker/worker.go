@@ -631,6 +631,39 @@ func (w *Worker) failJob(job *queue.Job, reason string, cleanupPaths ...string) 
 	// Drop any queued / in-flight AcoustID work for this upload job.
 	w.cancelAcoustID(job.ID)
 	w.cleanupAcoustIDClip(job)
+	w.removeLocal(cleanupPaths...)
+	_ = w.queue.SetJobStatus(context.Background(), job.ID, "failed")
+	webhook.NotifyJobStatus(webhook.Payload{JobID: job.ID, Status: "failed", UploadID: job.UploadID, UserID: job.UserID, FileName: job.FileName, FileSize: job.FileSize})
+}
+
+// canceled reports whether the owner stopped this upload from the studio.
+func (w *Worker) canceled(job *queue.Job) bool {
+	return w.queue.IsCanceled(context.Background(), job.UploadID)
+}
+
+// abortCanceled tears down an upload its owner stopped. The app has already
+// removed it, so no webhook goes out; what is left is this job's local files
+// and anything already uploaded under storagePrefix (empty when nothing was).
+func (w *Worker) abortCanceled(job *queue.Job, storagePrefix string, cleanupPaths ...string) {
+	w.log.Infof("job canceled by owner job=%s upload=%s", job.ID, job.UploadID)
+	w.cancelAcoustID(job.ID)
+	w.cleanupAcoustIDClip(job)
+	w.removeLocal(cleanupPaths...)
+	if storagePrefix != "" && w.cfg.R2 != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		n, err := w.cfg.R2.DeletePrefix(ctx, storagePrefix, 20000, 8)
+		cancel()
+		if err != nil {
+			w.log.Errorf("canceled upload purge failed job=%s prefix=%s deleted=%d err=%s", job.ID, storagePrefix, n, err.Error())
+		} else {
+			w.log.Infof("canceled upload purged job=%s prefix=%s deleted=%d", job.ID, storagePrefix, n)
+		}
+	}
+	_ = w.queue.SetJobStatus(context.Background(), job.ID, "canceled")
+}
+
+// removeLocal deletes a job's working files and directories, never a shared root.
+func (w *Worker) removeLocal(cleanupPaths ...string) {
 	for _, p := range cleanupPaths {
 		if p == "" {
 			continue
@@ -649,14 +682,17 @@ func (w *Worker) failJob(job *queue.Job, reason string, cleanupPaths ...string) 
 			continue
 		}
 		// Refuse to recurse into any shared-root directory  that's the
-		// regression that nuked sibling jobs' assembled files.
+		// regression that nuked sibling jobs' assembled files. A per-user folder
+		// directly inside one (assembled/<user>) is shared too: it holds the same
+		// user's other uploads, so it only ever goes once it is empty (above).
 		if _, shared := sharedRootDirs[filepath.Base(p)]; shared {
+			continue
+		}
+		if _, shared := sharedRootDirs[filepath.Base(filepath.Dir(p))]; shared {
 			continue
 		}
 		_ = os.RemoveAll(p)
 	}
-	_ = w.queue.SetJobStatus(context.Background(), job.ID, "failed")
-	webhook.NotifyJobStatus(webhook.Payload{JobID: job.ID, Status: "failed", UploadID: job.UploadID, UserID: job.UserID, FileName: job.FileName, FileSize: job.FileSize})
 }
 
 func (w *Worker) processJob(job *queue.Job) {
@@ -709,6 +745,15 @@ func (w *Worker) processJob(job *queue.Job) {
 		w.log.Errorf("rejecting job=%s: invalid filename: %v", job.ID, err)
 		_ = w.queue.SetJobStatus(context.Background(), job.ID, "failed")
 		webhook.NotifyJobStatus(webhook.Payload{JobID: job.ID, Status: "failed", UploadID: job.UploadID, UserID: job.UserID, FileName: job.FileName, FileSize: job.FileSize})
+		return
+	}
+
+	// Stopped while it waited in the queue: nothing was uploaded, only its chunks exist.
+	if w.canceled(job) {
+		_ = assembler.Cleanup(w.cfg.ChunksDir, job.UserID, job.UploadID)
+		// Non-recursive: the user's folder may hold their other uploads' chunks.
+		_ = os.Remove(filepath.Join(w.cfg.ChunksDir, job.UserID))
+		w.abortCanceled(job, "")
 		return
 	}
 
@@ -829,6 +874,11 @@ func (w *Worker) processJob(job *queue.Job) {
 		_ = os.Remove(assembledDir)
 		_ = os.Remove(filepath.Dir(assembledDir))
 
+		// Stopped while it was being checked: the picture is already stored.
+		if w.canceled(job) {
+			w.abortCanceled(job, dateFolder+"/"+job.UploadID+"/")
+			return
+		}
 		w.notifyRunningProgress(job, 92)
 		_ = w.queue.SetJobStatus(context.Background(), job.ID, "completed")
 		webhook.NotifyJobStatus(webhook.Payload{
@@ -959,6 +1009,16 @@ func (w *Worker) processJob(job *queue.Job) {
 	// ── Early upload: push thumbnails + waveform to storage right away ──
 	dateFolder := ghlib.DateFolder(time.Now())
 	ghPrefix := dateFolder + "/" + job.UploadID + "/"
+	// Local leftovers to clear if the owner stops this upload from here on.
+	jobLocal := func() []string {
+		assembledDir := filepath.Dir(result.OutputPath)
+		hlsDir := filepath.Join(w.cfg.HLSDir, job.UserID, job.UploadID)
+		return []string{result.OutputPath, assembledDir, filepath.Dir(assembledDir), hlsDir, filepath.Dir(hlsDir), thumbDir, filepath.Dir(thumbDir)}
+	}
+	if w.canceled(job) {
+		w.abortCanceled(job, ghPrefix, jobLocal()...)
+		return
+	}
 	var thumbnailPaths []string
 	// Whether the sidecar artifacts actually reached storage. Gates every path
 	// we advertise, so a row never points at files that are not there.
@@ -1351,6 +1411,10 @@ func (w *Worker) processJob(job *queue.Job) {
 	// goes live with the first one, the way YouTube serves SD while HD is still
 	// processing. Viewers pick up the higher qualities on their next load.
 	publish := func(newDirs []string, done, total int) error {
+		// Nothing more goes up for an upload its owner stopped.
+		if w.canceled(job) {
+			return ffmpeg.ErrCanceled
+		}
 		var files []ghlib.BatchFile
 		for _, d := range newDirs {
 			found, cerr := ghlib.CollectDir(filepath.Join(hlsDir, d), ghPrefix+d+"/")
@@ -1402,7 +1466,15 @@ func (w *Worker) processJob(job *queue.Job) {
 		SegmentTime: 6,
 		IsReel:      isReelBool,
 		Publish:     publish,
+		Canceled:    func() bool { return w.canceled(job) },
 	})
+	if w.canceled(job) {
+		// Stopped by its owner, maybe after going live. The app has removed it,
+		// so it never comes back: no qualities_ready, and everything goes.
+		qualitiesPending = false
+		w.abortCanceled(job, ghPrefix, jobLocal()...)
+		return
+	}
 	if err != nil || !completed {
 		// Nothing went live, so this is an ordinary failure.
 		reason := "hls finished without publishing"
