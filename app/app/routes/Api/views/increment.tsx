@@ -2,6 +2,7 @@ import db from '~/lib/Database/supabase';
 import { isValidFileId, isValidUUID } from '~/lib/Security/inputValidation';
 import { isAuthenticated } from '~/lib/Security/Password';
 import { canAccessFile } from '~/routes/Api/fun/accessControl';
+import { isStillProcessing } from '~/lib/files/uploadStatus';
 import { rateLimiter, RateLimiter } from '~/routes/Auth/fun/rateLimit.server';
 import crypto from 'node:crypto';
 
@@ -88,6 +89,11 @@ export const action = async ({ request }: { request: Request }) => {
     // files by anyone who knows the id or unique_id.
     const allowed = await canAccessFile(request, file as any);
     if (!allowed) return toJson({ error: 'File not found' }, 404);
+
+    // Nothing has played while it is still processing, so there is no view to count.
+    if (isStillProcessing(file.upload_status)) {
+      return toJson({ success: true, views: file.views, view_count: file.view_count, counted: false }, 200);
+    }
 
     const user = await isAuthenticated(request, ['id']);
 

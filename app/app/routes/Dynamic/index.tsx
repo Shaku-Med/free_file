@@ -1066,8 +1066,10 @@ const DynamicPage = ({ is_modal }: DynamicPageProps) => {
     ? { isHLS, uniqueId: file_data.unique_id }
     : null;
 
+  // Nothing plays while it's still processing, so nothing is tracked or counted
+  // until the first quality is live (the page polls and picks it up then).
   useWatchTracking({
-    fileId: file_data?.id || '',
+    fileId: showVideoProcessingPlaceholder ? '' : file_data?.id || '',
     userId: userId,
     isVideo: isVideo,
     videoElement: watchVideoRef.current,
@@ -1076,7 +1078,7 @@ const DynamicPage = ({ is_modal }: DynamicPageProps) => {
 
   // Watch history belongs to an account: signed out this only ever 401s.
   useEffect(() => {
-    if (!userId || !file_data?.id || !file_data?.unique_id) return;
+    if (!userId || !file_data?.id || !file_data?.unique_id || showVideoProcessingPlaceholder) return;
     const payload = { fileId: file_data.id, uniqueId: file_data.unique_id };
     fetch('/api/views/watch-history', {
       method: 'POST',
@@ -1084,7 +1086,7 @@ const DynamicPage = ({ is_modal }: DynamicPageProps) => {
       body: JSON.stringify(payload),
       credentials: 'include',
     }).catch(() => {});
-  }, [userId, currentId, file_data?.id, file_data?.unique_id]);
+  }, [userId, currentId, file_data?.id, file_data?.unique_id, showVideoProcessingPlaceholder]);
 
   const [retryAttempt, setRetryAttempt] = useState<number>(0)
   const [imageColors, setImageColors] = useState<string[] | null>(null)
@@ -1563,11 +1565,13 @@ const DynamicPage = ({ is_modal }: DynamicPageProps) => {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional: only on true unmount of this screen
   }, [activateMiniPlayer, closeMiniPlayer]);
 
+  // A photo counts after time on the page. A video still processing has no player
+  // yet, so it would land here too and count a view for just sitting on the page.
   useEffect(() => {
-    if (isHLS || hasIncrementedView || !file_data?.id) return;
+    if (isHLS || showVideoProcessingPlaceholder || hasIncrementedView || !file_data?.id) return;
     const t = setTimeout(runViewIncrement, requiredViewSeconds * 1000);
     return () => clearTimeout(t);
-  }, [isHLS, file_data?.id, hasIncrementedView, runViewIncrement, requiredViewSeconds]);
+  }, [isHLS, showVideoProcessingPlaceholder, file_data?.id, hasIncrementedView, runViewIncrement, requiredViewSeconds]);
 
   const videoBlock = (
     <motion.div layoutId={`video_id_${file_data.unique_id}`}
@@ -1969,7 +1973,15 @@ const DynamicPage = ({ is_modal }: DynamicPageProps) => {
           </div>
         )}
 
-        <div className="min-w-0 max-lg:w-full lg:max-w-full lg:shrink-0">
+        {/* Shown but not usable until there is something to play. */}
+        <div
+          className={cn(
+            "min-w-0 max-lg:w-full lg:max-w-full lg:shrink-0",
+            showVideoProcessingPlaceholder && "pointer-events-none select-none opacity-50",
+          )}
+          inert={showVideoProcessingPlaceholder}
+          aria-disabled={showVideoProcessingPlaceholder || undefined}
+        >
         <Actions
         key={`actions-${file_data.id}-${currentId}`}
         fileId={String(file_data.id)}
@@ -2036,7 +2048,8 @@ const DynamicPage = ({ is_modal }: DynamicPageProps) => {
         </NativeSheet>
       ) : null}
 
-      {isMobileDevice ? (
+      {/* Comments open once the video can be watched. */}
+      {showVideoProcessingPlaceholder ? null : isMobileDevice ? (
         <div id="comments" className="scroll-mt-20">
           {file_data.comments_enabled === false ? (
             <p className="rounded-md border border-border/70 bg-muted/15 px-2.5 py-2 text-xs text-muted-foreground">

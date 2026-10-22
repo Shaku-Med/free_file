@@ -2,6 +2,7 @@ import { isAuthenticated } from "~/lib/Security/Password";
 import { canAct } from "~/lib/Security/accountStatus.server";
 import { checkCommentPostRateLimit } from "~/routes/Api/fun/personalizationRateLimit";
 import db from "~/lib/Database/supabase";
+import { isStillProcessing } from "~/lib/files/uploadStatus";
 import { commentService, type CreateCommentInput } from "~/lib/Services/CommentService";
 import { createNotification } from "~/lib/Services/NotificationService";
 import { enqueuePush } from "~/lib/Services/PushQueue.server";
@@ -231,7 +232,10 @@ export const action = async ({ request }: { request: Request }) => {
 
       if (db) {
         try {
-          const { data: fileRow } = await db.from('files').select('comments_enabled, comment_limit').eq('id', fileId).maybeSingle();
+          const { data: fileRow } = await db.from('files').select('comments_enabled, comment_limit, upload_status').eq('id', fileId).maybeSingle();
+          if (fileRow && isStillProcessing(fileRow.upload_status)) {
+            return toJson({ error: "This video is still processing" }, 409);
+          }
           if (fileRow && fileRow.comments_enabled === false) {
             return toJson({ error: "Comments are disabled for this file" }, 403);
           }
