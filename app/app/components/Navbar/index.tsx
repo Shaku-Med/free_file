@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation } from "react-router";
 import { ArrowLeft, Home, Plus, Search, SlidersHorizontal, Volume2, VolumeX } from "lucide-react";
 import Logo from "./Logo/Logo";
@@ -151,11 +151,25 @@ export default function Navbar({ hasScrolled = { state: false, opacityLevel: 0 }
     };
   }, [userId, location.pathname]);
 
-  // Drop the published height when the navbar unmounts so stale offsets don't
-  // linger on routes that render no navbar.
+  // Publish the bar height so whatever sits under it (the sticky watch player,
+  // the reel deck's chrome) lines up with its real bottom edge. Watched rather
+  // than read on render: in the installed iOS app the status bar padding can
+  // settle after load or change on resume, with no render to re-measure it, and
+  // a stale height left a gap above the sticky player. Border box, so a change
+  // to that padding alone still counts. Dropped on unmount so stale offsets
+  // don't linger on routes that render no navbar.
+  const headerRef = useRef<HTMLElement>(null);
   useEffect(() => {
+    const el = headerRef.current;
+    if (!el) return;
+    const root = document.documentElement;
+    const publish = () => root.style.setProperty("--app-top-nav-h", `${el.offsetHeight}px`);
+    publish();
+    const observer = new ResizeObserver(publish);
+    observer.observe(el, { box: "border-box" });
     return () => {
-      document.documentElement.style.removeProperty("--app-top-nav-h");
+      observer.disconnect();
+      root.style.removeProperty("--app-top-nav-h");
     };
   }, []);
 
@@ -167,14 +181,7 @@ export default function Navbar({ hasScrolled = { state: false, opacityLevel: 0 }
   return (
     <header
       data-app-chrome=""
-      ref={(el) => {
-        // Publish the bar height so fullscreen overlays (e.g. the reel deck,
-        // which sits BELOW the navbar in z-order) can keep their chrome out
-        // from under it. Cleared on unmount by the effect above.
-        if (el) {
-          document.documentElement.style.setProperty("--app-top-nav-h", `${el.offsetHeight}px`);
-        }
-      }}
+      ref={headerRef}
       className={cn(
         "sticky top-0 z-[var(--z-app-chrome)] w-full shrink-0",
         isStandalone && "pt-[env(safe-area-inset-top)]",

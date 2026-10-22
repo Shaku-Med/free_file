@@ -76,11 +76,18 @@ function DialogContent({
   /** When true, hides the default top-right close control—use `DialogClose` in your header. Default false. */
   shouldClose = false,
   overlayClassName,
+  edgeToEdge = false,
   ...props
 }: React.ComponentProps<typeof DialogPrimitive.Content> & {
   showCloseButton?: boolean
   shouldClose?: boolean
   overlayClassName?: string
+  /**
+   * Covers the whole screen on phones, under the status bar and home indicator,
+   * like the Photos viewer. Only for content that keeps its own controls clear
+   * of the safe areas; everything else stays inset.
+   */
+  edgeToEdge?: boolean
 }) {
   const showBuiltinClose = showCloseButton && !shouldClose
   const sheet = useNativeSheet()
@@ -123,10 +130,12 @@ function DialogContent({
           // modals too, since it shifts the whole box rather than its padding).
           // Sized from the visible viewport, not `bottom`, which an installed
           // iOS app or the keyboard can push off screen.
-          "max-sm:!top-[calc(env(safe-area-inset-top)+var(--app-vv-top,0px))] max-sm:!bottom-auto max-sm:!left-0 max-sm:!right-0",
-          "max-sm:!translate-x-0 max-sm:!translate-y-0",
-          "max-sm:!w-screen max-sm:!h-[calc(var(--app-vvh,100dvh)-env(safe-area-inset-top)-env(safe-area-inset-bottom))] max-sm:!max-w-none max-sm:!max-h-none",
-          "max-sm:!rounded-none max-sm:!border-0 max-sm:!shadow-none",
+          !edgeToEdge && [
+            "max-sm:!top-[calc(env(safe-area-inset-top)+var(--app-vv-top,0px))] max-sm:!bottom-auto max-sm:!left-0 max-sm:!right-0",
+            "max-sm:!translate-x-0 max-sm:!translate-y-0",
+            "max-sm:!w-screen max-sm:!h-[calc(var(--app-vvh,100dvh)-env(safe-area-inset-top)-env(safe-area-inset-bottom))] max-sm:!max-w-none max-sm:!max-h-none",
+            "max-sm:!rounded-none max-sm:!border-0 max-sm:!shadow-none",
+          ],
         )}
         {...props}
       >

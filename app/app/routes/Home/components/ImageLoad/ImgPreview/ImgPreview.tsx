@@ -7,7 +7,6 @@ import {
 import { ChevronLeft, ChevronRight, Download, RotateCw, Scan, X, ZoomIn, ZoomOut } from "lucide-react";
 import { Dialog, DialogContent, DialogTitle } from "~/components/ui/dialog";
 import { motion, useAnimationControls, useReducedMotion } from "motion/react";
-import { useStandalone } from "~/lib/hooks/useStandalone";
 import { cn } from "~/lib/utils";
 
 /** Past this, letting go of a drag closes the preview, as in the app. */
@@ -75,7 +74,6 @@ export default function ImgPreview({
   getOriginRect,
   originSrc,
 }: ImgPreviewProps) {
-  const isStandalone = useStandalone();
   const reduceMotion = useReducedMotion();
 
   const [current, setCurrent] = useState(initialIndex);
@@ -668,9 +666,10 @@ export default function ImgPreview({
       }}
     >
       <DialogContent
+        edgeToEdge
         showCloseButton={false}
         overlayClassName="bg-transparent data-[state=open]:duration-300 data-[state=closed]:duration-200"
-        className="fixed inset-0 flex min-h-full min-w-full max-w-none translate-x-0 translate-y-0 border-0 bg-transparent p-0 shadow-none data-[state=open]:zoom-in-100 data-[state=closed]:zoom-out-100 data-[state=open]:slide-in-from-bottom-0 data-[state=closed]:slide-out-to-bottom-0 [&>button]:hidden"
+        className="fixed inset-0 flex min-h-full min-w-full max-h-none max-w-none translate-x-0 translate-y-0 border-0 bg-transparent p-0 shadow-none data-[state=open]:zoom-in-100 data-[state=closed]:zoom-out-100 data-[state=open]:slide-in-from-bottom-0 data-[state=closed]:slide-out-to-bottom-0 [&>button]:hidden"
         style={{ borderRadius: 0, top: 0, left: 0, transform: "none" }}
         onPointerMove={resetHideTimer}
       >
@@ -768,8 +767,8 @@ export default function ImgPreview({
         {/* ── Top: picture count and close, as in the app ── */}
         <div
           className={cn(
-            "pointer-events-none absolute inset-x-0 top-0 z-[1000000] flex items-center justify-between px-3",
-            isStandalone ? "pt-[max(0.75rem,env(safe-area-inset-top,0px))]" : "pt-3",
+            // The viewer runs under the status bar, so its controls clear it.
+            "pointer-events-none absolute inset-x-0 top-0 z-[1000000] flex items-center justify-between px-3 pt-[max(0.75rem,env(safe-area-inset-top,0px))]",
             controlsClass,
           )}
           style={{ opacity: showControls ? Math.max(0, 1 - dragDist / 60) : 0 }}
