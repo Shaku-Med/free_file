@@ -61,7 +61,7 @@ function getNotificationLabel(type: NotificationType): string {
     case "new_subscriber":
       return "subscribed to your channel";
     case "upload_ready":
-      return "Your upload finished processing";
+      return "Your upload is ready";
     case "upload_failed":
       return "Your upload could not be processed";
     default:

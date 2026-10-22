@@ -22,7 +22,8 @@ function expiresAt(): string {
 }
 
 /**
- * Tell an uploader their file finished processing.
+ * Tell an uploader their file is ready. A video gets here as soon as its first
+ * quality is up, while higher ones may still be encoding.
  *
  * This runs in the app rather than in GoUpload on purpose: the VAPID keys, the
  * mail key, the push subscriptions and the users table all live here, and web
@@ -175,8 +176,9 @@ async function sendUploadEmail(
 
   const ready = outcome === "ready";
   const subject = ready ? `${title} is ready to watch` : `${title} could not be processed`;
+  // Sent once the first quality is up, so it never promises the rest is done.
   const lead = ready
-    ? "Your upload finished processing and is live now."
+    ? "Your upload is ready to watch."
     : "Something went wrong while processing your upload. Nothing was published.";
   const cta = ready ? "Watch it" : "Try again";
 
