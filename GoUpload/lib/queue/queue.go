@@ -41,6 +41,61 @@ type Job struct {
 	NewEpisodeName      string    `json:"new_episode_name,omitempty"`
 	ParentEpisodeID     string    `json:"parent_episode_id,omitempty"`
 	CreatedAt           time.Time `json:"created_at"`
+
+	// Set while processing so a job picked up again after a restart carries on
+	// where it was: the same storage folder (so nothing it uploaded is
+	// orphaned), whether the app was already told it is live, and how many
+	// times it has started (so a job that keeps crashing the worker stops).
+	DateFolder string `json:"date_folder,omitempty"`
+	Live       bool   `json:"live,omitempty"`
+	Attempts   int    `json:"attempts,omitempty"`
+}
+
+// Requeue puts a job back at the front of the queue, ahead of new uploads.
+func (c *Client) Requeue(ctx context.Context, job *Job) error {
+	data, err := json.Marshal(job)
+	if err != nil {
+		return err
+	}
+	return c.rdb.LPush(ctx, c.queueName, data).Err()
+}
+
+// QueuedUploadIDs lists the upload of every job still waiting in the queue.
+func (c *Client) QueuedUploadIDs(ctx context.Context) ([]string, error) {
+	raw, err := c.rdb.LRange(ctx, c.queueName, 0, -1).Result()
+	if err != nil {
+		return nil, err
+	}
+	ids := make([]string, 0, len(raw))
+	for _, r := range raw {
+		var j Job
+		if json.Unmarshal([]byte(r), &j) == nil && j.UploadID != "" {
+			ids = append(ids, j.UploadID)
+		}
+	}
+	return ids, nil
+}
+
+// Webhook outbox: terminal job updates the app could not take (it was down,
+// usually redeploying). Kept here so they are retried instead of lost, which
+// is what left rows stuck at "processing" before.
+const outboxKey = "upload:webhook:outbox"
+
+func (c *Client) PushOutbox(ctx context.Context, raw []byte) error {
+	return c.rdb.RPush(ctx, outboxKey, raw).Err()
+}
+
+// PopOutbox takes the oldest waiting update, or nil when there is none.
+func (c *Client) PopOutbox(ctx context.Context) ([]byte, error) {
+	v, err := c.rdb.LPop(ctx, outboxKey).Bytes()
+	if err == redis.Nil {
+		return nil, nil
+	}
+	return v, err
+}
+
+func (c *Client) OutboxLen(ctx context.Context) (int64, error) {
+	return c.rdb.LLen(ctx, outboxKey).Result()
 }
 
 func NewClient(addr, password string, db int, queueName string) (*Client, error) {

@@ -152,12 +152,65 @@ func scrubValue(v interface{}) interface{} {
 	return v
 }
 
+// Undelivered is a terminal update the app could not take, kept to send again.
+type Undelivered struct {
+	Payload Payload   `json:"payload"`
+	Since   time.Time `json:"since"`
+}
+
+var onUndelivered func(Undelivered)
+
+// OnUndelivered sets where a terminal update goes once every attempt failed on
+// an error that can clear up (the app down for a deploy, a 5xx), so it is sent
+// again later instead of lost. A rejection (bad secret, no such upload) never
+// goes there: sending it again would only be rejected again.
+func OnUndelivered(fn func(Undelivered)) { onUndelivered = fn }
+
+// firstBackoff is the wait before the second try; it doubles after that.
+var firstBackoff = time.Second
+
+type outcome int
+
+const (
+	delivered outcome = iota
+	rejected
+	unreachable
+)
+
 func NotifyJobStatus(p Payload) {
+	_, isTerminal := terminalStatuses[p.Status]
+	// Non-terminal updates: one shot, fast fail. Terminal updates: 5 tries
+	// with 1s/2s/4s/8s backoff (max ~15s sleep + per-call timeouts ≈ 30s
+	// upper bound; well under any sane HTTP timeout the caller might have).
+	attempts := 1
+	if isTerminal {
+		attempts = 5
+	}
+	if send(p, attempts) == unreachable && isTerminal {
+		if onUndelivered != nil {
+			onUndelivered(Undelivered{Payload: p, Since: time.Now()})
+			log.Printf("[webhook] NotifyJobStatus KEPT job=%s upload=%s payload_status=%s  the app was unreachable; it will be sent again",
+				p.JobID, p.UploadID, p.Status)
+			return
+		}
+		// Loud final-failure log so the operator can sweep stuck rows.
+		log.Printf("[webhook] NotifyJobStatus EXHAUSTED job=%s upload=%s payload_status=%s  files row may be stuck; run the recovery SQL",
+			p.JobID, p.UploadID, p.Status)
+	}
+}
+
+// Redeliver makes one more attempt at a kept update. True means it is settled
+// (taken, or rejected for good) and can be dropped; false means keep it.
+func Redeliver(u Undelivered) bool {
+	return send(u.Payload, 1) != unreachable
+}
+
+func send(p Payload, attempts int) outcome {
 	base := strings.TrimSuffix(env.Get("APP_BASE_URL", ""), "/")
 	secret := env.Get("UPLOAD_WEBHOOK_SECRET", "")
 	if base == "" || secret == "" {
 		log.Printf("[webhook] NotifyJobStatus skipped: APP_BASE_URL=%q UPLOAD_WEBHOOK_SECRET=%v", base, secret != "")
-		return
+		return rejected
 	}
 	log.Printf("[webhook] NotifyJobStatus sending job=%s status=%s upload=%s user=%s", p.JobID, p.Status, p.UploadID, p.UserID)
 
@@ -173,19 +226,11 @@ func NotifyJobStatus(p Payload) {
 		// which is a bug. Say so at the same volume as a stranded row.
 		log.Printf("[webhook] NotifyJobStatus MARSHAL FAILED job=%s upload=%s payload_status=%s err=%v  files row will be stuck; run the recovery SQL",
 			p.JobID, p.UploadID, p.Status, err)
-		return
+		return rejected
 	}
 
 	_, isTerminal := terminalStatuses[p.Status]
-	// Non-terminal updates: one shot, fast fail. Terminal updates: 5 tries
-	// with 1s/2s/4s/8s backoff (max ~15s sleep + per-call timeouts ≈ 30s
-	// upper bound; well under any sane HTTP timeout the caller might have).
-	attempts := 1
-	if isTerminal {
-		attempts = 5
-	}
-	backoff := time.Second
-
+	backoff := firstBackoff
 	url := base + "/api/upload-job-status"
 	client := &http.Client{Timeout: 10 * time.Second}
 
@@ -193,7 +238,7 @@ func NotifyJobStatus(p Payload) {
 		req, rerr := http.NewRequest(http.MethodPost, url, bytes.NewReader(body))
 		if rerr != nil {
 			log.Printf("[webhook] NotifyJobStatus newrequest: %v", rerr)
-			return
+			return rejected
 		}
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("X-Webhook-Secret", secret)
@@ -208,7 +253,7 @@ func NotifyJobStatus(p Payload) {
 			if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 				log.Printf("[webhook] NotifyJobStatus delivered_ok attempt=%d/%d job=%s upload=%s payload_status=%s http=%d",
 					i+1, attempts, p.JobID, p.UploadID, p.Status, resp.StatusCode)
-				return
+				return delivered
 			}
 			// 4xx other than 408/429 won't ever succeed on retry  the body
 			// is malformed or the secret is wrong. Don't burn budget retrying.
@@ -224,7 +269,7 @@ func NotifyJobStatus(p Payload) {
 					log.Printf("[webhook] NotifyJobStatus REJECTED job=%s upload=%s payload_status=%s http=%d  files row may be stuck; run the recovery SQL",
 						p.JobID, p.UploadID, p.Status, resp.StatusCode)
 				}
-				return
+				return rejected
 			}
 		}
 
@@ -235,12 +280,7 @@ func NotifyJobStatus(p Payload) {
 		time.Sleep(backoff)
 		backoff *= 2
 	}
-
-	if isTerminal {
-		// Loud final-failure log so the operator can sweep stuck rows.
-		log.Printf("[webhook] NotifyJobStatus EXHAUSTED job=%s upload=%s payload_status=%s  files row may be stuck; run the recovery SQL",
-			p.JobID, p.UploadID, p.Status)
-	}
+	return unreachable
 }
 
 // NotifyAcoustidResult posts a JSON body to /api/acoustid-result (after GoUpload

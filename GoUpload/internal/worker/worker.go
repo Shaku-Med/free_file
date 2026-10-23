@@ -3,6 +3,7 @@ package worker
 import (
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -197,13 +198,17 @@ func (w *Worker) Stop() {
 	w.wg.Wait()
 }
 
-// recoverOrphanedJobs fails every job that was still mid-flight when the
-// process last died (OOM kill, container restart, hard crash). Those jobs were
-// already popped off the queue, so nothing else will ever finish them and the
-// file row would sit at its last progress percentage forever.
+// recoverOrphanedJobs picks up every job that was mid-flight when the process
+// last stopped (a deploy, a reboot, an OOM kill). Those jobs were already popped
+// off the queue, so nothing else would ever finish them and the file row would
+// sit at its last progress percentage forever. A job whose input is still on
+// disk goes back to the front of the queue and carries on; one that is gone,
+// stopped by its owner, or interrupted maxJobAttempts times is cleaned up
+// instead, on disk and in storage, and the app is told.
 //
-// Startup only. A live worker's current job is in this same set, so sweeping at
-// any other time would fail work that is running perfectly well.
+// Startup only, before any worker takes a job. A live worker's current job is
+// in this same set, so sweeping at any other time would fail work that is
+// running perfectly well.
 func (w *Worker) recoverOrphanedJobs() {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
@@ -213,13 +218,223 @@ func (w *Worker) recoverOrphanedJobs() {
 		w.log.Errorf("orphan job sweep failed: %v", err)
 		return
 	}
+	resumed := 0
 	for _, job := range jobs {
-		w.log.Errorf("orphaned job job=%s user=%s upload=%s file=%s  worker died mid-processing, failing it", job.ID, job.UserID, job.UploadID, job.FileName)
-		w.failJob(job, "worker died mid-processing")
 		_ = w.queue.ClearInFlight(context.Background(), job.ID)
+		// Identifiers reach the filesystem below; a record that fails the same
+		// checks processJob makes is failed without touching any path.
+		if !workerUserIDPattern.MatchString(job.UserID) || !upload.ValidUploadID(job.UploadID) {
+			w.failJob(job, "interrupted with a malformed record")
+			continue
+		}
+		if _, ferr := security.SafeUploadFilename(job.FileName); ferr != nil {
+			w.failJob(job, "interrupted with a malformed record")
+			continue
+		}
+		switch {
+		case w.canceled(job):
+			w.abortCanceled(job, "", w.jobLocalPaths(job)...)
+			w.purgeStored(job)
+		case job.Attempts >= maxJobAttempts:
+			w.giveUp(job, fmt.Sprintf("it was interrupted %d times", job.Attempts))
+		case !assembler.Resumable(w.assemblerConfig(job)):
+			w.giveUp(job, "its input is gone")
+		default:
+			if rerr := w.queue.Requeue(context.Background(), job); rerr != nil {
+				w.giveUp(job, "it could not be queued again: "+rerr.Error())
+				continue
+			}
+			resumed++
+			w.log.Infof("resuming interrupted job=%s upload=%s live=%v after %d attempt(s)", job.ID, job.UploadID, job.Live, job.Attempts)
+		}
 	}
 	if len(jobs) > 0 {
-		w.log.Infof("orphan job sweep released %d stranded job(s)", len(jobs))
+		w.log.Infof("orphan job sweep found %d interrupted job(s), resumed %d", len(jobs), resumed)
+	}
+}
+
+// maxJobAttempts caps how often an interrupted job is picked up again, so one
+// that keeps taking the worker down with it does not do so forever.
+const maxJobAttempts = 3
+
+var dateFolderPattern = regexp.MustCompile(`^\d{2}_\d{2}_\d{4}$`)
+
+// storageFolder is the job's dated storage directory, fixed the first time it
+// is needed and kept on the in-flight record, so a run picked up again after a
+// restart (even on another day) writes over what the first one uploaded
+// instead of leaving it orphaned in a second folder.
+func (w *Worker) storageFolder(job *queue.Job) string {
+	if !dateFolderPattern.MatchString(job.DateFolder) {
+		job.DateFolder = ghlib.DateFolder(time.Now())
+		_ = w.queue.MarkInFlight(context.Background(), job)
+	}
+	return job.DateFolder
+}
+
+func (w *Worker) assemblerConfig(job *queue.Job) assembler.Config {
+	return assembler.Config{
+		ChunksDir:   w.cfg.ChunksDir,
+		OutputDir:   w.cfg.OutputDir,
+		UserID:      job.UserID,
+		UploadID:    job.UploadID,
+		FileName:    job.FileName,
+		TotalChunks: job.TotalChunks,
+	}
+}
+
+// jobLocalPaths is every working file and folder a job can leave on disk, for
+// removeLocal (which never takes a per-user folder that still holds others).
+func (w *Worker) jobLocalPaths(job *queue.Job) []string {
+	out := assembler.OutputPath(w.assemblerConfig(job))
+	hlsDir := filepath.Join(w.cfg.HLSDir, job.UserID, job.UploadID)
+	thumbDir := filepath.Join(w.cfg.ThumbnailDir, job.UserID, job.UploadID)
+	chunkDir := filepath.Join(w.cfg.ChunksDir, job.UserID, job.UploadID)
+	return []string{
+		out, filepath.Dir(out),
+		hlsDir, filepath.Dir(hlsDir),
+		thumbDir, filepath.Dir(thumbDir),
+		chunkDir, filepath.Dir(chunkDir),
+	}
+}
+
+// purgeStored deletes what a job uploaded. A record from before the storage
+// folder was kept on it only has its creation time, so the folders either side
+// of that day are tried too; every one of them ends in the upload's own id.
+func (w *Worker) purgeStored(job *queue.Job) {
+	if w.cfg.R2 == nil {
+		return
+	}
+	folders := []string{job.DateFolder}
+	if !dateFolderPattern.MatchString(job.DateFolder) {
+		folders = nil
+		for _, d := range []int{-1, 0, 1} {
+			folders = append(folders, ghlib.DateFolder(job.CreatedAt.AddDate(0, 0, d)))
+		}
+	}
+	for _, folder := range folders {
+		prefix := folder + "/" + job.UploadID + "/"
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		n, err := w.cfg.R2.DeletePrefix(ctx, prefix, 20000, 8)
+		cancel()
+		if err != nil {
+			w.log.Errorf("purge interrupted upload job=%s prefix=%s deleted=%d err=%s", job.ID, prefix, n, err.Error())
+		} else if n > 0 {
+			w.log.Infof("purged interrupted upload job=%s prefix=%s deleted=%d", job.ID, prefix, n)
+		}
+	}
+}
+
+// giveUp fails an interrupted job that can't run again, leaving nothing behind
+// on disk. One that had already gone live keeps what it stored: the app keeps
+// that video with the qualities it got. Anything else is deleted from storage
+// too, and the app removes its row and refunds the upload. A record written
+// before jobs kept their storage folder never said whether it went live, so
+// its storage is left alone rather than risk breaking a video people can watch.
+func (w *Worker) giveUp(job *queue.Job, reason string) {
+	if !job.Live && dateFolderPattern.MatchString(job.DateFolder) {
+		w.purgeStored(job)
+	}
+	w.failJob(job, "interrupted and not resumed: "+reason, w.jobLocalPaths(job)...)
+}
+
+// sweepLocalLeftovers deletes working files that no running or waiting job
+// owns: what a job left behind when it died before cleaning up after itself.
+// Anything touched within maxAge is left alone as well.
+func (w *Worker) sweepLocalLeftovers(maxAge time.Duration) int {
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	running, err := w.queue.OrphanedJobs(ctx)
+	if err != nil {
+		return 0
+	}
+	waiting, err := w.queue.QueuedUploadIDs(ctx)
+	if err != nil {
+		return 0
+	}
+	owned := make(map[string]bool, len(running)+len(waiting))
+	for _, j := range running {
+		owned[j.UploadID] = true
+	}
+	for _, id := range waiting {
+		owned[id] = true
+	}
+
+	cutoff := time.Now().Add(-maxAge)
+	removed := 0
+	// assembled/<user>/<upload>_<name>, hls/<user>/<upload>, thumbnails/<user>/<upload>
+	for _, root := range []string{w.cfg.OutputDir, w.cfg.HLSDir, w.cfg.ThumbnailDir} {
+		users, _ := os.ReadDir(root)
+		for _, u := range users {
+			if !u.IsDir() {
+				continue
+			}
+			userDir := filepath.Join(root, u.Name())
+			entries, _ := os.ReadDir(userDir)
+			for _, e := range entries {
+				id, _, _ := strings.Cut(e.Name(), "_")
+				if !upload.ValidUploadID(id) || owned[id] {
+					continue
+				}
+				info, ierr := e.Info()
+				if ierr != nil || info.ModTime().After(cutoff) {
+					continue
+				}
+				if os.RemoveAll(filepath.Join(userDir, e.Name())) == nil {
+					removed++
+				}
+			}
+			// Only goes once it is empty: it holds the user's other uploads too.
+			_ = os.Remove(userDir)
+		}
+	}
+	return removed
+}
+
+// keepUndelivered holds a terminal update the app could not take, for
+// retryUndelivered to send again once it is back.
+func (w *Worker) keepUndelivered(u webhook.Undelivered) {
+	raw, err := json.Marshal(u)
+	if err != nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := w.queue.PushOutbox(ctx, raw); err != nil {
+		w.log.Errorf("keep undelivered update job=%s upload=%s status=%s err=%s  files row may be stuck", u.Payload.JobID, u.Payload.UploadID, u.Payload.Status, err.Error())
+	}
+}
+
+// outboxMaxAge is how long a kept update is retried before it is dropped.
+const outboxMaxAge = 24 * time.Hour
+
+// retryUndelivered sends every kept update again, oldest first. While the app
+// is still down the first one fails and the rest wait for the next round.
+func (w *Worker) retryUndelivered() {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	n, err := w.queue.OutboxLen(ctx)
+	if err != nil {
+		return
+	}
+	for i := int64(0); i < n; i++ {
+		raw, err := w.queue.PopOutbox(ctx)
+		if err != nil || raw == nil {
+			return
+		}
+		var u webhook.Undelivered
+		if json.Unmarshal(raw, &u) != nil {
+			continue
+		}
+		if time.Since(u.Since) > outboxMaxAge {
+			w.log.Errorf("dropping undelivered update job=%s upload=%s status=%s after %s  files row may be stuck", u.Payload.JobID, u.Payload.UploadID, u.Payload.Status, outboxMaxAge)
+			continue
+		}
+		if webhook.Redeliver(u) {
+			w.log.Infof("delivered kept update job=%s upload=%s status=%s", u.Payload.JobID, u.Payload.UploadID, u.Payload.Status)
+			continue
+		}
+		_ = w.queue.PushOutbox(ctx, raw)
+		return
 	}
 }
 
@@ -316,6 +531,9 @@ func (w *Worker) notifyRunningProgress(job *queue.Job, pct int) {
 // notifyQualitiesReady tells the app a live video has every quality it is going
 // to get. size is what now lives in R2 for it; 0 leaves the recorded size alone.
 func (w *Worker) notifyQualitiesReady(job *queue.Job, size int64) {
+	// Whatever was kept while the app was down goes first, so it never hears
+	// "every quality is in" before "it is live".
+	w.retryUndelivered()
 	webhook.NotifyJobStatus(webhook.Payload{
 		JobID:    job.ID,
 		Status:   "qualities_ready",
@@ -703,10 +921,12 @@ func (w *Worker) processJob(job *queue.Job) {
 	// whole process: the file row kept whatever progress percentage it last
 	// received and sat there forever. Turn any panic into an ordinary failure so
 	// the row always reaches a terminal state.
-	completed := false
+	// A job picked up again after a restart may already be live: the app was told
+	// then, so it is not told twice, and it still needs to hear when the rest lands.
+	completed := job.Live
 	// Live on its lowest quality with higher ones still encoding. However the job
 	// ends from here, the app must hear that the video is done changing.
-	qualitiesPending := false
+	qualitiesPending := job.Live
 	defer func() {
 		if r := recover(); r != nil {
 			w.log.Errorf("job PANIC job=%s user=%s upload=%s err=%v\n%s", job.ID, job.UserID, job.UploadID, r, debug.Stack())
@@ -725,6 +945,9 @@ func (w *Worker) processJob(job *queue.Job) {
 		// before reaching a terminal state.
 		_ = w.queue.ClearInFlight(context.Background(), job.ID)
 	}()
+	// Counted on the in-flight record, so a job that keeps taking the worker
+	// down with it stops being picked up again after a few tries.
+	job.Attempts++
 	_ = w.queue.MarkInFlight(context.Background(), job)
 
 	_ = w.queue.SetJobStatus(context.Background(), job.ID, "running")
@@ -764,14 +987,15 @@ func (w *Worker) processJob(job *queue.Job) {
 	const storageBackend = "r2"
 	storageBucket := w.cfg.R2.Bucket()
 
-	result, err := assembler.Assemble(assembler.Config{
-		ChunksDir:   w.cfg.ChunksDir,
-		OutputDir:   w.cfg.OutputDir,
-		UserID:      job.UserID,
-		UploadID:    job.UploadID,
-		FileName:    job.FileName,
-		TotalChunks: job.TotalChunks,
-	})
+	// Picked up again after a restart, a job may already have its file built
+	// and its chunks gone; it carries on from that file.
+	result, reused := assembler.Previous(w.assemblerConfig(job))
+	var err error
+	if reused {
+		w.log.Infof("resuming job=%s from its assembled file (attempt %d)", job.ID, job.Attempts)
+	} else {
+		result, err = assembler.Assemble(w.assemblerConfig(job))
+	}
 	if err != nil {
 		w.log.Errorf("assembly failed job=%s err=%s", job.ID, err.Error())
 		_ = assembler.Cleanup(w.cfg.ChunksDir, job.UserID, job.UploadID)
@@ -813,7 +1037,7 @@ func (w *Worker) processJob(job *queue.Job) {
 		w.log.Infof("image validated job=%s", job.ID)
 		w.notifyRunningProgress(job, 40)
 
-		dateFolder := ghlib.DateFolder(time.Now())
+		dateFolder := w.storageFolder(job)
 		// Never put the user-supplied filename in the storage key  it can
 		// contain spaces / unicode / unsafe chars that break the path. Use a
 		// fixed name; the original filename stays in the files.filename column.
@@ -1007,7 +1231,7 @@ func (w *Worker) processJob(job *queue.Job) {
 	w.notifyRunningProgress(job, 42)
 
 	// ── Early upload: push thumbnails + waveform to storage right away ──
-	dateFolder := ghlib.DateFolder(time.Now())
+	dateFolder := w.storageFolder(job)
 	ghPrefix := dateFolder + "/" + job.UploadID + "/"
 	// Local leftovers to clear if the owner stops this upload from here on.
 	jobLocal := func() []string {
@@ -1455,6 +1679,10 @@ func (w *Worker) processJob(job *queue.Job) {
 		webhook.NotifyJobStatus(payload)
 		completed = true
 		qualitiesPending = done < total
+		// Remembered on the in-flight record: picked up again after a restart,
+		// this job must not announce itself a second time.
+		job.Live = true
+		_ = w.queue.MarkInFlight(context.Background(), job)
 		return nil
 	}
 

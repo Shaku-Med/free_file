@@ -9,6 +9,7 @@ import (
 	"goupload/internal/upload"
 	"goupload/lib/logger"
 	"goupload/lib/sysload"
+	"goupload/lib/webhook"
 )
 
 // PoolConfig holds tunables for the adaptive worker pool. All fields are
@@ -104,6 +105,11 @@ func NewPool(w *Worker, cfg PoolConfig) *Pool {
 
 func (p *Pool) Start() {
 	p.monitor.Start()
+	// Terminal updates the app can't take are kept and sent again, not lost.
+	webhook.OnUndelivered(p.worker.keepUndelivered)
+	// Before any worker takes a job: what a deploy or reboot interrupted goes
+	// back to the front of the queue, or is cleaned up if it can't carry on.
+	p.worker.recoverOrphanedJobs()
 	for i := 0; i < p.cfg.MaxWorkers; i++ {
 		p.wg.Add(1)
 		go p.runWorker(i)
@@ -112,6 +118,8 @@ func (p *Pool) Start() {
 	go p.runController()
 	p.wg.Add(1)
 	go p.runOrphanCleanup()
+	p.wg.Add(1)
+	go p.runOutbox()
 	p.log.Infof("pool started max=%d min=%d initial=%d", p.cfg.MaxWorkers, p.cfg.MinWorkers, p.cfg.InitialWorkers)
 }
 
@@ -198,8 +206,28 @@ func (p *Pool) runController() {
 	}
 }
 
+// leftoverMinAge keeps the leftover sweep off anything touched recently, on top
+// of skipping every upload a job is running or waiting on.
+const leftoverMinAge = time.Hour
+
+// runOutbox sends kept terminal updates again every minute until the app takes them.
+func (p *Pool) runOutbox() {
+	defer p.wg.Done()
+	t := time.NewTicker(time.Minute)
+	defer t.Stop()
+	for {
+		select {
+		case <-p.stopCh:
+			return
+		case <-t.C:
+			p.worker.retryUndelivered()
+		}
+	}
+}
+
 // runOrphanCleanup periodically removes stale chunk dirs from interrupted
-// uploads. Previously this lived inline in the single-worker run loop.
+// uploads and job files nothing owns any more. Previously this lived inline in
+// the single-worker run loop.
 func (p *Pool) runOrphanCleanup() {
 	defer p.wg.Done()
 	t := time.NewTicker(p.cfg.OrphanCleanupInterval)
@@ -208,6 +236,9 @@ func (p *Pool) runOrphanCleanup() {
 		n, err := upload.CleanupOrphanedChunks(p.worker.cfg.ChunksDir, p.cfg.OrphanMaxAge)
 		if err == nil && n > 0 {
 			p.log.Infof("orphan chunk cleanup removed %d dirs", n)
+		}
+		if n := p.worker.sweepLocalLeftovers(leftoverMinAge); n > 0 {
+			p.log.Infof("leftover job files cleanup removed %d entries", n)
 		}
 	}
 	sweep()

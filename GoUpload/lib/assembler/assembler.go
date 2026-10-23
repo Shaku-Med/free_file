@@ -33,7 +33,7 @@ func Assemble(cfg Config) (Result, error) {
 		return Result{}, fmt.Errorf("list chunks: %w", err)
 	}
 
-	outputPath := filepath.Join(cfg.OutputDir, cfg.UserID, cfg.UploadID+"_"+cfg.FileName)
+	outputPath := OutputPath(cfg)
 	if err := os.MkdirAll(filepath.Dir(outputPath), 0700); err != nil {
 		return Result{}, fmt.Errorf("create user output dir: %w", err)
 	}
@@ -59,6 +59,37 @@ func Assemble(cfg Config) (Result, error) {
 	}
 
 	return Result{OutputPath: outputPath, FileSize: totalSize}, nil
+}
+
+// OutputPath is where Assemble writes an upload's file.
+func OutputPath(cfg Config) string {
+	return filepath.Join(cfg.OutputDir, cfg.UserID, cfg.UploadID+"_"+cfg.FileName)
+}
+
+// Previous returns the file an earlier run already assembled, for a job picked
+// up again after a restart. Only once its chunks are gone: the worker deletes
+// them right after a good assembly, so until then the file may be half written
+// and assembling again is the safe choice.
+func Previous(cfg Config) (Result, bool) {
+	if _, err := os.Stat(filepath.Join(cfg.ChunksDir, cfg.UserID, cfg.UploadID)); err == nil {
+		return Result{}, false
+	}
+	outputPath := OutputPath(cfg)
+	st, err := os.Stat(outputPath)
+	if err != nil || !st.Mode().IsRegular() || st.Size() == 0 {
+		return Result{}, false
+	}
+	return Result{OutputPath: outputPath, FileSize: st.Size()}, true
+}
+
+// Resumable reports whether a job can run again from what is on disk: either
+// its assembled file, or every one of its chunks.
+func Resumable(cfg Config) bool {
+	if _, ok := Previous(cfg); ok {
+		return true
+	}
+	_, err := listChunks(filepath.Join(cfg.ChunksDir, cfg.UserID, cfg.UploadID), cfg.TotalChunks)
+	return err == nil
 }
 
 func Cleanup(chunksDir, userID, uploadID string) error {
