@@ -10,7 +10,7 @@ export const meta: MetaFunction = () =>
     canonicalPath: "/features/incoming",
   });
 
-type Status = "shipped" | "building" | "next";
+type Status = "shipped" | "building" | "next" | "later";
 
 interface Feature {
   title: string;
@@ -77,7 +77,7 @@ const features: Feature[] = [
   {
     title: "Nested comments",
     description:
-      "Replies, likes, owner moderation, per-video comment limits. Threads connect to their parent yes, we noticed.",
+      "Replies, likes, owner moderation, per-video comment limits. Threads connect to their parent. Yes, we noticed.",
     status: "shipped",
   },
   {
@@ -98,36 +98,18 @@ const features: Feature[] = [
       "Smarter caching on the client and server so pages and playback feel snappier, with far fewer redundant requests per watch session.",
     status: "shipped",
   },
+  {
+    title: "Music recognition",
+    description:
+      "Songs inside uploaded videos get recognized, with title, artist, and cover art right on the watch page. Every track gets a sound page with the videos that use it.",
+    status: "shipped",
+  },
 
   // Building
   {
-    title: "Live streaming",
+    title: "AI subtitle generation",
     description:
-      "Go live to your followers. Same player you already know, just live.",
-    status: "building",
-  },
-  {
-    title: "Live transcription",
-    description:
-      "Real-time captions on live streams, in whatever language the viewer picked.",
-    status: "building",
-  },
-  {
-    title: "Real-time chat",
-    description:
-      "Talk during streams. End-to-end encrypted DMs for one-on-one threads.",
-    status: "building",
-  },
-  {
-    title: "AI content analyzer",
-    description:
-      "Auto-tags, summaries, chapter markers, and recommendations from your upload.",
-    status: "building",
-  },
-  {
-    title: "Realtime collaboration",
-    description:
-      "Edit captions, descriptions, series metadata together everyone sees changes the moment they happen.",
+      "Upload and the captions get written from what's said in the video. Fix anything in the same editor you already know.",
     status: "building",
   },
   {
@@ -139,12 +121,6 @@ const features: Feature[] = [
 
   // Next
   {
-    title: "AI subtitle generation",
-    description:
-      "Upload, get captions in seconds. Whisper-quality, basically free to run.",
-    status: "next",
-  },
-  {
     title: "One-click caption translation",
     description:
       "Have English? Click → Spanish, French, Japanese, everything else.",
@@ -153,13 +129,7 @@ const features: Feature[] = [
   {
     title: "Watch parties",
     description:
-      "Invite friends, watch in sync. Play, pause, seek everyone moves together.",
-    status: "next",
-  },
-  {
-    title: "Music recognition",
-    description:
-      "Identify songs inside uploaded videos. Title, artist, the streaming links. A sound page for every track.",
+      "Invite friends, watch in sync. Play, pause, seek, and everyone moves together.",
     status: "next",
   },
   {
@@ -173,6 +143,38 @@ const features: Feature[] = [
     description:
       "Watch time, retention curves, where viewers come from. Useful, not overwhelming.",
     status: "next",
+  },
+  {
+    title: "AI content analyzer",
+    description:
+      "Auto-tags, summaries, and chapter markers from your upload.",
+    status: "next",
+  },
+
+  // Later
+  {
+    title: "Live streaming",
+    description:
+      "Go live to your followers. Same player you already know, just live.",
+    status: "later",
+  },
+  {
+    title: "Live transcription",
+    description:
+      "Real-time captions on live streams, in whatever language the viewer picked.",
+    status: "later",
+  },
+  {
+    title: "Real-time chat",
+    description:
+      "Talk during streams. End-to-end encrypted DMs for one-on-one threads.",
+    status: "later",
+  },
+  {
+    title: "Realtime collaboration",
+    description:
+      "Edit captions, descriptions, and series details together. Everyone sees changes the moment they happen.",
+    status: "later",
   },
 ];
 
@@ -192,6 +194,11 @@ const SECTIONS: { status: Status; heading: string; note: string }[] = [
     heading: "Up next",
     note: "Picking these up after the current batch.",
   },
+  {
+    status: "later",
+    heading: "Later",
+    note: "On the list, not started yet.",
+  },
 ];
 
 function StatusDot({ status }: { status: Status }) {
@@ -206,12 +213,15 @@ function StatusDot({ status }: { status: Status }) {
       />
     );
   }
-  return (
-    <span
-      aria-hidden
-      className="mt-[0.55rem] size-2 shrink-0 rounded-full border border-dashed border-muted-foreground/60 bg-transparent"
-    />
-  );
+  if (status === "next") {
+    return (
+      <span
+        aria-hidden
+        className="mt-[0.55rem] size-2 shrink-0 rounded-full border border-dashed border-muted-foreground/60 bg-transparent"
+      />
+    );
+  }
+  return <span aria-hidden className="mt-[0.55rem] size-2 shrink-0 rounded-full bg-muted-foreground/30" />;
 }
 
 const Index = () => {
@@ -229,9 +239,9 @@ const Index = () => {
             What's done, what's next.
           </h1>
           <p className="text-base leading-relaxed text-muted-foreground">
-            A snapshot of where Memories is at. We try to keep this honest the
+            A snapshot of where Memories is at. We try to keep this honest: the
             stuff up top actually works, the middle stuff is in flight, and the
-            bottom is what we're thinking about for the next stretch.
+            rest is what we're picking up next or later.
           </p>
         </header>
 
@@ -265,7 +275,7 @@ const Index = () => {
         ))}
 
         <p className="text-sm leading-relaxed text-muted-foreground">
-          If there's something you want and you don't see it here leave a
+          If there's something you want and you don't see it here, leave a
           comment on any video or send a note from your settings page. We
           actually read them.
         </p>
