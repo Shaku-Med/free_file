@@ -868,6 +868,35 @@ video:not(.native-controls-allowed)::-webkit-media-controls-timeline {
   }
 }
 
+/* Captions: a cue fades in instead of popping, and roll-up words ease in as
+   their line grows to make room for them. */
+@keyframes caption-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* No fill mode: once it has played, the element's own opacity (a line fading
+   out as it rolls away) takes over again. */
+.caption-fade-in {
+  animation: caption-fade-in 160ms ease-out;
+}
+
+.caption-word-in {
+  animation: caption-fade-in 220ms ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .caption-fade-in,
+  .caption-word-in {
+    animation: none;
+  }
+
+  .caption-roll,
+  .caption-roll * {
+    transition: none !important;
+  }
+}
+
 .mandatory_select * {
   user-select: text !important;
   -webkit-user-select: text !important;

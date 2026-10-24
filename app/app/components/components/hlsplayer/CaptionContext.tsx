@@ -15,6 +15,7 @@ import {
   parseVTT,
   type CaptionCue,
 } from "~/lib/captions/vtt"
+import { buildRollTimeline, rollAt, rollKey, type RollCue } from "~/lib/captions/rollup"
 import { useFileContext } from "~/lib/Context/Context"
 
 const vttCache = new Map<string, CaptionCue[]>()
@@ -23,6 +24,8 @@ export interface CaptionLanguage {
   code: string
   label: string
   path: string
+  /** Made from the video's speech; shown roll-up style, word by word. */
+  auto: boolean
 }
 
 export type CaptionFontSize = "sm" | "md" | "lg" | "xl"
@@ -39,6 +42,10 @@ interface CaptionContextValue {
   setCurrentLanguage: (code: string | null) => void
   prefetchLanguage: (code: string | null | undefined) => void
   currentCue: string
+  /** True when the chosen track is auto generated and plays as roll-up. */
+  rollUp: boolean
+  /** The roll-up lines' words on screen right now (empty when not rolling up). */
+  rollCues: RollCue[]
   isLoading: boolean
   hasError: boolean
   position: CaptionPosition
@@ -87,6 +94,7 @@ function extractLanguages(file: FileType | null): CaptionLanguage[] {
     code: entry.language,
     label: captionLabel(entry),
     path: entry.path,
+    auto: entry.auto === true,
   }))
 }
 
@@ -122,7 +130,12 @@ export function CaptionProvider({ children, file, videoRef }: CaptionProviderPro
     const prev = languagesRef.current
     if (
       prev.length === languagesRaw.length &&
-      prev.every((l, i) => l.code === languagesRaw[i].code && l.path === languagesRaw[i].path)
+      prev.every(
+        (l, i) =>
+          l.code === languagesRaw[i].code &&
+          l.path === languagesRaw[i].path &&
+          l.auto === languagesRaw[i].auto,
+      )
     ) {
       return prev
     }
@@ -137,6 +150,8 @@ export function CaptionProvider({ children, file, videoRef }: CaptionProviderPro
   const [loadingLang, setLoadingLang] = useState<string | null>(null)
   const [errorLang, setErrorLang] = useState<string | null>(null)
   const [currentCue, setCurrentCue] = useState("")
+  const [rollCues, setRollCues] = useState<RollCue[]>([])
+  const rollUp = languages.some((l) => l.code === currentLanguage && l.auto)
 
   const [position, setPositionState] = useState<CaptionPosition>(() =>
     readJSON<CaptionPosition>(POSITION_KEY, DEFAULT_POSITION),
@@ -302,7 +317,7 @@ export function CaptionProvider({ children, file, videoRef }: CaptionProviderPro
       return
     }
     const cues = cuesByLang[currentLanguage]
-    if (!cues || cues.length === 0) {
+    if (!cues || cues.length === 0 || rollUp) {
       setCurrentCue("")
       return
     }
@@ -324,7 +339,51 @@ export function CaptionProvider({ children, file, videoRef }: CaptionProviderPro
       video.removeEventListener("seeked", update)
       video.removeEventListener("ratechange", update)
     }
-  }, [videoRef, currentLanguage, cuesByLang])
+  }, [videoRef, currentLanguage, cuesByLang, rollUp])
+
+  const rollTimeline = useMemo(() => {
+    const cues = rollUp && currentLanguage ? cuesByLang[currentLanguage] : undefined
+    return cues && cues.length > 0 ? buildRollTimeline(cues) : null
+  }, [rollUp, currentLanguage, cuesByLang])
+
+  // Roll-up words land mid cue, so they're followed every frame while playing
+  // (timeupdate only fires about four times a second). State changes only when
+  // a word appears or a line goes.
+  useEffect(() => {
+    const video = videoRef.current
+    if (!video || !rollTimeline) {
+      setRollCues([])
+      return
+    }
+    let lastKey = ""
+    let frame = 0
+    const update = () => {
+      const next = rollAt(rollTimeline, video.currentTime)
+      const key = rollKey(next)
+      if (key !== lastKey) {
+        lastKey = key
+        setRollCues(next)
+      }
+    }
+    const tick = () => {
+      update()
+      frame = video.paused ? 0 : requestAnimationFrame(tick)
+    }
+    const start = () => {
+      cancelAnimationFrame(frame)
+      frame = requestAnimationFrame(tick)
+    }
+    tick()
+    video.addEventListener("play", start)
+    video.addEventListener("seeked", update)
+    video.addEventListener("timeupdate", update)
+    return () => {
+      cancelAnimationFrame(frame)
+      video.removeEventListener("play", start)
+      video.removeEventListener("seeked", update)
+      video.removeEventListener("timeupdate", update)
+    }
+  }, [videoRef, rollTimeline])
 
   /**
    * Mirror caption cues into the native `<video>` element's TextTracks.
@@ -449,6 +508,8 @@ export function CaptionProvider({ children, file, videoRef }: CaptionProviderPro
       setCurrentLanguage,
       prefetchLanguage,
       currentCue,
+      rollUp,
+      rollCues,
       isLoading: loadingLang !== null && loadingLang === currentLanguage,
       hasError: errorLang !== null && errorLang === currentLanguage,
       position,
@@ -467,6 +528,8 @@ export function CaptionProvider({ children, file, videoRef }: CaptionProviderPro
       setCurrentLanguage,
       prefetchLanguage,
       currentCue,
+      rollUp,
+      rollCues,
       loadingLang,
       errorLang,
       position,
@@ -493,6 +556,8 @@ export function useCaptionContext(): CaptionContextValue {
       setCurrentLanguage: () => {},
       prefetchLanguage: () => {},
       currentCue: "",
+      rollUp: false,
+      rollCues: [],
       isLoading: false,
       hasError: false,
       position: DEFAULT_POSITION,

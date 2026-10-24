@@ -7,6 +7,7 @@ import {
 } from "../CaptionContext"
 import type { CaptionFontSize, CaptionTextAlign } from "../CaptionContext"
 import { usePlayerContext } from "../PlayerContext"
+import RollupCaption, { ROLL_PAD_EM } from "./RollupCaption"
 
 interface CaptionOverlayProps {
   containerRef: React.RefObject<HTMLDivElement | null>
@@ -53,6 +54,8 @@ const ALIGN_STYLE: Record<CaptionTextAlign, { left: string; transform: string }>
 export default function CaptionOverlay({ containerRef, controlsVisible, compact, controlReservePx }: CaptionOverlayProps) {
   const {
     currentCue,
+    rollUp,
+    rollCues,
     currentLanguage,
     position,
     setPosition,
@@ -149,7 +152,9 @@ export default function CaptionOverlay({ containerRef, controlsVisible, compact,
       const captionRect = captionEl?.getBoundingClientRect()
       const boxWidthPct =
         captionRect && rect.width > 0 ? (captionRect.width / rect.width) * 100 : 50
-      ;(e.target as HTMLElement).setPointerCapture(e.pointerId)
+      // The box itself, not the word or line under the finger: roll-up lines
+      // come and go mid drag.
+      e.currentTarget.setPointerCapture(e.pointerId)
       dragRef.current = {
         pointerId: e.pointerId,
         startX: e.clientX,
@@ -198,7 +203,7 @@ export default function CaptionOverlay({ containerRef, controlsVisible, compact,
       const drag = dragRef.current
       if (!drag || drag.pointerId !== e.pointerId) return
       try {
-        ;(e.target as HTMLElement).releasePointerCapture(e.pointerId)
+        e.currentTarget.releasePointerCapture(e.pointerId)
       } catch {}
       const live = livePosition
       const movedBelowFloor = drag.movedBelowFloor
@@ -226,11 +231,15 @@ export default function CaptionOverlay({ containerRef, controlsVisible, compact,
     return () => window.removeEventListener("blur", onWindowBlur)
   }, [dragging])
 
-  if (!currentLanguage || !currentCue) return null
+  if (!currentLanguage || (!rollUp && !currentCue)) return null
 
   const lines = currentCue.split("\n")
   const alignStyle = compact ? ALIGN_STYLE.center : ALIGN_STYLE[textAlign]
   const useDragPosition = !compact && textAlign === "center"
+  // Roll-up lines run about as long as YouTube's. The box keeps one width so
+  // it doesn't re-center under the words while a line grows.
+  const rollMaxWidth = Math.max(dynamicFontSize * 6, Math.min(containerSize.w * 0.86, dynamicFontSize * 21))
+  const rollBoxWidth = 2 * Math.ceil((rollMaxWidth + dynamicFontSize * ROLL_PAD_EM * 2 + 2) / 2)
 
   return (
     <div
@@ -265,26 +274,43 @@ export default function CaptionOverlay({ containerRef, controlsVisible, compact,
         transition: dragging
           ? "none"
           : "bottom 200ms cubic-bezier(0.4, 0, 0.2, 1), font-size 150ms ease",
+        // Only the line boxes take touches, so the empty part of the fixed
+        // width box never swallows a tap meant for the video.
+        ...(rollUp ? { width: `${rollBoxWidth}px`, maxWidth: "none", pointerEvents: dragging ? "auto" : "none" } : {}),
       }}
       className={cn(
-        "absolute z-40 select-none px-3 py-1.5 rounded-md text-white pointer-events-auto",
+        "absolute z-40 select-none text-white",
+        !rollUp && "pointer-events-auto rounded-md px-3 py-1.5",
         !compact && textAlign === "center" && "cursor-grab",
-        dragging && "cursor-grabbing ring-2 ring-white/40",
+        dragging && "cursor-grabbing",
+        dragging && !rollUp && "ring-2 ring-white/40",
       )}
     >
-      <div
-        aria-hidden
-        className="absolute inset-0 -z-10 rounded-md"
-        style={{ backgroundColor: `rgba(0, 0, 0, ${backgroundOpacity})` }}
-      />
-      {lines.map((line, i) => (
-        <div
-          key={i}
-          className="font-medium drop-shadow-[0_1px_2px_rgba(0,0,0,0.85)]"
-        >
-          {line}
+      {rollUp ? (
+        <RollupCaption
+          roll={rollCues}
+          fontPx={dynamicFontSize}
+          maxWidth={rollMaxWidth}
+          align={compact ? "center" : textAlign}
+          backgroundOpacity={backgroundOpacity}
+        />
+      ) : (
+        <div key={currentCue} className="caption-fade-in">
+          <div
+            aria-hidden
+            className="absolute inset-0 -z-10 rounded-md"
+            style={{ backgroundColor: `rgba(0, 0, 0, ${backgroundOpacity})` }}
+          />
+          {lines.map((line, i) => (
+            <div
+              key={i}
+              className="font-medium drop-shadow-[0_1px_2px_rgba(0,0,0,0.85)]"
+            >
+              {line}
+            </div>
+          ))}
         </div>
-      ))}
+      )}
     </div>
   )
 }
