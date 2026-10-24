@@ -99,6 +99,14 @@ func RegisterRoutes(app *fiber.App, webhookSecret string, cfg Config) {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 		defer cancel()
 
+		// A deleted upload may still have auto captions waiting; this drops them.
+		if cfg.Queue != nil {
+			uploadID := strings.TrimSuffix(prefix[strings.Index(prefix, "/")+1:], "/")
+			if err := cfg.Queue.RequestCancel(ctx, uploadID); err != nil && cfg.Log != nil {
+				cfg.Log.Errorf("purge cancel flag upload=%s err=%s", uploadID, err.Error())
+			}
+		}
+
 		switch body.Backend {
 		case "r2":
 			if cfg.R2 == nil {

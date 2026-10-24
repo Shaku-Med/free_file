@@ -4,6 +4,7 @@ import { isAuthenticated } from "~/lib/Security/Password";
 import db from "~/lib/Database/supabase";
 import { isValidFileId, isValidUUID, sanitizeString } from "~/lib/Security/inputValidation";
 import { invalidateFileByUniqueId } from "~/lib/Services/accessCache.server";
+import { normalizeCaptionEntries } from "~/lib/captions/vtt";
 import {
   canOwnerChangeVisibility,
   isFileVisibility,
@@ -35,7 +36,7 @@ function fileEditResponsePayload(row: Record<string, unknown>) {
     file_type: row.file_type ?? null,
     is_adult: row.is_adult ?? false,
     metadata: row.metadata ?? null,
-    captions: normalizeCaptions(row.captions),
+    captions: normalizeCaptionEntries(row.captions),
   };
 }
 
@@ -332,21 +333,3 @@ export const action = async ({ request }: { request: Request }) => {
     return toJson({ error: "Internal server error" }, 500);
   }
 };
-
-function normalizeCaptions(raw: unknown): { language: string; path: string }[] {
-  let arr: unknown[] | null = null;
-  if (Array.isArray(raw)) arr = raw;
-  else if (typeof raw === "string" && raw.trim().startsWith("[")) {
-    try { arr = JSON.parse(raw); } catch { /* not JSON */ }
-  }
-  if (!arr || !Array.isArray(arr)) return [];
-  const out: { language: string; path: string }[] = [];
-  for (const entry of arr) {
-    if (!entry || typeof entry !== "object") continue;
-    const e = entry as Record<string, unknown>;
-    const lang = typeof e.language === "string" ? e.language.trim() : "";
-    const path = typeof e.path === "string" ? e.path.trim() : "";
-    if (lang) out.push({ language: lang, path });
-  }
-  return out;
-}

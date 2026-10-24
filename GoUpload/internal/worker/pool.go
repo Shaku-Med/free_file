@@ -120,6 +120,10 @@ func (p *Pool) Start() {
 	go p.runOrphanCleanup()
 	p.wg.Add(1)
 	go p.runOutbox()
+	if p.worker.captionsEnabled() {
+		p.wg.Add(1)
+		go p.runCaptions()
+	}
 	p.log.Infof("pool started max=%d min=%d initial=%d", p.cfg.MaxWorkers, p.cfg.MinWorkers, p.cfg.InitialWorkers)
 }
 
@@ -225,6 +229,26 @@ func (p *Pool) runOutbox() {
 	}
 }
 
+// runCaptions is the single auto captions consumer. Stopping the pool kills a
+// transcription in progress; its job stays queued and starts over next time.
+func (p *Pool) runCaptions() {
+	defer p.wg.Done()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() {
+		<-p.stopCh
+		cancel()
+	}()
+	for {
+		wait := p.worker.nextCaption(ctx)
+		select {
+		case <-p.stopCh:
+			return
+		case <-time.After(wait):
+		}
+	}
+}
+
 // runOrphanCleanup periodically removes stale chunk dirs from interrupted
 // uploads and job files nothing owns any more. Previously this lived inline in
 // the single-worker run loop.
@@ -239,6 +263,9 @@ func (p *Pool) runOrphanCleanup() {
 		}
 		if n := p.worker.sweepLocalLeftovers(leftoverMinAge); n > 0 {
 			p.log.Infof("leftover job files cleanup removed %d entries", n)
+		}
+		if n := p.worker.sweepCaptionLeftovers(leftoverMinAge); n > 0 {
+			p.log.Infof("leftover caption audio cleanup removed %d entries", n)
 		}
 	}
 	sweep()

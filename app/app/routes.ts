@@ -36,6 +36,7 @@ export default [
         route(`internal/captions/consume-token`, 'routes/Api/internal/captions/consume-token/index.tsx'),
         route(`internal/captions/commit`, 'routes/Api/internal/captions/commit/index.tsx'),
         route(`internal/captions/uncommit`, 'routes/Api/internal/captions/uncommit/index.tsx'),
+        route(`internal/captions/auto`, 'routes/Api/internal/captions/auto/index.tsx'),
         route(`load/vtt/*`, 'routes/Api/load/vtt/index.tsx'),
         route(`upload-server-check`, 'routes/Api/upload-server-check/index.tsx'),
         route(`upload-job-status`, 'routes/Api/upload-job-status/index.tsx'),

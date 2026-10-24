@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"os"
 	"os/signal"
@@ -34,6 +35,7 @@ import (
 	"goupload/lib/nsfwstrikes"
 	"goupload/lib/queue"
 	"goupload/lib/r2"
+	"goupload/lib/transcribe"
 )
 
 // fingerprintDBPath is the SQLite fingerprint file. In the container this is on
@@ -153,6 +155,20 @@ func main() {
 		ghClient = ghlib.NewClient(ghlib.Config{Token: ghToken, Owner: ghOwner, Repo: ghRepo})
 	}
 
+	// Auto captions (whisper.cpp). Off unless WHISPER_MODEL is set; asked for
+	// but missing a piece, they stay off and say why.
+	transcriber, terr := transcribe.FromEnv()
+	if terr == nil && transcriber != nil && (env.Get("APP_BASE_URL", "") == "" || webhookSecret == "") {
+		terr = fmt.Errorf("APP_BASE_URL and UPLOAD_WEBHOOK_SECRET are needed to publish them")
+	}
+	if terr != nil {
+		appLog.Errorf("auto captions off: %s", terr.Error())
+		transcriber = nil
+	} else if transcriber != nil {
+		appLog.Infof("auto captions ready model=%s vad=%v threads=%d nice=%d max=%.0fs",
+			filepath.Base(transcriber.Model), transcriber.VADModel != "", transcriber.Threads, transcriber.Nice, transcriber.MaxSeconds)
+	}
+
 	wcfg := worker.Config{
 		ChunksDir:     chunksDir,
 		OutputDir:     outputDir,
@@ -167,6 +183,8 @@ func main() {
 		Music:         musicClient,
 		AcoustID:      acoustidClient,
 		Fingerprints:  fpDB,
+		Transcriber:   transcriber,
+		CaptionsDir:   "upload/captions",
 	}
 	w := worker.New(q, appLog, wcfg)
 	pool := worker.NewPool(w, worker.PoolConfig{

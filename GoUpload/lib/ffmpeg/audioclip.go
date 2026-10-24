@@ -35,6 +35,30 @@ func ExtractAudioClip(srcPath, outputDir string, maxSeconds int) (string, error)
 	return out, nil
 }
 
+// ExtractSpeechAudio writes the whole first audio track as 16 kHz mono FLAC,
+// what whisper.cpp reads, for auto captions. Lossless, about half a WAV.
+func ExtractSpeechAudio(srcPath, outPath string) error {
+	if err := os.MkdirAll(filepath.Dir(outPath), 0700); err != nil {
+		return fmt.Errorf("create output dir: %w", err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Minute)
+	defer cancel()
+
+	args := []string{
+		"-hide_banner", "-loglevel", "error", "-y",
+		"-i", srcPath,
+		"-map", "0:a:0", "-vn",
+		"-ac", "1", "-ar", "16000",
+		"-c:a", "flac", "-f", "flac",
+		outPath,
+	}
+	if err := FFmpegCommand(ctx, args...).Run(); err != nil {
+		os.Remove(outPath)
+		return fmt.Errorf("extract speech audio: %w", err)
+	}
+	return nil
+}
+
 // ExtractAudioRange writes a short MP3 of [startSec, startSec+durSec) from the
 // source for AcoustID. The clip is intentionally small: AcoustID only uses the
 // fingerprint of the first ~120s, and GoUpload never uploads the whole file.

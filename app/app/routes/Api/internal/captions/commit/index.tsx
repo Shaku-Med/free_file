@@ -7,14 +7,10 @@ import {
   isValidLanguageCode,
   normalizeLanguageCode,
 } from "~/lib/captions/server"
+import { sanitizeStoredCaptions, type StoredCaption } from "~/lib/captions/entries.server"
 
 const ok = (body: unknown, status = 200) =>
   data(body, { status, headers: { "Cache-Control": "no-store" } })
-
-interface CaptionEntry {
-  language: string
-  path: string
-}
 
 const SAFE_PATH_RE = /^[A-Za-z0-9._\-/]{1,256}$/
 
@@ -56,12 +52,13 @@ export const action = async ({ request }: { request: Request }) => {
   if (!row) return ok({ error: "file not found" }, 404)
   if (String(row.owner_id) !== userId) return ok({ error: "ownership mismatch" }, 403)
 
-  const current = sanitizeCaptionsArray(row.captions)
+  const current = sanitizeStoredCaptions(row.captions)
   const without = current.filter((entry) => entry.language !== language)
   if (without.length >= MAX_LANGUAGES_PER_FILE) {
     return ok({ error: "language limit reached" }, 409)
   }
-  const next: CaptionEntry[] = [...without, { language, path }]
+  // The owner's own track replaces an auto generated one in the same language.
+  const next: StoredCaption[] = [...without, { language, path }]
 
   const { error: updErr } = await db
     .from("files")
@@ -73,18 +70,4 @@ export const action = async ({ request }: { request: Request }) => {
     return ok({ error: "update failed" }, 500)
   }
   return ok({ ok: true, captions: next })
-}
-
-function sanitizeCaptionsArray(raw: unknown): CaptionEntry[] {
-  if (!Array.isArray(raw)) return []
-  const out: CaptionEntry[] = []
-  for (const entry of raw) {
-    if (!entry || typeof entry !== "object") continue
-    const e = entry as Record<string, unknown>
-    const lang = typeof e.language === "string" ? e.language.trim() : ""
-    const path = typeof e.path === "string" ? e.path.trim() : ""
-    if (!lang || !path) continue
-    out.push({ language: lang, path })
-  }
-  return out
 }

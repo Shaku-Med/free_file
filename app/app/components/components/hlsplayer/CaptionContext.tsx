@@ -10,7 +10,7 @@ import {
 } from "react"
 import type { FileType } from "~/lib/types"
 import {
-  findLanguageLabel,
+  captionLabel,
   normalizeCaptionEntries,
   parseVTT,
   type CaptionCue,
@@ -85,7 +85,7 @@ function extractLanguages(file: FileType | null): CaptionLanguage[] {
   const entries = normalizeCaptionEntries(file?.captions)
   return entries.map((entry) => ({
     code: entry.language,
-    label: findLanguageLabel(entry.language),
+    label: captionLabel(entry),
     path: entry.path,
   }))
 }

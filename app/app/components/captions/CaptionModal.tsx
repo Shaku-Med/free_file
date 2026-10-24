@@ -232,7 +232,10 @@ export function CaptionModal({
         return
       }
       const exists = captions.some((c) => c.language === draft.language)
-      const next = exists ? captions : [...captions, { language: draft.language, path: "" }]
+      // Saving over an auto generated track makes it the owner's own.
+      const next = exists
+        ? captions.map((c) => (c.language === draft.language ? { language: c.language, path: c.path } : c))
+        : [...captions, { language: draft.language, path: "" }]
       setCaptions(next)
       onCaptionsChange?.(next)
       setView("list")
@@ -339,7 +342,9 @@ export function CaptionModal({
                         <Globe className="w-4 h-4 text-muted-foreground shrink-0" />
                         <div className="flex-1 min-w-0">
                           <p className="text-sm font-medium truncate">{label}</p>
-                          <p className="text-[11px] text-muted-foreground truncate">{entry.language}</p>
+                          <p className="text-[11px] text-muted-foreground truncate">
+                            {entry.auto ? `${entry.language} · auto generated` : entry.language}
+                          </p>
                         </div>
                         <Button
                           type="button"

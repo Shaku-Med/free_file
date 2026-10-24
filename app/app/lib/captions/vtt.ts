@@ -242,6 +242,13 @@ export function serializeVTT(track: CaptionTrack): string {
 export interface CaptionEntry {
   language: string
   path: string
+  /** Made from the video's speech, not uploaded by the owner. */
+  auto?: boolean
+}
+
+export function captionLabel(entry: { language: string; auto?: boolean }): string {
+  const label = findLanguageLabel(entry.language)
+  return entry.auto ? `${label} (auto generated)` : label
 }
 
 function tryUnwrapJsonEntry(val: string): CaptionEntry | null {
@@ -297,7 +304,7 @@ export function normalizeCaptionEntries(raw: unknown): CaptionEntry[] {
           continue
         }
       }
-      if (langRaw) out.push({ language: langRaw, path: pathRaw })
+      if (langRaw) out.push(e.auto === true ? { language: langRaw, path: pathRaw, auto: true } : { language: langRaw, path: pathRaw })
     }
   }
   return out

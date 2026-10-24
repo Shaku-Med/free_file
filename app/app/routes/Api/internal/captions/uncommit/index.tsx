@@ -3,14 +3,10 @@ import db from "~/lib/Database/supabase"
 import { isValidUUID } from "~/lib/Security/inputValidation"
 import { verifyWebhookSecret } from "~/lib/Security/webhookAuth.server"
 import { isValidLanguageCode, normalizeLanguageCode } from "~/lib/captions/server"
+import { sanitizeStoredCaptions } from "~/lib/captions/entries.server"
 
 const ok = (body: unknown, status = 200) =>
   data(body, { status, headers: { "Cache-Control": "no-store" } })
-
-interface CaptionEntry {
-  language: string
-  path: string
-}
 
 export const action = async ({ request }: { request: Request }) => {
   if (request.method !== "POST") return ok({ error: "Method not allowed" }, 405)
@@ -46,7 +42,7 @@ export const action = async ({ request }: { request: Request }) => {
   if (!row) return ok({ error: "file not found" }, 404)
   if (String(row.owner_id) !== userId) return ok({ error: "ownership mismatch" }, 403)
 
-  const current = sanitizeCaptionsArray(row.captions)
+  const current = sanitizeStoredCaptions(row.captions)
   const next = current.filter((entry) => entry.language !== language)
   if (next.length === current.length) {
     return ok({ ok: true, captions: current })
@@ -58,18 +54,4 @@ export const action = async ({ request }: { request: Request }) => {
     return ok({ error: "update failed" }, 500)
   }
   return ok({ ok: true, captions: next })
-}
-
-function sanitizeCaptionsArray(raw: unknown): CaptionEntry[] {
-  if (!Array.isArray(raw)) return []
-  const out: CaptionEntry[] = []
-  for (const entry of raw) {
-    if (!entry || typeof entry !== "object") continue
-    const e = entry as Record<string, unknown>
-    const lang = typeof e.language === "string" ? e.language.trim() : ""
-    const path = typeof e.path === "string" ? e.path.trim() : ""
-    if (!lang || !path) continue
-    out.push({ language: lang, path })
-  }
-  return out
 }

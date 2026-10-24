@@ -29,6 +29,7 @@ import (
 	"goupload/lib/queue"
 	"goupload/lib/r2"
 	"goupload/lib/security"
+	"goupload/lib/transcribe"
 	"goupload/lib/webhook"
 )
 
@@ -63,6 +64,10 @@ type Config struct {
 	// duplicate detection runs locally and only the resulting link is sent to
 	// the app (raw hashes never leave the box). Nil = fingerprinting disabled.
 	Fingerprints *fingerprintdb.DB
+	// Transcriber makes auto captions; nil turns them off. CaptionsDir holds
+	// each queued upload's audio: upload/captions/{userID}/{uploadID}/
+	Transcriber *transcribe.Config
+	CaptionsDir string
 }
 
 type Worker struct {
@@ -1731,6 +1736,9 @@ func (w *Worker) processJob(job *queue.Job) {
 			}
 			return float64(processedBytes) / float64(job.FileSize)
 		}())
+
+	hasSpeech := hasAudio && !isMusic && videoInfo != nil && videoInfo.AudioCodec != ""
+	w.enqueueCaptions(job, result.OutputPath, ghPrefix, videoDuration, hasSpeech)
 
 	// Cleanup local HLS + thumbnail dirs
 	_ = os.RemoveAll(hlsDir)

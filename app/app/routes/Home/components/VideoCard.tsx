@@ -34,7 +34,7 @@ import { Info, MoreVertical, ChevronDown, X, Check, AlertTriangle, Send, Loader2
 import { Avatar, AvatarFallback, AvatarImage } from "~/components/ui/avatar";
 import { getProfilePicUrl } from "~/lib/utils/profilePic";
 import { CaptionModal, type CaptionEntry } from "~/components/captions/CaptionModal";
-import { findLanguageLabel } from "~/lib/captions/vtt";
+import { captionLabel, normalizeCaptionEntries } from "~/lib/captions/vtt";
 import { Tooltip, TooltipContent, TooltipTrigger } from "~/components/ui/tooltip";
 import { useIsMobile } from "~/hooks/use-mobile";
 import { useSidebarOptional } from "~/components/ui/sidebar";
@@ -43,46 +43,6 @@ import { EpisodePicker } from "./EpisodePicker";
 import WatchProgressBar from "./WatchProgressBar";
 import { hasPendingQualities, isStillProcessing } from "~/lib/files/uploadStatus";
 import { SeriesEpisodesPreviewDialog } from "~/components/SeriesEpisodesPreviewDialog";
-
-function tryUnwrapJsonEntry(val: string): CaptionEntry | null {
-  const s = val.trim();
-  if (!s.startsWith("{")) return null;
-  try {
-    const p = JSON.parse(s);
-    if (p && typeof p === "object" && typeof p.language === "string" && p.language.trim()) {
-      return { language: p.language.trim(), path: typeof p.path === "string" ? p.path.trim() : "" };
-    }
-  } catch { /* not JSON */ }
-  return null;
-}
-
-function extractCaptionEntries(raw: unknown): CaptionEntry[] {
-  let parsed = raw;
-  if (typeof parsed === "string") {
-    try { parsed = JSON.parse(parsed); } catch { return []; }
-  }
-  if (!Array.isArray(parsed)) return [];
-  const out: CaptionEntry[] = [];
-  for (const c of parsed) {
-    if (typeof c === "string" && c.trim()) {
-      const unwrapped = tryUnwrapJsonEntry(c);
-      if (unwrapped) { out.push(unwrapped); continue; }
-      out.push({ language: c.trim(), path: "" });
-      continue;
-    }
-    if (c && typeof c === "object") {
-      const e = c as Record<string, unknown>;
-      let lang = typeof e.language === "string" ? e.language.trim() : "";
-      const path = typeof e.path === "string" ? e.path.trim() : "";
-      if (lang && lang.startsWith("{")) {
-        const unwrapped = tryUnwrapJsonEntry(lang);
-        if (unwrapped) { out.push(unwrapped); continue; }
-      }
-      if (lang) out.push({ language: lang, path });
-    }
-  }
-  return out;
-}
 
 function getMetadataWarning(metadata: unknown): string | null {
   if (metadata && typeof metadata === "object" && "warning" in metadata) {
@@ -228,7 +188,7 @@ const VideoCard = ({
   const [tagInput, setTagInput] = useState("");
   const [catDropdownOpen, setCatDropdownOpen] = useState(false);
   const [editCaptions, setEditCaptions] = useState<CaptionEntry[]>(() =>
-    extractCaptionEntries(data.captions),
+    normalizeCaptionEntries(data.captions),
   );
   const [captionModalOpen, setCaptionModalOpen] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -434,7 +394,7 @@ const VideoCard = ({
     setEditIntroStart(formatMarker(initialMarkers?.introStart));
     setEditIntroEnd(formatMarker(initialMarkers?.introEnd));
     setEditCreditsStart(formatMarker(initialMarkers?.creditsStart));
-    setEditCaptions(extractCaptionEntries(data.captions));
+    setEditCaptions(normalizeCaptionEntries(data.captions));
   }, [
     isEditing,
     data.file_title,
@@ -488,7 +448,7 @@ const VideoCard = ({
         setEditCommentsEnabled(f.comments_enabled !== false);
         const lim = f.comment_limit;
         setEditCommentMax(typeof lim === "number" && lim > 0 ? String(lim) : "");
-        setEditCaptions(extractCaptionEntries(f.captions));
+        setEditCaptions(normalizeCaptionEntries(f.captions));
         if (Object.prototype.hasOwnProperty.call(f, "default_thumbnail")) {
           const dt = f.default_thumbnail;
           setEditLoadedDefaultThumb(typeof dt === "string" ? dt : dt == null ? null : undefined);
@@ -2041,7 +2001,7 @@ const VideoCard = ({
                 </span>
                 {editCaptions.length > 0 && (
                   <span className="text-[10px] text-muted-foreground truncate max-w-[40%]">
-                    {editCaptions.map((c) => findLanguageLabel(c.language) || c.language).join(", ")}
+                    {editCaptions.map((c) => captionLabel(c)).join(", ")}
                   </span>
                 )}
               </button>
