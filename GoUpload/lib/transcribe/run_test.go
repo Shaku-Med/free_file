@@ -30,7 +30,7 @@ func TestRunRealWhisper(t *testing.T) {
 		t.Fatal(err)
 	}
 	started := time.Now()
-	res, err := cfg.Run(context.Background(), audio, dir)
+	res, err := cfg.Run(context.Background(), audio, dir, os.Getenv("WHISPER_TEST_SONG") != "")
 	if err != nil {
 		t.Fatal(err)
 	}

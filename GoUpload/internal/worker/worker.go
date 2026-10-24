@@ -1737,8 +1737,10 @@ func (w *Worker) processJob(job *queue.Job) {
 			return float64(processedBytes) / float64(job.FileSize)
 		}())
 
-	hasSpeech := hasAudio && !isMusic && videoInfo != nil && videoInfo.AudioCodec != ""
-	w.enqueueCaptions(job, result.OutputPath, ghPrefix, videoDuration, hasSpeech)
+	// Songs too: their lyrics become the captions. A track with no voice at all
+	// gets none, since whisper's speech detector finds nothing to write.
+	hasSound := hasAudio && videoInfo != nil && videoInfo.AudioCodec != ""
+	w.enqueueCaptions(job, result.OutputPath, ghPrefix, videoDuration, hasSound, isMusic)
 
 	// Cleanup local HLS + thumbnail dirs
 	_ = os.RemoveAll(hlsDir)

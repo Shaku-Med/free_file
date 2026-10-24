@@ -24,6 +24,9 @@ type CaptionJob struct {
 	Prefix    string    `json:"prefix"`
 	Duration  float64   `json:"duration"`
 	CreatedAt time.Time `json:"created_at"`
+	// Song is set when the music detector called it music: lyrics are
+	// transcribed differently from speech.
+	Song bool `json:"song,omitempty"`
 }
 
 func (c *Client) PushCaptionJob(ctx context.Context, job *CaptionJob) error {

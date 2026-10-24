@@ -78,8 +78,11 @@ type Result struct {
 	Cues     []Cue
 }
 
-// Run transcribes audioPath, writing whisper's own output into workDir.
-func (c *Config) Run(ctx context.Context, audioPath, workDir string) (*Result, error) {
+// Run transcribes audioPath, writing whisper's own output into workDir. For a
+// song the speech detector stays off: it hears singing over a beat as noise and
+// drops most of the lyrics. Retries are off too, since on a stretch with no
+// voice they only spin, slowly, on made up text.
+func (c *Config) Run(ctx context.Context, audioPath, workDir string, song bool) (*Result, error) {
 	outBase := filepath.Join(workDir, "whisper")
 	args := []string{
 		"-m", c.Model,
@@ -91,7 +94,9 @@ func (c *Config) Run(ctx context.Context, audioPath, workDir string) (*Result, e
 		"-oj", "-of", outBase,
 		"-np",
 	}
-	if c.VADModel != "" {
+	if song {
+		args = append(args, "-nf")
+	} else if c.VADModel != "" {
 		args = append(args, "--vad", "-vm", c.VADModel)
 	}
 	name := c.Bin
@@ -162,7 +167,9 @@ var (
 	musicNotesRe   = regexp.MustCompile(`[♪♫♬♩]+`)
 	spacesRe       = regexp.MustCompile(`\s+`)
 	minSpeechChars = 10
-	maxRepeats     = 2
+	// A chorus can sing the same line a few times running; whisper stuck in a
+	// loop repeats one dozens of times.
+	maxRepeats = 4
 )
 
 // Clean drops what whisper makes up when nobody is talking: cues that are only
@@ -177,7 +184,7 @@ func Clean(cues []Cue) ([]Cue, error) {
 	for _, c := range cues {
 		text := strings.TrimSpace(spacesRe.ReplaceAllString(musicNotesRe.ReplaceAllString(c.Text, " "), " "))
 		key := normalize(bracketedRe.ReplaceAllString(text, " "))
-		if key == "" || strings.Contains(strings.ToLower(text), "amara.org") {
+		if key == "" || strings.Contains(strings.ToLower(text), "amara.org") || stutters(text) {
 			continue
 		}
 		if c.End <= c.Start || c.Start < 0 {
@@ -198,6 +205,23 @@ func Clean(cues []Cue) ([]Cue, error) {
 		return nil, ErrNoSpeech
 	}
 	return out, nil
+}
+
+// stutters reports a line that is one token over and over, which is what
+// whisper writes across an instrumental with nobody singing.
+func stutters(text string) bool {
+	words := strings.Fields(text)
+	if len(words) < 6 {
+		return false
+	}
+	counts := map[string]int{}
+	top := 0
+	for _, w := range words {
+		k := normalize(w)
+		counts[k]++
+		top = max(top, counts[k])
+	}
+	return top*10 >= len(words)*7
 }
 
 // normalize keeps only letters and digits, lowercased, for comparing lines.

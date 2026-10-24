@@ -68,9 +68,9 @@ func (w *Worker) removeCaptionDir(dir string) {
 }
 
 // enqueueCaptions saves the audio while the source file still exists and queues
-// it. Videos without speech, music videos and very long ones are skipped.
-func (w *Worker) enqueueCaptions(job *queue.Job, sourcePath, prefix string, duration float64, hasSpeech bool) {
-	if !w.captionsEnabled() || !hasSpeech {
+// it. Silent videos and very long ones are skipped.
+func (w *Worker) enqueueCaptions(job *queue.Job, sourcePath, prefix string, duration float64, hasSound, song bool) {
+	if !w.captionsEnabled() || !hasSound {
 		return
 	}
 	if duration <= 0 || duration > w.cfg.Transcriber.MaxSeconds {
@@ -107,6 +107,7 @@ func (w *Worker) enqueueCaptions(job *queue.Job, sourcePath, prefix string, dura
 		Prefix:    prefix,
 		Duration:  duration,
 		CreatedAt: time.Now().UTC(),
+		Song:      song,
 	})
 	cancel()
 	if err != nil {
@@ -114,7 +115,7 @@ func (w *Worker) enqueueCaptions(job *queue.Job, sourcePath, prefix string, dura
 		w.removeCaptionDir(dir)
 		return
 	}
-	w.log.Infof("auto captions queued job=%s upload=%s duration=%.0fs", job.ID, job.UploadID, duration)
+	w.log.Infof("auto captions queued job=%s upload=%s duration=%.0fs song=%v", job.ID, job.UploadID, duration, song)
 }
 
 // nextCaption works on the job at the front of the queue and says how long to
@@ -179,7 +180,7 @@ func (w *Worker) captionJob(ctx context.Context, job *queue.CaptionJob) captionO
 		timeout := time.Duration(job.Duration*6)*time.Second + 10*time.Minute
 		runCtx, cancel := context.WithTimeout(ctx, timeout)
 		started := time.Now()
-		res, err := w.cfg.Transcriber.Run(runCtx, filepath.Join(dir, captionAudioName), dir)
+		res, err := w.cfg.Transcriber.Run(runCtx, filepath.Join(dir, captionAudioName), dir, job.Song)
 		cancel()
 		if ctx.Err() != nil {
 			w.queue.UndoCaptionAttempt(context.Background(), job.UploadID)

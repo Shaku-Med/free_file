@@ -46,17 +46,33 @@ func TestCleanDropsWhatIsNotSpeech(t *testing.T) {
 	}
 }
 
-func TestCleanCutsALoopButKeepsARealRepeat(t *testing.T) {
-	in := []Cue{cue(0, 1000, "No."), cue(1000, 2000, "no!")}
+func TestCleanCutsALoopButKeepsAChorus(t *testing.T) {
+	in := []Cue{}
+	for i := 0; i < 4; i++ {
+		in = append(in, cue(i*1000, i*1000+900, "Con calma, yo quiero ver como lo mueve"))
+	}
+	in = append(in, cue(4000, 5000, "Next line."))
 	for i := 0; i < 20; i++ {
-		in = append(in, cue(2000+i*1000, 3000+i*1000, " Thank you so much for watching"))
+		in = append(in, cue(5000+i*1000, 6000+i*1000, " Thank you so much for watching"))
 	}
 	got, err := Clean(in)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(got) != 4 {
-		t.Fatalf("want No, no, and the loop twice; got %d cues: %+v", len(got), got)
+	if len(got) != 9 {
+		t.Fatalf("want the chorus 4 times, the next line, and the loop cut to 4; got %d cues: %+v", len(got), got)
+	}
+}
+
+func TestCleanDropsWhatAnInstrumentalMakes(t *testing.T) {
+	// What whisper wrote for 40s of music with nobody singing.
+	junk := " " + strings.Repeat("ᵗ ", 70)
+	got, err := Clean([]Cue{cue(0, 30000, junk), cue(30000, 40000, " ."), cue(40000, 43000, " La la la, here we go again")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].Text != "La la la, here we go again" {
+		t.Fatalf("got %+v", got)
 	}
 }
 
