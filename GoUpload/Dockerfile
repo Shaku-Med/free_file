@@ -33,11 +33,12 @@ RUN git init -q . \
  && cmake --build build --config Release -j"$(nproc)" --target whisper-cli
 
 # Models, checked against pinned hashes: the build fails rather than ship
-# anything else.
+# anything else. A file ADDed from a URL is root only (600) by default, and
+# whisper runs as the app user, so they're made readable.
 FROM scratch AS whisper-models
-ADD --checksum=sha256:ae85e4a935d7a567bd102fe55afc16bb595bdb618e11b2fc7591bc08120411bb \
+ADD --chmod=644 --checksum=sha256:ae85e4a935d7a567bd102fe55afc16bb595bdb618e11b2fc7591bc08120411bb \
     https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small-q5_1.bin /ggml-small-q5_1.bin
-ADD --checksum=sha256:2aa269b785eeb53a82983a20501ddf7c1d9c48e33ab63a41391ac6c9f7fb6987 \
+ADD --chmod=644 --checksum=sha256:2aa269b785eeb53a82983a20501ddf7c1d9c48e33ab63a41391ac6c9f7fb6987 \
     https://huggingface.co/ggml-org/whisper-vad/resolve/main/ggml-silero-v6.2.0.bin /ggml-silero-v6.2.0.bin
 
 # ── Final ────────────────────────────────────────────────────

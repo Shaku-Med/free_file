@@ -385,9 +385,19 @@ func (t *tailBuffer) Write(p []byte) (int, error) {
 
 func (t *tailBuffer) String() string { return string(t.buf) }
 
+// isFile reports a regular file this process can actually read: whisper runs as
+// the same user and only says "not found" when it can't open a model.
 func isFile(path string) bool {
 	st, err := os.Stat(path)
-	return err == nil && st.Mode().IsRegular()
+	if err != nil || !st.Mode().IsRegular() {
+		return false
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return false
+	}
+	_ = f.Close()
+	return true
 }
 
 func envOr(key, def string) string {
