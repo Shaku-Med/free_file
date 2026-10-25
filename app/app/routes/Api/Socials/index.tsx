@@ -1,10 +1,17 @@
 import { spawn } from 'child_process';
-import { readFile, mkdir, rm, readdir, writeFile } from 'fs/promises';
-import { existsSync } from 'fs';
+import { readFile, mkdir, rm, readdir, writeFile, stat } from 'fs/promises';
+import { existsSync, createReadStream } from 'fs';
 import { join } from 'path';
 import { tmpdir, platform } from 'os';
 import { randomUUID } from 'crypto';
+import { Readable } from 'stream';
 import { safeFetch } from '~/lib/Security/ssrfGuard.server';
+import { rateLimiter } from '~/routes/Auth/fun/rateLimit.server';
+
+// Biggest file one import may pull onto this server's disk.
+const MAX_DOWNLOAD = '2G';
+const FORMATS = ['mp4', 'mp3'] as const;
+const QUALITIES = ['highest', '4k', '1080p', '720p', '480p', '360p', 'lowest'] as const;
 
 interface RequestQueueItem {
     social_url: string;
@@ -193,7 +200,6 @@ async function exportCookiesFromBrowser(
             '--cookies-from-browser', browser,
             '--cookies', useWsl ? convertWindowsPathToWsl(outputPath) : outputPath,
             '--no-warnings',
-            '--no-check-certificate',
             '--no-download',
             targetUrl
         ];
@@ -278,7 +284,6 @@ async function refreshCookiesWithYtDlp(
             '--cookies', cookiesPath,
             '--no-download',
             '--no-warnings',
-            '--no-check-certificate',
             baseUrl
         ];
         
@@ -345,8 +350,8 @@ async function downloadVideo(
 
     const args: string[] = [
         '--no-warnings',
-        '--no-check-certificate',
         '--no-color',
+        '--max-filesize', MAX_DOWNLOAD,
         '--extractor-retries', String(retries),
         '--restrict-filenames',
         '--windows-filenames',
@@ -536,6 +541,15 @@ export const loader = async ({ request }: { request: Request }) => {
             });
         }
 
+        // Every import runs yt-dlp and fills this server's disk with a whole video.
+        const limit = await rateLimiter.checkLimit(String(user.id), 'socials-download', 10, 10 * 60_000, 10 * 60_000);
+        if (!limit.allowed) {
+            return new Response(JSON.stringify({ error: limit.error ?? 'Too many requests' }), {
+                status: 429,
+                headers: { 'Content-Type': 'application/json' },
+            });
+        }
+
         const url = new URL(request.url);
 
         let socialUrl = decodeURIComponent(url.pathname.split(`/socials/`)[1] || '');
@@ -581,14 +595,13 @@ export const loader = async ({ request }: { request: Request }) => {
         }
 
         const searchParams = url.searchParams;
-        const format = (searchParams.get('format') || 'mp4') as 'mp4' | 'mp3';
-        const quality = (searchParams.get('quality') || 'highest') as DownloadOptions['quality'];
-        let cookie = searchParams.get('cookie') || undefined;
-        const cookiesUrl = searchParams.get('cookies_url') || undefined;
-        const cookiesInline = searchParams.get('cookies_inline') || undefined;
-        const refreshCookies = searchParams.get('refresh_cookies') === '1';
-        const sleep = searchParams.get('sleep') ? parseInt(searchParams.get('sleep')!, 10) : (platform === 'youtube' ? 2 : 1);
-        const retries = searchParams.get('retries') ? parseInt(searchParams.get('retries')!, 10) : 3;
+        const format = FORMATS.find((f) => f === searchParams.get('format')) ?? 'mp4';
+        const quality = QUALITIES.find((q) => q === searchParams.get('quality')) ?? 'highest';
+        // The cookie files here are shared by everyone who imports, so they only
+        // ever come from the server itself, never from a request.
+        let cookie: string | undefined;
+        const sleep = platform === 'youtube' ? 2 : 1;
+        const retries = 3;
 
         const hostname = new URL(socialUrl).hostname;
         const cookiesFolder = join(process.cwd(), 'cookies');
@@ -613,32 +626,18 @@ export const loader = async ({ request }: { request: Request }) => {
         
         for (const hostnameVar of hostnameVariations) {
             const cookiesPath = join(cookiesFolder, `${hostnameVar}.cookies.txt`);
-            if (!cookiesFilePath && existsSync(cookiesPath) && !refreshCookies) {
+            if (!cookiesFilePath && existsSync(cookiesPath)) {
                 cookiesFilePath = cookiesPath;
                 break;
             }
         }
         
         const legacyCookiesPath = join(process.cwd(), 'app', 'routes', 'Socials', `${hostname}.cookies.txt`);
-        if (!cookiesFilePath && existsSync(legacyCookiesPath) && !refreshCookies) {
+        if (!cookiesFilePath && existsSync(legacyCookiesPath)) {
             cookiesFilePath = legacyCookiesPath;
         }
         
-        const exportFromBrowser = searchParams.get('export_cookies_from_browser');
-        if (exportFromBrowser) {
-            try {
-                const browserName = exportFromBrowser === 'chromium-browser' ? 'chromium' : exportFromBrowser;
-                await exportCookiesFromBrowser(browserName, socialUrl, cookiesFolderPath);
-                if (existsSync(cookiesFolderPath)) {
-                    cookiesFilePath = cookiesFolderPath;
-                    console.log(`Successfully exported cookies from ${exportFromBrowser} browser`);
-                }
-            } catch (error) {
-                console.error('Failed to export cookies from browser:', error);
-            }
-        }
-        
-        if (!cookiesFilePath && !exportFromBrowser) {
+        if (!cookiesFilePath) {
             const browsersToTry = ['chromium', 'chrome', 'firefox', 'edge'];
             for (const browser of browsersToTry) {
                 try {
@@ -657,49 +656,19 @@ export const loader = async ({ request }: { request: Request }) => {
             }
         }
         
-        if (cookiesUrl) {
-            // SSRF guard: cookies_url is user-supplied; block private/internal targets.
-            let resp: Response;
-            try {
-                resp = await safeFetch(cookiesUrl);
-            } catch {
-                return new Response(JSON.stringify({ error: 'Failed to fetch cookies file' }), {
-                    status: 400,
-                    headers: { 'Content-Type': 'application/json' }
-                });
-            }
-            if (!resp.ok) {
-                console.error('Failed to fetch cookies file:', resp.status, resp.statusText);
-                return new Response(JSON.stringify({ error: 'Failed to fetch cookies file' }), {
-                    status: 400,
-                    headers: { 'Content-Type': 'application/json' }
-                });
-            }
-            const text = await resp.text();
-            await writeFile(cookiesFolderPath, text, 'utf8');
-            cookiesFilePath = cookiesFolderPath;
-        }
-
-        if (!cookiesFilePath && cookiesInline) {
-            await writeNetscapeCookiesFileFromHeader(cookiesInline, socialUrl, cookiesFolderPath);
-            cookiesFilePath = cookiesFolderPath;
-        }
-
         if (!cookiesFilePath) {
             for (const hostnameVar of hostnameVariations) {
                 const cookiesPath = join(cookiesFolder, `${hostnameVar}.cookies.txt`);
-                if (existsSync(cookiesPath) && !refreshCookies) {
+                if (existsSync(cookiesPath)) {
                     cookiesFilePath = cookiesPath;
                     break;
                 }
             }
-            if (!cookiesFilePath && existsSync(persistentCookiesPath) && !refreshCookies) {
+            if (!cookiesFilePath && existsSync(persistentCookiesPath)) {
                 cookiesFilePath = persistentCookiesPath;
             }
             if (!cookiesFilePath) {
-                if (!cookie) {
-                    cookie = await collectAnonymousCookies(socialUrl);
-                }
+                cookie = await collectAnonymousCookies(socialUrl);
                 if (cookie) {
                     await writeNetscapeCookiesFileFromHeader(cookie, socialUrl, cookiesFolderPath);
                     cookiesFilePath = cookiesFolderPath;
@@ -710,19 +679,7 @@ export const loader = async ({ request }: { request: Request }) => {
         if (!cookiesFilePath && (platform === 'youtube' || platform === 'instagram' || platform === 'facebook')) {
             const platformName = platform.charAt(0).toUpperCase() + platform.slice(1);
             return new Response(JSON.stringify({ 
-                error: `${platformName} requires cookies to bypass bot detection and rate limits. Please provide cookies using one of these methods:\n` +
-                       '1. Auto-detect: Install a browser (chrome/chromium/firefox) on your server and log in to the platform. The code will auto-detect cookies.\n' +
-                       '2. Manual export: ?export_cookies_from_browser=chrome (or chromium, firefox, edge, safari)\n' +
-                       '3. Upload cookies file: ?cookies_url=<url-to-cookies-file>\n' +
-                       '4. Inline cookies: ?cookies_inline=<cookie-header-string>\n' +
-                       '5. Manually create cookies file: Create <hostname>.cookies.txt in the cookies directory\n' +
-                       '\nFor EC2/server setup:\n' +
-                       '- Install browser: sudo apt install -y chromium-browser (or firefox-esr)\n' +
-                       '- Log in to the platform in the browser to generate cookies\n' +
-                       '- The code will automatically use those cookies\n' +
-                       '\nTo export cookies manually:\n' +
-                       '- Use browser extension like "Get cookies.txt LOCALLY" or "Cookie-Editor"\n' +
-                       '- Or use yt-dlp: yt-dlp --cookies-from-browser chromium --cookies cookies.txt <platform-url>'
+                error: `${platformName} needs cookies on the server to get past its bot checks, and none are set up.`
             }), {
                 status: 400,
                 headers: { 'Content-Type': 'application/json' }
@@ -747,22 +704,23 @@ export const loader = async ({ request }: { request: Request }) => {
             retries,
         });
 
-        const fileBuffer = await readFile(filePath);
-        
         const contentType = format === 'mp3' 
             ? 'audio/mpeg' 
             : 'video/mp4';
 
-        try {
-            await rm(filePath, { force: true });
-        } catch (e) {
-        }
-        
+        // Streamed from disk: read whole, a long video would sit in this
+        // server's memory for every import running at once.
+        const { size } = await stat(filePath);
+        const fileStream = createReadStream(filePath);
+        fileStream.once('close', () => {
+            rm(filePath, { force: true }).catch(() => {});
+        });
 
-        return new Response(fileBuffer, {
+        return new Response(Readable.toWeb(fileStream) as ReadableStream, {
             status: 200,
             headers: {
                 'Content-Type': contentType,
+                'Content-Length': String(size),
                 'Content-Disposition': `attachment; filename="${filename}"`,
                                 'Access-Control-Allow-Methods': 'GET, OPTIONS',
                 'Access-Control-Allow-Headers': 'Content-Type',
