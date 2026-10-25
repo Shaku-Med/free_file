@@ -2,7 +2,8 @@ import { data } from "react-router"
 import { isAuthenticated } from "~/lib/Security/Password"
 import db from "~/lib/Database/supabase"
 import { isValidUUID } from "~/lib/Security/inputValidation"
-import { resolveSecret } from "~/lib/Security/secretEnv.server"
+import { isSameOrigin } from "~/lib/Security/sameOrigin.server"
+import { rateLimiter } from "~/routes/Auth/fun/rateLimit.server"
 import { resolveGithubRepoForFile } from "~/lib/githubStorage"
 import {
   MAX_LANGUAGES_PER_FILE,
@@ -20,28 +21,22 @@ export const action = async ({ request }: { request: Request }) => {
     return data({ error: "Method not allowed" }, { status: 405 })
   }
 
+  // The shared check works the public origin out from the request itself. The
+  // old one needed APP_BASE_URL, which the app never sets, so every caption
+  // save in production stopped at "Service unavailable".
+  if (!isSameOrigin(request)) {
+    return data({ error: "Forbidden" }, { status: 403 })
+  }
+
   const user = await isAuthenticated(request, ["id"])
   if (!user || !user.id) {
     return data({ error: "Unauthorized" }, { status: 401 })
   }
 
-  const expectedOrigin = (resolveSecret(process.env.APP_BASE_URL) ?? "").replace(/\/$/, "")
-  if (!expectedOrigin && process.env.NODE_ENV === "production") {
-    console.error("[api/captions/prepare] APP_BASE_URL is not set, refusing")
-    return data({ error: "Service unavailable" }, { status: 503 })
-  }
-  if (expectedOrigin) {
-    const origin = request.headers.get("Origin") ?? ""
-    const refOrigin = (() => {
-      const ref = request.headers.get("Referer") ?? ""
-      try {
-        return ref ? new URL(ref).origin : ""
-      } catch {
-        return ""
-      }
-    })()
-    const ok = origin === expectedOrigin || refOrigin === expectedOrigin
-    if (!ok) return data({ error: "Forbidden" }, { status: 403 })
+  // Each save or delete mints one token; this is far above a person editing.
+  const limit = await rateLimiter.checkLimit(user.id, "captions-prepare", 30, 60_000, 5 * 60_000)
+  if (!limit.allowed) {
+    return data({ error: limit.error ?? "Too many requests" }, { status: 429 })
   }
 
   if (!db) return data({ error: "Database not available" }, { status: 503 })
