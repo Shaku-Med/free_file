@@ -32,14 +32,12 @@ RUN git init -q . \
       -DWHISPER_BUILD_TESTS=OFF -DWHISPER_BUILD_SERVER=OFF \
  && cmake --build build --config Release -j"$(nproc)" --target whisper-cli
 
-# Models, checked against pinned hashes: the build fails rather than ship
+# The model, checked against a pinned hash: the build fails rather than ship
 # anything else. A file ADDed from a URL is root only (600) by default, and
-# whisper runs as the app user, so they're made readable.
+# whisper runs as the app user, so it's made readable.
 FROM scratch AS whisper-models
 ADD --chmod=644 --checksum=sha256:ae85e4a935d7a567bd102fe55afc16bb595bdb618e11b2fc7591bc08120411bb \
     https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small-q5_1.bin /ggml-small-q5_1.bin
-ADD --chmod=644 --checksum=sha256:2aa269b785eeb53a82983a20501ddf7c1d9c48e33ab63a41391ac6c9f7fb6987 \
-    https://huggingface.co/ggml-org/whisper-vad/resolve/main/ggml-silero-v6.2.0.bin /ggml-silero-v6.2.0.bin
 
 # ── Final ────────────────────────────────────────────────────
 FROM alpine:3.20
@@ -52,8 +50,7 @@ RUN apk add --no-cache ca-certificates tzdata ffmpeg libstdc++ libgomp \
 # Before the goupload binary, so a normal deploy doesn't ship the model again.
 COPY --from=whisper-models / /opt/whisper/
 COPY --from=whisper /src/whisper/build/bin/whisper-cli /usr/local/bin/whisper-cli
-ENV WHISPER_MODEL=/opt/whisper/ggml-small-q5_1.bin \
-    WHISPER_VAD_MODEL=/opt/whisper/ggml-silero-v6.2.0.bin
+ENV WHISPER_MODEL=/opt/whisper/ggml-small-q5_1.bin
 WORKDIR /app
 COPY --from=build /out/goupload /app/goupload
 USER app

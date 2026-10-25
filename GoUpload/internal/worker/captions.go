@@ -191,6 +191,11 @@ func (w *Worker) captionJob(ctx context.Context, job *queue.CaptionJob) captionO
 			return captionLater
 		}
 		took := time.Since(started)
+		res.Music, res.Speech = w.captionSegments(ctx, job.UploadID, filepath.Join(dir, captionAudioName), job.Song)
+		if ctx.Err() != nil {
+			w.queue.UndoCaptionAttempt(context.Background(), job.UploadID)
+			return captionStopped
+		}
 
 		var cues int
 		lang, vtt, cues, err = transcribe.VTT(res)
@@ -202,8 +207,8 @@ func (w *Worker) captionJob(ctx context.Context, job *queue.CaptionJob) captionO
 			w.log.Infof("auto captions skipped upload=%s: %s", job.UploadID, err.Error())
 			return captionDone
 		}
-		w.log.Infof("auto captions transcribed upload=%s lang=%s cues=%d audio=%.0fs took=%s speed=%.2fx",
-			job.UploadID, lang, cues, job.Duration, took.Round(time.Second), job.Duration/took.Seconds())
+		w.log.Infof("auto captions transcribed upload=%s lang=%s cues=%d music_spans=%d audio=%.0fs took=%s speed=%.2fx",
+			job.UploadID, lang, cues, len(res.Music), job.Duration, took.Round(time.Second), job.Duration/took.Seconds())
 		// Kept on disk so a failed hand off doesn't mean transcribing again.
 		_ = os.WriteFile(filepath.Join(dir, captionVTTName), []byte(vtt), 0600)
 		_ = os.WriteFile(filepath.Join(dir, captionLangName), []byte(lang), 0600)
@@ -236,6 +241,39 @@ func (w *Worker) captionJob(ctx context.Context, job *queue.CaptionJob) captionO
 		w.log.Infof("auto captions hand off failed upload=%s err=%s (will retry)", job.UploadID, err.Error())
 		return w.laterOrGiveUp(job, key)
 	}
+}
+
+// captionSegments asks the music detector where the caption audio is music,
+// for [Music] lines, and where it's speech, so a line whisper is known to make
+// up ("Thank you for watching!") can be dropped outside it. A song gets no
+// speech: its singing counts as music. Without the detector the captions just
+// go without either.
+func (w *Worker) captionSegments(ctx context.Context, uploadID, audioPath string, song bool) (music, speech []transcribe.Span) {
+	if w.cfg.Music == nil || !w.cfg.Music.Enabled() {
+		return nil, nil
+	}
+	segs, err := w.cfg.Music.Segments(ctx, audioPath)
+	if err != nil {
+		w.log.Infof("auto captions without music labels upload=%s reason=%s", uploadID, err.Error())
+		return nil, nil
+	}
+	for _, s := range segs {
+		// Bounds also turn away NaN, which fails every comparison.
+		if !(s.Start >= 0) || !(s.End > s.Start) || s.End > 24*3600 {
+			continue
+		}
+		span := transcribe.Span{
+			Start: time.Duration(s.Start * float64(time.Second)),
+			End:   time.Duration(s.End * float64(time.Second)),
+		}
+		switch {
+		case s.Label == "music":
+			music = append(music, span)
+		case s.Label == "speech" && !song:
+			speech = append(speech, span)
+		}
+	}
+	return music, speech
 }
 
 // laterOrGiveUp retries a finished track until captionGiveUpAfter, then drops

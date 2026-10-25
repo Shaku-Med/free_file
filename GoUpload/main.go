@@ -165,8 +165,8 @@ func main() {
 		appLog.Errorf("auto captions off: %s", terr.Error())
 		transcriber = nil
 	} else if transcriber != nil {
-		appLog.Infof("auto captions ready model=%s vad=%v threads=%d nice=%d max=%.0fs",
-			filepath.Base(transcriber.Model), transcriber.VADModel != "", transcriber.Threads, transcriber.Nice, transcriber.MaxSeconds)
+		appLog.Infof("auto captions ready model=%s dtw=%s threads=%d nice=%d max=%.0fs",
+			filepath.Base(transcriber.Model), transcriber.DTW, transcriber.Threads, transcriber.Nice, transcriber.MaxSeconds)
 	}
 
 	wcfg := worker.Config{

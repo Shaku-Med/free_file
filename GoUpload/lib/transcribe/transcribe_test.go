@@ -68,7 +68,8 @@ func TestCleanCutsALoopButKeepsAChorus(t *testing.T) {
 func TestCleanDropsWhatAnInstrumentalMakes(t *testing.T) {
 	// What whisper wrote for 40s of music with nobody singing.
 	junk := " " + strings.Repeat("ᵗ ", 70)
-	got, err := Clean([]Cue{cue(0, 30000, junk), cue(30000, 40000, " ."), cue(40000, 43000, " La la la, here we go again")})
+	run := " " + strings.Repeat("ని", 40) // the same, with no spaces
+	got, err := Clean([]Cue{cue(0, 30000, junk), cue(30000, 40000, " ."), cue(40000, 41000, run), cue(41000, 44000, " La la la, here we go again")})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -206,5 +207,192 @@ func TestVTTNeedsALanguage(t *testing.T) {
 		if _, _, _, err := VTT(&Result{Language: lang, Cues: []Cue{cue(0, 2000, "Plenty of words spoken here.")}}); !errors.Is(err, ErrNoLanguage) {
 			t.Fatalf("lang %q: err = %v", lang, err)
 		}
+	}
+}
+
+func TestParseJSONTakesWordStartsFromDTW(t *testing.T) {
+	// -ojf output with -ml 1: whisper's own guess put "First" at 5.03s, right
+	// where the line before ended; DTW has it at 7.60s.
+	raw := []byte(`{"result": {"language": "en"}, "transcription": [
+		{"offsets": {"from": 0, "to": 0}, "text": "", "tokens": [{"text": "[_BEG_]", "t_dtw": -1}]},
+		{"offsets": {"from": 4150, "to": 5030}, "text": " scratch.", "tokens": [{"text": " scratch", "t_dtw": 446}, {"text": ".", "t_dtw": 518}, {"text": "[_TT_300]", "t_dtw": -1}]},
+		{"offsets": {"from": 5030, "to": 6230}, "text": " First", "tokens": [{"text": " First", "t_dtw": 760}]},
+		{"offsets": {"from": 6230, "to": 6500}, "text": " I", "tokens": [{"text": " I", "t_dtw": 784}]}
+	]}`)
+	res, err := ParseJSON(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Cues) != 3 {
+		t.Fatalf("the empty segment should be dropped: %+v", res.Cues)
+	}
+	ms := func(n int) time.Duration { return time.Duration(n) * time.Millisecond }
+	if res.Cues[0].Start != ms(4310) || res.Cues[1].Start != ms(7450) || res.Cues[2].Start != ms(7690) {
+		t.Fatalf("starts should be DTW less %s: %+v", dtwLead, res.Cues)
+	}
+	// "scratch." runs no longer than such a word takes, not on to "First".
+	if res.Cues[0].End != ms(4310)+longestWord(len("scratch.")) || res.Cues[1].End != ms(7690) {
+		t.Fatalf("ends: %+v", res.Cues)
+	}
+}
+
+func TestDTWPresetFromModelName(t *testing.T) {
+	for name, want := range map[string]string{
+		"/opt/whisper/ggml-small-q5_1.bin": "small",
+		"ggml-base.en.bin":                 "base.en",
+		"ggml-large-v3-turbo-q5_0.bin":     "large.v3.turbo",
+		"GGML-MEDIUM.EN-Q8_0.BIN":          "medium.en",
+		"ggml-large-v3.bin":                "large.v3",
+		"my-model.bin":                     "",
+		"ggml-smallish.bin":                "",
+		"ggml-silero-v6.2.0.bin":           "",
+	} {
+		if got := DTWPreset(name); got != want {
+			t.Errorf("%s: %q, want %q", name, got, want)
+		}
+	}
+}
+
+func span(fromMs, toMs int) Span {
+	return Span{Start: time.Duration(fromMs) * time.Millisecond, End: time.Duration(toMs) * time.Millisecond}
+}
+
+func TestVTTLabelsMusicNobodySpeaksOver(t *testing.T) {
+	_, vtt, n, err := VTT(&Result{
+		Language: "en",
+		Cues:     []Cue{cue(4000, 9000, " I started with this right here."), cue(20000, 24000, " Then the bass comes in.")},
+		// An intro, a beat under the talking, a break, then an outro with a
+		// hiccup in the detector's labels.
+		Music: []Span{span(0, 3800), span(8000, 20500), span(30000, 40000), span(40500, 50000), span(60000, 61000)},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"00:00:00.000 --> 00:00:03.700\n[Music]",
+		"--> 00:00:19.700\n[Music]", // from 0.3 s after the line, which Chunk ends near 9 s
+		"00:00:30.000 --> 00:00:50.000\n[Music]",
+	} {
+		if !strings.Contains(vtt, want) {
+			t.Fatalf("missing %q in\n%s", want, vtt)
+		}
+	}
+	if n != 5 || strings.Contains(vtt, "00:01:00.000") {
+		t.Fatalf("want 2 lines and 3 labels, the 1s of music left out; got %d:\n%s", n, vtt)
+	}
+}
+
+func TestVTTCaptionsAnInstrumentalAsMusic(t *testing.T) {
+	lang, vtt, n, err := VTT(&Result{Language: "nn", Cues: []Cue{cue(0, 1000, " stra.")}, Music: []Span{span(500, 45000)}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if lang != "en" || n != 1 || !strings.Contains(vtt, "00:00:00.500 --> 00:00:45.000\n[Music]") {
+		t.Fatalf("lang=%q n=%d\n%s", lang, n, vtt)
+	}
+	if _, _, _, err := VTT(&Result{Language: "en", Cues: []Cue{cue(0, 1000, " Hi.")}, Music: []Span{span(0, 5000)}}); !errors.Is(err, ErrNoSpeech) {
+		t.Fatalf("5s of music alone isn't a track: err = %v", err)
+	}
+}
+
+func TestDropLoopsKeepsFourRepeats(t *testing.T) {
+	var words []Cue
+	add := func(texts ...string) {
+		for _, s := range texts {
+			words = append(words, cue(len(words)*100, len(words)*100+100, " "+s))
+		}
+	}
+	add("Look,", "look,", "look.")
+	for i := 0; i < 18; i++ {
+		add("rock", "out,")
+	}
+	add("back,", "back,", "back,", "back,", "back,", "back.", "Put", "it", "all", "together.")
+	var got []string
+	for _, w := range dropLoops(words) {
+		got = append(got, strings.TrimSpace(w.Text))
+	}
+	want := "Look, look, look. rock out, rock out, rock out, rock out, back, back, back, back, Put it all together."
+	if strings.Join(got, " ") != want {
+		t.Fatalf("got  %s\nwant %s", strings.Join(got, " "), want)
+	}
+}
+
+func TestKeepInOrderSpreadsWordsDTWPutBack(t *testing.T) {
+	s := func(secs ...float64) []Cue {
+		var out []Cue
+		for _, x := range secs {
+			out = append(out, Cue{Start: time.Duration(x * float64(time.Second)), Text: " w"})
+		}
+		return out
+	}
+	got := s(1, 2, 50, 3, 4, 0.5, 0.6, 6)
+	keepInOrder(got)
+	var at []string
+	for _, w := range got {
+		at = append(at, w.Start.String())
+	}
+	// 50 is a jump ahead and 0.5, 0.6 jumps back: all three follow the word
+	// before them at a talking pace, and every start now only moves forward.
+	if strings.Join(at, " ") != "1s 2s 2.25s 3s 4s 4.25s 4.5s 6s" {
+		t.Fatalf("got %s", strings.Join(at, " "))
+	}
+	stacked := s(10, 11, 11, 11, 11, 13)
+	keepInOrder(stacked)
+	if stacked[1].Start != 11*time.Second || stacked[2].Start != 11250*time.Millisecond || stacked[4].Start != 11750*time.Millisecond {
+		t.Fatalf("a line stacked on one moment should be spread out after its first word: %+v", stacked)
+	}
+	// Words DTW lost before a long pause stay with the word before it rather
+	// than being strung out one at a time across the pause.
+	paused := s(622, 622, 622, 622, 640)
+	keepInOrder(paused)
+	if paused[3].Start != 622750*time.Millisecond {
+		t.Fatalf("got %+v", paused)
+	}
+	tail := s(1, 2, 3, 0.1, 0.2)
+	keepInOrder(tail)
+	if tail[3].Start != 3250*time.Millisecond || tail[4].Start != 3500*time.Millisecond {
+		t.Fatalf("words after the last trusted one go %s apart: %+v", wordPace, tail)
+	}
+}
+
+func TestVTTDropsOnlyMadeUpLinesWhereNobodyTalks(t *testing.T) {
+	w := func(from, to int, text string) Cue { return cue(from, to, " "+text) }
+	res := &Result{
+		Language: "en",
+		Cues: []Cue{
+			w(1000, 1400, "Put"), w(1400, 1700, "it"), w(1700, 2000, "all"), w(2000, 2600, "together."),
+			// Talking over the score: the detector calls it music, but it's real.
+			w(60000, 60400, "Out"), w(60400, 60600, "of"), w(60600, 60800, "the"), w(60800, 61600, "devastation."),
+			w(72500, 73000, "Thank"), w(73000, 73300, "you"), w(73300, 73500, "for"), w(73500, 74400, "watching!"),
+		},
+		Speech: []Span{span(900, 2700)},
+		Music:  []Span{span(58000, 74400)},
+	}
+	_, vtt, _, err := VTT(res)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(vtt, "watching") || !strings.Contains(vtt, "devastation") || !strings.Contains(vtt, "[Music]") {
+		t.Fatalf("only the line whisper makes up should go:\n%s", vtt)
+	}
+	res.Speech = nil
+	if _, vtt, _, _ = VTT(res); !strings.Contains(vtt, "watching") {
+		t.Fatalf("with no speech map nothing is dropped:\n%s", vtt)
+	}
+}
+
+func TestJoinHangingStartsPullsAStrandedFirstWord(t *testing.T) {
+	w := func(ms int, text string) Cue { return cue(ms, ms, " "+text) }
+	words := []Cue{
+		w(122000, "rushed."), w(125630, "How"), w(127930, "exactly"), w(128150, "would"),
+		// An unpunctuated lyric line ending before a pause stays where it is.
+		w(130000, "under"), w(130300, "the"), w(130600, "moon"), w(134000, "Next"), w(134300, "line"),
+	}
+	joinHangingStarts(words)
+	if words[1].Start != 127930*time.Millisecond-wordPace {
+		t.Fatalf("How should sit just before exactly: %s", words[1].Start)
+	}
+	if words[6].Start != 130600*time.Millisecond {
+		t.Fatalf("moon moved to %s", words[6].Start)
 	}
 }
