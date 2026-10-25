@@ -52,7 +52,8 @@ def test_stub_mode_produces_a_valid_summary(tmp_path):
         even = tmp_path / "even.bin"
         even.write_bytes(b"x" * 10)
         s = analyzer.analyze_file(str(even))
-        assert set(s) >= {"music_seconds", "music_ratio", "voiced_seconds"}
+        assert set(s) >= {"music_seconds", "music_ratio", "voiced_seconds", "segments"}
+        assert [x["label"] for x in s["segments"]] == ["music", "speech"]
         assert decide_is_music(s, 0.5, 15) is True  # even size -> mostly music
     finally:
         analyzer._stub_mode = False
@@ -64,3 +65,18 @@ def test_threshold_is_inclusive():
     assert s["music_ratio"] == 0.5
     assert decide_is_music(s, 0.5, 15) is True
     assert decide_is_music(s, 0.51, 15) is False
+
+
+def test_segments_are_joined_and_rounded():
+    segs = [("music", 0, 1.5), ("music", 1.5, 3), ("speech", 3, 10.004), ("speech", 10.5, 12), ("noEnergy", 12, 12)]
+    assert analyzer.merge_segments(segs) == [
+        {"label": "music", "start": 0.0, "end": 3.0},
+        {"label": "speech", "start": 3.0, "end": 10.0},
+        {"label": "speech", "start": 10.5, "end": 12.0},
+    ]
+
+
+def test_segment_list_is_capped(monkeypatch):
+    monkeypatch.setattr(analyzer, "MAX_SEGMENTS", 3)
+    segs = [("music" if i % 2 else "speech", i, i + 1) for i in range(10)]
+    assert len(analyzer.merge_segments(segs)) == 3

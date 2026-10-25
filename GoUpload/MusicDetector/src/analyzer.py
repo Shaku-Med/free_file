@@ -25,6 +25,9 @@ _lock = threading.Lock()
 _segmenter = None
 _stub_mode = False
 
+# Most segments one answer carries; an hour of audio merges down to far fewer.
+MAX_SEGMENTS = 5000
+
 
 def summarize_segments(segments) -> dict:
     totals: dict[str, float] = {}
@@ -47,6 +50,23 @@ def summarize_segments(segments) -> dict:
         "analyzed_seconds": round(analyzed, 2),
         "music_ratio": round(ratio, 4),
     }
+
+
+def merge_segments(segments) -> list[dict]:
+    """Segments as {label, start, end} in seconds, with touching neighbours that
+    share a label joined into one."""
+    out: list[dict] = []
+    for seg in segments:
+        label, start, stop = str(seg[0]), float(seg[1]), float(seg[2])
+        if stop <= start:
+            continue
+        if out and out[-1]["label"] == label and start - out[-1]["end"] <= 0.05:
+            out[-1]["end"] = round(stop, 2)
+            continue
+        if len(out) >= MAX_SEGMENTS:
+            break
+        out.append({"label": label, "start": round(start, 2), "end": round(stop, 2)})
+    return out
 
 
 def decide_is_music(summary: dict, ratio_threshold: float, min_music_seconds: float) -> bool:
@@ -106,11 +126,14 @@ def _stub_segments(path: str):
 
 
 def analyze_file(path: str, stop_sec: float | None = None) -> dict:
+    """The is_music summary plus the segments themselves: GoUpload cuts the
+    AcoustID clip from the longest music segment and labels music in captions."""
     if _stub_mode:
-        return summarize_segments(_stub_segments(path))
-    seg = _load_segmenter()
-    # The Keras model is not safe to run from multiple threads at once; the service
-    # also caps concurrency, but serialize here as a hard guarantee.
-    with _lock:
-        segments = seg(path, start_sec=0, stop_sec=stop_sec)
-    return summarize_segments(segments)
+        segments = _stub_segments(path)
+    else:
+        seg = _load_segmenter()
+        # The Keras model is not safe to run from multiple threads at once; the
+        # service also caps concurrency, but serialize here as a hard guarantee.
+        with _lock:
+            segments = seg(path, start_sec=0, stop_sec=stop_sec)
+    return {**summarize_segments(segments), "segments": merge_segments(segments)}

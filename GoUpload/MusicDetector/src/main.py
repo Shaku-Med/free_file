@@ -17,7 +17,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, File, Header, HTTPException, UploadFile
+from fastapi import FastAPI, File, Header, HTTPException, Query, UploadFile
 
 
 def _load_env_files() -> None:
@@ -50,6 +50,9 @@ SECRET = os.environ.get("MUSIC_API_SECRET", "")
 RATIO_THRESHOLD = float(os.environ.get("MUSIC_RATIO_THRESHOLD", "0.8"))
 MIN_MUSIC_SECONDS = float(os.environ.get("MUSIC_MIN_SECONDS", "15"))
 ANALYZE_MAX_SECONDS = float(os.environ.get("MUSIC_ANALYZE_MAX_SECONDS", "180"))
+# ?whole=1 (captions) reads up to this much instead: the music has to be found
+# wherever it is, not only in the opening minutes. Matches CAPTIONS_MAX_SECONDS.
+WHOLE_MAX_SECONDS = float(os.environ.get("MUSIC_WHOLE_MAX_SECONDS", "3600"))
 MAX_CONCURRENCY = max(1, int(os.environ.get("MUSIC_CONCURRENCY", "1")))
 MAX_QUEUE = max(0, int(os.environ.get("MUSIC_MAX_QUEUE", "8")))
 MAX_UPLOAD_BYTES = int(os.environ.get("MUSIC_MAX_UPLOAD_BYTES", str(256 * 1024 * 1024)))
@@ -176,6 +179,7 @@ async def _spool_to_tmp(upload: UploadFile) -> str:
 @app.post("/analyze")
 async def analyze(
     file: UploadFile = File(...),
+    whole: bool = Query(default=False),
     x_internal_secret: str | None = Header(default=None),
 ):
     _check_secret(x_internal_secret)
@@ -198,7 +202,7 @@ async def analyze(
         log.info("analyze start file=%r size=%dB inflight=%d", name, os.path.getsize(path), _inflight)
         loop = asyncio.get_running_loop()
         summary = await loop.run_in_executor(
-            _executor, analyze_file, path, ANALYZE_MAX_SECONDS or None
+            _executor, analyze_file, path, (WHOLE_MAX_SECONDS if whole else ANALYZE_MAX_SECONDS) or None
         )
     except HTTPException:
         raise

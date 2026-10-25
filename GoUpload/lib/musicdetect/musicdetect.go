@@ -11,6 +11,7 @@ import (
 	"io"
 	"mime/multipart"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"time"
@@ -20,6 +21,8 @@ type Client struct {
 	apiURL string
 	secret string
 	http   *http.Client
+	// whole is for Segments, which reads a whole file of up to an hour.
+	whole *http.Client
 }
 
 func NewClient(apiURL, secret string) *Client {
@@ -28,7 +31,8 @@ func NewClient(apiURL, secret string) *Client {
 		secret: secret,
 		// Inference on a few minutes of audio (1 vCPU) plus possible queue wait;
 		// the sidecar returns 503 quickly when full, so this rarely blocks long.
-		http: &http.Client{Timeout: 150 * time.Second},
+		http:  &http.Client{Timeout: 150 * time.Second},
+		whole: &http.Client{Timeout: 20 * time.Minute},
 	}
 }
 
@@ -92,6 +96,30 @@ func (c *Client) Classify(ctx context.Context, path string) (*Result, error) {
 	if !c.Enabled() {
 		return nil, nil
 	}
+	return c.analyze(ctx, path, c.apiURL, c.http)
+}
+
+// Segments labels the whole file at path, not only the opening minutes the
+// is_music verdict looks at. Returns nil,nil when disabled.
+func (c *Client) Segments(ctx context.Context, path string) ([]Segment, error) {
+	if !c.Enabled() {
+		return nil, nil
+	}
+	u, err := url.Parse(c.apiURL)
+	if err != nil {
+		return nil, err
+	}
+	q := u.Query()
+	q.Set("whole", "1")
+	u.RawQuery = q.Encode()
+	res, err := c.analyze(ctx, path, u.String(), c.whole)
+	if err != nil {
+		return nil, err
+	}
+	return res.Segments, nil
+}
+
+func (c *Client) analyze(ctx context.Context, path, apiURL string, hc *http.Client) (*Result, error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return nil, err
@@ -113,14 +141,14 @@ func (c *Client) Classify(ctx context.Context, path string) (*Result, error) {
 		_ = pw.CloseWithError(mw.Close())
 	}()
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.apiURL, pr)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, apiURL, pr)
 	if err != nil {
 		return nil, err
 	}
 	req.Header.Set("Content-Type", mw.FormDataContentType())
 	req.Header.Set("X-Internal-Secret", c.secret)
 
-	res, err := c.http.Do(req)
+	res, err := hc.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("music api request failed: %w", err)
 	}
