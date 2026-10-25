@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { fetchMediaFile } from '~/lib/loadAuth.client';
 
 // Cache fetched waveform JSON across remounts (PlayerContext rebuilds on
 // each file change). Keyed by URL  these payloads are immutable per file.
@@ -29,7 +30,7 @@ export async function fetchPeaks(url: string): Promise<number[] | null> {
 
   const promise = (async () => {
     try {
-      const res = await fetch(url, { credentials: 'omit', cache: 'force-cache' });
+      const res = await fetchMediaFile(url, { credentials: 'omit', cache: 'force-cache' });
       if (!res.ok) return markMissing();
       const data = (await res.json()) as WaveformJson;
       if (!Array.isArray(data.peaks) || data.peaks.length === 0) return markMissing();

@@ -7,6 +7,8 @@ import {
   restoreVideoAudioAfterSystemPip,
 } from '~/lib/Context/PictureInPictureContext';
 import { getWaveformImagePathPrefix } from '~/lib/utils';
+import { needsAuthenticatedFetch } from '~/lib/files/hoverPreview';
+import { markMediaFolderNeedsAuth } from '~/lib/loadAuth.client';
 import { reelChromeStore } from './reelChromeStore';
 import {
   type AudioVisualizerStyle,
@@ -833,6 +835,9 @@ export function PlayerProvider({
       file_type: file.file_type,
     });
   }, [file?.id, file?.default_thumbnail, file?.thumbnails, file?.endpoint, file?.file_type, isReel]);
+
+  // Marked during render, so the folder is known before any child fetches from it.
+  if (waveformPrefix && needsAuthenticatedFetch(file)) markMediaFolderNeedsAuth(waveformPrefix);
 
   const waveformUrl = useMemo(
     () => (waveformPrefix ? `/api/load/image/${waveformPrefix}waveform.json` : null),

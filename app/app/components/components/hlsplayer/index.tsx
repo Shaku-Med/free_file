@@ -6,6 +6,8 @@ import { flushSync } from 'react-dom';
 import { useNavigate, useLocation } from 'react-router';
 import { useInView } from 'react-intersection-observer';
 import type { FileType, SeriesEpisodeGroup } from '~/lib/types';
+import { needsAuthenticatedFetch } from '~/lib/files/hoverPreview';
+import { fetchMediaFile, markMediaFolderNeedsAuth } from '~/lib/loadAuth.client';
 import { PlayerProvider, usePlayerContext, type ThumbnailSpriteMeta } from './PlayerContext';
 import { CaptionProvider } from './CaptionContext';
 import CaptionOverlay from './overlays/CaptionOverlay';
@@ -192,6 +194,21 @@ const SPRITE_META_CACHE_LIMIT = 200;
 const spriteMetaCache = new Map<string, ThumbnailSpriteMeta | null>();
 const spriteMetaInFlight = new Map<string, Promise<ThumbnailSpriteMeta | null>>();
 
+// An adult or private file's sprite can't be a plain <img src>, which can't send
+// the load bearer, so it's fetched once and kept as a blob URL for the session.
+const authedSprites = new Map<string, Promise<string | null>>();
+function authedSpriteUrl(url: string): Promise<string | null> {
+  let pending = authedSprites.get(url);
+  if (!pending) {
+    pending = fetchMediaFile(url)
+      .then((res) => (res.ok ? res.blob() : null))
+      .then((blob) => (blob && blob.size ? URL.createObjectURL(blob) : null))
+      .catch(() => null);
+    authedSprites.set(url, pending);
+  }
+  return pending;
+}
+
 function fetchSpriteMeta(metaUrl: string): Promise<ThumbnailSpriteMeta | null> {
   if (spriteMetaCache.has(metaUrl)) {
     return Promise.resolve(spriteMetaCache.get(metaUrl) ?? null);
@@ -199,7 +216,7 @@ function fetchSpriteMeta(metaUrl: string): Promise<ThumbnailSpriteMeta | null> {
   const pending = spriteMetaInFlight.get(metaUrl);
   if (pending) return pending;
 
-  const request = fetch(metaUrl)
+  const request = fetchMediaFile(metaUrl)
     .then((res) => (res.ok ? (res.json() as Promise<ThumbnailSpriteMeta>) : null))
     .catch(() => null)
     .then((meta) => {
@@ -822,6 +839,7 @@ function PlayerInner({
         : '';
     return prefix ? `/api/load/image/${prefix}thumbnail_preview.jpg` : null;
   }, [file?.default_thumbnail]);
+  const spriteNeedsAuth = needsAuthenticatedFetch(file);
 
   useEffect(() => {
     // A bare reel slide has no seek bar, so nothing can ever show the scrub
@@ -835,11 +853,14 @@ function PlayerInner({
         : '';
     if (!prefix || !spriteSheetUrl) return;
 
+    if (spriteNeedsAuth) markMediaFolderNeedsAuth(prefix);
     let cancelled = false;
-    void fetchSpriteMeta(`/api/load/image/${prefix}thumbnail_preview.json`).then((meta) => {
+    void fetchSpriteMeta(`/api/load/image/${prefix}thumbnail_preview.json`).then(async (meta) => {
       if (cancelled || !meta?.cells?.length) return;
+      const url = spriteNeedsAuth ? await authedSpriteUrl(spriteSheetUrl) : spriteSheetUrl;
+      if (cancelled || !url) return;
       setSpriteMeta(meta);
-      setSpriteUrl(spriteSheetUrl);
+      setSpriteUrl(url);
     });
 
     return () => {
@@ -848,6 +869,7 @@ function PlayerInner({
   }, [
     file?.default_thumbnail,
     spriteSheetUrl,
+    spriteNeedsAuth,
     setSpriteMeta,
     setSpriteUrl,
     isReelCtx,
@@ -1282,7 +1304,7 @@ function PlayerInner({
           by the browser, so the first scrub paints the preview instantly from
           cache  unlike a detached new Image() which can be dropped or
           deprioritized. */}
-      {spriteSheetUrl && (
+      {spriteSheetUrl && !spriteNeedsAuth && (
         <img
           src={spriteSheetUrl}
           alt=""

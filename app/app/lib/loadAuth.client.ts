@@ -61,3 +61,24 @@ export async function loadAuthHeaders(): Promise<HeadersInit> {
   if (!ctx?.bearer) return {};
   return { Authorization: `Bearer ${ctx.bearer}` };
 }
+
+// Storage folders of the adult and private files opened this session. The side
+// files next to their media (waveform, audio stems, scrub sprite) are behind
+// the same bearer as their images.
+const authFolders = new Set<string>();
+
+export function markMediaFolderNeedsAuth(folder: string): void {
+  if (folder) authFolders.add(folder);
+}
+
+/** fetch for a file under /api/load/image, sending the bearer when its folder needs it. */
+export async function fetchMediaFile(url: string, init: RequestInit = {}): Promise<Response> {
+  for (const folder of authFolders) {
+    if (url.includes(`/api/load/image/${folder}`)) {
+      const headers = new Headers(init.headers);
+      for (const [k, v] of Object.entries(await loadAuthHeaders())) headers.set(k, v);
+      return fetch(url, { ...init, headers });
+    }
+  }
+  return fetch(url, init);
+}

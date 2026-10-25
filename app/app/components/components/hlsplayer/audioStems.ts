@@ -5,6 +5,8 @@
  * events synthesized on the client.
  */
 
+import { fetchMediaFile } from '~/lib/loadAuth.client';
+
 export const STEM_TYPES = ['kick', 'snare', 'hihat', 'bass', 'other'] as const;
 export type StemType = (typeof STEM_TYPES)[number];
 
@@ -114,7 +116,7 @@ export async function fetchAudioStems(url: string): Promise<AudioStems | null> {
 
   const promise = (async () => {
     try {
-      const res = await fetch(url, { credentials: 'omit', cache: 'force-cache' });
+      const res = await fetchMediaFile(url, { credentials: 'omit', cache: 'force-cache' });
       if (!res.ok) return markMissing();
       const stems = parseStems(await res.json());
       if (!stems) return markMissing();
