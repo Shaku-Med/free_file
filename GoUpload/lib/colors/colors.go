@@ -21,7 +21,18 @@ func (b bucket) hex() string {
 	return fmt.Sprintf("#%02x%02x%02x", b.r/b.count, b.g/b.count, b.b/b.count)
 }
 
+// maxDecodePixels bounds what a decode may allocate. A few KB of PNG can claim
+// 50000x50000 pixels, and decoding that takes the whole process down.
+const maxDecodePixels = 64 << 20
+
 func ExtractDominant(imageData []byte, count int) ([]string, error) {
+	cfg, _, err := image.DecodeConfig(bytes.NewReader(imageData))
+	if err != nil {
+		return nil, err
+	}
+	if cfg.Width <= 0 || cfg.Height <= 0 || int64(cfg.Width)*int64(cfg.Height) > maxDecodePixels {
+		return nil, fmt.Errorf("image too large to sample: %dx%d", cfg.Width, cfg.Height)
+	}
 	img, _, err := image.Decode(bytes.NewReader(imageData))
 	if err != nil {
 		return nil, err

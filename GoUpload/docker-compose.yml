@@ -19,6 +19,15 @@ x-logging: &default-logging
     max-size: "10m"
     max-file: "3"
 
+# For every service whose image already runs as a non root user (all but
+# redis, whose entrypoint has to switch users): even code run through a bad
+# file can't regain root through a setuid binary or use a Linux capability.
+x-hardening: &hardening
+  security_opt:
+    - no-new-privileges:true
+  cap_drop:
+    - ALL
+
 services:
   # The password lives in redis.env, which goupload-compose.sh makes once on
   # the box (root 0600) and keeps across deploys. It is never in git or CI.
@@ -57,6 +66,7 @@ services:
     image: ${NSFWAPI_IMAGE:-ghcr.io/OWNER/REPO/nsfwapi:latest}
     container_name: goupload-nsfwapi
     restart: unless-stopped
+    <<: *hardening
     logging: *default-logging
     env_file:
       - ./nsfwapi.env
@@ -79,6 +89,7 @@ services:
     image: ${EMBEDAPI_IMAGE:-ghcr.io/OWNER/REPO/embedapi:latest}
     container_name: goupload-embedapi
     restart: unless-stopped
+    <<: *hardening
     logging: *default-logging
     environment:
       EMBED_API_PORT: "3007"
@@ -104,6 +115,7 @@ services:
     image: ${MUSICDETECTOR_IMAGE:-ghcr.io/OWNER/REPO/musicdetector:latest}
     container_name: goupload-musicdetector
     restart: unless-stopped
+    <<: *hardening
     logging: *default-logging
     # MUSIC_API_SECRET + the MUSIC_* tunables live here (like nsfwapi.env /
     # loadplay.env). On the VPS this file is written from the GitHub secret
@@ -135,6 +147,7 @@ services:
     image: ${ACOUSTID_IMAGE:-ghcr.io/OWNER/REPO/acoustid:latest}
     container_name: goupload-acoustid
     restart: unless-stopped
+    <<: *hardening
     logging: *default-logging
     # redis.env comes last so its REDIS_PASSWORD wins over any stale one in
     # acoustid.env.
@@ -171,6 +184,7 @@ services:
     image: ${GOUPLOAD_IMAGE:-ghcr.io/OWNER/REPO/goupload:latest}
     container_name: goupload
     restart: unless-stopped
+    <<: *hardening
     logging: *default-logging
     # Last file wins, so the box's Redis password beats the empty
     # REDIS_PASSWORD that goupload.env may still carry.
@@ -238,6 +252,7 @@ services:
     image: ${LOADPLAY_IMAGE:-ghcr.io/OWNER/REPO/loadplay:latest}
     container_name: goupload-loadplay
     restart: unless-stopped
+    <<: *hardening
     logging: *default-logging
     env_file:
       - ./loadplay.env

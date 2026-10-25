@@ -23,40 +23,9 @@ var uploadIDPattern = regexp.MustCompile(`^[a-f0-9]{32}$`)
 // expected format. Must be checked before any filesystem path is built from it.
 var ErrInvalidUploadID = errors.New("invalid_upload_id")
 
-// ErrDangerousContent is returned when the first chunk's magic bytes identify an
-// executable, script, or otherwise non-media payload regardless of declared extension.
-var ErrDangerousContent = errors.New("unsupported_file_type")
-
-// dangerousMagic lists file-header signatures that must never be accepted as an image
-// or video upload. These cover executables, scripts, and archive/office formats that
-// could be used to smuggle code past a permissive extension allowlist.
-var dangerousMagic = [][]byte{
-	{0x4D, 0x5A},                         // PE / DOS executable ("MZ")
-	{0x7F, 0x45, 0x4C, 0x46},             // ELF
-	{0xCA, 0xFE, 0xBA, 0xBE},             // Java class / Mach-O fat
-	{0xFE, 0xED, 0xFA, 0xCE},             // Mach-O 32
-	{0xFE, 0xED, 0xFA, 0xCF},             // Mach-O 64
-	{0xCF, 0xFA, 0xED, 0xFE},             // Mach-O 64 LE
-	{0x23, 0x21},                         // "#!" shebang
-	{0x50, 0x4B, 0x03, 0x04},             // ZIP / JAR / APK / docx
-	{0x50, 0x4B, 0x05, 0x06},             // ZIP (empty)
-	{0x50, 0x4B, 0x07, 0x08},             // ZIP (spanned)
-	{0x3C, 0x21, 0x44, 0x4F, 0x43, 0x54}, // "<!DOCT" (HTML)
-	{0x3C, 0x68, 0x74, 0x6D, 0x6C},       // "<html"
-	{0x3C, 0x73, 0x63, 0x72, 0x69, 0x70}, // "<scrip"
-	{0x3C, 0x3F, 0x70, 0x68, 0x70},       // "<?php"
-}
-
-// hasDangerousMagic reports whether the start of data matches a known
-// non-media file header. Caller should ensure len(data) is at least a few bytes.
-func hasDangerousMagic(data []byte) bool {
-	for _, sig := range dangerousMagic {
-		if len(data) >= len(sig) && bytes.Equal(data[:len(sig)], sig) {
-			return true
-		}
-	}
-	return false
-}
+// ErrNotMedia is returned when the first chunk doesn't start like an image or
+// video of the kind its extension claims, whatever it is instead.
+var ErrNotMedia = errors.New("unsupported_file_type")
 
 // ValidUploadID reports whether id is a well-formed upload identifier. Rejecting anything
 // else prevents path traversal (e.g. "../victim/abcd") when the id is joined into a path.
@@ -177,17 +146,16 @@ func (m *Manager) SaveChunk(userID, uploadID string, chunkIndex int, body io.Rea
 		}
 	}
 
-	// Peek the first chunk for executable/script headers. The filename extension
-	// allowlist alone is trivial to bypass (rename shell.php → shell.png); sniffing
-	// the magic bytes catches the actual payload before it reaches assembly/NSFW.
+	// The extension alone proves nothing, and /complete hands this chunk to
+	// ffprobe, so the bytes must already be a real image or video by then.
 	if chunkIndex == 0 {
-		head := make([]byte, 16)
+		head := make([]byte, security.MediaHeaderLen)
 		n, err := io.ReadFull(body, head)
 		if err != nil && err != io.EOF && err != io.ErrUnexpectedEOF {
 			return ChunkResponse{}, err
 		}
-		if hasDangerousMagic(head[:n]) {
-			return ChunkResponse{}, ErrDangerousContent
+		if security.MediaKind(head[:n]) != extensionKind(meta.FileName) {
+			return ChunkResponse{}, ErrNotMedia
 		}
 		body = io.MultiReader(bytes.NewReader(head[:n]), body)
 	}
@@ -544,12 +512,16 @@ func newID() string {
 	return hex.EncodeToString(b)
 }
 
-var allowedExtensions = map[string]bool{
-	".jpg": true, ".jpeg": true, ".png": true, ".gif": true, ".webp": true, ".bmp": true,
-	".mp4": true, ".webm": true, ".mkv": true, ".avi": true, ".mov": true, ".wmv": true, ".flv": true, ".m4v": true,
+var extensionKinds = map[string]string{
+	".jpg": "image", ".jpeg": "image", ".png": "image", ".gif": "image", ".webp": "image", ".bmp": "image",
+	".mp4": "video", ".webm": "video", ".mkv": "video", ".avi": "video", ".mov": "video", ".wmv": "video", ".flv": "video", ".m4v": "video",
+}
+
+// extensionKind is "image" or "video" for an accepted extension, "" otherwise.
+func extensionKind(filename string) string {
+	return extensionKinds[strings.ToLower(filepath.Ext(filename))]
 }
 
 func isAllowedExtension(filename string) bool {
-	ext := strings.ToLower(filepath.Ext(filename))
-	return allowedExtensions[ext]
+	return extensionKind(filename) != ""
 }

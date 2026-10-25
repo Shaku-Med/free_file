@@ -303,6 +303,16 @@ func (h *Handler) uploadDefaultThumbnail(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "file exceeds 10MB limit"})
 	}
 
+	// Sized from the header before anything decodes it: a small file can claim
+	// enough pixels to exhaust memory once decoded.
+	cfg, _, err := image.DecodeConfig(bytes.NewReader(data))
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "could not decode image; use JPEG, PNG, GIF, or WebP"})
+	}
+	if cfg.Width < 1 || cfg.Height < 1 || cfg.Width > 8192 || cfg.Height > 8192 {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "image dimensions too large"})
+	}
+
 	result, err := h.nsfw.Detect(data)
 	if err != nil {
 		h.log.Errorf("thumbnail NSFW check error: %v", err)
@@ -321,10 +331,6 @@ func (h *Handler) uploadDefaultThumbnail(c *fiber.Ctx) error {
 	img, _, err := image.Decode(bytes.NewReader(data))
 	if err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "could not decode image; use JPEG, PNG, GIF, or WebP"})
-	}
-	b := img.Bounds()
-	if b.Dx() > 8192 || b.Dy() > 8192 {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "image dimensions too large"})
 	}
 	var jpegBuf bytes.Buffer
 	if err := jpeg.Encode(&jpegBuf, img, &jpeg.Options{Quality: 88}); err != nil {

@@ -17,6 +17,7 @@ import (
 	"goupload/lib/nsfwstrikes"
 	"goupload/lib/quota"
 	"goupload/lib/r2"
+	"goupload/lib/security"
 	"goupload/lib/supabase"
 	"goupload/lib/webhook"
 
@@ -274,6 +275,11 @@ func (h *Handler) upload(c *fiber.Ctx) error {
 	}
 	if int64(len(data)) > maxFileSize {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "file exceeds 10MB limit"})
+	}
+	// The Content-Type above is whatever the client said; GIFs go on to ffmpeg,
+	// so the bytes themselves have to be an image.
+	if security.MediaKind(data) != "image" {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid file type"})
 	}
 
 	var toScan [][]byte

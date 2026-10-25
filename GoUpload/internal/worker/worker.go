@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -1034,7 +1035,7 @@ func (w *Worker) processJob(job *queue.Job) {
 	if !isVideo(job.FileName) {
 		w.log.Infof("image file, validating job=%s", job.ID)
 
-		if !validateImageFile(result.OutputPath) {
+		if !hasMediaHeader(result.OutputPath, "image") {
 			assembledDir := filepath.Dir(result.OutputPath)
 			w.failJob(job, "file is not a valid image (corrupt or wrong format)", result.OutputPath, assembledDir, filepath.Dir(assembledDir))
 			return
@@ -1140,6 +1141,14 @@ func (w *Worker) processJob(job *queue.Job) {
 			ContentLanguage: langdetect.Detect(job.Title, job.Description),
 		})
 		w.log.Infof("job complete job=%s duration=%s", job.ID, time.Since(start))
+		return
+	}
+
+	// The upload checked this when the first chunk arrived; checked again here
+	// since everything below hands the file to ffmpeg.
+	if !hasMediaHeader(result.OutputPath, "video") {
+		assembledDir := filepath.Dir(result.OutputPath)
+		w.failJob(job, "file is not a valid video (corrupt or wrong format)", result.OutputPath, assembledDir, filepath.Dir(assembledDir))
 		return
 	}
 
@@ -1878,37 +1887,21 @@ func isImage(filename string) bool {
 	return false
 }
 
-func validateImageFile(path string) bool {
+// hasMediaHeader reports whether the file at path starts like a kind ("image"
+// or "video") of file we accept.
+func hasMediaHeader(path, kind string) bool {
 	f, err := os.Open(path)
 	if err != nil {
 		return false
 	}
 	defer f.Close()
 
-	header := make([]byte, 16)
-	n, err := f.Read(header)
-	if err != nil || n < 4 {
+	header := make([]byte, security.MediaHeaderLen)
+	n, err := io.ReadFull(f, header)
+	if err != nil && err != io.ErrUnexpectedEOF {
 		return false
 	}
-
-	if header[0] == 0xFF && header[1] == 0xD8 && header[2] == 0xFF {
-		return true
-	}
-	if header[0] == 0x89 && header[1] == 0x50 && header[2] == 0x4E && header[3] == 0x47 {
-		return true
-	}
-	if header[0] == 0x47 && header[1] == 0x49 && header[2] == 0x46 {
-		return true
-	}
-	if n >= 12 && header[0] == 0x52 && header[1] == 0x49 && header[2] == 0x46 && header[3] == 0x46 &&
-		header[8] == 0x57 && header[9] == 0x45 && header[10] == 0x42 && header[11] == 0x50 {
-		return true
-	}
-	if header[0] == 0x42 && header[1] == 0x4D {
-		return true
-	}
-
-	return false
+	return security.MediaKind(header[:n]) == kind
 }
 
 // maxVisionGridBytes caps the preview grid sent to the vision API; the API's
