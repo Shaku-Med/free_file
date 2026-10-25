@@ -1,10 +1,20 @@
 import { GenerateUniqueID } from "~/lib/GenerateUniqueID"
 
+export interface CaptionWord {
+  text: string
+  /** Seconds. When this word is said, from the cue's in-text timestamp tags. */
+  start: number
+  /** Written straight after the word before it, with no space (CJK). */
+  glued?: boolean
+}
+
 export interface CaptionCue {
   id: string
   start: number
   end: number
   text: string
+  /** Per word timing, when the file has it (auto generated captions do). */
+  words?: CaptionWord[]
 }
 
 export interface CaptionTrack {
@@ -155,6 +165,40 @@ export function sanitizeCueText(input: string): string {
   return out
 }
 
+const CUE_TIMESTAMP_TAG = /<((?:\d{1,3}:)?\d{1,2}:\d{1,2}[.,]\d{1,3})>/g
+
+/**
+ * Reads WebVTT's in-cue timestamp tags ("Good <00:00:02.390>morning") into
+ * words with the time each is said. Text before the first tag starts with the
+ * cue. Returns undefined when the cue has no timing tags.
+ */
+function parseTimedWords(raw: string, cueStart: number, cueEnd: number): CaptionWord[] | undefined {
+  if (!CUE_TIMESTAMP_TAG.test(raw)) return undefined
+  CUE_TIMESTAMP_TAG.lastIndex = 0
+  const words: CaptionWord[] = []
+  let at = cueStart
+  let last = 0
+  // A tag with no space before it continues the word before (CJK text).
+  let glueNext = false
+  const take = (chunk: string) => {
+    const parts = sanitizeCueText(chunk).split(/\s+/).filter(Boolean)
+    parts.forEach((text, i) => {
+      const glued = i === 0 && glueNext && words.length > 0 && !/^\s/.test(chunk)
+      words.push(glued ? { text, start: at, glued } : { text, start: at })
+    })
+  }
+  for (const m of raw.matchAll(CUE_TIMESTAMP_TAG)) {
+    const chunk = raw.slice(last, m.index)
+    take(chunk)
+    glueNext = chunk.length > 0 && !/\s$/.test(chunk)
+    const t = parseTimestamp(m[1])
+    if (t !== null) at = Math.min(cueEnd, Math.max(at, t))
+    last = (m.index ?? 0) + m[0].length
+  }
+  take(raw.slice(last))
+  return words.length > 0 ? words : undefined
+}
+
 export function makeEmptyCue(start = 0, end = 2): CaptionCue {
   return { id: GenerateUniqueID(), start, end, text: "" }
 }
@@ -221,7 +265,8 @@ export function parseVTT(source: string): ParseResult {
     const cleaned = sanitizeCueText(textLines)
     if (!cleaned) continue
 
-    cues.push({ id: GenerateUniqueID(), start, end, text: cleaned })
+    const words = parseTimedWords(textLines, start, end)
+    cues.push(words ? { id: GenerateUniqueID(), start, end, text: cleaned, words } : { id: GenerateUniqueID(), start, end, text: cleaned })
   }
 
   cues.sort((a, b) => a.start - b.start)

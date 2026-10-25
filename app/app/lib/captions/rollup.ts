@@ -2,9 +2,9 @@ import type { CaptionCue } from "./vtt"
 
 /**
  * Roll-up captions, the way YouTube shows auto generated ones: each cue's
- * words come in one at a time across the cue, and the cues of one stretch of
- * talking stack up so the newest line pushes the older ones up. Auto tracks
- * have no per word timing, so words are spread over the cue by length.
+ * words come in one at a time, and the cues of one stretch of talking stack up
+ * so the newest line pushes the older ones up. Words appear when the file says
+ * they're spoken; a file without word times spreads them over the cue by length.
  */
 
 export interface RollWord {
@@ -49,6 +49,20 @@ export function buildRollTimeline(cues: CaptionCue[]): RollTimeline {
   const words: RollWord[][] = []
   const times: number[][] = []
   for (const cue of cues) {
+    // The file says when each word is said: use that.
+    if (cue.words && cue.words.length > 0) {
+      const w: RollWord[] = []
+      const t: number[] = []
+      for (const timed of cue.words) {
+        splitWords(timed.text).forEach((piece, i) => {
+          w.push(i === 0 ? { text: piece.text, glued: Boolean(timed.glued) } : piece)
+          t.push(timed.start)
+        })
+      }
+      words.push(w)
+      times.push(t)
+      continue
+    }
     const w = splitWords(cue.text)
     const total = w.reduce((n, word) => n + word.text.length + 1, 0)
     const span = Math.max(0, cue.end - cue.start) * REVEAL_SPAN

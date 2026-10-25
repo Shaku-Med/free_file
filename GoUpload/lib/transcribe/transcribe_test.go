@@ -2,6 +2,7 @@ package transcribe
 
 import (
 	"errors"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -141,13 +142,62 @@ func TestVTT(t *testing.T) {
 	if lang != "en" || n != 2 {
 		t.Fatalf("lang=%q cues=%d", lang, n)
 	}
-	for _, want := range []string{"WEBVTT", "00:00:01.500 --> 00:00:03.250", "01:02:03.400 --> 01:02:05.000", "An hour in."} {
+	for _, want := range []string{"WEBVTT", "00:00:01.500 --> 00:00:03.250", "01:02:03.400 --> 01:02:05.000", "An <01:02:03.800>hour"} {
 		if !strings.Contains(vtt, want) {
 			t.Fatalf("missing %q in\n%s", want, vtt)
 		}
 	}
 	if strings.Contains(vtt, "<b>") {
-		t.Fatalf("tags must be stripped:\n%s", vtt)
+		t.Fatalf("other tags must be stripped:\n%s", vtt)
+	}
+	plain := regexp.MustCompile(`<[^>]*>`).ReplaceAllString(vtt, "")
+	if !strings.Contains(plain, "An hour in.") || !strings.Contains(plain, "Hello world, this is a test.") {
+		t.Fatalf("text without the word times reads wrong:\n%s", plain)
+	}
+}
+
+// What whisper wrote, word by word, for the sync test clip: speech at 2.13s,
+// then a 3.5s pause before "Before" at 9.45s. whisper stretches "today." to the
+// next word's start, across the pause.
+func syncWords() []Cue {
+	w := func(from, to int, text string) Cue { return cue(from, to, " "+text) }
+	return []Cue{
+		w(2150, 2390, "Good"), w(2390, 2890, "morning"), w(2890, 3770, "everyone,"),
+		w(3770, 4040, "thank"), w(4040, 4250, "you"), w(4250, 4460, "for"),
+		w(4460, 4880, "coming"), w(4880, 9480, "today."),
+		w(9480, 9940, "Before"), w(9940, 10090, "we"), w(10090, 10580, "start,"),
+	}
+}
+
+func TestChunkKeepsEachWordsRealTime(t *testing.T) {
+	got := Chunk(syncWords())
+	if len(got) != 2 {
+		t.Fatalf("want a line per sentence, got %d: %+v", len(got), got)
+	}
+	first, second := got[0], got[1]
+	if first.Text != "Good morning everyone, thank you for coming today." || second.Text != "Before we start," {
+		t.Fatalf("got %q / %q", first.Text, second.Text)
+	}
+	if first.Start != 2150*time.Millisecond || second.Start != 9480*time.Millisecond {
+		t.Fatalf("lines start at %s and %s", first.Start, second.Start)
+	}
+	// The first line ends soon after "today." is said, not when the next one starts.
+	if first.End > 6500*time.Millisecond {
+		t.Fatalf("first line runs on into the pause until %s", first.End)
+	}
+	if len(first.Words) != 8 || first.Words[1].Start != 2390*time.Millisecond || first.Words[7].Start != 4880*time.Millisecond {
+		t.Fatalf("word times lost: %+v", first.Words)
+	}
+}
+
+func TestChunkBreaksAtAPauseWithoutPunctuation(t *testing.T) {
+	w := func(from, to int, text string) Cue { return cue(from, to, " "+text) }
+	got := Chunk([]Cue{
+		w(1000, 1300, "so"), w(1300, 1600, "anyway"), w(1600, 6000, "yeah"),
+		w(6000, 6300, "what"), w(6300, 6600, "now"),
+	})
+	if len(got) != 2 || got[1].Text != "what now" || got[1].Start != 6000*time.Millisecond {
+		t.Fatalf("a 4s pause should start a new line: %+v", got)
 	}
 }
 

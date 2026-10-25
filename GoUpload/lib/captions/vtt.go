@@ -215,8 +215,17 @@ func atoiSafe(s string) int {
 	return n
 }
 
+// cueTimestampTagRe is WebVTT's in-cue timestamp, which says when the words
+// after it are spoken (auto captions mark every word). It's the one tag kept.
+var cueTimestampTagRe = regexp.MustCompile(`^<(?:\d{1,3}:)?\d{2}:\d{2}\.\d{3}>$`)
+
 func sanitizeCueText(s string) string {
-	out := htmlTagRe.ReplaceAllString(s, "")
+	out := htmlTagRe.ReplaceAllStringFunc(s, func(tag string) string {
+		if cueTimestampTagRe.MatchString(tag) {
+			return tag
+		}
+		return ""
+	})
 	out = entityRe.ReplaceAllStringFunc(out, decodeEntity)
 	var b strings.Builder
 	b.Grow(len(out))

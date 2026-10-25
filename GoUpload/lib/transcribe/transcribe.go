@@ -71,6 +71,16 @@ type Cue struct {
 	Start time.Duration
 	End   time.Duration
 	Text  string
+	// Words carries when each word is said, once whisper's word segments have
+	// been grouped into a caption line.
+	Words []Word
+}
+
+type Word struct {
+	Start time.Duration
+	Text  string
+	// Glued: written straight after the word before it, with no space (CJK).
+	Glued bool
 }
 
 type Result struct {
@@ -89,6 +99,9 @@ func (c *Config) Run(ctx context.Context, audioPath, workDir string, song bool) 
 		"-f", audioPath,
 		"-l", "auto",
 		"-t", strconv.Itoa(c.Threads),
+		// One segment per word, so every word carries its own time. Spreading a
+		// long segment's time evenly put words seconds early or late.
+		"-ml", "1", "-sow",
 		// No [Music] / ♪ style tokens: those are what it invents over non speech.
 		"-sns",
 		"-oj", "-of", outBase,
@@ -97,7 +110,16 @@ func (c *Config) Run(ctx context.Context, audioPath, workDir string, song bool) 
 	if song {
 		args = append(args, "-nf")
 	} else if c.VADModel != "" {
-		args = append(args, "--vad", "-vm", c.VADModel)
+		// The detector cuts the silences out and maps times back afterwards; with
+		// its 30 ms default a word guessed a hair early lands across a cut,
+		// seconds off. 200 ms of padding keeps words within about 0.2 s.
+		args = append(args, "--vad", "-vm", c.VADModel, "-vp", "200")
+		// whisper settles on a writing style from how the audio opens and keeps
+		// it, and the padding can tip it into lowercase with no punctuation. A
+		// short prompt written normally holds it there. It's two filler words,
+		// so a rare leak into the captions still reads as speech; songs skip it,
+		// since without the detector whisper is likelier to echo it over music.
+		args = append(args, "--prompt", "Right, okay.")
 	}
 	name := c.Bin
 	if c.Nice > 0 {
@@ -172,7 +194,7 @@ var (
 	maxRepeats = 4
 )
 
-// Clean drops what whisper makes up when nobody is talking: cues that are only
+// Clean drops what whisper makes up when nobody is talking: lines that are only
 // a sound tag or music notes, subtitle credits it learned from its training
 // data, and a line looping over and over. It returns ErrNoSpeech when too
 // little real speech is left to be worth a caption track.
@@ -199,7 +221,8 @@ func Clean(cues []Cue) ([]Cue, error) {
 			lastKey, repeats = key, 0
 		}
 		letters += len([]rune(key))
-		out = append(out, Cue{Start: c.Start, End: c.End, Text: text})
+		c.Text = text
+		out = append(out, c)
 	}
 	if letters < minSpeechChars {
 		return nil, ErrNoSpeech
@@ -249,12 +272,20 @@ type word struct {
 	glued      bool // no space before it
 }
 
-// splitWords spreads a segment's time over its words by length. whisper's own
-// word timings can't be used: with VAD on they run on the trimmed audio's
-// clock, not the video's.
+// longestWord is how long a word of n characters can plausibly take to say.
+// whisper stretches a word's end to the next word's start, right across any
+// pause after it, which would hide the pause a caption should break at.
+func longestWord(n int) time.Duration {
+	return 300*time.Millisecond + time.Duration(n)*110*time.Millisecond
+}
+
+// splitWords turns one whisper segment into words. Segments are single words
+// now, so this mostly passes their own times through; a segment holding more
+// (text without spaces, or an older whisper output) shares its time out by
+// length.
 func splitWords(c Cue) []word {
 	var pieces []word
-	for _, f := range strings.Fields(c.Text) {
+	for _, f := range strings.Fields(musicNotesRe.ReplaceAllString(c.Text, " ")) {
 		r := []rune(f)
 		for i := 0; i < len(r); i += maxRunChars {
 			j := min(i+maxRunChars, len(r))
@@ -274,6 +305,9 @@ func splitWords(c Cue) []word {
 		pieces[i].start = c.Start + time.Duration(span*int64(pos)/int64(total))
 		pos += len([]rune(pieces[i].text)) + 1
 		pieces[i].end = c.Start + time.Duration(span*int64(pos)/int64(total))
+		if cap := pieces[i].start + longestWord(len([]rune(pieces[i].text))); pieces[i].end > cap {
+			pieces[i].end = cap
+		}
 	}
 	return pieces
 }
@@ -283,24 +317,30 @@ func endsWith(s, marks string) bool {
 	return len(r) > 0 && strings.ContainsRune(marks, r[len(r)-1])
 }
 
-// Chunk turns whisper's segments, which can stop mid sentence and run past two
-// lines, into captions: closed at sentence ends and pauses, at a comma once a
-// line is getting long, never longer than two lines, and up long enough to read.
+// Chunk groups whisper's words into caption lines: closed at sentence ends and
+// at pauses, at a comma once a line is getting long, never longer than two
+// lines, and up long enough to read. Each line keeps when every word is said.
 func Chunk(segments []Cue) []Cue {
 	var out []Cue
 	var cur strings.Builder
-	var curStart, curEnd time.Duration
+	var words []Word
+	var curStart, curEnd, lastStart time.Duration
 	curLen := 0
 	flush := func() {
 		if curLen > 0 {
-			out = append(out, Cue{Start: curStart, End: curEnd, Text: cur.String()})
+			out = append(out, Cue{Start: curStart, End: curEnd, Text: cur.String(), Words: words})
 		}
 		cur.Reset()
+		words = nil
 		curLen = 0
 	}
 	last := ""
 	for _, seg := range segments {
 		for _, w := range splitWords(seg) {
+			// Words come in order; never let one start before the one before it.
+			w.start = max(w.start, lastStart)
+			w.end = max(w.end, w.start)
+			lastStart = w.start
 			n := len([]rune(w.text))
 			if curLen > 0 {
 				switch {
@@ -311,13 +351,16 @@ func Chunk(segments []Cue) []Cue {
 					flush()
 				}
 			}
+			glued := w.glued
 			if curLen == 0 {
 				curStart = w.start
-			} else if !w.glued {
+				glued = false
+			} else if !glued {
 				cur.WriteByte(' ')
 				curLen++
 			}
 			cur.WriteString(w.text)
+			words = append(words, Word{Start: w.start, Text: w.text, Glued: glued})
 			curLen += n
 			curEnd = w.end
 			last = w.text
@@ -339,25 +382,38 @@ func Chunk(segments []Cue) []Cue {
 	return out
 }
 
-// VTT cleans the result and writes it as WebVTT, through the same sanitizer
-// owner uploaded captions go through.
+// VTT groups the result into lines, cleans them, and writes WebVTT through the
+// same sanitizer owner uploaded captions go through. Every word after the first
+// in a line is preceded by its own timestamp tag, as in YouTube's auto
+// captions, so the player can show each word as it's said.
 func VTT(res *Result) (lang, vtt string, cues int, err error) {
 	lang = res.Language
 	if len(lang) < 2 || len(lang) > 3 || !captions.IsValidLanguageCode(lang) {
 		return "", "", 0, ErrNoLanguage
 	}
-	cleaned, err := Clean(res.Cues)
+	cleaned, err := Clean(Chunk(res.Cues))
 	if err != nil {
 		return "", "", 0, err
 	}
 	var b strings.Builder
 	b.WriteString("WEBVTT\n\n")
-	for _, c := range Chunk(cleaned) {
+	for _, c := range cleaned {
 		b.WriteString(timestamp(c.Start))
 		b.WriteString(" --> ")
 		b.WriteString(timestamp(c.End))
 		b.WriteByte('\n')
-		b.WriteString(c.Text)
+		if len(c.Words) == 0 {
+			b.WriteString(c.Text)
+		}
+		for i, w := range c.Words {
+			if i > 0 {
+				if !w.Glued {
+					b.WriteByte(' ')
+				}
+				b.WriteString("<" + timestamp(min(max(w.Start, c.Start), c.End)) + ">")
+			}
+			b.WriteString(w.Text)
+		}
 		b.WriteString("\n\n")
 	}
 	vtt, cues, err = captions.Sanitize([]byte(b.String()))
