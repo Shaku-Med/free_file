@@ -275,9 +275,9 @@ const DynamicPage = ({ is_modal }: DynamicPageProps) => {
    * Ambient strength, 0..1. Two knobs move together: how opaque the glow is,
    * and how wide the unmasked "window" in the middle is. 0.5 reproduces the
    * original fixed look exactly, so the slider reads as centred on what
-   * shipped before; the default sits just under it.
+   * shipped before; the default is a soft 0.15.
    */
-  const ambientStrength = Math.max(0, Math.min(1, playerSettings?.ambientIntensity ?? 0.4));
+  const ambientStrength = Math.max(0, Math.min(1, playerSettings?.ambientIntensity ?? 0.15));
   const ambientStyle = useMemo(() => {
     const i = ambientStrength;
     // Piecewise so the midpoint lands exactly on the old fixed 0.80 while the
@@ -1573,6 +1573,9 @@ const DynamicPage = ({ is_modal }: DynamicPageProps) => {
     return () => clearTimeout(t);
   }, [isHLS, showVideoProcessingPlaceholder, file_data?.id, hasIncrementedView, runViewIncrement, requiredViewSeconds]);
 
+  // The installed app's header already clears the status bar. Padding the
+  // player too left a band under the header on phones that page text showed
+  // through once the player stuck, so only wide screens keep it.
   const videoBlock = (
     <motion.div layoutId={`video_id_${file_data.unique_id}`}
     transition={
@@ -1582,7 +1585,7 @@ const DynamicPage = ({ is_modal }: DynamicPageProps) => {
     }
     className={`
       relative z-10 w-full overflow-hidden
-      ${isStandalone ? "pt-8" : ""}
+      ${isStandalone ? "lg:pt-8" : ""}
       ${theaterMode ? (playerBackground ? "bg-black" : "bg-transparent") : "rounded-lg"}
     `} 
     key={`video-wrapper-${file_data.unique_id}-${currentId}`}
@@ -1592,7 +1595,7 @@ const DynamicPage = ({ is_modal }: DynamicPageProps) => {
       )}
       {
         !isHLS && (
-          <CanvasGradient className={`${isStandalone ? "mt-8" : ""}`} colors={imageColors || []} />
+          <CanvasGradient className={`${isStandalone ? "lg:mt-8" : ""}`} colors={imageColors || []} />
         )
       }
       <div

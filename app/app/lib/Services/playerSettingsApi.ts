@@ -82,8 +82,8 @@ const DEFAULTS: PlayerSettings = {
   stemConfettiInstruments: '{"kick":true,"snare":true,"hihat":true,"bass":true,"other":true}',
   videoBounce: false,
   videoBounceIntensity: 1,
-  /** Just under the midpoint: dimmer than a full glow without going dark. */
-  ambientIntensity: 0.4,
+  /** A soft glow out of the box; the slider still goes all the way up. */
+  ambientIntensity: 0.15,
   /** The handle riding the wave is the point of having a waveform at all. */
   seekWaveThumb: 'ride' as const,
   videoBounceInstruments: '{"kick":true,"bass":true,"snare":false,"hihat":false,"other":false}',

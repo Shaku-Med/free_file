@@ -156,14 +156,16 @@ export default function Navbar({ hasScrolled = { state: false, opacityLevel: 0 }
   // than read on render: in the installed iOS app the status bar padding can
   // settle after load or change on resume, with no render to re-measure it, and
   // a stale height left a gap above the sticky player. Border box, so a change
-  // to that padding alone still counts. Dropped on unmount so stale offsets
-  // don't linger on routes that render no navbar.
+  // to that padding alone still counts, and unrounded, since the status bar
+  // inset can be fractional and a rounded height leaves a hairline of page
+  // showing. Dropped on unmount so stale offsets don't linger on routes that
+  // render no navbar.
   const headerRef = useRef<HTMLElement>(null);
   useEffect(() => {
     const el = headerRef.current;
     if (!el) return;
     const root = document.documentElement;
-    const publish = () => root.style.setProperty("--app-top-nav-h", `${el.offsetHeight}px`);
+    const publish = () => root.style.setProperty("--app-top-nav-h", `${el.getBoundingClientRect().height}px`);
     publish();
     const observer = new ResizeObserver(publish);
     observer.observe(el, { box: "border-box" });

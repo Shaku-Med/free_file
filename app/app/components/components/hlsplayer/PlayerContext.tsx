@@ -520,7 +520,7 @@ export function PlayerProvider({
 
   const [videoBounceIntensity, setVideoBounceIntensityState] = useState(1);
 
-  const [ambientIntensity, setAmbientIntensityState] = useState(0.4);
+  const [ambientIntensity, setAmbientIntensityState] = useState(0.15);
 
   const [seekWaveThumb, setSeekWaveThumbState] = useState<'ride' | 'bottom'>('ride');
 
@@ -538,7 +538,7 @@ export function PlayerProvider({
   const setAmbientIntensity = useCallback(
     (v: number) => {
       if (!authPlaybackFeatures) return;
-      const clamped = Math.max(0, Math.min(1, Number.isFinite(v) ? v : 0.4));
+      const clamped = Math.max(0, Math.min(1, Number.isFinite(v) ? v : 0.15));
       setAmbientIntensityState(clamped);
       setPlayerSettings(prev => (prev ? { ...prev, ambientIntensity: clamped } : prev));
       savePlayerSettings({ ambientIntensity: clamped }).catch(() => {});
@@ -637,7 +637,7 @@ export function PlayerProvider({
         Math.max(0.25, Math.min(2, playerSettings.videoBounceIntensity ?? 1)),
       );
       setAmbientIntensityState(
-        Math.max(0, Math.min(1, playerSettings.ambientIntensity ?? 0.4)),
+        Math.max(0, Math.min(1, playerSettings.ambientIntensity ?? 0.15)),
       );
       setSeekWaveThumbState(playerSettings.seekWaveThumb === 'bottom' ? 'bottom' : 'ride');
       setVideoBounceInstrumentsState(

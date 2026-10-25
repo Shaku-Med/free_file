@@ -154,11 +154,11 @@ export function getPlayerSettingsFromCookies(cookieHeader: string | null) {
     ? Math.max(0.25, Math.min(2, bounceIntensityRaw))
     : 1;
   const ambientIntensityRaw = parseFloat(get(COOKIE_NAMES.ambientIntensity) ?? '');
-  // 0 = almost no glow, 1 = full spread. 0.4 sits just under the midpoint, which
-  // is the "a bit dim" look we want out of the box.
+  // 0 = almost no glow, 1 = full spread. 0.15 is the soft glow we want out of
+  // the box.
   const ambientIntensity = Number.isFinite(ambientIntensityRaw)
     ? Math.max(0, Math.min(1, ambientIntensityRaw))
-    : 0.4;
+    : 0.15;
   // 'ride' = the handle sits on the waveform; 'bottom' = pinned to the rail.
   const seekWaveThumb: 'ride' | 'bottom' =
     get(COOKIE_NAMES.seekWaveThumb) === 'bottom' ? 'bottom' : 'ride';
