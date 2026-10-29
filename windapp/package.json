@@ -14,7 +14,7 @@
     "build:all": "electron-builder --win nsis portable --mac"
   },
   "devDependencies": {
-    "electron": "^44.8.0",
+    "electron": "^44.9.1",
     "electron-builder": "^26.15.3"
   },
   "build": {
