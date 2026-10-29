@@ -30,15 +30,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { MediaGridSkeleton, ReelShelf } from "~/components/MediaShelf";
 
+import { Link } from "react-router";
 import { useFileContext } from "~/lib/Context/Context";
 import { cn } from "~/lib/utils";
-
-// YouTube-style home filter chips. Values must match the category strings stored
-// on files (feed RPC matches f.categories @> the chip value exactly).
-const HOME_CHIPS = [
-  "Music", "Gaming", "Entertainment", "Education", "Technology", "Sports",
-  "News", "Lifestyle", "Anime", "Film", "Automotive", "Art", "Nature",
-] as const;
+import { FEED_CATEGORIES } from "~/lib/feed/feedCategories";
 import SuggestedCreatorsRow, {
   type SuggestedCreator,
 } from "./components/SuggestedCreatorsRow";
@@ -48,7 +43,7 @@ import type { FileType } from "~/lib/types";
 import { groupReelShelves, inSameReelShelf } from "~/lib/feed/groupConsecutiveReelClusters";
 import { FEED_HIDE_ACTIONS, MEDIA_GRID } from "~/lib/feed/feedVideoCardLayout";
 import { Button } from "~/components/ui/button";
-import { Check, Clapperboard, Image as ImageIcon, Plus, TriangleAlert } from "lucide-react";
+import { Check, Clapperboard, Image as ImageIcon, Images, Plus, TriangleAlert } from "lucide-react";
 import EmptyState from "~/components/EmptyState";
 import { SignInToSeeMore } from "~/components/SignInWall";
 import { Separator } from "~/components/ui/separator";
@@ -220,7 +215,18 @@ export default function PersistentHomeView() {
     <div className="w-full min-w-0">
       {/* YouTube-style filter chips: All + categories. Functional  drives the feed. */}
       <div className="-mx-1 mb-6 flex gap-3 overflow-x-auto px-1 pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-        {[null, ...HOME_CHIPS].map((value) => {
+        {/* Photos live on their own page; this is the way there on phones,
+            which have no sidebar. */}
+        <Link
+          to="/posts"
+          prefetch="intent"
+          className="flex h-8 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md border border-border px-3 text-sm font-medium text-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+        >
+          <Images className="h-4 w-4" aria-hidden />
+          Posts
+        </Link>
+        <span aria-hidden className="my-1.5 w-px shrink-0 bg-border" />
+        {[null, ...FEED_CATEGORIES].map((value) => {
           const label = value ?? "All";
           const active = (feedCategory ?? null) === value;
           return (

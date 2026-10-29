@@ -11,6 +11,7 @@ import {
   Film,
   History,
   Home,
+  Images,
   Settings,
   Sparkles,
   SquarePlay,
@@ -53,6 +54,7 @@ type SubscribedChannel = { username: string; profile_pic: string | null; verifie
 const mainNav: NavEntry[] = [
   { title: "Home", icon: Home, href: "/" },
   { title: "Reel", icon: Film, href: "/reel" },
+  { title: "Posts", icon: Images, href: "/posts" },
   { title: "Subscriptions", icon: Users, href: "/subscriptions" },
 ]
 

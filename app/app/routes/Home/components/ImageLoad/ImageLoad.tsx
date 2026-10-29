@@ -32,6 +32,8 @@ interface ImageLoadProps {
     eagerLoad?: boolean
     /** Use same-origin `/api/...` as <img src> (avoids dev :3000 vs IMAGE_BASE_URL :3001 mismatches). */
     useRelativeApiUrl?: boolean
+    /** The decoded image's own size, for layouts that follow its shape. */
+    onNaturalSize?: (width: number, height: number) => void
 }
 
 const MAX_FETCH_RECOVERY_ATTEMPTS = 3
@@ -112,6 +114,7 @@ const ImageLoad = ({
     getMediaSessionURL = false,
     eagerLoad = false,
     useRelativeApiUrl = false,
+    onNaturalSize,
 }: ImageLoadProps) => {
     const { files, isDevelopment, hasFetchedImages, user_agent } = useFileContext()
     const [src, setSrc] = useState<string | null | boolean>(null)
@@ -672,9 +675,11 @@ const ImageLoad = ({
                             )}
                             loading={eagerLoad || index === 0 ? 'eager' : 'lazy'}
                             onError={handleImgError}
-                            onLoad={() => {
+                            onLoad={(e) => {
                                 hasLoadedOnceRef.current = true
                                 setLoaded(true)
+                                const { naturalWidth, naturalHeight } = e.currentTarget
+                                if (naturalWidth > 0 && naturalHeight > 0) onNaturalSize?.(naturalWidth, naturalHeight)
                             }}
                         />
                         {multipleImages.length > 1 && (
