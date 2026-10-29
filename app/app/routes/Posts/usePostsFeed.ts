@@ -9,6 +9,9 @@ import type { FileType } from "~/lib/types";
 const MAX_SEED_ROTATIONS = 2;
 // The API reads at most this many ids to leave out.
 const SEEN_IDS_WIRE_CAP = 500;
+// A page with no new photos isn't the end while a next one exists; look this
+// many further before settling on what there is.
+const MAX_EMPTY_PAGES = 4;
 
 type Page = { data?: FileType[]; nextCursor?: { cursor_pos: number } | null };
 
@@ -59,8 +62,10 @@ export function usePostsFeed(category: string | null, signedIn: boolean) {
       }
       try {
         let added = false;
-        for (let rotation = 0; rotation <= MAX_SEED_ROTATIONS; rotation++) {
-          const page = await fetchPage(append || rotation > 0, controller.signal);
+        let fetched = 0;
+        let emptyPages = 0;
+        for (let rotation = 0; rotation <= MAX_SEED_ROTATIONS; ) {
+          const page = await fetchPage(append || fetched++ > 0, controller.signal);
           if (generation !== generationRef.current) return;
           if (!page) {
             if (!append && !added) setError(true);
@@ -69,17 +74,20 @@ export function usePostsFeed(category: string | null, signedIn: boolean) {
           const fresh = (page.data ?? []).filter((f) => f.id && !shownRef.current.has(f.id));
           if (fresh.length > 0) {
             for (const f of fresh) shownRef.current.add(f.id);
-            setPosts((prev) => (append || rotation > 0 || added ? [...prev, ...fresh] : fresh));
+            const keep = append || added;
+            setPosts((prev) => (keep ? [...prev, ...fresh] : fresh));
             added = true;
-          } else if (!append && rotation === 0) {
-            setPosts([]);
           }
           if (page.nextCursor) {
             cursorRef.current = page.nextCursor.cursor_pos;
-            setHasMore(true);
-            return;
+            if (added || ++emptyPages > MAX_EMPTY_PAGES) {
+              setHasMore(true);
+              return;
+            }
+            continue;
           }
-          seedRef.current = `${Date.now()}_${rotation + 1}`;
+          rotation++;
+          seedRef.current = `${Date.now()}_${rotation}`;
           cursorRef.current = null;
         }
         setHasMore(added);
