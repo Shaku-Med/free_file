@@ -12,7 +12,8 @@
 -- are likely to want, whether or not it shares a single tag with their history.
 --
 --   user_taste_vector(user)   builds the vector (weights match tasteProfile.server.ts)
---   get_feed_v8               get_feed v7 + a "for you" pool + taste in every ranking
+--   get_feed_v8               get_feed v7 + a "for you" pool + taste in every ranking;
+--                             p_media keeps it to videos (Home) or images (Posts)
 --   get_related_v7            get_related v6 + taste, scaled by p_taste_weight
 --
 -- Both also group shorts into shelves of up to five (feed_reel_cluster_id), which
@@ -181,7 +182,9 @@ CREATE OR REPLACE FUNCTION public.get_feed_v8(
   p_seed          text    DEFAULT 'default',
   p_cursor_pos    int     DEFAULT 0,
   p_exclude_ids   uuid[]  DEFAULT '{}'::uuid[],
-  p_session_cats  text[]  DEFAULT '{}'::text[]
+  p_session_cats  text[]  DEFAULT '{}'::text[],
+  -- NULL for everything, 'video' or 'image' for one kind of post.
+  p_media         text    DEFAULT NULL
 )
 RETURNS TABLE (
   id               uuid,
@@ -242,6 +245,10 @@ DECLARE
   v_taste      vector(384);
   v_has_taste  boolean := false;
 BEGIN
+  IF p_media IS NOT NULL AND p_media NOT IN ('video', 'image') THEN
+    RAISE EXCEPTION 'p_media must be video or image';
+  END IF;
+
   IF p_user_id IS NOT NULL THEN
     SELECT EXISTS (
       SELECT 1 FROM subscriptions WHERE subscriber_id = p_user_id LIMIT 1
@@ -488,6 +495,10 @@ BEGIN
       AND (f.is_series_main OR COALESCE(f.is_files_series_item, false) IS NOT TRUE)
       AND (p_category IS NULL OR f.categories @> to_jsonb(p_category)::jsonb)
       AND (p_reels_only = false OR f.is_reel = true)
+      -- Everything that isn't an image plays: HLS, and old video/* uploads.
+      AND (p_media IS NULL
+           OR (p_media = 'image' AND COALESCE(f.file_type, '') LIKE 'image/%')
+           OR (p_media = 'video' AND COALESCE(f.file_type, '') NOT LIKE 'image/%'))
       AND (p_user_id IS NULL OR ud.file_id IS NULL)
       AND (p_exclude_ids = '{}'::uuid[] OR f.id != ALL(p_exclude_ids))
       AND f.id NOT IN (SELECT nf.file_id FROM neg_files nf)
@@ -1196,9 +1207,9 @@ $$;
 -- vector is a fingerprint of someone's likes and watch history, so none of
 -- these take a user id from anyone else.
 REVOKE ALL ON FUNCTION public.user_taste_vector(uuid) FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON FUNCTION public.get_feed_v8(uuid, int, text, boolean, text, int, uuid[], text[]) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.get_feed_v8(uuid, int, text, boolean, text, int, uuid[], text[], text) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.get_related_v7(uuid, uuid, int, int, uuid[], text[], text, uuid[], text, float) FROM PUBLIC, anon, authenticated;
 
 GRANT EXECUTE ON FUNCTION public.user_taste_vector(uuid) TO service_role;
-GRANT EXECUTE ON FUNCTION public.get_feed_v8(uuid, int, text, boolean, text, int, uuid[], text[]) TO service_role;
+GRANT EXECUTE ON FUNCTION public.get_feed_v8(uuid, int, text, boolean, text, int, uuid[], text[], text) TO service_role;
 GRANT EXECUTE ON FUNCTION public.get_related_v7(uuid, uuid, int, int, uuid[], text[], text, uuid[], text, float) TO service_role;

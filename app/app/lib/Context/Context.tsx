@@ -224,6 +224,8 @@ export const ContextProvider = ({ children, st, user_agent, userId, c_user, uplo
     const fetchFeedOnce = async (append: boolean) => {
       const params = new URLSearchParams()
       params.set("seed", feedSeedRef.current)
+      // Home is videos; photos have their own page at /posts.
+      params.set("media", "video")
       const cursor = nextCursorRef.current
       if (append && cursor) {
         params.set("cursor_pos", String(cursor.cursor_pos))

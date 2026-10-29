@@ -22,6 +22,18 @@ type RecommendationFn = keyof typeof TASTE_AWARE;
 const TASTE_ONLY_PARAMS = ["p_taste_weight"];
 
 /**
+ * Added to the new functions later (feed_media_filter.sql). Until that runs the
+ * call is retried without them, and the caller filters the rows itself.
+ */
+const LATER_PARAMS = ["p_media"];
+
+function without(params: Record<string, unknown>, keys: string[]) {
+  const out = { ...params };
+  for (const key of keys) delete out[key];
+  return out;
+}
+
+/**
  * How far the viewer's taste bends a related list away from the video itself.
  * The sidebar is about the video. Up next and the reel swipe are about what this
  * person will watch next, so they lean further.
@@ -50,8 +62,21 @@ export async function recommendationRpc(
   params: Record<string, unknown>,
 ): Promise<RpcResult> {
   const preferred = TASTE_AWARE[fn];
-  const res: RpcResult = await db.rpc(preferred, params);
+  let res: RpcResult = await db.rpc(preferred, params);
   if (!res.error) return res;
+
+  if (NOT_MIGRATED.has(res.error.code ?? "") && LATER_PARAMS.some((key) => key in params)) {
+    res = await db.rpc(preferred, without(params, LATER_PARAMS));
+    if (!res.error) {
+      reportOnce(`${preferred}:later-params`, () =>
+        console.warn(
+          `[recommendations] ${preferred} doesn't take ${LATER_PARAMS.join(", ")} yet; ` +
+            "run database/migrations/feed_media_filter.sql.",
+        ),
+      );
+      return res;
+    }
+  }
 
   const code = res.error.code ?? "unknown";
   if (NOT_MIGRATED.has(code)) {
@@ -67,8 +92,7 @@ export async function recommendationRpc(
     );
   }
 
-  const legacy = { ...params };
-  for (const key of TASTE_ONLY_PARAMS) delete legacy[key];
+  const legacy = without(params, [...TASTE_ONLY_PARAMS, ...LATER_PARAMS]);
   const fallback: RpcResult = await db.rpc(fn, legacy);
   // The old functions do not shelve shorts. With no shelf id the page groups
   // them the way it always has instead of showing one short per shelf.

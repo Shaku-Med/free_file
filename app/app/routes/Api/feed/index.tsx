@@ -29,6 +29,18 @@ function parseIdsParam(param: string | null): string[] {
   return [];
 }
 
+// Home asks for videos and Posts for images; anything else means everything.
+type FeedMedia = 'video' | 'image';
+
+function parseMedia(raw: string | null): FeedMedia | null {
+  const value = raw?.trim().toLowerCase();
+  return value === 'video' || value === 'image' ? value : null;
+}
+
+function isImageRow(file: { file_type?: unknown }): boolean {
+  return String(file.file_type ?? '').toLowerCase().startsWith('image/');
+}
+
 function parseExcludeIds(url: URL): string[] {
   const seen = url.searchParams.get('seen');
   const exclude = url.searchParams.get('exclude_ids');
@@ -40,6 +52,7 @@ export const loader = async ({ request }: { request: Request }) => {
   try {
     const url = new URL(request.url);
     const fileTypeFilter = url.searchParams.get('file_type');
+    const media = parseMedia(url.searchParams.get('media'));
     const excludeIds = parseExcludeIds(url);
     const cursorPosParam = url.searchParams.get('cursor_pos');
     const seedParam = (url.searchParams.get('seed') ?? 'default').slice(0, 64);
@@ -80,7 +93,8 @@ export const loader = async ({ request }: { request: Request }) => {
       p_seed: seedParam,
       p_cursor_pos: Number.isFinite(cursorPos) ? cursorPos : 0,
       ...(pExcludeIds.length > 0 ? { p_exclude_ids: pExcludeIds } : {}),
-      ...(sessionCats.length > 0 ? { p_session_cats: sessionCats } : {})
+      ...(sessionCats.length > 0 ? { p_session_cats: sessionCats } : {}),
+      ...(media ? { p_media: media } : {})
     };
 
     const { data: feed, error } = await recommendationRpc('get_feed', feedParams);
@@ -93,6 +107,12 @@ export const loader = async ({ request }: { request: Request }) => {
     }
 
     let filteredFeed = await filterFilesByAccess(request, feed || []);
+
+    // The database already keeps to one kind once feed_media_filter.sql has
+    // run; before that, and as a backstop, the rows are sorted out here.
+    if (media) {
+      filteredFeed = filteredFeed.filter((file: any) => isImageRow(file) === (media === 'image'));
+    }
 
     if (fileTypeFilter) {
       const filter = fileTypeFilter.toLowerCase();
