@@ -93,11 +93,13 @@ export function clampNumber(n: number, min: number, max: number): number {
 }
 
 export function formatTimestamp(seconds: number): string {
-  const s = Math.max(0, seconds)
-  const hours = Math.floor(s / 3600)
-  const minutes = Math.floor((s % 3600) / 60)
-  const secs = Math.floor(s % 60)
-  const ms = Math.floor((s - Math.floor(s)) * 1000)
+  // Whole milliseconds first: 39.11 is 39.10999... as a float, and taking the
+  // fraction straight wrote 39.109, a millisecond lost on every save.
+  const total = Math.round(Math.max(0, seconds) * 1000)
+  const hours = Math.floor(total / 3600000)
+  const minutes = Math.floor((total % 3600000) / 60000)
+  const secs = Math.floor((total % 60000) / 1000)
+  const ms = total % 1000
   return (
     String(hours).padStart(2, "0") +
     ":" +
@@ -273,15 +275,131 @@ export function parseVTT(source: string): ParseResult {
   return { cues, errors, truncated }
 }
 
+/**
+ * A cue's text with its word times written back in as timestamp tags, so a
+ * track that had them keeps them when it's saved. Plain text when the words
+ * don't spell the text any more.
+ */
+function cueBody(cue: CaptionCue): string {
+  const text = sanitizeCueText(cue.text) || ""
+  const words = cue.words
+  if (!words?.length) return text
+  const spelled = words.map((w, i) => (i > 0 && !w.glued ? " " : "") + w.text).join("")
+  if (spelled !== text.replace(/\s+/g, " ")) return text
+  return words
+    .map((w, i) => {
+      if (i === 0) return w.text
+      const at = Math.min(cue.end, Math.max(cue.start, w.start))
+      return `${w.glued ? "" : " "}<${formatTimestamp(at)}>${w.text}`
+    })
+    .join("")
+}
+
 export function serializeVTT(track: CaptionTrack): string {
   const header = "WEBVTT\n\n"
   const body = track.cues
-    .map((cue, idx) => {
-      const text = sanitizeCueText(cue.text) || ""
-      return `${idx + 1}\n${formatTimestamp(cue.start)} --> ${formatTimestamp(cue.end)}\n${text}`
-    })
+    .map((cue, idx) => `${idx + 1}\n${formatTimestamp(cue.start)} --> ${formatTimestamp(cue.end)}\n${cueBody(cue)}`)
     .join("\n\n")
   return header + body + (body ? "\n" : "")
+}
+
+const comparable = (word: string) => word.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "")
+
+/**
+ * Word times for an edited line. Words still there keep the time they had;
+ * new ones are spread between the kept words around them, so fixing a typo
+ * or a misheard word doesn't cost the line its sync.
+ */
+export function retimeWords(old: CaptionWord[], text: string, start: number, end: number): CaptionWord[] | undefined {
+  // Glued pieces (CJK) belong to the space separated word before them.
+  const before: { text: string; start: number }[] = []
+  for (const w of old) {
+    if (w.glued && before.length > 0) before[before.length - 1].text += w.text
+    else before.push({ text: w.text, start: w.start })
+  }
+  const after = sanitizeCueText(text).split(/\s+/).filter(Boolean)
+  if (after.length === 0 || before.length === 0) return undefined
+
+  // Longest common run of words, to tell kept words from changed ones.
+  const a = before.map((w) => comparable(w.text))
+  const b = after.map(comparable)
+  const lcs: number[][] = Array.from({ length: a.length + 1 }, () => new Array(b.length + 1).fill(0))
+  for (let i = a.length - 1; i >= 0; i--) {
+    for (let j = b.length - 1; j >= 0; j--) {
+      lcs[i][j] = a[i] === b[j] ? lcs[i + 1][j + 1] + 1 : Math.max(lcs[i + 1][j], lcs[i][j + 1])
+    }
+  }
+  const times: (number | undefined)[] = new Array(after.length)
+  for (let i = 0, j = 0; i < a.length && j < b.length; ) {
+    if (a[i] === b[j]) times[j++] = before[i++].start
+    else if (lcs[i + 1][j] >= lcs[i][j + 1]) i++
+    else j++
+  }
+
+  const last = Math.max(start, end - 0.05)
+  for (let j = 0; j < after.length; ) {
+    if (times[j] !== undefined) {
+      j++
+      continue
+    }
+    let k = j
+    while (k < after.length && times[k] === undefined) k++
+    const from = j > 0 ? (times[j - 1] as number) : start
+    const to = k < after.length ? (times[k] as number) : Math.min(last, from + (k - j + 1) * 0.3)
+    for (let m = j; m < k; m++) times[m] = from + ((to - from) * (m - j + 1)) / (k - j + 1)
+    j = k
+  }
+  let prev = start
+  return after.map((word, j) => {
+    prev = Math.min(last, Math.max(prev, times[j] as number))
+    return { text: word, start: j === 0 ? start : prev }
+  })
+}
+
+type GridRun = { start: number; end: number; text: string; from: CaptionCue[] }
+
+/**
+ * The editor works on a grid of whole seconds, which can't hold a cue's exact
+ * times or its word timing, and a cue shorter than a second can lose its only
+ * row to the next one. This remembers the cues the editor was opened with and,
+ * every time the grid turns back into cues, restores all of that on each line
+ * that wasn't touched. An edited line keeps its exact start and end where those
+ * didn't move, and its words are retimed rather than dropped.
+ */
+export function createTimingKeeper(originals: CaptionCue[], totalSeconds: number) {
+  const sorted = [...originals].sort((x, y) => x.start - y.start)
+  const runs: GridRun[] = secondsMapToCues(cuesToSecondsMap(sorted, totalSeconds)).map((run) => ({
+    start: run.start,
+    end: run.end,
+    text: run.text,
+    from: [],
+  }))
+  for (const cue of sorted) {
+    const text = sanitizeCueText(cue.text)
+    // Its own run if it has rows left, otherwise the run that covered it.
+    const run =
+      runs.find((r) => r.text === text && cue.start < r.end && cue.end > r.start) ??
+      runs.find((r) => cue.start < r.end && cue.end > r.start)
+    run?.from.push(cue)
+  }
+
+  return (rebuilt: CaptionCue[]): CaptionCue[] =>
+    rebuilt.flatMap((cue) => {
+      const same = runs.find((r) => r.start === cue.start && r.end === cue.end && r.text === cue.text)
+      if (same && same.from.length > 0) return same.from
+      const overlap = (r: GridRun) => Math.min(cue.end, r.end) - Math.max(cue.start, r.start)
+      const near = runs
+        .filter((r) => r.from.length > 0 && overlap(r) > 0)
+        .sort((x, y) => overlap(y) - overlap(x))[0]
+      // The row's own line, not a shorter one it covered.
+      const source = near && (near.from.find((c) => sanitizeCueText(c.text) === near.text) ?? near.from[0])
+      if (!near || !source) return [cue]
+      const start = cue.start === near.start ? source.start : cue.start
+      const end = cue.end === near.end ? source.end : cue.end
+      if (end <= start) return [cue]
+      const words = source.words ? retimeWords(source.words, cue.text, start, end) : undefined
+      return [words ? { ...cue, start, end, words } : { ...cue, start, end }]
+    })
 }
 
 export interface CaptionEntry {

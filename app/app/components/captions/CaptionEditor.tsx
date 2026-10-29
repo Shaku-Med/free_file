@@ -5,6 +5,7 @@ import { Input } from "~/components/ui/input"
 import {
   MAX_CUE_TEXT_LENGTH,
   MAX_VTT_BYTES,
+  createTimingKeeper,
   cuesToSecondsMap,
   formatTimestamp,
   parseTimestamp,
@@ -38,6 +39,10 @@ export function CaptionEditor({ cues, duration, onChange, disabled }: CaptionEdi
   const [secondsText, setSecondsText] = useState<Map<number, string>>(() =>
     cuesToSecondsMap(cues, totalSeconds),
   )
+  // The grid only holds whole seconds; this puts each line's exact times and
+  // word timing back after every edit (auto captions rely on those).
+  const keeperRef = useRef<ReturnType<typeof createTimingKeeper> | null>(null)
+  if (!keeperRef.current) keeperRef.current = createTimingKeeper(cues, totalSeconds)
   const [scrollTop, setScrollTop] = useState(0)
   const [viewportHeight, setViewportHeight] = useState(480)
   const [importErrors, setImportErrors] = useState<string[]>([])
@@ -82,7 +87,7 @@ export function CaptionEditor({ cues, duration, onChange, disabled }: CaptionEdi
         const trimmed = text.slice(0, MAX_CUE_TEXT_LENGTH)
         if (trimmed.trim().length === 0) next.delete(second)
         else next.set(second, trimmed)
-        onChange(secondsMapToCues(next))
+        onChange(keeperRef.current!(secondsMapToCues(next)))
         return next
       })
     },
@@ -155,8 +160,9 @@ export function CaptionEditor({ cues, duration, onChange, disabled }: CaptionEdi
         return
       }
       const map = cuesToSecondsMap(result.cues, totalSeconds)
+      keeperRef.current = createTimingKeeper(result.cues, totalSeconds)
       setSecondsText(map)
-      onChange(secondsMapToCues(map))
+      onChange(keeperRef.current(secondsMapToCues(map)))
       if (result.errors.length) setImportErrors(result.errors)
     } catch {
       setImportErrors(["Could not read file"])
