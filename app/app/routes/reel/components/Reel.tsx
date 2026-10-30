@@ -599,8 +599,10 @@ const Reel = ({ initialItems: routeItems, initialUserActions, profileReelContext
         Ambient plate ~600px wide (centered): solid zinc-950 + poster palette from the active slide’s thumbnail.
       */}
       <div className="pointer-events-none absolute inset-0 z-0" aria-hidden>
-        <div className="absolute inset-0 bg-zinc-950" />
-        <div className="absolute inset-0 flex items-center justify-center px-0">
+        {/* Phones sit on the app's own background; the glow behind a reel there
+            is ambient mode's job, so the poster palette is a desktop thing. */}
+        <div className="absolute inset-0 bg-background lg:bg-zinc-950" />
+        <div className="absolute inset-0 hidden items-center justify-center px-0 lg:flex">
           <div
             className={cn(
               "ambience-wrap pointer-events-none relative z-0 w-full overflow-visible",

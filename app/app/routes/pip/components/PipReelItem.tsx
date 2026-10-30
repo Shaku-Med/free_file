@@ -128,12 +128,17 @@ function PipReelItemInner({
 }: PipReelItemProps) {
   const { userId, playerSettings } = useFileContext();
   const playerBackground = playerSettings?.playerBackground !== false;
+  // On a phone the reel page shows behind its slides (the app background, or
+  // the ambient glow), so the black fill is for the desktop frame and PiP.
+  const slideFill = !playerBackground ? 'bg-transparent' : variant === 'page' ? 'lg:bg-black' : 'bg-black';
   const navigate = useNavigate();
   const videoRef = useRef<HTMLVideoElement | null>(null);
   /** Drives `useWatchTracking` when the HLS `<video>` mounts (ref alone doesn’t re-render). */
   const [trackedVideoEl, setTrackedVideoEl] = useState<HTMLVideoElement | null>(null);
   /** Intrinsic W/H from the active `<video>` — sizes the reel frame on `/reel`. */
   const [videoAspect, setVideoAspect] = useState<number | null>(null);
+  /** The still's W/H, for a slide showing its thumbnail before its video. */
+  const [posterAspect, setPosterAspect] = useState<number | null>(null);
   const [isReelMobileLayout, setIsReelMobileLayout] = useState(isMobile);
   const reelActionRailDensity = useReelActionRailDensity();
 
@@ -256,6 +261,7 @@ function PipReelItemInner({
     setHasIncrementedView(false);
     viewIncrementSentRef.current = false;
     setVideoAspect(null);
+    setPosterAspect(null);
     if (viewIncrementTimerRef.current) {
       clearTimeout(viewIncrementTimerRef.current);
       viewIncrementTimerRef.current = null;
@@ -653,6 +659,13 @@ function PipReelItemInner({
     };
   }, [variant, isActive, sharedVideoEl, trackedVideoEl, fileIdNorm]);
 
+  // A tall reel fills an upright phone, video and still alike, so a slide
+  // doesn't jump from letterboxed to full screen when its video takes over.
+  const shownAspect = videoAspect ?? posterAspect;
+  const fillsPhone = shownAspect !== null && shownAspect <= REEL_FILL_MAX_ASPECT;
+  const posterFit = cn('h-full w-full object-contain', fillsPhone && 'portrait:max-lg:object-cover');
+  const onPosterSize = useCallback((w: number, h: number) => setPosterAspect(w / h), []);
+
   const reelFrameStyle = useMemo(() => {
     if (variant !== 'page' || isReelMobileLayout) return undefined;
     // The width comes from the reel's own row, which already sits between the
@@ -978,20 +991,22 @@ function PipReelItemInner({
             onVideoRef={handlePlayerVideoRef}
             callBack={variant === 'page' ? handleReelPosterColorsFromPlayer : undefined}
             adoptVideoEl={sharedVideoEl ?? undefined}
+            desktopBackdropOnly={variant === 'page'}
           />
         </PlayQueueProvider>
       </div>
     ) : videoSrc && !showHls ? (
-      <div className={cn('flex h-full w-full items-center justify-center', playerBackground ? 'bg-black' : 'bg-transparent')}>
+      <div className={cn('flex h-full w-full items-center justify-center', slideFill)}>
         {posterUrl ? (
           <ImageLoad
             link={getThumbnailUrl(file)}
             imageID={`${file.unique_id}_reel_poster`}
             index={0}
             retry={noopRetry}
-            className="h-full w-full object-contain"
+            className={posterFit}
             quality={50}
             hasAdultTag={Boolean(file.is_adult)}
+            onNaturalSize={onPosterSize}
           />
         ) : (
           <div className="h-12 w-12 animate-pulse rounded-full bg-white/10" aria-hidden />
@@ -1002,16 +1017,17 @@ function PipReelItemInner({
       // rather than an error, and we already have the thumbnail, so use it and
       // keep the slide looking like content instead of a dead panel. The text
       // is only for the case where there is genuinely nothing to show.
-      <div className={cn('flex h-full w-full items-center justify-center', playerBackground ? 'bg-black' : 'bg-transparent')}>
+      <div className={cn('flex h-full w-full items-center justify-center', slideFill)}>
         {posterUrl ? (
           <ImageLoad
             link={getThumbnailUrl(file)}
             imageID={`${file.unique_id}_reel_poster`}
             index={0}
             retry={noopRetry}
-            className="h-full w-full object-contain"
+            className={posterFit}
             quality={50}
             hasAdultTag={Boolean(file.is_adult)}
+            onNaturalSize={onPosterSize}
           />
         ) : (
           <div className="flex h-full w-full items-center justify-center bg-muted text-muted-foreground">
@@ -1067,7 +1083,7 @@ function PipReelItemInner({
                 "lg:rounded-2xl lg:shadow-[0_25px_80px_-15px_rgba(0,0,0,0.9)] lg:ring-1 lg:ring-white/10",
                 // A tall reel on an upright phone fills the screen edge to edge, top included, as in the
                 // app; trimming a little off its sides beats bars above and below. Wider ones stay whole.
-                videoAspect !== null && videoAspect <= REEL_FILL_MAX_ASPECT && "portrait:max-lg:[&_video]:object-cover",
+                fillsPhone && "portrait:max-lg:[&_video]:object-cover",
               )}
               style={reelFrameStyle}
             >
@@ -1134,7 +1150,7 @@ function PipReelItemInner({
       */}
       <div
         ref={likeBurstHostRef}
-        className={cn('relative min-h-0 min-w-0 flex-1 overflow-hidden', playerBackground ? 'bg-black' : 'bg-transparent')}
+        className={cn('relative min-h-0 min-w-0 flex-1 overflow-hidden', slideFill)}
       >
         {videoPlayerEl}
 

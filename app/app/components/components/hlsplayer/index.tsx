@@ -152,6 +152,11 @@ export interface HLSPlayerProps {
    * slide).
    */
   adoptVideoEl?: HTMLVideoElement | null;
+  /**
+   * Reel page: the black fill and blurred poster behind the video only show in
+   * the desktop layout (`lg`), so on a phone the page behind the player shows.
+   */
+  desktopBackdropOnly?: boolean;
 }
 
 const HLSPlayer: React.FC<HLSPlayerProps> = (props) => (
@@ -267,6 +272,7 @@ function PlayerInner({
   reelInfoSlot,
   onReelDoubleTapLike,
   adoptVideoEl = null,
+  desktopBackdropOnly = false,
 }: HLSPlayerProps) {
   const seriesPlayQueue = useMemo(
     () => withoutReels(seriesUpNextVideos),
@@ -464,6 +470,19 @@ function PlayerInner({
     mql.addEventListener('change', update);
     return () => mql.removeEventListener('change', update);
   }, []);
+
+  const [isDesktopLayout, setIsDesktopLayout] = useState(() =>
+    typeof window !== 'undefined' ? window.matchMedia('(min-width: 1024px)').matches : true,
+  );
+  useEffect(() => {
+    if (!desktopBackdropOnly) return;
+    const mql = window.matchMedia('(min-width: 1024px)');
+    const update = () => setIsDesktopLayout(mql.matches);
+    update();
+    mql.addEventListener('change', update);
+    return () => mql.removeEventListener('change', update);
+  }, [desktopBackdropOnly]);
+  const posterBackdrop = playerBackground && (!desktopBackdropOnly || isDesktopLayout);
 
   // Portrait / narrow-aspect videos shrink the player to their real aspect even
   // on big screens, and the desktop control roster can't fit in that width
@@ -1288,7 +1307,7 @@ function PlayerInner({
         isMiniDock ? 'overflow-visible' : 'overflow-hidden',
         // Music bar dock is full-width but only the thumb paints — keep the rest clear
         // so title / queue / close in the shell remain visible underneath.
-        miniSeekOnly || !playerBackground ? 'bg-transparent' : 'bg-black',
+        miniSeekOnly || !posterBackdrop ? 'bg-transparent' : 'bg-black',
         miniSeekOnly && 'pointer-events-none',
         isReelCtx && 'z-[1]',
         inWindappFullscreen && 'fixed inset-0 z-[2147483647] !bg-black',
@@ -1315,7 +1334,7 @@ function PlayerInner({
         />
       )}
       {!miniSeekOnly && (
-        <PosterBackground onImageLoaded={handlePosterImageLoaded} showBackdrop={playerBackground} />
+        <PosterBackground onImageLoaded={handlePosterImageLoaded} showBackdrop={posterBackdrop} />
       )}
 
       {statsForNerds && !isReelCtx && !inPipForThisVideo && !miniSeekOnly && <StatsForNerdsOverlay />}

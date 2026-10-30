@@ -52,21 +52,25 @@ export function ReelInfoOverlay({
   const bottom = `calc(${above} + var(--reel-bottom-inset, 0px))`;
 
   return (
-    <>
+    <div
+      className={cn(
+        "pointer-events-none absolute inset-x-0 z-[29] max-w-full transition-[bottom] duration-300 ease-out",
+        reserveActionRail && "pr-[4.25rem] sm:pr-[4.5rem] lg:pr-4",
+        className,
+      )}
+      style={{ bottom }}
+    >
+      {/* The shade runs from the frame's bottom to just above the text, however
+          long the caption, so white text stays readable over a light letterbox. */}
       <div
         aria-hidden
-        className="pointer-events-none absolute inset-x-0 bottom-0 z-[28] h-[calc(min(38%,11rem)+var(--reel-bottom-inset,0px))] bg-gradient-to-t from-black/95 via-black/55 to-transparent"
+        className="absolute inset-x-0 -top-12 -z-10"
+        style={{
+          bottom: `calc(-1 * ${bottom})`,
+          backgroundImage: "linear-gradient(to top, rgb(0 0 0 / 0.95), rgb(0 0 0 / 0.6) calc(100% - 3rem), transparent)",
+        }}
       />
-      <div
-        className={cn(
-          "pointer-events-none absolute inset-x-0 z-[29] max-w-full transition-[bottom] duration-300 ease-out",
-          reserveActionRail && "pr-[4.25rem] sm:pr-[4.5rem] lg:pr-4",
-          className,
-        )}
-        style={{ bottom }}
-      >
-        <div className="pointer-events-auto px-3 pb-1 lg:px-4">{children}</div>
-      </div>
-    </>
+      <div className="pointer-events-auto px-3 pb-1 lg:px-4">{children}</div>
+    </div>
   );
 }
