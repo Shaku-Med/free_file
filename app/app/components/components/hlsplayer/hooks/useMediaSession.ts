@@ -75,6 +75,7 @@ export function useMediaSession(
   const activeRef = useRef(active);
   activeRef.current = active;
   const mountedRef = useRef(true);
+  const lastMetadataRef = useRef<{ key: string; metadata: MediaMetadata } | null>(null);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -105,12 +106,17 @@ export function useMediaSession(
         type: 'image/jpeg',
       });
     }
-    navigator.mediaSession.metadata = new MediaMetadata({
-      title: titleStr,
-      artist: currentFile.owner?.username || 'Memories',
-      album: 'Memories',
-      artwork,
-    });
+    const artist = currentFile.owner?.username || 'Memories';
+    // New metadata makes the browser fetch every artwork again, and this runs
+    // each second while playing, so only replace it when something changed or
+    // another player has taken the session over.
+    const key = [titleStr, artist, ...artwork.map((a) => a.src)].join('\n');
+    const last = lastMetadataRef.current;
+    if (!last || last.key !== key || navigator.mediaSession.metadata !== last.metadata) {
+      const metadata = new MediaMetadata({ title: titleStr, artist, album: 'Memories', artwork });
+      navigator.mediaSession.metadata = metadata;
+      lastMetadataRef.current = { key, metadata };
+    }
 
     try {
       const dur = video.duration;

@@ -1,6 +1,7 @@
 import { useState, useCallback, useMemo, useRef, useEffect } from 'react';
 import ImageLoad from '~/routes/Home/components/ImageLoad/ImageLoad';
 import { getThumbnailUrl } from '~/lib/utils';
+import { needsAuthenticatedFetch } from '~/lib/files/hoverPreview';
 import { usePlayerContext } from '../PlayerContext';
 
 interface PosterBackgroundProps {
@@ -35,12 +36,20 @@ export default function PosterBackground({ onImageLoaded, showBackdrop = true }:
 
   const linkRef = useRef(link);
   linkRef.current = link;
+  // Adult and private stills only load with the load bearer.
+  const gated = needsAuthenticatedFetch(file);
+  const gatedRef = useRef(gated);
+  gatedRef.current = gated;
 
   const handleCallBack = useCallback((e: { src: string; colors: string[]; mediaSessionUrl?: string }) => {
     if (!e) return;
-    const httpArtworkUrl = linkRef.current
-      ? `${window.location.origin}${linkRef.current}`
-      : e.mediaSessionUrl;
+    // The lock screen and cast receivers fetch artwork URLs themselves and can't
+    // send the bearer, so a gated file's artwork is the blob loaded here.
+    const httpArtworkUrl = gatedRef.current
+      ? undefined
+      : linkRef.current
+        ? `${window.location.origin}${linkRef.current}`
+        : e.mediaSessionUrl;
     onImageLoadedRef.current?.(e.src, e.colors || [], httpArtworkUrl);
   }, []);
 
@@ -54,7 +63,7 @@ export default function PosterBackground({ onImageLoaded, showBackdrop = true }:
             key={fileIdentity}
             callBack={handleCallBack}
             getMediaSessionURL={true}
-            hasAdultTag={Boolean(file?.is_adult)}
+            hasAdultTag={gated}
             link={link}
             retry={handleRetry}
             className="h-px w-px"
@@ -74,7 +83,7 @@ export default function PosterBackground({ onImageLoaded, showBackdrop = true }:
             key={fileIdentity}
             callBack={handleCallBack}
             getMediaSessionURL={true}
-            hasAdultTag={Boolean(file?.is_adult)}
+            hasAdultTag={gated}
             link={link}
             retry={handleRetry}
             className="w-full h-full object-cover"
