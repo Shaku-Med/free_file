@@ -1172,6 +1172,13 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
 
   const GO_CHUNK_SIZE = 25 * 1024 * 1024
 
+  const BUSY_MESSAGES = new Map([
+    ["user_active_upload", "Your last upload is still wrapping up. Try again in a couple of minutes."],
+    ["too_many_uploads", "Lots of uploads are running right now. Try again in a few minutes."],
+    ["disk_full", "The upload server is out of room right now. Try again later."],
+    ["disk_limit", "The upload server doesn't have room for this file right now. Try again later."],
+  ])
+
   const authHeaders = (bearer: string): Record<string, string> =>
     bearer ? { Authorization: `Bearer ${bearer}` } : {}
 
@@ -1220,8 +1227,8 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
     )
     if (startRes.status === 401) throw new Error("Session expired. Please log in again.")
     if (!startRes.ok) {
-      const j = await startRes.json().catch(() => ({}))
-      throw new Error((j as { error?: string }).error || "Upload start failed")
+      const j = (await startRes.json().catch(() => ({}))) as { error?: string; reason?: string }
+      throw new Error(BUSY_MESSAGES.get(j.reason ?? "") || j.error || "Upload start failed")
     }
     const startJson = (await startRes.json()) as { upload_id: string }
     const uploadId = startJson.upload_id

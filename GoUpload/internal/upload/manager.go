@@ -16,6 +16,13 @@ import (
 	"goupload/lib/security"
 )
 
+// activeIdleLimit is how long an upload can go without a chunk before it stops
+// counting as active. Nothing tells the server when a browser closes or a
+// connection dies, so silence is the only sign. A chunk is at most 25 MB, which
+// clears this at about 1.7 Mbps; anything slower only lets go of its slot until
+// its next chunk lands, and the chunks on disk are left alone either way.
+const activeIdleLimit = 2 * time.Minute
+
 // uploadIDPattern matches IDs produced by newID() (32 lowercase hex chars).
 var uploadIDPattern = regexp.MustCompile(`^[a-f0-9]{32}$`)
 
@@ -142,6 +149,7 @@ func (m *Manager) SaveChunk(userID, uploadID string, chunkIndex int, body io.Rea
 	}
 	for _, idx := range meta.ReceivedChunks {
 		if idx == chunkIndex {
+			m.trackActive(meta)
 			return chunkStats(meta, chunkIndex), nil
 		}
 	}
@@ -180,7 +188,7 @@ func (m *Manager) SaveChunk(userID, uploadID string, chunkIndex int, body io.Rea
 	if err := writeMeta(metaPath(m.baseDir, userID, uploadID), meta); err != nil {
 		return ChunkResponse{}, err
 	}
-	m.updateActivity(meta)
+	m.trackActive(meta)
 	return chunkStats(meta, chunkIndex), nil
 }
 
@@ -384,6 +392,7 @@ func (m *Manager) ServerStatus() (ServerStatusResponse, error) {
 	if err != nil {
 		return ServerStatusResponse{}, err
 	}
+	m.forgetIdle()
 	active := m.activeCount()
 	accepting := usage < m.maxDiskBytes && active < m.maxConcurrent
 	return ServerStatusResponse{
@@ -405,6 +414,7 @@ func (m *Manager) checkBusy(userID string, fileSize int64) *BusyReason {
 			return &BusyReason{Reason: "disk_limit", RetryAfter: 60}
 		}
 	}
+	m.forgetIdle()
 	if m.activeCount() >= m.maxConcurrent {
 		return &BusyReason{Reason: "too_many_uploads", RetryAfter: 60}
 	}
@@ -427,19 +437,20 @@ func (m *Manager) trackActive(meta UploadMeta) {
 		FileSize:            meta.FileSize,
 		TotalChunks:         meta.TotalChunks,
 		StartedAt:           meta.CreatedAt,
-		LastChunkReceivedAt: meta.LastActivity,
+		LastChunkReceivedAt: time.Now().UTC(),
 	}
 	m.activeMu.Unlock()
 }
 
-func (m *Manager) updateActivity(meta UploadMeta) {
+func (m *Manager) forgetIdle() {
+	cutoff := time.Now().UTC().Add(-activeIdleLimit)
 	m.activeMu.Lock()
-	info, ok := m.active[meta.UploadID]
-	if ok {
-		info.LastChunkReceivedAt = meta.LastActivity
-		m.active[meta.UploadID] = info
+	defer m.activeMu.Unlock()
+	for id, info := range m.active {
+		if info.LastChunkReceivedAt.Before(cutoff) {
+			delete(m.active, id)
+		}
 	}
-	m.activeMu.Unlock()
 }
 
 func (m *Manager) clearActive(uploadID string) {
