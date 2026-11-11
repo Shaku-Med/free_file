@@ -1,17 +1,17 @@
 name: goupload
 
-# Resource limits assume a small VPS (2 CPU / 8 GB, KVM 2). Tune via env vars
+# Resource limits assume a 4 CPU / 16 GB VPS (KVM 4). Tune via env vars
 # before `docker compose up`. The adaptive worker pool inside goupload reads
 # cgroup-v2 memory.max + /proc/stat to stay within these caps.
 #
 # NOTE ON THE CPU NUMBERS: the limits below add up to more vCPU than the box
 # has. That is deliberate for burst work, since they are ceilings and not
 # reservations, but it means two heavy jobs at once WILL contend. The memory
-# figures are the ones to watch: they total close to the whole 8 GB, so raising
-# any of them without lowering another risks the OOM killer.
+# figures are the ones to watch: they total about 11 GB, which leaves the rest
+# for the OS, the deploy runner, the page cache and any other app on the box.
 
 # Docker's default json-file driver keeps logs FOREVER. Several chatty services
-# on a 100 GB disk is how a box quietly fills up with nothing but text, so every
+# on a 200 GB disk is how a box quietly fills up with nothing but text, so every
 # service caps its own logs. 10M x 3 files x N services stays bounded.
 x-logging: &default-logging
   driver: json-file
@@ -76,7 +76,7 @@ services:
       resources:
         limits:
           cpus: "${NSFWAPI_CPUS:-1.0}"
-          memory: ${NSFWAPI_MEM:-768M}
+          memory: ${NSFWAPI_MEM:-1G}
     healthcheck:
       test: ["CMD", "wget", "-q", "--spider", "http://localhost:3004/health"]
       interval: 30s
@@ -94,15 +94,16 @@ services:
     environment:
       EMBED_API_PORT: "3007"
       EMBED_API_SECRET: ${EMBED_API_SECRET:?set EMBED_API_SECRET in .env}
-      EMBED_THREADS: "${EMBED_THREADS:-1}"
+      EMBED_THREADS: "${EMBED_THREADS:-2}"
     networks:
       - goupload-net
     deploy:
       resources:
         limits:
-          cpus: "${EMBEDAPI_CPUS:-0.75}"
-          # The multilingual model needs more headroom than the old bge-small.
-          memory: ${EMBEDAPI_MEM:-1G}
+          cpus: "${EMBEDAPI_CPUS:-2.0}"
+          # The multilingual model alone sits near 700 MB, so 1 GB left a
+          # search burst one spike away from the OOM killer.
+          memory: ${EMBEDAPI_MEM:-2G}
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request;urllib.request.urlopen('http://localhost:3007/health', timeout=3)\""]
       interval: 30s
@@ -205,10 +206,10 @@ services:
       FINGERPRINT_DB_PATH: /data/fingerprints/fp.db
       FINGERPRINT_DB_MAX_BYTES: ${FINGERPRINT_DB_MAX_BYTES:-10737418240}
       # Adaptive worker pool  see internal/worker/pool.go. These can also live
-      # in goupload.env if you prefer. Two encodes at most on a 2 core box, so
-      # playback and the API never wait behind a queue of transcodes.
+      # in goupload.env if you prefer. Three encodes at most on a 4 core box,
+      # so playback and the API never wait behind a queue of transcodes.
       WORKER_MIN: ${WORKER_MIN:-1}
-      WORKER_MAX: ${WORKER_MAX:-2}
+      WORKER_MAX: ${WORKER_MAX:-3}
       WORKER_INITIAL: ${WORKER_INITIAL:-1}
       # ffmpeg runs under nice at this level (0 to 19, 0 = normal priority).
       FFMPEG_NICE: ${FFMPEG_NICE:-10}
@@ -234,8 +235,9 @@ services:
     deploy:
       resources:
         limits:
-          cpus: "${GOUPLOAD_CPUS:-2.5}"
-          memory: ${GOUPLOAD_MEM:-4G}
+          cpus: "${GOUPLOAD_CPUS:-3.0}"
+          # Three encodes plus whisper captions, which run in this container.
+          memory: ${GOUPLOAD_MEM:-5G}
     healthcheck:
       # 127.0.0.1, not localhost: Fiber binds IPv4 only and Alpine resolves
       # localhost to ::1 first, so the probe was refused since day one.
@@ -261,10 +263,10 @@ services:
       # sweeps entries older than SEGMENT_CACHE_TTL every SEGMENT_CACHE_SWEEP,
       # so the volume below never grows past ~20 GiB.
       - SEGMENT_CACHE_DIR=/cache
-      # 8 GiB, not the 20 GiB library default. This shares a 100 GB disk with
-      # the upload volume, the fingerprint volume and several ML images, and a
-      # cache is a speed optimisation, not something worth an outage.
-      - SEGMENT_CACHE_MAX_BYTES=${LOADPLAY_CACHE_BYTES:-8589934592}
+      # 20 GiB. This shares a 200 GB disk with the upload volume (40 GiB cap),
+      # the fingerprint volume (10 GiB cap) and several ML images, and a cache
+      # is a speed optimisation, not something worth an outage.
+      - SEGMENT_CACHE_MAX_BYTES=${LOADPLAY_CACHE_BYTES:-21474836480}
       - SEGMENT_CACHE_TTL=${LOADPLAY_CACHE_TTL:-1h}
       - SEGMENT_CACHE_SWEEP=${LOADPLAY_CACHE_SWEEP:-1h}
     ports:
@@ -276,8 +278,8 @@ services:
     deploy:
       resources:
         limits:
-          cpus: "${LOADPLAY_CPUS:-0.4}"
-          memory: ${LOADPLAY_MEM:-256M}
+          cpus: "${LOADPLAY_CPUS:-1.0}"
+          memory: ${LOADPLAY_MEM:-512M}
     healthcheck:
       # 127.0.0.1, not localhost: Fiber binds IPv4 only and Alpine resolves
       # localhost to ::1 first, so the probe was refused since day one.
