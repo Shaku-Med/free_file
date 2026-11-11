@@ -2297,7 +2297,7 @@ const VideoCard = ({
                 className="min-w-0 flex-1 rounded-md hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
               >
                 <h3 className="line-clamp-2 break-words text-[13px] font-semibold leading-snug tracking-tight text-foreground sm:text-sm">
-                  <ParseFilenameInsert filename={displayMediaTitle(data.file_title || data.filename || "")} showLimit={64} />
+                  <ParseFilenameInsert insideLink filename={displayMediaTitle(data.file_title || data.filename || "")} showLimit={64} />
                 </h3>
               </Link>
               {metadataWarning ? (
@@ -2426,7 +2426,7 @@ const VideoCard = ({
                 className="min-w-0 flex-1 transition-colors hover:text-primary"
               >
                 <h3 className="line-clamp-2 text-sm font-semibold leading-snug">
-                  <ParseFilenameInsert filename={displayMediaTitle(data.file_title || data.filename || "")} showLimit={60} />
+                  <ParseFilenameInsert insideLink filename={displayMediaTitle(data.file_title || data.filename || "")} showLimit={60} />
                 </h3>
               </Link>
 
@@ -2496,7 +2496,7 @@ const VideoCard = ({
                 className="min-w-0 flex-1 transition-colors hover:text-primary"
               >
                 <h3 className="line-clamp-2 text-base font-semibold leading-snug sm:text-lg lg:text-xl">
-                  <ParseFilenameInsert filename={displayMediaTitle(data.file_title || data.filename || "")} showLimit={90} />
+                  <ParseFilenameInsert insideLink filename={displayMediaTitle(data.file_title || data.filename || "")} showLimit={90} />
                 </h3>
               </Link>
               <div className="shrink-0">{hideActions.halfway && <>{renderActions()}</>}</div>
@@ -2574,7 +2574,7 @@ const VideoCard = ({
               className="block min-w-0 hover:opacity-90"
             >
               <h3 className="line-clamp-2 break-words text-left text-sm font-medium leading-5 text-foreground @min-[11rem]:text-base @min-[11rem]:leading-[1.375rem]">
-                <ParseFilenameInsert
+                <ParseFilenameInsert insideLink
                   filename={displayMediaTitle(data.file_title || data.filename || "")}
                   showLimit={56}
                 />
@@ -2633,7 +2633,7 @@ const VideoCard = ({
         </div>
         <div className="flex min-w-0 flex-col gap-0.5 px-0.5">
           <h3 className="line-clamp-2 text-[clamp(10px,2.8cqi,15px)] font-medium leading-snug text-white">
-            <ParseFilenameInsert filename={displayMediaTitle(data.file_title || data.filename || "")} showLimit={60} />
+            <ParseFilenameInsert insideLink filename={displayMediaTitle(data.file_title || data.filename || "")} showLimit={60} />
           </h3>
           <div className="flex min-w-0 flex-wrap items-center gap-x-1 text-[clamp(9px,2.4cqi,12px)] leading-tight text-white/70">
             {data.owner && (
@@ -2679,7 +2679,7 @@ const VideoCard = ({
         </div>
         <div className="min-w-0 px-0.5">
           <h3 className="line-clamp-2 text-sm font-medium leading-snug text-foreground">
-            <ParseFilenameInsert filename={displayMediaTitle(data.file_title || data.filename || "")} showLimit={60} />
+            <ParseFilenameInsert insideLink filename={displayMediaTitle(data.file_title || data.filename || "")} showLimit={60} />
           </h3>
           <div className="mt-0.5 flex min-w-0 flex-wrap items-center gap-x-1 text-xs leading-tight text-muted-foreground">
             {data.owner && <span className="max-w-[10rem] truncate">{data.owner.username}</span>}
@@ -2723,7 +2723,7 @@ const VideoCard = ({
         </div>
         <div className="flex min-w-0 flex-1 flex-col justify-center gap-[clamp(0.125rem,0.7cqi,0.375rem)]">
           <h3 className="line-clamp-2 text-[clamp(12px,3cqi,16px)] font-semibold leading-snug text-white">
-            <ParseFilenameInsert filename={displayMediaTitle(data.file_title || data.filename || "")} showLimit={80} />
+            <ParseFilenameInsert insideLink filename={displayMediaTitle(data.file_title || data.filename || "")} showLimit={80} />
           </h3>
           <div className="flex min-w-0 flex-wrap items-center gap-x-1 text-[clamp(10px,2.4cqi,13px)] leading-tight text-white/70">
             {data.owner && (
@@ -2783,7 +2783,7 @@ const VideoCard = ({
           </div>
           <div className="min-w-0">
             <p className="line-clamp-2 text-sm font-semibold text-foreground">
-              <ParseFilenameInsert filename={displayMediaTitle(data.file_title || data.filename || "")} showLimit={120} />
+              <ParseFilenameInsert insideLink filename={displayMediaTitle(data.file_title || data.filename || "")} showLimit={120} />
             </p>
             {processingLabel ? (
               <p className="mt-1 inline-flex items-center gap-1.5 rounded-full bg-muted px-2 py-0.5 text-xs font-medium tabular-nums text-foreground">
@@ -2825,7 +2825,7 @@ const VideoCard = ({
             )}
           </div>
           <p className="line-clamp-2 min-w-0 flex-1 text-[13px] font-medium leading-snug text-foreground">
-            <ParseFilenameInsert filename={displayMediaTitle(data.file_title || data.filename || "")} showLimit={100} />
+            <ParseFilenameInsert insideLink filename={displayMediaTitle(data.file_title || data.filename || "")} showLimit={100} />
           </p>
         </Link>
         {renderEditDialog()}
@@ -2888,7 +2888,7 @@ const VideoCard = ({
           <div className="min-w-0 flex-1">
             <Link to={watchPath} prefetch="intent" onClick={queueNavClick} className="min-w-0 transition-colors hover:text-primary">
               <h3 className="truncate text-[13px] font-medium leading-snug text-foreground">
-                <ParseFilenameInsert
+                <ParseFilenameInsert insideLink
                   filename={displayMediaTitle(data.file_title || data.filename || "")}
                   showLimit={48}
                   className="block truncate"
@@ -2963,7 +2963,7 @@ const VideoCard = ({
               className="hover:text-primary transition-colors"
             >
               <h3 className={cn("line-clamp-2 font-medium leading-snug", dense ? "text-xs" : "text-[13px]")}>
-                <ParseFilenameInsert filename={displayMediaTitle(data.file_title || data.filename || "")} showLimit={50} />
+                <ParseFilenameInsert insideLink filename={displayMediaTitle(data.file_title || data.filename || "")} showLimit={50} />
               </h3>
             </Link>
 
@@ -3043,7 +3043,7 @@ const VideoCard = ({
                   {/* break-words, NOT break-all: break-all split words mid-character
                       (“vide\no”), which is why titles looked ragged next to YouTube's. */}
                   <h3 className="line-clamp-2 break-words text-base font-medium leading-[1.375rem]">
-                    <ParseFilenameInsert
+                    <ParseFilenameInsert insideLink
                       filename={displayMediaTitle(data.file_title || data.filename || "")}
                       showLimit={64}
                     />

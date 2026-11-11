@@ -87,9 +87,6 @@ export function buildDynamicMeta(data: any) {
       ...(file?.created_at
         ? [{ property: "article:published_time", content: new Date(file.created_at).toISOString() }]
         : []),
-      ...(videoPreviewMeta(file as never, thumbnailUrl).length
-        ? []
-        : [{ name: "twitter:card", content: "summary_large_image" }]),
       ...(data?.owner ? [{ name: "twitter:creator", content: `@${data.owner.username}` }] : []),
       // Public, non-adult videos advertise the preview mp4 so crawlers and
       // social cards have a real file to play.

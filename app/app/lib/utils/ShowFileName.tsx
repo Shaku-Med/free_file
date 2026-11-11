@@ -1,5 +1,5 @@
 import type React from "react";
-import { Link } from "react-router";
+import { Link, useNavigate } from "react-router";
 
 const URL_RE = /(?:https?:\/\/[^\s<>\[\]()]+|www\.[^\s<>\[\]()]+)/gi;
 const EMAIL_RE = /(?:[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/g;
@@ -44,7 +44,32 @@ function parseWithLinks(text: string): Segment[] {
   return segments;
 }
 
-function renderSegments(segments: Segment[], keyPrefix: string): React.ReactNode[] {
+/**
+ * An <a> can't sit inside another, so inside a card's title link a tag or
+ * mention is a span that navigates on click. The title stays a single link
+ * with the full text as its name for keyboard and screen reader users.
+ */
+function InlineNav({ to, className, children }: { to: string; className: string; children: React.ReactNode }) {
+  const navigate = useNavigate();
+  return (
+    <span
+      className={className}
+      onClick={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (e.metaKey || e.ctrlKey || e.shiftKey) {
+          window.open(to, "_blank", "noopener");
+          return;
+        }
+        navigate(to);
+      }}
+    >
+      {children}
+    </span>
+  );
+}
+
+function renderSegments(segments: Segment[], keyPrefix: string, insideLink: boolean): React.ReactNode[] {
   const out: React.ReactNode[] = [];
   segments.forEach((seg, i) => {
     const k = `${keyPrefix}-${i}`;
@@ -54,6 +79,26 @@ function renderSegments(segments: Segment[], keyPrefix: string): React.ReactNode
         <span key={k} className="break-words">
           {seg.value}
         </span>
+      );
+    } else if (insideLink && (seg.type === "url" || seg.type === "email")) {
+      out.push(
+        <span key={k} className="break-all">
+          {seg.value}
+        </span>
+      );
+    } else if (insideLink && (seg.type === "hashtag" || seg.type === "mention")) {
+      const isTag = seg.type === "hashtag";
+      const to = isTag
+        ? `/tag/${encodeURIComponent(seg.value.slice(1))}`
+        : `/profile/${encodeURIComponent(seg.value.slice(1))}`;
+      out.push(
+        <InlineNav
+          key={k}
+          to={to}
+          className={`text-primary hover:text-primary/50 hover:underline${isTag ? "" : " font-medium"}`}
+        >
+          {seg.value}
+        </InlineNav>
       );
     } else if (seg.type === "url") {
       out.push(
@@ -115,6 +160,8 @@ interface ParseFilenameProps {
   showLimit?: number;
   className?: string;
   characterSplit?: boolean;
+  /** Set when an ancestor is already a link, so no nested <a> is rendered. */
+  insideLink?: boolean;
 }
 
 export default function ParseFilenameInsert({
@@ -122,6 +169,7 @@ export default function ParseFilenameInsert({
   showLimit,
   className,
   characterSplit = false,
+  insideLink = false,
 }: ParseFilenameProps) {
   const display = typeof filename !== "string" ? "" : filename;
 
@@ -144,7 +192,7 @@ export default function ParseFilenameInsert({
       ? display.slice(0, showLimit) + "..."
       : display;
   const segments = parseWithLinks(truncated);
-  const nodes = renderSegments(segments, "fn");
+  const nodes = renderSegments(segments, "fn", insideLink);
 
   return (
     <span className={className}>

@@ -108,7 +108,7 @@ export function buildPageMeta(input: PageMetaInput): MetaDescriptor[] {
     ? "noindex, nofollow"
     : "index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1";
 
-  return [
+  const base: MetaDescriptor[] = [
     { title },
     { name: "description", content: description },
     { name: "keywords", content: keywords },
@@ -130,6 +130,16 @@ export function buildPageMeta(input: PageMetaInput): MetaDescriptor[] {
     { name: "twitter:image", content: image },
     { name: "twitter:image:alt", content: ogImageAlt ?? title },
     { rel: "canonical", href: canonical },
-    ...extra,
   ];
+
+  // A named tag in `extra` replaces the base one (the watch page swaps
+  // twitter:card for "player"). React Router keys meta by its JSON, so an
+  // identical repeat is a duplicate key. og: tags are left alone because
+  // they may legitimately repeat.
+  const overridden = new Set(extra.map(metaName).filter((n): n is string => n !== null));
+  return [...base.filter((m) => !overridden.has(metaName(m) ?? "")), ...extra];
+}
+
+function metaName(m: MetaDescriptor): string | null {
+  return "name" in m && typeof m.name === "string" ? m.name : null;
 }
