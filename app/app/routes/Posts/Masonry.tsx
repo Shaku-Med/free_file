@@ -59,7 +59,11 @@ export default function Masonry<T>({
   useLayoutEffect(() => {
     const el = ref.current;
     if (!el) return;
-    const measure = () => setColumns(columnsFor(el.clientWidth));
+    // Hidden (display:none while another page shows) reads as 0 wide; keep the
+    // columns so the tiles are where they were when the page comes back.
+    const measure = () => {
+      if (el.clientWidth > 0) setColumns(columnsFor(el.clientWidth));
+    };
     measure();
     const observer = new ResizeObserver(measure);
     observer.observe(el);

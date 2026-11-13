@@ -8,6 +8,7 @@ import { isPipChromeRoute } from "~/routes/pip/pipEnv";
 import { isReelRoute } from "~/lib/reelRoute";
 import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
 import PersistentHomeView from "~/routes/Home/PersistentHomeView";
+import PersistentPostsView from "~/routes/Posts/PersistentPostsView";
 import BackToTop from "~/components/BackToTop";
 
 export interface ScrollState {
@@ -20,6 +21,7 @@ interface BodyComponentProps {
 }
 
 const staticRoutes = ["/", "/privacy", "/terms", "/dmca", "/community-guidelines", "/features", "/download", "/auth", "/api", '/search', '/saved', '/library', '/profile', '/subscriptions'];
+const POSTS_PATH = /^\/posts\/?$/;
 const SCROLL_THRESHOLD = 300;
 /** Show the back-to-top control once the user is a couple of screens down. */
 const BACK_TO_TOP_THRESHOLD = 900;
@@ -32,7 +34,7 @@ function easeOutCubic(t: number): number {
 
 const BodyComponent = ({ children }: BodyComponentProps) => {
   const { isMobile, state } = useSidebar()
-  const { theaterMode, hideAppChrome } = useFileContext();
+  const { theaterMode, hideAppChrome, userId } = useFileContext();
   const location = useLocation();
   const suppressChrome = hideAppChrome || isPipChromeRoute(location.pathname);
   const onReelRoute = isReelRoute(location.pathname);
@@ -98,6 +100,29 @@ const BodyComponent = ({ children }: BodyComponentProps) => {
   // scroll position and all client state.
   const isHomeRoute = location.pathname === "/";
 
+  // Posts is kept the same way, but only from the first time it opens, so
+  // people who never visit it don't fetch a photo feed in the background.
+  const isPostsRoute = POSTS_PATH.test(location.pathname);
+  const [postsOpened, setPostsOpened] = useState(isPostsRoute);
+  if (isPostsRoute && !postsOpened) setPostsOpened(true);
+
+  // The null slot keeps `children` at the same position when Posts first
+  // mounts, so the current route isn't torn down and rebuilt. Keyed by account
+  // so signing out or switching never leaves the last person's feed on screen.
+  const surfaces = (
+    <>
+      <div style={{ display: isHomeRoute ? "block" : "none" }} aria-hidden={!isHomeRoute}>
+        <PersistentHomeView />
+      </div>
+      {postsOpened ? (
+        <div style={{ display: isPostsRoute ? "block" : "none" }} aria-hidden={!isPostsRoute}>
+          <PersistentPostsView key={userId ?? "guest"} />
+        </div>
+      ) : null}
+      <div style={{ display: isHomeRoute || isPostsRoute ? "none" : "block" }}>{children}</div>
+    </>
+  );
+
   if (suppressChrome) {
     return (
       <div className="flex h-full min-h-0 w-full min-w-0 flex-1 flex-col overflow-hidden">
@@ -108,12 +133,7 @@ const BodyComponent = ({ children }: BodyComponentProps) => {
           onScroll={handleScroll}
         >
           <ScrollRestoration />
-          <div className="sidebar_body h-full min-h-0 w-full min-w-0 flex-1">
-            <div style={{ display: isHomeRoute ? "block" : "none" }} aria-hidden={!isHomeRoute}>
-              <PersistentHomeView />
-            </div>
-            <div style={{ display: isHomeRoute ? "none" : "block" }}>{children}</div>
-          </div>
+          <div className="sidebar_body h-full min-h-0 w-full min-w-0 flex-1">{surfaces}</div>
         </div>
       </div>
     );
@@ -138,10 +158,7 @@ const BodyComponent = ({ children }: BodyComponentProps) => {
               : " app_gutter"
           } sidebar_body`}
         >
-          <div style={{ display: isHomeRoute ? "block" : "none" }} aria-hidden={!isHomeRoute}>
-            <PersistentHomeView />
-          </div>
-          <div style={{ display: isHomeRoute ? "none" : "block" }}>{children}</div>
+          {surfaces}
         </div>
         {!onReelRoute ? <Footer /> : null}
       </div>
