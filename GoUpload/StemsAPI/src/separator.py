@@ -11,10 +11,13 @@ and snares.
 from __future__ import annotations
 
 import hashlib
+import importlib.util
 import logging
 import os
 import subprocess
+import sys
 import threading
+import types
 
 import numpy as np
 
@@ -58,12 +61,29 @@ def sha256_file(path: str) -> str:
     return h.hexdigest()
 
 
+class _AbsentTorchaudio(types.ModuleType):
+    def __getattr__(self, name):
+        raise AttributeError(f"torchaudio is not installed (wanted torchaudio.{name})")
+
+
+def allow_missing_torchaudio() -> None:
+    """htdemucs imports openunmix.filtering, and openunmix imports torchaudio at
+    the top of its package for file helpers this service never calls (ffmpeg
+    decodes the audio). The image leaves torchaudio out, so a placeholder lets
+    that import through while any real use still fails loudly."""
+    if isinstance(sys.modules.get("torchaudio"), types.ModuleType):
+        return
+    if importlib.util.find_spec("torchaudio") is None:
+        sys.modules["torchaudio"] = _AbsentTorchaudio("torchaudio")
+
+
 def load_model(path: str, expected_sha256: str):
     """Load the pinned htdemucs checkpoint. The checkpoint is a pickle (it names
     its model class), so it is only unpickled once its hash matches the pin."""
     global _model
     if _model is not None:
         return _model
+    allow_missing_torchaudio()
     import torch
     from demucs.states import load_model as demucs_load
 
@@ -135,6 +155,7 @@ def band_energy(mono: np.ndarray, stem: str, first: int, frames: int, offset: in
 
 def separate_bands(model, wav: np.ndarray, threads: int) -> dict:
     """Band curves for the whole track, separated chunk by chunk."""
+    allow_missing_torchaudio()
     import torch
     from demucs.apply import apply_model
 

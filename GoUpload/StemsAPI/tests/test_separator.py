@@ -3,6 +3,7 @@ mix back as every stem, the stitched band curves have to equal the curves of
 the whole track measured in one go."""
 
 import os
+import subprocess
 import sys
 
 import numpy as np
@@ -68,3 +69,21 @@ def test_model_hash_is_checked_before_loading(tmp_path):
     separator._model = None
     with pytest.raises(RuntimeError, match="hash mismatch"):
         separator.load_model(str(bad), "0" * 64)
+
+
+def test_htdemucs_imports_without_torchaudio():
+    # The image leaves torchaudio out; openunmix still imports it on load. Called
+    # twice because loading and separating each call it.
+    code = (
+        "import sys; sys.modules['torchaudio'] = None\n"
+        "import separator\n"
+        "separator.allow_missing_torchaudio(); separator.allow_missing_torchaudio()\n"
+        "import demucs.htdemucs, demucs.apply, torchaudio\n"
+        "try:\n"
+        "    torchaudio.load\n"
+        "except AttributeError:\n"
+        "    print('ok')\n"
+    )
+    src = os.path.join(os.path.dirname(__file__), "..", "src")
+    out = subprocess.run([sys.executable, "-c", code], cwd=src, capture_output=True, text=True, timeout=120)
+    assert out.stdout.strip() == "ok", out.stderr
