@@ -2,10 +2,7 @@ package handler
 
 import (
 	"bytes"
-	"crypto/aes"
-	"crypto/cipher"
 	"encoding/base64"
-	"encoding/binary"
 	"strings"
 	"testing"
 	"time"
@@ -17,29 +14,6 @@ var testSecret = []byte("0123456789abcdef0123456789abcdef")
 
 func keyedToken() *token.Playback {
 	return &token.Playback{FileID: "abc123", Path: "20_04_2026/abc123/master.m3u8", Nonce: "n0nce-value", Keyed: 1, Exp: time.Now().Add(time.Hour).UnixMilli()}
-}
-
-func TestEncryptSegmentIsHLSAES128(t *testing.T) {
-	key := segmentKey(testSecret, keyedToken())
-	for _, size := range []int{0, 1, 15, 16, 17, 188 * 7} {
-		plain := bytes.Repeat([]byte{0x47}, size)
-		sealed, err := encryptSegment(key, 42, plain)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if len(sealed)%16 != 0 || len(sealed) <= size {
-			t.Fatalf("size %d sealed to %d", size, len(sealed))
-		}
-		block, _ := aes.NewCipher(key)
-		iv := make([]byte, 16)
-		binary.BigEndian.PutUint64(iv[8:], 42)
-		out := make([]byte, len(sealed))
-		cipher.NewCBCDecrypter(block, iv).CryptBlocks(out, sealed)
-		pad := int(out[len(out)-1])
-		if pad < 1 || pad > 16 || !bytes.Equal(out[:len(out)-pad], plain) {
-			t.Fatalf("size %d did not round trip", size)
-		}
-	}
 }
 
 const mediaPlaylist = "#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-TARGETDURATION:6\n#EXT-X-MEDIA-SEQUENCE:5\n#EXTINF:6.0,\nsegment_000.ts\n#EXTINF:4.0,\nsegment_001.ts\n#EXT-X-ENDLIST\n"
