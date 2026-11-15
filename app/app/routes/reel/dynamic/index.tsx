@@ -24,7 +24,7 @@ import { ownerService } from "~/lib/Services/OwnerService";
 import { buildPageMeta } from "~/lib/seo";
 import { buildVideoObject, videoPreviewMeta } from "~/lib/seo/videoPreview";
 import { isAuthenticated } from "~/lib/Security/Password";
-import { sanitizeFileForPublicViewer } from "~/lib/files/sanitizeFileForViewer";
+import { playerCaptionList, sanitizeFileForPublicViewer } from "~/lib/files/sanitizeFileForViewer";
 import {
   REEL_LOADER_FILE_COLUMNS,
   stripThumbnailsForClient,
@@ -179,7 +179,10 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
 
     const fileOut = stripThumbnailsForClient(
       sanitizeFileForPublicViewer(
-        fileWithOwner as unknown as Record<string, unknown>,
+        {
+          ...(fileWithOwner as unknown as Record<string, unknown>),
+          captions: playerCaptionList((fileWithOwner as { captions?: unknown }).captions),
+        },
         userId ?? null,
       ) as Record<string, unknown>,
     ) as typeof fileWithOwner;

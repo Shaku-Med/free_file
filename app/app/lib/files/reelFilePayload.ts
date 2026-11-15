@@ -1,4 +1,5 @@
 import {
+  playerCaptionList,
   sanitizeMetadataForClient,
   stripServerOnlyFileFields,
 } from './sanitizeFileForViewer';
@@ -36,6 +37,7 @@ export const REEL_LOADER_FILE_COLUMNS = [
   "upload_status",
   "processing_progress",
   "github_repo",
+  "captions",
 ].join(", ");
 
 export function stripThumbnailsForClient<T extends Record<string, unknown>>(row: T): T {
@@ -111,6 +113,7 @@ export function mapRpcFileToReelFeedItem(
     colors: file.colors,
     // Analysis blob reduced to the player-relevant bits (see sanitizeMetadataForClient).
     metadata: sanitizeMetadataForClient(file.metadata),
+    captions: playerCaptionList(file.captions),
     like_count: likeCount,
     dislike_count: dislikeCount,
     comment_count: commentCount,

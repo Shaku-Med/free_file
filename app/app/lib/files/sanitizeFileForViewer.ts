@@ -1,3 +1,25 @@
+import { normalizeCaptionEntries } from "~/lib/captions/vtt";
+
+const CAPTION_LANGUAGE_RE = /^[A-Za-z]{2,3}(?:-[A-Za-z0-9]{1,8}){0,3}$/;
+const MAX_PLAYER_CAPTIONS = 32;
+
+/**
+ * The caption tracks a player needs to offer: language and whether it was made
+ * from speech. Storage paths stay out, since loading a track goes through
+ * /api/captions/load-prepare, which looks the path up itself.
+ */
+export function playerCaptionList(raw: unknown): { language: string; auto?: true }[] {
+  const out: { language: string; auto?: true }[] = [];
+  const seen = new Set<string>();
+  for (const entry of normalizeCaptionEntries(raw)) {
+    if (!CAPTION_LANGUAGE_RE.test(entry.language) || seen.has(entry.language)) continue;
+    seen.add(entry.language);
+    out.push(entry.auto ? { language: entry.language, auto: true } : { language: entry.language });
+    if (out.length >= MAX_PLAYER_CAPTIONS) break;
+  }
+  return out;
+}
+
 /**
  * Server-only columns on `files` that must NEVER reach the browser  for any viewer, the
  * owner included. The watch-page loader fetches the row with `select('*')`, so without this
@@ -125,11 +147,13 @@ export function sanitizeMetadataForClient(
  *   - Everything the vision pass wrote into `metadata` (safeSearch verdicts,
  *     label confidences, the AI caption, loudness, codec/bitrate). None of it is
  *     rendered, and the safeSearch verdicts publish how content was classified.
- *   - `file_description`, `tags` and `captions`, which no card renders. They
- *     exist only to pre-seed the owner's edit modal, and that modal refetches
- *     from the owner-only endpoint anyway, so non-owners never need them.
+ *   - `file_description` and `tags`, which no card renders. They exist only to
+ *     pre-seed the owner's edit modal, and that modal refetches from the
+ *     owner-only endpoint anyway, so non-owners never need them.
+ * `captions` is cut down to the language list, because reels and play queues
+ * play the card itself and their player offers those tracks.
  */
-const OWNER_ONLY_CARD_FIELDS = ["file_description", "tags", "captions"] as const;
+const OWNER_ONLY_CARD_FIELDS = ["file_description", "tags"] as const;
 
 export function sanitizeFeedCard<T extends Record<string, unknown>>(
   file: T,
@@ -141,6 +165,7 @@ export function sanitizeFeedCard<T extends Record<string, unknown>>(
   if (!viewerUserId || !ownerId || viewerUserId !== ownerId) {
     for (const key of OWNER_ONLY_CARD_FIELDS) delete clean[key];
   }
+  if ("captions" in clean) clean.captions = playerCaptionList(clean.captions);
   return clean as T;
 }
 

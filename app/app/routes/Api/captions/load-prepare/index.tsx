@@ -2,6 +2,8 @@ import { data } from "react-router"
 import db from "~/lib/Database/supabase"
 import { isValidFileId, isValidUUID } from "~/lib/Security/inputValidation"
 import { isAuthenticated } from "~/lib/Security/Password"
+import { isSameOrigin } from "~/lib/Security/sameOrigin.server"
+import { rateLimiter } from "~/routes/Auth/fun/rateLimit.server"
 import { canAccessFile, type FileData } from "~/routes/Api/fun/accessControl"
 import { resolveGithubRepoForFile } from "~/lib/githubStorage"
 import {
@@ -20,10 +22,16 @@ const ok = (body: unknown, status = 200) =>
 
 export const action = async ({ request }: { request: Request }) => {
   if (request.method !== "POST") return ok({ error: "Method not allowed" }, 405)
+  if (!isSameOrigin(request)) return ok({ error: "forbidden" }, 403)
   if (!db) return ok({ error: "unavailable" }, 503)
 
   const user = await isAuthenticated(request, ["id"])
   if (!user || !user.id) return ok({ error: "auth required" }, 401)
+
+  // Every call writes a token row. Reels load one track per swipe, so this sits
+  // well above fast scrolling and still stops a script filling the table.
+  const limit = await rateLimiter.checkLimit(user.id, "captions-load", 120, 60_000, 5 * 60_000)
+  if (!limit.allowed) return ok({ error: limit.error ?? "too many requests" }, 429)
 
   let body: { unique_id?: string; file_id?: string; language?: string }
   try {
