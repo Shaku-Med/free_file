@@ -125,7 +125,9 @@ case "$ACTION" in
     exec docker compose logs --tail=200 --no-color
     ;;
   prune)
-    exec docker image prune -f --filter "until=72h"
+    # -a: every deploy tags images by commit, so old versions never become
+    # dangling. Images a container uses are kept whatever their age.
+    exec docker image prune -a -f --filter "until=72h"
     ;;
   login)
     # Reads token from stdin only  we never accept it as an argv (would

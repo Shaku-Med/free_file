@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"time"
@@ -19,6 +20,11 @@ import (
 
 // ErrBusy means the sidecar is already working on as many tracks as it takes.
 var ErrBusy = errors.New("stems api busy")
+
+// ErrUnreachable means no connection could be made: the sidecar is down or
+// still loading its model, as right after every deploy, so the track itself
+// is not at fault.
+var ErrUnreachable = errors.New("stems api unreachable")
 
 // A 20 minute track at ~43 frames a second, five bands of short numbers.
 const maxResponseBytes = 16 << 20
@@ -70,6 +76,10 @@ func (c *Client) Separate(ctx context.Context, path string) (*ffmpeg.SeparatedBa
 
 	res, err := c.http.Do(req)
 	if err != nil {
+		var op *net.OpError
+		if errors.As(err, &op) && op.Op == "dial" {
+			return nil, fmt.Errorf("%w: %v", ErrUnreachable, op.Err)
+		}
 		return nil, fmt.Errorf("stems api request failed: %w", err)
 	}
 	defer res.Body.Close()

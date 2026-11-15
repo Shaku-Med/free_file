@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func audioFile(t *testing.T) string {
@@ -46,6 +47,39 @@ func TestSeparateSendsTheSecretAndFile(t *testing.T) {
 	}
 	if got.FPS != 43.07 || got.Duration != 12.5 || len(got.Series["kick"]) != 2 {
 		t.Fatalf("bad answer %+v", got)
+	}
+}
+
+func TestSeparateUnreachable(t *testing.T) {
+	path := audioFile(t)
+	closed := httptest.NewServer(http.NotFoundHandler())
+	refusedURL := closed.URL + "/separate"
+	closed.Close()
+
+	for name, apiURL := range map[string]string{
+		"refused":      refusedURL,
+		"no such host": "http://stemsapi.invalid:3010/separate",
+	} {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		_, err := NewClient(apiURL, "s3cret").Separate(ctx, path)
+		cancel()
+		if !errors.Is(err, ErrUnreachable) {
+			t.Errorf("%s: got %v, want ErrUnreachable", name, err)
+		}
+	}
+
+	// A sidecar that dies mid track is the track's problem until proven
+	// otherwise, so that still counts against it.
+	dying := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, _, err := w.(http.Hijacker).Hijack()
+		if err == nil {
+			conn.Close()
+		}
+	}))
+	defer dying.Close()
+	_, err := NewClient(dying.URL, "s3cret").Separate(context.Background(), path)
+	if err == nil || errors.Is(err, ErrUnreachable) {
+		t.Fatalf("dropped mid request: got %v, want a plain failure", err)
 	}
 }
 
