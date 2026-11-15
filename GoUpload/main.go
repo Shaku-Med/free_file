@@ -55,6 +55,13 @@ func main() {
 	// dropping the Supabase table:
 	//   docker exec -e SUPABASE_URL=... -e SUPABASE_SERVICE_KEY=... goupload \
 	//     /app/goupload -migrate-fingerprints
+	// Queue AI stems for music published before the sidecar existed; see backfill_stems.go.
+	if len(os.Args) > 1 && os.Args[1] == "-backfill-stems" {
+		if err := runStemsBackfill(os.Args[2:]); err != nil {
+			log.Fatalf("stems backfill: %v", err)
+		}
+		return
+	}
 	for _, a := range os.Args[1:] {
 		if a == "-migrate-fingerprints" || a == "--migrate-fingerprints" {
 			if err := runFingerprintMigration(fingerprintDBPath(), appLog); err != nil {

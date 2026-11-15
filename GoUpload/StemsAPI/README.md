@@ -51,6 +51,24 @@ music in are sent, up to 20 minutes long.
 About 1.3x real time on two cores and 1.6 GB of memory at peak, so the compose
 limit is 3 GB.
 
+## Backfill
+
+Music published before this service existed only has the instant analysis.
+`goupload -backfill-stems` rebuilds each one's audio from its published HLS
+audio rendition and queues an ordinary stems job, at most two waiting at a
+time so new uploads never queue behind it. It records progress in
+`upload/stems-backfill.jsonl` and appends to `upload/stems-backfill.log`, and
+a rerun skips what is done, so a deploy restarting the container loses nothing.
+
+```
+docker exec goupload /app/goupload -backfill-stems -dry-run
+docker exec -d goupload /app/goupload -backfill-stems
+docker exec goupload tail -n 20 /app/upload/stems-backfill.log
+```
+
+`-limit N` stops after N uploads, `-retry-failed` tries earlier failures again,
+and `-before` moves the cutoff (default: when this service went live).
+
 ## Tests
 
 ```
