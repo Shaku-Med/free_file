@@ -43,6 +43,7 @@ jobs:
       acoustid: ${{ steps.flags.outputs.acoustid }}
       nsfwapi: ${{ steps.flags.outputs.nsfwapi }}
       loadplay: ${{ steps.flags.outputs.loadplay }}
+      stemsapi: ${{ steps.flags.outputs.stemsapi }}
       compose: ${{ steps.flags.outputs.compose }}
       any: ${{ steps.flags.outputs.any }}
     steps:
@@ -62,6 +63,7 @@ jobs:
               - '!GoUpload/EmbedAPI/**'
               - '!GoUpload/MusicDetector/**'
               - '!GoUpload/AcoustID/**'
+              - '!GoUpload/StemsAPI/**'
             loadplay:
               - 'GoUpload/loadplay/**'
               - 'GoUpload/LoadPlay/**'
@@ -78,6 +80,8 @@ jobs:
               - 'GoUpload/MusicDetector/**'
             acoustid:
               - 'GoUpload/AcoustID/**'
+            stemsapi:
+              - 'GoUpload/StemsAPI/**'
             compose:
               - 'GoUpload/docker-compose.yml'
               - 'GoUpload/scripts/**'
@@ -94,6 +98,7 @@ jobs:
             echo "acoustid=true" >> "$GITHUB_OUTPUT"
             echo "nsfwapi=true" >> "$GITHUB_OUTPUT"
             echo "loadplay=true" >> "$GITHUB_OUTPUT"
+            echo "stemsapi=true" >> "$GITHUB_OUTPUT"
             echo "compose=true" >> "$GITHUB_OUTPUT"
             echo "any=true" >> "$GITHUB_OUTPUT"
             exit 0
@@ -107,6 +112,7 @@ jobs:
           embedapi="${{ steps.filter.outputs.embedapi }}"
           musicdetector="${{ steps.filter.outputs.musicdetector }}"
           acoustid="${{ steps.filter.outputs.acoustid }}"
+          stemsapi="${{ steps.filter.outputs.stemsapi }}"
           compose="${{ steps.filter.outputs.compose }}"
 
           if [ "$shared" = "true" ]; then
@@ -120,6 +126,7 @@ jobs:
             acoustid=true
             nsfwapi=true
             loadplay=true
+            stemsapi=true
             compose=true
           fi
 
@@ -129,6 +136,7 @@ jobs:
           deploy_acoustid=false
           deploy_nsfwapi=false
           deploy_loadplay=false
+          deploy_stemsapi=false
           deploy_compose=false
           any=false
 
@@ -138,6 +146,7 @@ jobs:
           [ "$acoustid" = "true" ] && deploy_acoustid=true && any=true
           [ "$loadplay" = "true" ] && deploy_loadplay=true && any=true
           [ "$nsfwapi" = "true" ] && deploy_nsfwapi=true && any=true
+          [ "$stemsapi" = "true" ] && deploy_stemsapi=true && any=true
           [ "$compose" = "true" ] && deploy_compose=true && any=true
 
           echo "goupload=$deploy_goupload" >> "$GITHUB_OUTPUT"
@@ -146,6 +155,7 @@ jobs:
           echo "acoustid=$deploy_acoustid" >> "$GITHUB_OUTPUT"
           echo "nsfwapi=$deploy_nsfwapi" >> "$GITHUB_OUTPUT"
           echo "loadplay=$deploy_loadplay" >> "$GITHUB_OUTPUT"
+          echo "stemsapi=$deploy_stemsapi" >> "$GITHUB_OUTPUT"
           echo "compose=$deploy_compose" >> "$GITHUB_OUTPUT"
           echo "any=$any" >> "$GITHUB_OUTPUT"
 
@@ -223,18 +233,21 @@ jobs:
           BASE_MUSIC="${REGISTRY}/${OWNER_LC}/${REPO_LC}/musicdetector"
           BASE_ACOUSTID="${REGISTRY}/${OWNER_LC}/${REPO_LC}/acoustid"
           BASE_LP="${REGISTRY}/${OWNER_LC}/${REPO_LC}/loadplay"
+          BASE_STEMS="${REGISTRY}/${OWNER_LC}/${REPO_LC}/stemsapi"
           echo "goupload=${BASE_GO}:${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
           echo "nsfwapi=${BASE_NSFW}:${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
           echo "embedapi=${BASE_EMBED}:${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
           echo "musicdetector=${BASE_MUSIC}:${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
           echo "acoustid=${BASE_ACOUSTID}:${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
           echo "loadplay=${BASE_LP}:${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+          echo "stemsapi=${BASE_STEMS}:${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
           echo "goupload_latest=${BASE_GO}:latest" >> "$GITHUB_OUTPUT"
           echo "nsfwapi_latest=${BASE_NSFW}:latest" >> "$GITHUB_OUTPUT"
           echo "embedapi_latest=${BASE_EMBED}:latest" >> "$GITHUB_OUTPUT"
           echo "musicdetector_latest=${BASE_MUSIC}:latest" >> "$GITHUB_OUTPUT"
           echo "acoustid_latest=${BASE_ACOUSTID}:latest" >> "$GITHUB_OUTPUT"
           echo "loadplay_latest=${BASE_LP}:latest" >> "$GITHUB_OUTPUT"
+          echo "stemsapi_latest=${BASE_STEMS}:latest" >> "$GITHUB_OUTPUT"
 
       - name: Build & push GoUpload
         if: needs.changes.outputs.goupload == 'true'
@@ -316,6 +329,19 @@ jobs:
           cache-from: type=gha,scope=loadplay
           cache-to: type=gha,scope=loadplay,mode=max
 
+      - name: Build & push StemsAPI
+        if: needs.changes.outputs.stemsapi == 'true'
+        uses: docker/build-push-action@v6
+        with:
+          context: ./GoUpload/StemsAPI
+          file: ./GoUpload/StemsAPI/Dockerfile
+          push: true
+          tags: |
+            ${{ steps.tags.outputs.stemsapi }}
+            ${{ steps.tags.outputs.stemsapi_latest }}
+          cache-from: type=gha,scope=stemsapi
+          cache-to: type=gha,scope=stemsapi,mode=max
+
   deploy:
     name: Deploy to VPS
     runs-on: self-hosted
@@ -341,6 +367,7 @@ jobs:
       DEPLOY_ACOUSTID: ${{ needs.changes.outputs.acoustid }}
       DEPLOY_NSFWAPI: ${{ needs.changes.outputs.nsfwapi }}
       DEPLOY_LOADPLAY: ${{ needs.changes.outputs.loadplay }}
+      DEPLOY_STEMSAPI: ${{ needs.changes.outputs.stemsapi }}
       DEPLOY_COMPOSE: ${{ needs.changes.outputs.compose }}
     steps:
       - name: Checkout
@@ -451,6 +478,7 @@ jobs:
           MUSICDETECTOR_TAG="latest"
           ACOUSTID_TAG="latest"
           LOADPLAY_TAG="latest"
+          STEMSAPI_TAG="latest"
           # Read the running tags through the root helper, NOT by sourcing the
           # file directly. /opt/goupload/.env is root-owned 0600 and this step
           # runs as the runner user, so `source` read nothing and failed
@@ -466,6 +494,7 @@ jobs:
             [ -n "${MUSICDETECTOR_IMAGE:-}" ] && MUSICDETECTOR_TAG="${MUSICDETECTOR_IMAGE##*:}"
             [ -n "${ACOUSTID_IMAGE:-}" ]      && ACOUSTID_TAG="${ACOUSTID_IMAGE##*:}"
             [ -n "${LOADPLAY_IMAGE:-}" ]      && LOADPLAY_TAG="${LOADPLAY_IMAGE##*:}"
+            [ -n "${STEMSAPI_IMAGE:-}" ]      && STEMSAPI_TAG="${STEMSAPI_IMAGE##*:}"
           else
             echo "::warning::could not read running image tags; unrebuilt services will deploy as :latest"
           fi
@@ -475,11 +504,14 @@ jobs:
           if [ "$DEPLOY_MUSICDETECTOR" = "true" ]; then MUSICDETECTOR_TAG="${GITHUB_SHA}"; fi
           if [ "$DEPLOY_ACOUSTID" = "true" ]; then ACOUSTID_TAG="${GITHUB_SHA}"; fi
           if [ "$DEPLOY_LOADPLAY" = "true" ]; then LOADPLAY_TAG="${GITHUB_SHA}"; fi
+          if [ "$DEPLOY_STEMSAPI" = "true" ]; then STEMSAPI_TAG="${GITHUB_SHA}"; fi
           # First rollout: the running .env predates musicdetector, so its tag
           # resolves empty. Fall back to latest (the build job just pushed it).
           [ -z "${MUSICDETECTOR_TAG}" ] && MUSICDETECTOR_TAG="latest"
           # Same first-rollout case: the running .env predates acoustid.
           [ -z "${ACOUSTID_TAG}" ] && ACOUSTID_TAG="latest"
+          # And the running .env predates stemsapi.
+          [ -z "${STEMSAPI_TAG}" ] && STEMSAPI_TAG="latest"
 
           cat > "$STAGING/.env" <<EOF
           GOUPLOAD_IMAGE=${BASE}/goupload:${GOUPLOAD_TAG}
@@ -488,6 +520,7 @@ jobs:
           MUSICDETECTOR_IMAGE=${BASE}/musicdetector:${MUSICDETECTOR_TAG}
           ACOUSTID_IMAGE=${BASE}/acoustid:${ACOUSTID_TAG}
           LOADPLAY_IMAGE=${BASE}/loadplay:${LOADPLAY_TAG}
+          STEMSAPI_IMAGE=${BASE}/stemsapi:${STEMSAPI_TAG}
           EMBED_API_SECRET=${EMBED_API_SECRET}
           MUSIC_API_SECRET=${MUSIC_API_SECRET}
           ACOUSTID_API_SECRET=${ACOUSTID_API_SECRET}
@@ -500,7 +533,7 @@ jobs:
           cp GoUpload/scripts/goupload-compose.sh "$STAGING/goupload-compose.sh"
           cp GoUpload/scripts/dangerous-guard.sh  "$STAGING/dangerous-guard.sh"
 
-          echo "Deploy targets: goupload=$DEPLOY_GOUPLOAD embedapi=$DEPLOY_EMBEDAPI musicdetector=$DEPLOY_MUSICDETECTOR acoustid=$DEPLOY_ACOUSTID nsfwapi=$DEPLOY_NSFWAPI loadplay=$DEPLOY_LOADPLAY compose=$DEPLOY_COMPOSE"
+          echo "Deploy targets: goupload=$DEPLOY_GOUPLOAD embedapi=$DEPLOY_EMBEDAPI musicdetector=$DEPLOY_MUSICDETECTOR acoustid=$DEPLOY_ACOUSTID nsfwapi=$DEPLOY_NSFWAPI loadplay=$DEPLOY_LOADPLAY stemsapi=$DEPLOY_STEMSAPI compose=$DEPLOY_COMPOSE"
 
       - name: Promote staged files into /opt/goupload
         run: |
@@ -522,9 +555,10 @@ jobs:
           [ "$DEPLOY_ACOUSTID" = "true" ] && SERVICES+=(acoustid)
           [ "$DEPLOY_NSFWAPI" = "true" ] && SERVICES+=(nsfwapi)
           [ "$DEPLOY_LOADPLAY" = "true" ] && SERVICES+=(loadplay)
+          [ "$DEPLOY_STEMSAPI" = "true" ] && SERVICES+=(stemsapi)
 
           if [ ${#SERVICES[@]} -eq 0 ] && [ "$DEPLOY_COMPOSE" = "true" ]; then
-            SERVICES=(goupload embedapi musicdetector acoustid nsfwapi loadplay)
+            SERVICES=(goupload embedapi musicdetector acoustid nsfwapi loadplay stemsapi)
           fi
 
           # Deduplicate service names (bash 4+).

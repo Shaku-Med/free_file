@@ -47,6 +47,14 @@ type Segment struct {
 	End   float64 `json:"end"`
 }
 
+// Sound is a non speech sound worth a caption tag ([Laughter], [Applause]),
+// only in answers for a whole file. Its label is checked before use.
+type Sound struct {
+	Label string  `json:"label"`
+	Start float64 `json:"start"`
+	End   float64 `json:"end"`
+}
+
 // Result is the subset of the sidecar's /analyze response we act on.
 type Result struct {
 	IsMusic      bool      `json:"is_music"`
@@ -54,6 +62,7 @@ type Result struct {
 	MusicSeconds float64   `json:"music_seconds"`
 	Stub         bool      `json:"stub"`
 	Segments     []Segment `json:"segments"`
+	Sounds       []Sound   `json:"sounds"`
 }
 
 // BestMusicWindow picks the longest contiguous "music" segment that is at least
@@ -100,23 +109,24 @@ func (c *Client) Classify(ctx context.Context, path string) (*Result, error) {
 }
 
 // Segments labels the whole file at path, not only the opening minutes the
-// is_music verdict looks at. Returns nil,nil when disabled.
-func (c *Client) Segments(ctx context.Context, path string) ([]Segment, error) {
+// is_music verdict looks at, and tags the sounds in it. Returns nils when
+// disabled.
+func (c *Client) Segments(ctx context.Context, path string) ([]Segment, []Sound, error) {
 	if !c.Enabled() {
-		return nil, nil
+		return nil, nil, nil
 	}
 	u, err := url.Parse(c.apiURL)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	q := u.Query()
 	q.Set("whole", "1")
 	u.RawQuery = q.Encode()
 	res, err := c.analyze(ctx, path, u.String(), c.whole)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return res.Segments, nil
+	return res.Segments, res.Sounds, nil
 }
 
 func (c *Client) analyze(ctx context.Context, path, apiURL string, hc *http.Client) (*Result, error) {

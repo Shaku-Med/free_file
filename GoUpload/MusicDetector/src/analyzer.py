@@ -28,6 +28,9 @@ _stub_mode = False
 # Most segments one answer carries; an hour of audio merges down to far fewer.
 MAX_SEGMENTS = 5000
 
+# The YAMNet SavedModel folder for sound tags; unset leaves tags off.
+SOUNDS_MODEL = os.environ.get("SOUNDS_MODEL", "").strip()
+
 
 def summarize_segments(segments) -> dict:
     totals: dict[str, float] = {}
@@ -101,6 +104,14 @@ def warmup() -> None:
             "FAKE. Run the docker image for real detection (or set MUSIC_ALLOW_STUB=0 "
             "to fail instead of stubbing)."
         )
+        return
+    # Asked for and missing or broken: fail here, at build or startup, not
+    # quietly on every captions request.
+    if SOUNDS_MODEL:
+        import sounds
+
+        sounds.load(SOUNDS_MODEL)
+        log.info("YAMNet sound tag model loaded")
 
 
 def _load_segmenter():
@@ -125,9 +136,10 @@ def _stub_segments(path: str):
     return [("music", 0.0, music), ("speech", music, total)]
 
 
-def analyze_file(path: str, stop_sec: float | None = None) -> dict:
+def analyze_file(path: str, stop_sec: float | None = None, with_sounds: bool = False) -> dict:
     """The is_music summary plus the segments themselves: GoUpload cuts the
-    AcoustID clip from the longest music segment and labels music in captions."""
+    AcoustID clip from the longest music segment and labels music in captions.
+    with_sounds adds the sound tags captions show ([Laughter], [Applause])."""
     if _stub_mode:
         segments = _stub_segments(path)
     else:
@@ -136,4 +148,21 @@ def analyze_file(path: str, stop_sec: float | None = None) -> dict:
         # service also caps concurrency, but serialize here as a hard guarantee.
         with _lock:
             segments = seg(path, start_sec=0, stop_sec=stop_sec)
-    return {**summarize_segments(segments), "segments": merge_segments(segments)}
+    out = {**summarize_segments(segments), "segments": merge_segments(segments)}
+    if with_sounds:
+        out["sounds"] = _sound_tags(path, stop_sec)
+    return out
+
+
+def _sound_tags(path: str, stop_sec: float | None) -> list[dict]:
+    # Tags are a nice extra on captions: a failure here leaves them out rather
+    # than losing the segments too.
+    if _stub_mode or not SOUNDS_MODEL:
+        return []
+    try:
+        import sounds
+
+        return sounds.tag_file(path, SOUNDS_MODEL, stop_sec)
+    except Exception as exc:
+        log.warning("sound tags failed: %s", type(exc).__name__)
+        return []

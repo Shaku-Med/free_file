@@ -242,15 +242,30 @@ func analyzeStems(samples []float64, sampleRate int) *AudioStemsFile {
 	if !doc.HasAudio {
 		return doc
 	}
+	fillStemsDoc(doc, bandEnergy, float64(stemsHopSize)/float64(sampleRate), true)
+	return doc
+}
 
-	frameDur := float64(stemsHopSize) / float64(sampleRate)
-	var events []StemEvent
-
+// fillStemsDoc writes the envelopes and onset events for per band energy
+// (rows in stemBands order). Bands measured on the full mix bleed into each
+// other, so there a kick also hides the bass and "other" bumps it causes;
+// separated stems don't, and a bass note landing on a kick is a real note.
+func fillStemsDoc(doc *AudioStemsFile, bandEnergy [][]float64, frameDur float64, mixed bool) {
+	opts := separatedOnsetOpts
+	if mixed {
+		opts = onsetOpts{}
+	}
+	found := make([][]onset, len(stemBands))
 	for b, band := range stemBands {
-		env := bandEnergy[b]
-		doc.Envelopes[band.name] = decimateEnvelope(env, stemsEnvelopeDecim)
-		minGapFrames := int(math.Ceil(stemMinGap[band.name] / frameDur))
-		for _, on := range detectOnsets(env, minGapFrames) {
+		found[b] = detectOnsetsWith(bandEnergy[b], int(math.Ceil(stemMinGap[band.name]/frameDur)), opts)
+	}
+	if !mixed {
+		found[stemBandIndex("snare")] = dropKickClicks(found[stemBandIndex("snare")], found[stemBandIndex("kick")], bandEnergy[stemBandIndex("snare")])
+	}
+	var events []StemEvent
+	for b, band := range stemBands {
+		doc.Envelopes[band.name] = decimateEnvelope(bandEnergy[b], stemsEnvelopeDecim)
+		for _, on := range found[b] {
 			events = append(events, StemEvent{
 				T:        math.Round(float64(on.frame)*frameDur*1000) / 1000,
 				Type:     band.name,
@@ -258,11 +273,118 @@ func analyzeStems(samples []float64, sampleRate int) *AudioStemsFile {
 			})
 		}
 	}
-
 	sort.Slice(events, func(i, j int) bool { return events[i].T < events[j].T })
-	doc.Events = suppressOverlappingEvents(events)
+	if mixed {
+		events = suppressOverlappingEvents(events)
+	}
+	if events == nil {
+		events = []StemEvent{}
+	}
+	doc.Events = events
 	doc.Version = 2
-	return doc
+}
+
+func stemBandIndex(name string) int {
+	for i, b := range stemBands {
+		if b.name == name {
+			return i
+		}
+	}
+	panic("unknown stem band " + name)
+}
+
+const (
+	// A snare onset this many frames from a kick may be the kick's click.
+	kickClickFrames = 2
+	// It is kept only if the snare band jumps at least this much of a typical
+	// snare hit there: a real snare played with a kick still cracks loudly.
+	kickClickShare = 0.6
+)
+
+// dropKickClicks removes snare onsets that are only the beater click of a kick
+// drum, which the separated drum stem still carries in the snare's band.
+func dropKickClicks(snares, kicks []onset, snareEnergy []float64) []onset {
+	if len(snares) == 0 || len(kicks) == 0 {
+		return snares
+	}
+	rise := func(f int) float64 {
+		best := 0.0
+		for i := max(f-1, 1); i <= min(f+1, len(snareEnergy)-1); i++ {
+			best = math.Max(best, snareEnergy[i]-snareEnergy[i-1])
+		}
+		return best
+	}
+	rises := make([]float64, len(snares))
+	for i, s := range snares {
+		rises[i] = rise(s.frame)
+	}
+	typical := percentile(rises, 0.75)
+	out := snares[:0:0]
+	k := 0
+	for i, s := range snares {
+		for k < len(kicks) && kicks[k].frame < s.frame-kickClickFrames {
+			k++
+		}
+		nearKick := k < len(kicks) && kicks[k].frame <= s.frame+kickClickFrames
+		if nearKick && rises[i] < kickClickShare*typical {
+			continue
+		}
+		out = append(out, s)
+	}
+	return out
+}
+
+// SeparatedBands is per band energy the stems sidecar measured on separated
+// drums, bass and other stems, on a frame grid of FPS frames per second.
+type SeparatedBands struct {
+	FPS      float64              `json:"fps"`
+	Duration float64              `json:"duration"`
+	Series   map[string][]float64 `json:"series"`
+}
+
+const (
+	minSeparatedFPS = 20
+	maxSeparatedFPS = 100
+)
+
+// StemsDocFromSeparated builds audio_stems.json from separated stem bands, in
+// the same shape the instant analysis writes, so the player reads either. The
+// numbers come from another process, so their shape is checked rather than
+// trusted.
+func StemsDocFromSeparated(b *SeparatedBands) (*AudioStemsFile, error) {
+	if b == nil || !(b.FPS >= minSeparatedFPS && b.FPS <= maxSeparatedFPS) {
+		return nil, fmt.Errorf("separated stems: bad frame rate")
+	}
+	if !(b.Duration > 0 && b.Duration <= stemsMaxSeconds+1) {
+		return nil, fmt.Errorf("separated stems: bad duration")
+	}
+	maxFrames := int(b.Duration*b.FPS) + 2
+	frames := -1
+	energy := make([][]float64, len(stemBands))
+	for i, band := range stemBands {
+		curve, ok := b.Series[band.name]
+		if !ok {
+			return nil, fmt.Errorf("separated stems: missing %s", band.name)
+		}
+		if frames < 0 {
+			frames = len(curve)
+		}
+		if len(curve) != frames || frames < 4 || frames > maxFrames {
+			return nil, fmt.Errorf("separated stems: bad %s length %d", band.name, len(curve))
+		}
+		for _, v := range curve {
+			if !(v >= 0) || math.IsInf(v, 1) {
+				return nil, fmt.Errorf("separated stems: bad %s value", band.name)
+			}
+		}
+		energy[i] = curve
+	}
+	doc := emptyStemsDoc()
+	doc.HasAudio = true
+	doc.Duration = math.Round(b.Duration*1000) / 1000
+	doc.EnvelopeFps = b.FPS / stemsEnvelopeDecim
+	fillStemsDoc(doc, energy, 1/b.FPS, false)
+	return doc, nil
 }
 
 type onset struct {
@@ -270,12 +392,43 @@ type onset struct {
 	strength float64
 }
 
+// onsetOpts tune detectOnsets for separated stems; the zero value is the
+// original full mix behaviour.
+type onsetOpts struct {
+	// logGamma > 0 compresses energy as log1p(gamma * E / p99) first, so a
+	// soft hit counts next to a loud one and quiet passages keep their hits.
+	logGamma float64
+	// floor is the flux, as a share of its p95, every hit must also reach. It
+	// keeps a stem's bleed (a kick's click in the snare band) from passing the
+	// local threshold just because nothing else is near it.
+	floor float64
+	// loudShare raises the floor to this share of the band's loud hits (its
+	// p99 flux). In a sparse band most frames are background, so p95 alone
+	// measures noise and the floor stops filtering the gaps between hits.
+	loudShare float64
+}
+
+var separatedOnsetOpts = onsetOpts{logGamma: 5, floor: 0.4, loudShare: 0.1}
+
 // detectOnsets: positive spectral flux vs. an adaptive local threshold
 // (sliding mean + k·std), then local-max peak picking with a minimum gap.
 func detectOnsets(energy []float64, minGapFrames int) []onset {
+	return detectOnsetsWith(energy, minGapFrames, onsetOpts{})
+}
+
+func detectOnsetsWith(energy []float64, minGapFrames int, opts onsetOpts) []onset {
 	n := len(energy)
 	if n < 4 {
 		return nil
+	}
+	if opts.logGamma > 0 {
+		if ref := percentile(energy, 0.99); ref > 0 {
+			compressed := make([]float64, n)
+			for i, v := range energy {
+				compressed[i] = math.Log1p(opts.logGamma * v / ref)
+			}
+			energy = compressed
+		}
 	}
 	flux := make([]float64, n)
 	for i := 1; i < n; i++ {
@@ -293,6 +446,10 @@ func detectOnsets(energy []float64, minGapFrames int) []onset {
 	}
 	for i := range flux {
 		flux[i] /= p95
+	}
+	floor := opts.floor
+	if opts.loudShare > 0 {
+		floor = math.Max(floor, opts.loudShare*percentile(flux, 0.99))
 	}
 
 	const win = 22 // ~0.5s context at 43 fps
@@ -313,7 +470,7 @@ func detectOnsets(energy []float64, minGapFrames int) []onset {
 			hi = n
 		}
 		mean, std := meanStd(flux[lo:hi])
-		thr := mean + 1.5*std + 0.05
+		thr := math.Max(mean+1.5*std+0.05, floor)
 		if flux[i] <= thr {
 			continue
 		}

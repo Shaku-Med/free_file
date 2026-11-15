@@ -31,6 +31,8 @@ const (
 	captionAudioName   = "audio.flac"
 	captionVTTName     = "captions.vtt"
 	captionLangName    = "language"
+	// Most sound tags taken from the detector for one video.
+	maxCaptionSounds = 2000
 )
 
 var (
@@ -58,7 +60,7 @@ func (w *Worker) captionDir(userID, uploadID string) string {
 	return filepath.Join(w.cfg.CaptionsDir, userID, uploadID)
 }
 
-func (w *Worker) removeCaptionDir(dir string) {
+func (w *Worker) removeJobDir(dir string) {
 	if dir == "" {
 		return
 	}
@@ -96,7 +98,7 @@ func (w *Worker) enqueueCaptions(job *queue.Job, sourcePath, prefix string, dura
 	}
 	if err := ffmpeg.ExtractSpeechAudio(sourcePath, filepath.Join(dir, captionAudioName)); err != nil {
 		w.log.Infof("auto captions audio failed job=%s reason=%s", job.ID, err.Error())
-		w.removeCaptionDir(dir)
+		w.removeJobDir(dir)
 		return
 	}
 	// Its own deadline: extracting an hour of audio takes longer than the one above.
@@ -112,7 +114,7 @@ func (w *Worker) enqueueCaptions(job *queue.Job, sourcePath, prefix string, dura
 	cancel()
 	if err != nil {
 		w.log.Errorf("auto captions enqueue failed job=%s err=%s", job.ID, err.Error())
-		w.removeCaptionDir(dir)
+		w.removeJobDir(dir)
 		return
 	}
 	w.log.Infof("auto captions queued job=%s upload=%s duration=%.0fs song=%v", job.ID, job.UploadID, duration, song)
@@ -141,7 +143,7 @@ func (w *Worker) nextCaption(ctx context.Context) time.Duration {
 		bg := context.Background()
 		_ = w.queue.RemoveCaptionJob(bg, raw)
 		w.queue.ClearCaptionAttempts(bg, job.UploadID)
-		w.removeCaptionDir(w.captionDir(job.UserID, job.UploadID))
+		w.removeJobDir(w.captionDir(job.UserID, job.UploadID))
 		return 0
 	case captionLater:
 		_ = w.queue.MoveCaptionJobLast(context.Background(), raw)
@@ -177,10 +179,20 @@ func (w *Worker) captionJob(ctx context.Context, job *queue.CaptionJob) captionO
 			return captionDone
 		}
 
-		timeout := time.Duration(job.Duration*6)*time.Second + 10*time.Minute
+		audio := filepath.Join(dir, captionAudioName)
+		// First, so whisper can tell the language from where people talk.
+		music, speech, sounds := w.captionSegments(ctx, job.UploadID, audio, job.Song)
+		if ctx.Err() != nil {
+			w.queue.UndoCaptionAttempt(context.Background(), job.UploadID)
+			return captionStopped
+		}
+		// The large model runs at about a third of real time on two cores, and
+		// language probes add to that.
+		timeout := time.Duration(job.Duration*8)*time.Second + 10*time.Minute
 		runCtx, cancel := context.WithTimeout(ctx, timeout)
 		started := time.Now()
-		res, err := w.cfg.Transcriber.Run(runCtx, filepath.Join(dir, captionAudioName), dir, job.Song)
+		duration := time.Duration(job.Duration * float64(time.Second))
+		res, err := w.cfg.Transcriber.Run(runCtx, audio, dir, job.Song, duration, speech)
 		cancel()
 		if ctx.Err() != nil {
 			w.queue.UndoCaptionAttempt(context.Background(), job.UploadID)
@@ -191,11 +203,7 @@ func (w *Worker) captionJob(ctx context.Context, job *queue.CaptionJob) captionO
 			return captionLater
 		}
 		took := time.Since(started)
-		res.Music, res.Speech = w.captionSegments(ctx, job.UploadID, filepath.Join(dir, captionAudioName), job.Song)
-		if ctx.Err() != nil {
-			w.queue.UndoCaptionAttempt(context.Background(), job.UploadID)
-			return captionStopped
-		}
+		res.Music, res.Speech, res.Sounds = music, speech, sounds
 
 		var cues int
 		lang, vtt, cues, err = transcribe.VTT(res)
@@ -207,8 +215,8 @@ func (w *Worker) captionJob(ctx context.Context, job *queue.CaptionJob) captionO
 			w.log.Infof("auto captions skipped upload=%s: %s", job.UploadID, err.Error())
 			return captionDone
 		}
-		w.log.Infof("auto captions transcribed upload=%s lang=%s cues=%d music_spans=%d audio=%.0fs took=%s speed=%.2fx",
-			job.UploadID, lang, cues, len(res.Music), job.Duration, took.Round(time.Second), job.Duration/took.Seconds())
+		w.log.Infof("auto captions transcribed upload=%s lang=%s plan=%s cues=%d music_spans=%d sounds=%d audio=%.0fs took=%s speed=%.2fx",
+			job.UploadID, lang, res.Detection, cues, len(res.Music), len(res.Sounds), job.Duration, took.Round(time.Second), job.Duration/took.Seconds())
 		// Kept on disk so a failed hand off doesn't mean transcribing again.
 		_ = os.WriteFile(filepath.Join(dir, captionVTTName), []byte(vtt), 0600)
 		_ = os.WriteFile(filepath.Join(dir, captionLangName), []byte(lang), 0600)
@@ -244,18 +252,19 @@ func (w *Worker) captionJob(ctx context.Context, job *queue.CaptionJob) captionO
 }
 
 // captionSegments asks the music detector where the caption audio is music,
-// for [Music] lines, and where it's speech, so a line whisper is known to make
-// up ("Thank you for watching!") can be dropped outside it. A song gets no
-// speech: its singing counts as music. Without the detector the captions just
-// go without either.
-func (w *Worker) captionSegments(ctx context.Context, uploadID, audioPath string, song bool) (music, speech []transcribe.Span) {
+// for [Music] lines, and where it's speech, so whisper can tell the language
+// from there and a line it's known to make up ("Thank you for watching!") can
+// be dropped outside it, plus the sounds worth a tag ([Laughter]). A song gets
+// no speech: its singing counts as music. Without the detector the captions
+// just go without.
+func (w *Worker) captionSegments(ctx context.Context, uploadID, audioPath string, song bool) (music, speech []transcribe.Span, sounds []transcribe.Tag) {
 	if w.cfg.Music == nil || !w.cfg.Music.Enabled() {
-		return nil, nil
+		return nil, nil, nil
 	}
-	segs, err := w.cfg.Music.Segments(ctx, audioPath)
+	segs, tags, err := w.cfg.Music.Segments(ctx, audioPath)
 	if err != nil {
 		w.log.Infof("auto captions without music labels upload=%s reason=%s", uploadID, err.Error())
-		return nil, nil
+		return nil, nil, nil
 	}
 	for _, s := range segs {
 		// Bounds also turn away NaN, which fails every comparison.
@@ -273,7 +282,22 @@ func (w *Worker) captionSegments(ctx context.Context, uploadID, audioPath string
 			speech = append(speech, span)
 		}
 	}
-	return music, speech
+	for _, t := range tags {
+		if len(sounds) >= maxCaptionSounds {
+			break
+		}
+		if !transcribe.IsSoundLabel(t.Label) || !(t.Start >= 0) || !(t.End > t.Start) || t.End > 24*3600 {
+			continue
+		}
+		sounds = append(sounds, transcribe.Tag{
+			Span: transcribe.Span{
+				Start: time.Duration(t.Start * float64(time.Second)),
+				End:   time.Duration(t.End * float64(time.Second)),
+			},
+			Label: t.Label,
+		})
+	}
+	return music, speech, sounds
 }
 
 // laterOrGiveUp retries a finished track until captionGiveUpAfter, then drops
@@ -315,23 +339,29 @@ func readCaptionResult(dir string) (lang, vtt string) {
 
 // sweepCaptionLeftovers removes caption folders no queued job owns any more.
 func (w *Worker) sweepCaptionLeftovers(maxAge time.Duration) int {
-	if w.cfg.CaptionsDir == "" {
+	return sweepJobDirs(w.cfg.CaptionsDir, w.queue.CaptionUploadIDs, maxAge)
+}
+
+// sweepJobDirs removes <root>/<user>/<upload> folders older than maxAge whose
+// upload no longer has a job queued.
+func sweepJobDirs(root string, queued func(context.Context) (map[string]bool, error), maxAge time.Duration) int {
+	if root == "" {
 		return 0
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
-	owned, err := w.queue.CaptionUploadIDs(ctx)
+	owned, err := queued(ctx)
 	if err != nil {
 		return 0
 	}
 	cutoff := time.Now().Add(-maxAge)
 	removed := 0
-	users, _ := os.ReadDir(w.cfg.CaptionsDir)
+	users, _ := os.ReadDir(root)
 	for _, u := range users {
 		if !u.IsDir() || !workerUserIDPattern.MatchString(u.Name()) {
 			continue
 		}
-		userDir := filepath.Join(w.cfg.CaptionsDir, u.Name())
+		userDir := filepath.Join(root, u.Name())
 		entries, _ := os.ReadDir(userDir)
 		for _, e := range entries {
 			if !upload.ValidUploadID(e.Name()) || owned[e.Name()] {

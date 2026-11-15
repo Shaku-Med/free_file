@@ -1,6 +1,6 @@
 # Playback security: what the token actually protects
 
-Status: accurate as of the pace limiter change.
+Status: accurate as of encrypted segments (keyed playback).
 
 I wrote this because the playback protections were being trusted for something
 they don't do. Short version: the current design stops people sharing URLs. It
@@ -111,6 +111,47 @@ missed.
 
 ---
 
+## Encrypted segments (keyed playback)
+
+Copying headers worked because every input to the checks above is copyable.
+So the segments themselves are now locked with something a copied request
+doesn't carry.
+
+A token minted with `k: 1` makes loadplay announce
+`#EXT-X-KEY:METHOD=AES-128` in each media playlist and encrypt every `.ts`
+segment on the way out (standard HLS AES-128, IV = media sequence, passed as
+`&s=` on the segment URL). The key is derived per playback from the secret,
+the file id and the token nonce, and is only served from
+`/v/<fileId>/lp.key`, which wants a signature only the watch page can make:
+
+1. `/api/play/mint` returns `{ url, proof }`. The proof is
+   `HMAC(secret, "lp-proof-v1|fileId|nonce")` and lives only in page memory
+   (`lib/playback/mint.client.ts`), never in HTML, storage or a URL.
+2. The player's key loader (`lib/playback/keyLoader.client.ts`) picks a random
+   `r`, sends `r` and `x = HMAC(proof, "key|"+r)`, and unmasks the answer with
+   `HMAC(proof, "mask|"+r)`.
+
+What that does to the downloaders, tested against the HLS grabber extension:
+
+| Path | Result |
+| --- | --- |
+| ffmpeg replaying copied headers | Gets encrypted segments, its key request has no proof, refused |
+| Extension refetching the playlist in the page | Same, no proof |
+| Extension copying the player's responses | Copies ciphertext; the key response isn't captured and is masked anyway |
+| Replaying the player's own signed key request | Gets the masked key, useless without the proof |
+
+There's deliberately no "each r works once" memory. Replay only returns the
+same masked bytes, and a memory big enough to matter could be filled by anyone
+minting their own tokens, which would lock every viewer out.
+
+Costs: keyed segments always stream through loadplay, so
+`R2_SEGMENT_REDIRECT_SECONDS` no longer applies to them and that traffic comes
+back to this box. AES-128 itself is cheap. Cast tokens are never keyed (a TV
+can't run our key loader). `PLAYBACK_ENCRYPT=0` in the app's env stops minting
+keyed tokens without a loadplay deploy.
+
+---
+
 ## The bit that can't be fixed without DRM
 
 If the browser can decode and show the frames, software running as or next to
@@ -131,7 +172,9 @@ So the honest position is:
 | Expired or forged token | Stopped, via HMAC and TTL |
 | Restricted account's content | Stopped, owner status checked in both layers |
 | Casual right click or devtools save | Stopped, there's no progressive URL, HLS only |
-| Local extension plus ffmpeg with copied headers | Slowed down, not stopped |
+| Local extension plus ffmpeg with copied headers | Stopped by encrypted segments |
+| Extension copying the player's responses | Stopped, it only gets ciphertext |
+| Tooling that hooks our own page JS or hls.js | Can still get the key, it runs as the page |
 | Screen recording | Nothing to be done |
 
 If something claims a stronger position than this table, it's wrong.

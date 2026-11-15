@@ -59,6 +59,52 @@ func ExtractSpeechAudio(srcPath, outPath string) error {
 	return nil
 }
 
+// CutSpeechAudio writes [start, start+length) of the captions audio as 16 kHz
+// mono WAV, for whisper to tell the language of or transcribe on its own.
+func CutSpeechAudio(ctx context.Context, srcPath, outPath string, start, length time.Duration) error {
+	args := []string{
+		"-hide_banner", "-loglevel", "error", "-y",
+		"-ss", strconv.FormatFloat(start.Seconds(), 'f', 3, 64),
+		"-i", srcPath,
+		"-t", strconv.FormatFloat(length.Seconds(), 'f', 3, 64),
+		"-map", "0:a:0", "-vn",
+		"-ac", "1", "-ar", "16000",
+		"-c:a", "pcm_s16le", "-f", "wav",
+		outPath,
+	}
+	if err := FFmpegCommand(ctx, args...).Run(); err != nil {
+		os.Remove(outPath)
+		return fmt.Errorf("cut speech audio: %w", err)
+	}
+	return nil
+}
+
+// ExtractStemsAudio writes up to maxSeconds of the first audio track as 44.1
+// kHz stereo FLAC, what the Demucs stem separator was trained on: cymbals live
+// above what a 16 kHz copy keeps, and the stereo image helps it split sources.
+func ExtractStemsAudio(srcPath, outPath string, maxSeconds int) error {
+	if err := os.MkdirAll(filepath.Dir(outPath), 0700); err != nil {
+		return fmt.Errorf("create output dir: %w", err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Minute)
+	defer cancel()
+
+	args := []string{
+		"-hide_banner", "-loglevel", "error", "-y",
+		"-i", srcPath,
+		"-map", "0:a:0", "-vn",
+		"-t", strconv.Itoa(maxSeconds),
+		"-ac", "2", "-ar", "44100",
+		"-c:a", "flac", "-f", "flac",
+		outPath,
+	}
+	if err := FFmpegCommand(ctx, args...).Run(); err != nil {
+		os.Remove(outPath)
+		return fmt.Errorf("extract stems audio: %w", err)
+	}
+	return nil
+}
+
 // ExtractAudioRange writes a short MP3 of [startSec, startSec+durSec) from the
 // source for AcoustID. The clip is intentionally small: AcoustID only uses the
 // fingerprint of the first ~120s, and GoUpload never uploads the whole file.

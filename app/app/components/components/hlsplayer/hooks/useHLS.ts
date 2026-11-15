@@ -5,6 +5,7 @@ import { useFileContext } from '~/lib/Context/Context';
 import { isLoadplayPlaybackUrl } from '~/lib/Services/loadplayPlayback.client';
 import { requestPlaybackUrlRefresh, playbackAssetPath } from '~/lib/playbackUrlCache';
 import { markLoadedMedia } from '~/lib/playback/loadedMedia';
+import { keyedLoaderClass } from '~/lib/playback/keyLoader.client';
 import { qualityLines } from '../quality';
 
 function hlsUsesCredentials(url: string): boolean {
@@ -51,6 +52,7 @@ function createHlsInstance(forLoadplay: boolean, isReel: boolean): Hls {
 
   return new Hls({
     enableWorker: !forLoadplay,
+    ...(forLoadplay ? { loader: keyedLoaderClass() } : {}),
     // Fast start on weak links: begin at the lowest rung and let ABR climb, so
     // playback starts almost immediately instead of stalling while the player
     // probes for a higher quality. Good/unknown connections keep the default

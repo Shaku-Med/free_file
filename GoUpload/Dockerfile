@@ -34,10 +34,13 @@ RUN git init -q . \
 
 # The model, checked against a pinned hash: the build fails rather than ship
 # anything else. A file ADDed from a URL is root only (600) by default, and
-# whisper runs as the app user, so it's made readable.
+# whisper runs as the app user, so it's made readable. large-v3-turbo has the
+# large model's encoder, so it hears far more (and tells languages apart far
+# better) than small did, with a small decoder that keeps it about three times
+# slower rather than ten.
 FROM scratch AS whisper-models
-ADD --chmod=644 --checksum=sha256:ae85e4a935d7a567bd102fe55afc16bb595bdb618e11b2fc7591bc08120411bb \
-    https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small-q5_1.bin /ggml-small-q5_1.bin
+ADD --chmod=644 --checksum=sha256:394221709cd5ad1f40c46e6031ca61bce88931e6e088c188294c6d5a55ffa7e2 \
+    https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q5_0.bin /ggml-large-v3-turbo-q5_0.bin
 
 # ── Final ────────────────────────────────────────────────────
 FROM alpine:3.20
@@ -50,7 +53,7 @@ RUN apk add --no-cache ca-certificates tzdata ffmpeg libstdc++ libgomp \
 # Before the goupload binary, so a normal deploy doesn't ship the model again.
 COPY --from=whisper-models / /opt/whisper/
 COPY --from=whisper /src/whisper/build/bin/whisper-cli /usr/local/bin/whisper-cli
-ENV WHISPER_MODEL=/opt/whisper/ggml-small-q5_1.bin
+ENV WHISPER_MODEL=/opt/whisper/ggml-large-v3-turbo-q5_0.bin
 WORKDIR /app
 COPY --from=build /out/goupload /app/goupload
 USER app

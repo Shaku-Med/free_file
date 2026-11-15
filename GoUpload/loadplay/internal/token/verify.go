@@ -22,6 +22,13 @@ type Playback struct {
 	Nonce       string `json:"n,omitempty"`
 	GuestLimit  int64  `json:"g,omitempty"` // guest preview cap (seconds); app-minted only
 	Cast        int    `json:"c,omitempty"` // 1 = cast device token (no browser origin/UA)
+	Keyed       int    `json:"k,omitempty"` // 1 = segments encrypted, key needs the page's proof
+}
+
+// IsKeyed reports whether this playback's segments are encrypted. Cast
+// devices can't run the page's key handling, so their tokens never are.
+func (p *Playback) IsKeyed() bool {
+	return p.Keyed == 1 && p.Nonce != "" && p.Cast == 0
 }
 
 // IsCast reports whether this token was minted for a Cast/TV device, which has

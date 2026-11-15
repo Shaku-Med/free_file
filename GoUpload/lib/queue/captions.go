@@ -4,18 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"time"
-
-	"github.com/redis/go-redis/v9"
 )
 
-// Auto captions have their own queue with a single consumer. A job stays on
-// the list until it is finished, so one a deploy interrupts is simply picked up
-// again; the attempts counter stops one that keeps failing from looping.
-const (
-	captionsQueueKey     = "captions_jobs"
-	captionAttemptPrefix = "captions:attempts:"
-	captionAttemptTTL    = 7 * 24 * time.Hour
-)
+// Auto captions have their own queue with a single consumer (see jobList).
+var captionsList = jobList{key: "captions_jobs", attemptPrefix: "captions:attempts:"}
 
 type CaptionJob struct {
 	UploadID string `json:"upload_id"`
@@ -30,22 +22,15 @@ type CaptionJob struct {
 }
 
 func (c *Client) PushCaptionJob(ctx context.Context, job *CaptionJob) error {
-	data, err := json.Marshal(job)
-	if err != nil {
-		return err
-	}
-	return c.rdb.RPush(ctx, captionsQueueKey, data).Err()
+	return captionsList.push(ctx, c.rdb, job)
 }
 
 // PeekCaptionJob returns the job at the front without taking it off, with its
 // raw form for RemoveCaptionJob. raw is "" when the queue is empty; job is nil
 // with a non empty raw when the entry can't be read.
 func (c *Client) PeekCaptionJob(ctx context.Context) (*CaptionJob, string, error) {
-	raw, err := c.rdb.LIndex(ctx, captionsQueueKey, 0).Result()
-	if err == redis.Nil {
-		return nil, "", nil
-	}
-	if err != nil {
+	raw, err := captionsList.peek(ctx, c.rdb)
+	if err != nil || raw == "" {
 		return nil, "", err
 	}
 	var job CaptionJob
@@ -56,49 +41,25 @@ func (c *Client) PeekCaptionJob(ctx context.Context) (*CaptionJob, string, error
 }
 
 func (c *Client) RemoveCaptionJob(ctx context.Context, raw string) error {
-	return c.rdb.LRem(ctx, captionsQueueKey, 1, raw).Err()
+	return captionsList.remove(ctx, c.rdb, raw)
 }
 
-// MoveCaptionJobLast sends a job that has to wait to the back, so it doesn't
-// hold up the ones behind it.
 func (c *Client) MoveCaptionJobLast(ctx context.Context, raw string) error {
-	if err := c.rdb.LRem(ctx, captionsQueueKey, 1, raw).Err(); err != nil {
-		return err
-	}
-	return c.rdb.RPush(ctx, captionsQueueKey, raw).Err()
+	return captionsList.moveLast(ctx, c.rdb, raw)
 }
 
 func (c *Client) CaptionUploadIDs(ctx context.Context) (map[string]bool, error) {
-	raw, err := c.rdb.LRange(ctx, captionsQueueKey, 0, -1).Result()
-	if err != nil {
-		return nil, err
-	}
-	ids := make(map[string]bool, len(raw))
-	for _, r := range raw {
-		var j CaptionJob
-		if json.Unmarshal([]byte(r), &j) == nil && j.UploadID != "" {
-			ids[j.UploadID] = true
-		}
-	}
-	return ids, nil
+	return captionsList.uploadIDs(ctx, c.rdb)
 }
 
-// CaptionAttempt counts one more start of this upload's transcription.
 func (c *Client) CaptionAttempt(ctx context.Context, uploadID string) (int64, error) {
-	key := captionAttemptPrefix + uploadID
-	n, err := c.rdb.Incr(ctx, key).Result()
-	if err != nil {
-		return 0, err
-	}
-	_ = c.rdb.Expire(ctx, key, captionAttemptTTL).Err()
-	return n, nil
+	return captionsList.attempt(ctx, c.rdb, uploadID)
 }
 
-// UndoCaptionAttempt takes back a start that a shutdown cut short.
 func (c *Client) UndoCaptionAttempt(ctx context.Context, uploadID string) {
-	_ = c.rdb.Decr(ctx, captionAttemptPrefix+uploadID).Err()
+	captionsList.undoAttempt(ctx, c.rdb, uploadID)
 }
 
 func (c *Client) ClearCaptionAttempts(ctx context.Context, uploadID string) {
-	_ = c.rdb.Del(ctx, captionAttemptPrefix+uploadID).Err()
+	captionsList.clearAttempts(ctx, c.rdb, uploadID)
 }

@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"path"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -183,7 +184,11 @@ func Manifest(deps ManifestDeps) fiber.Handler {
 		}
 
 		publicBase := requestPublicBase(c, deps)
-		rewritten, err := rewriteManifest(body, askedPath, rawTok, tok.FileID, publicBase)
+		keyURI := ""
+		if tok.IsKeyed() && hls.IsMediaPlaylist(body) && keyablePlaylist(body) {
+			keyURI = strings.TrimRight(publicBase, "/") + "/v/" + tok.FileID + "/" + keyAssetName + "?t=" + rawTok
+		}
+		rewritten, err := rewriteManifest(body, askedPath, rawTok, tok.FileID, publicBase, keyURI)
 		if err != nil {
 			deps.Log.Errorf("manifest rewrite err=%s", err.Error())
 			return deny(c, fiber.StatusBadGateway)
@@ -426,7 +431,11 @@ func fetchUpstreamWith(ctx context.Context, deps ManifestDeps, st storage.Config
 // rewriteManifest swaps every storage path the manifest references into
 // a CDN URL carrying the SAME token. One token, one playback session,
 // the whole HLS surface is reachable until the token expires.
-func rewriteManifest(body, manifestPath, rawToken, fileID, publicBase string) (string, error) {
+//
+// With keyURI set (a keyed media playlist) the segments are announced as
+// AES-128 with that key, and each segment URL names its media sequence
+// number, which is the IV it gets encrypted with.
+func rewriteManifest(body, manifestPath, rawToken, fileID, publicBase, keyURI string) (string, error) {
 	dir := path.Dir(manifestPath)
 	if dir == "." {
 		dir = ""
@@ -454,6 +463,8 @@ func rewriteManifest(body, manifestPath, rawToken, fileID, publicBase string) (s
 
 	var out strings.Builder
 	out.Grow(len(body) + 256)
+	var seq uint64
+	keyWritten := false
 	scanner := bufio.NewScanner(strings.NewReader(body))
 	scanner.Buffer(make([]byte, 0, 64*1024), 1<<20)
 	for scanner.Scan() {
@@ -463,9 +474,25 @@ func rewriteManifest(body, manifestPath, rawToken, fileID, publicBase string) (s
 		case trimmed == "":
 			out.WriteString(line)
 		case strings.HasPrefix(trimmed, "#"):
+			if keyURI != "" {
+				if n, ok := strings.CutPrefix(trimmed, "#EXT-X-MEDIA-SEQUENCE:"); ok {
+					if v, err := strconv.ParseUint(strings.TrimSpace(n), 10, 64); err == nil {
+						seq = v
+					}
+				}
+				if !keyWritten && strings.HasPrefix(trimmed, "#EXTINF") {
+					out.WriteString(`#EXT-X-KEY:METHOD=AES-128,URI="` + keyURI + `"` + "\n")
+					keyWritten = true
+				}
+			}
 			out.WriteString(rewriteTagURI(line, resolve))
 		default:
-			out.WriteString(resolve(trimmed))
+			uri := resolve(trimmed)
+			if keyURI != "" && uri != "" {
+				uri += "&s=" + strconv.FormatUint(seq, 10)
+				seq++
+			}
+			out.WriteString(uri)
 		}
 		out.WriteByte('\n')
 	}

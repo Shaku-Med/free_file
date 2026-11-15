@@ -30,6 +30,7 @@ import (
 	"goupload/lib/queue"
 	"goupload/lib/r2"
 	"goupload/lib/security"
+	"goupload/lib/stems"
 	"goupload/lib/transcribe"
 	"goupload/lib/webhook"
 )
@@ -69,6 +70,11 @@ type Config struct {
 	// each queued upload's audio: upload/captions/{userID}/{uploadID}/
 	Transcriber *transcribe.Config
 	CaptionsDir string
+	// Stems separates music uploads for the visualizer; nil or disabled keeps
+	// the instant full mix analysis. StemsDir holds each queued upload's
+	// audio: upload/stems/{userID}/{uploadID}/
+	Stems    *stems.Client
+	StemsDir string
 }
 
 type Worker struct {
@@ -1750,6 +1756,10 @@ func (w *Worker) processJob(job *queue.Job) {
 	// gets none, since whisper's speech detector finds nothing to write.
 	hasSound := hasAudio && videoInfo != nil && videoInfo.AudioCodec != ""
 	w.enqueueCaptions(job, result.OutputPath, ghPrefix, videoDuration, hasSound, isMusic)
+	// Separated stems are worth it wherever the visualizer has music to
+	// follow, not only on uploads that are music from start to end.
+	hasMusic := isMusic || (musicRes != nil && musicRes.MusicSeconds >= stemsMinMusicSeconds)
+	w.enqueueStems(job, result.OutputPath, ghPrefix, videoDuration, hasSound && hasMusic)
 
 	// Cleanup local HLS + thumbnail dirs
 	_ = os.RemoveAll(hlsDir)

@@ -19,6 +19,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "~/components/ui/popover
 import MiniPlayerQueue from "./MiniPlayerQueue";
 import { useWatchPlayBootstrap } from "~/lib/Context/WatchPlayBootstrapContext";
 import type { FileType } from "~/lib/types";
+import { mintPlayback } from "~/lib/playback/mint.client";
 
 /**
  * Shared empty list for "this file has no series up-next".
@@ -329,14 +330,7 @@ function MiniPlayerContent() {
       if (!uid || queueBusyId) return;
       setQueueBusyId(uid);
       try {
-        const res = await fetch("/api/play/mint", {
-          method: "POST",
-          credentials: "same-origin",
-          headers: { "Content-Type": "application/json", "X-Requested-With": "fetch" },
-          body: JSON.stringify({ fileId: uid }),
-        });
-        const body = res.ok ? ((await res.json().catch(() => null)) as { url?: string } | null) : null;
-        const src = body?.url;
+        const src = await mintPlayback(uid);
         if (!src) return;
         activateMiniPlayer({ src, file: f, imageID: uid });
         // No manual clear needed: queueItems is derived and filters out the file
