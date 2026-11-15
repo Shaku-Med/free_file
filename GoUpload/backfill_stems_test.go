@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"log"
 	"net/http"
@@ -13,6 +14,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -179,6 +181,23 @@ func TestBackfillQueuesOldMusicEndToEnd(t *testing.T) {
 	}))
 	defer db.Close()
 
+	// StemsAPI is still starting when room opens, so nothing may be queued yet.
+	var stemsReady atomic.Bool
+	var stemsRefused atomic.Int32
+	stems := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/health" {
+			http.NotFound(w, r)
+			return
+		}
+		if !stemsReady.Load() {
+			stemsRefused.Add(1)
+			http.Error(w, "starting", http.StatusServiceUnavailable)
+			return
+		}
+		io.WriteString(w, `{"status":"ok","inflight":0}`)
+	}))
+	defer stems.Close()
+
 	work := t.TempDir()
 	stemsDir := filepath.Join(work, "stems")
 	state, _ := openBackfillState(filepath.Join(work, "state.jsonl"), false, false)
@@ -189,12 +208,15 @@ func TestBackfillQueuesOldMusicEndToEnd(t *testing.T) {
 		q.mu.Lock()
 		q.ids = map[string]bool{}
 		q.mu.Unlock()
+		time.Sleep(100 * time.Millisecond)
+		stemsReady.Store(true)
 	}()
 	var logs bytes.Buffer
 	b := &stemsBackfill{
 		sbURL: db.URL, sbKey: "service", store: store, queue: q,
 		http: &http.Client{Timeout: 10 * time.Second}, stemsDir: stemsDir, workDir: work,
-		before: stemsBackfillCutoff, maxQueued: 2, poll: 20 * time.Millisecond, state: state,
+		stemsHealth: stems.URL + "/health",
+		before:      stemsBackfillCutoff, maxQueued: 2, poll: 20 * time.Millisecond, state: state,
 		log: log.New(&logs, "", 0),
 	}
 	if err := b.run(context.Background()); err != nil {
@@ -229,6 +251,12 @@ func TestBackfillQueuesOldMusicEndToEnd(t *testing.T) {
 	if strings.Contains(logs.String(), "X-Amz-Signature") {
 		t.Fatalf("a signed link reached the log")
 	}
+	if stemsRefused.Load() == 0 || !strings.Contains(logs.String(), "waiting before queueing more") || !strings.Contains(logs.String(), "StemsAPI is back") {
+		t.Fatalf("did not wait for StemsAPI (refused %d)\n%s", stemsRefused.Load(), logs.String())
+	}
+	if n := strings.Count(logs.String(), "is not answering"); n != 1 {
+		t.Fatalf("logged the outage %d times, want once", n)
+	}
 
 	// A rerun picks up where the first left off and queues nothing new.
 	state2, _ := openBackfillState(filepath.Join(work, "state.jsonl"), false, false)
@@ -239,6 +267,59 @@ func TestBackfillQueuesOldMusicEndToEnd(t *testing.T) {
 	state2.Close()
 	if len(q.pushed) != 1 {
 		t.Fatalf("rerun queued again: %d jobs", len(q.pushed))
+	}
+}
+
+func TestBackfillLockStopsASecondRun(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "state.jsonl.lock")
+	unlock, err := lockBackfill(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := lockBackfill(p); !errors.Is(err, errBackfillRunning) {
+		t.Fatalf("second lock = %v, want errBackfillRunning", err)
+	}
+	unlock()
+	unlock2, err := lockBackfill(p)
+	if err != nil {
+		t.Fatalf("lock after release: %v", err)
+	}
+	unlock2()
+}
+
+func TestStemsHealthURL(t *testing.T) {
+	for in, want := range map[string]string{
+		"http://stemsapi:3010/separate":     "http://stemsapi:3010/health",
+		"https://box/stems/separate?a=b#c":  "https://box/stems/health",
+		"http://u:p@stemsapi:3010/separate": "http://stemsapi:3010/health",
+		"ftp://stemsapi/separate":           "",
+		"stemsapi:3010/separate":            "",
+		"http:///separate":                  "",
+	} {
+		got, err := stemsHealthURL(in)
+		if want == "" {
+			if err == nil {
+				t.Errorf("%q: accepted as %q", in, got)
+			}
+			continue
+		}
+		if err != nil || got != want {
+			t.Errorf("%q = %q, %v; want %q", in, got, err, want)
+		}
+	}
+}
+
+func TestWaitForStemsStopsWithContext(t *testing.T) {
+	down := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "down", http.StatusBadGateway)
+	}))
+	defer down.Close()
+	b := &stemsBackfill{http: &http.Client{Timeout: time.Second}, stemsHealth: down.URL + "/health",
+		poll: 5 * time.Millisecond, log: log.New(io.Discard, "", 0)}
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	if err := b.waitForStems(ctx); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("waitForStems = %v, want the context's deadline", err)
 	}
 }
 

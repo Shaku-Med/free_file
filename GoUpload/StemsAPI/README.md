@@ -66,6 +66,10 @@ docker exec -d goupload /app/goupload -backfill-stems
 docker exec goupload tail -n 20 /app/upload/stems-backfill.log
 ```
 
+Only one run goes at a time: a second start writes "not starting" to the log
+and exits. While this service is down the backfill waits instead of queueing,
+since a job queued then would use up its attempts.
+
 `-limit N` stops after N uploads, `-retry-failed` tries earlier failures again,
 and `-before` moves the cutoff (default: when this service went live).
 
