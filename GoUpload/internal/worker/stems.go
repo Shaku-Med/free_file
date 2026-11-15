@@ -166,6 +166,11 @@ func (w *Worker) stemsJob(ctx context.Context, job *queue.StemsJob) stemsOutcome
 		w.queue.UndoStemsAttempt(context.Background(), job.UploadID)
 		return stemsLater
 	}
+	if errors.Is(err, stems.ErrUnreachable) {
+		w.queue.UndoStemsAttempt(context.Background(), job.UploadID)
+		w.log.Infof("stems waiting upload=%s: %s, not counted as a try", job.UploadID, err.Error())
+		return stemsLater
+	}
 	if err != nil {
 		w.log.Errorf("stems failed upload=%s attempt=%d err=%s", job.UploadID, n, err.Error())
 		return stemsLater
