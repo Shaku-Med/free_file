@@ -2,12 +2,9 @@ package handler
 
 import (
 	"bufio"
-	"crypto/aes"
-	"crypto/cipher"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/base64"
-	"encoding/binary"
 	"regexp"
 	"strconv"
 	"strings"
@@ -60,25 +57,6 @@ func macOf(key []byte, msg string) []byte {
 	mac := hmac.New(sha256.New, key)
 	mac.Write([]byte(msg))
 	return mac.Sum(nil)
-}
-
-// encryptSegment is HLS AES-128: CBC over the whole segment with PKCS7
-// padding, the IV being the segment's media sequence number.
-func encryptSegment(key []byte, seq uint64, plain []byte) ([]byte, error) {
-	block, err := aes.NewCipher(key)
-	if err != nil {
-		return nil, err
-	}
-	iv := make([]byte, aes.BlockSize)
-	binary.BigEndian.PutUint64(iv[8:], seq)
-	pad := aes.BlockSize - len(plain)%aes.BlockSize
-	out := make([]byte, len(plain)+pad)
-	copy(out, plain)
-	for i := len(plain); i < len(out); i++ {
-		out[i] = byte(pad)
-	}
-	cipher.NewCBCEncrypter(block, iv).CryptBlocks(out, out)
-	return out, nil
 }
 
 // keyablePlaylist is a media playlist of whole .ts segments with no key,

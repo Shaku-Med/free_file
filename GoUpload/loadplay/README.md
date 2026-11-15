@@ -28,7 +28,10 @@ every segment encrypted on the way out, so copied requests only fetch
 ciphertext. The key comes from `lp.key`, which needs `r` and an HMAC of it
 made with the proof secret the app's mint hands the watch page. Design and
 threat table: `docs/Playback-Security.md`. Keyed segments are always streamed
-from here, never redirected to R2.
+from here, never redirected to R2. They are encrypted as they stream, so a
+cold segment starts reaching the player before it has fully downloaded, while
+the upstream fetch runs at its own speed and a slow client never holds a fetch
+gate slot.
 
 ## Env
 
