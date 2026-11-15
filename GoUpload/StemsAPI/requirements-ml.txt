@@ -1,0 +1,14 @@
+# Demucs and what its model code imports. Installed with --no-deps AFTER the
+# CPU torch wheel, so nothing here can pull a second (CUDA) torch, torchaudio
+# or an mp3 encoder in behind it: separation only needs the model, and the
+# service decodes audio with ffmpeg itself. Versions are the ones tested.
+demucs==4.0.1
+openunmix==1.3.0
+dora-search==0.1.13
+treetable==0.2.6
+omegaconf==2.4.0
+PyYAML==6.0.3
+einops==0.8.2
+julius==0.2.8
+tqdm==4.70.1
+numpy==2.4.6

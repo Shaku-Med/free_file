@@ -20,6 +20,7 @@ import (
 	"unicode"
 
 	"goupload/lib/captions"
+	"goupload/lib/ffmpeg"
 )
 
 type Config struct {
@@ -118,6 +119,10 @@ type Result struct {
 	// talking over a score and rapping over a beat read as music to the
 	// detector, so everything else stays. Left out for songs.
 	Speech []Span
+	// Sounds are tagged sounds such as laughter and applause, when known.
+	Sounds []Tag
+	// Detection says which language each stretch was transcribed in, for logs.
+	Detection string
 }
 
 // Span is a stretch of the audio.
@@ -125,13 +130,135 @@ type Span struct {
 	Start, End time.Duration
 }
 
-// Run transcribes audioPath, writing whisper's own output into workDir.
-func (c *Config) Run(ctx context.Context, audioPath, workDir string, song bool) (*Result, error) {
-	outBase := filepath.Join(workDir, "whisper")
-	args := []string{
-		"-m", c.Model,
-		"-f", audioPath,
-		"-l", "auto",
+// Tag is a sound the music detector heard, named as it names them.
+type Tag struct {
+	Span
+	Label string
+}
+
+// soundLabels are the sounds captions tag and how they're written, as on
+// YouTube. Any other name is ignored, so nothing from the detector lands in a
+// caption as is.
+var soundLabels = map[string]string{
+	"Laughter": "[Laughter]", "Applause": "[Applause]", "Cheering": "[Cheering]",
+	"Shouting": "[Shouting]", "Screaming": "[Screaming]", "Crying": "[Crying]",
+	"Breathing": "[Breathing]", "Sighs": "[Sighs]", "Gasps": "[Gasps]",
+	"Coughing": "[Coughing]", "Sneezing": "[Sneezing]", "Whistling": "[Whistling]",
+	"Dog barking": "[Dog barking]",
+}
+
+// IsSoundLabel reports a sound name captions know how to tag.
+func IsSoundLabel(name string) bool {
+	_, ok := soundLabels[name]
+	return ok
+}
+
+// Run transcribes audioPath, duration long, writing whisper's own output into
+// workDir. The language is told from where people talk (speech, when known)
+// rather than from the first 30 seconds, and a video in more than one language
+// is transcribed a stretch at a time, each in its own.
+func (c *Config) Run(ctx context.Context, audioPath, workDir string, song bool, duration time.Duration, speech []Span) (*Result, error) {
+	plan, err := c.plan(ctx, audioPath, workDir, duration, speech)
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
+	note := ""
+	if err != nil {
+		// Captions in whisper's own pick beat none at all.
+		note = "language probes failed: " + err.Error()
+		plan = []region{{Span: Span{0, duration}}}
+	}
+	if len(plan) == 1 {
+		res, err := c.transcribe(ctx, []string{audioPath}, []string{filepath.Join(workDir, "whisper")}, plan[0].lang, song)
+		if err != nil {
+			return nil, err
+		}
+		res[0].Detection = describePlan(plan, note)
+		return res[0], nil
+	}
+
+	byLang := map[string][]int{}
+	var order []string
+	spoken := map[string]time.Duration{}
+	for i, r := range plan {
+		if _, ok := byLang[r.lang]; !ok {
+			order = append(order, r.lang)
+		}
+		byLang[r.lang] = append(byLang[r.lang], i)
+		spoken[r.lang] += r.End - r.Start
+	}
+	out := &Result{Detection: describePlan(plan, note)}
+	for _, lang := range order {
+		var inputs, outs []string
+		for _, i := range byLang[lang] {
+			clip := filepath.Join(workDir, fmt.Sprintf("region%03d.wav", i))
+			if err := ffmpeg.CutSpeechAudio(ctx, audioPath, clip, plan[i].Start, plan[i].End-plan[i].Start); err != nil {
+				return nil, err
+			}
+			defer os.Remove(clip)
+			inputs = append(inputs, clip)
+			outs = append(outs, filepath.Join(workDir, fmt.Sprintf("region%03d", i)))
+		}
+		results, err := c.transcribe(ctx, inputs, outs, lang, song)
+		if err != nil {
+			return nil, err
+		}
+		for k, i := range byLang[lang] {
+			for _, cue := range results[k].Cues {
+				cue.Start += plan[i].Start
+				cue.End += plan[i].Start
+				out.Cues = append(out.Cues, cue)
+			}
+		}
+		if out.Language == "" || spoken[lang] > spoken[out.Language] {
+			out.Language = lang
+		}
+	}
+	sort.SliceStable(out.Cues, func(i, j int) bool { return out.Cues[i].Start < out.Cues[j].Start })
+	return out, nil
+}
+
+// describePlan says what language each stretch went to, for the logs.
+func describePlan(plan []region, note string) string {
+	parts := make([]string, 0, len(plan))
+	for _, r := range plan {
+		lang := r.lang
+		if lang == "" {
+			lang = "auto"
+		}
+		parts = append(parts, fmt.Sprintf("%s@%.0fs", lang, r.Start.Seconds()))
+	}
+	s := strings.Join(parts, ",")
+	if note != "" {
+		s += " (" + note + ")"
+	}
+	return s
+}
+
+// command runs whisper-cli with args at the configured CPU priority.
+func (c *Config) command(ctx context.Context, args []string) *exec.Cmd {
+	name := c.Bin
+	if c.Nice > 0 {
+		if nice, err := exec.LookPath("nice"); err == nil {
+			args = append([]string{"-n", strconv.Itoa(c.Nice), c.Bin}, args...)
+			name = nice
+		}
+	}
+	return exec.CommandContext(ctx, name, args...)
+}
+
+// transcribe runs whisper once over every input, each into its own output, in
+// lang ("" lets whisper pick).
+func (c *Config) transcribe(ctx context.Context, inputs, outBases []string, lang string, song bool) ([]*Result, error) {
+	if lang == "" {
+		lang = "auto"
+	}
+	args := []string{"-m", c.Model}
+	for i := range inputs {
+		args = append(args, "-f", inputs[i], "-of", outBases[i])
+	}
+	args = append(args,
+		"-l", lang,
 		"-t", strconv.Itoa(c.Threads),
 		// One segment per word, so every word carries its own time.
 		"-ml", "1", "-sow",
@@ -144,42 +271,39 @@ func (c *Config) Run(ctx context.Context, audioPath, workDir string, song bool) 
 		"-dtw", c.DTW, "-nfa", "-bs", "1", "-bo", "1",
 		// No [Music] / ♪ style tokens: those are what it invents over non speech.
 		"-sns",
-		"-ojf", "-of", outBase,
+		"-ojf",
 		"-np",
-	}
+	)
 	// Each 30 s window isn't led by the text before it: carried over, one "..."
 	// turned a whole song into dots, and a chorus already written once got
 	// skipped when it came round again.
-	if song {
-		args = append(args, "-mc", "0")
+	if p, ok := promptFor(lang); !song && ok {
+		// Instead every window starts from a short prompt in the language. It's
+		// two filler words, so a rare leak into the captions still reads as
+		// speech; songs skip it, as whisper is likelier to echo it over music.
+		args = append(args, "-mc", strconv.Itoa(p.tokens+1), "--carry-initial-prompt", "--prompt", p.text)
 	} else {
-		// Instead every window starts from a short prompt written normally,
-		// which holds whisper to capitals and punctuation; four tokens is the
-		// prompt and nothing more. It's two filler words, so a rare leak into
-		// the captions still reads as speech; songs skip it, as whisper is
-		// likelier to echo it over music.
-		args = append(args, "-mc", "4", "--carry-initial-prompt", "--prompt", "Right, okay.")
-	}
-	name := c.Bin
-	if c.Nice > 0 {
-		if nice, err := exec.LookPath("nice"); err == nil {
-			args = append([]string{"-n", strconv.Itoa(c.Nice), c.Bin}, args...)
-			name = nice
-		}
+		args = append(args, "-mc", "0")
 	}
 
 	stderr := &tailBuffer{max: 2048}
-	cmd := exec.CommandContext(ctx, name, args...)
+	cmd := c.command(ctx, args)
 	cmd.Stderr = stderr
 	if err := cmd.Run(); err != nil {
 		return nil, fmt.Errorf("whisper-cli: %w: %s", err, strings.TrimSpace(stderr.String()))
 	}
-	raw, err := os.ReadFile(outBase + ".json")
-	if err != nil {
-		return nil, fmt.Errorf("whisper output: %w", err)
+	results := make([]*Result, len(outBases))
+	for i, base := range outBases {
+		raw, err := os.ReadFile(base + ".json")
+		_ = os.Remove(base + ".json")
+		if err != nil {
+			return nil, fmt.Errorf("whisper output: %w", err)
+		}
+		if results[i], err = ParseJSON(raw); err != nil {
+			return nil, err
+		}
 	}
-	_ = os.Remove(outBase + ".json")
-	return ParseJSON(raw)
+	return results, nil
 }
 
 type whisperJSON struct {
@@ -689,6 +813,92 @@ func musicCues(music []Span, speech []Cue) []Cue {
 	return out
 }
 
+const (
+	// A tag on a line of its own stays up at least this long.
+	minTagShow = time.Second
+	// The same sound heard again this soon is still the one sound.
+	tagBridge = time.Second
+	// Most tags put in front of one caption line.
+	maxLineTags = 2
+)
+
+// soundCues tags each sound on the caption line it's heard during, in front of
+// the words ("[Laughter] so anyway"), and returns lines of their own for the
+// sounds nobody talks over. lines must be in time order.
+func soundCues(tags []Tag, lines []Cue) []Cue {
+	sorted := make([]Tag, 0, len(tags))
+	for _, t := range tags {
+		if IsSoundLabel(t.Label) && t.End > t.Start && t.Start >= 0 {
+			sorted = append(sorted, t)
+		}
+	}
+	sort.SliceStable(sorted, func(i, j int) bool { return sorted[i].Start < sorted[j].Start })
+	var merged []Tag
+	last := map[string]int{}
+	for _, t := range sorted {
+		if i, ok := last[t.Label]; ok && t.Start-merged[i].End <= tagBridge {
+			merged[i].End = max(merged[i].End, t.End)
+			continue
+		}
+		last[t.Label] = len(merged)
+		merged = append(merged, t)
+	}
+
+	var out []Cue
+	for _, t := range merged {
+		label := soundLabels[t.Label]
+		if i := lineHeardDuring(lines, t.Span); i >= 0 {
+			tagLine(&lines[i], label)
+			continue
+		}
+		end := max(t.End, t.Start+minTagShow)
+		for _, c := range lines {
+			if c.Start >= t.Start {
+				end = min(end, c.Start)
+				break
+			}
+		}
+		if end > t.Start {
+			out = append(out, Cue{Start: t.Start, End: end, Text: label})
+		}
+	}
+	return out
+}
+
+// lineHeardDuring is the line playing when the span starts, or else the first
+// one starting inside it; -1 when it overlaps none.
+func lineHeardDuring(lines []Cue, s Span) int {
+	for i, c := range lines {
+		if c.Start <= s.Start && s.Start < c.End {
+			return i
+		}
+	}
+	for i, c := range lines {
+		if c.Start >= s.Start && c.Start < s.End {
+			return i
+		}
+	}
+	return -1
+}
+
+func tagLine(c *Cue, label string) {
+	rest := c.Text
+	for n := 0; strings.HasPrefix(rest, "["); n++ {
+		end := strings.IndexByte(rest, ']')
+		if end < 0 {
+			break
+		}
+		if rest[:end+1] == label || n+1 >= maxLineTags {
+			return
+		}
+		rest = strings.TrimLeft(rest[end+1:], " ")
+	}
+	c.Text = label + " " + c.Text
+	if len(c.Words) > 0 {
+		c.Words = append([]Word{{Start: c.Start, Text: label}}, c.Words...)
+	}
+}
+
 // VTT groups the result into lines, cleans them, labels music nobody is
 // speaking over, and writes WebVTT through the same sanitizer owner uploaded
 // captions go through. Every word after the first in a line is preceded by its
@@ -705,25 +915,29 @@ func VTT(res *Result) (lang, vtt string, cues int, err error) {
 	}
 	switch {
 	case errors.Is(err, ErrNoSpeech):
-		// Nothing said, so only music can make a track, and its language is the
-		// label's: whisper's guess for an instrumental means nothing.
-		music := musicCues(res.Music, nil)
+		// Nothing said, so only music and sounds can make a track, and its
+		// language is the labels': whisper's guess for an instrumental means
+		// nothing.
+		labels := soundCues(res.Sounds, nil)
+		labels = append(labels, musicCues(res.Music, labels)...)
 		var total time.Duration
-		for _, m := range music {
+		for _, m := range labels {
 			total += m.End - m.Start
 		}
 		if total < minMusicOnly {
 			return "", "", 0, err
 		}
-		lang, cleaned = "en", music
+		lang, cleaned = "en", labels
 	case err != nil:
 		return "", "", 0, err
 	case !knownLang:
 		return "", "", 0, ErrNoLanguage
 	default:
-		cleaned = append(cleaned, musicCues(res.Music, cleaned)...)
+		cleaned = append(cleaned, soundCues(res.Sounds, cleaned)...)
 		sort.SliceStable(cleaned, func(i, j int) bool { return cleaned[i].Start < cleaned[j].Start })
+		cleaned = append(cleaned, musicCues(res.Music, cleaned)...)
 	}
+	sort.SliceStable(cleaned, func(i, j int) bool { return cleaned[i].Start < cleaned[j].Start })
 	var b strings.Builder
 	b.WriteString("WEBVTT\n\n")
 	for _, c := range cleaned {

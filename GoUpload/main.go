@@ -35,6 +35,7 @@ import (
 	"goupload/lib/nsfwstrikes"
 	"goupload/lib/queue"
 	"goupload/lib/r2"
+	stemslib "goupload/lib/stems"
 	"goupload/lib/transcribe"
 )
 
@@ -119,6 +120,17 @@ func main() {
 		appLog.Infof("music detector client ready url=%s", env.Get("MUSIC_API_URL", ""))
 	}
 
+	// Local StemsAPI sidecar: Demucs stems for the visualizer. Optional: when
+	// STEMS_API_URL is unset uploads keep the instant full mix analysis. Asked
+	// for with a missing secret, it stays off rather than call out unsigned.
+	stemsURL := env.Get("STEMS_API_URL", "")
+	stemsClient := stemslib.NewClient(stemsURL, env.Get("STEMS_API_SECRET", ""))
+	if stemsClient.Enabled() {
+		appLog.Infof("stems client ready url=%s", stemsURL)
+	} else if stemsURL != "" && stemsURL != "disabled" {
+		appLog.Errorf("stems off: STEMS_API_SECRET is not set")
+	}
+
 	// Local AcoustID sidecar: song metadata for music uploads. Defaults to the
 	// local sidecar (same idea as NSFW_API_URL). Set ACOUSTID_API_URL=disabled
 	// to turn it off. Soft-fails if the sidecar is down.
@@ -185,6 +197,8 @@ func main() {
 		Fingerprints:  fpDB,
 		Transcriber:   transcriber,
 		CaptionsDir:   "upload/captions",
+		Stems:         stemsClient,
+		StemsDir:      "upload/stems",
 	}
 	w := worker.New(q, appLog, wcfg)
 	pool := worker.NewPool(w, worker.PoolConfig{

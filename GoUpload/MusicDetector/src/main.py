@@ -201,8 +201,9 @@ async def analyze(
         path = await _spool_to_tmp(file)
         log.info("analyze start file=%r size=%dB inflight=%d", name, os.path.getsize(path), _inflight)
         loop = asyncio.get_running_loop()
+        # ?whole=1 is the captions call, the only one that shows sound tags.
         summary = await loop.run_in_executor(
-            _executor, analyze_file, path, (WHOLE_MAX_SECONDS if whole else ANALYZE_MAX_SECONDS) or None
+            _executor, analyze_file, path, (WHOLE_MAX_SECONDS if whole else ANALYZE_MAX_SECONDS) or None, whole
         )
     except HTTPException:
         raise
@@ -217,12 +218,13 @@ async def analyze(
 
     is_music = decide_is_music(summary, RATIO_THRESHOLD, MIN_MUSIC_SECONDS)
     log.info(
-        "analyze done file=%r is_music=%s ratio=%.3f music=%.1fs voiced=%.1fs took=%.1fs%s",
+        "analyze done file=%r is_music=%s ratio=%.3f music=%.1fs voiced=%.1fs sounds=%d took=%.1fs%s",
         name,
         is_music,
         summary["music_ratio"],
         summary["music_seconds"],
         summary["voiced_seconds"],
+        len(summary.get("sounds", ())),
         time.monotonic() - started,
         " [STUB]" if is_stub() else "",
     )

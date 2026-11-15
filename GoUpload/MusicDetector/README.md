@@ -38,11 +38,31 @@ are analyzed. Returns `503 Retry-After` when the queue is full.
 anything beyond gets a 503 so the box never floods. `MUSIC_THREADS` caps TF/BLAS
 cores per analysis. Defaults (1 / 8 / 1) suit a small shared VPS.
 
+## Sound tags
+
+`?whole=1` (the captions call) also returns `sounds`, the moments worth a
+YouTube style caption tag, from Google's YAMNet AudioSet classifier:
+
+```json
+"sounds": [{ "label": "Laughter", "start": 81.6, "end": 83.04 }]
+```
+
+Labels: Laughter, Applause, Cheering, Shouting, Screaming, Crying, Breathing,
+Sighs, Gasps, Coughing, Sneezing, Whistling, Dog barking. Each has its own
+score bar in `src/sounds.py`; a frame goes to its strongest tag only, and the
+ones a singer can set off (shouting, breathing, crying, whistling) are skipped
+where YAMNet hears music. In testing it tagged nothing on speech in four
+languages or on two songs. About 1% of real time on one core.
+
+The model is pinned by sha256 in the Dockerfile and loaded at build time.
+`SOUNDS_MODEL` points at it; unset turns tags off. GoUpload only accepts the
+labels above, so nothing from here lands in a caption as is.
+
 ## Layout
 
 ```
-src/    analyzer.py (logic + model), main.py (FastAPI app)
-tests/  test_analyzer.py (pure-logic, no TensorFlow)
+src/    analyzer.py (logic + model), sounds.py (YAMNet tags), main.py (FastAPI app)
+tests/  test_analyzer.py, test_sounds.py (no TensorFlow)
 ```
 
 ## Dependencies

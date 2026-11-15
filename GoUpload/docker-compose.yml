@@ -181,6 +181,36 @@ services:
       timeout: 5s
       retries: 3
 
+  # Stem separation sidecar (Demucs) for the audio visualizer. It decodes
+  # user audio, so it sits alone with goupload on an internal network: no
+  # internet, no Redis, no other sidecar. STEMS_API_SECRET comes from
+  # stems.env, which goupload-compose.sh makes once on the box like redis.env.
+  stemsapi:
+    image: ${STEMSAPI_IMAGE:-ghcr.io/OWNER/REPO/stemsapi:latest}
+    container_name: goupload-stemsapi
+    restart: unless-stopped
+    <<: *hardening
+    logging: *default-logging
+    env_file:
+      - ./stems.env
+    environment:
+      STEMS_API_PORT: "3010"
+      STEMS_THREADS: "${STEMS_THREADS:-2}"
+      STEMS_MAX_SECONDS: "1200"
+    networks:
+      - goupload-stems
+    deploy:
+      resources:
+        limits:
+          cpus: "${STEMSAPI_CPUS:-2.0}"
+          memory: ${STEMSAPI_MEM:-3G}
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request;urllib.request.urlopen('http://localhost:3010/health', timeout=3)\""]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+
   goupload:
     image: ${GOUPLOAD_IMAGE:-ghcr.io/OWNER/REPO/goupload:latest}
     container_name: goupload
@@ -192,6 +222,7 @@ services:
     env_file:
       - ./goupload.env
       - ./redis.env
+      - ./stems.env
     environment:
       REDIS_ADDR: redis:6379
       NSFW_API_URL: http://nsfwapi:3004/api/nsfw/detect
@@ -201,6 +232,7 @@ services:
       MUSIC_API_SECRET: ${MUSIC_API_SECRET:?set MUSIC_API_SECRET in .env}
       ACOUSTID_API_URL: http://acoustid:3009
       ACOUSTID_API_SECRET: ${ACOUSTID_API_SECRET:?set ACOUSTID_API_SECRET in .env}
+      STEMS_API_URL: http://stemsapi:3010/separate
       # On-VPS audio fingerprint store (SQLite). Lives on its own volume so it
       # survives container recreation and reboots; hard-capped at 10 GiB.
       FINGERPRINT_DB_PATH: /data/fingerprints/fp.db
@@ -213,6 +245,9 @@ services:
       WORKER_INITIAL: ${WORKER_INITIAL:-1}
       # ffmpeg runs under nice at this level (0 to 19, 0 = normal priority).
       FFMPEG_NICE: ${FFMPEG_NICE:-10}
+      # Whisper (large-v3-turbo) threads. It runs at nice 19, so it only gets
+      # what encodes and playback leave, and this container is capped at 3 CPUs.
+      CAPTIONS_THREADS: ${CAPTIONS_THREADS:-3}
     ports:
       - "127.0.0.1:${GOUPLOAD_PORT:-3003}:3003"
     volumes:
@@ -221,6 +256,7 @@ services:
     networks:
       - goupload-net
       - goupload-cache
+      - goupload-stems
     depends_on:
       redis:
         condition: service_healthy
@@ -231,6 +267,8 @@ services:
       musicdetector:
         condition: service_started
       acoustid:
+        condition: service_started
+      stemsapi:
         condition: service_started
     deploy:
       resources:
@@ -294,6 +332,9 @@ networks:
     driver: bridge
   # internal: no route in or out except to the containers attached to it.
   goupload-cache:
+    driver: bridge
+    internal: true
+  goupload-stems:
     driver: bridge
     internal: true
 

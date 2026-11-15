@@ -15,6 +15,7 @@ loadplay.env
 musicdetector.env
 # Made once on the box by goupload-compose.sh, not from CI
 redis.env
+stems.env
 
 # Upload and temp dirs
 /upload/
@@ -22,6 +23,10 @@ redis.env
 
 # Go
 /vendor/
+
+# Python sidecars
+__pycache__/
+.pytest_cache/
 
 # Build and logs
 *.log

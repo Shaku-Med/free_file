@@ -1,0 +1,4 @@
+# Service (API) dependencies, same pins as MusicDetector.
+fastapi==0.115.*
+uvicorn==0.34.*
+pydantic>=2.14.1,<3

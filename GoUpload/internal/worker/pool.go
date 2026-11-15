@@ -124,6 +124,10 @@ func (p *Pool) Start() {
 		p.wg.Add(1)
 		go p.runCaptions()
 	}
+	if p.worker.stemsEnabled() {
+		p.wg.Add(1)
+		go p.runStems()
+	}
 	p.log.Infof("pool started max=%d min=%d initial=%d", p.cfg.MaxWorkers, p.cfg.MinWorkers, p.cfg.InitialWorkers)
 }
 
@@ -232,6 +236,15 @@ func (p *Pool) runOutbox() {
 // runCaptions is the single auto captions consumer. Stopping the pool kills a
 // transcription in progress; its job stays queued and starts over next time.
 func (p *Pool) runCaptions() {
+	p.runBackground(p.worker.nextCaption)
+}
+
+// runStems is the single stem separation consumer, the same way.
+func (p *Pool) runStems() {
+	p.runBackground(p.worker.nextStems)
+}
+
+func (p *Pool) runBackground(next func(context.Context) time.Duration) {
 	defer p.wg.Done()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -240,7 +253,7 @@ func (p *Pool) runCaptions() {
 		cancel()
 	}()
 	for {
-		wait := p.worker.nextCaption(ctx)
+		wait := next(ctx)
 		select {
 		case <-p.stopCh:
 			return
@@ -266,6 +279,9 @@ func (p *Pool) runOrphanCleanup() {
 		}
 		if n := p.worker.sweepCaptionLeftovers(leftoverMinAge); n > 0 {
 			p.log.Infof("leftover caption audio cleanup removed %d entries", n)
+		}
+		if n := p.worker.sweepStemsLeftovers(leftoverMinAge); n > 0 {
+			p.log.Infof("leftover stems audio cleanup removed %d entries", n)
 		}
 	}
 	sweep()

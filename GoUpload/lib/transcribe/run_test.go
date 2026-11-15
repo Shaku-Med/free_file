@@ -29,8 +29,12 @@ func TestRunRealWhisper(t *testing.T) {
 	if err := ffmpeg.ExtractSpeechAudio(video, audio); err != nil {
 		t.Fatal(err)
 	}
+	seconds, err := ffmpeg.GetDuration(audio)
+	if err != nil {
+		t.Fatal(err)
+	}
 	started := time.Now()
-	res, err := cfg.Run(context.Background(), audio, dir, os.Getenv("WHISPER_TEST_SONG") != "")
+	res, err := cfg.Run(context.Background(), audio, dir, os.Getenv("WHISPER_TEST_SONG") != "", time.Duration(seconds*float64(time.Second)), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -38,7 +42,7 @@ func TestRunRealWhisper(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Logf("lang=%s cues=%d took=%s\n%s", lang, cues, time.Since(started).Round(time.Millisecond), vtt)
+	t.Logf("lang=%s plan=%s cues=%d took=%s\n%s", lang, res.Detection, cues, time.Since(started).Round(time.Millisecond), vtt)
 	if want := os.Getenv("WHISPER_TEST_EXPECT"); want != "" && !strings.Contains(strings.ToLower(vtt), strings.ToLower(want)) {
 		t.Fatalf("captions do not contain %q", want)
 	}

@@ -1,13 +1,16 @@
-# MusicDetector - audio music/speech classifier sidecar (inaSpeechSegmenter).
-# CPU-only, private network. Heavier than EmbedAPI because it ships TensorFlow,
-# but it only runs on uploads that have audio and is concurrency-capped.
+# syntax=docker/dockerfile:1.7
+# MusicDetector - audio music/speech classifier sidecar (inaSpeechSegmenter),
+# plus YAMNet sound tags for captions. CPU-only, private network. Heavier than
+# EmbedAPI because it ships TensorFlow, but it only runs on uploads that have
+# audio and is concurrency-capped.
 FROM python:3.11-slim
 
 ENV PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
     HF_HUB_DISABLE_TELEMETRY=1 \
     TF_CPP_MIN_LOG_LEVEL=3 \
-    PYTHONPATH=/app/src
+    PYTHONPATH=/app/src \
+    SOUNDS_MODEL=/opt/yamnet
 
 # ffmpeg: inaSpeechSegmenter decodes and resamples audio through it.
 RUN apt-get update \
@@ -18,6 +21,16 @@ WORKDIR /app
 
 COPY requirements.txt requirements-ml.txt ./
 RUN pip install -r requirements.txt -r requirements-ml.txt
+
+# YAMNet (Google's AudioSet classifier, a TF SavedModel), checked against a
+# pinned hash: the build fails rather than ship anything else. The archive's
+# files are root only, so they're made readable for the service user.
+ADD --checksum=sha256:b80da2a1a56926fb0767205051a200dd7b3beaf3ea1ea126c42a53943996e5e0 \
+    https://www.kaggle.com/api/v1/models/google/yamnet/tensorFlow2/yamnet/1/download /tmp/yamnet.tar.gz
+RUN mkdir -p /opt/yamnet \
+ && tar -xzf /tmp/yamnet.tar.gz -C /opt/yamnet --no-same-owner \
+ && rm /tmp/yamnet.tar.gz \
+ && chmod -R u=rwX,go=rX /opt/yamnet
 
 COPY src ./src
 
