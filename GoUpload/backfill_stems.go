@@ -59,6 +59,8 @@ var (
 // were separated as they came in.
 var stemsBackfillCutoff = time.Date(2026, 11, 15, 8, 23, 0, 0, time.UTC)
 
+var errBackfillRunning = errors.New("another backfill is already running")
+
 type backfillCandidate struct {
 	UniqueID  string  `json:"unique_id"`
 	OwnerID   string  `json:"owner_id"`
@@ -98,6 +100,7 @@ type stemsBackfill struct {
 	queue        stemsQueue
 	http         *http.Client
 	stemsDir     string
+	stemsHealth  string
 	workDir      string
 	before       time.Time
 	maxQueued    int
@@ -141,6 +144,10 @@ func runStemsBackfill(args []string) error {
 	if stemsURL == "" || stemsURL == "disabled" || env.Get("STEMS_API_SECRET", "") == "" {
 		return errors.New("stems are off here (STEMS_API_URL and STEMS_API_SECRET), so queued jobs would never run")
 	}
+	healthURL, err := stemsHealthURL(stemsURL)
+	if err != nil {
+		return err
+	}
 	store := r2.FromEnv()
 	if store == nil {
 		return errors.New("R2 is not configured")
@@ -156,6 +163,16 @@ func runStemsBackfill(args []string) error {
 		out = io.MultiWriter(os.Stdout, f)
 	}
 	logger := log.New(out, "stems-backfill ", log.LstdFlags|log.LUTC)
+
+	if !*dryRun {
+		unlock, err := lockBackfill(*statePath + ".lock")
+		if err != nil {
+			// docker exec -d drops stderr, so say it where the operator looks.
+			logger.Printf("not starting: %v", err)
+			return err
+		}
+		defer unlock()
+	}
 
 	state, err := openBackfillState(*statePath, *retryFailed, *dryRun)
 	if err != nil {
@@ -178,7 +195,7 @@ func runStemsBackfill(args []string) error {
 	b := &stemsBackfill{
 		sbURL: sbURL, sbKey: sbKey, store: store, queue: q,
 		http:     &http.Client{Timeout: 60 * time.Second},
-		stemsDir: backfillStemsDir, workDir: filepath.Dir(*statePath),
+		stemsDir: backfillStemsDir, stemsHealth: healthURL, workDir: filepath.Dir(*statePath),
 		before: cutoff, maxQueued: *maxQueued, limit: *limit, dryRun: *dryRun,
 		poll: 30 * time.Second, state: state, log: logger,
 	}
@@ -229,6 +246,9 @@ func (b *stemsBackfill) run(ctx context.Context) error {
 		if busy {
 			b.record(c.UniqueID, "skipped", "already queued")
 			continue
+		}
+		if err := b.waitForStems(ctx); err != nil {
+			return err
 		}
 		start := time.Now()
 		if err := b.queueOne(ctx, c, prefix); err != nil {
@@ -321,6 +341,70 @@ func (b *stemsBackfill) waitForRoom(ctx context.Context, id string) (bool, error
 		case <-time.After(b.poll):
 		}
 	}
+}
+
+// waitForStems holds off while StemsAPI is down: a job queued then would use
+// up its attempts and be dropped, yet still count as done here.
+func (b *stemsBackfill) waitForStems(ctx context.Context) error {
+	if b.stemsHealth == "" {
+		return nil
+	}
+	down := false
+	for {
+		err := b.stemsUp(ctx)
+		if err == nil {
+			if down {
+				b.log.Printf("StemsAPI is back, carrying on")
+			}
+			return nil
+		}
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		if !down {
+			b.log.Printf("StemsAPI is not answering (%v), waiting before queueing more", err)
+			down = true
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(b.poll):
+		}
+	}
+}
+
+func (b *stemsBackfill) stemsUp(ctx context.Context) error {
+	hctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(hctx, http.MethodGet, b.stemsHealth, nil)
+	if err != nil {
+		return err
+	}
+	res, err := b.http.Do(req)
+	if err != nil {
+		var ue *url.Error
+		if errors.As(err, &ue) {
+			err = ue.Err
+		}
+		return err
+	}
+	io.Copy(io.Discard, io.LimitReader(res.Body, 4<<10))
+	res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		return fmt.Errorf("status %d", res.StatusCode)
+	}
+	return nil
+}
+
+// stemsHealthURL turns STEMS_API_URL, the /separate endpoint, into its /health.
+func stemsHealthURL(separate string) (string, error) {
+	u, err := url.Parse(strings.TrimSpace(separate))
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+		return "", errors.New("STEMS_API_URL is not an http URL")
+	}
+	u.Path = path.Join(path.Dir(u.Path), "health")
+	u.RawPath, u.RawQuery, u.Fragment, u.User = "", "", "", nil
+	return u.String(), nil
 }
 
 // queueOne rebuilds the upload's audio as stems.flac and queues the job.
