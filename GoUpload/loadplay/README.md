@@ -17,8 +17,18 @@ Tiny CDN-style service that fronts HLS playback. Sits on `:3006`.
 | ------ | -------------------------- | --------------------------------------------- |
 | GET    | `/health`                  | `{ ok: true }`                                |
 | GET    | `/v/:fileId/<...>`         | Manifest if `.m3u8`, otherwise segment.       |
+| GET    | `/v/:fileId/lp.key`        | AES key of a keyed playback, proof required.  |
 
 All `/v/...` routes require `?t=<playback-token>` (HMAC, short expiry).
+
+## Encrypted segments
+
+A token with `"k": 1` gets its `.ts` media playlists announced as AES-128 and
+every segment encrypted on the way out, so copied requests only fetch
+ciphertext. The key comes from `lp.key`, which needs `r` and an HMAC of it
+made with the proof secret the app's mint hands the watch page. Design and
+threat table: `docs/Playback-Security.md`. Keyed segments are always streamed
+from here, never redirected to R2.
 
 ## Env
 
@@ -32,7 +42,7 @@ All `/v/...` routes require `?t=<playback-token>` (HMAC, short expiry).
 | `ALLOWED_ORIGINS`       | no       | empty   | CSV of Origin / Referer values for the soft hot-link gate   |
 | `REQUIRE_FINGERPRINT`   | no       | `0`     | `1` to enforce IP/UA hashes embedded in the token           |
 | `BLOCK_TOOL_UA`         | no       | `1`     | `0` to allow curl/Postman/etc UAs through                   |
-| `R2_SEGMENT_REDIRECT_SECONDS` | no | `0`     | 15 to 600: send R2 segments as signed links that live this long |
+| `R2_SEGMENT_REDIRECT_SECONDS` | no | `0`     | 15 to 600: send R2 segments as signed links that live this long (not used for keyed playback) |
 
 ## R2 signed segment links
 
@@ -81,7 +91,8 @@ Payload schema:
   "e": <unix ms expiry>,
   "i": "<base64url(sha256(ip /24 or /64))>, optional>",
   "a": "<base64url(sha256(user-agent))>, optional>",
-  "n": "<one-time nonce, optional>"
+  "n": "<one-time nonce, optional>",
+  "k": 1
 }
 ```
 

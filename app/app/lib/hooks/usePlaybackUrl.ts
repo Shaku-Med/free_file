@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { mintPlayback } from "~/lib/playback/mint.client";
 import {
   getCachedPlaybackUrl,
   setCachedPlaybackUrl,
@@ -58,20 +59,7 @@ export function usePlaybackUrl(file: {
 
     let cancelled = false;
     const mint = () =>
-      fetch("/api/play/mint", {
-        method: "POST",
-        credentials: "same-origin",
-        headers: {
-          "Content-Type": "application/json",
-          "X-Requested-With": "fetch",
-        },
-        body: JSON.stringify({ fileId }),
-      })
-        .then(async (res) => {
-          if (!res.ok) return null;
-          const body = (await res.json().catch(() => null)) as { url?: string } | null;
-          return body?.url ?? null;
-        })
+      mintPlayback(fileId)
         .then((next) => {
           if (cancelled || !next) return;
           setCachedPlaybackUrl(fileId, next);

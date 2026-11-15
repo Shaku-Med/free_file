@@ -27,17 +27,55 @@ func streamStorageObject(
 	st storage.Config,
 	relPath string,
 ) error {
-	key := segmentCacheKey(st, relPath)
+	data, err := loadStorageObject(c, deps, st, relPath)
+	if err != nil {
+		return err
+	}
+	return sendStorageBytes(c, deps, relPath, data)
+}
 
+// streamKeyedObject sends a segment encrypted for one playback, always
+// whole: a byte range of ciphertext is no use to the player.
+func streamKeyedObject(
+	c *fiber.Ctx,
+	deps ManifestDeps,
+	st storage.Config,
+	relPath string,
+	key []byte,
+	seq uint64,
+) error {
+	data, err := loadStorageObject(c, deps, st, relPath)
+	if err != nil {
+		return err
+	}
+	sealed, err := encryptSegment(key, seq, data)
+	if err != nil {
+		deps.Log.Errorf("segment encrypt err=%s", err.Error())
+		return deny(c, fiber.StatusInternalServerError)
+	}
+	setSegmentResponseHeaders(c, deps)
+	c.Set("Content-Type", "application/octet-stream")
+	return c.Status(fiber.StatusOK).Send(sealed)
+}
+
+// loadStorageObject is the object's bytes, from the on-disk cache when it
+// has them.
+func loadStorageObject(
+	c *fiber.Ctx,
+	deps ManifestDeps,
+	st storage.Config,
+	relPath string,
+) ([]byte, error) {
+	key := segmentCacheKey(st, relPath)
 	if deps.SegmentCache != nil && key != "" {
 		if data, ok := deps.SegmentCache.Get(key); ok {
-			return sendStorageBytes(c, deps, relPath, data)
+			return data, nil
 		}
 	}
 
 	body, denyErr := fetchStorageObject(c, deps, st, relPath)
 	if denyErr != nil {
-		return denyErr
+		return nil, denyErr
 	}
 
 	// Only cache a full object. A read that hit the byte cap is likely
@@ -45,7 +83,7 @@ func streamStorageObject(
 	if deps.SegmentCache != nil && key != "" && len(body) < maxSegmentBytes {
 		deps.SegmentCache.Put(key, body)
 	}
-	return sendStorageBytes(c, deps, relPath, body)
+	return body, nil
 }
 
 func fetchStorageObject(

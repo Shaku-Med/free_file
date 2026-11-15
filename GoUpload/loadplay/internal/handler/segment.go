@@ -45,6 +45,9 @@ func Segment(deps SegmentDeps) fiber.Handler {
 		if denyResp := enforcePlaybackSecurity(c, deps, rawTok, tok, false); denyResp != nil {
 			return denyResp
 		}
+		if askedPath == keyAssetName {
+			return serveKey(c, deps, tok)
+		}
 		if !pathUnderPlaybackRoot(askedPath, tok.Path) {
 			deps.Log.Errorf("segment path outside asset tree asked=%s token_path=%s", askedPath, tok.Path)
 			return deny(c, fiber.StatusForbidden)
@@ -69,6 +72,16 @@ func Segment(deps SegmentDeps) fiber.Handler {
 			return deny(c, denyStatus)
 		}
 
+		// A keyed playback's .ts segments only ever leave encrypted. Without
+		// the sequence number its playlist gives them there is nothing to
+		// encrypt with, and sending them in the clear instead would undo it.
+		if tok.IsKeyed() && fileExt(askedPath) == "ts" {
+			seq, ok := segmentSeq(c.Query("s"))
+			if !ok {
+				return deny(c, fiber.StatusForbidden)
+			}
+			return streamKeyedObject(c, deps, storageCfg, askedPath, segmentKey(deps.Secret, tok), seq)
+		}
 		if storageCfg.Backend == "r2" && deps.R2Redirect > 0 {
 			return redirectToR2(c, deps, storageCfg, askedPath)
 		}

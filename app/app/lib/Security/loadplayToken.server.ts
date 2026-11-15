@@ -117,11 +117,21 @@ export interface MintInput {
    *  fetches the stream itself. loadplay skips the origin/referer guard + UA
    *  bind for these, but still enforces IP scope + fresh nonce + expiry. */
   cast?: boolean;
+  /** Keyed: loadplay encrypts the segments and only hands the key to a page
+   *  holding this playback's proof (see GoUpload/loadplay/internal/handler/key.go). */
+  keyed?: boolean;
 }
 
 export interface MintResult {
   token: string;
   exp: number;
+  /** The page's proof secret for a keyed token. */
+  proof?: string;
+}
+
+/** On unless PLAYBACK_ENCRYPT=0, the switch for turning it off in a hurry. */
+export function playbackKeyed(): boolean {
+  return process.env.PLAYBACK_ENCRYPT?.trim() !== "0";
 }
 
 export function mintLoadplayToken(input: MintInput): MintResult | null {
@@ -149,16 +159,26 @@ export function mintLoadplayToken(input: MintInput): MintResult | null {
   if (input.uaHash) payload.a = input.uaHash;
   if (input.cast) payload.c = 1;
   // Always emit a nonce. LoadPlay binds the first fingerprint to use it
-  // and rejects copies pasted into a different browser / network 
+  // and rejects copies pasted into a different browser / network
   // even if the HMAC + expiry still check out.
-  payload.n = input.nonce ?? b64url(randomBytes(12));
+  const nonce = input.nonce ?? b64url(randomBytes(12));
+  payload.n = nonce;
+  const keyed = Boolean(input.keyed) && !input.cast;
+  if (keyed) payload.k = 1;
 
   const bodyJson = JSON.stringify(payload);
   const bodyB64 = b64url(Buffer.from(bodyJson, "utf8"));
   const sig = createHmac("sha256", secret).update(bodyB64).digest();
   const sigB64 = b64url(sig);
 
-  return { token: `${bodyB64}.${sigB64}`, exp };
+  const result: MintResult = { token: `${bodyB64}.${sigB64}`, exp };
+  if (keyed) {
+    // Same derivation as loadplay's proofKey.
+    result.proof = b64url(
+      createHmac("sha256", secret).update(`lp-proof-v1|${input.fileId}|${nonce}`).digest(),
+    );
+  }
+  return result;
 }
 
 export function resolveHlsManifestPath(
@@ -192,7 +212,7 @@ export function buildPlaybackUrlForFile(
   bind?: { ipHash?: string; uaHash?: string },
   /** Dev: lets the base URL follow the LAN host the request came in on. */
   request?: Request,
-): string | null {
+): { url: string; proof?: string } | null {
   const baseUrl = loadplayBaseUrl(request);
   if (!file.unique_id) return null;
   const path = resolveHlsManifestPath(file.endpoint ?? "", file.file_type);
@@ -216,8 +236,10 @@ export function buildPlaybackUrlForFile(
     ttlMs: isGuest
       ? playbackTtlMs(guestLimitSeconds ?? 0, GUEST_PLAYBACK_TTL_MS)
       : playbackTtlMs(Number(file.duration) || 0, SIGNED_IN_PLAYBACK_TTL_MS),
+    keyed: playbackKeyed(),
   });
-  return built?.url ?? null;
+  if (!built) return null;
+  return built.proof ? { url: built.url, proof: built.proof } : { url: built.url };
 }
 
 // Casting plays a whole movie on a TV, so the token must outlive a short
@@ -270,7 +292,8 @@ export function buildLoadplayUrl(opts: {
   ipHash?: string;
   uaHash?: string;
   cast?: boolean;
-}): { url: string; exp: number } | null {
+  keyed?: boolean;
+}): { url: string; exp: number; proof?: string } | null {
   const minted = mintLoadplayToken({
     fileId: opts.fileId,
     userId: opts.userId,
@@ -280,6 +303,7 @@ export function buildLoadplayUrl(opts: {
     ipHash: opts.ipHash,
     uaHash: opts.uaHash,
     cast: opts.cast,
+    keyed: opts.keyed,
   });
   if (!minted) return null;
   const base = opts.baseUrl.replace(/\/+$/, "");
@@ -290,6 +314,7 @@ export function buildLoadplayUrl(opts: {
   return {
     url: `${base}/v/${encodeURIComponent(opts.fileId)}/${safePath}?t=${minted.token}`,
     exp: minted.exp,
+    proof: minted.proof,
   };
 }
 

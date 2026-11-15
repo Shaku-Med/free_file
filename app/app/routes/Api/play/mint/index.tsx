@@ -128,7 +128,7 @@ export const action = async ({ request }: { request: Request }) => {
   const ip = clientIp(request);
   const ua = request.headers.get("User-Agent") ?? "";
 
-  const url = buildPlaybackUrlForFile(
+  const minted = buildPlaybackUrlForFile(
     {
       unique_id: rawFile.unique_id,
       endpoint: rawFile.endpoint,
@@ -142,9 +142,11 @@ export const action = async ({ request }: { request: Request }) => {
     },
     request, // dev: build the loadplay URL on the LAN host so phones can reach it
   );
-  if (!url) return jsonError(503);
+  if (!minted) return jsonError(503);
 
-  return new Response(JSON.stringify({ url }), {
+  // proof: the secret this page signs its key requests with when the
+  // segments are encrypted. Only ever in this no-store answer.
+  return new Response(JSON.stringify(minted), {
     status: 200,
     headers: {
       "Content-Type": "application/json",

@@ -1,4 +1,5 @@
 import { getVideoSrc } from "~/lib/utils";
+import { mintPlayback } from "~/lib/playback/mint.client";
 
 type CacheEntry = { url: string; exp: number };
 
@@ -97,20 +98,7 @@ export function preflightPlayback(fileId: string): void {
   if (!VALID_FILE_ID.test(fileId)) return;
   if (getCachedPlaybackUrl(fileId) || preflightPromises.has(fileId)) return;
 
-  const p = fetch("/api/play/mint", {
-    method: "POST",
-    credentials: "same-origin",
-    headers: {
-      "Content-Type": "application/json",
-      "X-Requested-With": "fetch",
-    },
-    body: JSON.stringify({ fileId }),
-  })
-    .then(async (res) => {
-      if (!res.ok) return null;
-      const body = (await res.json().catch(() => null)) as { url?: string } | null;
-      return body?.url ?? null;
-    })
+  const p = mintPlayback(fileId)
     .then((url) => {
       if (url) setCachedPlaybackUrl(fileId, url);
       return url;
