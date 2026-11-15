@@ -30,7 +30,7 @@ import { useWakeLock } from './hooks/useWakeLock';
 import { useSpatialAudio, isSpatialAudioUiSupported } from './hooks/useSpatialAudio';
 import ControlBar from './controls/ControlBar';
 import { mobileOverlayCircleBtn, playerMenuSurface } from './controls/mobileControlMetrics';
-import { ReelInfoOverlay } from './overlays/ReelInfoOverlay';
+import { ReelInfoOverlay, useReelInfoReserve } from './overlays/ReelInfoOverlay';
 // EndScreen was replaced by EndCardOverlay (centered 2-card end-of-video surface).
 import BufferingSpinner from './overlays/BufferingSpinner';
 import ErrorOverlay from './overlays/ErrorOverlay';
@@ -378,6 +378,7 @@ function PlayerInner({
   );
 
   const embedReelControls = Boolean(showFeedPlayerControls && isReelCtx);
+  const reelInfo = useReelInfoReserve(containerRef, Boolean(isReelCtx && reelInfoSlot));
 
   /** Host that receives the adopted (page-owned) video element, when provided. */
   const adoptHostRef = useRef<HTMLDivElement | null>(null);
@@ -1437,6 +1438,7 @@ function PlayerInner({
                   : 52
                 : undefined
             }
+            bottomReservePx={reelInfo.reservePx}
           />
         )}
 
@@ -1456,7 +1458,7 @@ function PlayerInner({
         )}
 
         {isReelCtx && reelInfoSlot ? (
-          <ReelInfoOverlay>{reelInfoSlot}</ReelInfoOverlay>
+          <ReelInfoOverlay contentRef={reelInfo.contentRef}>{reelInfoSlot}</ReelInfoOverlay>
         ) : null}
 
         {/* On phones the app-style header carries sound and settings; the menu still opens

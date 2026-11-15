@@ -192,7 +192,7 @@ async function fetchFollowingReels(
 
 /** Interaction counts and the viewer's likes for a batch, mapped to the client's reel rows. */
 async function toClientReels(rows: Record<string, unknown>[], userId: string | undefined) {
-  await backfillOriginalSound(rows);
+  await Promise.all([backfillOriginalSound(rows), backfillCaptions(rows)]);
 
   const fileIds = rows.map((f) => f.id as string | undefined).filter(Boolean);
   const interactionsByFile = new Map<string, ReelFeedInteraction>();
@@ -231,6 +231,22 @@ async function toClientReels(rows: Record<string, unknown>[], userId: string | u
   });
 
   return { data, likedFileIds, dislikedFileIds };
+}
+
+/** The feed RPCs don't return captions, so the reel player would offer none. */
+async function backfillCaptions(rows: Record<string, unknown>[]): Promise<void> {
+  const missing = rows.filter((r) => r.id && r.captions === undefined);
+  if (missing.length === 0) return;
+  const { data: found } = await db
+    .from('files')
+    .select('id, captions')
+    .in('id', missing.map((r) => String(r.id)));
+  const byId = new Map(
+    (found ?? []).map((f: { id: unknown; captions?: unknown }) => [fileIdKey(f.id), f.captions ?? null]),
+  );
+  for (const r of missing) {
+    r.captions = byId.get(fileIdKey(r.id)) ?? null;
+  }
 }
 
 /**

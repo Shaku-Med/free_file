@@ -1,5 +1,5 @@
-import type { ReactNode } from "react";
-import { useEffect, useState } from "react";
+import type { ReactNode, Ref, RefObject } from "react";
+import { useEffect, useRef, useState } from "react";
 import { isMobile } from "react-device-detect";
 import { cn } from "~/lib/utils";
 import { usePlayerContext } from "../PlayerContext";
@@ -25,11 +25,57 @@ function usePlayerMobileLayout(): boolean {
   return mobileLayout;
 }
 
+/**
+ * How far up from the player's bottom edge the reel info reaches, so captions
+ * can sit above the creator's name instead of on it. 0 while the info is
+ * hidden, which it is on wide screens where it moves beside the frame.
+ */
+export function useReelInfoReserve(
+  containerRef: RefObject<HTMLDivElement | null>,
+  enabled: boolean,
+) {
+  const contentRef = useRef<HTMLDivElement>(null);
+  const [reservePx, setReservePx] = useState(0);
+
+  useEffect(() => {
+    const content = contentRef.current;
+    const box = containerRef.current;
+    if (!enabled || !content || !box) {
+      setReservePx(0);
+      return;
+    }
+    const measure = () => {
+      const info = content.firstElementChild?.getBoundingClientRect();
+      setReservePx(
+        info && info.height > 0
+          ? Math.max(0, Math.round(box.getBoundingClientRect().bottom - info.top))
+          : 0,
+      );
+    };
+    // The overlay slides when the seek strip settles, which moves it without resizing it.
+    const onTransitionEnd = (e: TransitionEvent) => {
+      if (e.target === content.parentElement) measure();
+    };
+    const ro = new ResizeObserver(measure);
+    ro.observe(content);
+    ro.observe(box);
+    box.addEventListener("transitionend", onTransitionEnd);
+    measure();
+    return () => {
+      ro.disconnect();
+      box.removeEventListener("transitionend", onTransitionEnd);
+    };
+  }, [containerRef, enabled]);
+
+  return { contentRef, reservePx };
+}
+
 export interface ReelInfoOverlayProps {
   children: ReactNode;
   /** Leave room for the TikTok-style action rail on narrow viewports. */
   reserveActionRail?: boolean;
   className?: string;
+  contentRef?: Ref<HTMLDivElement>;
 }
 
 /**
@@ -40,6 +86,7 @@ export function ReelInfoOverlay({
   children,
   reserveActionRail = true,
   className,
+  contentRef,
 }: ReelInfoOverlayProps) {
   const { reelEmbedAutoHide, reelChromeBottomReservePx } = usePlayerContext();
   const mobileLayout = usePlayerMobileLayout();
@@ -70,7 +117,7 @@ export function ReelInfoOverlay({
           backgroundImage: "linear-gradient(to top, rgb(0 0 0 / 0.95), rgb(0 0 0 / 0.6) calc(100% - 3rem), transparent)",
         }}
       />
-      <div className="pointer-events-auto px-3 pb-1 lg:px-4">{children}</div>
+      <div ref={contentRef} className="pointer-events-auto px-3 pb-1 lg:px-4">{children}</div>
     </div>
   );
 }

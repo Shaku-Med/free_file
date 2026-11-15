@@ -15,6 +15,8 @@ interface CaptionOverlayProps {
   compact?: boolean
   /** Override the pixel height reserved for bottom controls (seek / chrome). */
   controlReservePx?: number
+  /** Pixels at the bottom that stay clear even with the controls hidden (a reel's creator info). */
+  bottomReservePx?: number
 }
 
 const FONT_SCALE: Record<CaptionFontSize, number> = {
@@ -51,7 +53,7 @@ const ALIGN_STYLE: Record<CaptionTextAlign, { left: string; transform: string }>
   right: { left: "96%", transform: "translateX(-100%)" },
 }
 
-export default function CaptionOverlay({ containerRef, controlsVisible, compact, controlReservePx }: CaptionOverlayProps) {
+export default function CaptionOverlay({ containerRef, controlsVisible, compact, controlReservePx, bottomReservePx }: CaptionOverlayProps) {
   const {
     currentCue,
     rollUp,
@@ -128,6 +130,10 @@ export default function CaptionOverlay({ containerRef, controlsVisible, compact,
         h > 0 ? ((controlAreaPx + CONTROL_AREA_MARGIN_PX) / h) * 100 : CAPTION_CONTROLS_FLOOR_PCT
       floor = Math.min(Y_MAX, Math.max(CAPTION_CONTROLS_FLOOR_PCT, pxFloor))
     }
+    if (bottomReservePx && containerSize.h > 0) {
+      const reserveFloor = ((bottomReservePx + CONTROL_AREA_MARGIN_PX) / containerSize.h) * 100
+      floor = Math.min(Y_MAX, Math.max(floor, reserveFloor))
+    }
     let yBottom = base.yBottomPct
     if (!controlsVisible && yBottom <= AUTO_BOTTOM_ZONE_PCT) {
       yBottom = CAPTION_DEFAULT_Y_PCT
@@ -136,7 +142,7 @@ export default function CaptionOverlay({ containerRef, controlsVisible, compact,
       xPct: Math.min(X_MAX, Math.max(X_MIN, base.xPct)),
       yBottomPct: Math.min(Y_MAX, Math.max(floor, yBottom)),
     }
-  }, [livePosition, position, controlsVisible, compact, containerSize.h, audioVisualizer, controlReservePx])
+  }, [livePosition, position, controlsVisible, compact, containerSize.h, audioVisualizer, controlReservePx, bottomReservePx])
 
   const onPointerDown = useCallback(
     (e: React.PointerEvent<HTMLDivElement>) => {

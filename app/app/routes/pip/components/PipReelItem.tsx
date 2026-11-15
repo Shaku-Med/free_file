@@ -673,8 +673,10 @@ function PipReelItemInner({
     return reelVideoFrameStyle(videoAspect ?? REEL_FALLBACK_ASPECT, {
       // Set by the reel page: under the header to near the bottom, or the full height in full screen.
       maxHeight: 'var(--reel-frame-h, calc(100dvh - 3rem))',
-      // Height comes first, as on YouTube: only the action rail's room is held back.
-      maxWidth: 'calc(100% - 2 * 5.5rem)',
+      // Height comes first, as on YouTube, but a wide video still leaves each
+      // side its column (--reel-side): the action rail, plus the creator and
+      // caption once the stage has room for them.
+      maxWidth: 'calc(100% - 2 * var(--reel-side, 8rem))',
     });
   }, [variant, videoAspect, isReelMobileLayout]);
 
@@ -1052,9 +1054,10 @@ function PipReelItemInner({
             className={cn(
               "relative flex h-full w-full max-w-full flex-row items-center justify-center gap-3 lg:gap-4 lg:px-6 lg:pt-[var(--reel-frame-top,0px)] lg:pb-3",
               "max-lg:gap-0 max-lg:px-0",
-              // Room kept each side of the frame: the action buttons, plus a
-              // caption column once the reel area is wide enough for one.
-              "[--reel-side:5.5rem] @min-[64rem]/reelstage:[--reel-side:17rem]",
+              // Room kept each side of the frame: the action buttons beside the
+              // swiper's next and previous arrows, plus a caption column once
+              // the reel area is wide enough for one.
+              "[--reel-side:8rem] @min-[64rem]/reelstage:[--reel-side:17rem]",
             )}
           >
             {/* Desktop: author + caption in their own flex column LEFT of the video
