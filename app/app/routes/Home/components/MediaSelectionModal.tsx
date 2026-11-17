@@ -78,7 +78,12 @@ import { SignInDialog } from "~/components/SignInWall"
 import { StorageQuotaMeter } from "~/components/StorageQuotaMeter"
 import { formatBytes as formatBytesShort } from "~/lib/formatBytes"
 import { cn } from "~/lib/utils"
-import { fetchUploadAuthContext, type UploadAuthContext } from "~/lib/uploadAuth.client"
+import {
+  fetchUploadAuthContext,
+  retryDroppedRequest,
+  sendWithUploadAuth,
+  type UploadAuthContext,
+} from "~/lib/uploadAuth.client"
 import { Tooltip, TooltipContent, TooltipTrigger } from "~/components/ui/tooltip"
 import { toast } from "~/components/ui/sonner"
 import { fileWithSanitizedUploadName, sanitizeUploadFilename } from "~/lib/sanitizeUploadFilename"
@@ -1212,18 +1217,21 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
     const base = ctx.base
     const totalChunks = Math.ceil(item.file.size / GO_CHUNK_SIZE)
 
-    let startRes = await fetchWith503Retry(
-      `${base}/api/upload/start`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json", ...authHeaders(ctx.bearer) },
-        body: JSON.stringify({
-          file_name: item.file.name,
-          file_size: item.file.size,
-          total_chunks: totalChunks,
-        }),
-      },
-      (p, t) => updateItem(item.id, (c) => ({ ...c, progress: p, statusText: t }))
+    const startBody = JSON.stringify({
+      file_name: item.file.name,
+      file_size: item.file.size,
+      total_chunks: totalChunks,
+    })
+    let startRes = await sendWithUploadAuth(ctx, (bearer) =>
+      fetchWith503Retry(
+        `${base}/api/upload/start`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json", ...authHeaders(bearer) },
+          body: startBody,
+        },
+        (p, t) => updateItem(item.id, (c) => ({ ...c, progress: p, statusText: t }))
+      )
     )
     if (startRes.status === 401) throw new Error("Session expired. Please log in again.")
     if (!startRes.ok) {
@@ -1239,23 +1247,30 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
       const end = Math.min(start + GO_CHUNK_SIZE, item.file.size)
       const blob = item.file.slice(start, end)
 
-      let chunkRes = await fetchWith503Retry(
-        `${base}/api/upload/chunk`,
-        {
-          method: "POST",
-          headers: {
-            "X-Upload-ID": uploadId,
-            "X-Chunk-Index": String(i),
-            ...authHeaders(ctx.bearer),
-          },
-          body: blob,
-        },
-        (p, t) =>
-          updateItem(item.id, (c) => ({
-            ...c,
-            progress: 5 + Math.round(((i + 0.5) / totalChunks) * 90),
-            statusText: t || `Uploading chunk ${i + 1}/${totalChunks}...`,
-          }))
+      const chunkProgress = (text: string) =>
+        updateItem(item.id, (c) => ({
+          ...c,
+          progress: 5 + Math.round(((i + 0.5) / totalChunks) * 90),
+          statusText: text || `Uploading chunk ${i + 1}/${totalChunks}...`,
+        }))
+      let chunkRes = await retryDroppedRequest(
+        () =>
+          sendWithUploadAuth(ctx, (bearer) =>
+            fetchWith503Retry(
+              `${base}/api/upload/chunk`,
+              {
+                method: "POST",
+                headers: {
+                  "X-Upload-ID": uploadId,
+                  "X-Chunk-Index": String(i),
+                  ...authHeaders(bearer),
+                },
+                body: blob,
+              },
+              (_p, t) => chunkProgress(t)
+            )
+          ),
+        () => chunkProgress("Connection dropped. Retrying...")
       )
       if (chunkRes.status === 401) throw new Error("Session expired. Please log in again.")
       if (chunkRes.status === 404) throw new Error("Upload session expired. Please try again.")
@@ -1297,40 +1312,43 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
       }
     }
 
-    let completeRes = await fetchWith503Retry(
-      `${base}/api/upload/${uploadId}/complete`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json", ...authHeaders(ctx.bearer) },
-        body: JSON.stringify({
-          visibility: item.visibility,
-          // Sent alongside so an older GoUpload that only knows the boolean
-          // still gets the right answer. Unlisted is not public.
-          is_public: item.visibility === "public",
-          title: item.title.trim(),
-          description: item.description.trim(),
-          categories: item.categories,
-          tags: item.tags,
-          comments_enabled: item.commentsEnabled,
-          comment_limit:
-            item.commentsEnabled && item.commentLimit != null && item.commentLimit >= 1
-              ? item.commentLimit
-              : null,
-          ...(defaultThumbnailB64 ? { default_thumbnail: defaultThumbnailB64 } : {}),
-          // Only meaningful for videos; harmless for images (worker ignores it).
-          // Over the reel cap the option is hidden, so never send a stale "yes".
-          ...(item.file.type.startsWith("video/")
-            ? {
-                reel_mode:
-                  item.durationSeconds != null && item.durationSeconds > REEL_MAX_SECONDS
-                    ? "no"
-                    : item.reelMode,
-              }
-            : {}),
-          ...seriesPayload,
-        }),
-      },
-      (p, t) => updateItem(item.id, (c) => ({ ...c, progress: 95, statusText: t }))
+    const completeBody = JSON.stringify({
+      visibility: item.visibility,
+      // Sent alongside so an older GoUpload that only knows the boolean
+      // still gets the right answer. Unlisted is not public.
+      is_public: item.visibility === "public",
+      title: item.title.trim(),
+      description: item.description.trim(),
+      categories: item.categories,
+      tags: item.tags,
+      comments_enabled: item.commentsEnabled,
+      comment_limit:
+        item.commentsEnabled && item.commentLimit != null && item.commentLimit >= 1
+          ? item.commentLimit
+          : null,
+      ...(defaultThumbnailB64 ? { default_thumbnail: defaultThumbnailB64 } : {}),
+      // Only meaningful for videos; harmless for images (worker ignores it).
+      // Over the reel cap the option is hidden, so never send a stale "yes".
+      ...(item.file.type.startsWith("video/")
+        ? {
+            reel_mode:
+              item.durationSeconds != null && item.durationSeconds > REEL_MAX_SECONDS
+                ? "no"
+                : item.reelMode,
+          }
+        : {}),
+      ...seriesPayload,
+    })
+    let completeRes = await sendWithUploadAuth(ctx, (bearer) =>
+      fetchWith503Retry(
+        `${base}/api/upload/${uploadId}/complete`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json", ...authHeaders(bearer) },
+          body: completeBody,
+        },
+        (p, t) => updateItem(item.id, (c) => ({ ...c, progress: 95, statusText: t }))
+      )
     )
     if (completeRes.status === 401) throw new Error("Session expired. Please log in again.")
     if (!completeRes.ok) {

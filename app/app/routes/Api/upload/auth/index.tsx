@@ -2,6 +2,7 @@ import { isAuthenticated } from "~/lib/Security/Password";
 import { canAct } from "~/lib/Security/accountStatus.server";
 import { assertSafeRequest } from "~/lib/Security/requestGuard.server";
 import { mintUploadBearerForRequest } from "~/lib/Security/uploadToken.server";
+import { rateLimiter } from "~/routes/Auth/fun/rateLimit.server";
 
 // GET /api/upload/auth — mints a short-lived upload-scoped bearer for GoUpload; never expose c_user here.
 export const loader = async ({ request }: { request: Request }) => {
@@ -21,6 +22,16 @@ export const loader = async ({ request }: { request: Request }) => {
       return new Response(JSON.stringify({ error: "unauthorized" }), {
         status: 401,
         headers: { "Content-Type": "application/json" },
+      });
+    }
+
+    // A long upload renews its bearer every few minutes; this sits far above
+    // that and stops a script minting tokens in a loop.
+    const limit = await rateLimiter.checkLimit(user.id, "upload-auth", 30, 60_000, 5 * 60_000);
+    if (!limit.allowed) {
+      return new Response(JSON.stringify({ error: "too_many_requests" }), {
+        status: 429,
+        headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
       });
     }
 
