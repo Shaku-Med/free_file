@@ -120,7 +120,7 @@ func TestCapAudioBitrate(t *testing.T) {
 }
 
 func TestAudioBitrateBps(t *testing.T) {
-	for in, want := range map[string]int{"128k": 128000, "96k": 96000, "1.5M": 128000 /*non-int falls back*/, "2M": 2000000, "": 128000} {
+	for in, want := range map[string]int{"128k": 128000, "96k": 96000, "1.5M": 1500000, "2M": 2000000, "": 128000, "fast": 128000} {
 		if got := audioBitrateBps(in); got != want {
 			t.Errorf("audioBitrateBps(%q) = %d, want %d", in, got, want)
 		}

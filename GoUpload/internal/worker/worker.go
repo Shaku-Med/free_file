@@ -20,6 +20,7 @@ import (
 	"goupload/lib/assembler"
 	"goupload/lib/colors"
 	"goupload/lib/embed"
+	"goupload/lib/env"
 	"goupload/lib/ffmpeg"
 	"goupload/lib/fingerprintdb"
 	ghlib "goupload/lib/github"
@@ -1158,6 +1159,16 @@ func (w *Worker) processJob(job *queue.Job) {
 		return
 	}
 
+	// Checked before any heavy work. A job that went live before a restart keeps
+	// going, and a duration ffprobe cannot read fails in ExtractThumbnails below.
+	if limit := maxVideoSeconds(); !job.Live {
+		if secs, derr := ffmpeg.GetDuration(result.OutputPath); derr == nil && secs > limit {
+			assembledDir := filepath.Dir(result.OutputPath)
+			w.failJob(job, fmt.Sprintf("video runs %.0fs, over the %.0fs limit", secs, limit), result.OutputPath, assembledDir, filepath.Dir(assembledDir))
+			return
+		}
+	}
+
 	thumbDir := filepath.Join(w.cfg.ThumbnailDir, job.UserID, job.UploadID)
 	thumbResult, err := ffmpeg.ExtractThumbnails(result.OutputPath, thumbDir)
 	if err != nil {
@@ -1800,6 +1811,13 @@ func reelAspectMatch(width, height int) bool {
 	r := float64(width) / float64(height)
 	const lo, hi = 0.45, 0.68
 	return r >= lo && r <= hi
+}
+
+// maxVideoSeconds is the longest video the worker processes:
+// GOUpload_VIDEO_MAX_HOURS, default 12, the most the caption editor handles.
+func maxVideoSeconds() float64 {
+	h := env.GetInt64("GOUpload_VIDEO_MAX_HOURS", 12)
+	return float64(max(1, min(h, 72))) * 3600
 }
 
 // reelMaxSeconds is the hard ceiling for reel duration. Anything longer
