@@ -163,6 +163,11 @@ export function StorageQuotaMeter({
             to upload every 30 days.
           </p>
           <p>
+            A video counts as the space its qualities take once they&apos;re ready, which can be more
+            than the file. Any file that fits in what you have left still goes through, and then uses
+            up whatever is left for the month.
+          </p>
+          <p>
             Rolling window. Space frees up as your old uploads age past 30 days. Nothing already
             posted gets removed.
           </p>

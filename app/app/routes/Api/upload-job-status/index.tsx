@@ -1,7 +1,7 @@
 import db from '~/lib/Database/supabase';
 import { textContainsNsfw, DEFAULT_METADATA_WARNING } from '~/lib/nsfwTextCheck';
 import { isValidUUID } from '~/lib/Security/inputValidation';
-import { recordUploadUsage, refundUploadQuota } from '~/lib/uploadQuota.server';
+import { chargeUploadUsage, refundUploadQuota } from '~/lib/uploadQuota.server';
 import { verifyWebhookSecret } from '~/lib/Security/webhookAuth.server';
 import { notifyUploadReady, notifyUploadFailed } from '~/lib/Services/uploadNotifications.server';
 import { isFileVisibility } from '~/lib/Security/visibility';
@@ -426,7 +426,7 @@ export const action = async ({ request }: { request: Request }) => {
     }
     // Record quota usage now so it shows immediately. Idempotent by upload_id.
     // Charge the authoritative owner, not whatever the body claimed.
-    await recordUploadUsage(ownerId, upload_id, file_size);
+    await chargeUploadUsage(ownerId, upload_id, file_size);
   }
 
   if (status === 'failed' && upload_id) {
@@ -687,12 +687,12 @@ export const action = async ({ request }: { request: Request }) => {
     const fn = typeof body.file_name === 'string' ? body.file_name.trim() : '';
     await applyFileSeriesOnComplete(upload_id, body, fn);
 
-    // Reconcile with the real uploaded size. recordUploadUsage upserts, so this
+    // Reconcile with the real stored size. chargeUploadUsage upserts, so this
     // works whether or not the queued webhook (or app-route reserve) ran first.
     const actualBytes =
       typeof body?.file_size === 'number' && body.file_size >= 0 ? body.file_size : 0;
     if (user_id) {
-      await recordUploadUsage(user_id, upload_id, actualBytes);
+      await chargeUploadUsage(user_id, upload_id, actualBytes);
     }
 
     // Semantic-search vector from the worker. Best-effort: a bad/missing
@@ -788,7 +788,7 @@ export const action = async ({ request }: { request: Request }) => {
         typeof body?.file_size === 'number' && Number.isFinite(body.file_size) && body.file_size > 0 ? body.file_size : 0;
       // Charge the row's owner, never whoever the body names.
       if (storedBytes > 0 && typeof live.owner_id === 'string' && live.owner_id) {
-        await recordUploadUsage(live.owner_id, upload_id, storedBytes);
+        await chargeUploadUsage(live.owner_id, upload_id, storedBytes);
       }
     }
   }

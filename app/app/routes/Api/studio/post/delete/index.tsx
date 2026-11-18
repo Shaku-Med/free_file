@@ -29,16 +29,19 @@ const denyErr = (status = 500) => toJson({ error: "Something's wrong." }, status
 const PURGE_TIMEOUT_MS = 90_000;
 
 /** True when the storage directory is gone (or there was nothing to purge). */
-async function purgeStorage(row: {
-  endpoint?: string | null;
-  thumbnails?: unknown;
-  default_thumbnail?: string | null;
-  storage_backend?: string | null;
-  github_repo?: string | null;
-}): Promise<boolean> {
+async function purgeStorage(
+  row: {
+    endpoint?: string | null;
+    thumbnails?: unknown;
+    default_thumbnail?: string | null;
+    storage_backend?: string | null;
+    github_repo?: string | null;
+  },
+  uniqueId: string,
+): Promise<boolean> {
   const base = (process.env.UPLOAD_SERVER_URL || process.env.GO_UPLOAD_URL || "").replace(/\/$/, "");
   const secret = process.env.UPLOAD_WEBHOOK_SECRET || "";
-  const prefix = storagePrefixFor(row);
+  const prefix = storagePrefixFor(row, uniqueId);
   // Legacy rows without a recognizable directory have nothing we can purge;
   // don't block the user's delete on them.
   if (!prefix) return true;
@@ -121,7 +124,7 @@ export const action = async ({ request }: { request: Request }) => {
       return toJson({ error: "verification_required" }, 401);
     }
 
-    if (!(await purgeStorage(existing as Record<string, unknown>))) {
+    if (!(await purgeStorage(existing as Record<string, unknown>, uniqueId))) {
       console.error("[studio/post/delete] storage purge failed", uniqueId);
       return denyErr(502);
     }

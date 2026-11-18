@@ -99,7 +99,7 @@ export const action = async ({ request }: { request: Request }) => {
     }
 
     // New uploads all live on R2; only an R2 folder is purged from here.
-    const prefix = row.storage_backend === "github" ? null : storagePrefixFor(row);
+    const prefix = row.storage_backend === "github" ? null : storagePrefixFor(row, uniqueId);
     if (!(await cancelInGoUpload(uniqueId, prefix))) {
       console.error("[studio/post/cancel] GoUpload refused or unreachable", uniqueId);
       return denyErr(502);

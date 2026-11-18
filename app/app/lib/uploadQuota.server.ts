@@ -110,6 +110,81 @@ export async function recordUploadUsage(
   }
 }
 
+export type AdmitResult =
+  | { ok: true; used: number; limit: number; remaining: number }
+  | { ok: false; reason: 'limit'; used: number; limit: number; remaining: number }
+  | { ok: false; reason: 'invalid' | 'error' };
+
+// Lets an upload in when the file itself fits in what the user has left, and
+// reserves that much under a per user lock (see upload_admission.sql).
+export async function admitUpload(userId: string, uploadId: string, bytes: number): Promise<AdmitResult> {
+  if (!db) return { ok: false, reason: 'error' };
+  try {
+    const { data, error } = await db.rpc('admit_upload', {
+      p_user_id: userId,
+      p_upload_id: uploadId,
+      p_bytes: Math.floor(bytes),
+      p_limit_bytes: getMonthlyUploadLimitBytes(),
+    });
+    if (error) {
+      console.error('[uploadQuota] admit rpc:', error.message ?? error);
+      return { ok: false, reason: 'error' };
+    }
+    const r = (data ?? {}) as Record<string, unknown>;
+    const used = num(r.used);
+    const limit = num(r.limit);
+    const remaining = num(r.remaining);
+    if (used === undefined || limit === undefined || remaining === undefined) {
+      return { ok: false, reason: r.error === 'invalid' ? 'invalid' : 'error' };
+    }
+    if (r.ok === true) return { ok: true, used, limit, remaining };
+    if (r.error === 'limit') return { ok: false, reason: 'limit', used, limit, remaining };
+    return { ok: false, reason: 'invalid' };
+  } catch (e) {
+    console.error('[uploadQuota] admit threw:', e);
+    return { ok: false, reason: 'error' };
+  }
+}
+
+export async function releaseUploadAdmission(userId: string, uploadId: string): Promise<boolean> {
+  if (!db) return false;
+  try {
+    const { error } = await db.rpc('release_upload_admission', { p_user_id: userId, p_upload_id: uploadId });
+    if (error) {
+      console.error('[uploadQuota] release rpc:', error.message ?? error);
+      return false;
+    }
+    return true;
+  } catch (e) {
+    console.error('[uploadQuota] release threw:', e);
+    return false;
+  }
+}
+
+// Charges a main upload what it stores now. An admitted upload is never
+// charged less than its file size or past the room the user had left.
+export async function chargeUploadUsage(userId: string, uploadId: string, bytes: number): Promise<void> {
+  if (!db) {
+    console.warn('[uploadQuota] charge skipped: db not configured');
+    return;
+  }
+  if (!userId || !uploadId) return;
+  const safe = Number.isFinite(bytes) && bytes >= 0 ? Math.floor(bytes) : 0;
+  try {
+    const { error } = await db.rpc('charge_upload', {
+      p_user_id: userId,
+      p_upload_id: uploadId,
+      p_bytes: safe,
+      p_limit_bytes: getMonthlyUploadLimitBytes(),
+    });
+    if (error) {
+      console.error('[uploadQuota] charge rpc:', error.message ?? error, '(run upload_admission.sql if it does not exist)');
+    }
+  } catch (e) {
+    console.error('[uploadQuota] charge threw:', e);
+  }
+}
+
 export async function refundUploadQuota(uploadId: string): Promise<void> {
   if (!db || !uploadId) return;
   try {

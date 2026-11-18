@@ -6,30 +6,49 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
+	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/gofiber/fiber/v2"
-	"goupload/lib/ffmpeg"
 	"goupload/lib/logger"
 	"goupload/lib/queue"
 	"goupload/lib/quota"
+	"goupload/lib/usercap"
 	"goupload/lib/webhook"
 )
 
 type Handler struct {
-	manager *Manager
-	queue   *queue.Client
-	log     *logger.Logger
+	manager    *Manager
+	queue      *queue.Client
+	log        *logger.Logger
+	caps       *usercap.Limiter
+	newUploads []usercap.Window
 }
 
-func RegisterRoutes(app *fiber.App, manager *Manager, q *queue.Client, log *logger.Logger) {
-	handler := &Handler{manager: manager, queue: q, log: log}
+// Options carries the per account cap on new uploads. Caps must be set in
+// production; without it every new upload is refused.
+type Options struct {
+	Caps       *usercap.Limiter
+	NewUploads []usercap.Window
+}
+
+func RegisterRoutes(app *fiber.App, manager *Manager, q *queue.Client, log *logger.Logger, opts Options) {
+	handler := &Handler{manager: manager, queue: q, log: log, caps: opts.Caps, newUploads: opts.NewUploads}
 	app.Post("/api/upload/start", handler.startUpload)
 	app.Get("/api/upload/:upload_id/status", handler.getChunkStatus) // chunk progress for resume only
 	app.Post("/api/upload/chunk", handler.uploadChunk)
 	app.Post("/api/upload/:upload_id/complete", handler.completeUpload)
 }
+
+type uploadCapError struct{ wait time.Duration }
+
+func (e uploadCapError) Error() string { return "upload_limit" }
+
+var errCapUnavailable = errors.New("cap_unavailable")
 
 func (h *Handler) startUpload(c *fiber.Ctx) error {
 	userID := userIDFromCtx(c)
@@ -40,11 +59,53 @@ func (h *Handler) startUpload(c *fiber.Ctx) error {
 	if err := c.BodyParser(&req); err != nil {
 		return badRequest(c, "invalid_body")
 	}
-	resp, busy, err := h.manager.StartUpload(userID, req)
+	// A file bigger than what the user has left this month is turned away
+	// before any of it is sent. /complete checks again and reserves the room.
+	if req.FileSize > 0 && req.FileSize <= h.manager.maxFileBytes {
+		qres, qerr := quota.Check(c.UserContext(), userID, req.FileSize)
+		if qerr != nil {
+			if h.log != nil {
+				h.log.Errorf("quota_check_unavailable user=%s stage=start err=%s", userID, qerr.Error())
+			}
+			return quotaUnavailable(c)
+		}
+		if !qres.OK {
+			return quotaRejected(c, qres, req.FileSize)
+		}
+	}
+	// Each new upload ends in paid Vision checks, so an account gets a fixed
+	// number per hour and per day however it scripts them.
+	admit := func() error {
+		ok, wait, err := h.caps.Take(c.UserContext(), userID, h.newUploads...)
+		if err != nil {
+			if h.log != nil {
+				h.log.Errorf("upload_cap_unavailable user=%s err=%s", userID, err.Error())
+			}
+			return errCapUnavailable
+		}
+		if !ok {
+			return uploadCapError{wait: wait}
+		}
+		return nil
+	}
+	resp, busy, err := h.manager.StartUpload(userID, req, admit)
 	if busy != nil {
 		return serverBusy(c, busy)
 	}
-	if err != nil {
+	var capErr uploadCapError
+	switch {
+	case errors.As(err, &capErr):
+		secs := int(capErr.wait.Round(time.Second) / time.Second)
+		if secs < 1 {
+			secs = 1
+		}
+		c.Set("Retry-After", strconv.Itoa(secs))
+		return c.Status(fiber.StatusTooManyRequests).JSON(fiber.Map{"error": "upload_limit", "retry_after": secs})
+	case errors.Is(err, errCapUnavailable):
+		return serverBusy(c, &BusyReason{Reason: "busy", RetryAfter: 30})
+	case errors.Is(err, ErrFileTooLarge):
+		return c.Status(fiber.StatusRequestEntityTooLarge).JSON(fiber.Map{"error": "file_too_large"})
+	case err != nil:
 		return h.safeErrorResponse(c, userID, "", "start", err)
 	}
 	return c.Status(fiber.StatusCreated).JSON(resp)
@@ -93,6 +154,12 @@ func (h *Handler) uploadChunk(c *fiber.Ctx) error {
 	if err != nil {
 		if os.IsNotExist(err) {
 			return notFound(c, "upload_not_found")
+		}
+		if errors.Is(err, ErrDiskFull) {
+			if h.log != nil {
+				h.log.Errorf("chunk_refused_disk_low user=%s upload=%s", userID, uploadID)
+			}
+			return serverBusy(c, &BusyReason{Reason: "disk_full", RetryAfter: 60})
 		}
 		return h.safeErrorResponse(c, userID, uploadID, "chunk", err)
 	}
@@ -152,7 +219,21 @@ func validateFileSeriesComplete(b completeBody) error {
 const (
 	maxTitleLen       = 200
 	maxDescriptionLen = 1000
+	maxTags           = 15
+	maxTagLen         = 50
+	maxEpisodeNameLen = 500
+	// The UI takes covers up to 10 MB, which is this much base64 plus a data
+	// URL prefix.
+	maxThumbnailB64 = 14_000_000
 )
+
+// uploadCategories is the category list the upload UI offers.
+var uploadCategories = []string{
+	"Gaming", "Music", "Entertainment", "Education", "Technology", "Sports", "News",
+	"Lifestyle", "Anime", "Film", "Automotive", "Art", "Nature", "Other",
+}
+
+var uuidPattern = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
 
 func clampRunes(s string, max int) string {
 	r := []rune(s)
@@ -160,6 +241,40 @@ func clampRunes(s string, max int) string {
 		return string(r[:max])
 	}
 	return s
+}
+
+// cleanCategories keeps only names from the UI's list, once each.
+func cleanCategories(in []string) []string {
+	var out []string
+	seen := map[string]bool{}
+	for _, raw := range in {
+		for _, name := range uploadCategories {
+			if strings.EqualFold(strings.TrimSpace(raw), name) && !seen[name] {
+				seen[name] = true
+				out = append(out, name)
+			}
+		}
+	}
+	return out
+}
+
+// cleanTags applies the UI's tag rules: trimmed, lower case, 50 characters at
+// most, no repeats, 15 at most.
+func cleanTags(in []string) []string {
+	var out []string
+	seen := map[string]bool{}
+	for _, raw := range in {
+		if len(out) == maxTags {
+			break
+		}
+		tag := strings.ToLower(strings.TrimSpace(raw))
+		if tag == "" || utf8.RuneCountInString(tag) > maxTagLen || seen[tag] || strings.IndexFunc(tag, unicode.IsControl) >= 0 {
+			continue
+		}
+		seen[tag] = true
+		out = append(out, tag)
+	}
+	return out
 }
 
 func (h *Handler) completeUpload(c *fiber.Ctx) error {
@@ -212,8 +327,11 @@ func (h *Handler) completeUpload(c *fiber.Ctx) error {
 		if b.Description != "" {
 			description = clampRunes(strings.TrimSpace(b.Description), maxDescriptionLen)
 		}
-		userCategories = b.Categories
-		userTags = b.Tags
+		userCategories = cleanCategories(b.Categories)
+		userTags = cleanTags(b.Tags)
+		if len(b.DefaultThumbnail) > maxThumbnailB64 {
+			return badRequest(c, "thumbnail_too_large")
+		}
 		defaultThumbnail = b.DefaultThumbnail
 	}
 
@@ -233,7 +351,7 @@ func (h *Handler) completeUpload(c *fiber.Ctx) error {
 	isNewSeries := seriesBody.IsNewSeries != nil && *seriesBody.IsNewSeries
 	fileSeriesID := strings.TrimSpace(seriesBody.FileSeriesID)
 	fileSeriesEpisodeID := strings.TrimSpace(seriesBody.FileSeriesEpisodeID)
-	newEpisodeName := strings.TrimSpace(seriesBody.NewEpisodeName)
+	newEpisodeName := clampRunes(strings.TrimSpace(seriesBody.NewEpisodeName), maxEpisodeNameLen)
 	parentEpisodeID := strings.TrimSpace(seriesBody.ParentEpisodeID)
 	if isNewSeries {
 		fileSeriesID = ""
@@ -243,16 +361,39 @@ func (h *Handler) completeUpload(c *fiber.Ctx) error {
 		newEpisodeName = ""
 		parentEpisodeID = ""
 	}
+	for _, id := range []string{fileSeriesID, fileSeriesEpisodeID, parentEpisodeID} {
+		if id != "" && !uuidPattern.MatchString(id) {
+			return badRequest(c, "invalid_series_id")
+		}
+	}
 
-	meta, err := h.manager.CompleteUpload(userID, uploadID)
+	meta, err := h.manager.BeginComplete(userID, uploadID)
+	if errors.Is(err, ErrCompleteInProgress) {
+		c.Set("Retry-After", "5")
+		return c.Status(fiber.StatusConflict).JSON(fiber.Map{"error": "complete_in_progress"})
+	}
 	if err != nil {
 		return h.safeErrorResponse(c, userID, uploadID, "complete", err)
 	}
+	// Already queued by an earlier call: same answer, nothing processed twice.
+	if meta.JobID != "" {
+		return c.JSON(CompleteResponse{Status: "queued", JobID: meta.JobID})
+	}
+	queued := false
+	admitted := false
+	defer func() {
+		if queued {
+			return
+		}
+		h.manager.AbortComplete(uploadID)
+		if admitted {
+			if err := quota.Release(context.Background(), userID, uploadID); err != nil && h.log != nil {
+				h.log.Errorf("quota_release_failed user=%s upload=%s err=%s", userID, uploadID, err.Error())
+			}
+		}
+	}()
 
-	// Weekly-quota gate. Measure ACTUAL on-disk bytes (we don't trust the
-	// client-declared size), predict the post-processing footprint, and ask
-	// the app whether it fits in the user's remaining budget. Reject + clean
-	// up before we waste a worker slot on a job that would be over-limit.
+	// Measured on disk, not taken from the client.
 	actualBytes, sizeErr := h.manager.ChunkFolderSize(userID, uploadID)
 	if sizeErr != nil {
 		if h.log != nil {
@@ -260,81 +401,27 @@ func (h *Handler) completeUpload(c *fiber.Ctx) error {
 		}
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "internal_error"})
 	}
-	// Probe the first chunk for source resolution so the predictor can pick
-	// the right HLS multiplier. ffprobe reads as much metadata as it can from
-	// whatever bytes we point it at  for moov-at-start mp4 (the common case
-	// for modern phones and web encoders) the first chunk is plenty. If the
-	// probe fails (moov-at-end mobile files, broken first chunk, image, etc.)
-	// we pass height=0 and PredictFinalBytes uses its worst-case fallback,
-	// which over-estimates rather than under-estimates  the only failure
-	// mode is "quota-reject an upload that would have actually fit", never
-	// "let an over-budget upload through". The latter would let users do the
-	// "10 GB file with 2 GB left" abuse the user explicitly called out.
-	srcHeight := 0
-	if isLikelyVideo(meta.FileName) {
-		if firstChunk := h.manager.FirstChunkPath(userID, uploadID); firstChunk != "" {
-			if info, perr := ffmpeg.ProbeVideo(firstChunk); perr == nil && info != nil {
-				srcHeight = info.Height
-			}
-		}
-	}
 
-	predicted := quota.PredictFinalBytes(actualBytes, meta.FileName, srcHeight)
-	qres, qerr := quota.Check(c.Context(), userID, predicted)
-
-	// Storage costs money now, so an unanswered quota check never lets an
-	// upload through. The chunks stay on disk and /complete can be retried.
+	// The file goes in when it fits in what the user has left. Its stored size
+	// after processing can be bigger; the app caps that charge at the room the
+	// user had, so it can use up the rest of the month but never go past it.
+	// An unanswered check never lets an upload through: the chunks stay on
+	// disk and /complete can be retried.
+	qres, qerr := quota.Admit(c.UserContext(), userID, uploadID, actualBytes)
 	if qerr != nil {
 		if h.log != nil {
 			h.log.Errorf("quota_check_unavailable user=%s upload=%s err=%s", userID, uploadID, qerr.Error())
 		}
-		c.Set("Retry-After", "30")
-		return c.Status(fiber.StatusServiceUnavailable).JSON(fiber.Map{"error": "quota_unavailable"})
+		return quotaUnavailable(c)
 	}
-
 	if !qres.OK {
-		// 1. Delete THIS upload's chunks (the one that just tripped the cap).
 		_ = h.manager.AbandonUpload(userID, uploadID)
-
-		// 2. Sweep every other chunk folder this user has on disk. A user
-		//    that's over the weekly cap can't make ANY of their pending
-		//    uploads succeed  every future /complete will fail the same
-		//    quota check, so we'd be holding storage for nothing. Anything
-		//    already accepted into the worker queue is untouched (the
-		//    worker will finish it; that's a sunk cost we don't undo).
-		purgedIDs, purgeErr := h.manager.PurgeUserChunks(userID, "")
-		if purgeErr != nil && h.log != nil {
-			h.log.Errorf("purge_user_chunks_error user=%s err=%s", userID, purgeErr.Error())
-		}
-
-		// 3. Tell the app to drop the user's still-`queued` DB rows + refund
-		//    their quota reservations. Best-effort  if the app is down the
-		//    next /complete from this user will re-trigger this whole path.
-		//    Runs in a goroutine so we don't block the 413 response on it;
-		//    PurgeUser is panic-safe so this is fine even if the goroutine
-		//    fails mid-call.
-		go quota.PurgeUser(context.Background(), userID, purgedIDs)
-
 		if h.log != nil {
-			h.log.Infof("quota_reject user=%s upload=%s actual=%d predicted=%d src_height=%d used=%d limit=%d purged=%d",
-				userID, uploadID, actualBytes, predicted, srcHeight, qres.Used, qres.Limit, len(purgedIDs))
+			h.log.Infof("quota_reject user=%s upload=%s bytes=%d used=%d limit=%d", userID, uploadID, actualBytes, qres.Used, qres.Limit)
 		}
-		// 413 Payload Too Large + machine-readable code so the client can
-		// show a friendly "monthly limit reached" message (not a generic fail).
-		// The `predicted` field tells the user this was a prediction-based
-		// rejection (file would balloon past their cap after HLS ladder
-		// expansion), not just "you already used it all"  the UI uses this
-		// to render a "your file is predicted to exceed your limit after
-		// processing" explanation instead of a generic over-quota message.
-		return c.Status(fiber.StatusRequestEntityTooLarge).JSON(fiber.Map{
-			"error":        "monthly_limit_exceeded",
-			"used":         qres.Used,
-			"limit":        qres.Limit,
-			"remaining":    qres.Remaining,
-			"predicted":    predicted,
-			"source_bytes": actualBytes,
-		})
+		return quotaRejected(c, qres, actualBytes)
 	}
+	admitted = true
 
 	jobID, err := h.queue.Enqueue(context.Background(), meta.UserID, meta.UploadID, meta.FileName, meta.FileSize, meta.TotalChunks, title, description, userCategories, userTags, defaultThumbnail, reelMode, fileSeriesID, fileSeriesEpisodeID, isNewSeries, newEpisodeName, parentEpisodeID)
 	if err != nil {
@@ -342,6 +429,10 @@ func (h *Handler) completeUpload(c *fiber.Ctx) error {
 			h.log.Errorf("queue_error user=%s upload=%s err=%s", userID, uploadID, err.Error())
 		}
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "queue_failed"})
+	}
+	queued = true
+	if err := h.manager.FinishComplete(userID, uploadID, jobID); err != nil && h.log != nil {
+		h.log.Errorf("complete_mark_queued user=%s upload=%s job=%s err=%s", userID, uploadID, jobID, err.Error())
 	}
 	_ = h.queue.SetJobStatus(c.Context(), jobID, "queued")
 	queuedPct := 0
@@ -400,6 +491,7 @@ var safeErrorCodes = map[string]bool{
 	"invalid_upload_id":     true,
 	"invalid_chunk_index":   true,
 	"invalid_chunks":        true,
+	"invalid_chunk_size":    true,
 	"unsupported_file_type": true,
 	"missing_chunks":        true,
 }
@@ -440,27 +532,25 @@ func serverBusy(c *fiber.Ctx, reason *BusyReason) error {
 	})
 }
 
+func quotaUnavailable(c *fiber.Ctx) error {
+	c.Set("Retry-After", "30")
+	return c.Status(fiber.StatusServiceUnavailable).JSON(fiber.Map{"error": "quota_unavailable"})
+}
+
+func quotaRejected(c *fiber.Ctx, q quota.CheckResult, fileBytes int64) error {
+	return c.Status(fiber.StatusRequestEntityTooLarge).JSON(fiber.Map{
+		"error":        "monthly_limit_exceeded",
+		"used":         q.Used,
+		"limit":        q.Limit,
+		"remaining":    q.Remaining,
+		"source_bytes": fileBytes,
+	})
+}
+
 func trimForLog(b []byte, max int) string {
 	s := string(b)
 	if len(s) <= max {
 		return s
 	}
 	return s[:max] + "..."
-}
-
-// isLikelyVideo reports whether a filename extension matches our accepted
-// video formats. Used to skip the chunk-probe step on image uploads (probing
-// a JPEG with ffprobe just returns 'no video stream', which is wasted work).
-// The same allowlist lives in manager.allowedExtensions / quota.videoExt;
-// we intentionally duplicate it here as a small constant rather than import
-// because both other lists also contain image extensions, and a typo in one
-// place wouldn't open a security hole  worst case we run an extra probe.
-func isLikelyVideo(filename string) bool {
-	ext := strings.ToLower(filename)
-	for _, v := range []string{".mp4", ".webm", ".mkv", ".avi", ".mov", ".wmv", ".flv", ".m4v"} {
-		if strings.HasSuffix(ext, v) {
-			return true
-		}
-	}
-	return false
 }

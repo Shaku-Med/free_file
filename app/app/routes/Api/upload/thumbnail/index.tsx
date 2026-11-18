@@ -107,6 +107,9 @@ export const action = async ({ request }: { request: Request }) => {
     });
 
     const json = await res.json();
+    if (res.status === 429) {
+      return data({ error: "You've changed covers a lot recently. Try again later." }, { status: 429 });
+    }
     return data(json, { status: res.status });
   } catch (error: unknown) {
     console.error("[upload/thumbnail] proxy failed:", error);

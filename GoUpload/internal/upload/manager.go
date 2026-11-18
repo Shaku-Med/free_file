@@ -5,10 +5,12 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
+	"hash/fnv"
 	"io"
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -34,6 +36,29 @@ var ErrInvalidUploadID = errors.New("invalid_upload_id")
 // video of the kind its extension claims, whatever it is instead.
 var ErrNotMedia = errors.New("unsupported_file_type")
 
+var (
+	ErrFileTooLarge = errors.New("file_too_large")
+	// ErrChunkSize means a chunk is not exactly the size its index must be. Every
+	// chunk is chunk_size bytes except the last, which holds the remainder, so a
+	// declared file size is also the most an upload can ever put on disk.
+	ErrChunkSize = errors.New("invalid_chunk_size")
+	// ErrDiskFull is returned instead of writing a chunk that would leave the
+	// disk under its free space floor.
+	ErrDiskFull = errors.New("disk_full")
+	// ErrCompleteInProgress is a second /complete arriving while the first is
+	// still deciding whether to queue the upload.
+	ErrCompleteInProgress = errors.New("complete_in_progress")
+
+	errNoStatfs = errors.New("free space unknown on this platform")
+)
+
+// reclaimIdleAfter is how long an unfinished upload can sit untouched before
+// its space may go to someone else when the disk is short. It stays resumable
+// until then; after, its owner has to start that file over.
+const reclaimIdleAfter = time.Hour
+
+const defaultMinFreeBytes int64 = 2 << 30
+
 // ValidUploadID reports whether id is a well-formed upload identifier. Rejecting anything
 // else prevents path traversal (e.g. "../victim/abcd") when the id is joined into a path.
 func ValidUploadID(id string) bool {
@@ -45,8 +70,19 @@ type Manager struct {
 	maxDiskBytes  int64
 	maxConcurrent int
 	chunkSize     int64
+	maxFileBytes  int64
+	minFreeBytes  int64
+	freeSpace     func(string) (int64, error)
 	activeMu      sync.RWMutex
 	active        map[string]UploadInfo
+	// completing holds uploads a /complete is busy queueing.
+	completing map[string]struct{}
+	// startMu runs starts one at a time, so two cannot both pass the busy checks
+	// or reclaim the same space.
+	startMu sync.Mutex
+	// One lock per upload, striped so the set stays bounded. Chunk writes,
+	// completes and evictions of the same upload never interleave.
+	uploadLocks [64]sync.Mutex
 }
 
 func NewManager(cfg ManagerConfig) *Manager {
@@ -66,18 +102,59 @@ func NewManager(cfg ManagerConfig) *Manager {
 	if size <= 0 {
 		size = ChunkSizeBytes
 	}
+	maxFile := cfg.MaxFileBytes
+	if maxFile <= 0 {
+		maxFile = MaxFileBytesDefault
+	}
+	minFree := cfg.MinFreeBytes
+	if minFree <= 0 {
+		minFree = defaultMinFreeBytes
+	}
 	return &Manager{
 		baseDir:       base,
 		maxDiskBytes:  maxDisk,
 		maxConcurrent: maxConc,
 		chunkSize:     size,
+		maxFileBytes:  maxFile,
+		minFreeBytes:  minFree,
+		freeSpace:     freeBytes,
 		active:        make(map[string]UploadInfo),
+		completing:    make(map[string]struct{}),
 	}
 }
 
-func (m *Manager) StartUpload(userID string, req StartRequest) (StartResponse, *BusyReason, error) {
+func (m *Manager) lockUpload(uploadID string) func() {
+	h := fnv.New32a()
+	_, _ = h.Write([]byte(uploadID))
+	mu := &m.uploadLocks[h.Sum32()%uint32(len(m.uploadLocks))]
+	mu.Lock()
+	return mu.Unlock
+}
+
+// expectedChunkLen is the exact byte count chunk index of an upload must hold.
+func expectedChunkLen(meta UploadMeta, index int) (int64, bool) {
+	if meta.ChunkSize <= 0 || meta.FileSize <= 0 || index < 0 || index >= meta.TotalChunks {
+		return 0, false
+	}
+	if index < meta.TotalChunks-1 {
+		return meta.ChunkSize, true
+	}
+	last := meta.FileSize - int64(meta.TotalChunks-1)*meta.ChunkSize
+	if last <= 0 || last > meta.ChunkSize {
+		return 0, false
+	}
+	return last, true
+}
+
+// StartUpload opens a new upload or resumes the caller's matching one. admit
+// runs only for a brand new upload, after every other check passes; an error
+// from it is returned as is and nothing is created.
+func (m *Manager) StartUpload(userID string, req StartRequest, admit func() error) (StartResponse, *BusyReason, error) {
 	if userID == "" || req.FileName == "" || req.FileSize <= 0 || req.TotalChunks <= 0 {
 		return StartResponse{}, nil, errors.New("invalid_request")
+	}
+	if req.FileSize > m.maxFileBytes {
+		return StartResponse{}, nil, ErrFileTooLarge
 	}
 	safeName, err := security.SafeUploadFilename(req.FileName)
 	if err != nil {
@@ -87,15 +164,32 @@ func (m *Manager) StartUpload(userID string, req StartRequest) (StartResponse, *
 	if !isAllowedExtension(req.FileName) {
 		return StartResponse{}, nil, errors.New("unsupported_file_type")
 	}
-	if req.TotalChunks > 0 && int64(req.TotalChunks)*m.chunkSize < req.FileSize {
+	// Exactly as many chunks as the size needs. A larger count would let the
+	// upload write past its declared size.
+	if int64(req.TotalChunks) != (req.FileSize+m.chunkSize-1)/m.chunkSize {
 		return StartResponse{}, nil, errors.New("invalid_chunks")
 	}
-	if meta, err := findExistingMeta(m.baseDir, userID, req.FileName, req.FileSize); err == nil {
+
+	m.startMu.Lock()
+	defer m.startMu.Unlock()
+
+	if meta, err := findExistingMeta(m.baseDir, userID, req.FileName, req.FileSize); err == nil && meta.ChunkSize == m.chunkSize {
 		m.trackActive(meta)
 		return StartResponse{UploadID: meta.UploadID, ChunkSize: meta.ChunkSize}, nil, nil
 	}
-	if reason := m.checkBusy(userID, req.FileSize); reason != nil {
+	if reason := m.checkSlots(userID); reason != nil {
 		return StartResponse{}, reason, nil
+	}
+	// One account parks at most one largest file's worth of unfinished
+	// uploads; its oldest idle ones make room for the new one.
+	m.trimParked(userID, m.maxFileBytes-req.FileSize)
+	if reason := m.checkDisk(req.FileSize); reason != nil {
+		return StartResponse{}, reason, nil
+	}
+	if admit != nil {
+		if err := admit(); err != nil {
+			return StartResponse{}, nil, err
+		}
 	}
 
 	uploadID := newID()
@@ -140,6 +234,9 @@ func (m *Manager) SaveChunk(userID, uploadID string, chunkIndex int, body io.Rea
 	if !ValidUploadID(uploadID) {
 		return ChunkResponse{}, ErrInvalidUploadID
 	}
+	unlock := m.lockUpload(uploadID)
+	defer unlock()
+
 	meta, err := readMeta(metaPath(m.baseDir, userID, uploadID))
 	if err != nil {
 		return ChunkResponse{}, err
@@ -149,9 +246,22 @@ func (m *Manager) SaveChunk(userID, uploadID string, chunkIndex int, body io.Rea
 	}
 	for _, idx := range meta.ReceivedChunks {
 		if idx == chunkIndex {
-			m.trackActive(meta)
+			if meta.JobID == "" {
+				m.trackActive(meta)
+			}
 			return chunkStats(meta, chunkIndex), nil
 		}
+	}
+	want, ok := expectedChunkLen(meta, chunkIndex)
+	if !ok {
+		return ChunkResponse{}, ErrChunkSize
+	}
+	if free, err := m.freeSpace(m.baseDir); err == nil {
+		if free-want < m.minFreeBytes {
+			return ChunkResponse{}, ErrDiskFull
+		}
+	} else if !errors.Is(err, errNoStatfs) {
+		return ChunkResponse{}, err
 	}
 
 	// The extension alone proves nothing, and /complete hands this chunk to
@@ -173,7 +283,11 @@ func (m *Manager) SaveChunk(userID, uploadID string, chunkIndex int, body io.Rea
 	if err != nil {
 		return ChunkResponse{}, err
 	}
-	if _, err := io.Copy(file, body); err != nil {
+	written, err := io.Copy(file, io.LimitReader(body, want+1))
+	if err == nil && written != want {
+		err = ErrChunkSize
+	}
+	if err != nil {
 		_ = file.Close()
 		_ = os.Remove(path)
 		return ChunkResponse{}, err
@@ -192,37 +306,75 @@ func (m *Manager) SaveChunk(userID, uploadID string, chunkIndex int, body io.Rea
 	return chunkStats(meta, chunkIndex), nil
 }
 
-func (m *Manager) CompleteUpload(userID, uploadID string) (CompleteMeta, error) {
+// BeginComplete checks every chunk is in and claims the upload for queueing,
+// so a repeated /complete can never process the same file twice. One already
+// queued comes back with its JobID set and nothing claimed. Otherwise the
+// caller must end the claim with FinishComplete or AbortComplete.
+func (m *Manager) BeginComplete(userID, uploadID string) (CompleteMeta, error) {
 	if !ValidUploadID(uploadID) {
 		return CompleteMeta{}, ErrInvalidUploadID
 	}
+	unlock := m.lockUpload(uploadID)
+	defer unlock()
+
 	meta, err := readMeta(metaPath(m.baseDir, userID, uploadID))
 	if err != nil {
 		return CompleteMeta{}, err
 	}
-	if len(normalizeChunks(meta.ReceivedChunks)) != meta.TotalChunks {
-		return CompleteMeta{}, errors.New("missing_chunks")
-	}
-	m.clearActive(uploadID)
-	return CompleteMeta{
+	out := CompleteMeta{
 		UserID:      userID,
 		UploadID:    uploadID,
 		FileName:    meta.FileName,
 		FileSize:    meta.FileSize,
 		TotalChunks: meta.TotalChunks,
-	}, nil
+		JobID:       meta.JobID,
+	}
+	if meta.JobID != "" {
+		return out, nil
+	}
+	if len(normalizeChunks(meta.ReceivedChunks)) != meta.TotalChunks {
+		return CompleteMeta{}, errors.New("missing_chunks")
+	}
+	m.activeMu.Lock()
+	_, busy := m.completing[uploadID]
+	if !busy {
+		m.completing[uploadID] = struct{}{}
+		delete(m.active, uploadID)
+	}
+	m.activeMu.Unlock()
+	if busy {
+		return CompleteMeta{}, ErrCompleteInProgress
+	}
+	return out, nil
 }
 
-// FirstChunkPath returns the on-disk path of the very first chunk for an
-// upload. The handler uses this to ffprobe for source resolution at /complete
-// time so PredictFinalBytes can pick the correct HLS multiplier instead of
-// the worst-case fallback. Returns "" when the upload id is malformed; the
-// caller treats that as "no probe possible" and uses the conservative path.
-func (m *Manager) FirstChunkPath(userID, uploadID string) string {
-	if !ValidUploadID(uploadID) {
-		return ""
+// FinishComplete records the job an upload was queued as, so later
+// /complete calls answer with it.
+func (m *Manager) FinishComplete(userID, uploadID, jobID string) error {
+	unlock := m.lockUpload(uploadID)
+	defer unlock()
+	path := metaPath(m.baseDir, userID, uploadID)
+	meta, err := readMeta(path)
+	if err == nil {
+		meta.JobID = jobID
+		err = writeMeta(path, meta)
 	}
-	return chunkPath(m.baseDir, userID, uploadID, 0)
+	if err == nil {
+		m.endClaim(uploadID)
+	}
+	// On failure the claim stays, which still stops a second queueing here.
+	return err
+}
+
+// AbortComplete lets a later /complete try again after one that did not queue.
+func (m *Manager) AbortComplete(uploadID string) {
+	m.endClaim(uploadID)
+}
+
+func (m *Manager) endClaim(uploadID string) {
+	m.activeMu.Lock()
+	delete(m.completing, uploadID)
+	m.activeMu.Unlock()
 }
 
 // ChunkFolderSize returns the actual on-disk byte sum of every chunk for an
@@ -267,6 +419,8 @@ func (m *Manager) AbandonUpload(userID, uploadID string) error {
 	if !ValidUploadID(uploadID) {
 		return ErrInvalidUploadID
 	}
+	unlock := m.lockUpload(uploadID)
+	defer unlock()
 	m.clearActive(uploadID)
 	dir := filepath.Join(m.baseDir, userID, uploadID)
 	return os.RemoveAll(dir)
@@ -276,116 +430,6 @@ func (m *Manager) AbandonUpload(userID, uploadID string) error {
 // chars, no path separators). Re-applied here so any future caller that
 // bypasses the middleware can't pass `../victim` into a filesystem op.
 var userIDSafe = regexp.MustCompile(`^[a-zA-Z0-9_-]{1,64}$`)
-
-// PurgeUserChunks removes EVERY abandoned chunk folder for a user under the
-// chunks root. Used when the user hits their weekly quota cap: the upload
-// they just tried to finish is already gone via AbandonUpload, and any other
-// chunk folder for the same user is now over-budget too  we'd just be
-// holding storage for files that will all get rejected at /complete anyway.
-//
-// `keep` is an optional uploadID to spare (e.g. the rejected upload that we
-// want to log separately, or an upload we know is currently mid-chunk-write).
-// Pass "" to purge everything.
-//
-// Returns the list of uploadIDs that were actually removed so the caller can
-// tell the app to refund their quota reservations + delete their DB rows.
-//
-// Defence in depth: userID is re-validated against `userIDSafe` to prevent
-// path traversal even if the caller forgot to do so; we never walk outside
-// `m.baseDir/<validated userID>`.
-func (m *Manager) PurgeUserChunks(userID, keep string) ([]string, error) {
-	if !userIDSafe.MatchString(userID) {
-		return nil, errors.New("invalid_user_id")
-	}
-
-	// Snapshot + clear in-memory entries first so a concurrent SaveChunk on a
-	// purged upload sees the cleared state and bails. We hold the write lock
-	// only briefly  the disk delete loop below doesn't need it.
-	m.activeMu.Lock()
-	removed := make(map[string]struct{})
-	for id, info := range m.active {
-		if info.UserID != userID || id == keep {
-			continue
-		}
-		if !ValidUploadID(id) {
-			// Skip anything that looks malformed; we never want to act on it
-			// even from in-memory state.
-			continue
-		}
-		removed[id] = struct{}{}
-		delete(m.active, id)
-	}
-	m.activeMu.Unlock()
-
-	// Walk the user's chunks dir and delete every upload subdir. This catches
-	// crash-debris (chunks left over from a previous process that wasn't in
-	// our in-memory `active` map) on top of the live entries we cleared above.
-	userDir := filepath.Join(m.baseDir, userID)
-	entries, readErr := os.ReadDir(userDir)
-	if readErr != nil {
-		if errors.Is(readErr, os.ErrNotExist) {
-			// No on-disk debris; just return whatever we cleared from memory.
-			return setToSortedSlice(removed), nil
-		}
-		// Even if reading the dir failed we already cleared memory; surface
-		// the error so the caller can log it.
-		return setToSortedSlice(removed), readErr
-	}
-
-	// Defensive cap. A user dir should hold at most a handful of upload
-	// folders; if there are millions, something is very wrong and walking
-	// them all would just stall the request. Cap at 1000 deletions per call;
-	// any leftover gets cleaned by the background CleanupOrphanedChunks loop.
-	const maxPurgePerCall = 1000
-	deleted := 0
-	for _, entry := range entries {
-		if deleted >= maxPurgePerCall {
-			break
-		}
-		if !entry.IsDir() {
-			continue
-		}
-		name := entry.Name()
-		if name == keep {
-			continue
-		}
-		// Only act on directories that match the upload-id shape. Anything
-		// else might be unrelated content we shouldn't touch.
-		if !ValidUploadID(name) {
-			continue
-		}
-		removed[name] = struct{}{}
-		// os.RemoveAll is no-op if the dir vanished between ReadDir and now.
-		_ = os.RemoveAll(filepath.Join(userDir, name))
-		deleted++
-	}
-	return setToSortedSlice(removed), nil
-}
-
-func setToSortedSlice(s map[string]struct{}) []string {
-	if len(s) == 0 {
-		return nil
-	}
-	out := make([]string, 0, len(s))
-	for k := range s {
-		out = append(out, k)
-	}
-	// Stable order so callers / logs are deterministic. Sort uses the same
-	// `sort` package already imported by meta.go.
-	stringsSort(out)
-	return out
-}
-
-// stringsSort sorts in-place. Kept as a thin wrapper so we don't add a fresh
-// `sort` import just for one line; the package is already imported elsewhere
-// in the upload package via meta.go.
-func stringsSort(s []string) {
-	for i := 1; i < len(s); i++ {
-		for j := i; j > 0 && s[j-1] > s[j]; j-- {
-			s[j-1], s[j] = s[j], s[j-1]
-		}
-	}
-}
 
 func (m *Manager) ServerStatus() (ServerStatusResponse, error) {
 	usage, err := m.diskUsage()
@@ -403,17 +447,7 @@ func (m *Manager) ServerStatus() (ServerStatusResponse, error) {
 	}, nil
 }
 
-func (m *Manager) checkBusy(userID string, fileSize int64) *BusyReason {
-	usage, err := m.diskUsage()
-	if err == nil {
-		if usage >= m.maxDiskBytes {
-			return &BusyReason{Reason: "disk_full", RetryAfter: 60}
-		}
-		projected := usage + fileSize*2
-		if projected >= m.maxDiskBytes {
-			return &BusyReason{Reason: "disk_limit", RetryAfter: 60}
-		}
-	}
+func (m *Manager) checkSlots(userID string) *BusyReason {
 	m.forgetIdle()
 	if m.activeCount() >= m.maxConcurrent {
 		return &BusyReason{Reason: "too_many_uploads", RetryAfter: 60}
@@ -424,11 +458,157 @@ func (m *Manager) checkBusy(userID string, fileSize int64) *BusyReason {
 	return nil
 }
 
+// checkDisk counts what is on disk plus what running uploads still have to
+// send, so many uploads started at once cannot each pass on an empty disk and
+// together overflow it. Space short, it reclaims long abandoned uploads first.
+func (m *Manager) checkDisk(fileSize int64) *BusyReason {
+	usage, err := m.diskUsage()
+	if err != nil {
+		return nil
+	}
+	over := func() int64 { return usage + m.reservedBytes() + fileSize*2 - m.maxDiskBytes }
+	if need := over(); need >= 0 {
+		usage -= m.reclaimStale(need + 1)
+	}
+	if usage >= m.maxDiskBytes {
+		return &BusyReason{Reason: "disk_full", RetryAfter: 60}
+	}
+	if over() >= 0 {
+		return &BusyReason{Reason: "disk_limit", RetryAfter: 60}
+	}
+	return nil
+}
+
+func (m *Manager) reservedBytes() int64 {
+	m.activeMu.RLock()
+	defer m.activeMu.RUnlock()
+	var n int64
+	for _, info := range m.active {
+		n += info.Remaining
+	}
+	return n
+}
+
+// parkedUpload is an unfinished upload nobody is sending to right now.
+type parkedUpload struct {
+	userID   string
+	uploadID string
+	declared int64
+	onDisk   int64
+	last     time.Time
+}
+
+// parkedUploads lists unfinished, unqueued uploads not touched for idleFor,
+// oldest first. userID "" lists every user's.
+func (m *Manager) parkedUploads(userID string, idleFor time.Duration) []parkedUpload {
+	users := []string{userID}
+	if userID == "" {
+		users = nil
+		entries, _ := os.ReadDir(m.baseDir)
+		for _, e := range entries {
+			if e.IsDir() && userIDSafe.MatchString(e.Name()) {
+				users = append(users, e.Name())
+			}
+		}
+	}
+	cutoff := time.Now().Add(-idleFor)
+	var out []parkedUpload
+	for _, u := range users {
+		entries, _ := os.ReadDir(filepath.Join(m.baseDir, u))
+		for _, e := range entries {
+			if !e.IsDir() || !ValidUploadID(e.Name()) || m.isLive(e.Name()) {
+				continue
+			}
+			meta, err := readMeta(metaPath(m.baseDir, u, e.Name()))
+			if err != nil || meta.JobID != "" {
+				continue
+			}
+			last := meta.CreatedAt
+			if meta.LastActivity.After(last) {
+				last = meta.LastActivity
+			}
+			if last.After(cutoff) {
+				continue
+			}
+			onDisk, _ := m.ChunkFolderSize(u, e.Name())
+			out = append(out, parkedUpload{userID: u, uploadID: e.Name(), declared: meta.FileSize, onDisk: onDisk, last: last})
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].last.Before(out[j].last) })
+	return out
+}
+
+// isLive reports an upload that is receiving chunks or being queued.
+func (m *Manager) isLive(uploadID string) bool {
+	m.activeMu.RLock()
+	defer m.activeMu.RUnlock()
+	if _, ok := m.completing[uploadID]; ok {
+		return true
+	}
+	info, ok := m.active[uploadID]
+	return ok && time.Since(info.LastChunkReceivedAt) < activeIdleLimit
+}
+
+// evict deletes a parked upload unless a chunk or /complete got to it first.
+func (m *Manager) evict(p parkedUpload) bool {
+	unlock := m.lockUpload(p.uploadID)
+	defer unlock()
+	if m.isLive(p.uploadID) {
+		return false
+	}
+	meta, err := readMeta(metaPath(m.baseDir, p.userID, p.uploadID))
+	if err != nil || meta.JobID != "" {
+		return false
+	}
+	if os.RemoveAll(filepath.Join(m.baseDir, p.userID, p.uploadID)) != nil {
+		return false
+	}
+	m.clearActive(p.uploadID)
+	return true
+}
+
+// trimParked drops a user's oldest idle unfinished uploads until the rest
+// declare at most keep bytes.
+func (m *Manager) trimParked(userID string, keep int64) {
+	list := m.parkedUploads(userID, 0)
+	var total int64
+	for _, p := range list {
+		total += p.declared
+	}
+	for _, p := range list {
+		if total <= keep {
+			return
+		}
+		if m.evict(p) {
+			total -= p.declared
+		}
+	}
+}
+
+// reclaimStale frees at least need bytes from uploads nobody has touched in
+// reclaimIdleAfter, oldest first, and reports how much it freed.
+func (m *Manager) reclaimStale(need int64) int64 {
+	var freed int64
+	for _, p := range m.parkedUploads("", reclaimIdleAfter) {
+		if freed >= need {
+			break
+		}
+		if m.evict(p) {
+			freed += p.onDisk
+		}
+	}
+	return freed
+}
+
 func (m *Manager) ensureDir(userID, uploadID string) error {
 	return os.MkdirAll(filepath.Join(m.baseDir, userID, uploadID), 0700)
 }
 
 func (m *Manager) trackActive(meta UploadMeta) {
+	remaining := meta.FileSize - int64(len(normalizeChunks(meta.ReceivedChunks)))*meta.ChunkSize
+	if remaining < 0 {
+		remaining = 0
+	}
 	m.activeMu.Lock()
 	m.active[meta.UploadID] = UploadInfo{
 		UserID:              meta.UserID,
@@ -438,6 +618,7 @@ func (m *Manager) trackActive(meta UploadMeta) {
 		TotalChunks:         meta.TotalChunks,
 		StartedAt:           meta.CreatedAt,
 		LastChunkReceivedAt: time.Now().UTC(),
+		Remaining:           remaining,
 	}
 	m.activeMu.Unlock()
 }

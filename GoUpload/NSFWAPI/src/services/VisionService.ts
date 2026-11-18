@@ -118,7 +118,7 @@ export class VisionService {
       tried.add(idx);
 
       try {
-        console.log(`[VisionService] Attempt ${attempt + 1}/${maxAttempts} using key #${idx} (${this.apiKeys[idx].slice(0, 10)}...)`);
+        console.log(`[VisionService] Attempt ${attempt + 1}/${maxAttempts} using key #${idx}`);
         const result = await this.callVisionAPI(this.apiKeys[idx], imageBase64, gateOnly);
         // Gate-only frame checks skip the VLM caption (and Label Detection) to
         // save cost and latency; the full grid pass supplies description/tags.

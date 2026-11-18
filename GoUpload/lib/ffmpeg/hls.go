@@ -69,6 +69,8 @@ type HLSOptions struct {
 	// Canceled, when set, is asked before each quality. Once it says yes the
 	// encode stops with ErrCanceled, the owner having stopped the upload.
 	Canceled func() bool
+
+	budget *byteBudget
 }
 
 // ErrCanceled is why encoding stopped when the owner stopped the upload.
@@ -260,19 +262,10 @@ func capAudioBitrate(target string, srcBitrate int) string {
 
 // audioBitrateBps parses "128k"/"1.5M" into bits/sec for the master BANDWIDTH.
 func audioBitrateBps(br string) int {
-	s := strings.ToLower(strings.TrimSpace(br))
-	mult := 1
-	switch {
-	case strings.HasSuffix(s, "k"):
-		mult, s = 1000, strings.TrimSuffix(s, "k")
-	case strings.HasSuffix(s, "m"):
-		mult, s = 1000000, strings.TrimSuffix(s, "m")
+	if n := parseRate(br); n > 0 {
+		return n
 	}
-	n, err := strconv.Atoi(strings.TrimSpace(s))
-	if err != nil {
-		return 128000
-	}
-	return n * mult
+	return 128000
 }
 
 func ConvertToHLSAllQualities(inputPath, outputDir string, opts HLSOptions) (*HLSAllResult, error) {
@@ -312,6 +305,15 @@ func ConvertToHLSAllQualities(inputPath, outputDir string, opts HLSOptions) (*HL
 		return nil, fmt.Errorf("no quality tiers for %dx%d", probe.Width, probe.Height)
 	}
 
+	srcBps := sourceVideoBitrate(probe.Bitrate, probe.AudioBitrate, int64(inputSz), probe.Duration)
+	for i, t := range tiers {
+		w, h := scaledDims(t.Width, probe.Width, probe.Height)
+		tiers[i] = capTierRate(t, tierRateCap(srcBps, probe.Width*probe.Height, w*h))
+	}
+	maxBytes := outputBudget(int64(inputSz))
+	log.Printf("[hls] source %d bytes, video about %d bps, output budget %d bytes", inputSz, srcBps, maxBytes)
+	var written, lastTier int64
+
 	hasAudio := strings.TrimSpace(probe.AudioCodec) != ""
 	hasGPU := checkGPU()
 	masterPath := filepath.Join(outputDir, "master.m3u8")
@@ -339,7 +341,11 @@ func ConvertToHLSAllQualities(inputPath, outputDir string, opts HLSOptions) (*HL
 		if opts.Canceled != nil && opts.Canceled() {
 			return stop(ErrCanceled)
 		}
-		log.Printf("[hls] starting tier %d/%d: %s (target width %d)", i+1, len(tiers), tier.Name, tier.Width)
+		// Each quality outweighs the one below it, so one that cannot fit is not started.
+		if written+lastTier > maxBytes {
+			return stop(fmt.Errorf("%w: %s skipped with %d of %d bytes stored", ErrOutputBudget, tier.Name, written, maxBytes))
+		}
+		log.Printf("[hls] starting tier %d/%d: %s (target width %d, maxrate %s)", i+1, len(tiers), tier.Name, tier.Width, tier.MaxRate)
 		tierStart := time.Now()
 		dir := filepath.Join(outputDir, tier.Name)
 		if err := os.MkdirAll(dir, 0700); err != nil {
@@ -354,10 +360,13 @@ func ConvertToHLSAllQualities(inputPath, outputDir string, opts HLSOptions) (*HL
 		}
 		// Video renditions are always encoded without audio here; the shared
 		// audio track carries it for every quality.
+		opts.budget = &byteBudget{used: written, max: maxBytes}
 		r, err := convertTier(inputPath, dir, opts, tier, hasGPU, hasAudio, true)
 		if err != nil {
 			return stop(fmt.Errorf("hls %s: %w", tier.Name, err))
 		}
+		lastTier = dirBytes(dir)
+		written += lastTier
 		r.TierName = tier.Name
 		r.Width, r.Height = scaledDims(tier.Width, probe.Width, probe.Height)
 		log.Printf("[hls] finished tier %d/%d: %s %dx%d (%d segments, took %s)", i+1, len(tiers), tier.Name, r.Width, r.Height, len(r.SegmentFiles), time.Since(tierStart).Round(time.Second))
@@ -374,9 +383,12 @@ func ConvertToHLSAllQualities(inputPath, outputDir string, opts HLSOptions) (*HL
 				br := capAudioBitrate(rung.bitrate, probe.AudioBitrate)
 				log.Printf("[hls] starting audio rung %q (%s)", rung.id, br)
 				audioStart := time.Now()
-				if err := convertAudioTrack(inputPath, filepath.Join(outputDir, "audio_"+rung.id), opts, br); err != nil {
+				audioDir := filepath.Join(outputDir, "audio_"+rung.id)
+				opts.budget = &byteBudget{used: written, max: maxBytes}
+				if err := convertAudioTrack(inputPath, audioDir, opts, br); err != nil {
 					return stop(fmt.Errorf("hls audio %s: %w", rung.id, err))
 				}
+				written += dirBytes(audioDir)
 				rungBW[rung.id] = audioBitrateBps(br)
 				distinct = append(distinct, rung)
 				newDirs = append(newDirs, "audio_"+rung.id)
@@ -434,8 +446,8 @@ func convertTier(inputPath, outputDir string, opts HLSOptions, tier QualityTier,
 
 	if tryGPU {
 		r, err := runTierConversionWithRetries(inputPath, m3u8Path, segmentPattern, opts, tier, true, hasAudio, videoOnly)
-		if err == nil {
-			return r, nil
+		if err == nil || errors.Is(err, ErrOutputBudget) {
+			return r, err
 		}
 		log.Printf("[hls] GPU encode failed for %s, falling back to CPU: %v", tier.Name, err)
 	}
@@ -578,8 +590,9 @@ const minSalvageableSegments = 10
 
 // execEncode runs one ffmpeg invocation (with timeout + memory governor) and
 // salvages partial output when enough segments were already written. Returns
-// the segment list on success. Shared by the video and audio encoders.
-func execEncode(args []string, m3u8Path string) ([]string, error) {
+// the segment list on success. Shared by the video and audio encoders. An
+// encode that spends its budget is stopped and nothing of it is kept.
+func execEncode(args []string, m3u8Path string, budget *byteBudget) ([]string, error) {
 	h := env.GetInt64("GOUpload_HLS_FFMPEG_TIMEOUT_HOURS", 6)
 	if h < 1 {
 		h = 1
@@ -595,14 +608,20 @@ func execEncode(args []string, m3u8Path string) ([]string, error) {
 	stderr.max = 2 << 20
 	cmd.Stderr = &stderr
 
+	outDir := filepath.Dir(m3u8Path)
+	stopWatch := budget.watch(outDir, cancel)
 	ffmpegErr := runFFmpegWithOptionalMemGovernor(cmd)
+	stopWatch()
+	if budget.over(outDir) {
+		return nil, budget.err(outDir)
+	}
 
 	// Check what FFmpeg actually produced before deciding to fail.
 	m3u8Exists := false
 	if _, statErr := os.Stat(m3u8Path); statErr == nil {
 		m3u8Exists = true
 	}
-	segments, segErr := findSegments(filepath.Dir(m3u8Path))
+	segments, segErr := findSegments(outDir)
 	segCount := 0
 	if segErr == nil {
 		segCount = len(segments)
@@ -631,7 +650,7 @@ func runTierConversion(inputPath, m3u8Path, segmentPattern string, opts HLSOptio
 
 	args := buildTierArgs(inputPath, m3u8Path, segmentPattern, opts, tier, useGPU, hasAudio, videoOnly)
 
-	segments, err := execEncode(args, m3u8Path)
+	segments, err := execEncode(args, m3u8Path, opts.budget)
 	if err != nil {
 		return nil, err
 	}
@@ -659,7 +678,7 @@ func convertAudioTrack(inputPath, outputDir string, opts HLSOptions, audioBR str
 	args := buildAudioArgs(in, m3u8Path, segmentPattern, opts, audioBR)
 
 	return withMemoryRetries("audio", func() error {
-		_, err := execEncode(args, m3u8Path)
+		_, err := execEncode(args, m3u8Path, opts.budget)
 		return err
 	})
 }

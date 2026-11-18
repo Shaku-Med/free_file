@@ -6,14 +6,30 @@ import (
 	"time"
 )
 
+const testChunk = 64
+
 func testManager(t *testing.T) *Manager {
 	t.Helper()
-	return NewManager(ManagerConfig{BaseDir: t.TempDir(), MaxDiskBytes: 1 << 30, MaxConcurrent: 2, ChunkSize: 1 << 20})
+	return testManagerWith(t, ManagerConfig{MaxDiskBytes: 1 << 30, MaxConcurrent: 2})
 }
+
+func testManagerWith(t *testing.T, cfg ManagerConfig) *Manager {
+	t.Helper()
+	cfg.BaseDir = t.TempDir()
+	if cfg.ChunkSize == 0 {
+		cfg.ChunkSize = testChunk
+	}
+	m := NewManager(cfg)
+	m.freeSpace = func(string) (int64, error) { return 1 << 40, nil }
+	return m
+}
+
+// testFileSize is two chunks, the second holding the 4 byte remainder.
+const testFileSize = testChunk + 4
 
 func startFile(t *testing.T, m *Manager, user, name string) (string, *BusyReason) {
 	t.Helper()
-	resp, busy, err := m.StartUpload(user, StartRequest{FileName: name, FileSize: 1 << 20, TotalChunks: 2})
+	resp, busy, err := m.StartUpload(user, StartRequest{FileName: name, FileSize: testFileSize, TotalChunks: 2}, nil)
 	if err != nil {
 		t.Fatalf("start %s: %v", name, err)
 	}

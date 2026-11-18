@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -37,6 +38,7 @@ import (
 	"goupload/lib/r2"
 	stemslib "goupload/lib/stems"
 	"goupload/lib/transcribe"
+	"goupload/lib/usercap"
 )
 
 // fingerprintDBPath is the SQLite fingerprint file. In the container this is on
@@ -44,6 +46,20 @@ import (
 // restarts and reboots.
 func fingerprintDBPath() string {
 	return env.Get("FINGERPRINT_DB_PATH", "upload/fingerprints/fp.db")
+}
+
+// positiveEnvInt reads an optional limit. A value that is set but is not a
+// positive whole number stops startup instead of quietly using the default.
+func positiveEnvInt(key string, fallback int64) int64 {
+	raw := strings.TrimSpace(env.Get(key, ""))
+	if raw == "" {
+		return fallback
+	}
+	n, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil || n <= 0 {
+		log.Fatalf("%s must be a positive whole number", key)
+	}
+	return n
 }
 
 func main() {
@@ -108,10 +124,17 @@ func main() {
 		MaxDiskBytes:  40 << 30,
 		MaxConcurrent: 10,
 		ChunkSize:     25 << 20,
+		MaxFileBytes:  positiveEnvInt("MAX_UPLOAD_BYTES", upload.MaxFileBytesDefault),
+		MinFreeBytes:  positiveEnvInt("UPLOAD_MIN_FREE_BYTES", 2<<30),
 	})
 
 	nsfwAPI := env.Get("NSFW_API_URL", "http://localhost:3004/api/nsfw/detect")
 	webhookSecret := env.Get("UPLOAD_WEBHOOK_SECRET", "")
+	// Without these every upload is refused by the app or never published, so
+	// production stops here instead of running half broken.
+	if env.IsProd() && (webhookSecret == "" || strings.TrimSpace(env.Get("APP_BASE_URL", "")) == "") {
+		log.Fatal("UPLOAD_WEBHOOK_SECRET and APP_BASE_URL must be set when APP_ENV=production")
+	}
 
 	// Local embedding sidecar (semantic search). Optional: when EMBED_API_URL
 	// is unset everything degrades to lexical-only search.
@@ -160,6 +183,11 @@ func main() {
 	if nsfwStrikes.Enabled() {
 		appLog.Infof("nsfw strike limiter max=%d window=%s", strikeMax, strikeWindow)
 	}
+	userCaps := usercap.New(q.Redis())
+	newUploadCaps := usercap.NewUploads(
+		positiveEnvInt("UPLOADS_PER_HOUR", usercap.DefaultUploadsPerHour),
+		positiveEnvInt("UPLOADS_PER_DAY", usercap.DefaultUploadsPerDay),
+	)
 
 	// Every new upload goes to R2. GitHub is kept only to delete files stored
 	// there before the move; nothing new is written to it.
@@ -339,12 +367,13 @@ func main() {
 	if env.IsProd() && (supabaseURL == "" || supabaseKey == "") {
 		log.Fatal("SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY (or SUPABASE_ANON_KEY) must be set when APP_ENV=production")
 	}
-	upload.RegisterRoutes(app, manager, q, appLog)
+	upload.RegisterRoutes(app, manager, q, appLog, upload.Options{Caps: userCaps, NewUploads: newUploadCaps})
 	embedproxy.RegisterRoutes(app, appLog, embedClient, webhookSecret)
 	thumbnail.RegisterRoutes(app, appLog, thumbnail.Config{
 		NSFWApiURL:    nsfwAPI,
 		NSFWApiSecret: webhookSecret,
 		Strikes:       nsfwStrikes,
+		Caps:          userCaps,
 		AssembledRoot: outputDir,
 		R2:            r2Client,
 		SupabaseURL:   supabaseURL,
@@ -356,6 +385,7 @@ func main() {
 		NSFWApiURL:    nsfwAPI,
 		NSFWApiSecret: webhookSecret,
 		Strikes:       nsfwStrikes,
+		Caps:          userCaps,
 		R2:            r2Client,
 		SupabaseURL:   supabaseURL,
 		SupabaseKey:   supabaseKey,
@@ -365,6 +395,7 @@ func main() {
 		NSFWApiURL:    nsfwAPI,
 		NSFWApiSecret: webhookSecret,
 		Strikes:       nsfwStrikes,
+		Caps:          userCaps,
 		SupabaseURL:   supabaseURL,
 		SupabaseKey:   supabaseKey,
 		R2:            r2Client,

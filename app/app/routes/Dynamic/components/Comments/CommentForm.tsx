@@ -235,6 +235,9 @@ const CommentForm = ({
       if (res.status === 422 && json.nsfw) {
         throw new Error("This image was detected as inappropriate and cannot be posted in comments");
       }
+      if (res.status === 429) {
+        throw new Error("You've added a lot of images recently. Try again later.");
+      }
       throw new Error(json.error || "Upload failed");
     }
     return { url: json.image.url, type: json.image.type };
