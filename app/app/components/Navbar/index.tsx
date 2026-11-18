@@ -115,10 +115,11 @@ export default function Navbar({ hasScrolled = { state: false, opacityLevel: 0 }
   const showSearchBar = effectiveInlineSearch || mobileSearchOpen;
   // Reel keeps a transparent bar, but give a backdrop while the search is expanded
   // so the field stays readable against the video.
-  // On a phone's watch page the video pins right under the bar, so the bar is
-  // solid there: see-through glass let the page show between bar and video.
-  const solidOverPlayer = isMobile && isSingleSegmentWatchPath(location.pathname);
-  const barOpacity = searchExpanded || solidOverPlayer ? 1 : onReelRoute ? 0 : hasScrolled.opacityLevel;
+  // On a phone's watch page the video pins right under the bar. The bar stays
+  // see-through there, only lightly tinted and blurred, so ambient mode and the
+  // stage lights glow up behind it, under the status bar too in the installed app.
+  const glassOverPlayer = isMobile && isSingleSegmentWatchPath(location.pathname) && !searchExpanded;
+  const barOpacity = searchExpanded || glassOverPlayer ? 1 : onReelRoute ? 0 : hasScrolled.opacityLevel;
   const appReelHeader = Boolean(appStyle) && onReelRoute && !searchExpanded;
   const reelMuted = useReelMuted();
 
@@ -199,7 +200,7 @@ export default function Navbar({ hasScrolled = { state: false, opacityLevel: 0 }
           className="pointer-events-none absolute inset-x-0 top-0 h-[calc(100%+1.5rem)] bg-gradient-to-b from-black/40 to-transparent"
         />
       ) : null}
-      {appStyle === "ios-glass" && !searchExpanded && !solidOverPlayer ? (
+      {appStyle === "ios-glass" && !searchExpanded && !glassOverPlayer ? (
         <div
           aria-hidden
           className="header-scroll-edge pointer-events-none absolute inset-x-0 top-0 h-[calc(100%+1.25rem)]"
@@ -213,7 +214,8 @@ export default function Navbar({ hasScrolled = { state: false, opacityLevel: 0 }
             expandedDesktop
               ? "bg-card/90 supports-[backdrop-filter]:bg-card/75"
               : "bg-background/90 supports-[backdrop-filter]:bg-background/75",
-            solidOverPlayer && "border-transparent bg-background supports-[backdrop-filter]:bg-background",
+            glassOverPlayer &&
+              "border-transparent bg-background/60 backdrop-blur-sm supports-[backdrop-filter]:bg-background/30",
           )}
           style={{ opacity: barOpacity }}
         />
