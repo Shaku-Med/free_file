@@ -1,6 +1,7 @@
 package ffmpeg
 
 import (
+	"fmt"
 	"math"
 	"math/rand"
 	"strings"
@@ -109,28 +110,66 @@ func TestStemsDocFromSeparatedRejectsBadShapes(t *testing.T) {
 	}
 }
 
-func TestDropKickClicksKeepsRealSnaresOnKicks(t *testing.T) {
-	energy := make([]float64, 100)
-	bump := func(f int, amp float64) {
-		energy[f] += amp
-		energy[f+1] += amp / 2
+func TestSplitKickSnareKeepsOnlyRealHits(t *testing.T) {
+	kickE := make([]float64, 120)
+	snareE := make([]float64, 120)
+	bump := func(e []float64, f int, amp float64) {
+		e[f] += amp
+		e[f+1] += amp / 2
 	}
-	bump(10, 1)   // snare alone
-	bump(30, 1)   // snare alone
-	bump(50, 0.1) // click under a kick
-	bump(70, 1)   // snare played with a kick
-	snares := []onset{{frame: 10}, {frame: 30}, {frame: 50}, {frame: 70}}
-	kicks := []onset{{frame: 49}, {frame: 71}}
+	bump(kickE, 10, 1) // kick alone, its click in the snare band
+	bump(snareE, 10, 0.08)
+	bump(snareE, 30, 1) // snare alone, its thump in the kick band
+	bump(kickE, 31, 0.2)
+	bump(kickE, 50, 1) // kick and snare played together
+	bump(snareE, 51, 1)
+	bump(kickE, 70, 0.3) // a soft kick and a soft snare together
+	bump(snareE, 70, 0.3)
+	bump(kickE, 90, 1)   // kick alone
+	bump(snareE, 100, 1) // snare alone
+	kicks := []onset{{frame: 10}, {frame: 31}, {frame: 50}, {frame: 70}, {frame: 90}}
+	snares := []onset{{frame: 10}, {frame: 30}, {frame: 51}, {frame: 70}, {frame: 100}}
 
-	got := dropKickClicks(snares, kicks, energy)
-	var frames []int
-	for _, s := range got {
-		frames = append(frames, s.frame)
+	gotK, gotS := splitKickSnare(kicks, snares, kickE, snareE)
+	frames := func(hits []onset) []int {
+		var out []int
+		for _, h := range hits {
+			out = append(out, h.frame)
+		}
+		return out
 	}
-	if len(frames) != 3 || frames[0] != 10 || frames[1] != 30 || frames[2] != 70 {
-		t.Fatalf("kept %v, want [10 30 70]", frames)
+	if k := frames(gotK); fmt.Sprint(k) != "[10 50 70 90]" {
+		t.Fatalf("kicks kept %v, want [10 50 70 90]", k)
 	}
-	if len(snares) != 4 {
-		t.Fatal("the input slice was changed")
+	if s := frames(gotS); fmt.Sprint(s) != "[30 51 70 100]" {
+		t.Fatalf("snares kept %v, want [30 51 70 100]", s)
+	}
+	if len(kicks) != 5 || len(snares) != 5 {
+		t.Fatal("the input slices were changed")
+	}
+}
+
+// A snare's low end leaks into the drum stem's kick band. Every snare used to
+// come out as a kick too, so a kick only bounce moved on the snare as well.
+func TestStemsDocFromSeparatedIgnoresSnareThumps(t *testing.T) {
+	for _, thump := range []float64{0.2, 0.35} {
+		b := separatedTrack(20)
+		kick := b.Series["kick"]
+		for x := 0.5; x < 19.5; x += 1 {
+			start := int(x * testFPS)
+			for i := 0; i < 8 && start+i < len(kick); i++ {
+				kick[start+i] += thump * math.Exp(-float64(i)/2)
+			}
+		}
+		doc, err := StemsDocFromSeparated(b)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if k := countEvents(doc, "kick"); k < 18 || k > 20 {
+			t.Fatalf("thump %.2f: kicks = %d, want only the 20 real ones", thump, k)
+		}
+		if s := countEvents(doc, "snare"); s < 17 || s > 19 {
+			t.Fatalf("thump %.2f: snares = %d", thump, s)
+		}
 	}
 }

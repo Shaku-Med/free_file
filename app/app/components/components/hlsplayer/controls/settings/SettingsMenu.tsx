@@ -21,10 +21,12 @@ import {
   Orbit,
   Speaker,
   PictureInPicture2,
+  Maximize,
 } from '~/components/icons';
 import { usePlayerContext, SLEEP_TIMER_OPTIONS } from '../../PlayerContext';
 import { isSpatialAudioUiSupported } from '../../hooks/useSpatialAudio';
 import { useFullscreenContainer } from '../../hooks/useFullscreenContainer';
+import { useStageLightsOn } from '../../overlays/stageLightsStore';
 import { useGlobalPlayerLayout } from '~/lib/Context/GlobalPlayerLayoutContext';
 import { cn } from '~/lib/utils';
 import { mobileOverlayIcon, mobileOverlaySquareBtn, playerMenuSurface } from '../mobileControlMetrics';
@@ -110,6 +112,8 @@ export function SettingsMenuBody() {
     setAmbientIntensity,
     seekWaveThumb,
     setSeekWaveThumb,
+    stageLightsScope,
+    setStageLightsScope,
     playerBackground,
     setPlayerBackground,
     autoPlay,
@@ -153,7 +157,19 @@ export function SettingsMenuBody() {
   const auth = authPlaybackFeatures;
   // Mini dock has no room for ambient glow, so those toggles stay off the menu.
   const hideAmbientOptions = useGlobalPlayerLayout() === 'mini';
+  const ambientResting = useStageLightsOn() && ambientMode;
 
+  const pickedLabels = STEM_TYPES.filter((t) => videoBounceInstruments[t]).map(
+    (t) => STEM_CONFETTI_META[t].label,
+  );
+  const pickedSummary =
+    pickedLabels.length === 0
+      ? 'Nothing'
+      : pickedLabels.length === STEM_TYPES.length
+        ? 'Everything'
+        : pickedLabels.length <= 2
+          ? pickedLabels.join(', ')
+          : `${pickedLabels.length} picked`;
   const [stemPalettes, setStemPalettes] = useState<StemConfettiThemePalettes>(() =>
     buildStemConfettiThemePalettes(),
   );
@@ -282,7 +298,14 @@ export function SettingsMenuBody() {
                 >
                   <span className="flex min-w-0 flex-1 items-center gap-2">
                     <Monitor className="size-4 shrink-0 text-muted-foreground" />
-                    <span className="min-w-0 truncate">Ambient mode</span>
+                    <span className="flex min-w-0 flex-col">
+                      <span className="truncate">Ambient mode</span>
+                      {ambientResting && (
+                        <span className="truncate text-[11px] text-muted-foreground">
+                          Off while stage lights are on
+                        </span>
+                      )}
+                    </span>
                   </span>
                   <Switch checked={ambientMode} onChange={setAmbientMode} disabled={!auth} />
                 </DropdownMenuItem>
@@ -564,7 +587,7 @@ export function SettingsMenuBody() {
             >
               <span className="flex min-w-0 flex-1 items-center gap-2">
                 <PartyPopper className="size-4 shrink-0 text-muted-foreground" />
-                <span className="min-w-0 truncate">Border glow</span>
+                <span className="min-w-0 truncate">Stage lights</span>
               </span>
               <Switch
                 checked={visualizerConfetti}
@@ -572,6 +595,47 @@ export function SettingsMenuBody() {
                 disabled={!auth}
               />
             </DropdownMenuItem>
+            {visualizerConfetti && auth && (
+              <DropdownMenuItem
+                // Enter on the row flips it, for keyboards.
+                onSelect={(e) => {
+                  e.preventDefault();
+                  setStageLightsScope(stageLightsScope === 'player' ? 'page' : 'player');
+                }}
+                className={toggleRowClass}
+              >
+                <span className="flex min-w-0 flex-1 items-center gap-2">
+                  <Maximize className="size-4 shrink-0 text-muted-foreground" />
+                  <span className="min-w-0 truncate">Lights</span>
+                </span>
+                <span
+                  role="radiogroup"
+                  aria-label="Where the stage lights show"
+                  className="flex shrink-0 gap-0.5 rounded-full bg-muted/70 p-0.5"
+                >
+                  {(['player', 'page'] as const).map((scope) => (
+                    <button
+                      key={scope}
+                      type="button"
+                      role="radio"
+                      aria-checked={stageLightsScope === scope}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setStageLightsScope(scope);
+                      }}
+                      className={cn(
+                        'rounded-full px-2 py-0.5 text-[11px] font-medium transition-colors duration-150 ease-out',
+                        stageLightsScope === scope
+                          ? 'bg-background text-foreground shadow-sm'
+                          : 'text-muted-foreground hover:bg-background/50',
+                      )}
+                    >
+                      {scope === 'player' ? 'Player' : 'Full page'}
+                    </button>
+                  ))}
+                </span>
+              </DropdownMenuItem>
+            )}
             <DropdownMenuItem
               onSelect={(e) => e.preventDefault()}
               className={cn(toggleRowClass, !auth && 'opacity-60')}
@@ -589,40 +653,19 @@ export function SettingsMenuBody() {
                 disabled={!auth}
               />
             </DropdownMenuItem>
-            {videoBounce && audioStemsAvailable && auth && (
+            {auth && (
               <DropdownMenuCollapsible>
                 <DropdownMenuCollapsibleTrigger className="w-full min-w-0 gap-2 pr-1">
                   <span className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden">
-                    <Activity className="size-4 shrink-0 text-muted-foreground" />
-                    <span className="min-w-0 truncate">Dance tuning</span>
+                    <BarChart3 className="size-4 shrink-0 text-muted-foreground" />
+                    <span className="min-w-0 truncate">Reacts to</span>
                   </span>
-                  <span className={cn(valueChipClass, 'ml-1')}>
-                    {Math.round(videoBounceIntensity * 100)}%
+                  <span className={cn(valueChipClass, 'ml-1 max-w-[8rem] truncate')}>
+                    {pickedSummary}
                   </span>
                 </DropdownMenuCollapsibleTrigger>
                 <DropdownMenuCollapsibleContent>
-                  {/* Intensity: how hard hits shove the bounce/shake/vibration */}
-                  <DropdownMenuItem
-                    onSelect={(e) => e.preventDefault()}
-                    className="flex-col items-stretch gap-1.5"
-                  >
-                    <span className="flex items-center justify-between text-xs text-muted-foreground">
-                      <span>Intensity</span>
-                      <span className="tabular-nums">{Math.round(videoBounceIntensity * 100)}%</span>
-                    </span>
-                    <input
-                      type="range"
-                      min={25}
-                      max={200}
-                      step={5}
-                      value={Math.round(videoBounceIntensity * 100)}
-                      onChange={(e) => setVideoBounceIntensity(Number(e.target.value) / 100)}
-                      onKeyDown={(e) => e.stopPropagation()}
-                      className="w-full accent-primary"
-                      aria-label="Video bounce intensity"
-                    />
-                  </DropdownMenuItem>
-                  {/* What the bounce listens to */}
+                  {/* One pick for every visual: the wave, the lights and the bounce */}
                   {STEM_TYPES.map((type) => {
                     const meta = STEM_CONFETTI_META[type];
                     const swatch = stemConfettiSwatchColor(type, stemPalettes);
@@ -649,6 +692,28 @@ export function SettingsMenuBody() {
                   })}
                 </DropdownMenuCollapsibleContent>
               </DropdownMenuCollapsible>
+            )}
+            {videoBounce && auth && (
+              <DropdownMenuItem
+                onSelect={(e) => e.preventDefault()}
+                className="flex-col items-stretch gap-1.5"
+              >
+                <span className="flex items-center justify-between text-xs text-muted-foreground">
+                  <span>Bounce intensity</span>
+                  <span className="tabular-nums">{Math.round(videoBounceIntensity * 100)}%</span>
+                </span>
+                <input
+                  type="range"
+                  min={25}
+                  max={200}
+                  step={5}
+                  value={Math.round(videoBounceIntensity * 100)}
+                  onChange={(e) => setVideoBounceIntensity(Number(e.target.value) / 100)}
+                  onKeyDown={(e) => e.stopPropagation()}
+                  className="w-full accent-primary"
+                  aria-label="Video bounce intensity"
+                />
+              </DropdownMenuItem>
             )}
           </DropdownMenuGroup>
         </>

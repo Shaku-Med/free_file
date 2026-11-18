@@ -44,6 +44,10 @@ var stemBands = []struct {
 	{"other", 250, 2000},
 }
 
+// On the full mix the snare band also hears a kick's punch, so a snare is
+// told from a kick by its crack, the wires and stick noise up here.
+const snareCrackLo, snareCrackHi = 1200.0, 4000.0
+
 // Per-band minimum spacing between onsets (seconds).
 var stemMinGap = map[string]float64{
 	"kick":  0.12,
@@ -208,6 +212,10 @@ func analyzeStems(samples []float64, sampleRate int) *AudioStemsFile {
 		bandEnergy[i] = make([]float64, frames)
 	}
 
+	crack := make([]float64, frames)
+	crackLo := int(math.Floor(snareCrackLo / binHz))
+	crackHi := int(math.Ceil(snareCrackHi / binHz))
+
 	re := make([]float64, stemsFFTSize)
 	im := make([]float64, stemsFFTSize)
 	var globalRMS float64
@@ -236,21 +244,28 @@ func analyzeStems(samples []float64, sampleRate int) *AudioStemsFile {
 			}
 			bandEnergy[b][f] = e / float64(hiBin-loBin+1)
 		}
+		var e float64
+		for k := crackLo; k <= crackHi; k++ {
+			e += math.Hypot(re[k], im[k])
+		}
+		crack[f] = e / float64(crackHi-crackLo+1)
 	}
 
 	doc.HasAudio = globalRMS/float64(frames) >= hasAudioRMSThreshold
 	if !doc.HasAudio {
 		return doc
 	}
-	fillStemsDoc(doc, bandEnergy, float64(stemsHopSize)/float64(sampleRate), true)
+	fillStemsDoc(doc, bandEnergy, float64(stemsHopSize)/float64(sampleRate), crack)
 	return doc
 }
 
 // fillStemsDoc writes the envelopes and onset events for per band energy
-// (rows in stemBands order). Bands measured on the full mix bleed into each
-// other, so there a kick also hides the bass and "other" bumps it causes;
-// separated stems don't, and a bass note landing on a kick is a real note.
-func fillStemsDoc(doc *AudioStemsFile, bandEnergy [][]float64, frameDur float64, mixed bool) {
+// (rows in stemBands order). snareCrack is set for the full mix, whose bands
+// bleed into each other, so there a kick or snare also hides the bass and
+// "other" bumps it causes; separated stems don't, and a bass note landing on a
+// kick is a real note.
+func fillStemsDoc(doc *AudioStemsFile, bandEnergy [][]float64, frameDur float64, snareCrack []float64) {
+	mixed := snareCrack != nil
 	opts := separatedOnsetOpts
 	if mixed {
 		opts = onsetOpts{}
@@ -259,9 +274,12 @@ func fillStemsDoc(doc *AudioStemsFile, bandEnergy [][]float64, frameDur float64,
 	for b, band := range stemBands {
 		found[b] = detectOnsetsWith(bandEnergy[b], int(math.Ceil(stemMinGap[band.name]/frameDur)), opts)
 	}
-	if !mixed {
-		found[stemBandIndex("snare")] = dropKickClicks(found[stemBandIndex("snare")], found[stemBandIndex("kick")], bandEnergy[stemBandIndex("snare")])
+	ki, si := stemBandIndex("kick"), stemBandIndex("snare")
+	snareEvidence := bandEnergy[si]
+	if mixed {
+		snareEvidence = snareCrack
 	}
+	found[ki], found[si] = splitKickSnare(found[ki], found[si], bandEnergy[ki], snareEvidence)
 	var events []StemEvent
 	for b, band := range stemBands {
 		doc.Envelopes[band.name] = decimateEnvelope(bandEnergy[b], stemsEnvelopeDecim)
@@ -294,42 +312,61 @@ func stemBandIndex(name string) int {
 }
 
 const (
-	// A snare onset this many frames from a kick may be the kick's click.
-	kickClickFrames = 2
-	// It is kept only if the snare band jumps at least this much of a typical
-	// snare hit there: a real snare played with a kick still cracks loudly.
-	kickClickShare = 0.6
+	// Kick and snare onsets this many frames apart may be one hit heard by both.
+	sameHitFrames = 2
+	// The weaker side of such a pair stays only if its jump, against its own
+	// band's typical hit, is at least this share of the other side's. A kick's
+	// beater click is a sliver of a snare's crack and a snare's thump a sliver
+	// of a kick, while a kick and a snare played together both land hard.
+	sameHitShare = 0.5
 )
 
-// dropKickClicks removes snare onsets that are only the beater click of a kick
-// drum, which the separated drum stem still carries in the snare's band.
-func dropKickClicks(snares, kicks []onset, snareEnergy []float64) []onset {
-	if len(snares) == 0 || len(kicks) == 0 {
-		return snares
+// splitKickSnare drops kick onsets that are only a snare's low thump and snare
+// onsets that are only a kick's beater click. Each band hears some of the
+// other drum, so one hit would otherwise fire both and a kick only visual
+// would bounce on every snare.
+func splitKickSnare(kicks, snares []onset, kickEnergy, snareEnergy []float64) ([]onset, []onset) {
+	if len(kicks) == 0 || len(snares) == 0 {
+		return kicks, snares
 	}
-	rise := func(f int) float64 {
-		best := 0.0
-		for i := max(f-1, 1); i <= min(f+1, len(snareEnergy)-1); i++ {
-			best = math.Max(best, snareEnergy[i]-snareEnergy[i-1])
+	kr := relativeRises(kicks, kickEnergy)
+	sr := relativeRises(snares, snareEnergy)
+	return keepUnmasked(kicks, kr, snares, sr), keepUnmasked(snares, sr, kicks, kr)
+}
+
+// relativeRises is each onset's energy jump over its band's typical jump.
+func relativeRises(hits []onset, energy []float64) []float64 {
+	out := make([]float64, len(hits))
+	for i, h := range hits {
+		for f := max(h.frame-1, 1); f <= min(h.frame+1, len(energy)-1); f++ {
+			out[i] = math.Max(out[i], energy[f]-energy[f-1])
 		}
-		return best
 	}
-	rises := make([]float64, len(snares))
-	for i, s := range snares {
-		rises[i] = rise(s.frame)
-	}
-	typical := percentile(rises, 0.75)
-	out := snares[:0:0]
-	k := 0
-	for i, s := range snares {
-		for k < len(kicks) && kicks[k].frame < s.frame-kickClickFrames {
-			k++
+	if typical := percentile(out, 0.75); typical > 0 {
+		for i := range out {
+			out[i] /= typical
 		}
-		nearKick := k < len(kicks) && kicks[k].frame <= s.frame+kickClickFrames
-		if nearKick && rises[i] < kickClickShare*typical {
+	}
+	return out
+}
+
+// keepUnmasked keeps the hits that are not dwarfed by an other band hit at the
+// same moment. Both lists are in frame order.
+func keepUnmasked(hits []onset, rel []float64, others []onset, otherRel []float64) []onset {
+	out := hits[:0:0]
+	j := 0
+	for i, h := range hits {
+		for j < len(others) && others[j].frame < h.frame-sameHitFrames {
+			j++
+		}
+		strongest := 0.0
+		for k := j; k < len(others) && others[k].frame <= h.frame+sameHitFrames; k++ {
+			strongest = math.Max(strongest, otherRel[k])
+		}
+		if rel[i] < sameHitShare*strongest {
 			continue
 		}
-		out = append(out, s)
+		out = append(out, h)
 	}
 	return out
 }
@@ -383,7 +420,7 @@ func StemsDocFromSeparated(b *SeparatedBands) (*AudioStemsFile, error) {
 	doc.HasAudio = true
 	doc.Duration = math.Round(b.Duration*1000) / 1000
 	doc.EnvelopeFps = b.FPS / stemsEnvelopeDecim
-	fillStemsDoc(doc, energy, 1/b.FPS, false)
+	fillStemsDoc(doc, energy, 1/b.FPS, nil)
 	return doc, nil
 }
 
@@ -488,8 +525,9 @@ func detectOnsetsWith(energy []float64, minGapFrames int, opts onsetOpts) []onse
 }
 
 // suppressOverlappingEvents drops redundant events that describe the same
-// strike: a kick onset also bumps the bass and "other" bands, so within a
-// 70ms window kick wins over bass, and kick/snare win over "other".
+// strike on the full mix: a kick bumps the bass and "other" bands and a
+// snare's body sits in the bass band, so within a 70ms window kick and snare
+// win over bass and "other".
 func suppressOverlappingEvents(events []StemEvent) []StemEvent {
 	const window = 0.07
 	out := events[:0]
@@ -519,13 +557,7 @@ func suppressOverlappingEvents(events []StemEvent) []StemEvent {
 }
 
 func dominates(winner, loser string) bool {
-	if loser == "bass" {
-		return winner == "kick"
-	}
-	if loser == "other" {
-		return winner == "kick" || winner == "snare"
-	}
-	return false
+	return (loser == "bass" || loser == "other") && (winner == "kick" || winner == "snare")
 }
 
 // decimateEnvelope downsamples band energy for the visualizer wave lines.

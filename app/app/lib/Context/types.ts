@@ -43,6 +43,8 @@ export type PlayerSettings = {
   ambientIntensity: number;
   /** Waveform seek handle: ride the wave, or pin to the bottom rail. */
   seekWaveThumb: 'ride' | 'bottom';
+  /** Stage lights hug the player, or light the edges of the whole page. */
+  stageLightsScope: 'player' | 'page';
   /** JSON map of stem type → the bounce reacts to it (kick/snare/hihat/bass/other). */
   videoBounceInstruments: string;
   quality: string;

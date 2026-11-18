@@ -215,6 +215,9 @@ interface PlayerContextValue {
   /** Waveform seek handle: ride the wave or pin to the bottom rail. */
   seekWaveThumb: 'ride' | 'bottom';
   setSeekWaveThumb: (v: 'ride' | 'bottom') => void;
+  /** Stage lights around the player only, or on the edges of the whole page. */
+  stageLightsScope: 'player' | 'page';
+  setStageLightsScope: (v: 'player' | 'page') => void;
   /** Which stems the bounce reacts to. */
   videoBounceInstruments: StemConfettiInstruments;
   setVideoBounceInstrument: (type: StemType, enabled: boolean) => void;
@@ -537,6 +540,19 @@ export function PlayerProvider({
     [authPlaybackFeatures, setPlayerSettings, savePlayerSettings],
   );
 
+  const [stageLightsScope, setStageLightsScopeState] = useState<'player' | 'page'>('player');
+
+  const setStageLightsScope = useCallback(
+    (v: 'player' | 'page') => {
+      if (!authPlaybackFeatures) return;
+      const next = v === 'page' ? 'page' : 'player';
+      setStageLightsScopeState(next);
+      setPlayerSettings(prev => (prev ? { ...prev, stageLightsScope: next } : prev));
+      savePlayerSettings({ stageLightsScope: next }).catch(() => {});
+    },
+    [authPlaybackFeatures, setPlayerSettings, savePlayerSettings],
+  );
+
   const setAmbientIntensity = useCallback(
     (v: number) => {
       if (!authPlaybackFeatures) return;
@@ -642,6 +658,7 @@ export function PlayerProvider({
         Math.max(0, Math.min(1, playerSettings.ambientIntensity ?? 0.15)),
       );
       setSeekWaveThumbState(playerSettings.seekWaveThumb === 'bottom' ? 'bottom' : 'ride');
+      setStageLightsScopeState(playerSettings.stageLightsScope === 'page' ? 'page' : 'player');
       setVideoBounceInstrumentsState(
         parseStemInstrumentMap(playerSettings.videoBounceInstruments, DEFAULT_VIDEO_BOUNCE_INSTRUMENTS),
       );
@@ -654,6 +671,7 @@ export function PlayerProvider({
       setVideoBounceState(false);
       setVideoBounceIntensityState(1);
       setVideoBounceInstrumentsState(DEFAULT_VIDEO_BOUNCE_INSTRUMENTS);
+      setStageLightsScopeState('player');
     }
 
     /** Spatial audio: parse stored config; fall back to defaults if cookie is empty/corrupt. */
@@ -1242,6 +1260,8 @@ export function PlayerProvider({
     setAmbientIntensity,
     seekWaveThumb,
     setSeekWaveThumb,
+    stageLightsScope,
+    setStageLightsScope,
     videoBounceInstruments,
     setVideoBounceInstrument,
     statsForNerds,

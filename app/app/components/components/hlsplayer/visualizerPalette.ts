@@ -83,7 +83,9 @@ export type ThemeColorToken =
   | 'chart-3'
   | 'chart-4'
   | 'chart-5'
-  | 'muted-foreground';
+  | 'muted-foreground'
+  | 'background'
+  | 'foreground';
 
 export function resolveThemeColorToken(token: ThemeColorToken): string {
   if (typeof document === 'undefined') return 'rgb(99, 102, 241)';

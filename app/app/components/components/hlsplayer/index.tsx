@@ -13,7 +13,8 @@ import { CaptionProvider } from './CaptionContext';
 import CaptionOverlay from './overlays/CaptionOverlay';
 import VideoKickBounce from './overlays/VideoKickBounce';
 import VRTheaterOverlay from './overlays/VRTheaterOverlay';
-import StemGlowLight from './overlays/StemGlowLight';
+import StageLights from './overlays/StageLights';
+import { useStageLightsOn } from './overlays/stageLightsStore';
 import EndCardOverlay from './overlays/EndCardOverlay';
 import { FEED_EMBED_HIDE_CONTROLS, MINI_PLAYER_HIDE_CONTROLS, type HideControls } from './types';
 import PersistentBottomVisualizer from './controls/seek/PersistentBottomVisualizer';
@@ -839,11 +840,13 @@ function PlayerInner({
     });
   }, [file?.unique_id]);
 
+  // Ambient sits out while stage lights are up; the saved setting stays as it is.
+  const stageLightsOn = useStageLightsOn();
   useEffect(() => {
     if (onAmbientModeChange) {
-      onAmbientModeChange(ambientMode);
+      onAmbientModeChange(ambientMode && !stageLightsOn);
     }
-  }, [ambientMode, onAmbientModeChange]);
+  }, [ambientMode, stageLightsOn, onAmbientModeChange]);
 
   useEffect(() => {
     if (onVideoRef && videoRef.current) onVideoRef(videoRef.current);
@@ -1317,8 +1320,8 @@ function PlayerInner({
       style={{ cursor: showControls || isMiniDock ? 'default' : 'none' }}
       onContextMenu={miniSeekOnly ? undefined : handleContextMenu}
     >
-      {/* Beat glow light: soft-masked stem kick glow behind the video */}
-      {showAudioVisualizer && <StemGlowLight />}
+      {/* Stage lights around the screen edges, driven by the picked instruments */}
+      {showAudioVisualizer && !isMiniDock && <StageLights />}
       {/* Preload the seek-preview sprite sheet as a real (hidden) <img> as soon
           as the player mounts. A rendered <img> is fetched + decoded + retained
           by the browser, so the first scrub paints the preview instantly from

@@ -11,6 +11,7 @@ import {
 } from '../../audioStems';
 import {
   buildStemConfettiThemePalettes,
+  type StemConfettiInstruments,
   type StemConfettiThemePalettes,
 } from '../../stemConfettiSettings';
 import { fileAccentColors } from '../../visualizerPalette';
@@ -107,10 +108,17 @@ function bandAmpsAt(
   return out;
 }
 
-function combinedAmplitude(bands: BandAmps): number {
+/** Only the picked instruments move the wave; their weights fill the whole range. */
+function combinedAmplitude(bands: BandAmps, picked: StemConfettiInstruments): number {
   let sum = 0;
-  for (const type of STEM_TYPES) sum += (bands[type] ?? 0) * BAND_WEIGHT[type];
-  return Math.min(1, Math.pow(sum * 1.45, 0.85));
+  let weight = 0;
+  for (const type of STEM_TYPES) {
+    if (!picked[type]) continue;
+    sum += (bands[type] ?? 0) * BAND_WEIGHT[type];
+    weight += BAND_WEIGHT[type];
+  }
+  if (weight === 0) return 0;
+  return Math.min(1, Math.pow((sum / weight) * 1.45, 0.85));
 }
 
 /** Hit hardness: how much percussive punch is in this instant (0..1). */
@@ -179,7 +187,9 @@ export default function StemResonanceVisualizer({ stems, compact = false }: Prop
     buildStemConfettiThemePalettes(),
   );
 
-  const { videoRef, state, file } = usePlayerContext();
+  const { videoRef, state, file, videoBounceInstruments } = usePlayerContext();
+  const pickedRef = useRef(videoBounceInstruments);
+  pickedRef.current = videoBounceInstruments;
   const stemsRef = useRef(stems);
   stemsRef.current = stems;
   const useEnvelopesRef = useRef(stemsHaveWaveEnvelopes(stems));
@@ -280,7 +290,9 @@ export default function StemResonanceVisualizer({ stems, compact = false }: Prop
 
       // ── Targets from the CURRENT instant only (standing wave, no scroll) ──
       bandAmpsAt(stemData, playhead, live, useEnvelopesRef.current, bands);
-      const energy = playingRef.current ? combinedAmplitude(bands) : 0;
+      const picked = pickedRef.current;
+      for (const t of STEM_TYPES) if (!picked[t]) bands[t] = 0;
+      const energy = playingRef.current ? combinedAmplitude(bands, picked) : 0;
       const hardness = playingRef.current ? hardnessAmount(bands) : 0;
       const ampTarget = Math.max(IDLE_AMP, energy);
 

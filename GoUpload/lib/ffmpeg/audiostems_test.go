@@ -69,6 +69,66 @@ func TestAnalyzeStemsDetectsKicks(t *testing.T) {
 	}
 }
 
+// synthDrumMix: kicks (a thump whose pitch drops) and snares (a noise burst
+// over a 190 Hz body) on a quiet noise floor.
+func synthDrumMix(durationS float64, kickTimes, snareTimes []float64) []float64 {
+	n := int(durationS * stemsSampleRate)
+	out := make([]float64, n)
+	rng := rand.New(rand.NewSource(3))
+	for i := range out {
+		out[i] = (rng.Float64()*2 - 1) * 0.02
+	}
+	add := func(t, seconds float64, sample func(ts float64) float64) {
+		start := int(t * stemsSampleRate)
+		for i := 0; i < int(seconds*stemsSampleRate) && start+i < n; i++ {
+			out[start+i] += sample(float64(i) / stemsSampleRate)
+		}
+	}
+	for _, t := range kickTimes {
+		add(t, 0.12, func(ts float64) float64 {
+			return 0.9 * math.Exp(-ts*30) * math.Sin(2*math.Pi*(55+60*math.Exp(-ts*40))*ts)
+		})
+	}
+	for _, t := range snareTimes {
+		add(t, 0.15, func(ts float64) float64 {
+			return 0.5*math.Exp(-ts*25)*(rng.Float64()*2-1) + 0.4*math.Exp(-ts*30)*math.Sin(2*math.Pi*190*ts)
+		})
+	}
+	return out
+}
+
+// Each drum used to fire the other's event too: a snare's low end read as a
+// kick and a kick's punch as a snare, plus a bass note the track never had.
+func TestAnalyzeStemsTellsKickFromSnare(t *testing.T) {
+	var kicks, snares []float64
+	for x := 0.0; x < 8; x++ {
+		kicks = append(kicks, x+0.25)
+		snares = append(snares, x+0.75)
+	}
+	doc := analyzeStems(synthDrumMix(8.5, kicks, snares), stemsSampleRate)
+	near := func(e StemEvent, times []float64) bool {
+		for _, want := range times {
+			if math.Abs(e.T-want) <= 0.06 {
+				return true
+			}
+		}
+		return false
+	}
+	for _, e := range doc.Events {
+		switch {
+		case e.Type == "kick" && !near(e, kicks):
+			t.Fatalf("kick at %.3f where there is no kick", e.T)
+		case e.Type == "snare" && !near(e, snares):
+			t.Fatalf("snare at %.3f where there is no snare", e.T)
+		case e.Type == "bass":
+			t.Fatalf("bass at %.3f, the track has no bass", e.T)
+		}
+	}
+	if k, s := countEvents(doc, "kick"), countEvents(doc, "snare"); k != len(kicks) || s != len(snares) {
+		t.Fatalf("kicks = %d, snares = %d, want %d of each", k, s, len(kicks))
+	}
+}
+
 func TestAnalyzeStemsSilence(t *testing.T) {
 	doc := analyzeStems(make([]float64, stemsSampleRate*2), stemsSampleRate)
 	if doc.HasAudio {
@@ -105,6 +165,7 @@ func TestSuppressOverlappingEvents(t *testing.T) {
 		{T: 1.40, Type: "bass", Strength: 0.7},  // standalone -> kept
 		{T: 2.00, Type: "snare", Strength: 0.9},
 		{T: 2.03, Type: "hihat", Strength: 0.6}, // hihat never suppressed
+		{T: 2.04, Type: "bass", Strength: 0.5},  // a snare's body -> dropped
 	}
 	out := suppressOverlappingEvents(in)
 	types := map[string]int{}
