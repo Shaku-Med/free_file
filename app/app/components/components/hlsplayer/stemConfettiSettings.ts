@@ -65,7 +65,7 @@ export function stemConfettiSwatchColor(type: StemType, palettes: StemConfettiTh
   return stemConfettiColors(type, palettes).primary;
 }
 
-/** What the video bounce listens to out of the box: the low end only. */
+/** What every beat visual (wave, stage lights, bounce) listens to out of the box: the low end only. */
 export const DEFAULT_VIDEO_BOUNCE_INSTRUMENTS: StemConfettiInstruments = {
   kick: true,
   bass: true,

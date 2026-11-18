@@ -86,6 +86,7 @@ export default [
         route(`play/mint`, 'routes/Api/play/mint/index.tsx'),
         route(`play/cast-mint`, 'routes/Api/play/cast-mint/index.tsx'),
         route(`studio/overview`, 'routes/Api/studio/overview/index.tsx'),
+        route(`studio/dashboard`, 'routes/Api/studio/dashboard/index.tsx'),
         route(`studio/posts`, 'routes/Api/studio/posts/index.tsx'),
         route(`studio/series`, 'routes/Api/studio/series/index.tsx'),
         route(`studio/analytics`, 'routes/Api/studio/analytics/index.tsx'),

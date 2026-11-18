@@ -2,6 +2,7 @@ import { useEffect, useRef, type RefObject } from 'react';
 import { isMobile } from 'react-device-detect';
 import {
   ensureSharedGraph,
+  peekSharedGraph,
   resumeIfNeeded,
   setPannerActive,
   setPannerPosition,
@@ -12,8 +13,9 @@ import { applyReverbSettings, type ReverbSettings } from '~/lib/audio/reverbSett
 
 /**
  * Phone browsers (especially iOS Safari) make Web Audio + `MediaElementSource`
- * unreliable: silent output, gesture gates, and PiP quirks. We hide the feature
- * in the player UI and never activate the spatial panner on mobile UAs.
+ * unreliable: silent output, gesture gates, and PiP quirks, and routing through
+ * it takes AirPods spatial audio away. So 8D and the VR theater's sound system
+ * are desktop only: hidden in the player UI and never wired on mobile UAs.
  */
 export function isSpatialAudioUiSupported(): boolean {
   return !isMobile;
@@ -170,10 +172,11 @@ export function computeSpatialPosition(
 /** Applies the config's room to the shared graph, unless the VR room holds it. */
 function applySpatialReverb(video: HTMLVideoElement | null, config: SpatialAudioConfig) {
   if (!video) return;
-  const graph = ensureSharedGraph(video);
-  if (!graph || graph.theaterActive) return;
   const settings = reverbSettingsOf(config);
-  if (!config.enabled || !(settings.mix > 0)) {
+  const wanted = config.enabled && settings.mix > 0;
+  const graph = wanted ? ensureSharedGraph(video) : peekSharedGraph(video);
+  if (!graph || graph.theaterActive) return;
+  if (!wanted) {
     setReverbActive(graph, false);
     return;
   }
@@ -198,26 +201,16 @@ export function useSpatialAudio(
     const video = videoRef.current;
     if (!video) return;
 
-    /**
-     * Keep spatial panner out of the chain on mobile (native element audio only).
-     * Never while the VR theater holds it  its sound system owns the panner then.
-     */
-    const forcePannerOffMobile = () => {
-      if (!isMobile) return;
-      const v = videoRef.current;
-      if (!v) return;
-      const graph = ensureSharedGraph(v);
-      if (graph && !graph.theaterActive) setPannerActive(graph, false);
-    };
-
-    if (isMobile) {
-      forcePannerOffMobile();
-      video.addEventListener('play', forcePannerOffMobile);
-      video.addEventListener('loadedmetadata', forcePannerOffMobile);
-      return () => {
-        video.removeEventListener('play', forcePannerOffMobile);
-        video.removeEventListener('loadedmetadata', forcePannerOffMobile);
-      };
+    // 8D off, or a phone (where it is never offered): release our stages on a
+    // graph that already exists, never build one. Not while the VR theater
+    // holds the panner, its sound system owns it then.
+    if (isMobile || !config.enabled) {
+      const graph = peekSharedGraph(video);
+      if (graph && !graph.theaterActive) {
+        setReverbActive(graph, false);
+        setPannerActive(graph, false);
+      }
+      return;
     }
 
     let cancelled = false;
@@ -246,7 +239,7 @@ export function useSpatialAudio(
 
     const ensureAndApply = () => {
       const v = videoRef.current;
-      if (!v) return;
+      if (!v || !configRef.current.enabled) return;
       const graph = ensureSharedGraph(v);
       if (!graph) return;
 
@@ -257,17 +250,6 @@ export function useSpatialAudio(
       }
 
       applyReverb();
-
-      if (!configRef.current.enabled) {
-        // 8D is off  release the panner, but ONLY if we own it. This handler
-        // also fires from document-level gesture listeners, so without the
-        // theater check every click on the page (like closing the settings
-        // menu) would silently kill the VR theater's head tracked sound.
-        if (!graph.theaterActive) setPannerActive(graph, false);
-        stopAnimation();
-        return;
-      }
-
       setPannerActive(graph, true);
       void resumeIfNeeded(graph.ctx);
 
@@ -316,7 +298,7 @@ export function useSpatialAudio(
       if (v) {
         v.removeEventListener('play', ensureAndApply);
         v.removeEventListener('loadedmetadata', ensureAndApply);
-        const graph = ensureSharedGraph(v);
+        const graph = peekSharedGraph(v);
         if (graph && !graph.theaterActive) setReverbActive(graph, false);
       }
     };

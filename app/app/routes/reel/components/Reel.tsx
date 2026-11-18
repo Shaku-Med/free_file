@@ -17,6 +17,7 @@ import { cn } from "~/lib/utils";
 import type { ReelProfileContext } from "~/lib/reel/reelProfileContext";
 import { setReelFeedMode, useReelFeedMode } from "~/lib/reel/reelChrome";
 import { ReelFullscreenProvider, useReelFullscreenState } from "~/lib/reel/reelFullscreen";
+import { useStageLightsOn, useStageLightsSlot } from "~/components/components/hlsplayer/overlays/stageLightsStore";
 
 /**
  * Poster/thumbnail palette → soft radial washes (same hex source as `ImageLoad` / player poster).
@@ -389,7 +390,10 @@ const Reel = ({ initialItems: routeItems, initialUserActions, profileReelContext
   const [finePointer] = useState(() =>
     typeof window !== "undefined" ? window.matchMedia("(pointer: fine)").matches : false,
   );
-  const ambientEnabled = Boolean(userId) && playerSettings?.ambientMode === true;
+  // Stage lights take over from ambient while they are up.
+  const stageLightsOn = useStageLightsOn();
+  const stageSlotRef = useStageLightsSlot<HTMLDivElement>();
+  const ambientEnabled = Boolean(userId) && playerSettings?.ambientMode === true && !stageLightsOn;
   // Follow the same ambient controls as the watch page: sync mode + size.
   const ambientSync = playerSettings?.ambientSync === true;
   const ambientSize = Math.max(1, Math.min(2, playerSettings?.ambientSize ?? 2));
@@ -628,6 +632,8 @@ const Reel = ({ initialItems: routeItems, initialUserActions, profileReelContext
             />
           </div>
         </div>
+        {/* Stage lights paint here: over the plate, under the deck. */}
+        <div ref={stageSlotRef} className="absolute inset-0 isolate" />
 
         {/* The live, shared ambience  one Ambience instance, fixed behind the
             deck, sized to the active reel's aspect ratio, re-sampling the new

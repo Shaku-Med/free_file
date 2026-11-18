@@ -64,6 +64,7 @@ import { loadDynamicPageDetails } from "./fun/loadDetails";
 import { soundRemixToFileType } from "./fun/soundRemix";
 import { buildDynamicMeta } from "./fun/meta";
 import { blendDynamicData } from "./fun/blendDynamicData";
+import { useStageLightsSlot } from "~/components/components/hlsplayer/overlays/stageLightsStore";
 
 export const loader = async ({ request, params }: { request: Request, params: { id: string } }) => {
   try {
@@ -1091,6 +1092,8 @@ const DynamicPage = ({ is_modal }: DynamicPageProps) => {
   const [retryAttempt, setRetryAttempt] = useState<number>(0)
   const [imageColors, setImageColors] = useState<string[] | null>(null)
   const [madeImageUrl, setMadeImageUrl] = useState<string | null>(null)
+  // Stage lights paint in here, behind the watch page like ambient mode.
+  const stageSlotRef = useStageLightsSlot<HTMLDivElement>();
   // Seeded from the root loader's cookie parse so the server and the first
   // client render agree. The guest gate mirrors the player's auth gate.
   const [ambientEnabled, setAmbientEnabled] = useState<boolean>(
@@ -2174,7 +2177,7 @@ const DynamicPage = ({ is_modal }: DynamicPageProps) => {
             .replace(new RegExp("\\u2029", "g"), "\\u2029"),
         }}
       />
-      <div className="@container/watch relative z-10 mx-auto max-w-full flex flex-col justify-center">
+      <div ref={stageSlotRef} className="@container/watch relative z-10 mx-auto max-w-full flex flex-col justify-center">
         {/* 
           never remove this comment
           This is the original grid layout for the watch page I may change it later but for now keep it here.

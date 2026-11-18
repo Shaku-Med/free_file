@@ -32,6 +32,7 @@ const COOKIE_NAMES = {
   videoBounceIntensity: 'player-video-bounce-intensity',
   ambientIntensity: 'player-ambient-intensity',
   seekWaveThumb: 'player-seek-wave-thumb',
+  stageLightsScope: 'player-stage-lights-scope',
   videoBounceInstruments: 'player-video-bounce-instruments',
   quality: 'hls-quality-preference',
   spatialAudio: 'player-spatial-audio',
@@ -100,6 +101,7 @@ export interface PlayerSettingsDto {
   videoBounceIntensity?: number;
   ambientIntensity?: number;
   seekWaveThumb?: string;
+  stageLightsScope?: string;
   /** JSON map of stem type → bounce reacts to it. */
   videoBounceInstruments?: string;
   quality?: string;
@@ -162,6 +164,8 @@ export function getPlayerSettingsFromCookies(cookieHeader: string | null) {
   // 'ride' = the handle sits on the waveform; 'bottom' = pinned to the rail.
   const seekWaveThumb: 'ride' | 'bottom' =
     get(COOKIE_NAMES.seekWaveThumb) === 'bottom' ? 'bottom' : 'ride';
+  const stageLightsScope: 'player' | 'page' =
+    get(COOKIE_NAMES.stageLightsScope) === 'page' ? 'page' : 'player';
   const videoBounceInstruments = get(COOKIE_NAMES.videoBounceInstruments) ?? '';
   const quality = get(COOKIE_NAMES.quality) ?? 'auto';
   const spatialAudio =
@@ -203,6 +207,7 @@ export function getPlayerSettingsFromCookies(cookieHeader: string | null) {
     videoBounceIntensity,
     ambientIntensity,
     seekWaveThumb,
+    stageLightsScope,
     videoBounceInstruments,
     quality,
     spatialAudio,
@@ -350,6 +355,10 @@ export const action = async ({ request }: { request: Request }) => {
     if (body.seekWaveThumb === 'ride' || body.seekWaveThumb === 'bottom') {
       setCookies.push(buildSetCookie(COOKIE_NAMES.seekWaveThumb, body.seekWaveThumb, secure));
       result.seekWaveThumb = body.seekWaveThumb;
+    }
+    if (body.stageLightsScope === 'player' || body.stageLightsScope === 'page') {
+      setCookies.push(buildSetCookie(COOKIE_NAMES.stageLightsScope, body.stageLightsScope, secure));
+      result.stageLightsScope = body.stageLightsScope;
     }
     if (typeof body.videoBounceInstruments === 'string') {
       const trimmed = body.videoBounceInstruments.slice(0, 256);

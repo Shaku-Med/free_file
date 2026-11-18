@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link } from "react-router";
+import { Link, useSearchParams } from "react-router";
 import type { MetaFunction } from "react-router";
 import { buildPageMeta } from "~/lib/seo";
 import { cn } from "~/lib/utils";
@@ -10,6 +10,7 @@ import type { FileType } from "~/lib/types";
 import { invalidateStudioCache, useStudioData } from "~/lib/studio/studioCache";
 import { visibilityOf, type FileVisibility } from "~/lib/Security/visibility";
 import { hasPendingQualities, isStillProcessing } from "~/lib/files/uploadStatus";
+import { cleanStudioSearch, STUDIO_SEARCH_MAX } from "~/lib/studio/search";
 import {
   ArrowUpDown,
   ChevronDown,
@@ -339,15 +340,34 @@ function StudioPostRow({
 export default function StudioPostsPage() {
   const [status, setStatus] = useState<StatusFilter>("all");
   const [sort, setSort] = useState<SortKey>("newest");
-  const [search, setSearch] = useState("");
+  const [searchParams] = useSearchParams();
+  const urlQuery = cleanStudioSearch(searchParams.get("q") ?? "");
+  const [search, setSearch] = useState(urlQuery);
+  const [query, setQuery] = useState(urlQuery);
   const [offset, setOffset] = useState(0);
 
-  const cacheKey = `studio:posts:${status}:${sort}:${offset}`;
+  // Arriving again from the dashboard search while already on this page.
+  useEffect(() => setSearch(urlQuery), [urlQuery]);
+
+  // Typing filters what is loaded straight away; the server search follows
+  // once the typing settles, so older posts are found too.
+  useEffect(() => {
+    const id = window.setTimeout(() => {
+      const next = cleanStudioSearch(search);
+      if (next === query) return;
+      setOffset(0);
+      setQuery(next);
+    }, 300);
+    return () => window.clearTimeout(id);
+  }, [search, query]);
+
+  const cacheKey = `studio:posts:${status}:${sort}:${offset}:${query}`;
   const url = `/api/studio/posts?${new URLSearchParams({
     limit: String(PAGE_SIZE),
     offset: String(offset),
     status,
     sort,
+    ...(query ? { q: query } : {}),
   }).toString()}`;
   const { data: raw, loading, error: err, refresh } = useStudioData<{
     success: boolean;
@@ -410,7 +430,7 @@ export default function StudioPostsPage() {
   }, [anyProcessing, url, cacheKey]);
 
   const filtered = useMemo(() => {
-    const q = search.trim().toLowerCase();
+    const q = cleanStudioSearch(search).toLowerCase();
     if (!q) return rows;
     return rows.filter((r) => {
       const t = (r.file_title ?? r.filename ?? "").toLowerCase();
@@ -636,7 +656,9 @@ export default function StudioPostsPage() {
             type="search"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
+            maxLength={STUDIO_SEARCH_MAX}
             placeholder="Search posts"
+            aria-label="Search posts"
             className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
           />
         </div>

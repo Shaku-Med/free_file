@@ -1,5 +1,5 @@
 import { useMemo, type ComponentType } from "react";
-import { NavLink, Outlet, useLocation, redirect } from "react-router";
+import { Link, NavLink, Outlet, useLocation, redirect } from "react-router";
 import {
   BarChart3,
   Film,
@@ -7,9 +7,14 @@ import {
   LayoutDashboard,
   MessageSquare,
   Palette,
+  Settings,
   Sparkles,
+  SquareArrowOutUpRight,
 } from "lucide-react";
 import { isAuthenticated } from "~/lib/Security/Password";
+import { useFileContext } from "~/lib/Context/Context";
+import { getProfilePicUrl } from "~/lib/utils/profilePic";
+import { Avatar, AvatarFallback, AvatarImage } from "~/components/ui/avatar";
 import { cn } from "~/lib/utils";
 
 // /brozystudio — a rail on desktop, a scrolling pill bar on phones. Both stick
@@ -36,14 +41,17 @@ interface NavItem {
 }
 
 const STUDIO_NAV: NavItem[] = [
-  { to: "/brozystudio", label: "Home", icon: LayoutDashboard, exact: true },
-  { to: "/brozystudio/posts", label: "Posts", icon: Film },
+  { to: "/brozystudio", label: "Dashboard", icon: LayoutDashboard, exact: true },
+  { to: "/brozystudio/posts", label: "Content", icon: Film },
   { to: "/brozystudio/series", label: "Series", icon: Layers },
-  { to: "/brozystudio/customization", label: "Customize", shortLabel: "Profile", icon: Palette },
   { to: "/brozystudio/analytics", label: "Analytics", shortLabel: "Stats", icon: BarChart3 },
   { to: "/brozystudio/comments", label: "Comments", icon: MessageSquare },
+  { to: "/brozystudio/customization", label: "Customization", shortLabel: "Customize", icon: Palette },
   { to: "/brozystudio/inspiration", label: "Inspiration", shortLabel: "Ideas", icon: Sparkles },
 ];
+
+/** The rail's quieter bottom group: ways out of the studio. */
+const RAIL_FOOTER: NavItem[] = [{ to: "/settings", label: "Settings", icon: Settings }];
 
 /** Navbar `h-14` plus the standalone window's safe area. */
 const STICKY_TOP = "calc(3.5rem + env(safe-area-inset-top, 0px))";
@@ -72,6 +80,48 @@ function RailLink({ item, current }: { item: NavItem; current: boolean }) {
   );
 }
 
+/** Who the studio belongs to, the first thing in the rail. */
+function ChannelBadge() {
+  const { userProfile, userProfileLoading } = useFileContext();
+  const username = userProfile?.username ?? "";
+  const avatar = (
+    <Avatar className="h-9 w-9 transition-[width,height] duration-200 xl:h-20 xl:w-20">
+      <AvatarImage src={getProfilePicUrl(userProfile?.profile_pic ?? undefined)} alt="" />
+      <AvatarFallback className="bg-muted text-sm font-medium text-muted-foreground xl:text-2xl">
+        {userProfileLoading ? "" : (username.charAt(0) || "?").toUpperCase()}
+      </AvatarFallback>
+    </Avatar>
+  );
+  const text = (
+    <span className="hidden min-w-0 max-w-full xl:block">
+      <span className="block text-sm font-semibold text-foreground">Your channel</span>
+      <span className="block truncate text-xs text-muted-foreground">
+        {username || (userProfileLoading ? " " : "")}
+      </span>
+    </span>
+  );
+  const shell = "flex flex-col items-center gap-2.5 rounded-xl px-1 py-2 text-center xl:px-3 xl:py-4";
+
+  if (!username) {
+    return (
+      <div className={shell}>
+        {avatar}
+        {text}
+      </div>
+    );
+  }
+  return (
+    <Link
+      to={`/profile/${encodeURIComponent(username)}`}
+      className={cn(shell, "transition-colors hover:bg-accent/50")}
+      aria-label="View your channel"
+    >
+      {avatar}
+      {text}
+    </Link>
+  );
+}
+
 function PillLink({ item, current }: { item: NavItem; current: boolean }) {
   const Icon = item.icon;
   return (
@@ -92,6 +142,21 @@ function PillLink({ item, current }: { item: NavItem; current: boolean }) {
   );
 }
 
+function ViewChannelLink() {
+  const { userProfile } = useFileContext();
+  if (!userProfile?.username) return null;
+  return (
+    <RailLink
+      item={{
+        to: `/profile/${encodeURIComponent(userProfile.username)}`,
+        label: "View channel",
+        icon: SquareArrowOutUpRight,
+      }}
+      current={false}
+    />
+  );
+}
+
 export default function StudioLayout() {
   const location = useLocation();
 
@@ -109,18 +174,28 @@ export default function StudioLayout() {
     // a stretched flex child is already full height and would never stick.
     <div className="mx-auto flex w-full min-w-0 max-w-[1600px] items-start gap-0 px-2 sm:px-4 lg:gap-6 lg:px-6">
       <aside
-        className="sticky z-20 hidden shrink-0 self-start lg:block"
-        style={{ top: `calc(${STICKY_TOP} + 1rem)` }}
-        aria-label="Studio sections"
+        className="sticky z-20 hidden shrink-0 self-start overflow-y-auto [-ms-overflow-style:none] [scrollbar-width:none] lg:block [&::-webkit-scrollbar]:hidden"
+        style={{
+          top: `calc(${STICKY_TOP} + 1rem)`,
+          // Short laptop screens: the rail scrolls on its own instead of
+          // hanging off the bottom.
+          maxHeight: `calc(100dvh - ${STICKY_TOP} - 2rem)`,
+        }}
       >
-        <nav className="flex w-[3.25rem] flex-col gap-1 xl:w-[13.5rem]">
-          <p className="hidden px-3 pb-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground xl:block">
-            Studio
-          </p>
-          {navItems.map(({ item, current }) => (
-            <RailLink key={item.to} item={item} current={current} />
-          ))}
-        </nav>
+        <div className="flex w-[3.25rem] flex-col xl:w-[13.5rem]">
+          <ChannelBadge />
+          <nav className="mt-2 flex flex-col gap-1" aria-label="Studio sections">
+            {navItems.map(({ item, current }) => (
+              <RailLink key={item.to} item={item} current={current} />
+            ))}
+          </nav>
+          <div className="mt-3 flex flex-col gap-1 border-t border-border/50 pt-3">
+            {RAIL_FOOTER.map((item) => (
+              <RailLink key={item.to} item={item} current={false} />
+            ))}
+            <ViewChannelLink />
+          </div>
+        </div>
       </aside>
 
       <div className="min-w-0 flex-1">

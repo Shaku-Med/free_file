@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { TrendingDown, TrendingUp } from "lucide-react";
+import { ChevronLeft, ChevronRight, TrendingDown, TrendingUp } from "lucide-react";
 import { cn } from "~/lib/utils";
 import EmptyState from "~/components/EmptyState";
 
@@ -142,3 +142,124 @@ export function ErrorNote({ children }: { children: ReactNode }) {
 /** Shared button look, so the studio's own controls do not each invent one. */
 export const studioButton =
   "inline-flex items-center justify-center gap-1.5 rounded-lg border border-border/60 bg-card/40 px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50";
+
+/**
+ * The dashboard's card: title on the card itself rather than in a bar, with
+ * sections split by hairlines and the actions along the bottom.
+ */
+export function DashCard({
+  title,
+  subtitle,
+  action,
+  footer,
+  children,
+  className,
+}: {
+  title: string;
+  subtitle?: ReactNode;
+  action?: ReactNode;
+  footer?: ReactNode;
+  children: ReactNode;
+  className?: string;
+}) {
+  return (
+    <section className={cn(SURFACE, "flex min-w-0 flex-col", className)}>
+      <div className="flex items-start justify-between gap-3 px-5 pt-5">
+        <div className="min-w-0">
+          <h2 className="text-base font-semibold tracking-tight text-foreground">{title}</h2>
+          {subtitle && <p className="mt-0.5 text-xs text-muted-foreground">{subtitle}</p>}
+        </div>
+        {action && <div className="-mr-1.5 -mt-1 shrink-0">{action}</div>}
+      </div>
+      <div className="flex-1 px-5 pb-5 pt-4">{children}</div>
+      {footer && (
+        <div className="flex flex-wrap gap-2 border-t border-border/50 px-5 py-3.5">{footer}</div>
+      )}
+    </section>
+  );
+}
+
+export function CardSection({
+  label,
+  meta,
+  children,
+}: {
+  label?: string;
+  meta?: string;
+  children: ReactNode;
+}) {
+  return (
+    <div className="border-t border-border/50 pt-4 first:border-t-0 first:pt-0 [&+&]:mt-4">
+      {(label || meta) && (
+        <div className="mb-2.5">
+          {label && <h3 className="text-sm font-medium text-foreground">{label}</h3>}
+          {meta && <p className="text-xs text-muted-foreground">{meta}</p>}
+        </div>
+      )}
+      {children}
+    </div>
+  );
+}
+
+/** A label and value on one line, the dashboard's basic stat row. */
+export function MetricRow({
+  label,
+  value,
+  trail,
+}: {
+  label: ReactNode;
+  value: ReactNode;
+  trail?: ReactNode;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-3 py-1.5 text-sm">
+      <span className="min-w-0 truncate text-muted-foreground">{label}</span>
+      <span className="flex shrink-0 items-center gap-2 font-medium tabular-nums text-foreground">
+        {value}
+        {trail}
+      </span>
+    </div>
+  );
+}
+
+const pagerButton =
+  "inline-flex h-7 w-7 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-35";
+
+export function Pager({
+  index,
+  count,
+  onChange,
+  label,
+}: {
+  index: number;
+  count: number;
+  onChange: (next: number) => void;
+  label: string;
+}) {
+  if (count < 2) return null;
+  return (
+    <div className="flex items-center gap-0.5" role="group" aria-label={label}>
+      <span className="mr-1 text-xs tabular-nums text-muted-foreground" aria-live="polite">
+        {index + 1} / {count}
+      </span>
+      <button
+        type="button"
+        className={pagerButton}
+        onClick={() => onChange(index - 1)}
+        disabled={index === 0}
+        aria-label="Previous"
+      >
+        <ChevronLeft className="h-4 w-4" aria-hidden />
+      </button>
+      <button
+        type="button"
+        className={pagerButton}
+        onClick={() => onChange(index + 1)}
+        disabled={index >= count - 1}
+        aria-label="Next"
+      >
+        <ChevronRight className="h-4 w-4" aria-hidden />
+      </button>
+    </div>
+  );
+}

@@ -166,3 +166,50 @@ export async function fetchFileDailyEvents(
   }
   return [];
 }
+
+export type FileDayViews = { file_id: string; day: string; count: number };
+
+const VIEW_PAGE = 1000;
+const VIEW_MAX_PAGES = 5;
+
+/**
+ * Daily video views per file for an owner, from the per file view. Paged
+ * because PostgREST caps a response at 1000 rows. Null when analytics is not
+ * set up, so callers can tell "no views" from "no data".
+ */
+export async function fetchOwnerFileViews(
+  ownerId: string,
+  sinceDay: string,
+  fileIds?: string[],
+): Promise<FileDayViews[] | null> {
+  if (!db || getSchemaState() === "missing") return null;
+  if (!(await isAnalyticsSchemaAvailable())) return null;
+  if (fileIds && fileIds.length === 0) return [];
+
+  const out: FileDayViews[] = [];
+  for (let page = 0; page < VIEW_MAX_PAGES; page++) {
+    const from = page * VIEW_PAGE;
+    let q = db
+      .from("analytics_daily_per_file")
+      .select("file_id, day, count")
+      .eq("owner_id", ownerId)
+      .eq("event_type", "video_view")
+      .gte("day", sinceDay);
+    if (fileIds) q = q.in("file_id", fileIds);
+    const { data, error } = await q
+      .order("day", { ascending: true })
+      .order("file_id", { ascending: true })
+      .range(from, from + VIEW_PAGE - 1);
+
+    if (error) {
+      if (!isMissingAnalyticsSchema(error.message ?? "")) {
+        console.error("[studio] owner file views", error);
+      }
+      return null;
+    }
+    const rows = (data ?? []) as FileDayViews[];
+    for (const r of rows) out.push({ file_id: r.file_id, day: r.day, count: Number(r.count) || 0 });
+    if (rows.length < VIEW_PAGE) break;
+  }
+  return out;
+}
