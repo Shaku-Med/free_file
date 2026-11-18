@@ -1091,21 +1091,11 @@ const DynamicPage = ({ is_modal }: DynamicPageProps) => {
   const [retryAttempt, setRetryAttempt] = useState<number>(0)
   const [imageColors, setImageColors] = useState<string[] | null>(null)
   const [madeImageUrl, setMadeImageUrl] = useState<string | null>(null)
-  const [ambientEnabled, setAmbientEnabled] = useState<boolean>(() => {
-    try {
-      if (typeof document === 'undefined') return false;
-      const cookies = document.cookie ? document.cookie.split('; ') : [];
-      for (const cookie of cookies) {
-        const [key, value] = cookie.split('=');
-        if (key === 'player-ambient-mode') {
-          return decodeURIComponent(value) === '1';
-        }
-      }
-      return false;
-    } catch {
-      return false;
-    }
-  })
+  // Seeded from the root loader's cookie parse so the server and the first
+  // client render agree. The guest gate mirrors the player's auth gate.
+  const [ambientEnabled, setAmbientEnabled] = useState<boolean>(
+    () => Boolean(userId) && playerSettings?.ambientMode === true
+  )
 
   const [descriptionExpanded, setDescriptionExpanded] = useState(false)
   const [descriptionSheetOpen, setDescriptionSheetOpen] = useState(false)
