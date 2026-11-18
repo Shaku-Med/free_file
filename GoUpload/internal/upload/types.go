@@ -4,6 +4,9 @@ import "time"
 
 const ChunkSizeBytes int64 = 25 << 20
 
+// MaxFileBytesDefault matches MAX_UPLOAD_FILE_BYTES in the app's uploadLimits.ts.
+const MaxFileBytesDefault int64 = 10 << 30
+
 type UploadInfo struct {
 	UserID              string
 	UploadID            string
@@ -12,6 +15,8 @@ type UploadInfo struct {
 	TotalChunks         int
 	StartedAt           time.Time
 	LastChunkReceivedAt time.Time
+	// Bytes still to come, held back from the disk budget for this upload.
+	Remaining int64
 }
 
 type UploadMeta struct {
@@ -24,6 +29,9 @@ type UploadMeta struct {
 	ReceivedChunks []int     `json:"received_chunks"`
 	CreatedAt      time.Time `json:"created_at"`
 	LastActivity   time.Time `json:"last_activity"`
+	// Set once /complete queues the upload, so a repeat answers with the same
+	// job instead of processing the file again.
+	JobID string `json:"job_id,omitempty"`
 }
 
 type StartRequest struct {
@@ -61,6 +69,8 @@ type CompleteMeta struct {
 	FileName    string
 	FileSize    int64
 	TotalChunks int
+	// Non empty when an earlier /complete already queued this upload.
+	JobID string
 }
 
 type ServerStatusResponse struct {
@@ -75,6 +85,11 @@ type ManagerConfig struct {
 	MaxDiskBytes  int64
 	MaxConcurrent int
 	ChunkSize     int64
+	// Largest single file. MaxFileBytesDefault when unset.
+	MaxFileBytes int64
+	// Chunks are refused while the disk has less than this free, whatever the
+	// budget says, so uploads can never fill the box. 2 GiB when unset.
+	MinFreeBytes int64
 }
 
 type BusyReason struct {

@@ -7,7 +7,7 @@ import (
 	"image"
 	"io"
 	"math"
-	"path/filepath"
+	"net/http"
 	"strings"
 	"time"
 
@@ -28,6 +28,7 @@ import (
 	"goupload/lib/r2"
 	"goupload/lib/security"
 	"goupload/lib/supabase"
+	"goupload/lib/usercap"
 )
 
 const maxFileSize = 10 << 20
@@ -54,6 +55,7 @@ type Handler struct {
 	log         *logger.Logger
 	nsfw        *nsfw.Detector
 	strikes     *nsfwstrikes.Limiter
+	caps        *usercap.Limiter
 	supabaseURL string
 	supabaseKey string
 	r2          *r2.Client
@@ -63,8 +65,10 @@ type Config struct {
 	NSFWApiURL    string
 	NSFWApiSecret string
 	Strikes       *nsfwstrikes.Limiter
-	SupabaseURL   string
-	SupabaseKey   string
+	// Required: every upload is refused without it.
+	Caps        *usercap.Limiter
+	SupabaseURL string
+	SupabaseKey string
 	// New profile pics go to R2 and users.storage_backend is set to 'r2'.
 	R2 *r2.Client
 }
@@ -74,6 +78,7 @@ func RegisterRoutes(app *fiber.App, log *logger.Logger, cfg Config) {
 		log:         log,
 		nsfw:        nsfw.NewDetector(cfg.NSFWApiURL, cfg.NSFWApiSecret),
 		strikes:     cfg.Strikes,
+		caps:        cfg.Caps,
 		supabaseURL: strings.TrimSpace(cfg.SupabaseURL),
 		supabaseKey: strings.TrimSpace(cfg.SupabaseKey),
 		r2:          cfg.R2,
@@ -111,8 +116,7 @@ func (h *Handler) upload(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"success": false})
 	}
 
-	mime := strings.ToLower(strings.TrimSpace(file.Header.Get("Content-Type")))
-	if !allowedMIME[mime] {
+	if !allowedMIME[strings.ToLower(strings.TrimSpace(file.Header.Get("Content-Type")))] {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"success": false})
 	}
 
@@ -146,9 +150,19 @@ func (h *Handler) upload(c *fiber.Ctx) error {
 	if cfg.Width > 8192 || cfg.Height > 8192 {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"success": false})
 	}
+	// The bytes decide the type, not the client's header: a GIF labelled PNG
+	// would otherwise skip frame sampling and only its first frame be checked.
+	mime := http.DetectContentType(data)
+	if !allowedMIME[mime] {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"success": false})
+	}
+
+	if !h.caps.Allow(c, uid, "too_many_requests", usercap.ProfilePic...) {
+		return nil
+	}
 
 	var toScan [][]byte
-	if strings.EqualFold(mime, "image/gif") {
+	if mime == "image/gif" {
 		ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 		frames, serr := ffmpeg.SampleGIFForVision(ctx, data, nsfwGifFrameSamples)
 		cancel()
@@ -192,18 +206,7 @@ func (h *Handler) upload(c *fiber.Ctx) error {
 		}
 	}
 
-	ext := strings.ToLower(filepath.Ext(file.Filename))
-	if ext == "" || ext == "." {
-		ext = extByMIME[mime]
-	}
-	if ext == "" {
-		ext = ".jpg"
-	}
-	switch ext {
-	case ".jpeg", ".jpg", ".png", ".gif", ".webp":
-	default:
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"success": false})
-	}
+	ext := extByMIME[mime]
 
 	ghPath := fmt.Sprintf("%s/%s%s", username, uid, ext)
 

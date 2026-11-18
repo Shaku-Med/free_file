@@ -30,6 +30,7 @@ import (
 	"goupload/lib/quota"
 	"goupload/lib/r2"
 	"goupload/lib/supabase"
+	"goupload/lib/usercap"
 )
 
 var reDateFolder = regexp.MustCompile(`^\d{2}_\d{2}_\d{4}$`)
@@ -54,6 +55,7 @@ type Handler struct {
 	log           *logger.Logger
 	nsfw          *nsfw.Detector
 	strikes       *nsfwstrikes.Limiter
+	caps          *usercap.Limiter
 	assembledRoot string // local-only video files for /extract (user subdir enforced)
 	r2            *r2.Client
 	supabaseURL   string
@@ -64,6 +66,8 @@ type Config struct {
 	NSFWApiURL    string
 	NSFWApiSecret string
 	Strikes       *nsfwstrikes.Limiter
+	// Required: every custom cover is refused without it.
+	Caps *usercap.Limiter
 	// AssembledRoot is the directory where completed uploads are written (e.g. upload/assembled).
 	// /api/thumbnail/extract only reads videos under AssembledRoot/<userID>/...
 	AssembledRoot string
@@ -79,6 +83,7 @@ func RegisterRoutes(app *fiber.App, log *logger.Logger, cfg Config) {
 		log:           log,
 		nsfw:          nsfw.NewDetector(cfg.NSFWApiURL, cfg.NSFWApiSecret),
 		strikes:       cfg.Strikes,
+		caps:          cfg.Caps,
 		assembledRoot: strings.TrimSpace(cfg.AssembledRoot),
 		r2:            cfg.R2,
 		supabaseURL:   strings.TrimSpace(cfg.SupabaseURL),
@@ -250,6 +255,9 @@ func (h *Handler) uploadDefaultThumbnail(c *fiber.Ctx) error {
 		h.log.Errorf("thumbnail ownership check unavailable: Supabase not configured")
 		return c.Status(fiber.StatusServiceUnavailable).JSON(fiber.Map{"error": "policy check unavailable"})
 	}
+	// Taken from the file's row, never from the form: a clean video must not
+	// get an explicit cover by its uploader claiming is_adult.
+	isAdult := false
 	if supabaseReady {
 		ownCtx, ownCancel := context.WithTimeout(context.Background(), 10*time.Second)
 		own, oerr := supabase.FetchFileOwnership(ownCtx, h.supabaseURL, h.supabaseKey, uniqueId)
@@ -264,10 +272,8 @@ func (h *Handler) uploadDefaultThumbnail(c *fiber.Ctx) error {
 		if own.OwnerID == "" || own.OwnerID != uid {
 			return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"error": "forbidden"})
 		}
+		isAdult = own.IsAdult
 	}
-
-	isAdultStr := c.FormValue("is_adult")
-	isAdult := isAdultStr == "true" || isAdultStr == "1"
 
 	if !isAdult && h.strikes != nil && h.strikes.RespondIfBlocked(c, uid) {
 		return nil
@@ -313,9 +319,16 @@ func (h *Handler) uploadDefaultThumbnail(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "image dimensions too large"})
 	}
 
+	if !h.caps.Allow(c, uid, "too_many_requests", usercap.Thumbnail...) {
+		return nil
+	}
+
 	result, err := h.nsfw.Detect(data)
 	if err != nil {
+		// A cover nobody could check is not published.
 		h.log.Errorf("thumbnail NSFW check error: %v", err)
+		c.Set("Retry-After", "30")
+		return c.Status(fiber.StatusServiceUnavailable).JSON(fiber.Map{"error": "Image check is unavailable right now. Try again in a moment."})
 	} else if result.IsNSFW && !isAdult {
 		if h.strikes != nil {
 			if err := h.strikes.RecordDeniedNSFWBestEffort(context.Background(), uid); err != nil {

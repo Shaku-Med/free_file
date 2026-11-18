@@ -1,14 +1,21 @@
 package commentimg
 
 import (
+	"bytes"
 	"context"
 	"crypto/subtle"
 	"fmt"
+	"image"
+	_ "image/gif"
+	_ "image/jpeg"
+	_ "image/png"
 	"io"
-	"path/filepath"
+	"net/http"
 	"regexp"
 	"strings"
 	"time"
+
+	_ "golang.org/x/image/webp"
 
 	"goupload/lib/ffmpeg"
 	ghlib "goupload/lib/github"
@@ -19,6 +26,7 @@ import (
 	"goupload/lib/r2"
 	"goupload/lib/security"
 	"goupload/lib/supabase"
+	"goupload/lib/usercap"
 	"goupload/lib/webhook"
 
 	"github.com/gofiber/fiber/v2"
@@ -62,10 +70,22 @@ var allowedMIME = map[string]bool{
 	"image/webp": true,
 }
 
+// The stored name always ends in one of these, never in whatever the
+// uploader's filename said.
+var extByMIME = map[string]string{
+	"image/jpeg": ".jpg",
+	"image/png":  ".png",
+	"image/gif":  ".gif",
+	"image/webp": ".webp",
+}
+
+const maxDimension = 8192
+
 type Handler struct {
 	log           *logger.Logger
 	nsfw          *nsfw.Detector
 	strikes       *nsfwstrikes.Limiter
+	caps          *usercap.Limiter
 	ghCli         *github.Client
 	ghOwner       string
 	r2            *r2.Client
@@ -81,6 +101,8 @@ type Config struct {
 	NSFWApiURL    string
 	NSFWApiSecret string
 	Strikes       *nsfwstrikes.Limiter
+	// Required: every upload is refused without it.
+	Caps *usercap.Limiter
 	// Every new comment image goes to R2.
 	R2          *r2.Client
 	SupabaseURL string
@@ -94,6 +116,7 @@ func RegisterRoutes(app *fiber.App, log *logger.Logger, cfg Config) {
 		log:           log,
 		nsfw:          nsfw.NewDetector(cfg.NSFWApiURL, cfg.NSFWApiSecret),
 		strikes:       cfg.Strikes,
+		caps:          cfg.Caps,
 		ghCli:         cfg.GitHubClient,
 		ghOwner:       cfg.GitHubOwner,
 		r2:            cfg.R2,
@@ -178,8 +201,10 @@ func (h *Handler) upload(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "missing_user_id"})
 	}
 
-	isAdultStr := strings.TrimSpace(c.FormValue("is_adult"))
-	isAdult := isAdultStr == "true" || isAdultStr == "1"
+	// Only the database can say a file is adult. A client claim never relaxes
+	// the check below, or anyone could post explicit images by sending
+	// is_adult=true with a comment that has no verified file behind it.
+	isAdult := false
 	dateFolder := strings.TrimSpace(c.FormValue("date_folder"))
 	uniqueID := strings.TrimSpace(c.FormValue("unique_id"))
 
@@ -257,8 +282,7 @@ func (h *Handler) upload(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "file exceeds 10MB limit"})
 	}
 
-	mime := file.Header.Get("Content-Type")
-	if !allowedMIME[strings.ToLower(mime)] {
+	if !allowedMIME[strings.ToLower(file.Header.Get("Content-Type"))] {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid file type"})
 	}
 
@@ -277,13 +301,37 @@ func (h *Handler) upload(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "file exceeds 10MB limit"})
 	}
 	// The Content-Type above is whatever the client said; GIFs go on to ffmpeg,
-	// so the bytes themselves have to be an image.
-	if security.MediaKind(data) != "image" {
+	// so the bytes themselves have to be an image, and they pick the type that
+	// is stored and how it is checked.
+	mime := http.DetectContentType(data)
+	if security.MediaKind(data) != "image" || !allowedMIME[mime] {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid file type"})
+	}
+	// Dimensions come from the header alone. A tiny file claiming a huge
+	// canvas would otherwise make ffmpeg allocate gigabytes.
+	cfg, _, err := image.DecodeConfig(bytes.NewReader(data))
+	if err != nil || cfg.Width < 1 || cfg.Height < 1 || cfg.Width > maxDimension || cfg.Height > maxDimension {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid file type"})
 	}
 
+	if !h.caps.Allow(c, uid, "too_many_requests", usercap.CommentImage...) {
+		return nil
+	}
+
+	qctx, qcancel := context.WithTimeout(c.UserContext(), 6*time.Second)
+	qres, qerr := quota.Check(qctx, uid, int64(len(data)))
+	qcancel()
+	if qerr != nil {
+		h.log.Errorf("comment-image quota check unavailable user=%s: %v", uid, qerr)
+		c.Set("Retry-After", "30")
+		return c.Status(fiber.StatusServiceUnavailable).JSON(fiber.Map{"error": "busy"})
+	}
+	if !qres.OK {
+		return c.Status(fiber.StatusRequestEntityTooLarge).JSON(fiber.Map{"error": "monthly_limit_exceeded"})
+	}
+
 	var toScan [][]byte
-	if strings.EqualFold(mime, "image/gif") {
+	if mime == "image/gif" {
 		ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 		frames, serr := ffmpeg.SampleGIFForVision(ctx, data, nsfwGifFrameSamples)
 		cancel()
@@ -297,10 +345,16 @@ func (h *Handler) upload(c *fiber.Ctx) error {
 		toScan = [][]byte{data}
 	}
 
+	// An image nobody could check is not posted.
+	moderationDown := func() error {
+		c.Set("Retry-After", "30")
+		return c.Status(fiber.StatusServiceUnavailable).JSON(fiber.Map{"error": "Image check is unavailable right now. Try again in a moment."})
+	}
 	if len(toScan) == 1 {
 		result, err := h.nsfw.Detect(toScan[0])
 		if err != nil {
 			h.log.Errorf("comment-image NSFW check error: %v", err)
+			return moderationDown()
 		} else if result.IsNSFW && !isAdult {
 			if h.strikes != nil {
 				if err := h.strikes.RecordDeniedNSFWBestEffort(context.Background(), uid); err != nil {
@@ -316,6 +370,7 @@ func (h *Handler) upload(c *fiber.Ctx) error {
 		anyNsfw, _, err := h.nsfw.DetectBatch(toScan)
 		if err != nil {
 			h.log.Errorf("comment-image NSFW batch check error: %v", err)
+			return moderationDown()
 		} else if anyNsfw && !isAdult {
 			if h.strikes != nil {
 				if err := h.strikes.RecordDeniedNSFWBestEffort(context.Background(), uid); err != nil {
@@ -329,10 +384,7 @@ func (h *Handler) upload(c *fiber.Ctx) error {
 		}
 	}
 
-	ext := strings.ToLower(filepath.Ext(file.Filename))
-	if ext == "" {
-		ext = ".jpg"
-	}
+	ext := extByMIME[mime]
 	imageID := uuid.New().String()
 
 	// isVideoFolder was resolved + verified above, before the NSFW gate.
@@ -368,7 +420,7 @@ func (h *Handler) upload(c *fiber.Ctx) error {
 		"image": fiber.Map{
 			"url":  ghPath,
 			"type": mime,
-			"size": file.Size,
+			"size": len(data),
 		},
 	})
 }

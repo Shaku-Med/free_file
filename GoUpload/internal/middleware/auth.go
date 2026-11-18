@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"goupload/lib/env"
 	"github.com/gofiber/fiber/v2"
+	"goupload/lib/env"
 )
 
 // userIDPattern rejects shapes that could inject into filesystem paths downstream.
@@ -22,6 +22,21 @@ const LocalsUserID = "userID"
 
 // LocalsUsername is the account username from the app (for safe storage paths).
 const LocalsUsername = "username"
+
+// maxTokenLen sits far above any real upload bearer.
+const maxTokenLen = 16 << 10
+
+func plausibleToken(s string) bool {
+	if len(s) > maxTokenLen {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		if s[i] < 0x21 || s[i] > 0x7e {
+			return false
+		}
+	}
+	return true
+}
 
 type uploadServerCheckResponse struct {
 	UserID   string `json:"userId"`
@@ -51,6 +66,11 @@ func AuthUpload() fiber.Handler {
 		cUser := strings.TrimSpace(auth[len(prefix):])
 		if cUser == "" {
 			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "missing_c_user"})
+		}
+		// Refused here rather than forwarded: every request costs the app a
+		// check, so junk never leaves this box.
+		if !plausibleToken(cUser) {
+			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "unauthorized"})
 		}
 
 		req, err := http.NewRequestWithContext(c.Context(), http.MethodGet, checkURL, nil)

@@ -1287,8 +1287,13 @@ func (w *Worker) processJob(job *queue.Job) {
 		// Decode user-chosen default thumbnail before early upload so it's included
 		if job.DefaultThumbnail != "" {
 			thumbData, derr := decodeThumbnailBase64(job.DefaultThumbnail)
+			if derr == nil && len(thumbData) > 0 {
+				// The cover is whatever the browser sent, so it is checked like
+				// any other image before it can stand for this video.
+				thumbData, derr = w.checkedCover(thumbData)
+			}
 			if derr != nil {
-				w.log.Errorf("failed to decode default thumbnail job=%s err=%s", job.ID, derr.Error())
+				w.log.Errorf("default thumbnail not used job=%s err=%s", job.ID, derr.Error())
 			} else if len(thumbData) == 0 {
 				w.log.Errorf("default thumbnail decoded to empty job=%s", job.ID)
 			} else {

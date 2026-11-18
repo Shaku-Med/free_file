@@ -169,6 +169,8 @@ const UserProfileHeader = ({
         }
         if (xhr.status === 422 && parsed.nsfw) {
           setUploadError(UPLOAD_MSG_NSFW);
+        } else if (xhr.status === 429) {
+          setUploadError("You've changed your picture a lot recently. Try again later.");
         } else {
           setUploadError(UPLOAD_MSG_TRY_AGAIN);
         }

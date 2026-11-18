@@ -1,6 +1,5 @@
 // Package quota asks the app whether a user can still upload N bytes this
-// month. Lets the upload server reject early and free disk before the worker
-// burns time processing a job that would be rejected anyway.
+// month, and reserves room for a finished upload before it is queued.
 //
 // Auth is the shared UPLOAD_WEBHOOK_SECRET; the same secret the worker uses
 // to call /api/upload-job-status. No new keys, no client trust.
@@ -37,189 +36,71 @@ type checkRequest struct {
 // storage is paid for, so an unchecked upload is never let through.
 var ErrUnavailable = errors.New("quota: app unreachable")
 
-// Check asks the app whether predicted bytes would fit in the user's monthly
-// budget. Any error means the answer is unknown and the upload must wait.
-func Check(ctx context.Context, userID string, predictedBytes int64) (CheckResult, error) {
+type admitRequest struct {
+	Action   string `json:"action"`
+	UserID   string `json:"user_id"`
+	UploadID string `json:"upload_id"`
+	Bytes    int64  `json:"bytes,omitempty"`
+}
+
+// Check asks the app whether bytes would fit in the user's monthly budget,
+// without reserving anything. Any error means the answer is unknown and the
+// upload must wait.
+func Check(ctx context.Context, userID string, byteCount int64) (CheckResult, error) {
+	var out CheckResult
+	err := post(ctx, "/api/internal/quota-check", checkRequest{UserID: userID, Predicted: byteCount}, &out)
+	return out, err
+}
+
+// Admit lets a finished upload in when the file itself fits in what the user
+// has left, and reserves that much so two uploads cannot share the same room.
+// Processing may store more than the file's size; the app caps that charge at
+// what was left. Calling it again for the same upload changes nothing.
+func Admit(ctx context.Context, userID, uploadID string, fileBytes int64) (CheckResult, error) {
+	var out CheckResult
+	err := post(ctx, "/api/internal/quota-admit", admitRequest{Action: "admit", UserID: userID, UploadID: uploadID, Bytes: fileBytes}, &out)
+	return out, err
+}
+
+// Release gives back an admission whose upload never got queued.
+func Release(ctx context.Context, userID, uploadID string) error {
+	return post(ctx, "/api/internal/quota-admit", admitRequest{Action: "release", UserID: userID, UploadID: uploadID}, nil)
+}
+
+func post(ctx context.Context, path string, payload, out any) error {
 	base := strings.TrimSuffix(env.Get("APP_BASE_URL", ""), "/")
 	secret := env.Get("UPLOAD_WEBHOOK_SECRET", "")
 	if base == "" || secret == "" {
-		return CheckResult{}, ErrUnavailable
+		return ErrUnavailable
 	}
-	body, err := json.Marshal(checkRequest{UserID: userID, Predicted: predictedBytes})
+	body, err := json.Marshal(payload)
 	if err != nil {
-		return CheckResult{}, err
+		return err
 	}
 	reqCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	req, err := http.NewRequestWithContext(reqCtx, http.MethodPost, base+"/api/internal/quota-check", bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(reqCtx, http.MethodPost, base+path, bytes.NewReader(body))
 	if err != nil {
-		return CheckResult{}, err
+		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Webhook-Secret", secret)
 	res, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return CheckResult{}, ErrUnavailable
+		return ErrUnavailable
 	}
 	defer res.Body.Close()
 	rb, _ := io.ReadAll(io.LimitReader(res.Body, 4<<10))
 	if res.StatusCode < 200 || res.StatusCode >= 300 {
-		return CheckResult{}, ErrUnavailable
+		return ErrUnavailable
 	}
-	var out CheckResult
-	if err := json.Unmarshal(rb, &out); err != nil {
-		return CheckResult{}, err
+	if out == nil {
+		return nil
 	}
-	return out, nil
-}
-
-// PredictFinalBytes returns a CONSERVATIVE upper bound on the post-processing
-// footprint of an upload. Used at /complete to decide whether to enqueue the
-// job or reject it before the worker burns time + storage.
-//
-// The previous version applied a flat 1.10x to every video, which was wildly
-// optimistic  a 1080p source actually triples in size once the HLS ladder
-// (360p + 480p + 720p + source-tier) is generated. That gap let users sneak
-// 10 GB uploads through with 2 GB of quota left because we were measuring the
-// SOURCE size against the limit, not what we'd actually end up storing.
-//
-// New model: multiplier scales with the source resolution because that's
-// what determines which HLS tiers `selectTiers` will produce. Pass 0 for
-// srcHeight when the resolution is unknown (probe failed)  we fall back
-// to the most conservative video multiplier so we err on rejection rather
-// than letting an over-budget file slip through.
-//
-// Multipliers calibrated against the ladder defined in lib/ffmpeg/hls.go
-// (360p/480p/720p/1080p/1440p/2160p/4320p with MaxRates 1/1.5/3/5/10/20/40 Mbps).
-// The "source" tier inherits the matching tier's MaxRate cap, so total
-// stored ≈ Σ(tier MaxRate) × duration, expressed below as a multiple of
-// source size. A small extra 0.05x covers thumbnails + waveform + master
-// playlists.
-func PredictFinalBytes(actualBytes int64, filename string, srcHeight int) int64 {
-	if actualBytes <= 0 {
-		return 0
+	if err := json.Unmarshal(rb, out); err != nil {
+		return ErrUnavailable
 	}
-	ext := strings.ToLower(filename)
-	isVideo := false
-	for _, v := range videoExt {
-		if strings.HasSuffix(ext, v) {
-			isVideo = true
-			break
-		}
-	}
-	if !isVideo {
-		// Image + thumbnail variants. Small fixed overhead.
-		return int64(float64(actualBytes) * 1.10)
-	}
-
-	mult := videoMultiplierForHeight(srcHeight)
-	return int64(float64(actualBytes) * mult)
-}
-
-// videoMultiplierForHeight returns the source-size multiplier we expect
-// after the HLS ladder fans out for a video of the given resolution.
-// Heights are matched to the largest tier whose Height <= srcHeight; if
-// srcHeight is 0 / unknown we use the worst-case (8K-source) multiplier.
-//
-// Tuning rationale (see hls.go for the exact ladder):
-//   - At each tier the ffmpeg encode is bitrate-capped, so per-tier output
-//     ≈ tier MaxRate × duration. We approximate that as a fraction of the
-//     SOURCE size by ratioing the tier MaxRate against the source-equivalent
-//     tier's MaxRate.
-//   - We always include a thumbnails / manifests overhead of +0.05x.
-//   - Every value is rounded UP to keep the predictor conservative  if
-//     the real output ends up smaller, the worst that happens is a
-//     quota-rejected upload that *would have* fit; the user can retry.
-func videoMultiplierForHeight(srcHeight int) float64 {
-	switch {
-	case srcHeight <= 0:
-		// Unknown source resolution (probe failed / moov-at-end / weird format).
-		// Use the worst plausible case so an 8K upload can't slip through.
-		return 4.0
-	case srcHeight >= 4320:
-		// 8K source: 360 + 480 + 720 + 1080 + 4320 (pruned to 5 tiers).
-		return 4.0
-	case srcHeight >= 2160:
-		// 4K source: 360 + 480 + 720 + 1080 + 2160. Σbitrate ≈ 30.5 Mbps.
-		return 3.5
-	case srcHeight >= 1440:
-		// 2K source: 360 + 480 + 720 + 1080 + 1440. Σbitrate ≈ 20.5 Mbps.
-		return 3.2
-	case srcHeight >= 1080:
-		// 1080p source: 360 + 480 + 720 + 1080. Σbitrate ≈ 10.5 Mbps.
-		// User-reported empirical: 1 GB source → ~3 GB stored.
-		return 3.0
-	case srcHeight >= 720:
-		// 720p source: 360 + 480 + 720. Σbitrate ≈ 5.5 Mbps.
-		return 2.4
-	case srcHeight >= 480:
-		// 480p source: 360 + 480.
-		return 1.8
-	case srcHeight >= 360:
-		// 360p source: source-tier only after ladder runs.
-		return 1.3
-	default:
-		// Tiny source (sub-360p). Almost a passthrough, just thumbs overhead.
-		return 1.2
-	}
-}
-
-var videoExt = []string{".mp4", ".webm", ".mkv", ".avi", ".mov", ".wmv", ".flv", ".m4v"}
-
-// PurgeUser tells the app to drop every `queued` files row that belongs to
-// the user (and refund the quota reservation for each). Called immediately
-// after the upload server purges that user's abandoned chunk folders, so the
-// DB view of "pending uploads" stops listing rows whose disk data we just
-// destroyed.
-//
-// Best-effort + panic-safe. If the app is unreachable we just log + move on;
-// the next `/complete` call from this user will fail the same quota check
-// and re-trigger the cleanup. We never want a flaky purge to block the
-// 413 response the user is waiting for.
-//
-// Caller passes the list of uploadIDs whose chunks were just removed; the
-// app uses this only as a hint  the broader "delete all queued rows for
-// this user" sweep is what actually runs server-side, so a missed uploadID
-// here still gets cleaned up.
-func PurgeUser(ctx context.Context, userID string, purgedUploadIDs []string) {
-	defer func() {
-		if r := recover(); r != nil {
-			log.Printf("[quota] PurgeUser panic recovered: %v", r)
-		}
-	}()
-	base := strings.TrimSuffix(env.Get("APP_BASE_URL", ""), "/")
-	secret := env.Get("UPLOAD_WEBHOOK_SECRET", "")
-	if base == "" || secret == "" || userID == "" {
-		return
-	}
-	// Cap the list size before serialising. The app caps it again on its
-	// side, but trimming here keeps the request body small and predictable.
-	const maxIDs = 256
-	ids := purgedUploadIDs
-	if len(ids) > maxIDs {
-		ids = ids[:maxIDs]
-	}
-	payload, err := json.Marshal(map[string]interface{}{
-		"user_id":           userID,
-		"purged_upload_ids": ids,
-	})
-	if err != nil {
-		return
-	}
-	reqCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	defer cancel()
-	req, err := http.NewRequestWithContext(reqCtx, http.MethodPost, base+"/api/internal/quota-purge", bytes.NewReader(payload))
-	if err != nil {
-		return
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-Webhook-Secret", secret)
-	res, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return
-	}
-	defer res.Body.Close()
-	_, _ = io.Copy(io.Discard, io.LimitReader(res.Body, 1<<10))
+	return nil
 }
 
 // Record reports an upload's actual bytes to the app so it counts toward the

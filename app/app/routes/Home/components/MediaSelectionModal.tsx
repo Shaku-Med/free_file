@@ -73,7 +73,7 @@ import { GenerateUniqueID } from "~/lib/GenerateUniqueID"
 import { useFileContext } from "~/lib/Context/Context"
 import { EpisodePicker } from "./EpisodePicker"
 import { useNavigate } from "react-router"
-import { MAX_UPLOAD_FILE_BYTES } from "~/lib/uploadLimits"
+import { MAX_UPLOAD_FILE_BYTES, MAX_UPLOAD_LABEL } from "~/lib/uploadLimits"
 import { SignInDialog } from "~/components/SignInWall"
 import { StorageQuotaMeter } from "~/components/StorageQuotaMeter"
 import { formatBytes as formatBytesShort } from "~/lib/formatBytes"
@@ -1184,6 +1184,13 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
     ["disk_limit", "The upload server doesn't have room for this file right now. Try again later."],
   ])
 
+  const QUOTA_UNAVAILABLE_MESSAGE = "We couldn't check your upload limit just now. Try again in a minute."
+
+  const monthlyLimitMessage = (remaining?: number) =>
+    typeof remaining === "number" && remaining > 0
+      ? `This file is bigger than the ${formatBytesShort(remaining)} you have left this month. Try a smaller file.`
+      : "You've used this month's upload space. Space frees up as your older uploads pass 30 days."
+
   const authHeaders = (bearer: string): Record<string, string> =>
     bearer ? { Authorization: `Bearer ${bearer}` } : {}
 
@@ -1235,7 +1242,21 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
     )
     if (startRes.status === 401) throw new Error("Session expired. Please log in again.")
     if (!startRes.ok) {
-      const j = (await startRes.json().catch(() => ({}))) as { error?: string; reason?: string }
+      const j = (await startRes.json().catch(() => ({}))) as {
+        error?: string
+        reason?: string
+        retry_after?: number
+        remaining?: number
+      }
+      if (j.error === "monthly_limit_exceeded") throw new Error(monthlyLimitMessage(j.remaining))
+      if (j.error === "quota_unavailable") throw new Error(QUOTA_UNAVAILABLE_MESSAGE)
+      if (j.error === "upload_limit") {
+        const mins = Math.max(1, Math.ceil((j.retry_after ?? 3600) / 60))
+        throw new Error(
+          `You've hit the upload limit for now. Try again in ${mins >= 60 ? `about ${Math.ceil(mins / 60)} hours` : `${mins} minutes`}.`
+        )
+      }
+      if (j.error === "file_too_large") throw new Error(`This file is over the ${MAX_UPLOAD_LABEL} limit.`)
       throw new Error(BUSY_MESSAGES.get(j.reason ?? "") || j.error || "Upload start failed")
     }
     const startJson = (await startRes.json()) as { upload_id: string }
@@ -1355,48 +1376,11 @@ export const MediaSelectionModal: React.FC<MediaSelectionModalProps> = ({
       const j = (await completeRes.json().catch(() => ({}))) as {
         error?: string
         remaining?: number
-        predicted?: number
-        source_bytes?: number
       }
-      if (completeRes.status === 503 && j.error === "quota_unavailable") {
-        throw new Error("We couldn't check your upload limit just now. Try again in a minute.")
-      }
-      // Pre-queue monthly limit reject. Two flavors:
-      //  1. Source file already exceeds remaining quota  honest "you're out"
-      //     message.
-      //  2. Source file fits but our HLS-ladder predictor says the final
-      //     stored size (source + 360p + 480p + 720p + ...) would exceed
-      //     the cap. We tell the user our prediction caught it instead of
-      //     starting a long upload that would only get rejected at /complete
-      //     anyway. This is the "10 GB file with 2 GB left" abuse-case
-      //     guard  rejecting at this stage means we never waste worker
-      //     time processing a file we'd just throw away.
-      if (
-        completeRes.status === 413 &&
-        (j.error === "monthly_limit_exceeded" || j.error === "weekly_limit_exceeded")
-      ) {
-        const left = typeof j.remaining === "number" ? formatBytesShort(j.remaining) : null
-        const predicted = typeof j.predicted === "number" ? formatBytesShort(j.predicted) : null
-        const source = typeof j.source_bytes === "number" ? formatBytesShort(j.source_bytes) : null
-        // Prediction-rejection: source fits but final won't.
-        if (
-          predicted &&
-          source &&
-          typeof j.source_bytes === "number" &&
-          typeof j.remaining === "number" &&
-          j.source_bytes <= j.remaining
-        ) {
-          throw new Error(
-            `Our predictor estimates this file will use ${predicted} after processing (HLS qualities + thumbnails)` +
-              (left ? `, more than the ${left} left this month.` : `, more than your monthly budget.`) +
-              " Try a shorter clip or wait for older uploads to roll off.",
-          )
-        }
-        throw new Error(
-          left
-            ? `This file doesn't fit in the ${left} you have left this month. Try a smaller file.`
-            : "Monthly upload limit reached. Space frees up as your older uploads pass 30 days.",
-        )
+      if (j.error === "quota_unavailable") throw new Error(QUOTA_UNAVAILABLE_MESSAGE)
+      // Space was used by something else while this file was uploading.
+      if (j.error === "monthly_limit_exceeded" || j.error === "weekly_limit_exceeded") {
+        throw new Error(monthlyLimitMessage(j.remaining))
       }
       throw new Error(j.error || "Complete upload failed")
     }

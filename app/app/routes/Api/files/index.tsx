@@ -5,6 +5,8 @@ import db from "~/lib/Database/supabase";
 import { isValidFileId, isValidUUID, sanitizeString } from "~/lib/Security/inputValidation";
 import { invalidateFileByUniqueId } from "~/lib/Services/accessCache.server";
 import { normalizeCaptionEntries } from "~/lib/captions/vtt";
+import { isSameOrigin } from "~/lib/Security/sameOrigin.server";
+import { rateLimiter } from "~/routes/Auth/fun/rateLimit.server";
 import {
   canOwnerChangeVisibility,
   isFileVisibility,
@@ -13,6 +15,17 @@ import {
 } from "~/lib/Security/visibility";
 
 const toJson = (body: unknown, status = 200) => data(body, { status });
+
+/**
+ * A cover the owner may pick: a picture inside this file's own storage folder
+ * ({dd_mm_yyyy}/{unique_id}/), which is where its frames and an uploaded
+ * custom cover live. Anything else could show someone else's image, private or
+ * explicit, as this file's cover.
+ */
+function isOwnCoverPath(path: string, uniqueId: string): boolean {
+  const m = /^(\d{2}_\d{2}_\d{4})\/([A-Za-z0-9_-]{1,128})\/([A-Za-z0-9_-]{1,100}\.(?:jpg|jpeg|png|webp))$/i.exec(path);
+  return !!m && m[2] === uniqueId;
+}
 
 /** Fields returned to the client for the edit-upload form (no secrets). */
 function fileEditResponsePayload(row: Record<string, unknown>) {
@@ -107,10 +120,18 @@ export const action = async ({ request }: { request: Request }) => {
     if (request.method !== "PATCH") {
       return toJson({ error: "Method not allowed" }, 405);
     }
+    if (!isSameOrigin(request)) {
+      return toJson({ error: "Forbidden" }, 403);
+    }
 
     const user = await isAuthenticated(request, ["id"]);
     if (!user || !user.id) {
       return toJson({ error: "Unauthorized" }, 401);
+    }
+
+    const limit = await rateLimiter.checkLimit(user.id, "file-edit", 30, 60_000, 5 * 60_000);
+    if (!limit.allowed) {
+      return toJson({ error: "Too many changes. Wait a minute and try again." }, 429);
     }
 
     if (!db) {
@@ -200,7 +221,7 @@ export const action = async ({ request }: { request: Request }) => {
     const lookupField = isValidUUID(fileId) ? "id" : "unique_id";
     const { data: fileRow, error: fetchError } = await db
       .from("files")
-      .select("id, unique_id, owner_id, file_type, metadata, visibility, is_public, visibility_locked")
+      .select("id, unique_id, owner_id, file_type, metadata, visibility, is_public, visibility_locked, thumbnails")
       .eq(lookupField, fileId)
       .single();
 
@@ -247,16 +268,24 @@ export const action = async ({ request }: { request: Request }) => {
       }
     }
     if (Array.isArray(categories)) {
-      updateData.categories = categories
-        .filter((c): c is string => typeof c === "string" && c.trim().length > 0)
-        .map((c) => c.trim())
-        .slice(0, 20);
+      updateData.categories = [
+        ...new Set(
+          categories
+            .filter((c): c is string => typeof c === "string")
+            .map((c) => sanitizeString(c, 50).trim())
+            .filter((c) => c.length > 0),
+        ),
+      ].slice(0, 20);
     }
     if (Array.isArray(tags)) {
-      updateData.tags = tags
-        .filter((t): t is string => typeof t === "string" && t.trim().length > 0)
-        .map((t) => t.trim().slice(0, 50))
-        .slice(0, 30);
+      updateData.tags = [
+        ...new Set(
+          tags
+            .filter((t): t is string => typeof t === "string")
+            .map((t) => sanitizeString(t, 50).trim())
+            .filter((t) => t.length > 0),
+        ),
+      ].slice(0, 30);
     }
     if (typeof commentsEnabled === "boolean") {
       updateData.comments_enabled = commentsEnabled;
@@ -282,6 +311,17 @@ export const action = async ({ request }: { request: Request }) => {
       }
     }
     if (typeof defaultThumbnail === "string") {
+      // Paths the upload worker already stored for this file are fine as is,
+      // which keeps older files with other naming schemes editable.
+      const thumbs: unknown[] = Array.isArray(fileRow.thumbnails) ? fileRow.thumbnails : [];
+      const stored = thumbs.filter((t): t is string => typeof t === "string");
+      if (
+        defaultThumbnail.length > 0 &&
+        !stored.includes(defaultThumbnail) &&
+        !isOwnCoverPath(defaultThumbnail, String(fileRow.unique_id ?? ""))
+      ) {
+        return toJson({ error: "That cover isn't one of this video's images." }, 400);
+      }
       updateData.default_thumbnail = defaultThumbnail.length > 0 ? defaultThumbnail : null;
     }
 

@@ -99,7 +99,7 @@ export class VisionService {
       tried.add(idx);
 
       try {
-        console.log(`[VisionService] Attempt ${attempt + 1}/${maxAttempts} using key #${idx} (${this.apiKeys[idx].slice(0, 10)}...)`);
+        console.log(`[VisionService] Attempt ${attempt + 1}/${maxAttempts} using key #${idx}`);
         const result = await this.callVisionAPI(this.apiKeys[idx], imageBase64);
         // Caption pass runs in parallel-friendly order: vision first (cheap, blocks
         // NSFW gate), then VLM. If VLM fails we keep the label-based fallback.
