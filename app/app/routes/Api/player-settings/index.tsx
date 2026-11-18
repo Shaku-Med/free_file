@@ -33,6 +33,7 @@ const COOKIE_NAMES = {
   ambientIntensity: 'player-ambient-intensity',
   seekWaveThumb: 'player-seek-wave-thumb',
   stageLightsScope: 'player-stage-lights-scope',
+  stageLightsPauseAmbient: 'player-stage-lights-pause-ambient',
   videoBounceInstruments: 'player-video-bounce-instruments',
   quality: 'hls-quality-preference',
   spatialAudio: 'player-spatial-audio',
@@ -102,6 +103,7 @@ export interface PlayerSettingsDto {
   ambientIntensity?: number;
   seekWaveThumb?: string;
   stageLightsScope?: string;
+  stageLightsPauseAmbient?: boolean;
   /** JSON map of stem type → bounce reacts to it. */
   videoBounceInstruments?: string;
   quality?: string;
@@ -166,6 +168,8 @@ export function getPlayerSettingsFromCookies(cookieHeader: string | null) {
     get(COOKIE_NAMES.seekWaveThumb) === 'bottom' ? 'bottom' : 'ride';
   const stageLightsScope: 'player' | 'page' =
     get(COOKIE_NAMES.stageLightsScope) === 'page' ? 'page' : 'player';
+  // On unless turned off: the lights and ambient together cost twice the work.
+  const stageLightsPauseAmbient = get(COOKIE_NAMES.stageLightsPauseAmbient) !== '0';
   const videoBounceInstruments = get(COOKIE_NAMES.videoBounceInstruments) ?? '';
   const quality = get(COOKIE_NAMES.quality) ?? 'auto';
   const spatialAudio =
@@ -208,6 +212,7 @@ export function getPlayerSettingsFromCookies(cookieHeader: string | null) {
     ambientIntensity,
     seekWaveThumb,
     stageLightsScope,
+    stageLightsPauseAmbient,
     videoBounceInstruments,
     quality,
     spatialAudio,
@@ -359,6 +364,11 @@ export const action = async ({ request }: { request: Request }) => {
     if (body.stageLightsScope === 'player' || body.stageLightsScope === 'page') {
       setCookies.push(buildSetCookie(COOKIE_NAMES.stageLightsScope, body.stageLightsScope, secure));
       result.stageLightsScope = body.stageLightsScope;
+    }
+    if (typeof body.stageLightsPauseAmbient === 'boolean') {
+      const v = body.stageLightsPauseAmbient ? '1' : '0';
+      setCookies.push(buildSetCookie(COOKIE_NAMES.stageLightsPauseAmbient, v, secure));
+      result.stageLightsPauseAmbient = body.stageLightsPauseAmbient;
     }
     if (typeof body.videoBounceInstruments === 'string') {
       const trimmed = body.videoBounceInstruments.slice(0, 256);

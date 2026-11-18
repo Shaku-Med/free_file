@@ -390,10 +390,10 @@ const Reel = ({ initialItems: routeItems, initialUserActions, profileReelContext
   const [finePointer] = useState(() =>
     typeof window !== "undefined" ? window.matchMedia("(pointer: fine)").matches : false,
   );
-  // Stage lights take over from ambient while they are up.
-  const stageLightsOn = useStageLightsOn();
+  // Stage lights take over from ambient while they are up, unless asked to keep both.
+  const ambientResting = useStageLightsOn() && playerSettings?.stageLightsPauseAmbient !== false;
   const stageSlotRef = useStageLightsSlot<HTMLDivElement>();
-  const ambientEnabled = Boolean(userId) && playerSettings?.ambientMode === true && !stageLightsOn;
+  const ambientEnabled = Boolean(userId) && playerSettings?.ambientMode === true && !ambientResting;
   // Follow the same ambient controls as the watch page: sync mode + size.
   const ambientSync = playerSettings?.ambientSync === true;
   const ambientSize = Math.max(1, Math.min(2, playerSettings?.ambientSize ?? 2));

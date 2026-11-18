@@ -5,6 +5,7 @@ import { STEM_TYPES, stemEventIndexAt, type StemType } from '../audioStems';
 import { buildStemConfettiThemePalettes } from '../stemConfettiSettings';
 import { cssColorToRgba, fileAccentColors, resolveThemeColorToken } from '../visualizerPalette';
 import { useFullscreenContainer } from '../hooks/useFullscreenContainer';
+import { toast } from '~/components/ui/sonner';
 import {
   setStageLightsOwner,
   stageLightsOwner,
@@ -24,9 +25,10 @@ import {
  * and settling like jelly, and the dots riding the surface bob, swell and
  * flare as it passes. Only picked instruments splash.
  *
- * Colors are the video's own, lifted so they glow, like the wave and ambient
- * mode use. A dark or washed out video falls back to the theme's colored
- * tokens, then to plain white studio light.
+ * Colors follow the picture while it plays: like ambient mode the lights take a
+ * fresh look every second or so and drift to what they see, lifted so they
+ * glow. Paused, or on a gray picture, they drift back to the post's own colors,
+ * and without those to the theme's colored tokens, then plain white light.
  *
  * Like ambient mode it sits behind the page and never takes input. In
  * fullscreen there is no page behind, so it rides the picture's edges under
@@ -44,6 +46,15 @@ const IDLE_LEVEL = 0.3;
 const MAX_COLORS = 5;
 /** Below this a color reads as gray and lights nothing. */
 const MIN_VIVIDNESS = 0.14;
+/** How often the lights look at the picture for its colors. */
+const LOOK_MS = 900;
+/** How quickly they drift to new colors (time constant, seconds). */
+const COLOR_EASE_S = 0.6;
+/** The frame is read this small: enough to find its colors, cheap to read back. */
+const PROBE_W = 24;
+const PROBE_H = 14;
+/** Under this share of colorful pixels a frame has no color to give. */
+const MIN_COLORFUL = 0.04;
 
 /** Springs around the frame. */
 const NODES = 180;
@@ -61,6 +72,15 @@ const FULL_FLARE = 0.32;
 /** The whole band swells on hits and overshoots back. */
 const SWELL_STIFFNESS = 140;
 const SWELL_DAMPING = 7;
+
+// A hit has to show on the frame it lands, like the bounce does, or the lights
+// read as late. So it flashes the whole rig and jumps the band out right away,
+// and only the wobble back and the ripple running round come after the beat.
+/** The flash is gone well before the next beat (half life about 80ms). */
+const FLASH_DECAY = 9;
+const SWELL_JUMP = 0.55;
+/** How far a splash lifts the band where it lands, on the hit frame. */
+const SPLASH_LIFT = 0.35;
 
 const PUSH: Record<StemType, number> = { kick: 1, bass: 0.75, snare: 0.6, hihat: 0.3, other: 0.5 };
 
@@ -159,20 +179,8 @@ function samePlace(a: Rgb, b: Rgb): boolean {
   return Math.abs(a.r - b.r) + Math.abs(a.g - b.g) + Math.abs(a.b - b.b) < 70;
 }
 
-function readPalette(fileColors: string[]): { colors: Rgb[]; dark: boolean } {
-  const bg = cssColorToRgba(resolveThemeColorToken('background'));
-  const dark = bg ? 0.2126 * bg.r + 0.7152 * bg.g + 0.0722 * bg.b < 128 : true;
-  const parse = (css: string) => {
-    const c = cssColorToRgba(css);
-    return c ? { r: c.r, g: c.g, b: c.b } : null;
-  };
-  const themed = buildStemConfettiThemePalettes();
-  const candidates = [
-    ...fileColors.map(parse),
-    ...STEM_TYPES.map((t) => parse(themed[t].primary)),
-    parse(resolveThemeColorToken('chart-1')),
-    parse(resolveThemeColorToken('chart-5')),
-  ];
+/** The colorful ones, lifted into light, with near repeats dropped. */
+function asLights(candidates: (Rgb | null)[], dark: boolean): Rgb[] {
   const colors: Rgb[] = [];
   for (const c of candidates) {
     if (!c || vividness(c) < MIN_VIVIDNESS) continue;
@@ -181,6 +189,39 @@ function readPalette(fileColors: string[]): { colors: Rgb[]; dark: boolean } {
     colors.push(light);
     if (colors.length >= MAX_COLORS) break;
   }
+  return colors;
+}
+
+/** One or two colors make a flat rig, so neighbouring hues fill it out to three. */
+function widen(colors: Rgb[]): Rgb[] {
+  if (colors.length === 0 || colors.length >= 3) return colors;
+  const { h, s, l } = toHsl(colors[0]!);
+  const out = [...colors, fromHsl((h + 22) % 360, s, l)];
+  if (out.length < 3) out.push(fromHsl((h + 338) % 360, s, l));
+  return out;
+}
+
+const parseCss = (css: string): Rgb | null => {
+  const c = cssColorToRgba(css);
+  return c ? { r: c.r, g: c.g, b: c.b } : null;
+};
+
+/** The resting colors: the post's own, or without those the theme's. */
+function readPalette(fileColors: string[]): { colors: Rgb[]; dark: boolean } {
+  const bg = cssColorToRgba(resolveThemeColorToken('background'));
+  const dark = bg ? 0.2126 * bg.r + 0.7152 * bg.g + 0.0722 * bg.b < 128 : true;
+  const own = asLights(fileColors.map(parseCss), dark);
+  if (own.length > 0) return { colors: widen(own), dark };
+  const parse = parseCss;
+  const themed = buildStemConfettiThemePalettes();
+  const colors = asLights(
+    [
+      ...STEM_TYPES.map((t) => parse(themed[t].primary)),
+      parse(resolveThemeColorToken('chart-1')),
+      parse(resolveThemeColorToken('chart-5')),
+    ],
+    dark,
+  );
   if (colors.length < 3) {
     if (dark) {
       // A monochrome theme on a dark video: white spots, the classic stage look.
@@ -199,15 +240,75 @@ function readPalette(fileColors: string[]): { colors: Rgb[]; dark: boolean } {
   return { colors, dark };
 }
 
-function sprite(rgb: Rgb, soft: boolean): HTMLCanvasElement {
-  const c = document.createElement('canvas');
+/**
+ * The colors a frame is made of: tinted pixels pooled by hue, brighter and
+ * stronger ones counting more, strongest first. A dark scene still has a hue
+ * worth lighting (a deep teal night lights teal), so this goes by tint rather
+ * than loudness. Empty when the frame is mostly gray, white or black.
+ */
+function frameColors(data: Uint8ClampedArray, dark: boolean): Rgb[] {
+  const bins = Array.from({ length: 12 }, () => ({ r: 0, g: 0, b: 0, w: 0 }));
+  let colorful = 0;
+  for (let i = 0; i < data.length; i += 4) {
+    const c = { r: data[i]!, g: data[i + 1]!, b: data[i + 2]! };
+    const max = Math.max(c.r, c.g, c.b);
+    const chroma = (max - Math.min(c.r, c.g, c.b)) / 255;
+    if (max < 20 || chroma < 0.05) continue;
+    const { h, s } = toHsl(c);
+    if (s < 0.2) continue;
+    colorful++;
+    const bin = bins[Math.floor(h / 30) % 12]!;
+    const w = chroma * (0.3 + max / 255);
+    bin.r += c.r * w;
+    bin.g += c.g * w;
+    bin.b += c.b * w;
+    bin.w += w;
+  }
+  if (colorful < (data.length / 4) * MIN_COLORFUL) return [];
+  const ranked = bins.filter((b) => b.w > 0).sort((a, b) => b.w - a.w);
+  const top = ranked[0]?.w ?? 0;
+  const out: Rgb[] = [];
+  for (const b of ranked) {
+    if (b.w < top * 0.12) break;
+    const light = asLight({ r: b.r / b.w, g: b.g / b.w, b: b.b / b.w }, dark);
+    if (out.some((o) => samePlace(o, light))) continue;
+    out.push(light);
+    if (out.length >= MAX_COLORS) break;
+  }
+  return out;
+}
+
+/** Lays a palette over the fixed color slots, each slot taking the nearest color so the drift between looks stays short. */
+function assignSlots(current: Rgb[], palette: Rgb[], slots: number): Rgb[] {
+  const pool = Array.from({ length: slots }, (_, i) => palette[i % palette.length]!);
+  if (current.length !== slots) return pool.map((c) => ({ ...c }));
+  const used = new Array<boolean>(slots).fill(false);
+  return current.map((c) => {
+    let best = 0;
+    let bestD = Infinity;
+    for (let j = 0; j < slots; j++) {
+      if (used[j]) continue;
+      const p = pool[j]!;
+      const d = Math.abs(p.r - c.r) + Math.abs(p.g - c.g) + Math.abs(p.b - c.b);
+      if (d < bestD) {
+        bestD = d;
+        best = j;
+      }
+    }
+    used[best] = true;
+    return { ...pool[best]! };
+  });
+}
+
+function sprite(rgb: Rgb, soft: boolean, c = document.createElement('canvas')): HTMLCanvasElement {
   c.width = SPRITE;
   c.height = SPRITE;
   const ctx = c.getContext('2d');
   if (!ctx) return c;
   const half = SPRITE / 2;
   const g = ctx.createRadialGradient(half, half, 0, half, half, half);
-  const at = (a: number) => `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${a})`;
+  const [r, gr, b] = [Math.round(rgb.r), Math.round(rgb.g), Math.round(rgb.b)];
+  const at = (a: number) => `rgba(${r}, ${gr}, ${b}, ${a})`;
   if (soft) {
     // A defocused light: flat disc, a brighter rim, then a wide glow.
     g.addColorStop(0, at(0.62));
@@ -257,6 +358,8 @@ function layoutDots(w: number, h: number, colorCount: number): Dot[] {
   });
 }
 
+let toldAmbientPaused = false;
+
 export default function StageLights() {
   const {
     videoRef,
@@ -265,6 +368,10 @@ export default function StageLights() {
     visualizerConfetti,
     videoBounceInstruments,
     stageLightsScope,
+    stageLightsPauseAmbient,
+    setStageLightsPauseAmbient,
+    ambientMode,
+    authPlaybackFeatures,
     state,
     file,
   } = usePlayerContext();
@@ -314,6 +421,17 @@ export default function StageLights() {
   );
   const active = enabled && mounted && current === id;
 
+  // Says once a visit that ambient stepped aside, with a way to keep both on.
+  const pausesAmbient = active && ambientMode && stageLightsPauseAmbient && authPlaybackFeatures;
+  useEffect(() => {
+    if (!pausesAmbient || toldAmbientPaused) return;
+    toldAmbientPaused = true;
+    toast('Ambient mode paused for stage lights', {
+      description: 'Saves battery. You can change this in settings.',
+      action: { label: 'Keep both on', onClick: () => setStageLightsPauseAmbient(false) },
+    });
+  }, [pausesAmbient, setStageLightsPauseAmbient]);
+
   useEffect(() => {
     if (playing) wakeRef.current();
   }, [playing]);
@@ -331,7 +449,11 @@ export default function StageLights() {
     const bandCanvas = document.createElement('canvas');
     const band = bandCanvas.getContext('2d');
     if (!liquid || !dots || !band) return;
-    const canBlur = 'filter' in liquid;
+    const canBlur = typeof liquid.filter === 'string';
+    // Safari has no canvas filter; shrinking the band and stretching it back softens it instead.
+    const softCanvas = canBlur ? null : document.createElement('canvas');
+    const soft = softCanvas?.getContext('2d') ?? null;
+    if (soft) soft.imageSmoothingQuality = 'high';
 
     const picked = typesKey.split(',') as StemType[];
     const fileColors = fileColorsKey ? fileColorsKey.split(',') : [];
@@ -350,16 +472,52 @@ export default function StageLights() {
     let scale = 1;
     let dotList: Dot[] = [];
     let dark = true;
+    // Color slots drift toward `goal`: what the picture shows, or `resting`, the post's colors.
     let colors: Rgb[] = [];
+    let goal: Rgb[] = [];
+    let resting: Rgb[] = [];
+    let atRest = true;
     let leds: HTMLCanvasElement[] = [];
     let bokeh: HTMLCanvasElement[] = [];
+    let spriteColors: Rgb[] = [];
+    let spritesAt = 0;
+
+    const probe = document.createElement('canvas');
+    probe.width = PROBE_W;
+    probe.height = PROBE_H;
+    const probeCtx = probe.getContext('2d', { willReadFrequently: true });
+    let canLook = probeCtx != null;
+    let nextLook = 0;
+    /** The colors of the frame on screen, or null when there is no frame to read. */
+    const look = (): Rgb[] | null => {
+      const video = videoRef.current;
+      if (!canLook || !probeCtx || !video || video.readyState < 2 || !video.videoWidth) return null;
+      try {
+        probeCtx.drawImage(video, 0, 0, PROBE_W, PROBE_H);
+        return frameColors(probeCtx.getImageData(0, 0, PROBE_W, PROBE_H).data, dark);
+      } catch {
+        // A picture from another origin can't be read back; the post's colors stay.
+        canLook = false;
+        return null;
+      }
+    };
+
+    const paintSprites = (now: number) => {
+      leds = colors.map((c, i) => sprite(c, false, leds[i]));
+      bokeh = colors.map((c, i) => sprite(c, true, bokeh[i]));
+      spriteColors = colors.map((c) => ({ ...c }));
+      spritesAt = now;
+    };
 
     const paintTheme = () => {
       const palette = readPalette(fileColors);
       dark = palette.dark;
-      colors = palette.colors;
-      leds = colors.map((c) => sprite(c, false));
-      bokeh = colors.map((c) => sprite(c, true));
+      resting = palette.colors;
+      if (colors.length === 0) colors = assignSlots([], resting, MAX_COLORS);
+      goal = assignSlots(colors, resting, MAX_COLORS);
+      atRest = true;
+      nextLook = 0;
+      paintSprites(performance.now());
       // Light only adds on a dark page; on a light one it lays color down.
       host.style.mixBlendMode = dark ? 'screen' : 'normal';
     };
@@ -374,11 +532,15 @@ export default function StageLights() {
     const resize = () => {
       lw = w + 2 * margin;
       lh = h + 2 * margin;
-      scale = Math.min(window.devicePixelRatio || 1, 1.5, Math.sqrt(MAX_DOT_PIXELS / (lw * lh)));
+      scale = Math.min(window.devicePixelRatio || 1, 2, Math.sqrt(MAX_DOT_PIXELS / (lw * lh)));
       dotsCanvas.width = Math.round(lw * scale);
       dotsCanvas.height = Math.round(lh * scale);
       liquidCanvas.width = bandCanvas.width = Math.max(8, Math.round(lw * LIQUID_SCALE));
       liquidCanvas.height = bandCanvas.height = Math.max(8, Math.round(lh * LIQUID_SCALE));
+      if (softCanvas) {
+        softCanvas.width = Math.max(4, Math.round(bandCanvas.width / 2));
+        softCanvas.height = Math.max(4, Math.round(bandCanvas.height / 2));
+      }
       dotList = layoutDots(w, h, colors.length);
       wake();
     };
@@ -437,12 +599,14 @@ export default function StageLights() {
     const flare = new Float32Array(NODES + 1);
     let swell = 0;
     let swellVel = 0;
+    let flash = 0;
     let tension = 0;
     let master = playingRef.current ? 1 : IDLE_LEVEL;
     let flow = 0;
     let lastNow = 0;
     let idx = 0;
     let lastTime = 0;
+    let lastEvents: unknown = null;
     let flip = false;
     let rafId: number | null = null;
 
@@ -450,7 +614,9 @@ export default function StageLights() {
       const center = at * NODES;
       for (let k = -10; k <= 10; k++) {
         const i = (((Math.round(center) + k) % NODES) + NODES) % NODES;
-        v[i] += strength * SPLASH * Math.exp(-(k * k) / (2 * SPLASH_WIDTH * SPLASH_WIDTH));
+        const g = Math.exp(-(k * k) / (2 * SPLASH_WIDTH * SPLASH_WIDTH));
+        y[i] += strength * SPLASH_LIFT * g;
+        v[i] += strength * SPLASH * 0.5 * g;
       }
     };
 
@@ -485,14 +651,14 @@ export default function StageLights() {
       const perimeter = 2 * (w + h);
       const still = reduceMotion.matches;
       const base = framed ? margin * 0.34 : Math.min(w, h) * 0.07;
-      const breathe = 1 + 0.4 * swell;
+      const breathe = 1 + 0.4 * swell + 0.2 * flash;
 
       for (let i = 0; i <= NODES; i++) {
         const n = i % NODES;
         const a = (n / NODES) * Math.PI * 2;
         const ripple = still ? 0 : 0.22 * Math.sin(3 * a + flow * 1.3) + 0.14 * Math.sin(7 * a - flow * 2.1 + 1.7);
         thick[i] = Math.max(base * 0.25, base * (1 + ripple) * breathe + y[n]! * base * 1.6);
-        flare[i] = Math.min(1, Math.abs(y[n]!) / FULL_FLARE + Math.max(0, swell) * 0.5);
+        flare[i] = Math.min(1, Math.abs(y[n]!) / FULL_FLARE + Math.max(0, swell) * 0.5 + flash * 0.7);
       }
 
       const colorShift = flow * 0.05;
@@ -501,7 +667,7 @@ export default function StageLights() {
         const c0 = colors[Math.floor(u)]!;
         const c1 = colors[(Math.floor(u) + 1) % colors.length]!;
         const f = u - Math.floor(u);
-        const alpha = master * strength * (0.5 + 0.45 * sample(s).fl) * (dark ? 1 : 0.55);
+        const alpha = master * strength * (0.42 + 0.5 * sample(s).fl) * (dark ? 1 : 0.55);
         return `rgba(${Math.round(c0.r + (c1.r - c0.r) * f)}, ${Math.round(c0.g + (c1.g - c0.g) * f)}, ${Math.round(c0.b + (c1.b - c0.b) * f)}, ${Math.min(1, alpha)})`;
       };
 
@@ -566,9 +732,17 @@ export default function StageLights() {
 
       liquid.setTransform(1, 0, 0, 1, 0, 0);
       liquid.clearRect(0, 0, liquidCanvas.width, liquidCanvas.height);
-      if (canBlur) liquid.filter = 'blur(2px)';
-      liquid.drawImage(bandCanvas, 0, 0);
-      if (canBlur) liquid.filter = 'none';
+      if (canBlur) {
+        liquid.filter = 'blur(2px)';
+        liquid.drawImage(bandCanvas, 0, 0);
+        liquid.filter = 'none';
+      } else if (soft && softCanvas) {
+        soft.clearRect(0, 0, softCanvas.width, softCanvas.height);
+        soft.drawImage(bandCanvas, 0, 0, softCanvas.width, softCanvas.height);
+        liquid.drawImage(softCanvas, 0, 0, liquidCanvas.width, liquidCanvas.height);
+      } else {
+        liquid.drawImage(bandCanvas, 0, 0);
+      }
 
       dots.setTransform(1, 0, 0, 1, 0, 0);
       dots.clearRect(0, 0, dotsCanvas.width, dotsCanvas.height);
@@ -604,23 +778,64 @@ export default function StageLights() {
       const still = reduceMotion.matches;
       place();
 
+      flash *= Math.exp(-FLASH_DECAY * dt);
       const video = videoRef.current;
       const stems = stemsRef.current;
       if (live && video && stems) {
         const t = video.currentTime;
         const evs = stems.events;
-        if (t < lastTime - 0.05 || t - lastTime > SEEK_RESYNC_S) idx = stemEventIndexAt(evs, t);
+        // A new video brings new events; a jump in time means a seek.
+        if (evs !== lastEvents || t < lastTime - 0.05 || t - lastTime > SEEK_RESYNC_S) {
+          idx = stemEventIndexAt(evs, t);
+          lastEvents = evs;
+        }
         while (idx < evs.length && evs[idx]!.t <= t) {
           const e = evs[idx]!;
           idx++;
           if (t - e.t > FRESH_WINDOW_S || !picked.includes(e.type)) continue;
           const push = e.s * PUSH[e.type];
-          swellVel += push * (still ? 1.2 : 2.4);
+          flash = Math.min(1, flash + push * (still ? 0.6 : 1));
+          swell = Math.min(1.4, swell + push * (still ? 0.25 : SWELL_JUMP));
           tension = Math.min(1.5, tension + 0.12 * e.s);
           if (e.type === 'other') flip = !flip;
           if (!still) splash(splashAt(e.type, w, h, flip, rand), push);
         }
         lastTime = t;
+      }
+
+      if (live) {
+        if (now >= nextLook) {
+          nextLook = now + LOOK_MS;
+          const seen = look();
+          if (seen) {
+            goal = assignSlots(colors, seen.length > 0 ? widen(seen) : resting, MAX_COLORS);
+            atRest = false;
+          }
+        }
+      } else if (!atRest) {
+        goal = assignSlots(colors, resting, MAX_COLORS);
+        atRest = true;
+        nextLook = 0;
+      }
+      const ease = 1 - Math.exp(-dt / COLOR_EASE_S);
+      let drift = 0;
+      for (let i = 0; i < colors.length; i++) {
+        const c = colors[i]!;
+        const to = goal[i]!;
+        c.r += (to.r - c.r) * ease;
+        c.g += (to.g - c.g) * ease;
+        c.b += (to.b - c.b) * ease;
+        drift = Math.max(drift, Math.abs(to.r - c.r) + Math.abs(to.g - c.g) + Math.abs(to.b - c.b));
+      }
+      // At their size the dots only need new sprites a few times a second.
+      if (
+        now - spritesAt > 100 &&
+        colors.some((c, i) => {
+          const s = spriteColors[i]!;
+          return Math.abs(c.r - s.r) + Math.abs(c.g - s.g) + Math.abs(c.b - s.b) > 4;
+        })
+      ) {
+        paintSprites(now);
       }
 
       stepWave(dt);
@@ -633,7 +848,9 @@ export default function StageLights() {
       // Music speeds the flow up; after it stops the liquid drifts to rest.
       flow += dt * (live ? 1 + 0.8 * tension : 0.3);
 
-      let moving = Math.abs(swell) > 0.004 || Math.abs(swellVel) > 0.004 || Math.abs(target - master) > 0.005;
+      let moving =
+        drift > 1 ||
+        flash > 0.004 || Math.abs(swell) > 0.004 || Math.abs(swellVel) > 0.004 || Math.abs(target - master) > 0.005;
       for (let i = 0; i < NODES && !moving; i++) moving = Math.abs(y[i]!) > 0.002 || Math.abs(v[i]!) > 0.01;
 
       if (onScreen) draw();

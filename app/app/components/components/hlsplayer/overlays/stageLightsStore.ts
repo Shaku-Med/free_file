@@ -1,4 +1,4 @@
-import { useEffect, useRef, useSyncExternalStore } from 'react';
+import { useCallback, useRef, useSyncExternalStore } from 'react';
 
 const listeners = new Set<() => void>();
 const notify = () => listeners.forEach((l) => l());
@@ -44,19 +44,22 @@ export function useStageLightsSlotElement(): HTMLElement | null {
   return useSyncExternalStore(subscribe, getSlot, nobody);
 }
 
-/** Marks the returned element as the page's slot for the stage lights. */
+/**
+ * Marks the element as the page's slot for the stage lights. A callback ref,
+ * so the slot follows the page when it swaps that element for a new one.
+ */
 export function useStageLightsSlot<T extends HTMLElement>() {
-  const ref = useRef<T>(null);
-  useEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    slot = el;
-    notify();
-    return () => {
-      if (slot !== el) return;
+  const mine = useRef<T | null>(null);
+  return useCallback((el: T | null) => {
+    const prev = mine.current;
+    mine.current = el;
+    if (prev === el) return;
+    if (el) {
+      slot = el;
+      notify();
+    } else if (slot === prev) {
       slot = null;
       notify();
-    };
+    }
   }, []);
-  return ref;
 }

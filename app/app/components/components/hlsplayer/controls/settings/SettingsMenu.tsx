@@ -22,6 +22,7 @@ import {
   Speaker,
   PictureInPicture2,
   Maximize,
+  Ambience,
 } from '~/components/icons';
 import { usePlayerContext, SLEEP_TIMER_OPTIONS } from '../../PlayerContext';
 import { isSpatialAudioUiSupported } from '../../hooks/useSpatialAudio';
@@ -114,6 +115,8 @@ export function SettingsMenuBody() {
     setSeekWaveThumb,
     stageLightsScope,
     setStageLightsScope,
+    stageLightsPauseAmbient,
+    setStageLightsPauseAmbient,
     playerBackground,
     setPlayerBackground,
     autoPlay,
@@ -157,7 +160,7 @@ export function SettingsMenuBody() {
   const auth = authPlaybackFeatures;
   // Mini dock has no room for ambient glow, so those toggles stay off the menu.
   const hideAmbientOptions = useGlobalPlayerLayout() === 'mini';
-  const ambientResting = useStageLightsOn() && ambientMode;
+  const ambientResting = useStageLightsOn() && ambientMode && stageLightsPauseAmbient;
 
   const pickedLabels = STEM_TYPES.filter((t) => videoBounceInstruments[t]).map(
     (t) => STEM_CONFETTI_META[t].label,
@@ -634,6 +637,15 @@ export function SettingsMenuBody() {
                     </button>
                   ))}
                 </span>
+              </DropdownMenuItem>
+            )}
+            {visualizerConfetti && auth && (
+              <DropdownMenuItem onSelect={(e) => e.preventDefault()} className={toggleRowClass}>
+                <span className="flex min-w-0 flex-1 items-center gap-2">
+                  <Ambience className="size-4 shrink-0 text-muted-foreground" />
+                  <span className="min-w-0 truncate">Pause ambient with lights</span>
+                </span>
+                <Switch checked={stageLightsPauseAmbient} onChange={setStageLightsPauseAmbient} />
               </DropdownMenuItem>
             )}
             <DropdownMenuItem

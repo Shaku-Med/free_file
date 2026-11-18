@@ -33,6 +33,7 @@ export interface PlayerSettings {
   ambientIntensity: number;
   seekWaveThumb: 'ride' | 'bottom';
   stageLightsScope: 'player' | 'page';
+  stageLightsPauseAmbient: boolean;
   /** JSON map of stem type → the bounce reacts to it. */
   videoBounceInstruments: string;
   quality: string;
@@ -61,6 +62,7 @@ export interface PlayerSettingsPatch {
   ambientIntensity?: number;
   seekWaveThumb?: 'ride' | 'bottom';
   stageLightsScope?: 'player' | 'page';
+  stageLightsPauseAmbient?: boolean;
   videoBounceInstruments?: string;
   quality?: string;
   captionLanguage?: string;
@@ -89,6 +91,7 @@ const DEFAULTS: PlayerSettings = {
   /** The handle riding the wave is the point of having a waveform at all. */
   seekWaveThumb: 'ride' as const,
   stageLightsScope: 'player' as const,
+  stageLightsPauseAmbient: true,
   videoBounceInstruments: '{"kick":true,"bass":true,"snare":false,"hihat":false,"other":false}',
   quality: 'auto',
   captionLanguage: '',
@@ -136,6 +139,7 @@ export async function getPlayerSettings(): Promise<PlayerSettings> {
     ambientIntensity: clampAmbient(data.ambientIntensity),
     seekWaveThumb: data.seekWaveThumb === 'bottom' ? 'bottom' : 'ride',
     stageLightsScope: data.stageLightsScope === 'page' ? 'page' : 'player',
+    stageLightsPauseAmbient: data.stageLightsPauseAmbient !== false,
     videoBounceInstruments:
       typeof data.videoBounceInstruments === 'string'
         ? data.videoBounceInstruments

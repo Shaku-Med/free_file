@@ -45,6 +45,8 @@ export type PlayerSettings = {
   seekWaveThumb: 'ride' | 'bottom';
   /** Stage lights hug the player, or light the edges of the whole page. */
   stageLightsScope: 'player' | 'page';
+  /** Ambient mode rests while stage lights are up. */
+  stageLightsPauseAmbient: boolean;
   /** JSON map of stem type → the bounce reacts to it (kick/snare/hihat/bass/other). */
   videoBounceInstruments: string;
   quality: string;

@@ -304,6 +304,7 @@ function PlayerInner({
     setSpriteMeta,
     setSpriteUrl,
     ambientMode,
+    stageLightsPauseAmbient,
     playerBackground,
     audioVisualizer,
     visualizerWave,
@@ -840,13 +841,14 @@ function PlayerInner({
     });
   }, [file?.unique_id]);
 
-  // Ambient sits out while stage lights are up; the saved setting stays as it is.
-  const stageLightsOn = useStageLightsOn();
+  // Ambient sits out while stage lights are up, unless asked to keep both;
+  // the saved setting stays as it is.
+  const ambientResting = useStageLightsOn() && stageLightsPauseAmbient;
   useEffect(() => {
     if (onAmbientModeChange) {
-      onAmbientModeChange(ambientMode && !stageLightsOn);
+      onAmbientModeChange(ambientMode && !ambientResting);
     }
-  }, [ambientMode, stageLightsOn, onAmbientModeChange]);
+  }, [ambientMode, ambientResting, onAmbientModeChange]);
 
   useEffect(() => {
     if (onVideoRef && videoRef.current) onVideoRef(videoRef.current);
