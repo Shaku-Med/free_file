@@ -3,6 +3,7 @@ import { usePlayerContext } from '../PlayerContext';
 import { stemEventIndexAt, type StemType } from '../audioStems';
 import {
   ensureSharedGraph,
+  peekSharedGraph,
   resumeIfNeeded,
   setPannerActive,
   setPannerPosition,
@@ -10,7 +11,7 @@ import {
   setTheaterActive,
 } from '~/lib/audio/sharedAudioGraph';
 import { applyReverbSettings } from '~/lib/audio/reverbSettings';
-import { reverbSettingsOf } from '../hooks/useSpatialAudio';
+import { isSpatialAudioUiSupported, reverbSettingsOf } from '../hooks/useSpatialAudio';
 import { setVrTheaterActive } from './vrTheaterActive';
 
 /**
@@ -172,6 +173,8 @@ export default function VRTheaterOverlay() {
   reverbRef.current = reverbSettingsOf(spatialAudio, 'theater');
 
   const enabled = vrTheater && !isReel;
+  // Phones never get the sound system (same rule as 8D), even if it was left on.
+  const soundSystemOn = vrSoundSystem && isSpatialAudioUiSupported();
   /** Scene is rebuilt per video  navigating watch→watch must never stack two rooms. */
   const fileKey = file?.unique_id ?? file?.id ?? '';
 
@@ -193,7 +196,7 @@ export default function VRTheaterOverlay() {
 
   /** Render loop reads this live: when on, the panner tracks the camera every frame. */
   const soundOnRef = useRef(false);
-  soundOnRef.current = vrSoundSystem;
+  soundOnRef.current = soundSystemOn;
 
   // The room claims the wheel while it is up; off, it leaves nothing behind.
   useEffect(() => {
@@ -206,7 +209,7 @@ export default function VRTheaterOverlay() {
   // and off  the actual positions follow the camera live in the render
   // loop, so dragging / zooming moves the sound with your head.
   useEffect(() => {
-    if (!enabled || !vrSoundSystem) return;
+    if (!enabled || !soundSystemOn) return;
     const video = videoRef.current;
     if (!video) return;
 
@@ -247,7 +250,7 @@ export default function VRTheaterOverlay() {
       document.removeEventListener('click', apply, gestureOpts);
       video.removeEventListener('loadedmetadata', apply);
       video.removeEventListener('play', apply);
-      const graph = ensureSharedGraph(video);
+      const graph = peekSharedGraph(video);
       if (graph) {
         setTheaterActive(graph, false);
         setReverbActive(graph, false);
@@ -256,7 +259,7 @@ export default function VRTheaterOverlay() {
         setPannerPosition(graph, 0, 0, -1, 0);
       }
     };
-  }, [enabled, vrSoundSystem, videoRef]);
+  }, [enabled, soundSystemOn, videoRef]);
 
   useEffect(() => {
     if (!enabled) return;
@@ -870,7 +873,7 @@ export default function VRTheaterOverlay() {
         if (soundOnRef.current && now - lastAudioSync >= 32) {
           const dtAudio = (now - lastAudioSync) / 1000;
           lastAudioSync = now;
-          const graph = ensureSharedGraph(video);
+          const graph = peekSharedGraph(video);
           if (graph && graph.ctx.state === 'running' && graph.theaterActive) {
             // Re-assert ownership every tick (no-op when already active) so a
             // stray toggle elsewhere can't silently drop the head tracking.

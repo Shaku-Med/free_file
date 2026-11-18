@@ -420,7 +420,7 @@ export function SettingsMenuBody() {
             )}
           </Tooltip>
         )}
-        {!isReel && vrTheater && (
+        {!isReel && vrTheater && isSpatialAudioUiSupported() && (
           <DropdownMenuItem
             onSelect={(e) => e.preventDefault()}
             className={cn(toggleRowClass, 'pl-7')}

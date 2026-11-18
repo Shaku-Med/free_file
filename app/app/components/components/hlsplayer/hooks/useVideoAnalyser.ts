@@ -2,6 +2,7 @@ import { useEffect, useState, type RefObject } from 'react';
 import {
   ensureAnalyser,
   ensureSharedGraph,
+  peekSharedGraph,
   resumeIfNeeded,
   setAnalyserActive,
 } from '~/lib/audio/sharedAudioGraph';
@@ -70,10 +71,8 @@ export function useVideoAnalyser(
       video.removeEventListener('loadeddata', ensure);
       video.removeEventListener('loadedmetadata', ensure);
       const v = videoRef.current;
-      if (v) {
-        const graph = ensureSharedGraph(v);
-        if (graph) setAnalyserActive(graph, false);
-      }
+      const graph = v ? peekSharedGraph(v) : null;
+      if (graph) setAnalyserActive(graph, false);
       setAnalyser(null);
     };
   }, [enabled, videoRef]);

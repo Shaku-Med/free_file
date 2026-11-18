@@ -12,6 +12,11 @@
  *
  * Toggling either feature reconnects the chain in-place; the source / panner / analyser
  * nodes themselves are never recreated until the video element is garbage-collected.
+ *
+ * Only build the graph for a feature that is on. Wiring a video into Web Audio
+ * can't be undone, and on iPhone it takes the sound away from the system player,
+ * so AirPods spatial audio and head tracking stop working for that video.
+ * Code that only switches a stage off must use `peekSharedGraph`.
  */
 
 type AudioContextConstructor = {
@@ -87,6 +92,11 @@ export async function resumeIfNeeded(ctx: AudioContext) {
   } catch {
     /* iOS may reject until a user gesture */
   }
+}
+
+/** The graph this video already has, if any. Never creates one. */
+export function peekSharedGraph(video: HTMLVideoElement): SharedAudioGraph | null {
+  return graphByVideo.get(video) ?? null;
 }
 
 /**

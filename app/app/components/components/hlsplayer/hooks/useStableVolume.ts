@@ -1,6 +1,7 @@
 import { useEffect, type RefObject } from "react"
 import {
   ensureSharedGraph,
+  peekSharedGraph,
   resumeIfNeeded,
   setCompressorActive,
 } from "~/lib/audio/sharedAudioGraph"
@@ -18,13 +19,19 @@ export function useStableVolume(
     const video = videoRef.current
     if (!video) return
 
+    if (!enabled) {
+      const graph = peekSharedGraph(video)
+      if (graph) setCompressorActive(graph, false)
+      return
+    }
+
     const apply = () => {
       const v = videoRef.current
       if (!v) return
       const graph = ensureSharedGraph(v)
       if (!graph) return
-      setCompressorActive(graph, enabled)
-      if (enabled) void resumeIfNeeded(graph.ctx)
+      setCompressorActive(graph, true)
+      void resumeIfNeeded(graph.ctx)
     }
 
     const onUserGesture = () => apply()
@@ -46,10 +53,8 @@ export function useStableVolume(
       video.removeEventListener("play", apply)
       video.removeEventListener("loadedmetadata", apply)
       const v = videoRef.current
-      if (v) {
-        const graph = ensureSharedGraph(v)
-        if (graph) setCompressorActive(graph, false)
-      }
+      const graph = v ? peekSharedGraph(v) : null
+      if (graph) setCompressorActive(graph, false)
     }
   }, [enabled, videoRef])
 }
