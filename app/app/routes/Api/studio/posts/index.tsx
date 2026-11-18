@@ -3,6 +3,7 @@ import db from "~/lib/Database/supabase";
 import { validateInteger } from "~/lib/Security/inputValidation";
 import { getFileCounts } from "~/lib/studio/fileCounts.server";
 import { PENDING_QUALITIES_MAX_MS } from "~/lib/files/uploadStatus";
+import { cleanStudioSearch } from "~/lib/studio/search";
 
 const toJson = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), {
@@ -44,6 +45,7 @@ export const loader = async ({ request }: { request: Request }) => {
     const offset = validateInteger(url.searchParams.get("offset"), 0, 10000) ?? 0;
     const status = (url.searchParams.get("status") || "all").toLowerCase();
     const sortRaw = (url.searchParams.get("sort") || "newest").toLowerCase();
+    const term = cleanStudioSearch(url.searchParams.get("q") ?? "");
 
     const sortField = ((): { column: string; ascending: boolean } => {
       switch (sortRaw) {
@@ -68,6 +70,7 @@ export const loader = async ({ request }: { request: Request }) => {
       .order(sortField.column, { ascending: sortField.ascending })
       .range(offset, offset + limit - 1);
 
+    let processingOr: string | null = null;
     if (status === "public") q = q.eq("visibility", "public");
     else if (status === "unlisted") q = q.eq("visibility", "unlisted");
     else if (status === "private") q = q.eq("visibility", "private");
@@ -75,8 +78,15 @@ export const loader = async ({ request }: { request: Request }) => {
     else if (status === "processing") {
       // Nothing playable yet, or live with higher qualities still encoding.
       const since = new Date(Date.now() - PENDING_QUALITIES_MAX_MS).toISOString();
-      q = q.or(`upload_status.neq.complete,and(processing_progress.not.is.null,created_at.gte."${since}")`);
+      processingOr = `upload_status.neq.complete,and(processing_progress.not.is.null,created_at.gte."${since}")`;
     }
+
+    // `term` is cleaned to letters, numbers and spaces, so it is safe inside the quotes.
+    const searchOr = term ? `file_title.ilike."%${term}%",filename.ilike."%${term}%"` : null;
+    // One or= param only; two would not combine the way it reads.
+    if (searchOr && processingOr) q = q.or(`and(or(${searchOr}),or(${processingOr}))`);
+    else if (searchOr) q = q.or(searchOr);
+    else if (processingOr) q = q.or(processingOr);
 
     const { data: rawRows, count, error } = await q;
     if (error) {
