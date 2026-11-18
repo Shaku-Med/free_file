@@ -218,6 +218,9 @@ interface PlayerContextValue {
   /** Stage lights around the player only, or on the edges of the whole page. */
   stageLightsScope: 'player' | 'page';
   setStageLightsScope: (v: 'player' | 'page') => void;
+  /** Ambient mode rests while the stage lights are up. */
+  stageLightsPauseAmbient: boolean;
+  setStageLightsPauseAmbient: (v: boolean) => void;
   /** Which stems the bounce reacts to. */
   videoBounceInstruments: StemConfettiInstruments;
   setVideoBounceInstrument: (type: StemType, enabled: boolean) => void;
@@ -553,6 +556,18 @@ export function PlayerProvider({
     [authPlaybackFeatures, setPlayerSettings, savePlayerSettings],
   );
 
+  const [stageLightsPauseAmbient, setStageLightsPauseAmbientState] = useState(true);
+
+  const setStageLightsPauseAmbient = useCallback(
+    (v: boolean) => {
+      if (!authPlaybackFeatures) return;
+      setStageLightsPauseAmbientState(v);
+      setPlayerSettings(prev => (prev ? { ...prev, stageLightsPauseAmbient: v } : prev));
+      savePlayerSettings({ stageLightsPauseAmbient: v }).catch(() => {});
+    },
+    [authPlaybackFeatures, setPlayerSettings, savePlayerSettings],
+  );
+
   const setAmbientIntensity = useCallback(
     (v: number) => {
       if (!authPlaybackFeatures) return;
@@ -659,6 +674,7 @@ export function PlayerProvider({
       );
       setSeekWaveThumbState(playerSettings.seekWaveThumb === 'bottom' ? 'bottom' : 'ride');
       setStageLightsScopeState(playerSettings.stageLightsScope === 'page' ? 'page' : 'player');
+      setStageLightsPauseAmbientState(playerSettings.stageLightsPauseAmbient !== false);
       setVideoBounceInstrumentsState(
         parseStemInstrumentMap(playerSettings.videoBounceInstruments, DEFAULT_VIDEO_BOUNCE_INSTRUMENTS),
       );
@@ -672,6 +688,7 @@ export function PlayerProvider({
       setVideoBounceIntensityState(1);
       setVideoBounceInstrumentsState(DEFAULT_VIDEO_BOUNCE_INSTRUMENTS);
       setStageLightsScopeState('player');
+      setStageLightsPauseAmbientState(true);
     }
 
     /** Spatial audio: parse stored config; fall back to defaults if cookie is empty/corrupt. */
@@ -1262,6 +1279,8 @@ export function PlayerProvider({
     setSeekWaveThumb,
     stageLightsScope,
     setStageLightsScope,
+    stageLightsPauseAmbient,
+    setStageLightsPauseAmbient,
     videoBounceInstruments,
     setVideoBounceInstrument,
     statsForNerds,
