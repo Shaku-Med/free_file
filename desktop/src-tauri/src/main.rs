@@ -1,6 +1,8 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+#[cfg(windows)]
 mod thumbar;
+#[cfg(windows)]
 mod updater;
 
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
@@ -15,7 +17,13 @@ use tauri_plugin_opener::OpenerExt;
 use tauri_plugin_window_state::StateFlags;
 
 pub const MAIN: &str = "main";
+#[cfg(windows)]
 const AUMID: &str = "com.brozy.memories";
+// What Electron's process.platform said, which the site already understands.
+#[cfg(windows)]
+const PLATFORM: &str = "win32";
+#[cfg(target_os = "linux")]
+const PLATFORM: &str = "linux";
 const LIVE_URL: &str = "https://memories.brozy.org/?windapp=1";
 const BRIDGE: &str = include_str!("bridge.js");
 
@@ -39,7 +47,7 @@ fn site() -> &'static Site {
         }
         let bridge = BRIDGE
             .replace("__ALLOWED_ORIGINS__", &serde_json::to_string(&origins).expect("origins serialize"))
-            .replace("__PLATFORM__", "\"win32\"");
+            .replace("__PLATFORM__", &serde_json::to_string(PLATFORM).expect("platform serializes"));
         Site { start, origins, bridge }
     })
 }
@@ -229,6 +237,7 @@ fn close_pips(app: &AppHandle) {
 
 // Ctrl+F, Ctrl+P, F5 and friends would make the app feel like a browser tab.
 // Copy, paste and the site's own shortcuts keep working.
+#[cfg(windows)]
 fn disable_browser_keys(window: &WebviewWindow) {
     let _ = window.with_webview(|webview| unsafe {
         use webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2Settings3;
@@ -239,6 +248,21 @@ fn disable_browser_keys(window: &WebviewWindow) {
             let _ = settings.SetAreBrowserAcceleratorKeysEnabled(false);
         }
     });
+}
+
+// WebKitGTK has no browser shortcuts like these to turn off.
+#[cfg(not(windows))]
+fn disable_browser_keys(_window: &WebviewWindow) {}
+
+// WebKitGTK's DMA-BUF renderer shows a blank window on many NVIDIA drivers.
+// Must run before any other thread starts.
+#[cfg(target_os = "linux")]
+fn avoid_blank_window_on_nvidia() {
+    if std::path::Path::new("/proc/driver/nvidia/version").exists()
+        && std::env::var_os("WEBKIT_DISABLE_DMABUF_RENDERER").is_none()
+    {
+        std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
+    }
 }
 
 fn failed(error: tauri::Error) -> String {
@@ -269,6 +293,13 @@ fn window_close(window: WebviewWindow) -> Result<(), String> {
     window.close().map_err(failed)
 }
 
+// Linux only: WebKitGTK ignores the site's app-region CSS, so the bridge asks
+// for the drag itself.
+#[tauri::command]
+fn window_start_drag(window: WebviewWindow) -> Result<(), String> {
+    window.start_dragging().map_err(failed)
+}
+
 #[tauri::command]
 fn window_is_maximized(window: WebviewWindow) -> Result<bool, String> {
     window.is_maximized().map_err(failed)
@@ -296,9 +327,15 @@ fn desktop_get_version(app: AppHandle) -> String {
 
 #[tauri::command]
 async fn desktop_install_update(app: AppHandle) -> Value {
-    tauri::async_runtime::spawn_blocking(move || updater::check(&app, true))
-        .await
-        .unwrap_or_else(|_| updater::failure(""))
+    #[cfg(windows)]
+    {
+        tauri::async_runtime::spawn_blocking(move || updater::check(&app, true))
+            .await
+            .unwrap_or_else(|_| updater::failure(""))
+    }
+    // Linux builds aren't published through the site yet, so there's never one to install.
+    #[cfg(not(windows))]
+    serde_json::json!({ "updateAvailable": false, "current": app.package_info().version.to_string() })
 }
 
 #[tauri::command]
@@ -322,6 +359,7 @@ struct MediaState {
 #[tauri::command]
 fn media_set_state(app: AppHandle, state: MediaState) -> bool {
     let Some(main) = app.get_webview_window(MAIN) else { return false };
+    #[cfg(windows)]
     thumbar::show(&main, state.playing, state.can_previous, state.can_next);
     if let Some(progress) = state.progress.filter(|p| p.is_finite()) {
         let bar = if state.playing {
@@ -340,6 +378,7 @@ fn media_set_state(app: AppHandle, state: MediaState) -> bool {
 #[tauri::command]
 fn media_clear(app: AppHandle) {
     if let Some(main) = app.get_webview_window(MAIN) {
+        #[cfg(windows)]
         thumbar::hide(&main);
         let _ = main.set_progress_bar(ProgressBarState { status: Some(ProgressBarStatus::None), progress: None });
     }
@@ -350,6 +389,8 @@ fn main() {
     unsafe {
         let _ = windows::Win32::UI::Shell::SetCurrentProcessExplicitAppUserModelID(&windows::core::HSTRING::from(AUMID));
     }
+    #[cfg(target_os = "linux")]
+    avoid_blank_window_on_nvidia();
 
     let builder = tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
@@ -370,6 +411,7 @@ fn main() {
             window_minimize,
             window_toggle_maximize,
             window_close,
+            window_start_drag,
             window_is_maximized,
             window_set_fullscreen,
             window_is_fullscreen,
@@ -388,6 +430,7 @@ fn main() {
                     .permission("allow-window-minimize")
                     .permission("allow-window-toggle-maximize")
                     .permission("allow-window-close")
+                    .permission("allow-window-start-drag")
                     .permission("allow-window-is-maximized")
                     .permission("allow-window-set-fullscreen")
                     .permission("allow-window-is-fullscreen")
@@ -399,9 +442,12 @@ fn main() {
             )?;
 
             let main = open_main(app.handle())?;
+            #[cfg(windows)]
             thumbar::install(&main);
+            #[cfg(not(windows))]
+            let _ = main;
 
-            #[cfg(not(debug_assertions))]
+            #[cfg(all(windows, not(debug_assertions)))]
             {
                 let handle = app.handle().clone();
                 std::thread::spawn(move || {

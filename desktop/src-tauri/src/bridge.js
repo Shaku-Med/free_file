@@ -29,9 +29,15 @@
     },
   });
 
+  // Older WebKitGTK builds have no Navigation API, so plain history stands in.
   const go = (direction) => {
     const nav = window.navigation;
-    const can = direction === 'back' ? nav?.canGoBack : nav?.canGoForward;
+    if (!nav) {
+      if (direction === 'back') history.back();
+      else history.forward();
+      return Promise.resolve(true);
+    }
+    const can = direction === 'back' ? nav.canGoBack : nav.canGoForward;
     if (!can) return Promise.resolve(false);
     const result = direction === 'back' ? nav.back() : nav.forward();
     result?.committed?.catch(() => {});
@@ -60,7 +66,8 @@
       location.reload();
       return Promise.resolve();
     },
-    canGoBack: () => Promise.resolve(window.navigation?.canGoBack === true),
+    canGoBack: () =>
+      Promise.resolve(window.navigation ? window.navigation.canGoBack === true : history.length > 1),
     canGoForward: () => Promise.resolve(window.navigation?.canGoForward === true),
     setMediaState: (state) => {
       if (!state || typeof state !== 'object') return Promise.resolve(false);
@@ -120,4 +127,49 @@
       (target.closest('input,textarea,[contenteditable=""],[contenteditable="true"]') !== null);
     if (!editable && !String(window.getSelection?.() ?? '')) event.preventDefault();
   });
+
+  // WebKitGTK ignores the site's app-region CSS, so on Linux the title bar is
+  // dragged from here, using the same rules as that CSS. The drag only starts
+  // once the mouse moves, so clicks and the site's double click to maximize
+  // still reach the page.
+  if (PLATFORM === 'linux') {
+    const NO_DRAG =
+      '.windapp-no-drag,a,button,input,textarea,select,[role="button"],[role="combobox"],' +
+      '[data-radix-collection-item],[data-sidebar="trigger"]';
+    const inDragRegion = (target) => {
+      if (!(target instanceof Element)) return false;
+      const region = target.closest('.windapp-drag');
+      if (!region) return false;
+      const blocker = target.closest(NO_DRAG);
+      return !blocker || !region.contains(blocker);
+    };
+
+    let pressed = null;
+    window.addEventListener(
+      'mousedown',
+      (event) => {
+        pressed = null;
+        if (event.button !== 0 || event.detail !== 1 || !inDragRegion(event.target)) return;
+        event.preventDefault();
+        pressed = { x: event.screenX, y: event.screenY };
+      },
+      true,
+    );
+    window.addEventListener(
+      'mousemove',
+      (event) => {
+        if (!pressed) return;
+        if ((event.buttons & 1) === 0) {
+          pressed = null;
+          return;
+        }
+        if (Math.abs(event.screenX - pressed.x) + Math.abs(event.screenY - pressed.y) < 4) return;
+        pressed = null;
+        call('window_start_drag').catch(() => {});
+      },
+      true,
+    );
+    window.addEventListener('mouseup', () => (pressed = null), true);
+    window.addEventListener('blur', () => (pressed = null));
+  }
 })();
