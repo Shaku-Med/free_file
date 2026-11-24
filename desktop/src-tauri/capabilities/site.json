@@ -1,0 +1,23 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "site",
+  "description": "Window, update and media controls for the Memories site in the app and PiP windows.",
+  "local": false,
+  "remote": {
+    "urls": ["https://memories.brozy.org/*"]
+  },
+  "windows": ["main", "pip-*"],
+  "permissions": [
+    "allow-window-minimize",
+    "allow-window-toggle-maximize",
+    "allow-window-close",
+    "allow-window-is-maximized",
+    "allow-window-set-fullscreen",
+    "allow-window-is-fullscreen",
+    "allow-desktop-get-version",
+    "allow-desktop-install-update",
+    "allow-pip-close",
+    "allow-media-set-state",
+    "allow-media-clear"
+  ]
+}

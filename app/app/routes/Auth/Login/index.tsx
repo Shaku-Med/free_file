@@ -202,14 +202,12 @@ const Login = () => {
     setPasskeyError(null);
     setPasskeyPending(true);
     try {
-      const identifierEl = document.getElementById('identifier') as HTMLInputElement | null;
-      const identifierRaw = identifierEl?.value?.trim();
       const { startAuthentication } = await import('@simplewebauthn/browser');
       const optRes = await fetch('/api/webauthn/login-options', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify(identifierRaw ? { identifier: identifierRaw } : {}),
+        body: '{}',
       });
       const optPayload = await optRes.json().catch(() => ({}));
       if (!optRes.ok) {
