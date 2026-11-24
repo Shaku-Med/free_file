@@ -473,6 +473,21 @@ jobs:
 
           cp GoUpload/docker-compose.yml "$STAGING/docker-compose.yml"
           printf '%s' "$GOUPLOAD_ENV"      > "$STAGING/goupload.env"
+          # Ask reads GROQ_API_KEYS from goupload.env. When VPS_ENV doesn't set
+          # it, NSFWAPI's keys are reused, so new keys only go in one secret.
+          # Ask keeps to half of each key's daily tokens, leaving NSFWAPI room.
+          groq="$(printf '%s\n' "$GOUPLOAD_ENV" | sed -n 's/^GROQ_API_KEYS=//p' | head -n1 | tr -d "\r\t \"'")"
+          if [ -z "$groq" ]; then
+            groq="$(printf '%s\n' "$NSFWAPI_ENV" | sed -n 's/^GROQ_API_KEYS\{0,1\}=//p' | head -n1 | tr -d "\r\t \"'")"
+            if [ -n "$groq" ]; then
+              echo "::add-mask::$groq"
+              printf '\nGROQ_API_KEYS=%s\n' "$groq" >> "$STAGING/goupload.env"
+              echo "GROQ_API_KEYS for Ask taken from NSFWAPI_ENV."
+            else
+              echo "NOTE: GROQ_API_KEYS is in neither VPS_ENV nor NSFWAPI_ENV, so Ask stays off." >&2
+            fi
+          fi
+          unset groq
           printf '%s' "$NSFWAPI_ENV"       > "$STAGING/nsfwapi.env"
           printf '%s' "$LOADPLAY_ENV"      > "$STAGING/loadplay.env"
           printf '%s' "$MUSICDETECTOR_ENV" > "$STAGING/musicdetector.env"
