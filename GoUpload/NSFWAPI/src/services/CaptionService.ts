@@ -8,14 +8,16 @@ dotenv.config();
  * label step to produce a real description PLUS canonical categories/tags
  * the feed personalization can key on.
  *
- * Provider: Groq llama vision (fast, generous free tier). API surface is
+ * Provider: a Groq vision model (fast, free tier). API surface is
  * OpenAI-compatible so swapping providers later is a single env change away.
  *
  * Fails silently  caller must treat the caption as optional. We never throw
  * to the upload pipeline just because the caption hop failed.
  */
 
-const DEFAULT_MODEL = 'meta-llama/llama-4-scout-17b-16e-instruct';
+// Groq retired Llama 4 Scout (every call now comes back 404); Qwen 3.8 is the
+// vision model it serves.
+const DEFAULT_MODEL = 'qwen/qwen3.8-27b';
 
 /** Must match the categoryKeywords keys in GoUpload internal/worker/worker.go */
 export const CANONICAL_CATEGORIES = [
@@ -133,6 +135,37 @@ export function parseCaptionResponse(raw: string): CaptionResult {
   return { description: sanitize(text), categories: [], tags: [] };
 }
 
+/**
+ * The gore check behind a harmful verdict. SafeSearch's violence score also
+ * fires on fights, fake blood and games, so only what this question confirms
+ * gets an upload refused.
+ */
+const GORE_PROMPT = `You are checking one image from an upload for a filter that removes gore.
+Answer true ONLY if the image clearly shows graphic gore: a dead or mutilated body, a severed head or limb, exposed organs or bone, or open wounds with heavy blood.
+Answer false for everything else, including: fighting or weapons with no visible injury, small cuts, scrapes or nosebleeds, red paint or liquid, raw meat or cooking, costumes or face paint, video game or animated footage, and blurry frames.
+Reply with ONLY this JSON and nothing else: {"gore": true} or {"gore": false}`;
+
+/** Reads {"gore": bool} out of the reply; anything else is not an answer. */
+export function parseGoreResponse(raw: string): boolean | null {
+  const text = String(raw || '').replace(/<think>[\s\S]*?<\/think>/g, '');
+  const start = text.indexOf('{');
+  const end = text.lastIndexOf('}');
+  if (start < 0 || end <= start) return null;
+  try {
+    const parsed = JSON.parse(text.slice(start, end + 1)) as Record<string, unknown>;
+    return typeof parsed.gore === 'boolean' ? parsed.gore : null;
+  } catch {
+    return null;
+  }
+}
+
+interface ProviderCall {
+  prompt: string;
+  maxTokens: number;
+  temperature: number;
+  timeoutMs: number;
+}
+
 export class CaptionService {
   private cfg: CaptionConfig | null;
 
@@ -167,7 +200,12 @@ export class CaptionService {
       } while (tried.has(idx) && tried.size < cfg.apiKeys.length);
       tried.add(idx);
       try {
-        const raw = await this.callProvider(cfg.apiKeys[idx], imageBase64, cfg, isGrid);
+        const raw = await this.callProvider(cfg.apiKeys[idx], imageBase64, cfg, {
+          prompt: buildPrompt(isGrid),
+          maxTokens: 220,
+          temperature: 0.3,
+          timeoutMs: cfg.timeoutMs,
+        });
         const parsed = parseCaptionResponse(raw);
         if (parsed.description || parsed.categories.length > 0 || parsed.tags.length > 0) {
           return parsed;
@@ -180,29 +218,64 @@ export class CaptionService {
     return null;
   }
 
+  /**
+   * Whether an image shows graphic gore. Throws when no clear answer comes
+   * back before the deadline, so the caller keeps the file private rather
+   * than refusing or publishing it on a guess.
+   */
+  async isGore(imageBase64: string, deadline: number): Promise<boolean> {
+    if (!this.cfg) throw new Error('GROQ_API_KEYS not set');
+    if (!imageBase64 || imageBase64.length > MAX_BASE64_BYTES) throw new Error('image missing or too large');
+    const cfg = this.cfg;
+    let lastError = 'no answer';
+    for (let attempt = 1; deadline - Date.now() > 1_000; attempt++) {
+      const idx = Math.floor(Math.random() * cfg.apiKeys.length);
+      try {
+        const raw = await this.callProvider(cfg.apiKeys[idx], imageBase64, cfg, {
+          prompt: GORE_PROMPT,
+          maxTokens: 20,
+          temperature: 0,
+          timeoutMs: Math.min(cfg.timeoutMs, deadline - Date.now()),
+        });
+        const answer = parseGoreResponse(raw);
+        if (answer !== null) return answer;
+        lastError = 'unreadable answer';
+      } catch (err) {
+        lastError = err instanceof Error ? err.message : String(err);
+        process.stderr.write(`[CaptionService] gore check attempt ${attempt} key#${idx} failed: ${lastError}\n`);
+        // The free tier only takes a few images a minute, so a busy moment
+        // is waited out instead of leaving the file unchecked.
+        if (lastError.includes('HTTP 429')) {
+          await new Promise((r) => setTimeout(r, Math.min(5_000 * attempt, Math.max(0, deadline - Date.now()))));
+        }
+      }
+    }
+    throw new Error(`gore check failed: ${lastError}`);
+  }
+
   private async callProvider(
     apiKey: string,
     imageBase64: string,
     cfg: CaptionConfig,
-    isGrid: boolean,
+    call: ProviderCall,
   ): Promise<string> {
     const dataUrl = `data:image/jpeg;base64,${imageBase64}`;
     const body = {
       model: cfg.model,
-      max_tokens: 220,
-      temperature: 0.3,
+      max_tokens: call.maxTokens,
+      temperature: call.temperature,
       messages: [
         {
           role: 'user',
           content: [
-            { type: 'text', text: buildPrompt(isGrid) },
+            { type: 'text', text: call.prompt },
             { type: 'image_url', image_url: { url: dataUrl } },
           ],
         },
       ],
     };
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), cfg.timeoutMs);
+    const timer = setTimeout(() => controller.abort(), call.timeoutMs);
     try {
       const res = await fetch(cfg.endpoint, {
         method: 'POST',

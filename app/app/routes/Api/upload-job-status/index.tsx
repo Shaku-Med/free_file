@@ -275,6 +275,8 @@ export const action = async ({ request }: { request: Request }) => {
     /** Pipeline moderation verdict. See the handling below. */
     content_flag?: 'adult' | 'harmful' | null;
     moderation_evidence?: Record<string, unknown>;
+    /** On failed: the pipeline refused the upload rather than broke on it. */
+    reject_reason?: string;
     colors?: string[];
     categories?: string[];
     tags?: string[];
@@ -471,9 +473,10 @@ export const action = async ({ request }: { request: Request }) => {
     }
     const removed = Array.isArray(deletedRows) ? deletedRows[0] : null;
     if (removed?.owner_id) {
+      const rejectReason = body?.reject_reason === 'graphic_violence' ? 'graphic_violence' : null;
       // Deliberately not awaited: the worker is waiting on this response, and
       // a slow mail provider must not hold up the job or fail it.
-      void notifyUploadFailed(removed.owner_id, removed.file_title ?? null, removed.filename ?? null);
+      void notifyUploadFailed(removed.owner_id, removed.file_title ?? null, removed.filename ?? null, rejectReason);
     }
   } else if (status === 'running' && upload_id) {
     const p = parseProcessingProgress(body.progress);

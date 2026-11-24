@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseCaptionResponse, CANONICAL_CATEGORIES } from './CaptionService.js';
+import { parseCaptionResponse, parseGoreResponse, CANONICAL_CATEGORIES } from './CaptionService.js';
 
 test('parses clean JSON reply', () => {
   const out = parseCaptionResponse(
@@ -49,4 +49,18 @@ test('caps tags at 8 and dedupes', () => {
 
 test('canonical list matches GoUpload taxonomy size', () => {
   assert.equal(CANONICAL_CATEGORIES.length, 13);
+});
+
+test('gore check reads a plain, fenced or reasoned yes/no', () => {
+  assert.equal(parseGoreResponse('{"gore": true}'), true);
+  assert.equal(parseGoreResponse('{"gore": false}'), false);
+  assert.equal(parseGoreResponse('```json\n{"gore": true}\n```'), true);
+  assert.equal(parseGoreResponse('<think>is it {graphic}?</think>{"gore": false}'), false);
+});
+
+test('gore check treats anything else as no answer, never as a no', () => {
+  assert.equal(parseGoreResponse(''), null);
+  assert.equal(parseGoreResponse('No gore here.'), null);
+  assert.equal(parseGoreResponse('{"gore": "no"}'), null);
+  assert.equal(parseGoreResponse('{"safe": true}'), null);
 });

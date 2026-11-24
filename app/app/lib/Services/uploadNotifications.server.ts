@@ -7,6 +7,9 @@ import { BASE_URL } from "~/lib/URLS";
 /** Longest title we put in a push body or a subject line. */
 const MAX_TITLE = 80;
 
+/** Why GoUpload refused an upload instead of failing on it. */
+export type UploadRejectReason = "graphic_violence";
+
 function escapeHtml(value: string): string {
   return value.replace(
     /[&<>"']/g,
@@ -89,6 +92,7 @@ export async function notifyUploadFailed(
   ownerId: string,
   fileTitle: string | null,
   fileName: string | null,
+  rejectReason: UploadRejectReason | null = null,
 ): Promise<void> {
   if (!db || !ownerId) return;
 
@@ -99,6 +103,20 @@ export async function notifyUploadFailed(
     // unique index cannot cover it. The caller already deduped exactly by
     // only calling when the delete actually removed a row.
     await writeNotification(ownerId, "upload_failed", null);
+
+    // A refused upload must not invite the owner to try again.
+    if (rejectReason) {
+      const url = `${BASE_URL}/community-guidelines`;
+      await Promise.allSettled([
+        sendPushToUser(ownerId, {
+          title: "Upload removed",
+          body: `${title} shows graphic violence or gore, which isn't allowed`,
+          url,
+        }),
+        sendUploadEmail(ownerId, "removed", title, url),
+      ]);
+      return;
+    }
 
     await Promise.allSettled([
       sendPushToUser(ownerId, {
@@ -151,7 +169,7 @@ async function writeNotification(
 
 async function sendUploadEmail(
   ownerId: string,
-  outcome: "ready" | "failed",
+  outcome: "ready" | "failed" | "removed",
   title: string,
   url: string,
 ): Promise<void> {
@@ -174,13 +192,24 @@ async function sendUploadEmail(
     (typeof user?.username === "string" && user.username.trim()) || "there",
   );
 
-  const ready = outcome === "ready";
-  const subject = ready ? `${title} is ready to watch` : `${title} could not be processed`;
-  // Sent once the first quality is up, so it never promises the rest is done.
-  const lead = ready
-    ? "Your upload is ready to watch."
-    : "Something went wrong while processing your upload. Nothing was published.";
-  const cta = ready ? "Watch it" : "Try again";
+  // Sent once the first quality is up, so "ready" never promises the rest is done.
+  const { subject, lead, cta } = {
+    ready: {
+      subject: `${title} is ready to watch`,
+      lead: "Your upload is ready to watch.",
+      cta: "Watch it",
+    },
+    failed: {
+      subject: `${title} could not be processed`,
+      lead: "Something went wrong while processing your upload. Nothing was published.",
+      cta: "Try again",
+    },
+    removed: {
+      subject: `${title} was removed`,
+      lead: "Your upload shows graphic violence or gore, which our Community Guidelines don't allow. It was deleted and nothing was published.",
+      cta: "Read the guidelines",
+    },
+  }[outcome];
 
   await sendEmailDirectly({
     to,
