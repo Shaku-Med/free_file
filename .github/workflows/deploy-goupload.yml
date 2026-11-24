@@ -8,7 +8,6 @@ on:
     branches: [main]
     paths:
       - 'GoUpload/**'
-      - 'NSFWAPI/**'
       - '.github/workflows/deploy-goupload.yml'
   workflow_dispatch:
 
@@ -72,7 +71,6 @@ jobs:
               - 'GoUpload/go.sum'
               - 'GoUpload/lib/**'
             nsfwapi:
-              - 'NSFWAPI/**'
               - 'GoUpload/NSFWAPI/**'
             embedapi:
               - 'GoUpload/EmbedAPI/**'
@@ -200,6 +198,19 @@ jobs:
         continue-on-error: true
         run: go test -race ./...
 
+      # The image checker decides what gets flagged or refused, so its rules
+      # are tested before it ships too.
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: GoUpload/NSFWAPI/package-lock.json
+
+      - name: NSFWAPI tests
+        working-directory: GoUpload/NSFWAPI
+        run: npm ci && npm test
+
   build:
     name: Build & push images
     runs-on: ubuntu-latest
@@ -266,8 +277,8 @@ jobs:
         if: needs.changes.outputs.nsfwapi == 'true'
         uses: docker/build-push-action@v6
         with:
-          context: ./NSFWAPI
-          file: ./NSFWAPI/Dockerfile
+          context: ./GoUpload/NSFWAPI
+          file: ./GoUpload/NSFWAPI/Dockerfile
           push: true
           tags: |
             ${{ steps.tags.outputs.nsfwapi }}

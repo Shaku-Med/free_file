@@ -329,16 +329,18 @@ func (h *Handler) uploadDefaultThumbnail(c *fiber.Ctx) error {
 		h.log.Errorf("thumbnail NSFW check error: %v", err)
 		c.Set("Retry-After", "30")
 		return c.Status(fiber.StatusServiceUnavailable).JSON(fiber.Map{"error": "Image check is unavailable right now. Try again in a moment."})
-	} else if result.IsNSFW && !isAdult {
+	} else if result.IsNSFW && (!isAdult || result.IsHarmful()) {
 		if h.strikes != nil {
 			if err := h.strikes.RecordDeniedNSFWBestEffort(context.Background(), uid); err != nil {
 				h.log.Errorf("thumbnail nsfw strike record: %v", err)
 			}
 		}
-		return c.Status(422).JSON(fiber.Map{
-			"error": "This thumbnail was detected as inappropriate content. It cannot be used for a non-adult file.",
-			"nsfw":  true,
-		})
+		msg := "This thumbnail was detected as inappropriate content. It cannot be used for a non-adult file."
+		// Adult files may have adult covers, but nothing may show gore.
+		if result.IsHarmful() {
+			msg = "This thumbnail shows graphic violence or gore, which isn't allowed."
+		}
+		return c.Status(422).JSON(fiber.Map{"error": msg, "nsfw": true})
 	}
 
 	img, _, err := image.Decode(bytes.NewReader(data))

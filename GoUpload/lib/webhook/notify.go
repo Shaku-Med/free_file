@@ -79,6 +79,10 @@ type Payload struct {
 	// Set on "completed" when the video went live on its lowest quality and
 	// higher ones are still encoding; "qualities_ready" follows once they land.
 	QualitiesPending bool `json:"qualities_pending,omitempty"`
+
+	// Set on "failed" when the upload was refused rather than broken, so the
+	// app can tell the owner why. "graphic_violence" is the only value.
+	RejectReason string `json:"reject_reason,omitempty"`
 }
 
 // terminalStatuses are payload statuses we MUST land in the DB for the row

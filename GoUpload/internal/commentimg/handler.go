@@ -350,12 +350,13 @@ func (h *Handler) upload(c *fiber.Ctx) error {
 		c.Set("Retry-After", "30")
 		return c.Status(fiber.StatusServiceUnavailable).JSON(fiber.Map{"error": "Image check is unavailable right now. Try again in a moment."})
 	}
+	// Adult posts may take adult images in their comments, but nothing may show gore.
 	if len(toScan) == 1 {
 		result, err := h.nsfw.Detect(toScan[0])
 		if err != nil {
 			h.log.Errorf("comment-image NSFW check error: %v", err)
 			return moderationDown()
-		} else if result.IsNSFW && !isAdult {
+		} else if result.IsNSFW && (!isAdult || result.IsHarmful()) {
 			if h.strikes != nil {
 				if err := h.strikes.RecordDeniedNSFWBestEffort(context.Background(), uid); err != nil {
 					h.log.Errorf("comment-image nsfw strike record: %v", err)
@@ -367,11 +368,11 @@ func (h *Handler) upload(c *fiber.Ctx) error {
 			})
 		}
 	} else {
-		anyNsfw, _, err := h.nsfw.DetectBatch(toScan)
+		anyNsfw, merged, err := h.nsfw.DetectBatch(toScan)
 		if err != nil {
 			h.log.Errorf("comment-image NSFW batch check error: %v", err)
 			return moderationDown()
-		} else if anyNsfw && !isAdult {
+		} else if anyNsfw && (!isAdult || merged.IsHarmful()) {
 			if h.strikes != nil {
 				if err := h.strikes.RecordDeniedNSFWBestEffort(context.Background(), uid); err != nil {
 					h.log.Errorf("comment-image nsfw strike record: %v", err)

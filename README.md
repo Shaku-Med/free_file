@@ -16,8 +16,9 @@ minutes, then wire in uploads and playback when you are ready.
   streamable HLS format, makes thumbnails and so on.
 - `GoUpload/loadplay` serves the HLS video with signed playback tokens so the
   files are not hot linked.
-- `GoUpload/NSFWAPI` (there is also a copy at the top level `NSFWAPI`) scores
-  images for adult content.
+- `GoUpload/NSFWAPI` scores images for adult content and gore. Gore the vision
+  model confirms is refused, other violent content stays private until someone
+  reviews it, and adult files are kept but unlisted.
 - `GoUpload/EmbedAPI` turns text into vectors so search can find similar videos.
 - `mobile`, `livestream`, `windapp` and `LoadNodeServer` are supporting or
   experimental pieces. Each lives in its own folder.
@@ -196,7 +197,7 @@ It listens on port 3006 (`PORT`). Its `PLAYBACK_TOKEN_SECRET` must match the
 app's `SEGMENT_TOKEN_SECRET`, otherwise a token the app mints will not validate
 here.
 
-### NSFWAPI (adult content scoring)
+### NSFWAPI (adult content and gore scoring)
 
 ```bash
 cd GoUpload/NSFWAPI
@@ -205,8 +206,9 @@ npm install
 npm run dev              # or for production: npm run build && npm run start
 ```
 
-It listens on port 3004 (`NSFW_API_PORT`). It needs at least one provider key to
-do anything.
+It listens on port 3004 (`NSFW_API_PORT`). It needs a Google Cloud Vision key
+to score anything; the Groq key adds captions and the gore check, and without it
+a gory upload stays private for review instead of being refused.
 
 ### EmbedAPI (search vectors, optional)
 

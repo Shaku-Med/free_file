@@ -39,6 +39,23 @@ type Result struct {
 	// VLM-suggested canonical categories/tags (optional, set by NSFWAPI captioner)
 	SuggestedCategories []string `json:"suggestedCategories,omitempty"`
 	SuggestedTags       []string `json:"suggestedTags,omitempty"`
+	// GoreCheck is the vision model's look at a harmful verdict, set by
+	// CheckGore: "confirmed" means graphic gore and the upload is refused;
+	// "not confirmed" and "unavailable" leave it private for a person to review.
+	GoreCheck string `json:"-"`
+
+	// harmfulImages are the images behind a harmful verdict, for CheckGore.
+	harmfulImages [][]byte
+}
+
+// IsHarmful reports a gore, violence or graphic medical verdict.
+func (r *Result) IsHarmful() bool {
+	return r != nil && r.Category == "harmful"
+}
+
+// GoreConfirmed reports a harmful verdict the vision model saw as graphic gore.
+func (r *Result) GoreConfirmed() bool {
+	return r.IsHarmful() && r.GoreCheck == "confirmed"
 }
 
 // worseCategory ranks harmful above adult above clean.
@@ -77,7 +94,76 @@ func NewDetector(apiURL, apiSecret string) *Detector {
 }
 
 func (d *Detector) Detect(imageData []byte) (Result, error) {
-	return d.detect(imageData, false, false)
+	res, err := d.detect(imageData, false, false)
+	if err == nil && res.IsHarmful() {
+		res.harmfulImages = [][]byte{imageData}
+	}
+	return res, err
+}
+
+// maxGoreImages caps the images sent for a gore check; the route takes 3.
+const maxGoreImages = 3
+
+// CheckGore asks the vision model whether a harmful verdict is graphic gore
+// and records the answer on res.GoreCheck. Only a clear yes refuses the
+// upload, since SafeSearch's violence score also fires on fights and games.
+func (d *Detector) CheckGore(res *Result) {
+	if !res.IsHarmful() || len(res.harmfulImages) == 0 {
+		return
+	}
+	gore, err := d.confirmGore(res.harmfulImages)
+	switch {
+	case err != nil:
+		res.GoreCheck = "unavailable"
+	case gore:
+		res.GoreCheck = "confirmed"
+	default:
+		res.GoreCheck = "not confirmed"
+	}
+}
+
+func (d *Detector) confirmGore(images [][]byte) (bool, error) {
+	if d.apiURL == "" || d.apiURL == "disabled" {
+		return false, fmt.Errorf("vision API disabled")
+	}
+	if len(images) > maxGoreImages {
+		images = images[:maxGoreImages]
+	}
+	enc := make([]string, len(images))
+	for i, img := range images {
+		enc[i] = base64.StdEncoding.EncodeToString(img)
+	}
+	body, err := json.Marshal(map[string][]string{"images": enc})
+	if err != nil {
+		return false, err
+	}
+	req, err := http.NewRequest("POST", strings.TrimSuffix(d.apiURL, "/detect")+"/gore", bytes.NewReader(body))
+	if err != nil {
+		return false, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if d.apiSecret != "" {
+		req.Header.Set("X-Webhook-Secret", d.apiSecret)
+	}
+	resp, err := d.client.Do(req)
+	if err != nil {
+		return false, fmt.Errorf("gore check request failed: %w", err)
+	}
+	defer resp.Body.Close()
+	raw, err := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
+	if err != nil {
+		return false, err
+	}
+	if resp.StatusCode != http.StatusOK {
+		return false, fmt.Errorf("gore check returned HTTP %d", resp.StatusCode)
+	}
+	var out struct {
+		Gore *bool `json:"gore"`
+	}
+	if err := json.Unmarshal(raw, &out); err != nil || out.Gore == nil {
+		return false, fmt.Errorf("gore check gave no answer")
+	}
+	return *out.Gore, nil
 }
 
 // DetectGate runs the cheap adult gate: SafeSearch only (one Vision unit, no
@@ -204,6 +290,7 @@ func (d *Detector) DetectBatchWithGrid(grid []byte, frames [][]byte) (bool, *Res
 
 	isAdult := false
 	var ok []*Result
+	var harmfulFrames, harmfulGrid [][]byte
 	errCount := 0
 
 	for i := range results {
@@ -215,13 +302,25 @@ func (d *Detector) DetectBatchWithGrid(grid []byte, frames [][]byte) (bool, *Res
 		if results[i].result.IsNSFW {
 			isAdult = true
 		}
+		if results[i].result.IsHarmful() {
+			if i < offset {
+				harmfulGrid = append(harmfulGrid, grid)
+			} else {
+				harmfulFrames = append(harmfulFrames, frames[i-offset])
+			}
+		}
 	}
 
 	if errCount == total {
 		return false, nil, fmt.Errorf("all detections failed")
 	}
 
-	return isAdult, MergeResults(ok), nil
+	merged := MergeResults(ok)
+	if merged.IsHarmful() {
+		// Full size frames first: the grid's cells are small for this question.
+		merged.harmfulImages = append(harmfulFrames, harmfulGrid...)
+	}
+	return isAdult, merged, nil
 }
 
 // safeSearchRank orders Vision SafeSearch likelihoods so we can keep the
@@ -286,11 +385,12 @@ func MergeResults(results []*Result) *Result {
 			merged.IsNSFW = true
 		}
 		// Worst category across the sampled frames wins. One gory frame in an
-		// otherwise tame video still makes the whole file harmful.
-		merged.Category = worseCategory(merged.Category, r.Category)
-		if merged.FlagReason == "" && r.FlagReason != "" {
+		// otherwise tame video still makes the whole file harmful. The reason
+		// follows it, so a harmful verdict isn't explained by an earlier "racy".
+		if r.FlagReason != "" && (merged.FlagReason == "" || worseCategory(merged.Category, r.Category) != merged.Category) {
 			merged.FlagReason = r.FlagReason
 		}
+		merged.Category = worseCategory(merged.Category, r.Category)
 		if merged.Description == "" && r.Description != "" {
 			merged.Description = r.Description
 		}

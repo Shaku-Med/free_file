@@ -78,6 +78,42 @@ const SAFE_CONTEXT_LABELS = new Set([
   'entertainment', 'festival', 'party', 'celebration',
 ]);
 
+// A file waits on the gore check while it processes, so it gets a bounded
+// time; running out leaves the file private rather than refused.
+const GORE_CHECK_BUDGET_MS = 50_000;
+
+export type Verdict = Pick<DetectionResult, 'isNSFW' | 'category' | 'flagReason'>;
+
+/**
+ * Harmful is judged on its own and outranks adult. Checking adult first used
+ * to stop at "racy" on a gory photo that also showed skin, so it went out as
+ * a mere 18+ and its VERY_LIKELY violence was never looked at.
+ */
+export function classify(
+  ss: SafeSearchAnnotation | null,
+  relevantLabels: string[],
+  gateOnly: boolean,
+): Verdict {
+  const harmfulLabels = gateOnly ? [] : relevantLabels.filter((l) => HARMFUL_LABELS.has(l));
+  let harmful = '';
+  if (ss && NSFW_ADULT.has(ss.violence)) harmful = 'violent content';
+  else if (ss && NSFW_HIGH.has(ss.medical)) harmful = 'graphic medical content';
+  else if (harmfulLabels.length > 0) harmful = `harmful labels: ${harmfulLabels.join(', ')}`;
+  if (harmful) return { isNSFW: true, category: 'harmful', flagReason: harmful };
+
+  const safeContext = relevantLabels.some((l) => SAFE_CONTEXT_LABELS.has(l));
+  let adult = '';
+  if (ss && NSFW_ADULT.has(ss.adult)) adult = 'adult content';
+  // Racy needs labels to tell beach or fashion from explicit, so gate-only
+  // frames leave it to the full grid pass. Bikinis were the false positives.
+  else if (ss && !gateOnly && NSFW_HIGH.has(ss.racy) && !safeContext) {
+    adult = 'racy content without safe context';
+  }
+  if (adult) return { isNSFW: true, category: 'adult', flagReason: adult };
+
+  return { isNSFW: false, category: null, flagReason: '' };
+}
+
 export class VisionService {
   private apiKeys: string[];
   private captioner: CaptionService;
@@ -100,8 +136,17 @@ export class VisionService {
     );
   }
 
-  private getRandomKey(): string {
-    return this.apiKeys[Math.floor(Math.random() * this.apiKeys.length)];
+  /**
+   * Whether any of the images behind a harmful verdict shows graphic gore.
+   * Throws when one gets no clear answer, so the caller keeps the file private.
+   */
+  async confirmGore(imagesBase64: string[]): Promise<boolean> {
+    if (!this.captioner.isEnabled()) throw new Error('vision model not configured');
+    const deadline = Date.now() + GORE_CHECK_BUDGET_MS;
+    for (const image of imagesBase64) {
+      if (await this.captioner.isGore(image, deadline)) return true;
+    }
+    return false;
   }
 
   async detect(imageBase64: string, isGrid = false, gateOnly = false): Promise<DetectionResult> {
@@ -206,58 +251,9 @@ export class VisionService {
     }
 
     const relevantLabels = labels.filter((l) => l.score >= 0.50).map((l) => l.name.toLowerCase());
+    const { isNSFW, category, flagReason } = classify(ss, relevantLabels, gateOnly);
 
-    // Check if labels indicate safe performance/fashion/beach context
-    const hasSafeContext = relevantLabels.some((l) => SAFE_CONTEXT_LABELS.has(l));
-    // Check if labels indicate harmful/gory content
-    const hasHarmfulLabels = relevantLabels.some((l) => HARMFUL_LABELS.has(l));
-
-    let isNSFW = false;
-    let flagReason = '';
-    let category: 'adult' | 'harmful' | null = null;
-
-    if (ss) {
-      // 1. Explicit adult content  always flag
-      if (NSFW_ADULT.has(ss.adult)) {
-        isNSFW = true;
-        flagReason = 'adult content';
-        category = 'adult';
-      }
-
-      // 2. Racy content  only flag if there's NO safe context (fixes bikini
-      // false positives). Skipped in gate-only mode: without labels we cannot
-      // tell beach/fashion from explicit, so racy is left to the full grid pass.
-      if (!gateOnly && !isNSFW && NSFW_HIGH.has(ss.racy) && !hasSafeContext) {
-        isNSFW = true;
-        flagReason = 'racy content without safe context';
-        category = 'adult';
-      }
-
-      // 3. Violence  flag LIKELY and above (lowered from VERY_LIKELY to catch more harmful content)
-      if (!isNSFW && NSFW_ADULT.has(ss.violence)) {
-        isNSFW = true;
-        flagReason = 'violent content';
-        category = 'harmful';
-      }
-
-      // 4. Graphic medical content
-      if (!isNSFW && NSFW_HIGH.has(ss.medical)) {
-        isNSFW = true;
-        flagReason = 'graphic medical content';
-        category = 'harmful';
-      }
-    }
-
-    // 5. Label-based harmful content detection (gore/blood). Needs labels, so
-    // it only runs in the full (non gate-only) pass.
-    if (!gateOnly && !isNSFW && hasHarmfulLabels) {
-      const matched = relevantLabels.filter((l) => HARMFUL_LABELS.has(l));
-      isNSFW = true;
-      flagReason = `harmful labels: ${matched.join(', ')}`;
-      category = 'harmful';
-    }
-
-    console.log(`[VisionService] isNSFW decision: ${isNSFW} (reason=${flagReason || 'none'}, adult=${ss?.adult}, racy=${ss?.racy}, violence=${ss?.violence}, medical=${ss?.medical}, safeContext=${hasSafeContext}, harmfulLabels=${hasHarmfulLabels})`);
+    console.log(`[VisionService] decision: ${category ?? 'clean'} (reason=${flagReason || 'none'}, adult=${ss?.adult}, racy=${ss?.racy}, violence=${ss?.violence}, medical=${ss?.medical})`);
 
     const description = relevantLabels.length > 0
       ? `Content featuring ${relevantLabels.join(', ')}`

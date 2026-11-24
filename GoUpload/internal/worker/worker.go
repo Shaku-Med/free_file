@@ -330,9 +330,9 @@ func (w *Worker) purgeStored(job *queue.Job) {
 		n, err := w.cfg.R2.DeletePrefix(ctx, prefix, 20000, 8)
 		cancel()
 		if err != nil {
-			w.log.Errorf("purge interrupted upload job=%s prefix=%s deleted=%d err=%s", job.ID, prefix, n, err.Error())
+			w.log.Errorf("purge stored upload job=%s prefix=%s deleted=%d err=%s", job.ID, prefix, n, err.Error())
 		} else if n > 0 {
-			w.log.Infof("purged interrupted upload job=%s prefix=%s deleted=%d", job.ID, prefix, n)
+			w.log.Infof("purged stored upload job=%s prefix=%s deleted=%d", job.ID, prefix, n)
 		}
 	}
 }
@@ -867,6 +867,22 @@ func (w *Worker) failJob(job *queue.Job, reason string, cleanupPaths ...string) 
 	webhook.NotifyJobStatus(webhook.Payload{JobID: job.ID, Status: "failed", UploadID: job.UploadID, UserID: job.UserID, FileName: job.FileName, FileSize: job.FileSize})
 }
 
+// rejectGraphicViolence is the reason sent when the gore check refuses a file.
+const rejectGraphicViolence = "graphic_violence"
+
+// rejectJob refuses an upload that breaks the rules. Everything it stored is
+// deleted and the app is told why, so the owner hears it was removed rather
+// than that processing broke.
+func (w *Worker) rejectJob(job *queue.Job, reason string) {
+	w.log.Infof("job REJECTED job=%s reason=%s", job.ID, reason)
+	w.cancelAcoustID(job.ID)
+	w.cleanupAcoustIDClip(job)
+	w.removeLocal(w.jobLocalPaths(job)...)
+	w.purgeStored(job)
+	_ = w.queue.SetJobStatus(context.Background(), job.ID, "failed")
+	webhook.NotifyJobStatus(webhook.Payload{JobID: job.ID, Status: "failed", UploadID: job.UploadID, UserID: job.UserID, FileName: job.FileName, FileSize: job.FileSize, RejectReason: reason})
+}
+
 // canceled reports whether the owner stopped this upload from the studio.
 func (w *Worker) canceled(job *queue.Job) bool {
 	return w.queue.IsCanceled(context.Background(), job.UploadID)
@@ -1084,10 +1100,15 @@ func (w *Worker) processJob(job *queue.Job) {
 				w.failJob(job, "vision detection failed: "+derr.Error(), result.OutputPath, assembledDir, filepath.Dir(assembledDir))
 				return
 			}
+			w.nsfw.CheckGore(&visionRes)
+			w.log.Infof("vision check job=%s adult=%v flag=%q reason=%q gore=%q labels=%d", job.ID, visionRes.IsNSFW, visionRes.Category, visionRes.FlagReason, visionRes.GoreCheck, len(visionRes.Labels))
+			if visionRes.GoreConfirmed() {
+				w.rejectJob(job, rejectGraphicViolence)
+				return
+			}
 			isAdult = visionRes.IsNSFW
 			contentFlag = visionRes.Category
 			categories, tags, metadata = buildVisionData(&visionRes, job.Title, job.Description, job.UserCategories, job.UserTags)
-			w.log.Infof("vision check job=%s adult=%v flag=%q reason=%q labels=%d", job.ID, isAdult, contentFlag, visionRes.FlagReason, len(visionRes.Labels))
 
 			extracted, cerr := colors.ExtractDominant(data, 6)
 			if cerr != nil {
@@ -1459,10 +1480,17 @@ func (w *Worker) processJob(job *queue.Job) {
 			w.failJob(job, "vision detection failed: "+err.Error(), result.OutputPath, assembledDir, filepath.Dir(assembledDir), thumbDir, filepath.Dir(thumbDir))
 			return
 		}
+		w.nsfw.CheckGore(visionResult)
+		goreCheck := ""
 		if visionResult != nil {
 			contentFlag = visionResult.Category
+			goreCheck = visionResult.GoreCheck
 		}
-		w.log.Infof("vision check job=%s adult=%v flag=%q (checked %d frames + grid=%v)", job.ID, isAdult, contentFlag, len(subset), len(gridData) > 0)
+		w.log.Infof("vision check job=%s adult=%v flag=%q gore=%q (checked %d frames + grid=%v)", job.ID, isAdult, contentFlag, goreCheck, len(subset), len(gridData) > 0)
+		if visionResult.GoreConfirmed() {
+			w.rejectJob(job, rejectGraphicViolence)
+			return
+		}
 		if visionResult != nil {
 			categories, tags, metadata = buildVisionData(visionResult, job.Title, job.Description, job.UserCategories, job.UserTags)
 		}
@@ -2005,6 +2033,10 @@ func buildVisionData(vr *nsfw.Result, title, description string, userCategories,
 			"spoof":    vr.SafeSearch.Spoof,
 			"medical":  vr.SafeSearch.Medical,
 		}
+	}
+	// Tells a reviewer whether a harmful file was ever seen as gore.
+	if vr.GoreCheck != "" {
+		metadata["goreCheck"] = vr.GoreCheck
 	}
 
 	// VLM-suggested categories: only accept canonical taxonomy names so the
