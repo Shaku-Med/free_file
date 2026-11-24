@@ -14,6 +14,7 @@ import {
 } from "~/lib/Security/accountVault";
 import { appendSessionCookie, issueCUserSessionToken } from "~/routes/Auth/fun/auth";
 import { checkAuthRateLimit, resetAuthRateLimit } from "~/routes/Auth/fun/rateLimit.server";
+import { isSameOrigin } from "~/lib/Security/sameOrigin.server";
 
 export const loader = () => data({ error: PasskeyUserMessage.tryAgainLater }, { status: 405 });
 
@@ -37,6 +38,9 @@ const json = (body: unknown, status = 200, headers?: Headers) => {
 export const action = async ({ request }: { request: Request }) => {
   if (request.method !== "POST") {
     return json({ error: PasskeyUserMessage.tryAgainLater }, 405);
+  }
+  if (!isSameOrigin(request)) {
+    return json({ error: PasskeyUserMessage.loginDidNotWork }, 403);
   }
 
   const rate = await checkAuthRateLimit(request, "passkey");
