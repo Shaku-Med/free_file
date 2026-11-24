@@ -58,6 +58,7 @@
   --z-app-chrome: 100000000;      /* sticky navbar + mobile tab bar */
   --z-mini-player: 2147483646;    /* floating mini player */
   --z-sidebar-sheet: 10000000000; /* mobile sidebar sheet (over chrome) */
+  --z-ask-sheet: 2147483647;      /* phone Ask sheet, over the sticky player and dialogs */
   /* A reel fills the screen down to the mobile tab bar when one is showing. */
   --reel-h: calc(100dvh - var(--app-bottom-nav-h, 0px));
 }

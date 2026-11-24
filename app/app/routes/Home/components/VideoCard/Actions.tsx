@@ -7,6 +7,7 @@ import {
   Heart,
   Send,
   MessageCircle,
+  MessageCircleQuestionMark,
   Share2,
   Link2,
   Loader2,
@@ -127,6 +128,9 @@ export interface ActionsProps {
   reelDensity?: "comfortable" | "compact" | "minimal";
   /** Ref to the reel like icon (for double-tap fly-to-target animation). */
   reelLikeIconRef?: React.RefObject<HTMLSpanElement | null>;
+  /** Reel rail only: shows an Ask button that toggles the page's Ask panel. */
+  onAskToggle?: () => void;
+  askOpen?: boolean;
 }
 
 type InteractionResponse = {
@@ -219,6 +223,8 @@ export default function Actions({
   reelAudioArt,
   reelDensity = "comfortable",
   reelLikeIconRef,
+  onAskToggle,
+  askOpen = false,
 }: ActionsProps) {
   const navigate = useNavigate();
   const { setFiles } = useFileContext();
@@ -830,6 +836,24 @@ export default function Actions({
             <MessageCircle className={cn(reelIconSize, "shrink-0")} aria-hidden />
           </span>
           <span className={reelLabelClass}>{formatNumber(commentCount)}</span>
+        </button>
+      ) : null}
+
+      {onAskToggle ? (
+        <button
+          // Marks it as an Ask launcher, so closing the panel returns focus here.
+          data-ask-launcher=""
+          type="button"
+          className={cn("group flex select-none flex-col items-center", reelDensityMinimal ? "gap-0.5" : "gap-1.5")}
+          onClick={onAskToggle}
+          aria-expanded={askOpen}
+          aria-controls="ask-dock"
+          aria-label={askOpen ? "Close Ask" : "Ask about this reel"}
+          title="Ask about this reel"
+        >
+          <span className={cn(reelIconBtn, "group-active:scale-90", askOpen && "bg-white text-black ring-0 hover:bg-white/90")}>
+            <MessageCircleQuestionMark className={cn(reelIconSize, "shrink-0")} aria-hidden />
+          </span>
         </button>
       ) : null}
 

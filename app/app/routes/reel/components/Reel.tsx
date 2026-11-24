@@ -7,6 +7,7 @@ import { ReelSwiper } from "~/routes/reel/components/ReelSwiper";
 import type { ReelAmbienceInfo } from "~/routes/pip/components/PipReelItem";
 import Ambience from "~/components/accessories/CanvasGradient/Ambience";
 import CommentSection from "~/routes/Dynamic/components/Comments/CommentSection";
+import AskPanel from "~/routes/Dynamic/components/AskPanel";
 import { NativeSheet, NativeSheetContent } from "~/components/ui/native-sheet";
 import type { FileType } from "~/lib/types";
 import { newReelFeedSeed } from "~/lib/feed/reelFeedSeed";
@@ -444,6 +445,8 @@ const Reel = ({ initialItems: routeItems, initialUserActions, profileReelContext
     uniqueId?: string;
     createdAt?: string | null;
     isAdult?: boolean;
+    askable?: boolean;
+    duration?: number;
   } | null>(null);
 
   /** Fire-and-forget flush; keepalive lets it survive navigation. */
@@ -472,6 +475,8 @@ const Reel = ({ initialItems: routeItems, initialUserActions, profileReelContext
       uniqueId?: string;
       createdAt?: string | null;
       isAdult?: boolean;
+      askable?: boolean;
+      duration?: number;
     }) => {
       setActiveReel((prev) =>
         prev && prev.fileId === info.fileId && prev.ownerId === info.ownerId
@@ -482,6 +487,8 @@ const Reel = ({ initialItems: routeItems, initialUserActions, profileReelContext
               uniqueId: info.uniqueId,
               createdAt: info.createdAt,
               isAdult: info.isAdult,
+              askable: info.askable,
+              duration: info.duration,
             },
       );
 
@@ -546,6 +553,24 @@ const Reel = ({ initialItems: routeItems, initialUserActions, profileReelContext
       flushWithCurrent();
     };
   }, [userId, flushWatchSignals]);
+
+  // Ask works like the comments: one panel for the page that follows the
+  // playing reel, with a fresh chat per reel. The two share the side dock, so
+  // opening one closes the other.
+  const [askOpen, setAskOpen] = useState(false);
+  const askReelId = userId && activeReel?.askable && activeReel.uniqueId ? activeReel.uniqueId : null;
+  const openComments = useCallback((open: boolean) => {
+    setCommentsOpen(open);
+    if (open) setAskOpen(false);
+  }, []);
+  const openAsk = useCallback((open: boolean) => {
+    setAskOpen(open);
+    if (open) setCommentsOpen(false);
+  }, []);
+  useEffect(() => {
+    if (!askReelId) setAskOpen(false);
+  }, [askReelId]);
+  const dockOpen = (commentsOpen && !!activeReel) || (askOpen && !!askReelId);
 
   const activeCommentFileId = activeReel?.fileId ?? null;
   // Phone only: the drawer sits on top of the reel, so a timestamp jump would
@@ -684,7 +709,9 @@ const Reel = ({ initialItems: routeItems, initialUserActions, profileReelContext
           onReelPosterColors={onReelPosterColors}
           onActiveAmbience={onActiveAmbience}
           commentsOpen={commentsOpen}
-          onCommentsOpenChange={setCommentsOpen}
+          onCommentsOpenChange={openComments}
+          askOpen={askOpen}
+          onAskOpenChange={openAsk}
           onActiveItemChange={onActiveItemChange}
         />
       ) : initialLoadDone ? (
@@ -722,12 +749,12 @@ const Reel = ({ initialItems: routeItems, initialUserActions, profileReelContext
       </div>
       </div>
 
-      {/* Desktop book-form comments dock: docks on the right and pushes the
-          stage left (its animated width drives the flex-1 stage). */}
+      {/* Desktop book-form dock for comments or Ask: docks on the right and
+          pushes the stage left (its animated width drives the flex-1 stage). */}
       <div
         className={cn(
           "hidden shrink-0 overflow-hidden transition-[width] duration-300 ease-out lg:block",
-          commentsOpen ? "lg:w-[26rem]" : "lg:w-0",
+          dockOpen ? "lg:w-[26rem]" : "lg:w-0",
         )}
       >
         {commentsOpen && activeCommentFileId ? (
@@ -759,11 +786,30 @@ const Reel = ({ initialItems: routeItems, initialUserActions, profileReelContext
             </div>
           </div>
         ) : null}
+        {/* Docked here on desktop; on phones it opens as its own sheet over everything. */}
+        <div
+          className={cn(
+            "h-full w-[26rem] flex-col overflow-hidden border-l border-border bg-background pt-[var(--app-top-nav-h,0px)]",
+            askOpen && askReelId ? "flex" : "hidden",
+          )}
+        >
+          {askReelId && activeReel ? (
+            <AskPanel
+              key={askReelId}
+              docked
+              open={askOpen}
+              onOpenChange={setAskOpen}
+              fileId={activeReel.fileId}
+              uniqueId={askReelId}
+              duration={activeReel.duration}
+            />
+          ) : null}
+        </div>
       </div>
 
       {/* Small screens: the app's comments sheet, with its detents and gestures (no push). */}
       {!isLargeScreen ? (
-        <NativeSheet open={commentsOpen} onOpenChange={setCommentsOpen}>
+        <NativeSheet open={commentsOpen} onOpenChange={openComments}>
           <NativeSheetContent
             fill
             title="Comments"
