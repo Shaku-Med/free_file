@@ -143,6 +143,70 @@ func (c *Client) PutObject(ctx context.Context, key string, body []byte, content
 	return nil
 }
 
+// ErrNotFound is returned by GetObject when the key doesn't exist.
+var ErrNotFound = errors.New("r2: not found")
+
+// ErrTooLarge is returned by GetObject when the object is bigger than maxBytes.
+var ErrTooLarge = errors.New("r2: object too large")
+
+// GetObject reads a whole object, refusing anything over maxBytes so a
+// surprise upload can't balloon memory.
+func (c *Client) GetObject(ctx context.Context, key string, maxBytes int64) ([]byte, error) {
+	if key == "" {
+		return nil, errors.New("r2: empty key")
+	}
+	if maxBytes <= 0 {
+		return nil, errors.New("r2: maxBytes must be positive")
+	}
+	now := time.Now().UTC()
+	amzDate := now.Format("20060102T150405Z")
+	dateStamp := now.Format("20060102")
+	payloadHash := sha256Hex(nil)
+	canonicalURI := c.canonicalURI(key)
+
+	canonicalHeaders := "host:" + c.host + "\n" +
+		"x-amz-content-sha256:" + payloadHash + "\n" +
+		"x-amz-date:" + amzDate + "\n"
+	signedHeaders := "host;x-amz-content-sha256;x-amz-date"
+
+	canonicalRequest := "GET\n" + canonicalURI + "\n\n" +
+		canonicalHeaders + "\n" + signedHeaders + "\n" + payloadHash
+	auth := c.authorization(dateStamp, amzDate, signedHeaders, canonicalRequest)
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.urlFor(key, canonicalURI), nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("X-Amz-Content-Sha256", payloadHash)
+	req.Header.Set("X-Amz-Date", amzDate)
+	req.Header.Set("Authorization", auth)
+
+	res, err := c.http.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer res.Body.Close()
+	if res.StatusCode == 404 {
+		_, _ = io.Copy(io.Discard, io.LimitReader(res.Body, 4<<10))
+		return nil, ErrNotFound
+	}
+	if res.StatusCode != 200 {
+		_, _ = io.Copy(io.Discard, io.LimitReader(res.Body, 4<<10))
+		return nil, fmt.Errorf("r2: get %s status %d", key, res.StatusCode)
+	}
+	if res.ContentLength > maxBytes {
+		return nil, ErrTooLarge
+	}
+	data, err := io.ReadAll(io.LimitReader(res.Body, maxBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(data)) > maxBytes {
+		return nil, ErrTooLarge
+	}
+	return data, nil
+}
+
 // DeleteObject removes an object. 404 is treated as success (idempotent).
 func (c *Client) DeleteObject(ctx context.Context, key string) error {
 	if key == "" {

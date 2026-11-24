@@ -9,7 +9,7 @@ import { isIOS } from "react-device-detect";
 
 import { cn } from "~/lib/utils";
 import { reelShouldPreloadHls, swiperRealIndex } from "~/lib/feed/reelSlidePreload";
-import { PipReelItem, type ReelAmbienceInfo } from "~/routes/pip/components/PipReelItem";
+import { PipReelItem, reelAskable, type ReelAmbienceInfo } from "~/routes/pip/components/PipReelItem";
 import type { FileType } from "~/lib/types";
 
 interface ReelSwiperProps {
@@ -27,6 +27,9 @@ interface ReelSwiperProps {
   /** Full-page reel: the page owns one global comments panel; the rail toggles it. */
   commentsOpen?: boolean;
   onCommentsOpenChange?: (open: boolean) => void;
+  /** Full-page reel: the page's one Ask panel, toggled from the active reel's rail. */
+  askOpen?: boolean;
+  onAskOpenChange?: (open: boolean) => void;
   /**
    * Full-page reel: reports the active reel's identity the INSTANT the slide
    * changes (by index, not waiting on the video element) so the global comments
@@ -40,6 +43,8 @@ interface ReelSwiperProps {
     uniqueId?: string;
     createdAt?: string | null;
     isAdult?: boolean;
+    askable?: boolean;
+    duration?: number;
   }) => void;
 }
 
@@ -102,6 +107,8 @@ export const ReelSwiper = ({
   onActiveAmbience,
   commentsOpen,
   onCommentsOpenChange,
+  askOpen,
+  onAskOpenChange,
   onActiveItemChange,
 }: ReelSwiperProps) => {
   const likedKey = (userActions?.likedFileIds ?? [])
@@ -179,6 +186,8 @@ export const ReelSwiper = ({
       uniqueId: f.unique_id ?? undefined,
       createdAt: f.created_at ?? null,
       isAdult: Boolean(f.is_adult),
+      askable: reelAskable(f),
+      duration: typeof f.duration === "number" && f.duration > 0 ? f.duration : undefined,
     });
   }, [activeIdx, items, onActiveItemChange]);
 
@@ -453,6 +462,8 @@ export const ReelSwiper = ({
                   onActiveAmbience={onActiveAmbience}
                   commentsOpen={commentsOpen}
                   onCommentsOpenChange={onCommentsOpenChange}
+                  askOpen={askOpen}
+                  onAskOpenChange={onAskOpenChange}
                   className="min-h-0 flex-1"
                 />
               </div>

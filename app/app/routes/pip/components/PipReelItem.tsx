@@ -84,6 +84,9 @@ export interface PipReelItemProps {
    */
   commentsOpen?: boolean;
   onCommentsOpenChange?: (open: boolean) => void;
+  /** `/reel` page only: the page's one Ask panel, like the comments above. */
+  askOpen?: boolean;
+  onAskOpenChange?: (open: boolean) => void;
   /** Seek handoff from main player when opening PiP (`?t=`). */
   startTime?: number;
   /** Keep paused if the main player was paused when PiP opened. */
@@ -99,6 +102,15 @@ export interface PipReelItemProps {
 const noopRetry = () => {};
 /** Widest reel that fills an upright phone screen: 9:16 and taller lose only a sliver of their sides. */
 const REEL_FILL_MAX_ASPECT = 0.6;
+
+/**
+ * Whether Ask is offered for a reel: public, not 18+, not held. Feeds that
+ * only carry public rows leave visibility out. GoUpload checks again.
+ */
+export function reelAskable(f: FileType): boolean {
+  const isPublic = f.visibility ? f.visibility === 'public' : f.is_public === true;
+  return isPublic && !f.is_adult && !f.visibility_locked;
+}
 
 function isVideoLikeFile(f: FileType): boolean {
   const t = (f.file_type ?? '').toLowerCase();
@@ -122,6 +134,8 @@ function PipReelItemInner({
   onActiveAmbience,
   commentsOpen,
   onCommentsOpenChange,
+  askOpen = false,
+  onAskOpenChange,
   startTime,
   startPaused = false,
   sharedVideoEl = null,
@@ -928,6 +942,9 @@ function PipReelItemInner({
       getShareTimestamp={getShareTimestamp}
       onUpdate={handleUpdate}
       reelLikeIconRef={likeIconRef}
+      {...(reelSideComments && isActive && onAskOpenChange && userId && reelAskable(file)
+        ? { askOpen, onAskToggle: () => onAskOpenChange(!askOpen) }
+        : {})}
       {...(reelSideComments
         ? {
             commentsOpen: commentsOpen ?? false,

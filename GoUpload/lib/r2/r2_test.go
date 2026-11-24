@@ -1,7 +1,11 @@
 package r2
 
 import (
+	"context"
 	"encoding/hex"
+	"errors"
+	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"strings"
 	"testing"
@@ -84,5 +88,45 @@ func TestPresignGetShape(t *testing.T) {
 	}
 	if !strings.HasPrefix(q.Get("X-Amz-Credential"), "AKIDEXAMPLE/") {
 		t.Fatalf("credential: %s", q.Get("X-Amz-Credential"))
+	}
+}
+
+func TestGetObject(t *testing.T) {
+	objects := map[string]string{
+		"/memories/01_02_2026/abc/captions/en.vtt": "WEBVTT",
+		"/memories/01_02_2026/abc/big.jpg":         strings.Repeat("x", 100),
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || !strings.HasPrefix(r.Header.Get("Authorization"), algorithm) {
+			w.WriteHeader(http.StatusForbidden)
+			return
+		}
+		body, ok := objects[r.URL.Path]
+		if !ok {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		_, _ = w.Write([]byte(body))
+	}))
+	defer srv.Close()
+
+	c, err := New(Config{AccessKeyID: "a", SecretAccessKey: "b", Bucket: "memories", Endpoint: srv.URL})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+
+	got, err := c.GetObject(ctx, "01_02_2026/abc/captions/en.vtt", 1<<10)
+	if err != nil || string(got) != "WEBVTT" {
+		t.Fatalf("got %q err %v", got, err)
+	}
+	if _, err := c.GetObject(ctx, "01_02_2026/abc/missing.vtt", 1<<10); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("missing: err %v", err)
+	}
+	if _, err := c.GetObject(ctx, "01_02_2026/abc/big.jpg", 99); !errors.Is(err, ErrTooLarge) {
+		t.Fatalf("too large: err %v", err)
+	}
+	if _, err := c.GetObject(ctx, "01_02_2026/abc/big.jpg", 100); err != nil {
+		t.Fatalf("exact size: err %v", err)
 	}
 }

@@ -32,6 +32,7 @@ import Actions from "../Home/components/VideoCard/Actions";
 import VideoCard from "../Home/components/VideoCard";
 import { isAuthenticated } from "~/lib/Security/Password";
 import CommentSection from "./components/Comments/CommentSection";
+import AskPanel, { AskLauncher } from "./components/AskPanel";
 import { FormattedText } from "~/components/FormattedText";
 import OriginalSoundCard from "./components/OriginalSoundCard";
 import AcoustidRecordingCard from "./components/AcoustidRecordingCard";
@@ -1110,8 +1111,10 @@ const DynamicPage = ({ is_modal }: DynamicPageProps) => {
   const [dislikeCount, setDislikeCount] = useState(Number(data.dislikeCount) || 0)
   const { isMobile: isSidebarMobile, state } = useSidebar();
   const [mobileCommentsOpen, setMobileCommentsOpen] = useState(false);
+  const [askOpen, setAskOpen] = useState(false);
   useEffect(() => {
     setMobileCommentsOpen(false);
+    setAskOpen(false);
   }, [currentId, file_data?.id]);
   const isStandalone = useStandalone();
   
@@ -1930,6 +1933,15 @@ const DynamicPage = ({ is_modal }: DynamicPageProps) => {
     </>
   );
 
+  // Public, non 18+ videos only. GoUpload enforces the same rule.
+  const canAsk =
+    !!userId &&
+    isHLS &&
+    !showVideoProcessingPlaceholder &&
+    file_data.visibility === "public" &&
+    !file_data.is_adult &&
+    !file_data.visibility_locked;
+
   const contentColumn = (
     <div className="relative w-full space-y-4 max-lg:overflow-visible max-lg:rounded-none max-lg:px-2 max-lg:py-0 lg:overflow-hidden lg:rounded-lg lg:p-4">
       <h1 className="text-xl font-bold text-foreground leading-tight select-text">
@@ -2032,6 +2044,8 @@ const DynamicPage = ({ is_modal }: DynamicPageProps) => {
       >
         {descriptionBody(descriptionExpanded, false)}
       </div>
+
+      {canAsk && <AskLauncher open={askOpen} onToggle={() => setAskOpen((o) => !o)} />}
 
       {isMobileDevice ? (
         <NativeSheet open={descriptionSheetOpen} onOpenChange={setDescriptionSheetOpen}>
@@ -2290,6 +2304,17 @@ const DynamicPage = ({ is_modal }: DynamicPageProps) => {
           }
         </div>
       </div>
+      {/* Mounted here, outside the layouts that swap on resize, so the chat survives them. */}
+      {canAsk && (
+        <AskPanel
+          key={`ask-${file_data.unique_id}`}
+          open={askOpen}
+          onOpenChange={setAskOpen}
+          fileId={String(file_data.id)}
+          uniqueId={file_data.unique_id}
+          duration={typeof file_data.duration === "number" ? file_data.duration : undefined}
+        />
+      )}
     </div>
     </WatchModalShell>
   );

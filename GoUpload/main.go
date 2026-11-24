@@ -16,6 +16,7 @@ import (
 	"github.com/gofiber/fiber/v2/middleware/limiter"
 	"github.com/google/go-github/v62/github"
 	"goupload/internal/acoustidhook"
+	"goupload/internal/askvideo"
 	"goupload/internal/captions"
 	"goupload/internal/commentimg"
 	"goupload/internal/embedproxy"
@@ -369,6 +370,22 @@ func main() {
 	}
 	upload.RegisterRoutes(app, manager, q, appLog, upload.Options{Caps: userCaps, NewUploads: newUploadCaps})
 	embedproxy.RegisterRoutes(app, appLog, embedClient, webhookSecret)
+	askCfg := askvideo.Config{
+		SupabaseURL:   supabaseURL,
+		SupabaseKey:   supabaseKey,
+		R2:            r2Client,
+		WebhookSecret: webhookSecret,
+		Caps:          userCaps,
+		Conversations: askvideo.NewRedisConversations(q.Redis()),
+	}
+	// Assigned only when set: a nil *Groq inside the interface would not read as nil.
+	if g := askvideo.NewGroq(env.Get("GROQ_API_KEYS", ""), env.Get("ASK_MODEL", "")); g != nil {
+		askCfg.Model = g
+	}
+	if env.Get("ASK_LOOKUP", "on") != "off" {
+		askCfg.Search = askvideo.NewWikipedia()
+	}
+	askvideo.RegisterRoutes(app, appLog, askCfg)
 	thumbnail.RegisterRoutes(app, appLog, thumbnail.Config{
 		NSFWApiURL:    nsfwAPI,
 		NSFWApiSecret: webhookSecret,
